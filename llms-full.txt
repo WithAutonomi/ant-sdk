@@ -1,0 +1,650 @@
+# antd SDK — Complete API Reference
+
+> Python and C# SDKs for the Autonomi network via the antd daemon. The daemon manages wallet, payments, and network connectivity. Clients connect over REST (default port 8080) or gRPC (default port 50051).
+
+## Quick Start
+
+```python
+from antd import AntdClient
+
+client = AntdClient()                          # REST, localhost:8080
+client = AntdClient(transport="grpc")          # gRPC, localhost:50051
+client = AntdClient(base_url="http://remote:8080")
+
+# Store and retrieve data
+result = client.data_put_public(b"hello world")
+print(result.address, result.cost)
+data = client.data_get_public(result.address)  # b"hello world"
+```
+
+```csharp
+using Antd.Sdk;
+
+var client = AntdClientFactory.CreateRest();    // REST, localhost:8080
+var client = AntdClientFactory.CreateGrpc();    // gRPC, localhost:50051
+
+var result = await client.DataPutPublicAsync(Encoding.UTF8.GetBytes("hello"));
+var data = await client.DataGetPublicAsync(result.Address);
+```
+
+---
+
+## REST API — All Endpoints
+
+### Health
+
+#### `GET /health`
+Returns daemon health and network name.
+
+Response: `{"status": "ok", "network": "local"}`
+
+### Data
+
+#### `POST /v1/data/public`
+Store public (unencrypted) data on the network.
+
+Request: `{"data": "<base64>"}`
+Response: `{"cost": "<atto_tokens>", "address": "<hex>"}`
+
+#### `GET /v1/data/public/{addr}`
+Retrieve public data by hex address.
+
+Response: `{"data": "<base64>"}`
+
+#### `GET /v1/data/public/{addr}/stream`
+Stream public data as chunked response. Same path params as above.
+
+#### `POST /v1/data/private`
+Store private (encrypted) data. Returns a data map instead of address.
+
+Request: `{"data": "<base64>"}`
+Response: `{"cost": "<atto_tokens>", "data_map": "<hex>"}`
+
+#### `GET /v1/data/private`
+Retrieve private data using data map.
+
+Query params: `data_map=<hex>`
+Response: `{"data": "<base64>"}`
+
+#### `POST /v1/data/cost`
+Estimate cost to store data.
+
+Request: `{"data": "<base64>"}`
+Response: `{"cost": "<atto_tokens>"}`
+
+### Chunks
+
+#### `POST /v1/chunks`
+Store a raw chunk.
+
+Request: `{"data": "<base64>"}`
+Response: `{"cost": "<atto_tokens>", "address": "<hex>"}`
+
+#### `GET /v1/chunks/{addr}`
+Retrieve a raw chunk by hex address.
+
+Response: `{"data": "<base64>"}`
+
+### Pointers
+
+Mutable references that point to other network objects. Owned by a keypair.
+
+#### `POST /v1/pointers`
+Create a new pointer.
+
+Request:
+```json
+{
+  "owner_secret_key": "<hex>",
+  "target": {"kind": "chunk|graph_entry|pointer|scratchpad", "address": "<hex>"}
+}
+```
+Response: `{"cost": "<atto_tokens>", "address": "<hex>"}`
+
+#### `GET /v1/pointers/{addr}`
+Read a pointer's current target.
+
+Response:
+```json
+{
+  "address": "<hex>",
+  "owner": "<hex>",
+  "counter": 1,
+  "target": {"kind": "chunk", "address": "<hex>"}
+}
+```
+
+#### `HEAD /v1/pointers/{addr}`
+Check if a pointer exists. Returns 200 (exists) or 404 (not found).
+
+#### `PUT /v1/pointers/{addr}`
+Update a pointer's target. Requires the owner's secret key.
+
+Request:
+```json
+{
+  "owner_secret_key": "<hex>",
+  "target": {"kind": "chunk", "address": "<hex>"}
+}
+```
+
+#### `POST /v1/pointers/cost`
+Estimate cost to create a pointer.
+
+Request: `{"public_key": "<hex>"}`
+Response: `{"cost": "<atto_tokens>"}`
+
+### Scratchpads
+
+Versioned mutable storage with content type encoding. Owned by a keypair.
+
+#### `POST /v1/scratchpads`
+Create a new scratchpad.
+
+Request:
+```json
+{
+  "owner_secret_key": "<hex>",
+  "content_type": 0,
+  "data": "<base64>"
+}
+```
+Response: `{"cost": "<atto_tokens>", "address": "<hex>"}`
+
+#### `GET /v1/scratchpads/{addr}`
+Read scratchpad contents.
+
+Response:
+```json
+{
+  "address": "<hex>",
+  "data_encoding": 0,
+  "data": "<base64>",
+  "counter": 1
+}
+```
+
+#### `HEAD /v1/scratchpads/{addr}`
+Check if a scratchpad exists. Returns 200 or 404.
+
+#### `PUT /v1/scratchpads/{addr}`
+Update scratchpad contents.
+
+Request:
+```json
+{
+  "owner_secret_key": "<hex>",
+  "content_type": 0,
+  "data": "<base64>"
+}
+```
+
+#### `POST /v1/scratchpads/cost`
+Estimate cost to create a scratchpad.
+
+Request: `{"public_key": "<hex>"}`
+Response: `{"cost": "<atto_tokens>"}`
+
+### Graph
+
+DAG (directed acyclic graph) entries with parent/descendant relationships.
+
+#### `POST /v1/graph`
+Create a graph entry.
+
+Request:
+```json
+{
+  "owner_secret_key": "<hex>",
+  "parents": ["<hex_public_key>", ...],
+  "content": "<hex_32_bytes>",
+  "descendants": [{"public_key": "<hex>", "content": "<hex_32_bytes>"}, ...]
+}
+```
+Response: `{"cost": "<atto_tokens>", "address": "<hex>"}`
+
+#### `GET /v1/graph/{addr}`
+Read a graph entry.
+
+Response:
+```json
+{
+  "owner": "<hex>",
+  "parents": ["<hex>", ...],
+  "content": "<hex_32_bytes>",
+  "descendants": [{"public_key": "<hex>", "content": "<hex_32_bytes>"}, ...]
+}
+```
+
+#### `HEAD /v1/graph/{addr}`
+Check if a graph entry exists. Returns 200 or 404.
+
+#### `POST /v1/graph/cost`
+Estimate cost to create a graph entry.
+
+Request: `{"public_key": "<hex>"}`
+Response: `{"cost": "<atto_tokens>"}`
+
+### Registers
+
+Simple key-value registers storing a 32-byte hex value. Owned by a keypair.
+
+#### `POST /v1/registers`
+Create a register.
+
+Request: `{"owner_secret_key": "<hex>", "initial_value": "<hex_32_bytes>"}`
+Response: `{"cost": "<atto_tokens>", "address": "<hex>"}`
+
+#### `GET /v1/registers/{addr}`
+Read register value.
+
+Response: `{"value": "<hex_32_bytes>"}`
+
+#### `PUT /v1/registers/{addr}`
+Update register value.
+
+Request: `{"owner_secret_key": "<hex>", "new_value": "<hex_32_bytes>"}`
+Response: `{"cost": "<atto_tokens>"}`
+
+#### `POST /v1/registers/cost`
+Estimate cost to create a register.
+
+Request: `{"public_key": "<hex>"}`
+Response: `{"cost": "<atto_tokens>"}`
+
+### Vaults
+
+Private encrypted storage keyed by a secret key.
+
+#### `GET /v1/vaults`
+Retrieve vault data.
+
+Query params: `secret_key=<hex>`
+Response: `{"data": "<base64>", "content_type": 0}`
+
+#### `POST /v1/vaults`
+Store data in a vault.
+
+Request: `{"secret_key": "<hex>", "data": "<base64>", "content_type": 0}`
+Response: `{"cost": "<atto_tokens>"}`
+
+#### `POST /v1/vaults/cost`
+Estimate vault storage cost.
+
+Request: `{"secret_key": "<hex>", "max_size": 1024}`
+Response: `{"cost": "<atto_tokens>"}`
+
+### Files
+
+Upload and download files/directories from the local filesystem.
+
+#### `POST /v1/files/upload/public`
+Upload a local file.
+
+Request: `{"path": "/absolute/path/to/file"}`
+Response: `{"cost": "<atto_tokens>", "address": "<hex>"}`
+
+#### `POST /v1/files/download/public`
+Download a file to a local path.
+
+Request: `{"address": "<hex>", "dest_path": "/absolute/path"}`
+
+#### `POST /v1/dirs/upload/public`
+Upload a local directory (recursively).
+
+Request: `{"path": "/absolute/path/to/dir"}`
+Response: `{"cost": "<atto_tokens>", "address": "<hex>"}`
+
+#### `POST /v1/dirs/download/public`
+Download a directory to a local path.
+
+Request: `{"address": "<hex>", "dest_path": "/absolute/path"}`
+
+#### `GET /v1/archives/public/{addr}`
+List entries in an archive manifest.
+
+Response:
+```json
+{
+  "entries": [
+    {"path": "file.txt", "address": "<hex>", "created": 1700000000, "modified": 1700000000, "size": 42}
+  ]
+}
+```
+
+#### `POST /v1/archives/public`
+Create an archive manifest from entries.
+
+Request: same structure as the GET response above.
+Response: `{"cost": "<atto_tokens>", "address": "<hex>"}`
+
+#### `POST /v1/cost/file`
+Estimate file upload cost.
+
+Request: `{"path": "/path/to/file", "is_public": true, "include_archive": false}`
+Response: `{"cost": "<atto_tokens>"}`
+
+---
+
+## gRPC API — All Services
+
+Default target: `localhost:50051`. Package: `antd.v1`.
+
+### HealthService (health.proto)
+- `Check(HealthCheckRequest) → HealthCheckResponse` — returns status and network name
+
+### DataService (data.proto)
+- `GetPublic(GetPublicDataRequest{address}) → GetPublicDataResponse{data: bytes}`
+- `PutPublic(PutPublicDataRequest{data: bytes}) → PutPublicDataResponse{cost, address}`
+- `StreamPublic(StreamPublicDataRequest{address}) → stream DataChunk{data: bytes}`
+- `GetPrivate(GetPrivateDataRequest{data_map}) → GetPrivateDataResponse{data: bytes}`
+- `PutPrivate(PutPrivateDataRequest{data: bytes}) → PutPrivateDataResponse{cost, data_map}`
+- `GetCost(DataCostRequest{data: bytes}) → Cost{atto_tokens}`
+
+### ChunkService (chunks.proto)
+- `Get(GetChunkRequest{address}) → GetChunkResponse{data: bytes}`
+- `Put(PutChunkRequest{data: bytes}) → PutChunkResponse{cost, address}`
+
+### PointerService (pointers.proto)
+- `Get(GetPointerRequest{address}) → GetPointerResponse{address, owner, counter, target}`
+- `CheckExistence(CheckPointerRequest{address}) → ExistsResponse{exists: bool}`
+- `Create(CreatePointerRequest{owner_secret_key, target}) → CreatePointerResponse{cost, address}`
+- `Update(UpdatePointerRequest{owner_secret_key, target}) → UpdatePointerResponse{}`
+- `GetCost(PointerCostRequest{public_key}) → Cost{atto_tokens}`
+
+### ScratchpadService (scratchpads.proto)
+- `Get(GetScratchpadRequest{address}) → GetScratchpadResponse{address, data_encoding, data, counter}`
+- `CheckExistence(CheckScratchpadRequest{address}) → ScratchpadExistsResponse{exists: bool}`
+- `Create(CreateScratchpadRequest{owner_secret_key, content_type, data}) → CreateScratchpadResponse{cost, address}`
+- `Update(UpdateScratchpadRequest{owner_secret_key, content_type, data}) → UpdateScratchpadResponse{}`
+- `GetCost(ScratchpadCostRequest{public_key}) → Cost{atto_tokens}`
+
+### GraphService (graph.proto)
+- `Get(GetGraphEntryRequest{address}) → GetGraphEntryResponse{owner, parents, content, descendants}`
+- `CheckExistence(CheckGraphEntryRequest{address}) → GraphExistsResponse{exists: bool}`
+- `Put(PutGraphEntryRequest{owner_secret_key, parents, content, descendants}) → PutGraphEntryResponse{cost, address}`
+- `GetCost(GraphEntryCostRequest{public_key}) → Cost{atto_tokens}`
+
+### RegisterService (registers.proto)
+- `Get(GetRegisterRequest{address}) → GetRegisterResponse{value}`
+- `Create(CreateRegisterRequest{owner_secret_key, initial_value}) → CreateRegisterResponse{cost, address}`
+- `Update(UpdateRegisterRequest{owner_secret_key, new_value}) → UpdateRegisterResponse{cost}`
+- `GetCost(RegisterCostRequest{public_key}) → Cost{atto_tokens}`
+
+### VaultService (vaults.proto)
+- `Get(GetVaultRequest{secret_key}) → GetVaultResponse{data, content_type}`
+- `Put(PutVaultRequest{secret_key, data, content_type}) → PutVaultResponse{cost}`
+- `GetCost(VaultCostRequest{secret_key, max_size}) → Cost{atto_tokens}`
+
+### FileService (files.proto)
+- `UploadPublic(UploadFileRequest{path}) → UploadPublicResponse{cost, address}`
+- `DownloadPublic(DownloadPublicRequest{address, dest_path}) → DownloadResponse{}`
+- `DirUploadPublic(UploadFileRequest{path}) → UploadPublicResponse{cost, address}`
+- `DirDownloadPublic(DownloadPublicRequest{address, dest_path}) → DownloadResponse{}`
+- `ArchiveGetPublic(ArchiveGetRequest{address}) → ArchiveGetResponse{entries}`
+- `ArchivePutPublic(ArchivePutRequest{entries}) → ArchivePutResponse{cost, address}`
+- `GetFileCost(FileCostRequest{path, is_public, include_archive}) → Cost{atto_tokens}`
+
+### EventService (events.proto)
+- `Subscribe(SubscribeRequest{}) → stream ClientEventProto{kind, records_paid, records_already_paid, tokens_spent}`
+
+---
+
+## Model Types
+
+### Common (both SDKs)
+
+| Type | Fields | Description |
+|------|--------|-------------|
+| HealthStatus | ok: bool, network: string | Health check result |
+| PutResult | cost: string, address: string | Result from any create/put operation |
+| PointerTarget | kind: string, address: string | Target of a pointer |
+| Pointer | address, owner, counter: int, target: PointerTarget | Pointer record |
+| Scratchpad | address, data_encoding: int, data: bytes, counter: int | Scratchpad record |
+| GraphDescendant | public_key: string, content: string (hex 32B) | Graph descendant |
+| GraphEntry | owner, parents: list[string], content: string, descendants: list[GraphDescendant] | Graph entry |
+| Register | value: string (hex 32B) | Register value |
+| Vault | data: bytes, content_type: int | Vault record |
+| ArchiveEntry | path, address, created: int, modified: int, size: int | Archive file entry |
+| Archive | entries: list[ArchiveEntry] | Archive manifest |
+
+---
+
+## Python SDK Method Signatures
+
+```python
+from antd import AntdClient, AsyncAntdClient
+
+client = AntdClient(transport="rest", base_url="http://localhost:8080")
+client = AntdClient(transport="grpc", target="localhost:50051")
+
+# Health
+client.health() → HealthStatus
+
+# Data
+client.data_put_public(data: bytes) → PutResult
+client.data_get_public(address: str) → bytes
+client.data_put_private(data: bytes) → PutResult  # .address is the data_map
+client.data_get_private(data_map: str) → bytes
+client.data_cost(data: bytes) → str
+
+# Chunks
+client.chunk_put(data: bytes) → PutResult
+client.chunk_get(address: str) → bytes
+
+# Pointers
+client.pointer_create(owner_secret_key: str, target: PointerTarget) → PutResult
+client.pointer_get(address: str) → Pointer
+client.pointer_exists(address: str) → bool
+client.pointer_update(owner_secret_key: str, target: PointerTarget) → None
+client.pointer_cost(public_key: str) → str
+
+# Scratchpads
+client.scratchpad_create(owner_secret_key: str, content_type: int, data: bytes) → PutResult
+client.scratchpad_get(address: str) → Scratchpad
+client.scratchpad_exists(address: str) → bool
+client.scratchpad_update(owner_secret_key: str, content_type: int, data: bytes) → None
+client.scratchpad_cost(public_key: str) → str
+
+# Graph
+client.graph_entry_put(owner_secret_key: str, parents: list[str], content: str, descendants: list[GraphDescendant]) → PutResult
+client.graph_entry_get(address: str) → GraphEntry
+client.graph_entry_exists(address: str) → bool
+client.graph_entry_cost(public_key: str) → str
+
+# Registers
+client.register_create(owner_secret_key: str, initial_value: str) → PutResult
+client.register_get(address: str) → Register
+client.register_update(owner_secret_key: str, new_value: str) → PutResult
+client.register_cost(public_key: str) → str
+
+# Vaults
+client.vault_get(secret_key: str) → Vault
+client.vault_put(secret_key: str, data: bytes, content_type: int) → str
+client.vault_cost(secret_key: str, max_size: int) → str
+
+# Files
+client.file_upload_public(path: str) → PutResult
+client.file_download_public(address: str, dest_path: str) → None
+client.dir_upload_public(path: str) → PutResult
+client.dir_download_public(address: str, dest_path: str) → None
+client.archive_get_public(address: str) → Archive
+client.archive_put_public(archive: Archive) → PutResult
+client.file_cost(path: str, is_public: bool = True, include_archive: bool = False) → str
+```
+
+---
+
+## C# SDK Method Signatures
+
+```csharp
+using Antd.Sdk;
+
+IAntdClient client = AntdClientFactory.CreateRest();   // localhost:8080
+IAntdClient client = AntdClientFactory.CreateGrpc();   // localhost:50051
+
+// Health
+Task<HealthStatus> HealthAsync();
+
+// Data
+Task<PutResult> DataPutPublicAsync(byte[] data);
+Task<byte[]> DataGetPublicAsync(string address);
+Task<PutResult> DataPutPrivateAsync(byte[] data);
+Task<byte[]> DataGetPrivateAsync(string dataMap);
+Task<string> DataCostAsync(byte[] data);
+
+// Chunks
+Task<PutResult> ChunkPutAsync(byte[] data);
+Task<byte[]> ChunkGetAsync(string address);
+
+// Pointers
+Task<PutResult> PointerCreateAsync(string ownerSecretKey, PointerTarget target);
+Task<Pointer> PointerGetAsync(string address);
+Task<bool> PointerExistsAsync(string address);
+Task PointerUpdateAsync(string ownerSecretKey, PointerTarget target);
+Task<string> PointerCostAsync(string publicKey);
+
+// Scratchpads
+Task<PutResult> ScratchpadCreateAsync(string ownerSecretKey, ulong contentType, byte[] data);
+Task<ScratchpadRecord> ScratchpadGetAsync(string address);
+Task<bool> ScratchpadExistsAsync(string address);
+Task ScratchpadUpdateAsync(string ownerSecretKey, ulong contentType, byte[] data);
+Task<string> ScratchpadCostAsync(string publicKey);
+
+// Graph
+Task<PutResult> GraphEntryPutAsync(string ownerSecretKey, List<string> parents, string content, List<GraphDescendant> descendants);
+Task<GraphEntry> GraphEntryGetAsync(string address);
+Task<bool> GraphEntryExistsAsync(string address);
+Task<string> GraphEntryCostAsync(string publicKey);
+
+// Registers
+Task<PutResult> RegisterCreateAsync(string ownerSecretKey, string initialValue);
+Task<Register> RegisterGetAsync(string address);
+Task<PutResult> RegisterUpdateAsync(string ownerSecretKey, string newValue);
+Task<string> RegisterCostAsync(string publicKey);
+
+// Vaults
+Task<Vault> VaultGetAsync(string secretKey);
+Task<string> VaultPutAsync(string secretKey, byte[] data, ulong contentType);
+Task<string> VaultCostAsync(string secretKey, ulong maxSize);
+
+// Files
+Task<PutResult> FileUploadPublicAsync(string path);
+Task FileDownloadPublicAsync(string address, string destPath);
+Task<PutResult> DirUploadPublicAsync(string path);
+Task DirDownloadPublicAsync(string address, string destPath);
+Task<Archive> ArchiveGetPublicAsync(string address);
+Task<PutResult> ArchivePutPublicAsync(Archive archive);
+Task<string> FileCostAsync(string path, bool isPublic = true, bool includeArchive = false);
+```
+
+---
+
+## MCP Tool → SDK Method Mapping
+
+| MCP Tool | Python SDK Method | Description |
+|----------|-------------------|-------------|
+| `store_data` | `data_put_public` / `data_put_private` | Store text on network |
+| `retrieve_data` | `data_get_public` / `data_get_private` | Retrieve text from network |
+| `upload_file` | `file_upload_public` / `dir_upload_public` | Upload file or directory |
+| `download_file` | `file_download_public` / `dir_download_public` | Download file or directory |
+| `create_pointer` | `pointer_create` | Create mutable pointer |
+| `update_pointer` | `pointer_update` | Update pointer target |
+| `get_pointer` | `pointer_get` | Read pointer |
+| `pointer_exists` | `pointer_exists` | Check pointer existence |
+| `pointer_cost` | `pointer_cost` | Estimate pointer cost |
+| `create_scratchpad` | `scratchpad_create` | Create scratchpad |
+| `update_scratchpad` | `scratchpad_update` | Update scratchpad |
+| `get_scratchpad` | `scratchpad_get` | Read scratchpad |
+| `scratchpad_exists` | `scratchpad_exists` | Check scratchpad existence |
+| `scratchpad_cost` | `scratchpad_cost` | Estimate scratchpad cost |
+| `create_graph_entry` | `graph_entry_put` | Create graph entry |
+| `get_graph_entry` | `graph_entry_get` | Read graph entry |
+| `graph_entry_exists` | `graph_entry_exists` | Check graph entry existence |
+| `graph_entry_cost` | `graph_entry_cost` | Estimate graph entry cost |
+| `create_register` | `register_create` | Create register |
+| `get_register` | `register_get` | Read register |
+| `update_register` | `register_update` | Update register |
+| `register_cost` | `register_cost` | Estimate register cost |
+| `vault_put` | `vault_put` | Store in vault |
+| `vault_get` | `vault_get` | Retrieve from vault |
+| `vault_cost` | `vault_cost` | Estimate vault cost |
+| `chunk_put` | `chunk_put` | Store raw chunk |
+| `chunk_get` | `chunk_get` | Retrieve raw chunk |
+| `archive_get` | `archive_get_public` | List archive entries |
+| `archive_put` | `archive_put_public` | Create archive |
+| `get_cost` | `data_cost` / `file_cost` | Estimate storage cost |
+| `check_balance` | `health` | Check daemon health |
+
+---
+
+## Error Codes
+
+| HTTP | gRPC Status | Python Exception | C# Exception | Meaning |
+|------|-------------|------------------|--------------|---------|
+| 400 | INVALID_ARGUMENT | `BadRequestError` | `BadRequestException` | Malformed request |
+| 402 | FAILED_PRECONDITION | `PaymentError` | `PaymentException` | Insufficient wallet funds |
+| 404 | NOT_FOUND | `NotFoundError` | `NotFoundException` | Address not found on network |
+| 409 | ALREADY_EXISTS | `AlreadyExistsError` | `AlreadyExistsException` | Resource already exists |
+| 409 | ABORTED | `ForkError` | `ForkException` | Version conflict / fork |
+| 413 | RESOURCE_EXHAUSTED | `TooLargeError` | `TooLargeException` | Data exceeds size limit |
+| 500 | INTERNAL | `InternalError` | `InternalException` | Internal server error |
+| 502 | UNAVAILABLE | `NetworkError` | `NetworkException` | Cannot reach network |
+
+All exceptions inherit from `AntdError` (Python) / `AntdException` (C#).
+
+---
+
+## Runnable Examples
+
+### Store and Retrieve Public Data (Python)
+
+```python
+from antd import AntdClient
+
+client = AntdClient()
+result = client.data_put_public(b"Hello, Autonomi!")
+print(f"Stored at: {result.address}, cost: {result.cost}")
+
+data = client.data_get_public(result.address)
+print(f"Retrieved: {data.decode()}")
+```
+
+### Mutable Pointer Round-Trip (Python)
+
+```python
+import os
+from antd import AntdClient
+from antd.models import PointerTarget
+
+client = AntdClient()
+
+# Store some data first
+result = client.data_put_public(b"version 1")
+secret_key = os.urandom(32).hex()
+
+# Create pointer to the data chunk
+target = PointerTarget(kind="chunk", address=result.address)
+ptr = client.pointer_create(secret_key, target)
+print(f"Pointer at: {ptr.address}")
+
+# Read it back
+pointer = client.pointer_get(ptr.address)
+print(f"Points to: {pointer.target.kind} @ {pointer.target.address}")
+```
+
+### Private Data Round-Trip (Python)
+
+```python
+from antd import AntdClient
+
+client = AntdClient()
+
+# Store private (encrypted) data
+result = client.data_put_private(b"secret message")
+print(f"Data map: {result.address}")
+
+# Retrieve with data map
+data = client.data_get_private(result.address)
+print(f"Decrypted: {data.decode()}")
+```

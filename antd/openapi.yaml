@@ -1,0 +1,1450 @@
+openapi: 3.1.0
+info:
+  title: antd REST API
+  description: REST API for the antd daemon — gateway to the Autonomi network.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080
+    description: Local antd daemon
+
+tags:
+  - name: health
+    description: Daemon health checks
+  - name: data
+    description: Public and private data storage
+  - name: chunks
+    description: Raw chunk operations
+  - name: pointers
+    description: Mutable pointer CRUD
+  - name: scratchpads
+    description: Versioned scratchpad CRUD
+  - name: graph
+    description: DAG graph entry operations
+  - name: registers
+    description: Register CRUD (32-byte values)
+  - name: vaults
+    description: Private encrypted vault storage
+  - name: files
+    description: File and directory upload/download
+
+paths:
+  /health:
+    get:
+      tags: [health]
+      operationId: health
+      summary: Health check
+      description: Returns daemon status and network name.
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /v1/data/public/{addr}:
+    get:
+      tags: [data]
+      operationId: dataGetPublic
+      summary: Get public data
+      description: Retrieve public (unencrypted) data by its hex address.
+      parameters:
+        - name: addr
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Hex address of the data
+      responses:
+        "200":
+          description: Data retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataGetResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/data/public/{addr}/stream:
+    get:
+      tags: [data]
+      operationId: dataStreamPublic
+      summary: Stream public data
+      description: Stream public data as a chunked response.
+      parameters:
+        - name: addr
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Hex address of the data
+      responses:
+        "200":
+          description: Chunked data stream
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/data/public:
+    post:
+      tags: [data]
+      operationId: dataPutPublic
+      summary: Store public data
+      description: Store public (unencrypted) data on the network.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DataPutRequest"
+      responses:
+        "200":
+          description: Data stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataPutPublicResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "402":
+          $ref: "#/components/responses/PaymentError"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+  /v1/data/private:
+    get:
+      tags: [data]
+      operationId: dataGetPrivate
+      summary: Get private data
+      description: Retrieve private (encrypted) data using a data map.
+      parameters:
+        - name: data_map
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Hex-encoded data map
+      responses:
+        "200":
+          description: Data retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataGetResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [data]
+      operationId: dataPutPrivate
+      summary: Store private data
+      description: Store private (encrypted) data on the network. Returns a data map.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DataPutRequest"
+      responses:
+        "200":
+          description: Data stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataPutPrivateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "402":
+          $ref: "#/components/responses/PaymentError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+  /v1/data/cost:
+    post:
+      tags: [data]
+      operationId: dataCost
+      summary: Estimate data storage cost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DataCostRequest"
+      responses:
+        "200":
+          description: Cost estimate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+  /v1/chunks/{addr}:
+    get:
+      tags: [chunks]
+      operationId: chunkGet
+      summary: Get chunk
+      description: Retrieve a raw chunk by hex address.
+      parameters:
+        - name: addr
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Hex address of the chunk
+      responses:
+        "200":
+          description: Chunk data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChunkGetResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/chunks:
+    post:
+      tags: [chunks]
+      operationId: chunkPut
+      summary: Store chunk
+      description: Store a raw chunk on the network.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChunkPutRequest"
+      responses:
+        "200":
+          description: Chunk stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChunkPutResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "402":
+          $ref: "#/components/responses/PaymentError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+  /v1/pointers/{addr}:
+    get:
+      tags: [pointers]
+      operationId: pointerGet
+      summary: Read pointer
+      description: Read a pointer's current target.
+      parameters:
+        - name: addr
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Hex address of the pointer
+      responses:
+        "200":
+          description: Pointer data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PointerGetResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    head:
+      tags: [pointers]
+      operationId: pointerCheckExistence
+      summary: Check pointer existence
+      parameters:
+        - name: addr
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Pointer exists
+        "404":
+          description: Pointer not found
+    put:
+      tags: [pointers]
+      operationId: pointerUpdate
+      summary: Update pointer
+      description: Update a pointer's target. Requires the owner's secret key.
+      parameters:
+        - name: addr
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Hex address of the pointer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PointerUpdateRequest"
+      responses:
+        "200":
+          description: Pointer updated
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+  /v1/pointers:
+    post:
+      tags: [pointers]
+      operationId: pointerCreate
+      summary: Create pointer
+      description: Create a new mutable pointer on the network.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PointerCreateRequest"
+      responses:
+        "200":
+          description: Pointer created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PointerCreateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "402":
+          $ref: "#/components/responses/PaymentError"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+  /v1/pointers/cost:
+    post:
+      tags: [pointers]
+      operationId: pointerCost
+      summary: Estimate pointer creation cost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PointerCostRequest"
+      responses:
+        "200":
+          description: Cost estimate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+  /v1/scratchpads/{addr}:
+    get:
+      tags: [scratchpads]
+      operationId: scratchpadGet
+      summary: Read scratchpad
+      description: Read a scratchpad's contents.
+      parameters:
+        - name: addr
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Hex address of the scratchpad
+      responses:
+        "200":
+          description: Scratchpad data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScratchpadGetResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    head:
+      tags: [scratchpads]
+      operationId: scratchpadCheckExistence
+      summary: Check scratchpad existence
+      parameters:
+        - name: addr
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Scratchpad exists
+        "404":
+          description: Scratchpad not found
+    put:
+      tags: [scratchpads]
+      operationId: scratchpadUpdate
+      summary: Update scratchpad
+      description: Update a scratchpad's contents. Requires owner secret key.
+      parameters:
+        - name: addr
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Hex address of the scratchpad
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScratchpadUpdateRequest"
+      responses:
+        "200":
+          description: Scratchpad updated
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+  /v1/scratchpads:
+    post:
+      tags: [scratchpads]
+      operationId: scratchpadCreate
+      summary: Create scratchpad
+      description: Create a new versioned scratchpad on the network.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScratchpadCreateRequest"
+      responses:
+        "200":
+          description: Scratchpad created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScratchpadCreateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "402":
+          $ref: "#/components/responses/PaymentError"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+  /v1/scratchpads/cost:
+    post:
+      tags: [scratchpads]
+      operationId: scratchpadCost
+      summary: Estimate scratchpad creation cost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScratchpadCostRequest"
+      responses:
+        "200":
+          description: Cost estimate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+  /v1/graph/{addr}:
+    get:
+      tags: [graph]
+      operationId: graphEntryGet
+      summary: Read graph entry
+      description: Read a graph entry (DAG node) from the network.
+      parameters:
+        - name: addr
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Hex address of the graph entry
+      responses:
+        "200":
+          description: Graph entry data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphEntryGetResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    head:
+      tags: [graph]
+      operationId: graphEntryCheckExistence
+      summary: Check graph entry existence
+      parameters:
+        - name: addr
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Graph entry exists
+        "404":
+          description: Graph entry not found
+
+  /v1/graph:
+    post:
+      tags: [graph]
+      operationId: graphEntryPut
+      summary: Create graph entry
+      description: Create a new graph entry (DAG node) on the network.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GraphEntryPutRequest"
+      responses:
+        "200":
+          description: Graph entry created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphEntryPutResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "402":
+          $ref: "#/components/responses/PaymentError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+  /v1/graph/cost:
+    post:
+      tags: [graph]
+      operationId: graphEntryCost
+      summary: Estimate graph entry cost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GraphEntryCostRequest"
+      responses:
+        "200":
+          description: Cost estimate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+  /v1/registers/{addr}:
+    get:
+      tags: [registers]
+      operationId: registerGet
+      summary: Read register
+      description: Read a register's 32-byte hex value.
+      parameters:
+        - name: addr
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Hex address of the register
+      responses:
+        "200":
+          description: Register value
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterGetResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [registers]
+      operationId: registerUpdate
+      summary: Update register
+      description: Update a register's value. Requires owner secret key.
+      parameters:
+        - name: addr
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Hex address of the register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterUpdateRequest"
+      responses:
+        "200":
+          description: Register updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterUpdateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "402":
+          $ref: "#/components/responses/PaymentError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+  /v1/registers:
+    post:
+      tags: [registers]
+      operationId: registerCreate
+      summary: Create register
+      description: Create a new register with an initial 32-byte value.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterCreateRequest"
+      responses:
+        "200":
+          description: Register created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterCreateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "402":
+          $ref: "#/components/responses/PaymentError"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+  /v1/registers/cost:
+    post:
+      tags: [registers]
+      operationId: registerCost
+      summary: Estimate register creation cost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterCostRequest"
+      responses:
+        "200":
+          description: Cost estimate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+  /v1/vaults:
+    get:
+      tags: [vaults]
+      operationId: vaultGet
+      summary: Retrieve vault data
+      description: Retrieve encrypted vault data using a secret key.
+      parameters:
+        - name: secret_key
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Hex-encoded secret key
+      responses:
+        "200":
+          description: Vault data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultGetResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [vaults]
+      operationId: vaultPut
+      summary: Store vault data
+      description: Store encrypted data in a vault.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VaultPutRequest"
+      responses:
+        "200":
+          description: Vault stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultPutResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "402":
+          $ref: "#/components/responses/PaymentError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+  /v1/vaults/cost:
+    post:
+      tags: [vaults]
+      operationId: vaultCost
+      summary: Estimate vault storage cost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VaultCostRequest"
+      responses:
+        "200":
+          description: Cost estimate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+  /v1/files/upload/public:
+    post:
+      tags: [files]
+      operationId: fileUploadPublic
+      summary: Upload file
+      description: Upload a local file to the network (public).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FileUploadRequest"
+      responses:
+        "200":
+          description: File uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileUploadPublicResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "402":
+          $ref: "#/components/responses/PaymentError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+  /v1/files/download/public:
+    post:
+      tags: [files]
+      operationId: fileDownloadPublic
+      summary: Download file
+      description: Download a file from the network to a local path.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FileDownloadRequest"
+      responses:
+        "200":
+          description: File downloaded
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+  /v1/dirs/upload/public:
+    post:
+      tags: [files]
+      operationId: dirUploadPublic
+      summary: Upload directory
+      description: Upload a local directory to the network (public, recursive).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FileUploadRequest"
+      responses:
+        "200":
+          description: Directory uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DirUploadPublicResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "402":
+          $ref: "#/components/responses/PaymentError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+  /v1/dirs/download/public:
+    post:
+      tags: [files]
+      operationId: dirDownloadPublic
+      summary: Download directory
+      description: Download a directory from the network to a local path.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FileDownloadRequest"
+      responses:
+        "200":
+          description: Directory downloaded
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+  /v1/archives/public/{addr}:
+    get:
+      tags: [files]
+      operationId: archiveGetPublic
+      summary: Get archive entries
+      description: List entries in a public archive manifest.
+      parameters:
+        - name: addr
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Hex address of the archive
+      responses:
+        "200":
+          description: Archive entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArchiveDto"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/archives/public:
+    post:
+      tags: [files]
+      operationId: archivePutPublic
+      summary: Create archive
+      description: Create a public archive manifest from file entries.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ArchiveDto"
+      responses:
+        "200":
+          description: Archive created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArchivePutResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "402":
+          $ref: "#/components/responses/PaymentError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+  /v1/cost/file:
+    post:
+      tags: [files]
+      operationId: fileCost
+      summary: Estimate file upload cost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FileCostRequest"
+      responses:
+        "200":
+          description: Cost estimate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+components:
+  schemas:
+    # -- Health --
+    HealthResponse:
+      type: object
+      required: [status, network]
+      properties:
+        status:
+          type: string
+          example: "ok"
+        network:
+          type: string
+          example: "local"
+          description: "Network name: default, local, or alpha"
+
+    # -- Data --
+    DataPutRequest:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: string
+          description: Base64-encoded data
+
+    DataPutPublicResponse:
+      type: object
+      required: [cost, address]
+      properties:
+        cost:
+          type: string
+          description: Cost in atto tokens
+        address:
+          type: string
+          description: Hex address of stored data
+
+    DataPutPrivateResponse:
+      type: object
+      required: [cost, data_map]
+      properties:
+        cost:
+          type: string
+          description: Cost in atto tokens
+        data_map:
+          type: string
+          description: Hex-encoded data map for retrieval
+
+    DataGetResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: string
+          description: Base64-encoded data
+
+    DataCostRequest:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: string
+          description: Base64-encoded data to estimate cost for
+
+    # -- Chunks --
+    ChunkPutRequest:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: string
+          description: Base64-encoded chunk data
+
+    ChunkPutResponse:
+      type: object
+      required: [cost, address]
+      properties:
+        cost:
+          type: string
+          description: Cost in atto tokens
+        address:
+          type: string
+          description: Hex address of the chunk
+
+    ChunkGetResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: string
+          description: Base64-encoded chunk data
+
+    # -- Pointers --
+    PointerTarget:
+      type: object
+      required: [kind, address]
+      properties:
+        kind:
+          type: string
+          enum: [chunk, graph_entry, pointer, scratchpad]
+          description: Type of target
+        address:
+          type: string
+          description: Hex address of the target
+
+    PointerCreateRequest:
+      type: object
+      required: [owner_secret_key, target]
+      properties:
+        owner_secret_key:
+          type: string
+          description: Hex-encoded owner secret key
+        target:
+          $ref: "#/components/schemas/PointerTarget"
+
+    PointerCreateResponse:
+      type: object
+      required: [cost, address]
+      properties:
+        cost:
+          type: string
+        address:
+          type: string
+
+    PointerGetResponse:
+      type: object
+      required: [address, owner, counter, target]
+      properties:
+        address:
+          type: string
+        owner:
+          type: string
+          description: Hex-encoded owner public key
+        counter:
+          type: integer
+          format: uint64
+        target:
+          $ref: "#/components/schemas/PointerTarget"
+
+    PointerUpdateRequest:
+      type: object
+      required: [owner_secret_key, target]
+      properties:
+        owner_secret_key:
+          type: string
+        target:
+          $ref: "#/components/schemas/PointerTarget"
+
+    PointerCostRequest:
+      type: object
+      required: [public_key]
+      properties:
+        public_key:
+          type: string
+          description: Hex-encoded public key
+
+    # -- Scratchpads --
+    ScratchpadCreateRequest:
+      type: object
+      required: [owner_secret_key, content_type, data]
+      properties:
+        owner_secret_key:
+          type: string
+          description: Hex-encoded owner secret key
+        content_type:
+          type: integer
+          format: uint64
+          description: Integer content type encoding
+        data:
+          type: string
+          description: Base64-encoded data
+
+    ScratchpadCreateResponse:
+      type: object
+      required: [cost, address]
+      properties:
+        cost:
+          type: string
+        address:
+          type: string
+
+    ScratchpadGetResponse:
+      type: object
+      required: [address, data_encoding, data, counter]
+      properties:
+        address:
+          type: string
+        data_encoding:
+          type: integer
+          format: uint64
+        data:
+          type: string
+          description: Base64-encoded (encrypted) data
+        counter:
+          type: integer
+          format: uint64
+
+    ScratchpadUpdateRequest:
+      type: object
+      required: [owner_secret_key, content_type, data]
+      properties:
+        owner_secret_key:
+          type: string
+        content_type:
+          type: integer
+          format: uint64
+        data:
+          type: string
+          description: Base64-encoded data
+
+    ScratchpadCostRequest:
+      type: object
+      required: [public_key]
+      properties:
+        public_key:
+          type: string
+
+    # -- Graph --
+    GraphDescendant:
+      type: object
+      required: [public_key, content]
+      properties:
+        public_key:
+          type: string
+          description: Hex-encoded public key
+        content:
+          type: string
+          description: Hex-encoded content (32 bytes)
+
+    GraphEntryPutRequest:
+      type: object
+      required: [owner_secret_key, parents, content, descendants]
+      properties:
+        owner_secret_key:
+          type: string
+          description: Hex-encoded owner secret key
+        parents:
+          type: array
+          items:
+            type: string
+          description: List of hex-encoded parent public keys
+        content:
+          type: string
+          description: Hex-encoded content (32 bytes)
+        descendants:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphDescendant"
+
+    GraphEntryPutResponse:
+      type: object
+      required: [cost, address]
+      properties:
+        cost:
+          type: string
+        address:
+          type: string
+
+    GraphEntryGetResponse:
+      type: object
+      required: [owner, parents, content, descendants]
+      properties:
+        owner:
+          type: string
+        parents:
+          type: array
+          items:
+            type: string
+        content:
+          type: string
+        descendants:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphDescendant"
+
+    GraphEntryCostRequest:
+      type: object
+      required: [public_key]
+      properties:
+        public_key:
+          type: string
+
+    # -- Registers --
+    RegisterCreateRequest:
+      type: object
+      required: [owner_secret_key, initial_value]
+      properties:
+        owner_secret_key:
+          type: string
+          description: Hex-encoded owner secret key
+        initial_value:
+          type: string
+          description: Hex-encoded initial value (32 bytes)
+
+    RegisterCreateResponse:
+      type: object
+      required: [cost, address]
+      properties:
+        cost:
+          type: string
+        address:
+          type: string
+
+    RegisterGetResponse:
+      type: object
+      required: [value]
+      properties:
+        value:
+          type: string
+          description: Hex-encoded value (32 bytes)
+
+    RegisterUpdateRequest:
+      type: object
+      required: [owner_secret_key, new_value]
+      properties:
+        owner_secret_key:
+          type: string
+        new_value:
+          type: string
+          description: Hex-encoded new value (32 bytes)
+
+    RegisterUpdateResponse:
+      type: object
+      required: [cost]
+      properties:
+        cost:
+          type: string
+
+    RegisterCostRequest:
+      type: object
+      required: [public_key]
+      properties:
+        public_key:
+          type: string
+
+    # -- Vaults --
+    VaultGetResponse:
+      type: object
+      required: [data, content_type]
+      properties:
+        data:
+          type: string
+          description: Base64-encoded data
+        content_type:
+          type: integer
+          format: uint64
+
+    VaultPutRequest:
+      type: object
+      required: [secret_key, data, content_type]
+      properties:
+        secret_key:
+          type: string
+          description: Hex-encoded secret key
+        data:
+          type: string
+          description: Base64-encoded data
+        content_type:
+          type: integer
+          format: uint64
+
+    VaultPutResponse:
+      type: object
+      required: [cost]
+      properties:
+        cost:
+          type: string
+
+    VaultCostRequest:
+      type: object
+      required: [secret_key, max_size]
+      properties:
+        secret_key:
+          type: string
+        max_size:
+          type: integer
+          format: uint64
+
+    # -- Files --
+    FileUploadRequest:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+          description: Absolute path to local file or directory
+
+    FileUploadPublicResponse:
+      type: object
+      required: [cost, address]
+      properties:
+        cost:
+          type: string
+        address:
+          type: string
+
+    DirUploadPublicResponse:
+      type: object
+      required: [cost, address]
+      properties:
+        cost:
+          type: string
+        address:
+          type: string
+
+    FileDownloadRequest:
+      type: object
+      required: [address, dest_path]
+      properties:
+        address:
+          type: string
+          description: Hex address of the file/directory
+        dest_path:
+          type: string
+          description: Absolute local path to save to
+
+    ArchiveEntryDto:
+      type: object
+      required: [path, address, created, modified, size]
+      properties:
+        path:
+          type: string
+        address:
+          type: string
+        created:
+          type: integer
+          format: uint64
+        modified:
+          type: integer
+          format: uint64
+        size:
+          type: integer
+          format: uint64
+
+    ArchiveDto:
+      type: object
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArchiveEntryDto"
+
+    ArchivePutResponse:
+      type: object
+      required: [cost, address]
+      properties:
+        cost:
+          type: string
+        address:
+          type: string
+
+    FileCostRequest:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+          description: Absolute path to local file
+        is_public:
+          type: boolean
+          default: true
+        include_archive:
+          type: boolean
+          default: false
+
+    # -- Common --
+    CostResponse:
+      type: object
+      required: [cost]
+      properties:
+        cost:
+          type: string
+          description: Cost in atto tokens
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Error message
+
+  responses:
+    BadRequest:
+      description: Invalid request (400)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    PaymentError:
+      description: Insufficient funds (402)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Resource not found (404)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Conflict:
+      description: Resource already exists or version conflict (409)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    TooLarge:
+      description: Payload too large (413)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InternalError:
+      description: Internal server error (500)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NetworkError:
+      description: Network unreachable (502)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"

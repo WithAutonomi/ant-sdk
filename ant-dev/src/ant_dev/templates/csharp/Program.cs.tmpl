@@ -1,0 +1,18 @@
+using System.Text;
+using Antd.Sdk;
+
+// Connect to antd daemon
+using var client = AntdClient.CreateRest();
+
+// Check daemon health
+var status = await client.HealthAsync();
+Console.WriteLine($$"""Connected to {{status.Network}} network (healthy: {{status.Ok}})""");
+
+// Store and retrieve data
+var payload = Encoding.UTF8.GetBytes("Hello from $project_name!");
+var result = await client.DataPutPublicAsync(payload);
+Console.WriteLine($$"""Stored at: {{result.Address}}""");
+Console.WriteLine($$"""Cost: {{result.Cost}} atto tokens""");
+
+var data = await client.DataGetPublicAsync(result.Address);
+Console.WriteLine($$"""Retrieved: {{Encoding.UTF8.GetString(data)}}""");

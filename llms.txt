@@ -1,0 +1,103 @@
+# antd SDK
+
+> Python and C# SDKs for the Autonomi network via the antd daemon. Provides REST and gRPC transports, an MCP server (31 tools), and a local daemon that manages wallet, payments, and network connectivity.
+
+## Quick Start
+
+```python
+from antd import AntdClient
+client = AntdClient()  # REST on localhost:8080
+result = client.data_put_public(b"hello world")
+data = client.data_get_public(result.address)
+```
+
+## SDKs
+
+- [Python SDK](antd-py/) — `pip install antd` — sync and async clients
+- [C# SDK](antd-csharp/Antd.Sdk/) — `dotnet add package Antd.Sdk` — async client
+- [MCP Server](antd-mcp/) — 31 tools for AI agent integration
+
+## API Reference
+
+- [OpenAPI Spec](antd/openapi.yaml) — OpenAPI 3.1.0 for REST endpoints
+- [Full API Reference](llms-full.txt) — complete endpoint, gRPC, and SDK docs
+- [Proto definitions](antd/proto/antd/v1/) — gRPC service definitions
+
+## REST Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Health check and network status |
+| GET | `/v1/data/public/{addr}` | Retrieve public data by address |
+| GET | `/v1/data/public/{addr}/stream` | Stream public data by address |
+| POST | `/v1/data/public` | Store public data |
+| GET | `/v1/data/private` | Retrieve private (encrypted) data |
+| POST | `/v1/data/private` | Store private (encrypted) data |
+| POST | `/v1/data/cost` | Estimate data storage cost |
+| GET | `/v1/chunks/{addr}` | Get raw chunk by address |
+| POST | `/v1/chunks` | Store raw chunk |
+| GET | `/v1/pointers/{addr}` | Read pointer target |
+| HEAD | `/v1/pointers/{addr}` | Check pointer existence |
+| POST | `/v1/pointers` | Create mutable pointer |
+| PUT | `/v1/pointers/{addr}` | Update pointer target |
+| POST | `/v1/pointers/cost` | Estimate pointer creation cost |
+| GET | `/v1/scratchpads/{addr}` | Read scratchpad contents |
+| HEAD | `/v1/scratchpads/{addr}` | Check scratchpad existence |
+| POST | `/v1/scratchpads` | Create versioned scratchpad |
+| PUT | `/v1/scratchpads/{addr}` | Update scratchpad contents |
+| POST | `/v1/scratchpads/cost` | Estimate scratchpad creation cost |
+| GET | `/v1/graph/{addr}` | Read graph entry (DAG node) |
+| HEAD | `/v1/graph/{addr}` | Check graph entry existence |
+| POST | `/v1/graph` | Create graph entry |
+| POST | `/v1/graph/cost` | Estimate graph entry cost |
+| GET | `/v1/registers/{addr}` | Read register value |
+| POST | `/v1/registers` | Create register |
+| PUT | `/v1/registers/{addr}` | Update register value |
+| POST | `/v1/registers/cost` | Estimate register creation cost |
+| GET | `/v1/vaults` | Retrieve vault data |
+| POST | `/v1/vaults` | Store vault data |
+| POST | `/v1/vaults/cost` | Estimate vault storage cost |
+| POST | `/v1/files/upload/public` | Upload file to network |
+| POST | `/v1/files/download/public` | Download file from network |
+| POST | `/v1/dirs/upload/public` | Upload directory to network |
+| POST | `/v1/dirs/download/public` | Download directory from network |
+| GET | `/v1/archives/public/{addr}` | List archive entries |
+| POST | `/v1/archives/public` | Create archive manifest |
+| POST | `/v1/cost/file` | Estimate file upload cost |
+
+## gRPC Services
+
+| Service | RPCs | Proto file |
+|---------|------|------------|
+| HealthService | Check | health.proto |
+| DataService | GetPublic, PutPublic, StreamPublic, GetPrivate, PutPrivate, GetCost | data.proto |
+| ChunkService | Get, Put | chunks.proto |
+| PointerService | Get, CheckExistence, Create, Update, GetCost | pointers.proto |
+| ScratchpadService | Get, CheckExistence, Create, Update, GetCost | scratchpads.proto |
+| GraphService | Get, CheckExistence, Put, GetCost | graph.proto |
+| RegisterService | Get, Create, Update, GetCost | registers.proto |
+| VaultService | Get, Put, GetCost | vaults.proto |
+| FileService | UploadPublic, DownloadPublic, DirUploadPublic, DirDownloadPublic, ArchiveGetPublic, ArchivePutPublic, GetFileCost | files.proto |
+| EventService | Subscribe | events.proto |
+
+## Error Codes
+
+| HTTP | gRPC | Exception | Meaning |
+|------|------|-----------|---------|
+| 400 | INVALID_ARGUMENT | BadRequestError | Invalid request |
+| 402 | FAILED_PRECONDITION | PaymentError | Insufficient funds |
+| 404 | NOT_FOUND | NotFoundError | Resource not found |
+| 409 | ALREADY_EXISTS / ABORTED | AlreadyExistsError / ForkError | Conflict |
+| 413 | RESOURCE_EXHAUSTED | TooLargeError | Payload too large |
+| 500 | INTERNAL | InternalError | Server error |
+| 502 | UNAVAILABLE | NetworkError | Network unreachable |
+
+## Examples
+
+- [Python examples](antd-py/examples/) — 10 runnable scripts (01_connect.py through 10_private_data.py)
+- [C# examples](antd-csharp/Examples/) — 10 examples in a single console app
+
+## Default Ports
+
+- REST: `http://localhost:8080`
+- gRPC: `localhost:50051`

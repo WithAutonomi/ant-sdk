@@ -1,0 +1,37 @@
+# Rust
+target/
+**/*.rs.bk
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+
+# C# / .NET
+bin/
+obj/
+*.user
+*.suo
+*.csproj.user
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ant-dev state
+.ant-dev/
+
+# Logs
+*.log

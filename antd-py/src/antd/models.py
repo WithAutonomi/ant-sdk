@@ -1,0 +1,88 @@
+"""Dataclass models for antd SDK request/response types."""
+
+from __future__ import annotations
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class HealthStatus:
+    """Health check result from the antd daemon."""
+    ok: bool
+    network: str    # "default", "local", "alpha"
+
+
+@dataclass(frozen=True)
+class PutResult:
+    """Result of a put/create operation."""
+    cost: str       # atto tokens as string
+    address: str    # hex
+
+
+@dataclass(frozen=True)
+class PointerTarget:
+    """Target reference for a pointer."""
+    kind: str       # "chunk", "graph_entry", "pointer", "scratchpad"
+    address: str    # hex
+
+
+@dataclass(frozen=True)
+class Pointer:
+    """A pointer record from the network."""
+    address: str
+    owner: str
+    counter: int
+    target: PointerTarget
+
+
+@dataclass(frozen=True)
+class Scratchpad:
+    """A scratchpad record from the network."""
+    address: str
+    data_encoding: int
+    data: bytes     # raw encrypted bytes
+    counter: int
+
+
+@dataclass(frozen=True)
+class GraphDescendant:
+    """A descendant entry in a graph node."""
+    public_key: str     # hex
+    content: str        # hex, 32 bytes
+
+
+@dataclass(frozen=True)
+class GraphEntry:
+    """A graph entry from the network."""
+    owner: str
+    parents: list[str] = field(default_factory=list)
+    content: str = ""
+    descendants: list[GraphDescendant] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Register:
+    """A register value from the network."""
+    value: str      # hex, 32 bytes
+
+
+@dataclass(frozen=True)
+class Vault:
+    """A vault record from the network."""
+    data: bytes
+    content_type: int
+
+
+@dataclass(frozen=True)
+class ArchiveEntry:
+    """An entry in a file archive."""
+    path: str
+    address: str
+    created: int
+    modified: int
+    size: int
+
+
+@dataclass(frozen=True)
+class Archive:
+    """A collection of archive entries."""
+    entries: list[ArchiveEntry] = field(default_factory=list)

@@ -1,0 +1,17 @@
+"""$project_name — built on the Autonomi network via ant-sdk."""
+
+from antd import AntdClient
+
+client = AntdClient()
+
+# Check daemon health
+status = client.health()
+print(f"Connected to {status.network} network (healthy: {status.ok})")
+
+# Store and retrieve data
+result = client.data_put_public(b"Hello from $project_name!")
+print(f"Stored at: {result.address}")
+print(f"Cost: {result.cost} atto tokens")
+
+data = client.data_get_public(result.address)
+print(f"Retrieved: {data.decode()}")

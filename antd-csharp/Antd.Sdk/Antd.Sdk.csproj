@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Antd.Sdk</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" Version="3.34.0" />
+    <PackageReference Include="Grpc.Net.Client" Version="2.76.0" />
+    <PackageReference Include="Grpc.Tools" Version="2.78.0">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="..\..\antd\proto\antd\v1\health.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
+    <Protobuf Include="..\..\antd\proto\antd\v1\common.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
+    <Protobuf Include="..\..\antd\proto\antd\v1\data.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
+    <Protobuf Include="..\..\antd\proto\antd\v1\chunks.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
+    <Protobuf Include="..\..\antd\proto\antd\v1\pointers.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
+    <Protobuf Include="..\..\antd\proto\antd\v1\scratchpads.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
+    <Protobuf Include="..\..\antd\proto\antd\v1\graph.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
+    <Protobuf Include="..\..\antd\proto\antd\v1\registers.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
+    <Protobuf Include="..\..\antd\proto\antd\v1\vaults.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
+    <Protobuf Include="..\..\antd\proto\antd\v1\files.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
+    <Protobuf Include="..\..\antd\proto\antd\v1\events.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
+  </ItemGroup>
+
+</Project>

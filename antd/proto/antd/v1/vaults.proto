@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package antd.v1;
+
+option csharp_namespace = "Antd.V1";
+
+import "antd/v1/common.proto";
+
+service VaultService {
+  rpc Get(GetVaultRequest) returns (GetVaultResponse);
+  rpc Put(PutVaultRequest) returns (PutVaultResponse);
+  rpc GetCost(VaultCostRequest) returns (Cost);
+}
+
+message GetVaultRequest {
+  string secret_key = 1; // hex
+}
+
+message GetVaultResponse {
+  bytes data = 1;
+  uint64 content_type = 2;
+}
+
+message PutVaultRequest {
+  string secret_key = 1; // hex
+  bytes data = 2;
+  uint64 content_type = 3;
+}
+
+message PutVaultResponse {
+  Cost cost = 1;
+}
+
+message VaultCostRequest {
+  string secret_key = 1; // hex
+  uint64 max_size = 2;
+}

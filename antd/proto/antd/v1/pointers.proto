@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package antd.v1;
+
+option csharp_namespace = "Antd.V1";
+
+import "antd/v1/common.proto";
+
+service PointerService {
+  rpc Get(GetPointerRequest) returns (GetPointerResponse);
+  rpc CheckExistence(CheckPointerRequest) returns (ExistsResponse);
+  rpc Create(CreatePointerRequest) returns (CreatePointerResponse);
+  rpc Update(UpdatePointerRequest) returns (UpdatePointerResponse);
+  rpc GetCost(PointerCostRequest) returns (Cost);
+}
+
+message GetPointerRequest {
+  string address = 1; // hex
+}
+
+message GetPointerResponse {
+  string address = 1;
+  string owner = 2;
+  uint64 counter = 3;
+  PointerTarget target = 4;
+}
+
+message CheckPointerRequest {
+  string address = 1; // hex
+}
+
+message ExistsResponse {
+  bool exists = 1;
+}
+
+message CreatePointerRequest {
+  string owner_secret_key = 1; // hex
+  PointerTarget target = 2;
+}
+
+message CreatePointerResponse {
+  Cost cost = 1;
+  string address = 2; // hex
+}
+
+message UpdatePointerRequest {
+  string owner_secret_key = 1; // hex
+  PointerTarget target = 2;
+}
+
+message UpdatePointerResponse {}
+
+message PointerCostRequest {
+  string public_key = 1; // hex
+}

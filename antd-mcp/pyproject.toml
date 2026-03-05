@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "antd-mcp"
+version = "0.1.0"
+description = "MCP server exposing Autonomi network operations as tools for AI agents"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.2.0",
+    "antd>=0.1.0",
+]
+
+[project.scripts]
+antd-mcp = "antd_mcp.server:main"
