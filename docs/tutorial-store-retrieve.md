@@ -1,11 +1,11 @@
 # Tutorial: Store and Retrieve Data
 
-This tutorial covers the fundamentals: storing text, uploading files, downloading files, and estimating costs. Each example is shown in both Python and C#.
+This tutorial covers the fundamentals: storing text, uploading files, downloading files, and estimating costs. Each example is shown in Python, C#, Kotlin, and Swift.
 
 ## Prerequisites
 
 - antd daemon running on a local testnet (`ant dev start`)
-- Python SDK installed (`pip install antd[rest]`) or C# SDK built (`dotnet build`)
+- Python SDK installed (`pip install antd[rest]`), C# SDK built (`dotnet build`), Kotlin SDK built (`./gradlew build`), or Swift SDK built (`swift build`)
 
 ## 1. Store and Retrieve Text
 
@@ -50,6 +50,48 @@ var data = await client.DataGetPublicAsync(result.Address);
 Console.WriteLine($"Retrieved: {Encoding.UTF8.GetString(data)}");
 ```
 
+### Kotlin
+
+```kotlin
+import com.autonomi.sdk.*
+import kotlinx.coroutines.runBlocking
+
+fun main() = runBlocking {
+    val client = AntdClient.createRest()
+
+    val text = "Hello, Autonomi network!".toByteArray()
+    val result = client.dataPutPublic(text)
+
+    println("Stored at: ${result.address}")
+    println("Cost: ${result.cost} atto tokens")
+
+    val data = client.dataGetPublic(result.address)
+    println("Retrieved: ${String(data)}")
+
+    check(data.contentEquals(text))
+    client.close()
+}
+```
+
+### Swift
+
+```swift
+import AntdSdk
+
+let client = try AntdClient.createRest()
+
+let text = "Hello, Autonomi network!".data(using: .utf8)!
+let result = try await client.dataPutPublic(text)
+
+print("Stored at: \(result.address)")
+print("Cost: \(result.cost) atto tokens")
+
+let data = try await client.dataGetPublic(address: result.address)
+print("Retrieved: \(String(data: data, encoding: .utf8)!)")
+
+assert(data == text)
+```
+
 **Key concepts:**
 - `data_put_public` stores data so anyone with the address can read it.
 - The `address` is a content hash — the same data always produces the same address.
@@ -92,6 +134,34 @@ Console.WriteLine($"Estimated cost: {cost} atto tokens");
 
 var result = await client.DataPutPublicAsync(payload);
 Console.WriteLine($"Actual cost: {result.Cost} atto tokens");
+```
+
+### Kotlin
+
+```kotlin
+val client = AntdClient.createRest()
+
+val payload = "Cost estimation example data".toByteArray()
+
+val cost = client.dataCost(payload)
+println("Estimated cost: $cost atto tokens")
+
+val result = client.dataPutPublic(payload)
+println("Actual cost: ${result.cost} atto tokens")
+```
+
+### Swift
+
+```swift
+let client = try AntdClient.createRest()
+
+let payload = "Cost estimation example data".data(using: .utf8)!
+
+let cost = try await client.dataCost(payload)
+print("Estimated cost: \(cost) atto tokens")
+
+let result = try await client.dataPutPublic(payload)
+print("Actual cost: \(result.cost) atto tokens")
 ```
 
 ## 3. Upload and Download Files
@@ -164,6 +234,64 @@ finally
 }
 ```
 
+### Kotlin
+
+```kotlin
+val client = AntdClient.createRest()
+
+val srcFile = java.io.File.createTempFile("test-upload", ".txt")
+srcFile.writeText("File content stored on Autonomi!")
+
+try {
+    val cost = client.fileCost(srcFile.absolutePath)
+    println("Upload cost: $cost atto tokens")
+
+    val result = client.fileUploadPublic(srcFile.absolutePath)
+    println("Uploaded to: ${result.address}")
+
+    val destPath = srcFile.absolutePath + ".downloaded"
+    client.fileDownloadPublic(result.address, destPath)
+
+    val content = java.io.File(destPath).readText()
+    println("Downloaded: $content")
+    java.io.File(destPath).delete()
+} finally {
+    srcFile.delete()
+}
+```
+
+### Swift
+
+```swift
+import AntdSdk
+import Foundation
+
+let client = try AntdClient.createRest()
+
+let srcPath = NSTemporaryDirectory() + "test-upload.txt"
+try "File content stored on Autonomi!".write(
+    toFile: srcPath, atomically: true, encoding: .utf8
+)
+
+do {
+    let cost = try await client.fileCost(path: srcPath, isPublic: true, includeArchive: false)
+    print("Upload cost: \(cost) atto tokens")
+
+    let result = try await client.fileUploadPublic(path: srcPath)
+    print("Uploaded to: \(result.address)")
+
+    let destPath = srcPath + ".downloaded"
+    try await client.fileDownloadPublic(address: result.address, destPath: destPath)
+
+    let content = try String(contentsOfFile: destPath, encoding: .utf8)
+    print("Downloaded: \(content)")
+    try FileManager.default.removeItem(atPath: destPath)
+} catch {
+    throw error
+}
+try FileManager.default.removeItem(atPath: srcPath)
+```
+
 ## 4. Private (Encrypted) Data
 
 Store data that only you can read. The network never sees the plaintext.
@@ -207,6 +335,40 @@ var decrypted = await client.DataGetPrivateAsync(dataMap);
 Console.WriteLine($"Decrypted: {Encoding.UTF8.GetString(decrypted)}");
 ```
 
+### Kotlin
+
+```kotlin
+val client = AntdClient.createRest()
+
+val secretMessage = "This is encrypted on the network".toByteArray()
+
+val result = client.dataPutPrivate(secretMessage)
+val dataMap = result.address
+println("Data map: ${dataMap.take(40)}...")
+
+val decrypted = client.dataGetPrivate(dataMap)
+println("Decrypted: ${String(decrypted)}")
+
+check(decrypted.contentEquals(secretMessage))
+```
+
+### Swift
+
+```swift
+let client = try AntdClient.createRest()
+
+let secretMessage = "This is encrypted on the network".data(using: .utf8)!
+
+let result = try await client.dataPutPrivate(secretMessage)
+let dataMap = result.address
+print("Data map: \(String(dataMap.prefix(40)))...")
+
+let decrypted = try await client.dataGetPrivate(dataMap: dataMap)
+print("Decrypted: \(String(data: decrypted, encoding: .utf8)!)")
+
+assert(decrypted == secretMessage)
+```
+
 **Key concepts:**
 - Private data is self-encrypted before leaving your machine.
 - The "data map" returned is the decryption metadata — treat it as a secret.
@@ -246,6 +408,34 @@ Console.WriteLine($"Chunk address: {result.Address}");
 
 var retrieved = await client.ChunkGetAsync(result.Address);
 Console.WriteLine($"Retrieved {retrieved.Length} bytes");
+```
+
+### Kotlin
+
+```kotlin
+val client = AntdClient.createRest()
+
+val raw = "Raw chunk content for direct storage".toByteArray()
+val result = client.chunkPut(raw)
+println("Chunk address: ${result.address}")
+
+val retrieved = client.chunkGet(result.address)
+check(retrieved.contentEquals(raw))
+println("Chunk round-trip OK!")
+```
+
+### Swift
+
+```swift
+let client = try AntdClient.createRest()
+
+let raw = "Raw chunk content for direct storage".data(using: .utf8)!
+let result = try await client.chunkPut(raw)
+print("Chunk address: \(result.address)")
+
+let retrieved = try await client.chunkGet(address: result.address)
+assert(retrieved == raw)
+print("Chunk round-trip OK!")
 ```
 
 ## Error Handling
@@ -291,6 +481,42 @@ catch (PaymentException)
 catch (AntdException ex)
 {
     Console.WriteLine($"Error ({ex.StatusCode}): {ex.Message}");
+}
+```
+
+### Kotlin
+
+```kotlin
+import com.autonomi.sdk.*
+
+val client = AntdClient.createRest()
+
+try {
+    val data = client.dataGetPublic("0000000000000000")
+} catch (e: NotFoundException) {
+    println("Address not found")
+} catch (e: PaymentException) {
+    println("Payment failed")
+} catch (e: AntdException) {
+    println("Error (${e.statusCode}): ${e.message}")
+}
+```
+
+### Swift
+
+```swift
+import AntdSdk
+
+let client = try AntdClient.createRest()
+
+do {
+    let data = try await client.dataGetPublic(address: "0000000000000000")
+} catch let error as NotFoundError {
+    print("Address not found")
+} catch let error as PaymentError {
+    print("Payment failed")
+} catch let error as AntdError {
+    print("Error (\(error.statusCode)): \(error.localizedDescription)")
 }
 ```
 

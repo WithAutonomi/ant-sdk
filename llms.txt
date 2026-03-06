@@ -1,6 +1,6 @@
 # antd SDK
 
-> JavaScript/TypeScript, Python, and C# SDKs for the Autonomi network via the antd daemon. Provides REST and gRPC transports, an MCP server (31 tools), and a local daemon that manages wallet, payments, and network connectivity.
+> JavaScript/TypeScript, Python, C#, Kotlin, and Swift SDKs for the Autonomi network via the antd daemon. Provides REST and gRPC transports, an MCP server (31 tools), and a local daemon that manages wallet, payments, and network connectivity.
 
 ## Quick Start
 
@@ -16,6 +16,8 @@ data = client.data_get_public(result.address)
 - [JS/TS SDK](antd-js/) — `npm install antd` — async client (Node.js 18+)
 - [Python SDK](antd-py/) — `pip install antd` — sync and async clients
 - [C# SDK](antd-csharp/Antd.Sdk/) — `dotnet add package Antd.Sdk` — async client
+- [Kotlin SDK](antd-kotlin/) — coroutine-based async client (JDK 17+)
+- [Swift SDK](antd-swift/) — async/await client (Swift 5.9+, macOS only for REST/gRPC)
 - [MCP Server](antd-mcp/) — 31 tools for AI agent integration
 
 ## API Reference
@@ -98,6 +100,8 @@ data = client.data_get_public(result.address)
 - [JS/TS examples](antd-js/examples/) — 10 runnable scripts (01-connect.ts through 10-private-data.ts)
 - [Python examples](antd-py/examples/) — 10 runnable scripts (01_connect.py through 10_private_data.py)
 - [C# examples](antd-csharp/Examples/) — 10 examples in a single console app
+- [Kotlin examples](antd-kotlin/examples/) — 10 examples in a single app
+- [Swift examples](antd-swift/Sources/AntdExamples/) — 10 examples in a single executable
 
 ## Default Ports
 

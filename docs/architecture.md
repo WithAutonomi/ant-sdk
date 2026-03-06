@@ -17,7 +17,7 @@ Autonomi is a decentralized, peer-to-peer data network. Instead of storing data 
 ```
 Your Application
        │
-       │  Python / C# SDK calls
+       │  Python / C# / Kotlin / Swift SDK calls
        ▼
    ┌───────┐
    │ antd  │   Local daemon process
