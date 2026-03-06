@@ -1,6 +1,6 @@
 # antd SDK — Complete API Reference
 
-> JavaScript/TypeScript, Python, and C# SDKs for the Autonomi network via the antd daemon. The daemon manages wallet, payments, and network connectivity. Clients connect over REST (default port 8080) or gRPC (default port 50051).
+> JavaScript/TypeScript, Python, C#, Kotlin, and Swift SDKs for the Autonomi network via the antd daemon. The daemon manages wallet, payments, and network connectivity. Clients connect over REST (default port 8080) or gRPC (default port 50051).
 
 ## Quick Start
 
@@ -35,6 +35,30 @@ var client = AntdClientFactory.CreateGrpc();    // gRPC, localhost:50051
 
 var result = await client.DataPutPublicAsync(Encoding.UTF8.GetBytes("hello"));
 var data = await client.DataGetPublicAsync(result.Address);
+```
+
+```kotlin
+import com.autonomi.sdk.*
+import kotlinx.coroutines.runBlocking
+
+fun main() = runBlocking {
+    val client = AntdClient.createRest()         // REST, localhost:8080
+    val client = AntdClient.createGrpc()         // gRPC, localhost:50051
+
+    val result = client.dataPutPublic("hello".toByteArray())
+    val data = client.dataGetPublic(result.address)
+}
+```
+
+```swift
+// Swift (macOS only — iOS apps should use the FFI bindings)
+import AntdSdk
+
+let client = try AntdClient.createRest()          // REST, localhost:8080
+let client = try AntdClient.createGrpc()          // gRPC, localhost:50051
+
+let result = try await client.dataPutPublic("hello".data(using: .utf8)!)
+let data = try await client.dataGetPublic(address: result.address)
 ```
 
 ---
@@ -616,6 +640,138 @@ Task<string> FileCostAsync(string path, bool isPublic = true, bool includeArchiv
 
 ---
 
+## Kotlin SDK Method Signatures
+
+```kotlin
+import com.autonomi.sdk.*
+
+val client = AntdClient.createRest()          // localhost:8080
+val client = AntdClient.createGrpc()          // localhost:50051
+
+// Health
+suspend fun health(): HealthStatus
+
+// Data
+suspend fun dataPutPublic(data: ByteArray): PutResult
+suspend fun dataGetPublic(address: String): ByteArray
+suspend fun dataPutPrivate(data: ByteArray): PutResult
+suspend fun dataGetPrivate(dataMap: String): ByteArray
+suspend fun dataCost(data: ByteArray): String
+
+// Chunks
+suspend fun chunkPut(data: ByteArray): PutResult
+suspend fun chunkGet(address: String): ByteArray
+
+// Pointers
+suspend fun pointerCreate(ownerSecretKey: String, target: PointerTarget): PutResult
+suspend fun pointerGet(address: String): Pointer
+suspend fun pointerExists(address: String): Boolean
+suspend fun pointerUpdate(ownerSecretKey: String, target: PointerTarget)
+suspend fun pointerCost(publicKey: String): String
+
+// Scratchpads
+suspend fun scratchpadCreate(ownerSecretKey: String, contentType: ULong, data: ByteArray): PutResult
+suspend fun scratchpadGet(address: String): ScratchpadRecord
+suspend fun scratchpadExists(address: String): Boolean
+suspend fun scratchpadUpdate(ownerSecretKey: String, contentType: ULong, data: ByteArray)
+suspend fun scratchpadCost(publicKey: String): String
+
+// Graph
+suspend fun graphEntryPut(ownerSecretKey: String, parents: List<String>, content: String, descendants: List<GraphDescendant>): PutResult
+suspend fun graphEntryGet(address: String): GraphEntry
+suspend fun graphEntryExists(address: String): Boolean
+suspend fun graphEntryCost(publicKey: String): String
+
+// Registers
+suspend fun registerCreate(ownerSecretKey: String, initialValue: String): PutResult
+suspend fun registerGet(address: String): Register
+suspend fun registerUpdate(ownerSecretKey: String, newValue: String): PutResult
+suspend fun registerCost(publicKey: String): String
+
+// Vaults
+suspend fun vaultGet(secretKey: String): Vault
+suspend fun vaultPut(secretKey: String, data: ByteArray, contentType: ULong): String
+suspend fun vaultCost(secretKey: String, maxSize: ULong): String
+
+// Files
+suspend fun fileUploadPublic(path: String): PutResult
+suspend fun fileDownloadPublic(address: String, destPath: String)
+suspend fun dirUploadPublic(path: String): PutResult
+suspend fun dirDownloadPublic(address: String, destPath: String)
+suspend fun archiveGetPublic(address: String): Archive
+suspend fun archivePutPublic(archive: Archive): PutResult
+suspend fun fileCost(path: String, isPublic: Boolean = true, includeArchive: Boolean = false): String
+```
+
+---
+
+## Swift SDK Method Signatures
+
+> REST/gRPC transport requires macOS. For iOS, use the FFI bindings.
+
+```swift
+import AntdSdk
+
+let client = try AntdClient.createRest()          // localhost:8080
+let client = try AntdClient.createGrpc()          // localhost:50051
+
+// Health
+func health() async throws -> HealthStatus
+
+// Data
+func dataPutPublic(_ data: Data) async throws -> PutResult
+func dataGetPublic(address: String) async throws -> Data
+func dataPutPrivate(_ data: Data) async throws -> PutResult
+func dataGetPrivate(dataMap: String) async throws -> Data
+func dataCost(_ data: Data) async throws -> String
+
+// Chunks
+func chunkPut(_ data: Data) async throws -> PutResult
+func chunkGet(address: String) async throws -> Data
+
+// Pointers
+func pointerCreate(ownerSecretKey: String, target: PointerTarget) async throws -> PutResult
+func pointerGet(address: String) async throws -> Pointer
+func pointerExists(address: String) async throws -> Bool
+func pointerUpdate(ownerSecretKey: String, target: PointerTarget) async throws
+func pointerCost(publicKey: String) async throws -> String
+
+// Scratchpads
+func scratchpadCreate(ownerSecretKey: String, contentType: UInt64, data: Data) async throws -> PutResult
+func scratchpadGet(address: String) async throws -> ScratchpadRecord
+func scratchpadExists(address: String) async throws -> Bool
+func scratchpadUpdate(ownerSecretKey: String, contentType: UInt64, data: Data) async throws
+func scratchpadCost(publicKey: String) async throws -> String
+
+// Graph
+func graphEntryPut(ownerSecretKey: String, parents: [String], content: String, descendants: [GraphDescendant]) async throws -> PutResult
+func graphEntryGet(address: String) async throws -> GraphEntry
+func graphEntryExists(address: String) async throws -> Bool
+func graphEntryCost(publicKey: String) async throws -> String
+
+// Registers
+func registerCreate(ownerSecretKey: String, initialValue: String) async throws -> PutResult
+func registerGet(address: String) async throws -> Register
+func registerUpdate(ownerSecretKey: String, newValue: String) async throws -> PutResult
+func registerCost(publicKey: String) async throws -> String
+
+// Vaults
+func vaultGet(secretKey: String) async throws -> Vault
+func vaultPut(secretKey: String, data: Data, contentType: UInt64) async throws -> String
+func vaultCost(secretKey: String, maxSize: UInt64) async throws -> String
+
+// Files
+func fileUploadPublic(path: String) async throws -> PutResult
+func fileDownloadPublic(address: String, destPath: String) async throws
+func dirUploadPublic(path: String) async throws -> PutResult
+func dirDownloadPublic(address: String, destPath: String) async throws
+func archiveGetPublic(address: String) async throws -> Archive
+func archivePutPublic(archive: Archive) async throws -> PutResult
+func fileCost(path: String, isPublic: Bool, includeArchive: Bool) async throws -> String
+```
+
+---
+
 ## MCP Tool → SDK Method Mapping
 
 | MCP Tool | Python SDK Method | Description |
@@ -656,18 +812,18 @@ Task<string> FileCostAsync(string path, bool isPublic = true, bool includeArchiv
 
 ## Error Codes
 
-| HTTP | gRPC Status | JS/TS Error | Python Exception | C# Exception | Meaning |
-|------|-------------|-------------|------------------|--------------|---------|
-| 400 | INVALID_ARGUMENT | `BadRequestError` | `BadRequestError` | `BadRequestException` | Malformed request |
-| 402 | FAILED_PRECONDITION | `PaymentError` | `PaymentError` | `PaymentException` | Insufficient wallet funds |
-| 404 | NOT_FOUND | `NotFoundError` | `NotFoundError` | `NotFoundException` | Address not found on network |
-| 409 | ALREADY_EXISTS | `AlreadyExistsError` | `AlreadyExistsError` | `AlreadyExistsException` | Resource already exists |
-| 409 | ABORTED | `ForkError` | `ForkError` | `ForkException` | Version conflict / fork |
-| 413 | RESOURCE_EXHAUSTED | `TooLargeError` | `TooLargeError` | `TooLargeException` | Data exceeds size limit |
-| 500 | INTERNAL | `InternalError` | `InternalError` | `InternalException` | Internal server error |
-| 502 | UNAVAILABLE | `NetworkError` | `NetworkError` | `NetworkException` | Cannot reach network |
+| HTTP | gRPC Status | JS/TS Error | Python Exception | C# Exception | Kotlin Exception | Swift Error | Meaning |
+|------|-------------|-------------|------------------|--------------|------------------|-------------|---------|
+| 400 | INVALID_ARGUMENT | `BadRequestError` | `BadRequestError` | `BadRequestException` | `BadRequestException` | `BadRequestError` | Malformed request |
+| 402 | FAILED_PRECONDITION | `PaymentError` | `PaymentError` | `PaymentException` | `PaymentException` | `PaymentError` | Insufficient wallet funds |
+| 404 | NOT_FOUND | `NotFoundError` | `NotFoundError` | `NotFoundException` | `NotFoundException` | `NotFoundError` | Address not found on network |
+| 409 | ALREADY_EXISTS | `AlreadyExistsError` | `AlreadyExistsError` | `AlreadyExistsException` | `AlreadyExistsException` | `AlreadyExistsError` | Resource already exists |
+| 409 | ABORTED | `ForkError` | `ForkError` | `ForkException` | `ForkException` | `ForkError` | Version conflict / fork |
+| 413 | RESOURCE_EXHAUSTED | `TooLargeError` | `TooLargeError` | `TooLargeException` | `TooLargeException` | `TooLargeError` | Data exceeds size limit |
+| 500 | INTERNAL | `InternalError` | `InternalError` | `InternalException` | `InternalException` | `InternalError` | Internal server error |
+| 502 | UNAVAILABLE | `NetworkError` | `NetworkError` | `NetworkException` | `NetworkException` | `NetworkError` | Cannot reach network |
 
-All exceptions inherit from `AntdError` (JS/TS, Python) / `AntdException` (C#).
+All exceptions inherit from `AntdError` (JS/TS, Python, Swift) / `AntdException` (C#, Kotlin).
 
 ---
 
@@ -707,6 +863,81 @@ print(f"Pointer at: {ptr.address}")
 # Read it back
 pointer = client.pointer_get(ptr.address)
 print(f"Points to: {pointer.target.kind} @ {pointer.target.address}")
+```
+
+### Store and Retrieve Public Data (Kotlin)
+
+```kotlin
+import com.autonomi.sdk.*
+import kotlinx.coroutines.runBlocking
+
+fun main() = runBlocking {
+    val client = AntdClient.createRest()
+    val result = client.dataPutPublic("Hello, Autonomi!".toByteArray())
+    println("Stored at: ${result.address}, cost: ${result.cost}")
+
+    val data = client.dataGetPublic(result.address)
+    println("Retrieved: ${String(data)}")
+    client.close()
+}
+```
+
+### Mutable Pointer Round-Trip (Kotlin)
+
+```kotlin
+import com.autonomi.sdk.*
+import kotlinx.coroutines.runBlocking
+import java.security.SecureRandom
+
+fun main() = runBlocking {
+    val client = AntdClient.createRest()
+
+    val result = client.dataPutPublic("version 1".toByteArray())
+    val secretKey = ByteArray(32).also { SecureRandom().nextBytes(it) }
+        .joinToString("") { "%02x".format(it) }
+
+    val target = PointerTarget(kind = "chunk", address = result.address)
+    val ptr = client.pointerCreate(secretKey, target)
+    println("Pointer at: ${ptr.address}")
+
+    val pointer = client.pointerGet(ptr.address)
+    println("Points to: ${pointer.target.kind} @ ${pointer.target.address}")
+    client.close()
+}
+```
+
+### Store and Retrieve Public Data (Swift)
+
+```swift
+import AntdSdk
+
+let client = try AntdClient.createRest()
+let result = try await client.dataPutPublic("Hello, Autonomi!".data(using: .utf8)!)
+print("Stored at: \(result.address), cost: \(result.cost)")
+
+let data = try await client.dataGetPublic(address: result.address)
+print("Retrieved: \(String(data: data, encoding: .utf8)!)")
+```
+
+### Mutable Pointer Round-Trip (Swift)
+
+```swift
+import AntdSdk
+import Foundation
+
+let client = try AntdClient.createRest()
+
+let result = try await client.dataPutPublic("version 1".data(using: .utf8)!)
+var bytes = [UInt8](repeating: 0, count: 32)
+_ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+let secretKey = bytes.map { String(format: "%02x", $0) }.joined()
+
+let target = PointerTarget(kind: "chunk", address: result.address)
+let ptr = try await client.pointerCreate(ownerSecretKey: secretKey, target: target)
+print("Pointer at: \(ptr.address)")
+
+let pointer = try await client.pointerGet(address: ptr.address)
+print("Points to: \(pointer.target.kind) @ \(pointer.target.address)")
 ```
 
 ### Private Data Round-Trip (Python)

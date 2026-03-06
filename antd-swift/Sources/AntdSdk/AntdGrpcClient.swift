@@ -1,0 +1,63 @@
+import Foundation
+import GRPCNIOTransportHTTP2
+import GRPCProtobuf
+
+/// gRPC client for the antd daemon.
+///
+/// > Note: The gRPC client requires the generated protobuf stubs from `antd/proto/antd/v1/`.
+/// > Run `scripts/generate-protos.sh` to generate them into `Sources/AntdSdk/Proto/`.
+/// > Until proto generation is set up, use ``AntdRestClient`` instead.
+public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
+
+    private let target: String
+
+    public init(target: String = "localhost:50051") {
+        self.target = target
+    }
+
+    // MARK: - Placeholder implementations
+    // Full gRPC implementation requires generated proto stubs.
+    // The REST client is the recommended default. These methods
+    // throw an error until proto generation is configured.
+
+    private func notImplemented() -> AntdError {
+        InternalError("gRPC client requires generated proto stubs. Use AntdClient.createRest() or run scripts/generate-protos.sh first.")
+    }
+
+    public func health() async throws -> HealthStatus { throw notImplemented() }
+    public func dataPutPublic(_ data: Data) async throws -> PutResult { throw notImplemented() }
+    public func dataGetPublic(address: String) async throws -> Data { throw notImplemented() }
+    public func dataPutPrivate(_ data: Data) async throws -> PutResult { throw notImplemented() }
+    public func dataGetPrivate(dataMap: String) async throws -> Data { throw notImplemented() }
+    public func dataCost(_ data: Data) async throws -> String { throw notImplemented() }
+    public func chunkPut(_ data: Data) async throws -> PutResult { throw notImplemented() }
+    public func chunkGet(address: String) async throws -> Data { throw notImplemented() }
+    public func pointerCreate(ownerSecretKey: String, target: PointerTarget) async throws -> PutResult { throw notImplemented() }
+    public func pointerGet(address: String) async throws -> Pointer { throw notImplemented() }
+    public func pointerExists(address: String) async throws -> Bool { throw notImplemented() }
+    public func pointerUpdate(ownerSecretKey: String, target: PointerTarget) async throws { throw notImplemented() }
+    public func pointerCost(publicKey: String) async throws -> String { throw notImplemented() }
+    public func scratchpadCreate(ownerSecretKey: String, contentType: UInt64, data: Data) async throws -> PutResult { throw notImplemented() }
+    public func scratchpadGet(address: String) async throws -> ScratchpadRecord { throw notImplemented() }
+    public func scratchpadExists(address: String) async throws -> Bool { throw notImplemented() }
+    public func scratchpadUpdate(ownerSecretKey: String, contentType: UInt64, data: Data) async throws { throw notImplemented() }
+    public func scratchpadCost(publicKey: String) async throws -> String { throw notImplemented() }
+    public func graphEntryPut(ownerSecretKey: String, parents: [String], content: String, descendants: [GraphDescendant]) async throws -> PutResult { throw notImplemented() }
+    public func graphEntryGet(address: String) async throws -> GraphEntry { throw notImplemented() }
+    public func graphEntryExists(address: String) async throws -> Bool { throw notImplemented() }
+    public func graphEntryCost(publicKey: String) async throws -> String { throw notImplemented() }
+    public func registerCreate(ownerSecretKey: String, initialValue: String) async throws -> PutResult { throw notImplemented() }
+    public func registerGet(address: String) async throws -> Register { throw notImplemented() }
+    public func registerUpdate(ownerSecretKey: String, newValue: String) async throws -> PutResult { throw notImplemented() }
+    public func registerCost(publicKey: String) async throws -> String { throw notImplemented() }
+    public func vaultGet(secretKey: String) async throws -> Vault { throw notImplemented() }
+    public func vaultPut(secretKey: String, data: Data, contentType: UInt64) async throws -> String { throw notImplemented() }
+    public func vaultCost(secretKey: String, maxSize: UInt64) async throws -> String { throw notImplemented() }
+    public func fileUploadPublic(path: String) async throws -> PutResult { throw notImplemented() }
+    public func fileDownloadPublic(address: String, destPath: String) async throws { throw notImplemented() }
+    public func dirUploadPublic(path: String) async throws -> PutResult { throw notImplemented() }
+    public func dirDownloadPublic(address: String, destPath: String) async throws { throw notImplemented() }
+    public func archiveGetPublic(address: String) async throws -> Archive { throw notImplemented() }
+    public func archivePutPublic(archive: Archive) async throws -> PutResult { throw notImplemented() }
+    public func fileCost(path: String, isPublic: Bool = true, includeArchive: Bool = false) async throws -> String { throw notImplemented() }
+}

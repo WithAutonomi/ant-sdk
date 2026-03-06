@@ -1,16 +1,16 @@
 # ant-sdk
 
-A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized network. Store data, manage mutable pointers, build DAGs, and more — from JavaScript/TypeScript, Python, C#, or AI agents.
+A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized network. Store data, manage mutable pointers, build DAGs, and more — from JavaScript/TypeScript, Python, C#, Kotlin, Swift, or AI agents.
 
 ## Architecture
 
 ```
-┌─────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│  antd-js    │  │  antd-py     │  │ antd-csharp  │  │  antd-mcp    │
-│  JS/TS SDK  │  │ Python SDK   │  │   C# SDK     │  │  MCP Server  │
-└──────┬──────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
-       │    REST / gRPC  │                │                  │ REST
-       └────────┬────────┘────────────────┘──────────────────┘
+┌─────────────┐  ┌──────────────┐  ┌──────────────┐  ┌───────────────┐  ┌──────────────┐  ┌──────────────┐
+│  antd-js    │  │  antd-py     │  │ antd-csharp  │  │ antd-kotlin   │  │ antd-swift   │  │  antd-mcp    │
+│  JS/TS SDK  │  │ Python SDK   │  │   C# SDK     │  │  Kotlin SDK   │  │  Swift SDK   │  │  MCP Server  │
+└──────┬──────┘  └──────┬───────┘  └──────┬───────┘  └──────┬────────┘  └──────┬───────┘  └──────┬───────┘
+       │    REST / gRPC  │                │                  │                  │                  │ REST
+       └────────┬────────┘────────────────┘──────────────────┘──────────────────┘──────────────────┘
                 │
          ┌──────┴──────┐
          │    antd     │
@@ -34,6 +34,8 @@ A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized 
 | [`antd-js/`](antd-js/) | TypeScript | SDK with async client, REST transport |
 | [`antd-py/`](antd-py/) | Python | SDK with sync/async clients, REST + gRPC transports |
 | [`antd-csharp/`](antd-csharp/) | C# | SDK with async client, REST + gRPC transports |
+| [`antd-kotlin/`](antd-kotlin/) | Kotlin | SDK with coroutine-based client, REST + gRPC transports |
+| [`antd-swift/`](antd-swift/) | Swift | SDK with async/await client, REST + gRPC transports (macOS) |
 | [`antd-mcp/`](antd-mcp/) | Python | MCP server exposing 31 tools for AI agents (Claude, etc.) |
 | [`ant-dev/`](ant-dev/) | Python | Developer CLI for local environment management |
 
@@ -45,6 +47,8 @@ A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized 
 - **Node.js 18+** (optional, for the JS/TS SDK)
 - **Python 3.10+** (for the Python SDK and dev CLI)
 - **.NET 8 SDK** (optional, for the C# SDK)
+- **JDK 17+** (optional, for the Kotlin SDK)
+- **Swift 5.9+ / Xcode 15+** (optional, for the Swift SDK — macOS only)
 - **autonomi** repo cloned as a sibling: `git clone https://github.com/maidsafe/autonomi ../autonomi`
 
 ### Option A: Using the `ant` CLI
@@ -137,6 +141,51 @@ var data = await client.DataGetPublicAsync(result.Address);
 Console.WriteLine(Encoding.UTF8.GetString(data));
 ```
 
+### Write your first app (Kotlin)
+
+```kotlin
+import com.autonomi.sdk.*
+import kotlinx.coroutines.runBlocking
+
+fun main() = runBlocking {
+    val client = AntdClient.createRest()
+
+    val status = client.health()
+    println("Network: ${status.network}")
+
+    val result = client.dataPutPublic(
+        "Hello, Autonomi!".toByteArray()
+    )
+    println("Address: ${result.address}")
+
+    val data = client.dataGetPublic(result.address)
+    println(String(data)) // "Hello, Autonomi!"
+
+    client.close()
+}
+```
+
+### Write your first app (Swift)
+
+> REST/gRPC SDK requires macOS. For iOS, use the [FFI bindings](ffi/) instead.
+
+```swift
+import AntdSdk
+
+let client = try AntdClient.createRest()
+
+let status = try await client.health()
+print("Network: \(status.network)")
+
+let result = try await client.dataPutPublic(
+    "Hello, Autonomi!".data(using: .utf8)!
+)
+print("Address: \(result.address)")
+
+let data = try await client.dataGetPublic(address: result.address)
+print(String(data: data, encoding: .utf8)!) // "Hello, Autonomi!"
+```
+
 ## Data Primitives
 
 The Autonomi network provides these core primitives, all accessible through the SDKs:
@@ -175,6 +224,8 @@ ant dev playground [--transport rest|grpc]             # Interactive Python REPL
 - [JS/TS Quickstart](antd-js/README.md) — JavaScript/TypeScript SDK guide
 - [Python Quickstart](docs/quickstart-python.md) — Comprehensive Python SDK guide
 - [C# Quickstart](docs/quickstart-csharp.md) — Comprehensive C# SDK guide
+- [Kotlin Quickstart](docs/quickstart-kotlin.md) — Comprehensive Kotlin SDK guide
+- [Swift Quickstart](docs/quickstart-swift.md) — Comprehensive Swift SDK guide (macOS)
 
 ## License
 
