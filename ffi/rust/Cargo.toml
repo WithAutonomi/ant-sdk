@@ -1,0 +1,6 @@
+[workspace]
+members = ["ant-ffi"]
+resolver = "2"
+
+[workspace.dependencies]
+uniffi = "0.29.4"
