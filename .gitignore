@@ -12,6 +12,9 @@ build/
 .venv/
 venv/
 
+# Node.js
+node_modules/
+
 # C# / .NET
 bin/
 obj/
