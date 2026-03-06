@@ -1,0 +1,26 @@
+/**
+ * Example 02: Store and retrieve public data, with cost estimation.
+ *
+ * Prerequisite: antd daemon running on local testnet.
+ */
+
+import { createClient } from "../src/index.js";
+
+const client = createClient();
+
+// Estimate cost before storing
+const payload = Buffer.from("Hello, Autonomi network!");
+const cost = await client.dataCost(payload);
+console.log(`Estimated cost: ${cost} atto tokens`);
+
+// Store public data
+const result = await client.dataPutPublic(payload);
+console.log(`Stored at address: ${result.address}`);
+console.log(`Actual cost: ${result.cost} atto tokens`);
+
+// Retrieve it back
+const data = await client.dataGetPublic(result.address);
+console.log(`Retrieved: ${data.toString()}`);
+
+if (!data.equals(payload)) throw new Error("Round-trip mismatch!");
+console.log("Public data round-trip OK!");

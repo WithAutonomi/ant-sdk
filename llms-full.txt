@@ -1,6 +1,6 @@
 # antd SDK — Complete API Reference
 
-> Python and C# SDKs for the Autonomi network via the antd daemon. The daemon manages wallet, payments, and network connectivity. Clients connect over REST (default port 8080) or gRPC (default port 50051).
+> JavaScript/TypeScript, Python, and C# SDKs for the Autonomi network via the antd daemon. The daemon manages wallet, payments, and network connectivity. Clients connect over REST (default port 8080) or gRPC (default port 50051).
 
 ## Quick Start
 
@@ -15,6 +15,16 @@ client = AntdClient(base_url="http://remote:8080")
 result = client.data_put_public(b"hello world")
 print(result.address, result.cost)
 data = client.data_get_public(result.address)  # b"hello world"
+```
+
+```typescript
+import { createClient } from "antd";
+
+const client = createClient();                             // REST, localhost:8080
+const client = createClient({ baseUrl: "http://remote:8080" });
+
+const result = await client.dataPutPublic(Buffer.from("hello"));
+const data = await client.dataGetPublic(result.address);
 ```
 
 ```csharp
@@ -410,6 +420,72 @@ Default target: `localhost:50051`. Package: `antd.v1`.
 
 ---
 
+## JS/TS SDK Method Signatures
+
+```typescript
+import { createClient } from "antd";
+
+const client = createClient();                                  // REST, localhost:8080
+const client = createClient({ baseUrl: "http://remote:8080" }); // custom URL
+const client = createClient({ timeout: 60_000 });               // custom timeout (ms)
+
+// Health
+client.health(): Promise<HealthStatus>
+
+// Data
+client.dataPutPublic(data: Buffer): Promise<PutResult>
+client.dataGetPublic(address: string): Promise<Buffer>
+client.dataPutPrivate(data: Buffer): Promise<PutResult>  // .address is the data_map
+client.dataGetPrivate(dataMap: string): Promise<Buffer>
+client.dataCost(data: Buffer): Promise<string>
+
+// Chunks
+client.chunkPut(data: Buffer): Promise<PutResult>
+client.chunkGet(address: string): Promise<Buffer>
+
+// Pointers
+client.pointerCreate(ownerSecretKey: string, target: PointerTarget): Promise<PutResult>
+client.pointerGet(address: string): Promise<Pointer>
+client.pointerExists(address: string): Promise<boolean>
+client.pointerUpdate(ownerSecretKey: string, target: PointerTarget): Promise<void>
+client.pointerCost(publicKey: string): Promise<string>
+
+// Scratchpads
+client.scratchpadCreate(ownerSecretKey: string, contentType: number, data: Buffer): Promise<PutResult>
+client.scratchpadGet(address: string): Promise<Scratchpad>
+client.scratchpadExists(address: string): Promise<boolean>
+client.scratchpadUpdate(ownerSecretKey: string, contentType: number, data: Buffer): Promise<void>
+client.scratchpadCost(publicKey: string): Promise<string>
+
+// Graph
+client.graphEntryPut(ownerSecretKey: string, parents: string[], content: string, descendants: GraphDescendant[]): Promise<PutResult>
+client.graphEntryGet(address: string): Promise<GraphEntry>
+client.graphEntryExists(address: string): Promise<boolean>
+client.graphEntryCost(publicKey: string): Promise<string>
+
+// Registers
+client.registerCreate(ownerSecretKey: string, initialValue: string): Promise<PutResult>
+client.registerGet(address: string): Promise<Register>
+client.registerUpdate(ownerSecretKey: string, newValue: string): Promise<PutResult>
+client.registerCost(publicKey: string): Promise<string>
+
+// Vaults
+client.vaultGet(secretKey: string): Promise<Vault>
+client.vaultPut(secretKey: string, data: Buffer, contentType: number): Promise<string>
+client.vaultCost(secretKey: string, maxSize: number): Promise<string>
+
+// Files
+client.fileUploadPublic(path: string): Promise<PutResult>
+client.fileDownloadPublic(address: string, destPath: string): Promise<void>
+client.dirUploadPublic(path: string): Promise<PutResult>
+client.dirDownloadPublic(address: string, destPath: string): Promise<void>
+client.archiveGetPublic(address: string): Promise<Archive>
+client.archivePutPublic(archive: Archive): Promise<PutResult>
+client.fileCost(path: string, isPublic?: boolean, includeArchive?: boolean): Promise<string>
+```
+
+---
+
 ## Python SDK Method Signatures
 
 ```python
@@ -580,18 +656,18 @@ Task<string> FileCostAsync(string path, bool isPublic = true, bool includeArchiv
 
 ## Error Codes
 
-| HTTP | gRPC Status | Python Exception | C# Exception | Meaning |
-|------|-------------|------------------|--------------|---------|
-| 400 | INVALID_ARGUMENT | `BadRequestError` | `BadRequestException` | Malformed request |
-| 402 | FAILED_PRECONDITION | `PaymentError` | `PaymentException` | Insufficient wallet funds |
-| 404 | NOT_FOUND | `NotFoundError` | `NotFoundException` | Address not found on network |
-| 409 | ALREADY_EXISTS | `AlreadyExistsError` | `AlreadyExistsException` | Resource already exists |
-| 409 | ABORTED | `ForkError` | `ForkException` | Version conflict / fork |
-| 413 | RESOURCE_EXHAUSTED | `TooLargeError` | `TooLargeException` | Data exceeds size limit |
-| 500 | INTERNAL | `InternalError` | `InternalException` | Internal server error |
-| 502 | UNAVAILABLE | `NetworkError` | `NetworkException` | Cannot reach network |
+| HTTP | gRPC Status | JS/TS Error | Python Exception | C# Exception | Meaning |
+|------|-------------|-------------|------------------|--------------|---------|
+| 400 | INVALID_ARGUMENT | `BadRequestError` | `BadRequestError` | `BadRequestException` | Malformed request |
+| 402 | FAILED_PRECONDITION | `PaymentError` | `PaymentError` | `PaymentException` | Insufficient wallet funds |
+| 404 | NOT_FOUND | `NotFoundError` | `NotFoundError` | `NotFoundException` | Address not found on network |
+| 409 | ALREADY_EXISTS | `AlreadyExistsError` | `AlreadyExistsError` | `AlreadyExistsException` | Resource already exists |
+| 409 | ABORTED | `ForkError` | `ForkError` | `ForkException` | Version conflict / fork |
+| 413 | RESOURCE_EXHAUSTED | `TooLargeError` | `TooLargeError` | `TooLargeException` | Data exceeds size limit |
+| 500 | INTERNAL | `InternalError` | `InternalError` | `InternalException` | Internal server error |
+| 502 | UNAVAILABLE | `NetworkError` | `NetworkError` | `NetworkException` | Cannot reach network |
 
-All exceptions inherit from `AntdError` (Python) / `AntdException` (C#).
+All exceptions inherit from `AntdError` (JS/TS, Python) / `AntdException` (C#).
 
 ---
 

@@ -1,6 +1,6 @@
 # antd SDK
 
-> Python and C# SDKs for the Autonomi network via the antd daemon. Provides REST and gRPC transports, an MCP server (31 tools), and a local daemon that manages wallet, payments, and network connectivity.
+> JavaScript/TypeScript, Python, and C# SDKs for the Autonomi network via the antd daemon. Provides REST and gRPC transports, an MCP server (31 tools), and a local daemon that manages wallet, payments, and network connectivity.
 
 ## Quick Start
 
@@ -13,6 +13,7 @@ data = client.data_get_public(result.address)
 
 ## SDKs
 
+- [JS/TS SDK](antd-js/) — `npm install antd` — async client (Node.js 18+)
 - [Python SDK](antd-py/) — `pip install antd` — sync and async clients
 - [C# SDK](antd-csharp/Antd.Sdk/) — `dotnet add package Antd.Sdk` — async client
 - [MCP Server](antd-mcp/) — 31 tools for AI agent integration
@@ -94,6 +95,7 @@ data = client.data_get_public(result.address)
 
 ## Examples
 
+- [JS/TS examples](antd-js/examples/) — 10 runnable scripts (01-connect.ts through 10-private-data.ts)
 - [Python examples](antd-py/examples/) — 10 runnable scripts (01_connect.py through 10_private_data.py)
 - [C# examples](antd-csharp/Examples/) — 10 examples in a single console app
 
