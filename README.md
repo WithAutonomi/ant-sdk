@@ -1,6 +1,6 @@
 # ant-sdk
 
-A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized network. Store data, manage mutable pointers, build DAGs, and more — from JavaScript/TypeScript, Python, C#, Kotlin, Swift, or AI agents.
+A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized network. Store data, manage mutable pointers, build DAGs, and more — from Go, JavaScript/TypeScript, Python, C#, Kotlin, Swift, or AI agents.
 
 ## Architecture
 
@@ -34,6 +34,7 @@ A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized 
 | Component | Language | Description |
 |-----------|----------|-------------|
 | [`antd/`](antd/) | Rust | REST + gRPC gateway daemon |
+| [`antd-go/`](antd-go/) | Go | SDK with context-based client, REST transport |
 | [`antd-js/`](antd-js/) | TypeScript | SDK with async client, REST transport |
 | [`antd-py/`](antd-py/) | Python | SDK with sync/async clients, REST + gRPC transports |
 | [`antd-csharp/`](antd-csharp/) | C# | SDK with async client, REST + gRPC transports |
@@ -47,6 +48,7 @@ A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized 
 ### Prerequisites
 
 - **Rust** toolchain (for building antd and the Autonomi network)
+- **Go 1.21+** (optional, for the Go SDK)
 - **Node.js 18+** (optional, for the JS/TS SDK)
 - **Python 3.10+** (for the Python SDK and dev CLI)
 - **.NET 8 SDK** (optional, for the C# SDK)
@@ -168,6 +170,37 @@ fun main() = runBlocking {
 }
 ```
 
+### Write your first app (Go)
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    antd "github.com/maidsafe/ant-sdk/antd-go"
+)
+
+func main() {
+    client := antd.NewClient(antd.DefaultBaseURL)
+    ctx := context.Background()
+
+    health, err := client.Health(ctx)
+    if err != nil { log.Fatal(err) }
+    fmt.Printf("Network: %s\n", health.Network)
+
+    result, err := client.DataPutPublic(ctx, []byte("Hello, Autonomi!"))
+    if err != nil { log.Fatal(err) }
+    fmt.Printf("Address: %s\n", result.Address)
+
+    data, err := client.DataGetPublic(ctx, result.Address)
+    if err != nil { log.Fatal(err) }
+    fmt.Println(string(data)) // "Hello, Autonomi!"
+}
+```
+
 ### Write your first app (Swift)
 
 > REST/gRPC SDK requires macOS. For iOS, use the [FFI bindings](ffi/) instead.
@@ -224,6 +257,7 @@ ant dev playground [--transport rest|grpc]             # Interactive Python REPL
 - [Tutorial: Store & Retrieve Data](docs/tutorial-store-retrieve.md) — Your first read/write operations
 - [Tutorial: Key-Value Store](docs/tutorial-key-value-store.md) — Build a KV store with registers + pointers
 - [Tutorial: Mutable Config](docs/tutorial-mutable-config.md) — Mutable config via pointers and scratchpads
+- [Go Quickstart](antd-go/README.md) — Go SDK guide
 - [JS/TS Quickstart](antd-js/README.md) — JavaScript/TypeScript SDK guide
 - [Python Quickstart](docs/quickstart-python.md) — Comprehensive Python SDK guide
 - [C# Quickstart](docs/quickstart-csharp.md) — Comprehensive C# SDK guide

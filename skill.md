@@ -14,12 +14,13 @@ App  →  SDK  →  antd daemon (localhost)  →  Autonomi Network
 
 For detailed API signatures and endpoint documentation, see:
 - **[llms.txt](llms.txt)** — concise overview of all REST endpoints, gRPC services, error codes, and SDK links
-- **[llms-full.txt](llms-full.txt)** — complete reference with method signatures for all 5 languages, request/response formats, and runnable examples
+- **[llms-full.txt](llms-full.txt)** — complete reference with method signatures for all 6 languages, request/response formats, and runnable examples
 
 ## Choosing a Language
 
 | Language | SDK | Async Model | Install |
 |----------|-----|-------------|---------|
+| Go | `antd-go` | `context.Context` | `go get github.com/maidsafe/ant-sdk/antd-go` |
 | Python | `antd-py` | sync + async | `pip install antd` |
 | TypeScript | `antd-js` | Promises | `npm install antd` |
 | C# | `antd-csharp` | `Task<T>` / async-await | `dotnet add package Antd.Sdk` |
