@@ -7,7 +7,6 @@ This document explains the Autonomi network mental model, how ant-sdk fits in, a
 Autonomi is a decentralized, peer-to-peer data network. Instead of storing data on a central server (AWS, GCP, etc.), your data is distributed across a global mesh of nodes. Key properties:
 
 - **Content-addressed**: Immutable data is identified by its cryptographic hash. The same content always produces the same address.
-- **Owner-addressed**: Mutable data (pointers, registers, scratchpads) is tied to a cryptographic key pair. Only the owner can update it.
 - **Self-encrypting**: Private data is encrypted before storage — the network never sees plaintext.
 - **Permanent**: Once data is stored, it persists as long as the network exists. There are no monthly bills or expiring storage.
 - **Pay-once**: You pay a one-time storage fee in network tokens. No ongoing costs.
@@ -76,67 +75,6 @@ Download:  address     ──▶  antd  ──▶  local path
 
 Use for: file hosting, static websites, media storage.
 
-### Mutable Data
-
-All mutable primitives are **owner-controlled** — you provide a secret key to create and update them. The secret key derives a public key, which determines the resource's network address.
-
-#### Pointers
-
-A pointer is a mutable reference to another resource. Think of it as a DNS record for the network.
-
-```
-Pointer (owned by key K)
-  └── points to: chunk @ 0xabc123...
-
-Update pointer:
-  └── now points to: chunk @ 0xdef456...
-```
-
-- **Versioned**: Each update increments a counter. The network always returns the latest version.
-- **Target types**: Can point to chunks, graph entries, other pointers, or scratchpads.
-
-Use for: mutable URLs, latest-version references, aliases.
-
-#### Scratchpads
-
-Versioned mutable storage. Like a pointer, but instead of referencing another resource, it stores data directly.
-
-```
-Scratchpad (owned by key K)
-  ├── counter: 3
-  ├── content_type: 1
-  └── data: <encrypted bytes>
-```
-
-- **Counter**: Monotonically increasing version number.
-- **Content type**: Integer tag for your application's encoding scheme.
-- **Data**: Raw bytes (encrypted on the network).
-
-Use for: user profiles, settings, mutable application state.
-
-#### Registers
-
-A 32-byte mutable value. The simplest mutable primitive.
-
-```
-Register (owned by key K)
-  └── value: 0x0000...0000 (32 bytes, hex-encoded)
-```
-
-Use for: counters, flags, small state values, hash pointers.
-
-#### Vaults
-
-Private encrypted key-value storage. Unlike other primitives, vaults are accessed by secret key alone (not by network address).
-
-```
-Vault (accessed by secret key S)
-  ├── content_type: 42
-  └── data: <encrypted bytes>
-```
-
-Use for: user secrets, encrypted settings, private application data.
-
 ### Append-Only Data
 
 #### Graph Entries
@@ -175,59 +113,17 @@ print(f"Paid {result.cost} atto tokens")
 
 | Aspect | Cloud (S3, etc.) | Autonomi |
 |--------|-------------------|----------|
-| Addressing | Arbitrary keys | Content hash (immutable) or owner key (mutable) |
+| Addressing | Arbitrary keys | Content hash (immutable) |
 | Persistence | Until you stop paying | Permanent (one-time payment) |
 | Access control | IAM policies | Cryptographic keys |
 | Redundancy | Configurable | Built-in (network-wide replication) |
 | Privacy | Trust the provider | Self-encrypting (zero knowledge) |
-| Mutability | Overwrite anything | Explicit mutable types (pointers, registers, etc.) |
+| Mutability | Overwrite anything | Immutable by design (append-only graphs for linked structures) |
 | Cost model | Per-request + storage/month | One-time write fee, reads are free |
 
 ## Key Design Patterns
 
-### Pattern 1: Immutable Data + Mutable Pointer
-
-Store immutable versions of your data, then use a pointer to track the latest version.
-
-```python
-# Store v1
-v1 = client.data_put_public(b"config v1")
-
-# Create a pointer to v1
-from antd import PointerTarget
-target = PointerTarget(kind="chunk", address=v1.address)
-ptr = client.pointer_create(secret_key, target)
-
-# Later: store v2 and update the pointer
-v2 = client.data_put_public(b"config v2")
-new_target = PointerTarget(kind="chunk", address=v2.address)
-client.pointer_update(secret_key, new_target)
-
-# Anyone with the pointer address always gets the latest version
-current = client.pointer_get(ptr.address)
-data = client.data_get_public(current.target.address)
-```
-
-### Pattern 2: Versioned State with Scratchpads
-
-Use scratchpads for state that changes frequently and where you want version tracking.
-
-```python
-# Create a scratchpad
-import json
-config = json.dumps({"theme": "dark"}).encode()
-pad = client.scratchpad_create(secret_key, content_type=1, data=config)
-
-# Update it
-new_config = json.dumps({"theme": "light"}).encode()
-client.scratchpad_update(secret_key, content_type=1, data=new_config)
-
-# Read — the counter tells you which version this is
-current = client.scratchpad_get(pad.address)
-print(f"Version: {current.counter}")
-```
-
-### Pattern 3: Linked History with Graph Entries
+### Pattern 1: Linked History with Graph Entries
 
 Build append-only logs or version chains using graph entries.
 
@@ -247,7 +143,7 @@ entry2 = client.graph_entry_put(key2, parents=[entry1.address], content=content2
 
 ## Security Model
 
-- **Secret keys**: 32-byte hex-encoded keys. Anyone with the key can update the associated resource.
+- **Secret keys**: 32-byte hex-encoded keys used for graph entries and private data operations.
 - **Never share secret keys**: Treat them like passwords. The public key (derived from the secret key) is safe to share.
 - **Private data**: Self-encrypted using the network's encryption scheme. The data map is needed for decryption.
-- **No access revocation**: Once data is public, it cannot be made private. Once a key is shared, access cannot be revoked. Plan your key management accordingly.
+- **No access revocation**: Once data is public, it cannot be made private. Plan your key management accordingly.

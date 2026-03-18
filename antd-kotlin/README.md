@@ -67,11 +67,7 @@ All methods are `suspend` functions for use with Kotlin coroutines.
 | **Health** | `health()` |
 | **Data** | `dataPutPublic`, `dataGetPublic`, `dataPutPrivate`, `dataGetPrivate`, `dataCost` |
 | **Chunks** | `chunkPut`, `chunkGet` |
-| **Pointers** | `pointerCreate`, `pointerGet`, `pointerExists`, `pointerUpdate`, `pointerCost` |
-| **Scratchpads** | `scratchpadCreate`, `scratchpadGet`, `scratchpadExists`, `scratchpadUpdate`, `scratchpadCost` |
 | **Graph** | `graphEntryPut`, `graphEntryGet`, `graphEntryExists`, `graphEntryCost` |
-| **Registers** | `registerCreate`, `registerGet`, `registerUpdate`, `registerCost` |
-| **Vaults** | `vaultGet`, `vaultPut`, `vaultCost` |
 | **Files** | `fileUploadPublic`, `fileDownloadPublic`, `dirUploadPublic`, `dirDownloadPublic`, `archiveGetPublic`, `archivePutPublic`, `fileCost` |
 
 ## Error Handling
@@ -136,7 +132,7 @@ antd-kotlin/
 │       ├── AntdGrpcClient.kt     # gRPC implementation
 │       ├── Models.kt             # Data classes
 │       └── Exceptions.kt         # Exception hierarchy
-├── examples/                     # 10 runnable examples
+├── examples/                     # 6 runnable examples
 ├── build.gradle.kts              # Root build config
 └── settings.gradle.kts
 ```

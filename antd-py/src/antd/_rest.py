@@ -14,12 +14,7 @@ from .models import (
     GraphDescendant,
     GraphEntry,
     HealthStatus,
-    Pointer,
-    PointerTarget,
     PutResult,
-    Register,
-    Scratchpad,
-    Vault,
 )
 
 if TYPE_CHECKING:
@@ -111,90 +106,6 @@ class RestClient:
         _check(resp)
         return _unb64(resp.json()["data"])
 
-    # --- Pointers ---
-
-    def pointer_create(self, owner_secret_key: str, target: PointerTarget) -> PutResult:
-        resp = self._http.post("/v1/pointers", json={
-            "owner_secret_key": owner_secret_key,
-            "target": {"kind": target.kind, "address": target.address},
-        })
-        _check(resp)
-        j = resp.json()
-        return PutResult(cost=j["cost"], address=j["address"])
-
-    def pointer_get(self, address: str) -> Pointer:
-        resp = self._http.get(f"/v1/pointers/{address}")
-        _check(resp)
-        j = resp.json()
-        return Pointer(
-            address=j["address"],
-            owner=j["owner"],
-            counter=j["counter"],
-            target=PointerTarget(kind=j["target"]["kind"], address=j["target"]["address"]),
-        )
-
-    def pointer_exists(self, address: str) -> bool:
-        resp = self._http.head(f"/v1/pointers/{address}")
-        if resp.status_code == 404:
-            return False
-        _check(resp)
-        return True
-
-    def pointer_update(self, owner_secret_key: str, target: PointerTarget) -> None:
-        resp = self._http.put(f"/v1/pointers/{owner_secret_key}", json={
-            "owner_secret_key": owner_secret_key,
-            "target": {"kind": target.kind, "address": target.address},
-        })
-        _check(resp)
-
-    def pointer_cost(self, public_key: str) -> str:
-        resp = self._http.post("/v1/pointers/cost", json={"public_key": public_key})
-        _check(resp)
-        return resp.json()["cost"]
-
-    # --- Scratchpads ---
-
-    def scratchpad_create(self, owner_secret_key: str, content_type: int, data: bytes) -> PutResult:
-        resp = self._http.post("/v1/scratchpads", json={
-            "owner_secret_key": owner_secret_key,
-            "content_type": content_type,
-            "data": _b64(data),
-        })
-        _check(resp)
-        j = resp.json()
-        return PutResult(cost=j["cost"], address=j["address"])
-
-    def scratchpad_get(self, address: str) -> Scratchpad:
-        resp = self._http.get(f"/v1/scratchpads/{address}")
-        _check(resp)
-        j = resp.json()
-        return Scratchpad(
-            address=j["address"],
-            data_encoding=j["data_encoding"],
-            data=_unb64(j["data"]),
-            counter=j["counter"],
-        )
-
-    def scratchpad_exists(self, address: str) -> bool:
-        resp = self._http.head(f"/v1/scratchpads/{address}")
-        if resp.status_code == 404:
-            return False
-        _check(resp)
-        return True
-
-    def scratchpad_update(self, owner_secret_key: str, content_type: int, data: bytes) -> None:
-        resp = self._http.put(f"/v1/scratchpads/{owner_secret_key}", json={
-            "owner_secret_key": owner_secret_key,
-            "content_type": content_type,
-            "data": _b64(data),
-        })
-        _check(resp)
-
-    def scratchpad_cost(self, public_key: str) -> str:
-        resp = self._http.post("/v1/scratchpads/cost", json={"public_key": public_key})
-        _check(resp)
-        return resp.json()["cost"]
-
     # --- Graph ---
 
     def graph_entry_put(self, owner_secret_key: str, parents: list[str], content: str,
@@ -230,61 +141,6 @@ class RestClient:
 
     def graph_entry_cost(self, public_key: str) -> str:
         resp = self._http.post("/v1/graph/cost", json={"public_key": public_key})
-        _check(resp)
-        return resp.json()["cost"]
-
-    # --- Registers ---
-
-    def register_create(self, owner_secret_key: str, initial_value: str) -> PutResult:
-        resp = self._http.post("/v1/registers", json={
-            "owner_secret_key": owner_secret_key,
-            "initial_value": initial_value,
-        })
-        _check(resp)
-        j = resp.json()
-        return PutResult(cost=j["cost"], address=j["address"])
-
-    def register_get(self, address: str) -> Register:
-        resp = self._http.get(f"/v1/registers/{address}")
-        _check(resp)
-        return Register(value=resp.json()["value"])
-
-    def register_update(self, owner_secret_key: str, new_value: str) -> PutResult:
-        resp = self._http.put(f"/v1/registers/{owner_secret_key}", json={
-            "owner_secret_key": owner_secret_key,
-            "new_value": new_value,
-        })
-        _check(resp)
-        j = resp.json()
-        return PutResult(cost=j["cost"], address="")
-
-    def register_cost(self, public_key: str) -> str:
-        resp = self._http.post("/v1/registers/cost", json={"public_key": public_key})
-        _check(resp)
-        return resp.json()["cost"]
-
-    # --- Vaults ---
-
-    def vault_get(self, secret_key: str) -> Vault:
-        resp = self._http.get("/v1/vaults", params={"secret_key": secret_key})
-        _check(resp)
-        j = resp.json()
-        return Vault(data=_unb64(j["data"]), content_type=j["content_type"])
-
-    def vault_put(self, secret_key: str, data: bytes, content_type: int) -> str:
-        resp = self._http.post("/v1/vaults", json={
-            "secret_key": secret_key,
-            "data": _b64(data),
-            "content_type": content_type,
-        })
-        _check(resp)
-        return resp.json()["cost"]
-
-    def vault_cost(self, secret_key: str, max_size: int) -> str:
-        resp = self._http.post("/v1/vaults/cost", json={
-            "secret_key": secret_key,
-            "max_size": max_size,
-        })
         _check(resp)
         return resp.json()["cost"]
 
@@ -417,90 +273,6 @@ class AsyncRestClient:
         _check(resp)
         return _unb64(resp.json()["data"])
 
-    # --- Pointers ---
-
-    async def pointer_create(self, owner_secret_key: str, target: PointerTarget) -> PutResult:
-        resp = await self._http.post("/v1/pointers", json={
-            "owner_secret_key": owner_secret_key,
-            "target": {"kind": target.kind, "address": target.address},
-        })
-        _check(resp)
-        j = resp.json()
-        return PutResult(cost=j["cost"], address=j["address"])
-
-    async def pointer_get(self, address: str) -> Pointer:
-        resp = await self._http.get(f"/v1/pointers/{address}")
-        _check(resp)
-        j = resp.json()
-        return Pointer(
-            address=j["address"],
-            owner=j["owner"],
-            counter=j["counter"],
-            target=PointerTarget(kind=j["target"]["kind"], address=j["target"]["address"]),
-        )
-
-    async def pointer_exists(self, address: str) -> bool:
-        resp = await self._http.head(f"/v1/pointers/{address}")
-        if resp.status_code == 404:
-            return False
-        _check(resp)
-        return True
-
-    async def pointer_update(self, owner_secret_key: str, target: PointerTarget) -> None:
-        resp = await self._http.put(f"/v1/pointers/{owner_secret_key}", json={
-            "owner_secret_key": owner_secret_key,
-            "target": {"kind": target.kind, "address": target.address},
-        })
-        _check(resp)
-
-    async def pointer_cost(self, public_key: str) -> str:
-        resp = await self._http.post("/v1/pointers/cost", json={"public_key": public_key})
-        _check(resp)
-        return resp.json()["cost"]
-
-    # --- Scratchpads ---
-
-    async def scratchpad_create(self, owner_secret_key: str, content_type: int, data: bytes) -> PutResult:
-        resp = await self._http.post("/v1/scratchpads", json={
-            "owner_secret_key": owner_secret_key,
-            "content_type": content_type,
-            "data": _b64(data),
-        })
-        _check(resp)
-        j = resp.json()
-        return PutResult(cost=j["cost"], address=j["address"])
-
-    async def scratchpad_get(self, address: str) -> Scratchpad:
-        resp = await self._http.get(f"/v1/scratchpads/{address}")
-        _check(resp)
-        j = resp.json()
-        return Scratchpad(
-            address=j["address"],
-            data_encoding=j["data_encoding"],
-            data=_unb64(j["data"]),
-            counter=j["counter"],
-        )
-
-    async def scratchpad_exists(self, address: str) -> bool:
-        resp = await self._http.head(f"/v1/scratchpads/{address}")
-        if resp.status_code == 404:
-            return False
-        _check(resp)
-        return True
-
-    async def scratchpad_update(self, owner_secret_key: str, content_type: int, data: bytes) -> None:
-        resp = await self._http.put(f"/v1/scratchpads/{owner_secret_key}", json={
-            "owner_secret_key": owner_secret_key,
-            "content_type": content_type,
-            "data": _b64(data),
-        })
-        _check(resp)
-
-    async def scratchpad_cost(self, public_key: str) -> str:
-        resp = await self._http.post("/v1/scratchpads/cost", json={"public_key": public_key})
-        _check(resp)
-        return resp.json()["cost"]
-
     # --- Graph ---
 
     async def graph_entry_put(self, owner_secret_key: str, parents: list[str], content: str,
@@ -536,61 +308,6 @@ class AsyncRestClient:
 
     async def graph_entry_cost(self, public_key: str) -> str:
         resp = await self._http.post("/v1/graph/cost", json={"public_key": public_key})
-        _check(resp)
-        return resp.json()["cost"]
-
-    # --- Registers ---
-
-    async def register_create(self, owner_secret_key: str, initial_value: str) -> PutResult:
-        resp = await self._http.post("/v1/registers", json={
-            "owner_secret_key": owner_secret_key,
-            "initial_value": initial_value,
-        })
-        _check(resp)
-        j = resp.json()
-        return PutResult(cost=j["cost"], address=j["address"])
-
-    async def register_get(self, address: str) -> Register:
-        resp = await self._http.get(f"/v1/registers/{address}")
-        _check(resp)
-        return Register(value=resp.json()["value"])
-
-    async def register_update(self, owner_secret_key: str, new_value: str) -> PutResult:
-        resp = await self._http.put(f"/v1/registers/{owner_secret_key}", json={
-            "owner_secret_key": owner_secret_key,
-            "new_value": new_value,
-        })
-        _check(resp)
-        j = resp.json()
-        return PutResult(cost=j["cost"], address="")
-
-    async def register_cost(self, public_key: str) -> str:
-        resp = await self._http.post("/v1/registers/cost", json={"public_key": public_key})
-        _check(resp)
-        return resp.json()["cost"]
-
-    # --- Vaults ---
-
-    async def vault_get(self, secret_key: str) -> Vault:
-        resp = await self._http.get("/v1/vaults", params={"secret_key": secret_key})
-        _check(resp)
-        j = resp.json()
-        return Vault(data=_unb64(j["data"]), content_type=j["content_type"])
-
-    async def vault_put(self, secret_key: str, data: bytes, content_type: int) -> str:
-        resp = await self._http.post("/v1/vaults", json={
-            "secret_key": secret_key,
-            "data": _b64(data),
-            "content_type": content_type,
-        })
-        _check(resp)
-        return resp.json()["cost"]
-
-    async def vault_cost(self, secret_key: str, max_size: int) -> str:
-        resp = await self._http.post("/v1/vaults/cost", json={
-            "secret_key": secret_key,
-            "max_size": max_size,
-        })
         _check(resp)
         return resp.json()["cost"]
 

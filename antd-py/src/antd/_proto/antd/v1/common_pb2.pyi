@@ -28,14 +28,6 @@ class SecretKeyProto(_message.Message):
     hex: str
     def __init__(self, hex: _Optional[str] = ...) -> None: ...
 
-class PointerTarget(_message.Message):
-    __slots__ = ("kind", "address")
-    KIND_FIELD_NUMBER: _ClassVar[int]
-    ADDRESS_FIELD_NUMBER: _ClassVar[int]
-    kind: str
-    address: str
-    def __init__(self, kind: _Optional[str] = ..., address: _Optional[str] = ...) -> None: ...
-
 class GraphDescendant(_message.Message):
     __slots__ = ("public_key", "content")
     PUBLIC_KEY_FIELD_NUMBER: _ClassVar[int]

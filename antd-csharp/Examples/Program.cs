@@ -16,26 +16,18 @@ class Program
             case "2": await Example02_Data(); break;
             case "3": await Example03_Chunks(); break;
             case "4": await Example04_Files(); break;
-            case "5": await Example05_Pointers(); break;
-            case "6": await Example06_Scratchpads(); break;
-            case "7": await Example07_Graph(); break;
-            case "8": await Example08_Registers(); break;
-            case "9": await Example09_Vaults(); break;
-            case "10": await Example10_PrivateData(); break;
+            case "5": await Example05_Graph(); break;
+            case "6": await Example06_PrivateData(); break;
             case "all":
                 await Example01_Connect();
                 await Example02_Data();
                 await Example03_Chunks();
                 await Example04_Files();
-                await Example05_Pointers();
-                await Example06_Scratchpads();
-                await Example07_Graph();
-                await Example08_Registers();
-                await Example09_Vaults();
-                await Example10_PrivateData();
+                await Example05_Graph();
+                await Example06_PrivateData();
                 break;
             default:
-                Console.WriteLine($"Unknown example: {example}. Use 1-10 or 'all'.");
+                Console.WriteLine($"Unknown example: {example}. Use 1-6 or 'all'.");
                 break;
         }
     }
@@ -143,85 +135,10 @@ class Program
         Console.WriteLine("File upload/download OK!\n");
     }
 
-    /// <summary>Example 05: Create, read, and update mutable pointers.</summary>
-    static async Task Example05_Pointers()
+    /// <summary>Example 05: Graph entry (DAG node) operations.</summary>
+    static async Task Example05_Graph()
     {
-        Console.WriteLine("=== Example 05: Pointers ===");
-        using var client = AntdClient.CreateRest();
-
-        var secretKey = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLower();
-
-        // Store data to point to
-        var dataV1 = await client.DataPutPublicAsync(Encoding.UTF8.GetBytes("version 1"));
-        var dataV2 = await client.DataPutPublicAsync(Encoding.UTF8.GetBytes("version 2"));
-
-        // Create pointer to v1
-        var targetV1 = new PointerTarget("chunk", dataV1.Address);
-        var ptr = await client.PointerCreateAsync(secretKey, targetV1);
-        Console.WriteLine($"Pointer created at: {ptr.Address}");
-
-        // Read
-        var pointer = await client.PointerGetAsync(ptr.Address);
-        Console.WriteLine($"Points to: {pointer.Target.Kind} @ {pointer.Target.Address}");
-        Console.WriteLine($"Counter: {pointer.Counter}");
-
-        // Check existence
-        var exists = await client.PointerExistsAsync(ptr.Address);
-        Console.WriteLine($"Pointer exists: {exists}");
-
-        // Update to v2
-        var targetV2 = new PointerTarget("chunk", dataV2.Address);
-        await client.PointerUpdateAsync(secretKey, targetV2);
-        Console.WriteLine("Pointer updated to v2");
-
-        // Read again
-        pointer = await client.PointerGetAsync(ptr.Address);
-        Console.WriteLine($"Now points to: {pointer.Target.Address}");
-
-        Console.WriteLine("Pointer CRUD OK!\n");
-    }
-
-    /// <summary>Example 06: Create, read, and update versioned scratchpads.</summary>
-    static async Task Example06_Scratchpads()
-    {
-        Console.WriteLine("=== Example 06: Scratchpads ===");
-        using var client = AntdClient.CreateRest();
-
-        var secretKey = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLower();
-
-        // Create
-        var initialData = Encoding.UTF8.GetBytes("scratchpad v1 data");
-        ulong contentType = 1;
-        var result = await client.ScratchpadCreateAsync(secretKey, contentType, initialData);
-        Console.WriteLine($"Scratchpad created at: {result.Address}");
-        Console.WriteLine($"Cost: {result.Cost} atto tokens");
-
-        // Read
-        var pad = await client.ScratchpadGetAsync(result.Address);
-        Console.WriteLine($"Data encoding: {pad.DataEncoding}");
-        Console.WriteLine($"Counter: {pad.Counter}");
-        Console.WriteLine($"Data length: {pad.Data.Length} bytes");
-
-        // Check existence
-        var exists = await client.ScratchpadExistsAsync(result.Address);
-        Console.WriteLine($"Scratchpad exists: {exists}");
-
-        // Update
-        var updatedData = Encoding.UTF8.GetBytes("scratchpad v2 data");
-        await client.ScratchpadUpdateAsync(secretKey, contentType, updatedData);
-        Console.WriteLine("Scratchpad updated");
-
-        // Read again
-        pad = await client.ScratchpadGetAsync(result.Address);
-        Console.WriteLine($"Counter after update: {pad.Counter}");
-
-        Console.WriteLine("Scratchpad CRUD OK!\n");
-    }
-
-    /// <summary>Example 07: Graph entry (DAG node) operations.</summary>
-    static async Task Example07_Graph()
-    {
-        Console.WriteLine("=== Example 07: Graph ===");
+        Console.WriteLine("=== Example 05: Graph ===");
         using var client = AntdClient.CreateRest();
 
         var secretKey = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLower();
@@ -255,67 +172,10 @@ class Program
         Console.WriteLine("Graph entry operations OK!\n");
     }
 
-    /// <summary>Example 08: Register create, read, and update.</summary>
-    static async Task Example08_Registers()
+    /// <summary>Example 06: Private (encrypted) data round-trip.</summary>
+    static async Task Example06_PrivateData()
     {
-        Console.WriteLine("=== Example 08: Registers ===");
-        using var client = AntdClient.CreateRest();
-
-        var secretKey = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLower();
-
-        // Create with initial value (32 zero bytes)
-        var initialValue = new string('0', 64);
-        var result = await client.RegisterCreateAsync(secretKey, initialValue);
-        Console.WriteLine($"Register created at: {result.Address}");
-        Console.WriteLine($"Cost: {result.Cost} atto tokens");
-
-        // Read
-        var reg = await client.RegisterGetAsync(result.Address);
-        Console.WriteLine($"Current value: {reg.Value}");
-
-        // Update
-        var newValue = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLower();
-        var updateResult = await client.RegisterUpdateAsync(secretKey, newValue);
-        Console.WriteLine($"Update cost: {updateResult.Cost} atto tokens");
-
-        // Read again
-        reg = await client.RegisterGetAsync(result.Address);
-        Console.WriteLine($"Updated value: {reg.Value}");
-
-        Console.WriteLine("Register CRUD OK!\n");
-    }
-
-    /// <summary>Example 09: Vault store and retrieve.</summary>
-    static async Task Example09_Vaults()
-    {
-        Console.WriteLine("=== Example 09: Vaults ===");
-        using var client = AntdClient.CreateRest();
-
-        var secretKey = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLower();
-
-        // Store
-        var payload = Encoding.UTF8.GetBytes("Secret vault data that is encrypted");
-        ulong contentType = 42;
-        var cost = await client.VaultPutAsync(secretKey, payload, contentType);
-        Console.WriteLine($"Vault store cost: {cost} atto tokens");
-
-        // Retrieve
-        var vault = await client.VaultGetAsync(secretKey);
-        Console.WriteLine($"Content type: {vault.ContentType}");
-        Console.WriteLine($"Data: {Encoding.UTF8.GetString(vault.Data)}");
-
-        if (!vault.Data.SequenceEqual(payload))
-            throw new Exception("Vault round-trip mismatch!");
-        if (vault.ContentType != contentType)
-            throw new Exception("Content type mismatch!");
-
-        Console.WriteLine("Vault round-trip OK!\n");
-    }
-
-    /// <summary>Example 10: Private (encrypted) data round-trip.</summary>
-    static async Task Example10_PrivateData()
-    {
-        Console.WriteLine("=== Example 10: Private Data ===");
+        Console.WriteLine("=== Example 06: Private Data ===");
         using var client = AntdClient.CreateRest();
 
         var secretMessage = Encoding.UTF8.GetBytes("This message is encrypted on the network");

@@ -522,6 +522,4 @@ do {
 
 ## Next Steps
 
-- [Tutorial: Build a Key-Value Store](tutorial-key-value-store.md) — Mutable data with registers and pointers
-- [Tutorial: Mutable Configuration](tutorial-mutable-config.md) — Pointers and scratchpads for app config
 - [Architecture Guide](architecture.md) — Understand the full data model

@@ -12,28 +12,6 @@ type PutResult struct {
 	Address string `json:"address"` // hex
 }
 
-// PointerTarget is a reference target for a pointer.
-type PointerTarget struct {
-	Kind    string `json:"kind"`    // "chunk", "graph_entry", "pointer", "scratchpad"
-	Address string `json:"address"` // hex
-}
-
-// Pointer is a mutable reference record from the network.
-type Pointer struct {
-	Address string        `json:"address"`
-	Owner   string        `json:"owner"`
-	Counter int           `json:"counter"`
-	Target  PointerTarget `json:"target"`
-}
-
-// Scratchpad is a versioned mutable record from the network.
-type Scratchpad struct {
-	Address      string `json:"address"`
-	DataEncoding int    `json:"data_encoding"`
-	Data         []byte `json:"data"`
-	Counter      int    `json:"counter"`
-}
-
 // GraphDescendant is a descendant entry in a graph node.
 type GraphDescendant struct {
 	PublicKey string `json:"public_key"` // hex
@@ -46,17 +24,6 @@ type GraphEntry struct {
 	Parents     []string          `json:"parents"`
 	Content     string            `json:"content"`
 	Descendants []GraphDescendant `json:"descendants"`
-}
-
-// Register is a 32-byte mutable value from the network.
-type Register struct {
-	Value string `json:"value"` // hex, 32 bytes
-}
-
-// Vault is an encrypted key-value record from the network.
-type Vault struct {
-	Data        []byte `json:"data"`
-	ContentType int    `json:"content_type"`
 }
 
 // ArchiveEntry is a single entry in a file archive.

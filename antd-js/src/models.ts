@@ -10,28 +10,6 @@ export interface PutResult {
   address: string; // hex
 }
 
-/** Target reference for a pointer. */
-export interface PointerTarget {
-  kind: "chunk" | "graph_entry" | "pointer" | "scratchpad";
-  address: string; // hex
-}
-
-/** A pointer record from the network. */
-export interface Pointer {
-  address: string;
-  owner: string;
-  counter: number;
-  target: PointerTarget;
-}
-
-/** A scratchpad record from the network. */
-export interface Scratchpad {
-  address: string;
-  dataEncoding: number;
-  data: Buffer;
-  counter: number;
-}
-
 /** A descendant entry in a graph node. */
 export interface GraphDescendant {
   publicKey: string; // hex
@@ -44,17 +22,6 @@ export interface GraphEntry {
   parents: string[];
   content: string;
   descendants: GraphDescendant[];
-}
-
-/** A register value from the network. */
-export interface Register {
-  value: string; // hex, 32 bytes
-}
-
-/** A vault record from the network. */
-export interface Vault {
-  data: Buffer;
-  contentType: number;
 }
 
 /** An entry in a file archive. */

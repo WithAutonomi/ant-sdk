@@ -5,12 +5,7 @@ import type {
   GraphDescendant,
   GraphEntry,
   HealthStatus,
-  Pointer,
-  PointerTarget,
   PutResult,
-  Register,
-  Scratchpad,
-  Vault,
 } from "./models.js";
 
 /** Options for creating a REST client. */
@@ -82,17 +77,6 @@ export class RestClient {
     const resp = await this.request("POST", path, { json: body });
     await this.check(resp);
     return (await resp.json()) as T;
-  }
-
-  private async putJson<T>(path: string, body: unknown): Promise<T> {
-    const resp = await this.request("PUT", path, { json: body });
-    await this.check(resp);
-    return (await resp.json()) as T;
-  }
-
-  private async putJsonNoResult(path: string, body: unknown): Promise<void> {
-    const resp = await this.request("PUT", path, { json: body });
-    await this.check(resp);
   }
 
   private async postJsonNoResult(path: string, body: unknown): Promise<void> {
@@ -169,105 +153,6 @@ export class RestClient {
     return RestClient.unb64(j.data);
   }
 
-  // ---- Pointers ----
-
-  async pointerCreate(ownerSecretKey: string, target: PointerTarget): Promise<PutResult> {
-    const j = await this.postJson<{ cost: string; address: string }>("/v1/pointers", {
-      owner_secret_key: ownerSecretKey,
-      target: { kind: target.kind, address: target.address },
-    });
-    return { cost: j.cost, address: j.address };
-  }
-
-  async pointerGet(address: string): Promise<Pointer> {
-    const j = await this.getJson<{
-      address: string;
-      owner: string;
-      counter: number;
-      target: { kind: string; address: string };
-    }>(`/v1/pointers/${address}`);
-    return {
-      address: j.address,
-      owner: j.owner,
-      counter: j.counter,
-      target: {
-        kind: j.target.kind as PointerTarget["kind"],
-        address: j.target.address,
-      },
-    };
-  }
-
-  async pointerExists(address: string): Promise<boolean> {
-    return this.headExists(`/v1/pointers/${address}`);
-  }
-
-  async pointerUpdate(ownerSecretKey: string, target: PointerTarget): Promise<void> {
-    await this.putJsonNoResult(`/v1/pointers/${ownerSecretKey}`, {
-      owner_secret_key: ownerSecretKey,
-      target: { kind: target.kind, address: target.address },
-    });
-  }
-
-  async pointerCost(publicKey: string): Promise<string> {
-    const j = await this.postJson<{ cost: string }>("/v1/pointers/cost", {
-      public_key: publicKey,
-    });
-    return j.cost;
-  }
-
-  // ---- Scratchpads ----
-
-  async scratchpadCreate(
-    ownerSecretKey: string,
-    contentType: number,
-    data: Buffer,
-  ): Promise<PutResult> {
-    const j = await this.postJson<{ cost: string; address: string }>("/v1/scratchpads", {
-      owner_secret_key: ownerSecretKey,
-      content_type: contentType,
-      data: RestClient.b64(data),
-    });
-    return { cost: j.cost, address: j.address };
-  }
-
-  async scratchpadGet(address: string): Promise<Scratchpad> {
-    const j = await this.getJson<{
-      address: string;
-      data_encoding: number;
-      data: string;
-      counter: number;
-    }>(`/v1/scratchpads/${address}`);
-    return {
-      address: j.address,
-      dataEncoding: j.data_encoding,
-      data: RestClient.unb64(j.data),
-      counter: j.counter,
-    };
-  }
-
-  async scratchpadExists(address: string): Promise<boolean> {
-    return this.headExists(`/v1/scratchpads/${address}`);
-  }
-
-  async scratchpadUpdate(
-    ownerSecretKey: string,
-    contentType: number,
-    data: Buffer,
-  ): Promise<void> {
-    await this.putJsonNoResult(`/v1/scratchpads/${ownerSecretKey}`, {
-      owner_secret_key: ownerSecretKey,
-      content_type: contentType,
-      data: RestClient.b64(data),
-    });
-  }
-
-  async scratchpadCost(publicKey: string): Promise<string> {
-    const j = await this.postJson<{ cost: string }>("/v1/scratchpads/cost", {
-      public_key: publicKey,
-    });
-    return j.cost;
-  }
-
   // ---- Graph ----
 
   async graphEntryPut(
@@ -313,62 +198,6 @@ export class RestClient {
   async graphEntryCost(publicKey: string): Promise<string> {
     const j = await this.postJson<{ cost: string }>("/v1/graph/cost", {
       public_key: publicKey,
-    });
-    return j.cost;
-  }
-
-  // ---- Registers ----
-
-  async registerCreate(ownerSecretKey: string, initialValue: string): Promise<PutResult> {
-    const j = await this.postJson<{ cost: string; address: string }>("/v1/registers", {
-      owner_secret_key: ownerSecretKey,
-      initial_value: initialValue,
-    });
-    return { cost: j.cost, address: j.address };
-  }
-
-  async registerGet(address: string): Promise<Register> {
-    const j = await this.getJson<{ value: string }>(`/v1/registers/${address}`);
-    return { value: j.value };
-  }
-
-  async registerUpdate(ownerSecretKey: string, newValue: string): Promise<PutResult> {
-    const j = await this.putJson<{ cost: string }>(`/v1/registers/${ownerSecretKey}`, {
-      owner_secret_key: ownerSecretKey,
-      new_value: newValue,
-    });
-    return { cost: j.cost, address: "" };
-  }
-
-  async registerCost(publicKey: string): Promise<string> {
-    const j = await this.postJson<{ cost: string }>("/v1/registers/cost", {
-      public_key: publicKey,
-    });
-    return j.cost;
-  }
-
-  // ---- Vaults ----
-
-  async vaultGet(secretKey: string): Promise<Vault> {
-    const j = await this.getJson<{ data: string; content_type: number }>("/v1/vaults", {
-      secret_key: secretKey,
-    });
-    return { data: RestClient.unb64(j.data), contentType: j.content_type };
-  }
-
-  async vaultPut(secretKey: string, data: Buffer, contentType: number): Promise<string> {
-    const j = await this.postJson<{ cost: string }>("/v1/vaults", {
-      secret_key: secretKey,
-      data: RestClient.b64(data),
-      content_type: contentType,
-    });
-    return j.cost;
-  }
-
-  async vaultCost(secretKey: string, maxSize: number): Promise<string> {
-    const j = await this.postJson<{ cost: string }>("/v1/vaults/cost", {
-      secret_key: secretKey,
-      max_size: maxSize,
     });
     return j.cost;
   }

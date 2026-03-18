@@ -12,11 +12,7 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
     private val healthStub = HealthServiceGrpcKt.HealthServiceCoroutineStub(channel)
     private val dataStub = DataServiceGrpcKt.DataServiceCoroutineStub(channel)
     private val chunkStub = ChunkServiceGrpcKt.ChunkServiceCoroutineStub(channel)
-    private val pointerStub = PointerServiceGrpcKt.PointerServiceCoroutineStub(channel)
-    private val scratchpadStub = ScratchpadServiceGrpcKt.ScratchpadServiceCoroutineStub(channel)
     private val graphStub = GraphServiceGrpcKt.GraphServiceCoroutineStub(channel)
-    private val registerStub = RegisterServiceGrpcKt.RegisterServiceCoroutineStub(channel)
-    private val vaultStub = VaultServiceGrpcKt.VaultServiceCoroutineStub(channel)
     private val fileStub = FileServiceGrpcKt.FileServiceCoroutineStub(channel)
 
     override fun close() {
@@ -79,78 +75,6 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
         resp.data.toByteArray()
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
-    // ── Pointers ──
-
-    override suspend fun pointerCreate(ownerSecretKey: String, target: PointerTarget): PutResult = try {
-        val resp = pointerStub.create(createPointerRequest {
-            this.ownerSecretKey = ownerSecretKey
-            this.target = pointerTarget { kind = target.kind; address = target.address }
-        })
-        PutResult(resp.cost.attoTokens, resp.address)
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
-    override suspend fun pointerGet(address: String): Pointer = try {
-        val resp = pointerStub.get(getPointerRequest { this.address = address })
-        Pointer(resp.address, resp.owner, resp.counter.toULong(), PointerTarget(resp.target.kind, resp.target.address))
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
-    override suspend fun pointerExists(address: String): Boolean = try {
-        val resp = pointerStub.checkExistence(checkPointerRequest { this.address = address })
-        resp.exists
-    } catch (ex: StatusRuntimeException) {
-        if (ex.status.code == Status.Code.NOT_FOUND) false else throw wrap(ex)
-    }
-
-    override suspend fun pointerUpdate(ownerSecretKey: String, target: PointerTarget) = try {
-        pointerStub.update(updatePointerRequest {
-            this.ownerSecretKey = ownerSecretKey
-            this.target = pointerTarget { kind = target.kind; address = target.address }
-        })
-        Unit
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
-    override suspend fun pointerCost(publicKey: String): String = try {
-        val resp = pointerStub.getCost(pointerCostRequest { this.publicKey = publicKey })
-        resp.attoTokens
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
-    // ── Scratchpads ──
-
-    override suspend fun scratchpadCreate(ownerSecretKey: String, contentType: ULong, data: ByteArray): PutResult = try {
-        val resp = scratchpadStub.create(createScratchpadRequest {
-            this.ownerSecretKey = ownerSecretKey
-            this.contentType = contentType.toLong()
-            this.data = ByteString.copyFrom(data)
-        })
-        PutResult(resp.cost.attoTokens, resp.address)
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
-    override suspend fun scratchpadGet(address: String): ScratchpadRecord = try {
-        val resp = scratchpadStub.get(getScratchpadRequest { this.address = address })
-        ScratchpadRecord(resp.address, resp.dataEncoding.toULong(), resp.data.toByteArray(), resp.counter.toULong())
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
-    override suspend fun scratchpadExists(address: String): Boolean = try {
-        val resp = scratchpadStub.checkExistence(checkScratchpadRequest { this.address = address })
-        resp.exists
-    } catch (ex: StatusRuntimeException) {
-        if (ex.status.code == Status.Code.NOT_FOUND) false else throw wrap(ex)
-    }
-
-    override suspend fun scratchpadUpdate(ownerSecretKey: String, contentType: ULong, data: ByteArray) = try {
-        scratchpadStub.update(updateScratchpadRequest {
-            this.ownerSecretKey = ownerSecretKey
-            this.contentType = contentType.toLong()
-            this.data = ByteString.copyFrom(data)
-        })
-        Unit
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
-    override suspend fun scratchpadCost(publicKey: String): String = try {
-        val resp = scratchpadStub.getCost(scratchpadCostRequest { this.publicKey = publicKey })
-        resp.attoTokens
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
     // ── Graph ──
 
     override suspend fun graphEntryPut(
@@ -185,58 +109,6 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
 
     override suspend fun graphEntryCost(publicKey: String): String = try {
         val resp = graphStub.getCost(graphEntryCostRequest { this.publicKey = publicKey })
-        resp.attoTokens
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
-    // ── Registers ──
-
-    override suspend fun registerCreate(ownerSecretKey: String, initialValue: String): PutResult = try {
-        val resp = registerStub.create(createRegisterRequest {
-            this.ownerSecretKey = ownerSecretKey
-            this.initialValue = initialValue
-        })
-        PutResult(resp.cost.attoTokens, resp.address)
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
-    override suspend fun registerGet(address: String): Register = try {
-        val resp = registerStub.get(getRegisterRequest { this.address = address })
-        Register(resp.value)
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
-    override suspend fun registerUpdate(ownerSecretKey: String, newValue: String): PutResult = try {
-        val resp = registerStub.update(updateRegisterRequest {
-            this.ownerSecretKey = ownerSecretKey
-            this.newValue = newValue
-        })
-        PutResult(resp.cost.attoTokens, "")
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
-    override suspend fun registerCost(publicKey: String): String = try {
-        val resp = registerStub.getCost(registerCostRequest { this.publicKey = publicKey })
-        resp.attoTokens
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
-    // ── Vaults ──
-
-    override suspend fun vaultGet(secretKey: String): Vault = try {
-        val resp = vaultStub.get(getVaultRequest { this.secretKey = secretKey })
-        Vault(resp.data.toByteArray(), resp.contentType.toULong())
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
-    override suspend fun vaultPut(secretKey: String, data: ByteArray, contentType: ULong): String = try {
-        val resp = vaultStub.put(putVaultRequest {
-            this.secretKey = secretKey
-            this.data = ByteString.copyFrom(data)
-            this.contentType = contentType.toLong()
-        })
-        resp.cost.attoTokens
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
-    override suspend fun vaultCost(secretKey: String, maxSize: ULong): String = try {
-        val resp = vaultStub.getCost(vaultCostRequest {
-            this.secretKey = secretKey
-            this.maxSize = maxSize.toLong()
-        })
         resp.attoTokens
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 

@@ -141,7 +141,7 @@ Write-Host ""
 # ══════════════════════════════════════════════════════════════════════
 # Test 01: Health Check
 # ══════════════════════════════════════════════════════════════════════
-Write-Host "[01/10] Health Check" -ForegroundColor Yellow
+Write-Host "[01/06] Health Check" -ForegroundColor Yellow
 
 $health = Api-Get "/health"
 Assert-Eq "status is ok" "ok" $health.status
@@ -152,7 +152,7 @@ Write-Host "       Network: $($health.network)" -ForegroundColor Gray
 # Test 02: Public Data - store, cost estimate, retrieve, round-trip
 # ══════════════════════════════════════════════════════════════════════
 Write-Host ""
-Write-Host "[02/10] Public Data" -ForegroundColor Yellow
+Write-Host "[02/06] Public Data" -ForegroundColor Yellow
 
 $dataPayload = "Hello, Autonomi network!"
 $dataB64 = B64Encode $dataPayload
@@ -179,7 +179,7 @@ Assert-Eq "round-trip matches" $dataPayload $gotText
 # Test 03: Raw Chunks - store and retrieve
 # ══════════════════════════════════════════════════════════════════════
 Write-Host ""
-Write-Host "[03/10] Chunks" -ForegroundColor Yellow
+Write-Host "[03/06] Chunks" -ForegroundColor Yellow
 
 $chunkPayload = "Raw chunk content for direct storage"
 $chunkB64 = B64Encode $chunkPayload
@@ -198,7 +198,7 @@ Assert-Eq "chunk round-trip matches" $chunkPayload $chunkGot
 # Test 04: Files - upload and download
 # ══════════════════════════════════════════════════════════════════════
 Write-Host ""
-Write-Host "[04/10] Files" -ForegroundColor Yellow
+Write-Host "[04/06] Files" -ForegroundColor Yellow
 
 $srcFile = [System.IO.Path]::GetTempFileName()
 Set-Content -Path $srcFile -Value "Hello from a file on Autonomi!" -NoNewline
@@ -231,83 +231,10 @@ if (Test-Path $destFile) {
 Remove-Item $srcFile -Force
 
 # ══════════════════════════════════════════════════════════════════════
-# Test 05: Pointers - create, read, exists, update
+# Test 05: Graph Entries - create, read, exists, cost
 # ══════════════════════════════════════════════════════════════════════
 Write-Host ""
-Write-Host "[05/10] Pointers" -ForegroundColor Yellow
-
-$ptrKey = RandomSecretKey
-
-# Store two data versions
-$v1B64 = B64Encode "version 1"
-$v2B64 = B64Encode "version 2"
-
-$v1Resp = Api-Post "/v1/data/public" "{`"data`": `"$v1B64`"}"
-$v2Resp = Api-Post "/v1/data/public" "{`"data`": `"$v2B64`"}"
-
-# Create pointer to v1
-$ptrBody = "{`"owner_secret_key`": `"$ptrKey`", `"target`": {`"kind`": `"chunk`", `"address`": `"$($v1Resp.address)`"}}"
-$ptrCreate = Api-Post "/v1/pointers" $ptrBody
-Assert-NotEmpty "pointer address returned" $ptrCreate.address
-Assert-NotEmpty "pointer cost returned" $ptrCreate.cost
-
-# Read
-$ptrGet = Api-Get "/v1/pointers/$($ptrCreate.address)"
-Assert-Eq "pointer target is v1" $v1Resp.address $ptrGet.target.address
-Assert-Eq "pointer kind is chunk" "chunk" $ptrGet.target.kind
-Assert-NotEmpty "pointer counter returned" "$($ptrGet.counter)"
-
-# Check existence (HEAD)
-$headStatus = Api-Head "/v1/pointers/$($ptrCreate.address)"
-Assert-Status "pointer exists (HEAD)" 200 $headStatus
-
-# Update to v2
-$updBody = "{`"owner_secret_key`": `"$ptrKey`", `"target`": {`"kind`": `"chunk`", `"address`": `"$($v2Resp.address)`"}}"
-Api-Put "/v1/pointers/$ptrKey" $updBody | Out-Null
-
-# Read again
-$ptrGet2 = Api-Get "/v1/pointers/$($ptrCreate.address)"
-Assert-Eq "pointer now targets v2" $v2Resp.address $ptrGet2.target.address
-
-# ══════════════════════════════════════════════════════════════════════
-# Test 06: Scratchpads - create, read, exists, update
-# ══════════════════════════════════════════════════════════════════════
-Write-Host ""
-Write-Host "[06/10] Scratchpads" -ForegroundColor Yellow
-
-$padKey = RandomSecretKey
-$padDataV1 = B64Encode "scratchpad v1 data"
-$padDataV2 = B64Encode "scratchpad v2 data"
-
-# Create
-$padBody = "{`"owner_secret_key`": `"$padKey`", `"content_type`": 1, `"data`": `"$padDataV1`"}"
-$padCreate = Api-Post "/v1/scratchpads" $padBody
-Assert-NotEmpty "scratchpad address returned" $padCreate.address
-Assert-NotEmpty "scratchpad cost returned" $padCreate.cost
-
-# Read
-$padGet = Api-Get "/v1/scratchpads/$($padCreate.address)"
-Assert-NotEmpty "scratchpad counter returned" "$($padGet.counter)"
-Assert-NotEmpty "scratchpad data_encoding returned" "$($padGet.data_encoding)"
-
-# Check existence (HEAD)
-$padHeadStatus = Api-Head "/v1/scratchpads/$($padCreate.address)"
-Assert-Status "scratchpad exists (HEAD)" 200 $padHeadStatus
-
-# Update
-$padUpdBody = "{`"owner_secret_key`": `"$padKey`", `"content_type`": 1, `"data`": `"$padDataV2`"}"
-Api-Put "/v1/scratchpads/$padKey" $padUpdBody | Out-Null
-
-# Read again
-$padGet2 = Api-Get "/v1/scratchpads/$($padCreate.address)"
-Assert-NotEmpty "scratchpad counter after update" "$($padGet2.counter)"
-Write-Host "       Counter: $($padGet.counter) -> $($padGet2.counter)" -ForegroundColor Gray
-
-# ══════════════════════════════════════════════════════════════════════
-# Test 07: Graph Entries - create, read, exists, cost
-# ══════════════════════════════════════════════════════════════════════
-Write-Host ""
-Write-Host "[07/10] Graph Entries" -ForegroundColor Yellow
+Write-Host "[05/06] Graph Entries" -ForegroundColor Yellow
 
 $graphKey = RandomSecretKey
 $graphContent = RandomHex 32
@@ -333,61 +260,10 @@ $graphCostResp = Api-Post "/v1/graph/cost" "{`"public_key`": `"$($graphGet.owner
 Assert-NotEmpty "graph entry cost estimate returned" $graphCostResp.cost
 
 # ══════════════════════════════════════════════════════════════════════
-# Test 08: Registers - create, read, update
+# Test 06: Private Data - store and retrieve
 # ══════════════════════════════════════════════════════════════════════
 Write-Host ""
-Write-Host "[08/10] Registers" -ForegroundColor Yellow
-
-$regKey = RandomSecretKey
-$regInitial = "0" * 64  # 32 zero bytes
-$regNewValue = RandomHex 32
-
-# Create
-$regBody = "{`"owner_secret_key`": `"$regKey`", `"initial_value`": `"$regInitial`"}"
-$regCreate = Api-Post "/v1/registers" $regBody
-Assert-NotEmpty "register address returned" $regCreate.address
-Assert-NotEmpty "register cost returned" $regCreate.cost
-
-# Read
-$regGet = Api-Get "/v1/registers/$($regCreate.address)"
-Assert-Eq "register initial value matches" $regInitial $regGet.value
-
-# Update
-$regUpdBody = "{`"owner_secret_key`": `"$regKey`", `"new_value`": `"$regNewValue`"}"
-$regUpd = Api-Put "/v1/registers/$regKey" $regUpdBody
-Assert-NotEmpty "register update cost returned" $regUpd.cost
-
-# Read again
-$regGet2 = Api-Get "/v1/registers/$($regCreate.address)"
-Assert-Eq "register updated value matches" $regNewValue $regGet2.value
-
-# ══════════════════════════════════════════════════════════════════════
-# Test 09: Vaults - store and retrieve
-# ══════════════════════════════════════════════════════════════════════
-Write-Host ""
-Write-Host "[09/10] Vaults" -ForegroundColor Yellow
-
-$vaultKey = RandomSecretKey
-$vaultPayload = "Secret vault data that is encrypted"
-$vaultB64 = B64Encode $vaultPayload
-$vaultContentType = 42
-
-# Store
-$vaultBody = "{`"secret_key`": `"$vaultKey`", `"data`": `"$vaultB64`", `"content_type`": $vaultContentType}"
-$vaultPut = Api-Post "/v1/vaults" $vaultBody
-Assert-NotEmpty "vault store cost returned" $vaultPut.cost
-
-# Retrieve
-$vaultGet = Api-Get "/v1/vaults?secret_key=$vaultKey"
-$vaultGotText = B64Decode $vaultGet.data
-Assert-Eq "vault data round-trip matches" $vaultPayload $vaultGotText
-Assert-Eq "vault content_type matches" "$vaultContentType" "$($vaultGet.content_type)"
-
-# ══════════════════════════════════════════════════════════════════════
-# Test 10: Private Data - store and retrieve
-# ══════════════════════════════════════════════════════════════════════
-Write-Host ""
-Write-Host "[10/10] Private Data" -ForegroundColor Yellow
+Write-Host "[06/06] Private Data" -ForegroundColor Yellow
 
 $privPayload = "This message is encrypted on the network"
 $privB64 = B64Encode $privPayload

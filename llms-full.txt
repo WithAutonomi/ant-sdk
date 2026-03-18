@@ -1,6 +1,6 @@
 # antd SDK — Complete API Reference
 
-> JavaScript/TypeScript, Python, C#, Kotlin, and Swift SDKs for the Autonomi network via the antd daemon. The daemon manages wallet, payments, and network connectivity. Clients connect over REST (default port 8080) or gRPC (default port 50051).
+> JavaScript/TypeScript, Python, C#, Kotlin, Swift, Go, Java, Rust, C++, Ruby, PHP, Dart, Lua, Elixir, and Zig SDKs for the Autonomi network via the antd daemon. The daemon manages wallet, payments, and network connectivity. Clients connect over REST (default port 8080) or gRPC (default port 50051).
 
 ## Quick Start
 
@@ -61,6 +61,118 @@ let result = try await client.dataPutPublic("hello".data(using: .utf8)!)
 let data = try await client.dataGetPublic(address: result.address)
 ```
 
+```go
+// Go
+import antd "github.com/maidsafe/ant-sdk/antd-go"
+
+client := antd.NewClient(antd.DefaultBaseURL)       // REST, localhost:8080
+ctx := context.Background()
+
+result, _ := client.DataPutPublic(ctx, []byte("hello"))
+data, _ := client.DataGetPublic(ctx, result.Address)
+```
+
+```java
+// Java — Gradle: implementation("com.autonomi:antd-java:0.1.0")
+//        Maven: <dependency><groupId>com.autonomi</groupId><artifactId>antd-java</artifactId><version>0.1.0</version></dependency>
+import com.autonomi.antd.AntdClient;
+
+try (AntdClient client = AntdClient.create()) {           // REST, localhost:8080
+    PutResult result = client.dataPutPublic("hello".getBytes());
+    byte[] data = client.dataGetPublic(result.address());
+}
+```
+
+```rust
+// Rust — cargo add antd-client
+use antd_client::Client;
+
+#[tokio::main]
+async fn main() -> Result<(), antd_client::AntdError> {
+    let client = Client::new("http://localhost:8080");     // REST, localhost:8080
+
+    let result = client.data_put_public(b"hello").await?;
+    let data = client.data_get_public(&result.address).await?;
+    Ok(())
+}
+```
+
+```cpp
+// C++ — CMake FetchContent from GitHub
+#include <antd/antd.hpp>
+
+antd::Client client;                                       // REST, localhost:8080
+antd::Client client("http://remote:8080");
+
+auto result = client.dataPutPublic("hello");
+auto data = client.dataGetPublic(result.address);
+```
+
+```ruby
+# Ruby — gem install antd
+require "antd"
+
+client = Antd::Client.new                            # REST, localhost:8080
+client = Antd::Client.new(base_url: "http://remote:8080")
+
+result = client.data_put_public("hello")
+data = client.data_get_public(result.address)
+```
+
+```php
+// PHP — composer require autonomi/antd
+<?php
+use Autonomi\AntdClient;
+
+$client = AntdClient::create();                      // REST, localhost:8080
+$client = AntdClient::create("http://remote:8080");
+
+$result = $client->dataPutPublic("hello");
+$data = $client->dataGetPublic($result->address);
+```
+
+```dart
+// Dart — dart pub add antd
+import 'package:antd/antd.dart';
+
+final client = AntdClient();                         // REST, localhost:8080
+final client = AntdClient(baseUrl: 'http://remote:8080');
+
+final result = await client.dataPutPublic('hello'.codeUnits);
+final data = await client.dataGetPublic(result.address);
+```
+
+```lua
+-- Lua — luarocks install antd
+local antd = require("antd")
+
+local client = antd.Client.new()                     -- REST, localhost:8080
+local client = antd.Client.new({base_url = "http://remote:8080"})
+
+local result = client:data_put_public("hello")
+local data = client:data_get_public(result.address)
+```
+
+```elixir
+# Elixir — {:antd, "~> 0.1"} in mix.exs deps
+client = Antd.Client.new()                           # REST, localhost:8080
+client = Antd.Client.new(base_url: "http://remote:8080")
+
+{:ok, result} = Antd.Client.data_put_public(client, "hello")
+{:ok, data} = Antd.Client.data_get_public(client, result.address)
+```
+
+```zig
+// Zig — add dependency in build.zig.zon
+const antd = @import("antd");
+
+var client = try antd.Client.init(.{});              // REST, localhost:8080
+defer client.deinit();
+
+const result = try client.dataPutPublic("hello");
+const data = try client.dataGetPublic(result.address);
+```
+
 ---
 
 ## REST API — All Endpoints
@@ -119,106 +231,6 @@ Retrieve a raw chunk by hex address.
 
 Response: `{"data": "<base64>"}`
 
-### Pointers
-
-Mutable references that point to other network objects. Owned by a keypair.
-
-#### `POST /v1/pointers`
-Create a new pointer.
-
-Request:
-```json
-{
-  "owner_secret_key": "<hex>",
-  "target": {"kind": "chunk|graph_entry|pointer|scratchpad", "address": "<hex>"}
-}
-```
-Response: `{"cost": "<atto_tokens>", "address": "<hex>"}`
-
-#### `GET /v1/pointers/{addr}`
-Read a pointer's current target.
-
-Response:
-```json
-{
-  "address": "<hex>",
-  "owner": "<hex>",
-  "counter": 1,
-  "target": {"kind": "chunk", "address": "<hex>"}
-}
-```
-
-#### `HEAD /v1/pointers/{addr}`
-Check if a pointer exists. Returns 200 (exists) or 404 (not found).
-
-#### `PUT /v1/pointers/{addr}`
-Update a pointer's target. Requires the owner's secret key.
-
-Request:
-```json
-{
-  "owner_secret_key": "<hex>",
-  "target": {"kind": "chunk", "address": "<hex>"}
-}
-```
-
-#### `POST /v1/pointers/cost`
-Estimate cost to create a pointer.
-
-Request: `{"public_key": "<hex>"}`
-Response: `{"cost": "<atto_tokens>"}`
-
-### Scratchpads
-
-Versioned mutable storage with content type encoding. Owned by a keypair.
-
-#### `POST /v1/scratchpads`
-Create a new scratchpad.
-
-Request:
-```json
-{
-  "owner_secret_key": "<hex>",
-  "content_type": 0,
-  "data": "<base64>"
-}
-```
-Response: `{"cost": "<atto_tokens>", "address": "<hex>"}`
-
-#### `GET /v1/scratchpads/{addr}`
-Read scratchpad contents.
-
-Response:
-```json
-{
-  "address": "<hex>",
-  "data_encoding": 0,
-  "data": "<base64>",
-  "counter": 1
-}
-```
-
-#### `HEAD /v1/scratchpads/{addr}`
-Check if a scratchpad exists. Returns 200 or 404.
-
-#### `PUT /v1/scratchpads/{addr}`
-Update scratchpad contents.
-
-Request:
-```json
-{
-  "owner_secret_key": "<hex>",
-  "content_type": 0,
-  "data": "<base64>"
-}
-```
-
-#### `POST /v1/scratchpads/cost`
-Estimate cost to create a scratchpad.
-
-Request: `{"public_key": "<hex>"}`
-Response: `{"cost": "<atto_tokens>"}`
-
 ### Graph
 
 DAG (directed acyclic graph) entries with parent/descendant relationships.
@@ -257,55 +269,6 @@ Check if a graph entry exists. Returns 200 or 404.
 Estimate cost to create a graph entry.
 
 Request: `{"public_key": "<hex>"}`
-Response: `{"cost": "<atto_tokens>"}`
-
-### Registers
-
-Simple key-value registers storing a 32-byte hex value. Owned by a keypair.
-
-#### `POST /v1/registers`
-Create a register.
-
-Request: `{"owner_secret_key": "<hex>", "initial_value": "<hex_32_bytes>"}`
-Response: `{"cost": "<atto_tokens>", "address": "<hex>"}`
-
-#### `GET /v1/registers/{addr}`
-Read register value.
-
-Response: `{"value": "<hex_32_bytes>"}`
-
-#### `PUT /v1/registers/{addr}`
-Update register value.
-
-Request: `{"owner_secret_key": "<hex>", "new_value": "<hex_32_bytes>"}`
-Response: `{"cost": "<atto_tokens>"}`
-
-#### `POST /v1/registers/cost`
-Estimate cost to create a register.
-
-Request: `{"public_key": "<hex>"}`
-Response: `{"cost": "<atto_tokens>"}`
-
-### Vaults
-
-Private encrypted storage keyed by a secret key.
-
-#### `GET /v1/vaults`
-Retrieve vault data.
-
-Query params: `secret_key=<hex>`
-Response: `{"data": "<base64>", "content_type": 0}`
-
-#### `POST /v1/vaults`
-Store data in a vault.
-
-Request: `{"secret_key": "<hex>", "data": "<base64>", "content_type": 0}`
-Response: `{"cost": "<atto_tokens>"}`
-
-#### `POST /v1/vaults/cost`
-Estimate vault storage cost.
-
-Request: `{"secret_key": "<hex>", "max_size": 1024}`
 Response: `{"cost": "<atto_tokens>"}`
 
 ### Files
@@ -379,36 +342,11 @@ Default target: `localhost:50051`. Package: `antd.v1`.
 - `Get(GetChunkRequest{address}) → GetChunkResponse{data: bytes}`
 - `Put(PutChunkRequest{data: bytes}) → PutChunkResponse{cost, address}`
 
-### PointerService (pointers.proto)
-- `Get(GetPointerRequest{address}) → GetPointerResponse{address, owner, counter, target}`
-- `CheckExistence(CheckPointerRequest{address}) → ExistsResponse{exists: bool}`
-- `Create(CreatePointerRequest{owner_secret_key, target}) → CreatePointerResponse{cost, address}`
-- `Update(UpdatePointerRequest{owner_secret_key, target}) → UpdatePointerResponse{}`
-- `GetCost(PointerCostRequest{public_key}) → Cost{atto_tokens}`
-
-### ScratchpadService (scratchpads.proto)
-- `Get(GetScratchpadRequest{address}) → GetScratchpadResponse{address, data_encoding, data, counter}`
-- `CheckExistence(CheckScratchpadRequest{address}) → ScratchpadExistsResponse{exists: bool}`
-- `Create(CreateScratchpadRequest{owner_secret_key, content_type, data}) → CreateScratchpadResponse{cost, address}`
-- `Update(UpdateScratchpadRequest{owner_secret_key, content_type, data}) → UpdateScratchpadResponse{}`
-- `GetCost(ScratchpadCostRequest{public_key}) → Cost{atto_tokens}`
-
 ### GraphService (graph.proto)
 - `Get(GetGraphEntryRequest{address}) → GetGraphEntryResponse{owner, parents, content, descendants}`
 - `CheckExistence(CheckGraphEntryRequest{address}) → GraphExistsResponse{exists: bool}`
 - `Put(PutGraphEntryRequest{owner_secret_key, parents, content, descendants}) → PutGraphEntryResponse{cost, address}`
 - `GetCost(GraphEntryCostRequest{public_key}) → Cost{atto_tokens}`
-
-### RegisterService (registers.proto)
-- `Get(GetRegisterRequest{address}) → GetRegisterResponse{value}`
-- `Create(CreateRegisterRequest{owner_secret_key, initial_value}) → CreateRegisterResponse{cost, address}`
-- `Update(UpdateRegisterRequest{owner_secret_key, new_value}) → UpdateRegisterResponse{cost}`
-- `GetCost(RegisterCostRequest{public_key}) → Cost{atto_tokens}`
-
-### VaultService (vaults.proto)
-- `Get(GetVaultRequest{secret_key}) → GetVaultResponse{data, content_type}`
-- `Put(PutVaultRequest{secret_key, data, content_type}) → PutVaultResponse{cost}`
-- `GetCost(VaultCostRequest{secret_key, max_size}) → Cost{atto_tokens}`
 
 ### FileService (files.proto)
 - `UploadPublic(UploadFileRequest{path}) → UploadPublicResponse{cost, address}`
@@ -432,13 +370,8 @@ Default target: `localhost:50051`. Package: `antd.v1`.
 |------|--------|-------------|
 | HealthStatus | ok: bool, network: string | Health check result |
 | PutResult | cost: string, address: string | Result from any create/put operation |
-| PointerTarget | kind: string, address: string | Target of a pointer |
-| Pointer | address, owner, counter: int, target: PointerTarget | Pointer record |
-| Scratchpad | address, data_encoding: int, data: bytes, counter: int | Scratchpad record |
 | GraphDescendant | public_key: string, content: string (hex 32B) | Graph descendant |
 | GraphEntry | owner, parents: list[string], content: string, descendants: list[GraphDescendant] | Graph entry |
-| Register | value: string (hex 32B) | Register value |
-| Vault | data: bytes, content_type: int | Vault record |
 | ArchiveEntry | path, address, created: int, modified: int, size: int | Archive file entry |
 | Archive | entries: list[ArchiveEntry] | Archive manifest |
 
@@ -467,36 +400,11 @@ client.dataCost(data: Buffer): Promise<string>
 client.chunkPut(data: Buffer): Promise<PutResult>
 client.chunkGet(address: string): Promise<Buffer>
 
-// Pointers
-client.pointerCreate(ownerSecretKey: string, target: PointerTarget): Promise<PutResult>
-client.pointerGet(address: string): Promise<Pointer>
-client.pointerExists(address: string): Promise<boolean>
-client.pointerUpdate(ownerSecretKey: string, target: PointerTarget): Promise<void>
-client.pointerCost(publicKey: string): Promise<string>
-
-// Scratchpads
-client.scratchpadCreate(ownerSecretKey: string, contentType: number, data: Buffer): Promise<PutResult>
-client.scratchpadGet(address: string): Promise<Scratchpad>
-client.scratchpadExists(address: string): Promise<boolean>
-client.scratchpadUpdate(ownerSecretKey: string, contentType: number, data: Buffer): Promise<void>
-client.scratchpadCost(publicKey: string): Promise<string>
-
 // Graph
 client.graphEntryPut(ownerSecretKey: string, parents: string[], content: string, descendants: GraphDescendant[]): Promise<PutResult>
 client.graphEntryGet(address: string): Promise<GraphEntry>
 client.graphEntryExists(address: string): Promise<boolean>
 client.graphEntryCost(publicKey: string): Promise<string>
-
-// Registers
-client.registerCreate(ownerSecretKey: string, initialValue: string): Promise<PutResult>
-client.registerGet(address: string): Promise<Register>
-client.registerUpdate(ownerSecretKey: string, newValue: string): Promise<PutResult>
-client.registerCost(publicKey: string): Promise<string>
-
-// Vaults
-client.vaultGet(secretKey: string): Promise<Vault>
-client.vaultPut(secretKey: string, data: Buffer, contentType: number): Promise<string>
-client.vaultCost(secretKey: string, maxSize: number): Promise<string>
 
 // Files
 client.fileUploadPublic(path: string): Promise<PutResult>
@@ -532,36 +440,11 @@ client.data_cost(data: bytes) → str
 client.chunk_put(data: bytes) → PutResult
 client.chunk_get(address: str) → bytes
 
-# Pointers
-client.pointer_create(owner_secret_key: str, target: PointerTarget) → PutResult
-client.pointer_get(address: str) → Pointer
-client.pointer_exists(address: str) → bool
-client.pointer_update(owner_secret_key: str, target: PointerTarget) → None
-client.pointer_cost(public_key: str) → str
-
-# Scratchpads
-client.scratchpad_create(owner_secret_key: str, content_type: int, data: bytes) → PutResult
-client.scratchpad_get(address: str) → Scratchpad
-client.scratchpad_exists(address: str) → bool
-client.scratchpad_update(owner_secret_key: str, content_type: int, data: bytes) → None
-client.scratchpad_cost(public_key: str) → str
-
 # Graph
 client.graph_entry_put(owner_secret_key: str, parents: list[str], content: str, descendants: list[GraphDescendant]) → PutResult
 client.graph_entry_get(address: str) → GraphEntry
 client.graph_entry_exists(address: str) → bool
 client.graph_entry_cost(public_key: str) → str
-
-# Registers
-client.register_create(owner_secret_key: str, initial_value: str) → PutResult
-client.register_get(address: str) → Register
-client.register_update(owner_secret_key: str, new_value: str) → PutResult
-client.register_cost(public_key: str) → str
-
-# Vaults
-client.vault_get(secret_key: str) → Vault
-client.vault_put(secret_key: str, data: bytes, content_type: int) → str
-client.vault_cost(secret_key: str, max_size: int) → str
 
 # Files
 client.file_upload_public(path: str) → PutResult
@@ -597,36 +480,11 @@ Task<string> DataCostAsync(byte[] data);
 Task<PutResult> ChunkPutAsync(byte[] data);
 Task<byte[]> ChunkGetAsync(string address);
 
-// Pointers
-Task<PutResult> PointerCreateAsync(string ownerSecretKey, PointerTarget target);
-Task<Pointer> PointerGetAsync(string address);
-Task<bool> PointerExistsAsync(string address);
-Task PointerUpdateAsync(string ownerSecretKey, PointerTarget target);
-Task<string> PointerCostAsync(string publicKey);
-
-// Scratchpads
-Task<PutResult> ScratchpadCreateAsync(string ownerSecretKey, ulong contentType, byte[] data);
-Task<ScratchpadRecord> ScratchpadGetAsync(string address);
-Task<bool> ScratchpadExistsAsync(string address);
-Task ScratchpadUpdateAsync(string ownerSecretKey, ulong contentType, byte[] data);
-Task<string> ScratchpadCostAsync(string publicKey);
-
 // Graph
 Task<PutResult> GraphEntryPutAsync(string ownerSecretKey, List<string> parents, string content, List<GraphDescendant> descendants);
 Task<GraphEntry> GraphEntryGetAsync(string address);
 Task<bool> GraphEntryExistsAsync(string address);
 Task<string> GraphEntryCostAsync(string publicKey);
-
-// Registers
-Task<PutResult> RegisterCreateAsync(string ownerSecretKey, string initialValue);
-Task<Register> RegisterGetAsync(string address);
-Task<PutResult> RegisterUpdateAsync(string ownerSecretKey, string newValue);
-Task<string> RegisterCostAsync(string publicKey);
-
-// Vaults
-Task<Vault> VaultGetAsync(string secretKey);
-Task<string> VaultPutAsync(string secretKey, byte[] data, ulong contentType);
-Task<string> VaultCostAsync(string secretKey, ulong maxSize);
 
 // Files
 Task<PutResult> FileUploadPublicAsync(string path);
@@ -662,36 +520,11 @@ suspend fun dataCost(data: ByteArray): String
 suspend fun chunkPut(data: ByteArray): PutResult
 suspend fun chunkGet(address: String): ByteArray
 
-// Pointers
-suspend fun pointerCreate(ownerSecretKey: String, target: PointerTarget): PutResult
-suspend fun pointerGet(address: String): Pointer
-suspend fun pointerExists(address: String): Boolean
-suspend fun pointerUpdate(ownerSecretKey: String, target: PointerTarget)
-suspend fun pointerCost(publicKey: String): String
-
-// Scratchpads
-suspend fun scratchpadCreate(ownerSecretKey: String, contentType: ULong, data: ByteArray): PutResult
-suspend fun scratchpadGet(address: String): ScratchpadRecord
-suspend fun scratchpadExists(address: String): Boolean
-suspend fun scratchpadUpdate(ownerSecretKey: String, contentType: ULong, data: ByteArray)
-suspend fun scratchpadCost(publicKey: String): String
-
 // Graph
 suspend fun graphEntryPut(ownerSecretKey: String, parents: List<String>, content: String, descendants: List<GraphDescendant>): PutResult
 suspend fun graphEntryGet(address: String): GraphEntry
 suspend fun graphEntryExists(address: String): Boolean
 suspend fun graphEntryCost(publicKey: String): String
-
-// Registers
-suspend fun registerCreate(ownerSecretKey: String, initialValue: String): PutResult
-suspend fun registerGet(address: String): Register
-suspend fun registerUpdate(ownerSecretKey: String, newValue: String): PutResult
-suspend fun registerCost(publicKey: String): String
-
-// Vaults
-suspend fun vaultGet(secretKey: String): Vault
-suspend fun vaultPut(secretKey: String, data: ByteArray, contentType: ULong): String
-suspend fun vaultCost(secretKey: String, maxSize: ULong): String
 
 // Files
 suspend fun fileUploadPublic(path: String): PutResult
@@ -729,36 +562,11 @@ func dataCost(_ data: Data) async throws -> String
 func chunkPut(_ data: Data) async throws -> PutResult
 func chunkGet(address: String) async throws -> Data
 
-// Pointers
-func pointerCreate(ownerSecretKey: String, target: PointerTarget) async throws -> PutResult
-func pointerGet(address: String) async throws -> Pointer
-func pointerExists(address: String) async throws -> Bool
-func pointerUpdate(ownerSecretKey: String, target: PointerTarget) async throws
-func pointerCost(publicKey: String) async throws -> String
-
-// Scratchpads
-func scratchpadCreate(ownerSecretKey: String, contentType: UInt64, data: Data) async throws -> PutResult
-func scratchpadGet(address: String) async throws -> ScratchpadRecord
-func scratchpadExists(address: String) async throws -> Bool
-func scratchpadUpdate(ownerSecretKey: String, contentType: UInt64, data: Data) async throws
-func scratchpadCost(publicKey: String) async throws -> String
-
 // Graph
 func graphEntryPut(ownerSecretKey: String, parents: [String], content: String, descendants: [GraphDescendant]) async throws -> PutResult
 func graphEntryGet(address: String) async throws -> GraphEntry
 func graphEntryExists(address: String) async throws -> Bool
 func graphEntryCost(publicKey: String) async throws -> String
-
-// Registers
-func registerCreate(ownerSecretKey: String, initialValue: String) async throws -> PutResult
-func registerGet(address: String) async throws -> Register
-func registerUpdate(ownerSecretKey: String, newValue: String) async throws -> PutResult
-func registerCost(publicKey: String) async throws -> String
-
-// Vaults
-func vaultGet(secretKey: String) async throws -> Vault
-func vaultPut(secretKey: String, data: Data, contentType: UInt64) async throws -> String
-func vaultCost(secretKey: String, maxSize: UInt64) async throws -> String
 
 // Files
 func fileUploadPublic(path: String) async throws -> PutResult
@@ -772,6 +580,414 @@ func fileCost(path: String, isPublic: Bool, includeArchive: Bool) async throws -
 
 ---
 
+## Go SDK Method Signatures
+
+```go
+import antd "github.com/maidsafe/ant-sdk/antd-go"
+
+client := antd.NewClient(antd.DefaultBaseURL)        // localhost:8080
+
+// Health
+func (c *Client) Health(ctx context.Context) (*HealthStatus, error)
+
+// Data
+func (c *Client) DataPutPublic(ctx context.Context, data []byte) (*PutResult, error)
+func (c *Client) DataGetPublic(ctx context.Context, address string) ([]byte, error)
+func (c *Client) DataPutPrivate(ctx context.Context, data []byte) (*PutResult, error)
+func (c *Client) DataGetPrivate(ctx context.Context, dataMap string) ([]byte, error)
+func (c *Client) DataCost(ctx context.Context, data []byte) (string, error)
+
+// Chunks
+func (c *Client) ChunkPut(ctx context.Context, data []byte) (*PutResult, error)
+func (c *Client) ChunkGet(ctx context.Context, address string) ([]byte, error)
+
+// Graph
+func (c *Client) GraphEntryPut(ctx context.Context, ownerSecretKey string, parents []string, content string, descendants []GraphDescendant) (*PutResult, error)
+func (c *Client) GraphEntryGet(ctx context.Context, address string) (*GraphEntry, error)
+func (c *Client) GraphEntryExists(ctx context.Context, address string) (bool, error)
+func (c *Client) GraphEntryCost(ctx context.Context, publicKey string) (string, error)
+
+// Files
+func (c *Client) FileUploadPublic(ctx context.Context, path string) (*PutResult, error)
+func (c *Client) FileDownloadPublic(ctx context.Context, address string, destPath string) error
+func (c *Client) DirUploadPublic(ctx context.Context, path string) (*PutResult, error)
+func (c *Client) DirDownloadPublic(ctx context.Context, address string, destPath string) error
+func (c *Client) ArchiveGetPublic(ctx context.Context, address string) (*Archive, error)
+func (c *Client) ArchivePutPublic(ctx context.Context, archive *Archive) (*PutResult, error)
+func (c *Client) FileCost(ctx context.Context, path string, isPublic bool, includeArchive bool) (string, error)
+```
+
+---
+
+## Java SDK Method Signatures
+
+```java
+// Gradle: implementation("com.autonomi:antd-java:0.1.0")
+// Maven:  <dependency><groupId>com.autonomi</groupId><artifactId>antd-java</artifactId><version>0.1.0</version></dependency>
+import com.autonomi.antd.AntdClient;
+
+AntdClient client = AntdClient.create();                  // REST, localhost:8080
+AntdClient client = AntdClient.create("http://remote:8080");
+
+// Health
+HealthStatus health() throws AntdException
+
+// Data
+PutResult dataPutPublic(byte[] data) throws AntdException
+byte[] dataGetPublic(String address) throws AntdException
+PutResult dataPutPrivate(byte[] data) throws AntdException  // .address() is the data_map
+byte[] dataGetPrivate(String dataMap) throws AntdException
+String dataCost(byte[] data) throws AntdException
+
+// Chunks
+PutResult chunkPut(byte[] data) throws AntdException
+byte[] chunkGet(String address) throws AntdException
+
+// Graph
+PutResult graphEntryPut(String ownerSecretKey, List<String> parents, String content, List<GraphDescendant> descendants) throws AntdException
+GraphEntry graphEntryGet(String address) throws AntdException
+boolean graphEntryExists(String address) throws AntdException
+String graphEntryCost(String publicKey) throws AntdException
+
+// Files
+PutResult fileUploadPublic(String path) throws AntdException
+void fileDownloadPublic(String address, String destPath) throws AntdException
+PutResult dirUploadPublic(String path) throws AntdException
+void dirDownloadPublic(String address, String destPath) throws AntdException
+Archive archiveGetPublic(String address) throws AntdException
+PutResult archivePutPublic(Archive archive) throws AntdException
+String fileCost(String path, boolean isPublic, boolean includeArchive) throws AntdException
+
+// AntdClient implements AutoCloseable — use try-with-resources
+```
+
+---
+
+## Rust SDK Method Signatures
+
+```rust
+// cargo add antd-client
+use antd_client::{Client, PutResult, HealthStatus, GraphEntry, GraphDescendant, Archive, AntdError};
+
+let client = Client::new("http://localhost:8080");        // REST, localhost:8080
+
+// Health
+async fn health(&self) -> Result<HealthStatus, AntdError>
+
+// Data
+async fn data_put_public(&self, data: &[u8]) -> Result<PutResult, AntdError>
+async fn data_get_public(&self, address: &str) -> Result<Vec<u8>, AntdError>
+async fn data_put_private(&self, data: &[u8]) -> Result<PutResult, AntdError>  // .address is the data_map
+async fn data_get_private(&self, data_map: &str) -> Result<Vec<u8>, AntdError>
+async fn data_cost(&self, data: &[u8]) -> Result<String, AntdError>
+
+// Chunks
+async fn chunk_put(&self, data: &[u8]) -> Result<PutResult, AntdError>
+async fn chunk_get(&self, address: &str) -> Result<Vec<u8>, AntdError>
+
+// Graph
+async fn graph_entry_put(&self, owner_secret_key: &str, parents: &[String], content: &str, descendants: &[GraphDescendant]) -> Result<PutResult, AntdError>
+async fn graph_entry_get(&self, address: &str) -> Result<GraphEntry, AntdError>
+async fn graph_entry_exists(&self, address: &str) -> Result<bool, AntdError>
+async fn graph_entry_cost(&self, public_key: &str) -> Result<String, AntdError>
+
+// Files
+async fn file_upload_public(&self, path: &str) -> Result<PutResult, AntdError>
+async fn file_download_public(&self, address: &str, dest_path: &str) -> Result<(), AntdError>
+async fn dir_upload_public(&self, path: &str) -> Result<PutResult, AntdError>
+async fn dir_download_public(&self, address: &str, dest_path: &str) -> Result<(), AntdError>
+async fn archive_get_public(&self, address: &str) -> Result<Archive, AntdError>
+async fn archive_put_public(&self, archive: &Archive) -> Result<PutResult, AntdError>
+async fn file_cost(&self, path: &str, is_public: bool, include_archive: bool) -> Result<String, AntdError>
+
+// AntdError variants: BadRequest, Payment, NotFound, AlreadyExists, Fork, TooLarge, Internal, Network
+```
+
+---
+
+## C++ SDK Method Signatures
+
+```cpp
+// CMake FetchContent from GitHub
+#include <antd/antd.hpp>
+
+antd::Client client;                                      // REST, localhost:8080
+antd::Client client("http://remote:8080");
+
+// Health
+antd::HealthStatus health()                               // throws antd::AntdError
+
+// Data
+antd::PutResult dataPutPublic(const std::vector<uint8_t>& data)
+std::vector<uint8_t> dataGetPublic(const std::string& address)
+antd::PutResult dataPutPrivate(const std::vector<uint8_t>& data)  // .address is the data_map
+std::vector<uint8_t> dataGetPrivate(const std::string& dataMap)
+std::string dataCost(const std::vector<uint8_t>& data)
+
+// Chunks
+antd::PutResult chunkPut(const std::vector<uint8_t>& data)
+std::vector<uint8_t> chunkGet(const std::string& address)
+
+// Graph
+antd::PutResult graphEntryPut(const std::string& ownerSecretKey, const std::vector<std::string>& parents, const std::string& content, const std::vector<antd::GraphDescendant>& descendants)
+antd::GraphEntry graphEntryGet(const std::string& address)
+bool graphEntryExists(const std::string& address)
+std::string graphEntryCost(const std::string& publicKey)
+
+// Files
+antd::PutResult fileUploadPublic(const std::string& path)
+void fileDownloadPublic(const std::string& address, const std::string& destPath)
+antd::PutResult dirUploadPublic(const std::string& path)
+void dirDownloadPublic(const std::string& address, const std::string& destPath)
+antd::Archive archiveGetPublic(const std::string& address)
+antd::PutResult archivePutPublic(const antd::Archive& archive)
+std::string fileCost(const std::string& path, bool isPublic = true, bool includeArchive = false)
+
+// All methods throw antd::AntdError or subclasses: BadRequestError, PaymentError, NotFoundError,
+// AlreadyExistsError, ForkError, TooLargeError, InternalError, NetworkError
+```
+
+---
+
+## Ruby SDK Method Signatures
+
+```ruby
+require "antd"
+
+client = Antd::Client.new                            # localhost:8080
+client = Antd::Client.new(base_url: "http://remote:8080")
+
+# Health
+client.health → HealthStatus
+
+# Data
+client.data_put_public(data) → PutResult
+client.data_get_public(address) → String
+client.data_put_private(data) → PutResult            # .address is the data_map
+client.data_get_private(data_map) → String
+client.data_cost(data) → String
+
+# Chunks
+client.chunk_put(data) → PutResult
+client.chunk_get(address) → String
+
+# Graph
+client.graph_entry_put(owner_secret_key:, parents:, content:, descendants:) → PutResult
+client.graph_entry_get(address) → GraphEntry
+client.graph_entry_exists?(address) → Boolean
+client.graph_entry_cost(public_key) → String
+
+# Files
+client.file_upload_public(path) → PutResult
+client.file_download_public(address, dest_path) → nil
+client.dir_upload_public(path) → PutResult
+client.dir_download_public(address, dest_path) → nil
+client.archive_get_public(address) → Archive
+client.archive_put_public(archive) → PutResult
+client.file_cost(path, is_public: true, include_archive: false) → String
+```
+
+---
+
+## PHP SDK Method Signatures
+
+```php
+use Autonomi\AntdClient;
+
+$client = AntdClient::create();                      // localhost:8080
+$client = AntdClient::create("http://remote:8080");
+
+// Health
+$client->health(): HealthStatus
+
+// Data
+$client->dataPutPublic(string $data): PutResult
+$client->dataGetPublic(string $address): string
+$client->dataPutPrivate(string $data): PutResult     // ->address is the data_map
+$client->dataGetPrivate(string $dataMap): string
+$client->dataCost(string $data): string
+
+// Chunks
+$client->chunkPut(string $data): PutResult
+$client->chunkGet(string $address): string
+
+// Graph
+$client->graphEntryPut(string $ownerSecretKey, array $parents, string $content, array $descendants): PutResult
+$client->graphEntryGet(string $address): GraphEntry
+$client->graphEntryExists(string $address): bool
+$client->graphEntryCost(string $publicKey): string
+
+// Files
+$client->fileUploadPublic(string $path): PutResult
+$client->fileDownloadPublic(string $address, string $destPath): void
+$client->dirUploadPublic(string $path): PutResult
+$client->dirDownloadPublic(string $address, string $destPath): void
+$client->archiveGetPublic(string $address): Archive
+$client->archivePutPublic(Archive $archive): PutResult
+$client->fileCost(string $path, bool $isPublic = true, bool $includeArchive = false): string
+```
+
+---
+
+## Dart SDK Method Signatures
+
+```dart
+import 'package:antd/antd.dart';
+
+final client = AntdClient();                         // localhost:8080
+final client = AntdClient(baseUrl: 'http://remote:8080');
+
+// Health
+Future<HealthStatus> health()
+
+// Data
+Future<PutResult> dataPutPublic(List<int> data)
+Future<List<int>> dataGetPublic(String address)
+Future<PutResult> dataPutPrivate(List<int> data)     // .address is the data_map
+Future<List<int>> dataGetPrivate(String dataMap)
+Future<String> dataCost(List<int> data)
+
+// Chunks
+Future<PutResult> chunkPut(List<int> data)
+Future<List<int>> chunkGet(String address)
+
+// Graph
+Future<PutResult> graphEntryPut(String ownerSecretKey, List<String> parents, String content, List<GraphDescendant> descendants)
+Future<GraphEntry> graphEntryGet(String address)
+Future<bool> graphEntryExists(String address)
+Future<String> graphEntryCost(String publicKey)
+
+// Files
+Future<PutResult> fileUploadPublic(String path)
+Future<void> fileDownloadPublic(String address, String destPath)
+Future<PutResult> dirUploadPublic(String path)
+Future<void> dirDownloadPublic(String address, String destPath)
+Future<Archive> archiveGetPublic(String address)
+Future<PutResult> archivePutPublic(Archive archive)
+Future<String> fileCost(String path, {bool isPublic = true, bool includeArchive = false})
+```
+
+---
+
+## Lua SDK Method Signatures
+
+```lua
+local antd = require("antd")
+
+local client = antd.Client.new()                     -- localhost:8080
+local client = antd.Client.new({base_url = "http://remote:8080"})
+
+-- Health
+client:health() → HealthStatus
+
+-- Data
+client:data_put_public(data) → PutResult
+client:data_get_public(address) → string
+client:data_put_private(data) → PutResult            -- .address is the data_map
+client:data_get_private(data_map) → string
+client:data_cost(data) → string
+
+-- Chunks
+client:chunk_put(data) → PutResult
+client:chunk_get(address) → string
+
+-- Graph
+client:graph_entry_put(owner_secret_key, parents, content, descendants) → PutResult
+client:graph_entry_get(address) → GraphEntry
+client:graph_entry_exists(address) → boolean
+client:graph_entry_cost(public_key) → string
+
+-- Files
+client:file_upload_public(path) → PutResult
+client:file_download_public(address, dest_path) → nil
+client:dir_upload_public(path) → PutResult
+client:dir_download_public(address, dest_path) → nil
+client:archive_get_public(address) → Archive
+client:archive_put_public(archive) → PutResult
+client:file_cost(path, is_public, include_archive) → string
+```
+
+---
+
+## Elixir SDK Method Signatures
+
+```elixir
+client = Antd.Client.new()                           # localhost:8080
+client = Antd.Client.new(base_url: "http://remote:8080")
+
+# Health
+Antd.Client.health(client) :: {:ok, HealthStatus.t()} | {:error, term()}
+
+# Data
+Antd.Client.data_put_public(client, data) :: {:ok, PutResult.t()} | {:error, term()}
+Antd.Client.data_get_public(client, address) :: {:ok, binary()} | {:error, term()}
+Antd.Client.data_put_private(client, data) :: {:ok, PutResult.t()} | {:error, term()}
+Antd.Client.data_get_private(client, data_map) :: {:ok, binary()} | {:error, term()}
+Antd.Client.data_cost(client, data) :: {:ok, String.t()} | {:error, term()}
+
+# Chunks
+Antd.Client.chunk_put(client, data) :: {:ok, PutResult.t()} | {:error, term()}
+Antd.Client.chunk_get(client, address) :: {:ok, binary()} | {:error, term()}
+
+# Graph
+Antd.Client.graph_entry_put(client, owner_secret_key, parents, content, descendants) :: {:ok, PutResult.t()} | {:error, term()}
+Antd.Client.graph_entry_get(client, address) :: {:ok, GraphEntry.t()} | {:error, term()}
+Antd.Client.graph_entry_exists?(client, address) :: {:ok, boolean()} | {:error, term()}
+Antd.Client.graph_entry_cost(client, public_key) :: {:ok, String.t()} | {:error, term()}
+
+# Files
+Antd.Client.file_upload_public(client, path) :: {:ok, PutResult.t()} | {:error, term()}
+Antd.Client.file_download_public(client, address, dest_path) :: :ok | {:error, term()}
+Antd.Client.dir_upload_public(client, path) :: {:ok, PutResult.t()} | {:error, term()}
+Antd.Client.dir_download_public(client, address, dest_path) :: :ok | {:error, term()}
+Antd.Client.archive_get_public(client, address) :: {:ok, Archive.t()} | {:error, term()}
+Antd.Client.archive_put_public(client, archive) :: {:ok, PutResult.t()} | {:error, term()}
+Antd.Client.file_cost(client, path, is_public \\ true, include_archive \\ false) :: {:ok, String.t()} | {:error, term()}
+```
+
+---
+
+## Zig SDK Method Signatures
+
+```zig
+const antd = @import("antd");
+
+var client = try antd.Client.init(.{});              // localhost:8080
+var client = try antd.Client.init(.{ .base_url = "http://remote:8080" });
+defer client.deinit();
+
+// Health
+fn health(self: *Client) !HealthStatus
+
+// Data
+fn dataPutPublic(self: *Client, data: []const u8) !PutResult
+fn dataGetPublic(self: *Client, address: []const u8) ![]u8
+fn dataPutPrivate(self: *Client, data: []const u8) !PutResult
+fn dataGetPrivate(self: *Client, data_map: []const u8) ![]u8
+fn dataCost(self: *Client, data: []const u8) ![]u8
+
+// Chunks
+fn chunkPut(self: *Client, data: []const u8) !PutResult
+fn chunkGet(self: *Client, address: []const u8) ![]u8
+
+// Graph
+fn graphEntryPut(self: *Client, owner_secret_key: []const u8, parents: []const []const u8, content: []const u8, descendants: []const GraphDescendant) !PutResult
+fn graphEntryGet(self: *Client, address: []const u8) !GraphEntry
+fn graphEntryExists(self: *Client, address: []const u8) !bool
+fn graphEntryCost(self: *Client, public_key: []const u8) ![]u8
+
+// Files
+fn fileUploadPublic(self: *Client, path: []const u8) !PutResult
+fn fileDownloadPublic(self: *Client, address: []const u8, dest_path: []const u8) !void
+fn dirUploadPublic(self: *Client, path: []const u8) !PutResult
+fn dirDownloadPublic(self: *Client, address: []const u8, dest_path: []const u8) !void
+fn archiveGetPublic(self: *Client, address: []const u8) !Archive
+fn archivePutPublic(self: *Client, archive: Archive) !PutResult
+fn fileCost(self: *Client, path: []const u8, is_public: bool, include_archive: bool) ![]u8
+```
+
+---
+
 ## MCP Tool → SDK Method Mapping
 
 | MCP Tool | Python SDK Method | Description |
@@ -780,27 +996,10 @@ func fileCost(path: String, isPublic: Bool, includeArchive: Bool) async throws -
 | `retrieve_data` | `data_get_public` / `data_get_private` | Retrieve text from network |
 | `upload_file` | `file_upload_public` / `dir_upload_public` | Upload file or directory |
 | `download_file` | `file_download_public` / `dir_download_public` | Download file or directory |
-| `create_pointer` | `pointer_create` | Create mutable pointer |
-| `update_pointer` | `pointer_update` | Update pointer target |
-| `get_pointer` | `pointer_get` | Read pointer |
-| `pointer_exists` | `pointer_exists` | Check pointer existence |
-| `pointer_cost` | `pointer_cost` | Estimate pointer cost |
-| `create_scratchpad` | `scratchpad_create` | Create scratchpad |
-| `update_scratchpad` | `scratchpad_update` | Update scratchpad |
-| `get_scratchpad` | `scratchpad_get` | Read scratchpad |
-| `scratchpad_exists` | `scratchpad_exists` | Check scratchpad existence |
-| `scratchpad_cost` | `scratchpad_cost` | Estimate scratchpad cost |
 | `create_graph_entry` | `graph_entry_put` | Create graph entry |
 | `get_graph_entry` | `graph_entry_get` | Read graph entry |
 | `graph_entry_exists` | `graph_entry_exists` | Check graph entry existence |
 | `graph_entry_cost` | `graph_entry_cost` | Estimate graph entry cost |
-| `create_register` | `register_create` | Create register |
-| `get_register` | `register_get` | Read register |
-| `update_register` | `register_update` | Update register |
-| `register_cost` | `register_cost` | Estimate register cost |
-| `vault_put` | `vault_put` | Store in vault |
-| `vault_get` | `vault_get` | Retrieve from vault |
-| `vault_cost` | `vault_cost` | Estimate vault cost |
 | `chunk_put` | `chunk_put` | Store raw chunk |
 | `chunk_get` | `chunk_get` | Retrieve raw chunk |
 | `archive_get` | `archive_get_public` | List archive entries |
@@ -812,18 +1011,18 @@ func fileCost(path: String, isPublic: Bool, includeArchive: Bool) async throws -
 
 ## Error Codes
 
-| HTTP | gRPC Status | JS/TS Error | Python Exception | C# Exception | Kotlin Exception | Swift Error | Meaning |
-|------|-------------|-------------|------------------|--------------|------------------|-------------|---------|
-| 400 | INVALID_ARGUMENT | `BadRequestError` | `BadRequestError` | `BadRequestException` | `BadRequestException` | `BadRequestError` | Malformed request |
-| 402 | FAILED_PRECONDITION | `PaymentError` | `PaymentError` | `PaymentException` | `PaymentException` | `PaymentError` | Insufficient wallet funds |
-| 404 | NOT_FOUND | `NotFoundError` | `NotFoundError` | `NotFoundException` | `NotFoundException` | `NotFoundError` | Address not found on network |
-| 409 | ALREADY_EXISTS | `AlreadyExistsError` | `AlreadyExistsError` | `AlreadyExistsException` | `AlreadyExistsException` | `AlreadyExistsError` | Resource already exists |
-| 409 | ABORTED | `ForkError` | `ForkError` | `ForkException` | `ForkException` | `ForkError` | Version conflict / fork |
-| 413 | RESOURCE_EXHAUSTED | `TooLargeError` | `TooLargeError` | `TooLargeException` | `TooLargeException` | `TooLargeError` | Data exceeds size limit |
-| 500 | INTERNAL | `InternalError` | `InternalError` | `InternalException` | `InternalException` | `InternalError` | Internal server error |
-| 502 | UNAVAILABLE | `NetworkError` | `NetworkError` | `NetworkException` | `NetworkException` | `NetworkError` | Cannot reach network |
+| HTTP | gRPC Status | JS/TS Error | Python Exception | C# Exception | Kotlin Exception | Swift Error | Java Exception | Rust Variant | C++ Error | Meaning |
+|------|-------------|-------------|------------------|--------------|------------------|-------------|----------------|--------------|-----------|---------|
+| 400 | INVALID_ARGUMENT | `BadRequestError` | `BadRequestError` | `BadRequestException` | `BadRequestException` | `BadRequestError` | `BadRequestException` | `AntdError::BadRequest` | `BadRequestError` | Malformed request |
+| 402 | FAILED_PRECONDITION | `PaymentError` | `PaymentError` | `PaymentException` | `PaymentException` | `PaymentError` | `PaymentException` | `AntdError::Payment` | `PaymentError` | Insufficient wallet funds |
+| 404 | NOT_FOUND | `NotFoundError` | `NotFoundError` | `NotFoundException` | `NotFoundException` | `NotFoundError` | `NotFoundException` | `AntdError::NotFound` | `NotFoundError` | Address not found on network |
+| 409 | ALREADY_EXISTS | `AlreadyExistsError` | `AlreadyExistsError` | `AlreadyExistsException` | `AlreadyExistsException` | `AlreadyExistsError` | `AlreadyExistsException` | `AntdError::AlreadyExists` | `AlreadyExistsError` | Resource already exists |
+| 409 | ABORTED | `ForkError` | `ForkError` | `ForkException` | `ForkException` | `ForkError` | `ForkException` | `AntdError::Fork` | `ForkError` | Version conflict / fork |
+| 413 | RESOURCE_EXHAUSTED | `TooLargeError` | `TooLargeError` | `TooLargeException` | `TooLargeException` | `TooLargeError` | `TooLargeException` | `AntdError::TooLarge` | `TooLargeError` | Data exceeds size limit |
+| 500 | INTERNAL | `InternalError` | `InternalError` | `InternalException` | `InternalException` | `InternalError` | `InternalException` | `AntdError::Internal` | `InternalError` | Internal server error |
+| 502 | UNAVAILABLE | `NetworkError` | `NetworkError` | `NetworkException` | `NetworkException` | `NetworkError` | `NetworkException` | `AntdError::Network` | `NetworkError` | Cannot reach network |
 
-All exceptions inherit from `AntdError` (JS/TS, Python, Swift) / `AntdException` (C#, Kotlin).
+All exceptions inherit from `AntdError` (JS/TS, Python, Swift, Ruby, Lua, Zig, C++) / `AntdException` (C#, Kotlin, Java, PHP, Dart, Elixir uses `{:error, reason}` tuples). Rust uses `Result<T, AntdError>` with `match` on enum variants.
 
 ---
 
@@ -840,29 +1039,6 @@ print(f"Stored at: {result.address}, cost: {result.cost}")
 
 data = client.data_get_public(result.address)
 print(f"Retrieved: {data.decode()}")
-```
-
-### Mutable Pointer Round-Trip (Python)
-
-```python
-import os
-from antd import AntdClient
-from antd.models import PointerTarget
-
-client = AntdClient()
-
-# Store some data first
-result = client.data_put_public(b"version 1")
-secret_key = os.urandom(32).hex()
-
-# Create pointer to the data chunk
-target = PointerTarget(kind="chunk", address=result.address)
-ptr = client.pointer_create(secret_key, target)
-print(f"Pointer at: {ptr.address}")
-
-# Read it back
-pointer = client.pointer_get(ptr.address)
-print(f"Points to: {pointer.target.kind} @ {pointer.target.address}")
 ```
 
 ### Store and Retrieve Public Data (Kotlin)
@@ -882,30 +1058,6 @@ fun main() = runBlocking {
 }
 ```
 
-### Mutable Pointer Round-Trip (Kotlin)
-
-```kotlin
-import com.autonomi.sdk.*
-import kotlinx.coroutines.runBlocking
-import java.security.SecureRandom
-
-fun main() = runBlocking {
-    val client = AntdClient.createRest()
-
-    val result = client.dataPutPublic("version 1".toByteArray())
-    val secretKey = ByteArray(32).also { SecureRandom().nextBytes(it) }
-        .joinToString("") { "%02x".format(it) }
-
-    val target = PointerTarget(kind = "chunk", address = result.address)
-    val ptr = client.pointerCreate(secretKey, target)
-    println("Pointer at: ${ptr.address}")
-
-    val pointer = client.pointerGet(ptr.address)
-    println("Points to: ${pointer.target.kind} @ ${pointer.target.address}")
-    client.close()
-}
-```
-
 ### Store and Retrieve Public Data (Swift)
 
 ```swift
@@ -919,25 +1071,179 @@ let data = try await client.dataGetPublic(address: result.address)
 print("Retrieved: \(String(data: data, encoding: .utf8)!)")
 ```
 
-### Mutable Pointer Round-Trip (Swift)
+### Store and Retrieve Public Data (Go)
 
-```swift
-import AntdSdk
-import Foundation
+```go
+package main
 
-let client = try AntdClient.createRest()
+import (
+    "context"
+    "fmt"
+    "log"
 
-let result = try await client.dataPutPublic("version 1".data(using: .utf8)!)
-var bytes = [UInt8](repeating: 0, count: 32)
-_ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-let secretKey = bytes.map { String(format: "%02x", $0) }.joined()
+    antd "github.com/maidsafe/ant-sdk/antd-go"
+)
 
-let target = PointerTarget(kind: "chunk", address: result.address)
-let ptr = try await client.pointerCreate(ownerSecretKey: secretKey, target: target)
-print("Pointer at: \(ptr.address)")
+func main() {
+    client := antd.NewClient(antd.DefaultBaseURL)
+    ctx := context.Background()
 
-let pointer = try await client.pointerGet(address: ptr.address)
-print("Points to: \(pointer.target.kind) @ \(pointer.target.address)")
+    result, err := client.DataPutPublic(ctx, []byte("Hello, Autonomi!"))
+    if err != nil { log.Fatal(err) }
+    fmt.Printf("Stored at: %s, cost: %s\n", result.Address, result.Cost)
+
+    data, err := client.DataGetPublic(ctx, result.Address)
+    if err != nil { log.Fatal(err) }
+    fmt.Printf("Retrieved: %s\n", string(data))
+}
+```
+
+### Store and Retrieve Public Data (Java)
+
+```java
+import com.autonomi.antd.AntdClient;
+import com.autonomi.antd.PutResult;
+
+public class Main {
+    public static void main(String[] args) throws Exception {
+        try (AntdClient client = AntdClient.create()) {
+            PutResult result = client.dataPutPublic("Hello, Autonomi!".getBytes());
+            System.out.printf("Stored at: %s, cost: %s%n", result.address(), result.cost());
+
+            byte[] data = client.dataGetPublic(result.address());
+            System.out.printf("Retrieved: %s%n", new String(data));
+        }
+    }
+}
+```
+
+### Store and Retrieve Public Data (Rust)
+
+```rust
+use antd_client::Client;
+
+#[tokio::main]
+async fn main() -> Result<(), antd_client::AntdError> {
+    let client = Client::new("http://localhost:8080");
+
+    let result = client.data_put_public(b"Hello, Autonomi!").await?;
+    println!("Stored at: {}, cost: {}", result.address, result.cost);
+
+    let data = client.data_get_public(&result.address).await?;
+    println!("Retrieved: {}", String::from_utf8_lossy(&data));
+    Ok(())
+}
+```
+
+### Store and Retrieve Public Data (C++)
+
+```cpp
+#include <antd/antd.hpp>
+#include <iostream>
+#include <string>
+
+int main() {
+    try {
+        antd::Client client;
+        std::string payload = "Hello, Autonomi!";
+        std::vector<uint8_t> data(payload.begin(), payload.end());
+
+        auto result = client.dataPutPublic(data);
+        std::cout << "Stored at: " << result.address << ", cost: " << result.cost << std::endl;
+
+        auto retrieved = client.dataGetPublic(result.address);
+        std::cout << "Retrieved: " << std::string(retrieved.begin(), retrieved.end()) << std::endl;
+    } catch (const antd::AntdError& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
+    return 0;
+}
+```
+
+### Store and Retrieve Public Data (Ruby)
+
+```ruby
+require "antd"
+
+client = Antd::Client.new
+result = client.data_put_public("Hello, Autonomi!")
+puts "Stored at: #{result.address}, cost: #{result.cost}"
+
+data = client.data_get_public(result.address)
+puts "Retrieved: #{data}"
+```
+
+### Store and Retrieve Public Data (PHP)
+
+```php
+<?php
+use Autonomi\AntdClient;
+
+$client = AntdClient::create();
+$result = $client->dataPutPublic("Hello, Autonomi!");
+echo "Stored at: {$result->address}, cost: {$result->cost}\n";
+
+$data = $client->dataGetPublic($result->address);
+echo "Retrieved: {$data}\n";
+```
+
+### Store and Retrieve Public Data (Dart)
+
+```dart
+import 'package:antd/antd.dart';
+
+void main() async {
+  final client = AntdClient();
+  final result = await client.dataPutPublic('Hello, Autonomi!'.codeUnits);
+  print('Stored at: ${result.address}, cost: ${result.cost}');
+
+  final data = await client.dataGetPublic(result.address);
+  print('Retrieved: ${String.fromCharCodes(data)}');
+}
+```
+
+### Store and Retrieve Public Data (Lua)
+
+```lua
+local antd = require("antd")
+
+local client = antd.Client.new()
+local result = client:data_put_public("Hello, Autonomi!")
+print("Stored at: " .. result.address .. ", cost: " .. result.cost)
+
+local data = client:data_get_public(result.address)
+print("Retrieved: " .. data)
+```
+
+### Store and Retrieve Public Data (Elixir)
+
+```elixir
+client = Antd.Client.new()
+
+{:ok, result} = Antd.Client.data_put_public(client, "Hello, Autonomi!")
+IO.puts("Stored at: #{result.address}, cost: #{result.cost}")
+
+{:ok, data} = Antd.Client.data_get_public(client, result.address)
+IO.puts("Retrieved: #{data}")
+```
+
+### Store and Retrieve Public Data (Zig)
+
+```zig
+const std = @import("std");
+const antd = @import("antd");
+
+pub fn main() !void {
+    var client = try antd.Client.init(.{});
+    defer client.deinit();
+
+    const result = try client.dataPutPublic("Hello, Autonomi!");
+    std.debug.print("Stored at: {s}, cost: {s}\n", .{ result.address, result.cost });
+
+    const data = try client.dataGetPublic(result.address);
+    std.debug.print("Retrieved: {s}\n", .{data});
+}
 ```
 
 ### Private Data Round-Trip (Python)

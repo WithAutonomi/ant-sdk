@@ -112,73 +112,6 @@ await client.DirDownloadPublicAsync(dirResult.Address, "/path/to/output_dir");
 var cost = await client.FileCostAsync("/path/to/file.txt");
 ```
 
-## Pointers (Mutable References)
-
-```csharp
-using System.Security.Cryptography;
-
-var secretKey = Convert.ToHexString(
-    RandomNumberGenerator.GetBytes(32)
-).ToLower();
-
-// Store two versions
-var v1 = await client.DataPutPublicAsync(
-    Encoding.UTF8.GetBytes("version 1")
-);
-var v2 = await client.DataPutPublicAsync(
-    Encoding.UTF8.GetBytes("version 2")
-);
-
-// Create pointer to v1
-var target = new PointerTarget("chunk", v1.Address);
-var ptr = await client.PointerCreateAsync(secretKey, target);
-Console.WriteLine($"Pointer: {ptr.Address}");
-
-// Read
-var pointer = await client.PointerGetAsync(ptr.Address);
-Console.WriteLine($"Points to: {pointer.Target.Address}");
-Console.WriteLine($"Counter: {pointer.Counter}");
-
-// Update to v2
-await client.PointerUpdateAsync(
-    secretKey,
-    new PointerTarget("chunk", v2.Address)
-);
-
-// Check existence
-var exists = await client.PointerExistsAsync(ptr.Address);
-```
-
-## Scratchpads (Versioned Mutable Storage)
-
-```csharp
-var secretKey = Convert.ToHexString(
-    RandomNumberGenerator.GetBytes(32)
-).ToLower();
-
-// Create
-var result = await client.ScratchpadCreateAsync(
-    secretKey,
-    contentType: 1,
-    data: Encoding.UTF8.GetBytes("initial data")
-);
-
-// Read
-var pad = await client.ScratchpadGetAsync(result.Address);
-Console.WriteLine($"Counter: {pad.Counter}");
-Console.WriteLine($"Data: {Encoding.UTF8.GetString(pad.Data)}");
-
-// Update
-await client.ScratchpadUpdateAsync(
-    secretKey,
-    contentType: 1,
-    data: Encoding.UTF8.GetBytes("updated data")
-);
-
-// Check existence
-var exists = await client.ScratchpadExistsAsync(result.Address);
-```
-
 ## Graph Entries (DAG Nodes)
 
 ```csharp
@@ -204,48 +137,6 @@ Console.WriteLine($"Parents: {entry.Parents.Count}");
 
 // Check existence
 var exists = await client.GraphEntryExistsAsync(result.Address);
-```
-
-## Registers (32-byte Values)
-
-```csharp
-var secretKey = Convert.ToHexString(
-    RandomNumberGenerator.GetBytes(32)
-).ToLower();
-
-// Create (64 hex chars = 32 bytes)
-var initial = new string('0', 64);
-var result = await client.RegisterCreateAsync(secretKey, initial);
-
-// Read
-var reg = await client.RegisterGetAsync(result.Address);
-Console.WriteLine($"Value: {reg.Value}");
-
-// Update
-var newValue = Convert.ToHexString(
-    RandomNumberGenerator.GetBytes(32)
-).ToLower();
-await client.RegisterUpdateAsync(secretKey, newValue);
-```
-
-## Vaults (Encrypted Key-Value)
-
-```csharp
-var secretKey = Convert.ToHexString(
-    RandomNumberGenerator.GetBytes(32)
-).ToLower();
-
-// Store
-var cost = await client.VaultPutAsync(
-    secretKey,
-    Encoding.UTF8.GetBytes("vault data"),
-    contentType: 42
-);
-
-// Retrieve
-var vault = await client.VaultGetAsync(secretKey);
-Console.WriteLine($"Data: {Encoding.UTF8.GetString(vault.Data)}");
-Console.WriteLine($"Content type: {vault.ContentType}");
 ```
 
 ## Error Handling
@@ -297,12 +188,8 @@ dotnet run -- 1      # Connect
 dotnet run -- 2      # Public data
 dotnet run -- 3      # Chunks
 dotnet run -- 4      # Files
-dotnet run -- 5      # Pointers
-dotnet run -- 6      # Scratchpads
-dotnet run -- 7      # Graph entries
-dotnet run -- 8      # Registers
-dotnet run -- 9      # Vaults
-dotnet run -- 10     # Private data
+dotnet run -- 5      # Graph entries
+dotnet run -- 6      # Private data
 dotnet run -- all    # Run all examples
 ```
 

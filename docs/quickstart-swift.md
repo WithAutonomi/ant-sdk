@@ -121,69 +121,6 @@ try await client.dirDownloadPublic(address: dirResult.address, destPath: "/path/
 let cost = try await client.fileCost(path: "/path/to/file.txt", isPublic: true, includeArchive: false)
 ```
 
-## Pointers (Mutable References)
-
-```swift
-import Foundation
-
-var bytes = [UInt8](repeating: 0, count: 32)
-_ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-let secretKey = bytes.map { String(format: "%02x", $0) }.joined()
-
-// Store two versions
-let v1 = try await client.dataPutPublic("version 1".data(using: .utf8)!)
-let v2 = try await client.dataPutPublic("version 2".data(using: .utf8)!)
-
-// Create pointer to v1
-let target = PointerTarget(kind: "chunk", address: v1.address)
-let ptr = try await client.pointerCreate(ownerSecretKey: secretKey, target: target)
-print("Pointer: \(ptr.address)")
-
-// Read
-let pointer = try await client.pointerGet(address: ptr.address)
-print("Points to: \(pointer.target.address)")
-print("Counter: \(pointer.counter)")
-
-// Update to v2
-try await client.pointerUpdate(
-    ownerSecretKey: secretKey,
-    target: PointerTarget(kind: "chunk", address: v2.address)
-)
-
-// Check existence
-let exists = try await client.pointerExists(address: ptr.address)
-```
-
-## Scratchpads (Versioned Mutable Storage)
-
-```swift
-var bytes = [UInt8](repeating: 0, count: 32)
-_ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-let secretKey = bytes.map { String(format: "%02x", $0) }.joined()
-
-// Create
-let result = try await client.scratchpadCreate(
-    ownerSecretKey: secretKey,
-    contentType: 1,
-    data: "initial data".data(using: .utf8)!
-)
-
-// Read
-let pad = try await client.scratchpadGet(address: result.address)
-print("Counter: \(pad.counter)")
-print("Data: \(String(data: pad.data, encoding: .utf8)!)")
-
-// Update
-try await client.scratchpadUpdate(
-    ownerSecretKey: secretKey,
-    contentType: 1,
-    data: "updated data".data(using: .utf8)!
-)
-
-// Check existence
-let exists = try await client.scratchpadExists(address: result.address)
-```
-
 ## Graph Entries (DAG Nodes)
 
 ```swift
@@ -210,48 +147,6 @@ print("Parents: \(entry.parents.count)")
 
 // Check existence
 let exists = try await client.graphEntryExists(address: result.address)
-```
-
-## Registers (32-byte Values)
-
-```swift
-var bytes = [UInt8](repeating: 0, count: 32)
-_ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-let secretKey = bytes.map { String(format: "%02x", $0) }.joined()
-
-// Create (64 hex chars = 32 bytes)
-let initial = String(repeating: "0", count: 64)
-let result = try await client.registerCreate(ownerSecretKey: secretKey, initialValue: initial)
-
-// Read
-let reg = try await client.registerGet(address: result.address)
-print("Value: \(reg.value)")
-
-// Update
-var newBytes = [UInt8](repeating: 0, count: 32)
-_ = SecRandomCopyBytes(kSecRandomDefault, newBytes.count, &newBytes)
-let newValue = newBytes.map { String(format: "%02x", $0) }.joined()
-let _ = try await client.registerUpdate(ownerSecretKey: secretKey, newValue: newValue)
-```
-
-## Vaults (Encrypted Key-Value)
-
-```swift
-var bytes = [UInt8](repeating: 0, count: 32)
-_ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-let secretKey = bytes.map { String(format: "%02x", $0) }.joined()
-
-// Store
-let cost = try await client.vaultPut(
-    secretKey: secretKey,
-    data: "vault data".data(using: .utf8)!,
-    contentType: 42
-)
-
-// Retrieve
-let vault = try await client.vaultGet(secretKey: secretKey)
-print("Data: \(String(data: vault.data, encoding: .utf8)!)")
-print("Content type: \(vault.contentType)")
 ```
 
 ## Error Handling
@@ -294,12 +189,8 @@ swift run AntdExamples 1     # Connect
 swift run AntdExamples 2     # Public data
 swift run AntdExamples 3     # Chunks
 swift run AntdExamples 4     # Files
-swift run AntdExamples 5     # Pointers
-swift run AntdExamples 6     # Scratchpads
-swift run AntdExamples 7     # Graph entries
-swift run AntdExamples 8     # Registers
-swift run AntdExamples 9     # Vaults
-swift run AntdExamples 10    # Private data
+swift run AntdExamples 5     # Graph entries
+swift run AntdExamples 6     # Private data
 swift run AntdExamples all   # Run all examples
 ```
 

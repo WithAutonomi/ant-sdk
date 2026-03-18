@@ -30,7 +30,7 @@ def main(argv: list[str] | None = None) -> None:
 
     # ant dev example
     p = dev_sub.add_parser("example", help="Run a named example")
-    p.add_argument("name", help="Example name: connect, data, chunks, files, pointers, scratchpads, graph, registers, vaults, private, all")
+    p.add_argument("name", help="Example name: connect, data, chunks, files, graph, private, all")
     p.add_argument("-l", "--language", default="python", choices=["python", "csharp"], help="Language (default: python)")
 
     # ant dev init

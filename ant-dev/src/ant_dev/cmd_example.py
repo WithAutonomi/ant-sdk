@@ -15,12 +15,8 @@ PYTHON_EXAMPLES = {
     "data":        "02_data.py",
     "chunks":      "03_chunks.py",
     "files":       "04_files.py",
-    "pointers":    "05_pointers.py",
-    "scratchpads": "06_scratchpads.py",
-    "graph":       "07_graph.py",
-    "registers":   "08_registers.py",
-    "vaults":      "09_vaults.py",
-    "private":     "10_private_data.py",
+    "graph":       "05_graph.py",
+    "private":     "06_private_data.py",
 }
 
 CSHARP_EXAMPLES = {
@@ -28,12 +24,8 @@ CSHARP_EXAMPLES = {
     "data": "2",
     "chunks": "3",
     "files": "4",
-    "pointers": "5",
-    "scratchpads": "6",
-    "graph": "7",
-    "registers": "8",
-    "vaults": "9",
-    "private": "10",
+    "graph": "5",
+    "private": "6",
     "all": "all",
 }
 

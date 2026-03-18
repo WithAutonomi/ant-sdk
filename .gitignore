@@ -33,6 +33,44 @@ obj/
 .DS_Store
 Thumbs.db
 
+# Dart
+.dart_tool/
+pubspec.lock
+
+# PHP
+vendor/
+composer.lock
+
+# Elixir
+_build/
+deps/
+.elixir_ls/
+mix.lock
+
+# Zig
+.zig-cache/
+zig-out/
+
+# C++ CMake
+build/
+CMakeCache.txt
+CMakeFiles/
+
+# Ruby
+Gemfile.lock
+.bundle/
+
+# Java
+out/
+.gradle/
+*.class
+
+# Claude
+.claude/
+
+# Lua
+.luarocks/
+
 # ant-dev state
 .ant-dev/
 

@@ -4,7 +4,7 @@ You are helping a developer build an application on the **Autonomi** decentraliz
 
 ## What You Need to Know
 
-Autonomi is a permanent, decentralized data network. Data is content-addressed (immutable) or owner-addressed (mutable). Storage is pay-once, reads are free.
+Autonomi is a permanent, decentralized data network. Data is content-addressed (immutable). Storage is pay-once, reads are free.
 
 **How it works:** A local Rust daemon (`antd`) connects to the network and exposes REST + gRPC APIs. Your app talks to antd through a language SDK. The developer never touches the network directly.
 
@@ -14,7 +14,7 @@ App  →  SDK  →  antd daemon (localhost)  →  Autonomi Network
 
 For detailed API signatures and endpoint documentation, see:
 - **[llms.txt](llms.txt)** — concise overview of all REST endpoints, gRPC services, error codes, and SDK links
-- **[llms-full.txt](llms-full.txt)** — complete reference with method signatures for all 6 languages, request/response formats, and runnable examples
+- **[llms-full.txt](llms-full.txt)** — complete reference with method signatures for all 12 languages, request/response formats, and runnable examples
 
 ## Choosing a Language
 
@@ -26,6 +26,15 @@ For detailed API signatures and endpoint documentation, see:
 | C# | `antd-csharp` | `Task<T>` / async-await | `dotnet add package Antd.Sdk` |
 | Kotlin | `antd-kotlin` | `suspend` / coroutines | Gradle dependency |
 | Swift | `antd-swift` | `async throws` | Swift Package Manager |
+| Ruby | `antd-ruby` | sync | `gem install antd` |
+| PHP | `antd-php` | sync + async | `composer require autonomi/antd` |
+| Dart | `antd-dart` | `Future<T>` / async-await | `dart pub add antd` |
+| Lua | `antd-lua` | sync | `luarocks install antd` |
+| Elixir | `antd-elixir` | `{:ok, result}` / GenServer | `{:antd, "~> 0.1"}` in mix.exs deps |
+| Zig | `antd-zig` | error unions / async | Add dependency in build.zig.zon |
+| Rust | `antd-rust` | async/await (tokio) | `cargo add antd-client` |
+| C++ | `antd-cpp` | sync (exceptions) | CMake FetchContent |
+| Java | `antd-java` | sync (exceptions) | Gradle/Maven (com.autonomi:antd-java) |
 
 **Swift note:** REST/gRPC SDK is macOS only. iOS apps must use the FFI bindings (`ffi/`) which embed the client directly — no daemon needed.
 
@@ -44,15 +53,6 @@ This is the most important decision. Match the developer's use case to the right
 | **Chunks** | You need custom chunking logic | Advanced/low-level use cases only |
 | **Files** | Uploading local files or directories | Static sites, media hosting, backups |
 
-### Mutable (update over time)
-
-| Primitive | Use When | Example |
-|-----------|----------|---------|
-| **Pointers** | Mutable reference to other data — like a DNS record | "Latest version" links, mutable URLs |
-| **Scratchpads** | Mutable storage with version counter, encrypted on network | User profiles, app settings, session state |
-| **Registers** | Simple 32-byte mutable value | Counters, flags, hash pointers |
-| **Vaults** | Private encrypted key-value storage (accessed by secret key, not address) | User secrets, encrypted settings |
-
 ### Append-only
 
 | Primitive | Use When | Example |
@@ -61,64 +61,35 @@ This is the most important decision. Match the developer's use case to the right
 
 ## Common Patterns
 
-### Pattern 1: Immutable Data + Pointer (Versioned Content)
+### Pattern 1: Immutable Data Storage
 
-Store each version as immutable data. Use a pointer to track the latest.
-
-```python
-# Store v1
-v1 = client.data_put_public(b"config v1")
-target = PointerTarget(kind="chunk", address=v1.address)
-ptr = client.pointer_create(secret_key, target)
-
-# Update to v2 — old data persists as version history
-v2 = client.data_put_public(b"config v2")
-client.pointer_update(secret_key, PointerTarget(kind="chunk", address=v2.address))
-
-# Anyone with the pointer address always gets the latest
-current = client.pointer_get(ptr.address)
-data = client.data_get_public(current.target.address)
-```
-
-**When to suggest this:** Developer wants mutable content with version history, public readability, or unlimited data size.
-
-### Pattern 2: Scratchpad (Versioned Mutable State)
-
-Store data directly in a scratchpad. Single read operation, built-in counter.
+Store data permanently on the network. Content-addressed, so duplicate data is free.
 
 ```python
-pad = client.scratchpad_create(secret_key, content_type=1, data=b"state v1")
-client.scratchpad_update(secret_key, content_type=1, data=b"state v2")
+# Store public data
+result = client.data_put_public(b"Hello, Autonomi!")
+print(f"Address: {result.address}")
 
-current = client.scratchpad_get(pad.address)
-print(current.counter)  # version number
+# Retrieve it back
+data = client.data_get_public(result.address)
 ```
 
-**When to suggest this:** Developer wants fast reads, compact mutable state, built-in encryption, or version detection via counter. No version history needed.
+**When to suggest this:** Developer wants permanent, immutable content storage with public readability.
 
-### Pattern 3: Register (Tiny Mutable Value)
+### Pattern 2: Private Data Storage
 
-A single 32-byte hex value. Cheapest mutable primitive.
+Store encrypted data that only you can read.
 
 ```python
-result = client.register_create(secret_key, "0" * 64)  # 32 bytes = 64 hex chars
-client.register_update(secret_key, new_hex_value)
+result = client.data_put_private(b"secret message")
+print(f"Data map: {result.address}")
+
+data = client.data_get_private(result.address)
 ```
 
-**When to suggest this:** Developer needs a counter, flag, or hash pointer. Value must fit in 32 bytes.
+**When to suggest this:** Developer wants encrypted storage that only they can access.
 
-### Pattern 4: Vault (Private Key-Value)
-
-Accessed by secret key alone — no network address needed.
-
-```python
-client.vault_put(secret_key, data=b"private data", content_type=42)
-vault = client.vault_get(secret_key)
-```
-
-**When to suggest this:** Developer needs private storage that only they can access. Good for persisting address maps, user preferences, or encryption keys.
-
-### Pattern 5: Graph (Linked History)
+### Pattern 3: Graph (Linked History)
 
 DAG nodes with parent/descendant links for building append-only structures.
 
@@ -133,10 +104,9 @@ entry2 = client.graph_entry_put(key2, parents=[entry1.address], content=content2
 
 1. **Every write costs tokens.** Always offer to estimate cost first with the `*_cost` methods. Reads are free.
 2. **Data is permanent.** Once stored, it cannot be deleted. Warn developers about storing sensitive data publicly.
-3. **Secret keys = ownership.** A 32-byte hex key controls mutable resources. Losing it means losing write access. Sharing it means sharing write access. Never store secret keys on the network unencrypted.
-4. **No access revocation.** Once data is public, it stays public. Once a key is shared, it can't be unshared.
-5. **Content-addressed = deduplication.** Storing the same bytes twice produces the same address and doesn't cost extra.
-6. **The daemon must be running.** All SDK calls go through `antd` on localhost. If the developer hasn't started it, nothing will work. Point them to `ant dev start`.
+3. **No access revocation.** Once data is public, it stays public.
+4. **Content-addressed = deduplication.** Storing the same bytes twice produces the same address and doesn't cost extra.
+5. **The daemon must be running.** All SDK calls go through `antd` on localhost. If the developer hasn't started it, nothing will work. Point them to `ant dev start`.
 
 ## Error Handling
 
@@ -167,8 +137,6 @@ When a developer asks to build something, follow this sequence:
 ## Reference
 
 - [llms.txt](llms.txt) — REST endpoints, gRPC services, error codes, SDK links
-- [llms-full.txt](llms-full.txt) — complete method signatures for all 5 languages, request/response formats, runnable examples
+- [llms-full.txt](llms-full.txt) — complete method signatures for all 12 languages, request/response formats, runnable examples
 - [docs/architecture.md](docs/architecture.md) — full mental model, data primitive deep-dive, payment model, design patterns
-- [docs/tutorial-store-retrieve.md](docs/tutorial-store-retrieve.md) — store text, files, private data, chunks (Python/C#/Kotlin/Swift)
-- [docs/tutorial-key-value-store.md](docs/tutorial-key-value-store.md) — build a KV store with registers + pointers
-- [docs/tutorial-mutable-config.md](docs/tutorial-mutable-config.md) — mutable config with pointers vs scratchpads
+- [docs/tutorial-store-retrieve.md](docs/tutorial-store-retrieve.md) — store text, files, private data, chunks (all 12 languages)

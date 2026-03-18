@@ -96,24 +96,6 @@ All methods take a `context.Context` as the first parameter for cancellation and
 | `ChunkPut(ctx, data)` | Store a raw chunk |
 | `ChunkGet(ctx, address)` | Retrieve a chunk |
 
-### Pointers (Mutable References)
-| Method | Description |
-|--------|-------------|
-| `PointerCreate(ctx, secretKey, target)` | Create a pointer |
-| `PointerGet(ctx, address)` | Read a pointer |
-| `PointerExists(ctx, address)` | Check if pointer exists |
-| `PointerUpdate(ctx, secretKey, target)` | Update pointer target |
-| `PointerCost(ctx, publicKey)` | Estimate creation cost |
-
-### Scratchpads (Versioned Mutable State)
-| Method | Description |
-|--------|-------------|
-| `ScratchpadCreate(ctx, secretKey, contentType, data)` | Create a scratchpad |
-| `ScratchpadGet(ctx, address)` | Read a scratchpad |
-| `ScratchpadExists(ctx, address)` | Check if exists |
-| `ScratchpadUpdate(ctx, secretKey, contentType, data)` | Update scratchpad |
-| `ScratchpadCost(ctx, publicKey)` | Estimate creation cost |
-
 ### Graph Entries (DAG Nodes)
 | Method | Description |
 |--------|-------------|
@@ -121,21 +103,6 @@ All methods take a `context.Context` as the first parameter for cancellation and
 | `GraphEntryGet(ctx, address)` | Read entry |
 | `GraphEntryExists(ctx, address)` | Check if exists |
 | `GraphEntryCost(ctx, publicKey)` | Estimate creation cost |
-
-### Registers (32-byte Mutable Values)
-| Method | Description |
-|--------|-------------|
-| `RegisterCreate(ctx, secretKey, initialValue)` | Create register |
-| `RegisterGet(ctx, address)` | Read register |
-| `RegisterUpdate(ctx, secretKey, newValue)` | Update register |
-| `RegisterCost(ctx, publicKey)` | Estimate creation cost |
-
-### Vaults (Private Encrypted Storage)
-| Method | Description |
-|--------|-------------|
-| `VaultGet(ctx, secretKey)` | Retrieve vault data |
-| `VaultPut(ctx, secretKey, data, contentType)` | Store vault data |
-| `VaultCost(ctx, secretKey, maxSize)` | Estimate storage cost |
 
 ### Files & Directories
 | Method | Description |
@@ -185,6 +152,4 @@ See the [examples/](examples/) directory:
 
 - `01-connect` — Health check
 - `02-data` — Public and private data storage
-- `03-pointers` — Mutable references
-- `04-scratchpads` — Versioned mutable state
-- `05-files` — File upload and download
+- `03-files` — File upload and download

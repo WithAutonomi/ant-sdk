@@ -17,12 +17,7 @@ from .models import (
     GraphDescendant,
     GraphEntry,
     HealthStatus,
-    Pointer,
-    PointerTarget,
     PutResult,
-    Register,
-    Scratchpad,
-    Vault,
 )
 from .exceptions import (
     AntdError,
@@ -46,12 +41,7 @@ __all__ = [
     "ArchiveEntry",
     "GraphDescendant",
     "GraphEntry",
-    "Pointer",
-    "PointerTarget",
     "PutResult",
-    "Register",
-    "Scratchpad",
-    "Vault",
     # Exceptions
     "AntdError",
     "AlreadyExistsError",

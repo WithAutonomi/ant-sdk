@@ -43,27 +43,6 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         try ensureSuccess(response, data: data)
     }
 
-    private func putJSON<T: Decodable>(_ path: String, body: Any) async throws -> T {
-        let url = URL(string: "\(baseURL)\(path)")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "PUT"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await session.data(for: request)
-        try ensureSuccess(response, data: data)
-        return try JSONDecoder.snakeCase.decode(T.self, from: data)
-    }
-
-    private func putJSONNoResult(_ path: String, body: Any) async throws {
-        let url = URL(string: "\(baseURL)\(path)")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "PUT"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await session.data(for: request)
-        try ensureSuccess(response, data: data)
-    }
-
     private func headExists(_ path: String) async throws -> Bool {
         let url = URL(string: "\(baseURL)\(path)")!
         var request = URLRequest(url: url)
@@ -136,76 +115,6 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         return decoded
     }
 
-    // MARK: - Pointers
-
-    public func pointerCreate(ownerSecretKey: String, target: PointerTarget) async throws -> PutResult {
-        let body: [String: Any] = [
-            "owner_secret_key": ownerSecretKey,
-            "target": ["kind": target.kind, "address": target.address],
-        ]
-        let resp: CostAddressDTO = try await postJSON("/v1/pointers", body: body)
-        return PutResult(cost: resp.cost, address: resp.address)
-    }
-
-    public func pointerGet(address: String) async throws -> Pointer {
-        let resp: PointerDTO = try await getJSON("/v1/pointers/\(address)")
-        return Pointer(address: resp.address, owner: resp.owner, counter: resp.counter,
-                       target: PointerTarget(kind: resp.target.kind, address: resp.target.address))
-    }
-
-    public func pointerExists(address: String) async throws -> Bool {
-        try await headExists("/v1/pointers/\(address)")
-    }
-
-    public func pointerUpdate(ownerSecretKey: String, target: PointerTarget) async throws {
-        let body: [String: Any] = [
-            "owner_secret_key": ownerSecretKey,
-            "target": ["kind": target.kind, "address": target.address],
-        ]
-        try await putJSONNoResult("/v1/pointers/\(ownerSecretKey)", body: body)
-    }
-
-    public func pointerCost(publicKey: String) async throws -> String {
-        let resp: CostDTO = try await postJSON("/v1/pointers/cost", body: ["public_key": publicKey])
-        return resp.cost
-    }
-
-    // MARK: - Scratchpads
-
-    public func scratchpadCreate(ownerSecretKey: String, contentType: UInt64, data: Data) async throws -> PutResult {
-        let body: [String: Any] = [
-            "owner_secret_key": ownerSecretKey,
-            "content_type": contentType,
-            "data": data.base64EncodedString(),
-        ]
-        let resp: CostAddressDTO = try await postJSON("/v1/scratchpads", body: body)
-        return PutResult(cost: resp.cost, address: resp.address)
-    }
-
-    public func scratchpadGet(address: String) async throws -> ScratchpadRecord {
-        let resp: ScratchpadDTO = try await getJSON("/v1/scratchpads/\(address)")
-        guard let decoded = Data(base64Encoded: resp.data) else { throw BadRequestError("Invalid base64 data") }
-        return ScratchpadRecord(address: resp.address, dataEncoding: resp.dataEncoding, data: decoded, counter: resp.counter)
-    }
-
-    public func scratchpadExists(address: String) async throws -> Bool {
-        try await headExists("/v1/scratchpads/\(address)")
-    }
-
-    public func scratchpadUpdate(ownerSecretKey: String, contentType: UInt64, data: Data) async throws {
-        let body: [String: Any] = [
-            "owner_secret_key": ownerSecretKey,
-            "content_type": contentType,
-            "data": data.base64EncodedString(),
-        ]
-        try await putJSONNoResult("/v1/scratchpads/\(ownerSecretKey)", body: body)
-    }
-
-    public func scratchpadCost(publicKey: String) async throws -> String {
-        let resp: CostDTO = try await postJSON("/v1/scratchpads/cost", body: ["public_key": publicKey])
-        return resp.cost
-    }
-
     // MARK: - Graph
 
     public func graphEntryPut(ownerSecretKey: String, parents: [String], content: String, descendants: [GraphDescendant]) async throws -> PutResult {
@@ -231,54 +140,6 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
 
     public func graphEntryCost(publicKey: String) async throws -> String {
         let resp: CostDTO = try await postJSON("/v1/graph/cost", body: ["public_key": publicKey])
-        return resp.cost
-    }
-
-    // MARK: - Registers
-
-    public func registerCreate(ownerSecretKey: String, initialValue: String) async throws -> PutResult {
-        let body: [String: Any] = ["owner_secret_key": ownerSecretKey, "initial_value": initialValue]
-        let resp: CostAddressDTO = try await postJSON("/v1/registers", body: body)
-        return PutResult(cost: resp.cost, address: resp.address)
-    }
-
-    public func registerGet(address: String) async throws -> Register {
-        let resp: RegisterDTO = try await getJSON("/v1/registers/\(address)")
-        return Register(value: resp.value)
-    }
-
-    public func registerUpdate(ownerSecretKey: String, newValue: String) async throws -> PutResult {
-        let body: [String: Any] = ["owner_secret_key": ownerSecretKey, "new_value": newValue]
-        let resp: RegisterUpdateDTO = try await putJSON("/v1/registers/\(ownerSecretKey)", body: body)
-        return PutResult(cost: resp.cost, address: "")
-    }
-
-    public func registerCost(publicKey: String) async throws -> String {
-        let resp: CostDTO = try await postJSON("/v1/registers/cost", body: ["public_key": publicKey])
-        return resp.cost
-    }
-
-    // MARK: - Vaults
-
-    public func vaultGet(secretKey: String) async throws -> Vault {
-        let resp: VaultDTO = try await getJSON("/v1/vaults?secret_key=\(secretKey)")
-        guard let decoded = Data(base64Encoded: resp.data) else { throw BadRequestError("Invalid base64 data") }
-        return Vault(data: decoded, contentType: resp.contentType)
-    }
-
-    public func vaultPut(secretKey: String, data: Data, contentType: UInt64) async throws -> String {
-        let body: [String: Any] = [
-            "secret_key": secretKey,
-            "data": data.base64EncodedString(),
-            "content_type": contentType,
-        ]
-        let resp: CostDTO = try await postJSON("/v1/vaults", body: body)
-        return resp.cost
-    }
-
-    public func vaultCost(secretKey: String, maxSize: UInt64) async throws -> String {
-        let body: [String: Any] = ["secret_key": secretKey, "max_size": maxSize]
-        let resp: CostDTO = try await postJSON("/v1/vaults/cost", body: body)
         return resp.cost
     }
 
@@ -351,25 +212,6 @@ private struct CostDTO: Decodable {
     let cost: String
 }
 
-private struct PointerTargetDTO: Decodable {
-    let kind: String
-    let address: String
-}
-
-private struct PointerDTO: Decodable {
-    let address: String
-    let owner: String
-    let counter: UInt64
-    let target: PointerTargetDTO
-}
-
-private struct ScratchpadDTO: Decodable {
-    let address: String
-    let dataEncoding: UInt64
-    let data: String
-    let counter: UInt64
-}
-
 private struct GraphDescendantDTO: Decodable {
     let publicKey: String
     let content: String
@@ -380,19 +222,6 @@ private struct GraphEntryDTO: Decodable {
     let parents: [String]?
     let content: String
     let descendants: [GraphDescendantDTO]?
-}
-
-private struct RegisterDTO: Decodable {
-    let value: String
-}
-
-private struct RegisterUpdateDTO: Decodable {
-    let cost: String
-}
-
-private struct VaultDTO: Decodable {
-    let data: String
-    let contentType: UInt64
 }
 
 private struct ArchiveEntryDTO: Decodable {

@@ -88,26 +88,6 @@ All methods are async and return `Task<T>`. The client implements `IDisposable`.
 | `ChunkPutAsync(byte[] data)` | `PutResult` | Store a raw chunk |
 | `ChunkGetAsync(string address)` | `byte[]` | Retrieve a chunk |
 
-### Pointers
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `PointerCreateAsync(string key, PointerTarget target)` | `PutResult` | Create a pointer |
-| `PointerGetAsync(string address)` | `Pointer` | Read a pointer |
-| `PointerExistsAsync(string address)` | `bool` | Check existence |
-| `PointerUpdateAsync(string key, PointerTarget target)` | — | Update target |
-| `PointerCostAsync(string publicKey)` | `string` | Estimate cost |
-
-### Scratchpads
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `ScratchpadCreateAsync(string key, ulong contentType, byte[] data)` | `PutResult` | Create |
-| `ScratchpadGetAsync(string address)` | `ScratchpadRecord` | Read |
-| `ScratchpadExistsAsync(string address)` | `bool` | Check existence |
-| `ScratchpadUpdateAsync(string key, ulong contentType, byte[] data)` | — | Update |
-| `ScratchpadCostAsync(string publicKey)` | `string` | Estimate cost |
-
 ### Graph
 
 | Method | Returns | Description |
@@ -116,23 +96,6 @@ All methods are async and return `Task<T>`. The client implements `IDisposable`.
 | `GraphEntryGetAsync(string address)` | `GraphEntry` | Read |
 | `GraphEntryExistsAsync(string address)` | `bool` | Check existence |
 | `GraphEntryCostAsync(string publicKey)` | `string` | Estimate cost |
-
-### Registers
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `RegisterCreateAsync(string key, string initialValue)` | `PutResult` | Create |
-| `RegisterGetAsync(string address)` | `Register` | Read |
-| `RegisterUpdateAsync(string key, string newValue)` | `PutResult` | Update |
-| `RegisterCostAsync(string publicKey)` | `string` | Estimate cost |
-
-### Vaults
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `VaultGetAsync(string secretKey)` | `Vault` | Retrieve vault |
-| `VaultPutAsync(string secretKey, byte[] data, ulong contentType)` | `string` | Store vault |
-| `VaultCostAsync(string secretKey, ulong maxSize)` | `string` | Estimate cost |
 
 ### Files
 
@@ -154,13 +117,8 @@ All models are sealed records (immutable).
 |-------|--------|-------------|
 | `HealthStatus` | `Ok`, `Network` | Health check result |
 | `PutResult` | `Cost`, `Address` | Write operation result |
-| `PointerTarget` | `Kind`, `Address` | Pointer target reference |
-| `Pointer` | `Address`, `Owner`, `Counter`, `Target` | Pointer record |
-| `ScratchpadRecord` | `Address`, `DataEncoding`, `Data`, `Counter` | Scratchpad record |
 | `GraphDescendant` | `PublicKey`, `Content` | Graph descendant entry |
 | `GraphEntry` | `Owner`, `Parents`, `Content`, `Descendants` | Graph DAG node |
-| `Register` | `Value` | 32-byte register value (hex) |
-| `Vault` | `Data`, `ContentType` | Vault record |
 | `ArchiveEntry` | `Path`, `Address`, `Created`, `Modified`, `Size` | Archive file entry |
 | `Archive` | `Entries` | Archive manifest |
 
@@ -209,12 +167,8 @@ dotnet run -- 1     # Connect
 dotnet run -- 2     # Public data
 dotnet run -- 3     # Chunks
 dotnet run -- 4     # Files
-dotnet run -- 5     # Pointers
-dotnet run -- 6     # Scratchpads
-dotnet run -- 7     # Graph
-dotnet run -- 8     # Registers
-dotnet run -- 9     # Vaults
-dotnet run -- 10    # Private data
+dotnet run -- 5     # Graph
+dotnet run -- 6     # Private data
 dotnet run -- all   # Run all
 ```
 
