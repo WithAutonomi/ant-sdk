@@ -461,29 +461,14 @@ defmodule Antd.GrpcClient do
 
   defp translate_error(%GRPC.RPCError{status: status, message: message}) do
     case status do
-      GRPC.Status.invalid_argument() ->
-        %Antd.BadRequestError{message: message, status_code: 400}
-
-      GRPC.Status.not_found() ->
-        %Antd.NotFoundError{message: message, status_code: 404}
-
-      GRPC.Status.already_exists() ->
-        %Antd.AlreadyExistsError{message: message, status_code: 409}
-
-      GRPC.Status.resource_exhausted() ->
-        %Antd.TooLargeError{message: message, status_code: 413}
-
-      GRPC.Status.internal() ->
-        %Antd.InternalError{message: message, status_code: 500}
-
-      GRPC.Status.unavailable() ->
-        %Antd.NetworkError{message: message, status_code: 502}
-
-      GRPC.Status.failed_precondition() ->
-        %Antd.PaymentError{message: message, status_code: 402}
-
-      _ ->
-        %Antd.AntdError{message: message, status_code: status}
+      3 -> %Antd.BadRequestError{message: message, status_code: 400}
+      5 -> %Antd.NotFoundError{message: message, status_code: 404}
+      6 -> %Antd.AlreadyExistsError{message: message, status_code: 409}
+      8 -> %Antd.TooLargeError{message: message, status_code: 413}
+      9 -> %Antd.PaymentError{message: message, status_code: 402}
+      13 -> %Antd.InternalError{message: message, status_code: 500}
+      14 -> %Antd.NetworkError{message: message, status_code: 502}
+      _ -> %Antd.AntdError{message: message, status_code: status}
     end
   end
 

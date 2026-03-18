@@ -36,6 +36,8 @@ dependencies {
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.0")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation("io.grpc:grpc-testing:$grpcVersion")
+    testImplementation("io.grpc:grpc-inprocess:$grpcVersion")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 

@@ -29,6 +29,9 @@ pub mod models;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod grpc_tests;
+
 pub use client::{Client, DEFAULT_BASE_URL, DEFAULT_TIMEOUT};
 pub use errors::AntdError;
 pub use grpc_client::{GrpcClient, DEFAULT_GRPC_ENDPOINT};

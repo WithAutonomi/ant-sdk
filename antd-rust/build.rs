@@ -2,7 +2,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let proto_root = std::path::Path::new("../antd/proto");
 
     tonic_build::configure()
-        .build_server(false)
+        .build_server(true)
         .compile_protos(
             &[
                 "antd/v1/common.proto",
