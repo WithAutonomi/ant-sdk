@@ -1,0 +1,180 @@
+# antd-cpp
+
+C++ SDK for the [antd](../antd/) daemon — the gateway to the Autonomi decentralized network.
+
+## Installation
+
+### CMake FetchContent (recommended)
+
+Add to your `CMakeLists.txt`:
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(
+    antd-cpp
+    GIT_REPOSITORY https://github.com/maidsafe/ant-sdk.git
+    SOURCE_SUBDIR  antd-cpp
+)
+FetchContent_MakeAvailable(antd-cpp)
+
+target_link_libraries(your_target PRIVATE antd)
+```
+
+All dependencies (nlohmann_json, cpp-httplib) are fetched automatically.
+
+### Manual
+
+```bash
+git clone https://github.com/maidsafe/ant-sdk.git
+cd ant-sdk/antd-cpp
+cmake -B build
+cmake --build build
+```
+
+## Quick Start
+
+```cpp
+#include "antd/antd.hpp"
+#include <iostream>
+
+int main() {
+    antd::Client client;  // defaults to http://localhost:8080
+
+    // Check daemon health
+    auto health = client.health();
+    std::cout << "OK: " << health.ok << ", Network: " << health.network << "\n";
+
+    // Store data
+    std::string msg = "Hello, Autonomi!";
+    std::vector<uint8_t> data(msg.begin(), msg.end());
+    auto result = client.data_put_public(data);
+    std::cout << "Stored at " << result.address << " (cost: " << result.cost << " atto)\n";
+
+    // Retrieve data
+    auto retrieved = client.data_get_public(result.address);
+    std::string text(retrieved.begin(), retrieved.end());
+    std::cout << "Retrieved: " << text << "\n";
+}
+```
+
+## Prerequisites
+
+- C++20 compiler (GCC 10+, Clang 10+, MSVC 19.29+)
+- CMake 3.14+
+- A running antd daemon. Start it with:
+
+```bash
+ant dev start
+```
+
+## Configuration
+
+```cpp
+// Default: http://localhost:8080, 5 minute timeout
+antd::Client client;
+
+// Custom URL
+antd::Client client("http://custom-host:9090");
+
+// Custom URL and timeout (seconds)
+antd::Client client("http://localhost:8080", 30);
+```
+
+## API Reference
+
+All methods throw `antd::AntdError` (or a subclass) on failure.
+
+### Health
+
+| Method | Description |
+|--------|-------------|
+| `health()` | Check daemon status |
+
+### Data (Immutable)
+
+| Method | Description |
+|--------|-------------|
+| `data_put_public(data)` | Store public data |
+| `data_get_public(address)` | Retrieve public data |
+| `data_put_private(data)` | Store encrypted private data |
+| `data_get_private(data_map)` | Retrieve private data |
+| `data_cost(data)` | Estimate storage cost |
+
+### Chunks
+
+| Method | Description |
+|--------|-------------|
+| `chunk_put(data)` | Store a raw chunk |
+| `chunk_get(address)` | Retrieve a chunk |
+
+### Graph Entries (DAG Nodes)
+
+| Method | Description |
+|--------|-------------|
+| `graph_entry_put(secret_key, parents, content, descendants)` | Create entry |
+| `graph_entry_get(address)` | Read entry |
+| `graph_entry_exists(address)` | Check if exists |
+| `graph_entry_cost(public_key)` | Estimate creation cost |
+
+### Files & Directories
+
+| Method | Description |
+|--------|-------------|
+| `file_upload_public(path)` | Upload a file |
+| `file_download_public(address, dest_path)` | Download a file |
+| `dir_upload_public(path)` | Upload a directory |
+| `dir_download_public(address, dest_path)` | Download a directory |
+| `archive_get_public(address)` | Get archive manifest |
+| `archive_put_public(archive)` | Create archive manifest |
+| `file_cost(path, is_public, include_archive)` | Estimate upload cost |
+
+## Error Handling
+
+All errors inherit from `antd::AntdError` (which inherits from `std::runtime_error`), so you can catch them at any granularity:
+
+```cpp
+try {
+    auto data = client.data_get_public(address);
+} catch (const antd::NotFoundError& e) {
+    std::cerr << "Not found on network\n";
+} catch (const antd::PaymentError& e) {
+    std::cerr << "Insufficient funds\n";
+} catch (const antd::AntdError& e) {
+    std::cerr << "antd error " << e.status_code << ": " << e.what() << "\n";
+}
+```
+
+| Error Type | HTTP Status | When |
+|-----------|-------------|------|
+| `BadRequestError` | 400 | Invalid parameters |
+| `PaymentError` | 402 | Insufficient funds |
+| `NotFoundError` | 404 | Resource not found |
+| `AlreadyExistsError` | 409 | Resource exists |
+| `ForkError` | 409 | Version conflict |
+| `TooLargeError` | 413 | Payload too large |
+| `InternalError` | 500 | Server error |
+| `NetworkError` | 502 | Network unreachable |
+
+## Building
+
+```bash
+cmake -B build
+cmake --build build
+
+# Run tests
+cd build && ctest --output-on-failure
+
+# Build without examples
+cmake -B build -DANTD_BUILD_EXAMPLES=OFF
+```
+
+## Examples
+
+See the [examples/](examples/) directory:
+
+- `01-connect` — Health check
+- `02-data` — Public data storage and retrieval
+- `03-chunks` — Raw chunk operations
+- `04-files` — File and directory upload/download
+- `05-graph` — Graph entry (DAG node) operations
+- `06-private-data` — Private encrypted data storage

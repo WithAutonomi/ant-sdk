@@ -1,0 +1,169 @@
+# antd-elixir
+
+Elixir SDK for the [antd](../antd/) daemon — the gateway to the Autonomi decentralized network.
+
+## Installation
+
+Add `antd` to your list of dependencies in `mix.exs`:
+
+```elixir
+def deps do
+  [
+    {:antd, "~> 0.1.0"}
+  ]
+end
+```
+
+## Quick Start
+
+```elixir
+# Create a client
+client = Antd.Client.new()
+
+# Check daemon health
+{:ok, health} = Antd.Client.health(client)
+IO.puts("OK: #{health.ok}, Network: #{health.network}")
+
+# Store data
+{:ok, result} = Antd.Client.data_put_public(client, "Hello, Autonomi!")
+IO.puts("Stored at #{result.address} (cost: #{result.cost} atto)")
+
+# Retrieve data
+{:ok, data} = Antd.Client.data_get_public(client, result.address)
+IO.puts("Retrieved: #{data}")
+```
+
+Pipe operator style with bang variants:
+
+```elixir
+client = Antd.Client.new()
+
+"Hello, Autonomi!"
+|> then(&Antd.Client.data_put_public!(client, &1))
+|> Map.get(:address)
+|> then(&Antd.Client.data_get_public!(client, &1))
+|> IO.puts()
+```
+
+## Prerequisites
+
+The antd daemon must be running. Start it with:
+
+```bash
+ant dev start
+```
+
+## Configuration
+
+```elixir
+# Default: http://localhost:8080, 5 minute timeout
+client = Antd.Client.new()
+
+# Custom URL
+client = Antd.Client.new("http://custom-host:9090")
+
+# Custom timeout (in milliseconds)
+client = Antd.Client.new("http://localhost:8080", timeout: 30_000)
+```
+
+## API Reference
+
+All functions take a `%Antd.Client{}` as the first argument. Each returns `{:ok, result}` or `{:error, exception}`. Bang variants (e.g. `health!/1`) raise on error.
+
+### Health
+
+| Function | Description |
+|----------|-------------|
+| `health(client)` | Check daemon status |
+
+### Data (Immutable)
+
+| Function | Description |
+|----------|-------------|
+| `data_put_public(client, data)` | Store public data |
+| `data_get_public(client, address)` | Retrieve public data |
+| `data_put_private(client, data)` | Store encrypted private data |
+| `data_get_private(client, data_map)` | Retrieve private data |
+| `data_cost(client, data)` | Estimate storage cost |
+
+### Chunks
+
+| Function | Description |
+|----------|-------------|
+| `chunk_put(client, data)` | Store a raw chunk |
+| `chunk_get(client, address)` | Retrieve a chunk |
+
+### Graph Entries (DAG Nodes)
+
+| Function | Description |
+|----------|-------------|
+| `graph_entry_put(client, secret_key, parents, content, descendants)` | Create entry |
+| `graph_entry_get(client, address)` | Read entry |
+| `graph_entry_exists(client, address)` | Check if exists |
+| `graph_entry_cost(client, public_key)` | Estimate creation cost |
+
+### Files & Directories
+
+| Function | Description |
+|----------|-------------|
+| `file_upload_public(client, path)` | Upload a file |
+| `file_download_public(client, address, dest_path)` | Download a file |
+| `dir_upload_public(client, path)` | Upload a directory |
+| `dir_download_public(client, address, dest_path)` | Download a directory |
+| `archive_get_public(client, address)` | Get archive manifest |
+| `archive_put_public(client, archive)` | Create archive manifest |
+| `file_cost(client, path, is_public, include_archive)` | Estimate upload cost |
+
+## Error Handling
+
+All functions return `{:ok, result}` or `{:error, exception}`. Use pattern matching:
+
+```elixir
+case Antd.Client.data_get_public(client, address) do
+  {:ok, data} ->
+    IO.puts("Got data: #{data}")
+
+  {:error, %Antd.NotFoundError{}} ->
+    IO.puts("Data not found on network")
+
+  {:error, %Antd.PaymentError{}} ->
+    IO.puts("Insufficient funds")
+
+  {:error, error} ->
+    IO.puts("Error: #{Exception.message(error)}")
+end
+```
+
+Bang variants raise exceptions directly:
+
+```elixir
+try do
+  data = Antd.Client.data_get_public!(client, address)
+  IO.puts("Got: #{data}")
+rescue
+  e in Antd.NotFoundError ->
+    IO.puts("Not found: #{e.message}")
+end
+```
+
+| Error Module | HTTP Status | When |
+|-------------|-------------|------|
+| `Antd.BadRequestError` | 400 | Invalid parameters |
+| `Antd.PaymentError` | 402 | Insufficient funds |
+| `Antd.NotFoundError` | 404 | Resource not found |
+| `Antd.AlreadyExistsError` | 409 | Resource exists |
+| `Antd.ForkError` | 409 | Version conflict |
+| `Antd.TooLargeError` | 413 | Payload too large |
+| `Antd.InternalError` | 500 | Server error |
+| `Antd.NetworkError` | 502 | Network unreachable |
+
+## Examples
+
+See the [examples/](examples/) directory:
+
+- `01_connect.exs` — Health check
+- `02_data.exs` — Public data storage and retrieval
+- `03_chunks.exs` — Raw chunk operations
+- `04_files.exs` — File and directory upload/download
+- `05_graph.exs` — Graph entries (DAG nodes)
+- `06_private_data.exs` — Private encrypted data
