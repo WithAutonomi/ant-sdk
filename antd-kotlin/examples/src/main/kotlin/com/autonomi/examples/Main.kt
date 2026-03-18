@@ -13,25 +13,17 @@ fun main(args: Array<String>) = runBlocking {
         "2" -> example02Data()
         "3" -> example03Chunks()
         "4" -> example04Files()
-        "5" -> example05Pointers()
-        "6" -> example06Scratchpads()
-        "7" -> example07Graph()
-        "8" -> example08Registers()
-        "9" -> example09Vaults()
-        "10" -> example10PrivateData()
+        "5" -> example05Graph()
+        "6" -> example06PrivateData()
         "all" -> {
             example01Connect()
             example02Data()
             example03Chunks()
             example04Files()
-            example05Pointers()
-            example06Scratchpads()
-            example07Graph()
-            example08Registers()
-            example09Vaults()
-            example10PrivateData()
+            example05Graph()
+            example06PrivateData()
         }
-        else -> println("Unknown example: $example. Use 1-10 or 'all'.")
+        else -> println("Unknown example: $example. Use 1-6 or 'all'.")
     }
 }
 
@@ -137,84 +129,9 @@ suspend fun example04Files() {
     client.close()
 }
 
-/** Example 05: Create, read, and update mutable pointers. */
-suspend fun example05Pointers() {
-    println("=== Example 05: Pointers ===")
-    val client = AntdClient.createRest()
-
-    val secretKey = randomHex()
-
-    // Store data to point to
-    val dataV1 = client.dataPutPublic("version 1".toByteArray())
-    val dataV2 = client.dataPutPublic("version 2".toByteArray())
-
-    // Create pointer to v1
-    val targetV1 = PointerTarget("chunk", dataV1.address)
-    val ptr = client.pointerCreate(secretKey, targetV1)
-    println("Pointer created at: ${ptr.address}")
-
-    // Read
-    val pointer = client.pointerGet(ptr.address)
-    println("Points to: ${pointer.target.kind} @ ${pointer.target.address}")
-    println("Counter: ${pointer.counter}")
-
-    // Check existence
-    val exists = client.pointerExists(ptr.address)
-    println("Pointer exists: $exists")
-
-    // Update to v2
-    val targetV2 = PointerTarget("chunk", dataV2.address)
-    client.pointerUpdate(secretKey, targetV2)
-    println("Pointer updated to v2")
-
-    // Read again
-    val updated = client.pointerGet(ptr.address)
-    println("Now points to: ${updated.target.address}")
-
-    println("Pointer CRUD OK!\n")
-    client.close()
-}
-
-/** Example 06: Create, read, and update versioned scratchpads. */
-suspend fun example06Scratchpads() {
-    println("=== Example 06: Scratchpads ===")
-    val client = AntdClient.createRest()
-
-    val secretKey = randomHex()
-
-    // Create
-    val initialData = "scratchpad v1 data".toByteArray()
-    val contentType = 1UL
-    val result = client.scratchpadCreate(secretKey, contentType, initialData)
-    println("Scratchpad created at: ${result.address}")
-    println("Cost: ${result.cost} atto tokens")
-
-    // Read
-    var pad = client.scratchpadGet(result.address)
-    println("Data encoding: ${pad.dataEncoding}")
-    println("Counter: ${pad.counter}")
-    println("Data length: ${pad.data.size} bytes")
-
-    // Check existence
-    val exists = client.scratchpadExists(result.address)
-    println("Scratchpad exists: $exists")
-
-    // Update
-    val updatedData = "scratchpad v2 data".toByteArray()
-    client.scratchpadUpdate(secretKey, contentType, updatedData)
-    println("Scratchpad updated")
-
-    // Read again
-    pad = client.scratchpadGet(result.address)
-    println("Counter after update: ${pad.counter}")
-
-    println("Scratchpad CRUD OK!\n")
-    client.close()
-}
-
-/** Example 07: Graph entry (DAG node) operations. */
-suspend fun example07Graph() {
-    println("=== Example 07: Graph ===")
+/** Example 05: Graph entry (DAG node) operations. */
+suspend fun example05Graph() {
+    println("=== Example 05: Graph ===")
     val client = AntdClient.createRest()
 
     val secretKey = randomHex()
@@ -249,64 +166,9 @@ suspend fun example07Graph() {
     client.close()
 }
 
-/** Example 08: Register create, read, and update. */
-suspend fun example08Registers() {
-    println("=== Example 08: Registers ===")
-    val client = AntdClient.createRest()
-
-    val secretKey = randomHex()
-
-    // Create with initial value (32 zero bytes)
-    val initialValue = "0".repeat(64)
-    val result = client.registerCreate(secretKey, initialValue)
-    println("Register created at: ${result.address}")
-    println("Cost: ${result.cost} atto tokens")
-
-    // Read
-    var reg = client.registerGet(result.address)
-    println("Current value: ${reg.value}")
-
-    // Update
-    val newValue = randomHex()
-    val updateResult = client.registerUpdate(secretKey, newValue)
-    println("Update cost: ${updateResult.cost} atto tokens")
-
-    // Read again
-    reg = client.registerGet(result.address)
-    println("Updated value: ${reg.value}")
-
-    println("Register CRUD OK!\n")
-    client.close()
-}
-
-/** Example 09: Vault store and retrieve. */
-suspend fun example09Vaults() {
-    println("=== Example 09: Vaults ===")
-    val client = AntdClient.createRest()
-
-    val secretKey = randomHex()
-
-    // Store
-    val payload = "Secret vault data that is encrypted".toByteArray()
-    val contentType = 42UL
-    val cost = client.vaultPut(secretKey, payload, contentType)
-    println("Vault store cost: $cost atto tokens")
-
-    // Retrieve
-    val vault = client.vaultGet(secretKey)
-    println("Content type: ${vault.contentType}")
-    println("Data: ${String(vault.data)}")
-
-    check(vault.data.contentEquals(payload)) { "Vault round-trip mismatch!" }
-    check(vault.contentType == contentType) { "Content type mismatch!" }
-
-    println("Vault round-trip OK!\n")
-    client.close()
-}
-
-/** Example 10: Private (encrypted) data round-trip. */
-suspend fun example10PrivateData() {
-    println("=== Example 10: Private Data ===")
+/** Example 06: Private (encrypted) data round-trip. */
+suspend fun example06PrivateData() {
+    println("=== Example 06: Private Data ===")
     val client = AntdClient.createRest()
 
     val secretMessage = "This message is encrypted on the network".toByteArray()

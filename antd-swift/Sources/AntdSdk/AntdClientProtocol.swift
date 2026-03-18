@@ -20,36 +20,11 @@ public protocol AntdClientProtocol: Sendable {
     func chunkPut(_ data: Data) async throws -> PutResult
     func chunkGet(address: String) async throws -> Data
 
-    // Pointers
-    func pointerCreate(ownerSecretKey: String, target: PointerTarget) async throws -> PutResult
-    func pointerGet(address: String) async throws -> Pointer
-    func pointerExists(address: String) async throws -> Bool
-    func pointerUpdate(ownerSecretKey: String, target: PointerTarget) async throws
-    func pointerCost(publicKey: String) async throws -> String
-
-    // Scratchpads
-    func scratchpadCreate(ownerSecretKey: String, contentType: UInt64, data: Data) async throws -> PutResult
-    func scratchpadGet(address: String) async throws -> ScratchpadRecord
-    func scratchpadExists(address: String) async throws -> Bool
-    func scratchpadUpdate(ownerSecretKey: String, contentType: UInt64, data: Data) async throws
-    func scratchpadCost(publicKey: String) async throws -> String
-
     // Graph
     func graphEntryPut(ownerSecretKey: String, parents: [String], content: String, descendants: [GraphDescendant]) async throws -> PutResult
     func graphEntryGet(address: String) async throws -> GraphEntry
     func graphEntryExists(address: String) async throws -> Bool
     func graphEntryCost(publicKey: String) async throws -> String
-
-    // Registers
-    func registerCreate(ownerSecretKey: String, initialValue: String) async throws -> PutResult
-    func registerGet(address: String) async throws -> Register
-    func registerUpdate(ownerSecretKey: String, newValue: String) async throws -> PutResult
-    func registerCost(publicKey: String) async throws -> String
-
-    // Vaults
-    func vaultGet(secretKey: String) async throws -> Vault
-    func vaultPut(secretKey: String, data: Data, contentType: UInt64) async throws -> String
-    func vaultCost(secretKey: String, maxSize: UInt64) async throws -> String
 
     // Files
     func fileUploadPublic(path: String) async throws -> PutResult

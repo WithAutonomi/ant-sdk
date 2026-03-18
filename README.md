@@ -1,6 +1,6 @@
 # ant-sdk
 
-A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized network. Store data, manage mutable pointers, build DAGs, and more — from JavaScript/TypeScript, Python, C#, Kotlin, Swift, or AI agents.
+A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized network. Store data, build DAGs, and more — from Go, JavaScript/TypeScript, Python, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, Elixir, Zig, Rust, C++, Java, or AI agents.
 
 ## Architecture
 
@@ -34,11 +34,21 @@ A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized 
 | Component | Language | Description |
 |-----------|----------|-------------|
 | [`antd/`](antd/) | Rust | REST + gRPC gateway daemon |
+| [`antd-go/`](antd-go/) | Go | SDK with context-based client, REST transport |
 | [`antd-js/`](antd-js/) | TypeScript | SDK with async client, REST transport |
 | [`antd-py/`](antd-py/) | Python | SDK with sync/async clients, REST + gRPC transports |
 | [`antd-csharp/`](antd-csharp/) | C# | SDK with async client, REST + gRPC transports |
 | [`antd-kotlin/`](antd-kotlin/) | Kotlin | SDK with coroutine-based client, REST + gRPC transports |
 | [`antd-swift/`](antd-swift/) | Swift | SDK with async/await client, REST + gRPC transports (macOS) |
+| [`antd-ruby/`](antd-ruby/) | Ruby | SDK with sync client, REST transport |
+| [`antd-php/`](antd-php/) | PHP | SDK with sync/async clients, REST transport |
+| [`antd-dart/`](antd-dart/) | Dart | SDK with async client, REST transport |
+| [`antd-lua/`](antd-lua/) | Lua | SDK with sync client, REST transport |
+| [`antd-elixir/`](antd-elixir/) | Elixir | SDK with async client, REST transport |
+| [`antd-zig/`](antd-zig/) | Zig | SDK with async client, REST transport |
+| [`antd-rust/`](antd-rust/) | Rust | SDK with async client, REST transport |
+| [`antd-cpp/`](antd-cpp/) | C++ | SDK with sync client, REST transport |
+| [`antd-java/`](antd-java/) | Java | SDK with sync client, REST transport (enterprise/ERP) |
 | [`antd-mcp/`](antd-mcp/) | Python | MCP server exposing 31 tools for AI agents (Claude, etc.) |
 | [`ant-dev/`](ant-dev/) | Python | Developer CLI for local environment management |
 
@@ -47,11 +57,18 @@ A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized 
 ### Prerequisites
 
 - **Rust** toolchain (for building antd and the Autonomi network)
+- **Go 1.21+** (optional, for the Go SDK)
 - **Node.js 18+** (optional, for the JS/TS SDK)
 - **Python 3.10+** (for the Python SDK and dev CLI)
 - **.NET 8 SDK** (optional, for the C# SDK)
 - **JDK 17+** (optional, for the Kotlin SDK)
 - **Swift 5.9+ / Xcode 15+** (optional, for the Swift SDK — macOS only)
+- **Ruby 3.0+** (optional, for the Ruby SDK)
+- **PHP 8.1+** (optional, for the PHP SDK)
+- **Dart 3.0+** (optional, for the Dart SDK)
+- **Lua 5.4+ / LuaRocks** (optional, for the Lua SDK)
+- **Elixir 1.14+** (optional, for the Elixir SDK)
+- **Zig 0.12+** (optional, for the Zig SDK)
 - **autonomi** repo cloned as a sibling: `git clone https://github.com/maidsafe/autonomi ../autonomi`
 
 ### Option A: Using the `ant` CLI
@@ -168,6 +185,37 @@ fun main() = runBlocking {
 }
 ```
 
+### Write your first app (Go)
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    antd "github.com/maidsafe/ant-sdk/antd-go"
+)
+
+func main() {
+    client := antd.NewClient(antd.DefaultBaseURL)
+    ctx := context.Background()
+
+    health, err := client.Health(ctx)
+    if err != nil { log.Fatal(err) }
+    fmt.Printf("Network: %s\n", health.Network)
+
+    result, err := client.DataPutPublic(ctx, []byte("Hello, Autonomi!"))
+    if err != nil { log.Fatal(err) }
+    fmt.Printf("Address: %s\n", result.Address)
+
+    data, err := client.DataGetPublic(ctx, result.Address)
+    if err != nil { log.Fatal(err) }
+    fmt.Println(string(data)) // "Hello, Autonomi!"
+}
+```
+
 ### Write your first app (Swift)
 
 > REST/gRPC SDK requires macOS. For iOS, use the [FFI bindings](ffi/) instead.
@@ -189,20 +237,125 @@ let data = try await client.dataGetPublic(address: result.address)
 print(String(data: data, encoding: .utf8)!) // "Hello, Autonomi!"
 ```
 
+### Write your first app (Ruby)
+
+```ruby
+require "antd"
+
+client = Antd::Client.new
+
+status = client.health
+puts "Network: #{status.network}"
+
+result = client.data_put_public("Hello, Autonomi!")
+puts "Address: #{result.address}"
+
+data = client.data_get_public(result.address)
+puts data # "Hello, Autonomi!"
+```
+
+### Write your first app (PHP)
+
+```php
+<?php
+use Autonomi\AntdClient;
+
+$client = AntdClient::create();
+
+$status = $client->health();
+echo "Network: {$status->network}\n";
+
+$result = $client->dataPutPublic("Hello, Autonomi!");
+echo "Address: {$result->address}\n";
+
+$data = $client->dataGetPublic($result->address);
+echo $data . "\n"; // "Hello, Autonomi!"
+```
+
+### Write your first app (Dart)
+
+```dart
+import 'package:antd/antd.dart';
+
+void main() async {
+  final client = AntdClient();
+
+  final status = await client.health();
+  print('Network: ${status.network}');
+
+  final result = await client.dataPutPublic(
+    'Hello, Autonomi!'.codeUnits,
+  );
+  print('Address: ${result.address}');
+
+  final data = await client.dataGetPublic(result.address);
+  print(String.fromCharCodes(data)); // "Hello, Autonomi!"
+}
+```
+
+### Write your first app (Lua)
+
+```lua
+local antd = require("antd")
+
+local client = antd.Client.new()
+
+local status = client:health()
+print("Network: " .. status.network)
+
+local result = client:data_put_public("Hello, Autonomi!")
+print("Address: " .. result.address)
+
+local data = client:data_get_public(result.address)
+print(data) -- "Hello, Autonomi!"
+```
+
+### Write your first app (Elixir)
+
+```elixir
+client = Antd.Client.new()
+
+{:ok, status} = Antd.Client.health(client)
+IO.puts("Network: #{status.network}")
+
+{:ok, result} = Antd.Client.data_put_public(client, "Hello, Autonomi!")
+IO.puts("Address: #{result.address}")
+
+{:ok, data} = Antd.Client.data_get_public(client, result.address)
+IO.puts(data) # "Hello, Autonomi!"
+```
+
+### Write your first app (Zig)
+
+```zig
+const std = @import("std");
+const antd = @import("antd");
+
+pub fn main() !void {
+    var client = try antd.Client.init(.{});
+    defer client.deinit();
+
+    const status = try client.health();
+    std.debug.print("Network: {s}\n", .{status.network});
+
+    const result = try client.dataPutPublic("Hello, Autonomi!");
+    std.debug.print("Address: {s}\n", .{result.address});
+
+    const data = try client.dataGetPublic(result.address);
+    std.debug.print("{s}\n", .{data}); // "Hello, Autonomi!"
+}
+```
+
 ## Data Primitives
 
 The Autonomi network provides these core primitives, all accessible through the SDKs:
 
-| Primitive | Mutability | Description |
-|-----------|-----------|-------------|
-| **Data** | Immutable | Store/retrieve arbitrary byte blobs (public or private/encrypted) |
-| **Chunks** | Immutable | Low-level content-addressed storage |
-| **Pointers** | Mutable | Owner-controlled references to other resources |
-| **Scratchpads** | Mutable | Versioned mutable storage with counter |
-| **Graph Entries** | Append-only | DAG nodes with parent/descendant links |
-| **Registers** | Mutable | 32-byte owned mutable values |
-| **Vaults** | Mutable | Private encrypted key-value storage |
-| **Files** | Immutable | File/directory upload with archive manifests |
+| Primitive | Description |
+|-----------|-------------|
+| **Data** | Store/retrieve arbitrary byte blobs (public or private/encrypted) |
+| **Chunks** | Low-level content-addressed storage |
+| **Graph Entries** | Append-only DAG nodes with parent/descendant links |
+| **Files** | File/directory upload with archive manifests |
 
 ## Developer CLI Reference
 
@@ -222,13 +375,21 @@ ant dev playground [--transport rest|grpc]             # Interactive Python REPL
 
 - [Architecture Guide](docs/architecture.md) — Autonomi mental model, data primitives, payment model
 - [Tutorial: Store & Retrieve Data](docs/tutorial-store-retrieve.md) — Your first read/write operations
-- [Tutorial: Key-Value Store](docs/tutorial-key-value-store.md) — Build a KV store with registers + pointers
-- [Tutorial: Mutable Config](docs/tutorial-mutable-config.md) — Mutable config via pointers and scratchpads
+- [Go Quickstart](antd-go/README.md) — Go SDK guide
 - [JS/TS Quickstart](antd-js/README.md) — JavaScript/TypeScript SDK guide
 - [Python Quickstart](docs/quickstart-python.md) — Comprehensive Python SDK guide
 - [C# Quickstart](docs/quickstart-csharp.md) — Comprehensive C# SDK guide
 - [Kotlin Quickstart](docs/quickstart-kotlin.md) — Comprehensive Kotlin SDK guide
 - [Swift Quickstart](docs/quickstart-swift.md) — Comprehensive Swift SDK guide (macOS)
+- [Ruby Quickstart](antd-ruby/README.md) — Ruby SDK guide
+- [PHP Quickstart](antd-php/README.md) — PHP SDK guide
+- [Dart Quickstart](antd-dart/README.md) — Dart SDK guide
+- [Lua Quickstart](antd-lua/README.md) — Lua SDK guide
+- [Elixir Quickstart](antd-elixir/README.md) — Elixir SDK guide
+- [Zig Quickstart](antd-zig/README.md) — Zig SDK guide
+- [Rust Quickstart](antd-rust/README.md) — Rust SDK guide
+- [C++ Quickstart](antd-cpp/README.md) — C++ SDK guide
+- [Java Quickstart](antd-java/README.md) — Java SDK guide
 
 ## License
 

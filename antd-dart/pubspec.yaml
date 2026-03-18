@@ -1,0 +1,12 @@
+name: antd
+description: Dart SDK for the antd daemon — the gateway to the Autonomi decentralized network.
+version: 0.1.0
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  http: ^1.1.0
+
+dev_dependencies:
+  test: ^1.24.0

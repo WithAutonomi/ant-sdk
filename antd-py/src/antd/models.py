@@ -19,31 +19,6 @@ class PutResult:
 
 
 @dataclass(frozen=True)
-class PointerTarget:
-    """Target reference for a pointer."""
-    kind: str       # "chunk", "graph_entry", "pointer", "scratchpad"
-    address: str    # hex
-
-
-@dataclass(frozen=True)
-class Pointer:
-    """A pointer record from the network."""
-    address: str
-    owner: str
-    counter: int
-    target: PointerTarget
-
-
-@dataclass(frozen=True)
-class Scratchpad:
-    """A scratchpad record from the network."""
-    address: str
-    data_encoding: int
-    data: bytes     # raw encrypted bytes
-    counter: int
-
-
-@dataclass(frozen=True)
 class GraphDescendant:
     """A descendant entry in a graph node."""
     public_key: str     # hex
@@ -57,19 +32,6 @@ class GraphEntry:
     parents: list[str] = field(default_factory=list)
     content: str = ""
     descendants: list[GraphDescendant] = field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class Register:
-    """A register value from the network."""
-    value: str      # hex, 32 bytes
-
-
-@dataclass(frozen=True)
-class Vault:
-    """A vault record from the network."""
-    data: bytes
-    content_type: int
 
 
 @dataclass(frozen=True)

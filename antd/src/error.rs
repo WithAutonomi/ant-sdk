@@ -106,59 +106,6 @@ impl From<autonomi::client::PutError> for AntdError {
     }
 }
 
-impl From<autonomi::pointer::PointerError> for AntdError {
-    fn from(e: autonomi::pointer::PointerError) -> Self {
-        use autonomi::pointer::PointerError;
-        match e {
-            PointerError::GetError(ge) => {
-                let get_err: AntdError = ge.into();
-                get_err
-            }
-            PointerError::PointerAlreadyExists(addr) => {
-                AntdError::AlreadyExists(format!("pointer already exists: {}", addr.to_hex()))
-            }
-            PointerError::Fork(pointers) => {
-                AntdError::Fork(format!("pointer fork detected: {} versions", pointers.len()))
-            }
-            PointerError::BadSignature => AntdError::BadRequest("bad signature".into()),
-            PointerError::Pay(pe) => AntdError::Payment(format!("payment error: {pe}")),
-            PointerError::Wallet(we) => AntdError::Payment(format!("wallet error: {we}")),
-            other => AntdError::Internal(other.to_string()),
-        }
-    }
-}
-
-impl From<autonomi::scratchpad::ScratchpadError> for AntdError {
-    fn from(e: autonomi::scratchpad::ScratchpadError) -> Self {
-        use autonomi::scratchpad::ScratchpadError;
-        match e {
-            ScratchpadError::PutError(pe) => pe.into(),
-            ScratchpadError::GetError(msg) => AntdError::Network(format!("scratchpad get failed: {msg}")),
-            ScratchpadError::NotFound(addr) => {
-                AntdError::NotFound(format!("scratchpad not found: {}", addr.to_hex()))
-            }
-            ScratchpadError::Corrupt(addr) => {
-                AntdError::Internal(format!("corrupt scratchpad at {}", addr.to_hex()))
-            }
-            ScratchpadError::ScratchpadAlreadyExists(addr) => {
-                AntdError::AlreadyExists(format!("scratchpad already exists: {}", addr.to_hex()))
-            }
-            ScratchpadError::Fork(pads) => {
-                AntdError::Fork(format!("scratchpad fork: {} versions", pads.len()))
-            }
-            ScratchpadError::ScratchpadTooBig(size) => {
-                AntdError::BadRequest(format!("scratchpad too big: {size} bytes"))
-            }
-            ScratchpadError::CannotUpdateNewScratchpad => {
-                AntdError::BadRequest("scratchpad does not exist, create it first".into())
-            }
-            ScratchpadError::BadSignature => AntdError::BadRequest("bad signature".into()),
-            ScratchpadError::Pay(pe) => AntdError::Payment(format!("payment error: {pe}")),
-            other => AntdError::Internal(other.to_string()),
-        }
-    }
-}
-
 impl From<autonomi::graph::GraphError> for AntdError {
     fn from(e: autonomi::graph::GraphError) -> Self {
         use autonomi::graph::GraphError;
@@ -179,31 +126,6 @@ impl From<autonomi::graph::GraphError> for AntdError {
             GraphError::Wallet(we) => AntdError::Payment(format!("wallet error: {we}")),
             other => AntdError::Internal(other.to_string()),
         }
-    }
-}
-
-impl From<autonomi::register::RegisterError> for AntdError {
-    fn from(e: autonomi::register::RegisterError) -> Self {
-        use autonomi::register::RegisterError;
-        match e {
-            RegisterError::GraphError(ge) => ge.into(),
-            RegisterError::PointerError(pe) => pe.into(),
-            RegisterError::Fork(_) => AntdError::Fork("register fork detected".into()),
-            RegisterError::Corrupt(msg) => AntdError::Internal(format!("corrupt register: {msg}")),
-            RegisterError::CannotUpdateNewRegister => {
-                AntdError::BadRequest("register does not exist, create it first".into())
-            }
-            RegisterError::InvalidRegisterValueLength(len) => {
-                AntdError::BadRequest(format!("invalid register value length: {len}"))
-            }
-            other => AntdError::Internal(other.to_string()),
-        }
-    }
-}
-
-impl From<autonomi::vault::VaultError> for AntdError {
-    fn from(e: autonomi::vault::VaultError) -> Self {
-        AntdError::Internal(e.to_string())
     }
 }
 

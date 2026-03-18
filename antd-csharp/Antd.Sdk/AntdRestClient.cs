@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Json;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -43,21 +42,6 @@ public sealed class AntdRestClient : IAntdClient
     private async Task PostJsonNoResultAsync(string path, object body)
     {
         var resp = await _http.PostAsJsonAsync(path, body, JsonOpts);
-        await EnsureSuccessAsync(resp);
-    }
-
-    private async Task<T> PutJsonAsync<T>(string path, object body)
-    {
-        var content = JsonContent.Create(body, options: JsonOpts);
-        var resp = await _http.PutAsync(path, content);
-        await EnsureSuccessAsync(resp);
-        return (await resp.Content.ReadFromJsonAsync<T>(JsonOpts))!;
-    }
-
-    private async Task PutJsonNoResultAsync(string path, object body)
-    {
-        var content = JsonContent.Create(body, options: JsonOpts);
-        var resp = await _http.PutAsync(path, content);
         await EnsureSuccessAsync(resp);
     }
 
@@ -141,64 +125,6 @@ public sealed class AntdRestClient : IAntdClient
         return Convert.FromBase64String(resp.Data);
     }
 
-    // ── Pointers ──
-
-    public async Task<PutResult> PointerCreateAsync(string ownerSecretKey, PointerTarget target)
-    {
-        var body = new { owner_secret_key = ownerSecretKey, target = new { kind = target.Kind, address = target.Address } };
-        var resp = await PostJsonAsync<DataPutPublicDto>("/v1/pointers", body);
-        return new PutResult(resp.Cost, resp.Address);
-    }
-
-    public async Task<Pointer> PointerGetAsync(string address)
-    {
-        var resp = await GetJsonAsync<PointerDto>($"/v1/pointers/{address}");
-        return new Pointer(resp.Address, resp.Owner, resp.Counter, new PointerTarget(resp.Target.Kind, resp.Target.Address));
-    }
-
-    public Task<bool> PointerExistsAsync(string address) => HeadExistsAsync($"/v1/pointers/{address}");
-
-    public async Task PointerUpdateAsync(string ownerSecretKey, PointerTarget target)
-    {
-        var body = new { owner_secret_key = ownerSecretKey, target = new { kind = target.Kind, address = target.Address } };
-        await PutJsonNoResultAsync($"/v1/pointers/{ownerSecretKey}", body);
-    }
-
-    public async Task<string> PointerCostAsync(string publicKey)
-    {
-        var resp = await PostJsonAsync<CostDto>("/v1/pointers/cost", new { public_key = publicKey });
-        return resp.Cost;
-    }
-
-    // ── Scratchpads ──
-
-    public async Task<PutResult> ScratchpadCreateAsync(string ownerSecretKey, ulong contentType, byte[] data)
-    {
-        var body = new { owner_secret_key = ownerSecretKey, content_type = contentType, data = Convert.ToBase64String(data) };
-        var resp = await PostJsonAsync<DataPutPublicDto>("/v1/scratchpads", body);
-        return new PutResult(resp.Cost, resp.Address);
-    }
-
-    public async Task<ScratchpadRecord> ScratchpadGetAsync(string address)
-    {
-        var resp = await GetJsonAsync<ScratchpadDto>($"/v1/scratchpads/{address}");
-        return new ScratchpadRecord(resp.Address, resp.DataEncoding, Convert.FromBase64String(resp.Data), resp.Counter);
-    }
-
-    public Task<bool> ScratchpadExistsAsync(string address) => HeadExistsAsync($"/v1/scratchpads/{address}");
-
-    public async Task ScratchpadUpdateAsync(string ownerSecretKey, ulong contentType, byte[] data)
-    {
-        var body = new { owner_secret_key = ownerSecretKey, content_type = contentType, data = Convert.ToBase64String(data) };
-        await PutJsonNoResultAsync($"/v1/scratchpads/{ownerSecretKey}", body);
-    }
-
-    public async Task<string> ScratchpadCostAsync(string publicKey)
-    {
-        var resp = await PostJsonAsync<CostDto>("/v1/scratchpads/cost", new { public_key = publicKey });
-        return resp.Cost;
-    }
-
     // ── Graph ──
 
     public async Task<PutResult> GraphEntryPutAsync(string ownerSecretKey, List<string> parents, string content, List<GraphDescendant> descendants)
@@ -226,56 +152,6 @@ public sealed class AntdRestClient : IAntdClient
     public async Task<string> GraphEntryCostAsync(string publicKey)
     {
         var resp = await PostJsonAsync<CostDto>("/v1/graph/cost", new { public_key = publicKey });
-        return resp.Cost;
-    }
-
-    // ── Registers ──
-
-    public async Task<PutResult> RegisterCreateAsync(string ownerSecretKey, string initialValue)
-    {
-        var body = new { owner_secret_key = ownerSecretKey, initial_value = initialValue };
-        var resp = await PostJsonAsync<DataPutPublicDto>("/v1/registers", body);
-        return new PutResult(resp.Cost, resp.Address);
-    }
-
-    public async Task<Register> RegisterGetAsync(string address)
-    {
-        var resp = await GetJsonAsync<RegisterDto>($"/v1/registers/{address}");
-        return new Register(resp.Value);
-    }
-
-    public async Task<PutResult> RegisterUpdateAsync(string ownerSecretKey, string newValue)
-    {
-        var body = new { owner_secret_key = ownerSecretKey, new_value = newValue };
-        var resp = await PutJsonAsync<RegisterUpdateDto>($"/v1/registers/{ownerSecretKey}", body);
-        return new PutResult(resp.Cost, "");
-    }
-
-    public async Task<string> RegisterCostAsync(string publicKey)
-    {
-        var resp = await PostJsonAsync<CostDto>("/v1/registers/cost", new { public_key = publicKey });
-        return resp.Cost;
-    }
-
-    // ── Vaults ──
-
-    public async Task<Vault> VaultGetAsync(string secretKey)
-    {
-        var resp = await GetJsonAsync<VaultDto>($"/v1/vaults?secret_key={secretKey}");
-        return new Vault(Convert.FromBase64String(resp.Data), resp.ContentType);
-    }
-
-    public async Task<string> VaultPutAsync(string secretKey, byte[] data, ulong contentType)
-    {
-        var body = new { secret_key = secretKey, data = Convert.ToBase64String(data), content_type = contentType };
-        var resp = await PostJsonAsync<CostDto>("/v1/vaults", body);
-        return resp.Cost;
-    }
-
-    public async Task<string> VaultCostAsync(string secretKey, ulong maxSize)
-    {
-        var body = new { secret_key = secretKey, max_size = maxSize };
-        var resp = await PostJsonAsync<CostDto>("/v1/vaults/cost", body);
         return resp.Cost;
     }
 
@@ -354,22 +230,6 @@ public sealed class AntdRestClient : IAntdClient
     private sealed record CostDto(
         [property: JsonPropertyName("cost")] string Cost);
 
-    private sealed record PointerTargetDto(
-        [property: JsonPropertyName("kind")] string Kind,
-        [property: JsonPropertyName("address")] string Address);
-
-    private sealed record PointerDto(
-        [property: JsonPropertyName("address")] string Address,
-        [property: JsonPropertyName("owner")] string Owner,
-        [property: JsonPropertyName("counter")] ulong Counter,
-        [property: JsonPropertyName("target")] PointerTargetDto Target);
-
-    private sealed record ScratchpadDto(
-        [property: JsonPropertyName("address")] string Address,
-        [property: JsonPropertyName("data_encoding")] ulong DataEncoding,
-        [property: JsonPropertyName("data")] string Data,
-        [property: JsonPropertyName("counter")] ulong Counter);
-
     private sealed record GraphDescendantDto(
         [property: JsonPropertyName("public_key")] string PublicKey,
         [property: JsonPropertyName("content")] string Content);
@@ -379,16 +239,6 @@ public sealed class AntdRestClient : IAntdClient
         [property: JsonPropertyName("parents")] List<string>? Parents,
         [property: JsonPropertyName("content")] string Content,
         [property: JsonPropertyName("descendants")] List<GraphDescendantDto>? Descendants);
-
-    private sealed record RegisterDto(
-        [property: JsonPropertyName("value")] string Value);
-
-    private sealed record RegisterUpdateDto(
-        [property: JsonPropertyName("cost")] string Cost);
-
-    private sealed record VaultDto(
-        [property: JsonPropertyName("data")] string Data,
-        [property: JsonPropertyName("content_type")] ulong ContentType);
 
     private sealed record ArchiveEntryDto(
         [property: JsonPropertyName("path")] string Path,

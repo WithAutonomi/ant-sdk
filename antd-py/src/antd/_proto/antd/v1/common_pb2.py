@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14\x61ntd/v1/common.proto\x12\x07\x61ntd.v1\"\x1b\n\x04\x43ost\x12\x13\n\x0b\x61tto_tokens\x18\x01 \x01(\t\"\x16\n\x07\x41\x64\x64ress\x12\x0b\n\x03hex\x18\x01 \x01(\t\"\x1d\n\x0ePublicKeyProto\x12\x0b\n\x03hex\x18\x01 \x01(\t\"\x1d\n\x0eSecretKeyProto\x12\x0b\n\x03hex\x18\x01 \x01(\t\".\n\rPointerTarget\x12\x0c\n\x04kind\x18\x01 \x01(\t\x12\x0f\n\x07\x61\x64\x64ress\x18\x02 \x01(\t\"6\n\x0fGraphDescendant\x12\x12\n\npublic_key\x18\x01 \x01(\t\x12\x0f\n\x07\x63ontent\x18\x02 \x01(\tB\n\xaa\x02\x07\x41ntd.V1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14\x61ntd/v1/common.proto\x12\x07\x61ntd.v1\"\x1b\n\x04\x43ost\x12\x13\n\x0b\x61tto_tokens\x18\x01 \x01(\t\"\x16\n\x07\x41\x64\x64ress\x12\x0b\n\x03hex\x18\x01 \x01(\t\"\x1d\n\x0ePublicKeyProto\x12\x0b\n\x03hex\x18\x01 \x01(\t\"\x1d\n\x0eSecretKeyProto\x12\x0b\n\x03hex\x18\x01 \x01(\t\"6\n\x0fGraphDescendant\x12\x12\n\npublic_key\x18\x01 \x01(\t\x12\x0f\n\x07\x63ontent\x18\x02 \x01(\tB\n\xaa\x02\x07\x41ntd.V1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -40,8 +40,6 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_PUBLICKEYPROTO']._serialized_end=115
   _globals['_SECRETKEYPROTO']._serialized_start=117
   _globals['_SECRETKEYPROTO']._serialized_end=146
-  _globals['_POINTERTARGET']._serialized_start=148
-  _globals['_POINTERTARGET']._serialized_end=194
-  _globals['_GRAPHDESCENDANT']._serialized_start=196
-  _globals['_GRAPHDESCENDANT']._serialized_end=250
+  _globals['_GRAPHDESCENDANT']._serialized_start=148
+  _globals['_GRAPHDESCENDANT']._serialized_end=202
 # @@protoc_insertion_point(module_scope)

@@ -1,6 +1,6 @@
 # antd SDK
 
-> JavaScript/TypeScript, Python, C#, Kotlin, and Swift SDKs for the Autonomi network via the antd daemon. Provides REST and gRPC transports, an MCP server (31 tools), and a local daemon that manages wallet, payments, and network connectivity.
+> Go, JavaScript/TypeScript, Python, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, Elixir, Zig, Rust, and C++ SDKs for the Autonomi network via the antd daemon. Provides REST and gRPC transports, an MCP server (31 tools), and a local daemon that manages wallet, payments, and network connectivity.
 
 ## Quick Start
 
@@ -13,12 +13,22 @@ data = client.data_get_public(result.address)
 
 ## SDKs
 
+- [Go SDK](antd-go/) — `go get github.com/maidsafe/ant-sdk/antd-go` — context-based client (Go 1.21+)
 - [JS/TS SDK](antd-js/) — `npm install antd` — async client (Node.js 18+)
 - [Python SDK](antd-py/) — `pip install antd` — sync and async clients
 - [C# SDK](antd-csharp/Antd.Sdk/) — `dotnet add package Antd.Sdk` — async client
 - [Kotlin SDK](antd-kotlin/) — coroutine-based async client (JDK 17+)
 - [Swift SDK](antd-swift/) — async/await client (Swift 5.9+, macOS only for REST/gRPC)
-- [MCP Server](antd-mcp/) — 31 tools for AI agent integration
+- [Ruby SDK](antd-ruby/) — `gem install antd` — sync client (Ruby 3.0+)
+- [PHP SDK](antd-php/) — `composer require autonomi/antd` — sync/async client (PHP 8.1+)
+- [Dart SDK](antd-dart/) — `dart pub add antd` — async client (Dart 3.0+)
+- [Lua SDK](antd-lua/) — `luarocks install antd` — sync client (Lua 5.4+)
+- [Elixir SDK](antd-elixir/) — `{:antd, "~> 0.1"}` in mix.exs deps — async client (Elixir 1.14+)
+- [Zig SDK](antd-zig/) — build.zig.zon dependency — async client (Zig 0.12+)
+- [Rust SDK](antd-rust/) — `cargo add antd-client` — async client (Rust 2021 edition)
+- [C++ SDK](antd-cpp/) — CMake FetchContent — sync client (C++20)
+- [Java SDK](antd-java/) — Gradle/Maven — sync client (Java 17+, enterprise/ERP)
+- [MCP Server](antd-mcp/) — 14 tools for AI agent integration
 
 ## API Reference
 
@@ -39,27 +49,10 @@ data = client.data_get_public(result.address)
 | POST | `/v1/data/cost` | Estimate data storage cost |
 | GET | `/v1/chunks/{addr}` | Get raw chunk by address |
 | POST | `/v1/chunks` | Store raw chunk |
-| GET | `/v1/pointers/{addr}` | Read pointer target |
-| HEAD | `/v1/pointers/{addr}` | Check pointer existence |
-| POST | `/v1/pointers` | Create mutable pointer |
-| PUT | `/v1/pointers/{addr}` | Update pointer target |
-| POST | `/v1/pointers/cost` | Estimate pointer creation cost |
-| GET | `/v1/scratchpads/{addr}` | Read scratchpad contents |
-| HEAD | `/v1/scratchpads/{addr}` | Check scratchpad existence |
-| POST | `/v1/scratchpads` | Create versioned scratchpad |
-| PUT | `/v1/scratchpads/{addr}` | Update scratchpad contents |
-| POST | `/v1/scratchpads/cost` | Estimate scratchpad creation cost |
 | GET | `/v1/graph/{addr}` | Read graph entry (DAG node) |
 | HEAD | `/v1/graph/{addr}` | Check graph entry existence |
 | POST | `/v1/graph` | Create graph entry |
 | POST | `/v1/graph/cost` | Estimate graph entry cost |
-| GET | `/v1/registers/{addr}` | Read register value |
-| POST | `/v1/registers` | Create register |
-| PUT | `/v1/registers/{addr}` | Update register value |
-| POST | `/v1/registers/cost` | Estimate register creation cost |
-| GET | `/v1/vaults` | Retrieve vault data |
-| POST | `/v1/vaults` | Store vault data |
-| POST | `/v1/vaults/cost` | Estimate vault storage cost |
 | POST | `/v1/files/upload/public` | Upload file to network |
 | POST | `/v1/files/download/public` | Download file from network |
 | POST | `/v1/dirs/upload/public` | Upload directory to network |
@@ -75,11 +68,7 @@ data = client.data_get_public(result.address)
 | HealthService | Check | health.proto |
 | DataService | GetPublic, PutPublic, StreamPublic, GetPrivate, PutPrivate, GetCost | data.proto |
 | ChunkService | Get, Put | chunks.proto |
-| PointerService | Get, CheckExistence, Create, Update, GetCost | pointers.proto |
-| ScratchpadService | Get, CheckExistence, Create, Update, GetCost | scratchpads.proto |
 | GraphService | Get, CheckExistence, Put, GetCost | graph.proto |
-| RegisterService | Get, Create, Update, GetCost | registers.proto |
-| VaultService | Get, Put, GetCost | vaults.proto |
 | FileService | UploadPublic, DownloadPublic, DirUploadPublic, DirDownloadPublic, ArchiveGetPublic, ArchivePutPublic, GetFileCost | files.proto |
 | EventService | Subscribe | events.proto |
 
@@ -97,11 +86,21 @@ data = client.data_get_public(result.address)
 
 ## Examples
 
+- [Go examples](antd-go/examples/) — 5 runnable examples (01-connect through 05-files)
 - [JS/TS examples](antd-js/examples/) — 10 runnable scripts (01-connect.ts through 10-private-data.ts)
 - [Python examples](antd-py/examples/) — 10 runnable scripts (01_connect.py through 10_private_data.py)
 - [C# examples](antd-csharp/Examples/) — 10 examples in a single console app
 - [Kotlin examples](antd-kotlin/examples/) — 10 examples in a single app
 - [Swift examples](antd-swift/Sources/AntdExamples/) — 10 examples in a single executable
+- [Ruby examples](antd-ruby/examples/) — runnable example scripts
+- [PHP examples](antd-php/examples/) — runnable example scripts
+- [Dart examples](antd-dart/example/) — runnable example scripts
+- [Lua examples](antd-lua/examples/) — runnable example scripts
+- [Elixir examples](antd-elixir/examples/) — runnable example scripts
+- [Zig examples](antd-zig/examples/) — runnable example files
+- [Rust examples](antd-rust/examples/) — runnable example files
+- [C++ examples](antd-cpp/examples/) — runnable example files
+- [Java examples](antd-java/examples/) — runnable example files
 
 ## Default Ports
 

@@ -52,22 +52,10 @@ class SmokeTests {
         assertEquals("100", put.cost)
         assertEquals("abc123", put.address)
 
-        val target = PointerTarget("chunk", "deadbeef")
-        assertEquals("chunk", target.kind)
-
-        val pointer = Pointer("addr", "owner", 1UL, target)
-        assertEquals(1UL, pointer.counter)
-
         val desc = GraphDescendant("pk", "content")
         val entry = GraphEntry("owner", listOf("p1"), "c", listOf(desc))
         assertEquals(1, entry.parents.size)
         assertEquals(1, entry.descendants.size)
-
-        val reg = Register("value")
-        assertEquals("value", reg.value)
-
-        val vault = Vault(byteArrayOf(1, 2, 3), 42UL)
-        assertEquals(42UL, vault.contentType)
 
         val archiveEntry = ArchiveEntry("/file.txt", "addr", 1000UL, 2000UL, 512UL)
         val archive = Archive(listOf(archiveEntry))

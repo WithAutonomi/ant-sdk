@@ -23,8 +23,11 @@ def main():
         print(f"ERROR: Proto source directory not found: {PROTO_SRC}")
         sys.exit(1)
 
-    # Collect all .proto files
-    proto_files = sorted(PROTO_SRC.rglob("*.proto"))
+    # Collect .proto files, excluding removed mutable data types
+    EXCLUDED_PROTOS = {"pointers.proto", "scratchpads.proto", "registers.proto", "vaults.proto"}
+    proto_files = sorted(
+        f for f in PROTO_SRC.rglob("*.proto") if f.name not in EXCLUDED_PROTOS
+    )
     if not proto_files:
         print(f"ERROR: No .proto files found in {PROTO_SRC}")
         sys.exit(1)

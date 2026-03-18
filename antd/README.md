@@ -69,27 +69,10 @@ Additional environment variables consumed by the underlying Autonomi client:
 | `POST` | `/v1/data/cost` | Estimate data storage cost |
 | `POST` | `/v1/chunks` | Store a raw chunk |
 | `GET` | `/v1/chunks/{address}` | Retrieve a chunk |
-| `POST` | `/v1/pointers` | Create a pointer |
-| `GET` | `/v1/pointers/{address}` | Get a pointer |
-| `HEAD` | `/v1/pointers/{address}` | Check pointer existence |
-| `PUT` | `/v1/pointers` | Update a pointer |
-| `POST` | `/v1/pointers/cost` | Estimate pointer cost |
-| `POST` | `/v1/scratchpads` | Create a scratchpad |
-| `GET` | `/v1/scratchpads/{address}` | Get a scratchpad |
-| `HEAD` | `/v1/scratchpads/{address}` | Check scratchpad existence |
-| `PUT` | `/v1/scratchpads` | Update a scratchpad |
-| `POST` | `/v1/scratchpads/cost` | Estimate scratchpad cost |
 | `POST` | `/v1/graph` | Create a graph entry |
 | `GET` | `/v1/graph/{address}` | Get a graph entry |
 | `HEAD` | `/v1/graph/{address}` | Check graph entry existence |
 | `POST` | `/v1/graph/cost` | Estimate graph entry cost |
-| `POST` | `/v1/registers` | Create a register |
-| `GET` | `/v1/registers/{address}` | Get a register |
-| `PUT` | `/v1/registers` | Update a register |
-| `POST` | `/v1/registers/cost` | Estimate register cost |
-| `GET` | `/v1/vaults` | Get vault data |
-| `PUT` | `/v1/vaults` | Store vault data |
-| `POST` | `/v1/vaults/cost` | Estimate vault cost |
 | `POST` | `/v1/files/upload` | Upload a file |
 | `POST` | `/v1/files/download` | Download a file |
 | `POST` | `/v1/files/upload/dir` | Upload a directory |
@@ -105,11 +88,7 @@ gRPC services mirror the REST API. Proto definitions are in `proto/antd/v1/`:
 - `HealthService` — Health check
 - `DataService` — Public/private data operations
 - `ChunkService` — Raw chunk operations
-- `PointerService` — Pointer CRUD
-- `ScratchpadService` — Scratchpad CRUD
 - `GraphService` — Graph entry operations
-- `RegisterService` — Register CRUD
-- `VaultService` — Vault operations
 - `FileService` — File upload/download
 - `EventService` — Event streaming
 
@@ -124,11 +103,7 @@ antd/
 │   ├── common.proto
 │   ├── data.proto
 │   ├── chunks.proto
-│   ├── pointers.proto
-│   ├── scratchpads.proto
 │   ├── graph.proto
-│   ├── registers.proto
-│   ├── vaults.proto
 │   ├── files.proto
 │   └── events.proto
 └── src/
@@ -141,11 +116,7 @@ antd/
     │   ├── mod.rs
     │   ├── data.rs
     │   ├── chunks.rs
-    │   ├── pointers.rs
-    │   ├── scratchpads.rs
     │   ├── graph.rs
-    │   ├── registers.rs
-    │   ├── vaults.rs
     │   ├── files.rs
     │   └── events.rs
     └── grpc/               # Tonic gRPC service

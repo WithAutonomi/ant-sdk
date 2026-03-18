@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """gRPC integration test for antd Python SDK.
 
-Mirrors antd-grpc-test/Program.cs — standalone script with colored pass/fail output.
+Mirrors antd-grpc-test/Program.cs -- standalone script with colored pass/fail output.
 Requires a running antd daemon with gRPC on localhost:50051.
 
 Usage: python scripts/test_grpc.py
@@ -14,7 +14,7 @@ import time
 # Add src to path for development
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from antd import AntdClient, AlreadyExistsError, PointerTarget
+from antd import AntdClient, AlreadyExistsError
 
 # --- Enable ANSI on Windows (same as C# TestRunner.EnableAnsi) ---
 
@@ -64,10 +64,7 @@ def test_skip(name: str, detail: str = ""):
 
 # --- BLS keys (offset from REST keys to avoid DHT collisions across transports) ---
 
-KEY_POINTER = "0000000000000000000000000000000000000000000000000000000000000011"
-KEY_SCRATCHPAD = "0000000000000000000000000000000000000000000000000000000000000012"
 KEY_GRAPH = "0000000000000000000000000000000000000000000000000000000000000013"
-KEY_REGISTER = "0000000000000000000000000000000000000000000000000000000000000014"
 
 PROPAGATION_DELAY = 3  # seconds to wait for DHT propagation
 
@@ -144,97 +141,7 @@ def main():
     else:
         test_skip("Chunk get", "no address from put")
 
-    # 5. Pointer create/exists/get/cost
-    pointer_addr = None
-    if chunk_addr:
-        target_pt = PointerTarget(kind="chunk", address=chunk_addr)
-        try:
-            result = client.pointer_create(KEY_POINTER, target_pt)
-            pointer_addr = result.address
-            test_pass("Pointer create", f"addr={result.address[:16]}... cost={result.cost}")
-        except AlreadyExistsError:
-            test_pass("Pointer create", "already exists (expected on re-run)")
-        except Exception as e:
-            test_fail("Pointer create", str(e))
-
-        if pointer_addr:
-            print(f"  ... waiting {PROPAGATION_DELAY}s for DHT propagation")
-            time.sleep(PROPAGATION_DELAY)
-
-            try:
-                exists = client.pointer_exists(pointer_addr)
-                if exists:
-                    test_pass("Pointer exists")
-                else:
-                    test_fail("Pointer exists", "returned False")
-            except Exception as e:
-                test_fail("Pointer exists", str(e))
-
-            try:
-                ptr = client.pointer_get(pointer_addr)
-                if ptr.target.kind == "chunk" and ptr.target.address == chunk_addr:
-                    test_pass("Pointer get", f"target={ptr.target.kind}:{ptr.target.address[:16]}...")
-                else:
-                    test_fail("Pointer get", f"unexpected target: {ptr.target}")
-            except Exception as e:
-                test_fail("Pointer get", str(e))
-
-        if pointer_addr:
-            try:
-                cost = client.pointer_cost(pointer_addr)
-                test_pass("Pointer cost", f"cost={cost}")
-            except Exception as e:
-                test_fail("Pointer cost", str(e))
-        else:
-            test_skip("Pointer cost", "no pointer address")
-    else:
-        test_skip("Pointer create", "no chunk address")
-        test_skip("Pointer exists", "no pointer address")
-        test_skip("Pointer get", "no pointer address")
-        test_skip("Pointer cost", "no pointer address")
-
-    # 6. Scratchpad create/exists/get/cost
-    scratchpad_addr = None
-    try:
-        sp_data = b"scratchpad test data (gRPC)"
-        result = client.scratchpad_create(KEY_SCRATCHPAD, 42, sp_data)
-        scratchpad_addr = result.address
-        test_pass("Scratchpad create", f"addr={result.address[:16]}... cost={result.cost}")
-    except AlreadyExistsError:
-        test_pass("Scratchpad create", "already exists (expected on re-run)")
-    except Exception as e:
-        test_fail("Scratchpad create", str(e))
-
-    if scratchpad_addr:
-        print(f"  ... waiting {PROPAGATION_DELAY}s for DHT propagation")
-        time.sleep(PROPAGATION_DELAY)
-
-        try:
-            exists = client.scratchpad_exists(scratchpad_addr)
-            if exists:
-                test_pass("Scratchpad exists")
-            else:
-                test_fail("Scratchpad exists", "returned False")
-        except Exception as e:
-            test_fail("Scratchpad exists", str(e))
-
-        try:
-            sp = client.scratchpad_get(scratchpad_addr)
-            test_pass("Scratchpad get", f"counter={sp.counter} encoding={sp.data_encoding}")
-        except Exception as e:
-            test_fail("Scratchpad get", str(e))
-
-        try:
-            cost = client.scratchpad_cost(scratchpad_addr)
-            test_pass("Scratchpad cost", f"cost={cost}")
-        except Exception as e:
-            test_fail("Scratchpad cost", str(e))
-    else:
-        test_skip("Scratchpad exists", "no scratchpad address")
-        test_skip("Scratchpad get", "no scratchpad address")
-        test_skip("Scratchpad cost", "no scratchpad address")
-
-    # 7. Graph entry put/exists/get/cost
+    # 5. Graph entry put/exists/get/cost
     graph_addr = None
     try:
         content_hex = "ab" * 32  # 32 bytes as hex
@@ -275,35 +182,7 @@ def main():
         test_skip("Graph entry get", "no graph address")
         test_skip("Graph entry cost", "no graph address")
 
-    # 8. Register create/get/cost
-    register_addr = None
-    try:
-        initial_value = "cd" * 32  # 32 bytes as hex
-        result = client.register_create(KEY_REGISTER, initial_value)
-        register_addr = result.address
-        test_pass("Register create", f"addr={result.address[:16]}... cost={result.cost}")
-    except AlreadyExistsError:
-        test_pass("Register create", "already exists (expected on re-run)")
-    except Exception as e:
-        test_fail("Register create", str(e))
-
-    if register_addr:
-        try:
-            reg = client.register_get(register_addr)
-            test_pass("Register get", f"value={reg.value[:16]}...")
-        except Exception as e:
-            test_fail("Register get", str(e))
-
-        try:
-            cost = client.register_cost(register_addr)
-            test_pass("Register cost", f"cost={cost}")
-        except Exception as e:
-            test_fail("Register cost", str(e))
-    else:
-        test_skip("Register get", "no register address")
-        test_skip("Register cost", "no register address")
-
-    # 9. Large data round-trip (10 KB)
+    # 6. Large data round-trip (10 KB)
     try:
         large_data = os.urandom(10 * 1024)
         result = client.data_put_public(large_data)

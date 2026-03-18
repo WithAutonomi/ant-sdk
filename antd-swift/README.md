@@ -65,11 +65,7 @@ All methods are `async throws` for use with Swift concurrency.
 | **Health** | `health()` |
 | **Data** | `dataPutPublic`, `dataGetPublic`, `dataPutPrivate`, `dataGetPrivate`, `dataCost` |
 | **Chunks** | `chunkPut`, `chunkGet` |
-| **Pointers** | `pointerCreate`, `pointerGet`, `pointerExists`, `pointerUpdate`, `pointerCost` |
-| **Scratchpads** | `scratchpadCreate`, `scratchpadGet`, `scratchpadExists`, `scratchpadUpdate`, `scratchpadCost` |
 | **Graph** | `graphEntryPut`, `graphEntryGet`, `graphEntryExists`, `graphEntryCost` |
-| **Registers** | `registerCreate`, `registerGet`, `registerUpdate`, `registerCost` |
-| **Vaults** | `vaultGet`, `vaultPut`, `vaultCost` |
 | **Files** | `fileUploadPublic`, `fileDownloadPublic`, `dirUploadPublic`, `dirDownloadPublic`, `archiveGetPublic`, `archivePutPublic`, `fileCost` |
 
 ## Error Handling
@@ -129,7 +125,7 @@ antd-swift/
 │   │   ├── Models.swift              # Data types
 │   │   └── Errors.swift              # Error hierarchy
 │   └── AntdExamples/
-│       └── Main.swift                # 10 runnable examples
+│       └── Main.swift                # 6 runnable examples
 └── Tests/
     └── AntdSdkTests/
         └── SmokeTests.swift

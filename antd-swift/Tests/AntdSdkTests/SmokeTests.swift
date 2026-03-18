@@ -30,22 +30,10 @@ final class SmokeTests: XCTestCase {
         XCTAssertEqual(put.cost, "100")
         XCTAssertEqual(put.address, "abc123")
 
-        let target = PointerTarget(kind: "chunk", address: "deadbeef")
-        XCTAssertEqual(target.kind, "chunk")
-
-        let pointer = Pointer(address: "addr", owner: "owner", counter: 1, target: target)
-        XCTAssertEqual(pointer.counter, 1)
-
         let desc = GraphDescendant(publicKey: "pk", content: "content")
         let entry = GraphEntry(owner: "owner", parents: ["p1"], content: "c", descendants: [desc])
         XCTAssertEqual(entry.parents.count, 1)
         XCTAssertEqual(entry.descendants.count, 1)
-
-        let reg = Register(value: "value")
-        XCTAssertEqual(reg.value, "value")
-
-        let vault = Vault(data: Data([1, 2, 3]), contentType: 42)
-        XCTAssertEqual(vault.contentType, 42)
 
         let archiveEntry = ArchiveEntry(path: "/file.txt", address: "addr", created: 1000, modified: 2000, size: 512)
         let archive = Archive(entries: [archiveEntry])

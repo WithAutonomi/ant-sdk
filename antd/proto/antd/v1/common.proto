@@ -20,11 +20,6 @@ message SecretKeyProto {
   string hex = 1;
 }
 
-message PointerTarget {
-  string kind = 1;    // "chunk", "graph_entry", "pointer", "scratchpad"
-  string address = 2; // hex
-}
-
 message GraphDescendant {
   string public_key = 1; // hex
   string content = 2;    // hex, 32 bytes

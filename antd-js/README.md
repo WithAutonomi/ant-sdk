@@ -75,26 +75,6 @@ All methods are `async` and return Promises.
 | `chunkPut(data)` | `PutResult` | Store raw chunk |
 | `chunkGet(address)` | `Buffer` | Retrieve chunk by address |
 
-### Pointers
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `pointerCreate(ownerSecretKey, target)` | `PutResult` | Create mutable pointer |
-| `pointerGet(address)` | `Pointer` | Read pointer |
-| `pointerExists(address)` | `boolean` | Check pointer existence |
-| `pointerUpdate(ownerSecretKey, target)` | `void` | Update pointer target |
-| `pointerCost(publicKey)` | `string` | Estimate creation cost |
-
-### Scratchpads
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `scratchpadCreate(ownerSecretKey, contentType, data)` | `PutResult` | Create versioned scratchpad |
-| `scratchpadGet(address)` | `Scratchpad` | Read scratchpad |
-| `scratchpadExists(address)` | `boolean` | Check existence |
-| `scratchpadUpdate(ownerSecretKey, contentType, data)` | `void` | Update scratchpad |
-| `scratchpadCost(publicKey)` | `string` | Estimate creation cost |
-
 ### Graph
 
 | Method | Returns | Description |
@@ -103,23 +83,6 @@ All methods are `async` and return Promises.
 | `graphEntryGet(address)` | `GraphEntry` | Read graph entry |
 | `graphEntryExists(address)` | `boolean` | Check existence |
 | `graphEntryCost(publicKey)` | `string` | Estimate creation cost |
-
-### Registers
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `registerCreate(ownerSecretKey, initialValue)` | `PutResult` | Create register |
-| `registerGet(address)` | `Register` | Read register value |
-| `registerUpdate(ownerSecretKey, newValue)` | `PutResult` | Update register |
-| `registerCost(publicKey)` | `string` | Estimate creation cost |
-
-### Vaults
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `vaultGet(secretKey)` | `Vault` | Retrieve vault data |
-| `vaultPut(secretKey, data, contentType)` | `string` | Store in vault (returns cost) |
-| `vaultCost(secretKey, maxSize)` | `string` | Estimate storage cost |
 
 ### Files
 
@@ -138,13 +101,8 @@ All methods are `async` and return Promises.
 ```typescript
 interface HealthStatus { ok: boolean; network: string }
 interface PutResult { cost: string; address: string }
-interface PointerTarget { kind: "chunk" | "graph_entry" | "pointer" | "scratchpad"; address: string }
-interface Pointer { address: string; owner: string; counter: number; target: PointerTarget }
-interface Scratchpad { address: string; dataEncoding: number; data: Buffer; counter: number }
 interface GraphDescendant { publicKey: string; content: string }
 interface GraphEntry { owner: string; parents: string[]; content: string; descendants: GraphDescendant[] }
-interface Register { value: string }
-interface Vault { data: Buffer; contentType: number }
 interface ArchiveEntry { path: string; address: string; created: number; modified: number; size: number }
 interface Archive { entries: ArchiveEntry[] }
 ```
@@ -180,7 +138,7 @@ try {
 
 ## Examples
 
-The `examples/` directory contains 10 runnable scripts covering all major features:
+The `examples/` directory contains 6 runnable scripts covering all major features:
 
 | Example | Description |
 |---------|-------------|
@@ -188,12 +146,8 @@ The `examples/` directory contains 10 runnable scripts covering all major featur
 | `02-data.ts` | Public data store/retrieve |
 | `03-chunks.ts` | Raw chunk operations |
 | `04-files.ts` | File upload/download |
-| `05-pointers.ts` | Pointer CRUD |
-| `06-scratchpads.ts` | Scratchpad CRUD |
-| `07-graph.ts` | Graph entry operations |
-| `08-registers.ts` | Register CRUD |
-| `09-vaults.ts` | Vault store/retrieve |
-| `10-private-data.ts` | Private encrypted data |
+| `05-graph.ts` | Graph entry operations |
+| `06-private-data.ts` | Private encrypted data |
 
 Run examples with [tsx](https://github.com/privatenumber/tsx):
 

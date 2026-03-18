@@ -1,13 +1,8 @@
 export type {
   HealthStatus,
   PutResult,
-  PointerTarget,
-  Pointer,
-  Scratchpad,
   GraphDescendant,
   GraphEntry,
-  Register,
-  Vault,
   ArchiveEntry,
   Archive,
 } from "./models.js";

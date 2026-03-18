@@ -9,7 +9,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -60,25 +59,6 @@ class AntdRestClient(
         val request = Request.Builder()
             .url("$baseUrl$path")
             .post(body.toRequestBody(jsonMediaType))
-            .build()
-        val response = http.newCall(request).execute()
-        ensureSuccess(response)
-    }
-
-    private suspend inline fun <reified T> putJson(path: String, body: String): T = withContext(Dispatchers.IO) {
-        val request = Request.Builder()
-            .url("$baseUrl$path")
-            .put(body.toRequestBody(jsonMediaType))
-            .build()
-        val response = http.newCall(request).execute()
-        ensureSuccess(response)
-        json.decodeFromString<T>(response.body!!.string())
-    }
-
-    private suspend fun putJsonNoResult(path: String, body: String) = withContext(Dispatchers.IO) {
-        val request = Request.Builder()
-            .url("$baseUrl$path")
-            .put(body.toRequestBody(jsonMediaType))
             .build()
         val response = http.newCall(request).execute()
         ensureSuccess(response)
@@ -153,78 +133,6 @@ class AntdRestClient(
         return fromB64(resp.data)
     }
 
-    // ── Pointers ──
-
-    override suspend fun pointerCreate(ownerSecretKey: String, target: PointerTarget): PutResult {
-        val body = buildJsonObject {
-            put("owner_secret_key", ownerSecretKey)
-            putJsonObject("target") {
-                put("kind", target.kind)
-                put("address", target.address)
-            }
-        }.toString()
-        val resp = postJson<DataPutPublicDto>("/v1/pointers", body)
-        return PutResult(resp.cost, resp.address)
-    }
-
-    override suspend fun pointerGet(address: String): Pointer {
-        val resp = getJson<PointerDto>("/v1/pointers/$address")
-        return Pointer(resp.address, resp.owner, resp.counter, PointerTarget(resp.target.kind, resp.target.address))
-    }
-
-    override suspend fun pointerExists(address: String): Boolean = headExists("/v1/pointers/$address")
-
-    override suspend fun pointerUpdate(ownerSecretKey: String, target: PointerTarget) {
-        val body = buildJsonObject {
-            put("owner_secret_key", ownerSecretKey)
-            putJsonObject("target") {
-                put("kind", target.kind)
-                put("address", target.address)
-            }
-        }.toString()
-        putJsonNoResult("/v1/pointers/$ownerSecretKey", body)
-    }
-
-    override suspend fun pointerCost(publicKey: String): String {
-        val body = buildJsonObject { put("public_key", publicKey) }.toString()
-        val resp = postJson<CostDto>("/v1/pointers/cost", body)
-        return resp.cost
-    }
-
-    // ── Scratchpads ──
-
-    override suspend fun scratchpadCreate(ownerSecretKey: String, contentType: ULong, data: ByteArray): PutResult {
-        val body = buildJsonObject {
-            put("owner_secret_key", ownerSecretKey)
-            put("content_type", contentType.toLong())
-            put("data", b64(data))
-        }.toString()
-        val resp = postJson<DataPutPublicDto>("/v1/scratchpads", body)
-        return PutResult(resp.cost, resp.address)
-    }
-
-    override suspend fun scratchpadGet(address: String): ScratchpadRecord {
-        val resp = getJson<ScratchpadDto>("/v1/scratchpads/$address")
-        return ScratchpadRecord(resp.address, resp.dataEncoding, fromB64(resp.data), resp.counter)
-    }
-
-    override suspend fun scratchpadExists(address: String): Boolean = headExists("/v1/scratchpads/$address")
-
-    override suspend fun scratchpadUpdate(ownerSecretKey: String, contentType: ULong, data: ByteArray) {
-        val body = buildJsonObject {
-            put("owner_secret_key", ownerSecretKey)
-            put("content_type", contentType.toLong())
-            put("data", b64(data))
-        }.toString()
-        putJsonNoResult("/v1/scratchpads/$ownerSecretKey", body)
-    }
-
-    override suspend fun scratchpadCost(publicKey: String): String {
-        val body = buildJsonObject { put("public_key", publicKey) }.toString()
-        val resp = postJson<CostDto>("/v1/scratchpads/cost", body)
-        return resp.cost
-    }
-
     // ── Graph ──
 
     override suspend fun graphEntryPut(
@@ -261,63 +169,6 @@ class AntdRestClient(
     override suspend fun graphEntryCost(publicKey: String): String {
         val body = buildJsonObject { put("public_key", publicKey) }.toString()
         val resp = postJson<CostDto>("/v1/graph/cost", body)
-        return resp.cost
-    }
-
-    // ── Registers ──
-
-    override suspend fun registerCreate(ownerSecretKey: String, initialValue: String): PutResult {
-        val body = buildJsonObject {
-            put("owner_secret_key", ownerSecretKey)
-            put("initial_value", initialValue)
-        }.toString()
-        val resp = postJson<DataPutPublicDto>("/v1/registers", body)
-        return PutResult(resp.cost, resp.address)
-    }
-
-    override suspend fun registerGet(address: String): Register {
-        val resp = getJson<RegisterDto>("/v1/registers/$address")
-        return Register(resp.value)
-    }
-
-    override suspend fun registerUpdate(ownerSecretKey: String, newValue: String): PutResult {
-        val body = buildJsonObject {
-            put("owner_secret_key", ownerSecretKey)
-            put("new_value", newValue)
-        }.toString()
-        val resp = putJson<RegisterUpdateDto>("/v1/registers/$ownerSecretKey", body)
-        return PutResult(resp.cost, "")
-    }
-
-    override suspend fun registerCost(publicKey: String): String {
-        val body = buildJsonObject { put("public_key", publicKey) }.toString()
-        val resp = postJson<CostDto>("/v1/registers/cost", body)
-        return resp.cost
-    }
-
-    // ── Vaults ──
-
-    override suspend fun vaultGet(secretKey: String): Vault {
-        val resp = getJson<VaultDto>("/v1/vaults?secret_key=$secretKey")
-        return Vault(fromB64(resp.data), resp.contentType)
-    }
-
-    override suspend fun vaultPut(secretKey: String, data: ByteArray, contentType: ULong): String {
-        val body = buildJsonObject {
-            put("secret_key", secretKey)
-            put("data", b64(data))
-            put("content_type", contentType.toLong())
-        }.toString()
-        val resp = postJson<CostDto>("/v1/vaults", body)
-        return resp.cost
-    }
-
-    override suspend fun vaultCost(secretKey: String, maxSize: ULong): String {
-        val body = buildJsonObject {
-            put("secret_key", secretKey)
-            put("max_size", maxSize.toLong())
-        }.toString()
-        val resp = postJson<CostDto>("/v1/vaults/cost", body)
         return resp.cost
     }
 

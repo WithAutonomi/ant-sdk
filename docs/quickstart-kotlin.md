@@ -111,67 +111,6 @@ client.dirDownloadPublic(dirResult.address, "/path/to/output_dir")
 val cost = client.fileCost("/path/to/file.txt")
 ```
 
-## Pointers (Mutable References)
-
-```kotlin
-import java.security.SecureRandom
-
-val secretKey = ByteArray(32).also { SecureRandom().nextBytes(it) }
-    .joinToString("") { "%02x".format(it) }
-
-// Store two versions
-val v1 = client.dataPutPublic("version 1".toByteArray())
-val v2 = client.dataPutPublic("version 2".toByteArray())
-
-// Create pointer to v1
-val target = PointerTarget("chunk", v1.address)
-val ptr = client.pointerCreate(secretKey, target)
-println("Pointer: ${ptr.address}")
-
-// Read
-val pointer = client.pointerGet(ptr.address)
-println("Points to: ${pointer.target.address}")
-println("Counter: ${pointer.counter}")
-
-// Update to v2
-client.pointerUpdate(
-    secretKey,
-    PointerTarget("chunk", v2.address),
-)
-
-// Check existence
-val exists = client.pointerExists(ptr.address)
-```
-
-## Scratchpads (Versioned Mutable Storage)
-
-```kotlin
-val secretKey = ByteArray(32).also { SecureRandom().nextBytes(it) }
-    .joinToString("") { "%02x".format(it) }
-
-// Create
-val result = client.scratchpadCreate(
-    secretKey,
-    contentType = 1UL,
-    data = "initial data".toByteArray(),
-)
-
-// Read
-val pad = client.scratchpadGet(result.address)
-println("Counter: ${pad.counter}")
-println("Data: ${String(pad.data)}")
-
-// Update
-client.scratchpadUpdate(
-    secretKey,
-    contentType = 1UL,
-    data = "updated data".toByteArray(),
-)
-
-// Check existence
-val exists = client.scratchpadExists(result.address)
-```
-
 ## Graph Entries (DAG Nodes)
 
 ```kotlin
@@ -195,45 +134,6 @@ println("Parents: ${entry.parents.size}")
 
 // Check existence
 val exists = client.graphEntryExists(result.address)
-```
-
-## Registers (32-byte Values)
-
-```kotlin
-val secretKey = ByteArray(32).also { SecureRandom().nextBytes(it) }
-    .joinToString("") { "%02x".format(it) }
-
-// Create (64 hex chars = 32 bytes)
-val initial = "0".repeat(64)
-val result = client.registerCreate(secretKey, initial)
-
-// Read
-val reg = client.registerGet(result.address)
-println("Value: ${reg.value}")
-
-// Update
-val newValue = ByteArray(32).also { SecureRandom().nextBytes(it) }
-    .joinToString("") { "%02x".format(it) }
-client.registerUpdate(secretKey, newValue)
-```
-
-## Vaults (Encrypted Key-Value)
-
-```kotlin
-val secretKey = ByteArray(32).also { SecureRandom().nextBytes(it) }
-    .joinToString("") { "%02x".format(it) }
-
-// Store
-val cost = client.vaultPut(
-    secretKey,
-    "vault data".toByteArray(),
-    contentType = 42UL,
-)
-
-// Retrieve
-val vault = client.vaultGet(secretKey)
-println("Data: ${String(vault.data)}")
-println("Content type: ${vault.contentType}")
 ```
 
 ## Error Handling
@@ -276,12 +176,8 @@ cd antd-kotlin
 ./gradlew :examples:run --args="2"    # Public data
 ./gradlew :examples:run --args="3"    # Chunks
 ./gradlew :examples:run --args="4"    # Files
-./gradlew :examples:run --args="5"    # Pointers
-./gradlew :examples:run --args="6"    # Scratchpads
-./gradlew :examples:run --args="7"    # Graph entries
-./gradlew :examples:run --args="8"    # Registers
-./gradlew :examples:run --args="9"    # Vaults
-./gradlew :examples:run --args="10"   # Private data
+./gradlew :examples:run --args="5"    # Graph entries
+./gradlew :examples:run --args="6"    # Private data
 ./gradlew :examples:run --args="all"  # Run all examples
 ```
 

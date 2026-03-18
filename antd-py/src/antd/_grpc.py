@@ -22,22 +22,13 @@ from .models import (
     GraphDescendant,
     GraphEntry,
     HealthStatus,
-    Pointer,
-    PointerTarget,
     PutResult,
-    Register,
-    Scratchpad,
-    Vault,
 )
 
 from antd._proto.antd.v1 import common_pb2
 from antd._proto.antd.v1 import data_pb2, data_pb2_grpc
 from antd._proto.antd.v1 import chunks_pb2, chunks_pb2_grpc
-from antd._proto.antd.v1 import pointers_pb2, pointers_pb2_grpc
-from antd._proto.antd.v1 import scratchpads_pb2, scratchpads_pb2_grpc
 from antd._proto.antd.v1 import graph_pb2, graph_pb2_grpc
-from antd._proto.antd.v1 import registers_pb2, registers_pb2_grpc
-from antd._proto.antd.v1 import vaults_pb2, vaults_pb2_grpc
 from antd._proto.antd.v1 import files_pb2, files_pb2_grpc
 from antd._proto.antd.v1 import health_pb2, health_pb2_grpc
 
@@ -70,11 +61,7 @@ class GrpcClient:
         self._health = health_pb2_grpc.HealthServiceStub(self._channel)
         self._data = data_pb2_grpc.DataServiceStub(self._channel)
         self._chunks = chunks_pb2_grpc.ChunkServiceStub(self._channel)
-        self._pointers = pointers_pb2_grpc.PointerServiceStub(self._channel)
-        self._scratchpads = scratchpads_pb2_grpc.ScratchpadServiceStub(self._channel)
         self._graph = graph_pb2_grpc.GraphServiceStub(self._channel)
-        self._registers = registers_pb2_grpc.RegisterServiceStub(self._channel)
-        self._vaults = vaults_pb2_grpc.VaultServiceStub(self._channel)
         self._files = files_pb2_grpc.FileServiceStub(self._channel)
 
     def close(self) -> None:
@@ -150,108 +137,6 @@ class GrpcClient:
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
-    # --- Pointers ---
-
-    def pointer_create(self, owner_secret_key: str, target: PointerTarget) -> PutResult:
-        try:
-            resp = self._pointers.Create(pointers_pb2.CreatePointerRequest(
-                owner_secret_key=owner_secret_key,
-                target=common_pb2.PointerTarget(kind=target.kind, address=target.address),
-            ))
-            return PutResult(cost=resp.cost.atto_tokens, address=resp.address)
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    def pointer_get(self, address: str) -> Pointer:
-        try:
-            resp = self._pointers.Get(pointers_pb2.GetPointerRequest(address=address))
-            return Pointer(
-                address=resp.address,
-                owner=resp.owner,
-                counter=resp.counter,
-                target=PointerTarget(kind=resp.target.kind, address=resp.target.address),
-            )
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    def pointer_exists(self, address: str) -> bool:
-        try:
-            resp = self._pointers.CheckExistence(pointers_pb2.CheckPointerRequest(address=address))
-            return resp.exists
-        except grpc.RpcError as e:
-            if e.code() == grpc.StatusCode.NOT_FOUND:
-                return False
-            _handle_rpc_error(e)
-
-    def pointer_update(self, owner_secret_key: str, target: PointerTarget) -> None:
-        try:
-            self._pointers.Update(pointers_pb2.UpdatePointerRequest(
-                owner_secret_key=owner_secret_key,
-                target=common_pb2.PointerTarget(kind=target.kind, address=target.address),
-            ))
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    def pointer_cost(self, public_key: str) -> str:
-        try:
-            resp = self._pointers.GetCost(pointers_pb2.PointerCostRequest(public_key=public_key))
-            return resp.atto_tokens
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    # --- Scratchpads ---
-
-    def scratchpad_create(self, owner_secret_key: str, content_type: int, data: bytes) -> PutResult:
-        try:
-            resp = self._scratchpads.Create(scratchpads_pb2.CreateScratchpadRequest(
-                owner_secret_key=owner_secret_key,
-                content_type=content_type,
-                data=data,
-            ))
-            return PutResult(cost=resp.cost.atto_tokens, address=resp.address)
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    def scratchpad_get(self, address: str) -> Scratchpad:
-        try:
-            resp = self._scratchpads.Get(scratchpads_pb2.GetScratchpadRequest(address=address))
-            return Scratchpad(
-                address=resp.address,
-                data_encoding=resp.data_encoding,
-                data=resp.data,
-                counter=resp.counter,
-            )
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    def scratchpad_exists(self, address: str) -> bool:
-        try:
-            resp = self._scratchpads.CheckExistence(
-                scratchpads_pb2.CheckScratchpadRequest(address=address))
-            return resp.exists
-        except grpc.RpcError as e:
-            if e.code() == grpc.StatusCode.NOT_FOUND:
-                return False
-            _handle_rpc_error(e)
-
-    def scratchpad_update(self, owner_secret_key: str, content_type: int, data: bytes) -> None:
-        try:
-            self._scratchpads.Update(scratchpads_pb2.UpdateScratchpadRequest(
-                owner_secret_key=owner_secret_key,
-                content_type=content_type,
-                data=data,
-            ))
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    def scratchpad_cost(self, public_key: str) -> str:
-        try:
-            resp = self._scratchpads.GetCost(
-                scratchpads_pb2.ScratchpadCostRequest(public_key=public_key))
-            return resp.atto_tokens
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
     # --- Graph ---
 
     def graph_entry_put(self, owner_secret_key: str, parents: list[str], content: str,
@@ -297,72 +182,6 @@ class GrpcClient:
     def graph_entry_cost(self, public_key: str) -> str:
         try:
             resp = self._graph.GetCost(graph_pb2.GraphEntryCostRequest(public_key=public_key))
-            return resp.atto_tokens
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    # --- Registers ---
-
-    def register_create(self, owner_secret_key: str, initial_value: str) -> PutResult:
-        try:
-            resp = self._registers.Create(registers_pb2.CreateRegisterRequest(
-                owner_secret_key=owner_secret_key,
-                initial_value=initial_value,
-            ))
-            return PutResult(cost=resp.cost.atto_tokens, address=resp.address)
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    def register_get(self, address: str) -> Register:
-        try:
-            resp = self._registers.Get(registers_pb2.GetRegisterRequest(address=address))
-            return Register(value=resp.value)
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    def register_update(self, owner_secret_key: str, new_value: str) -> PutResult:
-        try:
-            resp = self._registers.Update(registers_pb2.UpdateRegisterRequest(
-                owner_secret_key=owner_secret_key,
-                new_value=new_value,
-            ))
-            return PutResult(cost=resp.cost.atto_tokens, address="")
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    def register_cost(self, public_key: str) -> str:
-        try:
-            resp = self._registers.GetCost(registers_pb2.RegisterCostRequest(public_key=public_key))
-            return resp.atto_tokens
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    # --- Vaults ---
-
-    def vault_get(self, secret_key: str) -> Vault:
-        try:
-            resp = self._vaults.Get(vaults_pb2.GetVaultRequest(secret_key=secret_key))
-            return Vault(data=resp.data, content_type=resp.content_type)
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    def vault_put(self, secret_key: str, data: bytes, content_type: int) -> str:
-        try:
-            resp = self._vaults.Put(vaults_pb2.PutVaultRequest(
-                secret_key=secret_key,
-                data=data,
-                content_type=content_type,
-            ))
-            return resp.cost.atto_tokens
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    def vault_cost(self, secret_key: str, max_size: int) -> str:
-        try:
-            resp = self._vaults.GetCost(vaults_pb2.VaultCostRequest(
-                secret_key=secret_key,
-                max_size=max_size,
-            ))
             return resp.atto_tokens
         except grpc.RpcError as e:
             _handle_rpc_error(e)
@@ -442,11 +261,7 @@ class AsyncGrpcClient:
         self._health = health_pb2_grpc.HealthServiceStub(self._channel)
         self._data = data_pb2_grpc.DataServiceStub(self._channel)
         self._chunks = chunks_pb2_grpc.ChunkServiceStub(self._channel)
-        self._pointers = pointers_pb2_grpc.PointerServiceStub(self._channel)
-        self._scratchpads = scratchpads_pb2_grpc.ScratchpadServiceStub(self._channel)
         self._graph = graph_pb2_grpc.GraphServiceStub(self._channel)
-        self._registers = registers_pb2_grpc.RegisterServiceStub(self._channel)
-        self._vaults = vaults_pb2_grpc.VaultServiceStub(self._channel)
         self._files = files_pb2_grpc.FileServiceStub(self._channel)
 
     async def close(self) -> None:
@@ -522,113 +337,6 @@ class AsyncGrpcClient:
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
-    # --- Pointers ---
-
-    async def pointer_create(self, owner_secret_key: str, target: PointerTarget) -> PutResult:
-        try:
-            resp = await self._pointers.Create(pointers_pb2.CreatePointerRequest(
-                owner_secret_key=owner_secret_key,
-                target=common_pb2.PointerTarget(kind=target.kind, address=target.address),
-            ))
-            return PutResult(cost=resp.cost.atto_tokens, address=resp.address)
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    async def pointer_get(self, address: str) -> Pointer:
-        try:
-            resp = await self._pointers.Get(pointers_pb2.GetPointerRequest(address=address))
-            return Pointer(
-                address=resp.address,
-                owner=resp.owner,
-                counter=resp.counter,
-                target=PointerTarget(kind=resp.target.kind, address=resp.target.address),
-            )
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    async def pointer_exists(self, address: str) -> bool:
-        try:
-            resp = await self._pointers.CheckExistence(
-                pointers_pb2.CheckPointerRequest(address=address))
-            return resp.exists
-        except grpc.RpcError as e:
-            if e.code() == grpc.StatusCode.NOT_FOUND:
-                return False
-            _handle_rpc_error(e)
-
-    async def pointer_update(self, owner_secret_key: str, target: PointerTarget) -> None:
-        try:
-            await self._pointers.Update(pointers_pb2.UpdatePointerRequest(
-                owner_secret_key=owner_secret_key,
-                target=common_pb2.PointerTarget(kind=target.kind, address=target.address),
-            ))
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    async def pointer_cost(self, public_key: str) -> str:
-        try:
-            resp = await self._pointers.GetCost(
-                pointers_pb2.PointerCostRequest(public_key=public_key))
-            return resp.atto_tokens
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    # --- Scratchpads ---
-
-    async def scratchpad_create(self, owner_secret_key: str, content_type: int,
-                                data: bytes) -> PutResult:
-        try:
-            resp = await self._scratchpads.Create(scratchpads_pb2.CreateScratchpadRequest(
-                owner_secret_key=owner_secret_key,
-                content_type=content_type,
-                data=data,
-            ))
-            return PutResult(cost=resp.cost.atto_tokens, address=resp.address)
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    async def scratchpad_get(self, address: str) -> Scratchpad:
-        try:
-            resp = await self._scratchpads.Get(
-                scratchpads_pb2.GetScratchpadRequest(address=address))
-            return Scratchpad(
-                address=resp.address,
-                data_encoding=resp.data_encoding,
-                data=resp.data,
-                counter=resp.counter,
-            )
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    async def scratchpad_exists(self, address: str) -> bool:
-        try:
-            resp = await self._scratchpads.CheckExistence(
-                scratchpads_pb2.CheckScratchpadRequest(address=address))
-            return resp.exists
-        except grpc.RpcError as e:
-            if e.code() == grpc.StatusCode.NOT_FOUND:
-                return False
-            _handle_rpc_error(e)
-
-    async def scratchpad_update(self, owner_secret_key: str, content_type: int,
-                                data: bytes) -> None:
-        try:
-            await self._scratchpads.Update(scratchpads_pb2.UpdateScratchpadRequest(
-                owner_secret_key=owner_secret_key,
-                content_type=content_type,
-                data=data,
-            ))
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    async def scratchpad_cost(self, public_key: str) -> str:
-        try:
-            resp = await self._scratchpads.GetCost(
-                scratchpads_pb2.ScratchpadCostRequest(public_key=public_key))
-            return resp.atto_tokens
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
     # --- Graph ---
 
     async def graph_entry_put(self, owner_secret_key: str, parents: list[str], content: str,
@@ -676,73 +384,6 @@ class AsyncGrpcClient:
         try:
             resp = await self._graph.GetCost(
                 graph_pb2.GraphEntryCostRequest(public_key=public_key))
-            return resp.atto_tokens
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    # --- Registers ---
-
-    async def register_create(self, owner_secret_key: str, initial_value: str) -> PutResult:
-        try:
-            resp = await self._registers.Create(registers_pb2.CreateRegisterRequest(
-                owner_secret_key=owner_secret_key,
-                initial_value=initial_value,
-            ))
-            return PutResult(cost=resp.cost.atto_tokens, address=resp.address)
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    async def register_get(self, address: str) -> Register:
-        try:
-            resp = await self._registers.Get(registers_pb2.GetRegisterRequest(address=address))
-            return Register(value=resp.value)
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    async def register_update(self, owner_secret_key: str, new_value: str) -> PutResult:
-        try:
-            resp = await self._registers.Update(registers_pb2.UpdateRegisterRequest(
-                owner_secret_key=owner_secret_key,
-                new_value=new_value,
-            ))
-            return PutResult(cost=resp.cost.atto_tokens, address="")
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    async def register_cost(self, public_key: str) -> str:
-        try:
-            resp = await self._registers.GetCost(
-                registers_pb2.RegisterCostRequest(public_key=public_key))
-            return resp.atto_tokens
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    # --- Vaults ---
-
-    async def vault_get(self, secret_key: str) -> Vault:
-        try:
-            resp = await self._vaults.Get(vaults_pb2.GetVaultRequest(secret_key=secret_key))
-            return Vault(data=resp.data, content_type=resp.content_type)
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    async def vault_put(self, secret_key: str, data: bytes, content_type: int) -> str:
-        try:
-            resp = await self._vaults.Put(vaults_pb2.PutVaultRequest(
-                secret_key=secret_key,
-                data=data,
-                content_type=content_type,
-            ))
-            return resp.cost.atto_tokens
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    async def vault_cost(self, secret_key: str, max_size: int) -> str:
-        try:
-            resp = await self._vaults.GetCost(vaults_pb2.VaultCostRequest(
-                secret_key=secret_key,
-                max_size=max_size,
-            ))
             return resp.atto_tokens
         except grpc.RpcError as e:
             _handle_rpc_error(e)

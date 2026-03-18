@@ -42,10 +42,7 @@ public class TestRunner
     private const int PropagationDelay = 3;
 
     // Unique keys per transport to avoid DHT collisions between REST and gRPC runs
-    private readonly string _keyPointer;
-    private readonly string _keyScratchpad;
     private readonly string _keyGraph;
-    private readonly string _keyRegister;
 
     public TestRunner(IAntdClient client, string transport)
     {
@@ -54,10 +51,7 @@ public class TestRunner
 
         // Offset keys by transport: REST uses 01-04, gRPC uses 11-14
         var offset = transport == "grpc" ? "1" : "0";
-        _keyPointer    = new string('0', 62) + offset + "1";
-        _keyScratchpad = new string('0', 62) + offset + "2";
         _keyGraph      = new string('0', 62) + offset + "3";
-        _keyRegister   = new string('0', 62) + offset + "4";
     }
 
     private void Pass(string name, string detail = "")
@@ -88,10 +82,7 @@ public class TestRunner
         var dataAddr = await TestDataPublic();
         await TestDataCost();
         var chunkAddr = await TestChunks();
-        await TestPointers(chunkAddr);
-        await TestScratchpads();
         await TestGraph();
-        await TestRegisters();
         await TestLargeData();
 
         // Summary
@@ -212,137 +203,13 @@ public class TestRunner
         return chunkAddr;
     }
 
-    // 5. Pointer create/exists/get/cost
-    private async Task TestPointers(string? chunkAddr)
-    {
-        if (chunkAddr == null)
-        {
-            Skip("Pointer create", "no chunk address");
-            Skip("Pointer exists", "no pointer address");
-            Skip("Pointer get", "no pointer address");
-            Skip("Pointer cost", "no pointer address");
-            return;
-        }
-
-        string? pointerAddr = null;
-        var target = new PointerTarget("chunk", chunkAddr);
-
-        try
-        {
-            var result = await _client.PointerCreateAsync(_keyPointer, target);
-            pointerAddr = result.Address;
-            Pass("Pointer create", $"addr={result.Address[..16]}... cost={result.Cost}");
-        }
-        catch (AlreadyExistsException)
-        {
-            Pass("Pointer create", "already exists (expected on re-run)");
-        }
-        catch (Exception ex) { Fail("Pointer create", ex.Message); }
-
-        if (pointerAddr != null)
-        {
-            Console.WriteLine($"  ... waiting {PropagationDelay}s for DHT propagation");
-            await Task.Delay(PropagationDelay * 1000);
-
-            try
-            {
-                var exists = await _client.PointerExistsAsync(pointerAddr);
-                if (exists) Pass("Pointer exists");
-                else Fail("Pointer exists", "returned false");
-            }
-            catch (Exception ex) { Fail("Pointer exists", ex.Message); }
-
-            try
-            {
-                var ptr = await _client.PointerGetAsync(pointerAddr);
-                if (ptr.Target.Kind == "chunk" && ptr.Target.Address == chunkAddr)
-                    Pass("Pointer get", $"target={ptr.Target.Kind}:{ptr.Target.Address[..16]}...");
-                else
-                    Fail("Pointer get", $"unexpected target: {ptr.Target}");
-            }
-            catch (Exception ex) { Fail("Pointer get", ex.Message); }
-        }
-        else
-        {
-            Skip("Pointer exists", "no pointer address");
-            Skip("Pointer get", "no pointer address");
-        }
-
-        if (pointerAddr != null)
-        {
-            try
-            {
-                var cost = await _client.PointerCostAsync(pointerAddr);
-                Pass("Pointer cost", $"cost={cost}");
-            }
-            catch (Exception ex) { Fail("Pointer cost", ex.Message); }
-        }
-        else
-        {
-            Skip("Pointer cost", "no pointer address");
-        }
-    }
-
-    // 6. Scratchpad create/exists/get/cost
-    private async Task TestScratchpads()
-    {
-        string? spAddr = null;
-        try
-        {
-            var spData = System.Text.Encoding.UTF8.GetBytes("scratchpad test data (C#)");
-            var result = await _client.ScratchpadCreateAsync(_keyScratchpad, 42, spData);
-            spAddr = result.Address;
-            Pass("Scratchpad create", $"addr={result.Address[..16]}... cost={result.Cost}");
-        }
-        catch (AlreadyExistsException)
-        {
-            Pass("Scratchpad create", "already exists (expected on re-run)");
-        }
-        catch (Exception ex) { Fail("Scratchpad create", ex.Message); }
-
-        if (spAddr != null)
-        {
-            Console.WriteLine($"  ... waiting {PropagationDelay}s for DHT propagation");
-            await Task.Delay(PropagationDelay * 1000);
-
-            try
-            {
-                var exists = await _client.ScratchpadExistsAsync(spAddr);
-                if (exists) Pass("Scratchpad exists");
-                else Fail("Scratchpad exists", "returned false");
-            }
-            catch (Exception ex) { Fail("Scratchpad exists", ex.Message); }
-
-            try
-            {
-                var sp = await _client.ScratchpadGetAsync(spAddr);
-                Pass("Scratchpad get", $"counter={sp.Counter} encoding={sp.DataEncoding}");
-            }
-            catch (Exception ex) { Fail("Scratchpad get", ex.Message); }
-
-            try
-            {
-                var cost = await _client.ScratchpadCostAsync(spAddr);
-                Pass("Scratchpad cost", $"cost={cost}");
-            }
-            catch (Exception ex) { Fail("Scratchpad cost", ex.Message); }
-        }
-        else
-        {
-            Skip("Scratchpad exists", "no scratchpad address");
-            Skip("Scratchpad get", "no scratchpad address");
-            Skip("Scratchpad cost", "no scratchpad address");
-        }
-    }
-
-    // 7. Graph entry put/exists/get/cost
+    // 5. Graph entry put/exists/get/cost
     private async Task TestGraph()
     {
         string? graphAddr = null;
         try
         {
-            var contentHex = new string('a', 64) + new string('b', 64); // 64 hex chars = 32 bytes, repeat for content
-            contentHex = string.Concat(Enumerable.Repeat("ab", 32)); // "abab...ab" 64 hex chars = 32 bytes
+            var contentHex = string.Concat(Enumerable.Repeat("ab", 32)); // "abab...ab" 64 hex chars = 32 bytes
             var result = await _client.GraphEntryPutAsync(_keyGraph, [], contentHex, []);
             graphAddr = result.Address;
             Pass("Graph entry put", $"addr={result.Address[..16]}... cost={result.Cost}");
@@ -388,47 +255,7 @@ public class TestRunner
         }
     }
 
-    // 8. Register create/get/cost
-    private async Task TestRegisters()
-    {
-        string? regAddr = null;
-        try
-        {
-            var initialValue = string.Concat(Enumerable.Repeat("cd", 32)); // 64 hex chars = 32 bytes
-            var result = await _client.RegisterCreateAsync(_keyRegister, initialValue);
-            regAddr = result.Address;
-            Pass("Register create", $"addr={result.Address[..16]}... cost={result.Cost}");
-        }
-        catch (AlreadyExistsException)
-        {
-            Pass("Register create", "already exists (expected on re-run)");
-        }
-        catch (Exception ex) { Fail("Register create", ex.Message); }
-
-        if (regAddr != null)
-        {
-            try
-            {
-                var reg = await _client.RegisterGetAsync(regAddr);
-                Pass("Register get", $"value={reg.Value[..16]}...");
-            }
-            catch (Exception ex) { Fail("Register get", ex.Message); }
-
-            try
-            {
-                var cost = await _client.RegisterCostAsync(regAddr);
-                Pass("Register cost", $"cost={cost}");
-            }
-            catch (Exception ex) { Fail("Register cost", ex.Message); }
-        }
-        else
-        {
-            Skip("Register get", "no register address");
-            Skip("Register cost", "no register address");
-        }
-    }
-
-    // 9. Large data round-trip (10 KB)
+    // 6. Large data round-trip (10 KB)
     private async Task TestLargeData()
     {
         try
