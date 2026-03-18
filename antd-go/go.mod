@@ -1,6 +1,6 @@
 module github.com/maidsafe/ant-sdk/antd-go
 
-go 1.21
+go 1.22
 
 require (
 	google.golang.org/grpc v1.68.1

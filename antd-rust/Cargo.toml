@@ -21,6 +21,7 @@ tonic-build = "0.12"
 
 [dev-dependencies]
 mockito = "1"
+tokio-stream = "0.1"
 
 [[example]]
 name = "01-connect"
