@@ -27,6 +27,7 @@ FetchContent_MakeAvailable(httplib)
 # --- Library target ---
 add_library(antd
     src/client.cpp
+    src/async_client.cpp
     src/base64.cpp
 )
 

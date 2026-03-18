@@ -97,6 +97,75 @@ $client = new AntdClient('http://localhost:8080', 300.0, $myGuzzleClient);
 | `archivePutPublic(Archive $archive)` | Create archive manifest |
 | `fileCost(string $path, bool $isPublic, bool $includeArchive)` | Estimate upload cost |
 
+## Async Usage
+
+Every method has an `Async` variant that returns a `GuzzleHttp\Promise\PromiseInterface` instead of blocking. This lets you fire off multiple requests concurrently and wait for results when you need them.
+
+### Basic promise usage
+
+```php
+use Autonomi\Antd\AntdClient;
+
+$client = new AntdClient();
+
+// Fire an async request — returns immediately
+$promise = $client->dataPutPublicAsync('Hello, async Autonomi!');
+
+// Block until the result is available
+$result = $promise->wait();
+echo "Stored at {$result->address}\n";
+```
+
+### Chaining with then() / otherwise()
+
+```php
+$client->dataGetPublicAsync($address)
+    ->then(function (string $data) {
+        echo "Retrieved: {$data}\n";
+    })
+    ->otherwise(function (\Throwable $e) {
+        echo "Error: {$e->getMessage()}\n";
+    })
+    ->wait();
+```
+
+### Concurrent requests
+
+```php
+use GuzzleHttp\Promise\Utils;
+
+// Launch several uploads in parallel
+$promises = [
+    'a' => $client->dataPutPublicAsync('chunk-a'),
+    'b' => $client->dataPutPublicAsync('chunk-b'),
+    'c' => $client->dataPutPublicAsync('chunk-c'),
+];
+
+// Wait for all to complete — returns ['a' => PutResult, 'b' => PutResult, ...]
+$results = Utils::unwrap($promises);
+
+foreach ($results as $key => $result) {
+    echo "{$key}: stored at {$result->address}\n";
+}
+```
+
+### Settling without throwing
+
+```php
+use GuzzleHttp\Promise\Utils;
+
+// settle() never throws — it returns the state of every promise
+$outcomes = Utils::settle($promises)->wait();
+
+foreach ($outcomes as $key => $outcome) {
+    if ($outcome['state'] === 'fulfilled') {
+        echo "{$key}: {$outcome['value']->address}\n";
+    } else {
+        echo "{$key}: failed — {$outcome['reason']->getMessage()}\n";
+    }
+}
+```
+
 ## Error Handling
 
 All errors extend `AntdError` (which extends `\RuntimeException`) and can be caught by type:
