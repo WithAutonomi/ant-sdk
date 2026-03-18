@@ -31,45 +31,62 @@ A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized 
 
 ## Components
 
+### Infrastructure
+
 | Component | Language | Description |
 |-----------|----------|-------------|
 | [`antd/`](antd/) | Rust | REST + gRPC gateway daemon |
-| [`antd-go/`](antd-go/) | Go | SDK with context-based client, REST transport |
-| [`antd-js/`](antd-js/) | TypeScript | SDK with async client, REST transport |
-| [`antd-py/`](antd-py/) | Python | SDK with sync/async clients, REST + gRPC transports |
-| [`antd-csharp/`](antd-csharp/) | C# | SDK with async client, REST + gRPC transports |
-| [`antd-kotlin/`](antd-kotlin/) | Kotlin | SDK with coroutine-based client, REST + gRPC transports |
-| [`antd-swift/`](antd-swift/) | Swift | SDK with async/await client, REST + gRPC transports (macOS) |
-| [`antd-ruby/`](antd-ruby/) | Ruby | SDK with sync client, REST transport |
-| [`antd-php/`](antd-php/) | PHP | SDK with sync/async clients, REST transport |
-| [`antd-dart/`](antd-dart/) | Dart | SDK with async client, REST transport |
-| [`antd-lua/`](antd-lua/) | Lua | SDK with sync client, REST transport |
-| [`antd-elixir/`](antd-elixir/) | Elixir | SDK with async client, REST transport |
-| [`antd-zig/`](antd-zig/) | Zig | SDK with async client, REST transport |
-| [`antd-rust/`](antd-rust/) | Rust | SDK with async client, REST transport |
-| [`antd-cpp/`](antd-cpp/) | C++ | SDK with sync + async clients, REST transport |
-| [`antd-java/`](antd-java/) | Java | SDK with sync + async clients, REST transport (enterprise/ERP) |
-| [`antd-mcp/`](antd-mcp/) | Python | MCP server exposing 31 tools for AI agents (Claude, etc.) |
+| [`antd-mcp/`](antd-mcp/) | Python | MCP server exposing 14 tools for AI agents (Claude, etc.) |
 | [`ant-dev/`](ant-dev/) | Python | Developer CLI for local environment management |
+
+### Language SDKs
+
+| SDK | Language | Async | Transport | Notes |
+|-----|----------|-------|-----------|-------|
+| [`antd-go/`](antd-go/) | Go | context-based | REST | |
+| [`antd-js/`](antd-js/) | TypeScript | async/await | REST | |
+| [`antd-py/`](antd-py/) | Python | sync + async | REST + gRPC | |
+| [`antd-csharp/`](antd-csharp/) | C# | async | REST + gRPC | |
+| [`antd-kotlin/`](antd-kotlin/) | Kotlin | coroutines | REST + gRPC | |
+| [`antd-swift/`](antd-swift/) | Swift | async/await | REST + gRPC | macOS only |
+| [`antd-ruby/`](antd-ruby/) | Ruby | sync | REST | |
+| [`antd-php/`](antd-php/) | PHP | sync + async | REST | Guzzle promises |
+| [`antd-dart/`](antd-dart/) | Dart | async/await | REST | |
+| [`antd-lua/`](antd-lua/) | Lua | sync | REST | |
+| [`antd-elixir/`](antd-elixir/) | Elixir | async (BEAM) | REST | {:ok,result} tuples |
+| [`antd-zig/`](antd-zig/) | Zig | sync | REST | |
+| [`antd-rust/`](antd-rust/) | Rust | async/await | REST | tokio |
+| [`antd-cpp/`](antd-cpp/) | C++ | sync + async | REST | std::future |
+| [`antd-java/`](antd-java/) | Java | sync + async | REST | CompletableFuture |
 
 ## Quickstart (5 minutes)
 
 ### Prerequisites
 
-- **Rust** toolchain (for building antd and the Autonomi network)
-- **Go 1.21+** (optional, for the Go SDK)
-- **Node.js 18+** (optional, for the JS/TS SDK)
-- **Python 3.10+** (for the Python SDK and dev CLI)
-- **.NET 8 SDK** (optional, for the C# SDK)
-- **JDK 17+** (optional, for the Kotlin SDK)
-- **Swift 5.9+ / Xcode 15+** (optional, for the Swift SDK — macOS only)
-- **Ruby 3.0+** (optional, for the Ruby SDK)
-- **PHP 8.1+** (optional, for the PHP SDK)
-- **Dart 3.0+** (optional, for the Dart SDK)
-- **Lua 5.4+ / LuaRocks** (optional, for the Lua SDK)
-- **Elixir 1.14+** (optional, for the Elixir SDK)
-- **Zig 0.12+** (optional, for the Zig SDK)
+**Required:**
+
+- **Rust** toolchain — for building antd and the Autonomi network
+- **Python 3.10+** — for the dev CLI (`ant-dev`) and MCP server
 - **autonomi** repo cloned as a sibling: `git clone https://github.com/maidsafe/autonomi ../autonomi`
+
+**Language-specific** (install only what you need):
+
+| Language | Version | Install |
+|----------|---------|---------|
+| Go | 1.21+ | `go get github.com/maidsafe/ant-sdk/antd-go` |
+| Node.js / TypeScript | 18+ | `npm install antd` |
+| C# / .NET | 8+ | `dotnet add package Antd.Sdk` |
+| Kotlin | JDK 17+ | Gradle dependency |
+| Swift | 5.9+ / Xcode 15+ | Swift Package Manager (macOS only) |
+| Ruby | 3.0+ | `gem install antd` |
+| PHP | 8.1+ | `composer require autonomi/antd` |
+| Dart | 3.0+ | `dart pub add antd` |
+| Lua | 5.1+ / LuaRocks | `luarocks install antd` |
+| Elixir | 1.14+ | `{:antd, "~> 0.1"}` in mix.exs |
+| Zig | 0.14+ | build.zig.zon dependency |
+| Rust (client) | 2021 edition | `cargo add antd-client` |
+| C++ | C++20 | CMake FetchContent |
+| Java | 17+ | Gradle/Maven (com.autonomi:antd-java) |
 
 ### Option A: Using the `ant` CLI
 
@@ -375,21 +392,26 @@ ant dev playground [--transport rest|grpc]             # Interactive Python REPL
 
 - [Architecture Guide](docs/architecture.md) — Autonomi mental model, data primitives, payment model
 - [Tutorial: Store & Retrieve Data](docs/tutorial-store-retrieve.md) — Your first read/write operations
-- [Go Quickstart](antd-go/README.md) — Go SDK guide
-- [JS/TS Quickstart](antd-js/README.md) — JavaScript/TypeScript SDK guide
-- [Python Quickstart](docs/quickstart-python.md) — Comprehensive Python SDK guide
-- [C# Quickstart](docs/quickstart-csharp.md) — Comprehensive C# SDK guide
-- [Kotlin Quickstart](docs/quickstart-kotlin.md) — Comprehensive Kotlin SDK guide
-- [Swift Quickstart](docs/quickstart-swift.md) — Comprehensive Swift SDK guide (macOS)
-- [Ruby Quickstart](antd-ruby/README.md) — Ruby SDK guide
-- [PHP Quickstart](antd-php/README.md) — PHP SDK guide
-- [Dart Quickstart](antd-dart/README.md) — Dart SDK guide
-- [Lua Quickstart](antd-lua/README.md) — Lua SDK guide
-- [Elixir Quickstart](antd-elixir/README.md) — Elixir SDK guide
-- [Zig Quickstart](antd-zig/README.md) — Zig SDK guide
-- [Rust Quickstart](antd-rust/README.md) — Rust SDK guide
-- [C++ Quickstart](antd-cpp/README.md) — C++ SDK guide
-- [Java Quickstart](antd-java/README.md) — Java SDK guide
+
+### Quickstart Guides
+
+| Language | Guide |
+|----------|-------|
+| Go | [antd-go/README.md](antd-go/README.md) |
+| JS/TS | [antd-js/README.md](antd-js/README.md) |
+| Python | [docs/quickstart-python.md](docs/quickstart-python.md) |
+| C# | [docs/quickstart-csharp.md](docs/quickstart-csharp.md) |
+| Kotlin | [docs/quickstart-kotlin.md](docs/quickstart-kotlin.md) |
+| Swift | [docs/quickstart-swift.md](docs/quickstart-swift.md) — macOS only |
+| Ruby | [docs/quickstart-ruby.md](docs/quickstart-ruby.md) |
+| PHP | [docs/quickstart-php.md](docs/quickstart-php.md) |
+| Dart | [docs/quickstart-dart.md](docs/quickstart-dart.md) |
+| Lua | [docs/quickstart-lua.md](docs/quickstart-lua.md) |
+| Elixir | [docs/quickstart-elixir.md](docs/quickstart-elixir.md) |
+| Zig | [docs/quickstart-zig.md](docs/quickstart-zig.md) |
+| Rust | [docs/quickstart-rust.md](docs/quickstart-rust.md) |
+| C++ | [docs/quickstart-cpp.md](docs/quickstart-cpp.md) |
+| Java | [docs/quickstart-java.md](docs/quickstart-java.md) |
 
 ## License
 
