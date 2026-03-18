@@ -7,7 +7,7 @@ import io.grpc.*;
 import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
 import io.grpc.stub.StreamObserver;
-import io.grpc.testing.GrpcCleanupRule;
+// GrpcCleanupRule is JUnit4 only — we manage cleanup manually with @AfterEach
 
 import antd.v1.HealthServiceGrpc;
 import antd.v1.Health.HealthCheckRequest;
@@ -71,17 +71,15 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class GrpcAntdClientTest {
 
-    @org.junit.jupiter.api.extension.RegisterExtension
-    static final GrpcCleanupRule grpcCleanup = new GrpcCleanupRule();
-
+    private Server server;
+    private ManagedChannel channel;
     private GrpcAntdClient client;
 
     @BeforeEach
     void setUp() throws Exception {
         String serverName = InProcessServerBuilder.generateName();
 
-        grpcCleanup.register(
-                InProcessServerBuilder.forName(serverName)
+        server = InProcessServerBuilder.forName(serverName)
                         .directExecutor()
                         .addService(new MockHealthService())
                         .addService(new MockDataService())
@@ -89,12 +87,11 @@ class GrpcAntdClientTest {
                         .addService(new MockGraphService())
                         .addService(new MockFileService())
                         .build()
-                        .start());
+                        .start();
 
-        ManagedChannel channel = grpcCleanup.register(
-                InProcessChannelBuilder.forName(serverName)
+        channel = InProcessChannelBuilder.forName(serverName)
                         .directExecutor()
-                        .build());
+                        .build();
 
         client = new GrpcAntdClient(channel);
     }
@@ -102,6 +99,8 @@ class GrpcAntdClientTest {
     @AfterEach
     void tearDown() {
         client.close();
+        channel.shutdownNow();
+        server.shutdownNow();
     }
 
     // =========================================================================
@@ -490,8 +489,7 @@ class GrpcAntdClientTest {
     @Test
     void testInvalidArgumentThrowsBadRequestException() throws Exception {
         String serverName = InProcessServerBuilder.generateName();
-        grpcCleanup.register(
-                InProcessServerBuilder.forName(serverName)
+        InProcessServerBuilder.forName(serverName)
                         .directExecutor()
                         .addService(new DataServiceGrpc.DataServiceImplBase() {
                             @Override
@@ -502,10 +500,9 @@ class GrpcAntdClientTest {
                             }
                         })
                         .build()
-                        .start());
+                        .start();
 
-        ManagedChannel ch = grpcCleanup.register(
-                InProcessChannelBuilder.forName(serverName).directExecutor().build());
+        ManagedChannel ch = InProcessChannelBuilder.forName(serverName).directExecutor().build();
 
         try (GrpcAntdClient errClient = new GrpcAntdClient(ch)) {
             AntdException ex = assertThrows(AntdException.class,
@@ -517,8 +514,7 @@ class GrpcAntdClientTest {
     @Test
     void testAlreadyExistsThrowsAlreadyExistsException() throws Exception {
         String serverName = InProcessServerBuilder.generateName();
-        grpcCleanup.register(
-                InProcessServerBuilder.forName(serverName)
+        InProcessServerBuilder.forName(serverName)
                         .directExecutor()
                         .addService(new DataServiceGrpc.DataServiceImplBase() {
                             @Override
@@ -529,10 +525,9 @@ class GrpcAntdClientTest {
                             }
                         })
                         .build()
-                        .start());
+                        .start();
 
-        ManagedChannel ch = grpcCleanup.register(
-                InProcessChannelBuilder.forName(serverName).directExecutor().build());
+        ManagedChannel ch = InProcessChannelBuilder.forName(serverName).directExecutor().build();
 
         try (GrpcAntdClient errClient = new GrpcAntdClient(ch)) {
             AntdException ex = assertThrows(AntdException.class,
@@ -544,8 +539,7 @@ class GrpcAntdClientTest {
     @Test
     void testFailedPreconditionThrowsPaymentException() throws Exception {
         String serverName = InProcessServerBuilder.generateName();
-        grpcCleanup.register(
-                InProcessServerBuilder.forName(serverName)
+        InProcessServerBuilder.forName(serverName)
                         .directExecutor()
                         .addService(new DataServiceGrpc.DataServiceImplBase() {
                             @Override
@@ -556,10 +550,9 @@ class GrpcAntdClientTest {
                             }
                         })
                         .build()
-                        .start());
+                        .start();
 
-        ManagedChannel ch = grpcCleanup.register(
-                InProcessChannelBuilder.forName(serverName).directExecutor().build());
+        ManagedChannel ch = InProcessChannelBuilder.forName(serverName).directExecutor().build();
 
         try (GrpcAntdClient errClient = new GrpcAntdClient(ch)) {
             AntdException ex = assertThrows(AntdException.class,
@@ -571,8 +564,7 @@ class GrpcAntdClientTest {
     @Test
     void testResourceExhaustedThrowsTooLargeException() throws Exception {
         String serverName = InProcessServerBuilder.generateName();
-        grpcCleanup.register(
-                InProcessServerBuilder.forName(serverName)
+        InProcessServerBuilder.forName(serverName)
                         .directExecutor()
                         .addService(new DataServiceGrpc.DataServiceImplBase() {
                             @Override
@@ -583,10 +575,9 @@ class GrpcAntdClientTest {
                             }
                         })
                         .build()
-                        .start());
+                        .start();
 
-        ManagedChannel ch = grpcCleanup.register(
-                InProcessChannelBuilder.forName(serverName).directExecutor().build());
+        ManagedChannel ch = InProcessChannelBuilder.forName(serverName).directExecutor().build();
 
         try (GrpcAntdClient errClient = new GrpcAntdClient(ch)) {
             AntdException ex = assertThrows(AntdException.class,
@@ -598,8 +589,7 @@ class GrpcAntdClientTest {
     @Test
     void testInternalThrowsInternalException() throws Exception {
         String serverName = InProcessServerBuilder.generateName();
-        grpcCleanup.register(
-                InProcessServerBuilder.forName(serverName)
+        InProcessServerBuilder.forName(serverName)
                         .directExecutor()
                         .addService(new DataServiceGrpc.DataServiceImplBase() {
                             @Override
@@ -610,10 +600,9 @@ class GrpcAntdClientTest {
                             }
                         })
                         .build()
-                        .start());
+                        .start();
 
-        ManagedChannel ch = grpcCleanup.register(
-                InProcessChannelBuilder.forName(serverName).directExecutor().build());
+        ManagedChannel ch = InProcessChannelBuilder.forName(serverName).directExecutor().build();
 
         try (GrpcAntdClient errClient = new GrpcAntdClient(ch)) {
             AntdException ex = assertThrows(AntdException.class,
@@ -625,8 +614,7 @@ class GrpcAntdClientTest {
     @Test
     void testUnavailableThrowsNetworkException() throws Exception {
         String serverName = InProcessServerBuilder.generateName();
-        grpcCleanup.register(
-                InProcessServerBuilder.forName(serverName)
+        InProcessServerBuilder.forName(serverName)
                         .directExecutor()
                         .addService(new DataServiceGrpc.DataServiceImplBase() {
                             @Override
@@ -637,10 +625,9 @@ class GrpcAntdClientTest {
                             }
                         })
                         .build()
-                        .start());
+                        .start();
 
-        ManagedChannel ch = grpcCleanup.register(
-                InProcessChannelBuilder.forName(serverName).directExecutor().build());
+        ManagedChannel ch = InProcessChannelBuilder.forName(serverName).directExecutor().build();
 
         try (GrpcAntdClient errClient = new GrpcAntdClient(ch)) {
             AntdException ex = assertThrows(AntdException.class,
@@ -652,8 +639,7 @@ class GrpcAntdClientTest {
     @Test
     void testUnknownCodeThrowsBaseAntdException() throws Exception {
         String serverName = InProcessServerBuilder.generateName();
-        grpcCleanup.register(
-                InProcessServerBuilder.forName(serverName)
+        InProcessServerBuilder.forName(serverName)
                         .directExecutor()
                         .addService(new DataServiceGrpc.DataServiceImplBase() {
                             @Override
@@ -664,10 +650,9 @@ class GrpcAntdClientTest {
                             }
                         })
                         .build()
-                        .start());
+                        .start();
 
-        ManagedChannel ch = grpcCleanup.register(
-                InProcessChannelBuilder.forName(serverName).directExecutor().build());
+        ManagedChannel ch = InProcessChannelBuilder.forName(serverName).directExecutor().build();
 
         try (GrpcAntdClient errClient = new GrpcAntdClient(ch)) {
             AntdException ex = assertThrows(AntdException.class,
