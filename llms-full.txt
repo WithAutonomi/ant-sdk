@@ -360,6 +360,10 @@ Default target: `localhost:50051`. Package: `antd.v1`.
 ### EventService (events.proto)
 - `Subscribe(SubscribeRequest{}) → stream ClientEventProto{kind, records_paid, records_already_paid, tokens_spent}`
 
+### SDKs with gRPC support
+Go, Python, C#, Kotlin, Swift, Rust, Java, C++, Dart, Ruby, Elixir (11 of 15 SDKs).
+JS/TS, PHP, Lua, and Zig are REST-only.
+
 ---
 
 ## Model Types

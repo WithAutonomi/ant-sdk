@@ -18,23 +18,23 @@ For detailed API signatures and endpoint documentation, see:
 
 ## Choosing a Language
 
-| Language | SDK | Async Model | Install |
-|----------|-----|-------------|---------|
-| Go | `antd-go` | `context.Context` | `go get github.com/maidsafe/ant-sdk/antd-go` |
-| Python | `antd-py` | sync + async | `pip install antd` |
-| TypeScript | `antd-js` | Promises | `npm install antd` |
-| C# | `antd-csharp` | `Task<T>` / async-await | `dotnet add package Antd.Sdk` |
-| Kotlin | `antd-kotlin` | `suspend` / coroutines | Gradle dependency |
-| Swift | `antd-swift` | `async throws` | Swift Package Manager |
-| Ruby | `antd-ruby` | sync | `gem install antd` |
-| PHP | `antd-php` | sync + async | `composer require autonomi/antd` |
-| Dart | `antd-dart` | `Future<T>` / async-await | `dart pub add antd` |
-| Lua | `antd-lua` | sync | `luarocks install antd` |
-| Elixir | `antd-elixir` | `{:ok, result}` / GenServer | `{:antd, "~> 0.1"}` in mix.exs deps |
-| Zig | `antd-zig` | error unions / async | Add dependency in build.zig.zon |
-| Rust | `antd-rust` | async/await (tokio) | `cargo add antd-client` |
-| C++ | `antd-cpp` | sync + async (std::future) | CMake FetchContent |
-| Java | `antd-java` | sync + async (CompletableFuture) | Gradle/Maven (com.autonomi:antd-java) |
+| Language | SDK | Async Model | Transport | Install |
+|----------|-----|-------------|-----------|---------|
+| Go | `antd-go` | `context.Context` | REST + gRPC | `go get github.com/maidsafe/ant-sdk/antd-go` |
+| Python | `antd-py` | sync + async | REST + gRPC | `pip install antd` |
+| TypeScript | `antd-js` | Promises | REST | `npm install antd` |
+| C# | `antd-csharp` | `Task<T>` / async-await | REST + gRPC | `dotnet add package Antd.Sdk` |
+| Kotlin | `antd-kotlin` | `suspend` / coroutines | REST + gRPC | Gradle dependency |
+| Swift | `antd-swift` | `async throws` | REST + gRPC | Swift Package Manager |
+| Ruby | `antd-ruby` | sync | REST + gRPC | `gem install antd` |
+| PHP | `antd-php` | sync + async | REST | `composer require autonomi/antd` |
+| Dart | `antd-dart` | `Future<T>` / async-await | REST + gRPC | `dart pub add antd` |
+| Lua | `antd-lua` | sync | REST | `luarocks install antd` |
+| Elixir | `antd-elixir` | `{:ok, result}` / GenServer | REST + gRPC | `{:antd, "~> 0.1"}` in mix.exs deps |
+| Zig | `antd-zig` | error unions / async | REST | Add dependency in build.zig.zon |
+| Rust | `antd-rust` | async/await (tokio) | REST + gRPC | `cargo add antd-client` |
+| C++ | `antd-cpp` | sync + async (std::future) | REST + gRPC | CMake FetchContent |
+| Java | `antd-java` | sync + async (CompletableFuture) | REST + gRPC | Gradle/Maven (com.autonomi:antd-java) |
 
 **Swift note:** REST/gRPC SDK is macOS only. iOS apps must use the FFI bindings (`ffi/`) which embed the client directly — no daemon needed.
 
