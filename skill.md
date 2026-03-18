@@ -33,8 +33,8 @@ For detailed API signatures and endpoint documentation, see:
 | Elixir | `antd-elixir` | `{:ok, result}` / GenServer | `{:antd, "~> 0.1"}` in mix.exs deps |
 | Zig | `antd-zig` | error unions / async | Add dependency in build.zig.zon |
 | Rust | `antd-rust` | async/await (tokio) | `cargo add antd-client` |
-| C++ | `antd-cpp` | sync (exceptions) | CMake FetchContent |
-| Java | `antd-java` | sync (exceptions) | Gradle/Maven (com.autonomi:antd-java) |
+| C++ | `antd-cpp` | sync + async (std::future) | CMake FetchContent |
+| Java | `antd-java` | sync + async (CompletableFuture) | Gradle/Maven (com.autonomi:antd-java) |
 
 **Swift note:** REST/gRPC SDK is macOS only. iOS apps must use the FFI bindings (`ffi/`) which embed the client directly — no daemon needed.
 

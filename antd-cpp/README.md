@@ -57,6 +57,78 @@ int main() {
 }
 ```
 
+## Async Usage
+
+The SDK ships an `AsyncClient` that wraps every synchronous method in
+`std::async(std::launch::async, ...)` and returns a `std::future<T>`.
+No additional dependencies are required — only C++20 `<future>`.
+
+```cpp
+#include "antd/antd.hpp"
+#include <iostream>
+
+int main() {
+    antd::AsyncClient client;  // defaults to http://localhost:8080
+
+    // Fire off two requests concurrently
+    auto health_future = client.health();
+    auto cost_future   = client.data_cost({0x01, 0x02, 0x03});
+
+    // Block until the health check completes
+    auto health = health_future.get();
+    std::cout << "OK: " << health.ok << "\n";
+
+    // Block until the cost estimate completes
+    auto cost = cost_future.get();
+    std::cout << "Cost: " << cost << " atto\n";
+}
+```
+
+### Waiting with a timeout
+
+```cpp
+auto future = client.data_put_public(data);
+
+// Wait up to 10 seconds
+if (future.wait_for(std::chrono::seconds(10)) == std::future_status::ready) {
+    auto result = future.get();
+    std::cout << "Stored at " << result.address << "\n";
+} else {
+    std::cerr << "Upload still in progress...\n";
+}
+```
+
+### Error handling
+
+Exceptions thrown by the underlying synchronous client propagate through the
+future. Calling `.get()` on a failed future rethrows the original exception:
+
+```cpp
+try {
+    auto data = client.data_get_public("bad-address").get();
+} catch (const antd::NotFoundError& e) {
+    std::cerr << "Not found\n";
+} catch (const antd::AntdError& e) {
+    std::cerr << "Error " << e.status_code << ": " << e.what() << "\n";
+}
+```
+
+### Fan-out pattern
+
+```cpp
+// Launch many downloads in parallel
+std::vector<std::future<std::vector<uint8_t>>> futures;
+for (const auto& addr : addresses) {
+    futures.push_back(client.data_get_public(addr));
+}
+
+// Collect results
+for (auto& f : futures) {
+    auto data = f.get();  // blocks until this particular download finishes
+    process(data);
+}
+```
+
 ## Prerequisites
 
 - C++20 compiler (GCC 10+, Clang 10+, MSVC 19.29+)

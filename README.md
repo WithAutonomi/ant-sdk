@@ -47,8 +47,8 @@ A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized 
 | [`antd-elixir/`](antd-elixir/) | Elixir | SDK with async client, REST transport |
 | [`antd-zig/`](antd-zig/) | Zig | SDK with async client, REST transport |
 | [`antd-rust/`](antd-rust/) | Rust | SDK with async client, REST transport |
-| [`antd-cpp/`](antd-cpp/) | C++ | SDK with sync client, REST transport |
-| [`antd-java/`](antd-java/) | Java | SDK with sync client, REST transport (enterprise/ERP) |
+| [`antd-cpp/`](antd-cpp/) | C++ | SDK with sync + async clients, REST transport |
+| [`antd-java/`](antd-java/) | Java | SDK with sync + async clients, REST transport (enterprise/ERP) |
 | [`antd-mcp/`](antd-mcp/) | Python | MCP server exposing 31 tools for AI agents (Claude, etc.) |
 | [`ant-dev/`](ant-dev/) | Python | Developer CLI for local environment management |
 

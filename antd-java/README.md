@@ -130,6 +130,52 @@ All methods throw `AntdException` (or a typed subclass) on failure.
 | `archivePutPublic(archive)` | Create archive manifest |
 | `fileCost(path, isPublic, includeArchive)` | Estimate upload cost |
 
+## Async Usage
+
+The `AsyncAntdClient` provides non-blocking variants of every method, returning `CompletableFuture<T>`. It uses `HttpClient.sendAsync()` internally — no thread-pool wrappers around blocking calls.
+
+```java
+import com.autonomi.antd.AsyncAntdClient;
+import com.autonomi.antd.models.*;
+
+try (var client = new AsyncAntdClient()) {
+    // Fire-and-forget style
+    client.healthAsync()
+          .thenAccept(h -> System.out.println("Network: " + h.network()));
+
+    // Chain operations
+    client.dataPutPublicAsync("Hello, async!".getBytes())
+          .thenCompose(result -> client.dataGetPublicAsync(result.address()))
+          .thenAccept(data -> System.out.println("Got: " + new String(data)))
+          .join(); // block only at the end
+
+    // Parallel uploads
+    CompletableFuture<PutResult> upload1 = client.dataPutPublicAsync("file1".getBytes());
+    CompletableFuture<PutResult> upload2 = client.dataPutPublicAsync("file2".getBytes());
+
+    CompletableFuture.allOf(upload1, upload2).join();
+    System.out.printf("Addresses: %s, %s%n", upload1.join().address(), upload2.join().address());
+
+    // Error handling
+    client.dataGetPublicAsync("bad-address")
+          .exceptionally(ex -> {
+              System.out.println("Failed: " + ex.getCause().getMessage());
+              return null;
+          })
+          .join();
+}
+```
+
+The async client has the same constructors as `AntdClient`:
+
+```java
+var client = new AsyncAntdClient();                                          // defaults
+var client = new AsyncAntdClient("http://custom:9090");                      // custom URL
+var client = new AsyncAntdClient("http://localhost:8080", Duration.ofSeconds(30)); // custom timeout
+```
+
+All 19 methods follow the naming convention `methodNameAsync()` and return `CompletableFuture<T>` where `T` matches the sync return type. Void methods return `CompletableFuture<Void>`.
+
 ## Error Handling
 
 All errors are subtypes of `AntdException`, which extends `RuntimeException`. Use standard Java exception handling:
