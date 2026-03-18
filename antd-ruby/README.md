@@ -36,6 +36,55 @@ data = client.data_get_public(result.address)
 puts "Retrieved: #{data}"
 ```
 
+## gRPC Transport
+
+The SDK includes an `Antd::GrpcClient` class that provides the same 19 methods
+as the REST `Antd::Client`, but communicates over gRPC.
+
+### Setup
+
+Install the gRPC gem (listed as an optional development dependency):
+
+```bash
+gem install grpc grpc-tools
+```
+
+Generate the Ruby protobuf/gRPC stubs from the proto definitions:
+
+```bash
+grpc_tools_ruby_protoc \
+  -I../../antd/proto \
+  --ruby_out=lib --grpc_out=lib \
+  antd/v1/common.proto antd/v1/health.proto antd/v1/data.proto \
+  antd/v1/chunks.proto antd/v1/graph.proto antd/v1/files.proto
+```
+
+The generated files are expected under `lib/antd/v1/`.
+
+### Usage
+
+```ruby
+require "antd"
+require "antd/grpc_client"
+
+client = Antd::GrpcClient.new  # defaults to localhost:50051
+
+# Or custom target:
+# client = Antd::GrpcClient.new(target: "my-host:50051")
+
+health = client.health
+puts "OK: #{health.ok}, Network: #{health.network}"
+
+result = client.data_put_public("Hello via gRPC!")
+puts "Stored at #{result.address}"
+
+data = client.data_get_public(result.address)
+puts "Retrieved: #{data}"
+```
+
+The `GrpcClient` raises the same `Antd::AntdError` hierarchy as the REST
+client, translating gRPC status codes to the appropriate error subclass.
+
 ## Prerequisites
 
 The antd daemon must be running. Start it with:

@@ -42,6 +42,10 @@ pub enum AntdError {
     /// JSON serialization/deserialization error.
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
+
+    /// gRPC transport or status error.
+    #[error("grpc error: {0}")]
+    Grpc(#[from] tonic::Status),
 }
 
 /// Maps an HTTP status code and message to the appropriate [`AntdError`] variant.

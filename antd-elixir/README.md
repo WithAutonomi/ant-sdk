@@ -45,6 +45,57 @@ client = Antd.Client.new()
 |> IO.puts()
 ```
 
+## gRPC Transport
+
+The SDK includes an `Antd.GrpcClient` module that provides the same 19
+functions as the REST `Antd.Client`, but communicates over gRPC.
+
+### Setup
+
+The `grpc` and `protobuf` hex packages are already listed in `mix.exs`. Fetch
+them with:
+
+```bash
+mix deps.get
+```
+
+Generate the Elixir protobuf/gRPC stubs from the proto definitions:
+
+```bash
+protoc --elixir_out=plugins=grpc:lib \
+  -I../../antd/proto \
+  antd/v1/common.proto antd/v1/health.proto antd/v1/data.proto \
+  antd/v1/chunks.proto antd/v1/graph.proto antd/v1/files.proto
+```
+
+The generated modules are expected under `lib/antd/v1/`.
+
+### Usage
+
+```elixir
+# Connect to the daemon
+{:ok, client} = Antd.GrpcClient.new()
+
+# Or custom target:
+# {:ok, client} = Antd.GrpcClient.new("my-host:50051")
+
+# Check health
+{:ok, health} = Antd.GrpcClient.health(client)
+IO.puts("OK: #{health.ok}, Network: #{health.network}")
+
+# Store data
+{:ok, result} = Antd.GrpcClient.data_put_public(client, "Hello via gRPC!")
+IO.puts("Stored at #{result.address}")
+
+# Retrieve data
+{:ok, data} = Antd.GrpcClient.data_get_public(client, result.address)
+IO.puts("Retrieved: #{data}")
+```
+
+All functions return `{:ok, result}` or `{:error, exception}` tuples, just like
+the REST client. Bang variants (e.g. `health!/1`) are also available. gRPC
+status codes are translated to the same `Antd.*Error` hierarchy.
+
 ## Prerequisites
 
 The antd daemon must be running. Start it with:

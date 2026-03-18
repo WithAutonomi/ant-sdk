@@ -23,6 +23,8 @@ defmodule Antd.MixProject do
     [
       {:req, "~> 0.4"},
       {:jason, "~> 1.4"},
+      {:grpc, "~> 0.9"},
+      {:protobuf, "~> 0.12"},
       {:bypass, "~> 2.1", only: :test}
     ]
   end

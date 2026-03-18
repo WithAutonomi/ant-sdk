@@ -24,7 +24,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(httplib)
 
-# --- Library target ---
+# --- Library target (REST) ---
 add_library(antd
     src/client.cpp
     src/async_client.cpp
@@ -44,6 +44,76 @@ target_link_libraries(antd
         nlohmann_json::nlohmann_json
         httplib::httplib
 )
+
+# --- gRPC transport (optional) ---
+#
+# Enable with: cmake -B build -DANTD_BUILD_GRPC=ON
+# Requires protoc and grpc_cpp_plugin on PATH, or a local gRPC install.
+#
+option(ANTD_BUILD_GRPC "Build gRPC client (requires gRPC and Protobuf)" OFF)
+if(ANTD_BUILD_GRPC)
+    find_package(Protobuf REQUIRED)
+    find_package(gRPC REQUIRED)
+
+    # Proto source directory
+    set(ANTD_PROTO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../antd/proto")
+
+    # Collect all .proto files
+    file(GLOB ANTD_PROTO_FILES "${ANTD_PROTO_DIR}/antd/v1/*.proto")
+
+    # Output directory for generated code
+    set(ANTD_PROTO_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/proto-gen")
+    file(MAKE_DIRECTORY ${ANTD_PROTO_GEN_DIR})
+
+    # Generate C++ sources from .proto files
+    set(ANTD_PROTO_SRCS "")
+    set(ANTD_PROTO_HDRS "")
+    set(ANTD_GRPC_SRCS "")
+    set(ANTD_GRPC_HDRS "")
+
+    foreach(proto_file ${ANTD_PROTO_FILES})
+        get_filename_component(proto_name ${proto_file} NAME_WE)
+        list(APPEND ANTD_PROTO_SRCS "${ANTD_PROTO_GEN_DIR}/antd/v1/${proto_name}.pb.cc")
+        list(APPEND ANTD_PROTO_HDRS "${ANTD_PROTO_GEN_DIR}/antd/v1/${proto_name}.pb.h")
+        list(APPEND ANTD_GRPC_SRCS "${ANTD_PROTO_GEN_DIR}/antd/v1/${proto_name}.grpc.pb.cc")
+        list(APPEND ANTD_GRPC_HDRS "${ANTD_PROTO_GEN_DIR}/antd/v1/${proto_name}.grpc.pb.h")
+    endforeach()
+
+    find_program(GRPC_CPP_PLUGIN grpc_cpp_plugin)
+
+    add_custom_command(
+        OUTPUT ${ANTD_PROTO_SRCS} ${ANTD_PROTO_HDRS} ${ANTD_GRPC_SRCS} ${ANTD_GRPC_HDRS}
+        COMMAND ${Protobuf_PROTOC_EXECUTABLE}
+            --proto_path=${ANTD_PROTO_DIR}
+            --cpp_out=${ANTD_PROTO_GEN_DIR}
+            --grpc_out=${ANTD_PROTO_GEN_DIR}
+            --plugin=protoc-gen-grpc=${GRPC_CPP_PLUGIN}
+            ${ANTD_PROTO_FILES}
+        DEPENDS ${ANTD_PROTO_FILES}
+        COMMENT "Generating C++ protobuf/gRPC sources"
+    )
+
+    add_library(antd_grpc
+        src/grpc_client.cpp
+        ${ANTD_PROTO_SRCS}
+        ${ANTD_GRPC_SRCS}
+    )
+
+    target_include_directories(antd_grpc
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<BUILD_INTERFACE:${ANTD_PROTO_GEN_DIR}>
+            $<INSTALL_INTERFACE:include>
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+
+    target_link_libraries(antd_grpc
+        PUBLIC
+            gRPC::grpc++
+            protobuf::libprotobuf
+    )
+endif()
 
 # --- Examples ---
 option(ANTD_BUILD_EXAMPLES "Build example programs" ON)

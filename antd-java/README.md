@@ -2,7 +2,7 @@
 
 Java SDK for the [antd](../antd/) daemon — the gateway to the Autonomi decentralized network.
 
-Targets Java 17+ enterprise/ERP environments. Zero external dependencies — uses `java.net.http.HttpClient` (stdlib) with an internal JSON parser. Immutable data types only (Java records).
+Targets Java 17+ enterprise/ERP environments. Supports both REST (`java.net.http.HttpClient` with an internal JSON parser, zero external deps) and gRPC (`io.grpc`) transports. Immutable data types only (Java records).
 
 ## Installation
 
@@ -175,6 +175,61 @@ var client = new AsyncAntdClient("http://localhost:8080", Duration.ofSeconds(30)
 ```
 
 All 19 methods follow the naming convention `methodNameAsync()` and return `CompletableFuture<T>` where `T` matches the sync return type. Void methods return `CompletableFuture<Void>`.
+
+## gRPC Transport
+
+The `GrpcAntdClient` provides an alternative transport using gRPC instead of REST. It implements the same 19 methods with identical signatures, so switching transports requires only changing the constructor.
+
+```java
+import com.autonomi.antd.GrpcAntdClient;
+import com.autonomi.antd.models.*;
+
+// Default: localhost:50051, plaintext
+try (var client = new GrpcAntdClient()) {
+    HealthStatus health = client.health();
+    System.out.println("OK: " + health.ok() + ", Network: " + health.network());
+
+    // Same API as AntdClient
+    PutResult result = client.dataPutPublic("Hello via gRPC!".getBytes());
+    byte[] data = client.dataGetPublic(result.address());
+    System.out.println("Retrieved: " + new String(data));
+}
+
+// Custom target
+try (var client = new GrpcAntdClient("myhost:50051")) {
+    client.health();
+}
+```
+
+The gRPC client uses `io.grpc` blocking stubs and maps gRPC status codes to the same `AntdException` hierarchy:
+
+| gRPC Status | Exception Type |
+|-------------|---------------|
+| `INVALID_ARGUMENT` | `BadRequestException` |
+| `NOT_FOUND` | `NotFoundException` |
+| `ALREADY_EXISTS` | `AlreadyExistsException` |
+| `FAILED_PRECONDITION` | `PaymentException` |
+| `RESOURCE_EXHAUSTED` | `TooLargeException` |
+| `INTERNAL` | `InternalException` |
+| `UNAVAILABLE` | `NetworkException` |
+
+### Proto compilation
+
+The build uses the [protobuf Gradle plugin](https://github.com/google/protobuf-gradle-plugin) to compile `.proto` files from `../antd/proto` and generate Java/gRPC stubs automatically:
+
+```bash
+./gradlew generateProto   # generate stubs (also runs as part of build)
+./gradlew build           # full build including proto compilation
+```
+
+### Additional dependencies
+
+The gRPC transport adds the following dependencies (managed in `build.gradle.kts`):
+
+- `io.grpc:grpc-netty-shaded` — Netty-based gRPC transport (shaded to avoid conflicts)
+- `io.grpc:grpc-protobuf` — Protobuf marshalling for gRPC
+- `io.grpc:grpc-stub` — Stub classes for gRPC
+- `com.google.protobuf:protobuf-java` — Protocol Buffers runtime
 
 ## Error Handling
 

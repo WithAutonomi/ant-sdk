@@ -115,6 +115,98 @@ All methods take a `context.Context` as the first parameter for cancellation and
 | `ArchivePutPublic(ctx, archive)` | Create archive manifest |
 | `FileCost(ctx, path, isPublic, includeArchive)` | Estimate upload cost |
 
+## gRPC Transport
+
+The SDK also provides a `GrpcClient` that connects to the antd daemon over gRPC.
+It exposes the same 19 methods with identical signatures and error types as the REST client.
+
+### Generating Proto Stubs
+
+Before using the gRPC client, you must generate the protobuf Go stubs from the
+proto definitions in `antd/proto/antd/v1/`:
+
+```bash
+# Install protoc plugins
+go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+# Generate from the repo root
+protoc \
+  --proto_path=antd/proto \
+  --go_out=antd-go/proto --go_opt=paths=source_relative \
+  --go-grpc_out=antd-go/proto --go-grpc_opt=paths=source_relative \
+  antd/proto/antd/v1/*.proto
+```
+
+This creates the `antd-go/proto/antd/v1/` package imported by `GrpcClient`.
+
+### Usage
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    antd "github.com/maidsafe/ant-sdk/antd-go"
+)
+
+func main() {
+    // Connect via gRPC (default: localhost:50051)
+    client, err := antd.NewGrpcClient(antd.DefaultGrpcTarget)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer client.Close()
+
+    ctx := context.Background()
+
+    // All methods are identical to the REST client
+    health, err := client.Health(ctx)
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Printf("OK: %v, Network: %s\n", health.OK, health.Network)
+
+    result, err := client.DataPutPublic(ctx, []byte("Hello via gRPC!"))
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Printf("Stored at %s (cost: %s atto)\n", result.Address, result.Cost)
+}
+```
+
+### Configuration
+
+```go
+// Default: localhost:50051, 5 minute timeout
+client, _ := antd.NewGrpcClient(antd.DefaultGrpcTarget)
+
+// Custom timeout
+client, _ := antd.NewGrpcClient("localhost:50051",
+    antd.WithGrpcTimeout(30 * time.Second))
+
+// Custom dial options (e.g. TLS)
+client, _ := antd.NewGrpcClient("secure-host:443",
+    antd.WithDialOptions(grpc.WithTransportCredentials(creds)))
+```
+
+### gRPC Error Mapping
+
+gRPC status codes are mapped to the same typed errors as the REST client:
+
+| gRPC Code | Error Type |
+|-----------|-----------|
+| `InvalidArgument` | `BadRequestError` |
+| `FailedPrecondition` | `PaymentError` |
+| `NotFound` | `NotFoundError` |
+| `AlreadyExists` | `AlreadyExistsError` |
+| `ResourceExhausted` | `TooLargeError` |
+| `Internal` | `InternalError` |
+| `Unavailable` | `NetworkError` |
+
 ## Error Handling
 
 All errors can be checked with `errors.As`:
