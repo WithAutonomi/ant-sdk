@@ -129,6 +129,61 @@ for (auto& f : futures) {
 }
 ```
 
+## gRPC Transport
+
+The SDK includes a `GrpcClient` class that provides the same 19 methods as the
+REST `Client`, but communicates over gRPC. This can offer lower latency and
+better streaming support for large data transfers.
+
+### Building with gRPC
+
+Enable the gRPC target by passing `-DANTD_BUILD_GRPC=ON` to CMake:
+
+```bash
+cmake -B build -DANTD_BUILD_GRPC=ON
+cmake --build build
+```
+
+This requires `protoc`, `grpc_cpp_plugin`, and a gRPC installation (e.g. via
+`vcpkg`, `apt install libgrpc++-dev`, or building from source). The CMake
+configuration will automatically run `protoc` against the proto files in
+`antd/proto/antd/v1/` and generate the C++ stubs.
+
+Link against the `antd_grpc` target instead of (or in addition to) `antd`:
+
+```cmake
+target_link_libraries(your_target PRIVATE antd_grpc)
+```
+
+### Usage
+
+```cpp
+#include "antd/grpc_client.hpp"
+#include <iostream>
+
+int main() {
+    antd::GrpcClient client;  // defaults to localhost:50051
+
+    // Custom target
+    // antd::GrpcClient client("my-host:50051");
+
+    auto health = client.health();
+    std::cout << "OK: " << health.ok << ", Network: " << health.network << "\n";
+
+    std::string msg = "Hello via gRPC!";
+    std::vector<uint8_t> data(msg.begin(), msg.end());
+    auto result = client.data_put_public(data);
+    std::cout << "Stored at " << result.address << "\n";
+
+    auto retrieved = client.data_get_public(result.address);
+    std::string text(retrieved.begin(), retrieved.end());
+    std::cout << "Retrieved: " << text << "\n";
+}
+```
+
+The `GrpcClient` throws the same `antd::AntdError` hierarchy as the REST
+client, translating gRPC status codes to the appropriate error subclass.
+
 ## Prerequisites
 
 - C++20 compiler (GCC 10+, Clang 10+, MSVC 19.29+)

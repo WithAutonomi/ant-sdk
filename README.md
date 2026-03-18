@@ -43,21 +43,21 @@ A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized 
 
 | SDK | Language | Async | Transport | Notes |
 |-----|----------|-------|-----------|-------|
-| [`antd-go/`](antd-go/) | Go | context-based | REST | |
+| [`antd-go/`](antd-go/) | Go | context-based | REST + gRPC | |
 | [`antd-js/`](antd-js/) | TypeScript | async/await | REST | |
 | [`antd-py/`](antd-py/) | Python | sync + async | REST + gRPC | |
 | [`antd-csharp/`](antd-csharp/) | C# | async | REST + gRPC | |
 | [`antd-kotlin/`](antd-kotlin/) | Kotlin | coroutines | REST + gRPC | |
 | [`antd-swift/`](antd-swift/) | Swift | async/await | REST + gRPC | macOS only |
-| [`antd-ruby/`](antd-ruby/) | Ruby | sync | REST | |
+| [`antd-ruby/`](antd-ruby/) | Ruby | sync | REST + gRPC | |
 | [`antd-php/`](antd-php/) | PHP | sync + async | REST | Guzzle promises |
-| [`antd-dart/`](antd-dart/) | Dart | async/await | REST | |
+| [`antd-dart/`](antd-dart/) | Dart | async/await | REST + gRPC | |
 | [`antd-lua/`](antd-lua/) | Lua | sync | REST | |
-| [`antd-elixir/`](antd-elixir/) | Elixir | async (BEAM) | REST | {:ok,result} tuples |
+| [`antd-elixir/`](antd-elixir/) | Elixir | async (BEAM) | REST + gRPC | {:ok,result} tuples |
 | [`antd-zig/`](antd-zig/) | Zig | sync | REST | |
-| [`antd-rust/`](antd-rust/) | Rust | async/await | REST | tokio |
-| [`antd-cpp/`](antd-cpp/) | C++ | sync + async | REST | std::future |
-| [`antd-java/`](antd-java/) | Java | sync + async | REST | CompletableFuture |
+| [`antd-rust/`](antd-rust/) | Rust | async/await | REST + gRPC | tokio + tonic |
+| [`antd-cpp/`](antd-cpp/) | C++ | sync + async | REST + gRPC | std::future |
+| [`antd-java/`](antd-java/) | Java | sync + async | REST + gRPC | CompletableFuture |
 
 ## Quickstart (5 minutes)
 

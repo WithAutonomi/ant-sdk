@@ -13,6 +13,11 @@ serde_json = "1"
 base64 = "0.22"
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }
+tonic = "0.12"
+prost = "0.13"
+
+[build-dependencies]
+tonic-build = "0.12"
 
 [dev-dependencies]
 mockito = "1"

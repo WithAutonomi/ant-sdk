@@ -50,6 +50,70 @@ void main() async {
 }
 ```
 
+## gRPC Transport
+
+The SDK includes a `GrpcAntdClient` class that provides the same 19 async
+methods as the REST `AntdClient`, but communicates over gRPC.
+
+### Setup
+
+Add the gRPC dependencies (already included in `pubspec.yaml`):
+
+```yaml
+dependencies:
+  grpc: ^4.0.1
+  protobuf: ^3.1.0
+```
+
+Generate the Dart protobuf/gRPC stubs from the proto definitions:
+
+```bash
+# Install the Dart protoc plugin
+dart pub global activate protoc_plugin
+
+# Generate stubs into lib/src/generated/
+protoc --dart_out=grpc:lib/src/generated \
+  -I../../antd/proto \
+  antd/v1/common.proto antd/v1/health.proto antd/v1/data.proto \
+  antd/v1/chunks.proto antd/v1/graph.proto antd/v1/files.proto
+```
+
+### Usage
+
+```dart
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:antd/src/grpc_client.dart';
+
+void main() async {
+  final client = GrpcAntdClient.withChannel();
+
+  // Or custom host/port:
+  // final client = GrpcAntdClient(host: 'my-host', port: 50051);
+
+  try {
+    final health = await client.health();
+    print('OK: ${health.ok}, Network: ${health.network}');
+
+    final result = await client.dataPutPublic(
+      Uint8List.fromList(utf8.encode('Hello via gRPC!')),
+    );
+    print('Stored at ${result.address}');
+
+    final data = await client.dataGetPublic(result.address);
+    print('Retrieved: ${utf8.decode(data)}');
+  } on AntdError catch (e) {
+    print('Error: $e');
+  } finally {
+    await client.close();
+  }
+}
+```
+
+The `GrpcAntdClient` throws the same `AntdError` hierarchy as the REST client,
+translating gRPC status codes to the appropriate error subclass.
+
 ## Prerequisites
 
 The antd daemon must be running. Start it with:

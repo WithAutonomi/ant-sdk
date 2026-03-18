@@ -6,4 +6,5 @@
 #include "async_client.hpp"
 #include "client.hpp"
 #include "errors.hpp"
+#include "grpc_client.hpp"
 #include "models.hpp"

@@ -18,7 +18,10 @@ Gem::Specification.new do |spec|
   spec.files         = Dir["lib/**/*.rb", "README.md", "LICENSE"]
   spec.require_paths = ["lib"]
 
-  # Zero runtime deps — Net::HTTP, JSON, Base64 are stdlib
+  # Zero runtime deps for REST — Net::HTTP, JSON, Base64 are stdlib
+  # gRPC transport is optional; install the grpc gem to use GrpcClient
+  spec.add_development_dependency "grpc",     "~> 1.60"
+  spec.add_development_dependency "grpc-tools", "~> 1.60"
 
   spec.add_development_dependency "minitest", "~> 5.0"
   spec.add_development_dependency "webmock",  "~> 3.0"

@@ -106,6 +106,37 @@ All methods are `async` and return `Result<T, AntdError>`.
 | `archive_put_public(archive)` | Create archive manifest |
 | `file_cost(path, is_public, include_archive)` | Estimate upload cost |
 
+## gRPC Transport
+
+The SDK also provides a gRPC client with the same 19 async methods. It connects to the
+antd daemon's gRPC endpoint (default `localhost:50051`) using [tonic](https://github.com/hyperium/tonic).
+
+```rust
+use antd_client::{GrpcClient, DEFAULT_GRPC_ENDPOINT};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = GrpcClient::new(DEFAULT_GRPC_ENDPOINT).await?;
+
+    // Check daemon health
+    let health = client.health().await?;
+    println!("OK: {}, Network: {}", health.ok, health.network);
+
+    // Store data
+    let result = client.data_put_public(b"Hello, Autonomi!").await?;
+    println!("Stored at {} (cost: {} atto)", result.address, result.cost);
+
+    // Retrieve data
+    let data = client.data_get_public(&result.address).await?;
+    println!("Retrieved: {}", String::from_utf8_lossy(&data));
+    Ok(())
+}
+```
+
+The `GrpcClient` has identical method signatures to the REST `Client`, so switching
+transports requires only changing the constructor. gRPC status codes are automatically
+mapped to `AntdError` variants via the `Grpc` error variant.
+
 ## Error Handling
 
 All errors are returned as `AntdError` variants. Use `match` for specific handling:
@@ -131,8 +162,9 @@ match client.data_get_public("some_address").await {
 | `TooLarge` | 413 | Payload too large |
 | `Internal` | 500 | Server error |
 | `Network` | 502 | Network unreachable |
-| `Http` | - | Transport error |
+| `Http` | - | REST transport error |
 | `Json` | - | Serialization error |
+| `Grpc` | - | gRPC transport/status error |
 
 ## Examples
 
