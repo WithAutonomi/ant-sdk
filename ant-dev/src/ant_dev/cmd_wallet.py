@@ -30,7 +30,7 @@ def run(args) -> None:
         # On local testnet the EVM testnet already funds this key.
         # Verify via health check.
         try:
-            r = httpx.get("http://localhost:8080/health", timeout=5)
+            r = httpx.get("http://localhost:8082/health", timeout=5)
             data = r.json()
             if data.get("status") == "ok" or data.get("ok", False):
                 print("Wallet is already funded on local testnet.")

@@ -18,9 +18,10 @@ def main(argv: list[str] | None = None) -> None:
     dev_sub = dev.add_subparsers(dest="subcommand")
 
     # ant dev start
-    p = dev_sub.add_parser("start", help="Start EVM testnet + local network + antd")
-    p.add_argument("--autonomi-dir", help="Path to autonomi repo")
-    p.add_argument("--no-build", action="store_true", help="Skip --build flag for antctl")
+    p = dev_sub.add_parser("start", help="Start saorsa devnet + antd")
+    p.add_argument("--saorsa-node-dir", help="Path to saorsa-node repo")
+    p.add_argument("--no-build", action="store_true", help="Skip build (use existing binaries)")
+    p.add_argument("--enable-evm", action="store_true", help="Enable EVM payment enforcement")
 
     # ant dev stop
     dev_sub.add_parser("stop", help="Tear down all local processes")
@@ -48,7 +49,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--follow", "-f", action="store_true", help="Stream logs continuously")
 
     # ant dev reset
-    dev_sub.add_parser("reset", help="Stop + clean cache + restart")
+    dev_sub.add_parser("reset", help="Stop + restart")
 
     # ant dev playground
     p = dev_sub.add_parser("playground", help="Interactive Python REPL with SDK")

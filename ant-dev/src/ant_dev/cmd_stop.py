@@ -1,7 +1,4 @@
-"""``ant dev stop`` — Tear down all local processes.
-
-Python port of scripts/kill-local.sh / scripts/kill-local.ps1.
-"""
+"""``ant dev stop`` — Tear down all local processes."""
 
 from __future__ import annotations
 
@@ -9,7 +6,7 @@ import os
 import subprocess
 import sys
 
-from .env import clear_state, find_autonomi_dir, is_windows, load_state
+from .env import clear_state, is_windows, load_state
 
 
 def _color(code: str, text: str) -> str:
@@ -45,7 +42,7 @@ def run(args) -> None:
     print()
 
     # 1. Kill antd
-    print(yellow("[1/3] Stopping antd..."))
+    print(yellow("[1/2] Stopping antd..."))
     if pid := state.get("antd_pid"):
         _kill_pid(pid)
     if sys.platform != "win32":
@@ -55,29 +52,13 @@ def run(args) -> None:
         )
     print(green("       Done"))
 
-    # 2. Kill local network via antctl
-    print(yellow("[2/3] Stopping local network..."))
-    if pid := state.get("net_pid"):
-        _kill_pid(pid)
-    try:
-        autonomi_dir = find_autonomi_dir()
-        subprocess.run(
-            ["cargo", "run", "--release", "--bin", "antctl", "--", "local", "kill"],
-            cwd=str(autonomi_dir),
-            capture_output=True,
-            timeout=60,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        pass
-    print(green("       Done"))
-
-    # 3. Kill EVM testnet
-    print(yellow("[3/3] Stopping EVM testnet..."))
-    if pid := state.get("evm_pid"):
+    # 2. Kill devnet
+    print(yellow("[2/2] Stopping saorsa devnet..."))
+    if pid := state.get("devnet_pid"):
         _kill_pid(pid)
     if sys.platform != "win32":
         subprocess.run(
-            ["pkill", "-f", r"target/(debug|release)/evm-testnet"],
+            ["pkill", "-f", r"target/(debug|release)/saorsa-devnet"],
             capture_output=True,
         )
     print(green("       Done"))

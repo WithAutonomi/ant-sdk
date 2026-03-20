@@ -1,6 +1,7 @@
-"""``ant dev start`` — Start EVM testnet + local network + antd daemon.
+"""``ant dev start`` — Start saorsa devnet + antd daemon.
 
-Python port of scripts/start-local.sh / scripts/start-local.ps1.
+Starts a local saorsa-devnet (replacing the old EVM testnet + antctl flow)
+and then launches the antd gateway daemon pointed at it.
 """
 
 from __future__ import annotations
@@ -12,15 +13,15 @@ import time
 from pathlib import Path
 
 from .env import (
-    bootstrap_cache_path,
-    find_autonomi_dir,
+    DEVNET_MANIFEST,
+    find_saorsa_node_dir,
     find_sdk_root,
     is_windows,
     LOG_FILE,
     save_state,
     STATE_DIR,
 )
-from .process import start_process, wait_for_http, wait_for_pattern
+from .process import start_process, wait_for_http
 
 
 # ── ANSI colours (disabled on Windows without VT support) ──
@@ -39,18 +40,18 @@ white   = lambda t: _color("1;37", t)
 
 
 def run(args) -> None:
-    autonomi_dir = Path(args.autonomi_dir) if args.autonomi_dir else find_autonomi_dir()
+    saorsa_node_dir = Path(args.saorsa_node_dir) if getattr(args, "saorsa_node_dir", None) else find_saorsa_node_dir()
     sdk_root = find_sdk_root()
     antd_dir = sdk_root / "antd"
     no_build = getattr(args, "no_build", False)
+    enable_evm = getattr(args, "enable_evm", False)
 
     STATE_DIR.mkdir(parents=True, exist_ok=True)
 
-    evm_log = STATE_DIR / "evm-testnet.log"
-    network_log = STATE_DIR / "network.log"
+    devnet_log = STATE_DIR / "devnet.log"
 
-    # Clean old logs
-    for f in (evm_log, network_log, LOG_FILE):
+    # Clean old logs and manifest
+    for f in (devnet_log, LOG_FILE, DEVNET_MANIFEST):
         if f.exists():
             f.unlink()
 
@@ -58,96 +59,84 @@ def run(args) -> None:
     print(cyan("=== antd Local Test Environment ==="))
     print()
 
-    # ── 1. Start EVM testnet ──
-    print(yellow("[1/4] Starting EVM testnet..."))
-    evm_cmd = ["cargo", "run", "--bin", "evm-testnet"]
-    evm_proc = start_process(evm_cmd, cwd=autonomi_dir, log_file=evm_log)
-    print(gray(f"       PID {evm_proc.pid}"))
+    # ── 1. Start saorsa-devnet ──
+    print(yellow("[1/3] Starting saorsa devnet..."))
 
-    # Wait for SECRET_KEY
-    print(gray("       Waiting for secret key..."))
-    wallet_key = wait_for_pattern(evm_log, r"SECRET_KEY=(\S+)", timeout=300)
-    if not wallet_key:
-        print(red("       Timed out waiting for SECRET_KEY"))
-        evm_proc.kill()
-        sys.exit(1)
-    print(green(f"       Got wallet key: {wallet_key[:10]}..."))
-
-    # ── 2. Start local network ──
-    print(yellow("[2/4] Starting local Autonomi network..."))
-
-    # Clear old bootstrap cache
-    cache_file = bootstrap_cache_path()
-    if cache_file.exists():
-        cache_file.unlink()
-        print(gray("       Cleared old bootstrap cache"))
-
-    net_cmd = [
-        "cargo", "run", "--release", "--bin", "antctl", "--",
-        "local", "run", "--clean",
-        "--rewards-address", "0xd10A556E6A5111b5D4Dd5Ae06761d41F6CE1D499",
+    devnet_cmd = [
+        "cargo", "run", "--release", "--bin", "saorsa-devnet", "--",
+        "--preset", "default",
+        "--enable-evm",
+        "--manifest", str(DEVNET_MANIFEST),
     ]
-    if not no_build:
-        net_cmd.insert(net_cmd.index("--clean"), "--build")
 
-    net_proc = start_process(net_cmd, cwd=autonomi_dir, log_file=network_log)
-    print(gray(f"       PID {net_proc.pid}"))
+    devnet_proc = start_process(devnet_cmd, cwd=saorsa_node_dir, log_file=devnet_log)
+    print(gray(f"       PID {devnet_proc.pid}"))
 
-    # Wait for bootstrap cache to contain peers
-    print(gray("       Waiting for network (this may take a while with --build)..."))
-    peer_addr = None
-    for _ in range(120):
-        time.sleep(3)
-        if cache_file.exists():
+    # Wait for manifest file to be written
+    print(gray("       Waiting for devnet to be ready (this may take a while on first build)..."))
+    manifest = None
+    for _ in range(180):  # 6 minutes max
+        time.sleep(2)
+        if DEVNET_MANIFEST.exists():
             try:
-                cache = json.loads(cache_file.read_text())
-                peers = cache.get("peers", [])
-                if peers and len(peers) > 0:
-                    peer_addr = peers[0][1][0]
+                manifest = json.loads(DEVNET_MANIFEST.read_text())
+                if manifest.get("bootstrap"):
                     break
-            except (json.JSONDecodeError, KeyError, IndexError, OSError):
+            except (json.JSONDecodeError, OSError):
                 pass
+            manifest = None
 
-    if not peer_addr:
-        print(red("       Could not find local peers in bootstrap cache!"))
-        evm_proc.kill()
-        net_proc.kill()
+    if not manifest:
+        print(red("       Timed out waiting for devnet manifest"))
+        devnet_proc.kill()
         sys.exit(1)
-    print(green(f"       Found peer: {peer_addr[:40]}..."))
 
-    # ── 3. Start antd ──
-    print(yellow("[3/4] Starting antd..."))
+    bootstrap_peers = manifest["bootstrap"]
+    wallet_key = None
+    if manifest.get("evm"):
+        wallet_key = manifest["evm"].get("wallet_private_key", "")
+        # Strip 0x prefix if present — antd expects raw hex
+        if wallet_key.startswith("0x"):
+            wallet_key = wallet_key[2:]
+
+    print(green(f"       Devnet ready: {manifest['node_count']} nodes, base port {manifest['base_port']}"))
+    print(green(f"       Bootstrap: {bootstrap_peers[0][:50]}..."))
+
+    # ── 2. Start antd ──
+    print(yellow("[2/3] Starting antd..."))
     antd_env = {
-        "AUTONOMI_WALLET_KEY": wallet_key,
-        "ANT_PEERS": peer_addr,
+        "ANTD_PEERS": ",".join(bootstrap_peers),
     }
+    if wallet_key:
+        antd_env["AUTONOMI_WALLET_KEY"] = wallet_key
+
     antd_cmd = ["cargo", "run", "--", "--network", "local"]
     antd_proc = start_process(antd_cmd, cwd=antd_dir, env=antd_env, log_file=LOG_FILE)
     print(gray(f"       PID {antd_proc.pid}"))
 
-    # ── 4. Health check ──
-    print(yellow("[4/4] Waiting for antd to be ready..."))
-    ready = wait_for_http("http://localhost:8080/health", timeout=180)
+    # ── 3. Health check ──
+    print(yellow("[3/3] Waiting for antd to be ready..."))
+    ready = wait_for_http("http://localhost:8082/health", timeout=180)
 
     # Save state
     save_state({
-        "evm_pid": evm_proc.pid,
-        "net_pid": net_proc.pid,
+        "devnet_pid": devnet_proc.pid,
         "antd_pid": antd_proc.pid,
-        "wallet_key": wallet_key,
-        "peer_addr": peer_addr,
+        "wallet_key": wallet_key or "",
+        "bootstrap_peers": bootstrap_peers,
     })
 
     print()
     if ready:
         print(green("=== Ready! ==="))
         print()
-        print(white("  REST:  http://localhost:8080"))
+        print(white("  REST:  http://localhost:8082"))
         print(white("  gRPC:  localhost:50051"))
-        print(white(f"  Key:   {wallet_key[:10]}..."))
+        if wallet_key:
+            print(white(f"  Key:   {wallet_key[:10]}..."))
         print()
         print(gray("Quick test:"))
-        print(gray("  curl http://localhost:8080/health"))
+        print(gray("  curl http://localhost:8082/health"))
         print()
         print(gray("To tear down:"))
         print(gray("  ant dev stop"))

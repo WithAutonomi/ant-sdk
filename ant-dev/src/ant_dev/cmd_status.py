@@ -35,8 +35,7 @@ def run(args) -> None:
 
     # Process status
     processes = [
-        ("EVM testnet", "evm_pid"),
-        ("Local network", "net_pid"),
+        ("Saorsa devnet", "devnet_pid"),
         ("antd daemon", "antd_pid"),
     ]
 
@@ -49,7 +48,7 @@ def run(args) -> None:
     # Health check
     print()
     try:
-        r = httpx.get("http://localhost:8080/health", timeout=5)
+        r = httpx.get("http://localhost:8082/health", timeout=5)
         data = r.json()
         ok = data.get("status") == "ok" or data.get("ok", False)
         network = data.get("network", "unknown")

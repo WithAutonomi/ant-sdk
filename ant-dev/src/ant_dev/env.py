@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import platform
 import sys
 from pathlib import Path
 
@@ -25,30 +24,18 @@ def find_sdk_root() -> Path:
     )
 
 
-def find_autonomi_dir() -> Path:
-    """Resolve the autonomi repo directory."""
-    env = os.environ.get("AUTONOMI_DIR")
+def find_saorsa_node_dir() -> Path:
+    """Resolve the saorsa-node repo directory."""
+    env = os.environ.get("SAORSA_NODE_DIR")
     if env:
         return Path(env)
     # Default: sibling directory to ant-sdk
-    sibling = find_sdk_root().parent / "autonomi"
+    sibling = find_sdk_root().parent / "saorsa-node"
     if sibling.exists():
         return sibling
     raise FileNotFoundError(
-        "Cannot find autonomi repo. Set AUTONOMI_DIR or place it next to ant-sdk."
+        "Cannot find saorsa-node repo. Set SAORSA_NODE_DIR or place it next to ant-sdk."
     )
-
-
-def bootstrap_cache_path() -> Path:
-    """Platform-specific bootstrap cache file path."""
-    system = platform.system()
-    if system == "Darwin":
-        base = Path.home() / "Library" / "Application Support"
-    elif system == "Windows":
-        base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
-    else:
-        base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
-    return base / "autonomi" / "bootstrap_cache" / "version_1" / "bootstrap_cache_local_1_1.0.json"
 
 
 # ── State file ──
@@ -56,6 +43,7 @@ def bootstrap_cache_path() -> Path:
 STATE_DIR = Path.home() / ".ant-dev"
 STATE_FILE = STATE_DIR / "state.json"
 LOG_FILE = STATE_DIR / "antd.log"
+DEVNET_MANIFEST = STATE_DIR / "devnet-manifest.json"
 
 
 def load_state() -> dict:

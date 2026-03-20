@@ -10,9 +10,6 @@ pub enum AntdError {
     #[error("Already exists: {0}")]
     AlreadyExists(String),
 
-    #[error("Fork detected: {0}")]
-    Fork(String),
-
     #[error("Bad request: {0}")]
     BadRequest(String),
 
@@ -24,6 +21,9 @@ pub enum AntdError {
 
     #[error("Too large for memory")]
     TooLarge,
+
+    #[error("Timeout: {0}")]
+    Timeout(String),
 
     #[error("Internal error: {0}")]
     Internal(String),
@@ -39,11 +39,11 @@ impl IntoResponse for AntdError {
         let status = match &self {
             AntdError::NotFound(_) => StatusCode::NOT_FOUND,
             AntdError::AlreadyExists(_) => StatusCode::CONFLICT,
-            AntdError::Fork(_) => StatusCode::CONFLICT,
             AntdError::BadRequest(_) => StatusCode::BAD_REQUEST,
             AntdError::Payment(_) => StatusCode::PAYMENT_REQUIRED,
             AntdError::Network(_) => StatusCode::BAD_GATEWAY,
             AntdError::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
+            AntdError::Timeout(_) => StatusCode::GATEWAY_TIMEOUT,
             AntdError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
         let body = serde_json::to_string(&ErrorBody {
@@ -59,92 +59,33 @@ impl From<AntdError> for tonic::Status {
         match e {
             AntdError::NotFound(msg) => tonic::Status::not_found(msg),
             AntdError::AlreadyExists(msg) => tonic::Status::already_exists(msg),
-            AntdError::Fork(msg) => tonic::Status::aborted(msg),
             AntdError::BadRequest(msg) => tonic::Status::invalid_argument(msg),
             AntdError::Payment(msg) => tonic::Status::failed_precondition(msg),
             AntdError::Network(msg) => tonic::Status::unavailable(msg),
             AntdError::TooLarge => tonic::Status::resource_exhausted("too large for memory"),
+            AntdError::Timeout(msg) => tonic::Status::deadline_exceeded(msg),
             AntdError::Internal(msg) => tonic::Status::internal(msg),
         }
     }
 }
 
-// Conversion helpers from autonomi error types
+// Conversion from saorsa protocol errors
 
-impl From<autonomi::client::GetError> for AntdError {
-    fn from(e: autonomi::client::GetError) -> Self {
+impl From<saorsa_node::ant_protocol::ProtocolError> for AntdError {
+    fn from(e: saorsa_node::ant_protocol::ProtocolError) -> Self {
+        use saorsa_node::ant_protocol::ProtocolError;
         match e {
-            autonomi::client::GetError::RecordNotFound => {
-                AntdError::NotFound("record not found".into())
+            ProtocolError::ChunkTooLarge { size, max_size } => {
+                AntdError::BadRequest(format!("chunk size {size} exceeds maximum {max_size}"))
             }
-            autonomi::client::GetError::TooLargeForMemory(_) => AntdError::TooLarge,
-            autonomi::client::GetError::Network(ne) => {
-                AntdError::Network(format!("network error: {ne}"))
+            ProtocolError::MessageTooLarge { size, max_size } => {
+                AntdError::BadRequest(format!("message size {size} exceeds maximum {max_size}"))
             }
-            other => AntdError::Internal(other.to_string()),
-        }
-    }
-}
-
-impl From<autonomi::client::PutError> for AntdError {
-    fn from(e: autonomi::client::PutError) -> Self {
-        match e {
-            autonomi::client::PutError::Wallet(we) => {
-                AntdError::Payment(format!("wallet error: {we}"))
+            ProtocolError::AddressMismatch { .. } => {
+                AntdError::BadRequest(format!("address mismatch: {e}"))
             }
-            autonomi::client::PutError::Network { network_error, .. } => {
-                AntdError::Network(format!("network error: {network_error}"))
-            }
-            autonomi::client::PutError::CostError(ce) => {
-                AntdError::Payment(format!("cost error: {ce}"))
-            }
-            autonomi::client::PutError::PayError(pe) => {
-                AntdError::Payment(format!("payment error: {pe}"))
-            }
-            other => AntdError::Internal(other.to_string()),
-        }
-    }
-}
-
-impl From<autonomi::graph::GraphError> for AntdError {
-    fn from(e: autonomi::graph::GraphError) -> Self {
-        use autonomi::graph::GraphError;
-        match e {
-            GraphError::GetError(ge) => ge.into(),
-            GraphError::PutError(pe) => pe.into(),
-            GraphError::Cost(ce) => ce.into(),
-            GraphError::AlreadyExists(addr) => {
-                AntdError::AlreadyExists(format!("graph entry exists: {}", addr.to_hex()))
-            }
-            GraphError::Fork(entries) => {
-                AntdError::Fork(format!("graph fork: {} versions", entries.len()))
-            }
-            GraphError::FailedVerification => {
-                AntdError::BadRequest("graph entry verification failed".into())
-            }
-            GraphError::Pay(pe) => AntdError::Payment(format!("payment error: {pe}")),
-            GraphError::Wallet(we) => AntdError::Payment(format!("wallet error: {we}")),
-            other => AntdError::Internal(other.to_string()),
-        }
-    }
-}
-
-impl From<autonomi::client::quote::CostError> for AntdError {
-    fn from(e: autonomi::client::quote::CostError) -> Self {
-        AntdError::Payment(format!("cost error: {e}"))
-    }
-}
-
-impl From<autonomi::files::UploadError> for AntdError {
-    fn from(e: autonomi::files::UploadError) -> Self {
-        AntdError::Internal(format!("upload error: {e}"))
-    }
-}
-
-impl From<autonomi::files::DownloadError> for AntdError {
-    fn from(e: autonomi::files::DownloadError) -> Self {
-        match e {
-            autonomi::files::DownloadError::GetError(ge) => ge.into(),
+            ProtocolError::PaymentFailed(msg) => AntdError::Payment(msg),
+            ProtocolError::StorageFailed(msg) => AntdError::Internal(msg),
             other => AntdError::Internal(other.to_string()),
         }
     }
