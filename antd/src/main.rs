@@ -3,8 +3,7 @@ use std::sync::Arc;
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
-use autonomi::Client;
-use ant_evm::EvmWallet;
+use saorsa_node::core::{CoreNodeConfig, MultiAddr, NodeMode, P2PNode};
 
 mod config;
 mod error;
@@ -26,42 +25,125 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Banner
     println!();
-    println!("  antd — Autonomi REST + gRPC Gateway");
-    println!("  ====================================");
+    println!("  antd — Saorsa REST + gRPC Gateway");
+    println!("  ==================================");
     println!("  REST:    http://{}", config.rest_addr);
     println!("  gRPC:    {}", config.grpc_addr);
     println!("  Network: {}", config.network);
     println!("  CORS:    {}", if config.cors { "enabled" } else { "disabled" });
     println!();
 
-    // Init client
-    tracing::info!(network = %config.network, "connecting to Autonomi network...");
-    let client = match config.network.as_str() {
-        "local" => Client::init_local().await?,
-        "alpha" => Client::init_alpha().await?,
-        _ => {
-            if let Some(ref peers) = config.peers {
-                let multiaddrs: Vec<_> = peers
-                    .iter()
-                    .map(|p| p.parse::<autonomi::Multiaddr>())
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|e| format!("invalid peer multiaddr: {e}"))?;
-                Client::init_with_peers(multiaddrs).await?
-            } else {
-                Client::init().await?
+    // Parse bootstrap peers
+    let bootstrap_peers: Vec<MultiAddr> = config
+        .peers
+        .as_ref()
+        .map(|peers| {
+            peers
+                .iter()
+                .filter_map(|p| {
+                    match p.parse::<MultiAddr>() {
+                        Ok(addr) => {
+                            tracing::info!(raw = %p, "parsed bootstrap peer");
+                            Some(addr)
+                        }
+                        Err(e) => {
+                            tracing::warn!(raw = %p, error = %e, "failed to parse bootstrap peer multiaddr");
+                            None
+                        }
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if bootstrap_peers.is_empty() {
+        tracing::warn!("no bootstrap peers configured — set ANTD_PEERS or --peers");
+        if let Some(raw) = &config.peers {
+            tracing::warn!(raw_peers = ?raw, "raw peer strings from config");
+        }
+    }
+
+    // Init saorsa P2P node in client mode
+    tracing::info!(network = %config.network, "connecting to Saorsa network...");
+
+    let mut builder = CoreNodeConfig::builder()
+        .mode(NodeMode::Client)
+        .port(0); // OS assigns ephemeral port
+
+    if config.network == "local" {
+        builder = builder.local(true).allow_loopback(true).ipv6(false);
+    }
+
+    for peer in &bootstrap_peers {
+        builder = builder.bootstrap_peer(peer.clone());
+    }
+
+    let node_config = builder.build()
+        .map_err(|e| format!("failed to build node config: {e}"))?;
+
+    let node = P2PNode::new(node_config).await
+        .map_err(|e| format!("failed to create P2P node: {e}"))?;
+
+    node.start().await
+        .map_err(|e| format!("failed to start P2P node: {e}"))?;
+
+    tracing::info!("P2P node started in client mode");
+
+    // Wait for bootstrap connections to establish
+    for i in 0..30 {
+        let peer_count = node.connected_peers().await.len();
+        if peer_count > 0 {
+            tracing::info!(peer_count, "connected to Saorsa network");
+            break;
+        }
+        if i == 29 {
+            tracing::warn!("no peers connected after 15s — chunk operations will fail");
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+
+    let peers = node.connected_peers().await;
+    tracing::info!(count = peers.len(), peers = ?peers, "peer status at startup");
+
+    // Load EVM wallet if configured
+    let wallet = match std::env::var("AUTONOMI_WALLET_KEY") {
+        Ok(wallet_key) => {
+            let rpc_url = std::env::var("EVM_RPC_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
+            let token_addr = std::env::var("EVM_PAYMENT_TOKEN_ADDRESS")
+                .unwrap_or_default();
+            let payments_addr = std::env::var("EVM_DATA_PAYMENTS_ADDRESS")
+                .unwrap_or_default();
+            tracing::info!(%rpc_url, "loading EVM wallet...");
+            let network = evmlib::Network::new_custom(
+                &rpc_url,
+                &token_addr,
+                &payments_addr,
+                None,
+            );
+            match evmlib::wallet::Wallet::new_from_private_key(network, &wallet_key) {
+                Ok(w) => {
+                    tracing::info!(address = %w.address(), "EVM wallet loaded");
+                    Some(w)
+                }
+                Err(e) => {
+                    tracing::warn!("failed to load EVM wallet: {e}");
+                    None
+                }
             }
         }
+        Err(_) => {
+            tracing::info!("no AUTONOMI_WALLET_KEY set — write operations will fail");
+            None
+        }
     };
-    tracing::info!("connected to Autonomi network");
 
-    // Load wallet
-    let wallet_key = std::env::var("AUTONOMI_WALLET_KEY")
-        .map_err(|_| "AUTONOMI_WALLET_KEY env var is required")?;
-    let wallet = EvmWallet::new_from_private_key(client.evm_network().clone(), &wallet_key)
-        .map_err(|e| format!("failed to create wallet: {e}"))?;
-    tracing::info!("wallet loaded");
-
-    let state = Arc::new(AppState { client, wallet, network: config.network.clone() });
+    let state = Arc::new(AppState {
+        node: Arc::new(node),
+        network: config.network.clone(),
+        bootstrap_peers,
+        wallet,
+    });
 
     // Parse addresses
     let rest_addr: std::net::SocketAddr = config

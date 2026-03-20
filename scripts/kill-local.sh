@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-AUTONOMI_DIR="${AUTONOMI_DIR:-$HOME/Projects/autonomi}"
 PID_FILE="${TMPDIR:-/tmp}/antd-local-pids"
 
 # ── Colors ──
@@ -15,28 +14,26 @@ echo -e "${CYAN}=== Tearing down local environment ===${NC}"
 echo ""
 
 # 1. Kill antd
-echo -e "${YELLOW}[1/3] Stopping antd...${NC}"
+echo -e "${YELLOW}[1/2] Stopping antd...${NC}"
 pkill -f 'target/(debug|release)/antd' 2>/dev/null || true
 echo -e "${GREEN}       Done${NC}"
 
-# 2. Kill local network via antctl
-echo -e "${YELLOW}[2/3] Stopping local network...${NC}"
-(cd "$AUTONOMI_DIR" && cargo run --release --bin antctl -- local kill 2>&1) > /dev/null || true
-echo -e "${GREEN}       Done${NC}"
-
-# 3. Kill EVM testnet
-echo -e "${YELLOW}[3/3] Stopping EVM testnet...${NC}"
-pkill -f 'target/(debug|release)/evm-testnet' 2>/dev/null || true
+# 2. Kill saorsa devnet
+echo -e "${YELLOW}[2/2] Stopping saorsa devnet...${NC}"
+pkill -f 'target/(debug|release)/saorsa-devnet' 2>/dev/null || true
 echo -e "${GREEN}       Done${NC}"
 
 # Clean up saved PIDs
 if [[ -f "$PID_FILE" ]]; then
-    read -r EVM_PID NET_PID ANTD_PID < "$PID_FILE" 2>/dev/null || true
-    for pid in ${EVM_PID:-} ${NET_PID:-} ${ANTD_PID:-}; do
+    read -r DEVNET_PID ANTD_PID < "$PID_FILE" 2>/dev/null || true
+    for pid in ${DEVNET_PID:-} ${ANTD_PID:-}; do
         kill "$pid" 2>/dev/null || true
     done
     rm -f "$PID_FILE"
 fi
+
+# Clean up manifest
+rm -f "${TMPDIR:-/tmp}/devnet-manifest.json"
 
 echo ""
 echo -e "${CYAN}=== Environment torn down ===${NC}"

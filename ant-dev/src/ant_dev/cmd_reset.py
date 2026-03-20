@@ -1,11 +1,6 @@
-"""``ant dev reset`` — Stop + clear bootstrap cache + restart."""
+"""``ant dev reset`` — Stop + restart."""
 
 from __future__ import annotations
-
-import shutil
-import sys
-
-from .env import bootstrap_cache_path
 
 
 def run(args) -> None:
@@ -18,19 +13,13 @@ def run(args) -> None:
 
     stop_run(_FakeArgs())
 
-    # 2. Clear bootstrap cache
-    cache = bootstrap_cache_path()
-    cache_dir = cache.parent
-    if cache_dir.exists():
-        shutil.rmtree(cache_dir, ignore_errors=True)
-        print(f"Cleared bootstrap cache: {cache_dir}")
-
-    # 3. Restart
+    # 2. Restart
     print("\nRestarting environment...")
     from .cmd_start import run as start_run
 
     class _StartArgs:
-        autonomi_dir = None
+        saorsa_node_dir = None
         no_build = False
+        enable_evm = False
 
     start_run(_StartArgs())
