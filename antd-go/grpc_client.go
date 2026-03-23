@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
-	pb "github.com/maidsafe/ant-sdk/antd-go/proto/antd/v1"
+	pb "github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1"
 )
 
 // DefaultGrpcTarget is the default address of the antd gRPC server.

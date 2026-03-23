@@ -12,7 +12,7 @@ Add to your `CMakeLists.txt`:
 include(FetchContent)
 FetchContent_Declare(
     antd-cpp
-    GIT_REPOSITORY https://github.com/maidsafe/ant-sdk.git
+    GIT_REPOSITORY https://github.com/WithAutonomi/ant-sdk.git
     SOURCE_SUBDIR  antd-cpp
 )
 FetchContent_MakeAvailable(antd-cpp)
@@ -25,7 +25,7 @@ All dependencies (nlohmann_json, cpp-httplib) are fetched automatically.
 ### Manual
 
 ```bash
-git clone https://github.com/maidsafe/ant-sdk.git
+git clone https://github.com/WithAutonomi/ant-sdk.git
 cd ant-sdk/antd-cpp
 cmake -B build
 cmake --build build

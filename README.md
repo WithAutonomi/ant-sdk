@@ -73,7 +73,7 @@ A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized 
 
 | Language | Version | Install |
 |----------|---------|---------|
-| Go | 1.21+ | `go get github.com/maidsafe/ant-sdk/antd-go` |
+| Go | 1.21+ | `go get github.com/WithAutonomi/ant-sdk/antd-go` |
 | Node.js / TypeScript | 18+ | `npm install antd` |
 | C# / .NET | 8+ | `dotnet add package Antd.Sdk` |
 | Kotlin | JDK 17+ | Gradle dependency |
@@ -212,7 +212,7 @@ import (
     "fmt"
     "log"
 
-    antd "github.com/maidsafe/ant-sdk/antd-go"
+    antd "github.com/WithAutonomi/ant-sdk/antd-go"
 )
 
 func main() {

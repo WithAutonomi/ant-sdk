@@ -9,7 +9,7 @@ Add `antd-zig` as a dependency in your `build.zig.zon`:
 ```zig
 .dependencies = .{
     .antd = .{
-        .url = "https://github.com/maidsafe/ant-sdk/archive/<commit>.tar.gz",
+        .url = "https://github.com/WithAutonomi/ant-sdk/archive/<commit>.tar.gz",
         .hash = "...",
     },
 },
@@ -28,7 +28,7 @@ exe.root_module.addImport("antd", antd_dep.module("antd"));
 Or fetch directly:
 
 ```bash
-zig fetch --save https://github.com/maidsafe/ant-sdk/archive/<commit>.tar.gz
+zig fetch --save https://github.com/WithAutonomi/ant-sdk/archive/<commit>.tar.gz
 ```
 
 ## Quick Start

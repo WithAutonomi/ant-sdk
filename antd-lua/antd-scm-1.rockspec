@@ -1,7 +1,7 @@
 package = "antd"
 version = "scm-1"
 source = {
-    url = "git://github.com/maidsafe/ant-sdk.git",
+    url = "git://github.com/WithAutonomi/ant-sdk.git",
     dir = "ant-sdk/antd-lua",
 }
 description = {
@@ -11,7 +11,7 @@ description = {
         Provides access to the Autonomi decentralized network for storing
         and retrieving immutable data, chunks, graph entries, files, and archives.
     ]],
-    homepage = "https://github.com/maidsafe/ant-sdk/tree/main/antd-lua",
+    homepage = "https://github.com/WithAutonomi/ant-sdk/tree/main/antd-lua",
     license = "MIT",
 }
 dependencies = {

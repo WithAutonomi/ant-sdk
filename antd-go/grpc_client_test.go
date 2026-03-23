@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
-	pb "github.com/maidsafe/ant-sdk/antd-go/proto/antd/v1"
+	pb "github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1"
 )
 
 const bufSize = 1024 * 1024

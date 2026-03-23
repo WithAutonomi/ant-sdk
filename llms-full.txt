@@ -63,7 +63,7 @@ let data = try await client.dataGetPublic(address: result.address)
 
 ```go
 // Go
-import antd "github.com/maidsafe/ant-sdk/antd-go"
+import antd "github.com/WithAutonomi/ant-sdk/antd-go"
 
 client := antd.NewClient(antd.DefaultBaseURL)       // REST, localhost:8080
 ctx := context.Background()
@@ -587,7 +587,7 @@ func fileCost(path: String, isPublic: Bool, includeArchive: Bool) async throws -
 ## Go SDK Method Signatures
 
 ```go
-import antd "github.com/maidsafe/ant-sdk/antd-go"
+import antd "github.com/WithAutonomi/ant-sdk/antd-go"
 
 client := antd.NewClient(antd.DefaultBaseURL)        // localhost:8080
 
@@ -1085,7 +1085,7 @@ import (
     "fmt"
     "log"
 
-    antd "github.com/maidsafe/ant-sdk/antd-go"
+    antd "github.com/WithAutonomi/ant-sdk/antd-go"
 )
 
 func main() {

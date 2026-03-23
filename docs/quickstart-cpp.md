@@ -18,7 +18,7 @@ include(FetchContent)
 
 FetchContent_Declare(
     antd
-    GIT_REPOSITORY https://github.com/maidsafe/ant-sdk.git
+    GIT_REPOSITORY https://github.com/WithAutonomi/ant-sdk.git
     GIT_TAG        main
     SOURCE_SUBDIR  antd-cpp
 )

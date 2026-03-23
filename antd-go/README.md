@@ -5,7 +5,7 @@ Go SDK for the [antd](../antd/) daemon — the gateway to the Autonomi decentral
 ## Installation
 
 ```bash
-go get github.com/maidsafe/ant-sdk/antd-go
+go get github.com/WithAutonomi/ant-sdk/antd-go
 ```
 
 ## Quick Start
@@ -18,7 +18,7 @@ import (
     "fmt"
     "log"
 
-    antd "github.com/maidsafe/ant-sdk/antd-go"
+    antd "github.com/WithAutonomi/ant-sdk/antd-go"
 )
 
 func main() {
@@ -150,7 +150,7 @@ import (
     "fmt"
     "log"
 
-    antd "github.com/maidsafe/ant-sdk/antd-go"
+    antd "github.com/WithAutonomi/ant-sdk/antd-go"
 )
 
 func main() {

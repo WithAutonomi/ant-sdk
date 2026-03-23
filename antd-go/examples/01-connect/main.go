@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log"
 
-	antd "github.com/maidsafe/ant-sdk/antd-go"
+	antd "github.com/WithAutonomi/ant-sdk/antd-go"
 )
 
 func main() {

@@ -78,7 +78,7 @@ publishing {
             pom {
                 name.set("antd-java")
                 description.set("Java SDK for the antd daemon — gateway to the Autonomi network")
-                url.set("https://github.com/maidsafe/ant-sdk/tree/main/antd-java")
+                url.set("https://github.com/WithAutonomi/ant-sdk/tree/main/antd-java")
                 licenses {
                     license {
                         name.set("MIT")

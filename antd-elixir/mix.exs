@@ -9,7 +9,7 @@ defmodule Antd.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       description: "Elixir SDK for the antd daemon — gateway to the Autonomi network",
-      source_url: "https://github.com/maidsafe/ant-sdk/antd-elixir"
+      source_url: "https://github.com/WithAutonomi/ant-sdk/antd-elixir"
     ]
   end
 

@@ -1,4 +1,4 @@
-module github.com/maidsafe/ant-sdk/antd-go
+module github.com/WithAutonomi/ant-sdk/antd-go
 
 go 1.22
 

@@ -20,7 +20,7 @@ For detailed API signatures and endpoint documentation, see:
 
 | Language | SDK | Async Model | Transport | Install |
 |----------|-----|-------------|-----------|---------|
-| Go | `antd-go` | `context.Context` | REST + gRPC | `go get github.com/maidsafe/ant-sdk/antd-go` |
+| Go | `antd-go` | `context.Context` | REST + gRPC | `go get github.com/WithAutonomi/ant-sdk/antd-go` |
 | Python | `antd-py` | sync + async | REST + gRPC | `pip install antd` |
 | TypeScript | `antd-js` | Promises | REST | `npm install antd` |
 | C# | `antd-csharp` | `Task<T>` / async-await | REST + gRPC | `dotnet add package Antd.Sdk` |

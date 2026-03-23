@@ -10,7 +10,7 @@ Gem::Specification.new do |spec|
 
   spec.summary       = "Ruby SDK for the antd daemon"
   spec.description   = "REST client for the antd daemon — the gateway to the Autonomi decentralized network."
-  spec.homepage      = "https://github.com/maidsafe/ant-sdk"
+  spec.homepage      = "https://github.com/WithAutonomi/ant-sdk"
   spec.license       = "MIT"
 
   spec.required_ruby_version = ">= 3.1"

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Rust REST client SDK for the antd daemon — the gateway to the Autonomi decentralized network"
 license = "MIT"
-repository = "https://github.com/maidsafe/ant-sdk"
+repository = "https://github.com/WithAutonomi/ant-sdk"
 
 [dependencies]
 reqwest = { version = "0.12", features = ["json"] }

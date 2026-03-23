@@ -15,7 +15,7 @@ Add the dependency to your `build.zig.zon`:
 ```zig
 .dependencies = .{
     .antd = .{
-        .url = "https://github.com/maidsafe/ant-sdk/archive/refs/heads/main.tar.gz",
+        .url = "https://github.com/WithAutonomi/ant-sdk/archive/refs/heads/main.tar.gz",
         .hash = "...",  // zig build will tell you the correct hash
     },
 },
