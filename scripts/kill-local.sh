@@ -18,9 +18,9 @@ echo -e "${YELLOW}[1/2] Stopping antd...${NC}"
 pkill -f 'target/(debug|release)/antd' 2>/dev/null || true
 echo -e "${GREEN}       Done${NC}"
 
-# 2. Kill saorsa devnet
-echo -e "${YELLOW}[2/2] Stopping saorsa devnet...${NC}"
-pkill -f 'target/(debug|release)/saorsa-devnet' 2>/dev/null || true
+# 2. Kill ant devnet
+echo -e "${YELLOW}[2/2] Stopping ant devnet...${NC}"
+pkill -f 'target/(debug|release)/ant-devnet' 2>/dev/null || true
 echo -e "${GREEN}       Done${NC}"
 
 # Clean up saved PIDs

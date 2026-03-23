@@ -1,6 +1,6 @@
-"""``ant dev start`` — Start saorsa devnet + antd daemon.
+"""``ant dev start`` — Start ant devnet + antd daemon.
 
-Starts a local saorsa-devnet (replacing the old EVM testnet + antctl flow)
+Starts a local ant-devnet (replacing the old EVM testnet + antctl flow)
 and then launches the antd gateway daemon pointed at it.
 """
 
@@ -14,7 +14,7 @@ from pathlib import Path
 
 from .env import (
     DEVNET_MANIFEST,
-    find_saorsa_node_dir,
+    find_ant_node_dir,
     find_sdk_root,
     is_windows,
     LOG_FILE,
@@ -40,7 +40,7 @@ white   = lambda t: _color("1;37", t)
 
 
 def run(args) -> None:
-    saorsa_node_dir = Path(args.saorsa_node_dir) if getattr(args, "saorsa_node_dir", None) else find_saorsa_node_dir()
+    ant_node_dir = Path(args.ant_node_dir) if getattr(args, "ant_node_dir", None) else find_ant_node_dir()
     sdk_root = find_sdk_root()
     antd_dir = sdk_root / "antd"
     no_build = getattr(args, "no_build", False)
@@ -59,17 +59,17 @@ def run(args) -> None:
     print(cyan("=== antd Local Test Environment ==="))
     print()
 
-    # ── 1. Start saorsa-devnet ──
-    print(yellow("[1/3] Starting saorsa devnet..."))
+    # ── 1. Start ant-devnet ──
+    print(yellow("[1/3] Starting ant devnet..."))
 
     devnet_cmd = [
-        "cargo", "run", "--release", "--bin", "saorsa-devnet", "--",
+        "cargo", "run", "--release", "--bin", "ant-devnet", "--",
         "--preset", "default",
         "--enable-evm",
         "--manifest", str(DEVNET_MANIFEST),
     ]
 
-    devnet_proc = start_process(devnet_cmd, cwd=saorsa_node_dir, log_file=devnet_log)
+    devnet_proc = start_process(devnet_cmd, cwd=ant_node_dir, log_file=devnet_log)
     print(gray(f"       PID {devnet_proc.pid}"))
 
     # Wait for manifest file to be written

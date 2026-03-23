@@ -53,12 +53,12 @@ def run(args) -> None:
     print(green("       Done"))
 
     # 2. Kill devnet
-    print(yellow("[2/2] Stopping saorsa devnet..."))
+    print(yellow("[2/2] Stopping ant devnet..."))
     if pid := state.get("devnet_pid"):
         _kill_pid(pid)
     if sys.platform != "win32":
         subprocess.run(
-            ["pkill", "-f", r"target/(debug|release)/saorsa-devnet"],
+            ["pkill", "-f", r"target/(debug|release)/ant-devnet"],
             capture_output=True,
         )
     print(green("       Done"))

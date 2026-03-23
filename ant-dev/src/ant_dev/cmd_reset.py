@@ -18,7 +18,7 @@ def run(args) -> None:
     from .cmd_start import run as start_run
 
     class _StartArgs:
-        saorsa_node_dir = None
+        ant_node_dir = None
         no_build = False
         enable_evm = False
 

@@ -6,16 +6,16 @@ use axum::Json;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 
-use saorsa_node::ant_protocol::{
+use ant_node::ant_protocol::{
     ChunkGetRequest, ChunkGetResponse as ProtoGetResponse,
     ChunkMessage, ChunkMessageBody,
     ChunkPutRequest as ProtoPutRequest, ChunkPutResponse as ProtoPutResponse,
     ChunkQuoteRequest, ChunkQuoteResponse as ProtoQuoteResponse,
     MAX_CHUNK_SIZE,
 };
-use saorsa_node::client::compute_address;
-use saorsa_node::payment::single_node::REQUIRED_QUOTES;
-use saorsa_node::client::send_and_await_chunk_response;
+use ant_node::client::compute_address;
+use ant_node::payment::single_node::REQUIRED_QUOTES;
+use ant_node::client::send_and_await_chunk_response;
 
 use crate::error::AntdError;
 use crate::state::AppState;
@@ -28,7 +28,7 @@ const CHUNK_TIMEOUT: Duration = Duration::from_secs(30);
 /// Tries connected peers first, falls back to reconnecting to a bootstrap peer.
 async fn find_peer(
     state: &AppState,
-) -> Result<(saorsa_node::core::PeerId, Vec<saorsa_node::core::MultiAddr>), AntdError> {
+) -> Result<(ant_node::core::PeerId, Vec<ant_node::core::MultiAddr>), AntdError> {
     if state.bootstrap_peers.is_empty() {
         return Err(AntdError::Network("no bootstrap peers available".into()));
     }
@@ -152,7 +152,7 @@ pub async fn chunk_put(
 
     let peer_addrs = state.bootstrap_peers.clone();
     let mut quotes_with_prices: Vec<(ant_evm::PaymentQuote, ant_evm::Amount)> = Vec::new();
-    let mut quote_peer_ids: Vec<saorsa_node::core::PeerId> = Vec::new();
+    let mut quote_peer_ids: Vec<ant_node::core::PeerId> = Vec::new();
 
     for peer_id in peers.iter().take(REQUIRED_QUOTES) {
         let request_id = rand::random::<u64>();
@@ -198,7 +198,7 @@ pub async fn chunk_put(
         let payment_quote: ant_evm::PaymentQuote = rmp_serde::from_slice(&quote_bytes)
             .map_err(|e| AntdError::Internal(format!("failed to deserialize quote: {e}")))?;
 
-        let price = saorsa_node::payment::calculate_price(&payment_quote.quoting_metrics);
+        let price = ant_node::payment::calculate_price(&payment_quote.quoting_metrics);
         quotes_with_prices.push((payment_quote, price));
         quote_peer_ids.push(peer_id.clone());
     }
@@ -209,7 +209,7 @@ pub async fn chunk_put(
     // Save the original quote order before SingleNodePayment sorts them
     let original_quotes: Vec<ant_evm::PaymentQuote> = quotes_with_prices.iter().map(|(q, _)| q.clone()).collect();
 
-    let single_payment = saorsa_node::payment::SingleNodePayment::from_quotes(quotes_with_prices)
+    let single_payment = ant_node::payment::SingleNodePayment::from_quotes(quotes_with_prices)
         .map_err(|e| AntdError::Payment(format!("failed to create payment: {e}")))?;
 
     let cost = single_payment.total_amount();
@@ -225,13 +225,13 @@ pub async fn chunk_put(
     // Build ProofOfPayment with all 5 (peer_id, quote) pairs
     let mut peer_quotes = Vec::new();
     for (i, quote) in original_quotes.into_iter().enumerate() {
-        let encoded_peer_id = saorsa_node::client::hex_node_id_to_encoded_peer_id(
+        let encoded_peer_id = ant_node::client::hex_node_id_to_encoded_peer_id(
             &quote_peer_ids[i].to_hex()
         ).map_err(|e| AntdError::Internal(format!("failed to encode peer ID: {e}")))?;
         peer_quotes.push((encoded_peer_id, quote));
     }
 
-    let payment_proof = saorsa_node::payment::PaymentProof {
+    let payment_proof = ant_node::payment::PaymentProof {
         proof_of_payment: ant_evm::ProofOfPayment { peer_quotes },
         tx_hashes,
     };

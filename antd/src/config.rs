@@ -1,7 +1,7 @@
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
-#[command(name = "antd", about = "REST + gRPC gateway for Saorsa network")]
+#[command(name = "antd", about = "REST + gRPC gateway for Autonomi network")]
 pub struct Config {
     /// REST API listen address
     #[arg(long, default_value = "0.0.0.0:8082", env = "ANTD_REST_ADDR")]

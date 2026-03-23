@@ -7,7 +7,7 @@
 ## Usage:
 ##   .\scripts\test-api.ps1
 ##
-## Currently tests health + chunks (working with saorsa).
+## Currently tests health + chunks (working with ant-node).
 ## Data, files, graph, and private data are not yet implemented.
 
 $ErrorActionPreference = "Continue"
@@ -50,7 +50,7 @@ function Assert-NotEmpty([string]$label, [string]$value) {
 }
 
 function Skip-Test([string]$label) {
-    Write-Host "  SKIP $label (not yet implemented for saorsa)" -ForegroundColor DarkYellow
+    Write-Host "  SKIP $label (not yet implemented for ant-node)" -ForegroundColor DarkYellow
     $script:Skip++
 }
 
@@ -105,7 +105,7 @@ Assert-NotEmpty "network is set" $health.network
 Write-Host "       Network: $($health.network)" -ForegroundColor Gray
 
 # ══════════════════════════════════════════════════════════════════════
-# Test 02: Public Data (SKIPPED — not yet implemented for saorsa)
+# Test 02: Public Data (SKIPPED — not yet implemented for ant-node)
 # ══════════════════════════════════════════════════════════════════════
 Write-Host ""
 Write-Host "[02/06] Public Data" -ForegroundColor Yellow
@@ -137,21 +137,21 @@ if ($chunkPut -and $chunkPut.address) {
 }
 
 # ══════════════════════════════════════════════════════════════════════
-# Test 04: Files (SKIPPED — not yet implemented for saorsa)
+# Test 04: Files (SKIPPED — not yet implemented for ant-node)
 # ══════════════════════════════════════════════════════════════════════
 Write-Host ""
 Write-Host "[04/06] Files" -ForegroundColor Yellow
 Skip-Test "file upload/download/cost"
 
 # ══════════════════════════════════════════════════════════════════════
-# Test 05: Graph Entries (SKIPPED — not yet implemented for saorsa)
+# Test 05: Graph Entries (SKIPPED — not yet implemented for ant-node)
 # ══════════════════════════════════════════════════════════════════════
 Write-Host ""
 Write-Host "[05/06] Graph Entries" -ForegroundColor Yellow
 Skip-Test "graph entry put/get/exists/cost"
 
 # ══════════════════════════════════════════════════════════════════════
-# Test 06: Private Data (SKIPPED — not yet implemented for saorsa)
+# Test 06: Private Data (SKIPPED — not yet implemented for ant-node)
 # ══════════════════════════════════════════════════════════════════════
 Write-Host ""
 Write-Host "[06/06] Private Data" -ForegroundColor Yellow

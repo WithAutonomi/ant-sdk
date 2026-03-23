@@ -11,7 +11,7 @@ pub mod pb {
 }
 
 fn not_implemented(op: &str) -> Status {
-    Status::unimplemented(format!("{op} not yet implemented for saorsa"))
+    Status::unimplemented(format!("{op} not yet implemented for ant-node"))
 }
 
 // ── HealthService ──
@@ -85,11 +85,11 @@ impl pb::chunk_service_server::ChunkService for ChunkServiceImpl {
 
         // Use the same chunk_get logic as REST
         // TODO: Factor out shared chunk client logic
-        use saorsa_node::ant_protocol::{
+        use ant_node::ant_protocol::{
             ChunkGetRequest as ProtoGetReq, ChunkGetResponse as ProtoGetResp,
             ChunkMessage, ChunkMessageBody,
         };
-        use saorsa_node::client::send_and_await_chunk_response;
+        use ant_node::client::send_and_await_chunk_response;
         use std::time::Duration;
 
         let connected_peers = self.state.node.connected_peers().await;
@@ -138,11 +138,11 @@ impl pb::chunk_service_server::ChunkService for ChunkServiceImpl {
     ) -> Result<Response<pb::PutChunkResponse>, Status> {
         let data = request.into_inner().data;
 
-        use saorsa_node::ant_protocol::{
+        use ant_node::ant_protocol::{
             ChunkMessage, ChunkMessageBody, MAX_CHUNK_SIZE,
             ChunkPutRequest as ProtoPutReq, ChunkPutResponse as ProtoPutResp,
         };
-        use saorsa_node::client::{compute_address, send_and_await_chunk_response};
+        use ant_node::client::{compute_address, send_and_await_chunk_response};
         use std::time::Duration;
 
         if data.len() > MAX_CHUNK_SIZE {

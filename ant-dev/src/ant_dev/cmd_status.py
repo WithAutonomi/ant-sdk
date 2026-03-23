@@ -35,7 +35,7 @@ def run(args) -> None:
 
     # Process status
     processes = [
-        ("Saorsa devnet", "devnet_pid"),
+        ("Ant devnet", "devnet_pid"),
         ("antd daemon", "antd_pid"),
     ]
 

@@ -6,7 +6,7 @@ set -uo pipefail
 ##
 ## Prerequisite: antd running on local testnet (./scripts/start-local.sh)
 ##
-## Currently tests health + chunks (working with saorsa).
+## Currently tests health + chunks (working with ant-node).
 ## Data, files, graph, and private data are not yet implemented.
 
 BASE_URL="${ANTD_BASE_URL:-http://localhost:8082}"
@@ -55,7 +55,7 @@ assert_not_empty() {
 
 skip_test() {
     local label="$1"
-    echo -e "  ${DARKYELLOW}SKIP${NC} $label (not yet implemented for saorsa)"
+    echo -e "  ${DARKYELLOW}SKIP${NC} $label (not yet implemented for ant-node)"
     SKIP=$((SKIP + 1))
 }
 

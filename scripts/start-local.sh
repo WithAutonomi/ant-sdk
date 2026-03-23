@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-## Start a local saorsa devnet + antd gateway for testing.
+## Start a local ant devnet + antd gateway for testing.
 ##
 ## Prerequisites:
 ##   - Rust toolchain (cargo)
-##   - saorsa-node repo cloned as sibling: ../saorsa-node
-##     (or set SAORSA_NODE_DIR)
+##   - ant-node repo cloned as sibling: ../ant-node
+##     (or set ANT_NODE_DIR)
 ##   - python (for manifest parsing)
 ##
 ## Usage:
@@ -21,19 +21,19 @@ SDK_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ANTD_DIR="$SDK_ROOT/antd"
 MANIFEST_FILE="${TMPDIR:-/tmp}/devnet-manifest.json"
 
-# Resolve saorsa-node directory
-if [[ -n "${SAORSA_NODE_DIR:-}" ]]; then
+# Resolve ant-node directory
+if [[ -n "${ANT_NODE_DIR:-}" ]]; then
     true  # already set
-elif [[ -f "$SDK_ROOT/../saorsa-node/Cargo.toml" ]]; then
-    SAORSA_NODE_DIR="$(cd "$SDK_ROOT/../saorsa-node" && pwd)"
+elif [[ -f "$SDK_ROOT/../ant-node/Cargo.toml" ]]; then
+    ANT_NODE_DIR="$(cd "$SDK_ROOT/../ant-node" && pwd)"
 else
-    echo "ERROR: Cannot find saorsa-node repo."
+    echo "ERROR: Cannot find ant-node repo."
     echo ""
     echo "Clone it as a sibling to ant-sdk:"
     echo "  cd $(dirname "$SDK_ROOT")"
-    echo "  git clone https://github.com/saorsa-labs/saorsa-node.git"
+    echo "  git clone https://github.com/WithAutonomi/ant-node.git"
     echo ""
-    echo "Or set SAORSA_NODE_DIR to its location."
+    echo "Or set ANT_NODE_DIR to its location."
     exit 1
 fi
 
@@ -53,12 +53,12 @@ echo ""
 echo -e "${CYAN}=== antd Local Test Environment ===${NC}"
 echo ""
 echo -e "${GRAY}  SDK:     $SDK_ROOT${NC}"
-echo -e "${GRAY}  Saorsa:  $SAORSA_NODE_DIR${NC}"
+echo -e "${GRAY}  Node:    $ANT_NODE_DIR${NC}"
 echo ""
 
-# ── 1. Start saorsa devnet ──
-echo -e "${YELLOW}[1/3] Starting saorsa devnet (25 nodes + EVM)...${NC}"
-(cd "$SAORSA_NODE_DIR" && cargo run --release --bin saorsa-devnet -- --preset default --enable-evm --manifest "$MANIFEST_FILE" 2>&1) &
+# ── 1. Start ant devnet ──
+echo -e "${YELLOW}[1/3] Starting ant devnet (25 nodes + EVM)...${NC}"
+(cd "$ANT_NODE_DIR" && cargo run --release --bin ant-devnet -- --preset default --enable-evm --manifest "$MANIFEST_FILE" 2>&1) &
 DEVNET_PID=$!
 
 # ── 2. Wait for manifest ──
