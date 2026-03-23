@@ -1,9 +1,9 @@
-## Start a local saorsa devnet + antd gateway for testing.
+## Start a local ant devnet + antd gateway for testing.
 ##
 ## Prerequisites:
 ##   - Rust toolchain (cargo)
-##   - saorsa-node repo cloned as sibling: ../saorsa-node
-##     (or set $env:SAORSA_NODE_DIR)
+##   - ant-node repo cloned as sibling: ../ant-node
+##     (or set $env:ANT_NODE_DIR)
 ##
 ## Usage:
 ##   .\scripts\start-local.ps1
@@ -17,24 +17,24 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $sdkRoot = (Resolve-Path "$scriptDir\..").Path
 $antdDir = "$sdkRoot\antd"
 $manifestFile = "$env:TEMP\devnet-manifest.json"
-$devnetLog = "$env:TEMP\saorsa-devnet.log"
+$devnetLog = "$env:TEMP\ant-devnet.log"
 $antdLog = "$env:TEMP\antd.log"
 
-# Resolve saorsa-node directory
-if ($env:SAORSA_NODE_DIR) {
-    $saorsaNodeDir = $env:SAORSA_NODE_DIR
+# Resolve ant-node directory
+if ($env:ANT_NODE_DIR) {
+    $antNodeDir = $env:ANT_NODE_DIR
 } else {
-    $candidate = "$sdkRoot\..\saorsa-node"
+    $candidate = "$sdkRoot\..\ant-node"
     if (Test-Path "$candidate\Cargo.toml") {
-        $saorsaNodeDir = (Resolve-Path $candidate).Path
+        $antNodeDir = (Resolve-Path $candidate).Path
     } else {
-        Write-Host "ERROR: Cannot find saorsa-node repo." -ForegroundColor Red
+        Write-Host "ERROR: Cannot find ant-node repo." -ForegroundColor Red
         Write-Host ""
         Write-Host "Clone it as a sibling to ant-sdk:" -ForegroundColor Gray
         Write-Host "  cd $(Split-Path $sdkRoot)" -ForegroundColor Gray
-        Write-Host "  git clone https://github.com/saorsa-labs/saorsa-node.git" -ForegroundColor Gray
+        Write-Host "  git clone https://github.com/WithAutonomi/ant-node.git" -ForegroundColor Gray
         Write-Host ""
-        Write-Host "Or set `$env:SAORSA_NODE_DIR to its location." -ForegroundColor Gray
+        Write-Host "Or set `$env:ANT_NODE_DIR to its location." -ForegroundColor Gray
         exit 1
     }
 }
@@ -48,14 +48,14 @@ Write-Host ""
 Write-Host "=== antd Local Test Environment ===" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  SDK:     $sdkRoot" -ForegroundColor Gray
-Write-Host "  Saorsa:  $saorsaNodeDir" -ForegroundColor Gray
+Write-Host "  Node:    $antNodeDir" -ForegroundColor Gray
 Write-Host ""
 
-# ── 1. Start saorsa devnet ──
-Write-Host "[1/3] Starting saorsa devnet (25 nodes + EVM)..." -ForegroundColor Yellow
+# ── 1. Start ant devnet ──
+Write-Host "[1/3] Starting ant devnet (25 nodes + EVM)..." -ForegroundColor Yellow
 $devnetProc = Start-Process -PassThru -FilePath "cargo" `
-    -ArgumentList "run", "--release", "--bin", "saorsa-devnet", "--", "--preset", "default", "--enable-evm", "--manifest", $manifestFile `
-    -WorkingDirectory $saorsaNodeDir `
+    -ArgumentList "run", "--release", "--bin", "ant-devnet", "--", "--preset", "default", "--enable-evm", "--manifest", $manifestFile `
+    -WorkingDirectory $antNodeDir `
     -RedirectStandardOutput $devnetLog `
     -RedirectStandardError "$devnetLog.err" `
     -WindowStyle Hidden

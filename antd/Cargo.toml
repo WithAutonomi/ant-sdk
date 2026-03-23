@@ -4,7 +4,7 @@ version = "0.2.0"
 edition = "2021"
 
 [dependencies]
-saorsa-node = { path = "../../saorsa-node" }
+ant-node = { path = "../../ant-node" }
 ant-evm = "0.1.19"
 evmlib = "0.4.9"
 axum = { version = "0.8", features = ["macros"] }

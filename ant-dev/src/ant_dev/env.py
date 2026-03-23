@@ -24,17 +24,17 @@ def find_sdk_root() -> Path:
     )
 
 
-def find_saorsa_node_dir() -> Path:
-    """Resolve the saorsa-node repo directory."""
-    env = os.environ.get("SAORSA_NODE_DIR")
+def find_ant_node_dir() -> Path:
+    """Resolve the ant-node repo directory."""
+    env = os.environ.get("ANT_NODE_DIR")
     if env:
         return Path(env)
     # Default: sibling directory to ant-sdk
-    sibling = find_sdk_root().parent / "saorsa-node"
+    sibling = find_sdk_root().parent / "ant-node"
     if sibling.exists():
         return sibling
     raise FileNotFoundError(
-        "Cannot find saorsa-node repo. Set SAORSA_NODE_DIR or place it next to ant-sdk."
+        "Cannot find ant-node repo. Set ANT_NODE_DIR or place it next to ant-sdk."
     )
 
 

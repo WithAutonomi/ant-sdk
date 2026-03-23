@@ -69,11 +69,11 @@ impl From<AntdError> for tonic::Status {
     }
 }
 
-// Conversion from saorsa protocol errors
+// Conversion from ant-node protocol errors
 
-impl From<saorsa_node::ant_protocol::ProtocolError> for AntdError {
-    fn from(e: saorsa_node::ant_protocol::ProtocolError) -> Self {
-        use saorsa_node::ant_protocol::ProtocolError;
+impl From<ant_node::ant_protocol::ProtocolError> for AntdError {
+    fn from(e: ant_node::ant_protocol::ProtocolError) -> Self {
+        use ant_node::ant_protocol::ProtocolError;
         match e {
             ProtocolError::ChunkTooLarge { size, max_size } => {
                 AntdError::BadRequest(format!("chunk size {size} exceeds maximum {max_size}"))

@@ -18,8 +18,8 @@ def main(argv: list[str] | None = None) -> None:
     dev_sub = dev.add_subparsers(dest="subcommand")
 
     # ant dev start
-    p = dev_sub.add_parser("start", help="Start saorsa devnet + antd")
-    p.add_argument("--saorsa-node-dir", help="Path to saorsa-node repo")
+    p = dev_sub.add_parser("start", help="Start ant devnet + antd")
+    p.add_argument("--ant-node-dir", help="Path to ant-node repo")
     p.add_argument("--no-build", action="store_true", help="Skip build (use existing binaries)")
     p.add_argument("--enable-evm", action="store_true", help="Enable EVM payment enforcement")
 

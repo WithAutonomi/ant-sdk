@@ -3,7 +3,7 @@ use std::sync::Arc;
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
-use saorsa_node::core::{CoreNodeConfig, MultiAddr, NodeMode, P2PNode};
+use ant_node::core::{CoreNodeConfig, MultiAddr, NodeMode, P2PNode};
 
 mod config;
 mod error;
@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Banner
     println!();
-    println!("  antd — Saorsa REST + gRPC Gateway");
+    println!("  antd — Autonomi REST + gRPC Gateway");
     println!("  ==================================");
     println!("  REST:    http://{}", config.rest_addr);
     println!("  gRPC:    {}", config.grpc_addr);
@@ -63,8 +63,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Init saorsa P2P node in client mode
-    tracing::info!(network = %config.network, "connecting to Saorsa network...");
+    // Init P2P node in client mode
+    tracing::info!(network = %config.network, "connecting to Autonomi network...");
 
     let mut builder = CoreNodeConfig::builder()
         .mode(NodeMode::Client)
@@ -93,7 +93,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for i in 0..30 {
         let peer_count = node.connected_peers().await.len();
         if peer_count > 0 {
-            tracing::info!(peer_count, "connected to Saorsa network");
+            tracing::info!(peer_count, "connected to Autonomi network");
             break;
         }
         if i == 29 {

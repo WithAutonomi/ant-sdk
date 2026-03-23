@@ -15,7 +15,7 @@ if (Test-Path $pidFile) {
     }
     Write-Host "       Done" -ForegroundColor Green
 
-    Write-Host "[2/2] Stopping saorsa devnet (PID $($pids.devnet_pid))..." -ForegroundColor Yellow
+    Write-Host "[2/2] Stopping ant devnet (PID $($pids.devnet_pid))..." -ForegroundColor Yellow
     if ($pids.devnet_pid) {
         taskkill /F /T /PID $pids.devnet_pid 2>$null | Out-Null
     }
@@ -28,15 +28,15 @@ if (Test-Path $pidFile) {
     Get-Process -Name antd -ErrorAction SilentlyContinue | Stop-Process -Force
     Write-Host "       Done" -ForegroundColor Green
 
-    Write-Host "[2/2] Stopping saorsa devnet..." -ForegroundColor Yellow
-    Get-Process -Name "saorsa-devnet" -ErrorAction SilentlyContinue | Stop-Process -Force
+    Write-Host "[2/2] Stopping ant devnet..." -ForegroundColor Yellow
+    Get-Process -Name "ant-devnet" -ErrorAction SilentlyContinue | Stop-Process -Force
     Write-Host "       Done" -ForegroundColor Green
 }
 
 # Clean up temp files
 Remove-Item "$env:TEMP\devnet-manifest.json" -Force -ErrorAction SilentlyContinue
-Remove-Item "$env:TEMP\saorsa-devnet.log" -Force -ErrorAction SilentlyContinue
-Remove-Item "$env:TEMP\saorsa-devnet.log.err" -Force -ErrorAction SilentlyContinue
+Remove-Item "$env:TEMP\ant-devnet.log" -Force -ErrorAction SilentlyContinue
+Remove-Item "$env:TEMP\ant-devnet.log.err" -Force -ErrorAction SilentlyContinue
 Remove-Item "$env:TEMP\antd.log" -Force -ErrorAction SilentlyContinue
 
 Write-Host ""
