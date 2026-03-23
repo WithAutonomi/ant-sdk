@@ -167,6 +167,22 @@ fn default_true() -> bool {
     true
 }
 
+// ── Wallet ──
+
+#[derive(Serialize)]
+pub struct WalletBalanceResponse {
+    /// Token balance in atto (smallest unit).
+    pub balance: String,
+    /// Gas token balance in wei.
+    pub gas_balance: String,
+}
+
+#[derive(Serialize)]
+pub struct WalletAddressResponse {
+    /// The wallet's public address (hex with 0x prefix).
+    pub address: String,
+}
+
 // ── Health ──
 
 #[derive(Serialize)]

@@ -67,7 +67,7 @@ echo ""
 # ══════════════════════════════════════════════════════════════════════
 # Test 01: Health Check
 # ══════════════════════════════════════════════════════════════════════
-echo -e "${YELLOW}[01/06] Health Check${NC}"
+echo -e "${YELLOW}[01/07] Health Check${NC}"
 
 RESP=$(curl -s "$BASE_URL/health")
 STATUS=$(echo "$RESP" | jq -r '.status // empty')
@@ -81,14 +81,14 @@ echo -e "       ${GRAY}Network: $NETWORK${NC}"
 # Test 02: Public Data (SKIPPED)
 # ══════════════════════════════════════════════════════════════════════
 echo ""
-echo -e "${YELLOW}[02/06] Public Data${NC}"
+echo -e "${YELLOW}[02/07] Public Data${NC}"
 skip_test "public data put/get/cost"
 
 # ══════════════════════════════════════════════════════════════════════
 # Test 03: Raw Chunks — store and retrieve
 # ══════════════════════════════════════════════════════════════════════
 echo ""
-echo -e "${YELLOW}[03/06] Chunks${NC}"
+echo -e "${YELLOW}[03/07] Chunks${NC}"
 
 CHUNK_PAYLOAD="Raw chunk content for direct storage"
 CHUNK_B64=$(b64encode "$CHUNK_PAYLOAD")
@@ -119,22 +119,45 @@ fi
 # Test 04: Files (SKIPPED)
 # ══════════════════════════════════════════════════════════════════════
 echo ""
-echo -e "${YELLOW}[04/06] Files${NC}"
+echo -e "${YELLOW}[04/07] Files${NC}"
 skip_test "file upload/download/cost"
 
 # ══════════════════════════════════════════════════════════════════════
 # Test 05: Graph Entries (SKIPPED)
 # ══════════════════════════════════════════════════════════════════════
 echo ""
-echo -e "${YELLOW}[05/06] Graph Entries${NC}"
+echo -e "${YELLOW}[05/07] Graph Entries${NC}"
 skip_test "graph entry put/get/exists/cost"
 
 # ══════════════════════════════════════════════════════════════════════
 # Test 06: Private Data (SKIPPED)
 # ══════════════════════════════════════════════════════════════════════
 echo ""
-echo -e "${YELLOW}[06/06] Private Data${NC}"
+echo -e "${YELLOW}[06/07] Private Data${NC}"
 skip_test "private data put/get"
+
+# ══════════════════════════════════════════════════════════════════════
+# Test 07: Wallet
+# ══════════════════════════════════════════════════════════════════════
+echo ""
+echo -e "${YELLOW}[07/07] Wallet${NC}"
+
+WALLET_ADDR=$(curl -s "$BASE_URL/v1/wallet/address")
+ADDR_VAL=$(echo "$WALLET_ADDR" | jq -r '.address // empty')
+assert_not_empty "wallet address returned" "$ADDR_VAL"
+if [[ -n "$ADDR_VAL" ]]; then
+    echo -e "       ${GRAY}Address: $ADDR_VAL${NC}"
+fi
+
+WALLET_BAL=$(curl -s "$BASE_URL/v1/wallet/balance")
+TOKEN_BAL=$(echo "$WALLET_BAL" | jq -r '.balance // empty')
+GAS_BAL=$(echo "$WALLET_BAL" | jq -r '.gas_balance // empty')
+assert_not_empty "token balance returned" "$TOKEN_BAL"
+assert_not_empty "gas balance returned" "$GAS_BAL"
+if [[ -n "$TOKEN_BAL" ]]; then
+    echo -e "       ${GRAY}Tokens: $TOKEN_BAL atto${NC}"
+    echo -e "       ${GRAY}Gas:    $GAS_BAL wei${NC}"
+fi
 
 # ══════════════════════════════════════════════════════════════════════
 # Summary

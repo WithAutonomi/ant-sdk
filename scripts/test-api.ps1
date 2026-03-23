@@ -97,7 +97,7 @@ Write-Host ""
 # ══════════════════════════════════════════════════════════════════════
 # Test 01: Health Check
 # ══════════════════════════════════════════════════════════════════════
-Write-Host "[01/06] Health Check" -ForegroundColor Yellow
+Write-Host "[01/07] Health Check" -ForegroundColor Yellow
 
 $health = Api-Get "/health"
 Assert-Eq "status is ok" "ok" $health.status
@@ -108,14 +108,14 @@ Write-Host "       Network: $($health.network)" -ForegroundColor Gray
 # Test 02: Public Data (SKIPPED — not yet implemented for ant-node)
 # ══════════════════════════════════════════════════════════════════════
 Write-Host ""
-Write-Host "[02/06] Public Data" -ForegroundColor Yellow
+Write-Host "[02/07] Public Data" -ForegroundColor Yellow
 Skip-Test "public data put/get/cost"
 
 # ══════════════════════════════════════════════════════════════════════
 # Test 03: Raw Chunks - store and retrieve
 # ══════════════════════════════════════════════════════════════════════
 Write-Host ""
-Write-Host "[03/06] Chunks" -ForegroundColor Yellow
+Write-Host "[03/07] Chunks" -ForegroundColor Yellow
 
 $chunkPayload = "Raw chunk content for direct storage"
 $chunkB64 = B64Encode $chunkPayload
@@ -140,22 +140,42 @@ if ($chunkPut -and $chunkPut.address) {
 # Test 04: Files (SKIPPED — not yet implemented for ant-node)
 # ══════════════════════════════════════════════════════════════════════
 Write-Host ""
-Write-Host "[04/06] Files" -ForegroundColor Yellow
+Write-Host "[04/07] Files" -ForegroundColor Yellow
 Skip-Test "file upload/download/cost"
 
 # ══════════════════════════════════════════════════════════════════════
 # Test 05: Graph Entries (SKIPPED — not yet implemented for ant-node)
 # ══════════════════════════════════════════════════════════════════════
 Write-Host ""
-Write-Host "[05/06] Graph Entries" -ForegroundColor Yellow
+Write-Host "[05/07] Graph Entries" -ForegroundColor Yellow
 Skip-Test "graph entry put/get/exists/cost"
 
 # ══════════════════════════════════════════════════════════════════════
 # Test 06: Private Data (SKIPPED — not yet implemented for ant-node)
 # ══════════════════════════════════════════════════════════════════════
 Write-Host ""
-Write-Host "[06/06] Private Data" -ForegroundColor Yellow
+Write-Host "[06/07] Private Data" -ForegroundColor Yellow
 Skip-Test "private data put/get"
+
+# ══════════════════════════════════════════════════════════════════════
+# Test 07: Wallet
+# ══════════════════════════════════════════════════════════════════════
+Write-Host ""
+Write-Host "[07/07] Wallet" -ForegroundColor Yellow
+
+$walletAddr = Api-Get "/v1/wallet/address"
+Assert-NotEmpty "wallet address returned" $walletAddr.address
+if ($walletAddr.address) {
+    Write-Host "       Address: $($walletAddr.address)" -ForegroundColor Gray
+}
+
+$walletBal = Api-Get "/v1/wallet/balance"
+Assert-NotEmpty "token balance returned" $walletBal.balance
+Assert-NotEmpty "gas balance returned" $walletBal.gas_balance
+if ($walletBal.balance) {
+    Write-Host "       Tokens: $($walletBal.balance) atto" -ForegroundColor Gray
+    Write-Host "       Gas:    $($walletBal.gas_balance) wei" -ForegroundColor Gray
+}
 
 # ══════════════════════════════════════════════════════════════════════
 # Summary

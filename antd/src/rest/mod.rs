@@ -13,6 +13,7 @@ pub mod data;
 pub mod events;
 pub mod files;
 pub mod graph;
+pub mod wallet;
 
 pub fn router(state: Arc<AppState>, enable_cors: bool) -> Router {
     let app = Router::new()
@@ -40,6 +41,9 @@ pub fn router(state: Arc<AppState>, enable_cors: bool) -> Router {
         .route("/v1/dirs/download/public", post(files::dir_download_public))
         .route("/v1/archives/public/{addr}", get(files::archive_get_public))
         .route("/v1/archives/public", post(files::archive_put_public))
+        // Wallet
+        .route("/v1/wallet/address", get(wallet::wallet_address))
+        .route("/v1/wallet/balance", get(wallet::wallet_balance))
         // Cost
         .route("/v1/cost/file", post(files::file_cost))
         .with_state(state);
