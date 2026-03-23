@@ -59,6 +59,12 @@ public class InternalException : AntdException
         : base(message, statusCode) { }
 }
 
+public class NotImplementedByServerException : AntdException
+{
+    public NotImplementedByServerException(string message, int statusCode = 501)
+        : base(message, statusCode) { }
+}
+
 internal static class ExceptionMapping
 {
     public static AntdException FromHttpStatus(HttpStatusCode status, string body)
@@ -72,6 +78,7 @@ internal static class ExceptionMapping
             409 => new AlreadyExistsException(body, code),
             413 => new TooLargeException(body, code),
             500 => new InternalException(body, code),
+            501 => new NotImplementedByServerException(body, code),
             502 => new NetworkException(body, code),
             _ => new AntdException(body, code),
         };

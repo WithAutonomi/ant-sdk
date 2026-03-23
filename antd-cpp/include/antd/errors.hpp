@@ -57,6 +57,12 @@ public:
     InternalError(const std::string& msg) : AntdError(500, msg) {}
 };
 
+/// Operation not implemented by the daemon (HTTP 501).
+class NotImplementedError : public AntdError {
+public:
+    NotImplementedError(const std::string& msg) : AntdError(501, msg) {}
+};
+
 /// Daemon cannot reach the network (HTTP 502).
 class NetworkError : public AntdError {
 public:
@@ -72,6 +78,7 @@ public:
         case 409: throw AlreadyExistsError(message);
         case 413: throw TooLargeError(message);
         case 500: throw InternalError(message);
+        case 501: throw NotImplementedError(message);
         case 502: throw NetworkError(message);
         default:  throw AntdError(code, message);
     }

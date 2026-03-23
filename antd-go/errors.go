@@ -34,6 +34,9 @@ type TooLargeError struct{ AntdError }
 // InternalError indicates an internal server error (HTTP 500).
 type InternalError struct{ AntdError }
 
+// NotImplementedError indicates the endpoint is not implemented (HTTP 501).
+type NotImplementedError struct{ AntdError }
+
 // NetworkError indicates the daemon cannot reach the network (HTTP 502).
 type NetworkError struct{ AntdError }
 
@@ -53,6 +56,8 @@ func errorForStatus(statusCode int, message string) error {
 		return &TooLargeError{base}
 	case 500:
 		return &InternalError{base}
+	case 501:
+		return &NotImplementedError{base}
 	case 502:
 		return &NetworkError{base}
 	default:

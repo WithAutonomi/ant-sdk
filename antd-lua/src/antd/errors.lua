@@ -67,6 +67,13 @@ function M.internal(message)
     return new_error("internal", 500, message)
 end
 
+--- Create a not_implemented error (HTTP 501).
+-- @param message string
+-- @return table
+function M.not_implemented(message)
+    return new_error("not_implemented", 501, message)
+end
+
 --- Create a network error (HTTP 502).
 -- @param message string
 -- @return table
@@ -85,6 +92,7 @@ function M.error_for_status(code, message)
     if code == 409 then return M.already_exists(message) end
     if code == 413 then return M.too_large(message) end
     if code == 500 then return M.internal(message) end
+    if code == 501 then return M.not_implemented(message) end
     if code == 502 then return M.network(message) end
     return new_error("unknown", code, message)
 end

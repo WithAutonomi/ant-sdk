@@ -61,6 +61,12 @@ public final class InternalError: AntdError {
     }
 }
 
+public final class NotImplementedError: AntdError {
+    public init(_ message: String, statusCode: Int = 501) {
+        super.init(message, statusCode: statusCode)
+    }
+}
+
 enum ErrorMapping {
 
     static func fromHTTPStatus(_ statusCode: Int, body: String) -> AntdError {
@@ -71,6 +77,7 @@ enum ErrorMapping {
         case 409: return AlreadyExistsError(body, statusCode: statusCode)
         case 413: return TooLargeError(body, statusCode: statusCode)
         case 500: return InternalError(body, statusCode: statusCode)
+        case 501: return NotImplementedError(body, statusCode: statusCode)
         case 502: return NetworkError(body, statusCode: statusCode)
         default: return AntdError(body, statusCode: statusCode)
         }

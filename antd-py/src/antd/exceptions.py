@@ -49,6 +49,11 @@ class InternalError(AntdError):
     pass
 
 
+class NotImplementedByServerError(AntdError):
+    """Server does not implement the requested operation (HTTP 501 / gRPC UNIMPLEMENTED)."""
+    pass
+
+
 # HTTP status code -> exception class mapping
 HTTP_STATUS_MAP: dict[int, type[AntdError]] = {
     400: BadRequestError,
@@ -57,6 +62,7 @@ HTTP_STATUS_MAP: dict[int, type[AntdError]] = {
     409: AlreadyExistsError,  # also ForkError, distinguished by message
     413: TooLargeError,
     500: InternalError,
+    501: NotImplementedByServerError,
     502: NetworkError,
 }
 

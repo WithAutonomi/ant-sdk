@@ -31,6 +31,10 @@ pub enum AntdError {
     #[error("antd error 500: {0}")]
     Internal(String),
 
+    /// Feature not implemented by the daemon (HTTP 501).
+    #[error("antd error 501: {0}")]
+    NotImplemented(String),
+
     /// Daemon cannot reach the network (HTTP 502).
     #[error("antd error 502: {0}")]
     Network(String),
@@ -57,6 +61,7 @@ pub fn error_for_status(code: u16, message: String) -> AntdError {
         409 => AntdError::AlreadyExists(message),
         413 => AntdError::TooLarge(message),
         500 => AntdError::Internal(message),
+        501 => AntdError::NotImplemented(message),
         502 => AntdError::Network(message),
         _ => AntdError::Internal(format!("unexpected status {code}: {message}")),
     }

@@ -7,6 +7,7 @@ pub const AntdError = error{
     Fork,
     TooLarge,
     Internal,
+    NotImplemented,
     Network,
     UnexpectedStatus,
     HttpError,
@@ -28,6 +29,7 @@ pub fn errorForStatus(code: u16) AntdError {
         409 => error.AlreadyExists,
         413 => error.TooLarge,
         500 => error.Internal,
+        501 => error.NotImplemented,
         502 => error.Network,
         else => error.UnexpectedStatus,
     };

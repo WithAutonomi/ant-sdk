@@ -86,6 +86,17 @@ defmodule Antd.InternalError do
         }
 end
 
+defmodule Antd.NotImplementedError do
+  @moduledoc "Operation not implemented by the daemon (HTTP 501)."
+
+  defexception [:message, :status_code]
+
+  @type t :: %__MODULE__{
+          message: String.t(),
+          status_code: integer()
+        }
+end
+
 defmodule Antd.NetworkError do
   @moduledoc "Daemon cannot reach the network (HTTP 502)."
 
@@ -110,6 +121,7 @@ defmodule Antd.Errors do
       409 -> %Antd.AlreadyExistsError{message: message, status_code: 409}
       413 -> %Antd.TooLargeError{message: message, status_code: 413}
       500 -> %Antd.InternalError{message: message, status_code: 500}
+      501 -> %Antd.NotImplementedError{message: message, status_code: 501}
       502 -> %Antd.NetworkError{message: message, status_code: 502}
       _ -> %Antd.AntdError{message: message, status_code: status_code}
     end

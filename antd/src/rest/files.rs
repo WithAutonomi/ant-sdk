@@ -15,47 +15,47 @@ pub async fn file_upload_public(
     State(_state): State<Arc<AppState>>,
     Json(_req): Json<FileUploadRequest>,
 ) -> Result<Json<FileUploadPublicResponse>, AntdError> {
-    Err(AntdError::Internal("file operations not yet implemented yet".into()))
+    Err(AntdError::NotImplemented("file operations not yet implemented yet".into()))
 }
 
 pub async fn file_download_public(
     State(_state): State<Arc<AppState>>,
     Json(_req): Json<FileDownloadRequest>,
 ) -> Result<axum::http::StatusCode, AntdError> {
-    Err(AntdError::Internal("file operations not yet implemented yet".into()))
+    Err(AntdError::NotImplemented("file operations not yet implemented yet".into()))
 }
 
 pub async fn dir_upload_public(
     State(_state): State<Arc<AppState>>,
     Json(_req): Json<FileUploadRequest>,
 ) -> Result<Json<DirUploadPublicResponse>, AntdError> {
-    Err(AntdError::Internal("directory operations not yet implemented yet".into()))
+    Err(AntdError::NotImplemented("directory operations not yet implemented yet".into()))
 }
 
 pub async fn dir_download_public(
     State(_state): State<Arc<AppState>>,
     Json(_req): Json<FileDownloadRequest>,
 ) -> Result<axum::http::StatusCode, AntdError> {
-    Err(AntdError::Internal("directory operations not yet implemented yet".into()))
+    Err(AntdError::NotImplemented("directory operations not yet implemented yet".into()))
 }
 
 pub async fn archive_get_public(
     State(_state): State<Arc<AppState>>,
     axum::extract::Path(_addr): axum::extract::Path<String>,
 ) -> Result<Json<ArchiveDto>, AntdError> {
-    Err(AntdError::Internal("archive operations not yet implemented yet".into()))
+    Err(AntdError::NotImplemented("archive operations not yet implemented yet".into()))
 }
 
 pub async fn archive_put_public(
     State(_state): State<Arc<AppState>>,
     Json(_req): Json<ArchiveDto>,
 ) -> Result<Json<ArchivePutResponse>, AntdError> {
-    Err(AntdError::Internal("archive operations not yet implemented yet".into()))
+    Err(AntdError::NotImplemented("archive operations not yet implemented yet".into()))
 }
 
 pub async fn file_cost(
     State(_state): State<Arc<AppState>>,
     Json(_req): Json<FileCostRequest>,
 ) -> Result<Json<CostResponse>, AntdError> {
-    Err(AntdError::Internal("file cost not yet implemented yet".into()))
+    Err(AntdError::NotImplemented("file cost not yet implemented yet".into()))
 }

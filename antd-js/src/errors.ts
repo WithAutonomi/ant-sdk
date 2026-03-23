@@ -73,6 +73,14 @@ export class InternalError extends AntdError {
   }
 }
 
+/** Not implemented (HTTP 501). */
+export class NotImplementedError extends AntdError {
+  constructor(message: string, statusCode: number = 501) {
+    super(message, statusCode);
+    this.name = "NotImplementedError";
+  }
+}
+
 /** HTTP status code -> exception class mapping. */
 const HTTP_STATUS_MAP: Record<number, new (message: string, statusCode: number) => AntdError> = {
   400: BadRequestError,
@@ -81,6 +89,7 @@ const HTTP_STATUS_MAP: Record<number, new (message: string, statusCode: number) 
   409: AlreadyExistsError,
   413: TooLargeError,
   500: InternalError,
+  501: NotImplementedError,
   502: NetworkError,
 };
 

@@ -16,26 +16,26 @@ pub async fn graph_entry_get(
     State(_state): State<Arc<AppState>>,
     Path(_addr): Path<String>,
 ) -> Result<Json<GraphEntryGetResponse>, AntdError> {
-    Err(AntdError::Internal("graph operations not yet implemented yet".into()))
+    Err(AntdError::NotImplemented("graph operations not yet implemented yet".into()))
 }
 
 pub async fn graph_entry_check_existence(
     State(_state): State<Arc<AppState>>,
     Path(_addr): Path<String>,
 ) -> Result<StatusCode, AntdError> {
-    Err(AntdError::Internal("graph operations not yet implemented yet".into()))
+    Err(AntdError::NotImplemented("graph operations not yet implemented yet".into()))
 }
 
 pub async fn graph_entry_put(
     State(_state): State<Arc<AppState>>,
     Json(_req): Json<GraphEntryPutRequest>,
 ) -> Result<Json<GraphEntryPutResponse>, AntdError> {
-    Err(AntdError::Internal("graph operations not yet implemented yet".into()))
+    Err(AntdError::NotImplemented("graph operations not yet implemented yet".into()))
 }
 
 pub async fn graph_entry_cost(
     State(_state): State<Arc<AppState>>,
     Json(_req): Json<GraphEntryCostRequest>,
 ) -> Result<Json<CostResponse>, AntdError> {
-    Err(AntdError::Internal("graph cost not yet implemented yet".into()))
+    Err(AntdError::NotImplemented("graph cost not yet implemented yet".into()))
 }

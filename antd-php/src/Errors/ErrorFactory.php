@@ -18,6 +18,7 @@ class ErrorFactory
             409 => new AlreadyExistsError($message),
             413 => new TooLargeError($message),
             500 => new InternalError($message),
+            501 => new NotImplementedError($message),
             502 => new NetworkError($message),
             default => new AntdError($code, $message),
         };

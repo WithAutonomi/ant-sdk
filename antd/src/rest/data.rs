@@ -18,35 +18,35 @@ pub async fn data_get_public(
     State(_state): State<Arc<AppState>>,
     Path(_addr): Path<String>,
 ) -> Result<Json<DataGetResponse>, AntdError> {
-    Err(AntdError::Internal("data operations not yet implemented yet".into()))
+    Err(AntdError::NotImplemented("data operations not yet implemented yet".into()))
 }
 
 pub async fn data_put_public(
     State(_state): State<Arc<AppState>>,
     Json(_req): Json<DataPutRequest>,
 ) -> Result<Json<DataPutPublicResponse>, AntdError> {
-    Err(AntdError::Internal("data operations not yet implemented yet".into()))
+    Err(AntdError::NotImplemented("data operations not yet implemented yet".into()))
 }
 
 pub async fn data_get_private(
     State(_state): State<Arc<AppState>>,
     Query(_query): Query<DataGetPrivateQuery>,
 ) -> Result<Json<DataGetResponse>, AntdError> {
-    Err(AntdError::Internal("private data operations not yet implemented yet".into()))
+    Err(AntdError::NotImplemented("private data operations not yet implemented yet".into()))
 }
 
 pub async fn data_put_private(
     State(_state): State<Arc<AppState>>,
     Json(_req): Json<DataPutRequest>,
 ) -> Result<Json<DataPutPrivateResponse>, AntdError> {
-    Err(AntdError::Internal("private data operations not yet implemented yet".into()))
+    Err(AntdError::NotImplemented("private data operations not yet implemented yet".into()))
 }
 
 pub async fn data_cost(
     State(_state): State<Arc<AppState>>,
     Json(_req): Json<DataCostRequest>,
 ) -> Result<Json<CostResponse>, AntdError> {
-    Err(AntdError::Internal("data cost not yet implemented yet".into()))
+    Err(AntdError::NotImplemented("data cost not yet implemented yet".into()))
 }
 
 pub async fn data_stream_public(

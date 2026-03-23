@@ -22,6 +22,7 @@ public final class ExceptionFactory {
             case 409 -> new AlreadyExistsException(message);
             case 413 -> new TooLargeException(message);
             case 500 -> new InternalException(message);
+            case 501 -> new NotImplementedByServerException(message);
             case 502 -> new NetworkException(message);
             default -> new AntdException(statusCode, message);
         };

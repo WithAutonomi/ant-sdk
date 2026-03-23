@@ -47,6 +47,11 @@ class InternalError extends AntdError {
   const InternalError(String message) : super(500, message);
 }
 
+/// Operation not implemented by the daemon (HTTP 501).
+class NotImplementedError extends AntdError {
+  const NotImplementedError(String message) : super(501, message);
+}
+
 /// Daemon cannot reach the network (HTTP 502).
 class NetworkError extends AntdError {
   const NetworkError(String message) : super(502, message);
@@ -67,6 +72,8 @@ AntdError errorForStatus(int statusCode, String message) {
       return TooLargeError(message);
     case 500:
       return InternalError(message);
+    case 501:
+      return NotImplementedError(message);
     case 502:
       return NetworkError(message);
     default:

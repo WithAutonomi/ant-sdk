@@ -14,6 +14,7 @@ class PaymentException(message: String, statusCode: Int = 402) : AntdException(m
 class NetworkException(message: String, statusCode: Int = 502) : AntdException(message, statusCode)
 class TooLargeException(message: String, statusCode: Int = 413) : AntdException(message, statusCode)
 class InternalException(message: String, statusCode: Int = 500) : AntdException(message, statusCode)
+class NotImplementedByServerException(message: String, statusCode: Int = 501) : AntdException(message, statusCode)
 
 internal object ExceptionMapping {
 
@@ -24,6 +25,7 @@ internal object ExceptionMapping {
         409 -> AlreadyExistsException(body, statusCode)
         413 -> TooLargeException(body, statusCode)
         500 -> InternalException(body, statusCode)
+        501 -> NotImplementedByServerException(body, statusCode)
         502 -> NetworkException(body, statusCode)
         else -> AntdException(body, statusCode)
     }
@@ -39,6 +41,7 @@ internal object ExceptionMapping {
             Status.Code.UNAVAILABLE -> NetworkException(detail)
             Status.Code.RESOURCE_EXHAUSTED -> TooLargeException(detail)
             Status.Code.INTERNAL -> InternalException(detail)
+            Status.Code.UNIMPLEMENTED -> NotImplementedByServerException(detail)
             else -> AntdException(detail, ex.status.code.value())
         }
     }

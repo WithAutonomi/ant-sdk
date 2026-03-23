@@ -46,6 +46,11 @@ module Antd
     def initialize(message) = super(message, status_code: 500)
   end
 
+  # Operation not implemented by the daemon (HTTP 501).
+  class NotImplementedError < AntdError
+    def initialize(message) = super(message, status_code: 501)
+  end
+
   # Daemon cannot reach the network (HTTP 502).
   class NetworkError < AntdError
     def initialize(message) = super(message, status_code: 502)
@@ -60,6 +65,7 @@ module Antd
     when 409 then AlreadyExistsError.new(message)
     when 413 then TooLargeError.new(message)
     when 500 then InternalError.new(message)
+    when 501 then NotImplementedError.new(message)
     when 502 then NetworkError.new(message)
     else          AntdError.new(message, status_code: code)
     end
