@@ -3,7 +3,11 @@ defmodule Antd.Discover do
   Auto-discovers the antd daemon by reading the `daemon.port` file that antd
   writes on startup.
 
-  The file contains two lines: REST port on line 1, gRPC port on line 2.
+  The file contains up to three lines: REST port (line 1), gRPC port (line 2),
+  and optionally the daemon PID (line 3).
+
+  If a PID is present and the process is no longer alive, the port file is
+  considered stale and discovery returns empty.
 
   Port file location is platform-specific:
     - Windows: `%APPDATA%\\ant\\daemon.port`
@@ -63,7 +67,13 @@ defmodule Antd.Discover do
 
             rest_port = parse_port(Enum.at(lines, 0, ""))
             grpc_port = parse_port(Enum.at(lines, 1, ""))
-            {rest_port, grpc_port}
+            pid = parse_pid(Enum.at(lines, 2, ""))
+
+            if pid > 0 and not process_alive?(pid) do
+              {0, 0}
+            else
+              {rest_port, grpc_port}
+            end
 
           {:error, _} ->
             {0, 0}
@@ -75,6 +85,27 @@ defmodule Antd.Discover do
     case Integer.parse(String.trim(s)) do
       {n, ""} when n > 0 and n <= 65535 -> n
       _ -> 0
+    end
+  end
+
+  defp parse_pid(s) do
+    case Integer.parse(String.trim(s)) do
+      {n, ""} when n > 0 -> n
+      _ -> 0
+    end
+  end
+
+  defp process_alive?(pid) do
+    case :os.type() do
+      {:unix, _} ->
+        case System.cmd("kill", ["-0", to_string(pid)], stderr_to_stdout: true) do
+          {_, 0} -> true
+          _ -> false
+        end
+
+      {:win32, _} ->
+        # On Windows, trust the port file — no reliable zero-signal check.
+        true
     end
   end
 

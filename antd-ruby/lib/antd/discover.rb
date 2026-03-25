@@ -6,7 +6,11 @@ module Antd
   # Auto-discovers the antd daemon by reading the +daemon.port+ file that antd
   # writes on startup.
   #
-  # The file contains two lines: REST port on line 1, gRPC port on line 2.
+  # The file contains up to three lines: REST port (line 1), gRPC port (line 2),
+  # and optionally the daemon PID (line 3).
+  #
+  # If a PID is present and the process is no longer alive, the port file is
+  # considered stale and discovery returns empty.
   #
   # Port file location is platform-specific:
   #   - Windows: %APPDATA%\ant\daemon.port
@@ -49,6 +53,10 @@ module Antd
       lines = File.read(path).strip.split("\n")
       rest_port = parse_port(lines[0])
       grpc_port = parse_port(lines[1])
+      pid = parse_pid(lines[2])
+
+      return [0, 0] if pid > 0 && !process_alive?(pid)
+
       [rest_port, grpc_port]
     rescue StandardError
       [0, 0]
@@ -93,6 +101,28 @@ module Antd
       end
     end
 
-    private_class_method :read_port_file, :parse_port, :data_dir
+    # @api private
+    def self.parse_pid(str)
+      return 0 if str.nil?
+
+      s = str.strip
+      return 0 unless s.match?(/\A\d+\z/)
+
+      n = s.to_i
+      n > 0 ? n : 0
+    end
+
+    # @api private
+    def self.process_alive?(pid)
+      Process.kill(0, pid)
+      true
+    rescue Errno::ESRCH
+      false
+    rescue Errno::EPERM
+      # Process exists but we lack permission to signal it — still alive.
+      true
+    end
+
+    private_class_method :read_port_file, :parse_port, :parse_pid, :process_alive?, :data_dir
   end
 end

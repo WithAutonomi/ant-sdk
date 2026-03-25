@@ -8,7 +8,9 @@ import java.nio.file.Paths
  * Reads the `daemon.port` file written by antd on startup to auto-discover
  * the REST and gRPC ports.
  *
- * The file contains two lines: REST port on line 1, gRPC port on line 2.
+ * The file contains up to three lines: REST port on line 1, gRPC port on line 2,
+ * and an optional PID on line 3. If a PID is present and the process is no longer
+ * alive, the port file is considered stale and discovery returns empty.
  */
 object DaemonDiscovery {
 
@@ -40,6 +42,16 @@ object DaemonDiscovery {
 
         return try {
             val lines = file.readLines().map { it.trim() }
+
+            // Check for stale port file via PID on line 3
+            val pidStr = lines.getOrNull(2)
+            if (!pidStr.isNullOrEmpty()) {
+                val pid = pidStr.toLongOrNull()
+                if (pid != null && !processAlive(pid)) {
+                    return 0 to 0
+                }
+            }
+
             val rest = lines.getOrNull(0)?.toIntOrNull()?.takeIf { it in 1..65535 } ?: 0
             val grpc = lines.getOrNull(1)?.toIntOrNull()?.takeIf { it in 1..65535 } ?: 0
             rest to grpc
@@ -47,6 +59,12 @@ object DaemonDiscovery {
             0 to 0
         }
     }
+
+    /**
+     * Returns true if a process with the given PID is currently alive.
+     */
+    private fun processAlive(pid: Long): Boolean =
+        ProcessHandle.of(pid).isPresent
 
     private fun dataDir(): Path? {
         val os = System.getProperty("os.name", "").lowercase()

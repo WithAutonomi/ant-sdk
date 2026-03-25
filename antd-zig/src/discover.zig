@@ -48,6 +48,7 @@ fn readPortFile(allocator: Allocator) ?Ports {
 
     var rest: u16 = 0;
     var grpc: u16 = 0;
+    var pid_line: ?[]const u8 = null;
 
     var line_iter = std.mem.splitSequence(u8, contents, "\n");
     if (line_iter.next()) |first_line| {
@@ -56,8 +57,36 @@ fn readPortFile(allocator: Allocator) ?Ports {
     if (line_iter.next()) |second_line| {
         grpc = parsePort(second_line);
     }
+    if (line_iter.next()) |third_line| {
+        pid_line = third_line;
+    }
+
+    // Line 3: PID of the daemon process (optional stale-detection)
+    if (pid_line) |pl| {
+        const trimmed = std.mem.trim(u8, pl, &.{ ' ', '\t', '\r' });
+        if (trimmed.len > 0) {
+            const pid = std.fmt.parseInt(i32, trimmed, 10) catch 0;
+            if (pid > 0 and !isProcessAlive(pid)) {
+                return null;
+            }
+        }
+    }
 
     return .{ .rest = rest, .grpc = grpc };
+}
+
+/// Check if a process with the given PID is alive.
+/// On Linux, checks if /proc/{pid} exists.
+/// On other platforms (Windows, macOS), trusts the port file.
+fn isProcessAlive(pid: i32) bool {
+    if (builtin.os.tag == .linux) {
+        var path_buf: [32]u8 = undefined;
+        const path = std.fmt.bufPrint(&path_buf, "/proc/{d}", .{pid}) catch return true;
+        std.fs.accessAbsolute(path, .{}) catch return false;
+        return true;
+    }
+    // On Windows, macOS, and other platforms, trust the port file
+    return true;
 }
 
 fn parsePort(s: []const u8) u16 {

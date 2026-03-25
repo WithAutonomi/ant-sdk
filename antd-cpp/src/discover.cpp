@@ -5,6 +5,14 @@
 #include <fstream>
 #include <string>
 
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <cerrno>
+#include <signal.h>
+#include <sys/types.h>
+#endif
+
 namespace fs = std::filesystem;
 
 namespace antd {
@@ -12,6 +20,21 @@ namespace {
 
 constexpr const char* kPortFileName = "daemon.port";
 constexpr const char* kDataDirName = "ant";
+
+/// Check whether a process with the given PID is alive.
+bool process_alive(unsigned long pid) {
+#ifdef _WIN32
+    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
+                           static_cast<DWORD>(pid));
+    if (h == NULL) return false;
+    CloseHandle(h);
+    return true;
+#else
+    // kill(pid, 0) checks existence without sending a signal.
+    // EPERM means the process exists but we lack permission to signal it.
+    return kill(static_cast<pid_t>(pid), 0) == 0 || errno == EPERM;
+#endif
+}
 
 /// Parse a port number (1-65535) from a string. Returns 0 on failure.
 uint16_t parse_port(const std::string& s) {
@@ -49,7 +72,9 @@ fs::path data_dir() {
 }
 
 /// Read the daemon.port file and return the REST and gRPC ports.
-/// The file format is two lines: REST port on line 1, gRPC port on line 2.
+/// The file format is: REST port (line 1), gRPC port (line 2), PID (line 3).
+/// If a PID is present and the process is not alive, the file is stale and
+/// {0, 0} is returned.
 std::pair<uint16_t, uint16_t> read_port_file() {
     auto dir = data_dir();
     if (dir.empty()) return {0, 0};
@@ -58,9 +83,20 @@ std::pair<uint16_t, uint16_t> read_port_file() {
     std::ifstream ifs(path);
     if (!ifs.is_open()) return {0, 0};
 
-    std::string line1, line2;
+    std::string line1, line2, line3;
     if (!std::getline(ifs, line1)) return {0, 0};
-    std::getline(ifs, line2);  // optional second line
+    std::getline(ifs, line2);  // optional second line (gRPC port)
+    std::getline(ifs, line3);  // optional third line (PID)
+
+    // Stale-file detection: if a PID is recorded, verify the process is alive.
+    if (!line3.empty()) {
+        try {
+            unsigned long pid = std::stoul(line3);
+            if (pid > 0 && !process_alive(pid)) return {0, 0};
+        } catch (...) {
+            // Malformed PID line — ignore and proceed without the check.
+        }
+    }
 
     return {parse_port(line1), parse_port(line2)};
 }

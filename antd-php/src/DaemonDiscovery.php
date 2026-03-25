@@ -7,7 +7,9 @@ namespace Autonomi\Antd;
 /**
  * Discovers the antd daemon by reading the `daemon.port` file written on startup.
  *
- * The port file contains two lines: REST port on line 1, gRPC port on line 2.
+ * The port file contains up to three lines: REST port (line 1), gRPC port (line 2),
+ * and PID of the daemon process (line 3). If a PID is present and the process is
+ * not alive, the file is considered stale and discovery returns empty.
  * File location is platform-specific:
  * - Windows: %APPDATA%\ant\daemon.port
  * - macOS:   ~/Library/Application Support/ant/daemon.port
@@ -83,9 +85,37 @@ class DaemonDiscovery
             return [0, 0];
         }
 
+        // Line 3: PID of the daemon process (optional stale-detection)
+        if (count($lines) >= 3) {
+            $pid = (int) trim($lines[2]);
+            if ($pid > 0 && !self::isProcessAlive($pid)) {
+                return [0, 0];
+            }
+        }
+
         $rest = self::parsePort($lines[0]);
         $grpc = count($lines) >= 2 ? self::parsePort($lines[1]) : 0;
         return [$rest, $grpc];
+    }
+
+    /**
+     * Check if a process with the given PID is alive.
+     * Uses posix_kill if available, falls back to /proc on Linux,
+     * or tasklist on Windows.
+     */
+    private static function isProcessAlive(int $pid): bool
+    {
+        if (PHP_OS_FAMILY === 'Windows') {
+            $out = shell_exec("tasklist /FI \"PID eq {$pid}\" /NH 2>NUL");
+            return $out !== null && stripos($out, (string) $pid) !== false;
+        }
+
+        // Unix: prefer posix_kill, fall back to /proc
+        if (function_exists('posix_kill')) {
+            return posix_kill($pid, 0);
+        }
+
+        return file_exists("/proc/{$pid}");
     }
 
     private static function parsePort(string $s): int

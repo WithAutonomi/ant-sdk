@@ -4,8 +4,10 @@ namespace Antd.Sdk;
 
 /// <summary>
 /// Reads the daemon.port file written by antd on startup to auto-discover
-/// the REST and gRPC ports. The file contains two lines: REST port on line 1,
-/// gRPC port on line 2.
+/// the REST and gRPC ports. The file contains up to three lines: REST port
+/// on line 1, gRPC port on line 2, and daemon PID on line 3. If a PID is
+/// present and the process is no longer alive, the file is considered stale
+/// and discovery returns empty.
 /// </summary>
 public static class DaemonDiscovery
 {
@@ -53,11 +55,34 @@ public static class DaemonDiscovery
             if (lines.Length >= 2)
                 grpc = ParsePort(lines[1]);
 
+            // Line 3 is the daemon PID. If present and the process is
+            // no longer running, the port file is stale.
+            if (lines.Length >= 3
+                && int.TryParse(lines[2].Trim(), out var pid)
+                && pid > 0
+                && !ProcessAlive(pid))
+            {
+                return (0, 0);
+            }
+
             return (rest, grpc);
         }
         catch
         {
             return (0, 0);
+        }
+    }
+
+    private static bool ProcessAlive(int pid)
+    {
+        try
+        {
+            System.Diagnostics.Process.GetProcessById(pid);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
         }
     }
 

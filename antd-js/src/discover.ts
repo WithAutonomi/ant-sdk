@@ -20,8 +20,13 @@ export function discoverDaemonUrl(): string {
 
 /**
  * Reads the daemon.port file and returns the parsed REST and gRPC ports.
- * The file format is two lines: REST port on line 1, gRPC port on line 2.
- * A single-line file is valid (gRPC port will be 0).
+ * The file format is up to three lines:
+ *   line 1: REST port
+ *   line 2: gRPC port
+ *   line 3: PID of the antd process
+ * A single-line file is valid (gRPC port will be 0, no PID check).
+ * If a PID is present and the process is not alive, the port file is
+ * considered stale and { rest: 0, grpc: 0 } is returned.
  */
 function readPortFile(): { rest: number; grpc: number } {
   const dir = dataDir();
@@ -41,9 +46,31 @@ function readPortFile(): { rest: number; grpc: number } {
     return { rest: 0, grpc: 0 };
   }
 
+  // If a PID is recorded on line 3, verify the process is still alive.
+  if (lines.length >= 3) {
+    const pid = parseInt(lines[2].trim(), 10);
+    if (!isNaN(pid) && pid > 0 && !isProcessAlive(pid)) {
+      return { rest: 0, grpc: 0 };
+    }
+  }
+
   const rest = parsePort(lines[0]);
   const grpc = lines.length >= 2 ? parsePort(lines[1]) : 0;
   return { rest, grpc };
+}
+
+/**
+ * Returns true if a process with the given PID is currently running.
+ * Uses process.kill(pid, 0) which sends no signal but throws if the
+ * process does not exist. Works on both Unix and Windows in Node.js.
+ */
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function parsePort(s: string): number {

@@ -1,8 +1,14 @@
 """Port discovery for the antd daemon.
 
-The antd daemon writes a ``daemon.port`` file on startup containing two lines:
+The antd daemon writes a ``daemon.port`` file on startup containing up to three
+lines:
   - Line 1: REST port
   - Line 2: gRPC port
+  - Line 3: PID of the daemon process (optional)
+
+When line 3 is present, this module validates that the process is still alive.
+If the PID refers to a dead process the port file is considered stale and
+discovery returns empty results.
 
 This module reads that file using platform-specific data directory paths to
 auto-discover the daemon without requiring manual configuration.
@@ -42,10 +48,29 @@ def _data_dir() -> Path | None:
     return Path(home) / ".local" / "share" / _DATA_DIR_NAME
 
 
+def _is_pid_alive(pid: int) -> bool:
+    """Check whether a process with the given PID is still running.
+
+    Uses ``os.kill(pid, 0)`` which works cross-platform on Python 3.
+    """
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Process exists but we lack permission to signal it.
+        return True
+    except OSError:
+        # Unable to determine — assume alive to avoid false negatives.
+        return True
+    return True
+
+
 def _read_port_file() -> tuple[int, int]:
     """Read the daemon.port file and return (rest_port, grpc_port).
 
-    Returns (0, 0) if the file is missing or unreadable.
+    Returns (0, 0) if the file is missing, unreadable, or stale (the
+    recorded PID no longer refers to a running process).
     A single-line file is valid; grpc_port will be 0 in that case.
     """
     data_dir = _data_dir()
@@ -61,6 +86,15 @@ def _read_port_file() -> tuple[int, int]:
     lines = text.splitlines()
     if not lines:
         return 0, 0
+
+    # Line 3 (optional): PID of the daemon process.
+    if len(lines) >= 3:
+        try:
+            pid = int(lines[2].strip())
+        except ValueError:
+            pid = None
+        if pid is not None and not _is_pid_alive(pid):
+            return 0, 0
 
     rest_port = _parse_port(lines[0])
     grpc_port = _parse_port(lines[1]) if len(lines) >= 2 else 0

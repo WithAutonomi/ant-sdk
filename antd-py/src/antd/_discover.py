@@ -3,8 +3,11 @@
 The antd daemon writes a ``daemon.port`` file on startup containing:
   - Line 1: REST port
   - Line 2: gRPC port
+  - Line 3: PID of the daemon process (optional, for staleness detection)
 
 This module reads that file to auto-discover the daemon's listen addresses.
+If a PID is present and the process is no longer running, the port file is
+considered stale and discovery returns empty results.
 """
 
 from __future__ import annotations
@@ -53,9 +56,40 @@ def _read_port_file() -> tuple[int, int]:
     if not lines:
         return 0, 0
 
+    # Check PID staleness (line 3, if present)
+    if len(lines) >= 3:
+        pid = _parse_pid(lines[2])
+        if pid is not None and not _is_process_alive(pid):
+            return 0, 0
+
     rest_port = _parse_port(lines[0])
     grpc_port = _parse_port(lines[1]) if len(lines) >= 2 else 0
     return rest_port, grpc_port
+
+
+def _parse_pid(s: str) -> int | None:
+    """Parse a PID string, returning ``None`` if absent or invalid."""
+    try:
+        n = int(s.strip())
+    except (ValueError, TypeError):
+        return None
+    if n > 0:
+        return n
+    return None
+
+
+def _is_process_alive(pid: int) -> bool:
+    """Return ``True`` if a process with *pid* is currently running."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Process exists but we lack permission to signal it — still alive.
+        return True
+    except OSError:
+        return False
+    return True
 
 
 def _parse_port(s: str) -> int:

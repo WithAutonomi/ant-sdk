@@ -12,6 +12,25 @@ local function is_windows()
     return package.config:sub(1, 1) == "\\"
 end
 
+--- Check if a process with the given PID is alive.
+-- On Windows, always returns true (trust the port file).
+-- On Unix, uses `kill -0 <pid>` which succeeds if the process exists.
+-- @param pid number
+-- @return boolean
+local function is_process_alive(pid)
+    if is_windows() then
+        return true
+    end
+    -- Validate pid is numeric to prevent command injection
+    local pid_str = tostring(math.floor(pid))
+    if not pid_str:match("^%d+$") then
+        return true
+    end
+    local ok = os.execute("kill -0 " .. pid_str .. " >/dev/null 2>&1")
+    -- Lua 5.1 returns a number (0 = success), Lua 5.2+ returns true/nil
+    return ok == true or ok == 0
+end
+
 --- Returns the platform-specific data directory for ant.
 -- @return string|nil directory path, or nil if not determinable
 local function data_dir()
@@ -68,6 +87,14 @@ local function read_port_file()
     end
 
     if #lines < 1 then return nil, nil end
+
+    -- Line 3: PID of the daemon process (optional stale-detection)
+    if #lines >= 3 then
+        local pid = tonumber(lines[3])
+        if pid and pid > 0 and not is_process_alive(pid) then
+            return nil, nil
+        end
+    end
 
     local rest_port = tonumber(lines[1])
     local grpc_port = #lines >= 2 and tonumber(lines[2]) or nil

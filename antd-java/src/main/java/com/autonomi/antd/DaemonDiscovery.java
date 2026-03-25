@@ -10,7 +10,9 @@ import java.util.List;
  * Discovers the antd daemon by reading the {@code daemon.port} file
  * that the daemon writes on startup.
  *
- * <p>The file contains two lines: the REST port on line 1 and the gRPC port on line 2.
+ * <p>The file contains up to three lines: the REST port on line 1, the gRPC port
+ * on line 2, and an optional PID on line 3. If a PID is present and the process
+ * is no longer alive, the port file is considered stale and discovery returns empty.
  *
  * <p>Port file locations by platform:
  * <ul>
@@ -56,6 +58,8 @@ public final class DaemonDiscovery {
 
     /**
      * Reads the specified line from the port file and parses it as a port number.
+     * If line 3 contains a PID and that process is no longer alive, the port file
+     * is considered stale and 0 is returned.
      *
      * @param lineIndex 0 for REST port, 1 for gRPC port
      * @return the port number, or 0 on failure
@@ -72,10 +76,33 @@ public final class DaemonDiscovery {
             if (lines.size() <= lineIndex) {
                 return 0;
             }
+
+            // Check for stale port file via PID on line 3
+            if (lines.size() >= 3) {
+                String pidStr = lines.get(2).trim();
+                if (!pidStr.isEmpty()) {
+                    try {
+                        long pid = Long.parseLong(pidStr);
+                        if (!processAlive(pid)) {
+                            return 0;
+                        }
+                    } catch (NumberFormatException e) {
+                        // Malformed PID line — ignore and continue
+                    }
+                }
+            }
+
             return parsePort(lines.get(lineIndex));
         } catch (IOException e) {
             return 0;
         }
+    }
+
+    /**
+     * Returns true if a process with the given PID is currently alive.
+     */
+    private static boolean processAlive(long pid) {
+        return ProcessHandle.of(pid).isPresent();
     }
 
     /**

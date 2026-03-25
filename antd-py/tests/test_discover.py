@@ -9,6 +9,7 @@ import pytest
 
 from antd._discover import (
     _data_dir,
+    _is_process_alive,
     _read_port_file,
     discover_daemon_url,
     discover_grpc_target,
@@ -83,6 +84,49 @@ class TestDiscoverGrpcTarget:
     def test_whitespace_handling(self, tmp_path, monkeypatch):
         _write_port_file(tmp_path, "  8082  \n  50051  \n", monkeypatch)
         assert discover_grpc_target() == "127.0.0.1:50051"
+
+
+class TestStalePidDetection:
+    """Port file with a PID that doesn't correspond to a running process."""
+
+    def test_stale_pid_returns_empty_url(self, tmp_path, monkeypatch):
+        _write_port_file(tmp_path, "8082\n50051\n99999999\n", monkeypatch)
+        assert discover_daemon_url() == ""
+
+    def test_stale_pid_returns_empty_grpc(self, tmp_path, monkeypatch):
+        _write_port_file(tmp_path, "8082\n50051\n99999999\n", monkeypatch)
+        assert discover_grpc_target() == ""
+
+    def test_stale_pid_read_port_file(self, tmp_path, monkeypatch):
+        _write_port_file(tmp_path, "8082\n50051\n99999999\n", monkeypatch)
+        assert _read_port_file() == (0, 0)
+
+    def test_alive_pid_returns_url(self, tmp_path, monkeypatch):
+        """Use our own PID, which is guaranteed to be alive."""
+        pid = os.getpid()
+        _write_port_file(tmp_path, f"8082\n50051\n{pid}\n", monkeypatch)
+        assert discover_daemon_url() == "http://127.0.0.1:8082"
+
+    def test_alive_pid_returns_grpc(self, tmp_path, monkeypatch):
+        pid = os.getpid()
+        _write_port_file(tmp_path, f"8082\n50051\n{pid}\n", monkeypatch)
+        assert discover_grpc_target() == "127.0.0.1:50051"
+
+    def test_no_pid_line_still_works(self, tmp_path, monkeypatch):
+        """Old two-line format without PID should still work."""
+        _write_port_file(tmp_path, "8082\n50051\n", monkeypatch)
+        assert discover_daemon_url() == "http://127.0.0.1:8082"
+
+    def test_invalid_pid_line_treated_as_absent(self, tmp_path, monkeypatch):
+        """Non-numeric PID line is ignored (not treated as stale)."""
+        _write_port_file(tmp_path, "8082\n50051\nnotapid\n", monkeypatch)
+        assert discover_daemon_url() == "http://127.0.0.1:8082"
+
+    def test_is_process_alive_dead(self):
+        assert _is_process_alive(99999999) is False
+
+    def test_is_process_alive_self(self):
+        assert _is_process_alive(os.getpid()) is True
 
 
 class TestDataDir:
