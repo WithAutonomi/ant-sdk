@@ -1,15 +1,45 @@
 # antd SDK — Complete API Reference
 
-> JavaScript/TypeScript, Python, C#, Kotlin, Swift, Go, Java, Rust, C++, Ruby, PHP, Dart, Lua, Elixir, and Zig SDKs for the Autonomi network via the antd daemon. The daemon manages wallet, payments, and network connectivity. Clients connect over REST (default port 8080) or gRPC (default port 50051).
+> JavaScript/TypeScript, Python, C#, Kotlin, Swift, Go, Java, Rust, C++, Ruby, PHP, Dart, Lua, Elixir, and Zig SDKs for the Autonomi network via the antd daemon. The daemon manages wallet, payments, and network connectivity. Clients connect over REST (default port 8082) or gRPC (default port 50051). All SDKs support automatic port discovery.
+
+## Port Discovery
+
+All SDKs can automatically discover a running antd daemon. On startup, antd writes a `daemon.port` file containing the REST port (line 1) and gRPC port (line 2) to a platform-specific location:
+
+- **Windows:** `%APPDATA%\ant\daemon.port`
+- **Linux:** `$XDG_DATA_HOME/ant/daemon.port` (or `~/.local/share/ant/daemon.port`)
+- **macOS:** `~/Library/Application Support/ant/daemon.port`
+
+Every SDK provides auto-discover constructors that read this file and connect automatically, falling back to the default ports if no file is found:
+
+| Language | REST Auto-Discover | gRPC Auto-Discover |
+|----------|-------------------|-------------------|
+| Python | `RestClient.auto_discover()` | `GrpcClient.auto_discover()` |
+| Go | `antd.NewClientAutoDiscover()` | `antd.NewGrpcClientAutoDiscover()` |
+| TypeScript | `RestClient.autoDiscover()` | N/A |
+| C# | `AntdRestClient.AutoDiscover()` | `AntdGrpcClient.AutoDiscover()` |
+| Java | `AntdClient.autoDiscover()` | `GrpcAntdClient.autoDiscover()` |
+| Rust | `Client::auto_discover()` | `GrpcClient::auto_discover()` |
+| Kotlin | `AntdRestClient.autoDiscover()` | `AntdGrpcClient.autoDiscover()` |
+| C++ | `Client::auto_discover()` | `GrpcClient::auto_discover()` |
+| Dart | `AntdClient.autoDiscover()` | `GrpcAntdClient.autoDiscover()` |
+| Elixir | `Antd.Client.auto_discover()` | `Antd.GrpcClient.auto_discover()` |
+| Ruby | `Antd::Client.auto_discover` | `Antd::GrpcClient.auto_discover` |
+| Swift | `DaemonDiscovery.autoDiscover()` | `DaemonDiscovery.autoDiscoverGrpc()` |
+| PHP | `AntdClient::autoDiscover()` | N/A |
+| Lua | `Client.auto_discover()` | N/A |
+| Zig | `Client.autoDiscover(allocator)` | N/A |
+
+This is especially useful when antd is spawned with `--rest-port 0` (OS assigns a free port), as in managed mode.
 
 ## Quick Start
 
 ```python
 from antd import AntdClient
 
-client = AntdClient()                          # REST, localhost:8080
+client = AntdClient()                          # REST, localhost:8082
 client = AntdClient(transport="grpc")          # gRPC, localhost:50051
-client = AntdClient(base_url="http://remote:8080")
+client = AntdClient(base_url="http://remote:8082")
 
 # Store and retrieve data
 result = client.data_put_public(b"hello world")
@@ -20,8 +50,8 @@ data = client.data_get_public(result.address)  # b"hello world"
 ```typescript
 import { createClient } from "antd";
 
-const client = createClient();                             // REST, localhost:8080
-const client = createClient({ baseUrl: "http://remote:8080" });
+const client = createClient();                             // REST, localhost:8082
+const client = createClient({ baseUrl: "http://remote:8082" });
 
 const result = await client.dataPutPublic(Buffer.from("hello"));
 const data = await client.dataGetPublic(result.address);
@@ -30,7 +60,7 @@ const data = await client.dataGetPublic(result.address);
 ```csharp
 using Antd.Sdk;
 
-var client = AntdClientFactory.CreateRest();    // REST, localhost:8080
+var client = AntdClientFactory.CreateRest();    // REST, localhost:8082
 var client = AntdClientFactory.CreateGrpc();    // gRPC, localhost:50051
 
 var result = await client.DataPutPublicAsync(Encoding.UTF8.GetBytes("hello"));
@@ -42,7 +72,7 @@ import com.autonomi.sdk.*
 import kotlinx.coroutines.runBlocking
 
 fun main() = runBlocking {
-    val client = AntdClient.createRest()         // REST, localhost:8080
+    val client = AntdClient.createRest()         // REST, localhost:8082
     val client = AntdClient.createGrpc()         // gRPC, localhost:50051
 
     val result = client.dataPutPublic("hello".toByteArray())
@@ -54,7 +84,7 @@ fun main() = runBlocking {
 // Swift (macOS only — iOS apps should use the FFI bindings)
 import AntdSdk
 
-let client = try AntdClient.createRest()          // REST, localhost:8080
+let client = try AntdClient.createRest()          // REST, localhost:8082
 let client = try AntdClient.createGrpc()          // gRPC, localhost:50051
 
 let result = try await client.dataPutPublic("hello".data(using: .utf8)!)
@@ -65,7 +95,7 @@ let data = try await client.dataGetPublic(address: result.address)
 // Go
 import antd "github.com/WithAutonomi/ant-sdk/antd-go"
 
-client := antd.NewClient(antd.DefaultBaseURL)       // REST, localhost:8080
+client := antd.NewClient(antd.DefaultBaseURL)       // REST, localhost:8082
 ctx := context.Background()
 
 result, _ := client.DataPutPublic(ctx, []byte("hello"))
@@ -77,7 +107,7 @@ data, _ := client.DataGetPublic(ctx, result.Address)
 //        Maven: <dependency><groupId>com.autonomi</groupId><artifactId>antd-java</artifactId><version>0.1.0</version></dependency>
 import com.autonomi.antd.AntdClient;
 
-try (AntdClient client = AntdClient.create()) {           // REST, localhost:8080
+try (AntdClient client = AntdClient.create()) {           // REST, localhost:8082
     PutResult result = client.dataPutPublic("hello".getBytes());
     byte[] data = client.dataGetPublic(result.address());
 }
@@ -89,7 +119,7 @@ use antd_client::Client;
 
 #[tokio::main]
 async fn main() -> Result<(), antd_client::AntdError> {
-    let client = Client::new("http://localhost:8080");     // REST, localhost:8080
+    let client = Client::new("http://localhost:8082");     // REST, localhost:8082
 
     let result = client.data_put_public(b"hello").await?;
     let data = client.data_get_public(&result.address).await?;
@@ -101,8 +131,8 @@ async fn main() -> Result<(), antd_client::AntdError> {
 // C++ — CMake FetchContent from GitHub
 #include <antd/antd.hpp>
 
-antd::Client client;                                       // REST, localhost:8080
-antd::Client client("http://remote:8080");
+antd::Client client;                                       // REST, localhost:8082
+antd::Client client("http://remote:8082");
 
 auto result = client.dataPutPublic("hello");
 auto data = client.dataGetPublic(result.address);
@@ -112,8 +142,8 @@ auto data = client.dataGetPublic(result.address);
 # Ruby — gem install antd
 require "antd"
 
-client = Antd::Client.new                            # REST, localhost:8080
-client = Antd::Client.new(base_url: "http://remote:8080")
+client = Antd::Client.new                            # REST, localhost:8082
+client = Antd::Client.new(base_url: "http://remote:8082")
 
 result = client.data_put_public("hello")
 data = client.data_get_public(result.address)
@@ -124,8 +154,8 @@ data = client.data_get_public(result.address)
 <?php
 use Autonomi\AntdClient;
 
-$client = AntdClient::create();                      // REST, localhost:8080
-$client = AntdClient::create("http://remote:8080");
+$client = AntdClient::create();                      // REST, localhost:8082
+$client = AntdClient::create("http://remote:8082");
 
 $result = $client->dataPutPublic("hello");
 $data = $client->dataGetPublic($result->address);
@@ -135,8 +165,8 @@ $data = $client->dataGetPublic($result->address);
 // Dart — dart pub add antd
 import 'package:antd/antd.dart';
 
-final client = AntdClient();                         // REST, localhost:8080
-final client = AntdClient(baseUrl: 'http://remote:8080');
+final client = AntdClient();                         // REST, localhost:8082
+final client = AntdClient(baseUrl: 'http://remote:8082');
 
 final result = await client.dataPutPublic('hello'.codeUnits);
 final data = await client.dataGetPublic(result.address);
@@ -146,8 +176,8 @@ final data = await client.dataGetPublic(result.address);
 -- Lua — luarocks install antd
 local antd = require("antd")
 
-local client = antd.Client.new()                     -- REST, localhost:8080
-local client = antd.Client.new({base_url = "http://remote:8080"})
+local client = antd.Client.new()                     -- REST, localhost:8082
+local client = antd.Client.new({base_url = "http://remote:8082"})
 
 local result = client:data_put_public("hello")
 local data = client:data_get_public(result.address)
@@ -155,8 +185,8 @@ local data = client:data_get_public(result.address)
 
 ```elixir
 # Elixir — {:antd, "~> 0.1"} in mix.exs deps
-client = Antd.Client.new()                           # REST, localhost:8080
-client = Antd.Client.new(base_url: "http://remote:8080")
+client = Antd.Client.new()                           # REST, localhost:8082
+client = Antd.Client.new(base_url: "http://remote:8082")
 
 {:ok, result} = Antd.Client.data_put_public(client, "hello")
 {:ok, data} = Antd.Client.data_get_public(client, result.address)
@@ -166,7 +196,7 @@ client = Antd.Client.new(base_url: "http://remote:8080")
 // Zig — add dependency in build.zig.zon
 const antd = @import("antd");
 
-var client = try antd.Client.init(.{});              // REST, localhost:8080
+var client = try antd.Client.init(.{});              // REST, localhost:8082
 defer client.deinit();
 
 const result = try client.dataPutPublic("hello");
@@ -386,8 +416,8 @@ JS/TS, PHP, Lua, and Zig are REST-only.
 ```typescript
 import { createClient } from "antd";
 
-const client = createClient();                                  // REST, localhost:8080
-const client = createClient({ baseUrl: "http://remote:8080" }); // custom URL
+const client = createClient();                                  // REST, localhost:8082
+const client = createClient({ baseUrl: "http://remote:8082" }); // custom URL
 const client = createClient({ timeout: 60_000 });               // custom timeout (ms)
 
 // Health
@@ -427,7 +457,7 @@ client.fileCost(path: string, isPublic?: boolean, includeArchive?: boolean): Pro
 ```python
 from antd import AntdClient, AsyncAntdClient
 
-client = AntdClient(transport="rest", base_url="http://localhost:8080")
+client = AntdClient(transport="rest", base_url="http://localhost:8082")
 client = AntdClient(transport="grpc", target="localhost:50051")
 
 # Health
@@ -467,7 +497,7 @@ client.file_cost(path: str, is_public: bool = True, include_archive: bool = Fals
 ```csharp
 using Antd.Sdk;
 
-IAntdClient client = AntdClientFactory.CreateRest();   // localhost:8080
+IAntdClient client = AntdClientFactory.CreateRest();   // localhost:8082
 IAntdClient client = AntdClientFactory.CreateGrpc();   // localhost:50051
 
 // Health
@@ -507,7 +537,7 @@ Task<string> FileCostAsync(string path, bool isPublic = true, bool includeArchiv
 ```kotlin
 import com.autonomi.sdk.*
 
-val client = AntdClient.createRest()          // localhost:8080
+val client = AntdClient.createRest()          // localhost:8082
 val client = AntdClient.createGrpc()          // localhost:50051
 
 // Health
@@ -549,7 +579,7 @@ suspend fun fileCost(path: String, isPublic: Boolean = true, includeArchive: Boo
 ```swift
 import AntdSdk
 
-let client = try AntdClient.createRest()          // localhost:8080
+let client = try AntdClient.createRest()          // localhost:8082
 let client = try AntdClient.createGrpc()          // localhost:50051
 
 // Health
@@ -589,7 +619,7 @@ func fileCost(path: String, isPublic: Bool, includeArchive: Bool) async throws -
 ```go
 import antd "github.com/WithAutonomi/ant-sdk/antd-go"
 
-client := antd.NewClient(antd.DefaultBaseURL)        // localhost:8080
+client := antd.NewClient(antd.DefaultBaseURL)        // localhost:8082
 
 // Health
 func (c *Client) Health(ctx context.Context) (*HealthStatus, error)
@@ -630,8 +660,8 @@ func (c *Client) FileCost(ctx context.Context, path string, isPublic bool, inclu
 // Maven:  <dependency><groupId>com.autonomi</groupId><artifactId>antd-java</artifactId><version>0.1.0</version></dependency>
 import com.autonomi.antd.AntdClient;
 
-AntdClient client = AntdClient.create();                  // REST, localhost:8080
-AntdClient client = AntdClient.create("http://remote:8080");
+AntdClient client = AntdClient.create();                  // REST, localhost:8082
+AntdClient client = AntdClient.create("http://remote:8082");
 
 // Health
 HealthStatus health() throws AntdException
@@ -673,7 +703,7 @@ String fileCost(String path, boolean isPublic, boolean includeArchive) throws An
 // cargo add antd-client
 use antd_client::{Client, PutResult, HealthStatus, GraphEntry, GraphDescendant, Archive, AntdError};
 
-let client = Client::new("http://localhost:8080");        // REST, localhost:8080
+let client = Client::new("http://localhost:8082");        // REST, localhost:8082
 
 // Health
 async fn health(&self) -> Result<HealthStatus, AntdError>
@@ -715,8 +745,8 @@ async fn file_cost(&self, path: &str, is_public: bool, include_archive: bool) ->
 // CMake FetchContent from GitHub
 #include <antd/antd.hpp>
 
-antd::Client client;                                      // REST, localhost:8080
-antd::Client client("http://remote:8080");
+antd::Client client;                                      // REST, localhost:8082
+antd::Client client("http://remote:8082");
 
 // Health
 antd::HealthStatus health()                               // throws antd::AntdError
@@ -758,8 +788,8 @@ std::string fileCost(const std::string& path, bool isPublic = true, bool include
 ```ruby
 require "antd"
 
-client = Antd::Client.new                            # localhost:8080
-client = Antd::Client.new(base_url: "http://remote:8080")
+client = Antd::Client.new                            # localhost:8082
+client = Antd::Client.new(base_url: "http://remote:8082")
 
 # Health
 client.health → HealthStatus
@@ -798,8 +828,8 @@ client.file_cost(path, is_public: true, include_archive: false) → String
 ```php
 use Autonomi\AntdClient;
 
-$client = AntdClient::create();                      // localhost:8080
-$client = AntdClient::create("http://remote:8080");
+$client = AntdClient::create();                      // localhost:8082
+$client = AntdClient::create("http://remote:8082");
 
 // Health
 $client->health(): HealthStatus
@@ -838,8 +868,8 @@ $client->fileCost(string $path, bool $isPublic = true, bool $includeArchive = fa
 ```dart
 import 'package:antd/antd.dart';
 
-final client = AntdClient();                         // localhost:8080
-final client = AntdClient(baseUrl: 'http://remote:8080');
+final client = AntdClient();                         // localhost:8082
+final client = AntdClient(baseUrl: 'http://remote:8082');
 
 // Health
 Future<HealthStatus> health()
@@ -878,8 +908,8 @@ Future<String> fileCost(String path, {bool isPublic = true, bool includeArchive 
 ```lua
 local antd = require("antd")
 
-local client = antd.Client.new()                     -- localhost:8080
-local client = antd.Client.new({base_url = "http://remote:8080"})
+local client = antd.Client.new()                     -- localhost:8082
+local client = antd.Client.new({base_url = "http://remote:8082"})
 
 -- Health
 client:health() → HealthStatus
@@ -916,8 +946,8 @@ client:file_cost(path, is_public, include_archive) → string
 ## Elixir SDK Method Signatures
 
 ```elixir
-client = Antd.Client.new()                           # localhost:8080
-client = Antd.Client.new(base_url: "http://remote:8080")
+client = Antd.Client.new()                           # localhost:8082
+client = Antd.Client.new(base_url: "http://remote:8082")
 
 # Health
 Antd.Client.health(client) :: {:ok, HealthStatus.t()} | {:error, term()}
@@ -956,8 +986,8 @@ Antd.Client.file_cost(client, path, is_public \\ true, include_archive \\ false)
 ```zig
 const antd = @import("antd");
 
-var client = try antd.Client.init(.{});              // localhost:8080
-var client = try antd.Client.init(.{ .base_url = "http://remote:8080" });
+var client = try antd.Client.init(.{});              // localhost:8082
+var client = try antd.Client.init(.{ .base_url = "http://remote:8082" });
 defer client.deinit();
 
 // Health
@@ -1128,7 +1158,7 @@ use antd_client::Client;
 
 #[tokio::main]
 async fn main() -> Result<(), antd_client::AntdError> {
-    let client = Client::new("http://localhost:8080");
+    let client = Client::new("http://localhost:8082");
 
     let result = client.data_put_public(b"Hello, Autonomi!").await?;
     println!("Stored at: {}, cost: {}", result.address, result.cost);

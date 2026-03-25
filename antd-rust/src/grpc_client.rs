@@ -1,5 +1,6 @@
 use tonic::transport::{Channel, Endpoint};
 
+use crate::discover::discover_grpc_target;
 use crate::errors::AntdError;
 use crate::models::*;
 
@@ -42,6 +43,14 @@ impl GrpcClient {
     /// This is an alias for [`GrpcClient::connect`].
     pub async fn new(endpoint: &str) -> Result<Self, AntdError> {
         Self::connect(endpoint).await
+    }
+
+    /// Creates a gRPC client by auto-discovering the daemon port file,
+    /// falling back to [`DEFAULT_GRPC_ENDPOINT`] if discovery fails.
+    pub async fn auto_discover() -> Result<Self, AntdError> {
+        let endpoint = discover_grpc_target()
+            .unwrap_or_else(|| DEFAULT_GRPC_ENDPOINT.to_string());
+        Self::connect(&endpoint).await
     }
 
     /// Connects to the antd gRPC server at the given endpoint.

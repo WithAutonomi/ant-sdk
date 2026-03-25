@@ -5,7 +5,7 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
     private let baseURL: String
     private let session: URLSession
 
-    public init(baseURL: String = "http://localhost:8080", timeout: TimeInterval = 300) {
+    public init(baseURL: String = "http://localhost:8082", timeout: TimeInterval = 300) {
         self.baseURL = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = timeout

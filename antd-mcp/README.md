@@ -24,7 +24,9 @@ antd-mcp --sse
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ANTD_BASE_URL` | `http://localhost:8080` | antd daemon URL |
+| `ANTD_BASE_URL` | auto-discovered | antd daemon URL (overrides port-file discovery) |
+
+The MCP server automatically discovers the antd daemon via the `daemon.port` file written by antd on startup. Set `ANTD_BASE_URL` only if you need to override this (e.g. connecting to a remote daemon). If neither the env var nor port file is available, falls back to `http://127.0.0.1:8082`.
 
 ## Claude Desktop Configuration
 
@@ -34,14 +36,13 @@ Add to your Claude Desktop config (`claude_desktop_config.json`):
 {
   "mcpServers": {
     "antd-autonomi": {
-      "command": "antd-mcp",
-      "env": {
-        "ANTD_BASE_URL": "http://localhost:8080"
-      }
+      "command": "antd-mcp"
     }
   }
 }
 ```
+
+The server will auto-discover the daemon via the port file. Add `"env": {"ANTD_BASE_URL": "http://your-host:port"}` only if you need to override discovery.
 
 ## Tool Reference
 

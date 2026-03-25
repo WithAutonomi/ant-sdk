@@ -25,7 +25,7 @@ class AntdClient
     private string $baseUrl;
 
     public function __construct(
-        string $baseUrl = 'http://localhost:8080',
+        string $baseUrl = 'http://localhost:8082',
         float $timeout = 300.0,
         ?Client $httpClient = null,
     ) {
@@ -34,6 +34,24 @@ class AntdClient
             'base_uri' => $this->baseUrl,
             'timeout' => $timeout,
         ]);
+    }
+
+    /**
+     * Create a client using daemon port discovery.
+     * Falls back to http://localhost:8082 if discovery fails.
+     *
+     * @param float $timeout Request timeout in seconds.
+     * @param \GuzzleHttp\Client|null $httpClient Optional HTTP client.
+     * @return array{0: self, 1: string} [$client, $url]
+     */
+    public static function autoDiscover(float $timeout = 300.0, ?Client $httpClient = null): array
+    {
+        $url = DaemonDiscovery::discoverDaemonUrl();
+        if ($url === '') {
+            $url = 'http://localhost:8082';
+        }
+        $client = new self($url, $timeout, $httpClient);
+        return [$client, $url];
     }
 
     // --- Internal helpers ---

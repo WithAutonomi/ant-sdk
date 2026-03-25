@@ -7,13 +7,14 @@
 #include <string_view>
 #include <vector>
 
+#include "discover.hpp"
 #include "errors.hpp"
 #include "models.hpp"
 
 namespace antd {
 
 /// Default address of the antd daemon.
-inline constexpr const char* kDefaultBaseURL = "http://localhost:8080";
+inline constexpr const char* kDefaultBaseURL = "http://localhost:8082";
 
 /// Default request timeout in seconds (5 minutes).
 inline constexpr int kDefaultTimeoutSeconds = 300;
@@ -33,6 +34,14 @@ public:
     Client& operator=(const Client&) = delete;
     Client(Client&&) noexcept;
     Client& operator=(Client&&) noexcept;
+
+    /// Create a client by auto-discovering the daemon port from the
+    /// daemon.port file.  Falls back to kDefaultBaseURL if not found.
+    static Client auto_discover(int timeout_seconds = kDefaultTimeoutSeconds) {
+        auto url = discover_daemon_url();
+        if (url.empty()) url = kDefaultBaseURL;
+        return Client(url, timeout_seconds);
+    }
 
     // --- Health ---
 

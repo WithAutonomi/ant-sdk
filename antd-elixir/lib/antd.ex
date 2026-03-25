@@ -24,7 +24,7 @@ defmodule Antd do
       IO.puts("Retrieved: \#{data}")
   """
 
-  defdelegate new(base_url \\ "http://localhost:8080", opts \\ []), to: Antd.Client
+  defdelegate new(base_url \\ "http://localhost:8082", opts \\ []), to: Antd.Client
   defdelegate health(client), to: Antd.Client
   defdelegate health!(client), to: Antd.Client
   defdelegate data_put_public(client, data), to: Antd.Client

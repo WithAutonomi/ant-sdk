@@ -56,6 +56,21 @@ def _handle_rpc_error(e: grpc.RpcError) -> None:
 class GrpcClient:
     """Synchronous gRPC client for the antd daemon."""
 
+    DEFAULT_TARGET = "localhost:50051"
+
+    @classmethod
+    def auto_discover(cls, **kwargs) -> tuple["GrpcClient", str]:
+        """Create a client using daemon port discovery, falling back to the default target.
+
+        Returns:
+            A tuple of ``(client, resolved_target)`` where *resolved_target* is
+            the gRPC target that was actually used (discovered or default).
+        """
+        from ._discover import discover_grpc_target
+
+        target = discover_grpc_target() or cls.DEFAULT_TARGET
+        return cls(target=target, **kwargs), target
+
     def __init__(self, target: str = "localhost:50051"):
         self._channel = grpc.insecure_channel(target)
         self._health = health_pb2_grpc.HealthServiceStub(self._channel)
@@ -255,6 +270,21 @@ class GrpcClient:
 
 class AsyncGrpcClient:
     """Asynchronous gRPC client for the antd daemon."""
+
+    DEFAULT_TARGET = "localhost:50051"
+
+    @classmethod
+    def auto_discover(cls, **kwargs) -> tuple["AsyncGrpcClient", str]:
+        """Create a client using daemon port discovery, falling back to the default target.
+
+        Returns:
+            A tuple of ``(client, resolved_target)`` where *resolved_target* is
+            the gRPC target that was actually used (discovered or default).
+        """
+        from ._discover import discover_grpc_target
+
+        target = discover_grpc_target() or cls.DEFAULT_TARGET
+        return cls(target=target, **kwargs), target
 
     def __init__(self, target: str = "localhost:50051"):
         self._channel = grpc.aio.insecure_channel(target)

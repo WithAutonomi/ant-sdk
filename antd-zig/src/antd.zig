@@ -5,6 +5,7 @@ const http = std.http;
 pub const models = @import("models.zig");
 pub const errors = @import("errors.zig");
 pub const json_helpers = @import("json_helpers.zig");
+pub const discover = @import("discover.zig");
 
 pub const HealthStatus = models.HealthStatus;
 pub const PutResult = models.PutResult;
@@ -16,9 +17,11 @@ pub const AntdError = errors.AntdError;
 pub const ErrorInfo = errors.ErrorInfo;
 pub const errorForStatus = errors.errorForStatus;
 pub const JsonValue = json_helpers.JsonValue;
+pub const discoverDaemonUrl = discover.discoverDaemonUrl;
+pub const discoverGrpcTarget = discover.discoverGrpcTarget;
 
 /// Default antd daemon address.
-pub const default_base_url = "http://localhost:8080";
+pub const default_base_url = "http://localhost:8082";
 
 /// REST client for the antd daemon.
 pub const Client = struct {
@@ -33,6 +36,17 @@ pub const Client = struct {
         return .{
             .allocator = allocator,
             .base_url = base_url,
+        };
+    }
+
+    /// Create a client using daemon port discovery.
+    /// Falls back to the default base URL if discovery fails.
+    /// Note: if a discovered URL is returned, the caller owns that memory.
+    pub fn autoDiscover(allocator: Allocator) Client {
+        const url = discover.discoverDaemonUrl(allocator);
+        return .{
+            .allocator = allocator,
+            .base_url = url orelse default_base_url,
         };
     }
 

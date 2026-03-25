@@ -22,6 +22,7 @@
 //! ```
 
 pub mod client;
+pub mod discover;
 pub mod errors;
 pub mod grpc_client;
 pub mod models;
@@ -33,6 +34,7 @@ mod tests;
 mod grpc_tests;
 
 pub use client::{Client, DEFAULT_BASE_URL, DEFAULT_TIMEOUT};
+pub use discover::{discover_daemon_url, discover_grpc_target};
 pub use errors::AntdError;
 pub use grpc_client::{GrpcClient, DEFAULT_GRPC_ENDPOINT};
 pub use models::*;

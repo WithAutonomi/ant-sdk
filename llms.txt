@@ -6,7 +6,7 @@
 
 ```python
 from antd import AntdClient
-client = AntdClient()  # REST on localhost:8080
+client = AntdClient()  # REST on localhost:8082
 result = client.data_put_public(b"hello world")
 data = client.data_get_public(result.address)
 ```
@@ -102,7 +102,23 @@ data = client.data_get_public(result.address)
 - [C++ examples](antd-cpp/examples/) — runnable example files
 - [Java examples](antd-java/examples/) — runnable example files
 
-## Default Ports
+## Port Discovery
 
-- REST: `http://localhost:8080`
+All SDKs support automatic daemon discovery via a `daemon.port` file written by antd on startup. Every SDK provides an auto-discover constructor:
+
+```python
+client, url = RestClient.auto_discover()           # Python
+```
+```go
+client, url := antd.NewClientAutoDiscover()        // Go
+```
+```typescript
+const { client, url } = RestClient.autoDiscover(); // TypeScript
+```
+
+Port file locations: `%APPDATA%\ant\daemon.port` (Windows), `~/.local/share/ant/daemon.port` (Linux), `~/Library/Application Support/ant/daemon.port` (macOS). File format: two lines — REST port, gRPC port.
+
+## Default Ports (fallback when no port file)
+
+- REST: `http://localhost:8082`
 - gRPC: `localhost:50051`

@@ -30,6 +30,30 @@ defmodule Antd.GrpcClient do
         }
 
   @doc """
+  Creates a gRPC client using port discovery.
+
+  Reads the daemon.port file to find the gRPC port. Falls back to the
+  default target if the port file is not found.
+
+  ## Examples
+
+      {:ok, client, target} = Antd.GrpcClient.auto_discover()
+  """
+  @spec auto_discover() :: {:ok, t(), String.t()} | {:error, Exception.t()}
+  def auto_discover do
+    target =
+      case Antd.Discover.discover_grpc_target() do
+        "" -> @default_target
+        discovered -> discovered
+      end
+
+    case new(target) do
+      {:ok, client} -> {:ok, client, target}
+      {:error, _} = err -> err
+    end
+  end
+
+  @doc """
   Creates a new gRPC client and opens a channel to the daemon.
 
   ## Examples

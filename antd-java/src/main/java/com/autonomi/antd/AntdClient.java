@@ -31,7 +31,7 @@ import java.util.*;
 public class AntdClient implements AutoCloseable {
 
     /** Default daemon address. */
-    public static final String DEFAULT_BASE_URL = "http://localhost:8080";
+    public static final String DEFAULT_BASE_URL = "http://localhost:8082";
 
     /** Default request timeout (5 minutes). */
     public static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(5);
@@ -39,6 +39,20 @@ public class AntdClient implements AutoCloseable {
     private final String baseUrl;
     private final HttpClient httpClient;
     private final Duration timeout;
+
+    /**
+     * Creates a client that auto-discovers the daemon via the {@code daemon.port} file.
+     * Falls back to {@link #DEFAULT_BASE_URL} if discovery fails.
+     *
+     * @return a new AntdClient connected to the discovered or default URL
+     */
+    public static AntdClient autoDiscover() {
+        String url = DaemonDiscovery.discoverDaemonUrl();
+        if (url.isEmpty()) {
+            url = DEFAULT_BASE_URL;
+        }
+        return new AntdClient(url);
+    }
 
     public AntdClient() {
         this(DEFAULT_BASE_URL, DEFAULT_TIMEOUT);

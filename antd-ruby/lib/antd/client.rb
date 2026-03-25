@@ -6,11 +6,24 @@ require "base64"
 require "uri"
 
 module Antd
-  DEFAULT_BASE_URL = "http://localhost:8080"
+  DEFAULT_BASE_URL = "http://localhost:8082"
   DEFAULT_TIMEOUT  = 300 # seconds
 
   # REST client for the antd daemon.
   class Client
+    # Creates a client using port discovery.
+    #
+    # Reads the daemon.port file to find the REST port. Falls back to the
+    # default base URL if the port file is not found.
+    #
+    # @param kwargs [Hash] options passed to +initialize+ (e.g. +:timeout+)
+    # @return [Array(Client, String)] the client and the resolved URL
+    def self.auto_discover(**kwargs)
+      url = Antd::Discover.daemon_url
+      url = DEFAULT_BASE_URL if url.empty?
+      [new(base_url: url, **kwargs), url]
+    end
+
     # @param base_url [String] Base URL of the antd daemon
     # @param timeout  [Integer] HTTP request timeout in seconds
     def initialize(base_url: DEFAULT_BASE_URL, timeout: DEFAULT_TIMEOUT)

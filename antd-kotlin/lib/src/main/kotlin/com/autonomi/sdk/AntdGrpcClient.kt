@@ -8,6 +8,17 @@ import io.grpc.Status
 
 class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
 
+    companion object {
+        /**
+         * Create a client by auto-discovering the daemon gRPC port from the
+         * `daemon.port` file.  Falls back to `localhost:50051` if not found.
+         */
+        fun autoDiscover(): AntdGrpcClient {
+            val target = DaemonDiscovery.discoverGrpcTarget().ifEmpty { "localhost:50051" }
+            return AntdGrpcClient(target)
+        }
+    }
+
     private val channel = ManagedChannelBuilder.forTarget(target).usePlaintext().build()
     private val healthStub = HealthServiceGrpcKt.HealthServiceCoroutineStub(channel)
     private val dataStub = DataServiceGrpcKt.DataServiceCoroutineStub(channel)

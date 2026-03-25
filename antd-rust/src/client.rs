@@ -5,6 +5,7 @@ use base64::Engine;
 use reqwest;
 use serde_json::{json, Value};
 
+use crate::discover::discover_daemon_url;
 use crate::errors::{error_for_status, AntdError};
 use crate::models::*;
 
@@ -25,7 +26,7 @@ fn url_encode(s: &str) -> String {
 }
 
 /// Default base URL of the antd daemon.
-pub const DEFAULT_BASE_URL: &str = "http://localhost:8080";
+pub const DEFAULT_BASE_URL: &str = "http://localhost:8082";
 
 /// Default request timeout (5 minutes).
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
@@ -41,6 +42,22 @@ impl Client {
     /// Creates a new client with the given base URL and default timeout.
     pub fn new(base_url: &str) -> Self {
         Self::with_timeout(base_url, DEFAULT_TIMEOUT)
+    }
+
+    /// Creates a client by auto-discovering the daemon port file, falling back
+    /// to [`DEFAULT_BASE_URL`] if discovery fails.
+    pub fn auto_discover() -> Self {
+        let url = discover_daemon_url()
+            .unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
+        Self::new(&url)
+    }
+
+    /// Like [`auto_discover`](Self::auto_discover) but with a custom request
+    /// timeout.
+    pub fn auto_discover_with_timeout(timeout: Duration) -> Self {
+        let url = discover_daemon_url()
+            .unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
+        Self::with_timeout(&url, timeout)
     }
 
     /// Creates a new client with the given base URL and custom timeout.

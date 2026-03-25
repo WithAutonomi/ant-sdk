@@ -8,6 +8,19 @@ import httpx
 
 from .env import load_state
 
+DEFAULT_REST_URL = "http://localhost:8082"
+
+def _discover_rest_url() -> str:
+    """Try to discover antd REST URL via port file, fall back to default."""
+    try:
+        from antd import discover_daemon_url
+        url = discover_daemon_url()
+        if url:
+            return url
+    except ImportError:
+        pass
+    return DEFAULT_REST_URL
+
 
 def run(args) -> None:
     state = load_state()
@@ -30,7 +43,8 @@ def run(args) -> None:
         # On local testnet the EVM testnet already funds this key.
         # Verify via health check.
         try:
-            r = httpx.get("http://localhost:8082/health", timeout=5)
+            rest_url = _discover_rest_url()
+            r = httpx.get(f"{rest_url}/health", timeout=5)
             data = r.json()
             if data.get("status") == "ok" or data.get("ok", False):
                 print("Wallet is already funded on local testnet.")

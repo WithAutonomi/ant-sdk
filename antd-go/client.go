@@ -14,7 +14,7 @@ import (
 )
 
 // DefaultBaseURL is the default address of the antd daemon.
-const DefaultBaseURL = "http://localhost:8080"
+const DefaultBaseURL = "http://localhost:8082"
 
 // DefaultTimeout is the default request timeout.
 const DefaultTimeout = 5 * time.Minute
@@ -37,6 +37,17 @@ type Client struct {
 	baseURL string
 	timeout time.Duration
 	http    *http.Client
+}
+
+// NewClientAutoDiscover creates a client that discovers the daemon URL automatically.
+// It reads the port file written by antd on startup, falling back to DefaultBaseURL.
+// Returns the client and the resolved URL.
+func NewClientAutoDiscover(opts ...Option) (*Client, string) {
+	url := DiscoverDaemonURL()
+	if url == "" {
+		url = DefaultBaseURL
+	}
+	return NewClient(url, opts...), url
 }
 
 // NewClient creates a new antd REST client.

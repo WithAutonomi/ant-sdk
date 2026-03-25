@@ -23,6 +23,8 @@ export {
 export { RestClient } from "./rest-client.js";
 export type { RestClientOptions } from "./rest-client.js";
 
+export { discoverDaemonUrl } from "./discover.js";
+
 import { RestClient, type RestClientOptions } from "./rest-client.js";
 
 /** Create a REST client for the antd daemon. */

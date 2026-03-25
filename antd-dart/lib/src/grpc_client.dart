@@ -16,6 +16,7 @@ import 'generated/antd/v1/common.pb.dart' as common_pb;
 import 'generated/antd/v1/files.pbgrpc.dart' as files_pb;
 import 'generated/antd/v1/files.pb.dart' as files_msg;
 
+import 'discover.dart';
 import 'errors.dart';
 import 'models.dart';
 
@@ -104,6 +105,20 @@ class GrpcAntdClient {
                     credentials: ChannelCredentials.insecure()),
               ),
         );
+
+  /// Creates a gRPC client by auto-discovering the daemon port from the
+  /// daemon.port file written by antd on startup. Falls back to
+  /// `localhost:50051` if the port file is not found or has no gRPC line.
+  factory GrpcAntdClient.autoDiscover() {
+    final target = discoverGrpcTarget();
+    if (target.isEmpty) {
+      return GrpcAntdClient.withChannel();
+    }
+    final parts = target.split(':');
+    final host = parts[0];
+    final port = int.parse(parts[1]);
+    return GrpcAntdClient.withChannel(host: host, port: port);
+  }
 
   /// Factory constructor that creates stubs from a single shared channel.
   factory GrpcAntdClient.withChannel({

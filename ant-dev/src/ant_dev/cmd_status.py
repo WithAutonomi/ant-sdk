@@ -10,6 +10,19 @@ import httpx
 from .env import is_windows, load_state
 from .process import is_alive
 
+DEFAULT_REST_URL = "http://localhost:8082"
+
+def _discover_rest_url() -> str:
+    """Try to discover antd REST URL via port file, fall back to default."""
+    try:
+        from antd import discover_daemon_url
+        url = discover_daemon_url()
+        if url:
+            return url
+    except ImportError:
+        pass
+    return DEFAULT_REST_URL
+
 
 def _color(code: str, text: str) -> str:
     if is_windows() and "WT_SESSION" not in os.environ:
@@ -48,7 +61,8 @@ def run(args) -> None:
     # Health check
     print()
     try:
-        r = httpx.get("http://localhost:8082/health", timeout=5)
+        rest_url = _discover_rest_url()
+        r = httpx.get(f"{rest_url}/health", timeout=5)
         data = r.json()
         ok = data.get("status") == "ok" or data.get("ok", False)
         network = data.get("network", "unknown")

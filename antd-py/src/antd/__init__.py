@@ -19,6 +19,7 @@ from .models import (
     HealthStatus,
     PutResult,
 )
+from ._discover import discover_daemon_url, discover_grpc_target
 from .exceptions import (
     AntdError,
     AlreadyExistsError,
@@ -32,6 +33,9 @@ from .exceptions import (
 )
 
 __all__ = [
+    # Discovery
+    "discover_daemon_url",
+    "discover_grpc_target",
     # Factory functions
     "AntdClient",
     "AsyncAntdClient",
@@ -61,7 +65,7 @@ def AntdClient(transport: str = "rest", **kwargs):
     Args:
         transport: "rest" (default) or "grpc"
         **kwargs: Passed to the underlying client constructor.
-            REST: base_url (default "http://localhost:8080"), timeout
+            REST: base_url (default "http://localhost:8082"), timeout
             gRPC: target (default "localhost:50051")
     """
     if transport == "rest":
@@ -80,7 +84,7 @@ def AsyncAntdClient(transport: str = "rest", **kwargs):
     Args:
         transport: "rest" (default) or "grpc"
         **kwargs: Passed to the underlying client constructor.
-            REST: base_url (default "http://localhost:8080"), timeout
+            REST: base_url (default "http://localhost:8082"), timeout
             gRPC: target (default "localhost:50051")
     """
     if transport == "rest":

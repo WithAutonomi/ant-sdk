@@ -7,7 +7,7 @@ defmodule Antd.Client do
   raise on error.
   """
 
-  @default_base_url "http://localhost:8080"
+  @default_base_url "http://localhost:8082"
   @default_timeout 300_000
 
   defstruct base_url: @default_base_url, timeout: @default_timeout
@@ -16,6 +16,32 @@ defmodule Antd.Client do
           base_url: String.t(),
           timeout: integer()
         }
+
+  @doc """
+  Creates a client using port discovery.
+
+  Reads the daemon.port file to find the REST port. Falls back to the
+  default base URL if the port file is not found.
+
+  ## Options
+
+    * `:timeout` - HTTP request timeout in milliseconds (default: 300_000)
+
+  ## Examples
+
+      {client, url} = Antd.Client.auto_discover()
+      {client, url} = Antd.Client.auto_discover(timeout: 30_000)
+  """
+  @spec auto_discover(keyword()) :: {t(), String.t()}
+  def auto_discover(opts \\ []) do
+    url =
+      case Antd.Discover.discover_daemon_url() do
+        "" -> @default_base_url
+        discovered -> discovered
+      end
+
+    {new(url, opts), url}
+  end
 
   @doc """
   Creates a new client.
@@ -28,7 +54,7 @@ defmodule Antd.Client do
 
       client = Antd.Client.new()
       client = Antd.Client.new("http://custom-host:9090")
-      client = Antd.Client.new("http://localhost:8080", timeout: 30_000)
+      client = Antd.Client.new("http://localhost:8082", timeout: 30_000)
   """
   @spec new(String.t(), keyword()) :: t()
   def new(base_url \\ @default_base_url, opts \\ []) do

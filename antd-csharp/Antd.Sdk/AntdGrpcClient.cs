@@ -24,6 +24,16 @@ public sealed class AntdGrpcClient : IAntdClient
         _files = new FileService.FileServiceClient(_channel);
     }
 
+    /// <summary>
+    /// Creates an AntdGrpcClient by reading the daemon.port file written by antd.
+    /// Falls back to the default target if the port file is not found.
+    /// </summary>
+    public static AntdGrpcClient AutoDiscover()
+    {
+        var target = DaemonDiscovery.DiscoverGrpcTarget();
+        return string.IsNullOrEmpty(target) ? new AntdGrpcClient() : new AntdGrpcClient(target);
+    }
+
     public void Dispose() => _channel.Dispose();
 
     private static AntdException Wrap(RpcException ex) => ExceptionMapping.FromGrpcStatus(ex);

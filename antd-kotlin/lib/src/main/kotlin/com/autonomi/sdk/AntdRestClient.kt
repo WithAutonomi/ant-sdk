@@ -18,9 +18,20 @@ import java.time.Duration
 import java.util.Base64
 
 class AntdRestClient(
-    baseUrl: String = "http://localhost:8080",
+    baseUrl: String = "http://localhost:8082",
     timeout: Duration = Duration.ofSeconds(300),
 ) : IAntdClient {
+
+    companion object {
+        /**
+         * Create a client by auto-discovering the daemon port from the
+         * `daemon.port` file.  Falls back to `http://localhost:8082` if not found.
+         */
+        fun autoDiscover(timeout: Duration = Duration.ofSeconds(300)): AntdRestClient {
+            val url = DaemonDiscovery.discoverDaemonUrl().ifEmpty { "http://localhost:8082" }
+            return AntdRestClient(url, timeout)
+        }
+    }
 
     private val baseUrl = baseUrl.trimEnd('/')
     private val http = OkHttpClient.Builder()

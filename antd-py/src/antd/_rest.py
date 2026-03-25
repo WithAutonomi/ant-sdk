@@ -43,9 +43,24 @@ def _check(resp: httpx.Response) -> None:
 class RestClient:
     """Synchronous REST client for the antd daemon."""
 
-    def __init__(self, base_url: str = "http://localhost:8080", timeout: float = 300.0):
+    DEFAULT_BASE_URL = "http://localhost:8082"
+
+    def __init__(self, base_url: str = "http://localhost:8082", timeout: float = 300.0):
         self._base = base_url.rstrip("/")
         self._http = httpx.Client(base_url=self._base, timeout=timeout)
+
+    @classmethod
+    def auto_discover(cls, **kwargs) -> tuple["RestClient", str]:
+        """Create a client using daemon port discovery, falling back to the default URL.
+
+        Returns:
+            A tuple of ``(client, resolved_url)`` where *resolved_url* is the
+            URL that was actually used (discovered or default).
+        """
+        from ._discover import discover_daemon_url
+
+        url = discover_daemon_url() or cls.DEFAULT_BASE_URL
+        return cls(base_url=url, **kwargs), url
 
     def close(self) -> None:
         self._http.close()
@@ -210,9 +225,24 @@ class RestClient:
 class AsyncRestClient:
     """Asynchronous REST client for the antd daemon."""
 
-    def __init__(self, base_url: str = "http://localhost:8080", timeout: float = 300.0):
+    DEFAULT_BASE_URL = "http://localhost:8082"
+
+    def __init__(self, base_url: str = "http://localhost:8082", timeout: float = 300.0):
         self._base = base_url.rstrip("/")
         self._http = httpx.AsyncClient(base_url=self._base, timeout=timeout)
+
+    @classmethod
+    def auto_discover(cls, **kwargs) -> tuple["AsyncRestClient", str]:
+        """Create a client using daemon port discovery, falling back to the default URL.
+
+        Returns:
+            A tuple of ``(client, resolved_url)`` where *resolved_url* is the
+            URL that was actually used (discovered or default).
+        """
+        from ._discover import discover_daemon_url
+
+        url = discover_daemon_url() or cls.DEFAULT_BASE_URL
+        return cls(base_url=url, **kwargs), url
 
     async def close(self) -> None:
         await self._http.aclose()

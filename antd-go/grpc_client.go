@@ -47,6 +47,18 @@ type GrpcClient struct {
 	file   pb.FileServiceClient
 }
 
+// NewGrpcClientAutoDiscover creates a gRPC client that discovers the daemon target
+// automatically. It reads the port file written by antd on startup, falling back
+// to DefaultGrpcTarget. Returns the client, the resolved target, and any error.
+func NewGrpcClientAutoDiscover(opts ...GrpcOption) (*GrpcClient, string, error) {
+	target := DiscoverGrpcTarget()
+	if target == "" {
+		target = DefaultGrpcTarget
+	}
+	c, err := NewGrpcClient(target, opts...)
+	return c, target, err
+}
+
 // NewGrpcClient creates a new gRPC client connected to the given target
 // (e.g. "localhost:50051"). The connection is established lazily on first use.
 func NewGrpcClient(target string, opts ...GrpcOption) (*GrpcClient, error) {

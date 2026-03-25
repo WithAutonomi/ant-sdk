@@ -87,6 +87,20 @@ public class GrpcAntdClient implements AutoCloseable {
     private final FileServiceGrpc.FileServiceBlockingStub fileStub;
 
     /**
+     * Creates a client that auto-discovers the daemon via the {@code daemon.port} file.
+     * Falls back to {@link #DEFAULT_TARGET} if discovery fails.
+     *
+     * @return a new GrpcAntdClient connected to the discovered or default target
+     */
+    public static GrpcAntdClient autoDiscover() {
+        String target = DaemonDiscovery.discoverGrpcTarget();
+        if (target.isEmpty()) {
+            target = DEFAULT_TARGET;
+        }
+        return new GrpcAntdClient(target);
+    }
+
+    /**
      * Creates a client connected to {@code localhost:50051} with plaintext (no TLS).
      */
     public GrpcAntdClient() {

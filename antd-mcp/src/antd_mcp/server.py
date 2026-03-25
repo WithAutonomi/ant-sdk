@@ -14,16 +14,20 @@ from antd import AsyncAntdClient
 from antd.exceptions import AntdError
 from antd.models import GraphDescendant
 
+from .discover import discover_daemon_url
 from .errors import format_error, format_unexpected_error
 
 # ---------------------------------------------------------------------------
 # Lifespan — create/close a single AsyncRestClient for the server's lifetime
 # ---------------------------------------------------------------------------
 
+_DEFAULT_BASE_URL = "http://127.0.0.1:8082"
+
 
 @asynccontextmanager
 async def lifespan(server: FastMCP):
-    base_url = os.environ.get("ANTD_BASE_URL", "http://localhost:8080")
+    # Priority: env var > port-file discovery > default
+    base_url = os.environ.get("ANTD_BASE_URL") or discover_daemon_url() or _DEFAULT_BASE_URL
     client = AsyncAntdClient(transport="rest", base_url=base_url)
     # Query the daemon's network on startup
     network = "unknown"

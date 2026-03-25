@@ -59,7 +59,10 @@ ant dev start
 ## Configuration
 
 ```go
-// Default: http://localhost:8080, 5 minute timeout
+// Auto-discover daemon via port file (recommended)
+client, url := antd.NewClientAutoDiscover()
+
+// Explicit URL (default: http://localhost:8082)
 client := antd.NewClient(antd.DefaultBaseURL)
 
 // Custom URL

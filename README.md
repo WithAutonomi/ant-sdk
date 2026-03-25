@@ -29,6 +29,37 @@ A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized 
 
 **antd** is a local gateway daemon (written in Rust) that exposes the Autonomi network via REST and gRPC APIs. The SDKs and MCP server talk to antd — your application code never touches the network directly.
 
+### Port Discovery
+
+All SDKs support automatic daemon discovery. When antd starts, it writes a `daemon.port` file containing the REST and gRPC ports to a platform-specific location:
+
+| Platform | Path |
+|----------|------|
+| Windows | `%APPDATA%\ant\daemon.port` |
+| Linux | `~/.local/share/ant/daemon.port` (or `$XDG_DATA_HOME/ant/`) |
+| macOS | `~/Library/Application Support/ant/daemon.port` |
+
+Every SDK provides an auto-discover constructor that reads this file and connects automatically:
+
+```python
+# Python
+client, url = RestClient.auto_discover()
+```
+
+```go
+// Go
+client, url := antd.NewClientAutoDiscover()
+```
+
+```typescript
+// TypeScript
+const { client, url } = RestClient.autoDiscover();
+```
+
+This is especially useful in managed mode, where a parent process (e.g. indelible) spawns antd with `--rest-port 0` to let the OS assign a free port. The SDK discovers the actual port via the port file without any hardcoded configuration.
+
+If no port file is found, all SDKs fall back to the default REST endpoint (`http://localhost:8082`) or gRPC target (`localhost:50051`).
+
 ## Components
 
 ### Infrastructure
@@ -216,7 +247,7 @@ import (
 )
 
 func main() {
-    client := antd.NewClient(antd.DefaultBaseURL)
+    client, _ := antd.NewClientAutoDiscover()
     ctx := context.Background()
 
     health, err := client.Health(ctx)

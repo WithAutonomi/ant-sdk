@@ -4,6 +4,7 @@
 local Client = require("antd.client")
 local models = require("antd.models")
 local errors = require("antd.errors")
+local discover = require("antd.discover")
 
 local M = {}
 
@@ -13,11 +14,25 @@ M._VERSION = "0.1.0"
 --- Default base URL for the antd daemon.
 M.DEFAULT_BASE_URL = Client.DEFAULT_BASE_URL
 
+--- Discover the daemon REST URL from the port file.
+-- @return string URL or "" if unavailable
+M.discover_daemon_url = discover.daemon_url
+
+--- Discover the daemon gRPC target from the port file.
+-- @return string target or "" if unavailable
+M.discover_grpc_target = discover.grpc_target
+
+--- Create a client using daemon port discovery.
+-- Falls back to the default base URL if discovery fails.
+-- @param opts table optional settings: { timeout = number }
+-- @return Client client, string url
+M.auto_discover = Client.auto_discover
+
 --- Default timeout in seconds.
 M.DEFAULT_TIMEOUT = Client.DEFAULT_TIMEOUT
 
 --- Create a new antd client.
--- @param base_url string base URL (default "http://localhost:8080")
+-- @param base_url string base URL (default "http://localhost:8082")
 -- @param opts table optional settings: { timeout = number }
 -- @return Client
 function M.new_client(base_url, opts)

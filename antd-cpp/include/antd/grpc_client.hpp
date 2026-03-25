@@ -6,6 +6,7 @@
 #include <string_view>
 #include <vector>
 
+#include "discover.hpp"
 #include "errors.hpp"
 #include "models.hpp"
 
@@ -37,6 +38,14 @@ public:
     GrpcClient& operator=(const GrpcClient&) = delete;
     GrpcClient(GrpcClient&&) noexcept;
     GrpcClient& operator=(GrpcClient&&) noexcept;
+
+    /// Create a client by auto-discovering the daemon gRPC port from the
+    /// daemon.port file.  Falls back to kDefaultGrpcTarget if not found.
+    static GrpcClient auto_discover() {
+        auto target = discover_grpc_target();
+        if (target.empty()) target = kDefaultGrpcTarget;
+        return GrpcClient(target);
+    }
 
     // --- Health ---
 

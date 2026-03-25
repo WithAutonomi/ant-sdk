@@ -3,11 +3,12 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
+import 'discover.dart';
 import 'errors.dart';
 import 'models.dart';
 
 /// Default base URL for the antd daemon.
-const defaultBaseUrl = 'http://localhost:8080';
+const defaultBaseUrl = 'http://localhost:8082';
 
 /// Default request timeout.
 const defaultTimeout = Duration(minutes: 5);
@@ -21,7 +22,7 @@ class AntdClient {
 
   /// Creates a new antd REST client.
   ///
-  /// [baseUrl] defaults to `http://localhost:8080`.
+  /// [baseUrl] defaults to `http://localhost:8082`.
   /// [timeout] defaults to 5 minutes.
   /// [httpClient] optionally provide a custom HTTP client (e.g. for testing).
   AntdClient({
@@ -32,6 +33,22 @@ class AntdClient {
         _timeout = timeout,
         _httpClient = httpClient ?? http.Client(),
         _ownsClient = httpClient == null;
+
+  /// Creates an antd REST client by auto-discovering the daemon port from the
+  /// daemon.port file written by antd on startup. Falls back to [defaultBaseUrl]
+  /// if the port file is not found.
+  factory AntdClient.autoDiscover({
+    Duration timeout = defaultTimeout,
+    http.Client? httpClient,
+  }) {
+    final discovered = discoverDaemonUrl();
+    final baseUrl = discovered.isNotEmpty ? discovered : defaultBaseUrl;
+    return AntdClient(
+      baseUrl: baseUrl,
+      timeout: timeout,
+      httpClient: httpClient,
+    );
+  }
 
   /// Closes the HTTP client. Only closes if the client was created internally.
   void close() {

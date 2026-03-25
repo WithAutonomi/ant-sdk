@@ -7,18 +7,19 @@ local cjson = require("cjson")
 local base64 = require("antd.base64")
 local errors = require("antd.errors")
 local models = require("antd.models")
+local discover = require("antd.discover")
 
 local Client = {}
 Client.__index = Client
 
 --- Default base URL for the antd daemon.
-Client.DEFAULT_BASE_URL = "http://localhost:8080"
+Client.DEFAULT_BASE_URL = "http://localhost:8082"
 
 --- Default request timeout in seconds.
 Client.DEFAULT_TIMEOUT = 300
 
 --- Create a new antd client.
--- @param base_url string base URL (default "http://localhost:8080")
+-- @param base_url string base URL (default "http://localhost:8082")
 -- @param opts table optional settings: { timeout = number }
 -- @return Client
 function Client:new(base_url, opts)
@@ -399,6 +400,18 @@ function Client:file_cost(path, is_public, include_archive)
     })
     if err then return nil, err end
     return str(j, "cost"), nil
+end
+
+--- Create a client using daemon port discovery.
+-- Falls back to the default base URL if discovery fails.
+-- @param opts table optional settings: { timeout = number }
+-- @return Client client, string url
+function Client.auto_discover(opts)
+    local url = discover.daemon_url()
+    if url == "" then
+        url = Client.DEFAULT_BASE_URL
+    end
+    return Client:new(url, opts), url
 end
 
 return Client

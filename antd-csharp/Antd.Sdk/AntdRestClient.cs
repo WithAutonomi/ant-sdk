@@ -15,10 +15,20 @@ public sealed class AntdRestClient : IAntdClient
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
-    public AntdRestClient(string baseUrl = "http://localhost:8080", TimeSpan? timeout = null)
+    public AntdRestClient(string baseUrl = "http://localhost:8082", TimeSpan? timeout = null)
     {
         _baseUrl = baseUrl.TrimEnd('/');
         _http = new HttpClient { BaseAddress = new Uri(_baseUrl), Timeout = timeout ?? TimeSpan.FromSeconds(300) };
+    }
+
+    /// <summary>
+    /// Creates an AntdRestClient by reading the daemon.port file written by antd.
+    /// Falls back to the default base URL if the port file is not found.
+    /// </summary>
+    public static AntdRestClient AutoDiscover(TimeSpan? timeout = null)
+    {
+        var url = DaemonDiscovery.DiscoverDaemonUrl();
+        return string.IsNullOrEmpty(url) ? new AntdRestClient(timeout: timeout) : new AntdRestClient(url, timeout);
     }
 
     public void Dispose() => _http.Dispose();

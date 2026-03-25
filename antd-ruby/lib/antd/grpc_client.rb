@@ -25,6 +25,18 @@ module Antd
   # Provides the same 19 methods as the REST +Client+, but communicates over
   # gRPC using the proto-generated stubs from +antd/v1/*.proto+.
   class GrpcClient
+    # Creates a gRPC client using port discovery.
+    #
+    # Reads the daemon.port file to find the gRPC port. Falls back to the
+    # default target if the port file is not found.
+    #
+    # @return [Array(GrpcClient, String)] the client and the resolved target
+    def self.auto_discover
+      target = Antd::Discover.grpc_target
+      target = DEFAULT_GRPC_TARGET if target.empty?
+      [new(target: target), target]
+    end
+
     # @param target [String] gRPC target address (default: "localhost:50051")
     def initialize(target: DEFAULT_GRPC_TARGET)
       @target = target

@@ -6,11 +6,13 @@ You are helping a developer build an application on the **Autonomi** decentraliz
 
 Autonomi is a permanent, decentralized data network. Data is content-addressed (immutable). Storage is pay-once, reads are free.
 
-**How it works:** A local Rust daemon (`antd`) connects to the network and exposes REST + gRPC APIs. Your app talks to antd through a language SDK. The developer never touches the network directly.
+**How it works:** A local Rust daemon (`antd`) connects to the network and exposes REST + gRPC APIs. Your app talks to antd through a language SDK. The developer never touches the network directly. All SDKs support automatic daemon discovery via a port file written by antd on startup.
 
 ```
 App  →  SDK  →  antd daemon (localhost)  →  Autonomi Network
 ```
+
+**Port discovery:** antd writes `daemon.port` to the platform data dir (`%APPDATA%\ant\` on Windows, `~/.local/share/ant/` on Linux, `~/Library/Application Support/ant/` on macOS). All SDKs provide auto-discover constructors that read this file. When generating client code, prefer the auto-discover constructor (e.g. `NewClientAutoDiscover()` in Go, `RestClient.auto_discover()` in Python) over hardcoded URLs. Default fallback: REST on `localhost:8082`, gRPC on `localhost:50051`.
 
 For detailed API signatures and endpoint documentation, see:
 - **[llms.txt](llms.txt)** — concise overview of all REST endpoints, gRPC services, error codes, and SDK links
@@ -128,7 +130,7 @@ When a developer asks to build something, follow this sequence:
 
 1. **Pick the language** — ask if not obvious from context
 2. **Start the daemon** — remind them: `ant dev start` (or `pip install -e ant-dev/ && ant dev start`)
-3. **Create the client** — show the 2-line connection code for their language
+3. **Create the client** — use the auto-discover constructor for their language (falls back to defaults if antd port file isn't present)
 4. **Check health** — `client.health()` to verify the daemon is running
 5. **Match their use case to a primitive** — use the tables above
 6. **Estimate cost** — call the `*_cost` method before any write

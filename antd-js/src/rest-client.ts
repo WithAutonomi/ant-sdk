@@ -1,3 +1,4 @@
+import { discoverDaemonUrl } from "./discover.js";
 import { fromHttpStatus } from "./errors.js";
 import type {
   Archive,
@@ -10,7 +11,7 @@ import type {
 
 /** Options for creating a REST client. */
 export interface RestClientOptions {
-  /** Base URL of the antd daemon. Defaults to "http://localhost:8080". */
+  /** Base URL of the antd daemon. Defaults to "http://localhost:8082". */
   baseUrl?: string;
   /** Request timeout in milliseconds. Defaults to 300000 (5 minutes). */
   timeout?: number;
@@ -21,8 +22,25 @@ export class RestClient {
   private readonly baseUrl: string;
   private readonly timeout: number;
 
+  /**
+   * Creates a REST client by auto-discovering the daemon port from the
+   * daemon.port file written by antd on startup. Falls back to the default
+   * base URL if the port file is not found.
+   *
+   * @returns An object with the created `client` and the discovered `url`
+   *          (empty string if discovery failed and default was used).
+   */
+  static autoDiscover(options?: RestClientOptions): { client: RestClient; url: string } {
+    const discovered = discoverDaemonUrl();
+    const opts: RestClientOptions = { ...options };
+    if (discovered !== "") {
+      opts.baseUrl = discovered;
+    }
+    return { client: new RestClient(opts), url: discovered };
+  }
+
   constructor(options: RestClientOptions = {}) {
-    this.baseUrl = (options.baseUrl ?? "http://localhost:8080").replace(/\/+$/, "");
+    this.baseUrl = (options.baseUrl ?? "http://localhost:8082").replace(/\/+$/, "");
     this.timeout = options.timeout ?? 300_000;
   }
 

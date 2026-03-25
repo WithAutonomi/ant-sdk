@@ -23,6 +23,19 @@ from .env import (
 )
 from .process import start_process, wait_for_http
 
+DEFAULT_REST_URL = "http://localhost:8082"
+
+def _discover_rest_url() -> str:
+    """Try to discover antd REST URL via port file, fall back to default."""
+    try:
+        from antd import discover_daemon_url
+        url = discover_daemon_url()
+        if url:
+            return url
+    except ImportError:
+        pass
+    return DEFAULT_REST_URL
+
 
 # ── ANSI colours (disabled on Windows without VT support) ──
 
@@ -128,15 +141,16 @@ def run(args) -> None:
 
     print()
     if ready:
+        rest_url = _discover_rest_url()
         print(green("=== Ready! ==="))
         print()
-        print(white("  REST:  http://localhost:8082"))
+        print(white(f"  REST:  {rest_url}"))
         print(white("  gRPC:  localhost:50051"))
         if wallet_key:
             print(white(f"  Key:   {wallet_key[:10]}..."))
         print()
         print(gray("Quick test:"))
-        print(gray("  curl http://localhost:8082/health"))
+        print(gray(f"  curl {rest_url}/health"))
         print()
         print(gray("To tear down:"))
         print(gray("  ant dev stop"))
