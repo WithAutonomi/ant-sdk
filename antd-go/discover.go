@@ -35,8 +35,10 @@ func DiscoverGrpcTarget() string {
 }
 
 // readPortFile reads the daemon.port file and returns the REST and gRPC ports.
-// The file format is two lines: REST port on line 1, gRPC port on line 2.
+// The file format is: REST port (line 1), gRPC port (line 2), PID (line 3).
 // A single-line file is valid (gRPC port will be 0).
+// If a PID is present and the process is not running, the file is considered
+// stale and both ports are returned as 0.
 func readPortFile() (restPort, grpcPort uint16) {
 	dir := dataDir()
 	if dir == "" {
@@ -53,12 +55,23 @@ func readPortFile() (restPort, grpcPort uint16) {
 		return 0, 0
 	}
 
+	// Check PID on line 3 — if present and process is dead, file is stale
+	if len(lines) >= 3 {
+		if pid, err := strconv.Atoi(strings.TrimSpace(lines[2])); err == nil && pid > 0 {
+			if !processAlive(pid) {
+				return 0, 0
+			}
+		}
+	}
+
 	restPort = parsePort(lines[0])
 	if len(lines) >= 2 {
 		grpcPort = parsePort(lines[1])
 	}
 	return restPort, grpcPort
 }
+
+// processAlive is implemented per-platform in discover_unix.go and discover_windows.go.
 
 func parsePort(s string) uint16 {
 	n, err := strconv.ParseUint(strings.TrimSpace(s), 10, 16)

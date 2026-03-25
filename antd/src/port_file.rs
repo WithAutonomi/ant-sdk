@@ -23,6 +23,8 @@ fn port_file_path() -> Option<PathBuf> {
 ///
 /// Format: two lines — REST port on line 1, gRPC port on line 2.
 /// Writes to a temp file first then renames for atomicity.
+/// On Windows, removes the target first since rename fails if it exists.
+/// Also removes any stale port file from a previous crashed instance.
 pub fn write(rest_port: u16, grpc_port: u16) -> Option<PathBuf> {
     let dir = data_dir()?;
     if let Err(e) = fs::create_dir_all(&dir) {
@@ -33,12 +35,18 @@ pub fn write(rest_port: u16, grpc_port: u16) -> Option<PathBuf> {
     let target = dir.join(PORT_FILE_NAME);
     let tmp = dir.join(format!("{PORT_FILE_NAME}.tmp"));
 
-    let contents = format!("{rest_port}\n{grpc_port}\n");
+    let pid = std::process::id();
+    let contents = format!("{rest_port}\n{grpc_port}\n{pid}\n");
 
     let result = (|| -> std::io::Result<()> {
         let mut f = fs::File::create(&tmp)?;
         f.write_all(contents.as_bytes())?;
         f.sync_all()?;
+        // On Windows, rename fails if target exists — remove it first.
+        // This is not atomic on Windows but is the best we can do.
+        if cfg!(windows) {
+            let _ = fs::remove_file(&target);
+        }
         fs::rename(&tmp, &target)?;
         Ok(())
     })();
