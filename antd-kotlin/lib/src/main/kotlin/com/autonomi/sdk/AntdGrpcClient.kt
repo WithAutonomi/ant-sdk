@@ -169,4 +169,14 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
         })
         resp.attoTokens
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
+
+    // ── Wallet ──
+
+    override suspend fun walletAddress(): WalletAddress {
+        throw UnsupportedOperationException("walletAddress is not yet supported via gRPC")
+    }
+
+    override suspend fun walletBalance(): WalletBalance {
+        throw UnsupportedOperationException("walletBalance is not yet supported via gRPC")
+    }
 }

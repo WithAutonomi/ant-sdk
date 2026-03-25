@@ -113,6 +113,14 @@ public:
     /// Estimate the cost of uploading a file.
     std::string file_cost(std::string_view path, bool is_public, bool include_archive);
 
+    // --- Wallet ---
+
+    /// Get the wallet address configured on the daemon.
+    WalletAddress wallet_address();
+
+    /// Get the wallet balance (tokens and gas).
+    WalletBalance wallet_balance();
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

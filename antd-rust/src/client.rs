@@ -506,4 +506,29 @@ impl Client {
         let j = j.unwrap_or_default();
         Ok(Self::str_field(&j, "cost"))
     }
+
+    // --- Wallet ---
+
+    /// Returns the wallet address configured in the daemon.
+    pub async fn wallet_address(&self) -> Result<WalletAddress, AntdError> {
+        let (j, _) = self
+            .do_json(reqwest::Method::GET, "/v1/wallet/address", None)
+            .await?;
+        let j = j.unwrap_or_default();
+        Ok(WalletAddress {
+            address: Self::str_field(&j, "address"),
+        })
+    }
+
+    /// Returns the wallet balance from the daemon.
+    pub async fn wallet_balance(&self) -> Result<WalletBalance, AntdError> {
+        let (j, _) = self
+            .do_json(reqwest::Method::GET, "/v1/wallet/balance", None)
+            .await?;
+        let j = j.unwrap_or_default();
+        Ok(WalletBalance {
+            balance: Self::str_field(&j, "balance"),
+            gas_balance: Self::str_field(&j, "gas_balance"),
+        })
+    }
 }

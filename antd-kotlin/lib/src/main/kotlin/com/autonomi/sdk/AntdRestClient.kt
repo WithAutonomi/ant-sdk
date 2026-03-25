@@ -246,4 +246,16 @@ class AntdRestClient(
         val resp = postJson<CostDto>("/v1/cost/file", body)
         return resp.cost
     }
+
+    // ── Wallet ──
+
+    override suspend fun walletAddress(): WalletAddress {
+        val resp = getJson<WalletAddressDto>("/v1/wallet/address")
+        return WalletAddress(resp.address)
+    }
+
+    override suspend fun walletBalance(): WalletBalance {
+        val resp = getJson<WalletBalanceDto>("/v1/wallet/balance")
+        return WalletBalance(resp.balance, resp.gasBalance)
+    }
 }

@@ -46,4 +46,15 @@ struct Archive {
     std::vector<ArchiveEntry> entries;
 };
 
+/// Wallet address response.
+struct WalletAddress {
+    std::string address;  // 0x-prefixed hex
+};
+
+/// Wallet balance response.
+struct WalletBalance {
+    std::string balance;      // atto tokens as string
+    std::string gas_balance;  // atto tokens as string
+};
+
 }  // namespace antd

@@ -39,3 +39,14 @@ type ArchiveEntry struct {
 type Archive struct {
 	Entries []ArchiveEntry `json:"entries"`
 }
+
+// WalletAddress is the result of a wallet address query.
+type WalletAddress struct {
+	Address string `json:"address"` // hex with 0x prefix
+}
+
+// WalletBalance is the result of a wallet balance query.
+type WalletBalance struct {
+	Balance    string `json:"balance"`     // token balance in atto
+	GasBalance string `json:"gas_balance"` // gas balance in wei
+}

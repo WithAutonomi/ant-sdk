@@ -232,6 +232,22 @@ module Antd
       j["cost"]
     end
 
+    # --- Wallet ---
+
+    # Get the wallet address configured on the daemon.
+    # @return [WalletAddress]
+    def wallet_address
+      j = do_json(:get, "/v1/wallet/address")
+      WalletAddress.new(address: j["address"])
+    end
+
+    # Get the wallet balance and gas balance.
+    # @return [WalletBalance]
+    def wallet_balance
+      j = do_json(:get, "/v1/wallet/balance")
+      WalletBalance.new(balance: j["balance"], gas_balance: j["gas_balance"])
+    end
+
     private
 
     def b64_encode(data)

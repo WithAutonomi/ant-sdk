@@ -332,4 +332,16 @@ public class AntdClient implements AutoCloseable {
         Map<String, Object> j = doJson("POST", "/v1/cost/file", body);
         return str(j, "cost");
     }
+
+    // ── Wallet ──
+
+    public WalletAddress walletAddress() {
+        Map<String, Object> j = doJson("GET", "/v1/wallet/address", null);
+        return new WalletAddress(str(j, "address"));
+    }
+
+    public WalletBalance walletBalance() {
+        Map<String, Object> j = doJson("GET", "/v1/wallet/balance", null);
+        return new WalletBalance(str(j, "balance"), str(j, "gas_balance"));
+    }
 }

@@ -7,6 +7,8 @@ import type {
   GraphEntry,
   HealthStatus,
   PutResult,
+  WalletAddress,
+  WalletBalance,
 } from "./models.js";
 
 /** Options for creating a REST client. */
@@ -288,5 +290,17 @@ export class RestClient {
       include_archive: includeArchive,
     });
     return j.cost;
+  }
+
+  // ---- Wallet ----
+
+  async walletAddress(): Promise<WalletAddress> {
+    const j = await this.getJson<{ address: string }>("/v1/wallet/address");
+    return { address: j.address };
+  }
+
+  async walletBalance(): Promise<WalletBalance> {
+    const j = await this.getJson<{ balance: string; gas_balance: string }>("/v1/wallet/balance");
+    return { balance: j.balance, gasBalance: j.gas_balance };
   }
 }

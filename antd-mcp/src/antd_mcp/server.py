@@ -269,7 +269,53 @@ async def check_balance() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Tool 7: chunk_put
+# Tool 7: wallet_address
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def wallet_address() -> str:
+    """Get the wallet's public address from the antd daemon.
+
+    Returns:
+        JSON with the wallet address (e.g. "0x..."), or error details.
+        Returns an error if no wallet is configured.
+    """
+    client, network = _get_ctx()
+    try:
+        result = await client.wallet_address()
+        return _ok({"address": result.address}, network)
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
+# Tool 8: wallet_balance
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def wallet_balance() -> str:
+    """Get the wallet's token and gas balances from the antd daemon.
+
+    Returns:
+        JSON with balance (token balance) and gas_balance (gas token balance),
+        both as strings in atto units. Returns an error if no wallet is configured.
+    """
+    client, network = _get_ctx()
+    try:
+        result = await client.wallet_balance()
+        return _ok({"balance": result.balance, "gas_balance": result.gas_balance}, network)
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
+# Tool 9: chunk_put
 # ---------------------------------------------------------------------------
 
 
@@ -297,7 +343,7 @@ async def chunk_put(
 
 
 # ---------------------------------------------------------------------------
-# Tool 8: chunk_get
+# Tool 10: chunk_get
 # ---------------------------------------------------------------------------
 
 
@@ -324,7 +370,7 @@ async def chunk_get(
 
 
 # ---------------------------------------------------------------------------
-# Tool 9: create_graph_entry
+# Tool 11: create_graph_entry
 # ---------------------------------------------------------------------------
 
 
@@ -364,7 +410,7 @@ async def create_graph_entry(
 
 
 # ---------------------------------------------------------------------------
-# Tool 10: get_graph_entry
+# Tool 12: get_graph_entry
 # ---------------------------------------------------------------------------
 
 
@@ -400,7 +446,7 @@ async def get_graph_entry(
 
 
 # ---------------------------------------------------------------------------
-# Tool 11: graph_entry_exists
+# Tool 13: graph_entry_exists
 # ---------------------------------------------------------------------------
 
 
@@ -427,7 +473,7 @@ async def graph_entry_exists(
 
 
 # ---------------------------------------------------------------------------
-# Tool 12: graph_entry_cost
+# Tool 14: graph_entry_cost
 # ---------------------------------------------------------------------------
 
 
@@ -454,7 +500,7 @@ async def graph_entry_cost(
 
 
 # ---------------------------------------------------------------------------
-# Tool 13: archive_get
+# Tool 15: archive_get
 # ---------------------------------------------------------------------------
 
 
@@ -493,7 +539,7 @@ async def archive_get(
 
 
 # ---------------------------------------------------------------------------
-# Tool 14: archive_put
+# Tool 16: archive_put
 # ---------------------------------------------------------------------------
 
 

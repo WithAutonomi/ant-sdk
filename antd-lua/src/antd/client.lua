@@ -402,6 +402,24 @@ function Client:file_cost(path, is_public, include_archive)
     return str(j, "cost"), nil
 end
 
+-- ── Wallet ──
+
+--- Get the wallet's public address.
+-- @return table|nil {address=string}, error|nil
+function Client:wallet_address()
+    local j, _, err = self:_do_json("GET", "/v1/wallet/address", nil)
+    if err then return nil, err end
+    return { address = str(j, "address") }, nil
+end
+
+--- Get the wallet's token and gas balances.
+-- @return table|nil {balance=string, gas_balance=string}, error|nil
+function Client:wallet_balance()
+    local j, _, err = self:_do_json("GET", "/v1/wallet/balance", nil)
+    if err then return nil, err end
+    return { balance = str(j, "balance"), gas_balance = str(j, "gas_balance") }, nil
+end
+
 --- Create a client using daemon port discovery.
 -- Falls back to the default base URL if discovery fails.
 -- @param opts table optional settings: { timeout = number }

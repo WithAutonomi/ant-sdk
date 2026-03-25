@@ -37,3 +37,14 @@ export interface ArchiveEntry {
 export interface Archive {
   entries: ArchiveEntry[];
 }
+
+/** Wallet address response. */
+export interface WalletAddress {
+  address: string; // 0x-prefixed hex
+}
+
+/** Wallet balance response. */
+export interface WalletBalance {
+  balance: string; // atto tokens as string
+  gasBalance: string; // atto tokens as string
+}

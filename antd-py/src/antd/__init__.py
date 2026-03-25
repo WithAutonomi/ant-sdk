@@ -18,6 +18,8 @@ from .models import (
     GraphEntry,
     HealthStatus,
     PutResult,
+    WalletAddress,
+    WalletBalance,
 )
 from ._discover import discover_daemon_url, discover_grpc_target
 from .exceptions import (
@@ -46,6 +48,8 @@ __all__ = [
     "GraphDescendant",
     "GraphEntry",
     "PutResult",
+    "WalletAddress",
+    "WalletBalance",
     # Exceptions
     "AntdError",
     "AlreadyExistsError",

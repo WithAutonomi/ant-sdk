@@ -5,6 +5,8 @@ export type {
   GraphEntry,
   ArchiveEntry,
   Archive,
+  WalletAddress,
+  WalletBalance,
 } from "./models.js";
 
 export {

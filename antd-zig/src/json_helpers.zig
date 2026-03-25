@@ -374,6 +374,44 @@ pub fn buildJsonBody(allocator: Allocator, fields: []const struct { key: []const
     return buf.toOwnedSlice(allocator);
 }
 
+/// Parse a WalletAddress from a JSON response body.
+pub fn parseWalletAddress(allocator: Allocator, body: []const u8) !models.WalletAddress {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
+        return error.JsonError;
+    defer parsed.deinit();
+    const root = parsed.value;
+
+    const obj = switch (root) {
+        .object => |o| o,
+        else => return error.JsonError,
+    };
+
+    return .{
+        .address = dupeString(allocator, obj.get("address") orelse .null) catch
+            return error.JsonError,
+    };
+}
+
+/// Parse a WalletBalance from a JSON response body.
+pub fn parseWalletBalance(allocator: Allocator, body: []const u8) !models.WalletBalance {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
+        return error.JsonError;
+    defer parsed.deinit();
+    const root = parsed.value;
+
+    const obj = switch (root) {
+        .object => |o| o,
+        else => return error.JsonError,
+    };
+
+    return .{
+        .balance = dupeString(allocator, obj.get("balance") orelse .null) catch
+            return error.JsonError,
+        .gas_balance = dupeString(allocator, obj.get("gas_balance") orelse .null) catch
+            return error.JsonError,
+    };
+}
+
 /// Extract the "error" message from a JSON error response body.
 pub fn parseErrorMessage(allocator: Allocator, body: []const u8) ?[]const u8 {
     const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch return null;

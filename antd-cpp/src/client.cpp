@@ -325,4 +325,23 @@ std::string Client::file_cost(std::string_view path, bool is_public, bool includ
     return j.value("cost", "");
 }
 
+// ---------------------------------------------------------------------------
+// Wallet
+// ---------------------------------------------------------------------------
+
+WalletAddress Client::wallet_address() {
+    auto j = impl_->do_json("GET", "/v1/wallet/address");
+    return WalletAddress{
+        .address = j.value("address", ""),
+    };
+}
+
+WalletBalance Client::wallet_balance() {
+    auto j = impl_->do_json("GET", "/v1/wallet/balance");
+    return WalletBalance{
+        .balance = j.value("balance", ""),
+        .gas_balance = j.value("gas_balance", ""),
+    };
+}
+
 }  // namespace antd

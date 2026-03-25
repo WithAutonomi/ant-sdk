@@ -38,4 +38,8 @@ interface IAntdClient : Closeable {
     suspend fun archiveGetPublic(address: String): Archive
     suspend fun archivePutPublic(archive: Archive): PutResult
     suspend fun fileCost(path: String, isPublic: Boolean = true, includeArchive: Boolean = false): String
+
+    // Wallet
+    suspend fun walletAddress(): WalletAddress
+    suspend fun walletBalance(): WalletBalance
 }

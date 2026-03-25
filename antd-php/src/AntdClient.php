@@ -768,6 +768,62 @@ class AntdClient
         );
     }
 
+    // --- Wallet ---
+
+    /**
+     * Get the wallet's public address.
+     *
+     * @return array{address: string}
+     * @throws AntdError if no wallet is configured (HTTP 400)
+     */
+    public function walletAddress(): array
+    {
+        $json = $this->doJson('GET', '/v1/wallet/address');
+        return ['address' => $json['address'] ?? ''];
+    }
+
+    /**
+     * Async: Get the wallet's public address.
+     *
+     * @return PromiseInterface<array{address: string}>
+     */
+    public function walletAddressAsync(): PromiseInterface
+    {
+        return $this->doJsonAsync('GET', '/v1/wallet/address')->then(
+            fn(?array $json) => ['address' => $json['address'] ?? ''],
+        );
+    }
+
+    /**
+     * Get the wallet's token and gas balances.
+     *
+     * @return array{balance: string, gas_balance: string}
+     * @throws AntdError if no wallet is configured (HTTP 400)
+     */
+    public function walletBalance(): array
+    {
+        $json = $this->doJson('GET', '/v1/wallet/balance');
+        return [
+            'balance' => $json['balance'] ?? '',
+            'gas_balance' => $json['gas_balance'] ?? '',
+        ];
+    }
+
+    /**
+     * Async: Get the wallet's token and gas balances.
+     *
+     * @return PromiseInterface<array{balance: string, gas_balance: string}>
+     */
+    public function walletBalanceAsync(): PromiseInterface
+    {
+        return $this->doJsonAsync('GET', '/v1/wallet/balance')->then(
+            fn(?array $json) => [
+                'balance' => $json['balance'] ?? '',
+                'gas_balance' => $json['gas_balance'] ?? '',
+            ],
+        );
+    }
+
     /**
      * Estimate the cost of uploading a file.
      */

@@ -17,3 +17,9 @@ public sealed record ArchiveEntry(string Path, string Address, ulong Created, ul
 
 /// <summary>An archive manifest containing file entries.</summary>
 public sealed record Archive(List<ArchiveEntry> Entries);
+
+/// <summary>Wallet address from the antd daemon.</summary>
+public sealed record WalletAddress(string Address);
+
+/// <summary>Wallet balance from the antd daemon.</summary>
+public sealed record WalletBalance(string Balance, string GasBalance);

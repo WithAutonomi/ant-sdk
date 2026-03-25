@@ -30,4 +30,8 @@ public interface IAntdClient : IDisposable
     Task<Archive> ArchiveGetPublicAsync(string address);
     Task<PutResult> ArchivePutPublicAsync(Archive archive);
     Task<string> FileCostAsync(string path, bool isPublic = true, bool includeArchive = false);
+
+    // Wallet
+    Task<WalletAddress> WalletAddressAsync();
+    Task<WalletBalance> WalletBalanceAsync();
 }

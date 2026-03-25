@@ -78,4 +78,24 @@ function M.new_archive(entries)
     }
 end
 
+--- Create a WalletAddress table.
+-- @param address string wallet address (e.g. "0x...")
+-- @return table
+function M.new_wallet_address(address)
+    return {
+        address = address,
+    }
+end
+
+--- Create a WalletBalance table.
+-- @param balance string token balance in atto tokens
+-- @param gas_balance string gas balance in atto tokens
+-- @return table
+function M.new_wallet_balance(balance, gas_balance)
+    return {
+        balance = balance,
+        gas_balance = gas_balance,
+    }
+end
+
 return M

@@ -73,3 +73,23 @@ public struct Archive: Sendable, Equatable {
         self.entries = entries
     }
 }
+
+/// Wallet address result.
+public struct WalletAddress: Sendable, Equatable {
+    public let address: String
+
+    public init(address: String) {
+        self.address = address
+    }
+}
+
+/// Wallet balance result.
+public struct WalletBalance: Sendable, Equatable {
+    public let balance: String
+    public let gasBalance: String
+
+    public init(balance: String, gasBalance: String) {
+        self.balance = balance
+        self.gasBalance = gasBalance
+    }
+}

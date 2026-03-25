@@ -177,3 +177,42 @@ class Archive {
   @override
   String toString() => 'Archive(entries: $entries)';
 }
+
+/// WalletAddress is the wallet address response.
+class WalletAddress {
+  /// The 0x-prefixed hex address.
+  final String address;
+
+  const WalletAddress({required this.address});
+
+  factory WalletAddress.fromJson(Map<String, dynamic> json) {
+    return WalletAddress(
+      address: json['address'] as String? ?? '',
+    );
+  }
+
+  @override
+  String toString() => 'WalletAddress(address: $address)';
+}
+
+/// WalletBalance is the wallet balance response.
+class WalletBalance {
+  /// Token balance in atto tokens as a string.
+  final String balance;
+
+  /// Gas balance in atto tokens as a string.
+  final String gasBalance;
+
+  const WalletBalance({required this.balance, required this.gasBalance});
+
+  factory WalletBalance.fromJson(Map<String, dynamic> json) {
+    return WalletBalance(
+      balance: json['balance'] as String? ?? '',
+      gasBalance: json['gas_balance'] as String? ?? '',
+    );
+  }
+
+  @override
+  String toString() =>
+      'WalletBalance(balance: $balance, gasBalance: $gasBalance)';
+}

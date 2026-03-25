@@ -426,3 +426,26 @@ func (c *Client) FileCost(ctx context.Context, path string, isPublic bool, inclu
 	}
 	return str(j, "cost"), nil
 }
+
+// --- Wallet ---
+
+// WalletAddress returns the wallet's public address.
+func (c *Client) WalletAddress(ctx context.Context) (*WalletAddress, error) {
+	j, _, err := c.doJSON(ctx, http.MethodGet, "/v1/wallet/address", nil)
+	if err != nil {
+		return nil, err
+	}
+	return &WalletAddress{Address: str(j, "address")}, nil
+}
+
+// WalletBalance returns the wallet's token and gas balances.
+func (c *Client) WalletBalance(ctx context.Context) (*WalletBalance, error) {
+	j, _, err := c.doJSON(ctx, http.MethodGet, "/v1/wallet/balance", nil)
+	if err != nil {
+		return nil, err
+	}
+	return &WalletBalance{
+		Balance:    str(j, "balance"),
+		GasBalance: str(j, "gas_balance"),
+	}, nil
+}

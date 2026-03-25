@@ -49,3 +49,19 @@ pub struct ArchiveEntry {
 pub struct Archive {
     pub entries: Vec<ArchiveEntry>,
 }
+
+/// Wallet address from the antd daemon.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalletAddress {
+    /// Hex-encoded address, e.g. "0x...".
+    pub address: String,
+}
+
+/// Wallet balance from the antd daemon.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalletBalance {
+    /// Balance in atto tokens as a string.
+    pub balance: String,
+    /// Gas balance in atto tokens as a string.
+    pub gas_balance: String,
+}

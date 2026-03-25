@@ -18,4 +18,10 @@ module Antd
 
   # A collection of archive entries.
   Archive = Struct.new(:entries, keyword_init: true)
+
+  # Wallet address result.
+  WalletAddress = Struct.new(:address, keyword_init: true)
+
+  # Wallet balance result.
+  WalletBalance = Struct.new(:balance, :gas_balance, keyword_init: true)
 end

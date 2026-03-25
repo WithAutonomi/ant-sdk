@@ -425,6 +425,42 @@ defmodule Antd.Client do
   end
 
   # ---------------------------------------------------------------------------
+  # Wallet
+  # ---------------------------------------------------------------------------
+
+  @doc "Returns the wallet address configured on the daemon."
+  @spec wallet_address(t()) :: {:ok, Antd.WalletAddress.t()} | {:error, Exception.t()}
+  def wallet_address(%__MODULE__{} = client) do
+    case do_json(client, :get, "/v1/wallet/address", nil) do
+      {:ok, body} ->
+        {:ok, %Antd.WalletAddress{address: body["address"]}}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  @doc "Like `wallet_address/1` but raises on error."
+  @spec wallet_address!(t()) :: Antd.WalletAddress.t()
+  def wallet_address!(client), do: unwrap!(wallet_address(client))
+
+  @doc "Returns the wallet balance and gas balance."
+  @spec wallet_balance(t()) :: {:ok, Antd.WalletBalance.t()} | {:error, Exception.t()}
+  def wallet_balance(%__MODULE__{} = client) do
+    case do_json(client, :get, "/v1/wallet/balance", nil) do
+      {:ok, body} ->
+        {:ok, %Antd.WalletBalance{balance: body["balance"], gas_balance: body["gas_balance"]}}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  @doc "Like `wallet_balance/1` but raises on error."
+  @spec wallet_balance!(t()) :: Antd.WalletBalance.t()
+  def wallet_balance!(client), do: unwrap!(wallet_balance(client))
+
+  # ---------------------------------------------------------------------------
   # Internal helpers
   # ---------------------------------------------------------------------------
 

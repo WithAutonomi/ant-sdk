@@ -21,6 +21,12 @@ data class ArchiveEntry(val path: String, val address: String, val created: ULon
 /** An archive manifest containing file entries. */
 data class Archive(val entries: List<ArchiveEntry>)
 
+/** Wallet address response. */
+data class WalletAddress(val address: String)
+
+/** Wallet balance response. */
+data class WalletBalance(val balance: String, val gasBalance: String)
+
 // ── Internal DTOs for JSON deserialization ──
 
 @Serializable
@@ -77,4 +83,15 @@ internal data class ArchiveEntryDto(
 @Serializable
 internal data class ArchiveDto(
     val entries: List<ArchiveEntryDto>? = null,
+)
+
+@Serializable
+internal data class WalletAddressDto(
+    val address: String,
+)
+
+@Serializable
+internal data class WalletBalanceDto(
+    val balance: String,
+    @SerialName("gas_balance") val gasBalance: String,
 )

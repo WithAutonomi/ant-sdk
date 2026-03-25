@@ -220,6 +220,20 @@ public sealed class AntdRestClient : IAntdClient
         return resp.Cost;
     }
 
+    // ── Wallet ──
+
+    public async Task<WalletAddress> WalletAddressAsync()
+    {
+        var resp = await GetJsonAsync<WalletAddressDto>("/v1/wallet/address");
+        return new WalletAddress(resp.Address);
+    }
+
+    public async Task<WalletBalance> WalletBalanceAsync()
+    {
+        var resp = await GetJsonAsync<WalletBalanceDto>("/v1/wallet/balance");
+        return new WalletBalance(resp.Balance, resp.GasBalance);
+    }
+
     // ── Internal DTOs for JSON deserialization ──
 
     private sealed record HealthResponseDto(
@@ -259,4 +273,11 @@ public sealed class AntdRestClient : IAntdClient
 
     private sealed record ArchiveDto(
         [property: JsonPropertyName("entries")] List<ArchiveEntryDto>? Entries);
+
+    private sealed record WalletAddressDto(
+        [property: JsonPropertyName("address")] string Address);
+
+    private sealed record WalletBalanceDto(
+        [property: JsonPropertyName("balance")] string Balance,
+        [property: JsonPropertyName("gas_balance")] string GasBalance);
 }

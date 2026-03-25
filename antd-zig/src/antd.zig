@@ -13,6 +13,8 @@ pub const GraphDescendant = models.GraphDescendant;
 pub const GraphEntry = models.GraphEntry;
 pub const ArchiveEntry = models.ArchiveEntry;
 pub const Archive = models.Archive;
+pub const WalletAddress = models.WalletAddress;
+pub const WalletBalance = models.WalletBalance;
 pub const AntdError = errors.AntdError;
 pub const ErrorInfo = errors.ErrorInfo;
 pub const errorForStatus = errors.errorForStatus;
@@ -293,6 +295,22 @@ pub const Client = struct {
         const resp = try self.doRequest(.POST, "/v1/graph/cost", req_body) orelse return error.JsonError;
         defer self.allocator.free(resp);
         return json_helpers.parseCost(self.allocator, resp);
+    }
+
+    // --- Wallet ---
+
+    /// Get the wallet's public address.
+    pub fn walletAddress(self: *Client) !WalletAddress {
+        const resp = try self.doRequest(.GET, "/v1/wallet/address", null) orelse return error.JsonError;
+        defer self.allocator.free(resp);
+        return json_helpers.parseWalletAddress(self.allocator, resp);
+    }
+
+    /// Get the wallet's token and gas balances.
+    pub fn walletBalance(self: *Client) !WalletBalance {
+        const resp = try self.doRequest(.GET, "/v1/wallet/balance", null) orelse return error.JsonError;
+        defer self.allocator.free(resp);
+        return json_helpers.parseWalletBalance(self.allocator, resp);
     }
 
     // --- Files ---

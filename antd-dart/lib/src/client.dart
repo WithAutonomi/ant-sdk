@@ -300,4 +300,18 @@ class AntdClient {
     });
     return json!['cost'] as String;
   }
+
+  // --- Wallet ---
+
+  /// Returns the wallet address configured on the daemon.
+  Future<WalletAddress> walletAddress() async {
+    final json = await _doJson('GET', '/v1/wallet/address');
+    return WalletAddress.fromJson(json!);
+  }
+
+  /// Returns the wallet balance (tokens and gas).
+  Future<WalletBalance> walletBalance() async {
+    final json = await _doJson('GET', '/v1/wallet/balance');
+    return WalletBalance.fromJson(json!);
+  }
 }

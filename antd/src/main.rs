@@ -167,7 +167,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Build REST router
-    let app = rest::router(state.clone(), config.cors);
+    let app = rest::router(state.clone(), config.cors, actual_rest_addr.port());
 
     // Spawn both servers
     let grpc_state = state.clone();

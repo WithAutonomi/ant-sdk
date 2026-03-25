@@ -25,6 +25,9 @@ pub enum AntdError {
     #[error("Timeout: {0}")]
     Timeout(String),
 
+    #[error("Not implemented: {0}")]
+    NotImplemented(String),
+
     #[error("Internal error: {0}")]
     Internal(String),
 }
@@ -44,6 +47,7 @@ impl IntoResponse for AntdError {
             AntdError::Network(_) => StatusCode::BAD_GATEWAY,
             AntdError::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             AntdError::Timeout(_) => StatusCode::GATEWAY_TIMEOUT,
+            AntdError::NotImplemented(_) => StatusCode::NOT_IMPLEMENTED,
             AntdError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
         let body = serde_json::to_string(&ErrorBody {
@@ -64,6 +68,7 @@ impl From<AntdError> for tonic::Status {
             AntdError::Network(msg) => tonic::Status::unavailable(msg),
             AntdError::TooLarge => tonic::Status::resource_exhausted("too large for memory"),
             AntdError::Timeout(msg) => tonic::Status::deadline_exceeded(msg),
+            AntdError::NotImplemented(msg) => tonic::Status::unimplemented(msg),
             AntdError::Internal(msg) => tonic::Status::internal(msg),
         }
     }

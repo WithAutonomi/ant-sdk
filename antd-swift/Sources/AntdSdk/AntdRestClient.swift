@@ -185,6 +185,18 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         let resp: CostDTO = try await postJSON("/v1/cost/file", body: body)
         return resp.cost
     }
+
+    // MARK: - Wallet
+
+    public func walletAddress() async throws -> WalletAddress {
+        let resp: WalletAddressDTO = try await getJSON("/v1/wallet/address")
+        return WalletAddress(address: resp.address)
+    }
+
+    public func walletBalance() async throws -> WalletBalance {
+        let resp: WalletBalanceDTO = try await getJSON("/v1/wallet/balance")
+        return WalletBalance(balance: resp.balance, gasBalance: resp.gasBalance)
+    }
 }
 
 // MARK: - Internal DTOs
@@ -234,6 +246,15 @@ private struct ArchiveEntryDTO: Decodable {
 
 private struct ArchiveDTO: Decodable {
     let entries: [ArchiveEntryDTO]?
+}
+
+private struct WalletAddressDTO: Decodable {
+    let address: String
+}
+
+private struct WalletBalanceDTO: Decodable {
+    let balance: String
+    let gasBalance: String
 }
 
 extension JSONDecoder {

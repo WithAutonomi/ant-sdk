@@ -15,6 +15,8 @@ from .models import (
     GraphEntry,
     HealthStatus,
     PutResult,
+    WalletAddress,
+    WalletBalance,
 )
 
 if TYPE_CHECKING:
@@ -221,6 +223,20 @@ class RestClient:
         _check(resp)
         return resp.json()["cost"]
 
+    # --- Wallet ---
+
+    def wallet_address(self) -> WalletAddress:
+        resp = self._http.get("/v1/wallet/address")
+        _check(resp)
+        j = resp.json()
+        return WalletAddress(address=j["address"])
+
+    def wallet_balance(self) -> WalletBalance:
+        resp = self._http.get("/v1/wallet/balance")
+        _check(resp)
+        j = resp.json()
+        return WalletBalance(balance=j["balance"], gas_balance=j["gas_balance"])
+
 
 class AsyncRestClient:
     """Asynchronous REST client for the antd daemon."""
@@ -402,3 +418,17 @@ class AsyncRestClient:
         })
         _check(resp)
         return resp.json()["cost"]
+
+    # --- Wallet ---
+
+    async def wallet_address(self) -> WalletAddress:
+        resp = await self._http.get("/v1/wallet/address")
+        _check(resp)
+        j = resp.json()
+        return WalletAddress(address=j["address"])
+
+    async def wallet_balance(self) -> WalletBalance:
+        resp = await self._http.get("/v1/wallet/balance")
+        _check(resp)
+        j = resp.json()
+        return WalletBalance(balance=j["balance"], gas_balance=j["gas_balance"])

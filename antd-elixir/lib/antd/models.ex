@@ -73,3 +73,26 @@ defmodule Antd.Archive do
           entries: [Antd.ArchiveEntry.t()]
         }
 end
+
+defmodule Antd.WalletAddress do
+  @moduledoc "Wallet address result."
+
+  @enforce_keys [:address]
+  defstruct [:address]
+
+  @type t :: %__MODULE__{
+          address: String.t()
+        }
+end
+
+defmodule Antd.WalletBalance do
+  @moduledoc "Wallet balance result."
+
+  @enforce_keys [:balance, :gas_balance]
+  defstruct [:balance, :gas_balance]
+
+  @type t :: %__MODULE__{
+          balance: String.t(),
+          gas_balance: String.t()
+        }
+end

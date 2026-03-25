@@ -68,6 +68,26 @@ pub const ArchiveEntry = struct {
     }
 };
 
+/// Result of a wallet address query.
+pub const WalletAddress = struct {
+    address: []const u8,
+
+    pub fn deinit(self: WalletAddress, allocator: Allocator) void {
+        allocator.free(self.address);
+    }
+};
+
+/// Result of a wallet balance query.
+pub const WalletBalance = struct {
+    balance: []const u8,
+    gas_balance: []const u8,
+
+    pub fn deinit(self: WalletBalance, allocator: Allocator) void {
+        allocator.free(self.balance);
+        allocator.free(self.gas_balance);
+    }
+};
+
 /// A collection of archive entries.
 pub const Archive = struct {
     entries: []const ArchiveEntry,
