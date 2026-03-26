@@ -14,9 +14,9 @@ interface IAntdClient : Closeable {
     suspend fun health(): HealthStatus
 
     // Data
-    suspend fun dataPutPublic(data: ByteArray): PutResult
+    suspend fun dataPutPublic(data: ByteArray, paymentMode: String? = null): PutResult
     suspend fun dataGetPublic(address: String): ByteArray
-    suspend fun dataPutPrivate(data: ByteArray): PutResult
+    suspend fun dataPutPrivate(data: ByteArray, paymentMode: String? = null): PutResult
     suspend fun dataGetPrivate(dataMap: String): ByteArray
     suspend fun dataCost(data: ByteArray): String
 
@@ -31,9 +31,9 @@ interface IAntdClient : Closeable {
     suspend fun graphEntryCost(publicKey: String): String
 
     // Files
-    suspend fun fileUploadPublic(path: String): PutResult
+    suspend fun fileUploadPublic(path: String, paymentMode: String? = null): PutResult
     suspend fun fileDownloadPublic(address: String, destPath: String)
-    suspend fun dirUploadPublic(path: String): PutResult
+    suspend fun dirUploadPublic(path: String, paymentMode: String? = null): PutResult
     suspend fun dirDownloadPublic(address: String, destPath: String)
     suspend fun archiveGetPublic(address: String): Archive
     suspend fun archivePutPublic(archive: Archive): PutResult

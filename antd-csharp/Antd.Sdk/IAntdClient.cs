@@ -6,9 +6,9 @@ public interface IAntdClient : IDisposable
     Task<HealthStatus> HealthAsync();
 
     // Data
-    Task<PutResult> DataPutPublicAsync(byte[] data);
+    Task<PutResult> DataPutPublicAsync(byte[] data, string? paymentMode = null);
     Task<byte[]> DataGetPublicAsync(string address);
-    Task<PutResult> DataPutPrivateAsync(byte[] data);
+    Task<PutResult> DataPutPrivateAsync(byte[] data, string? paymentMode = null);
     Task<byte[]> DataGetPrivateAsync(string dataMap);
     Task<string> DataCostAsync(byte[] data);
 
@@ -23,9 +23,9 @@ public interface IAntdClient : IDisposable
     Task<string> GraphEntryCostAsync(string publicKey);
 
     // Files
-    Task<PutResult> FileUploadPublicAsync(string path);
+    Task<PutResult> FileUploadPublicAsync(string path, string? paymentMode = null);
     Task FileDownloadPublicAsync(string address, string destPath);
-    Task<PutResult> DirUploadPublicAsync(string path);
+    Task<PutResult> DirUploadPublicAsync(string path, string? paymentMode = null);
     Task DirDownloadPublicAsync(string address, string destPath);
     Task<Archive> ArchiveGetPublicAsync(string address);
     Task<PutResult> ArchivePutPublicAsync(Archive archive);

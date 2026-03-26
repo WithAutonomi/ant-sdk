@@ -128,10 +128,10 @@ export class RestClient {
 
   // ---- Data ----
 
-  async dataPutPublic(data: Buffer): Promise<PutResult> {
-    const j = await this.postJson<{ cost: string; address: string }>("/v1/data/public", {
-      data: RestClient.b64(data),
-    });
+  async dataPutPublic(data: Buffer, options?: { paymentMode?: string }): Promise<PutResult> {
+    const body: Record<string, unknown> = { data: RestClient.b64(data) };
+    if (options?.paymentMode) body.payment_mode = options.paymentMode;
+    const j = await this.postJson<{ cost: string; address: string }>("/v1/data/public", body);
     return { cost: j.cost, address: j.address };
   }
 
@@ -140,10 +140,10 @@ export class RestClient {
     return RestClient.unb64(j.data);
   }
 
-  async dataPutPrivate(data: Buffer): Promise<PutResult> {
-    const j = await this.postJson<{ cost: string; data_map: string }>("/v1/data/private", {
-      data: RestClient.b64(data),
-    });
+  async dataPutPrivate(data: Buffer, options?: { paymentMode?: string }): Promise<PutResult> {
+    const body: Record<string, unknown> = { data: RestClient.b64(data) };
+    if (options?.paymentMode) body.payment_mode = options.paymentMode;
+    const j = await this.postJson<{ cost: string; data_map: string }>("/v1/data/private", body);
     return { cost: j.cost, address: j.data_map };
   }
 
@@ -224,10 +224,10 @@ export class RestClient {
 
   // ---- Files ----
 
-  async fileUploadPublic(path: string): Promise<PutResult> {
-    const j = await this.postJson<{ cost: string; address: string }>("/v1/files/upload/public", {
-      path,
-    });
+  async fileUploadPublic(path: string, options?: { paymentMode?: string }): Promise<PutResult> {
+    const body: Record<string, unknown> = { path };
+    if (options?.paymentMode) body.payment_mode = options.paymentMode;
+    const j = await this.postJson<{ cost: string; address: string }>("/v1/files/upload/public", body);
     return { cost: j.cost, address: j.address };
   }
 
@@ -238,10 +238,10 @@ export class RestClient {
     });
   }
 
-  async dirUploadPublic(path: string): Promise<PutResult> {
-    const j = await this.postJson<{ cost: string; address: string }>("/v1/dirs/upload/public", {
-      path,
-    });
+  async dirUploadPublic(path: string, options?: { paymentMode?: string }): Promise<PutResult> {
+    const body: Record<string, unknown> = { path };
+    if (options?.paymentMode) body.payment_mode = options.paymentMode;
+    const j = await this.postJson<{ cost: string; address: string }>("/v1/dirs/upload/public", body);
     return { cost: j.cost, address: j.address };
   }
 

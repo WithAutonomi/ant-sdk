@@ -147,11 +147,16 @@ end
 
 --- Store public immutable data.
 -- @param data string raw bytes to store
+-- @param opts table optional settings: { payment_mode = string }
 -- @return PutResult|nil, error|nil
-function Client:data_put_public(data)
-    local j, _, err = self:_do_json("POST", "/v1/data/public", {
+function Client:data_put_public(data, opts)
+    local body = {
         data = base64.encode(data),
-    })
+    }
+    if opts and opts.payment_mode then
+        body.payment_mode = opts.payment_mode
+    end
+    local j, _, err = self:_do_json("POST", "/v1/data/public", body)
     if err then return nil, err end
     return models.new_put_result(str(j, "cost"), str(j, "address")), nil
 end
@@ -167,11 +172,16 @@ end
 
 --- Store private encrypted data.
 -- @param data string raw bytes to store
+-- @param opts table optional settings: { payment_mode = string }
 -- @return PutResult|nil, error|nil
-function Client:data_put_private(data)
-    local j, _, err = self:_do_json("POST", "/v1/data/private", {
+function Client:data_put_private(data, opts)
+    local body = {
         data = base64.encode(data),
-    })
+    }
+    if opts and opts.payment_mode then
+        body.payment_mode = opts.payment_mode
+    end
+    local j, _, err = self:_do_json("POST", "/v1/data/private", body)
     if err then return nil, err end
     return models.new_put_result(str(j, "cost"), str(j, "data_map")), nil
 end
@@ -297,11 +307,16 @@ end
 
 --- Upload a file to the network.
 -- @param path string local file path
+-- @param opts table optional settings: { payment_mode = string }
 -- @return PutResult|nil, error|nil
-function Client:file_upload_public(path)
-    local j, _, err = self:_do_json("POST", "/v1/files/upload/public", {
+function Client:file_upload_public(path, opts)
+    local body = {
         path = path,
-    })
+    }
+    if opts and opts.payment_mode then
+        body.payment_mode = opts.payment_mode
+    end
+    local j, _, err = self:_do_json("POST", "/v1/files/upload/public", body)
     if err then return nil, err end
     return models.new_put_result(str(j, "cost"), str(j, "address")), nil
 end
@@ -320,11 +335,16 @@ end
 
 --- Upload a directory to the network.
 -- @param path string local directory path
+-- @param opts table optional settings: { payment_mode = string }
 -- @return PutResult|nil, error|nil
-function Client:dir_upload_public(path)
-    local j, _, err = self:_do_json("POST", "/v1/dirs/upload/public", {
+function Client:dir_upload_public(path, opts)
+    local body = {
         path = path,
-    })
+    }
+    if opts and opts.payment_mode then
+        body.payment_mode = opts.payment_mode
+    end
+    local j, _, err = self:_do_json("POST", "/v1/dirs/upload/public", body)
     if err then return nil, err end
     return models.new_put_result(str(j, "cost"), str(j, "address")), nil
 end

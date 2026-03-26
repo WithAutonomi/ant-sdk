@@ -5,12 +5,16 @@ use serde::{Deserialize, Serialize};
 #[derive(Deserialize)]
 pub struct DataPutRequest {
     pub data: String, // base64
+    /// Payment mode: "auto" (default), "merkle", or "single".
+    #[serde(default)]
+    pub payment_mode: Option<String>,
 }
 
 #[derive(Serialize)]
 pub struct DataPutPublicResponse {
-    pub cost: String,
     pub address: String,
+    pub chunks_stored: usize,
+    pub payment_mode_used: String,
 }
 
 #[derive(Serialize)]
@@ -25,8 +29,9 @@ pub struct DataCostRequest {
 
 #[derive(Serialize)]
 pub struct DataPutPrivateResponse {
-    pub cost: String,
-    pub data_map: String, // hex
+    pub data_map: String, // hex-encoded serialized data map
+    pub chunks_stored: usize,
+    pub payment_mode_used: String,
 }
 
 #[derive(Deserialize)]
@@ -92,6 +97,9 @@ pub struct GraphEntryCostRequest {
 #[derive(Deserialize)]
 pub struct FileUploadRequest {
     pub path: String,
+    /// Payment mode: "auto" (default), "merkle", or "single".
+    #[serde(default)]
+    pub payment_mode: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -165,6 +173,25 @@ pub struct FileCostRequest {
 
 fn default_true() -> bool {
     true
+}
+
+/// Parse a payment mode string into ant-core's PaymentMode.
+pub fn parse_payment_mode(mode: Option<&str>) -> Result<ant_core::data::PaymentMode, String> {
+    match mode {
+        None | Some("auto") => Ok(ant_core::data::PaymentMode::Auto),
+        Some("merkle") => Ok(ant_core::data::PaymentMode::Merkle),
+        Some("single") => Ok(ant_core::data::PaymentMode::Single),
+        Some(other) => Err(format!("invalid payment_mode: {other:?}. Use \"auto\", \"merkle\", or \"single\"")),
+    }
+}
+
+/// Format a PaymentMode for JSON responses.
+pub fn format_payment_mode(mode: ant_core::data::PaymentMode) -> String {
+    match mode {
+        ant_core::data::PaymentMode::Auto => "auto".into(),
+        ant_core::data::PaymentMode::Merkle => "merkle".into(),
+        ant_core::data::PaymentMode::Single => "single".into(),
+    }
 }
 
 // ── Wallet ──

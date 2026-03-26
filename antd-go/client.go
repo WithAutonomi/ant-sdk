@@ -192,13 +192,29 @@ func (c *Client) Health(ctx context.Context) (*HealthStatus, error) {
 	}, nil
 }
 
+// PaymentMode controls how payments are made for storage operations.
+type PaymentMode string
+
+const (
+	// PaymentModeAuto lets the server choose the best payment strategy.
+	PaymentModeAuto PaymentMode = "auto"
+	// PaymentModeMerkle uses Merkle-based batch payments.
+	PaymentModeMerkle PaymentMode = "merkle"
+	// PaymentModeSingle uses individual payment per chunk.
+	PaymentModeSingle PaymentMode = "single"
+)
+
 // --- Data ---
 
 // DataPutPublic stores public immutable data on the network.
-func (c *Client) DataPutPublic(ctx context.Context, data []byte) (*PutResult, error) {
-	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/data/public", map[string]any{
+func (c *Client) DataPutPublic(ctx context.Context, data []byte, paymentMode ...PaymentMode) (*PutResult, error) {
+	body := map[string]any{
 		"data": b64Encode(data),
-	})
+	}
+	if len(paymentMode) > 0 && paymentMode[0] != "" {
+		body["payment_mode"] = string(paymentMode[0])
+	}
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/data/public", body)
 	if err != nil {
 		return nil, err
 	}
@@ -215,10 +231,14 @@ func (c *Client) DataGetPublic(ctx context.Context, address string) ([]byte, err
 }
 
 // DataPutPrivate stores private encrypted data on the network.
-func (c *Client) DataPutPrivate(ctx context.Context, data []byte) (*PutResult, error) {
-	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/data/private", map[string]any{
+func (c *Client) DataPutPrivate(ctx context.Context, data []byte, paymentMode ...PaymentMode) (*PutResult, error) {
+	body := map[string]any{
 		"data": b64Encode(data),
-	})
+	}
+	if len(paymentMode) > 0 && paymentMode[0] != "" {
+		body["payment_mode"] = string(paymentMode[0])
+	}
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/data/private", body)
 	if err != nil {
 		return nil, err
 	}
@@ -336,10 +356,14 @@ func (c *Client) GraphEntryCost(ctx context.Context, publicKey string) (string, 
 // --- Files ---
 
 // FileUploadPublic uploads a local file to the network.
-func (c *Client) FileUploadPublic(ctx context.Context, path string) (*PutResult, error) {
-	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/files/upload/public", map[string]any{
+func (c *Client) FileUploadPublic(ctx context.Context, path string, paymentMode ...PaymentMode) (*PutResult, error) {
+	body := map[string]any{
 		"path": path,
-	})
+	}
+	if len(paymentMode) > 0 && paymentMode[0] != "" {
+		body["payment_mode"] = string(paymentMode[0])
+	}
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/files/upload/public", body)
 	if err != nil {
 		return nil, err
 	}
@@ -356,10 +380,14 @@ func (c *Client) FileDownloadPublic(ctx context.Context, address, destPath strin
 }
 
 // DirUploadPublic uploads a local directory to the network.
-func (c *Client) DirUploadPublic(ctx context.Context, path string) (*PutResult, error) {
-	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/dirs/upload/public", map[string]any{
+func (c *Client) DirUploadPublic(ctx context.Context, path string, paymentMode ...PaymentMode) (*PutResult, error) {
+	body := map[string]any{
 		"path": path,
-	})
+	}
+	if len(paymentMode) > 0 && paymentMode[0] != "" {
+		body["payment_mode"] = string(paymentMode[0])
+	}
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/dirs/upload/public", body)
 	if err != nil {
 		return nil, err
 	}

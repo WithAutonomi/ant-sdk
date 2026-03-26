@@ -180,8 +180,11 @@ pub const Client = struct {
     // --- Data ---
 
     /// Store public immutable data on the network.
-    pub fn dataPutPublic(self: *Client, data: []const u8) !PutResult {
-        const req_body = try json_helpers.buildDataBody(self.allocator, data);
+    pub fn dataPutPublic(self: *Client, data: []const u8, payment_mode: ?[]const u8) !PutResult {
+        const req_body = if (payment_mode) |mode|
+            try json_helpers.buildDataBodyWithPaymentMode(self.allocator, data, mode)
+        else
+            try json_helpers.buildDataBody(self.allocator, data);
         defer self.allocator.free(req_body);
         const resp = try self.doRequest(.POST, "/v1/data/public", req_body) orelse return error.JsonError;
         defer self.allocator.free(resp);
@@ -198,8 +201,11 @@ pub const Client = struct {
     }
 
     /// Store private encrypted data on the network.
-    pub fn dataPutPrivate(self: *Client, data: []const u8) !PutResult {
-        const req_body = try json_helpers.buildDataBody(self.allocator, data);
+    pub fn dataPutPrivate(self: *Client, data: []const u8, payment_mode: ?[]const u8) !PutResult {
+        const req_body = if (payment_mode) |mode|
+            try json_helpers.buildDataBodyWithPaymentMode(self.allocator, data, mode)
+        else
+            try json_helpers.buildDataBody(self.allocator, data);
         defer self.allocator.free(req_body);
         const resp = try self.doRequest(.POST, "/v1/data/private", req_body) orelse return error.JsonError;
         defer self.allocator.free(resp);
@@ -316,10 +322,16 @@ pub const Client = struct {
     // --- Files ---
 
     /// Upload a local file to the network.
-    pub fn fileUploadPublic(self: *Client, path: []const u8) !PutResult {
-        const req_body = try json_helpers.buildJsonBody(self.allocator, &.{
-            .{ .key = "path", .value = .{ .string = path } },
-        });
+    pub fn fileUploadPublic(self: *Client, path: []const u8, payment_mode: ?[]const u8) !PutResult {
+        const req_body = if (payment_mode) |mode|
+            try json_helpers.buildJsonBody(self.allocator, &.{
+                .{ .key = "path", .value = .{ .string = path } },
+                .{ .key = "payment_mode", .value = .{ .string = mode } },
+            })
+        else
+            try json_helpers.buildJsonBody(self.allocator, &.{
+                .{ .key = "path", .value = .{ .string = path } },
+            });
         defer self.allocator.free(req_body);
         const resp = try self.doRequest(.POST, "/v1/files/upload/public", req_body) orelse return error.JsonError;
         defer self.allocator.free(resp);
@@ -337,10 +349,16 @@ pub const Client = struct {
     }
 
     /// Upload a local directory to the network.
-    pub fn dirUploadPublic(self: *Client, path: []const u8) !PutResult {
-        const req_body = try json_helpers.buildJsonBody(self.allocator, &.{
-            .{ .key = "path", .value = .{ .string = path } },
-        });
+    pub fn dirUploadPublic(self: *Client, path: []const u8, payment_mode: ?[]const u8) !PutResult {
+        const req_body = if (payment_mode) |mode|
+            try json_helpers.buildJsonBody(self.allocator, &.{
+                .{ .key = "path", .value = .{ .string = path } },
+                .{ .key = "payment_mode", .value = .{ .string = mode } },
+            })
+        else
+            try json_helpers.buildJsonBody(self.allocator, &.{
+                .{ .key = "path", .value = .{ .string = path } },
+            });
         defer self.allocator.free(req_body);
         const resp = try self.doRequest(.POST, "/v1/dirs/upload/public", req_body) orelse return error.JsonError;
         defer self.allocator.free(resp);

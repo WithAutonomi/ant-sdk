@@ -198,7 +198,13 @@ public class AntdClient implements AutoCloseable {
     // ── Data (Immutable) ──
 
     public PutResult dataPutPublic(byte[] data) {
-        String body = Json.object("data", b64Encode(data));
+        return dataPutPublic(data, null);
+    }
+
+    public PutResult dataPutPublic(byte[] data, String paymentMode) {
+        String body = paymentMode != null
+                ? Json.object("data", b64Encode(data), "payment_mode", paymentMode)
+                : Json.object("data", b64Encode(data));
         Map<String, Object> j = doJson("POST", "/v1/data/public", body);
         return new PutResult(str(j, "cost"), str(j, "address"));
     }
@@ -209,7 +215,13 @@ public class AntdClient implements AutoCloseable {
     }
 
     public PutResult dataPutPrivate(byte[] data) {
-        String body = Json.object("data", b64Encode(data));
+        return dataPutPrivate(data, null);
+    }
+
+    public PutResult dataPutPrivate(byte[] data, String paymentMode) {
+        String body = paymentMode != null
+                ? Json.object("data", b64Encode(data), "payment_mode", paymentMode)
+                : Json.object("data", b64Encode(data));
         Map<String, Object> j = doJson("POST", "/v1/data/private", body);
         return new PutResult(str(j, "cost"), str(j, "data_map"));
     }
@@ -283,7 +295,13 @@ public class AntdClient implements AutoCloseable {
     // ── Files & Directories ──
 
     public PutResult fileUploadPublic(String path) {
-        String body = Json.object("path", path);
+        return fileUploadPublic(path, null);
+    }
+
+    public PutResult fileUploadPublic(String path, String paymentMode) {
+        String body = paymentMode != null
+                ? Json.object("path", path, "payment_mode", paymentMode)
+                : Json.object("path", path);
         Map<String, Object> j = doJson("POST", "/v1/files/upload/public", body);
         return new PutResult(str(j, "cost"), str(j, "address"));
     }
@@ -294,7 +312,13 @@ public class AntdClient implements AutoCloseable {
     }
 
     public PutResult dirUploadPublic(String path) {
-        String body = Json.object("path", path);
+        return dirUploadPublic(path, null);
+    }
+
+    public PutResult dirUploadPublic(String path, String paymentMode) {
+        String body = paymentMode != null
+                ? Json.object("path", path, "payment_mode", paymentMode)
+                : Json.object("path", path);
         Map<String, Object> j = doJson("POST", "/v1/dirs/upload/public", body);
         return new PutResult(str(j, "cost"), str(j, "address"));
     }

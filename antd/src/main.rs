@@ -161,7 +161,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let state = Arc::new(AppState {
-        client,
+        client: Arc::new(client),
         network: config.network.clone(),
         bootstrap_peers,
     });

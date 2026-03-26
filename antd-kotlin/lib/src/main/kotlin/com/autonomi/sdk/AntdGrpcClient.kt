@@ -49,7 +49,7 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
 
     // ── Data ──
 
-    override suspend fun dataPutPublic(data: ByteArray): PutResult = try {
+    override suspend fun dataPutPublic(data: ByteArray, paymentMode: String?): PutResult = try {
         val resp = dataStub.putPublic(putPublicDataRequest { this.data = ByteString.copyFrom(data) })
         PutResult(resp.cost.attoTokens, resp.address)
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
@@ -59,7 +59,7 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
         resp.data.toByteArray()
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
-    override suspend fun dataPutPrivate(data: ByteArray): PutResult = try {
+    override suspend fun dataPutPrivate(data: ByteArray, paymentMode: String?): PutResult = try {
         val resp = dataStub.putPrivate(putPrivateDataRequest { this.data = ByteString.copyFrom(data) })
         PutResult(resp.cost.attoTokens, resp.dataMap)
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
@@ -125,7 +125,7 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
 
     // ── Files ──
 
-    override suspend fun fileUploadPublic(path: String): PutResult = try {
+    override suspend fun fileUploadPublic(path: String, paymentMode: String?): PutResult = try {
         val resp = fileStub.uploadPublic(uploadFileRequest { this.path = path })
         PutResult(resp.cost.attoTokens, resp.address)
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
@@ -135,7 +135,7 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
         Unit
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
-    override suspend fun dirUploadPublic(path: String): PutResult = try {
+    override suspend fun dirUploadPublic(path: String, paymentMode: String?): PutResult = try {
         val resp = fileStub.dirUploadPublic(uploadFileRequest { this.path = path })
         PutResult(resp.cost.attoTokens, resp.address)
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }

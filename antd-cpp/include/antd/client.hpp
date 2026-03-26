@@ -51,13 +51,13 @@ public:
     // --- Data (Immutable) ---
 
     /// Store public immutable data on the network.
-    PutResult data_put_public(const std::vector<uint8_t>& data);
+    PutResult data_put_public(const std::vector<uint8_t>& data, const std::string& payment_mode = "");
 
     /// Retrieve public data by address.
     std::vector<uint8_t> data_get_public(std::string_view address);
 
     /// Store private encrypted data on the network.
-    PutResult data_put_private(const std::vector<uint8_t>& data);
+    PutResult data_put_private(const std::vector<uint8_t>& data, const std::string& payment_mode = "");
 
     /// Retrieve private data using a data map.
     std::vector<uint8_t> data_get_private(std::string_view data_map);
@@ -93,13 +93,13 @@ public:
     // --- Files & Directories ---
 
     /// Upload a local file to the network.
-    PutResult file_upload_public(std::string_view path);
+    PutResult file_upload_public(std::string_view path, const std::string& payment_mode = "");
 
     /// Download a file from the network to a local path.
     void file_download_public(std::string_view address, std::string_view dest_path);
 
     /// Upload a local directory to the network.
-    PutResult dir_upload_public(std::string_view path);
+    PutResult dir_upload_public(std::string_view path, const std::string& payment_mode = "");
 
     /// Download a directory from the network to a local path.
     void dir_download_public(std::string_view address, std::string_view dest_path);

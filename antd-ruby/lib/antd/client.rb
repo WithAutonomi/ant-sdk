@@ -45,8 +45,10 @@ module Antd
     # Store public immutable data on the network.
     # @param data [String] raw bytes
     # @return [PutResult]
-    def data_put_public(data)
-      j = do_json(:post, "/v1/data/public", { data: b64_encode(data) })
+    def data_put_public(data, payment_mode: nil)
+      body = { data: b64_encode(data) }
+      body[:payment_mode] = payment_mode if payment_mode
+      j = do_json(:post, "/v1/data/public", body)
       PutResult.new(cost: j["cost"], address: j["address"])
     end
 
@@ -61,8 +63,10 @@ module Antd
     # Store private encrypted data on the network.
     # @param data [String] raw bytes
     # @return [PutResult]
-    def data_put_private(data)
-      j = do_json(:post, "/v1/data/private", { data: b64_encode(data) })
+    def data_put_private(data, payment_mode: nil)
+      body = { data: b64_encode(data) }
+      body[:payment_mode] = payment_mode if payment_mode
+      j = do_json(:post, "/v1/data/private", body)
       PutResult.new(cost: j["cost"], address: j["data_map"])
     end
 
@@ -159,8 +163,10 @@ module Antd
     # Upload a local file to the network.
     # @param path [String] local file path
     # @return [PutResult]
-    def file_upload_public(path)
-      j = do_json(:post, "/v1/files/upload/public", { path: path })
+    def file_upload_public(path, payment_mode: nil)
+      body = { path: path }
+      body[:payment_mode] = payment_mode if payment_mode
+      j = do_json(:post, "/v1/files/upload/public", body)
       PutResult.new(cost: j["cost"], address: j["address"])
     end
 
@@ -176,8 +182,10 @@ module Antd
     # Upload a local directory to the network.
     # @param path [String] local directory path
     # @return [PutResult]
-    def dir_upload_public(path)
-      j = do_json(:post, "/v1/dirs/upload/public", { path: path })
+    def dir_upload_public(path, payment_mode: nil)
+      body = { path: path }
+      body[:payment_mode] = payment_mode if payment_mode
+      j = do_json(:post, "/v1/dirs/upload/public", body)
       PutResult.new(cost: j["cost"], address: j["address"])
     end
 

@@ -143,10 +143,12 @@ class AntdClient {
   // --- Data ---
 
   /// Stores public immutable data on the network.
-  Future<PutResult> dataPutPublic(Uint8List data) async {
-    final json = await _doJson('POST', '/v1/data/public', {
+  Future<PutResult> dataPutPublic(Uint8List data, {String? paymentMode}) async {
+    final body = <String, dynamic>{
       'data': _b64Encode(data),
-    });
+    };
+    if (paymentMode != null) body['payment_mode'] = paymentMode;
+    final json = await _doJson('POST', '/v1/data/public', body);
     return PutResult.fromJson(json!);
   }
 
@@ -157,10 +159,12 @@ class AntdClient {
   }
 
   /// Stores private encrypted data on the network.
-  Future<PutResult> dataPutPrivate(Uint8List data) async {
-    final json = await _doJson('POST', '/v1/data/private', {
+  Future<PutResult> dataPutPrivate(Uint8List data, {String? paymentMode}) async {
+    final body = <String, dynamic>{
       'data': _b64Encode(data),
-    });
+    };
+    if (paymentMode != null) body['payment_mode'] = paymentMode;
+    final json = await _doJson('POST', '/v1/data/private', body);
     return PutResult.fromJson(json!, addressKey: 'data_map');
   }
 
@@ -242,10 +246,12 @@ class AntdClient {
   // --- Files ---
 
   /// Uploads a local file to the network.
-  Future<PutResult> fileUploadPublic(String path) async {
-    final json = await _doJson('POST', '/v1/files/upload/public', {
+  Future<PutResult> fileUploadPublic(String path, {String? paymentMode}) async {
+    final body = <String, dynamic>{
       'path': path,
-    });
+    };
+    if (paymentMode != null) body['payment_mode'] = paymentMode;
+    final json = await _doJson('POST', '/v1/files/upload/public', body);
     return PutResult.fromJson(json!);
   }
 
@@ -258,10 +264,12 @@ class AntdClient {
   }
 
   /// Uploads a local directory to the network.
-  Future<PutResult> dirUploadPublic(String path) async {
-    final json = await _doJson('POST', '/v1/dirs/upload/public', {
+  Future<PutResult> dirUploadPublic(String path, {String? paymentMode}) async {
+    final body = <String, dynamic>{
       'path': path,
-    });
+    };
+    if (paymentMode != null) body['payment_mode'] = paymentMode;
+    final json = await _doJson('POST', '/v1/dirs/upload/public', body);
     return PutResult.fromJson(json!);
   }
 

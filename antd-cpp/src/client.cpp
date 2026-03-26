@@ -107,10 +107,12 @@ HealthStatus Client::health() {
 // Data (Immutable)
 // ---------------------------------------------------------------------------
 
-PutResult Client::data_put_public(const std::vector<uint8_t>& data) {
-    auto j = impl_->do_json("POST", "/v1/data/public", json{
-        {"data", detail::base64_encode(data)},
-    });
+PutResult Client::data_put_public(const std::vector<uint8_t>& data, const std::string& payment_mode) {
+    json body = {{"data", detail::base64_encode(data)}};
+    if (!payment_mode.empty()) {
+        body["payment_mode"] = payment_mode;
+    }
+    auto j = impl_->do_json("POST", "/v1/data/public", body);
     return PutResult{
         .cost = j.value("cost", ""),
         .address = j.value("address", ""),
@@ -122,10 +124,12 @@ std::vector<uint8_t> Client::data_get_public(std::string_view address) {
     return detail::base64_decode(j.value("data", ""));
 }
 
-PutResult Client::data_put_private(const std::vector<uint8_t>& data) {
-    auto j = impl_->do_json("POST", "/v1/data/private", json{
-        {"data", detail::base64_encode(data)},
-    });
+PutResult Client::data_put_private(const std::vector<uint8_t>& data, const std::string& payment_mode) {
+    json body = {{"data", detail::base64_encode(data)}};
+    if (!payment_mode.empty()) {
+        body["payment_mode"] = payment_mode;
+    }
+    auto j = impl_->do_json("POST", "/v1/data/private", body);
     return PutResult{
         .cost = j.value("cost", ""),
         .address = j.value("data_map", ""),
@@ -240,10 +244,12 @@ std::string Client::graph_entry_cost(std::string_view public_key) {
 // Files & Directories
 // ---------------------------------------------------------------------------
 
-PutResult Client::file_upload_public(std::string_view path) {
-    auto j = impl_->do_json("POST", "/v1/files/upload/public", json{
-        {"path", std::string(path)},
-    });
+PutResult Client::file_upload_public(std::string_view path, const std::string& payment_mode) {
+    json body = {{"path", std::string(path)}};
+    if (!payment_mode.empty()) {
+        body["payment_mode"] = payment_mode;
+    }
+    auto j = impl_->do_json("POST", "/v1/files/upload/public", body);
     return PutResult{
         .cost = j.value("cost", ""),
         .address = j.value("address", ""),
@@ -257,10 +263,12 @@ void Client::file_download_public(std::string_view address, std::string_view des
     });
 }
 
-PutResult Client::dir_upload_public(std::string_view path) {
-    auto j = impl_->do_json("POST", "/v1/dirs/upload/public", json{
-        {"path", std::string(path)},
-    });
+PutResult Client::dir_upload_public(std::string_view path, const std::string& payment_mode) {
+    json body = {{"path", std::string(path)}};
+    if (!payment_mode.empty()) {
+        body["payment_mode"] = payment_mode;
+    }
+    auto j = impl_->do_json("POST", "/v1/dirs/upload/public", body);
     return PutResult{
         .cost = j.value("cost", ""),
         .address = j.value("address", ""),

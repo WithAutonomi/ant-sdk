@@ -103,8 +103,11 @@ class AntdRestClient(
 
     // ── Data ──
 
-    override suspend fun dataPutPublic(data: ByteArray): PutResult {
-        val body = buildJsonObject { put("data", b64(data)) }.toString()
+    override suspend fun dataPutPublic(data: ByteArray, paymentMode: String?): PutResult {
+        val body = buildJsonObject {
+            put("data", b64(data))
+            if (paymentMode != null) put("payment_mode", paymentMode)
+        }.toString()
         val resp = postJson<DataPutPublicDto>("/v1/data/public", body)
         return PutResult(resp.cost, resp.address)
     }
@@ -114,8 +117,11 @@ class AntdRestClient(
         return fromB64(resp.data)
     }
 
-    override suspend fun dataPutPrivate(data: ByteArray): PutResult {
-        val body = buildJsonObject { put("data", b64(data)) }.toString()
+    override suspend fun dataPutPrivate(data: ByteArray, paymentMode: String?): PutResult {
+        val body = buildJsonObject {
+            put("data", b64(data))
+            if (paymentMode != null) put("payment_mode", paymentMode)
+        }.toString()
         val resp = postJson<DataPutPrivateDto>("/v1/data/private", body)
         return PutResult(resp.cost, resp.dataMap)
     }
@@ -185,8 +191,11 @@ class AntdRestClient(
 
     // ── Files ──
 
-    override suspend fun fileUploadPublic(path: String): PutResult {
-        val body = buildJsonObject { put("path", path) }.toString()
+    override suspend fun fileUploadPublic(path: String, paymentMode: String?): PutResult {
+        val body = buildJsonObject {
+            put("path", path)
+            if (paymentMode != null) put("payment_mode", paymentMode)
+        }.toString()
         val resp = postJson<DataPutPublicDto>("/v1/files/upload/public", body)
         return PutResult(resp.cost, resp.address)
     }
@@ -199,8 +208,11 @@ class AntdRestClient(
         postJsonNoResult("/v1/files/download/public", body)
     }
 
-    override suspend fun dirUploadPublic(path: String): PutResult {
-        val body = buildJsonObject { put("path", path) }.toString()
+    override suspend fun dirUploadPublic(path: String, paymentMode: String?): PutResult {
+        val body = buildJsonObject {
+            put("path", path)
+            if (paymentMode != null) put("payment_mode", paymentMode)
+        }.toString()
         val resp = postJson<DataPutPublicDto>("/v1/dirs/upload/public", body)
         return PutResult(resp.cost, resp.address)
     }

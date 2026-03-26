@@ -211,11 +211,13 @@ class AntdClient
     /**
      * Store public immutable data on the network.
      */
-    public function dataPutPublic(string $data): PutResult
+    public function dataPutPublic(string $data, ?string $paymentMode = null): PutResult
     {
-        $json = $this->doJson('POST', '/v1/data/public', [
-            'data' => $this->b64Encode($data),
-        ]);
+        $body = ['data' => $this->b64Encode($data)];
+        if ($paymentMode !== null) {
+            $body['payment_mode'] = $paymentMode;
+        }
+        $json = $this->doJson('POST', '/v1/data/public', $body);
         return new PutResult(
             cost: $json['cost'] ?? '',
             address: $json['address'] ?? '',
@@ -227,11 +229,13 @@ class AntdClient
      *
      * @return PromiseInterface<PutResult>
      */
-    public function dataPutPublicAsync(string $data): PromiseInterface
+    public function dataPutPublicAsync(string $data, ?string $paymentMode = null): PromiseInterface
     {
-        return $this->doJsonAsync('POST', '/v1/data/public', [
-            'data' => $this->b64Encode($data),
-        ])->then(
+        $body = ['data' => $this->b64Encode($data)];
+        if ($paymentMode !== null) {
+            $body['payment_mode'] = $paymentMode;
+        }
+        return $this->doJsonAsync('POST', '/v1/data/public', $body)->then(
             fn(?array $json) => new PutResult(
                 cost: $json['cost'] ?? '',
                 address: $json['address'] ?? '',
@@ -263,11 +267,13 @@ class AntdClient
     /**
      * Store private encrypted data on the network.
      */
-    public function dataPutPrivate(string $data): PutResult
+    public function dataPutPrivate(string $data, ?string $paymentMode = null): PutResult
     {
-        $json = $this->doJson('POST', '/v1/data/private', [
-            'data' => $this->b64Encode($data),
-        ]);
+        $body = ['data' => $this->b64Encode($data)];
+        if ($paymentMode !== null) {
+            $body['payment_mode'] = $paymentMode;
+        }
+        $json = $this->doJson('POST', '/v1/data/private', $body);
         return new PutResult(
             cost: $json['cost'] ?? '',
             address: $json['data_map'] ?? '',
@@ -279,11 +285,13 @@ class AntdClient
      *
      * @return PromiseInterface<PutResult>
      */
-    public function dataPutPrivateAsync(string $data): PromiseInterface
+    public function dataPutPrivateAsync(string $data, ?string $paymentMode = null): PromiseInterface
     {
-        return $this->doJsonAsync('POST', '/v1/data/private', [
-            'data' => $this->b64Encode($data),
-        ])->then(
+        $body = ['data' => $this->b64Encode($data)];
+        if ($paymentMode !== null) {
+            $body['payment_mode'] = $paymentMode;
+        }
+        return $this->doJsonAsync('POST', '/v1/data/private', $body)->then(
             fn(?array $json) => new PutResult(
                 cost: $json['cost'] ?? '',
                 address: $json['data_map'] ?? '',
@@ -567,11 +575,13 @@ class AntdClient
     /**
      * Upload a local file to the network.
      */
-    public function fileUploadPublic(string $path): PutResult
+    public function fileUploadPublic(string $path, ?string $paymentMode = null): PutResult
     {
-        $json = $this->doJson('POST', '/v1/files/upload/public', [
-            'path' => $path,
-        ]);
+        $body = ['path' => $path];
+        if ($paymentMode !== null) {
+            $body['payment_mode'] = $paymentMode;
+        }
+        $json = $this->doJson('POST', '/v1/files/upload/public', $body);
         return new PutResult(
             cost: $json['cost'] ?? '',
             address: $json['address'] ?? '',
@@ -583,11 +593,13 @@ class AntdClient
      *
      * @return PromiseInterface<PutResult>
      */
-    public function fileUploadPublicAsync(string $path): PromiseInterface
+    public function fileUploadPublicAsync(string $path, ?string $paymentMode = null): PromiseInterface
     {
-        return $this->doJsonAsync('POST', '/v1/files/upload/public', [
-            'path' => $path,
-        ])->then(
+        $body = ['path' => $path];
+        if ($paymentMode !== null) {
+            $body['payment_mode'] = $paymentMode;
+        }
+        return $this->doJsonAsync('POST', '/v1/files/upload/public', $body)->then(
             fn(?array $json) => new PutResult(
                 cost: $json['cost'] ?? '',
                 address: $json['address'] ?? '',
@@ -622,11 +634,13 @@ class AntdClient
     /**
      * Upload a local directory to the network.
      */
-    public function dirUploadPublic(string $path): PutResult
+    public function dirUploadPublic(string $path, ?string $paymentMode = null): PutResult
     {
-        $json = $this->doJson('POST', '/v1/dirs/upload/public', [
-            'path' => $path,
-        ]);
+        $body = ['path' => $path];
+        if ($paymentMode !== null) {
+            $body['payment_mode'] = $paymentMode;
+        }
+        $json = $this->doJson('POST', '/v1/dirs/upload/public', $body);
         return new PutResult(
             cost: $json['cost'] ?? '',
             address: $json['address'] ?? '',
@@ -638,11 +652,13 @@ class AntdClient
      *
      * @return PromiseInterface<PutResult>
      */
-    public function dirUploadPublicAsync(string $path): PromiseInterface
+    public function dirUploadPublicAsync(string $path, ?string $paymentMode = null): PromiseInterface
     {
-        return $this->doJsonAsync('POST', '/v1/dirs/upload/public', [
-            'path' => $path,
-        ])->then(
+        $body = ['path' => $path];
+        if ($paymentMode !== null) {
+            $body['payment_mode'] = $paymentMode;
+        }
+        return $this->doJsonAsync('POST', '/v1/dirs/upload/public', $body)->then(
             fn(?array $json) => new PutResult(
                 cost: $json['cost'] ?? '',
                 address: $json['address'] ?? '',

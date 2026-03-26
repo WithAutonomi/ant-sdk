@@ -63,7 +63,7 @@ public sealed class AntdGrpcClient : IAntdClient
 
     // ── Data ──
 
-    public async Task<PutResult> DataPutPublicAsync(byte[] data)
+    public async Task<PutResult> DataPutPublicAsync(byte[] data, string? paymentMode = null)
     {
         try
         {
@@ -83,7 +83,7 @@ public sealed class AntdGrpcClient : IAntdClient
         catch (RpcException ex) { throw Wrap(ex); }
     }
 
-    public async Task<PutResult> DataPutPrivateAsync(byte[] data)
+    public async Task<PutResult> DataPutPrivateAsync(byte[] data, string? paymentMode = null)
     {
         try
         {
@@ -195,7 +195,7 @@ public sealed class AntdGrpcClient : IAntdClient
 
     // ── Files ──
 
-    public async Task<PutResult> FileUploadPublicAsync(string path)
+    public async Task<PutResult> FileUploadPublicAsync(string path, string? paymentMode = null)
     {
         try
         {
@@ -214,7 +214,7 @@ public sealed class AntdGrpcClient : IAntdClient
         catch (RpcException ex) { throw Wrap(ex); }
     }
 
-    public async Task<PutResult> DirUploadPublicAsync(string path)
+    public async Task<PutResult> DirUploadPublicAsync(string path, string? paymentMode = null)
     {
         try
         {

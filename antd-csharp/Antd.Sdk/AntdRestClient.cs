@@ -91,9 +91,12 @@ public sealed class AntdRestClient : IAntdClient
 
     // ── Data ──
 
-    public async Task<PutResult> DataPutPublicAsync(byte[] data)
+    public async Task<PutResult> DataPutPublicAsync(byte[] data, string? paymentMode = null)
     {
-        var resp = await PostJsonAsync<DataPutPublicDto>("/v1/data/public", new { data = Convert.ToBase64String(data) });
+        object body = paymentMode != null
+            ? new { data = Convert.ToBase64String(data), payment_mode = paymentMode }
+            : new { data = Convert.ToBase64String(data) };
+        var resp = await PostJsonAsync<DataPutPublicDto>("/v1/data/public", body);
         return new PutResult(resp.Cost, resp.Address);
     }
 
@@ -103,9 +106,12 @@ public sealed class AntdRestClient : IAntdClient
         return Convert.FromBase64String(resp.Data);
     }
 
-    public async Task<PutResult> DataPutPrivateAsync(byte[] data)
+    public async Task<PutResult> DataPutPrivateAsync(byte[] data, string? paymentMode = null)
     {
-        var resp = await PostJsonAsync<DataPutPrivateDto>("/v1/data/private", new { data = Convert.ToBase64String(data) });
+        object body = paymentMode != null
+            ? new { data = Convert.ToBase64String(data), payment_mode = paymentMode }
+            : new { data = Convert.ToBase64String(data) };
+        var resp = await PostJsonAsync<DataPutPrivateDto>("/v1/data/private", body);
         return new PutResult(resp.Cost, resp.DataMap);
     }
 
@@ -167,9 +173,12 @@ public sealed class AntdRestClient : IAntdClient
 
     // ── Files ──
 
-    public async Task<PutResult> FileUploadPublicAsync(string path)
+    public async Task<PutResult> FileUploadPublicAsync(string path, string? paymentMode = null)
     {
-        var resp = await PostJsonAsync<DataPutPublicDto>("/v1/files/upload/public", new { path });
+        object body = paymentMode != null
+            ? new { path, payment_mode = paymentMode }
+            : (object)new { path };
+        var resp = await PostJsonAsync<DataPutPublicDto>("/v1/files/upload/public", body);
         return new PutResult(resp.Cost, resp.Address);
     }
 
@@ -178,9 +187,12 @@ public sealed class AntdRestClient : IAntdClient
         await PostJsonNoResultAsync("/v1/files/download/public", new { address, dest_path = destPath });
     }
 
-    public async Task<PutResult> DirUploadPublicAsync(string path)
+    public async Task<PutResult> DirUploadPublicAsync(string path, string? paymentMode = null)
     {
-        var resp = await PostJsonAsync<DataPutPublicDto>("/v1/dirs/upload/public", new { path });
+        object body = paymentMode != null
+            ? new { path, payment_mode = paymentMode }
+            : (object)new { path };
+        var resp = await PostJsonAsync<DataPutPublicDto>("/v1/dirs/upload/public", body);
         return new PutResult(resp.Cost, resp.Address);
     }
 

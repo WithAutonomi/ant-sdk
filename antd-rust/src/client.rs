@@ -162,12 +162,16 @@ impl Client {
     // --- Data ---
 
     /// Stores public immutable data on the network.
-    pub async fn data_put_public(&self, data: &[u8]) -> Result<PutResult, AntdError> {
+    pub async fn data_put_public(&self, data: &[u8], payment_mode: Option<&str>) -> Result<PutResult, AntdError> {
+        let mut body = json!({ "data": Self::b64_encode(data) });
+        if let Some(mode) = payment_mode {
+            body["payment_mode"] = json!(mode);
+        }
         let (j, _) = self
             .do_json(
                 reqwest::Method::POST,
                 "/v1/data/public",
-                Some(json!({ "data": Self::b64_encode(data) })),
+                Some(body),
             )
             .await?;
         let j = j.unwrap_or_default();
@@ -191,12 +195,16 @@ impl Client {
     }
 
     /// Stores private encrypted data on the network.
-    pub async fn data_put_private(&self, data: &[u8]) -> Result<PutResult, AntdError> {
+    pub async fn data_put_private(&self, data: &[u8], payment_mode: Option<&str>) -> Result<PutResult, AntdError> {
+        let mut body = json!({ "data": Self::b64_encode(data) });
+        if let Some(mode) = payment_mode {
+            body["payment_mode"] = json!(mode);
+        }
         let (j, _) = self
             .do_json(
                 reqwest::Method::POST,
                 "/v1/data/private",
-                Some(json!({ "data": Self::b64_encode(data) })),
+                Some(body),
             )
             .await?;
         let j = j.unwrap_or_default();
@@ -367,12 +375,16 @@ impl Client {
     // --- Files ---
 
     /// Uploads a local file to the network.
-    pub async fn file_upload_public(&self, path: &str) -> Result<PutResult, AntdError> {
+    pub async fn file_upload_public(&self, path: &str, payment_mode: Option<&str>) -> Result<PutResult, AntdError> {
+        let mut body = json!({ "path": path });
+        if let Some(mode) = payment_mode {
+            body["payment_mode"] = json!(mode);
+        }
         let (j, _) = self
             .do_json(
                 reqwest::Method::POST,
                 "/v1/files/upload/public",
-                Some(json!({ "path": path })),
+                Some(body),
             )
             .await?;
         let j = j.unwrap_or_default();
@@ -398,12 +410,16 @@ impl Client {
     }
 
     /// Uploads a local directory to the network.
-    pub async fn dir_upload_public(&self, path: &str) -> Result<PutResult, AntdError> {
+    pub async fn dir_upload_public(&self, path: &str, payment_mode: Option<&str>) -> Result<PutResult, AntdError> {
+        let mut body = json!({ "path": path });
+        if let Some(mode) = payment_mode {
+            body["payment_mode"] = json!(mode);
+        }
         let (j, _) = self
             .do_json(
                 reqwest::Method::POST,
                 "/v1/dirs/upload/public",
-                Some(json!({ "path": path })),
+                Some(body),
             )
             .await?;
         let j = j.unwrap_or_default();
