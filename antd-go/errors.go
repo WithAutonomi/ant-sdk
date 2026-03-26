@@ -37,6 +37,10 @@ type InternalError struct{ AntdError }
 // NetworkError indicates the daemon cannot reach the network (HTTP 502).
 type NetworkError struct{ AntdError }
 
+// ServiceUnavailableError indicates the daemon is missing a required
+// dependency such as a wallet (HTTP 503).
+type ServiceUnavailableError struct{ AntdError }
+
 // errorForStatus returns the appropriate error type for an HTTP status code.
 func errorForStatus(statusCode int, message string) error {
 	base := AntdError{StatusCode: statusCode, Message: message}
@@ -55,6 +59,8 @@ func errorForStatus(statusCode int, message string) error {
 		return &InternalError{base}
 	case 502:
 		return &NetworkError{base}
+	case 503:
+		return &ServiceUnavailableError{base}
 	default:
 		return &base
 	}

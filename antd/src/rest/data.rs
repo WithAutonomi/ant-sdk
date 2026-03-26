@@ -16,7 +16,7 @@ pub async fn data_put_public(
     Json(req): Json<DataPutRequest>,
 ) -> Result<Json<DataPutPublicResponse>, AntdError> {
     if state.client.wallet().is_none() {
-        return Err(AntdError::Payment("no EVM wallet configured — set AUTONOMI_WALLET_KEY".into()));
+        return Err(AntdError::ServiceUnavailable("wallet not configured — set AUTONOMI_WALLET_KEY".into()));
     }
 
     let data = BASE64.decode(&req.data)
@@ -69,7 +69,7 @@ pub async fn data_put_private(
     Json(req): Json<DataPutRequest>,
 ) -> Result<Json<DataPutPrivateResponse>, AntdError> {
     if state.client.wallet().is_none() {
-        return Err(AntdError::Payment("no EVM wallet configured — set AUTONOMI_WALLET_KEY".into()));
+        return Err(AntdError::ServiceUnavailable("wallet not configured — set AUTONOMI_WALLET_KEY".into()));
     }
 
     let data = BASE64.decode(&req.data)

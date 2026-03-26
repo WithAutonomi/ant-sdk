@@ -125,6 +125,7 @@ All SDKs use the same error hierarchy. Always generate code with proper error ha
 | `PaymentError` / `PaymentException` | 402 | Wallet has insufficient funds |
 | `AlreadyExistsError` / `AlreadyExistsException` | 409 | Trying to create something that exists |
 | `NetworkError` / `NetworkException` | 502 | Daemon can't reach the network |
+| `ServiceUnavailableError` / `ServiceUnavailableException` | 503 | Wallet not configured |
 | `BadRequestError` / `BadRequestException` | 400 | Invalid parameters |
 
 Python/JS/Swift use `Error` suffix. C#/Kotlin use `Exception` suffix. All inherit from a base `AntdError`/`AntdException`.

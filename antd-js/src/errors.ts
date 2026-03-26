@@ -65,6 +65,14 @@ export class TooLargeError extends AntdError {
   }
 }
 
+/** Service unavailable, e.g. wallet not configured (HTTP 503). */
+export class ServiceUnavailableError extends AntdError {
+  constructor(message: string, statusCode: number = 503) {
+    super(message, statusCode);
+    this.name = "ServiceUnavailableError";
+  }
+}
+
 /** Internal server error (HTTP 500). */
 export class InternalError extends AntdError {
   constructor(message: string, statusCode: number = 500) {
@@ -82,6 +90,7 @@ const HTTP_STATUS_MAP: Record<number, new (message: string, statusCode: number) 
   413: TooLargeError,
   500: InternalError,
   502: NetworkError,
+  503: ServiceUnavailableError,
 };
 
 /** Raise the appropriate AntdError subclass for an HTTP status code. */

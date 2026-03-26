@@ -1185,6 +1185,7 @@ fn walletApprove(self: *Client) !bool
 | 413 | RESOURCE_EXHAUSTED | `TooLargeError` | `TooLargeError` | `TooLargeException` | `TooLargeException` | `TooLargeError` | `TooLargeException` | `AntdError::TooLarge` | `TooLargeError` | Data exceeds size limit |
 | 500 | INTERNAL | `InternalError` | `InternalError` | `InternalException` | `InternalException` | `InternalError` | `InternalException` | `AntdError::Internal` | `InternalError` | Internal server error |
 | 502 | UNAVAILABLE | `NetworkError` | `NetworkError` | `NetworkException` | `NetworkException` | `NetworkError` | `NetworkException` | `AntdError::Network` | `NetworkError` | Cannot reach network |
+| 503 | UNAVAILABLE | `ServiceUnavailableError` | `ServiceUnavailableError` | `ServiceUnavailableException` | `ServiceUnavailableException` | `ServiceUnavailableError` | `ServiceUnavailableException` | `AntdError::ServiceUnavailable` | `ServiceUnavailableError` | Wallet not configured |
 
 All exceptions inherit from `AntdError` (JS/TS, Python, Swift, Ruby, Lua, Zig, C++) / `AntdException` (C#, Kotlin, Java, PHP, Dart, Elixir uses `{:error, reason}` tuples). Rust uses `Result<T, AntdError>` with `match` on enum variants.
 

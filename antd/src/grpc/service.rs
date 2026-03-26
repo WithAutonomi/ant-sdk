@@ -101,8 +101,8 @@ impl pb::chunk_service_server::ChunkService for ChunkServiceImpl {
         let data = request.into_inner().data;
 
         if self.state.client.wallet().is_none() {
-            return Err(Status::failed_precondition(
-                "no EVM wallet configured — set AUTONOMI_WALLET_KEY",
+            return Err(Status::unavailable(
+                "wallet not configured — set AUTONOMI_WALLET_KEY",
             ));
         }
 

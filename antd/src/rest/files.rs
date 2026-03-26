@@ -13,7 +13,7 @@ pub async fn file_upload_public(
     Json(req): Json<FileUploadRequest>,
 ) -> Result<Json<FileUploadPublicResponse>, AntdError> {
     if state.client.wallet().is_none() {
-        return Err(AntdError::Payment("no EVM wallet configured — set AUTONOMI_WALLET_KEY".into()));
+        return Err(AntdError::ServiceUnavailable("wallet not configured — set AUTONOMI_WALLET_KEY".into()));
     }
 
     let path = PathBuf::from(&req.path);
@@ -67,7 +67,7 @@ pub async fn dir_upload_public(
     Json(req): Json<FileUploadRequest>,
 ) -> Result<Json<DirUploadPublicResponse>, AntdError> {
     if state.client.wallet().is_none() {
-        return Err(AntdError::Payment("no EVM wallet configured — set AUTONOMI_WALLET_KEY".into()));
+        return Err(AntdError::ServiceUnavailable("wallet not configured — set AUTONOMI_WALLET_KEY".into()));
     }
 
     let path = PathBuf::from(&req.path);

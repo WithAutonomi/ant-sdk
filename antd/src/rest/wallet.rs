@@ -11,7 +11,7 @@ pub async fn wallet_address(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<WalletAddressResponse>, AntdError> {
     let wallet = state.client.wallet()
-        .ok_or_else(|| AntdError::BadRequest("no EVM wallet configured".into()))?;
+        .ok_or_else(|| AntdError::ServiceUnavailable("wallet not configured — set AUTONOMI_WALLET_KEY".into()))?;
 
     Ok(Json(WalletAddressResponse {
         address: format!("{:#x}", wallet.address()),
@@ -22,7 +22,7 @@ pub async fn wallet_balance(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<WalletBalanceResponse>, AntdError> {
     let wallet = state.client.wallet()
-        .ok_or_else(|| AntdError::BadRequest("no EVM wallet configured".into()))?;
+        .ok_or_else(|| AntdError::ServiceUnavailable("wallet not configured — set AUTONOMI_WALLET_KEY".into()))?;
 
     let balance = wallet.balance_of_tokens().await
         .map_err(|e| AntdError::Internal(format!("failed to get token balance: {e}")))?;
@@ -40,7 +40,7 @@ pub async fn wallet_approve(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<WalletApproveResponse>, AntdError> {
     if state.client.wallet().is_none() {
-        return Err(AntdError::BadRequest("no EVM wallet configured".into()));
+        return Err(AntdError::ServiceUnavailable("wallet not configured — set AUTONOMI_WALLET_KEY".into()));
     }
 
     let client = state.client.clone();

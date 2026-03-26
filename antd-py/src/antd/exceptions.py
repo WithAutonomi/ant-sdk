@@ -39,6 +39,11 @@ class NetworkError(AntdError):
     pass
 
 
+class ServiceUnavailableError(AntdError):
+    """Service unavailable, e.g. wallet not configured (HTTP 503 / gRPC UNAVAILABLE)."""
+    pass
+
+
 class TooLargeError(AntdError):
     """Payload too large (HTTP 413 / gRPC RESOURCE_EXHAUSTED)."""
     pass
@@ -58,6 +63,7 @@ HTTP_STATUS_MAP: dict[int, type[AntdError]] = {
     413: TooLargeError,
     500: InternalError,
     502: NetworkError,
+    503: ServiceUnavailableError,
 }
 
 

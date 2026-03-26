@@ -34,8 +34,8 @@ pub async fn chunk_put(
     Json(req): Json<ChunkPutRequest>,
 ) -> Result<Json<ChunkPutResponse>, AntdError> {
     if state.client.wallet().is_none() {
-        return Err(AntdError::Payment(
-            "no EVM wallet configured — set AUTONOMI_WALLET_KEY".into(),
+        return Err(AntdError::ServiceUnavailable(
+            "wallet not configured — set AUTONOMI_WALLET_KEY".into(),
         ));
     }
 

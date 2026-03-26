@@ -25,6 +25,9 @@ pub enum AntdError {
     #[error("Timeout: {0}")]
     Timeout(String),
 
+    #[error("Service unavailable: {0}")]
+    ServiceUnavailable(String),
+
     #[error("Not implemented: {0}")]
     NotImplemented(String),
 
@@ -66,6 +69,7 @@ impl IntoResponse for AntdError {
             AntdError::Network(_) => StatusCode::BAD_GATEWAY,
             AntdError::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             AntdError::Timeout(_) => StatusCode::GATEWAY_TIMEOUT,
+            AntdError::ServiceUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             AntdError::NotImplemented(_) => StatusCode::NOT_IMPLEMENTED,
             AntdError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
@@ -87,6 +91,7 @@ impl From<AntdError> for tonic::Status {
             AntdError::Network(msg) => tonic::Status::unavailable(msg),
             AntdError::TooLarge => tonic::Status::resource_exhausted("too large for memory"),
             AntdError::Timeout(msg) => tonic::Status::deadline_exceeded(msg),
+            AntdError::ServiceUnavailable(msg) => tonic::Status::unavailable(msg),
             AntdError::NotImplemented(msg) => tonic::Status::unimplemented(msg),
             AntdError::Internal(msg) => tonic::Status::internal(msg),
         }

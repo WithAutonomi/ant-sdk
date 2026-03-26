@@ -35,6 +35,10 @@ pub enum AntdError {
     #[error("antd error 502: {0}")]
     Network(String),
 
+    /// Service unavailable, e.g. wallet not configured (HTTP 503).
+    #[error("antd error 503: {0}")]
+    ServiceUnavailable(String),
+
     /// HTTP transport error from reqwest.
     #[error("http error: {0}")]
     Http(#[from] reqwest::Error),
@@ -58,6 +62,7 @@ pub fn error_for_status(code: u16, message: String) -> AntdError {
         413 => AntdError::TooLarge(message),
         500 => AntdError::Internal(message),
         502 => AntdError::Network(message),
+        503 => AntdError::ServiceUnavailable(message),
         _ => AntdError::Internal(format!("unexpected status {code}: {message}")),
     }
 }

@@ -51,6 +51,11 @@ module Antd
     def initialize(message) = super(message, status_code: 502)
   end
 
+  # Service unavailable, e.g. wallet not configured (HTTP 503).
+  class ServiceUnavailableError < AntdError
+    def initialize(message) = super(message, status_code: 503)
+  end
+
   # Returns the appropriate error type for an HTTP status code.
   def self.error_for_status(code, message)
     case code
@@ -61,6 +66,7 @@ module Antd
     when 413 then TooLargeError.new(message)
     when 500 then InternalError.new(message)
     when 502 then NetworkError.new(message)
+    when 503 then ServiceUnavailableError.new(message)
     else          AntdError.new(message, status_code: code)
     end
   end

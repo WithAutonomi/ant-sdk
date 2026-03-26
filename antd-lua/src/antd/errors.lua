@@ -74,6 +74,13 @@ function M.network(message)
     return new_error("network", 502, message)
 end
 
+--- Create a service_unavailable error (HTTP 503).
+-- @param message string
+-- @return table
+function M.service_unavailable(message)
+    return new_error("service_unavailable", 503, message)
+end
+
 --- Return the appropriate error for an HTTP status code.
 -- @param code number HTTP status code
 -- @param message string error message
@@ -86,6 +93,7 @@ function M.error_for_status(code, message)
     if code == 413 then return M.too_large(message) end
     if code == 500 then return M.internal(message) end
     if code == 502 then return M.network(message) end
+    if code == 503 then return M.service_unavailable(message) end
     return new_error("unknown", code, message)
 end
 

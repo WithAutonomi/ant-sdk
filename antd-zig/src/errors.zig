@@ -8,6 +8,7 @@ pub const AntdError = error{
     TooLarge,
     Internal,
     Network,
+    ServiceUnavailable,
     UnexpectedStatus,
     HttpError,
     JsonError,
@@ -29,6 +30,7 @@ pub fn errorForStatus(code: u16) AntdError {
         413 => error.TooLarge,
         500 => error.Internal,
         502 => error.Network,
+        503 => error.ServiceUnavailable,
         else => error.UnexpectedStatus,
     };
 }

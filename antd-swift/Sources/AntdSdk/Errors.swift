@@ -61,6 +61,12 @@ public final class InternalError: AntdError {
     }
 }
 
+public final class ServiceUnavailableError: AntdError {
+    public init(_ message: String, statusCode: Int = 503) {
+        super.init(message, statusCode: statusCode)
+    }
+}
+
 enum ErrorMapping {
 
     static func fromHTTPStatus(_ statusCode: Int, body: String) -> AntdError {
@@ -72,6 +78,7 @@ enum ErrorMapping {
         case 413: return TooLargeError(body, statusCode: statusCode)
         case 500: return InternalError(body, statusCode: statusCode)
         case 502: return NetworkError(body, statusCode: statusCode)
+        case 503: return ServiceUnavailableError(body, statusCode: statusCode)
         default: return AntdError(body, statusCode: statusCode)
         }
     }

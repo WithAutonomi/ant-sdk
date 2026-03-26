@@ -86,6 +86,7 @@ data = client.data_get_public(result.address)
 | 413 | RESOURCE_EXHAUSTED | TooLargeError | Payload too large |
 | 500 | INTERNAL | InternalError | Server error |
 | 502 | UNAVAILABLE | NetworkError | Network unreachable |
+| 503 | UNAVAILABLE | ServiceUnavailableError | Wallet not configured |
 
 ## Examples
 
