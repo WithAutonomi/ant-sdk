@@ -68,13 +68,18 @@ This is the most important decision. Match the developer's use case to the right
 Store data permanently on the network. Content-addressed, so duplicate data is free.
 
 ```python
-# Store public data
+# Store public data (payment_mode defaults to "auto")
 result = client.data_put_public(b"Hello, Autonomi!")
 print(f"Address: {result.address}")
 
 # Retrieve it back
 data = client.data_get_public(result.address)
+
+# For large uploads, explicitly use merkle batch payments to save gas
+result = client.data_put_public(large_data, payment_mode="merkle")
 ```
+
+All write operations accept an optional `payment_mode` parameter: `"auto"` (default — uses merkle for 64+ chunks), `"merkle"` (force batch payments, min 2 chunks), or `"single"` (per-chunk payments). The `"auto"` mode is recommended for most use cases.
 
 **When to suggest this:** Developer wants permanent, immutable content storage with public readability.
 

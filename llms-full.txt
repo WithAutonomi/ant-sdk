@@ -41,10 +41,13 @@ client = AntdClient()                          # REST, localhost:8082
 client = AntdClient(transport="grpc")          # gRPC, localhost:50051
 client = AntdClient(base_url="http://remote:8082")
 
-# Store and retrieve data
+# Store and retrieve data (payment_mode defaults to "auto")
 result = client.data_put_public(b"hello world")
 print(result.address, result.cost)
 data = client.data_get_public(result.address)  # b"hello world"
+
+# Explicit payment mode for large uploads
+result = client.data_put_public(large_data, payment_mode="merkle")
 ```
 
 ```typescript
@@ -219,7 +222,7 @@ Response: `{"status": "ok", "network": "local"}`
 #### `POST /v1/data/public`
 Store public (unencrypted) data on the network.
 
-Request: `{"data": "<base64>"}`
+Request: `{"data": "<base64>", "payment_mode": "auto"}` (payment_mode is optional, defaults to "auto")
 Response: `{"cost": "<atto_tokens>", "address": "<hex>"}`
 
 #### `GET /v1/data/public/{addr}`
@@ -233,7 +236,7 @@ Stream public data as chunked response. Same path params as above.
 #### `POST /v1/data/private`
 Store private (encrypted) data. Returns a data map instead of address.
 
-Request: `{"data": "<base64>"}`
+Request: `{"data": "<base64>", "payment_mode": "auto"}` (payment_mode is optional, defaults to "auto")
 Response: `{"cost": "<atto_tokens>", "data_map": "<hex>"}`
 
 #### `GET /v1/data/private`
@@ -308,7 +311,7 @@ Upload and download files/directories from the local filesystem.
 #### `POST /v1/files/upload/public`
 Upload a local file.
 
-Request: `{"path": "/absolute/path/to/file"}`
+Request: `{"path": "/absolute/path/to/file", "payment_mode": "auto"}` (payment_mode is optional, defaults to "auto")
 Response: `{"cost": "<atto_tokens>", "address": "<hex>"}`
 
 #### `POST /v1/files/download/public`
@@ -319,7 +322,7 @@ Request: `{"address": "<hex>", "dest_path": "/absolute/path"}`
 #### `POST /v1/dirs/upload/public`
 Upload a local directory (recursively).
 
-Request: `{"path": "/absolute/path/to/dir"}`
+Request: `{"path": "/absolute/path/to/dir", "payment_mode": "auto"}` (payment_mode is optional, defaults to "auto")
 Response: `{"cost": "<atto_tokens>", "address": "<hex>"}`
 
 #### `POST /v1/dirs/download/public`
@@ -408,6 +411,36 @@ JS/TS, PHP, Lua, and Zig are REST-only.
 | GraphEntry | owner, parents: list[string], content: string, descendants: list[GraphDescendant] | Graph entry |
 | ArchiveEntry | path, address, created: int, modified: int, size: int | Archive file entry |
 | Archive | entries: list[ArchiveEntry] | Archive manifest |
+
+---
+
+## Payment Modes
+
+All data and file upload operations accept an optional `payment_mode` parameter that controls how storage payments are batched:
+
+| Mode | Behavior |
+|------|----------|
+| `"auto"` (default) | Uses merkle batch payments for uploads of 64+ chunks, single payments otherwise. Best for general use. |
+| `"merkle"` | Forces merkle batch payments regardless of chunk count (minimum 2 chunks). Saves gas on larger uploads. |
+| `"single"` | Forces per-chunk payments. Useful for small data or debugging. |
+
+This applies to all PUT endpoints (`data_put_public`, `data_put_private`, `file_upload_public`, `dir_upload_public`) across all SDKs. The parameter is always optional and defaults to `"auto"`.
+
+**REST:** Include `"payment_mode": "merkle"` in the JSON request body.
+
+**SDK examples:**
+```python
+# Python
+result = client.data_put_public(data, payment_mode="merkle")
+```
+```go
+// Go
+result, err := client.DataPutPublic(ctx, data, antd.WithPaymentMode("merkle"))
+```
+```typescript
+// TypeScript
+const result = await client.dataPutPublic(data, { paymentMode: "merkle" });
+```
 
 ---
 

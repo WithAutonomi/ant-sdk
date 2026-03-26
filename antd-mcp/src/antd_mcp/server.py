@@ -87,12 +87,16 @@ def _err(exc: Exception, network: str) -> str:
 async def store_data(
     text: str,
     private: bool = False,
+    payment_mode: str = "auto",
 ) -> str:
     """Store text on the Autonomi network.
 
     Args:
         text: The text content to store.
         private: If True, store as private (encrypted). Default: public.
+        payment_mode: Payment strategy — "auto" (default, uses merkle for 64+
+            chunks), "merkle" (force batch payments, min 2 chunks), or "single"
+            (per-chunk payments).
 
     Returns:
         JSON with address and cost, or error details.
@@ -101,9 +105,9 @@ async def store_data(
     data = text.encode("utf-8")
     try:
         if private:
-            result = await client.data_put_private(data)
+            result = await client.data_put_private(data, payment_mode=payment_mode)
         else:
-            result = await client.data_put_public(data)
+            result = await client.data_put_public(data, payment_mode=payment_mode)
         return _ok({"address": result.address, "cost": result.cost}, network)
     except AntdError as exc:
         return _err_antd(exc, network)
@@ -152,12 +156,16 @@ async def retrieve_data(
 async def upload_file(
     path: str,
     is_directory: bool = False,
+    payment_mode: str = "auto",
 ) -> str:
     """Upload a local file or directory to the Autonomi network (public).
 
     Args:
         path: Absolute path to the local file or directory.
         is_directory: Set True if path is a directory.
+        payment_mode: Payment strategy — "auto" (default, uses merkle for 64+
+            chunks), "merkle" (force batch payments, min 2 chunks), or "single"
+            (per-chunk payments).
 
     Returns:
         JSON with address and cost, or error details.
@@ -165,9 +173,9 @@ async def upload_file(
     client, network = _get_ctx()
     try:
         if is_directory:
-            result = await client.dir_upload_public(path)
+            result = await client.dir_upload_public(path, payment_mode=payment_mode)
         else:
-            result = await client.file_upload_public(path)
+            result = await client.file_upload_public(path, payment_mode=payment_mode)
         return _ok({"address": result.address, "cost": result.cost}, network)
     except AntdError as exc:
         return _err_antd(exc, network)

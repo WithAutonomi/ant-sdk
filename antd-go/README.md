@@ -73,6 +73,12 @@ client := antd.NewClient(antd.DefaultBaseURL, antd.WithTimeout(30 * time.Second)
 
 // Custom HTTP client
 client := antd.NewClient(antd.DefaultBaseURL, antd.WithHTTPClient(myHTTPClient))
+
+// Payment mode for uploads (defaults to "auto")
+result, _ := client.DataPutPublic(ctx, data, antd.WithPaymentMode("merkle"))
+// "auto" = merkle for 64+ chunks, single otherwise
+// "merkle" = force batch payments (saves gas, min 2 chunks)
+// "single" = per-chunk payments
 ```
 
 ## API Reference

@@ -43,9 +43,9 @@ data = client.data_get_public(result.address)
 | GET | `/health` | Health check and network status |
 | GET | `/v1/data/public/{addr}` | Retrieve public data by address |
 | GET | `/v1/data/public/{addr}/stream` | Stream public data by address |
-| POST | `/v1/data/public` | Store public data |
+| POST | `/v1/data/public` | Store public data (accepts optional `payment_mode`) |
 | GET | `/v1/data/private` | Retrieve private (encrypted) data |
-| POST | `/v1/data/private` | Store private (encrypted) data |
+| POST | `/v1/data/private` | Store private (encrypted) data (accepts optional `payment_mode`) |
 | POST | `/v1/data/cost` | Estimate data storage cost |
 | GET | `/v1/chunks/{addr}` | Get raw chunk by address |
 | POST | `/v1/chunks` | Store raw chunk |
@@ -53,9 +53,9 @@ data = client.data_get_public(result.address)
 | HEAD | `/v1/graph/{addr}` | Check graph entry existence |
 | POST | `/v1/graph` | Create graph entry |
 | POST | `/v1/graph/cost` | Estimate graph entry cost |
-| POST | `/v1/files/upload/public` | Upload file to network |
+| POST | `/v1/files/upload/public` | Upload file to network (accepts optional `payment_mode`) |
 | POST | `/v1/files/download/public` | Download file from network |
-| POST | `/v1/dirs/upload/public` | Upload directory to network |
+| POST | `/v1/dirs/upload/public` | Upload directory to network (accepts optional `payment_mode`) |
 | POST | `/v1/dirs/download/public` | Download directory from network |
 | GET | `/v1/archives/public/{addr}` | List archive entries |
 | POST | `/v1/archives/public` | Create archive manifest |
@@ -122,3 +122,17 @@ Port file locations: `%APPDATA%\ant\daemon.port` (Windows), `~/.local/share/ant/
 
 - REST: `http://localhost:8082`
 - gRPC: `localhost:50051`
+
+## Payment Modes
+
+All data and file PUT/upload endpoints accept an optional `payment_mode` field in the request body:
+
+| Mode | Behavior |
+|------|----------|
+| `"auto"` (default) | Uses merkle batch payments for 64+ chunks, single payments otherwise |
+| `"merkle"` | Forces merkle batch payments regardless of chunk count (minimum 2 chunks). Saves gas on larger uploads |
+| `"single"` | Forces per-chunk payments. Useful for small data or debugging |
+
+REST example: `POST /v1/data/public` with `{"data": "<base64>", "payment_mode": "merkle"}`
+
+All SDK `*_put_public`, `*_put_private`, `file_upload_public`, and `dir_upload_public` methods accept a `payment_mode` parameter (defaults to `"auto"`).

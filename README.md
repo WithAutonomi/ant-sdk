@@ -60,6 +60,14 @@ This is especially useful in managed mode, where a parent process (e.g. indelibl
 
 If no port file is found, all SDKs fall back to the default REST endpoint (`http://localhost:8082`) or gRPC target (`localhost:50051`).
 
+### Payment Modes
+
+All data and file upload operations accept an optional `payment_mode` parameter (defaults to `"auto"`):
+
+- **`auto`** — Uses merkle batch payments for uploads of 64+ chunks, single payments otherwise. Recommended for most use cases.
+- **`merkle`** — Forces merkle batch payments regardless of chunk count (minimum 2 chunks). Saves gas on larger uploads.
+- **`single`** — Forces per-chunk payments. Useful for small data or debugging.
+
 ## Components
 
 ### Infrastructure
@@ -162,7 +170,7 @@ client = AntdClient()
 status = client.health()
 print(f"Network: {status.network}")
 
-# Store data on the network
+# Store data on the network (payment_mode defaults to "auto")
 result = client.data_put_public(b"Hello, Autonomi!")
 print(f"Address: {result.address}")
 print(f"Cost: {result.cost} atto tokens")
@@ -170,6 +178,9 @@ print(f"Cost: {result.cost} atto tokens")
 # Retrieve it back
 data = client.data_get_public(result.address)
 print(data.decode())  # "Hello, Autonomi!"
+
+# For large uploads, you can explicitly set payment_mode:
+# result = client.data_put_public(large_data, payment_mode="merkle")
 ```
 
 ### Write your first app (JavaScript/TypeScript)

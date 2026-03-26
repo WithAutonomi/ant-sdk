@@ -50,9 +50,9 @@ The server will auto-discover the daemon via the port file. Add `"env": {"ANTD_B
 
 | # | Tool | Description |
 |---|------|-------------|
-| 1 | `store_data(text, private?)` | Store text on the network (public or encrypted) |
+| 1 | `store_data(text, private?, payment_mode?)` | Store text on the network (public or encrypted) |
 | 2 | `retrieve_data(address, private?)` | Retrieve text by address |
-| 3 | `upload_file(path, is_directory?)` | Upload a local file or directory |
+| 3 | `upload_file(path, is_directory?, payment_mode?)` | Upload a local file or directory |
 | 4 | `download_file(address, dest_path, is_directory?)` | Download to local path |
 | 5 | `get_cost(text?, file_path?)` | Estimate storage cost |
 | 6 | `check_balance()` | Check daemon health and network status |
@@ -79,6 +79,16 @@ The server will auto-discover the daemon via the port file. Add `"env": {"ANTD_B
 |---|------|-------------|
 | 13 | `archive_get(address)` | List files in an archive |
 | 14 | `archive_put(entries)` | Create an archive manifest |
+
+### Payment Modes
+
+The `store_data` and `upload_file` tools accept an optional `payment_mode` parameter:
+
+| Mode | Behavior |
+|------|----------|
+| `"auto"` (default) | Uses merkle batch payments for 64+ chunks, single payments otherwise. Recommended for most use cases. |
+| `"merkle"` | Forces merkle batch payments regardless of chunk count (minimum 2 chunks). Saves gas on larger uploads. |
+| `"single"` | Forces per-chunk payments. Useful for small data or debugging. |
 
 ## Response Format
 
@@ -110,6 +120,7 @@ antd-mcp/
 ├── pyproject.toml
 └── src/antd_mcp/
     ├── __init__.py
-    ├── server.py      # 14 MCP tool definitions
+    ├── server.py      # 16 MCP tool definitions
+    ├── discover.py    # Daemon port-file discovery
     └── errors.py      # Error formatting
 ```
