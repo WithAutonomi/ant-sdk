@@ -319,6 +319,13 @@ pub const Client = struct {
         return json_helpers.parseWalletBalance(self.allocator, resp);
     }
 
+    /// Approve the wallet to spend tokens on payment contracts (one-time operation).
+    pub fn walletApprove(self: *Client) !bool {
+        const resp = try self.doRequest(.POST, "/v1/wallet/approve", "{}") orelse return error.JsonError;
+        defer self.allocator.free(resp);
+        return json_helpers.parseBoolField(self.allocator, resp, "approved");
+    }
+
     // --- Files ---
 
     /// Upload a local file to the network.

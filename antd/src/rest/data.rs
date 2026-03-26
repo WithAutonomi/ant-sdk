@@ -116,10 +116,44 @@ pub async fn data_get_private(
 }
 
 pub async fn data_cost(
-    State(_state): State<Arc<AppState>>,
-    Json(_req): Json<DataCostRequest>,
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<DataCostRequest>,
 ) -> Result<Json<CostResponse>, AntdError> {
-    Err(AntdError::NotImplemented("data cost estimation not yet available".into()))
+    let data = BASE64.decode(&req.data)
+        .map_err(|e| AntdError::BadRequest(format!("invalid base64: {e}")))?;
+
+    // Encrypt to determine chunk count and addresses, then quote each
+    let client = state.client.clone();
+    let total_cost = tokio::spawn(async move {
+        use self_encryption::encrypt;
+        let (_data_map, encrypted_chunks) = encrypt(Bytes::from(data))
+            .map_err(|e| AntdError::Internal(format!("encryption failed: {e}")))?;
+
+        let mut total = ant_core::data::U256::ZERO;
+        for chunk in &encrypted_chunks {
+            let address = ant_core::data::compute_address(&chunk.content);
+            let data_size = chunk.content.len() as u64;
+            match client.get_store_quotes(&address, data_size, 0).await {
+                Ok(quotes) => {
+                    for (_, _, _, price) in &quotes {
+                        total = total.saturating_add(*price);
+                    }
+                }
+                Err(e) => {
+                    // AlreadyStored means no cost for this chunk
+                    let core_err_str = format!("{e}");
+                    if !core_err_str.contains("AlreadyStored") {
+                        return Err(AntdError::from_core(e));
+                    }
+                }
+            }
+        }
+        Ok::<_, AntdError>(total)
+    }).await.map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
+
+    Ok(Json(CostResponse {
+        cost: total_cost.to_string(),
+    }))
 }
 
 pub async fn data_stream_public(

@@ -841,6 +841,30 @@ class AntdClient
     }
 
     /**
+     * Approve the wallet to spend tokens on payment contracts (one-time operation).
+     *
+     * @return bool
+     * @throws AntdError if no wallet is configured (HTTP 400)
+     */
+    public function walletApprove(): bool
+    {
+        $json = $this->doJson('POST', '/v1/wallet/approve', []);
+        return $json['approved'] ?? false;
+    }
+
+    /**
+     * Async: Approve the wallet to spend tokens on payment contracts (one-time operation).
+     *
+     * @return PromiseInterface<bool>
+     */
+    public function walletApproveAsync(): PromiseInterface
+    {
+        return $this->doJsonAsync('POST', '/v1/wallet/approve', [])->then(
+            fn(?array $json) => $json['approved'] ?? false,
+        );
+    }
+
+    /**
      * Estimate the cost of uploading a file.
      */
     public function fileCost(string $path, bool $isPublic, bool $includeArchive): string

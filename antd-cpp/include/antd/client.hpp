@@ -121,6 +121,9 @@ public:
     /// Get the wallet balance (tokens and gas).
     WalletBalance wallet_balance();
 
+    /// Approve the wallet to spend tokens on payment contracts (one-time operation).
+    bool wallet_approve();
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

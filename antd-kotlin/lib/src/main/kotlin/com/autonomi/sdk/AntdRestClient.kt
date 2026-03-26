@@ -270,4 +270,11 @@ class AntdRestClient(
         val resp = getJson<WalletBalanceDto>("/v1/wallet/balance")
         return WalletBalance(resp.balance, resp.gasBalance)
     }
+
+    /** Approves the wallet to spend tokens on payment contracts (one-time operation). */
+    override suspend fun walletApprove(): Boolean {
+        val body = buildJsonObject {}.toString()
+        val resp = postJson<WalletApproveDto>("/v1/wallet/approve", body)
+        return resp.approved
+    }
 }

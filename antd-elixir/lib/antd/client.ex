@@ -480,6 +480,22 @@ defmodule Antd.Client do
   @spec wallet_balance!(t()) :: Antd.WalletBalance.t()
   def wallet_balance!(client), do: unwrap!(wallet_balance(client))
 
+  @doc "Approves the wallet to spend tokens on payment contracts (one-time operation)."
+  @spec wallet_approve(t()) :: {:ok, boolean()} | {:error, Exception.t()}
+  def wallet_approve(%__MODULE__{} = client) do
+    case do_json(client, :post, "/v1/wallet/approve", %{}) do
+      {:ok, body} ->
+        {:ok, body["approved"] == true}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  @doc "Like `wallet_approve/1` but raises on error."
+  @spec wallet_approve!(t()) :: boolean()
+  def wallet_approve!(client), do: unwrap!(wallet_approve(client))
+
   # ---------------------------------------------------------------------------
   # Internal helpers
   # ---------------------------------------------------------------------------

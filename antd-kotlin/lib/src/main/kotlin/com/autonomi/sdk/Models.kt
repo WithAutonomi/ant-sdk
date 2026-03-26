@@ -95,3 +95,8 @@ internal data class WalletBalanceDto(
     val balance: String,
     @SerialName("gas_balance") val gasBalance: String,
 )
+
+@Serializable
+internal data class WalletApproveDto(
+    val approved: Boolean,
+)

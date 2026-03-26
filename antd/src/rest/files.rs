@@ -131,8 +131,46 @@ pub async fn archive_put_public(
 }
 
 pub async fn file_cost(
-    State(_state): State<Arc<AppState>>,
-    Json(_req): Json<FileCostRequest>,
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<FileCostRequest>,
 ) -> Result<Json<CostResponse>, AntdError> {
-    Err(AntdError::NotImplemented("file cost estimation not yet available".into()))
+    let path = PathBuf::from(&req.path);
+    if !path.exists() {
+        return Err(AntdError::BadRequest(format!("path not found: {}", req.path)));
+    }
+
+    // Read file, encrypt to get chunks, then quote each
+    let client = state.client.clone();
+    let total_cost = tokio::spawn(async move {
+        use self_encryption::encrypt;
+        let file_data = tokio::fs::read(&path).await
+            .map_err(|e| AntdError::Internal(format!("failed to read file: {e}")))?;
+
+        let (_data_map, encrypted_chunks) = encrypt(bytes::Bytes::from(file_data))
+            .map_err(|e| AntdError::Internal(format!("encryption failed: {e}")))?;
+
+        let mut total = ant_core::data::U256::ZERO;
+        for chunk in &encrypted_chunks {
+            let address = ant_core::data::compute_address(&chunk.content);
+            let data_size = chunk.content.len() as u64;
+            match client.get_store_quotes(&address, data_size, 0).await {
+                Ok(quotes) => {
+                    for (_, _, _, price) in &quotes {
+                        total = total.saturating_add(*price);
+                    }
+                }
+                Err(e) => {
+                    let core_err_str = format!("{e}");
+                    if !core_err_str.contains("AlreadyStored") {
+                        return Err(AntdError::from_core(e));
+                    }
+                }
+            }
+        }
+        Ok::<_, AntdError>(total)
+    }).await.map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
+
+    Ok(Json(CostResponse {
+        cost: total_cost.to_string(),
+    }))
 }

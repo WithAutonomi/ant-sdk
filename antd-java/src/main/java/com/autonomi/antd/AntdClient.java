@@ -368,4 +368,17 @@ public class AntdClient implements AutoCloseable {
         Map<String, Object> j = doJson("GET", "/v1/wallet/balance", null);
         return new WalletBalance(str(j, "balance"), str(j, "gas_balance"));
     }
+
+    /**
+     * Approves the wallet to spend tokens on payment contracts.
+     * This is a one-time operation required before any storage operations.
+     *
+     * @return true if the wallet was approved
+     * @throws AntdException if no wallet is configured (HTTP 400) or on other errors
+     */
+    public boolean walletApprove() {
+        Map<String, Object> j = doJson("POST", "/v1/wallet/approve", "{}");
+        Object approved = j.get("approved");
+        return approved instanceof Boolean b && b;
+    }
 }

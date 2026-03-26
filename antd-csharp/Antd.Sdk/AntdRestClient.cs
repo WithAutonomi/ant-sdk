@@ -246,6 +246,15 @@ public sealed class AntdRestClient : IAntdClient
         return new WalletBalance(resp.Balance, resp.GasBalance);
     }
 
+    /// <summary>
+    /// Approves the wallet to spend tokens on payment contracts (one-time operation).
+    /// </summary>
+    public async Task<bool> WalletApproveAsync()
+    {
+        var resp = await PostJsonAsync<WalletApproveDto>("/v1/wallet/approve", new { });
+        return resp.Approved;
+    }
+
     // ── Internal DTOs for JSON deserialization ──
 
     private sealed record HealthResponseDto(
@@ -292,4 +301,7 @@ public sealed class AntdRestClient : IAntdClient
     private sealed record WalletBalanceDto(
         [property: JsonPropertyName("balance")] string Balance,
         [property: JsonPropertyName("gas_balance")] string GasBalance);
+
+    private sealed record WalletApproveDto(
+        [property: JsonPropertyName("approved")] bool Approved);
 }

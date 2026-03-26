@@ -47,6 +47,7 @@ pub fn router(state: Arc<AppState>, enable_cors: bool, rest_port: u16) -> Router
         // Wallet
         .route("/v1/wallet/address", get(wallet::wallet_address))
         .route("/v1/wallet/balance", get(wallet::wallet_balance))
+        .route("/v1/wallet/approve", post(wallet::wallet_approve))
         .with_state(state);
 
     if enable_cors {

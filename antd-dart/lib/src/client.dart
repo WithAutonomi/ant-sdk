@@ -322,4 +322,10 @@ class AntdClient {
     final json = await _doJson('GET', '/v1/wallet/balance');
     return WalletBalance.fromJson(json!);
   }
+
+  /// Approves the wallet to spend tokens on payment contracts (one-time operation).
+  Future<bool> walletApprove() async {
+    final json = await _doJson('POST', '/v1/wallet/approve', {});
+    return json!['approved'] as bool;
+  }
 }

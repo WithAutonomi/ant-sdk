@@ -971,6 +971,7 @@ dependencies = [
  "prost",
  "rand 0.8.5",
  "rmp-serde",
+ "self_encryption",
  "serde",
  "serde_json",
  "thiserror 2.0.18",

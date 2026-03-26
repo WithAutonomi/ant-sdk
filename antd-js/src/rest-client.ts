@@ -303,4 +303,10 @@ export class RestClient {
     const j = await this.getJson<{ balance: string; gas_balance: string }>("/v1/wallet/balance");
     return { balance: j.balance, gasBalance: j.gas_balance };
   }
+
+  /** Approve the wallet to spend tokens on payment contracts (one-time operation). */
+  async walletApprove(): Promise<boolean> {
+    const j = await this.postJson<{ approved: boolean }>("/v1/wallet/approve", {});
+    return j.approved;
+  }
 }

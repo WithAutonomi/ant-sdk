@@ -428,6 +428,22 @@ pub fn parseWalletBalance(allocator: Allocator, body: []const u8) !models.Wallet
     };
 }
 
+/// Extract a boolean field from a JSON response body.
+pub fn parseBoolField(allocator: Allocator, body: []const u8, key: []const u8) !bool {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
+        return error.JsonError;
+    defer parsed.deinit();
+    const obj = switch (parsed.value) {
+        .object => |o| o,
+        else => return error.JsonError,
+    };
+    const val = obj.get(key) orelse return false;
+    return switch (val) {
+        .bool => |b| b,
+        else => false,
+    };
+}
+
 /// Extract the "error" message from a JSON error response body.
 pub fn parseErrorMessage(allocator: Allocator, body: []const u8) ?[]const u8 {
     const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch return null;

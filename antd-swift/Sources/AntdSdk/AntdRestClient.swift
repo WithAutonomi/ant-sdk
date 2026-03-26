@@ -205,6 +205,12 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         let resp: WalletBalanceDTO = try await getJSON("/v1/wallet/balance")
         return WalletBalance(balance: resp.balance, gasBalance: resp.gasBalance)
     }
+
+    /// Approves the wallet to spend tokens on payment contracts (one-time operation).
+    public func walletApprove() async throws -> Bool {
+        let resp: WalletApproveDTO = try await postJSON("/v1/wallet/approve", body: [:] as [String: Any])
+        return resp.approved
+    }
 }
 
 // MARK: - Internal DTOs
@@ -263,6 +269,10 @@ private struct WalletAddressDTO: Decodable {
 private struct WalletBalanceDTO: Decodable {
     let balance: String
     let gasBalance: String
+}
+
+private struct WalletApproveDTO: Decodable {
+    let approved: Bool
 }
 
 extension JSONDecoder {

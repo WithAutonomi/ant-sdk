@@ -354,6 +354,25 @@ Estimate file upload cost.
 Request: `{"path": "/path/to/file", "is_public": true, "include_archive": false}`
 Response: `{"cost": "<atto_tokens>"}`
 
+#### `GET /v1/wallet/address`
+Get the wallet's public address.
+
+Response: `{"address": "0x..."}`
+Returns 400 if no wallet is configured.
+
+#### `GET /v1/wallet/balance`
+Get the wallet's token and gas balances.
+
+Response: `{"balance": "<atto_tokens>", "gas_balance": "<atto_tokens>"}`
+Returns 400 if no wallet is configured.
+
+#### `POST /v1/wallet/approve`
+Approve the wallet to spend tokens on payment contracts (one-time operation before any storage).
+
+Request: `{}` (empty body)
+Response: `{"approved": true}`
+Returns 400 if no wallet is configured.
+
 ---
 
 ## gRPC API — All Services
@@ -481,6 +500,11 @@ client.dirDownloadPublic(address: string, destPath: string): Promise<void>
 client.archiveGetPublic(address: string): Promise<Archive>
 client.archivePutPublic(archive: Archive): Promise<PutResult>
 client.fileCost(path: string, isPublic?: boolean, includeArchive?: boolean): Promise<string>
+
+// Wallet
+client.walletAddress(): Promise<WalletAddress>
+client.walletBalance(): Promise<WalletBalance>
+client.walletApprove(): Promise<boolean>
 ```
 
 ---
@@ -521,6 +545,11 @@ client.dir_download_public(address: str, dest_path: str) → None
 client.archive_get_public(address: str) → Archive
 client.archive_put_public(archive: Archive) → PutResult
 client.file_cost(path: str, is_public: bool = True, include_archive: bool = False) → str
+
+# Wallet
+client.wallet_address() → WalletAddress
+client.wallet_balance() → WalletBalance
+client.wallet_approve() → bool
 ```
 
 ---
@@ -561,6 +590,11 @@ Task DirDownloadPublicAsync(string address, string destPath);
 Task<Archive> ArchiveGetPublicAsync(string address);
 Task<PutResult> ArchivePutPublicAsync(Archive archive);
 Task<string> FileCostAsync(string path, bool isPublic = true, bool includeArchive = false);
+
+// Wallet
+Task<WalletAddress> WalletAddressAsync();
+Task<WalletBalance> WalletBalanceAsync();
+Task<bool> WalletApproveAsync();
 ```
 
 ---
@@ -601,6 +635,11 @@ suspend fun dirDownloadPublic(address: String, destPath: String)
 suspend fun archiveGetPublic(address: String): Archive
 suspend fun archivePutPublic(archive: Archive): PutResult
 suspend fun fileCost(path: String, isPublic: Boolean = true, includeArchive: Boolean = false): String
+
+// Wallet
+suspend fun walletAddress(): WalletAddress
+suspend fun walletBalance(): WalletBalance
+suspend fun walletApprove(): Boolean
 ```
 
 ---
@@ -643,6 +682,11 @@ func dirDownloadPublic(address: String, destPath: String) async throws
 func archiveGetPublic(address: String) async throws -> Archive
 func archivePutPublic(archive: Archive) async throws -> PutResult
 func fileCost(path: String, isPublic: Bool, includeArchive: Bool) async throws -> String
+
+// Wallet
+func walletAddress() async throws -> WalletAddress
+func walletBalance() async throws -> WalletBalance
+func walletApprove() async throws -> Bool
 ```
 
 ---
@@ -682,6 +726,11 @@ func (c *Client) DirDownloadPublic(ctx context.Context, address string, destPath
 func (c *Client) ArchiveGetPublic(ctx context.Context, address string) (*Archive, error)
 func (c *Client) ArchivePutPublic(ctx context.Context, archive *Archive) (*PutResult, error)
 func (c *Client) FileCost(ctx context.Context, path string, isPublic bool, includeArchive bool) (string, error)
+
+// Wallet
+func (c *Client) WalletAddress(ctx context.Context) (*WalletAddress, error)
+func (c *Client) WalletBalance(ctx context.Context) (*WalletBalance, error)
+func (c *Client) WalletApprove(ctx context.Context) error
 ```
 
 ---
@@ -725,6 +774,11 @@ Archive archiveGetPublic(String address) throws AntdException
 PutResult archivePutPublic(Archive archive) throws AntdException
 String fileCost(String path, boolean isPublic, boolean includeArchive) throws AntdException
 
+// Wallet
+WalletAddress walletAddress() throws AntdException
+WalletBalance walletBalance() throws AntdException
+boolean walletApprove() throws AntdException
+
 // AntdClient implements AutoCloseable — use try-with-resources
 ```
 
@@ -766,6 +820,11 @@ async fn dir_download_public(&self, address: &str, dest_path: &str) -> Result<()
 async fn archive_get_public(&self, address: &str) -> Result<Archive, AntdError>
 async fn archive_put_public(&self, archive: &Archive) -> Result<PutResult, AntdError>
 async fn file_cost(&self, path: &str, is_public: bool, include_archive: bool) -> Result<String, AntdError>
+
+// Wallet
+async fn wallet_address(&self) -> Result<WalletAddress, AntdError>
+async fn wallet_balance(&self) -> Result<WalletBalance, AntdError>
+async fn wallet_approve(&self) -> Result<bool, AntdError>
 
 // AntdError variants: BadRequest, Payment, NotFound, AlreadyExists, Fork, TooLarge, Internal, Network
 ```
@@ -810,6 +869,11 @@ antd::Archive archiveGetPublic(const std::string& address)
 antd::PutResult archivePutPublic(const antd::Archive& archive)
 std::string fileCost(const std::string& path, bool isPublic = true, bool includeArchive = false)
 
+// Wallet
+antd::WalletAddress walletAddress()
+antd::WalletBalance walletBalance()
+bool walletApprove()
+
 // All methods throw antd::AntdError or subclasses: BadRequestError, PaymentError, NotFoundError,
 // AlreadyExistsError, ForkError, TooLargeError, InternalError, NetworkError
 ```
@@ -852,6 +916,11 @@ client.dir_download_public(address, dest_path) → nil
 client.archive_get_public(address) → Archive
 client.archive_put_public(archive) → PutResult
 client.file_cost(path, is_public: true, include_archive: false) → String
+
+# Wallet
+client.wallet_address → WalletAddress
+client.wallet_balance → WalletBalance
+client.wallet_approve → Boolean
 ```
 
 ---
@@ -892,6 +961,11 @@ $client->dirDownloadPublic(string $address, string $destPath): void
 $client->archiveGetPublic(string $address): Archive
 $client->archivePutPublic(Archive $archive): PutResult
 $client->fileCost(string $path, bool $isPublic = true, bool $includeArchive = false): string
+
+// Wallet
+$client->walletAddress(): array{address: string}
+$client->walletBalance(): array{balance: string, gas_balance: string}
+$client->walletApprove(): bool
 ```
 
 ---
@@ -932,6 +1006,11 @@ Future<void> dirDownloadPublic(String address, String destPath)
 Future<Archive> archiveGetPublic(String address)
 Future<PutResult> archivePutPublic(Archive archive)
 Future<String> fileCost(String path, {bool isPublic = true, bool includeArchive = false})
+
+// Wallet
+Future<WalletAddress> walletAddress()
+Future<WalletBalance> walletBalance()
+Future<bool> walletApprove()
 ```
 
 ---
@@ -972,6 +1051,11 @@ client:dir_download_public(address, dest_path) → nil
 client:archive_get_public(address) → Archive
 client:archive_put_public(archive) → PutResult
 client:file_cost(path, is_public, include_archive) → string
+
+-- Wallet
+client:wallet_address() → {address=string}
+client:wallet_balance() → {balance=string, gas_balance=string}
+client:wallet_approve() → boolean
 ```
 
 ---
@@ -1010,6 +1094,11 @@ Antd.Client.dir_download_public(client, address, dest_path) :: :ok | {:error, te
 Antd.Client.archive_get_public(client, address) :: {:ok, Archive.t()} | {:error, term()}
 Antd.Client.archive_put_public(client, archive) :: {:ok, PutResult.t()} | {:error, term()}
 Antd.Client.file_cost(client, path, is_public \\ true, include_archive \\ false) :: {:ok, String.t()} | {:error, term()}
+
+# Wallet
+Antd.Client.wallet_address(client) :: {:ok, WalletAddress.t()} | {:error, term()}
+Antd.Client.wallet_balance(client) :: {:ok, WalletBalance.t()} | {:error, term()}
+Antd.Client.wallet_approve(client) :: {:ok, boolean()} | {:error, term()}
 ```
 
 ---
@@ -1051,6 +1140,11 @@ fn dirDownloadPublic(self: *Client, address: []const u8, dest_path: []const u8) 
 fn archiveGetPublic(self: *Client, address: []const u8) !Archive
 fn archivePutPublic(self: *Client, archive: Archive) !PutResult
 fn fileCost(self: *Client, path: []const u8, is_public: bool, include_archive: bool) ![]u8
+
+// Wallet
+fn walletAddress(self: *Client) !WalletAddress
+fn walletBalance(self: *Client) !WalletBalance
+fn walletApprove(self: *Client) !bool
 ```
 
 ---
@@ -1073,6 +1167,9 @@ fn fileCost(self: *Client, path: []const u8, is_public: bool, include_archive: b
 | `archive_put` | `archive_put_public` | Create archive |
 | `get_cost` | `data_cost` / `file_cost` | Estimate storage cost |
 | `check_balance` | `health` | Check daemon health |
+| `wallet_address` | `wallet_address` | Get wallet public address |
+| `wallet_balance` | `wallet_balance` | Get wallet balances |
+| `wallet_approve` | `wallet_approve` | Approve wallet for payments |
 
 ---
 

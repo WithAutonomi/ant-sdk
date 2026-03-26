@@ -477,3 +477,14 @@ func (c *Client) WalletBalance(ctx context.Context) (*WalletBalance, error) {
 		GasBalance: str(j, "gas_balance"),
 	}, nil
 }
+
+// WalletApprove approves the wallet to spend tokens on payment contracts.
+// This is a one-time operation required before any storage operations.
+func (c *Client) WalletApprove(ctx context.Context) error {
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/wallet/approve", map[string]any{})
+	if err != nil {
+		return err
+	}
+	_ = j
+	return nil
+}

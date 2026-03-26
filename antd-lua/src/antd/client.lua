@@ -440,6 +440,14 @@ function Client:wallet_balance()
     return { balance = str(j, "balance"), gas_balance = str(j, "gas_balance") }, nil
 end
 
+--- Approve the wallet to spend tokens on payment contracts (one-time operation).
+-- @return boolean|nil, error|nil
+function Client:wallet_approve()
+    local j, _, err = self:_do_json("POST", "/v1/wallet/approve", {})
+    if err then return nil, err end
+    return j.approved == true, nil
+end
+
 --- Create a client using daemon port discovery.
 -- Falls back to the default base URL if discovery fails.
 -- @param opts table optional settings: { timeout = number }

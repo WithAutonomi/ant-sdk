@@ -35,3 +35,21 @@ pub async fn wallet_balance(
         gas_balance: gas_balance.to_string(),
     }))
 }
+
+pub async fn wallet_approve(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<WalletApproveResponse>, AntdError> {
+    if state.client.wallet().is_none() {
+        return Err(AntdError::BadRequest("no EVM wallet configured".into()));
+    }
+
+    let client = state.client.clone();
+    tokio::spawn(async move {
+        client.approve_token_spend().await
+            .map_err(AntdError::from_core)
+    }).await.map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
+
+    Ok(Json(WalletApproveResponse {
+        approved: true,
+    }))
+}

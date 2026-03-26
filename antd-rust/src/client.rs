@@ -547,4 +547,18 @@ impl Client {
             gas_balance: Self::str_field(&j, "gas_balance"),
         })
     }
+
+    /// Approves the wallet to spend tokens on payment contracts.
+    /// This is a one-time operation required before any storage operations.
+    pub async fn wallet_approve(&self) -> Result<bool, AntdError> {
+        let (j, _) = self
+            .do_json(
+                reqwest::Method::POST,
+                "/v1/wallet/approve",
+                Some(json!({})),
+            )
+            .await?;
+        let j = j.unwrap_or_default();
+        Ok(j.get("approved").and_then(|v| v.as_bool()).unwrap_or(false))
+    }
 }

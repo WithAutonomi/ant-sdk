@@ -42,4 +42,5 @@ interface IAntdClient : Closeable {
     // Wallet
     suspend fun walletAddress(): WalletAddress
     suspend fun walletBalance(): WalletBalance
+    suspend fun walletApprove(): Boolean
 }

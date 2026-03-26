@@ -547,7 +547,32 @@ async def archive_get(
 
 
 # ---------------------------------------------------------------------------
-# Tool 16: archive_put
+# Tool 16: wallet_approve
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def wallet_approve() -> str:
+    """Approve the wallet to spend tokens on payment contracts.
+
+    This is a one-time operation required before any storage operations.
+    Must be called after configuring a wallet but before storing data.
+
+    Returns:
+        JSON with approved boolean, or error details.
+    """
+    client, network = _get_ctx()
+    try:
+        result = await client.wallet_approve()
+        return _ok({"approved": result}, network)
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
+# Tool 17: archive_put
 # ---------------------------------------------------------------------------
 
 

@@ -256,6 +256,13 @@ module Antd
       WalletBalance.new(balance: j["balance"], gas_balance: j["gas_balance"])
     end
 
+    # Approve the wallet to spend tokens on payment contracts (one-time operation).
+    # @return [Boolean]
+    def wallet_approve
+      j = do_json(:post, "/v1/wallet/approve", {})
+      j["approved"] == true
+    end
+
     private
 
     def b64_encode(data)

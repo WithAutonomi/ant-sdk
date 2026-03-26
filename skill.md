@@ -109,7 +109,7 @@ entry2 = client.graph_entry_put(key2, parents=[entry1.address], content=content2
 
 ## Key Rules
 
-1. **Every write costs tokens.** Always offer to estimate cost first with the `*_cost` methods. Reads are free.
+1. **Every write costs tokens.** Always offer to estimate cost first with the `*_cost` methods (now fully implemented for both data and files). Before the first storage operation, the wallet must be approved via `wallet_approve()`. Reads are free.
 2. **Data is permanent.** Once stored, it cannot be deleted. Warn developers about storing sensitive data publicly.
 3. **No access revocation.** Once data is public, it stays public.
 4. **Content-addressed = deduplication.** Storing the same bytes twice produces the same address and doesn't cost extra.

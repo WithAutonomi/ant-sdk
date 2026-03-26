@@ -34,4 +34,5 @@ public interface IAntdClient : IDisposable
     // Wallet
     Task<WalletAddress> WalletAddressAsync();
     Task<WalletBalance> WalletBalanceAsync();
+    Task<bool> WalletApproveAsync();
 }

@@ -210,6 +210,12 @@ pub struct WalletAddressResponse {
     pub address: String,
 }
 
+#[derive(Serialize)]
+pub struct WalletApproveResponse {
+    /// Whether the token spend was approved.
+    pub approved: bool,
+}
+
 // ── Health ──
 
 #[derive(Serialize)]

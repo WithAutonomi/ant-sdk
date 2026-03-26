@@ -249,6 +249,13 @@ class RestClient:
         j = resp.json()
         return WalletBalance(balance=j["balance"], gas_balance=j["gas_balance"])
 
+    def wallet_approve(self) -> bool:
+        """Approve the wallet to spend tokens on payment contracts (one-time operation)."""
+        resp = self._http.post("/v1/wallet/approve", json={})
+        _check(resp)
+        j = resp.json()
+        return j.get("approved", False)
+
 
 class AsyncRestClient:
     """Asynchronous REST client for the antd daemon."""
@@ -456,3 +463,10 @@ class AsyncRestClient:
         _check(resp)
         j = resp.json()
         return WalletBalance(balance=j["balance"], gas_balance=j["gas_balance"])
+
+    async def wallet_approve(self) -> bool:
+        """Approve the wallet to spend tokens on payment contracts (one-time operation)."""
+        resp = await self._http.post("/v1/wallet/approve", json={})
+        _check(resp)
+        j = resp.json()
+        return j.get("approved", False)

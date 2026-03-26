@@ -352,4 +352,9 @@ WalletBalance Client::wallet_balance() {
     };
 }
 
+bool Client::wallet_approve() {
+    auto j = impl_->do_json("POST", "/v1/wallet/approve", json::object());
+    return j.value("approved", false);
+}
+
 }  // namespace antd

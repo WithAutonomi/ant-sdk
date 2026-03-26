@@ -38,4 +38,5 @@ public protocol AntdClientProtocol: Sendable {
     // Wallet
     func walletAddress() async throws -> WalletAddress
     func walletBalance() async throws -> WalletBalance
+    func walletApprove() async throws -> Bool
 }
