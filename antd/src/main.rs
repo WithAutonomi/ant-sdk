@@ -3,7 +3,9 @@ use std::sync::Arc;
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
-use ant_node::core::{CoreNodeConfig, MultiAddr, NodeMode, P2PNode};
+use ant_core::data::{
+    Client, ClientConfig, CoreNodeConfig, MultiAddr, NodeMode, P2PNode, Wallet,
+};
 
 mod config;
 mod error;
@@ -126,44 +128,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let peers = node.connected_peers().await;
     tracing::info!(count = peers.len(), peers = ?peers, "peer status at startup");
 
+    // Build ant-core Client from the P2P node
+    let node = Arc::new(node);
+    let mut client = Client::from_node(node, ClientConfig::default());
+
     // Load EVM wallet if configured
-    let wallet = match std::env::var("AUTONOMI_WALLET_KEY") {
-        Ok(wallet_key) => {
-            let rpc_url = std::env::var("EVM_RPC_URL")
-                .unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
-            let token_addr = std::env::var("EVM_PAYMENT_TOKEN_ADDRESS")
-                .unwrap_or_default();
-            let payments_addr = std::env::var("EVM_DATA_PAYMENTS_ADDRESS")
-                .unwrap_or_default();
-            tracing::info!(%rpc_url, "loading EVM wallet...");
-            let network = evmlib::Network::new_custom(
-                &rpc_url,
-                &token_addr,
-                &payments_addr,
-                None,
-            );
-            match evmlib::wallet::Wallet::new_from_private_key(network, &wallet_key) {
-                Ok(w) => {
-                    tracing::info!(address = %w.address(), "EVM wallet loaded");
-                    Some(w)
-                }
-                Err(e) => {
-                    tracing::warn!("failed to load EVM wallet: {e}");
-                    None
-                }
+    if let Ok(wallet_key) = std::env::var("AUTONOMI_WALLET_KEY") {
+        let rpc_url = std::env::var("EVM_RPC_URL")
+            .unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
+        let token_addr = std::env::var("EVM_PAYMENT_TOKEN_ADDRESS")
+            .unwrap_or_default();
+        let payments_addr = std::env::var("EVM_DATA_PAYMENTS_ADDRESS")
+            .unwrap_or_default();
+        tracing::info!(%rpc_url, "loading EVM wallet...");
+        let network = evmlib::Network::new_custom(
+            &rpc_url,
+            &token_addr,
+            &payments_addr,
+            None,
+        );
+        match Wallet::new_from_private_key(network, &wallet_key) {
+            Ok(w) => {
+                tracing::info!(address = %w.address(), "EVM wallet loaded");
+                client = client.with_wallet(w);
+            }
+            Err(e) => {
+                tracing::warn!("failed to load EVM wallet: {e}");
             }
         }
-        Err(_) => {
-            tracing::info!("no AUTONOMI_WALLET_KEY set — write operations will fail");
-            None
-        }
-    };
+    } else {
+        tracing::info!("no AUTONOMI_WALLET_KEY set — write operations will fail");
+    }
 
     let state = Arc::new(AppState {
-        node: Arc::new(node),
+        client,
         network: config.network.clone(),
         bootstrap_peers,
-        wallet,
     });
 
     // Build REST router

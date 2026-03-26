@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
+use bytes::Bytes;
 use tonic::{Request, Response, Status};
 
+use crate::error::AntdError;
 use crate::state::AppState;
 
 // Generated protobuf modules
@@ -11,7 +13,7 @@ pub mod pb {
 }
 
 fn not_implemented(op: &str) -> Status {
-    Status::unimplemented(format!("{op} not yet implemented for ant-node"))
+    Status::unimplemented(format!("{op} not yet implemented"))
 }
 
 // ── HealthService ──
@@ -83,53 +85,13 @@ impl pb::chunk_service_server::ChunkService for ChunkServiceImpl {
             .try_into()
             .map_err(|_| Status::invalid_argument("address must be 32 bytes"))?;
 
-        // Use the same chunk_get logic as REST
-        // TODO: Factor out shared chunk client logic
-        use ant_node::ant_protocol::{
-            ChunkGetRequest as ProtoGetReq, ChunkGetResponse as ProtoGetResp,
-            ChunkMessage, ChunkMessageBody,
-        };
-        use ant_node::client::send_and_await_chunk_response;
-        use std::time::Duration;
+        let chunk = self.state.client.chunk_get(&address).await
+            .map_err(|e| tonic::Status::from(AntdError::from_core(e)))?
+            .ok_or_else(|| Status::not_found("chunk not found"))?;
 
-        let connected_peers = self.state.node.connected_peers().await;
-        let peer_id = connected_peers.first()
-            .ok_or_else(|| Status::unavailable("not connected to any peers"))?;
-        let peer_addrs: Vec<_> = self.state.bootstrap_peers.clone();
-
-        let request_id = rand::random::<u64>();
-        let msg = ChunkMessage {
-            request_id,
-            body: ChunkMessageBody::GetRequest(ProtoGetReq::new(address)),
-        };
-        let msg_bytes = msg.encode()
-            .map_err(|e| Status::internal(format!("encode error: {e}")))?;
-
-        let content: Vec<u8> = send_and_await_chunk_response(
-            &self.state.node,
-            peer_id,
-            msg_bytes,
-            request_id,
-            Duration::from_secs(30),
-            &peer_addrs,
-            |body| match body {
-                ChunkMessageBody::GetResponse(ProtoGetResp::Success { content, .. }) => {
-                    Some(Ok(content))
-                }
-                ChunkMessageBody::GetResponse(ProtoGetResp::NotFound { .. }) => {
-                    Some(Err(Status::not_found("chunk not found")))
-                }
-                ChunkMessageBody::GetResponse(ProtoGetResp::Error(e)) => {
-                    Some(Err(Status::internal(e.to_string())))
-                }
-                _ => None,
-            },
-            |e| Status::unavailable(format!("failed to send: {e}")),
-            || Status::deadline_exceeded("chunk get timed out"),
-        )
-        .await?;
-
-        Ok(Response::new(pb::GetChunkResponse { data: content }))
+        Ok(Response::new(pb::GetChunkResponse {
+            data: chunk.content.to_vec(),
+        }))
     }
 
     async fn put(
@@ -138,64 +100,19 @@ impl pb::chunk_service_server::ChunkService for ChunkServiceImpl {
     ) -> Result<Response<pb::PutChunkResponse>, Status> {
         let data = request.into_inner().data;
 
-        use ant_node::ant_protocol::{
-            ChunkMessage, ChunkMessageBody, MAX_CHUNK_SIZE,
-            ChunkPutRequest as ProtoPutReq, ChunkPutResponse as ProtoPutResp,
-        };
-        use ant_node::client::{compute_address, send_and_await_chunk_response};
-        use std::time::Duration;
-
-        if data.len() > MAX_CHUNK_SIZE {
-            return Err(Status::invalid_argument(format!(
-                "chunk size {} exceeds maximum {MAX_CHUNK_SIZE}", data.len()
-            )));
+        if self.state.client.wallet().is_none() {
+            return Err(Status::failed_precondition(
+                "no EVM wallet configured — set AUTONOMI_WALLET_KEY",
+            ));
         }
 
-        let address = compute_address(&data);
-
-        let connected_peers = self.state.node.connected_peers().await;
-        let peer_id = connected_peers.first()
-            .ok_or_else(|| Status::unavailable("not connected to any peers"))?;
-        let peer_addrs: Vec<_> = self.state.bootstrap_peers.clone();
-
-        let request_id = rand::random::<u64>();
-        let msg = ChunkMessage {
-            request_id,
-            body: ChunkMessageBody::PutRequest(ProtoPutReq::new(address, data)),
-        };
-        let msg_bytes = msg.encode()
-            .map_err(|e| Status::internal(format!("encode error: {e}")))?;
-
-        let result_address: [u8; 32] = send_and_await_chunk_response(
-            &self.state.node,
-            peer_id,
-            msg_bytes,
-            request_id,
-            Duration::from_secs(30),
-            &peer_addrs,
-            |body| match body {
-                ChunkMessageBody::PutResponse(ProtoPutResp::Success { address }) => {
-                    Some(Ok(address))
-                }
-                ChunkMessageBody::PutResponse(ProtoPutResp::AlreadyExists { address }) => {
-                    Some(Ok(address))
-                }
-                ChunkMessageBody::PutResponse(ProtoPutResp::PaymentRequired { message }) => {
-                    Some(Err(Status::failed_precondition(message)))
-                }
-                ChunkMessageBody::PutResponse(ProtoPutResp::Error(e)) => {
-                    Some(Err(Status::internal(e.to_string())))
-                }
-                _ => None,
-            },
-            |e| Status::unavailable(format!("failed to send: {e}")),
-            || Status::deadline_exceeded("chunk put timed out"),
-        )
-        .await?;
+        let content = Bytes::from(data);
+        let address = self.state.client.chunk_put(content).await
+            .map_err(|e| tonic::Status::from(AntdError::from_core(e)))?;
 
         Ok(Response::new(pb::PutChunkResponse {
-            cost: Some(pb::Cost { atto_tokens: "0".into() }),
-            address: hex::encode(result_address),
+            cost: Some(pb::Cost { atto_tokens: String::new() }),
+            address: hex::encode(address),
         }))
     }
 }
