@@ -3,42 +3,116 @@ use std::sync::Arc;
 use axum::extract::{Path, Query, State};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::Json;
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
+use bytes::Bytes;
 
 use crate::error::AntdError;
 use crate::state::AppState;
 use crate::types::*;
 
-// Data operations are blocked on an upstream lifetime issue in ant-core's
-// stream closures (data_upload_with_mode, data_download). The types and
-// payment_mode parameter are in place — implementations will land once
-// ant-core is fixed.
-
 pub async fn data_put_public(
-    State(_state): State<Arc<AppState>>,
-    Json(_req): Json<DataPutRequest>,
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<DataPutRequest>,
 ) -> Result<Json<DataPutPublicResponse>, AntdError> {
-    Err(AntdError::NotImplemented("data put public pending ant-core fix".into()))
+    if state.client.wallet().is_none() {
+        return Err(AntdError::Payment("no EVM wallet configured — set AUTONOMI_WALLET_KEY".into()));
+    }
+
+    let data = BASE64.decode(&req.data)
+        .map_err(|e| AntdError::BadRequest(format!("invalid base64: {e}")))?;
+
+    let mode = parse_payment_mode(req.payment_mode.as_deref())
+        .map_err(AntdError::BadRequest)?;
+
+    let client = state.client.clone();
+    let (address, chunks_stored, payment_mode_used) = tokio::spawn(async move {
+        let result = client.data_upload_with_mode(Bytes::from(data), mode).await
+            .map_err(AntdError::from_core)?;
+        let address = client.data_map_store(&result.data_map).await
+            .map_err(AntdError::from_core)?;
+        Ok::<_, AntdError>((address, result.chunks_stored, result.payment_mode_used))
+    }).await.map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
+
+    Ok(Json(DataPutPublicResponse {
+        address: hex::encode(address),
+        chunks_stored,
+        payment_mode_used: format_payment_mode(payment_mode_used),
+    }))
 }
 
 pub async fn data_get_public(
-    State(_state): State<Arc<AppState>>,
-    Path(_addr): Path<String>,
+    State(state): State<Arc<AppState>>,
+    Path(addr): Path<String>,
 ) -> Result<Json<DataGetResponse>, AntdError> {
-    Err(AntdError::NotImplemented("data get public pending ant-core fix".into()))
+    let address_bytes = hex::decode(&addr)
+        .map_err(|e| AntdError::BadRequest(format!("invalid hex address: {e}")))?;
+    let address: [u8; 32] = address_bytes
+        .try_into()
+        .map_err(|_| AntdError::BadRequest("address must be 32 bytes".into()))?;
+
+    let client = state.client.clone();
+    let content = tokio::spawn(async move {
+        let data_map = client.data_map_fetch(&address).await
+            .map_err(AntdError::from_core)?;
+        client.data_download(&data_map).await
+            .map_err(AntdError::from_core)
+    }).await.map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
+
+    Ok(Json(DataGetResponse {
+        data: BASE64.encode(&content),
+    }))
 }
 
 pub async fn data_put_private(
-    State(_state): State<Arc<AppState>>,
-    Json(_req): Json<DataPutRequest>,
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<DataPutRequest>,
 ) -> Result<Json<DataPutPrivateResponse>, AntdError> {
-    Err(AntdError::NotImplemented("data put private pending ant-core fix".into()))
+    if state.client.wallet().is_none() {
+        return Err(AntdError::Payment("no EVM wallet configured — set AUTONOMI_WALLET_KEY".into()));
+    }
+
+    let data = BASE64.decode(&req.data)
+        .map_err(|e| AntdError::BadRequest(format!("invalid base64: {e}")))?;
+
+    let mode = parse_payment_mode(req.payment_mode.as_deref())
+        .map_err(AntdError::BadRequest)?;
+
+    let client = state.client.clone();
+    let (data_map_hex, chunks_stored, payment_mode_used) = tokio::spawn(async move {
+        let result = client.data_upload_with_mode(Bytes::from(data), mode).await
+            .map_err(AntdError::from_core)?;
+        let data_map_bytes = rmp_serde::to_vec(&result.data_map)
+            .map_err(|e| AntdError::Internal(format!("failed to serialize data map: {e}")))?;
+        Ok::<_, AntdError>((hex::encode(data_map_bytes), result.chunks_stored, result.payment_mode_used))
+    }).await.map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
+
+    Ok(Json(DataPutPrivateResponse {
+        data_map: data_map_hex,
+        chunks_stored,
+        payment_mode_used: format_payment_mode(payment_mode_used),
+    }))
 }
 
 pub async fn data_get_private(
-    State(_state): State<Arc<AppState>>,
-    Query(_query): Query<DataGetPrivateQuery>,
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<DataGetPrivateQuery>,
 ) -> Result<Json<DataGetResponse>, AntdError> {
-    Err(AntdError::NotImplemented("data get private pending ant-core fix".into()))
+    let data_map_bytes = hex::decode(&query.data_map)
+        .map_err(|e| AntdError::BadRequest(format!("invalid hex data_map: {e}")))?;
+
+    let data_map: ant_core::data::DataMap = rmp_serde::from_slice(&data_map_bytes)
+        .map_err(|e| AntdError::BadRequest(format!("invalid data map: {e}")))?;
+
+    let client = state.client.clone();
+    let content = tokio::spawn(async move {
+        client.data_download(&data_map).await
+            .map_err(AntdError::from_core)
+    }).await.map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
+
+    Ok(Json(DataGetResponse {
+        data: BASE64.encode(&content),
+    }))
 }
 
 pub async fn data_cost(
