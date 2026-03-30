@@ -5,8 +5,8 @@ require_relative "lib/antd/version"
 Gem::Specification.new do |spec|
   spec.name          = "antd"
   spec.version       = Antd::VERSION
-  spec.authors       = ["MaidSafe"]
-  spec.email         = ["dev@maidsafe.net"]
+  spec.authors       = ["WithAutonomi"]
+  spec.email         = ["dev@autonomi.com"]
 
   spec.summary       = "Ruby SDK for the antd daemon"
   spec.description   = "REST client for the antd daemon — the gateway to the Autonomi decentralized network."

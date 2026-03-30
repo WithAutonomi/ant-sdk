@@ -104,9 +104,8 @@ All data and file upload operations accept an optional `payment_mode` parameter 
 
 **Required:**
 
-- **Rust** toolchain — for building antd and the Autonomi network
+- **Rust** toolchain — for building antd
 - **Python 3.10+** — for the dev CLI (`ant-dev`) and MCP server
-- **autonomi** repo cloned as a sibling: `git clone https://github.com/maidsafe/autonomi ../autonomi`
 
 **Language-specific** (install only what you need):
 
