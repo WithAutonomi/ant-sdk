@@ -122,6 +122,13 @@ def run(args) -> None:
     }
     if wallet_key:
         antd_env["AUTONOMI_WALLET_KEY"] = wallet_key
+    if manifest.get("evm"):
+        evm = manifest["evm"]
+        antd_env["EVM_RPC_URL"] = evm.get("rpc_url", "")
+        antd_env["EVM_PAYMENT_TOKEN_ADDRESS"] = evm.get("payment_token_address", "")
+        antd_env["EVM_DATA_PAYMENTS_ADDRESS"] = evm.get("data_payments_address", "")
+        if evm.get("merkle_payments_address"):
+            antd_env["EVM_MERKLE_PAYMENTS_ADDRESS"] = evm["merkle_payments_address"]
 
     antd_cmd = ["cargo", "run", "--", "--network", "local"]
     antd_proc = start_process(antd_cmd, cwd=antd_dir, env=antd_env, log_file=LOG_FILE)

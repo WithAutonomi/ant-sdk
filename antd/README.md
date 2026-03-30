@@ -61,6 +61,7 @@ All options can be set via CLI flags or environment variables:
 | `EVM_RPC_URL` | EVM JSON-RPC endpoint (default: `http://127.0.0.1:8545`) |
 | `EVM_PAYMENT_TOKEN_ADDRESS` | Payment token contract address |
 | `EVM_DATA_PAYMENTS_ADDRESS` | Data payments contract address |
+| `EVM_MERKLE_PAYMENTS_ADDRESS` | Merkle batch payments contract address (optional) |
 
 antd supports two wallet modes:
 - **Direct wallet**: Set `AUTONOMI_WALLET_KEY` — antd signs payment transactions internally
