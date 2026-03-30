@@ -1,16 +1,20 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use tokio::sync::Mutex;
 
 use ant_core::data::{
     Client as CoreClient, ClientConfig, CoreNodeConfig, MultiAddr, NodeMode, P2PNode,
+    PreparedUpload, finalize_batch_payment,
 };
 
 use crate::data::{format_payment_mode, parse_payment_mode};
 use crate::wallet::Wallet;
 use crate::{
-    ChunkPutResult, ClientError, DataPutPrivateResult, DataPutPublicResult, FilePutPublicResult,
+    ChunkPutResult, ClientError, DataPutPrivateResult, DataPutPublicResult,
+    FinalizeUploadResult, FilePutPublicResult, PaymentEntry, PrepareUploadResult,
 };
 
 /// Autonomi network client (wraps ant-core Client).
@@ -20,6 +24,8 @@ use crate::{
 #[derive(uniffi::Object)]
 pub struct Client {
     inner: CoreClient,
+    /// Pending prepared uploads (external signer flow).
+    pending_uploads: Mutex<HashMap<String, PreparedUpload>>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -54,7 +60,7 @@ impl Client {
 
         let client = CoreClient::from_node(Arc::new(node), ClientConfig::default());
 
-        Ok(Arc::new(Self { inner: client }))
+        Ok(Arc::new(Self { inner: client, pending_uploads: Mutex::new(HashMap::new()) }))
     }
 
     /// Connect to the network using explicit bootstrap peers.
@@ -101,7 +107,7 @@ impl Client {
 
         let client = CoreClient::from_node(Arc::new(node), ClientConfig::default());
 
-        Ok(Arc::new(Self { inner: client }))
+        Ok(Arc::new(Self { inner: client, pending_uploads: Mutex::new(HashMap::new()) }))
     }
 
     /// Connect to the network with a wallet configured for write operations.
@@ -168,7 +174,7 @@ impl Client {
         let client =
             CoreClient::from_node(Arc::new(node), ClientConfig::default()).with_wallet(wallet);
 
-        Ok(Arc::new(Self { inner: client }))
+        Ok(Arc::new(Self { inner: client, pending_uploads: Mutex::new(HashMap::new()) }))
     }
 
     // ===== Chunk Operations =====
@@ -317,6 +323,100 @@ impl Client {
                 reason: e.to_string(),
             })?;
         Ok(())
+    }
+
+    // ===== External Signer Operations =====
+
+    /// Prepare a data upload for external signing.
+    /// Encrypts data, collects quotes, returns payment details.
+    /// Call finalize_upload() with tx hashes after signing externally.
+    pub async fn prepare_data_upload(
+        &self,
+        data: Vec<u8>,
+    ) -> Result<PrepareUploadResult, ClientError> {
+        let prepared = self.inner.data_prepare_upload(Bytes::from(data)).await?;
+
+        let payments: Vec<PaymentEntry> = prepared.payment_intent.payments.iter().map(|(qh, ra, amt)| {
+            PaymentEntry {
+                quote_hash: format!("{:#x}", qh),
+                rewards_address: format!("{:#x}", ra),
+                amount: amt.to_string(),
+            }
+        }).collect();
+
+        let total_amount = prepared.payment_intent.total_amount.to_string();
+
+        let data_map_bytes = rmp_serde::to_vec(&prepared.data_map).map_err(|e| {
+            ClientError::InternalError { reason: format!("serialize data map: {e}") }
+        })?;
+        let data_map = hex::encode(data_map_bytes);
+
+        let upload_id = hex::encode(rand::random::<[u8; 16]>());
+        self.pending_uploads.lock().await.insert(upload_id.clone(), prepared);
+
+        Ok(PrepareUploadResult { payments, total_amount, data_map })
+    }
+
+    /// Prepare a file upload for external signing.
+    pub async fn prepare_file_upload(
+        &self,
+        path: String,
+    ) -> Result<PrepareUploadResult, ClientError> {
+        let file_path = PathBuf::from(&path);
+        let prepared = self.inner.file_prepare_upload(&file_path).await?;
+
+        let payments: Vec<PaymentEntry> = prepared.payment_intent.payments.iter().map(|(qh, ra, amt)| {
+            PaymentEntry {
+                quote_hash: format!("{:#x}", qh),
+                rewards_address: format!("{:#x}", ra),
+                amount: amt.to_string(),
+            }
+        }).collect();
+
+        let total_amount = prepared.payment_intent.total_amount.to_string();
+
+        let data_map_bytes = rmp_serde::to_vec(&prepared.data_map).map_err(|e| {
+            ClientError::InternalError { reason: format!("serialize data map: {e}") }
+        })?;
+        let data_map = hex::encode(data_map_bytes);
+
+        let upload_id = hex::encode(rand::random::<[u8; 16]>());
+        self.pending_uploads.lock().await.insert(upload_id.clone(), prepared);
+
+        Ok(PrepareUploadResult { payments, total_amount, data_map })
+    }
+
+    /// Finalize an upload after external payment.
+    /// Takes a map of quote_hash (hex) → tx_hash (hex).
+    pub async fn finalize_upload(
+        &self,
+        upload_id: String,
+        tx_hashes: HashMap<String, String>,
+    ) -> Result<FinalizeUploadResult, ClientError> {
+        let prepared = self.pending_uploads.lock().await
+            .remove(&upload_id)
+            .ok_or_else(|| ClientError::NotFound {
+                reason: format!("upload_id {upload_id} not found"),
+            })?;
+
+        let tx_hash_map: HashMap<evmlib::common::QuoteHash, evmlib::common::TxHash> =
+            tx_hashes.iter().map(|(qh, th)| {
+                let q: [u8; 32] = hex::decode(qh.trim_start_matches("0x"))
+                    .map_err(|e| ClientError::InvalidInput { reason: format!("invalid quote_hash: {e}") })?
+                    .try_into()
+                    .map_err(|_| ClientError::InvalidInput { reason: "quote_hash must be 32 bytes".into() })?;
+                let t: [u8; 32] = hex::decode(th.trim_start_matches("0x"))
+                    .map_err(|e| ClientError::InvalidInput { reason: format!("invalid tx_hash: {e}") })?
+                    .try_into()
+                    .map_err(|_| ClientError::InvalidInput { reason: "tx_hash must be 32 bytes".into() })?;
+                Ok((q.into(), t.into()))
+            }).collect::<Result<_, ClientError>>()?;
+
+        let result = self.inner.finalize_upload(prepared, &tx_hash_map).await?;
+
+        Ok(FinalizeUploadResult {
+            chunks_stored: result.chunks_stored as u64,
+        })
     }
 
     // ===== Wallet Operations =====

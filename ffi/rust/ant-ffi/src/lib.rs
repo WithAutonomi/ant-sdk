@@ -46,6 +46,35 @@ pub struct FilePutPublicResult {
     pub address: String,
 }
 
+/// Payment entry for external signing.
+#[derive(uniffi::Record)]
+pub struct PaymentEntry {
+    /// Quote hash (hex, 32 bytes).
+    pub quote_hash: String,
+    /// Rewards address (hex with 0x prefix).
+    pub rewards_address: String,
+    /// Amount to pay (atto tokens as decimal string).
+    pub amount: String,
+}
+
+/// Result of preparing an upload for external signing.
+#[derive(uniffi::Record)]
+pub struct PrepareUploadResult {
+    /// Payment entries to sign externally.
+    pub payments: Vec<PaymentEntry>,
+    /// Total amount across all payments (atto tokens).
+    pub total_amount: String,
+    /// Hex-encoded serialized DataMap for later retrieval.
+    pub data_map: String,
+}
+
+/// Result of finalizing an externally-signed upload.
+#[derive(uniffi::Record)]
+pub struct FinalizeUploadResult {
+    /// Number of chunks stored on the network.
+    pub chunks_stored: u64,
+}
+
 // ===== Error types =====
 
 /// Error type for client operations.

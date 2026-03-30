@@ -829,7 +829,7 @@ dependencies = [
 [[package]]
 name = "ant-core"
 version = "0.1.1"
-source = "git+https://github.com/WithAutonomi/ant-client#c63f546af44ec4e1d749c5f5d93945eb6378d5be"
+source = "git+https://github.com/WithAutonomi/ant-client#7bcb6cbca9efb052843b22d912259acf26f47d13"
 dependencies = [
  "ant-evm",
  "ant-node",
@@ -900,6 +900,7 @@ dependencies = [
  "bytes",
  "evmlib",
  "hex",
+ "rand 0.8.5",
  "rmp-serde",
  "thiserror 2.0.18",
  "tokio",

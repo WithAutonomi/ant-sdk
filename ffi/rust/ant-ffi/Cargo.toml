@@ -11,6 +11,7 @@ ant-core = { git = "https://github.com/WithAutonomi/ant-client" }
 evmlib = "0.4.9"
 bytes = "1"
 hex = "0.4"
+rand = "0.8"
 rmp-serde = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread"] }
