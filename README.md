@@ -114,6 +114,7 @@ All data and file upload operations accept an optional `payment_mode` parameter 
 
 - **Rust** toolchain — for building antd
 - **Python 3.10+** — for the dev CLI (`ant-dev`) and MCP server
+- **ant-node** repo cloned as sibling (for local testnet only): `git clone https://github.com/WithAutonomi/ant-node ../ant-node`
 
 **Language-specific** (install only what you need):
 

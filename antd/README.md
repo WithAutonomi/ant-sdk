@@ -10,25 +10,34 @@ cargo build           # Debug build
 cargo build --release # Release build
 ```
 
+antd depends on `ant-core` (from [WithAutonomi/ant-client](https://github.com/WithAutonomi/ant-client)) which is fetched automatically via Cargo git dependency. No sibling repos are needed to build antd itself.
+
 ## Running
 
 ```bash
 # Default (connects to the default Autonomi network)
 cargo run
 
-# Local testnet
-AUTONOMI_WALLET_KEY="your_key" ANT_PEERS="/ip4/..." cargo run -- --network local
+# Local testnet (use `ant dev start` to start a devnet first)
+ANTD_PEERS="/ip4/..." \
+AUTONOMI_WALLET_KEY="hex_key" \
+EVM_RPC_URL="http://127.0.0.1:8545" \
+EVM_PAYMENT_TOKEN_ADDRESS="0x..." \
+EVM_DATA_PAYMENTS_ADDRESS="0x..." \
+cargo run -- --network local
 
-# With all options
-cargo run -- \
-  --rest-addr 0.0.0.0:8082 \
-  --grpc-addr 0.0.0.0:50051 \
-  --network local \
-  --peers "/ip4/127.0.0.1/udp/..." \
-  --cors
+# With dynamic ports (for managed mode / port discovery)
+cargo run -- --network local --rest-port 0 --grpc-port 0
 ```
 
-Or use the `ant dev start` CLI to start a full local testnet automatically.
+Or use the `ant dev start` CLI to start a full local testnet automatically:
+
+```bash
+pip install -e ant-dev/
+ant dev start    # Starts devnet + antd with all env vars configured
+```
+
+Note: `ant dev start` requires the [ant-node](https://github.com/WithAutonomi/ant-node) repo cloned as a sibling to ant-sdk (for the `ant-devnet` binary).
 
 ## Configuration
 
@@ -38,22 +47,28 @@ All options can be set via CLI flags or environment variables:
 |------|---------|---------|-------------|
 | `--rest-addr` | `ANTD_REST_ADDR` | `0.0.0.0:8082` | REST API listen address |
 | `--grpc-addr` | `ANTD_GRPC_ADDR` | `0.0.0.0:50051` | gRPC listen address |
-| `--network` | `ANTD_NETWORK` | `default` | Network mode: `default`, `local`, `alpha` |
+| `--rest-port` | `ANTD_REST_PORT` | *(from addr)* | Override REST port (use 0 for OS-assigned) |
+| `--grpc-port` | `ANTD_GRPC_PORT` | *(from addr)* | Override gRPC port (use 0 for OS-assigned) |
+| `--network` | `ANTD_NETWORK` | `default` | Network mode: `default`, `local` |
 | `--peers` | `ANTD_PEERS` | *(none)* | Comma-separated bootstrap peer multiaddrs |
-| `--cors` | `ANTD_CORS` | `false` | Enable CORS headers for browser access |
+| `--cors` | `ANTD_CORS` | `false` | Enable CORS headers (restricted to localhost) |
 
-Additional environment variables consumed by the underlying Autonomi client:
+### Wallet & EVM Configuration
 
 | Env Var | Description |
 |---------|-------------|
-| `AUTONOMI_WALLET_KEY` | Hex-encoded wallet secret key for payments |
-| `ANT_PEERS` | Bootstrap peer multiaddrs (alternative to `--peers`) |
+| `AUTONOMI_WALLET_KEY` | Hex-encoded wallet private key for payments (direct wallet mode) |
+| `EVM_RPC_URL` | EVM JSON-RPC endpoint (default: `http://127.0.0.1:8545`) |
+| `EVM_PAYMENT_TOKEN_ADDRESS` | Payment token contract address |
+| `EVM_DATA_PAYMENTS_ADDRESS` | Data payments contract address |
 
-## Network Modes
+antd supports two wallet modes:
+- **Direct wallet**: Set `AUTONOMI_WALLET_KEY` — antd signs payment transactions internally
+- **External signer**: Set only `EVM_RPC_URL` (no private key) — use the two-phase upload API (`/v1/upload/prepare` + `/v1/upload/finalize`) to sign transactions externally
 
-- **`default`** — Connects to the public Autonomi mainnet.
-- **`local`** — Connects to a local testnet started via `antctl local run`. Requires `ANT_PEERS` from the bootstrap cache.
-- **`alpha`** — Connects to the alpha/test network.
+## Port Discovery
+
+On startup, antd writes a `daemon.port` file containing the actual REST port, gRPC port, and PID. All SDKs read this file for automatic daemon discovery. See the [root README](../README.md#port-discovery) for details.
 
 ## API Endpoints
 
@@ -61,25 +76,38 @@ Additional environment variables consumed by the underlying Autonomi client:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/health` | Health check |
-| `POST` | `/v1/data/public` | Store public data |
+| **Health** | | |
+| `GET` | `/health` | Health check and network status |
+| **Data** | | |
+| `POST` | `/v1/data/public` | Store public data (accepts `payment_mode`) |
 | `GET` | `/v1/data/public/{address}` | Retrieve public data |
 | `POST` | `/v1/data/private` | Store private (encrypted) data |
-| `POST` | `/v1/data/private/get` | Retrieve private data by data map |
+| `GET` | `/v1/data/private` | Retrieve private data by data map |
 | `POST` | `/v1/data/cost` | Estimate data storage cost |
+| **Chunks** | | |
 | `POST` | `/v1/chunks` | Store a raw chunk |
 | `GET` | `/v1/chunks/{address}` | Retrieve a chunk |
+| **Files** | | |
+| `POST` | `/v1/files/upload/public` | Upload a file (accepts `payment_mode`) |
+| `POST` | `/v1/files/download/public` | Download a file |
+| `POST` | `/v1/dirs/upload/public` | Upload a directory |
+| `POST` | `/v1/dirs/download/public` | Download a directory |
+| `POST` | `/v1/cost/file` | Estimate file upload cost |
+| **External Signer** | | |
+| `POST` | `/v1/upload/prepare` | Prepare file upload for external signing |
+| `POST` | `/v1/upload/finalize` | Finalize upload with external tx hashes |
+| **Wallet** | | |
+| `GET` | `/v1/wallet/address` | Get wallet public address |
+| `GET` | `/v1/wallet/balance` | Get token and gas balances |
+| `POST` | `/v1/wallet/approve` | Approve token spend for payment contracts |
+| **Graph** *(stub)* | | |
 | `POST` | `/v1/graph` | Create a graph entry |
 | `GET` | `/v1/graph/{address}` | Get a graph entry |
 | `HEAD` | `/v1/graph/{address}` | Check graph entry existence |
 | `POST` | `/v1/graph/cost` | Estimate graph entry cost |
-| `POST` | `/v1/files/upload` | Upload a file |
-| `POST` | `/v1/files/download` | Download a file |
-| `POST` | `/v1/files/upload/dir` | Upload a directory |
-| `POST` | `/v1/files/download/dir` | Download a directory |
-| `GET` | `/v1/files/archive/{address}` | Get archive manifest |
-| `POST` | `/v1/files/archive` | Create archive manifest |
-| `POST` | `/v1/files/cost` | Estimate file upload cost |
+| **Archives** *(stub)* | | |
+| `GET` | `/v1/archives/public/{address}` | Get archive manifest |
+| `POST` | `/v1/archives/public` | Create archive manifest |
 
 ### gRPC API (default: `localhost:50051`)
 
@@ -88,8 +116,8 @@ gRPC services mirror the REST API. Proto definitions are in `proto/antd/v1/`:
 - `HealthService` — Health check
 - `DataService` — Public/private data operations
 - `ChunkService` — Raw chunk operations
-- `GraphService` — Graph entry operations
-- `FileService` — File upload/download
+- `GraphService` — Graph entry operations *(stub)*
+- `FileService` — File upload/download *(stub)*
 - `EventService` — Event streaming
 
 ## Project Structure
@@ -107,18 +135,21 @@ antd/
 │   ├── files.proto
 │   └── events.proto
 └── src/
-    ├── main.rs             # Entry point
+    ├── main.rs             # Entry point, P2P node + client setup
     ├── config.rs           # CLI/env configuration
-    ├── error.rs            # Error types
-    ├── state.rs            # Shared daemon state
-    ├── types.rs            # Common types
+    ├── error.rs            # Error types + ant-core error mapping
+    ├── state.rs            # Shared daemon state (Client, pending uploads)
+    ├── port_file.rs        # Port file write/cleanup for SDK discovery
+    ├── types.rs            # Request/response types
     ├── rest/               # Axum REST handlers
-    │   ├── mod.rs
-    │   ├── data.rs
-    │   ├── chunks.rs
-    │   ├── graph.rs
-    │   ├── files.rs
-    │   └── events.rs
+    │   ├── mod.rs          # Router + CORS
+    │   ├── data.rs         # Data put/get/cost
+    │   ├── chunks.rs       # Chunk put/get
+    │   ├── files.rs        # File/dir upload/download/cost
+    │   ├── upload.rs       # External signer two-phase upload
+    │   ├── wallet.rs       # Wallet address/balance/approve
+    │   ├── graph.rs        # Graph entries (stub)
+    │   └── events.rs       # Event streaming (stub)
     └── grpc/               # Tonic gRPC service
         ├── mod.rs
         └── service.rs
