@@ -162,7 +162,7 @@ if ($ready) {
     Write-Host ""
     Write-Host "  REST:  http://localhost:8082" -ForegroundColor White
     Write-Host "  gRPC:  localhost:50051" -ForegroundColor White
-    Write-Host "  Key:   $($walletKey.Substring(0,10))..." -ForegroundColor White
+    Write-Host "  Wallet: configured" -ForegroundColor White
     Write-Host ""
     Write-Host "Run tests:" -ForegroundColor Gray
     Write-Host "  .\scripts\test-api.ps1" -ForegroundColor Gray

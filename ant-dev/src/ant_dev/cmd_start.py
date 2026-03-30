@@ -142,7 +142,7 @@ def run(args) -> None:
     save_state({
         "devnet_pid": devnet_proc.pid,
         "antd_pid": antd_proc.pid,
-        "wallet_key": wallet_key or "",
+        "wallet_configured": bool(wallet_key),
         "bootstrap_peers": bootstrap_peers,
     })
 
@@ -154,7 +154,7 @@ def run(args) -> None:
         print(white(f"  REST:  {rest_url}"))
         print(white("  gRPC:  localhost:50051"))
         if wallet_key:
-            print(white(f"  Key:   {wallet_key[:10]}..."))
+            print(white("  Wallet: configured"))
         print()
         print(gray("Quick test:"))
         print(gray(f"  curl {rest_url}/health"))

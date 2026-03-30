@@ -72,8 +72,8 @@ def run(args) -> None:
     except (httpx.HTTPError, OSError):
         print(f"  REST health:        {red('unreachable')}")
 
-    # Wallet key
-    if key := state.get("wallet_key"):
-        print(f"  Wallet key:         {key[:10]}...")
+    # Wallet status
+    if state.get("wallet_configured"):
+        print(f"  Wallet:             {green('configured')}")
 
     print()

@@ -139,7 +139,7 @@ if $READY; then
     echo ""
     echo -e "${WHITE}  REST:  http://localhost:8082${NC}"
     echo -e "${WHITE}  gRPC:  localhost:50051${NC}"
-    echo -e "${WHITE}  Key:   ${WALLET_KEY:0:10}...${NC}"
+    echo -e "${WHITE}  Wallet: configured${NC}"
     echo ""
     echo -e "${GRAY}Run tests:${NC}"
     echo -e "${GRAY}  ./scripts/test-api.sh${NC}"
