@@ -1,119 +1,95 @@
-use std::sync::Arc;
-
 mod client;
 mod data;
-mod files;
-mod graph;
-mod key_derivation;
-mod keys;
-mod network;
-mod payment;
+mod wallet;
+
 pub use client::Client;
-pub use data::{Chunk, ChunkAddress, DataAddress, DataError, DataMapChunk};
-pub use files::{
-    ArchiveAddress, ArchiveError, Metadata, PrivateArchive, PrivateArchiveDataMap,
-    PrivateArchiveFileEntry, PublicArchive, PublicArchiveFileEntry,
-};
-pub use graph::{GraphDescendant, GraphEntry, GraphEntryAddress, GraphEntryError};
-pub use key_derivation::{
-    DerivationIndex, DerivedPubkey, DerivedSecretKey, MainPubkey, MainSecretKey, Signature,
-};
-pub use keys::{KeyError, PublicKey, SecretKey};
-pub use network::{Network, NetworkError};
-pub use payment::PaymentOption;
+pub use data::{DataUploadResult, FileUploadResult};
+pub use wallet::Wallet;
 
 uniffi::setup_scaffolding!();
 
 // ===== Result types =====
 
-/// Result of uploading data to the network
+/// Result of storing a chunk on the network.
 #[derive(uniffi::Record)]
-pub struct UploadResult {
-    pub price: String,
+pub struct ChunkPutResult {
+    /// Hex-encoded chunk address (32 bytes).
     pub address: String,
 }
 
-/// Result of uploading a chunk to the network
+/// Result of a public data upload (data map stored as public chunk).
 #[derive(uniffi::Record)]
-pub struct ChunkPutResult {
-    pub cost: String,
-    pub address: Arc<ChunkAddress>,
+pub struct DataPutPublicResult {
+    /// Hex-encoded address of the stored data map.
+    pub address: String,
+    /// Number of chunks stored.
+    pub chunks_stored: u64,
+    /// Payment mode that was used: "auto", "merkle", or "single".
+    pub payment_mode_used: String,
 }
 
-/// Result of uploading private data to the network
+/// Result of a private data upload (data map returned to caller).
 #[derive(uniffi::Record)]
-pub struct DataPutResult {
-    pub cost: String,
-    pub data_map: Arc<DataMapChunk>,
+pub struct DataPutPrivateResult {
+    /// Hex-encoded serialized data map (caller keeps this secret).
+    pub data_map: String,
+    /// Number of chunks stored.
+    pub chunks_stored: u64,
+    /// Payment mode that was used.
+    pub payment_mode_used: String,
 }
 
-/// Result of uploading a graph entry to the network
+/// Result of uploading a file (public).
 #[derive(uniffi::Record)]
-pub struct GraphEntryPutResult {
-    pub cost: String,
-    pub address: Arc<GraphEntryAddress>,
-}
-
-/// Result of uploading a public archive to the network
-#[derive(uniffi::Record)]
-pub struct PublicArchivePutResult {
-    pub cost: String,
-    pub address: Arc<ArchiveAddress>,
-}
-
-/// Result of uploading a private archive to the network
-#[derive(uniffi::Record)]
-pub struct PrivateArchivePutResult {
-    pub cost: String,
-    pub data_map: Arc<DataMapChunk>,
-}
-
-/// Result of uploading a file to the network (private)
-#[derive(uniffi::Record)]
-pub struct FileUploadResult {
-    pub cost: String,
-    pub data_map: Arc<DataMapChunk>,
-}
-
-/// Result of uploading a file to the network (public)
-#[derive(uniffi::Record)]
-pub struct FileUploadPublicResult {
-    pub cost: String,
-    pub address: Arc<DataAddress>,
-}
-
-/// Result of uploading a directory to the network (private)
-#[derive(uniffi::Record)]
-pub struct DirUploadResult {
-    pub cost: String,
-    pub data_map: Arc<PrivateArchiveDataMap>,
-}
-
-/// Result of uploading a public directory to the network
-#[derive(uniffi::Record)]
-pub struct DirUploadPublicResult {
-    pub cost: String,
-    pub address: Arc<ArchiveAddress>,
+pub struct FilePutPublicResult {
+    /// Hex-encoded address of the stored data map.
+    pub address: String,
 }
 
 // ===== Error types =====
 
-/// Error type for Autonomi Client operations
+/// Error type for client operations.
 #[derive(Debug, uniffi::Error, thiserror::Error)]
 pub enum ClientError {
+    #[error("Initialization failed: {reason}")]
+    InitializationFailed { reason: String },
     #[error("Network error: {reason}")]
     NetworkError { reason: String },
-    #[error("Client initialization failed: {reason}")]
-    InitializationFailed { reason: String },
-    #[error("Invalid data address: {reason}")]
-    InvalidAddress { reason: String },
+    #[error("Payment error: {reason}")]
+    PaymentError { reason: String },
+    #[error("Invalid input: {reason}")]
+    InvalidInput { reason: String },
+    #[error("Not found: {reason}")]
+    NotFound { reason: String },
+    #[error("Already exists")]
+    AlreadyExists,
+    #[error("Wallet not configured")]
+    WalletNotConfigured,
+    #[error("Internal error: {reason}")]
+    InternalError { reason: String },
 }
 
-/// Error type for Wallet operations
+/// Map ant-core errors to FFI errors.
+impl From<ant_core::data::Error> for ClientError {
+    fn from(e: ant_core::data::Error) -> Self {
+        use ant_core::data::Error;
+        match e {
+            Error::AlreadyStored => ClientError::AlreadyExists,
+            Error::InvalidData(msg) => ClientError::InvalidInput { reason: msg },
+            Error::Payment(msg) => ClientError::PaymentError { reason: msg },
+            Error::Network(msg) => ClientError::NetworkError { reason: msg },
+            Error::Timeout(msg) => ClientError::NetworkError { reason: format!("timeout: {msg}") },
+            Error::InsufficientPeers(msg) => ClientError::NetworkError { reason: msg },
+            other => ClientError::InternalError { reason: other.to_string() },
+        }
+    }
+}
+
+/// Error type for wallet operations.
 #[derive(Debug, uniffi::Error, thiserror::Error)]
 pub enum WalletError {
     #[error("Wallet creation failed: {reason}")]
     CreationFailed { reason: String },
-    #[error("Balance check failed: {reason}")]
-    BalanceCheckFailed { reason: String },
+    #[error("Operation failed: {reason}")]
+    OperationFailed { reason: String },
 }

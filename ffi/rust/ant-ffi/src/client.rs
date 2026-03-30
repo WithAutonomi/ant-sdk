@@ -1,511 +1,317 @@
-use autonomi::client::payment::PaymentOption as AutonomiPaymentOption;
-use bytes::Bytes;
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::data::{ChunkAddress, DataAddress, DataMapChunk};
-use crate::files::{
-    ArchiveAddress, PrivateArchive, PrivateArchiveDataMap, PublicArchive,
-};
-use crate::graph::{GraphEntry, GraphEntryAddress};
-use crate::keys::{PublicKey, SecretKey};
-use crate::network::Network;
-use crate::payment::{PaymentOption, Wallet};
-use crate::{
-    ChunkPutResult, ClientError, DataPutResult, DirUploadPublicResult, DirUploadResult,
-    FileUploadPublicResult, FileUploadResult, GraphEntryPutResult,
-    PrivateArchivePutResult, PublicArchivePutResult,
-    UploadResult,
+use bytes::Bytes;
+
+use ant_core::data::{
+    Client as CoreClient, ClientConfig, CoreNodeConfig, MultiAddr, NodeMode, P2PNode,
 };
 
-/// Autonomi network client
+use crate::data::{format_payment_mode, parse_payment_mode};
+use crate::wallet::Wallet;
+use crate::{
+    ChunkPutResult, ClientError, DataPutPrivateResult, DataPutPublicResult, FilePutPublicResult,
+};
+
+/// Autonomi network client (wraps ant-core Client).
+///
+/// Provides direct access to the Autonomi network without needing
+/// an antd daemon. Suitable for mobile apps (Android/iOS).
 #[derive(uniffi::Object)]
 pub struct Client {
-    inner: Arc<autonomi::Client>,
+    inner: CoreClient,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 impl Client {
-    // ===== Init Methods =====
-
+    /// Connect to a local test network.
     #[uniffi::constructor]
-    pub async fn init() -> Result<Arc<Self>, ClientError> {
-        let client =
-            autonomi::Client::init()
-                .await
-                .map_err(|e| ClientError::InitializationFailed {
-                    reason: e.to_string(),
-                })?;
-        Ok(Arc::new(Self {
-            inner: Arc::new(client),
-        }))
-    }
+    pub async fn connect_local() -> Result<Arc<Self>, ClientError> {
+        let builder = CoreNodeConfig::builder()
+            .mode(NodeMode::Client)
+            .port(0)
+            .local(true)
+            .allow_loopback(true)
+            .ipv6(false);
 
-    #[uniffi::constructor]
-    pub async fn init_local() -> Result<Arc<Self>, ClientError> {
-        let client = autonomi::Client::init_local().await.map_err(|e| {
-            ClientError::InitializationFailed {
+        let config = builder
+            .build()
+            .map_err(|e| ClientError::InitializationFailed {
                 reason: e.to_string(),
-            }
-        })?;
-        Ok(Arc::new(Self {
-            inner: Arc::new(client),
-        }))
-    }
+            })?;
 
-    #[uniffi::constructor]
-    pub async fn init_with_peers(
-        peers: Vec<String>,
-        evm_network: Arc<Network>,
-        data_dir: Option<String>,
-    ) -> Result<Arc<Self>, ClientError> {
-        use std::str::FromStr;
-
-        if let Some(dir) = data_dir {
-            unsafe {
-                std::env::set_var("HOME", &dir);
-                std::env::set_var("TMPDIR", &dir);
-            }
-        }
-
-        let multiaddrs: Vec<_> = peers
-            .iter()
-            .filter_map(|p| autonomi::Multiaddr::from_str(p).ok())
-            .collect();
-
-        if multiaddrs.is_empty() {
-            return Err(ClientError::InitializationFailed {
-                reason: "No valid peer addresses provided".to_string(),
-            });
-        }
-
-        let local = !multiaddrs.iter().any(|addr| {
-            addr.iter().any(|component| {
-                use libp2p::multiaddr::Protocol;
-                matches!(component, Protocol::Ip4(ip) if !ip.is_private() && !ip.is_loopback())
-            })
-        });
-
-        let config = autonomi::ClientConfig {
-            bootstrap_config: autonomi::BootstrapConfig {
-                local,
-                initial_peers: multiaddrs,
-                ..Default::default()
-            },
-            evm_network: evm_network.inner.clone(),
-            strategy: Default::default(),
-            network_id: None,
-        };
-
-        let client = autonomi::Client::init_with_config(config)
+        let node = P2PNode::new(config)
             .await
             .map_err(|e| ClientError::InitializationFailed {
                 reason: e.to_string(),
             })?;
 
-        Ok(Arc::new(Self {
-            inner: Arc::new(client),
-        }))
+        node.start()
+            .await
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
+
+        let client = CoreClient::from_node(Arc::new(node), ClientConfig::default());
+
+        Ok(Arc::new(Self { inner: client }))
     }
 
-    // ===== Data Methods =====
+    /// Connect to the network using explicit bootstrap peers.
+    #[uniffi::constructor]
+    pub async fn connect(peers: Vec<String>) -> Result<Arc<Self>, ClientError> {
+        let mut builder = CoreNodeConfig::builder()
+            .mode(NodeMode::Client)
+            .port(0);
 
+        for peer_str in &peers {
+            let addr: MultiAddr = peer_str
+                .parse()
+                .map_err(|e| ClientError::InitializationFailed {
+                    reason: format!("invalid peer address {peer_str}: {e}"),
+                })?;
+            builder = builder.bootstrap_peer(addr);
+        }
+
+        let config = builder
+            .build()
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
+
+        let node = P2PNode::new(config)
+            .await
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
+
+        node.start()
+            .await
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
+
+        // Wait briefly for peer connections
+        for _ in 0..20 {
+            if !node.connected_peers().await.is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+
+        let client = CoreClient::from_node(Arc::new(node), ClientConfig::default());
+
+        Ok(Arc::new(Self { inner: client }))
+    }
+
+    /// Connect to the network with a wallet configured for write operations.
+    ///
+    /// Takes the wallet private key and EVM network details directly,
+    /// since the wallet must be constructed fresh for ownership transfer.
+    #[uniffi::constructor]
+    pub async fn connect_with_wallet(
+        peers: Vec<String>,
+        private_key: String,
+        rpc_url: String,
+        payment_token_address: String,
+        data_payments_address: String,
+    ) -> Result<Arc<Self>, ClientError> {
+        let mut builder = CoreNodeConfig::builder()
+            .mode(NodeMode::Client)
+            .port(0);
+
+        for peer_str in &peers {
+            let addr: MultiAddr = peer_str
+                .parse()
+                .map_err(|e| ClientError::InitializationFailed {
+                    reason: format!("invalid peer address {peer_str}: {e}"),
+                })?;
+            builder = builder.bootstrap_peer(addr);
+        }
+
+        let config = builder
+            .build()
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
+
+        let node = P2PNode::new(config)
+            .await
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
+
+        node.start()
+            .await
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
+
+        for _ in 0..20 {
+            if !node.connected_peers().await.is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+
+        let network = evmlib::Network::new_custom(
+            &rpc_url,
+            &payment_token_address,
+            &data_payments_address,
+            None,
+        );
+        let wallet = evmlib::wallet::Wallet::new_from_private_key(network, &private_key)
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: format!("failed to create wallet: {e}"),
+            })?;
+
+        let client =
+            CoreClient::from_node(Arc::new(node), ClientConfig::default()).with_wallet(wallet);
+
+        Ok(Arc::new(Self { inner: client }))
+    }
+
+    // ===== Chunk Operations =====
+
+    /// Store a chunk on the network.
+    pub async fn chunk_put(&self, data: Vec<u8>) -> Result<ChunkPutResult, ClientError> {
+        let address = self.inner.chunk_put(Bytes::from(data)).await?;
+        Ok(ChunkPutResult {
+            address: hex::encode(address),
+        })
+    }
+
+    /// Retrieve a chunk by hex-encoded address.
+    pub async fn chunk_get(&self, address_hex: String) -> Result<Vec<u8>, ClientError> {
+        let address = hex_to_address(&address_hex)?;
+        let chunk = self
+            .inner
+            .chunk_get(&address)
+            .await?
+            .ok_or_else(|| ClientError::NotFound {
+                reason: format!("chunk {address_hex} not found"),
+            })?;
+        Ok(chunk.content.to_vec())
+    }
+
+    /// Check if a chunk exists on the network.
+    pub async fn chunk_exists(&self, address_hex: String) -> Result<bool, ClientError> {
+        let address = hex_to_address(&address_hex)?;
+        Ok(self.inner.chunk_exists(&address).await?)
+    }
+
+    // ===== Data Operations =====
+
+    /// Upload public data. Returns the address of the stored data map.
     pub async fn data_put_public(
         &self,
         data: Vec<u8>,
-        payment: PaymentOption,
-    ) -> Result<UploadResult, ClientError> {
-        let bytes = Bytes::from(data);
-        let autonomi_payment = match payment {
-            PaymentOption::WalletPayment { wallet_ref } => {
-                AutonomiPaymentOption::Wallet(wallet_ref.inner.clone())
-            }
-        };
+        payment_mode: String,
+    ) -> Result<DataPutPublicResult, ClientError> {
+        let mode = parse_payment_mode(&payment_mode).map_err(|e| ClientError::InvalidInput {
+            reason: e,
+        })?;
 
-        let (price, address) = self
+        let result = self
             .inner
-            .data_put_public(bytes, autonomi_payment)
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
-            })?;
+            .data_upload_with_mode(Bytes::from(data), mode)
+            .await?;
 
-        Ok(UploadResult {
-            price: price.to_string(),
-            address: address.to_hex(),
+        let address = self.inner.data_map_store(&result.data_map).await?;
+
+        Ok(DataPutPublicResult {
+            address: hex::encode(address),
+            chunks_stored: result.chunks_stored as u64,
+            payment_mode_used: format_payment_mode(result.payment_mode_used),
         })
     }
 
+    /// Retrieve public data by hex-encoded address.
     pub async fn data_get_public(&self, address_hex: String) -> Result<Vec<u8>, ClientError> {
-        let data_address = crate::data::DataAddress::from_hex(address_hex).map_err(|e| {
-            ClientError::InvalidAddress {
-                reason: e.to_string(),
+        let address = hex_to_address(&address_hex)?;
+        let data_map = self.inner.data_map_fetch(&address).await?;
+        let content = self.inner.data_download(&data_map).await?;
+        Ok(content.to_vec())
+    }
+
+    /// Upload private data. Returns the serialized data map (hex).
+    pub async fn data_put_private(
+        &self,
+        data: Vec<u8>,
+        payment_mode: String,
+    ) -> Result<DataPutPrivateResult, ClientError> {
+        let mode = parse_payment_mode(&payment_mode).map_err(|e| ClientError::InvalidInput {
+            reason: e,
+        })?;
+
+        let result = self
+            .inner
+            .data_upload_with_mode(Bytes::from(data), mode)
+            .await?;
+
+        let data_map_bytes = rmp_serde::to_vec(&result.data_map).map_err(|e| {
+            ClientError::InternalError {
+                reason: format!("failed to serialize data map: {e}"),
             }
         })?;
 
-        let bytes = self
-            .inner
-            .data_get_public(&data_address.inner)
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
-            })?;
-
-        Ok(bytes.to_vec())
-    }
-
-    pub async fn data_put(
-        &self,
-        data: Vec<u8>,
-        payment: PaymentOption,
-    ) -> Result<DataPutResult, ClientError> {
-        let bytes = Bytes::from(data);
-        let autonomi_payment = match payment {
-            PaymentOption::WalletPayment { wallet_ref } => {
-                AutonomiPaymentOption::Wallet(wallet_ref.inner.clone())
-            }
-        };
-
-        let (cost, data_map) = self
-            .inner
-            .data_put(bytes, autonomi_payment)
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
-            })?;
-
-        Ok(DataPutResult {
-            cost: cost.to_string(),
-            data_map: Arc::new(DataMapChunk { inner: data_map }),
+        Ok(DataPutPrivateResult {
+            data_map: hex::encode(data_map_bytes),
+            chunks_stored: result.chunks_stored as u64,
+            payment_mode_used: format_payment_mode(result.payment_mode_used),
         })
     }
 
-    pub async fn data_get(&self, data_map: Arc<DataMapChunk>) -> Result<Vec<u8>, ClientError> {
-        let bytes = self
-            .inner
-            .data_get(&data_map.inner)
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
+    /// Retrieve private data using a hex-encoded data map.
+    pub async fn data_get_private(&self, data_map_hex: String) -> Result<Vec<u8>, ClientError> {
+        let data_map_bytes =
+            hex::decode(&data_map_hex).map_err(|e| ClientError::InvalidInput {
+                reason: format!("invalid hex: {e}"),
             })?;
-        Ok(bytes.to_vec())
-    }
-
-    pub async fn data_cost(&self, data: Vec<u8>) -> Result<String, ClientError> {
-        let bytes = Bytes::from(data);
-        let cost = self
-            .inner
-            .data_cost(bytes)
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
+        let data_map: ant_core::data::DataMap =
+            rmp_serde::from_slice(&data_map_bytes).map_err(|e| ClientError::InvalidInput {
+                reason: format!("invalid data map: {e}"),
             })?;
-        Ok(cost.to_string())
-    }
-
-    // ===== Chunk Methods =====
-
-    pub async fn chunk_put(
-        &self,
-        data: Vec<u8>,
-        payment: PaymentOption,
-    ) -> Result<ChunkPutResult, ClientError> {
-        let chunk = autonomi::Chunk::new(Bytes::from(data));
-        let autonomi_payment = match payment {
-            PaymentOption::WalletPayment { wallet_ref } => {
-                AutonomiPaymentOption::Wallet(wallet_ref.inner.clone())
-            }
-        };
-
-        let (cost, addr) = self
-            .inner
-            .chunk_put(&chunk, autonomi_payment)
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
-            })?;
-
-        Ok(ChunkPutResult {
-            cost: cost.to_string(),
-            address: Arc::new(ChunkAddress { inner: addr }),
-        })
-    }
-
-    pub async fn chunk_get(&self, addr: Arc<ChunkAddress>) -> Result<Vec<u8>, ClientError> {
-        let chunk = self
-            .inner
-            .chunk_get(&addr.inner)
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
-            })?;
-        Ok(chunk.value.to_vec())
-    }
-
-    pub async fn chunk_cost(&self, addr: Arc<ChunkAddress>) -> Result<String, ClientError> {
-        let cost = self
-            .inner
-            .chunk_cost(&addr.inner)
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
-            })?;
-        Ok(cost.to_string())
-    }
-
-    // ===== Graph Entry Methods =====
-
-    pub async fn graph_entry_get(
-        &self,
-        addr: Arc<GraphEntryAddress>,
-    ) -> Result<Arc<GraphEntry>, ClientError> {
-        let entry = self
-            .inner
-            .graph_entry_get(&addr.inner)
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
-            })?;
-        Ok(Arc::new(GraphEntry { inner: entry }))
-    }
-
-    pub async fn graph_entry_check_existence(
-        &self,
-        addr: Arc<GraphEntryAddress>,
-    ) -> Result<bool, ClientError> {
-        let exists = self
-            .inner
-            .graph_entry_check_existence(&addr.inner)
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
-            })?;
-        Ok(exists)
-    }
-
-    pub async fn graph_entry_put(
-        &self,
-        entry: Arc<GraphEntry>,
-        payment: PaymentOption,
-    ) -> Result<GraphEntryPutResult, ClientError> {
-        let autonomi_payment = match payment {
-            PaymentOption::WalletPayment { wallet_ref } => {
-                AutonomiPaymentOption::Wallet(wallet_ref.inner.clone())
-            }
-        };
-
-        let (cost, addr) = self
-            .inner
-            .graph_entry_put(entry.inner.clone(), autonomi_payment)
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
-            })?;
-
-        Ok(GraphEntryPutResult {
-            cost: cost.to_string(),
-            address: Arc::new(GraphEntryAddress { inner: addr }),
-        })
-    }
-
-    pub async fn graph_entry_cost(&self, key: Arc<PublicKey>) -> Result<String, ClientError> {
-        let cost = self
-            .inner
-            .graph_entry_cost(&key.inner)
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
-            })?;
-        Ok(cost.to_string())
-    }
-
-    // ===== Archive Methods =====
-
-    pub async fn archive_cost(
-        &self,
-        archive: Arc<PublicArchive>,
-    ) -> Result<String, ClientError> {
-        let cost = self
-            .inner
-            .archive_cost(&archive.inner)
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
-            })?;
-        Ok(cost.to_string())
-    }
-
-    pub async fn archive_get_public(
-        &self,
-        address: Arc<ArchiveAddress>,
-    ) -> Result<Arc<PublicArchive>, ClientError> {
-        let archive = self
-            .inner
-            .archive_get_public(&address.inner)
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
-            })?;
-        Ok(Arc::new(PublicArchive { inner: archive }))
-    }
-
-    pub async fn archive_put_public(
-        &self,
-        archive: Arc<PublicArchive>,
-        payment: PaymentOption,
-    ) -> Result<PublicArchivePutResult, ClientError> {
-        let autonomi_payment = match payment {
-            PaymentOption::WalletPayment { wallet_ref } => {
-                AutonomiPaymentOption::Wallet(wallet_ref.inner.clone())
-            }
-        };
-
-        let (cost, addr) = self
-            .inner
-            .archive_put_public(&archive.inner, autonomi_payment)
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
-            })?;
-
-        Ok(PublicArchivePutResult {
-            cost: cost.to_string(),
-            address: Arc::new(ArchiveAddress { inner: addr }),
-        })
-    }
-
-    pub async fn archive_get(
-        &self,
-        data_map: Arc<DataMapChunk>,
-    ) -> Result<Arc<PrivateArchive>, ClientError> {
-        let archive = self
-            .inner
-            .archive_get(&data_map.inner)
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
-            })?;
-        Ok(Arc::new(PrivateArchive { inner: archive }))
-    }
-
-    pub async fn archive_put(
-        &self,
-        archive: Arc<PrivateArchive>,
-        payment: PaymentOption,
-    ) -> Result<PrivateArchivePutResult, ClientError> {
-        let autonomi_payment = match payment {
-            PaymentOption::WalletPayment { wallet_ref } => {
-                AutonomiPaymentOption::Wallet(wallet_ref.inner.clone())
-            }
-        };
-
-        let (cost, data_map) = self
-            .inner
-            .archive_put(&archive.inner, autonomi_payment)
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
-            })?;
-
-        Ok(PrivateArchivePutResult {
-            cost: cost.to_string(),
-            data_map: Arc::new(DataMapChunk { inner: data_map }),
-        })
+        let content = self.inner.data_download(&data_map).await?;
+        Ok(content.to_vec())
     }
 
     // ===== File Operations =====
 
-    pub async fn file_cost(
-        &self,
-        path: String,
-        follow_symlinks: bool,
-        include_hidden: bool,
-    ) -> Result<String, ClientError> {
-        let path = std::path::PathBuf::from(path);
-        let cost = self
-            .inner
-            .file_cost(&path, follow_symlinks, include_hidden)
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
-            })?;
-        Ok(cost.to_string())
-    }
-
-    pub async fn file_upload(
-        &self,
-        path: String,
-        payment: PaymentOption,
-    ) -> Result<FileUploadResult, ClientError> {
-        let path = std::path::PathBuf::from(path);
-        let autonomi_payment = match payment {
-            PaymentOption::WalletPayment { wallet_ref } => {
-                AutonomiPaymentOption::Wallet(wallet_ref.inner.clone())
-            }
-        };
-
-        let (cost, data_map) = self
-            .inner
-            .file_content_upload(path, autonomi_payment.into())
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
-            })?;
-
-        Ok(FileUploadResult {
-            cost: cost.to_string(),
-            data_map: Arc::new(DataMapChunk { inner: data_map }),
-        })
-    }
-
+    /// Upload a file from disk (public). Returns the address.
     pub async fn file_upload_public(
         &self,
         path: String,
-        payment: PaymentOption,
-    ) -> Result<FileUploadPublicResult, ClientError> {
-        let path = std::path::PathBuf::from(path);
-        let autonomi_payment = match payment {
-            PaymentOption::WalletPayment { wallet_ref } => {
-                AutonomiPaymentOption::Wallet(wallet_ref.inner.clone())
-            }
-        };
+        payment_mode: String,
+    ) -> Result<FilePutPublicResult, ClientError> {
+        let mode = parse_payment_mode(&payment_mode).map_err(|e| ClientError::InvalidInput {
+            reason: e,
+        })?;
+        let file_path = PathBuf::from(&path);
 
-        let (cost, addr) = self
+        let result = self
             .inner
-            .file_content_upload_public(path, autonomi_payment.into())
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
-            })?;
+            .file_upload_with_mode(&file_path, mode)
+            .await?;
 
-        Ok(FileUploadPublicResult {
-            cost: cost.to_string(),
-            address: Arc::new(DataAddress { inner: addr }),
+        let address = self.inner.data_map_store(&result.data_map).await?;
+
+        Ok(FilePutPublicResult {
+            address: hex::encode(address),
         })
     }
 
-    pub async fn file_download(
-        &self,
-        data_map: Arc<DataMapChunk>,
-        path: String,
-    ) -> Result<(), ClientError> {
-        let path = std::path::PathBuf::from(path);
-        self.inner
-            .file_download(&data_map.inner, path)
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
-            })?;
-        Ok(())
-    }
-
+    /// Download a file to disk by hex-encoded address.
     pub async fn file_download_public(
         &self,
-        address: Arc<DataAddress>,
-        path: String,
+        address_hex: String,
+        dest_path: String,
     ) -> Result<(), ClientError> {
-        let path = std::path::PathBuf::from(path);
+        let address = hex_to_address(&address_hex)?;
+        let data_map = self.inner.data_map_fetch(&address).await?;
+        let dest = PathBuf::from(&dest_path);
         self.inner
-            .file_download_public(&address.inner, path)
+            .file_download(&data_map, &dest)
             .await
             .map_err(|e| ClientError::NetworkError {
                 reason: e.to_string(),
@@ -513,75 +319,28 @@ impl Client {
         Ok(())
     }
 
-    pub async fn dir_upload(
-        &self,
-        path: String,
-        wallet: Arc<Wallet>,
-    ) -> Result<DirUploadResult, ClientError> {
-        let path = std::path::PathBuf::from(path);
+    // ===== Wallet Operations =====
 
-        let (cost, data_map) = self
-            .inner
-            .dir_upload(path, &wallet.inner)
+    /// Approve token spend for storage payments (one-time).
+    pub async fn wallet_approve(&self) -> Result<(), ClientError> {
+        self.inner
+            .approve_token_spend()
             .await
-            .map_err(|e| ClientError::NetworkError {
+            .map_err(|e| ClientError::PaymentError {
                 reason: e.to_string(),
             })?;
+        Ok(())
+    }
+}
 
-        Ok(DirUploadResult {
-            cost: cost.to_string(),
-            data_map: Arc::new(PrivateArchiveDataMap { inner: data_map }),
+/// Parse a hex string into a 32-byte address.
+fn hex_to_address(hex: &str) -> Result<[u8; 32], ClientError> {
+    let bytes = hex::decode(hex).map_err(|e| ClientError::InvalidInput {
+        reason: format!("invalid hex address: {e}"),
+    })?;
+    bytes
+        .try_into()
+        .map_err(|_| ClientError::InvalidInput {
+            reason: "address must be 32 bytes".into(),
         })
-    }
-
-    pub async fn dir_upload_public(
-        &self,
-        path: String,
-        wallet: Arc<Wallet>,
-    ) -> Result<DirUploadPublicResult, ClientError> {
-        let path = std::path::PathBuf::from(path);
-
-        let (cost, addr) = self
-            .inner
-            .dir_upload_public(path, &wallet.inner)
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
-            })?;
-
-        Ok(DirUploadPublicResult {
-            cost: cost.to_string(),
-            address: Arc::new(ArchiveAddress { inner: addr }),
-        })
-    }
-
-    pub async fn dir_download(
-        &self,
-        data_map: Arc<PrivateArchiveDataMap>,
-        path: String,
-    ) -> Result<(), ClientError> {
-        let path = std::path::PathBuf::from(path);
-        self.inner
-            .dir_download(&data_map.inner, path)
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
-            })?;
-        Ok(())
-    }
-
-    pub async fn dir_download_public(
-        &self,
-        address: Arc<ArchiveAddress>,
-        path: String,
-    ) -> Result<(), ClientError> {
-        let path = std::path::PathBuf::from(path);
-        self.inner
-            .dir_download_public(&address.inner, path)
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
-            })?;
-        Ok(())
-    }
 }
