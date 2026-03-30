@@ -61,3 +61,29 @@ class WalletBalance:
     """Wallet balance from the antd daemon."""
     balance: str        # atto tokens as string
     gas_balance: str    # atto gas tokens as string
+
+
+@dataclass(frozen=True)
+class PaymentInfo:
+    """A single payment required for an upload."""
+    quote_hash: str      # hex
+    rewards_address: str # hex
+    amount: str          # atto tokens as string
+
+
+@dataclass(frozen=True)
+class PrepareUploadResult:
+    """Result of preparing an upload for external signing."""
+    upload_id: str                    # hex identifier
+    payments: list[PaymentInfo] = field(default_factory=list)
+    total_amount: str = ""
+    data_payments_address: str = ""   # contract address
+    payment_token_address: str = ""   # token contract address
+    rpc_url: str = ""                 # EVM RPC URL
+
+
+@dataclass(frozen=True)
+class FinalizeUploadResult:
+    """Result of finalizing an externally-signed upload."""
+    address: str         # hex address of stored data
+    chunks_stored: int = 0

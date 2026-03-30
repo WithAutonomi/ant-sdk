@@ -892,4 +892,82 @@ class AntdClient
             fn(?array $json) => $json['cost'] ?? '',
         );
     }
+
+    // --- External Signer (Two-Phase Upload) ---
+
+    /**
+     * Prepare a file upload for external signing.
+     *
+     * @return array{upload_id: string, payments: array, total_amount: string, data_payments_address: string, payment_token_address: string, rpc_url: string}
+     */
+    public function prepareUpload(string $path): array
+    {
+        $json = $this->doJson('POST', '/v1/upload/prepare', ['path' => $path]);
+        return [
+            'upload_id' => $json['upload_id'] ?? '',
+            'payments' => $json['payments'] ?? [],
+            'total_amount' => $json['total_amount'] ?? '',
+            'data_payments_address' => $json['data_payments_address'] ?? '',
+            'payment_token_address' => $json['payment_token_address'] ?? '',
+            'rpc_url' => $json['rpc_url'] ?? '',
+        ];
+    }
+
+    /**
+     * Async: Prepare a file upload for external signing.
+     *
+     * @return PromiseInterface<array>
+     */
+    public function prepareUploadAsync(string $path): PromiseInterface
+    {
+        return $this->doJsonAsync('POST', '/v1/upload/prepare', ['path' => $path])->then(
+            fn(?array $json) => [
+                'upload_id' => $json['upload_id'] ?? '',
+                'payments' => $json['payments'] ?? [],
+                'total_amount' => $json['total_amount'] ?? '',
+                'data_payments_address' => $json['data_payments_address'] ?? '',
+                'payment_token_address' => $json['payment_token_address'] ?? '',
+                'rpc_url' => $json['rpc_url'] ?? '',
+            ],
+        );
+    }
+
+    /**
+     * Finalize an upload after an external signer has submitted payment transactions.
+     *
+     * @param string $uploadId The upload ID from prepareUpload.
+     * @param array<string, string> $txHashes Map of quote_hash to tx_hash.
+     * @return array{address: string, chunks_stored: int}
+     */
+    public function finalizeUpload(string $uploadId, array $txHashes): array
+    {
+        $json = $this->doJson('POST', '/v1/upload/finalize', [
+            'upload_id' => $uploadId,
+            'tx_hashes' => $txHashes,
+        ]);
+        return [
+            'address' => $json['address'] ?? '',
+            'chunks_stored' => (int) ($json['chunks_stored'] ?? 0),
+        ];
+    }
+
+    /**
+     * Async: Finalize an upload after an external signer has submitted payment transactions.
+     *
+     * @param string $uploadId The upload ID from prepareUpload.
+     * @param array<string, string> $txHashes Map of quote_hash to tx_hash.
+     * @return PromiseInterface<array{address: string, chunks_stored: int}>
+     */
+    public function finalizeUploadAsync(string $uploadId, array $txHashes): PromiseInterface
+    {
+        return $this->doJsonAsync('POST', '/v1/upload/finalize', [
+            'upload_id' => $uploadId,
+            'tx_hashes' => $txHashes,
+        ])->then(
+            fn(?array $json) => [
+                'address' => $json['address'] ?? '',
+                'chunks_stored' => (int) ($json['chunks_stored'] ?? 0),
+            ],
+        );
+    }
 }

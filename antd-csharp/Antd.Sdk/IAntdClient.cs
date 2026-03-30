@@ -35,4 +35,8 @@ public interface IAntdClient : IDisposable
     Task<WalletAddress> WalletAddressAsync();
     Task<WalletBalance> WalletBalanceAsync();
     Task<bool> WalletApproveAsync();
+
+    // External Signer (Two-Phase Upload)
+    Task<PrepareUploadResult> PrepareUploadAsync(string path);
+    Task<FinalizeUploadResult> FinalizeUploadAsync(string uploadId, Dictionary<string, string> txHashes);
 }

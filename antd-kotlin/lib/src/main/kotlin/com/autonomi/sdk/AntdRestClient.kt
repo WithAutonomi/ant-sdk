@@ -277,4 +277,26 @@ class AntdRestClient(
         val resp = postJson<WalletApproveDto>("/v1/wallet/approve", body)
         return resp.approved
     }
+
+    // ── External Signer (Two-Phase Upload) ──
+
+    /** Prepares a file upload for external signing. */
+    override suspend fun prepareUpload(path: String): PrepareUploadResult {
+        val body = buildJsonObject { put("path", path) }.toString()
+        val resp = postJson<PrepareUploadDto>("/v1/upload/prepare", body)
+        val payments = resp.payments?.map { PaymentInfo(it.quoteHash, it.rewardsAddress, it.amount) } ?: emptyList()
+        return PrepareUploadResult(resp.uploadId, payments, resp.totalAmount, resp.dataPaymentsAddress, resp.paymentTokenAddress, resp.rpcUrl)
+    }
+
+    /** Finalizes an upload after an external signer has submitted payment transactions. */
+    override suspend fun finalizeUpload(uploadId: String, txHashes: Map<String, String>): FinalizeUploadResult {
+        val body = buildJsonObject {
+            put("upload_id", uploadId)
+            put("tx_hashes", buildJsonObject {
+                txHashes.forEach { (k, v) -> put(k, v) }
+            })
+        }.toString()
+        val resp = postJson<FinalizeUploadDto>("/v1/upload/finalize", body)
+        return FinalizeUploadResult(resp.address, resp.chunksStored)
+    }
 }

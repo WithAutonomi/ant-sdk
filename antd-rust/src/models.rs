@@ -65,3 +65,40 @@ pub struct WalletBalance {
     /// Gas balance in atto tokens as a string.
     pub gas_balance: String,
 }
+
+/// A single payment required for an upload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaymentInfo {
+    /// Hex-encoded quote hash.
+    pub quote_hash: String,
+    /// Hex-encoded rewards address.
+    pub rewards_address: String,
+    /// Amount in atto tokens as a string.
+    pub amount: String,
+}
+
+/// Result of preparing an upload for external signing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrepareUploadResult {
+    /// Hex identifier for this upload session.
+    pub upload_id: String,
+    /// Payments that must be signed externally.
+    pub payments: Vec<PaymentInfo>,
+    /// Total amount across all payments.
+    pub total_amount: String,
+    /// Data payments contract address.
+    pub data_payments_address: String,
+    /// Payment token contract address.
+    pub payment_token_address: String,
+    /// EVM RPC URL for submitting transactions.
+    pub rpc_url: String,
+}
+
+/// Result of finalizing an externally-signed upload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FinalizeUploadResult {
+    /// Hex address of the stored data.
+    pub address: String,
+    /// Number of chunks stored.
+    pub chunks_stored: i64,
+}

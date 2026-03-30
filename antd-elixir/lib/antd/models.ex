@@ -96,3 +96,44 @@ defmodule Antd.WalletBalance do
           gas_balance: String.t()
         }
 end
+
+defmodule Antd.PaymentInfo do
+  @moduledoc "A single payment required for an upload."
+
+  @enforce_keys [:quote_hash, :rewards_address, :amount]
+  defstruct [:quote_hash, :rewards_address, :amount]
+
+  @type t :: %__MODULE__{
+          quote_hash: String.t(),
+          rewards_address: String.t(),
+          amount: String.t()
+        }
+end
+
+defmodule Antd.PrepareUploadResult do
+  @moduledoc "Result of preparing an upload for external signing."
+
+  @enforce_keys [:upload_id, :payments, :total_amount, :data_payments_address, :payment_token_address, :rpc_url]
+  defstruct [:upload_id, :payments, :total_amount, :data_payments_address, :payment_token_address, :rpc_url]
+
+  @type t :: %__MODULE__{
+          upload_id: String.t(),
+          payments: [Antd.PaymentInfo.t()],
+          total_amount: String.t(),
+          data_payments_address: String.t(),
+          payment_token_address: String.t(),
+          rpc_url: String.t()
+        }
+end
+
+defmodule Antd.FinalizeUploadResult do
+  @moduledoc "Result of finalizing an externally-signed upload."
+
+  @enforce_keys [:address, :chunks_stored]
+  defstruct [:address, :chunks_stored]
+
+  @type t :: %__MODULE__{
+          address: String.t(),
+          chunks_stored: integer()
+        }
+end

@@ -60,6 +60,14 @@ This is especially useful in managed mode, where a parent process (e.g. indelibl
 
 If no port file is found, all SDKs fall back to the default REST endpoint (`http://localhost:8082`) or gRPC target (`localhost:50051`).
 
+### External Signer Support
+
+All SDKs support two-phase uploads for applications that manage their own wallet (browser wallets, hardware signers, etc.):
+
+1. **`prepare_upload(path)`** -- returns payment details (quote hashes, amounts, contract addresses, RPC URL)
+2. Your application submits EVM payment transactions using its own signer
+3. **`finalize_upload(upload_id, tx_hashes)`** -- confirms payments and stores data on the network
+
 ### Payment Modes
 
 All data and file upload operations accept an optional `payment_mode` parameter (defaults to `"auto"`):
@@ -75,7 +83,7 @@ All data and file upload operations accept an optional `payment_mode` parameter 
 | Component | Language | Description |
 |-----------|----------|-------------|
 | [`antd/`](antd/) | Rust | REST + gRPC gateway daemon |
-| [`antd-mcp/`](antd-mcp/) | Python | MCP server exposing 14 tools for AI agents (Claude, etc.) |
+| [`antd-mcp/`](antd-mcp/) | Python | MCP server exposing 19 tools for AI agents (Claude, etc.) |
 | [`ant-dev/`](ant-dev/) | Python | Developer CLI for local environment management |
 
 ### Language SDKs

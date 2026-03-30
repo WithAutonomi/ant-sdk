@@ -14,9 +14,12 @@ from __future__ import annotations
 from .models import (
     Archive,
     ArchiveEntry,
+    FinalizeUploadResult,
     GraphDescendant,
     GraphEntry,
     HealthStatus,
+    PaymentInfo,
+    PrepareUploadResult,
     PutResult,
     WalletAddress,
     WalletBalance,

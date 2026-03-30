@@ -328,4 +328,24 @@ class AntdClient {
     final json = await _doJson('POST', '/v1/wallet/approve', {});
     return json!['approved'] as bool;
   }
+
+  // --- External Signer (Two-Phase Upload) ---
+
+  /// Prepares a file upload for external signing.
+  Future<PrepareUploadResult> prepareUpload(String path) async {
+    final json = await _doJson('POST', '/v1/upload/prepare', {'path': path});
+    return PrepareUploadResult.fromJson(json!);
+  }
+
+  /// Finalizes an upload after an external signer has submitted payment transactions.
+  Future<FinalizeUploadResult> finalizeUpload(
+    String uploadId,
+    Map<String, String> txHashes,
+  ) async {
+    final json = await _doJson('POST', '/v1/upload/finalize', {
+      'upload_id': uploadId,
+      'tx_hashes': txHashes,
+    });
+    return FinalizeUploadResult.fromJson(json!);
+  }
 }

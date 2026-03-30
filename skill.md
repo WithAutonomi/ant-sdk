@@ -107,6 +107,24 @@ entry2 = client.graph_entry_put(key2, parents=[entry1.address], content=content2
 
 **When to suggest this:** Developer needs an audit log, version chain, social graph, or any linked data structure.
 
+### Pattern 4: External Signer (Two-Phase Upload)
+
+When the application manages its own wallet (e.g. a browser wallet or hardware signer), use the two-phase upload flow instead of the daemon's built-in wallet:
+
+```python
+# Phase 1: Prepare — get payment details
+prep = client.prepare_upload("/path/to/file")
+# prep.upload_id, prep.payments, prep.total_amount, prep.data_payments_address, etc.
+
+# ... external signer submits EVM transactions for each payment ...
+
+# Phase 2: Finalize — confirm payments and store data
+result = client.finalize_upload(prep.upload_id, {"0xquotehash": "0xtxhash", ...})
+print(f"Stored at: {result.address}, chunks: {result.chunks_stored}")
+```
+
+**When to suggest this:** Developer has their own wallet/signer and doesn't want to use antd's built-in wallet. Common in web apps, mobile apps, or enterprise integrations.
+
 ## Key Rules
 
 1. **Every write costs tokens.** Always offer to estimate cost first with the `*_cost` methods (now fully implemented for both data and files). Before the first storage operation, the wallet must be approved via `wallet_approve()`. Reads are free.

@@ -255,6 +255,27 @@ public sealed class AntdRestClient : IAntdClient
         return resp.Approved;
     }
 
+    // ── External Signer (Two-Phase Upload) ──
+
+    /// <summary>
+    /// Prepares a file upload for external signing.
+    /// </summary>
+    public async Task<PrepareUploadResult> PrepareUploadAsync(string path)
+    {
+        var resp = await PostJsonAsync<PrepareUploadDto>("/v1/upload/prepare", new { path });
+        var payments = resp.Payments?.Select(p => new PaymentInfo(p.QuoteHash, p.RewardsAddress, p.Amount)).ToList() ?? [];
+        return new PrepareUploadResult(resp.UploadId, payments, resp.TotalAmount, resp.DataPaymentsAddress, resp.PaymentTokenAddress, resp.RpcUrl);
+    }
+
+    /// <summary>
+    /// Finalizes an upload after an external signer has submitted payment transactions.
+    /// </summary>
+    public async Task<FinalizeUploadResult> FinalizeUploadAsync(string uploadId, Dictionary<string, string> txHashes)
+    {
+        var resp = await PostJsonAsync<FinalizeUploadDto>("/v1/upload/finalize", new { upload_id = uploadId, tx_hashes = txHashes });
+        return new FinalizeUploadResult(resp.Address, resp.ChunksStored);
+    }
+
     // ── Internal DTOs for JSON deserialization ──
 
     private sealed record HealthResponseDto(
@@ -304,4 +325,21 @@ public sealed class AntdRestClient : IAntdClient
 
     private sealed record WalletApproveDto(
         [property: JsonPropertyName("approved")] bool Approved);
+
+    private sealed record PaymentInfoDto(
+        [property: JsonPropertyName("quote_hash")] string QuoteHash,
+        [property: JsonPropertyName("rewards_address")] string RewardsAddress,
+        [property: JsonPropertyName("amount")] string Amount);
+
+    private sealed record PrepareUploadDto(
+        [property: JsonPropertyName("upload_id")] string UploadId,
+        [property: JsonPropertyName("payments")] List<PaymentInfoDto>? Payments,
+        [property: JsonPropertyName("total_amount")] string TotalAmount,
+        [property: JsonPropertyName("data_payments_address")] string DataPaymentsAddress,
+        [property: JsonPropertyName("payment_token_address")] string PaymentTokenAddress,
+        [property: JsonPropertyName("rpc_url")] string RpcUrl);
+
+    private sealed record FinalizeUploadDto(
+        [property: JsonPropertyName("address")] string Address,
+        [property: JsonPropertyName("chunks_stored")] long ChunksStored);
 }

@@ -357,4 +357,52 @@ bool Client::wallet_approve() {
     return j.value("approved", false);
 }
 
+// ---------------------------------------------------------------------------
+// External Signer (Two-Phase Upload)
+// ---------------------------------------------------------------------------
+
+PrepareUploadResult Client::prepare_upload(std::string_view path) {
+    auto j = impl_->do_json("POST", "/v1/upload/prepare", json{
+        {"path", std::string(path)},
+    });
+
+    PrepareUploadResult result;
+    result.upload_id = j.value("upload_id", "");
+    result.total_amount = j.value("total_amount", "");
+    result.data_payments_address = j.value("data_payments_address", "");
+    result.payment_token_address = j.value("payment_token_address", "");
+    result.rpc_url = j.value("rpc_url", "");
+
+    if (j.contains("payments") && j["payments"].is_array()) {
+        for (const auto& p : j["payments"]) {
+            if (p.is_object()) {
+                result.payments.push_back(PaymentInfo{
+                    .quote_hash = p.value("quote_hash", ""),
+                    .rewards_address = p.value("rewards_address", ""),
+                    .amount = p.value("amount", ""),
+                });
+            }
+        }
+    }
+
+    return result;
+}
+
+FinalizeUploadResult Client::finalize_upload(std::string_view upload_id,
+                                               const std::map<std::string, std::string>& tx_hashes) {
+    json hashes = json::object();
+    for (const auto& [k, v] : tx_hashes) {
+        hashes[k] = v;
+    }
+
+    auto j = impl_->do_json("POST", "/v1/upload/finalize", json{
+        {"upload_id", std::string(upload_id)},
+        {"tx_hashes", hashes},
+    });
+    return FinalizeUploadResult{
+        .address = j.value("address", ""),
+        .chunks_stored = j.value("chunks_stored", int64_t{0}),
+    };
+}
+
 }  // namespace antd

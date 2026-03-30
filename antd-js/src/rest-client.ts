@@ -3,9 +3,12 @@ import { fromHttpStatus } from "./errors.js";
 import type {
   Archive,
   ArchiveEntry,
+  FinalizeUploadResult,
   GraphDescendant,
   GraphEntry,
   HealthStatus,
+  PaymentInfo,
+  PrepareUploadResult,
   PutResult,
   WalletAddress,
   WalletBalance,
@@ -308,5 +311,43 @@ export class RestClient {
   async walletApprove(): Promise<boolean> {
     const j = await this.postJson<{ approved: boolean }>("/v1/wallet/approve", {});
     return j.approved;
+  }
+
+  // ---- External Signer (Two-Phase Upload) ----
+
+  /** Prepare a file upload for external signing. */
+  async prepareUpload(path: string): Promise<PrepareUploadResult> {
+    const j = await this.postJson<{
+      upload_id: string;
+      payments: { quote_hash: string; rewards_address: string; amount: string }[];
+      total_amount: string;
+      data_payments_address: string;
+      payment_token_address: string;
+      rpc_url: string;
+    }>("/v1/upload/prepare", { path });
+    return {
+      uploadId: j.upload_id,
+      payments: (j.payments ?? []).map((p) => ({
+        quoteHash: p.quote_hash,
+        rewardsAddress: p.rewards_address,
+        amount: p.amount,
+      })),
+      totalAmount: j.total_amount,
+      dataPaymentsAddress: j.data_payments_address,
+      paymentTokenAddress: j.payment_token_address,
+      rpcUrl: j.rpc_url,
+    };
+  }
+
+  /** Finalize an upload after an external signer has submitted payment transactions. */
+  async finalizeUpload(
+    uploadId: string,
+    txHashes: Record<string, string>,
+  ): Promise<FinalizeUploadResult> {
+    const j = await this.postJson<{ address: string; chunks_stored: number }>(
+      "/v1/upload/finalize",
+      { upload_id: uploadId, tx_hashes: txHashes },
+    );
+    return { address: j.address, chunksStored: j.chunks_stored };
   }
 }

@@ -828,8 +828,8 @@ dependencies = [
 
 [[package]]
 name = "ant-core"
-version = "0.1.0"
-source = "git+https://github.com/WithAutonomi/ant-client#c979f145a15c310693bfbb801e1500252af36cad"
+version = "0.1.1"
+source = "git+https://github.com/WithAutonomi/ant-client#b9c08d612a6d0f72c8a4466c1d6233028ca16e15"
 dependencies = [
  "ant-evm",
  "ant-node",
@@ -859,6 +859,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
+ "toml",
  "tower-http",
  "tracing",
  "tracing-subscriber",

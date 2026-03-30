@@ -157,13 +157,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     } else {
-        tracing::info!("no AUTONOMI_WALLET_KEY set — write operations will fail");
+        // No wallet — but still configure EVM network if available,
+        // to enable external signer flow (prepare-upload/finalize-upload)
+        let rpc_url = std::env::var("EVM_RPC_URL").ok();
+        if let Some(rpc_url) = rpc_url {
+            let token_addr = std::env::var("EVM_PAYMENT_TOKEN_ADDRESS")
+                .unwrap_or_default();
+            let payments_addr = std::env::var("EVM_DATA_PAYMENTS_ADDRESS")
+                .unwrap_or_default();
+            let network = evmlib::Network::new_custom(
+                &rpc_url,
+                &token_addr,
+                &payments_addr,
+                None,
+            );
+            client = client.with_evm_network(network);
+            tracing::info!(%rpc_url, "EVM network configured (external signer mode)");
+        } else {
+            tracing::info!("no AUTONOMI_WALLET_KEY or EVM_RPC_URL set — write operations will fail");
+        }
     }
 
     let state = Arc::new(AppState {
         client: Arc::new(client),
         network: config.network.clone(),
         bootstrap_peers,
+        pending_uploads: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
     });
 
     // Build REST router

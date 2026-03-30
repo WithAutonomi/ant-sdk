@@ -611,6 +611,80 @@ async def archive_put(
 
 
 # ---------------------------------------------------------------------------
+# Tool 18: prepare_upload
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def prepare_upload(
+    path: str,
+) -> str:
+    """Prepare a file upload for external signing (two-phase upload).
+
+    Returns payment details including contract addresses, quote hashes, and
+    amounts that an external signer must process before calling finalize_upload.
+
+    Args:
+        path: Absolute path to the local file to upload.
+
+    Returns:
+        JSON with upload_id, payments array (quote_hash, rewards_address, amount),
+        total_amount, data_payments_address, payment_token_address, and rpc_url.
+    """
+    client, network = _get_ctx()
+    try:
+        result = await client.prepare_upload(path)
+        return _ok({
+            "upload_id": result.upload_id,
+            "payments": [
+                {
+                    "quote_hash": p.quote_hash,
+                    "rewards_address": p.rewards_address,
+                    "amount": p.amount,
+                }
+                for p in result.payments
+            ],
+            "total_amount": result.total_amount,
+            "data_payments_address": result.data_payments_address,
+            "payment_token_address": result.payment_token_address,
+            "rpc_url": result.rpc_url,
+        }, network)
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
+# Tool 19: finalize_upload
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def finalize_upload(
+    upload_id: str,
+    tx_hashes: dict[str, str],
+) -> str:
+    """Finalize a two-phase upload after payment transactions are submitted.
+
+    Args:
+        upload_id: The upload ID returned by prepare_upload.
+        tx_hashes: Map of quote_hash to tx_hash for each payment.
+
+    Returns:
+        JSON with address (hex) and chunks_stored count.
+    """
+    client, network = _get_ctx()
+    try:
+        result = await client.finalize_upload(upload_id, tx_hashes)
+        return _ok({"address": result.address, "chunks_stored": result.chunks_stored}, network)
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

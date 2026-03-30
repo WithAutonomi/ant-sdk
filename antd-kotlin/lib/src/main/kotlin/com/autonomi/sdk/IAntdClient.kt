@@ -43,4 +43,8 @@ interface IAntdClient : Closeable {
     suspend fun walletAddress(): WalletAddress
     suspend fun walletBalance(): WalletBalance
     suspend fun walletApprove(): Boolean
+
+    // External Signer (Two-Phase Upload)
+    suspend fun prepareUpload(path: String): PrepareUploadResult
+    suspend fun finalizeUpload(uploadId: String, txHashes: Map<String, String>): FinalizeUploadResult
 }

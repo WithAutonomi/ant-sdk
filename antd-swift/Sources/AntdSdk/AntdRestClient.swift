@@ -211,6 +211,22 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         let resp: WalletApproveDTO = try await postJSON("/v1/wallet/approve", body: [:] as [String: Any])
         return resp.approved
     }
+
+    // MARK: - External Signer (Two-Phase Upload)
+
+    /// Prepares a file upload for external signing.
+    public func prepareUpload(path: String) async throws -> PrepareUploadResult {
+        let resp: PrepareUploadDTO = try await postJSON("/v1/upload/prepare", body: ["path": path])
+        let payments = (resp.payments ?? []).map { PaymentInfo(quoteHash: $0.quoteHash, rewardsAddress: $0.rewardsAddress, amount: $0.amount) }
+        return PrepareUploadResult(uploadId: resp.uploadId, payments: payments, totalAmount: resp.totalAmount, dataPaymentsAddress: resp.dataPaymentsAddress, paymentTokenAddress: resp.paymentTokenAddress, rpcUrl: resp.rpcUrl)
+    }
+
+    /// Finalizes an upload after an external signer has submitted payment transactions.
+    public func finalizeUpload(uploadId: String, txHashes: [String: String]) async throws -> FinalizeUploadResult {
+        let body: [String: Any] = ["upload_id": uploadId, "tx_hashes": txHashes]
+        let resp: FinalizeUploadDTO = try await postJSON("/v1/upload/finalize", body: body)
+        return FinalizeUploadResult(address: resp.address, chunksStored: resp.chunksStored)
+    }
 }
 
 // MARK: - Internal DTOs
@@ -273,6 +289,26 @@ private struct WalletBalanceDTO: Decodable {
 
 private struct WalletApproveDTO: Decodable {
     let approved: Bool
+}
+
+private struct PaymentInfoDTO: Decodable {
+    let quoteHash: String
+    let rewardsAddress: String
+    let amount: String
+}
+
+private struct PrepareUploadDTO: Decodable {
+    let uploadId: String
+    let payments: [PaymentInfoDTO]?
+    let totalAmount: String
+    let dataPaymentsAddress: String
+    let paymentTokenAddress: String
+    let rpcUrl: String
+}
+
+private struct FinalizeUploadDTO: Decodable {
+    let address: String
+    let chunksStored: Int64
 }
 
 extension JSONDecoder {

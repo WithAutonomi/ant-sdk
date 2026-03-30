@@ -27,6 +27,22 @@ data class WalletAddress(val address: String)
 /** Wallet balance response. */
 data class WalletBalance(val balance: String, val gasBalance: String)
 
+/** A single payment required for an upload. */
+data class PaymentInfo(val quoteHash: String, val rewardsAddress: String, val amount: String)
+
+/** Result of preparing an upload for external signing. */
+data class PrepareUploadResult(
+    val uploadId: String,
+    val payments: List<PaymentInfo>,
+    val totalAmount: String,
+    val dataPaymentsAddress: String,
+    val paymentTokenAddress: String,
+    val rpcUrl: String,
+)
+
+/** Result of finalizing an externally-signed upload. */
+data class FinalizeUploadResult(val address: String, val chunksStored: Long)
+
 // ── Internal DTOs for JSON deserialization ──
 
 @Serializable
@@ -99,4 +115,27 @@ internal data class WalletBalanceDto(
 @Serializable
 internal data class WalletApproveDto(
     val approved: Boolean,
+)
+
+@Serializable
+internal data class PaymentInfoDto(
+    @SerialName("quote_hash") val quoteHash: String,
+    @SerialName("rewards_address") val rewardsAddress: String,
+    val amount: String,
+)
+
+@Serializable
+internal data class PrepareUploadDto(
+    @SerialName("upload_id") val uploadId: String,
+    val payments: List<PaymentInfoDto>? = null,
+    @SerialName("total_amount") val totalAmount: String,
+    @SerialName("data_payments_address") val dataPaymentsAddress: String,
+    @SerialName("payment_token_address") val paymentTokenAddress: String,
+    @SerialName("rpc_url") val rpcUrl: String,
+)
+
+@Serializable
+internal data class FinalizeUploadDto(
+    val address: String,
+    @SerialName("chunks_stored") val chunksStored: Long,
 )

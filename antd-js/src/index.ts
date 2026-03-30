@@ -7,6 +7,9 @@ export type {
   Archive,
   WalletAddress,
   WalletBalance,
+  PaymentInfo,
+  PrepareUploadResult,
+  FinalizeUploadResult,
 } from "./models.js";
 
 export {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -123,6 +124,15 @@ public:
 
     /// Approve the wallet to spend tokens on payment contracts (one-time operation).
     bool wallet_approve();
+
+    // --- External Signer (Two-Phase Upload) ---
+
+    /// Prepare a file upload for external signing.
+    PrepareUploadResult prepare_upload(std::string_view path);
+
+    /// Finalize an upload after an external signer has submitted payment transactions.
+    FinalizeUploadResult finalize_upload(std::string_view upload_id,
+                                          const std::map<std::string, std::string>& tx_hashes);
 
 private:
     struct Impl;

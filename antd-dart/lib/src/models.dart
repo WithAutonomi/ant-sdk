@@ -216,3 +216,87 @@ class WalletBalance {
   String toString() =>
       'WalletBalance(balance: $balance, gasBalance: $gasBalance)';
 }
+
+/// A single payment required for an upload.
+class PaymentInfo {
+  final String quoteHash;
+  final String rewardsAddress;
+  final String amount;
+
+  const PaymentInfo({
+    required this.quoteHash,
+    required this.rewardsAddress,
+    required this.amount,
+  });
+
+  factory PaymentInfo.fromJson(Map<String, dynamic> json) {
+    return PaymentInfo(
+      quoteHash: json['quote_hash'] as String? ?? '',
+      rewardsAddress: json['rewards_address'] as String? ?? '',
+      amount: json['amount'] as String? ?? '',
+    );
+  }
+
+  @override
+  String toString() =>
+      'PaymentInfo(quoteHash: $quoteHash, rewardsAddress: $rewardsAddress, amount: $amount)';
+}
+
+/// Result of preparing an upload for external signing.
+class PrepareUploadResult {
+  final String uploadId;
+  final List<PaymentInfo> payments;
+  final String totalAmount;
+  final String dataPaymentsAddress;
+  final String paymentTokenAddress;
+  final String rpcUrl;
+
+  const PrepareUploadResult({
+    required this.uploadId,
+    required this.payments,
+    required this.totalAmount,
+    required this.dataPaymentsAddress,
+    required this.paymentTokenAddress,
+    required this.rpcUrl,
+  });
+
+  factory PrepareUploadResult.fromJson(Map<String, dynamic> json) {
+    return PrepareUploadResult(
+      uploadId: json['upload_id'] as String? ?? '',
+      payments: (json['payments'] as List<dynamic>?)
+              ?.map((e) => PaymentInfo.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
+      totalAmount: json['total_amount'] as String? ?? '',
+      dataPaymentsAddress: json['data_payments_address'] as String? ?? '',
+      paymentTokenAddress: json['payment_token_address'] as String? ?? '',
+      rpcUrl: json['rpc_url'] as String? ?? '',
+    );
+  }
+
+  @override
+  String toString() =>
+      'PrepareUploadResult(uploadId: $uploadId, payments: $payments, totalAmount: $totalAmount)';
+}
+
+/// Result of finalizing an externally-signed upload.
+class FinalizeUploadResult {
+  final String address;
+  final int chunksStored;
+
+  const FinalizeUploadResult({
+    required this.address,
+    required this.chunksStored,
+  });
+
+  factory FinalizeUploadResult.fromJson(Map<String, dynamic> json) {
+    return FinalizeUploadResult(
+      address: json['address'] as String? ?? '',
+      chunksStored: (json['chunks_stored'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  @override
+  String toString() =>
+      'FinalizeUploadResult(address: $address, chunksStored: $chunksStored)';
+}

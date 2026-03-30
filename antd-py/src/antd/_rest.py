@@ -11,9 +11,12 @@ from .exceptions import raise_for_http_status
 from .models import (
     Archive,
     ArchiveEntry,
+    FinalizeUploadResult,
     GraphDescendant,
     GraphEntry,
     HealthStatus,
+    PaymentInfo,
+    PrepareUploadResult,
     PutResult,
     WalletAddress,
     WalletBalance,
@@ -256,6 +259,49 @@ class RestClient:
         j = resp.json()
         return j.get("approved", False)
 
+    # --- External Signer (Two-Phase Upload) ---
+
+    def prepare_upload(self, path: str) -> PrepareUploadResult:
+        """Prepare a file upload for external signing.
+
+        Returns payment details that an external signer must process
+        before calling finalize_upload.
+        """
+        resp = self._http.post("/v1/upload/prepare", json={"path": path})
+        _check(resp)
+        j = resp.json()
+        payments = [
+            PaymentInfo(
+                quote_hash=p["quote_hash"],
+                rewards_address=p["rewards_address"],
+                amount=p["amount"],
+            )
+            for p in j.get("payments", [])
+        ]
+        return PrepareUploadResult(
+            upload_id=j["upload_id"],
+            payments=payments,
+            total_amount=j.get("total_amount", ""),
+            data_payments_address=j.get("data_payments_address", ""),
+            payment_token_address=j.get("payment_token_address", ""),
+            rpc_url=j.get("rpc_url", ""),
+        )
+
+    def finalize_upload(self, upload_id: str, tx_hashes: dict[str, str]) -> FinalizeUploadResult:
+        """Finalize an upload after an external signer has submitted payment transactions.
+
+        Args:
+            upload_id: The upload ID returned by prepare_upload.
+            tx_hashes: Map of quote_hash to tx_hash for each payment.
+        """
+        resp = self._http.post("/v1/upload/finalize", json={
+            "upload_id": upload_id,
+            "tx_hashes": tx_hashes,
+        })
+        _check(resp)
+        j = resp.json()
+        return FinalizeUploadResult(address=j["address"], chunks_stored=j.get("chunks_stored", 0))
+
 
 class AsyncRestClient:
     """Asynchronous REST client for the antd daemon."""
@@ -470,3 +516,46 @@ class AsyncRestClient:
         _check(resp)
         j = resp.json()
         return j.get("approved", False)
+
+    # --- External Signer (Two-Phase Upload) ---
+
+    async def prepare_upload(self, path: str) -> PrepareUploadResult:
+        """Prepare a file upload for external signing.
+
+        Returns payment details that an external signer must process
+        before calling finalize_upload.
+        """
+        resp = await self._http.post("/v1/upload/prepare", json={"path": path})
+        _check(resp)
+        j = resp.json()
+        payments = [
+            PaymentInfo(
+                quote_hash=p["quote_hash"],
+                rewards_address=p["rewards_address"],
+                amount=p["amount"],
+            )
+            for p in j.get("payments", [])
+        ]
+        return PrepareUploadResult(
+            upload_id=j["upload_id"],
+            payments=payments,
+            total_amount=j.get("total_amount", ""),
+            data_payments_address=j.get("data_payments_address", ""),
+            payment_token_address=j.get("payment_token_address", ""),
+            rpc_url=j.get("rpc_url", ""),
+        )
+
+    async def finalize_upload(self, upload_id: str, tx_hashes: dict[str, str]) -> FinalizeUploadResult:
+        """Finalize an upload after an external signer has submitted payment transactions.
+
+        Args:
+            upload_id: The upload ID returned by prepare_upload.
+            tx_hashes: Map of quote_hash to tx_hash for each payment.
+        """
+        resp = await self._http.post("/v1/upload/finalize", json={
+            "upload_id": upload_id,
+            "tx_hashes": tx_hashes,
+        })
+        _check(resp)
+        j = resp.json()
+        return FinalizeUploadResult(address=j["address"], chunks_stored=j.get("chunks_stored", 0))

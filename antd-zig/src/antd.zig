@@ -402,6 +402,28 @@ pub const Client = struct {
         return json_helpers.parsePutResult(self.allocator, resp, "address");
     }
 
+    // --- External Signer (Two-Phase Upload) ---
+
+    /// Prepare a file upload for external signing.
+    /// Returns raw JSON response body that the caller must parse.
+    pub fn prepareUpload(self: *Client, path: []const u8) ![]const u8 {
+        const req_body = try json_helpers.buildJsonBody(self.allocator, &.{
+            .{ .key = "path", .value = .{ .string = path } },
+        });
+        defer self.allocator.free(req_body);
+        const resp = try self.doRequest(.POST, "/v1/upload/prepare", req_body) orelse return error.JsonError;
+        return resp;
+    }
+
+    /// Finalize an upload after an external signer has submitted payment transactions.
+    /// Returns raw JSON response body that the caller must parse.
+    pub fn finalizeUpload(self: *Client, upload_id: []const u8, tx_hashes_json: []const u8) ![]const u8 {
+        // Caller must provide a pre-built JSON body with upload_id and tx_hashes
+        const resp = try self.doRequest(.POST, "/v1/upload/finalize", tx_hashes_json) orelse return error.JsonError;
+        _ = upload_id;
+        return resp;
+    }
+
     /// Estimate the cost of uploading a file.
     pub fn fileCost(self: *Client, path: []const u8, is_public: bool, include_archive: bool) ![]const u8 {
         const req_body = try json_helpers.buildJsonBody(self.allocator, &.{

@@ -561,4 +561,64 @@ impl Client {
         let j = j.unwrap_or_default();
         Ok(j.get("approved").and_then(|v| v.as_bool()).unwrap_or(false))
     }
+
+    // --- External Signer (Two-Phase Upload) ---
+
+    /// Prepares a file upload for external signing.
+    /// Returns payment details that an external signer must process before calling
+    /// [`finalize_upload`](Self::finalize_upload).
+    pub async fn prepare_upload(&self, path: &str) -> Result<PrepareUploadResult, AntdError> {
+        let (j, _) = self
+            .do_json(
+                reqwest::Method::POST,
+                "/v1/upload/prepare",
+                Some(json!({ "path": path })),
+            )
+            .await?;
+        let j = j.unwrap_or_default();
+        let payments = j
+            .get("payments")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .map(|p| PaymentInfo {
+                        quote_hash: Self::str_field(p, "quote_hash"),
+                        rewards_address: Self::str_field(p, "rewards_address"),
+                        amount: Self::str_field(p, "amount"),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(PrepareUploadResult {
+            upload_id: Self::str_field(&j, "upload_id"),
+            payments,
+            total_amount: Self::str_field(&j, "total_amount"),
+            data_payments_address: Self::str_field(&j, "data_payments_address"),
+            payment_token_address: Self::str_field(&j, "payment_token_address"),
+            rpc_url: Self::str_field(&j, "rpc_url"),
+        })
+    }
+
+    /// Finalizes an upload after an external signer has submitted payment transactions.
+    pub async fn finalize_upload(
+        &self,
+        upload_id: &str,
+        tx_hashes: &std::collections::HashMap<String, String>,
+    ) -> Result<FinalizeUploadResult, AntdError> {
+        let (j, _) = self
+            .do_json(
+                reqwest::Method::POST,
+                "/v1/upload/finalize",
+                Some(json!({
+                    "upload_id": upload_id,
+                    "tx_hashes": tx_hashes,
+                })),
+            )
+            .await?;
+        let j = j.unwrap_or_default();
+        Ok(FinalizeUploadResult {
+            address: Self::str_field(&j, "address"),
+            chunks_stored: Self::i64_field(&j, "chunks_stored"),
+        })
+    }
 }

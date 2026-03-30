@@ -488,3 +488,50 @@ func (c *Client) WalletApprove(ctx context.Context) error {
 	_ = j
 	return nil
 }
+
+// --- External Signer (Two-Phase Upload) ---
+
+// PrepareUpload prepares a file upload for external signing.
+// Returns payment details that an external signer must process before calling FinalizeUpload.
+func (c *Client) PrepareUpload(ctx context.Context, path string) (*PrepareUploadResult, error) {
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/upload/prepare", map[string]any{
+		"path": path,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var payments []PaymentInfo
+	for _, p := range arrAt(j, "payments") {
+		if pm, ok := p.(map[string]any); ok {
+			payments = append(payments, PaymentInfo{
+				QuoteHash:      str(pm, "quote_hash"),
+				RewardsAddress: str(pm, "rewards_address"),
+				Amount:         str(pm, "amount"),
+			})
+		}
+	}
+	return &PrepareUploadResult{
+		UploadID:            str(j, "upload_id"),
+		Payments:            payments,
+		TotalAmount:         str(j, "total_amount"),
+		DataPaymentsAddress: str(j, "data_payments_address"),
+		PaymentTokenAddress: str(j, "payment_token_address"),
+		RPCUrl:              str(j, "rpc_url"),
+	}, nil
+}
+
+// FinalizeUpload finalizes an upload after an external signer has submitted payment transactions.
+// txHashes maps quote_hash to tx_hash for each payment.
+func (c *Client) FinalizeUpload(ctx context.Context, uploadID string, txHashes map[string]string) (*FinalizeUploadResult, error) {
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/upload/finalize", map[string]any{
+		"upload_id": uploadID,
+		"tx_hashes": txHashes,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &FinalizeUploadResult{
+		Address:      str(j, "address"),
+		ChunksStored: num64(j, "chunks_stored"),
+	}, nil
+}

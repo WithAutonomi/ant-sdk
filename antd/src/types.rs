@@ -92,6 +92,55 @@ pub struct GraphEntryCostRequest {
     pub public_key: String, // hex
 }
 
+// ── External Signer (two-phase upload) ──
+
+#[derive(Deserialize)]
+pub struct PrepareUploadRequest {
+    pub path: String,
+}
+
+#[derive(Serialize)]
+pub struct PrepareUploadResponse {
+    /// Opaque token to pass back to finalize (hex-encoded serialized state).
+    pub upload_id: String,
+    /// Payment entries: each has quote_hash, rewards_address, amount.
+    pub payments: Vec<PaymentEntry>,
+    /// Total amount to pay (atto tokens as decimal string).
+    pub total_amount: String,
+    /// Data payments contract address (hex with 0x prefix).
+    pub data_payments_address: String,
+    /// Payment token contract address (hex with 0x prefix).
+    pub payment_token_address: String,
+    /// EVM RPC URL for submitting transactions.
+    pub rpc_url: String,
+}
+
+#[derive(Serialize)]
+pub struct PaymentEntry {
+    /// Quote hash (hex, 32 bytes).
+    pub quote_hash: String,
+    /// Rewards address (hex with 0x prefix, 20 bytes).
+    pub rewards_address: String,
+    /// Amount to pay (atto tokens as decimal string).
+    pub amount: String,
+}
+
+#[derive(Deserialize)]
+pub struct FinalizeUploadRequest {
+    /// The upload_id returned from prepare.
+    pub upload_id: String,
+    /// Map of quote_hash (hex) → tx_hash (hex) from on-chain payment.
+    pub tx_hashes: std::collections::HashMap<String, String>,
+}
+
+#[derive(Serialize)]
+pub struct FinalizeUploadResponse {
+    /// Hex-encoded address of the stored data map.
+    pub address: String,
+    /// Number of chunks stored.
+    pub chunks_stored: u64,
+}
+
 // ── Files ──
 
 #[derive(Deserialize)]

@@ -57,4 +57,27 @@ struct WalletBalance {
     std::string gas_balance;  // atto tokens as string
 };
 
+/// A single payment required for an upload.
+struct PaymentInfo {
+    std::string quote_hash;      // hex
+    std::string rewards_address; // hex
+    std::string amount;          // atto tokens as string
+};
+
+/// Result of preparing an upload for external signing.
+struct PrepareUploadResult {
+    std::string upload_id;             // hex identifier
+    std::vector<PaymentInfo> payments;
+    std::string total_amount;
+    std::string data_payments_address; // contract address
+    std::string payment_token_address; // token contract address
+    std::string rpc_url;               // EVM RPC URL
+};
+
+/// Result of finalizing an externally-signed upload.
+struct FinalizeUploadResult {
+    std::string address;       // hex address of stored data
+    int64_t chunks_stored{0};
+};
+
 }  // namespace antd

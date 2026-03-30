@@ -14,6 +14,7 @@ pub mod data;
 pub mod events;
 pub mod files;
 pub mod graph;
+pub mod upload;
 pub mod wallet;
 
 pub fn router(state: Arc<AppState>, enable_cors: bool, rest_port: u16) -> Router {
@@ -44,6 +45,9 @@ pub fn router(state: Arc<AppState>, enable_cors: bool, rest_port: u16) -> Router
         .route("/v1/archives/public", post(files::archive_put_public))
         // Cost
         .route("/v1/cost/file", post(files::file_cost))
+        // External signer (two-phase upload)
+        .route("/v1/upload/prepare", post(upload::prepare_upload))
+        .route("/v1/upload/finalize", post(upload::finalize_upload))
         // Wallet
         .route("/v1/wallet/address", get(wallet::wallet_address))
         .route("/v1/wallet/balance", get(wallet::wallet_balance))

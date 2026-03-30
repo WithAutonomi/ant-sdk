@@ -448,6 +448,56 @@ function Client:wallet_approve()
     return j.approved == true, nil
 end
 
+-- ── External Signer (Two-Phase Upload) ──
+
+--- Prepare a file upload for external signing.
+-- @param path string local file path
+-- @return table|nil PrepareUploadResult, error|nil
+function Client:prepare_upload(path)
+    local j, _, err = self:_do_json("POST", "/v1/upload/prepare", {
+        path = path,
+    })
+    if err then return nil, err end
+
+    local payments = {}
+    if j.payments and type(j.payments) == "table" then
+        for _, p in ipairs(j.payments) do
+            if type(p) == "table" then
+                payments[#payments + 1] = {
+                    quote_hash = str(p, "quote_hash"),
+                    rewards_address = str(p, "rewards_address"),
+                    amount = str(p, "amount"),
+                }
+            end
+        end
+    end
+
+    return {
+        upload_id = str(j, "upload_id"),
+        payments = payments,
+        total_amount = str(j, "total_amount"),
+        data_payments_address = str(j, "data_payments_address"),
+        payment_token_address = str(j, "payment_token_address"),
+        rpc_url = str(j, "rpc_url"),
+    }, nil
+end
+
+--- Finalize an upload after an external signer has submitted payment transactions.
+-- @param upload_id string the upload ID from prepare_upload
+-- @param tx_hashes table map of quote_hash to tx_hash
+-- @return table|nil FinalizeUploadResult, error|nil
+function Client:finalize_upload(upload_id, tx_hashes)
+    local j, _, err = self:_do_json("POST", "/v1/upload/finalize", {
+        upload_id = upload_id,
+        tx_hashes = tx_hashes,
+    })
+    if err then return nil, err end
+    return {
+        address = str(j, "address"),
+        chunks_stored = num(j, "chunks_stored"),
+    }, nil
+end
+
 --- Create a client using daemon port discovery.
 -- Falls back to the default base URL if discovery fails.
 -- @param opts table optional settings: { timeout = number }

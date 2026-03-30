@@ -93,3 +93,46 @@ public struct WalletBalance: Sendable, Equatable {
         self.gasBalance = gasBalance
     }
 }
+
+/// A single payment required for an upload.
+public struct PaymentInfo: Sendable, Equatable {
+    public let quoteHash: String
+    public let rewardsAddress: String
+    public let amount: String
+
+    public init(quoteHash: String, rewardsAddress: String, amount: String) {
+        self.quoteHash = quoteHash
+        self.rewardsAddress = rewardsAddress
+        self.amount = amount
+    }
+}
+
+/// Result of preparing an upload for external signing.
+public struct PrepareUploadResult: Sendable, Equatable {
+    public let uploadId: String
+    public let payments: [PaymentInfo]
+    public let totalAmount: String
+    public let dataPaymentsAddress: String
+    public let paymentTokenAddress: String
+    public let rpcUrl: String
+
+    public init(uploadId: String, payments: [PaymentInfo], totalAmount: String, dataPaymentsAddress: String, paymentTokenAddress: String, rpcUrl: String) {
+        self.uploadId = uploadId
+        self.payments = payments
+        self.totalAmount = totalAmount
+        self.dataPaymentsAddress = dataPaymentsAddress
+        self.paymentTokenAddress = paymentTokenAddress
+        self.rpcUrl = rpcUrl
+    }
+}
+
+/// Result of finalizing an externally-signed upload.
+public struct FinalizeUploadResult: Sendable, Equatable {
+    public let address: String
+    public let chunksStored: Int64
+
+    public init(address: String, chunksStored: Int64) {
+        self.address = address
+        self.chunksStored = chunksStored
+    }
+}

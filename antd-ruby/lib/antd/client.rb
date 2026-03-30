@@ -263,6 +263,42 @@ module Antd
       j["approved"] == true
     end
 
+    # --- External Signer (Two-Phase Upload) ---
+
+    # Prepare a file upload for external signing.
+    # @param path [String] local file path
+    # @return [PrepareUploadResult]
+    def prepare_upload(path)
+      j = do_json(:post, "/v1/upload/prepare", { path: path })
+      payments = (j["payments"] || []).map do |p|
+        PaymentInfo.new(
+          quote_hash: p["quote_hash"],
+          rewards_address: p["rewards_address"],
+          amount: p["amount"]
+        )
+      end
+      PrepareUploadResult.new(
+        upload_id: j["upload_id"],
+        payments: payments,
+        total_amount: j["total_amount"],
+        data_payments_address: j["data_payments_address"],
+        payment_token_address: j["payment_token_address"],
+        rpc_url: j["rpc_url"]
+      )
+    end
+
+    # Finalize an upload after an external signer has submitted payment transactions.
+    # @param upload_id [String] the upload ID from prepare_upload
+    # @param tx_hashes [Hash<String, String>] map of quote_hash to tx_hash
+    # @return [FinalizeUploadResult]
+    def finalize_upload(upload_id, tx_hashes)
+      j = do_json(:post, "/v1/upload/finalize", {
+        upload_id: upload_id,
+        tx_hashes: tx_hashes
+      })
+      FinalizeUploadResult.new(address: j["address"], chunks_stored: j["chunks_stored"].to_i)
+    end
+
     private
 
     def b64_encode(data)
