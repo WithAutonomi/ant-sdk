@@ -43,17 +43,17 @@ ant dev start
 ## Configuration
 
 ```php
-// Default: http://localhost:8080, 300 second timeout
+// Default: http://localhost:8082, 300 second timeout
 $client = new AntdClient();
 
 // Custom URL
 $client = new AntdClient('http://custom-host:9090');
 
 // Custom timeout (in seconds)
-$client = new AntdClient('http://localhost:8080', 30.0);
+$client = new AntdClient('http://localhost:8082', 30.0);
 
 // Custom Guzzle HTTP client
-$client = new AntdClient('http://localhost:8080', 300.0, $myGuzzleClient);
+$client = new AntdClient('http://localhost:8082', 300.0, $myGuzzleClient);
 ```
 
 ## API Reference

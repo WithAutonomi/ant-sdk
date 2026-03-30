@@ -179,4 +179,8 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
     override suspend fun walletBalance(): WalletBalance {
         throw UnsupportedOperationException("walletBalance is not yet supported via gRPC")
     }
+
+    override suspend fun walletApprove(): Boolean {
+        throw UnsupportedOperationException("walletApprove not available via gRPC")
+    }
 }

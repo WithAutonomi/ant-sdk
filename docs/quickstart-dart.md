@@ -25,7 +25,7 @@ import 'package:antd/antd.dart';
 final client = AntdClient();
 
 // Custom endpoint
-final client2 = AntdClient(transport: 'rest', baseUrl: 'http://localhost:8080');
+final client2 = AntdClient(transport: 'rest', baseUrl: 'http://localhost:8082');
 
 // gRPC transport
 final grpcClient = AntdClient(transport: 'grpc', target: 'localhost:50051');

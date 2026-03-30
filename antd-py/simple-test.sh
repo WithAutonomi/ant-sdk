@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Run Python SDK integration tests (REST + gRPC)
-# Requires a running antd daemon with REST on :8080 and gRPC on :50051
+# Requires a running antd daemon with REST on :8082 and gRPC on :50051
 
 set -euo pipefail
 
-REST_URL="${1:-http://localhost:8080}"
+REST_URL="${1:-http://localhost:8082}"
 GRPC_TARGET="${2:-localhost:50051}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 failed=0

@@ -33,7 +33,7 @@ async fn main() -> Result<(), antd_client::AntdError> {
     // Custom endpoint
     let client = Client::builder()
         .transport("rest")
-        .base_url("http://localhost:8080")
+        .base_url("http://localhost:8082")
         .timeout(std::time::Duration::from_secs(30))
         .build()?;
 

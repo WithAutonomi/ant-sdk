@@ -21,7 +21,7 @@ AUTONOMI_WALLET_KEY="your_key" ANT_PEERS="/ip4/..." cargo run -- --network local
 
 # With all options
 cargo run -- \
-  --rest-addr 0.0.0.0:8080 \
+  --rest-addr 0.0.0.0:8082 \
   --grpc-addr 0.0.0.0:50051 \
   --network local \
   --peers "/ip4/127.0.0.1/udp/..." \
@@ -36,7 +36,7 @@ All options can be set via CLI flags or environment variables:
 
 | Flag | Env Var | Default | Description |
 |------|---------|---------|-------------|
-| `--rest-addr` | `ANTD_REST_ADDR` | `0.0.0.0:8080` | REST API listen address |
+| `--rest-addr` | `ANTD_REST_ADDR` | `0.0.0.0:8082` | REST API listen address |
 | `--grpc-addr` | `ANTD_GRPC_ADDR` | `0.0.0.0:50051` | gRPC listen address |
 | `--network` | `ANTD_NETWORK` | `default` | Network mode: `default`, `local`, `alpha` |
 | `--peers` | `ANTD_PEERS` | *(none)* | Comma-separated bootstrap peer multiaddrs |
@@ -57,7 +57,7 @@ Additional environment variables consumed by the underlying Autonomi client:
 
 ## API Endpoints
 
-### REST API (default: `http://localhost:8080`)
+### REST API (default: `http://localhost:8082`)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|

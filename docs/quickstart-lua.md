@@ -23,7 +23,7 @@ local client = antd.new_client()
 -- Custom endpoint
 local client = antd.new_client({
     transport = "rest",
-    base_url = "http://localhost:8080",
+    base_url = "http://localhost:8082",
 })
 
 -- gRPC transport

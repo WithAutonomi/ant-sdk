@@ -37,7 +37,7 @@ import java.util.concurrent.CompletableFuture;
 public class AsyncAntdClient implements AutoCloseable {
 
     /** Default daemon address. */
-    public static final String DEFAULT_BASE_URL = "http://localhost:8080";
+    public static final String DEFAULT_BASE_URL = "http://localhost:8082";
 
     /** Default request timeout (5 minutes). */
     public static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(5);

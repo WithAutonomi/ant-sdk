@@ -47,7 +47,7 @@ print(String(data: data, encoding: .utf8)!) // "Hello, Autonomi!"
 
 ```swift
 // REST (default, recommended)
-let restClient = AntdClient.createRest(baseURL: "http://localhost:8080")
+let restClient = AntdClient.createRest(baseURL: "http://localhost:8082")
 
 // gRPC (requires generated proto stubs)
 let grpcClient = AntdClient.createGrpc(target: "localhost:50051")

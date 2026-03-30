@@ -20,7 +20,7 @@ Your Application
        ▼
    ┌───────┐
    │ antd  │   Local daemon process
-   │       │   REST API (:8080) + gRPC (:50051)
+   │       │   REST API (:8082) + gRPC (:50051)
    └───┬───┘
        │
        │  Autonomi client library (Rust)

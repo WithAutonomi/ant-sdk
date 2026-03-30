@@ -38,7 +38,7 @@ cmake --build build
 #include <iostream>
 
 int main() {
-    antd::Client client;  // defaults to http://localhost:8080
+    antd::Client client;  // defaults to http://localhost:8082
 
     // Check daemon health
     auto health = client.health();
@@ -68,7 +68,7 @@ No additional dependencies are required — only C++20 `<future>`.
 #include <iostream>
 
 int main() {
-    antd::AsyncClient client;  // defaults to http://localhost:8080
+    antd::AsyncClient client;  // defaults to http://localhost:8082
 
     // Fire off two requests concurrently
     auto health_future = client.health();
@@ -197,14 +197,14 @@ ant dev start
 ## Configuration
 
 ```cpp
-// Default: http://localhost:8080, 5 minute timeout
+// Default: http://localhost:8082, 5 minute timeout
 antd::Client client;
 
 // Custom URL
 antd::Client client("http://custom-host:9090");
 
 // Custom URL and timeout (seconds)
-antd::Client client("http://localhost:8080", 30);
+antd::Client client("http://localhost:8082", 30);
 ```
 
 ## API Reference

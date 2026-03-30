@@ -25,7 +25,7 @@ client = AntdClient()
 aclient = AsyncAntdClient()
 
 # Custom endpoint
-client = AntdClient(transport="rest", base_url="http://localhost:8080")
+client = AntdClient(transport="rest", base_url="http://localhost:8082")
 
 # gRPC transport
 client = AntdClient(transport="grpc", target="localhost:50051")

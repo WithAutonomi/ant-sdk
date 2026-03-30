@@ -68,18 +68,18 @@ ant dev start
 ## Configuration
 
 ```java
-// Default: http://localhost:8080, 5 minute timeout
+// Default: http://localhost:8082, 5 minute timeout
 var client = new AntdClient();
 
 // Custom URL
 var client = new AntdClient("http://custom-host:9090");
 
 // Custom URL and timeout
-var client = new AntdClient("http://localhost:8080", Duration.ofSeconds(30));
+var client = new AntdClient("http://localhost:8082", Duration.ofSeconds(30));
 
 // Custom HTTP client
 var httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
-var client = new AntdClient("http://localhost:8080", Duration.ofSeconds(30), httpClient);
+var client = new AntdClient("http://localhost:8082", Duration.ofSeconds(30), httpClient);
 ```
 
 ## API Reference
@@ -171,7 +171,7 @@ The async client has the same constructors as `AntdClient`:
 ```java
 var client = new AsyncAntdClient();                                          // defaults
 var client = new AsyncAntdClient("http://custom:9090");                      // custom URL
-var client = new AsyncAntdClient("http://localhost:8080", Duration.ofSeconds(30)); // custom timeout
+var client = new AsyncAntdClient("http://localhost:8082", Duration.ofSeconds(30)); // custom timeout
 ```
 
 All 19 methods follow the naming convention `methodNameAsync()` and return `CompletableFuture<T>` where `T` matches the sync return type. Void methods return `CompletableFuture<Void>`.

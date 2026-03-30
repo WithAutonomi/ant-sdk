@@ -2,7 +2,7 @@
 """REST integration test for antd Python SDK.
 
 Mirrors simple-test.ps1 -- standalone script with colored pass/fail output.
-Requires a running antd daemon on localhost:8080.
+Requires a running antd daemon on localhost:8082.
 
 Usage: python scripts/test_rest.py
 """
@@ -70,7 +70,7 @@ PROPAGATION_DELAY = 3  # seconds to wait for DHT propagation
 
 
 def main():
-    base_url = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8080"
+    base_url = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8082"
     print(f"\n{BOLD}{CYAN}antd Python SDK - REST Integration Test{RESET}")
     print(f"Target: {base_url}\n")
 

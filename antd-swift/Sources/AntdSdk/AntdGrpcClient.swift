@@ -25,9 +25,9 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
     }
 
     public func health() async throws -> HealthStatus { throw notImplemented() }
-    public func dataPutPublic(_ data: Data) async throws -> PutResult { throw notImplemented() }
+    public func dataPutPublic(_ data: Data, paymentMode: String? = nil) async throws -> PutResult { throw notImplemented() }
     public func dataGetPublic(address: String) async throws -> Data { throw notImplemented() }
-    public func dataPutPrivate(_ data: Data) async throws -> PutResult { throw notImplemented() }
+    public func dataPutPrivate(_ data: Data, paymentMode: String? = nil) async throws -> PutResult { throw notImplemented() }
     public func dataGetPrivate(dataMap: String) async throws -> Data { throw notImplemented() }
     public func dataCost(_ data: Data) async throws -> String { throw notImplemented() }
     public func chunkPut(_ data: Data) async throws -> PutResult { throw notImplemented() }
@@ -36,13 +36,14 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
     public func graphEntryGet(address: String) async throws -> GraphEntry { throw notImplemented() }
     public func graphEntryExists(address: String) async throws -> Bool { throw notImplemented() }
     public func graphEntryCost(publicKey: String) async throws -> String { throw notImplemented() }
-    public func fileUploadPublic(path: String) async throws -> PutResult { throw notImplemented() }
+    public func fileUploadPublic(path: String, paymentMode: String? = nil) async throws -> PutResult { throw notImplemented() }
     public func fileDownloadPublic(address: String, destPath: String) async throws { throw notImplemented() }
-    public func dirUploadPublic(path: String) async throws -> PutResult { throw notImplemented() }
+    public func dirUploadPublic(path: String, paymentMode: String? = nil) async throws -> PutResult { throw notImplemented() }
     public func dirDownloadPublic(address: String, destPath: String) async throws { throw notImplemented() }
     public func archiveGetPublic(address: String) async throws -> Archive { throw notImplemented() }
     public func archivePutPublic(archive: Archive) async throws -> PutResult { throw notImplemented() }
     public func fileCost(path: String, isPublic: Bool = true, includeArchive: Bool = false) async throws -> String { throw notImplemented() }
     public func walletAddress() async throws -> WalletAddress { throw notImplemented() }
     public func walletBalance() async throws -> WalletBalance { throw notImplemented() }
+    public func walletApprove() async throws -> Bool { throw notImplemented() }
 }

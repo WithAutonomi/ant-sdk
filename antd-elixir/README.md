@@ -107,14 +107,14 @@ ant dev start
 ## Configuration
 
 ```elixir
-# Default: http://localhost:8080, 5 minute timeout
+# Default: http://localhost:8082, 5 minute timeout
 client = Antd.Client.new()
 
 # Custom URL
 client = Antd.Client.new("http://custom-host:9090")
 
 # Custom timeout (in milliseconds)
-client = Antd.Client.new("http://localhost:8080", timeout: 30_000)
+client = Antd.Client.new("http://localhost:8082", timeout: 30_000)
 ```
 
 ## API Reference

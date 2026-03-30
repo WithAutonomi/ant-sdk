@@ -4,7 +4,7 @@ require_relative "test_helper"
 require "base64"
 
 class TestClient < Minitest::Test
-  BASE = "http://localhost:8080"
+  BASE = "http://localhost:8082"
 
   def setup
     @client = Antd::Client.new(base_url: BASE)

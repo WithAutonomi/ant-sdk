@@ -39,7 +39,7 @@ val client = AntdClient.createRest()
 
 // Custom endpoint
 val client2 = AntdClient.createRest(
-    baseUrl = "http://localhost:8080",
+    baseUrl = "http://localhost:8082",
     timeout = java.time.Duration.ofSeconds(30),
 )
 

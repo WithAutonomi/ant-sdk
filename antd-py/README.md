@@ -23,7 +23,7 @@ pip install -e ".[all]"
 ```python
 from antd import AntdClient
 
-client = AntdClient()  # REST transport, localhost:8080
+client = AntdClient()  # REST transport, localhost:8082
 
 # Health check
 status = client.health()
@@ -43,7 +43,7 @@ print(data.decode())  # "Hello, Autonomi!"
 from antd import AntdClient, AsyncAntdClient
 
 # REST (default)
-client = AntdClient(transport="rest", base_url="http://localhost:8080", timeout=30)
+client = AntdClient(transport="rest", base_url="http://localhost:8082", timeout=30)
 
 # gRPC
 client = AntdClient(transport="grpc", target="localhost:50051")

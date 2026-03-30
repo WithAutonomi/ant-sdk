@@ -47,7 +47,7 @@ try (var client = AntdClient.create()) {
 // Custom endpoint
 try (var client = AntdClient.builder()
         .transport("rest")
-        .baseUrl("http://localhost:8080")
+        .baseUrl("http://localhost:8082")
         .timeout(Duration.ofSeconds(30))
         .build()) {
     // use client

@@ -49,7 +49,7 @@ let client = try AntdClient.createRest()
 
 // Custom endpoint
 let client2 = try AntdClient.createRest(
-    baseURL: URL(string: "http://localhost:8080")!,
+    baseURL: URL(string: "http://localhost:8082")!,
     timeout: 30
 )
 

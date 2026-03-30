@@ -96,7 +96,7 @@ ant dev start
 ## Configuration
 
 ```ruby
-# Default: http://localhost:8080, 300 second timeout
+# Default: http://localhost:8082, 300 second timeout
 client = Antd::Client.new
 
 # Custom URL

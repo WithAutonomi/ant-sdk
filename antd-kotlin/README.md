@@ -49,7 +49,7 @@ fun main() = runBlocking {
 
 ```kotlin
 // REST (default, recommended)
-val restClient = AntdClient.createRest("http://localhost:8080")
+val restClient = AntdClient.createRest("http://localhost:8082")
 
 // gRPC (higher throughput)
 val grpcClient = AntdClient.createGrpc("localhost:50051")

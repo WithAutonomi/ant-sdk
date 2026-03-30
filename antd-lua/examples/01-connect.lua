@@ -2,7 +2,7 @@
 
 local antd = require("antd")
 
--- Create a client with default settings (localhost:8080)
+-- Create a client with default settings (localhost:8082)
 local client = antd.new_client()
 
 -- Check daemon health

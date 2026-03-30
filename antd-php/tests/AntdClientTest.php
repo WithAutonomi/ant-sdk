@@ -27,7 +27,7 @@ class AntdClientTest extends TestCase
     {
         $handlerStack = HandlerStack::create($mock);
         $httpClient = new Client(['handler' => $handlerStack]);
-        return new AntdClient('http://localhost:8080', 300.0, $httpClient);
+        return new AntdClient('http://localhost:8082', 300.0, $httpClient);
     }
 
     private function jsonResponse(int $status, array $body): Response

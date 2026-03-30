@@ -54,7 +54,7 @@ pub fn main() !void {
     // Custom endpoint
     var client2 = try antd.Client.init(allocator, .{
         .transport = .rest,
-        .base_url = "http://localhost:8080",
+        .base_url = "http://localhost:8082",
     });
     defer client2.deinit();
 

@@ -24,7 +24,7 @@ require 'antd'
 client = Antd::Client.new
 
 # Custom endpoint
-client = Antd::Client.new(transport: :rest, base_url: "http://localhost:8080")
+client = Antd::Client.new(transport: :rest, base_url: "http://localhost:8082")
 
 # gRPC transport
 client = Antd::Client.new(transport: :grpc, target: "localhost:50051")

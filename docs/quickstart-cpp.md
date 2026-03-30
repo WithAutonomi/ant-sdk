@@ -45,7 +45,7 @@ int main() {
     // Custom endpoint
     auto client2 = antd::Client::builder()
         .transport("rest")
-        .base_url("http://localhost:8080")
+        .base_url("http://localhost:8082")
         .timeout(std::chrono::seconds(30))
         .build();
 

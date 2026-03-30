@@ -43,7 +43,7 @@ luarocks make
 ```lua
 local antd = require("antd")
 
--- Create a client (default: http://localhost:8080)
+-- Create a client (default: http://localhost:8082)
 local client = antd.new_client()
 
 -- Check daemon health
@@ -84,7 +84,7 @@ ant dev start
 ```lua
 local antd = require("antd")
 
--- Default: http://localhost:8080, 300 second timeout
+-- Default: http://localhost:8082, 300 second timeout
 local client = antd.new_client()
 
 -- Custom URL

@@ -125,7 +125,7 @@ ant dev start
 ## Configuration
 
 ```dart
-// Default: http://localhost:8080, 5 minute timeout
+// Default: http://localhost:8082, 5 minute timeout
 final client = AntdClient();
 
 // Custom URL

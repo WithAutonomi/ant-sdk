@@ -53,7 +53,7 @@ ant dev start
 use antd_client::{Client, DEFAULT_BASE_URL};
 use std::time::Duration;
 
-// Default: http://localhost:8080, 5 minute timeout
+// Default: http://localhost:8082, 5 minute timeout
 let client = Client::new(DEFAULT_BASE_URL);
 
 // Custom URL

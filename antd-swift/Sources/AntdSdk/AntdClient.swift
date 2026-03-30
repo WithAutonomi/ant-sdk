@@ -10,10 +10,10 @@ public enum AntdClient {
 
     /// Create a REST client connecting to the antd daemon.
     /// - Parameters:
-    ///   - baseURL: Base URL of the antd REST API (default: http://localhost:8080)
+    ///   - baseURL: Base URL of the antd REST API (default: http://localhost:8082)
     ///   - timeout: Request timeout in seconds (default: 300)
     public static func createRest(
-        baseURL: String = "http://localhost:8080",
+        baseURL: String = "http://localhost:8082",
         timeout: TimeInterval = 300
     ) -> AntdClientProtocol {
         AntdRestClient(baseURL: baseURL, timeout: timeout)
@@ -32,7 +32,7 @@ public enum AntdClient {
     public static func create(transport: String = "rest", endpoint: String? = nil) -> AntdClientProtocol {
         switch transport.lowercased() {
         case "rest":
-            return createRest(baseURL: endpoint ?? "http://localhost:8080")
+            return createRest(baseURL: endpoint ?? "http://localhost:8082")
         case "grpc":
             return createGrpc(target: endpoint ?? "localhost:50051")
         default:

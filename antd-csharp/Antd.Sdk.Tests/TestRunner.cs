@@ -74,7 +74,7 @@ public class TestRunner
 
     public async Task<int> RunAllAsync()
     {
-        var endpointDesc = _transport == "grpc" ? "localhost:50051" : "localhost:8080";
+        var endpointDesc = _transport == "grpc" ? "localhost:50051" : "localhost:8082";
         Console.WriteLine($"\n{Bold}{Cyan}antd C# SDK - {_transport.ToUpperInvariant()} Integration Test{Reset}");
         Console.WriteLine($"Target: {endpointDesc}\n");
 

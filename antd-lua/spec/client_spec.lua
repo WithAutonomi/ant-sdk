@@ -153,7 +153,7 @@ describe("antd client", function()
 
     before_each(function()
         setup_daemon()
-        client = antd.new_client("http://localhost:8080")
+        client = antd.new_client("http://localhost:8082")
     end)
 
     after_each(function()

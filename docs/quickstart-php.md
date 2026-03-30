@@ -23,7 +23,7 @@ use Autonomi\Antd\AntdClient;
 $client = new AntdClient();
 
 // Custom endpoint
-$client = new AntdClient(transport: 'rest', baseUrl: 'http://localhost:8080');
+$client = new AntdClient(transport: 'rest', baseUrl: 'http://localhost:8082');
 
 // gRPC transport
 $client = new AntdClient(transport: 'grpc', target: 'localhost:50051');

@@ -15,7 +15,7 @@ Requires **Node.js 18+** (uses native `fetch`).
 ```typescript
 import { createClient } from "antd";
 
-const client = createClient(); // default: http://localhost:8080
+const client = createClient(); // default: http://localhost:8082
 
 // Check daemon health
 const status = await client.health();
@@ -36,16 +36,16 @@ import { createClient, RestClient } from "antd";
 
 // Factory function
 const client = createClient();
-const client = createClient({ baseUrl: "http://remote:8080" });
+const client = createClient({ baseUrl: "http://remote:8082" });
 const client = createClient({ timeout: 60_000 });
 
 // Direct constructor
-const client = new RestClient({ baseUrl: "http://localhost:8080", timeout: 300_000 });
+const client = new RestClient({ baseUrl: "http://localhost:8082", timeout: 300_000 });
 ```
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `baseUrl` | `string` | `"http://localhost:8080"` | antd daemon URL |
+| `baseUrl` | `string` | `"http://localhost:8082"` | antd daemon URL |
 | `timeout` | `number` | `300000` | Request timeout (ms) |
 
 ## API Reference

@@ -10,9 +10,9 @@ public protocol AntdClientProtocol: Sendable {
     func health() async throws -> HealthStatus
 
     // Data
-    func dataPutPublic(_ data: Data) async throws -> PutResult
+    func dataPutPublic(_ data: Data, paymentMode: String?) async throws -> PutResult
     func dataGetPublic(address: String) async throws -> Data
-    func dataPutPrivate(_ data: Data) async throws -> PutResult
+    func dataPutPrivate(_ data: Data, paymentMode: String?) async throws -> PutResult
     func dataGetPrivate(dataMap: String) async throws -> Data
     func dataCost(_ data: Data) async throws -> String
 
@@ -27,9 +27,9 @@ public protocol AntdClientProtocol: Sendable {
     func graphEntryCost(publicKey: String) async throws -> String
 
     // Files
-    func fileUploadPublic(path: String) async throws -> PutResult
+    func fileUploadPublic(path: String, paymentMode: String?) async throws -> PutResult
     func fileDownloadPublic(address: String, destPath: String) async throws
-    func dirUploadPublic(path: String) async throws -> PutResult
+    func dirUploadPublic(path: String, paymentMode: String?) async throws -> PutResult
     func dirDownloadPublic(address: String, destPath: String) async throws
     func archiveGetPublic(address: String) async throws -> Archive
     func archivePutPublic(archive: Archive) async throws -> PutResult

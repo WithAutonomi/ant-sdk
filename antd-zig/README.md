@@ -73,7 +73,7 @@ ant dev start
 ## Configuration
 
 ```zig
-// Default: http://localhost:8080
+// Default: http://localhost:8082
 var client = antd.Client.init(allocator, antd.default_base_url);
 defer client.deinit();
 

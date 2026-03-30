@@ -28,7 +28,7 @@ ant dev start
 {:ok, client} = Antd.Client.new()
 
 # Custom endpoint
-{:ok, client} = Antd.Client.new(transport: :rest, base_url: "http://localhost:8080")
+{:ok, client} = Antd.Client.new(transport: :rest, base_url: "http://localhost:8082")
 
 # gRPC transport
 {:ok, client} = Antd.Client.new(transport: :grpc, target: "localhost:50051")
