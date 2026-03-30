@@ -415,6 +415,16 @@ pub const Client = struct {
         return resp;
     }
 
+    /// Prepare a data upload for external signing.
+    /// Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+    /// Returns raw JSON response body that the caller must parse.
+    pub fn prepareDataUpload(self: *Client, data: []const u8) ![]const u8 {
+        const req_body = try json_helpers.buildDataBody(self.allocator, data);
+        defer self.allocator.free(req_body);
+        const resp = try self.doRequest(.POST, "/v1/data/prepare", req_body) orelse return error.JsonError;
+        return resp;
+    }
+
     /// Finalize an upload after an external signer has submitted payment transactions.
     /// Returns raw JSON response body that the caller must parse.
     pub fn finalizeUpload(self: *Client, upload_id: []const u8, tx_hashes_json: []const u8) ![]const u8 {

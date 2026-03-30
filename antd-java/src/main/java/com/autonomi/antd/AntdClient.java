@@ -409,6 +409,31 @@ public class AntdClient implements AutoCloseable {
     }
 
     /**
+     * Prepares a data upload for external signing.
+     * Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+     * Returns payment details that an external signer must process before calling {@link #finalizeUpload}.
+     *
+     * @param data raw bytes to upload
+     * @return PrepareUploadResult with upload_id, payments, and contract details
+     */
+    public PrepareUploadResult prepareDataUpload(byte[] data) {
+        String body = Json.object("data", b64Encode(data));
+        Map<String, Object> j = doJson("POST", "/v1/data/prepare", body);
+        List<PaymentInfo> payments = new ArrayList<>();
+        for (Map<String, Object> pm : listOfMaps(j, "payments")) {
+            payments.add(new PaymentInfo(str(pm, "quote_hash"), str(pm, "rewards_address"), str(pm, "amount")));
+        }
+        return new PrepareUploadResult(
+                str(j, "upload_id"),
+                Collections.unmodifiableList(payments),
+                str(j, "total_amount"),
+                str(j, "data_payments_address"),
+                str(j, "payment_token_address"),
+                str(j, "rpc_url")
+        );
+    }
+
+    /**
      * Finalizes an upload after an external signer has submitted payment transactions.
      *
      * @param uploadId the upload ID returned by {@link #prepareUpload}

@@ -287,6 +287,33 @@ class RestClient:
             rpc_url=j.get("rpc_url", ""),
         )
 
+    def prepare_data_upload(self, data: bytes) -> PrepareUploadResult:
+        """Prepare a data upload for external signing.
+
+        Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+        Returns payment details that an external signer must process
+        before calling finalize_upload.
+        """
+        resp = self._http.post("/v1/data/prepare", json={"data": _b64(data)})
+        _check(resp)
+        j = resp.json()
+        payments = [
+            PaymentInfo(
+                quote_hash=p["quote_hash"],
+                rewards_address=p["rewards_address"],
+                amount=p["amount"],
+            )
+            for p in j.get("payments", [])
+        ]
+        return PrepareUploadResult(
+            upload_id=j["upload_id"],
+            payments=payments,
+            total_amount=j.get("total_amount", ""),
+            data_payments_address=j.get("data_payments_address", ""),
+            payment_token_address=j.get("payment_token_address", ""),
+            rpc_url=j.get("rpc_url", ""),
+        )
+
     def finalize_upload(self, upload_id: str, tx_hashes: dict[str, str]) -> FinalizeUploadResult:
         """Finalize an upload after an external signer has submitted payment transactions.
 
@@ -526,6 +553,33 @@ class AsyncRestClient:
         before calling finalize_upload.
         """
         resp = await self._http.post("/v1/upload/prepare", json={"path": path})
+        _check(resp)
+        j = resp.json()
+        payments = [
+            PaymentInfo(
+                quote_hash=p["quote_hash"],
+                rewards_address=p["rewards_address"],
+                amount=p["amount"],
+            )
+            for p in j.get("payments", [])
+        ]
+        return PrepareUploadResult(
+            upload_id=j["upload_id"],
+            payments=payments,
+            total_amount=j.get("total_amount", ""),
+            data_payments_address=j.get("data_payments_address", ""),
+            payment_token_address=j.get("payment_token_address", ""),
+            rpc_url=j.get("rpc_url", ""),
+        )
+
+    async def prepare_data_upload(self, data: bytes) -> PrepareUploadResult:
+        """Prepare a data upload for external signing.
+
+        Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+        Returns payment details that an external signer must process
+        before calling finalize_upload.
+        """
+        resp = await self._http.post("/v1/data/prepare", json={"data": _b64(data)})
         _check(resp)
         j = resp.json()
         payments = [

@@ -38,5 +38,6 @@ public interface IAntdClient : IDisposable
 
     // External Signer (Two-Phase Upload)
     Task<PrepareUploadResult> PrepareUploadAsync(string path);
+    Task<PrepareUploadResult> PrepareDataUploadAsync(byte[] data);
     Task<FinalizeUploadResult> FinalizeUploadAsync(string uploadId, Dictionary<string, string> txHashes);
 }

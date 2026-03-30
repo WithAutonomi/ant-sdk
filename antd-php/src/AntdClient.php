@@ -933,6 +933,46 @@ class AntdClient
     }
 
     /**
+     * Prepare a data upload for external signing.
+     * Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+     *
+     * @param string $data Raw bytes to upload.
+     * @return array{upload_id: string, payments: array, total_amount: string, data_payments_address: string, payment_token_address: string, rpc_url: string}
+     */
+    public function prepareDataUpload(string $data): array
+    {
+        $json = $this->doJson('POST', '/v1/data/prepare', ['data' => $this->b64Encode($data)]);
+        return [
+            'upload_id' => $json['upload_id'] ?? '',
+            'payments' => $json['payments'] ?? [],
+            'total_amount' => $json['total_amount'] ?? '',
+            'data_payments_address' => $json['data_payments_address'] ?? '',
+            'payment_token_address' => $json['payment_token_address'] ?? '',
+            'rpc_url' => $json['rpc_url'] ?? '',
+        ];
+    }
+
+    /**
+     * Async: Prepare a data upload for external signing.
+     *
+     * @param string $data Raw bytes to upload.
+     * @return PromiseInterface<array>
+     */
+    public function prepareDataUploadAsync(string $data): PromiseInterface
+    {
+        return $this->doJsonAsync('POST', '/v1/data/prepare', ['data' => $this->b64Encode($data)])->then(
+            fn(?array $json) => [
+                'upload_id' => $json['upload_id'] ?? '',
+                'payments' => $json['payments'] ?? [],
+                'total_amount' => $json['total_amount'] ?? '',
+                'data_payments_address' => $json['data_payments_address'] ?? '',
+                'payment_token_address' => $json['payment_token_address'] ?? '',
+                'rpc_url' => $json['rpc_url'] ?? '',
+            ],
+        );
+    }
+
+    /**
      * Finalize an upload after an external signer has submitted payment transactions.
      *
      * @param string $uploadId The upload ID from prepareUpload.

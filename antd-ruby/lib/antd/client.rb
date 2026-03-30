@@ -287,6 +287,29 @@ module Antd
       )
     end
 
+    # Prepare a data upload for external signing.
+    # Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+    # @param data [String] raw bytes to upload
+    # @return [PrepareUploadResult]
+    def prepare_data_upload(data)
+      j = do_json(:post, "/v1/data/prepare", { data: b64_encode(data) })
+      payments = (j["payments"] || []).map do |p|
+        PaymentInfo.new(
+          quote_hash: p["quote_hash"],
+          rewards_address: p["rewards_address"],
+          amount: p["amount"]
+        )
+      end
+      PrepareUploadResult.new(
+        upload_id: j["upload_id"],
+        payments: payments,
+        total_amount: j["total_amount"],
+        data_payments_address: j["data_payments_address"],
+        payment_token_address: j["payment_token_address"],
+        rpc_url: j["rpc_url"]
+      )
+    end
+
     # Finalize an upload after an external signer has submitted payment transactions.
     # @param upload_id [String] the upload ID from prepare_upload
     # @param tx_hashes [Hash<String, String>] map of quote_hash to tx_hash

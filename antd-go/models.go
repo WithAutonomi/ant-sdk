@@ -70,6 +70,7 @@ type PrepareUploadResult struct {
 
 // FinalizeUploadResult is the result of finalizing an externally-signed upload.
 type FinalizeUploadResult struct {
-	Address      string `json:"address"`       // hex address of stored data
-	ChunksStored int64  `json:"chunks_stored"` // number of chunks stored
+	DataMap      string `json:"data_map"`                // hex-encoded serialized DataMap (always returned)
+	Address      string `json:"address,omitempty"`        // network address (only when store_data_map=true)
+	ChunksStored int64  `json:"chunks_stored"`           // number of chunks stored
 }

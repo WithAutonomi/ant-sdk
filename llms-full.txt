@@ -373,6 +373,25 @@ Request: `{}` (empty body)
 Response: `{"approved": true}`
 Returns 400 if no wallet is configured.
 
+#### `POST /v1/data/prepare`
+Prepare a data upload for external signing (two-phase upload). Instead of antd paying
+from its built-in wallet, this returns payment details for an external signer.
+
+Request: `{"data": "base64-encoded-bytes"}`
+Response:
+```json
+{
+  "upload_id": "hex-string",
+  "payments": [
+    { "quote_hash": "0x...", "rewards_address": "0x...", "amount": "123" }
+  ],
+  "total_amount": "456",
+  "data_payments_address": "0x...",
+  "payment_token_address": "0x...",
+  "rpc_url": "http://..."
+}
+```
+
 #### `POST /v1/upload/prepare`
 Prepare a file upload for external signing (two-phase upload). Instead of antd paying
 from its built-in wallet, this returns payment details for an external signer.

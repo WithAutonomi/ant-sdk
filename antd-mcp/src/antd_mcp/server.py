@@ -656,7 +656,54 @@ async def prepare_upload(
 
 
 # ---------------------------------------------------------------------------
-# Tool 19: finalize_upload
+# Tool 19: prepare_data_upload
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def prepare_data_upload(
+    data: str,
+) -> str:
+    """Prepare a data upload for external signing (two-phase upload).
+
+    Takes base64-encoded data and returns payment details including contract
+    addresses, quote hashes, and amounts that an external signer must process
+    before calling finalize_upload.
+
+    Args:
+        data: Base64-encoded bytes to upload.
+
+    Returns:
+        JSON with upload_id, payments array (quote_hash, rewards_address, amount),
+        total_amount, data_payments_address, payment_token_address, and rpc_url.
+    """
+    client, network = _get_ctx()
+    try:
+        raw = base64.b64decode(data)
+        result = await client.prepare_data_upload(raw)
+        return _ok({
+            "upload_id": result.upload_id,
+            "payments": [
+                {
+                    "quote_hash": p.quote_hash,
+                    "rewards_address": p.rewards_address,
+                    "amount": p.amount,
+                }
+                for p in result.payments
+            ],
+            "total_amount": result.total_amount,
+            "data_payments_address": result.data_payments_address,
+            "payment_token_address": result.payment_token_address,
+            "rpc_url": result.rpc_url,
+        }, network)
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
+# Tool 20: finalize_upload
 # ---------------------------------------------------------------------------
 
 

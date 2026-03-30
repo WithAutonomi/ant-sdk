@@ -288,6 +288,14 @@ class AntdRestClient(
         return PrepareUploadResult(resp.uploadId, payments, resp.totalAmount, resp.dataPaymentsAddress, resp.paymentTokenAddress, resp.rpcUrl)
     }
 
+    /** Prepares a data upload for external signing. */
+    override suspend fun prepareDataUpload(data: ByteArray): PrepareUploadResult {
+        val body = buildJsonObject { put("data", b64(data)) }.toString()
+        val resp = postJson<PrepareUploadDto>("/v1/data/prepare", body)
+        val payments = resp.payments?.map { PaymentInfo(it.quoteHash, it.rewardsAddress, it.amount) } ?: emptyList()
+        return PrepareUploadResult(resp.uploadId, payments, resp.totalAmount, resp.dataPaymentsAddress, resp.paymentTokenAddress, resp.rpcUrl)
+    }
+
     /** Finalizes an upload after an external signer has submitted payment transactions. */
     override suspend fun finalizeUpload(uploadId: String, txHashes: Map<String, String>): FinalizeUploadResult {
         val body = buildJsonObject {

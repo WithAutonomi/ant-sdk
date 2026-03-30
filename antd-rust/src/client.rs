@@ -599,6 +599,42 @@ impl Client {
         })
     }
 
+    /// Prepares a data upload for external signing.
+    /// Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+    /// Returns payment details that an external signer must process before calling
+    /// [`finalize_upload`](Self::finalize_upload).
+    pub async fn prepare_data_upload(&self, data: &[u8]) -> Result<PrepareUploadResult, AntdError> {
+        let (j, _) = self
+            .do_json(
+                reqwest::Method::POST,
+                "/v1/data/prepare",
+                Some(json!({ "data": Self::b64_encode(data) })),
+            )
+            .await?;
+        let j = j.unwrap_or_default();
+        let payments = j
+            .get("payments")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .map(|p| PaymentInfo {
+                        quote_hash: Self::str_field(p, "quote_hash"),
+                        rewards_address: Self::str_field(p, "rewards_address"),
+                        amount: Self::str_field(p, "amount"),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(PrepareUploadResult {
+            upload_id: Self::str_field(&j, "upload_id"),
+            payments,
+            total_amount: Self::str_field(&j, "total_amount"),
+            data_payments_address: Self::str_field(&j, "data_payments_address"),
+            payment_token_address: Self::str_field(&j, "payment_token_address"),
+            rpc_url: Self::str_field(&j, "rpc_url"),
+        })
+    }
+
     /// Finalizes an upload after an external signer has submitted payment transactions.
     pub async fn finalize_upload(
         &self,

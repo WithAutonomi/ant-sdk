@@ -534,6 +534,40 @@ defmodule Antd.Client do
   @spec prepare_upload!(t(), String.t()) :: Antd.PrepareUploadResult.t()
   def prepare_upload!(client, path), do: unwrap!(prepare_upload(client, path))
 
+  @doc "Prepares a data upload for external signing."
+  @spec prepare_data_upload(t(), binary()) :: {:ok, Antd.PrepareUploadResult.t()} | {:error, Exception.t()}
+  def prepare_data_upload(%__MODULE__{} = client, data) when is_binary(data) do
+    case do_json(client, :post, "/v1/data/prepare", %{data: Base.encode64(data)}) do
+      {:ok, body} ->
+        payments =
+          (body["payments"] || [])
+          |> Enum.map(fn p ->
+            %Antd.PaymentInfo{
+              quote_hash: p["quote_hash"],
+              rewards_address: p["rewards_address"],
+              amount: p["amount"]
+            }
+          end)
+
+        {:ok,
+         %Antd.PrepareUploadResult{
+           upload_id: body["upload_id"],
+           payments: payments,
+           total_amount: body["total_amount"],
+           data_payments_address: body["data_payments_address"],
+           payment_token_address: body["payment_token_address"],
+           rpc_url: body["rpc_url"]
+         }}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  @doc "Like `prepare_data_upload/2` but raises on error."
+  @spec prepare_data_upload!(t(), binary()) :: Antd.PrepareUploadResult.t()
+  def prepare_data_upload!(client, data), do: unwrap!(prepare_data_upload(client, data))
+
   @doc "Finalizes an upload after an external signer has submitted payment transactions."
   @spec finalize_upload(t(), String.t(), map()) :: {:ok, Antd.FinalizeUploadResult.t()} | {:error, Exception.t()}
   def finalize_upload(%__MODULE__{} = client, upload_id, tx_hashes) do

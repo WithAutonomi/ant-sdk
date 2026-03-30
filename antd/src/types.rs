@@ -99,6 +99,11 @@ pub struct PrepareUploadRequest {
     pub path: String,
 }
 
+#[derive(Deserialize)]
+pub struct PrepareDataUploadRequest {
+    pub data: String, // base64
+}
+
 #[derive(Serialize)]
 pub struct PrepareUploadResponse {
     /// Opaque token to pass back to finalize (hex-encoded serialized state).
@@ -131,13 +136,20 @@ pub struct FinalizeUploadRequest {
     pub upload_id: String,
     /// Map of quote_hash (hex) → tx_hash (hex) from on-chain payment.
     pub tx_hashes: std::collections::HashMap<String, String>,
+    /// If true, store the DataMap on-network and return its address.
+    /// If false (default), return the raw DataMap for caller-side storage.
+    #[serde(default)]
+    pub store_data_map: bool,
 }
 
 #[derive(Serialize)]
 pub struct FinalizeUploadResponse {
-    /// Hex-encoded address of the stored data map.
-    pub address: String,
-    /// Number of chunks stored.
+    /// Hex-encoded serialized DataMap. Always returned.
+    pub data_map: String,
+    /// Network address of the stored DataMap (only set when store_data_map=true).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    /// Number of chunks stored on the network.
     pub chunks_stored: u64,
 }
 

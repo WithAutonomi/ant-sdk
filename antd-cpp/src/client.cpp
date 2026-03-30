@@ -388,6 +388,33 @@ PrepareUploadResult Client::prepare_upload(std::string_view path) {
     return result;
 }
 
+PrepareUploadResult Client::prepare_data_upload(const std::vector<uint8_t>& data) {
+    auto j = impl_->do_json("POST", "/v1/data/prepare", json{
+        {"data", detail::base64_encode(data)},
+    });
+
+    PrepareUploadResult result;
+    result.upload_id = j.value("upload_id", "");
+    result.total_amount = j.value("total_amount", "");
+    result.data_payments_address = j.value("data_payments_address", "");
+    result.payment_token_address = j.value("payment_token_address", "");
+    result.rpc_url = j.value("rpc_url", "");
+
+    if (j.contains("payments") && j["payments"].is_array()) {
+        for (const auto& p : j["payments"]) {
+            if (p.is_object()) {
+                result.payments.push_back(PaymentInfo{
+                    .quote_hash = p.value("quote_hash", ""),
+                    .rewards_address = p.value("rewards_address", ""),
+                    .amount = p.value("amount", ""),
+                });
+            }
+        }
+    }
+
+    return result;
+}
+
 FinalizeUploadResult Client::finalize_upload(std::string_view upload_id,
                                                const std::map<std::string, std::string>& tx_hashes) {
     json hashes = json::object();

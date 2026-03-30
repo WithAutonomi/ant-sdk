@@ -95,6 +95,7 @@ On startup, antd writes a `daemon.port` file containing the actual REST port, gR
 | `POST` | `/v1/dirs/download/public` | Download a directory |
 | `POST` | `/v1/cost/file` | Estimate file upload cost |
 | **External Signer** | | |
+| `POST` | `/v1/data/prepare` | Prepare data upload for external signing |
 | `POST` | `/v1/upload/prepare` | Prepare file upload for external signing |
 | `POST` | `/v1/upload/finalize` | Finalize upload with external tx hashes |
 | **Wallet** | | |

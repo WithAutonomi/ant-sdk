@@ -337,6 +337,13 @@ class AntdClient {
     return PrepareUploadResult.fromJson(json!);
   }
 
+  /// Prepares a data upload for external signing.
+  /// Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+  Future<PrepareUploadResult> prepareDataUpload(Uint8List data) async {
+    final json = await _doJson('POST', '/v1/data/prepare', {'data': _b64Encode(data)});
+    return PrepareUploadResult.fromJson(json!);
+  }
+
   /// Finalizes an upload after an external signer has submitted payment transactions.
   Future<FinalizeUploadResult> finalizeUpload(
     String uploadId,

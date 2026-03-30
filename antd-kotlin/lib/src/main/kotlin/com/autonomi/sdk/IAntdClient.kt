@@ -46,5 +46,6 @@ interface IAntdClient : Closeable {
 
     // External Signer (Two-Phase Upload)
     suspend fun prepareUpload(path: String): PrepareUploadResult
+    suspend fun prepareDataUpload(data: ByteArray): PrepareUploadResult
     suspend fun finalizeUpload(uploadId: String, txHashes: Map<String, String>): FinalizeUploadResult
 }

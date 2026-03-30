@@ -482,6 +482,39 @@ function Client:prepare_upload(path)
     }, nil
 end
 
+--- Prepare a data upload for external signing.
+-- Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+-- @param data string raw bytes to upload
+-- @return table|nil PrepareUploadResult, error|nil
+function Client:prepare_data_upload(data)
+    local j, _, err = self:_do_json("POST", "/v1/data/prepare", {
+        data = base64.encode(data),
+    })
+    if err then return nil, err end
+
+    local payments = {}
+    if j.payments and type(j.payments) == "table" then
+        for _, p in ipairs(j.payments) do
+            if type(p) == "table" then
+                payments[#payments + 1] = {
+                    quote_hash = str(p, "quote_hash"),
+                    rewards_address = str(p, "rewards_address"),
+                    amount = str(p, "amount"),
+                }
+            end
+        end
+    end
+
+    return {
+        upload_id = str(j, "upload_id"),
+        payments = payments,
+        total_amount = str(j, "total_amount"),
+        data_payments_address = str(j, "data_payments_address"),
+        payment_token_address = str(j, "payment_token_address"),
+        rpc_url = str(j, "rpc_url"),
+    }, nil
+end
+
 --- Finalize an upload after an external signer has submitted payment transactions.
 -- @param upload_id string the upload ID from prepare_upload
 -- @param tx_hashes table map of quote_hash to tx_hash

@@ -39,4 +39,9 @@ public protocol AntdClientProtocol: Sendable {
     func walletAddress() async throws -> WalletAddress
     func walletBalance() async throws -> WalletBalance
     func walletApprove() async throws -> Bool
+
+    // External Signer (Two-Phase Upload)
+    func prepareUpload(path: String) async throws -> PrepareUploadResult
+    func prepareDataUpload(_ data: Data) async throws -> PrepareUploadResult
+    func finalizeUpload(uploadId: String, txHashes: [String: String]) async throws -> FinalizeUploadResult
 }

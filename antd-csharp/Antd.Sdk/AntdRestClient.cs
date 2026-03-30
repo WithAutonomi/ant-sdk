@@ -268,6 +268,17 @@ public sealed class AntdRestClient : IAntdClient
     }
 
     /// <summary>
+    /// Prepares a data upload for external signing.
+    /// Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+    /// </summary>
+    public async Task<PrepareUploadResult> PrepareDataUploadAsync(byte[] data)
+    {
+        var resp = await PostJsonAsync<PrepareUploadDto>("/v1/data/prepare", new { data = Convert.ToBase64String(data) });
+        var payments = resp.Payments?.Select(p => new PaymentInfo(p.QuoteHash, p.RewardsAddress, p.Amount)).ToList() ?? [];
+        return new PrepareUploadResult(resp.UploadId, payments, resp.TotalAmount, resp.DataPaymentsAddress, resp.PaymentTokenAddress, resp.RpcUrl);
+    }
+
+    /// <summary>
     /// Finalizes an upload after an external signer has submitted payment transactions.
     /// </summary>
     public async Task<FinalizeUploadResult> FinalizeUploadAsync(string uploadId, Dictionary<string, string> txHashes)

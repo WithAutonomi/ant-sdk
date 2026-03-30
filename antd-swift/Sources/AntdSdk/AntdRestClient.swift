@@ -221,6 +221,14 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         return PrepareUploadResult(uploadId: resp.uploadId, payments: payments, totalAmount: resp.totalAmount, dataPaymentsAddress: resp.dataPaymentsAddress, paymentTokenAddress: resp.paymentTokenAddress, rpcUrl: resp.rpcUrl)
     }
 
+    /// Prepares a data upload for external signing.
+    /// Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+    public func prepareDataUpload(_ data: Data) async throws -> PrepareUploadResult {
+        let resp: PrepareUploadDTO = try await postJSON("/v1/data/prepare", body: ["data": data.base64EncodedString()])
+        let payments = (resp.payments ?? []).map { PaymentInfo(quoteHash: $0.quoteHash, rewardsAddress: $0.rewardsAddress, amount: $0.amount) }
+        return PrepareUploadResult(uploadId: resp.uploadId, payments: payments, totalAmount: resp.totalAmount, dataPaymentsAddress: resp.dataPaymentsAddress, paymentTokenAddress: resp.paymentTokenAddress, rpcUrl: resp.rpcUrl)
+    }
+
     /// Finalizes an upload after an external signer has submitted payment transactions.
     public func finalizeUpload(uploadId: String, txHashes: [String: String]) async throws -> FinalizeUploadResult {
         let body: [String: Any] = ["upload_id": uploadId, "tx_hashes": txHashes]

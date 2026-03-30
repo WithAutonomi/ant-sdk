@@ -130,6 +130,10 @@ public:
     /// Prepare a file upload for external signing.
     PrepareUploadResult prepare_upload(std::string_view path);
 
+    /// Prepare a data upload for external signing.
+    /// Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+    PrepareUploadResult prepare_data_upload(const std::vector<uint8_t>& data);
+
     /// Finalize an upload after an external signer has submitted payment transactions.
     FinalizeUploadResult finalize_upload(std::string_view upload_id,
                                           const std::map<std::string, std::string>& tx_hashes);

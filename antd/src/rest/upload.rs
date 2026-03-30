@@ -65,6 +65,56 @@ pub async fn prepare_upload(
     }))
 }
 
+/// Phase 1 (data): Prepare an in-memory data upload for external signing.
+///
+/// Same as prepare_upload but takes base64-encoded data instead of a file path.
+pub async fn prepare_data_upload(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<PrepareDataUploadRequest>,
+) -> Result<Json<PrepareUploadResponse>, AntdError> {
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD as BASE64;
+    use bytes::Bytes;
+
+    let data = BASE64.decode(&req.data)
+        .map_err(|e| AntdError::BadRequest(format!("invalid base64: {e}")))?;
+
+    let client = state.client.clone();
+    let prepared = tokio::spawn(async move {
+        client.data_prepare_upload(Bytes::from(data)).await
+            .map_err(AntdError::from_core)
+    }).await.map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
+
+    let payments: Vec<PaymentEntry> = prepared.payment_intent.payments.iter().map(|(quote_hash, rewards_addr, amount)| {
+        PaymentEntry {
+            quote_hash: format!("{:#x}", quote_hash),
+            rewards_address: format!("{:#x}", rewards_addr),
+            amount: amount.to_string(),
+        }
+    }).collect();
+
+    let total_amount = prepared.payment_intent.total_amount.to_string();
+
+    let upload_id = hex::encode(rand::random::<[u8; 16]>());
+    state.pending_uploads.lock().await.insert(upload_id.clone(), prepared);
+
+    let rpc_url = std::env::var("EVM_RPC_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
+    let payment_token_address = std::env::var("EVM_PAYMENT_TOKEN_ADDRESS")
+        .unwrap_or_default();
+    let data_payments_address = std::env::var("EVM_DATA_PAYMENTS_ADDRESS")
+        .unwrap_or_default();
+
+    Ok(Json(PrepareUploadResponse {
+        upload_id,
+        payments,
+        total_amount,
+        data_payments_address,
+        payment_token_address,
+        rpc_url,
+    }))
+}
+
 /// Phase 2: Finalize an upload after external payment.
 ///
 /// Takes the upload_id from prepare and a map of quote_hash → tx_hash
@@ -98,17 +148,31 @@ pub async fn finalize_upload(
             })
             .collect::<Result<_, AntdError>>()?;
 
+    let store_on_network = req.store_data_map;
     let client = state.client.clone();
-    let (address, chunks_stored) = tokio::spawn(async move {
+    let (data_map_hex, address, chunks_stored) = tokio::spawn(async move {
         let result = client.finalize_upload(prepared, &tx_hash_map).await
             .map_err(AntdError::from_core)?;
-        let address = client.data_map_store(&result.data_map).await
-            .map_err(AntdError::from_core)?;
-        Ok::<_, AntdError>((address, result.chunks_stored))
+
+        let data_map_bytes = rmp_serde::to_vec(&result.data_map)
+            .map_err(|e| AntdError::Internal(format!("serialize data map: {e}")))?;
+        let data_map_hex = hex::encode(data_map_bytes);
+
+        // Optionally store the DataMap on-network (requires a wallet).
+        let address = if store_on_network {
+            let addr = client.data_map_store(&result.data_map).await
+                .map_err(AntdError::from_core)?;
+            Some(hex::encode(addr))
+        } else {
+            None
+        };
+
+        Ok::<_, AntdError>((data_map_hex, address, result.chunks_stored))
     }).await.map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
 
     Ok(Json(FinalizeUploadResponse {
-        address: hex::encode(address),
+        data_map: data_map_hex,
+        address,
         chunks_stored: chunks_stored as u64,
     }))
 }
