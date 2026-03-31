@@ -119,34 +119,6 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         return decoded
     }
 
-    // MARK: - Graph
-
-    public func graphEntryPut(ownerSecretKey: String, parents: [String], content: String, descendants: [GraphDescendant]) async throws -> PutResult {
-        let body: [String: Any] = [
-            "owner_secret_key": ownerSecretKey,
-            "parents": parents,
-            "content": content,
-            "descendants": descendants.map { ["public_key": $0.publicKey, "content": $0.content] },
-        ]
-        let resp: CostAddressDTO = try await postJSON("/v1/graph", body: body)
-        return PutResult(cost: resp.cost, address: resp.address)
-    }
-
-    public func graphEntryGet(address: String) async throws -> GraphEntry {
-        let resp: GraphEntryDTO = try await getJSON("/v1/graph/\(address)")
-        let desc = (resp.descendants ?? []).map { GraphDescendant(publicKey: $0.publicKey, content: $0.content) }
-        return GraphEntry(owner: resp.owner, parents: resp.parents ?? [], content: resp.content, descendants: desc)
-    }
-
-    public func graphEntryExists(address: String) async throws -> Bool {
-        try await headExists("/v1/graph/\(address)")
-    }
-
-    public func graphEntryCost(publicKey: String) async throws -> String {
-        let resp: CostDTO = try await postJSON("/v1/graph/cost", body: ["public_key": publicKey])
-        return resp.cost
-    }
-
     // MARK: - Files
 
     public func fileUploadPublic(path: String, paymentMode: String? = nil) async throws -> PutResult {
@@ -260,18 +232,6 @@ private struct DataDTO: Decodable {
 
 private struct CostDTO: Decodable {
     let cost: String
-}
-
-private struct GraphDescendantDTO: Decodable {
-    let publicKey: String
-    let content: String
-}
-
-private struct GraphEntryDTO: Decodable {
-    let owner: String
-    let parents: [String]?
-    let content: String
-    let descendants: [GraphDescendantDTO]?
 }
 
 private struct ArchiveEntryDTO: Decodable {

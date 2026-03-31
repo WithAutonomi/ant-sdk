@@ -8,7 +8,7 @@
 ##   .\scripts\test-api.ps1
 ##
 ## Currently tests health + chunks (working with ant-node).
-## Data, files, graph, and private data are not yet implemented.
+## Data, files, and private data are not yet implemented.
 
 $ErrorActionPreference = "Continue"
 
@@ -97,7 +97,7 @@ Write-Host ""
 # ══════════════════════════════════════════════════════════════════════
 # Test 01: Health Check
 # ══════════════════════════════════════════════════════════════════════
-Write-Host "[01/06] Health Check" -ForegroundColor Yellow
+Write-Host "[01/05] Health Check" -ForegroundColor Yellow
 
 $health = Api-Get "/health"
 Assert-Eq "status is ok" "ok" $health.status
@@ -108,14 +108,14 @@ Write-Host "       Network: $($health.network)" -ForegroundColor Gray
 # Test 02: Public Data (SKIPPED — not yet implemented for ant-node)
 # ══════════════════════════════════════════════════════════════════════
 Write-Host ""
-Write-Host "[02/06] Public Data" -ForegroundColor Yellow
+Write-Host "[02/05] Public Data" -ForegroundColor Yellow
 Skip-Test "public data put/get/cost"
 
 # ══════════════════════════════════════════════════════════════════════
 # Test 03: Raw Chunks - store and retrieve
 # ══════════════════════════════════════════════════════════════════════
 Write-Host ""
-Write-Host "[03/06] Chunks" -ForegroundColor Yellow
+Write-Host "[03/05] Chunks" -ForegroundColor Yellow
 
 $chunkPayload = "Raw chunk content for direct storage"
 $chunkB64 = B64Encode $chunkPayload
@@ -140,21 +140,14 @@ if ($chunkPut -and $chunkPut.address) {
 # Test 04: Files (SKIPPED — not yet implemented for ant-node)
 # ══════════════════════════════════════════════════════════════════════
 Write-Host ""
-Write-Host "[04/06] Files" -ForegroundColor Yellow
+Write-Host "[04/05] Files" -ForegroundColor Yellow
 Skip-Test "file upload/download/cost"
 
 # ══════════════════════════════════════════════════════════════════════
-# Test 05: Graph Entries (SKIPPED — not yet implemented for ant-node)
+# Test 05: Private Data (SKIPPED — not yet implemented for ant-node)
 # ══════════════════════════════════════════════════════════════════════
 Write-Host ""
-Write-Host "[05/06] Graph Entries" -ForegroundColor Yellow
-Skip-Test "graph entry put/get/exists/cost"
-
-# ══════════════════════════════════════════════════════════════════════
-# Test 06: Private Data (SKIPPED — not yet implemented for ant-node)
-# ══════════════════════════════════════════════════════════════════════
-Write-Host ""
-Write-Host "[06/06] Private Data" -ForegroundColor Yellow
+Write-Host "[05/05] Private Data" -ForegroundColor Yellow
 Skip-Test "private data put/get"
 
 # ══════════════════════════════════════════════════════════════════════

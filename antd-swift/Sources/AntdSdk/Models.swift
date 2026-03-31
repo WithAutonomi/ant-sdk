@@ -22,32 +22,6 @@ public struct PutResult: Sendable, Equatable {
     }
 }
 
-/// A descendant entry in a graph node.
-public struct GraphDescendant: Sendable, Equatable {
-    public let publicKey: String
-    public let content: String
-
-    public init(publicKey: String, content: String) {
-        self.publicKey = publicKey
-        self.content = content
-    }
-}
-
-/// A graph entry retrieved from the network.
-public struct GraphEntry: Sendable, Equatable {
-    public let owner: String
-    public let parents: [String]
-    public let content: String
-    public let descendants: [GraphDescendant]
-
-    public init(owner: String, parents: [String], content: String, descendants: [GraphDescendant]) {
-        self.owner = owner
-        self.parents = parents
-        self.content = content
-        self.descendants = descendants
-    }
-}
-
 /// A single entry in an archive manifest.
 public struct ArchiveEntry: Sendable, Equatable {
     public let path: String

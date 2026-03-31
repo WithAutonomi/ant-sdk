@@ -251,47 +251,6 @@ public class AntdClient implements AutoCloseable {
         return b64Decode(str(j, "data"));
     }
 
-    // ── Graph Entries (DAG Nodes) ──
-
-    public PutResult graphEntryPut(String ownerSecretKey, List<String> parents,
-                                   String content, List<GraphDescendant> descendants) {
-        List<Map<String, Object>> descs = new ArrayList<>();
-        for (GraphDescendant d : descendants) {
-            descs.add(Map.of("public_key", d.publicKey(), "content", d.content()));
-        }
-        String body = Json.object(
-                "owner_secret_key", ownerSecretKey,
-                "parents", parents,
-                "content", content,
-                "descendants", descs
-        );
-        Map<String, Object> j = doJson("POST", "/v1/graph", body);
-        return new PutResult(str(j, "cost"), str(j, "address"));
-    }
-
-    public GraphEntry graphEntryGet(String address) {
-        Map<String, Object> j = doJson("GET", "/v1/graph/" + address, null);
-        List<GraphDescendant> descs = new ArrayList<>();
-        for (Map<String, Object> dm : listOfMaps(j, "descendants")) {
-            descs.add(new GraphDescendant(str(dm, "public_key"), str(dm, "content")));
-        }
-        return new GraphEntry(str(j, "owner"), strList(j, "parents"), str(j, "content"),
-                Collections.unmodifiableList(descs));
-    }
-
-    public boolean graphEntryExists(String address) {
-        int code = doHead("/v1/graph/" + address);
-        if (code == 404) return false;
-        if (code >= 300) throw ExceptionFactory.fromHttpStatus(code, "graph entry exists check failed");
-        return true;
-    }
-
-    public String graphEntryCost(String publicKey) {
-        String body = Json.object("public_key", publicKey);
-        Map<String, Object> j = doJson("POST", "/v1/graph/cost", body);
-        return str(j, "cost");
-    }
-
     // ── Files & Directories ──
 
     public PutResult fileUploadPublic(String path) {

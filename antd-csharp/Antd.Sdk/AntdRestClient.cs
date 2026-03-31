@@ -141,36 +141,6 @@ public sealed class AntdRestClient : IAntdClient
         return Convert.FromBase64String(resp.Data);
     }
 
-    // ── Graph ──
-
-    public async Task<PutResult> GraphEntryPutAsync(string ownerSecretKey, List<string> parents, string content, List<GraphDescendant> descendants)
-    {
-        var body = new
-        {
-            owner_secret_key = ownerSecretKey,
-            parents,
-            content,
-            descendants = descendants.Select(d => new { public_key = d.PublicKey, content = d.Content }).ToList(),
-        };
-        var resp = await PostJsonAsync<DataPutPublicDto>("/v1/graph", body);
-        return new PutResult(resp.Cost, resp.Address);
-    }
-
-    public async Task<GraphEntry> GraphEntryGetAsync(string address)
-    {
-        var resp = await GetJsonAsync<GraphEntryDto>($"/v1/graph/{address}");
-        var descendants = resp.Descendants?.Select(d => new GraphDescendant(d.PublicKey, d.Content)).ToList() ?? [];
-        return new GraphEntry(resp.Owner, resp.Parents ?? [], resp.Content, descendants);
-    }
-
-    public Task<bool> GraphEntryExistsAsync(string address) => HeadExistsAsync($"/v1/graph/{address}");
-
-    public async Task<string> GraphEntryCostAsync(string publicKey)
-    {
-        var resp = await PostJsonAsync<CostDto>("/v1/graph/cost", new { public_key = publicKey });
-        return resp.Cost;
-    }
-
     // ── Files ──
 
     public async Task<PutResult> FileUploadPublicAsync(string path, string? paymentMode = null)
@@ -306,16 +276,6 @@ public sealed class AntdRestClient : IAntdClient
 
     private sealed record CostDto(
         [property: JsonPropertyName("cost")] string Cost);
-
-    private sealed record GraphDescendantDto(
-        [property: JsonPropertyName("public_key")] string PublicKey,
-        [property: JsonPropertyName("content")] string Content);
-
-    private sealed record GraphEntryDto(
-        [property: JsonPropertyName("owner")] string Owner,
-        [property: JsonPropertyName("parents")] List<string>? Parents,
-        [property: JsonPropertyName("content")] string Content,
-        [property: JsonPropertyName("descendants")] List<GraphDescendantDto>? Descendants);
 
     private sealed record ArchiveEntryDto(
         [property: JsonPropertyName("path")] string Path,

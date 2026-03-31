@@ -150,45 +150,6 @@ class AntdRestClient(
         return fromB64(resp.data)
     }
 
-    // ── Graph ──
-
-    override suspend fun graphEntryPut(
-        ownerSecretKey: String,
-        parents: List<String>,
-        content: String,
-        descendants: List<GraphDescendant>,
-    ): PutResult {
-        val body = buildJsonObject {
-            put("owner_secret_key", ownerSecretKey)
-            putJsonArray("parents") { parents.forEach { add(JsonPrimitive(it)) } }
-            put("content", content)
-            putJsonArray("descendants") {
-                descendants.forEach { d ->
-                    add(buildJsonObject {
-                        put("public_key", d.publicKey)
-                        put("content", d.content)
-                    })
-                }
-            }
-        }.toString()
-        val resp = postJson<DataPutPublicDto>("/v1/graph", body)
-        return PutResult(resp.cost, resp.address)
-    }
-
-    override suspend fun graphEntryGet(address: String): GraphEntry {
-        val resp = getJson<GraphEntryDto>("/v1/graph/$address")
-        val descendants = resp.descendants?.map { GraphDescendant(it.publicKey, it.content) } ?: emptyList()
-        return GraphEntry(resp.owner, resp.parents ?: emptyList(), resp.content, descendants)
-    }
-
-    override suspend fun graphEntryExists(address: String): Boolean = headExists("/v1/graph/$address")
-
-    override suspend fun graphEntryCost(publicKey: String): String {
-        val body = buildJsonObject { put("public_key", publicKey) }.toString()
-        val resp = postJson<CostDto>("/v1/graph/cost", body)
-        return resp.cost
-    }
-
     // ── Files ──
 
     override suspend fun fileUploadPublic(path: String, paymentMode: String?): PutResult {

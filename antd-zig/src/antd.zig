@@ -9,8 +9,6 @@ pub const discover = @import("discover.zig");
 
 pub const HealthStatus = models.HealthStatus;
 pub const PutResult = models.PutResult;
-pub const GraphDescendant = models.GraphDescendant;
-pub const GraphEntry = models.GraphEntry;
 pub const ArchiveEntry = models.ArchiveEntry;
 pub const Archive = models.Archive;
 pub const WalletAddress = models.WalletAddress;
@@ -248,59 +246,6 @@ pub const Client = struct {
         const resp = try self.doRequest(.GET, path, null) orelse return error.JsonError;
         defer self.allocator.free(resp);
         return json_helpers.parseBase64Data(self.allocator, resp);
-    }
-
-    // --- Graph ---
-
-    /// Create a new graph entry (DAG node).
-    pub fn graphEntryPut(
-        self: *Client,
-        owner_secret_key: []const u8,
-        parents: []const []const u8,
-        content: []const u8,
-        descendants: []const GraphDescendant,
-    ) !PutResult {
-        const req_body = try json_helpers.buildJsonBody(self.allocator, &.{
-            .{ .key = "owner_secret_key", .value = .{ .string = owner_secret_key } },
-            .{ .key = "parents", .value = .{ .string_array = parents } },
-            .{ .key = "content", .value = .{ .string = content } },
-            .{ .key = "descendants", .value = .{ .descendants = descendants } },
-        });
-        defer self.allocator.free(req_body);
-        const resp = try self.doRequest(.POST, "/v1/graph", req_body) orelse return error.JsonError;
-        defer self.allocator.free(resp);
-        return json_helpers.parsePutResult(self.allocator, resp, "address");
-    }
-
-    /// Retrieve a graph entry by address.
-    pub fn graphEntryGet(self: *Client, address: []const u8) !GraphEntry {
-        const path = try std.fmt.allocPrint(self.allocator, "/v1/graph/{s}", .{address});
-        defer self.allocator.free(path);
-        const resp = try self.doRequest(.GET, path, null) orelse return error.JsonError;
-        defer self.allocator.free(resp);
-        return json_helpers.parseGraphEntry(self.allocator, resp);
-    }
-
-    /// Check if a graph entry exists at the given address.
-    pub fn graphEntryExists(self: *Client, address: []const u8) !bool {
-        const path = try std.fmt.allocPrint(self.allocator, "/v1/graph/{s}", .{address});
-        defer self.allocator.free(path);
-        _ = self.doRequest(.HEAD, path, null) catch |err| {
-            if (err == error.NotFound) return false;
-            return err;
-        };
-        return true;
-    }
-
-    /// Estimate the cost of creating a graph entry.
-    pub fn graphEntryCost(self: *Client, public_key: []const u8) ![]const u8 {
-        const req_body = try json_helpers.buildJsonBody(self.allocator, &.{
-            .{ .key = "public_key", .value = .{ .string = public_key } },
-        });
-        defer self.allocator.free(req_body);
-        const resp = try self.doRequest(.POST, "/v1/graph/cost", req_body) orelse return error.JsonError;
-        defer self.allocator.free(resp);
-        return json_helpers.parseCost(self.allocator, resp);
     }
 
     // --- Wallet ---

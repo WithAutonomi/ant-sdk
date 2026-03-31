@@ -199,50 +199,6 @@ class AntdClient {
     return _b64Decode(json!['data'] as String);
   }
 
-  // --- Graph ---
-
-  /// Creates a new graph entry (DAG node).
-  Future<PutResult> graphEntryPut(
-    String ownerSecretKey,
-    List<String> parents,
-    String content,
-    List<GraphDescendant> descendants,
-  ) async {
-    final json = await _doJson('POST', '/v1/graph', {
-      'owner_secret_key': ownerSecretKey,
-      'parents': parents,
-      'content': content,
-      'descendants': descendants.map((d) => d.toJson()).toList(),
-    });
-    return PutResult.fromJson(json!);
-  }
-
-  /// Retrieves a graph entry by address.
-  Future<GraphEntry> graphEntryGet(String address) async {
-    final json = await _doJson('GET', '/v1/graph/$address');
-    return GraphEntry.fromJson(json!);
-  }
-
-  /// Checks if a graph entry exists at the given address.
-  Future<bool> graphEntryExists(String address) async {
-    final code = await _doHead('/v1/graph/$address');
-    if (code == 404) {
-      return false;
-    }
-    if (code >= 300) {
-      throw errorForStatus(code, 'graph entry exists check failed');
-    }
-    return true;
-  }
-
-  /// Estimates the cost of creating a graph entry.
-  Future<String> graphEntryCost(String publicKey) async {
-    final json = await _doJson('POST', '/v1/graph/cost', {
-      'public_key': publicKey,
-    });
-    return json!['cost'] as String;
-  }
-
   // --- Files ---
 
   /// Uploads a local file to the network.

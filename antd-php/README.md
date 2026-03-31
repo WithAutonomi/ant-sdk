@@ -78,14 +78,6 @@ $client = new AntdClient('http://localhost:8082', 300.0, $myGuzzleClient);
 | `chunkPut(string $data)` | Store a raw chunk |
 | `chunkGet(string $address)` | Retrieve a chunk |
 
-### Graph Entries (DAG Nodes)
-| Method | Description |
-|--------|-------------|
-| `graphEntryPut(string $ownerSecretKey, array $parents, string $content, array $descendants)` | Create entry |
-| `graphEntryGet(string $address)` | Read entry |
-| `graphEntryExists(string $address)` | Check if exists |
-| `graphEntryCost(string $publicKey)` | Estimate creation cost |
-
 ### Files & Directories
 | Method | Description |
 |--------|-------------|
@@ -202,5 +194,4 @@ See the [examples/](examples/) directory:
 - `02-data.php` — Public data storage and retrieval
 - `03-chunks.php` — Raw chunk operations
 - `04-files.php` — File and directory upload/download
-- `05-graph.php` — Graph entry (DAG node) operations
 - `06-private-data.php` — Private encrypted data

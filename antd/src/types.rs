@@ -57,41 +57,6 @@ pub struct ChunkGetResponse {
     pub data: String, // base64
 }
 
-// ── Graph ──
-
-#[derive(Deserialize)]
-pub struct GraphEntryPutRequest {
-    pub owner_secret_key: String,              // hex
-    pub parents: Vec<String>,                  // hex public keys
-    pub content: String,                       // hex, 32 bytes
-    pub descendants: Vec<GraphDescendantDto>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct GraphDescendantDto {
-    pub public_key: String, // hex
-    pub content: String,    // hex, 32 bytes
-}
-
-#[derive(Serialize)]
-pub struct GraphEntryPutResponse {
-    pub cost: String,
-    pub address: String,
-}
-
-#[derive(Serialize)]
-pub struct GraphEntryGetResponse {
-    pub owner: String,
-    pub parents: Vec<String>,
-    pub content: String,
-    pub descendants: Vec<GraphDescendantDto>,
-}
-
-#[derive(Deserialize)]
-pub struct GraphEntryCostRequest {
-    pub public_key: String, // hex
-}
-
 // ── External Signer (two-phase upload) ──
 
 #[derive(Deserialize)]

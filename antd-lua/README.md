@@ -121,15 +121,6 @@ All methods return `value, err` following Lua convention. On success `err` is `n
 | `client:chunk_put(data)` | Store a raw chunk |
 | `client:chunk_get(address)` | Retrieve a chunk |
 
-### Graph Entries (DAG Nodes)
-
-| Method | Description |
-|--------|-------------|
-| `client:graph_entry_put(secret_key, parents, content, descendants)` | Create entry |
-| `client:graph_entry_get(address)` | Read entry |
-| `client:graph_entry_exists(address)` | Check if exists |
-| `client:graph_entry_cost(public_key)` | Estimate creation cost |
-
 ### Files & Directories
 
 | Method | Description |
@@ -182,7 +173,6 @@ local antd = require("antd")
 
 local entry = antd.new_archive_entry("file.txt", "abc123", 1000, 2000, 42)
 local archive = antd.new_archive({ entry })
-local descendant = antd.new_graph_descendant("public_key_hex", "content_hex")
 ```
 
 ## Examples
@@ -193,7 +183,6 @@ See the [examples/](examples/) directory:
 - `02-data` — Public data storage and retrieval
 - `03-chunks` — Raw chunk operations
 - `04-files` — File and directory upload/download
-- `05-graph` — Graph entry (DAG node) operations
 - `06-private-data` — Private encrypted data storage
 
 ## Testing

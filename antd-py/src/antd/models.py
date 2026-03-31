@@ -19,22 +19,6 @@ class PutResult:
 
 
 @dataclass(frozen=True)
-class GraphDescendant:
-    """A descendant entry in a graph node."""
-    public_key: str     # hex
-    content: str        # hex, 32 bytes
-
-
-@dataclass(frozen=True)
-class GraphEntry:
-    """A graph entry from the network."""
-    owner: str
-    parents: list[str] = field(default_factory=list)
-    content: str = ""
-    descendants: list[GraphDescendant] = field(default_factory=list)
-
-
-@dataclass(frozen=True)
 class ArchiveEntry:
     """An entry in a file archive."""
     path: str

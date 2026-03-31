@@ -32,10 +32,6 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
     public func dataCost(_ data: Data) async throws -> String { throw notImplemented() }
     public func chunkPut(_ data: Data) async throws -> PutResult { throw notImplemented() }
     public func chunkGet(address: String) async throws -> Data { throw notImplemented() }
-    public func graphEntryPut(ownerSecretKey: String, parents: [String], content: String, descendants: [GraphDescendant]) async throws -> PutResult { throw notImplemented() }
-    public func graphEntryGet(address: String) async throws -> GraphEntry { throw notImplemented() }
-    public func graphEntryExists(address: String) async throws -> Bool { throw notImplemented() }
-    public func graphEntryCost(publicKey: String) async throws -> String { throw notImplemented() }
     public func fileUploadPublic(path: String, paymentMode: String? = nil) async throws -> PutResult { throw notImplemented() }
     public func fileDownloadPublic(address: String, destPath: String) async throws { throw notImplemented() }
     public func dirUploadPublic(path: String, paymentMode: String? = nil) async throws -> PutResult { throw notImplemented() }

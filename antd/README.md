@@ -102,11 +102,6 @@ On startup, antd writes a `daemon.port` file containing the actual REST port, gR
 | `GET` | `/v1/wallet/address` | Get wallet public address |
 | `GET` | `/v1/wallet/balance` | Get token and gas balances |
 | `POST` | `/v1/wallet/approve` | Approve token spend for payment contracts |
-| **Graph** *(stub)* | | |
-| `POST` | `/v1/graph` | Create a graph entry |
-| `GET` | `/v1/graph/{address}` | Get a graph entry |
-| `HEAD` | `/v1/graph/{address}` | Check graph entry existence |
-| `POST` | `/v1/graph/cost` | Estimate graph entry cost |
 | **Archives** *(stub)* | | |
 | `GET` | `/v1/archives/public/{address}` | Get archive manifest |
 | `POST` | `/v1/archives/public` | Create archive manifest |
@@ -118,7 +113,6 @@ gRPC services mirror the REST API. Proto definitions are in `proto/antd/v1/`:
 - `HealthService` — Health check
 - `DataService` — Public/private data operations
 - `ChunkService` — Raw chunk operations
-- `GraphService` — Graph entry operations *(stub)*
 - `FileService` — File upload/download *(stub)*
 - `EventService` — Event streaming
 
@@ -133,7 +127,6 @@ antd/
 │   ├── common.proto
 │   ├── data.proto
 │   ├── chunks.proto
-│   ├── graph.proto
 │   ├── files.proto
 │   └── events.proto
 └── src/
@@ -150,7 +143,6 @@ antd/
     │   ├── files.rs        # File/dir upload/download/cost
     │   ├── upload.rs       # External signer two-phase upload
     │   ├── wallet.rs       # Wallet address/balance/approve
-    │   ├── graph.rs        # Graph entries (stub)
     │   └── events.rs       # Event streaming (stub)
     └── grpc/               # Tonic gRPC service
         ├── mod.rs

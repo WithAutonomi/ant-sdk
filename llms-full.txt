@@ -264,46 +264,6 @@ Retrieve a raw chunk by hex address.
 
 Response: `{"data": "<base64>"}`
 
-### Graph
-
-DAG (directed acyclic graph) entries with parent/descendant relationships.
-
-#### `POST /v1/graph`
-Create a graph entry.
-
-Request:
-```json
-{
-  "owner_secret_key": "<hex>",
-  "parents": ["<hex_public_key>", ...],
-  "content": "<hex_32_bytes>",
-  "descendants": [{"public_key": "<hex>", "content": "<hex_32_bytes>"}, ...]
-}
-```
-Response: `{"cost": "<atto_tokens>", "address": "<hex>"}`
-
-#### `GET /v1/graph/{addr}`
-Read a graph entry.
-
-Response:
-```json
-{
-  "owner": "<hex>",
-  "parents": ["<hex>", ...],
-  "content": "<hex_32_bytes>",
-  "descendants": [{"public_key": "<hex>", "content": "<hex_32_bytes>"}, ...]
-}
-```
-
-#### `HEAD /v1/graph/{addr}`
-Check if a graph entry exists. Returns 200 or 404.
-
-#### `POST /v1/graph/cost`
-Estimate cost to create a graph entry.
-
-Request: `{"public_key": "<hex>"}`
-Response: `{"cost": "<atto_tokens>"}`
-
 ### Files
 
 Upload and download files/directories from the local filesystem.
@@ -438,12 +398,6 @@ Default target: `localhost:50051`. Package: `antd.v1`.
 - `Get(GetChunkRequest{address}) → GetChunkResponse{data: bytes}`
 - `Put(PutChunkRequest{data: bytes}) → PutChunkResponse{cost, address}`
 
-### GraphService (graph.proto)
-- `Get(GetGraphEntryRequest{address}) → GetGraphEntryResponse{owner, parents, content, descendants}`
-- `CheckExistence(CheckGraphEntryRequest{address}) → GraphExistsResponse{exists: bool}`
-- `Put(PutGraphEntryRequest{owner_secret_key, parents, content, descendants}) → PutGraphEntryResponse{cost, address}`
-- `GetCost(GraphEntryCostRequest{public_key}) → Cost{atto_tokens}`
-
 ### FileService (files.proto)
 - `UploadPublic(UploadFileRequest{path}) → UploadPublicResponse{cost, address}`
 - `DownloadPublic(DownloadPublicRequest{address, dest_path}) → DownloadResponse{}`
@@ -470,8 +424,6 @@ JS/TS, PHP, Lua, and Zig are REST-only.
 |------|--------|-------------|
 | HealthStatus | ok: bool, network: string | Health check result |
 | PutResult | cost: string, address: string | Result from any create/put operation |
-| GraphDescendant | public_key: string, content: string (hex 32B) | Graph descendant |
-| GraphEntry | owner, parents: list[string], content: string, descendants: list[GraphDescendant] | Graph entry |
 | ArchiveEntry | path, address, created: int, modified: int, size: int | Archive file entry |
 | Archive | entries: list[ArchiveEntry] | Archive manifest |
 
@@ -530,11 +482,7 @@ client.dataCost(data: Buffer): Promise<string>
 client.chunkPut(data: Buffer): Promise<PutResult>
 client.chunkGet(address: string): Promise<Buffer>
 
-// Graph
-client.graphEntryPut(ownerSecretKey: string, parents: string[], content: string, descendants: GraphDescendant[]): Promise<PutResult>
-client.graphEntryGet(address: string): Promise<GraphEntry>
-client.graphEntryExists(address: string): Promise<boolean>
-client.graphEntryCost(publicKey: string): Promise<string>
+
 
 // Files
 client.fileUploadPublic(path: string): Promise<PutResult>
@@ -575,11 +523,7 @@ client.data_cost(data: bytes) → str
 client.chunk_put(data: bytes) → PutResult
 client.chunk_get(address: str) → bytes
 
-# Graph
-client.graph_entry_put(owner_secret_key: str, parents: list[str], content: str, descendants: list[GraphDescendant]) → PutResult
-client.graph_entry_get(address: str) → GraphEntry
-client.graph_entry_exists(address: str) → bool
-client.graph_entry_cost(public_key: str) → str
+
 
 # Files
 client.file_upload_public(path: str) → PutResult
@@ -620,11 +564,7 @@ Task<string> DataCostAsync(byte[] data);
 Task<PutResult> ChunkPutAsync(byte[] data);
 Task<byte[]> ChunkGetAsync(string address);
 
-// Graph
-Task<PutResult> GraphEntryPutAsync(string ownerSecretKey, List<string> parents, string content, List<GraphDescendant> descendants);
-Task<GraphEntry> GraphEntryGetAsync(string address);
-Task<bool> GraphEntryExistsAsync(string address);
-Task<string> GraphEntryCostAsync(string publicKey);
+
 
 // Files
 Task<PutResult> FileUploadPublicAsync(string path);
@@ -665,11 +605,7 @@ suspend fun dataCost(data: ByteArray): String
 suspend fun chunkPut(data: ByteArray): PutResult
 suspend fun chunkGet(address: String): ByteArray
 
-// Graph
-suspend fun graphEntryPut(ownerSecretKey: String, parents: List<String>, content: String, descendants: List<GraphDescendant>): PutResult
-suspend fun graphEntryGet(address: String): GraphEntry
-suspend fun graphEntryExists(address: String): Boolean
-suspend fun graphEntryCost(publicKey: String): String
+
 
 // Files
 suspend fun fileUploadPublic(path: String): PutResult
@@ -712,11 +648,7 @@ func dataCost(_ data: Data) async throws -> String
 func chunkPut(_ data: Data) async throws -> PutResult
 func chunkGet(address: String) async throws -> Data
 
-// Graph
-func graphEntryPut(ownerSecretKey: String, parents: [String], content: String, descendants: [GraphDescendant]) async throws -> PutResult
-func graphEntryGet(address: String) async throws -> GraphEntry
-func graphEntryExists(address: String) async throws -> Bool
-func graphEntryCost(publicKey: String) async throws -> String
+
 
 // Files
 func fileUploadPublic(path: String) async throws -> PutResult
@@ -756,11 +688,7 @@ func (c *Client) DataCost(ctx context.Context, data []byte) (string, error)
 func (c *Client) ChunkPut(ctx context.Context, data []byte) (*PutResult, error)
 func (c *Client) ChunkGet(ctx context.Context, address string) ([]byte, error)
 
-// Graph
-func (c *Client) GraphEntryPut(ctx context.Context, ownerSecretKey string, parents []string, content string, descendants []GraphDescendant) (*PutResult, error)
-func (c *Client) GraphEntryGet(ctx context.Context, address string) (*GraphEntry, error)
-func (c *Client) GraphEntryExists(ctx context.Context, address string) (bool, error)
-func (c *Client) GraphEntryCost(ctx context.Context, publicKey string) (string, error)
+
 
 // Files
 func (c *Client) FileUploadPublic(ctx context.Context, path string) (*PutResult, error)
@@ -803,11 +731,7 @@ String dataCost(byte[] data) throws AntdException
 PutResult chunkPut(byte[] data) throws AntdException
 byte[] chunkGet(String address) throws AntdException
 
-// Graph
-PutResult graphEntryPut(String ownerSecretKey, List<String> parents, String content, List<GraphDescendant> descendants) throws AntdException
-GraphEntry graphEntryGet(String address) throws AntdException
-boolean graphEntryExists(String address) throws AntdException
-String graphEntryCost(String publicKey) throws AntdException
+
 
 // Files
 PutResult fileUploadPublic(String path) throws AntdException
@@ -832,7 +756,7 @@ boolean walletApprove() throws AntdException
 
 ```rust
 // cargo add antd-client
-use antd_client::{Client, PutResult, HealthStatus, GraphEntry, GraphDescendant, Archive, AntdError};
+use antd_client::{Client, PutResult, HealthStatus, Archive, AntdError};
 
 let client = Client::new("http://localhost:8082");        // REST, localhost:8082
 
@@ -850,11 +774,7 @@ async fn data_cost(&self, data: &[u8]) -> Result<String, AntdError>
 async fn chunk_put(&self, data: &[u8]) -> Result<PutResult, AntdError>
 async fn chunk_get(&self, address: &str) -> Result<Vec<u8>, AntdError>
 
-// Graph
-async fn graph_entry_put(&self, owner_secret_key: &str, parents: &[String], content: &str, descendants: &[GraphDescendant]) -> Result<PutResult, AntdError>
-async fn graph_entry_get(&self, address: &str) -> Result<GraphEntry, AntdError>
-async fn graph_entry_exists(&self, address: &str) -> Result<bool, AntdError>
-async fn graph_entry_cost(&self, public_key: &str) -> Result<String, AntdError>
+
 
 // Files
 async fn file_upload_public(&self, path: &str) -> Result<PutResult, AntdError>
@@ -898,11 +818,7 @@ std::string dataCost(const std::vector<uint8_t>& data)
 antd::PutResult chunkPut(const std::vector<uint8_t>& data)
 std::vector<uint8_t> chunkGet(const std::string& address)
 
-// Graph
-antd::PutResult graphEntryPut(const std::string& ownerSecretKey, const std::vector<std::string>& parents, const std::string& content, const std::vector<antd::GraphDescendant>& descendants)
-antd::GraphEntry graphEntryGet(const std::string& address)
-bool graphEntryExists(const std::string& address)
-std::string graphEntryCost(const std::string& publicKey)
+
 
 // Files
 antd::PutResult fileUploadPublic(const std::string& path)
@@ -946,11 +862,7 @@ client.data_cost(data) → String
 client.chunk_put(data) → PutResult
 client.chunk_get(address) → String
 
-# Graph
-client.graph_entry_put(owner_secret_key:, parents:, content:, descendants:) → PutResult
-client.graph_entry_get(address) → GraphEntry
-client.graph_entry_exists?(address) → Boolean
-client.graph_entry_cost(public_key) → String
+
 
 # Files
 client.file_upload_public(path) → PutResult
@@ -991,11 +903,7 @@ $client->dataCost(string $data): string
 $client->chunkPut(string $data): PutResult
 $client->chunkGet(string $address): string
 
-// Graph
-$client->graphEntryPut(string $ownerSecretKey, array $parents, string $content, array $descendants): PutResult
-$client->graphEntryGet(string $address): GraphEntry
-$client->graphEntryExists(string $address): bool
-$client->graphEntryCost(string $publicKey): string
+
 
 // Files
 $client->fileUploadPublic(string $path): PutResult
@@ -1036,11 +944,7 @@ Future<String> dataCost(List<int> data)
 Future<PutResult> chunkPut(List<int> data)
 Future<List<int>> chunkGet(String address)
 
-// Graph
-Future<PutResult> graphEntryPut(String ownerSecretKey, List<String> parents, String content, List<GraphDescendant> descendants)
-Future<GraphEntry> graphEntryGet(String address)
-Future<bool> graphEntryExists(String address)
-Future<String> graphEntryCost(String publicKey)
+
 
 // Files
 Future<PutResult> fileUploadPublic(String path)
@@ -1081,11 +985,7 @@ client:data_cost(data) → string
 client:chunk_put(data) → PutResult
 client:chunk_get(address) → string
 
--- Graph
-client:graph_entry_put(owner_secret_key, parents, content, descendants) → PutResult
-client:graph_entry_get(address) → GraphEntry
-client:graph_entry_exists(address) → boolean
-client:graph_entry_cost(public_key) → string
+
 
 -- Files
 client:file_upload_public(path) → PutResult
@@ -1124,11 +1024,7 @@ Antd.Client.data_cost(client, data) :: {:ok, String.t()} | {:error, term()}
 Antd.Client.chunk_put(client, data) :: {:ok, PutResult.t()} | {:error, term()}
 Antd.Client.chunk_get(client, address) :: {:ok, binary()} | {:error, term()}
 
-# Graph
-Antd.Client.graph_entry_put(client, owner_secret_key, parents, content, descendants) :: {:ok, PutResult.t()} | {:error, term()}
-Antd.Client.graph_entry_get(client, address) :: {:ok, GraphEntry.t()} | {:error, term()}
-Antd.Client.graph_entry_exists?(client, address) :: {:ok, boolean()} | {:error, term()}
-Antd.Client.graph_entry_cost(client, public_key) :: {:ok, String.t()} | {:error, term()}
+
 
 # Files
 Antd.Client.file_upload_public(client, path) :: {:ok, PutResult.t()} | {:error, term()}
@@ -1170,11 +1066,7 @@ fn dataCost(self: *Client, data: []const u8) ![]u8
 fn chunkPut(self: *Client, data: []const u8) !PutResult
 fn chunkGet(self: *Client, address: []const u8) ![]u8
 
-// Graph
-fn graphEntryPut(self: *Client, owner_secret_key: []const u8, parents: []const []const u8, content: []const u8, descendants: []const GraphDescendant) !PutResult
-fn graphEntryGet(self: *Client, address: []const u8) !GraphEntry
-fn graphEntryExists(self: *Client, address: []const u8) !bool
-fn graphEntryCost(self: *Client, public_key: []const u8) ![]u8
+
 
 // Files
 fn fileUploadPublic(self: *Client, path: []const u8) !PutResult
@@ -1201,10 +1093,6 @@ fn walletApprove(self: *Client) !bool
 | `retrieve_data` | `data_get_public` / `data_get_private` | Retrieve text from network |
 | `upload_file` | `file_upload_public` / `dir_upload_public` | Upload file or directory |
 | `download_file` | `file_download_public` / `dir_download_public` | Download file or directory |
-| `create_graph_entry` | `graph_entry_put` | Create graph entry |
-| `get_graph_entry` | `graph_entry_get` | Read graph entry |
-| `graph_entry_exists` | `graph_entry_exists` | Check graph entry existence |
-| `graph_entry_cost` | `graph_entry_cost` | Estimate graph entry cost |
 | `chunk_put` | `chunk_put` | Store raw chunk |
 | `chunk_get` | `chunk_get` | Retrieve raw chunk |
 | `archive_get` | `archive_get_public` | List archive entries |

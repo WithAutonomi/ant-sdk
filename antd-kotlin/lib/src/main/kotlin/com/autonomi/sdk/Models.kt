@@ -9,12 +9,6 @@ data class HealthStatus(val ok: Boolean, val network: String)
 /** Result of a put/create operation that stores data on the network. */
 data class PutResult(val cost: String, val address: String)
 
-/** A descendant entry in a graph node. */
-data class GraphDescendant(val publicKey: String, val content: String)
-
-/** A graph entry retrieved from the network. */
-data class GraphEntry(val owner: String, val parents: List<String>, val content: String, val descendants: List<GraphDescendant>)
-
 /** A single entry in an archive manifest. */
 data class ArchiveEntry(val path: String, val address: String, val created: ULong, val modified: ULong, val size: ULong)
 
@@ -71,20 +65,6 @@ internal data class DataGetDto(
 @Serializable
 internal data class CostDto(
     val cost: String,
-)
-
-@Serializable
-internal data class GraphDescendantDto(
-    @SerialName("public_key") val publicKey: String,
-    val content: String,
-)
-
-@Serializable
-internal data class GraphEntryDto(
-    val owner: String,
-    val parents: List<String>? = null,
-    val content: String,
-    val descendants: List<GraphDescendantDto>? = null,
 )
 
 @Serializable

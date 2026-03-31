@@ -117,28 +117,6 @@ impl pb::chunk_service_server::ChunkService for ChunkServiceImpl {
     }
 }
 
-// ── GraphService ──
-
-pub struct GraphServiceImpl {
-    pub state: Arc<AppState>,
-}
-
-#[tonic::async_trait]
-impl pb::graph_service_server::GraphService for GraphServiceImpl {
-    async fn get(&self, _r: Request<pb::GetGraphEntryRequest>) -> Result<Response<pb::GetGraphEntryResponse>, Status> {
-        Err(not_implemented("graph get"))
-    }
-    async fn check_existence(&self, _r: Request<pb::CheckGraphEntryRequest>) -> Result<Response<pb::GraphExistsResponse>, Status> {
-        Err(not_implemented("graph check existence"))
-    }
-    async fn put(&self, _r: Request<pb::PutGraphEntryRequest>) -> Result<Response<pb::PutGraphEntryResponse>, Status> {
-        Err(not_implemented("graph put"))
-    }
-    async fn get_cost(&self, _r: Request<pb::GraphEntryCostRequest>) -> Result<Response<pb::Cost>, Status> {
-        Err(not_implemented("graph cost"))
-    }
-}
-
 // ── FileService ──
 
 pub struct FileServiceImpl {

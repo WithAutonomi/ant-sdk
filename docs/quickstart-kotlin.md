@@ -111,30 +111,6 @@ client.dirDownloadPublic(dirResult.address, "/path/to/output_dir")
 val cost = client.fileCost("/path/to/file.txt")
 ```
 
-## Graph Entries (DAG Nodes)
-
-```kotlin
-val secretKey = ByteArray(32).also { SecureRandom().nextBytes(it) }
-    .joinToString("") { "%02x".format(it) }
-val content = ByteArray(32).also { SecureRandom().nextBytes(it) }
-    .joinToString("") { "%02x".format(it) }
-
-// Create root node
-val result = client.graphEntryPut(
-    secretKey,
-    parents = emptyList(),
-    content = content,
-    descendants = emptyList(),
-)
-
-// Read
-val entry = client.graphEntryGet(result.address)
-println("Owner: ${entry.owner}")
-println("Parents: ${entry.parents.size}")
-
-// Check existence
-val exists = client.graphEntryExists(result.address)
-```
 
 ## Error Handling
 
@@ -176,7 +152,6 @@ cd antd-kotlin
 ./gradlew :examples:run --args="2"    # Public data
 ./gradlew :examples:run --args="3"    # Chunks
 ./gradlew :examples:run --args="4"    # Files
-./gradlew :examples:run --args="5"    # Graph entries
 ./gradlew :examples:run --args="6"    # Private data
 ./gradlew :examples:run --args="all"  # Run all examples
 ```

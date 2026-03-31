@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::extract::State;
 use axum::http::{HeaderValue, Method};
-use axum::routing::{get, head, post};
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use tower_http::cors::CorsLayer;
 
@@ -13,7 +13,6 @@ pub mod chunks;
 pub mod data;
 pub mod events;
 pub mod files;
-pub mod graph;
 pub mod upload;
 pub mod wallet;
 
@@ -31,11 +30,6 @@ pub fn router(state: Arc<AppState>, enable_cors: bool, rest_port: u16) -> Router
         // Chunks
         .route("/v1/chunks/{addr}", get(chunks::chunk_get))
         .route("/v1/chunks", post(chunks::chunk_put))
-        // Graph
-        .route("/v1/graph/{addr}", get(graph::graph_entry_get))
-        .route("/v1/graph/{addr}", head(graph::graph_entry_check_existence))
-        .route("/v1/graph", post(graph::graph_entry_put))
-        .route("/v1/graph/cost", post(graph::graph_entry_cost))
         // Files
         .route("/v1/files/upload/public", post(files::file_upload_public))
         .route("/v1/files/download/public", post(files::file_download_public))

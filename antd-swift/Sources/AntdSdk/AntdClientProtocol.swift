@@ -20,12 +20,6 @@ public protocol AntdClientProtocol: Sendable {
     func chunkPut(_ data: Data) async throws -> PutResult
     func chunkGet(address: String) async throws -> Data
 
-    // Graph
-    func graphEntryPut(ownerSecretKey: String, parents: [String], content: String, descendants: [GraphDescendant]) async throws -> PutResult
-    func graphEntryGet(address: String) async throws -> GraphEntry
-    func graphEntryExists(address: String) async throws -> Bool
-    func graphEntryCost(publicKey: String) async throws -> String
-
     // Files
     func fileUploadPublic(path: String, paymentMode: String?) async throws -> PutResult
     func fileDownloadPublic(address: String, destPath: String) async throws

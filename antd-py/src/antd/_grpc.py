@@ -19,16 +19,12 @@ from .exceptions import (
 from .models import (
     Archive,
     ArchiveEntry,
-    GraphDescendant,
-    GraphEntry,
     HealthStatus,
     PutResult,
 )
 
-from antd._proto.antd.v1 import common_pb2
 from antd._proto.antd.v1 import data_pb2, data_pb2_grpc
 from antd._proto.antd.v1 import chunks_pb2, chunks_pb2_grpc
-from antd._proto.antd.v1 import graph_pb2, graph_pb2_grpc
 from antd._proto.antd.v1 import files_pb2, files_pb2_grpc
 from antd._proto.antd.v1 import health_pb2, health_pb2_grpc
 
@@ -76,7 +72,6 @@ class GrpcClient:
         self._health = health_pb2_grpc.HealthServiceStub(self._channel)
         self._data = data_pb2_grpc.DataServiceStub(self._channel)
         self._chunks = chunks_pb2_grpc.ChunkServiceStub(self._channel)
-        self._graph = graph_pb2_grpc.GraphServiceStub(self._channel)
         self._files = files_pb2_grpc.FileServiceStub(self._channel)
 
     def close(self) -> None:
@@ -149,55 +144,6 @@ class GrpcClient:
         try:
             resp = self._chunks.Get(chunks_pb2.GetChunkRequest(address=address))
             return resp.data
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    # --- Graph ---
-
-    def graph_entry_put(self, owner_secret_key: str, parents: list[str], content: str,
-                        descendants: list[GraphDescendant]) -> PutResult:
-        try:
-            resp = self._graph.Put(graph_pb2.PutGraphEntryRequest(
-                owner_secret_key=owner_secret_key,
-                parents=parents,
-                content=content,
-                descendants=[
-                    common_pb2.GraphDescendant(public_key=d.public_key, content=d.content)
-                    for d in descendants
-                ],
-            ))
-            return PutResult(cost=resp.cost.atto_tokens, address=resp.address)
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    def graph_entry_get(self, address: str) -> GraphEntry:
-        try:
-            resp = self._graph.Get(graph_pb2.GetGraphEntryRequest(address=address))
-            return GraphEntry(
-                owner=resp.owner,
-                parents=list(resp.parents),
-                content=resp.content,
-                descendants=[
-                    GraphDescendant(public_key=d.public_key, content=d.content)
-                    for d in resp.descendants
-                ],
-            )
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    def graph_entry_exists(self, address: str) -> bool:
-        try:
-            resp = self._graph.CheckExistence(graph_pb2.CheckGraphEntryRequest(address=address))
-            return resp.exists
-        except grpc.RpcError as e:
-            if e.code() == grpc.StatusCode.NOT_FOUND:
-                return False
-            _handle_rpc_error(e)
-
-    def graph_entry_cost(self, public_key: str) -> str:
-        try:
-            resp = self._graph.GetCost(graph_pb2.GraphEntryCostRequest(public_key=public_key))
-            return resp.atto_tokens
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
@@ -291,7 +237,6 @@ class AsyncGrpcClient:
         self._health = health_pb2_grpc.HealthServiceStub(self._channel)
         self._data = data_pb2_grpc.DataServiceStub(self._channel)
         self._chunks = chunks_pb2_grpc.ChunkServiceStub(self._channel)
-        self._graph = graph_pb2_grpc.GraphServiceStub(self._channel)
         self._files = files_pb2_grpc.FileServiceStub(self._channel)
 
     async def close(self) -> None:
@@ -364,57 +309,6 @@ class AsyncGrpcClient:
         try:
             resp = await self._chunks.Get(chunks_pb2.GetChunkRequest(address=address))
             return resp.data
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    # --- Graph ---
-
-    async def graph_entry_put(self, owner_secret_key: str, parents: list[str], content: str,
-                              descendants: list[GraphDescendant]) -> PutResult:
-        try:
-            resp = await self._graph.Put(graph_pb2.PutGraphEntryRequest(
-                owner_secret_key=owner_secret_key,
-                parents=parents,
-                content=content,
-                descendants=[
-                    common_pb2.GraphDescendant(public_key=d.public_key, content=d.content)
-                    for d in descendants
-                ],
-            ))
-            return PutResult(cost=resp.cost.atto_tokens, address=resp.address)
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    async def graph_entry_get(self, address: str) -> GraphEntry:
-        try:
-            resp = await self._graph.Get(graph_pb2.GetGraphEntryRequest(address=address))
-            return GraphEntry(
-                owner=resp.owner,
-                parents=list(resp.parents),
-                content=resp.content,
-                descendants=[
-                    GraphDescendant(public_key=d.public_key, content=d.content)
-                    for d in resp.descendants
-                ],
-            )
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    async def graph_entry_exists(self, address: str) -> bool:
-        try:
-            resp = await self._graph.CheckExistence(
-                graph_pb2.CheckGraphEntryRequest(address=address))
-            return resp.exists
-        except grpc.RpcError as e:
-            if e.code() == grpc.StatusCode.NOT_FOUND:
-                return False
-            _handle_rpc_error(e)
-
-    async def graph_entry_cost(self, public_key: str) -> str:
-        try:
-            resp = await self._graph.GetCost(
-                graph_pb2.GraphEntryCostRequest(public_key=public_key))
-            return resp.atto_tokens
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 

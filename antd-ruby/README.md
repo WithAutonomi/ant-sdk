@@ -38,7 +38,7 @@ puts "Retrieved: #{data}"
 
 ## gRPC Transport
 
-The SDK includes an `Antd::GrpcClient` class that provides the same 19 methods
+The SDK includes an `Antd::GrpcClient` class that provides the same methods
 as the REST `Antd::Client`, but communicates over gRPC.
 
 ### Setup
@@ -56,7 +56,7 @@ grpc_tools_ruby_protoc \
   -I../../antd/proto \
   --ruby_out=lib --grpc_out=lib \
   antd/v1/common.proto antd/v1/health.proto antd/v1/data.proto \
-  antd/v1/chunks.proto antd/v1/graph.proto antd/v1/files.proto
+  antd/v1/chunks.proto antd/v1/files.proto
 ```
 
 The generated files are expected under `lib/antd/v1/`.
@@ -131,14 +131,6 @@ client = Antd::Client.new(base_url: "http://custom-host:9090", timeout: 30)
 | `chunk_put(data)` | Store a raw chunk |
 | `chunk_get(address)` | Retrieve a chunk |
 
-### Graph Entries (DAG Nodes)
-| Method | Description |
-|--------|-------------|
-| `graph_entry_put(secret_key, parents, content, descendants)` | Create entry |
-| `graph_entry_get(address)` | Read entry |
-| `graph_entry_exists(address)` | Check if exists |
-| `graph_entry_cost(public_key)` | Estimate creation cost |
-
 ### Files & Directories
 | Method | Description |
 |--------|-------------|
@@ -185,5 +177,4 @@ See the [examples/](examples/) directory:
 - `02_data.rb` — Public data put/get with cost estimate
 - `03_chunks.rb` — Chunk put/get
 - `04_files.rb` — File upload and download
-- `05_graph.rb` — Graph entry CRUD
 - `06_private_data.rb` — Private data put/get

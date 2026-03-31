@@ -2,7 +2,7 @@ defmodule Antd.GrpcClient do
   @moduledoc """
   gRPC client for the antd daemon.
 
-  Provides the same 19 functions as `Antd.Client` (REST), but communicates over
+  Provides the same functions as `Antd.Client` (REST), but communicates over
   gRPC using the proto-generated modules from `antd/v1/*.proto`.
 
   All public functions return `{:ok, result}` or `{:error, exception}`.
@@ -15,7 +15,7 @@ defmodule Antd.GrpcClient do
       protoc --elixir_out=plugins=grpc:lib \\
         -I../../antd/proto \\
         antd/v1/common.proto antd/v1/health.proto antd/v1/data.proto \\
-        antd/v1/chunks.proto antd/v1/graph.proto antd/v1/files.proto
+        antd/v1/chunks.proto antd/v1/files.proto
 
   The generated modules are expected under `lib/antd/v1/`.
   """
@@ -224,102 +224,6 @@ defmodule Antd.GrpcClient do
   @doc "Like `chunk_get/2` but raises on error."
   @spec chunk_get!(t(), String.t()) :: binary()
   def chunk_get!(client, address), do: unwrap!(chunk_get(client, address))
-
-  # ---------------------------------------------------------------------------
-  # Graph
-  # ---------------------------------------------------------------------------
-
-  @doc "Creates a new graph entry (DAG node)."
-  @spec graph_entry_put(t(), String.t(), [String.t()], String.t(), [Antd.GraphDescendant.t()]) ::
-          {:ok, Antd.PutResult.t()} | {:error, Exception.t()}
-  def graph_entry_put(%__MODULE__{channel: channel}, owner_secret_key, parents, content, descendants) do
-    descs =
-      Enum.map(descendants, fn d ->
-        Antd.V1.GraphDescendant.new(public_key: d.public_key, content: d.content)
-      end)
-
-    req =
-      Antd.V1.PutGraphEntryRequest.new(
-        owner_secret_key: owner_secret_key,
-        parents: parents,
-        content: content,
-        descendants: descs
-      )
-
-    case Antd.V1.GraphService.Stub.put(channel, req) do
-      {:ok, resp} ->
-        {:ok, %Antd.PutResult{cost: resp.cost.atto_tokens, address: resp.address}}
-
-      {:error, rpc_error} ->
-        {:error, translate_error(rpc_error)}
-    end
-  end
-
-  @doc "Like `graph_entry_put/5` but raises on error."
-  @spec graph_entry_put!(t(), String.t(), [String.t()], String.t(), [Antd.GraphDescendant.t()]) ::
-          Antd.PutResult.t()
-  def graph_entry_put!(client, owner_secret_key, parents, content, descendants) do
-    unwrap!(graph_entry_put(client, owner_secret_key, parents, content, descendants))
-  end
-
-  @doc "Retrieves a graph entry by address."
-  @spec graph_entry_get(t(), String.t()) :: {:ok, Antd.GraphEntry.t()} | {:error, Exception.t()}
-  def graph_entry_get(%__MODULE__{channel: channel}, address) do
-    req = Antd.V1.GetGraphEntryRequest.new(address: address)
-
-    case Antd.V1.GraphService.Stub.get(channel, req) do
-      {:ok, resp} ->
-        descendants =
-          Enum.map(resp.descendants, fn d ->
-            %Antd.GraphDescendant{public_key: d.public_key, content: d.content}
-          end)
-
-        {:ok,
-         %Antd.GraphEntry{
-           owner: resp.owner,
-           parents: Enum.to_list(resp.parents),
-           content: resp.content,
-           descendants: descendants
-         }}
-
-      {:error, rpc_error} ->
-        {:error, translate_error(rpc_error)}
-    end
-  end
-
-  @doc "Like `graph_entry_get/2` but raises on error."
-  @spec graph_entry_get!(t(), String.t()) :: Antd.GraphEntry.t()
-  def graph_entry_get!(client, address), do: unwrap!(graph_entry_get(client, address))
-
-  @doc "Checks if a graph entry exists at the given address."
-  @spec graph_entry_exists(t(), String.t()) :: {:ok, boolean()} | {:error, Exception.t()}
-  def graph_entry_exists(%__MODULE__{channel: channel}, address) do
-    req = Antd.V1.CheckGraphEntryRequest.new(address: address)
-
-    case Antd.V1.GraphService.Stub.check_existence(channel, req) do
-      {:ok, resp} -> {:ok, resp.exists}
-      {:error, rpc_error} -> {:error, translate_error(rpc_error)}
-    end
-  end
-
-  @doc "Like `graph_entry_exists/2` but raises on error."
-  @spec graph_entry_exists!(t(), String.t()) :: boolean()
-  def graph_entry_exists!(client, address), do: unwrap!(graph_entry_exists(client, address))
-
-  @doc "Estimates the cost of creating a graph entry."
-  @spec graph_entry_cost(t(), String.t()) :: {:ok, String.t()} | {:error, Exception.t()}
-  def graph_entry_cost(%__MODULE__{channel: channel}, public_key) do
-    req = Antd.V1.GraphEntryCostRequest.new(public_key: public_key)
-
-    case Antd.V1.GraphService.Stub.get_cost(channel, req) do
-      {:ok, resp} -> {:ok, resp.atto_tokens}
-      {:error, rpc_error} -> {:error, translate_error(rpc_error)}
-    end
-  end
-
-  @doc "Like `graph_entry_cost/2` but raises on error."
-  @spec graph_entry_cost!(t(), String.t()) :: String.t()
-  def graph_entry_cost!(client, public_key), do: unwrap!(graph_entry_cost(client, public_key))
 
   # ---------------------------------------------------------------------------
   # Files & Directories

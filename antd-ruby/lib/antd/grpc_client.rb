@@ -6,7 +6,7 @@
 #     -I../../antd/proto \
 #     --ruby_out=lib --grpc_out=lib \
 #     antd/v1/common.proto antd/v1/health.proto antd/v1/data.proto \
-#     antd/v1/chunks.proto antd/v1/graph.proto antd/v1/files.proto
+#     antd/v1/chunks.proto antd/v1/files.proto
 #
 # The generated files are expected under lib/antd/v1/.
 
@@ -14,7 +14,6 @@ require "grpc"
 require_relative "v1/health_services_pb"
 require_relative "v1/data_services_pb"
 require_relative "v1/chunks_services_pb"
-require_relative "v1/graph_services_pb"
 require_relative "v1/files_services_pb"
 
 module Antd
@@ -22,7 +21,7 @@ module Antd
 
   # gRPC client for the antd daemon.
   #
-  # Provides the same 19 methods as the REST +Client+, but communicates over
+  # Provides the same methods as the REST +Client+, but communicates over
   # gRPC using the proto-generated stubs from +antd/v1/*.proto+.
   class GrpcClient
     # Creates a gRPC client using port discovery.
@@ -43,7 +42,6 @@ module Antd
       @health_stub = Antd::V1::HealthService::Stub.new(target, :this_channel_is_insecure)
       @data_stub   = Antd::V1::DataService::Stub.new(target, :this_channel_is_insecure)
       @chunk_stub  = Antd::V1::ChunkService::Stub.new(target, :this_channel_is_insecure)
-      @graph_stub  = Antd::V1::GraphService::Stub.new(target, :this_channel_is_insecure)
       @file_stub   = Antd::V1::FileService::Stub.new(target, :this_channel_is_insecure)
     end
 
@@ -121,63 +119,6 @@ module Antd
       req = Antd::V1::GetChunkRequest.new(address: address)
       resp = grpc_call { @chunk_stub.get(req) }
       resp.data
-    end
-
-    # --- Graph ---
-
-    # Create a new graph entry (DAG node).
-    # @param owner_secret_key [String]
-    # @param parents [Array<String>]
-    # @param content [String]
-    # @param descendants [Array<GraphDescendant>]
-    # @return [PutResult]
-    def graph_entry_put(owner_secret_key, parents, content, descendants)
-      descs = descendants.map do |d|
-        Antd::V1::GraphDescendant.new(public_key: d.public_key, content: d.content)
-      end
-      req = Antd::V1::PutGraphEntryRequest.new(
-        owner_secret_key: owner_secret_key,
-        parents: parents,
-        content: content,
-        descendants: descs
-      )
-      resp = grpc_call { @graph_stub.put(req) }
-      PutResult.new(cost: resp.cost.atto_tokens, address: resp.address)
-    end
-
-    # Retrieve a graph entry by address.
-    # @param address [String]
-    # @return [GraphEntry]
-    def graph_entry_get(address)
-      req = Antd::V1::GetGraphEntryRequest.new(address: address)
-      resp = grpc_call { @graph_stub.get(req) }
-      descs = resp.descendants.map do |d|
-        GraphDescendant.new(public_key: d.public_key, content: d.content)
-      end
-      GraphEntry.new(
-        owner: resp.owner,
-        parents: resp.parents.to_a,
-        content: resp.content,
-        descendants: descs
-      )
-    end
-
-    # Check if a graph entry exists at the given address.
-    # @param address [String]
-    # @return [Boolean]
-    def graph_entry_exists(address)
-      req = Antd::V1::CheckGraphEntryRequest.new(address: address)
-      resp = grpc_call { @graph_stub.check_existence(req) }
-      resp.exists
-    end
-
-    # Estimate the cost of creating a graph entry.
-    # @param public_key [String]
-    # @return [String] cost in atto tokens
-    def graph_entry_cost(public_key)
-      req = Antd::V1::GraphEntryCostRequest.new(public_key: public_key)
-      resp = grpc_call { @graph_stub.get_cost(req) }
-      resp.atto_tokens
     end
 
     # --- Files ---

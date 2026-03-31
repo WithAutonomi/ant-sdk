@@ -18,20 +18,6 @@ struct PutResult {
     std::string address;  // hex
 };
 
-/// A descendant entry in a graph node.
-struct GraphDescendant {
-    std::string public_key;  // hex
-    std::string content;     // hex, 32 bytes
-};
-
-/// A DAG node from the network.
-struct GraphEntry {
-    std::string owner;
-    std::vector<std::string> parents;
-    std::string content;
-    std::vector<GraphDescendant> descendants;
-};
-
 /// A single entry in a file archive.
 struct ArchiveEntry {
     std::string path;

@@ -104,60 +104,6 @@ module Antd
       b64_decode(j["data"])
     end
 
-    # --- Graph ---
-
-    # Create a new graph entry (DAG node).
-    # @param owner_secret_key [String]
-    # @param parents [Array<String>]
-    # @param content [String]
-    # @param descendants [Array<GraphDescendant>]
-    # @return [PutResult]
-    def graph_entry_put(owner_secret_key, parents, content, descendants)
-      descs = descendants.map { |d| { public_key: d.public_key, content: d.content } }
-      j = do_json(:post, "/v1/graph", {
-        owner_secret_key: owner_secret_key,
-        parents: parents,
-        content: content,
-        descendants: descs
-      })
-      PutResult.new(cost: j["cost"], address: j["address"])
-    end
-
-    # Retrieve a graph entry by address.
-    # @param address [String]
-    # @return [GraphEntry]
-    def graph_entry_get(address)
-      j = do_json(:get, "/v1/graph/#{address}")
-      descs = (j["descendants"] || []).map do |d|
-        GraphDescendant.new(public_key: d["public_key"], content: d["content"])
-      end
-      GraphEntry.new(
-        owner: j["owner"],
-        parents: j["parents"] || [],
-        content: j["content"],
-        descendants: descs
-      )
-    end
-
-    # Check if a graph entry exists at the given address.
-    # @param address [String]
-    # @return [Boolean]
-    def graph_entry_exists(address)
-      code = do_head("/v1/graph/#{address}")
-      return false if code == 404
-      raise Antd.error_for_status(code, "graph entry exists check failed") if code >= 300
-
-      true
-    end
-
-    # Estimate the cost of creating a graph entry.
-    # @param public_key [String]
-    # @return [String] cost in atto tokens
-    def graph_entry_cost(public_key)
-      j = do_json(:post, "/v1/graph/cost", { public_key: public_key })
-      j["cost"]
-    end
-
     # --- Files ---
 
     # Upload a local file to the network.

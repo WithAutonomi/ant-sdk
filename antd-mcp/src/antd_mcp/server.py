@@ -12,8 +12,6 @@ from mcp.server.fastmcp import FastMCP
 
 from antd import AsyncAntdClient
 from antd.exceptions import AntdError
-from antd.models import GraphDescendant
-
 from .discover import discover_daemon_url
 from .errors import format_error, format_unexpected_error
 
@@ -378,137 +376,7 @@ async def chunk_get(
 
 
 # ---------------------------------------------------------------------------
-# Tool 11: create_graph_entry
-# ---------------------------------------------------------------------------
-
-
-@mcp.tool()
-async def create_graph_entry(
-    owner_secret_key: str,
-    content: str,
-    parents: list[str] | None = None,
-    descendants: list[dict] | None = None,
-) -> str:
-    """Create a graph entry (DAG node) on the Autonomi network.
-
-    Args:
-        owner_secret_key: Hex-encoded secret key of the graph entry owner.
-        content: Hex-encoded content (32 bytes).
-        parents: List of parent graph entry addresses. Default: empty.
-        descendants: List of descendant objects, each with "public_key" and "content" (hex).
-            Default: empty.
-
-    Returns:
-        JSON with graph entry address and cost, or error details.
-    """
-    client, network = _get_ctx()
-    try:
-        desc = [
-            GraphDescendant(public_key=d["public_key"], content=d["content"])
-            for d in (descendants or [])
-        ]
-        result = await client.graph_entry_put(
-            owner_secret_key, parents or [], content, desc,
-        )
-        return _ok({"address": result.address, "cost": result.cost}, network)
-    except AntdError as exc:
-        return _err_antd(exc, network)
-    except Exception as exc:
-        return _err(exc, network)
-
-
-# ---------------------------------------------------------------------------
-# Tool 12: get_graph_entry
-# ---------------------------------------------------------------------------
-
-
-@mcp.tool()
-async def get_graph_entry(
-    address: str,
-) -> str:
-    """Read a graph entry from the Autonomi network.
-
-    Args:
-        address: Hex address of the graph entry.
-
-    Returns:
-        JSON with graph entry details (owner, parents, content, descendants),
-        or error details.
-    """
-    client, network = _get_ctx()
-    try:
-        g = await client.graph_entry_get(address)
-        return _ok({
-            "owner": g.owner,
-            "parents": g.parents,
-            "content": g.content,
-            "descendants": [
-                {"public_key": d.public_key, "content": d.content}
-                for d in g.descendants
-            ],
-        }, network)
-    except AntdError as exc:
-        return _err_antd(exc, network)
-    except Exception as exc:
-        return _err(exc, network)
-
-
-# ---------------------------------------------------------------------------
-# Tool 13: graph_entry_exists
-# ---------------------------------------------------------------------------
-
-
-@mcp.tool()
-async def graph_entry_exists(
-    address: str,
-) -> str:
-    """Check if a graph entry exists on the Autonomi network.
-
-    Args:
-        address: Hex address of the graph entry.
-
-    Returns:
-        JSON with exists boolean, or error details.
-    """
-    client, network = _get_ctx()
-    try:
-        exists = await client.graph_entry_exists(address)
-        return _ok({"exists": exists}, network)
-    except AntdError as exc:
-        return _err_antd(exc, network)
-    except Exception as exc:
-        return _err(exc, network)
-
-
-# ---------------------------------------------------------------------------
-# Tool 14: graph_entry_cost
-# ---------------------------------------------------------------------------
-
-
-@mcp.tool()
-async def graph_entry_cost(
-    public_key: str,
-) -> str:
-    """Estimate the cost to create a graph entry.
-
-    Args:
-        public_key: Hex-encoded public key of the graph entry owner.
-
-    Returns:
-        JSON with cost in atto tokens, or error details.
-    """
-    client, network = _get_ctx()
-    try:
-        cost = await client.graph_entry_cost(public_key)
-        return _ok({"cost": cost}, network)
-    except AntdError as exc:
-        return _err_antd(exc, network)
-    except Exception as exc:
-        return _err(exc, network)
-
-
-# ---------------------------------------------------------------------------
-# Tool 15: archive_get
+# Tool 11: archive_get
 # ---------------------------------------------------------------------------
 
 
@@ -547,7 +415,7 @@ async def archive_get(
 
 
 # ---------------------------------------------------------------------------
-# Tool 16: wallet_approve
+# Tool 12: wallet_approve
 # ---------------------------------------------------------------------------
 
 
@@ -572,7 +440,7 @@ async def wallet_approve() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Tool 17: archive_put
+# Tool 13: archive_put
 # ---------------------------------------------------------------------------
 
 
@@ -611,7 +479,7 @@ async def archive_put(
 
 
 # ---------------------------------------------------------------------------
-# Tool 18: prepare_upload
+# Tool 14: prepare_upload
 # ---------------------------------------------------------------------------
 
 
@@ -656,7 +524,7 @@ async def prepare_upload(
 
 
 # ---------------------------------------------------------------------------
-# Tool 19: prepare_data_upload
+# Tool 15: prepare_data_upload
 # ---------------------------------------------------------------------------
 
 
@@ -703,7 +571,7 @@ async def prepare_data_upload(
 
 
 # ---------------------------------------------------------------------------
-# Tool 20: finalize_upload
+# Tool 16: finalize_upload
 # ---------------------------------------------------------------------------
 
 

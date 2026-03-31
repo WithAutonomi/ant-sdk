@@ -41,17 +41,10 @@ public class TestRunner
 
     private const int PropagationDelay = 3;
 
-    // Unique keys per transport to avoid DHT collisions between REST and gRPC runs
-    private readonly string _keyGraph;
-
     public TestRunner(IAntdClient client, string transport)
     {
         _client = client;
         _transport = transport;
-
-        // Offset keys by transport: REST uses 01-04, gRPC uses 11-14
-        var offset = transport == "grpc" ? "1" : "0";
-        _keyGraph      = new string('0', 62) + offset + "3";
     }
 
     private void Pass(string name, string detail = "")
@@ -82,7 +75,6 @@ public class TestRunner
         var dataAddr = await TestDataPublic();
         await TestDataCost();
         var chunkAddr = await TestChunks();
-        await TestGraph();
         await TestLargeData();
 
         // Summary
@@ -203,59 +195,7 @@ public class TestRunner
         return chunkAddr;
     }
 
-    // 5. Graph entry put/exists/get/cost
-    private async Task TestGraph()
-    {
-        string? graphAddr = null;
-        try
-        {
-            var contentHex = string.Concat(Enumerable.Repeat("ab", 32)); // "abab...ab" 64 hex chars = 32 bytes
-            var result = await _client.GraphEntryPutAsync(_keyGraph, [], contentHex, []);
-            graphAddr = result.Address;
-            Pass("Graph entry put", $"addr={result.Address[..16]}... cost={result.Cost}");
-        }
-        catch (AlreadyExistsException)
-        {
-            Pass("Graph entry put", "already exists (expected on re-run)");
-        }
-        catch (Exception ex) { Fail("Graph entry put", ex.Message); }
-
-        if (graphAddr != null)
-        {
-            Console.WriteLine($"  ... waiting {PropagationDelay}s for DHT propagation");
-            await Task.Delay(PropagationDelay * 1000);
-
-            try
-            {
-                var exists = await _client.GraphEntryExistsAsync(graphAddr);
-                if (exists) Pass("Graph entry exists");
-                else Fail("Graph entry exists", "returned false");
-            }
-            catch (Exception ex) { Fail("Graph entry exists", ex.Message); }
-
-            try
-            {
-                var entry = await _client.GraphEntryGetAsync(graphAddr);
-                Pass("Graph entry get", $"owner={entry.Owner[..16]}... content={entry.Content[..16]}...");
-            }
-            catch (Exception ex) { Fail("Graph entry get", ex.Message); }
-
-            try
-            {
-                var cost = await _client.GraphEntryCostAsync(graphAddr);
-                Pass("Graph entry cost", $"cost={cost}");
-            }
-            catch (Exception ex) { Fail("Graph entry cost", ex.Message); }
-        }
-        else
-        {
-            Skip("Graph entry exists", "no graph address");
-            Skip("Graph entry get", "no graph address");
-            Skip("Graph entry cost", "no graph address");
-        }
-    }
-
-    // 6. Large data round-trip (10 KB)
+    // 5. Large data round-trip (10 KB)
     private async Task TestLargeData()
     {
         try

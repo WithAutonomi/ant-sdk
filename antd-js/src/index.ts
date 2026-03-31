@@ -1,8 +1,6 @@
 export type {
   HealthStatus,
   PutResult,
-  GraphDescendant,
-  GraphEntry,
   ArchiveEntry,
   Archive,
   WalletAddress,

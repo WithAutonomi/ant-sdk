@@ -24,7 +24,6 @@ ffi/
 │           ├── network.rs    # Network wrapper
 │           ├── payment.rs    # Wallet, PaymentOption
 │           ├── data.rs       # Chunk, ChunkAddress, DataAddress, DataMapChunk
-│           ├── graph.rs      # GraphEntry, GraphEntryAddress
 │           └── files.rs      # PublicArchive, PrivateArchive, Metadata
 ├── csharp/
 │   ├── AntFfi.sln
@@ -108,7 +107,6 @@ All methods are exposed on the `Client` object:
 | **Init** | `init()`, `init_local()`, `init_with_peers()` |
 | **Chunks** | `chunk_get`, `chunk_put`, `chunk_cost` |
 | **Data** | `data_get_public`, `data_put_public`, `data_get`, `data_put`, `data_cost` |
-| **Graph** | `graph_entry_get`, `graph_entry_put`, `graph_entry_cost`, `graph_entry_check_existence` |
 | **Files** | `file_upload`, `file_upload_public`, `file_download`, `file_download_public`, `file_cost` |
 | **Directories** | `dir_upload`, `dir_upload_public`, `dir_download`, `dir_download_public` |
 | **Archives** | `archive_get`, `archive_get_public`, `archive_put`, `archive_put_public`, `archive_cost` |

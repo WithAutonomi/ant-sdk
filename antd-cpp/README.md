@@ -131,7 +131,7 @@ for (auto& f : futures) {
 
 ## gRPC Transport
 
-The SDK includes a `GrpcClient` class that provides the same 19 methods as the
+The SDK includes a `GrpcClient` class that provides the same methods as the
 REST `Client`, but communicates over gRPC. This can offer lower latency and
 better streaming support for large data transfers.
 
@@ -234,15 +234,6 @@ All methods throw `antd::AntdError` (or a subclass) on failure.
 | `chunk_put(data)` | Store a raw chunk |
 | `chunk_get(address)` | Retrieve a chunk |
 
-### Graph Entries (DAG Nodes)
-
-| Method | Description |
-|--------|-------------|
-| `graph_entry_put(secret_key, parents, content, descendants)` | Create entry |
-| `graph_entry_get(address)` | Read entry |
-| `graph_entry_exists(address)` | Check if exists |
-| `graph_entry_cost(public_key)` | Estimate creation cost |
-
 ### Files & Directories
 
 | Method | Description |
@@ -303,5 +294,4 @@ See the [examples/](examples/) directory:
 - `02-data` — Public data storage and retrieval
 - `03-chunks` — Raw chunk operations
 - `04-files` — File and directory upload/download
-- `05-graph` — Graph entry (DAG node) operations
 - `06-private-data` — Private encrypted data storage

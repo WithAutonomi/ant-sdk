@@ -47,7 +47,7 @@ client = Antd.Client.new()
 
 ## gRPC Transport
 
-The SDK includes an `Antd.GrpcClient` module that provides the same 19
+The SDK includes an `Antd.GrpcClient` module that provides the same
 functions as the REST `Antd.Client`, but communicates over gRPC.
 
 ### Setup
@@ -65,7 +65,7 @@ Generate the Elixir protobuf/gRPC stubs from the proto definitions:
 protoc --elixir_out=plugins=grpc:lib \
   -I../../antd/proto \
   antd/v1/common.proto antd/v1/health.proto antd/v1/data.proto \
-  antd/v1/chunks.proto antd/v1/graph.proto antd/v1/files.proto
+  antd/v1/chunks.proto antd/v1/files.proto
 ```
 
 The generated modules are expected under `lib/antd/v1/`.
@@ -144,15 +144,6 @@ All functions take a `%Antd.Client{}` as the first argument. Each returns `{:ok,
 | `chunk_put(client, data)` | Store a raw chunk |
 | `chunk_get(client, address)` | Retrieve a chunk |
 
-### Graph Entries (DAG Nodes)
-
-| Function | Description |
-|----------|-------------|
-| `graph_entry_put(client, secret_key, parents, content, descendants)` | Create entry |
-| `graph_entry_get(client, address)` | Read entry |
-| `graph_entry_exists(client, address)` | Check if exists |
-| `graph_entry_cost(client, public_key)` | Estimate creation cost |
-
 ### Files & Directories
 
 | Function | Description |
@@ -216,5 +207,4 @@ See the [examples/](examples/) directory:
 - `02_data.exs` — Public data storage and retrieval
 - `03_chunks.exs` — Raw chunk operations
 - `04_files.exs` — File and directory upload/download
-- `05_graph.exs` — Graph entries (DAG nodes)
 - `06_private_data.exs` — Private encrypted data

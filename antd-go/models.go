@@ -12,20 +12,6 @@ type PutResult struct {
 	Address string `json:"address"` // hex
 }
 
-// GraphDescendant is a descendant entry in a graph node.
-type GraphDescendant struct {
-	PublicKey string `json:"public_key"` // hex
-	Content   string `json:"content"`    // hex, 32 bytes
-}
-
-// GraphEntry is a DAG node from the network.
-type GraphEntry struct {
-	Owner       string            `json:"owner"`
-	Parents     []string          `json:"parents"`
-	Content     string            `json:"content"`
-	Descendants []GraphDescendant `json:"descendants"`
-}
-
 // ArchiveEntry is a single entry in a file archive.
 type ArchiveEntry struct {
 	Path     string `json:"path"`

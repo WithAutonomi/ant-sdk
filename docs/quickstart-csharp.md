@@ -112,32 +112,6 @@ await client.DirDownloadPublicAsync(dirResult.Address, "/path/to/output_dir");
 var cost = await client.FileCostAsync("/path/to/file.txt");
 ```
 
-## Graph Entries (DAG Nodes)
-
-```csharp
-var secretKey = Convert.ToHexString(
-    RandomNumberGenerator.GetBytes(32)
-).ToLower();
-var content = Convert.ToHexString(
-    RandomNumberGenerator.GetBytes(32)
-).ToLower();
-
-// Create root node
-var result = await client.GraphEntryPutAsync(
-    secretKey,
-    parents: new List<string>(),
-    content: content,
-    descendants: new List<GraphDescendant>()
-);
-
-// Read
-var entry = await client.GraphEntryGetAsync(result.Address);
-Console.WriteLine($"Owner: {entry.Owner}");
-Console.WriteLine($"Parents: {entry.Parents.Count}");
-
-// Check existence
-var exists = await client.GraphEntryExistsAsync(result.Address);
-```
 
 ## Error Handling
 
@@ -188,7 +162,6 @@ dotnet run -- 1      # Connect
 dotnet run -- 2      # Public data
 dotnet run -- 3      # Chunks
 dotnet run -- 4      # Files
-dotnet run -- 5      # Graph entries
 dotnet run -- 6      # Private data
 dotnet run -- all    # Run all examples
 ```

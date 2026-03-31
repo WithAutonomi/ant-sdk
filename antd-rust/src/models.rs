@@ -16,24 +16,6 @@ pub struct PutResult {
     pub address: String,
 }
 
-/// A descendant entry in a graph node.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphDescendant {
-    /// Hex-encoded public key.
-    pub public_key: String,
-    /// Hex-encoded content (32 bytes).
-    pub content: String,
-}
-
-/// A DAG node from the network.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphEntry {
-    pub owner: String,
-    pub parents: Vec<String>,
-    pub content: String,
-    pub descendants: Vec<GraphDescendant>,
-}
-
 /// A single entry in a file archive.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArchiveEntry {

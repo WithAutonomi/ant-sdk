@@ -4,8 +4,6 @@ import type {
   Archive,
   ArchiveEntry,
   FinalizeUploadResult,
-  GraphDescendant,
-  GraphEntry,
   HealthStatus,
   PaymentInfo,
   PrepareUploadResult,
@@ -174,55 +172,6 @@ export class RestClient {
   async chunkGet(address: string): Promise<Buffer> {
     const j = await this.getJson<{ data: string }>(`/v1/chunks/${address}`);
     return RestClient.unb64(j.data);
-  }
-
-  // ---- Graph ----
-
-  async graphEntryPut(
-    ownerSecretKey: string,
-    parents: string[],
-    content: string,
-    descendants: GraphDescendant[],
-  ): Promise<PutResult> {
-    const j = await this.postJson<{ cost: string; address: string }>("/v1/graph", {
-      owner_secret_key: ownerSecretKey,
-      parents,
-      content,
-      descendants: descendants.map((d) => ({
-        public_key: d.publicKey,
-        content: d.content,
-      })),
-    });
-    return { cost: j.cost, address: j.address };
-  }
-
-  async graphEntryGet(address: string): Promise<GraphEntry> {
-    const j = await this.getJson<{
-      owner: string;
-      parents?: string[];
-      content: string;
-      descendants?: { public_key: string; content: string }[];
-    }>(`/v1/graph/${address}`);
-    return {
-      owner: j.owner,
-      parents: j.parents ?? [],
-      content: j.content,
-      descendants: (j.descendants ?? []).map((d) => ({
-        publicKey: d.public_key,
-        content: d.content,
-      })),
-    };
-  }
-
-  async graphEntryExists(address: string): Promise<boolean> {
-    return this.headExists(`/v1/graph/${address}`);
-  }
-
-  async graphEntryCost(publicKey: string): Promise<string> {
-    const j = await this.postJson<{ cost: string }>("/v1/graph/cost", {
-      public_key: publicKey,
-    });
-    return j.cost;
   }
 
   // ---- Files ----

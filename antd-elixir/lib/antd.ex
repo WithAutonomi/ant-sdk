@@ -41,14 +41,6 @@ defmodule Antd do
   defdelegate chunk_put!(client, data), to: Antd.Client
   defdelegate chunk_get(client, address), to: Antd.Client
   defdelegate chunk_get!(client, address), to: Antd.Client
-  defdelegate graph_entry_put(client, owner_secret_key, parents, content, descendants), to: Antd.Client
-  defdelegate graph_entry_put!(client, owner_secret_key, parents, content, descendants), to: Antd.Client
-  defdelegate graph_entry_get(client, address), to: Antd.Client
-  defdelegate graph_entry_get!(client, address), to: Antd.Client
-  defdelegate graph_entry_exists(client, address), to: Antd.Client
-  defdelegate graph_entry_exists!(client, address), to: Antd.Client
-  defdelegate graph_entry_cost(client, public_key), to: Antd.Client
-  defdelegate graph_entry_cost!(client, public_key), to: Antd.Client
   defdelegate file_upload_public(client, path), to: Antd.Client
   defdelegate file_upload_public!(client, path), to: Antd.Client
   defdelegate file_download_public(client, address, dest_path), to: Antd.Client

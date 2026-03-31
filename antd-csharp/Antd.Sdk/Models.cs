@@ -6,12 +6,6 @@ public sealed record HealthStatus(bool Ok, string Network);
 /// <summary>Result of a put/create operation that stores data on the network.</summary>
 public sealed record PutResult(string Cost, string Address);
 
-/// <summary>A descendant entry in a graph node.</summary>
-public sealed record GraphDescendant(string PublicKey, string Content);
-
-/// <summary>A graph entry retrieved from the network.</summary>
-public sealed record GraphEntry(string Owner, List<string> Parents, string Content, List<GraphDescendant> Descendants);
-
 /// <summary>A single entry in an archive manifest.</summary>
 public sealed record ArchiveEntry(string Path, string Address, ulong Created, ulong Modified, ulong Size);
 

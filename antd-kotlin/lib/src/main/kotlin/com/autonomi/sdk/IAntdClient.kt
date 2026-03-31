@@ -24,12 +24,6 @@ interface IAntdClient : Closeable {
     suspend fun chunkPut(data: ByteArray): PutResult
     suspend fun chunkGet(address: String): ByteArray
 
-    // Graph
-    suspend fun graphEntryPut(ownerSecretKey: String, parents: List<String>, content: String, descendants: List<GraphDescendant>): PutResult
-    suspend fun graphEntryGet(address: String): GraphEntry
-    suspend fun graphEntryExists(address: String): Boolean
-    suspend fun graphEntryCost(publicKey: String): String
-
     // Files
     suspend fun fileUploadPublic(path: String, paymentMode: String? = null): PutResult
     suspend fun fileDownloadPublic(address: String, destPath: String)

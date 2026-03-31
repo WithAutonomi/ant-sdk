@@ -23,7 +23,6 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
     private val healthStub = HealthServiceGrpcKt.HealthServiceCoroutineStub(channel)
     private val dataStub = DataServiceGrpcKt.DataServiceCoroutineStub(channel)
     private val chunkStub = ChunkServiceGrpcKt.ChunkServiceCoroutineStub(channel)
-    private val graphStub = GraphServiceGrpcKt.GraphServiceCoroutineStub(channel)
     private val fileStub = FileServiceGrpcKt.FileServiceCoroutineStub(channel)
 
     override fun close() {
@@ -84,43 +83,6 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
     override suspend fun chunkGet(address: String): ByteArray = try {
         val resp = chunkStub.get(getChunkRequest { this.address = address })
         resp.data.toByteArray()
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
-    // ── Graph ──
-
-    override suspend fun graphEntryPut(
-        ownerSecretKey: String,
-        parents: List<String>,
-        content: String,
-        descendants: List<GraphDescendant>,
-    ): PutResult = try {
-        val resp = graphStub.put(putGraphEntryRequest {
-            this.ownerSecretKey = ownerSecretKey
-            this.content = content
-            this.parents.addAll(parents)
-            this.descendants.addAll(descendants.map { d ->
-                graphDescendant { publicKey = d.publicKey; this.content = d.content }
-            })
-        })
-        PutResult(resp.cost.attoTokens, resp.address)
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
-    override suspend fun graphEntryGet(address: String): GraphEntry = try {
-        val resp = graphStub.get(getGraphEntryRequest { this.address = address })
-        val desc = resp.descendantsList.map { GraphDescendant(it.publicKey, it.content) }
-        GraphEntry(resp.owner, resp.parentsList, resp.content, desc)
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
-    override suspend fun graphEntryExists(address: String): Boolean = try {
-        val resp = graphStub.checkExistence(checkGraphEntryRequest { this.address = address })
-        resp.exists
-    } catch (ex: StatusRuntimeException) {
-        if (ex.status.code == Status.Code.NOT_FOUND) false else throw wrap(ex)
-    }
-
-    override suspend fun graphEntryCost(publicKey: String): String = try {
-        val resp = graphStub.getCost(graphEntryCostRequest { this.publicKey = publicKey })
-        resp.attoTokens
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
     // ── Files ──

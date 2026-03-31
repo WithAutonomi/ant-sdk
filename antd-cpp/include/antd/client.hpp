@@ -74,23 +74,6 @@ public:
     /// Retrieve a chunk by address.
     std::vector<uint8_t> chunk_get(std::string_view address);
 
-    // --- Graph Entries (DAG Nodes) ---
-
-    /// Create a new graph entry.
-    PutResult graph_entry_put(std::string_view owner_secret_key,
-                              const std::vector<std::string>& parents,
-                              std::string_view content,
-                              const std::vector<GraphDescendant>& descendants);
-
-    /// Retrieve a graph entry by address.
-    GraphEntry graph_entry_get(std::string_view address);
-
-    /// Check if a graph entry exists at the given address.
-    bool graph_entry_exists(std::string_view address);
-
-    /// Estimate the cost of creating a graph entry.
-    std::string graph_entry_cost(std::string_view public_key);
-
     // --- Files & Directories ---
 
     /// Upload a local file to the network.

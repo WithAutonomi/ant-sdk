@@ -1,6 +1,6 @@
 # ant-sdk
 
-A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized network. Store data, build DAGs, and more — from Go, JavaScript/TypeScript, Python, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, Elixir, Zig, Rust, C++, Java, or AI agents.
+A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized network. Store data permanently and more — from Go, JavaScript/TypeScript, Python, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, Elixir, Zig, Rust, C++, Java, or AI agents.
 
 ## Architecture
 
@@ -421,7 +421,6 @@ The Autonomi network provides these core primitives, all accessible through the 
 |-----------|-------------|
 | **Data** | Store/retrieve arbitrary byte blobs (public or private/encrypted) |
 | **Chunks** | Low-level content-addressed storage |
-| **Graph Entries** | Append-only DAG nodes with parent/descendant links |
 | **Files** | File/directory upload with archive manifests |
 
 ## Developer CLI Reference

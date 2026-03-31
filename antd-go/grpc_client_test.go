@@ -78,37 +78,6 @@ func (m *mockChunkService) Get(_ context.Context, _ *pb.GetChunkRequest) (*pb.Ge
 	return &pb.GetChunkResponse{Data: []byte("chunkdata")}, nil
 }
 
-// mockGraphService implements pb.GraphServiceServer.
-type mockGraphService struct {
-	pb.UnimplementedGraphServiceServer
-}
-
-func (m *mockGraphService) Put(_ context.Context, _ *pb.PutGraphEntryRequest) (*pb.PutGraphEntryResponse, error) {
-	return &pb.PutGraphEntryResponse{
-		Cost:    &pb.Cost{AttoTokens: "500"},
-		Address: "ge1",
-	}, nil
-}
-
-func (m *mockGraphService) Get(_ context.Context, _ *pb.GetGraphEntryRequest) (*pb.GetGraphEntryResponse, error) {
-	return &pb.GetGraphEntryResponse{
-		Owner:   "owner1",
-		Parents: []string{},
-		Content: "abc",
-		Descendants: []*pb.GraphDescendant{
-			{PublicKey: "pk1", Content: "desc1"},
-		},
-	}, nil
-}
-
-func (m *mockGraphService) CheckExistence(_ context.Context, _ *pb.CheckGraphEntryRequest) (*pb.GraphExistsResponse, error) {
-	return &pb.GraphExistsResponse{Exists: true}, nil
-}
-
-func (m *mockGraphService) GetCost(_ context.Context, _ *pb.GraphEntryCostRequest) (*pb.Cost, error) {
-	return &pb.Cost{AttoTokens: "500"}, nil
-}
-
 // mockFileService implements pb.FileServiceServer.
 type mockFileService struct {
 	pb.UnimplementedFileServiceServer
@@ -180,7 +149,6 @@ func startMockServer(t *testing.T) *GrpcClient {
 	pb.RegisterHealthServiceServer(s, &mockHealthService{})
 	pb.RegisterDataServiceServer(s, &mockDataService{})
 	pb.RegisterChunkServiceServer(s, &mockChunkService{})
-	pb.RegisterGraphServiceServer(s, &mockGraphService{})
 	pb.RegisterFileServiceServer(s, &mockFileService{})
 
 	go func() {
@@ -240,7 +208,7 @@ func startErrorServer(t *testing.T, code codes.Code, msg string) *GrpcClient {
 	return c
 }
 
-// --- Tests for all 19 gRPC methods ---
+// --- Tests for all gRPC methods ---
 
 func TestGrpcHealth(t *testing.T) {
 	c := startMockServer(t)
@@ -327,53 +295,6 @@ func TestGrpcChunkGet(t *testing.T) {
 	}
 	if string(data) != "chunkdata" {
 		t.Fatalf("unexpected chunk data: %s", data)
-	}
-}
-
-func TestGrpcGraphEntryPut(t *testing.T) {
-	c := startMockServer(t)
-	put, err := c.GraphEntryPut(context.Background(), "sk1", []string{}, "abc", []GraphDescendant{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if put.Address != "ge1" || put.Cost != "500" {
-		t.Fatalf("unexpected graph put: %+v", put)
-	}
-}
-
-func TestGrpcGraphEntryGet(t *testing.T) {
-	c := startMockServer(t)
-	ge, err := c.GraphEntryGet(context.Background(), "ge1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ge.Owner != "owner1" || len(ge.Descendants) != 1 {
-		t.Fatalf("unexpected graph entry: %+v", ge)
-	}
-	if ge.Descendants[0].PublicKey != "pk1" || ge.Descendants[0].Content != "desc1" {
-		t.Fatalf("unexpected descendant: %+v", ge.Descendants[0])
-	}
-}
-
-func TestGrpcGraphEntryExists(t *testing.T) {
-	c := startMockServer(t)
-	exists, err := c.GraphEntryExists(context.Background(), "ge1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !exists {
-		t.Fatal("expected graph entry to exist")
-	}
-}
-
-func TestGrpcGraphEntryCost(t *testing.T) {
-	c := startMockServer(t)
-	cost, err := c.GraphEntryCost(context.Background(), "pk1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cost != "500" {
-		t.Fatalf("unexpected cost: %s", cost)
 	}
 }
 

@@ -75,21 +75,6 @@ Download:  address     ──▶  antd  ──▶  local path
 
 Use for: file hosting, static websites, media storage.
 
-### Append-Only Data
-
-#### Graph Entries
-
-DAG (Directed Acyclic Graph) nodes. Each entry has an owner, content, parent links, and descendant links.
-
-```
-GraphEntry (owned by key K)
-  ├── content: 0x... (32 bytes)
-  ├── parents: [addr1, addr2]
-  └── descendants: [{public_key, content}, ...]
-```
-
-Use for: linked data structures, version history, social graphs, dependency trees.
-
 ## Payment Model
 
 Every write operation costs network tokens (measured in "atto tokens" — 1 token = 10^18 atto).
@@ -118,32 +103,14 @@ print(f"Paid {result.cost} atto tokens")
 | Access control | IAM policies | Cryptographic keys |
 | Redundancy | Configurable | Built-in (network-wide replication) |
 | Privacy | Trust the provider | Self-encrypting (zero knowledge) |
-| Mutability | Overwrite anything | Immutable by design (append-only graphs for linked structures) |
+| Mutability | Overwrite anything | Immutable by design |
 | Cost model | Per-request + storage/month | One-time write fee, reads are free |
 
 ## Key Design Patterns
 
-### Pattern 1: Linked History with Graph Entries
-
-Build append-only logs or version chains using graph entries.
-
-```python
-import os
-
-# First entry (no parents)
-key1 = os.urandom(32).hex()
-content1 = os.urandom(32).hex()
-entry1 = client.graph_entry_put(key1, parents=[], content=content1, descendants=[])
-
-# Second entry links to the first
-key2 = os.urandom(32).hex()
-content2 = os.urandom(32).hex()
-entry2 = client.graph_entry_put(key2, parents=[entry1.address], content=content2, descendants=[])
-```
-
 ## Security Model
 
-- **Secret keys**: 32-byte hex-encoded keys used for graph entries and private data operations.
+- **Secret keys**: 32-byte hex-encoded keys used for private data operations.
 - **Never share secret keys**: Treat them like passwords. The public key (derived from the secret key) is safe to share.
 - **Private data**: Self-encrypted using the network's encryption scheme. The data map is needed for decryption.
 - **No access revocation**: Once data is public, it cannot be made private. Plan your key management accordingly.

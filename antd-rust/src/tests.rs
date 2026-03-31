@@ -85,42 +85,6 @@ fn mock_chunk_get(server: &mut ServerGuard) -> Mock {
         .create()
 }
 
-fn mock_graph_entry_put(server: &mut ServerGuard) -> Mock {
-    server
-        .mock("POST", "/v1/graph")
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"cost":"500","address":"ge1"}"#)
-        .create()
-}
-
-fn mock_graph_entry_get(server: &mut ServerGuard) -> Mock {
-    server
-        .mock("GET", "/v1/graph/ge1")
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(
-            r#"{"owner":"owner1","parents":[],"content":"abc","descendants":[{"public_key":"pk1","content":"desc1"}]}"#,
-        )
-        .create()
-}
-
-fn mock_graph_entry_exists(server: &mut ServerGuard) -> Mock {
-    server
-        .mock("HEAD", "/v1/graph/ge1")
-        .with_status(200)
-        .create()
-}
-
-fn mock_graph_entry_cost(server: &mut ServerGuard) -> Mock {
-    server
-        .mock("POST", "/v1/graph/cost")
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"cost":"500"}"#)
-        .create()
-}
-
 fn mock_file_upload_public(server: &mut ServerGuard) -> Mock {
     server
         .mock("POST", "/v1/files/upload/public")
@@ -268,53 +232,6 @@ async fn test_chunk_get() {
 
     let data = client.chunk_get("chunk1").await.unwrap();
     assert_eq!(data, b"chunkdata");
-}
-
-#[tokio::test]
-async fn test_graph_entry_put() {
-    let mut server = mock_server().await;
-    let _m = mock_graph_entry_put(&mut server);
-    let client = Client::new(&server.url());
-
-    let result = client
-        .graph_entry_put("sk1", &[], "abc", &[])
-        .await
-        .unwrap();
-    assert_eq!(result.address, "ge1");
-    assert_eq!(result.cost, "500");
-}
-
-#[tokio::test]
-async fn test_graph_entry_get() {
-    let mut server = mock_server().await;
-    let _m = mock_graph_entry_get(&mut server);
-    let client = Client::new(&server.url());
-
-    let entry = client.graph_entry_get("ge1").await.unwrap();
-    assert_eq!(entry.owner, "owner1");
-    assert_eq!(entry.descendants.len(), 1);
-    assert_eq!(entry.descendants[0].public_key, "pk1");
-    assert_eq!(entry.descendants[0].content, "desc1");
-}
-
-#[tokio::test]
-async fn test_graph_entry_exists() {
-    let mut server = mock_server().await;
-    let _m = mock_graph_entry_exists(&mut server);
-    let client = Client::new(&server.url());
-
-    let exists = client.graph_entry_exists("ge1").await.unwrap();
-    assert!(exists);
-}
-
-#[tokio::test]
-async fn test_graph_entry_cost() {
-    let mut server = mock_server().await;
-    let _m = mock_graph_entry_cost(&mut server);
-    let client = Client::new(&server.url());
-
-    let cost = client.graph_entry_cost("pk1").await.unwrap();
-    assert_eq!(cost, "500");
 }
 
 #[tokio::test]
@@ -523,7 +440,7 @@ async fn test_error_mapping_network() {
 async fn test_error_mapping_already_exists() {
     let mut server = mock_server().await;
     let _m = server
-        .mock("POST", "/v1/graph")
+        .mock("POST", "/v1/data/public")
         .with_status(409)
         .with_header("content-type", "application/json")
         .with_body(r#"{"error":"already exists"}"#)
@@ -531,7 +448,7 @@ async fn test_error_mapping_already_exists() {
     let client = Client::new(&server.url());
 
     let err = client
-        .graph_entry_put("sk1", &[], "abc", &[])
+        .data_put_public(b"test")
         .await
         .unwrap_err();
     match err {

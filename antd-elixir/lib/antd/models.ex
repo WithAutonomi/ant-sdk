@@ -22,32 +22,6 @@ defmodule Antd.PutResult do
         }
 end
 
-defmodule Antd.GraphDescendant do
-  @moduledoc "A descendant entry in a graph node."
-
-  @enforce_keys [:public_key, :content]
-  defstruct [:public_key, :content]
-
-  @type t :: %__MODULE__{
-          public_key: String.t(),
-          content: String.t()
-        }
-end
-
-defmodule Antd.GraphEntry do
-  @moduledoc "A DAG node from the network."
-
-  @enforce_keys [:owner, :parents, :content, :descendants]
-  defstruct [:owner, :parents, :content, :descendants]
-
-  @type t :: %__MODULE__{
-          owner: String.t(),
-          parents: [String.t()],
-          content: String.t(),
-          descendants: [Antd.GraphDescendant.t()]
-        }
-end
-
 defmodule Antd.ArchiveEntry do
   @moduledoc "A single entry in a file archive."
 

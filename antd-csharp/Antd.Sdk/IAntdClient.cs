@@ -16,12 +16,6 @@ public interface IAntdClient : IDisposable
     Task<PutResult> ChunkPutAsync(byte[] data);
     Task<byte[]> ChunkGetAsync(string address);
 
-    // Graph
-    Task<PutResult> GraphEntryPutAsync(string ownerSecretKey, List<string> parents, string content, List<GraphDescendant> descendants);
-    Task<GraphEntry> GraphEntryGetAsync(string address);
-    Task<bool> GraphEntryExistsAsync(string address);
-    Task<string> GraphEntryCostAsync(string publicKey);
-
     // Files
     Task<PutResult> FileUploadPublicAsync(string path, string? paymentMode = null);
     Task FileDownloadPublicAsync(string address, string destPath);

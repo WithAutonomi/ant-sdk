@@ -1,6 +1,6 @@
 # antd-mcp — MCP Server for Autonomi
 
-An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that exposes the Autonomi network as 17 tools for AI agents. Works with Claude Desktop, Claude Code, and any MCP-compatible client.
+An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that exposes the Autonomi network as 13 tools for AI agents. Works with Claude Desktop, Claude Code, and any MCP-compatible client.
 
 ## Installation
 
@@ -63,30 +63,21 @@ The server will auto-discover the daemon via the port file. Add `"env": {"ANTD_B
 |---|------|-------------|
 | 7 | `wallet_address()` | Get wallet public address |
 | 8 | `wallet_balance()` | Get wallet token and gas balances |
-| 16 | `wallet_approve()` | Approve wallet to spend tokens on payment contracts (one-time) |
+| 9 | `wallet_approve()` | Approve wallet to spend tokens on payment contracts (one-time) |
 
 ### Chunk Operations
 
 | # | Tool | Description |
 |---|------|-------------|
-| 9 | `chunk_put(data)` | Store a raw chunk (base64 input) |
-| 10 | `chunk_get(address)` | Retrieve a chunk (base64 output) |
-
-### Graph Operations
-
-| # | Tool | Description |
-|---|------|-------------|
-| 11 | `create_graph_entry(owner_secret_key, content, parents?, descendants?)` | Create DAG node |
-| 12 | `get_graph_entry(address)` | Read graph entry |
-| 13 | `graph_entry_exists(address)` | Check if entry exists |
-| 14 | `graph_entry_cost(public_key)` | Estimate creation cost |
+| 10 | `chunk_put(data)` | Store a raw chunk (base64 input) |
+| 11 | `chunk_get(address)` | Retrieve a chunk (base64 output) |
 
 ### Archive Operations
 
 | # | Tool | Description |
 |---|------|-------------|
-| 15 | `archive_get(address)` | List files in an archive |
-| 17 | `archive_put(entries)` | Create an archive manifest |
+| 12 | `archive_get(address)` | List files in an archive |
+| 13 | `archive_put(entries)` | Create an archive manifest |
 
 ### Payment Modes
 
@@ -128,7 +119,7 @@ antd-mcp/
 ├── pyproject.toml
 └── src/antd_mcp/
     ├── __init__.py
-    ├── server.py      # 17 MCP tool definitions
+    ├── server.py      # 13 MCP tool definitions
     ├── discover.py    # Daemon port-file discovery
     └── errors.py      # Error formatting
 ```

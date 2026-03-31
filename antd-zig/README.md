@@ -109,15 +109,6 @@ All methods return `!T` (error union) using Zig's standard error handling.
 | `chunkPut` | `fn (self: *Client, data: []const u8) !PutResult` | Store a raw chunk |
 | `chunkGet` | `fn (self: *Client, address: []const u8) ![]const u8` | Retrieve a chunk |
 
-### Graph Entries (DAG Nodes)
-
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `graphEntryPut` | `fn (self: *Client, owner_secret_key: []const u8, parents: []const []const u8, content: []const u8, descendants: []const GraphDescendant) !PutResult` | Create entry |
-| `graphEntryGet` | `fn (self: *Client, address: []const u8) !GraphEntry` | Read entry |
-| `graphEntryExists` | `fn (self: *Client, address: []const u8) !bool` | Check if exists |
-| `graphEntryCost` | `fn (self: *Client, public_key: []const u8) ![]const u8` | Estimate creation cost |
-
 ### Files & Directories
 
 | Method | Signature | Description |
@@ -177,8 +168,8 @@ const result = client.health() catch |err| {
 The Zig SDK follows Zig's explicit memory management conventions:
 
 - **Caller owns all returned allocations.** You must free them when done.
-- Struct results (`HealthStatus`, `PutResult`, `GraphEntry`, `Archive`) have a `deinit(allocator)` method that frees all owned memory.
-- Raw byte slices (`[]const u8`) returned by `dataGetPublic`, `dataGetPrivate`, `chunkGet`, `dataCost`, `graphEntryCost`, and `fileCost` must be freed with `allocator.free(result)`.
+- Struct results (`HealthStatus`, `PutResult`, `Archive`) have a `deinit(allocator)` method that frees all owned memory.
+- Raw byte slices (`[]const u8`) returned by `dataGetPublic`, `dataGetPrivate`, `chunkGet`, `dataCost`, and `fileCost` must be freed with `allocator.free(result)`.
 - Use `defer` immediately after receiving a result to ensure cleanup.
 
 ```zig
@@ -201,7 +192,6 @@ zig build run-01-connect
 zig build run-02-data
 zig build run-03-chunks
 zig build run-04-files
-zig build run-05-graph
 zig build run-06-private-data
 ```
 
@@ -213,5 +203,4 @@ See the [examples/](examples/) directory:
 - `02-data` -- Public data put/get
 - `03-chunks` -- Chunk put/get
 - `04-files` -- File upload/download
-- `05-graph` -- Graph entry CRUD
 - `06-private-data` -- Private data put/get

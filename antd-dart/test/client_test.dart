@@ -57,28 +57,6 @@ MockClient mockDaemon() {
         body = {'data': base64.encode(utf8.encode('chunkdata'))};
         break;
 
-      // Graph
-      case 'POST /v1/graph':
-        body = {'cost': '500', 'address': 'ge1'};
-        break;
-      case 'GET /v1/graph/ge1':
-        body = {
-          'owner': 'owner1',
-          'parents': <String>[],
-          'content': 'abc',
-          'descendants': [
-            {'public_key': 'pk1', 'content': 'desc1'}
-          ],
-        };
-        break;
-      case 'HEAD /v1/graph/ge1':
-        return http.Response('', 200);
-      case 'HEAD /v1/graph/missing':
-        return http.Response('', 404);
-      case 'POST /v1/graph/cost':
-        body = {'cost': '500'};
-        break;
-
       // Files
       case 'POST /v1/files/upload/public':
         body = {'cost': '1000', 'address': 'file1'};
@@ -195,35 +173,6 @@ void main() {
       final data = await client.chunkGet('chunk1');
       expect(utf8.decode(data), equals('chunkdata'));
 
-      client.close();
-    });
-  });
-
-  group('Graph', () {
-    test('put, get, and check existence of graph entries', () async {
-      final client = AntdClient(httpClient: mockDaemon());
-
-      final put = await client.graphEntryPut('sk1', [], 'abc', []);
-      expect(put.address, equals('ge1'));
-
-      final entry = await client.graphEntryGet('ge1');
-      expect(entry.owner, equals('owner1'));
-      expect(entry.descendants.length, equals(1));
-      expect(entry.descendants[0].publicKey, equals('pk1'));
-
-      final exists = await client.graphEntryExists('ge1');
-      expect(exists, isTrue);
-
-      final missing = await client.graphEntryExists('missing');
-      expect(missing, isFalse);
-
-      client.close();
-    });
-
-    test('estimates graph entry cost', () async {
-      final client = AntdClient(httpClient: mockDaemon());
-      final cost = await client.graphEntryCost('pk1');
-      expect(cost, equals('500'));
       client.close();
     });
   });

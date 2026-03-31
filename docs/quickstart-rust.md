@@ -104,35 +104,6 @@ client.dir_download_public(&dir_result.address, "/path/to/output_dir").await?;
 let cost = client.file_cost("/path/to/file.txt").await?;
 ```
 
-## Graph Entries (DAG Nodes)
-
-```rust
-use antd_client::GraphDescendant;
-use rand::Rng;
-
-let mut rng = rand::thread_rng();
-let key = hex::encode(rng.gen::<[u8; 32]>());
-let content = hex::encode(rng.gen::<[u8; 32]>());
-
-// Create root node
-let result = client.graph_entry_put(
-    &key,
-    &[],          // parents
-    &content,
-    &[],          // descendants
-).await?;
-println!("Graph entry: {}", result.address);
-
-// Read
-let entry = client.graph_entry_get(&result.address).await?;
-println!("Owner: {}", entry.owner);
-println!("Content: {}", entry.content);
-println!("Parents: {:?}", entry.parents);
-println!("Descendants: {:?}", entry.descendants);
-
-// Check existence
-let exists = client.graph_entry_exists(&result.address).await?;
-```
 
 ## Error Handling
 
@@ -172,7 +143,6 @@ cargo run --example 01_connect
 cargo run --example 02_data
 cargo run --example 03_chunks
 cargo run --example 04_files
-cargo run --example 05_graph
 cargo run --example 06_private
 ```
 

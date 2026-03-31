@@ -49,10 +49,6 @@ data = client.data_get_public(result.address)
 | POST | `/v1/data/cost` | Estimate data storage cost |
 | GET | `/v1/chunks/{addr}` | Get raw chunk by address |
 | POST | `/v1/chunks` | Store raw chunk |
-| GET | `/v1/graph/{addr}` | Read graph entry (DAG node) |
-| HEAD | `/v1/graph/{addr}` | Check graph entry existence |
-| POST | `/v1/graph` | Create graph entry |
-| POST | `/v1/graph/cost` | Estimate graph entry cost |
 | POST | `/v1/files/upload/public` | Upload file to network (accepts optional `payment_mode`) |
 | POST | `/v1/files/download/public` | Download file from network |
 | POST | `/v1/dirs/upload/public` | Upload directory to network (accepts optional `payment_mode`) |
@@ -74,7 +70,6 @@ data = client.data_get_public(result.address)
 | HealthService | Check | health.proto |
 | DataService | GetPublic, PutPublic, StreamPublic, GetPrivate, PutPrivate, GetCost | data.proto |
 | ChunkService | Get, Put | chunks.proto |
-| GraphService | Get, CheckExistence, Put, GetCost | graph.proto |
 | FileService | UploadPublic, DownloadPublic, DirUploadPublic, DirDownloadPublic, ArchiveGetPublic, ArchivePutPublic, GetFileCost | files.proto |
 | EventService | Subscribe | events.proto |
 

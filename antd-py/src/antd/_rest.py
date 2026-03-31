@@ -12,8 +12,6 @@ from .models import (
     Archive,
     ArchiveEntry,
     FinalizeUploadResult,
-    GraphDescendant,
-    GraphEntry,
     HealthStatus,
     PaymentInfo,
     PrepareUploadResult,
@@ -131,44 +129,6 @@ class RestClient:
         resp = self._http.get(f"/v1/chunks/{address}")
         _check(resp)
         return _unb64(resp.json()["data"])
-
-    # --- Graph ---
-
-    def graph_entry_put(self, owner_secret_key: str, parents: list[str], content: str,
-                        descendants: list[GraphDescendant]) -> PutResult:
-        resp = self._http.post("/v1/graph", json={
-            "owner_secret_key": owner_secret_key,
-            "parents": parents,
-            "content": content,
-            "descendants": [{"public_key": d.public_key, "content": d.content} for d in descendants],
-        })
-        _check(resp)
-        j = resp.json()
-        return PutResult(cost=j["cost"], address=j["address"])
-
-    def graph_entry_get(self, address: str) -> GraphEntry:
-        resp = self._http.get(f"/v1/graph/{address}")
-        _check(resp)
-        j = resp.json()
-        return GraphEntry(
-            owner=j["owner"],
-            parents=j.get("parents", []),
-            content=j["content"],
-            descendants=[GraphDescendant(public_key=d["public_key"], content=d["content"])
-                         for d in j.get("descendants", [])],
-        )
-
-    def graph_entry_exists(self, address: str) -> bool:
-        resp = self._http.head(f"/v1/graph/{address}")
-        if resp.status_code == 404:
-            return False
-        _check(resp)
-        return True
-
-    def graph_entry_cost(self, public_key: str) -> str:
-        resp = self._http.post("/v1/graph/cost", json={"public_key": public_key})
-        _check(resp)
-        return resp.json()["cost"]
 
     # --- Files ---
 
@@ -416,44 +376,6 @@ class AsyncRestClient:
         resp = await self._http.get(f"/v1/chunks/{address}")
         _check(resp)
         return _unb64(resp.json()["data"])
-
-    # --- Graph ---
-
-    async def graph_entry_put(self, owner_secret_key: str, parents: list[str], content: str,
-                              descendants: list[GraphDescendant]) -> PutResult:
-        resp = await self._http.post("/v1/graph", json={
-            "owner_secret_key": owner_secret_key,
-            "parents": parents,
-            "content": content,
-            "descendants": [{"public_key": d.public_key, "content": d.content} for d in descendants],
-        })
-        _check(resp)
-        j = resp.json()
-        return PutResult(cost=j["cost"], address=j["address"])
-
-    async def graph_entry_get(self, address: str) -> GraphEntry:
-        resp = await self._http.get(f"/v1/graph/{address}")
-        _check(resp)
-        j = resp.json()
-        return GraphEntry(
-            owner=j["owner"],
-            parents=j.get("parents", []),
-            content=j["content"],
-            descendants=[GraphDescendant(public_key=d["public_key"], content=d["content"])
-                         for d in j.get("descendants", [])],
-        )
-
-    async def graph_entry_exists(self, address: str) -> bool:
-        resp = await self._http.head(f"/v1/graph/{address}")
-        if resp.status_code == 404:
-            return False
-        _check(resp)
-        return True
-
-    async def graph_entry_cost(self, public_key: str) -> str:
-        resp = await self._http.post("/v1/graph/cost", json={"public_key": public_key})
-        _check(resp)
-        return resp.json()["cost"]
 
     # --- Files ---
 

@@ -55,12 +55,6 @@ This is the most important decision. Match the developer's use case to the right
 | **Chunks** | You need custom chunking logic | Advanced/low-level use cases only |
 | **Files** | Uploading local files or directories | Static sites, media hosting, backups |
 
-### Append-only
-
-| Primitive | Use When | Example |
-|-----------|----------|---------|
-| **Graph Entries** | Building linked data structures | Version history, social graphs, audit logs |
-
 ## Common Patterns
 
 ### Pattern 1: Immutable Data Storage
@@ -96,18 +90,7 @@ data = client.data_get_private(result.address)
 
 **When to suggest this:** Developer wants encrypted storage that only they can access.
 
-### Pattern 3: Graph (Linked History)
-
-DAG nodes with parent/descendant links for building append-only structures.
-
-```python
-entry1 = client.graph_entry_put(key1, parents=[], content=content1, descendants=[])
-entry2 = client.graph_entry_put(key2, parents=[entry1.address], content=content2, descendants=[])
-```
-
-**When to suggest this:** Developer needs an audit log, version chain, social graph, or any linked data structure.
-
-### Pattern 4: External Signer (Two-Phase Upload)
+### Pattern 3: External Signer (Two-Phase Upload)
 
 When the application manages its own wallet (e.g. a browser wallet or hardware signer), use the two-phase upload flow instead of the daemon's built-in wallet:
 

@@ -109,15 +109,6 @@ All methods throw `AntdException` (or a typed subclass) on failure.
 | `chunkPut(data)` | Store a raw chunk |
 | `chunkGet(address)` | Retrieve a chunk |
 
-### Graph Entries (DAG Nodes)
-
-| Method | Description |
-|--------|-------------|
-| `graphEntryPut(secretKey, parents, content, descendants)` | Create entry |
-| `graphEntryGet(address)` | Read entry |
-| `graphEntryExists(address)` | Check if exists |
-| `graphEntryCost(publicKey)` | Estimate creation cost |
-
 ### Files & Directories
 
 | Method | Description |
@@ -174,11 +165,11 @@ var client = new AsyncAntdClient("http://custom:9090");                      // 
 var client = new AsyncAntdClient("http://localhost:8082", Duration.ofSeconds(30)); // custom timeout
 ```
 
-All 19 methods follow the naming convention `methodNameAsync()` and return `CompletableFuture<T>` where `T` matches the sync return type. Void methods return `CompletableFuture<Void>`.
+All 15 methods follow the naming convention `methodNameAsync()` and return `CompletableFuture<T>` where `T` matches the sync return type. Void methods return `CompletableFuture<Void>`.
 
 ## gRPC Transport
 
-The `GrpcAntdClient` provides an alternative transport using gRPC instead of REST. It implements the same 19 methods with identical signatures, so switching transports requires only changing the constructor.
+The `GrpcAntdClient` provides an alternative transport using gRPC instead of REST. It implements the same 15 methods with identical signatures, so switching transports requires only changing the constructor.
 
 ```java
 import com.autonomi.antd.GrpcAntdClient;
@@ -265,7 +256,6 @@ See the [examples/](examples/) directory:
 - `Example01Connect` — Health check
 - `Example02PublicData` — Public data storage and retrieval
 - `Example03Files` — File upload and download
-- `Example04GraphEntries` — Graph entry (DAG node) operations
 - `Example05ErrorHandling` — Typed exception handling
 - `Example06PrivateData` — Private (encrypted) data storage
 

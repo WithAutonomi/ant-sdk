@@ -22,38 +22,6 @@ pub const PutResult = struct {
     }
 };
 
-/// A descendant entry in a graph node.
-pub const GraphDescendant = struct {
-    public_key: []const u8,
-    content: []const u8,
-
-    pub fn deinit(self: GraphDescendant, allocator: Allocator) void {
-        allocator.free(self.public_key);
-        allocator.free(self.content);
-    }
-};
-
-/// A DAG node retrieved from the network.
-pub const GraphEntry = struct {
-    owner: []const u8,
-    parents: []const []const u8,
-    content: []const u8,
-    descendants: []const GraphDescendant,
-
-    pub fn deinit(self: GraphEntry, allocator: Allocator) void {
-        allocator.free(self.owner);
-        for (self.parents) |p| {
-            allocator.free(p);
-        }
-        allocator.free(self.parents);
-        allocator.free(self.content);
-        for (self.descendants) |d| {
-            d.deinit(allocator);
-        }
-        allocator.free(self.descendants);
-    }
-};
-
 /// A single entry in a file archive.
 pub const ArchiveEntry = struct {
     path: []const u8,

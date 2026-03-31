@@ -82,21 +82,6 @@ class AntdClientTest {
                 return json("{\"data\":\"" + b64("chunkdata") + "\"}");
             }
 
-            // Graph
-            if ("POST".equals(method) && "/v1/graph".equals(path)) {
-                return json("{\"cost\":\"500\",\"address\":\"ge1\"}");
-            }
-            if ("GET".equals(method) && "/v1/graph/ge1".equals(path)) {
-                return json("{\"owner\":\"owner1\",\"parents\":[],\"content\":\"abc\","
-                        + "\"descendants\":[{\"public_key\":\"pk1\",\"content\":\"desc1\"}]}");
-            }
-            if ("HEAD".equals(method) && "/v1/graph/ge1".equals(path)) {
-                return new MockResponse().setResponseCode(200);
-            }
-            if ("POST".equals(method) && "/v1/graph/cost".equals(path)) {
-                return json("{\"cost\":\"500\"}");
-            }
-
             // Files
             if ("POST".equals(method) && "/v1/files/upload/public".equals(path)) {
                 return json("{\"cost\":\"1000\",\"address\":\"file1\"}");
@@ -183,34 +168,6 @@ class AntdClientTest {
 
         byte[] data = client.chunkGet("chunk1");
         assertEquals("chunkdata", new String(data));
-    }
-
-    @Test
-    void testGraphEntryPut() {
-        PutResult put = client.graphEntryPut("sk1", Collections.emptyList(), "abc",
-                Collections.emptyList());
-        assertEquals("ge1", put.address());
-        assertEquals("500", put.cost());
-    }
-
-    @Test
-    void testGraphEntryGet() {
-        GraphEntry ge = client.graphEntryGet("ge1");
-        assertEquals("owner1", ge.owner());
-        assertEquals(1, ge.descendants().size());
-        assertEquals("pk1", ge.descendants().get(0).publicKey());
-        assertEquals("desc1", ge.descendants().get(0).content());
-    }
-
-    @Test
-    void testGraphEntryExists() {
-        assertTrue(client.graphEntryExists("ge1"));
-    }
-
-    @Test
-    void testGraphEntryCost() {
-        String cost = client.graphEntryCost("pk1");
-        assertEquals("500", cost);
     }
 
     @Test

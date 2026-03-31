@@ -75,15 +75,6 @@ All methods are `async` and return Promises.
 | `chunkPut(data)` | `PutResult` | Store raw chunk |
 | `chunkGet(address)` | `Buffer` | Retrieve chunk by address |
 
-### Graph
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `graphEntryPut(ownerSecretKey, parents, content, descendants)` | `PutResult` | Create graph entry |
-| `graphEntryGet(address)` | `GraphEntry` | Read graph entry |
-| `graphEntryExists(address)` | `boolean` | Check existence |
-| `graphEntryCost(publicKey)` | `string` | Estimate creation cost |
-
 ### Files
 
 | Method | Returns | Description |
@@ -101,8 +92,6 @@ All methods are `async` and return Promises.
 ```typescript
 interface HealthStatus { ok: boolean; network: string }
 interface PutResult { cost: string; address: string }
-interface GraphDescendant { publicKey: string; content: string }
-interface GraphEntry { owner: string; parents: string[]; content: string; descendants: GraphDescendant[] }
 interface ArchiveEntry { path: string; address: string; created: number; modified: number; size: number }
 interface Archive { entries: ArchiveEntry[] }
 ```
@@ -146,7 +135,6 @@ The `examples/` directory contains 6 runnable scripts covering all major feature
 | `02-data.ts` | Public data store/retrieve |
 | `03-chunks.ts` | Raw chunk operations |
 | `04-files.ts` | File upload/download |
-| `05-graph.ts` | Graph entry operations |
 | `06-private-data.ts` | Private encrypted data |
 
 Run examples with [tsx](https://github.com/privatenumber/tsx):

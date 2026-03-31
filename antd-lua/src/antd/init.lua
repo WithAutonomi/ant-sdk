@@ -42,8 +42,6 @@ end
 -- Re-export models
 M.new_health_status = models.new_health_status
 M.new_put_result = models.new_put_result
-M.new_graph_descendant = models.new_graph_descendant
-M.new_graph_entry = models.new_graph_entry
 M.new_archive_entry = models.new_archive_entry
 M.new_archive = models.new_archive
 

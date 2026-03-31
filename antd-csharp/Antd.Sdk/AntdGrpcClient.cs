@@ -11,7 +11,6 @@ public sealed class AntdGrpcClient : IAntdClient
     private readonly HealthService.HealthServiceClient _health;
     private readonly DataService.DataServiceClient _data;
     private readonly ChunkService.ChunkServiceClient _chunks;
-    private readonly GraphService.GraphServiceClient _graph;
     private readonly FileService.FileServiceClient _files;
 
     public AntdGrpcClient(string target = "http://localhost:50051")
@@ -20,7 +19,6 @@ public sealed class AntdGrpcClient : IAntdClient
         _health = new HealthService.HealthServiceClient(_channel);
         _data = new DataService.DataServiceClient(_channel);
         _chunks = new ChunkService.ChunkServiceClient(_channel);
-        _graph = new GraphService.GraphServiceClient(_channel);
         _files = new FileService.FileServiceClient(_channel);
     }
 
@@ -131,64 +129,6 @@ public sealed class AntdGrpcClient : IAntdClient
         {
             var resp = await _chunks.GetAsync(new GetChunkRequest { Address = address });
             return resp.Data.ToByteArray();
-        }
-        catch (RpcException ex) { throw Wrap(ex); }
-    }
-
-    // ── Graph ──
-
-    public async Task<PutResult> GraphEntryPutAsync(string ownerSecretKey, List<string> parents, string content, List<GraphDescendant> descendants)
-    {
-        try
-        {
-            var req = new PutGraphEntryRequest
-            {
-                OwnerSecretKey = ownerSecretKey,
-                Content = content,
-            };
-            req.Parents.AddRange(parents);
-            req.Descendants.AddRange(descendants.Select(d => new Antd.V1.GraphDescendant
-            {
-                PublicKey = d.PublicKey,
-                Content = d.Content,
-            }));
-            var resp = await _graph.PutAsync(req);
-            return new PutResult(resp.Cost.AttoTokens, resp.Address);
-        }
-        catch (RpcException ex) { throw Wrap(ex); }
-    }
-
-    public async Task<GraphEntry> GraphEntryGetAsync(string address)
-    {
-        try
-        {
-            var resp = await _graph.GetAsync(new GetGraphEntryRequest { Address = address });
-            var descendants = resp.Descendants.Select(d => new GraphDescendant(d.PublicKey, d.Content)).ToList();
-            return new GraphEntry(resp.Owner, resp.Parents.ToList(), resp.Content, descendants);
-        }
-        catch (RpcException ex) { throw Wrap(ex); }
-    }
-
-    public async Task<bool> GraphEntryExistsAsync(string address)
-    {
-        try
-        {
-            var resp = await _graph.CheckExistenceAsync(new CheckGraphEntryRequest { Address = address });
-            return resp.Exists;
-        }
-        catch (RpcException ex) when (ex.StatusCode == StatusCode.NotFound)
-        {
-            return false;
-        }
-        catch (RpcException ex) { throw Wrap(ex); }
-    }
-
-    public async Task<string> GraphEntryCostAsync(string publicKey)
-    {
-        try
-        {
-            var resp = await _graph.GetCostAsync(new GraphEntryCostRequest { PublicKey = publicKey });
-            return resp.AttoTokens;
         }
         catch (RpcException ex) { throw Wrap(ex); }
     }
