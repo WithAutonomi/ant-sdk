@@ -53,7 +53,7 @@ class AntdRestClient(
         val request = Request.Builder().url("$baseUrl$path").get().build()
         val response = http.newCall(request).execute()
         ensureSuccess(response)
-        json.decodeFromString<T>(response.body!!.string())
+        json.decodeFromString<T>(( response.body?.string() ?: "" ))
     }
 
     private suspend inline fun <reified T> postJson(path: String, body: String): T = withContext(Dispatchers.IO) {
@@ -63,7 +63,7 @@ class AntdRestClient(
             .build()
         val response = http.newCall(request).execute()
         ensureSuccess(response)
-        json.decodeFromString<T>(response.body!!.string())
+        json.decodeFromString<T>(( response.body?.string() ?: "" ))
     }
 
     private suspend fun postJsonNoResult(path: String, body: String) = withContext(Dispatchers.IO) {
@@ -127,7 +127,8 @@ class AntdRestClient(
     }
 
     override suspend fun dataGetPrivate(dataMap: String): ByteArray {
-        val resp = getJson<DataGetDto>("/v1/data/private?data_map=$dataMap")
+        val encoded = java.net.URLEncoder.encode(dataMap, "UTF-8")
+        val resp = getJson<DataGetDto>("/v1/data/private?data_map=$encoded")
         return fromB64(resp.data)
     }
 

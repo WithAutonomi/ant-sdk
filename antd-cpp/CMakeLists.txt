@@ -29,6 +29,7 @@ add_library(antd
     src/client.cpp
     src/async_client.cpp
     src/base64.cpp
+    src/discover.cpp
 )
 
 target_include_directories(antd
@@ -123,7 +124,6 @@ if(ANTD_BUILD_EXAMPLES)
         02-data
         03-chunks
         04-files
-        05-graph
         06-private-data
     )
         add_executable(${example} examples/${example}.cpp)

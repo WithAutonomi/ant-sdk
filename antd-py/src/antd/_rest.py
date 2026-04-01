@@ -91,12 +91,12 @@ class RestClient:
         resp = self._http.post("/v1/data/public", json=body)
         _check(resp)
         j = resp.json()
-        return PutResult(cost=j["cost"], address=j["address"])
+        return PutResult(cost=j.get("cost", ""), address=j.get("address", ""))
 
     def data_get_public(self, address: str) -> bytes:
         resp = self._http.get(f"/v1/data/public/{address}")
         _check(resp)
-        return _unb64(resp.json()["data"])
+        return _unb64(resp.json().get("data", ""))
 
     def data_put_private(self, data: bytes, payment_mode: str | None = None) -> PutResult:
         body: dict = {"data": _b64(data)}
@@ -105,17 +105,17 @@ class RestClient:
         resp = self._http.post("/v1/data/private", json=body)
         _check(resp)
         j = resp.json()
-        return PutResult(cost=j["cost"], address=j["data_map"])
+        return PutResult(cost=j.get("cost", ""), address=j.get("data_map", ""))
 
     def data_get_private(self, data_map: str) -> bytes:
         resp = self._http.get("/v1/data/private", params={"data_map": data_map})
         _check(resp)
-        return _unb64(resp.json()["data"])
+        return _unb64(resp.json().get("data", ""))
 
     def data_cost(self, data: bytes) -> str:
         resp = self._http.post("/v1/data/cost", json={"data": _b64(data)})
         _check(resp)
-        return resp.json()["cost"]
+        return resp.json().get("cost", "")
 
     # --- Chunks ---
 
@@ -123,12 +123,12 @@ class RestClient:
         resp = self._http.post("/v1/chunks", json={"data": _b64(data)})
         _check(resp)
         j = resp.json()
-        return PutResult(cost=j["cost"], address=j["address"])
+        return PutResult(cost=j.get("cost", ""), address=j.get("address", ""))
 
     def chunk_get(self, address: str) -> bytes:
         resp = self._http.get(f"/v1/chunks/{address}")
         _check(resp)
-        return _unb64(resp.json()["data"])
+        return _unb64(resp.json().get("data", ""))
 
     # --- Files ---
 
@@ -139,7 +139,7 @@ class RestClient:
         resp = self._http.post("/v1/files/upload/public", json=body)
         _check(resp)
         j = resp.json()
-        return PutResult(cost=j["cost"], address=j["address"])
+        return PutResult(cost=j.get("cost", ""), address=j.get("address", ""))
 
     def file_download_public(self, address: str, dest_path: str) -> None:
         resp = self._http.post("/v1/files/download/public", json={
@@ -155,7 +155,7 @@ class RestClient:
         resp = self._http.post("/v1/dirs/upload/public", json=body)
         _check(resp)
         j = resp.json()
-        return PutResult(cost=j["cost"], address=j["address"])
+        return PutResult(cost=j.get("cost", ""), address=j.get("address", ""))
 
     def dir_download_public(self, address: str, dest_path: str) -> None:
         resp = self._http.post("/v1/dirs/download/public", json={
@@ -187,7 +187,7 @@ class RestClient:
         })
         _check(resp)
         j = resp.json()
-        return PutResult(cost=j["cost"], address=j["address"])
+        return PutResult(cost=j.get("cost", ""), address=j.get("address", ""))
 
     def file_cost(self, path: str, is_public: bool = True, include_archive: bool = False) -> str:
         resp = self._http.post("/v1/cost/file", json={
@@ -196,7 +196,7 @@ class RestClient:
             "include_archive": include_archive,
         })
         _check(resp)
-        return resp.json()["cost"]
+        return resp.json().get("cost", "")
 
     # --- Wallet ---
 
@@ -204,13 +204,13 @@ class RestClient:
         resp = self._http.get("/v1/wallet/address")
         _check(resp)
         j = resp.json()
-        return WalletAddress(address=j["address"])
+        return WalletAddress(address=j.get("address", ""))
 
     def wallet_balance(self) -> WalletBalance:
         resp = self._http.get("/v1/wallet/balance")
         _check(resp)
         j = resp.json()
-        return WalletBalance(balance=j["balance"], gas_balance=j["gas_balance"])
+        return WalletBalance(balance=j.get("balance", ""), gas_balance=j.get("gas_balance", ""))
 
     def wallet_approve(self) -> bool:
         """Approve the wallet to spend tokens on payment contracts (one-time operation)."""
@@ -239,7 +239,7 @@ class RestClient:
             for p in j.get("payments", [])
         ]
         return PrepareUploadResult(
-            upload_id=j["upload_id"],
+            upload_id=j.get("upload_id", ""),
             payments=payments,
             total_amount=j.get("total_amount", ""),
             data_payments_address=j.get("data_payments_address", ""),
@@ -266,7 +266,7 @@ class RestClient:
             for p in j.get("payments", [])
         ]
         return PrepareUploadResult(
-            upload_id=j["upload_id"],
+            upload_id=j.get("upload_id", ""),
             payments=payments,
             total_amount=j.get("total_amount", ""),
             data_payments_address=j.get("data_payments_address", ""),
@@ -287,7 +287,7 @@ class RestClient:
         })
         _check(resp)
         j = resp.json()
-        return FinalizeUploadResult(address=j["address"], chunks_stored=j.get("chunks_stored", 0))
+        return FinalizeUploadResult(address=j.get("address", ""), chunks_stored=j.get("chunks_stored", 0))
 
 
 class AsyncRestClient:
@@ -338,12 +338,12 @@ class AsyncRestClient:
         resp = await self._http.post("/v1/data/public", json=body)
         _check(resp)
         j = resp.json()
-        return PutResult(cost=j["cost"], address=j["address"])
+        return PutResult(cost=j.get("cost", ""), address=j.get("address", ""))
 
     async def data_get_public(self, address: str) -> bytes:
         resp = await self._http.get(f"/v1/data/public/{address}")
         _check(resp)
-        return _unb64(resp.json()["data"])
+        return _unb64(resp.json().get("data", ""))
 
     async def data_put_private(self, data: bytes, payment_mode: str | None = None) -> PutResult:
         body: dict = {"data": _b64(data)}
@@ -352,17 +352,17 @@ class AsyncRestClient:
         resp = await self._http.post("/v1/data/private", json=body)
         _check(resp)
         j = resp.json()
-        return PutResult(cost=j["cost"], address=j["data_map"])
+        return PutResult(cost=j.get("cost", ""), address=j.get("data_map", ""))
 
     async def data_get_private(self, data_map: str) -> bytes:
         resp = await self._http.get("/v1/data/private", params={"data_map": data_map})
         _check(resp)
-        return _unb64(resp.json()["data"])
+        return _unb64(resp.json().get("data", ""))
 
     async def data_cost(self, data: bytes) -> str:
         resp = await self._http.post("/v1/data/cost", json={"data": _b64(data)})
         _check(resp)
-        return resp.json()["cost"]
+        return resp.json().get("cost", "")
 
     # --- Chunks ---
 
@@ -370,12 +370,12 @@ class AsyncRestClient:
         resp = await self._http.post("/v1/chunks", json={"data": _b64(data)})
         _check(resp)
         j = resp.json()
-        return PutResult(cost=j["cost"], address=j["address"])
+        return PutResult(cost=j.get("cost", ""), address=j.get("address", ""))
 
     async def chunk_get(self, address: str) -> bytes:
         resp = await self._http.get(f"/v1/chunks/{address}")
         _check(resp)
-        return _unb64(resp.json()["data"])
+        return _unb64(resp.json().get("data", ""))
 
     # --- Files ---
 
@@ -386,7 +386,7 @@ class AsyncRestClient:
         resp = await self._http.post("/v1/files/upload/public", json=body)
         _check(resp)
         j = resp.json()
-        return PutResult(cost=j["cost"], address=j["address"])
+        return PutResult(cost=j.get("cost", ""), address=j.get("address", ""))
 
     async def file_download_public(self, address: str, dest_path: str) -> None:
         resp = await self._http.post("/v1/files/download/public", json={
@@ -402,7 +402,7 @@ class AsyncRestClient:
         resp = await self._http.post("/v1/dirs/upload/public", json=body)
         _check(resp)
         j = resp.json()
-        return PutResult(cost=j["cost"], address=j["address"])
+        return PutResult(cost=j.get("cost", ""), address=j.get("address", ""))
 
     async def dir_download_public(self, address: str, dest_path: str) -> None:
         resp = await self._http.post("/v1/dirs/download/public", json={
@@ -434,7 +434,7 @@ class AsyncRestClient:
         })
         _check(resp)
         j = resp.json()
-        return PutResult(cost=j["cost"], address=j["address"])
+        return PutResult(cost=j.get("cost", ""), address=j.get("address", ""))
 
     async def file_cost(self, path: str, is_public: bool = True, include_archive: bool = False) -> str:
         resp = await self._http.post("/v1/cost/file", json={
@@ -443,7 +443,7 @@ class AsyncRestClient:
             "include_archive": include_archive,
         })
         _check(resp)
-        return resp.json()["cost"]
+        return resp.json().get("cost", "")
 
     # --- Wallet ---
 
@@ -451,13 +451,13 @@ class AsyncRestClient:
         resp = await self._http.get("/v1/wallet/address")
         _check(resp)
         j = resp.json()
-        return WalletAddress(address=j["address"])
+        return WalletAddress(address=j.get("address", ""))
 
     async def wallet_balance(self) -> WalletBalance:
         resp = await self._http.get("/v1/wallet/balance")
         _check(resp)
         j = resp.json()
-        return WalletBalance(balance=j["balance"], gas_balance=j["gas_balance"])
+        return WalletBalance(balance=j.get("balance", ""), gas_balance=j.get("gas_balance", ""))
 
     async def wallet_approve(self) -> bool:
         """Approve the wallet to spend tokens on payment contracts (one-time operation)."""
@@ -486,7 +486,7 @@ class AsyncRestClient:
             for p in j.get("payments", [])
         ]
         return PrepareUploadResult(
-            upload_id=j["upload_id"],
+            upload_id=j.get("upload_id", ""),
             payments=payments,
             total_amount=j.get("total_amount", ""),
             data_payments_address=j.get("data_payments_address", ""),
@@ -513,7 +513,7 @@ class AsyncRestClient:
             for p in j.get("payments", [])
         ]
         return PrepareUploadResult(
-            upload_id=j["upload_id"],
+            upload_id=j.get("upload_id", ""),
             payments=payments,
             total_amount=j.get("total_amount", ""),
             data_payments_address=j.get("data_payments_address", ""),
@@ -534,4 +534,4 @@ class AsyncRestClient:
         })
         _check(resp)
         j = resp.json()
-        return FinalizeUploadResult(address=j["address"], chunks_stored=j.get("chunks_stored", 0))
+        return FinalizeUploadResult(address=j.get("address", ""), chunks_stored=j.get("chunks_stored", 0))

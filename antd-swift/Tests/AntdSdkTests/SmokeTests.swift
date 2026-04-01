@@ -30,11 +30,6 @@ final class SmokeTests: XCTestCase {
         XCTAssertEqual(put.cost, "100")
         XCTAssertEqual(put.address, "abc123")
 
-        let desc = GraphDescendant(publicKey: "pk", content: "content")
-        let entry = GraphEntry(owner: "owner", parents: ["p1"], content: "c", descendants: [desc])
-        XCTAssertEqual(entry.parents.count, 1)
-        XCTAssertEqual(entry.descendants.count, 1)
-
         let archiveEntry = ArchiveEntry(path: "/file.txt", address: "addr", created: 1000, modified: 2000, size: 512)
         let archive = Archive(entries: [archiveEntry])
         XCTAssertEqual(archive.entries.count, 1)

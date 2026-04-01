@@ -15,7 +15,7 @@ impl Wallet {
     /// Uses the default Autonomi EVM network configuration.
     #[uniffi::constructor]
     pub fn from_private_key(
-        private_key: String,
+        mut private_key: String,
         rpc_url: String,
         payment_token_address: String,
         data_payments_address: String,
@@ -26,8 +26,11 @@ impl Wallet {
             &data_payments_address,
             None,
         );
-        let wallet = evmlib::wallet::Wallet::new_from_private_key(network, &private_key)
-            .map_err(|e| WalletError::CreationFailed {
+        let result = evmlib::wallet::Wallet::new_from_private_key(network, &private_key);
+        // Clear the private key from memory as soon as possible
+        private_key.replace_range(.., &"0".repeat(private_key.len()));
+        private_key.clear();
+        let wallet = result.map_err(|e| WalletError::CreationFailed {
                 reason: e.to_string(),
             })?;
         Ok(Arc::new(Self { inner: wallet }))

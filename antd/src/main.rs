@@ -140,6 +140,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or_default();
         let payments_addr = std::env::var("EVM_DATA_PAYMENTS_ADDRESS")
             .unwrap_or_default();
+        if token_addr.is_empty() {
+            tracing::warn!("EVM_PAYMENT_TOKEN_ADDRESS is empty — payments may fail");
+        }
+        if payments_addr.is_empty() {
+            tracing::warn!("EVM_DATA_PAYMENTS_ADDRESS is empty — payments may fail");
+        }
         let merkle_addr = std::env::var("EVM_MERKLE_PAYMENTS_ADDRESS").ok();
         tracing::info!(%rpc_url, "loading EVM wallet...");
         let network = evmlib::Network::new_custom(
@@ -187,6 +193,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pending_uploads: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
     });
 
+    // Spawn background task to clean up stale pending uploads (1-hour TTL)
+    let cleanup_state = state.clone();
+    tokio::spawn(async move {
+        let ttl = std::time::Duration::from_secs(3600);
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+            cleanup_state.cleanup_stale_uploads(ttl).await;
+        }
+    });
+
     // Build REST router
     let app = rest::router(state.clone(), config.cors, actual_rest_addr.port());
 
@@ -200,10 +216,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let rest_handle = tokio::spawn(async move {
         tracing::info!("REST server listening on {actual_rest_addr}");
-        axum::serve(rest_listener, app)
+        if let Err(e) = axum::serve(rest_listener, app)
             .with_graceful_shutdown(shutdown_signal())
             .await
-            .unwrap();
+        {
+            tracing::error!("REST server error: {e}");
+        }
     });
 
     tokio::select! {

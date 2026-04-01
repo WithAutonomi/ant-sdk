@@ -117,7 +117,7 @@ public sealed class AntdRestClient : IAntdClient
 
     public async Task<byte[]> DataGetPrivateAsync(string dataMap)
     {
-        var resp = await GetJsonAsync<DataGetDto>($"/v1/data/private?data_map={dataMap}");
+        var resp = await GetJsonAsync<DataGetDto>($"/v1/data/private?data_map={Uri.EscapeDataString(dataMap)}");
         return Convert.FromBase64String(resp.Data);
     }
 

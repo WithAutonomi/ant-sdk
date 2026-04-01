@@ -21,10 +21,9 @@ pub async fn prepare_upload(
     State(state): State<Arc<AppState>>,
     Json(req): Json<PrepareUploadRequest>,
 ) -> Result<Json<PrepareUploadResponse>, AntdError> {
-    let path = PathBuf::from(&req.path);
-    if !path.exists() {
-        return Err(AntdError::BadRequest(format!("file not found: {}", req.path)));
-    }
+    let path = PathBuf::from(&req.path)
+        .canonicalize()
+        .map_err(|e| AntdError::BadRequest(format!("invalid path {}: {e}", req.path)))?;
 
     let client = state.client.clone();
     let prepared = tokio::spawn(async move {
@@ -45,7 +44,10 @@ pub async fn prepare_upload(
 
     // Generate a unique upload ID and store the prepared state
     let upload_id = hex::encode(rand::random::<[u8; 16]>());
-    state.pending_uploads.lock().await.insert(upload_id.clone(), prepared);
+    state.pending_uploads.lock().await.insert(upload_id.clone(), crate::state::TimestampedUpload {
+        prepared,
+        created_at: std::time::Instant::now(),
+    });
 
     // EVM network details from env
     let rpc_url = std::env::var("EVM_RPC_URL")
@@ -96,7 +98,10 @@ pub async fn prepare_data_upload(
     let total_amount = prepared.payment_intent.total_amount.to_string();
 
     let upload_id = hex::encode(rand::random::<[u8; 16]>());
-    state.pending_uploads.lock().await.insert(upload_id.clone(), prepared);
+    state.pending_uploads.lock().await.insert(upload_id.clone(), crate::state::TimestampedUpload {
+        prepared,
+        created_at: std::time::Instant::now(),
+    });
 
     let rpc_url = std::env::var("EVM_RPC_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
@@ -124,12 +129,13 @@ pub async fn finalize_upload(
     Json(req): Json<FinalizeUploadRequest>,
 ) -> Result<Json<FinalizeUploadResponse>, AntdError> {
     // Remove the prepared upload from server state
-    let prepared = state.pending_uploads.lock().await
+    let timestamped = state.pending_uploads.lock().await
         .remove(&req.upload_id)
         .ok_or_else(|| AntdError::NotFound(format!(
             "upload_id {} not found — it may have expired or already been finalized",
             req.upload_id
         )))?;
+    let prepared = timestamped.prepared;
 
     // Parse tx_hashes from hex strings
     let tx_hash_map: HashMap<evmlib::common::QuoteHash, evmlib::common::TxHash> =

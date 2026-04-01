@@ -16,14 +16,14 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
     // MARK: - Helpers
 
     private func getJSON<T: Decodable>(_ path: String) async throws -> T {
-        let url = URL(string: "\(baseURL)\(path)")!
+        guard let url = URL(string: "\(baseURL)\(path)") else { throw BadRequestError("invalid URL: \(baseURL)\(path)") }
         let (data, response) = try await session.data(from: url)
         try ensureSuccess(response, data: data)
         return try JSONDecoder.snakeCase.decode(T.self, from: data)
     }
 
     private func postJSON<T: Decodable>(_ path: String, body: Any) async throws -> T {
-        let url = URL(string: "\(baseURL)\(path)")!
+        guard let url = URL(string: "\(baseURL)\(path)") else { throw BadRequestError("invalid URL: \(baseURL)\(path)") }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -34,7 +34,7 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
     }
 
     private func postJSONNoResult(_ path: String, body: Any) async throws {
-        let url = URL(string: "\(baseURL)\(path)")!
+        guard let url = URL(string: "\(baseURL)\(path)") else { throw BadRequestError("invalid URL: \(baseURL)\(path)") }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -44,7 +44,7 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
     }
 
     private func headExists(_ path: String) async throws -> Bool {
-        let url = URL(string: "\(baseURL)\(path)")!
+        guard let url = URL(string: "\(baseURL)\(path)") else { throw BadRequestError("invalid URL: \(baseURL)\(path)") }
         var request = URLRequest(url: url)
         request.httpMethod = "HEAD"
         let (data, response) = try await session.data(for: request)
@@ -96,7 +96,8 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
     }
 
     public func dataGetPrivate(dataMap: String) async throws -> Data {
-        let resp: DataDTO = try await getJSON("/v1/data/private?data_map=\(dataMap)")
+        let encodedMap = dataMap.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? dataMap
+        let resp: DataDTO = try await getJSON("/v1/data/private?data_map=\(encodedMap)")
         guard let decoded = Data(base64Encoded: resp.data) else { throw BadRequestError("Invalid base64 data") }
         return decoded
     }

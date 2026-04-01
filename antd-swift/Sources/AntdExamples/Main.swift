@@ -12,17 +12,15 @@ struct Examples {
             case "2": try await example02Data()
             case "3": try await example03Chunks()
             case "4": try await example04Files()
-            case "5": try await example05Graph()
-            case "6": try await example06PrivateData()
+            case "5": try await example06PrivateData()
             case "all":
                 try await example01Connect()
                 try await example02Data()
                 try await example03Chunks()
                 try await example04Files()
-                try await example05Graph()
                 try await example06PrivateData()
             default:
-                print("Unknown example: \(example). Use 1-6 or 'all'.")
+                print("Unknown example: \(example). Use 1-5 or 'all'.")
             }
         } catch {
             print("Error: \(error)")
@@ -117,34 +115,7 @@ func example04Files() async throws {
     print("File upload/download OK!\n")
 }
 
-/// Example 05: Graph entry (DAG node) operations.
-func example05Graph() async throws {
-    print("=== Example 05: Graph ===")
-    let client = AntdClient.createRest()
-    let secretKey = randomHex()
-
-    let content = randomHex()
-    let result = try await client.graphEntryPut(
-        ownerSecretKey: secretKey, parents: [], content: content, descendants: [])
-    print("Graph entry created at: \(result.address)")
-    print("Cost: \(result.cost) atto tokens")
-
-    let entry = try await client.graphEntryGet(address: result.address)
-    print("Owner: \(entry.owner)")
-    print("Content: \(entry.content)")
-    print("Parents: \(entry.parents.count)")
-    print("Descendants: \(entry.descendants.count)")
-
-    let exists = try await client.graphEntryExists(address: result.address)
-    print("Graph entry exists: \(exists)")
-
-    let cost = try await client.graphEntryCost(publicKey: secretKey)
-    print("Cost estimate for new entry: \(cost) atto tokens")
-
-    print("Graph entry operations OK!\n")
-}
-
-/// Example 06: Private (encrypted) data round-trip.
+/// Example 05: Private (encrypted) data round-trip.
 func example06PrivateData() async throws {
     print("=== Example 06: Private Data ===")
     let client = AntdClient.createRest()
