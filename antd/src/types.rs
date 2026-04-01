@@ -154,19 +154,6 @@ pub struct CostResponse {
 }
 
 #[derive(Deserialize)]
-#[allow(dead_code)]
-pub struct CostEstimateRequest {
-    pub content_addrs: Vec<CostEstimateEntry>,
-}
-
-#[derive(Deserialize)]
-#[allow(dead_code)]
-pub struct CostEstimateEntry {
-    pub xorname: String, // hex
-    pub size: usize,
-}
-
-#[derive(Deserialize)]
 pub struct FileCostRequest {
     pub path: String,
     #[serde(default = "default_true")]
@@ -224,18 +211,4 @@ pub struct WalletApproveResponse {
 pub struct HealthResponse {
     pub status: String,
     pub network: String,
-}
-
-// ── Events ──
-
-#[derive(Serialize)]
-#[allow(dead_code)]
-pub struct ClientEventDto {
-    pub kind: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub records_paid: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub records_already_paid: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tokens_spent: Option<String>,
 }

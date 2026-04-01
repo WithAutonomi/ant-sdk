@@ -51,7 +51,9 @@ pub async fn chunk_put(
         .map_err(|e| AntdError::from_core(e))?;
 
     Ok(Json(ChunkPutResponse {
-        cost: String::new(), // TODO: Client.chunk_put doesn't return cost yet
+        // ant-core chunk_put returns only the address; cost is pre-paid via
+        // the wallet and not reported back per-chunk.
+        cost: String::new(),
         address: hex::encode(address),
     }))
 }

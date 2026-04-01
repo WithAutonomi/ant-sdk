@@ -173,6 +173,12 @@ pub async fn file_cost(
         })?;
 
     // Read file, encrypt to get chunks, then quote each
+    //
+    // TODO: This reads the entire file into memory because self_encryption::encrypt()
+    // requires Bytes. For large files this is problematic. When/if self_encryption
+    // gains a streaming API (or ant-core exposes a file_cost method that handles
+    // chunking internally), replace this with a streaming approach using
+    // tokio::fs::File + tokio_util::io::ReaderStream.
     let client = state.client.clone();
     let total_cost = tokio::spawn(async move {
         use self_encryption::encrypt;

@@ -36,6 +36,22 @@ pub enum AntdError {
 }
 
 impl AntdError {
+    /// Returns a machine-readable error code string for JSON responses.
+    pub fn code(&self) -> &str {
+        match self {
+            AntdError::NotFound(_) => "NOT_FOUND",
+            AntdError::AlreadyExists(_) => "ALREADY_EXISTS",
+            AntdError::BadRequest(_) => "BAD_REQUEST",
+            AntdError::Payment(_) => "PAYMENT_REQUIRED",
+            AntdError::Network(_) => "NETWORK_ERROR",
+            AntdError::TooLarge => "TOO_LARGE",
+            AntdError::Timeout(_) => "TIMEOUT",
+            AntdError::ServiceUnavailable(_) => "SERVICE_UNAVAILABLE",
+            AntdError::NotImplemented(_) => "NOT_IMPLEMENTED",
+            AntdError::Internal(_) => "INTERNAL_ERROR",
+        }
+    }
+
     /// Convert an ant-core error into an AntdError.
     pub fn from_core(e: ant_core::data::Error) -> Self {
         use ant_core::data::Error;
@@ -57,6 +73,7 @@ impl AntdError {
 #[derive(Serialize)]
 struct ErrorBody {
     error: String,
+    code: String,
 }
 
 impl IntoResponse for AntdError {
@@ -75,8 +92,9 @@ impl IntoResponse for AntdError {
         };
         let body = serde_json::to_string(&ErrorBody {
             error: self.to_string(),
+            code: self.code().to_string(),
         })
-        .unwrap_or_else(|_| r#"{"error":"internal error"}"#.to_string());
+        .unwrap_or_else(|_| r#"{"error":"internal error","code":"INTERNAL_ERROR"}"#.to_string());
         (status, [(axum::http::header::CONTENT_TYPE, "application/json")], body).into_response()
     }
 }
