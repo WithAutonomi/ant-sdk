@@ -12,7 +12,7 @@
 //!     let health = client.health().await?;
 //!     println!("OK: {}, Network: {}", health.ok, health.network);
 //!
-//!     let result = client.data_put_public(b"Hello, Autonomi!").await?;
+//!     let result = client.data_put_public(b"Hello, Autonomi!", None).await?;
 //!     println!("Stored at {} (cost: {} atto)", result.address, result.cost);
 //!
 //!     let data = client.data_get_public(&result.address).await?;

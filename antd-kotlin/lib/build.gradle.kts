@@ -23,6 +23,7 @@ dependencies {
     // Testing
     testImplementation(kotlin("test"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 protobuf {
@@ -67,4 +68,11 @@ tasks.register<Copy>("copyProtos") {
 
 tasks.named("processResources") {
     dependsOn("copyProtos")
+}
+
+// Ensure proto files are copied before protobuf generation
+afterEvaluate {
+    tasks.matching { it.name.startsWith("generateProto") }.configureEach {
+        dependsOn("copyProtos")
+    }
 }

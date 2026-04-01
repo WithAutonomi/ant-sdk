@@ -5,7 +5,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::new(DEFAULT_BASE_URL);
 
     // Store private (encrypted) data
-    let result = client.data_put_private(b"secret payload").await?;
+    let result = client.data_put_private(b"secret payload", None).await?;
     println!("Private data stored (cost: {} atto)", result.cost);
     println!("Data map: {}", result.address);
 

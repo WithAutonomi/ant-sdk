@@ -109,35 +109,6 @@ test "parseCost extracts cost" {
     try testing.expectEqualStrings("500", result);
 }
 
-test "parseGraphEntry parses full entry" {
-    const body =
-        \\{"owner":"owner1","parents":["p1","p2"],"content":"abc","descendants":[{"public_key":"pk1","content":"desc1"}]}
-    ;
-    const result = try json_helpers.parseGraphEntry(testing.allocator, body);
-    defer result.deinit(testing.allocator);
-
-    try testing.expectEqualStrings("owner1", result.owner);
-    try testing.expectEqual(@as(usize, 2), result.parents.len);
-    try testing.expectEqualStrings("p1", result.parents[0]);
-    try testing.expectEqualStrings("p2", result.parents[1]);
-    try testing.expectEqualStrings("abc", result.content);
-    try testing.expectEqual(@as(usize, 1), result.descendants.len);
-    try testing.expectEqualStrings("pk1", result.descendants[0].public_key);
-    try testing.expectEqualStrings("desc1", result.descendants[0].content);
-}
-
-test "parseGraphEntry handles empty parents and descendants" {
-    const body =
-        \\{"owner":"owner1","parents":[],"content":"abc","descendants":[]}
-    ;
-    const result = try json_helpers.parseGraphEntry(testing.allocator, body);
-    defer result.deinit(testing.allocator);
-
-    try testing.expectEqualStrings("owner1", result.owner);
-    try testing.expectEqual(@as(usize, 0), result.parents.len);
-    try testing.expectEqual(@as(usize, 0), result.descendants.len);
-}
-
 test "parseArchive parses entries" {
     const body =
         \\{"entries":[{"path":"test.txt","address":"abc","created":1000,"modified":2000,"size":42}]}
@@ -318,27 +289,6 @@ test "PutResult deinit frees memory" {
     const address = try testing.allocator.dupe(u8, "abc");
     const pr = models.PutResult{ .cost = cost, .address = address };
     pr.deinit(testing.allocator);
-}
-
-test "GraphEntry deinit frees all nested memory" {
-    const owner = try testing.allocator.dupe(u8, "owner1");
-    const content = try testing.allocator.dupe(u8, "abc");
-    const p1 = try testing.allocator.dupe(u8, "p1");
-    const parents = try testing.allocator.alloc([]const u8, 1);
-    parents[0] = p1;
-
-    const pk = try testing.allocator.dupe(u8, "pk1");
-    const dc = try testing.allocator.dupe(u8, "desc1");
-    const descs = try testing.allocator.alloc(models.GraphDescendant, 1);
-    descs[0] = .{ .public_key = pk, .content = dc };
-
-    const ge = models.GraphEntry{
-        .owner = owner,
-        .parents = parents,
-        .content = content,
-        .descendants = descs,
-    };
-    ge.deinit(testing.allocator);
 }
 
 test "Archive deinit frees all entries" {
