@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package antd.v1;
+
+option csharp_namespace = "Antd.V1";
+
+service EventService {
+  rpc Subscribe(SubscribeRequest) returns (stream ClientEventProto);
+}
+
+message SubscribeRequest {}
+
+message ClientEventProto {
+  string kind = 1;
+  uint64 records_paid = 2;
+  uint64 records_already_paid = 3;
+  string tokens_spent = 4;
+}
