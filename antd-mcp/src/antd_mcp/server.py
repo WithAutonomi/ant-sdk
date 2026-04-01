@@ -253,12 +253,12 @@ async def get_cost(
 
 
 # ---------------------------------------------------------------------------
-# Tool 6: check_balance
+# Tool 6: check_health
 # ---------------------------------------------------------------------------
 
 
 @mcp.tool()
-async def check_balance() -> str:
+async def check_health() -> str:
     """Check antd daemon health and network status.
 
     Returns:

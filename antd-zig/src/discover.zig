@@ -80,7 +80,7 @@ fn readPortFile(allocator: Allocator) ?Ports {
 /// On other platforms (Windows, macOS), trusts the port file.
 fn isProcessAlive(pid: i32) bool {
     if (builtin.os.tag == .linux) {
-        var path_buf: [32]u8 = undefined;
+        var path_buf: [64]u8 = undefined;
         const path = std.fmt.bufPrint(&path_buf, "/proc/{d}", .{pid}) catch return true;
         std.fs.accessAbsolute(path, .{}) catch return false;
         return true;

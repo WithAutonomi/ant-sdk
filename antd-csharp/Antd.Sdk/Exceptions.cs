@@ -75,7 +75,7 @@ internal static class ExceptionMapping
             400 => new BadRequestException(body, code),
             402 => new PaymentException(body, code),
             404 => new NotFoundException(body, code),
-            409 => new AlreadyExistsException(body, code),
+            409 => new ForkException(body, code),
             413 => new TooLargeException(body, code),
             500 => new InternalException(body, code),
             502 => new NetworkException(body, code),
