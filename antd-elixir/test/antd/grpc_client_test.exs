@@ -15,10 +15,6 @@ defmodule Antd.GrpcClientTest do
     defstruct [:atto_tokens]
   end
 
-  defmodule FakeGraphDescendant do
-    defstruct [:public_key, :content]
-  end
-
   # A fake channel token that our mock stubs recognise.
   defmodule FakeChannel do
     defstruct mode: :ok
@@ -171,50 +167,6 @@ defmodule Antd.GrpcClientTest do
   end
 
   # ---------------------------------------------------------------------------
-  # Graph
-  # ---------------------------------------------------------------------------
-
-  test "graph_entry_put returns PutResult" do
-    {:ok, result} = simulate_grpc_call(:ok, fn ->
-      %Antd.PutResult{cost: "500", address: "ge1"}
-    end)
-
-    assert result.cost == "500"
-    assert result.address == "ge1"
-  end
-
-  test "graph_entry_get returns GraphEntry" do
-    {:ok, entry} = simulate_grpc_call(:ok, fn ->
-      %Antd.GraphEntry{
-        owner: "owner1",
-        parents: [],
-        content: "abc",
-        descendants: [%Antd.GraphDescendant{public_key: "pk1", content: "desc1"}]
-      }
-    end)
-
-    assert entry.owner == "owner1"
-    assert entry.parents == []
-    assert entry.content == "abc"
-    assert length(entry.descendants) == 1
-    assert hd(entry.descendants).public_key == "pk1"
-    assert hd(entry.descendants).content == "desc1"
-  end
-
-  test "graph_entry_exists returns boolean" do
-    {:ok, exists} = simulate_grpc_call(:ok, fn -> true end)
-    assert exists == true
-
-    {:ok, missing} = simulate_grpc_call(:ok, fn -> false end)
-    assert missing == false
-  end
-
-  test "graph_entry_cost returns cost string" do
-    {:ok, cost} = simulate_grpc_call(:ok, fn -> "500" end)
-    assert cost == "500"
-  end
-
-  # ---------------------------------------------------------------------------
   # Files & Directories
   # ---------------------------------------------------------------------------
 
@@ -359,17 +311,5 @@ defmodule Antd.GrpcClientTest do
     assert result.address == "abc"
   end
 
-  test "GraphEntry struct fields are accessible" do
-    entry = %Antd.GraphEntry{
-      owner: "o",
-      parents: ["p1"],
-      content: "c",
-      descendants: [%Antd.GraphDescendant{public_key: "k", content: "d"}]
-    }
-
-    assert entry.owner == "o"
-    assert entry.parents == ["p1"]
-    assert length(entry.descendants) == 1
-  end
 
 end

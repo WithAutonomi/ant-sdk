@@ -107,69 +107,6 @@ defmodule Antd.ClientTest do
   end
 
   # ---------------------------------------------------------------------------
-  # Graph
-  # ---------------------------------------------------------------------------
-
-  test "graph_entry_put/5 creates a graph entry", %{bypass: bypass, client: client} do
-    Bypass.expect_once(bypass, "POST", "/v1/graph", fn conn ->
-      {:ok, body, conn} = Plug.Conn.read_body(conn)
-      decoded = Jason.decode!(body)
-      assert decoded["owner_secret_key"] == "sk1"
-      assert decoded["parents"] == []
-      assert decoded["content"] == "abc"
-
-      conn
-      |> Plug.Conn.put_resp_content_type("application/json")
-      |> Plug.Conn.resp(200, Jason.encode!(%{cost: "500", address: "ge1"}))
-    end)
-
-    assert {:ok, %Antd.PutResult{cost: "500", address: "ge1"}} =
-             Antd.Client.graph_entry_put(client, "sk1", [], "abc", [])
-  end
-
-  test "graph_entry_get/2 retrieves a graph entry", %{bypass: bypass, client: client} do
-    Bypass.expect_once(bypass, "GET", "/v1/graph/ge1", fn conn ->
-      conn
-      |> Plug.Conn.put_resp_content_type("application/json")
-      |> Plug.Conn.resp(200, Jason.encode!(%{
-        owner: "owner1",
-        parents: [],
-        content: "abc",
-        descendants: [%{public_key: "pk1", content: "desc1"}]
-      }))
-    end)
-
-    assert {:ok, %Antd.GraphEntry{owner: "owner1", descendants: [%Antd.GraphDescendant{public_key: "pk1"}]}} =
-             Antd.Client.graph_entry_get(client, "ge1")
-  end
-
-  test "graph_entry_exists/2 returns true when entry exists", %{bypass: bypass, client: client} do
-    Bypass.expect_once(bypass, "HEAD", "/v1/graph/ge1", fn conn ->
-      Plug.Conn.resp(conn, 200, "")
-    end)
-
-    assert {:ok, true} = Antd.Client.graph_entry_exists(client, "ge1")
-  end
-
-  test "graph_entry_exists/2 returns false for 404", %{bypass: bypass, client: client} do
-    Bypass.expect_once(bypass, "HEAD", "/v1/graph/missing", fn conn ->
-      Plug.Conn.resp(conn, 404, "")
-    end)
-
-    assert {:ok, false} = Antd.Client.graph_entry_exists(client, "missing")
-  end
-
-  test "graph_entry_cost/2 estimates graph entry cost", %{bypass: bypass, client: client} do
-    Bypass.expect_once(bypass, "POST", "/v1/graph/cost", fn conn ->
-      conn
-      |> Plug.Conn.put_resp_content_type("application/json")
-      |> Plug.Conn.resp(200, Jason.encode!(%{cost: "500"}))
-    end)
-
-    assert {:ok, "500"} = Antd.Client.graph_entry_cost(client, "pk1")
-  end
-
-  # ---------------------------------------------------------------------------
   # Files & Directories
   # ---------------------------------------------------------------------------
 
@@ -215,14 +152,14 @@ defmodule Antd.ClientTest do
     assert :ok = Antd.Client.dir_download_public(client, "dir1", "/tmp/outdir")
   end
 
-  test "file_cost/4 estimates file upload cost", %{bypass: bypass, client: client} do
+  test "file_cost/3 estimates file upload cost", %{bypass: bypass, client: client} do
     Bypass.expect_once(bypass, "POST", "/v1/cost/file", fn conn ->
       conn
       |> Plug.Conn.put_resp_content_type("application/json")
       |> Plug.Conn.resp(200, Jason.encode!(%{cost: "1000"}))
     end)
 
-    assert {:ok, "1000"} = Antd.Client.file_cost(client, "/tmp/test.txt", true, false)
+    assert {:ok, "1000"} = Antd.Client.file_cost(client, "/tmp/test.txt", true)
   end
 
   # ---------------------------------------------------------------------------
@@ -263,14 +200,14 @@ defmodule Antd.ClientTest do
   end
 
   test "409 returns AlreadyExistsError", %{bypass: bypass, client: client} do
-    Bypass.expect_once(bypass, "POST", "/v1/graph", fn conn ->
+    Bypass.expect_once(bypass, "POST", "/v1/data/public", fn conn ->
       conn
       |> Plug.Conn.put_resp_content_type("application/json")
       |> Plug.Conn.resp(409, Jason.encode!(%{error: "already exists"}))
     end)
 
     assert {:error, %Antd.AlreadyExistsError{status_code: 409}} =
-             Antd.Client.graph_entry_put(client, "sk1", [], "abc", [])
+             Antd.Client.data_put_public(client, "test")
   end
 
   test "413 returns TooLargeError", %{bypass: bypass, client: client} do

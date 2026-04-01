@@ -493,15 +493,6 @@ defmodule Antd.Client do
     end
   end
 
-  defp do_head(%__MODULE__{} = client, path) do
-    url = client.base_url <> path
-
-    case Req.request(method: :head, url: url, receive_timeout: client.timeout, retry: false) do
-      {:ok, %Req.Response{status: status}} -> {:ok, status}
-      {:error, exception} -> {:error, %Antd.AntdError{message: Exception.message(exception), status_code: 0}}
-    end
-  end
-
   defp extract_error_message(body) when is_map(body) do
     Map.get(body, "error", Jason.encode!(body))
   end

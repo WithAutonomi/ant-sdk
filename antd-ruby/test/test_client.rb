@@ -142,7 +142,7 @@ class TestClient < Minitest::Test
       .to_return(status: 200, body: '{"cost":"1000"}',
                  headers: { "Content-Type" => "application/json" })
 
-    cost = @client.file_cost("/tmp/test.txt", true, false)
+    cost = @client.file_cost("/tmp/test.txt", true)
     assert_equal "1000", cost
   end
 

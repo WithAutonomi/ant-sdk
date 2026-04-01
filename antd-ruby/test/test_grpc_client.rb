@@ -29,7 +29,7 @@ rescue LoadError
       def file_download_public(a, d) grpc_call { @file_stub.download_public(nil); nil } end
       def dir_upload_public(p) grpc_call { r = @file_stub.dir_upload_public(nil); PutResult.new(cost: r.cost.atto_tokens, address: r.address) } end
       def dir_download_public(a, d) grpc_call { @file_stub.dir_download_public(nil); nil } end
-      def file_cost(p, ip = true, ia = false) grpc_call { @file_stub.get_file_cost(nil).atto_tokens } end
+      def file_cost(p, ip = true) grpc_call { @file_stub.get_file_cost(nil).atto_tokens } end
 
       private
 
@@ -279,7 +279,7 @@ class TestGrpcClient < Minitest::Test
   end
 
   def test_file_cost
-    cost = @client.file_cost("/tmp/test.txt", true, false)
+    cost = @client.file_cost("/tmp/test.txt", true)
     assert_equal "1000", cost
   end
 
