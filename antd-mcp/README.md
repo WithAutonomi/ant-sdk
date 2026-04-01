@@ -72,6 +72,14 @@ The server will auto-discover the daemon via the port file. Add `"env": {"ANTD_B
 | 10 | `chunk_put(data)` | Store a raw chunk (base64 input) |
 | 11 | `chunk_get(address)` | Retrieve a chunk (base64 output) |
 
+### External Signer (Two-Phase Upload)
+
+| # | Tool | Description |
+|---|------|-------------|
+| 12 | `prepare_upload(path, is_directory?)` | Prepare a file/directory upload for external signing |
+| 13 | `prepare_data_upload(text)` | Prepare a data upload for external signing |
+| 14 | `finalize_upload(upload_id, tx_hashes)` | Finalize an externally-signed upload |
+
 ### Payment Modes
 
 The `store_data` and `upload_file` tools accept an optional `payment_mode` parameter:

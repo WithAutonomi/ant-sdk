@@ -52,7 +52,7 @@ void main() async {
 
 ## gRPC Transport
 
-The SDK includes a `GrpcAntdClient` class that provides the same 15 async
+The SDK includes a `GrpcAntdClient` class that provides the same async
 methods as the REST `AntdClient`, but communicates over gRPC.
 
 ### Setup
@@ -75,7 +75,7 @@ dart pub global activate protoc_plugin
 protoc --dart_out=grpc:lib/src/generated \
   -I../../antd/proto \
   antd/v1/common.proto antd/v1/health.proto antd/v1/data.proto \
-  antd/v1/chunks.proto antd/v1/graph.proto antd/v1/files.proto
+  antd/v1/chunks.proto antd/v1/files.proto antd/v1/events.proto
 ```
 
 ### Usage
