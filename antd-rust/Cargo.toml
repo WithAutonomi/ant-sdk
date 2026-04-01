@@ -40,9 +40,5 @@ name = "04-files"
 path = "examples/04-files.rs"
 
 [[example]]
-name = "05-graph"
-path = "examples/05-graph.rs"
-
-[[example]]
 name = "06-private-data"
 path = "examples/06-private-data.rs"

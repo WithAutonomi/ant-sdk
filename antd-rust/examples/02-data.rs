@@ -5,7 +5,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::new(DEFAULT_BASE_URL);
 
     // Store public data
-    let result = client.data_put_public(b"Hello, Autonomi!").await?;
+    let result = client.data_put_public(b"Hello, Autonomi!", None).await?;
     println!("Stored at: {} (cost: {} atto)", result.address, result.cost);
 
     // Retrieve public data

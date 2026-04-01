@@ -167,7 +167,7 @@ async fn test_data_put_public() {
     let _m = mock_data_put_public(&mut server);
     let client = Client::new(&server.url());
 
-    let result = client.data_put_public(b"hello").await.unwrap();
+    let result = client.data_put_public(b"hello", None).await.unwrap();
     assert_eq!(result.address, "abc123");
     assert_eq!(result.cost, "100");
 }
@@ -188,7 +188,7 @@ async fn test_data_put_private() {
     let _m = mock_data_put_private(&mut server);
     let client = Client::new(&server.url());
 
-    let result = client.data_put_private(b"secret").await.unwrap();
+    let result = client.data_put_private(b"secret", None).await.unwrap();
     assert_eq!(result.address, "dm123");
     assert_eq!(result.cost, "200");
 }
@@ -240,7 +240,7 @@ async fn test_file_upload_public() {
     let _m = mock_file_upload_public(&mut server);
     let client = Client::new(&server.url());
 
-    let result = client.file_upload_public("/tmp/test.txt").await.unwrap();
+    let result = client.file_upload_public("/tmp/test.txt", None).await.unwrap();
     assert_eq!(result.address, "file1");
     assert_eq!(result.cost, "1000");
 }
@@ -263,7 +263,7 @@ async fn test_dir_upload_public() {
     let _m = mock_dir_upload_public(&mut server);
     let client = Client::new(&server.url());
 
-    let result = client.dir_upload_public("/tmp/mydir").await.unwrap();
+    let result = client.dir_upload_public("/tmp/mydir", None).await.unwrap();
     assert_eq!(result.address, "dir1");
     assert_eq!(result.cost, "2000");
 }
@@ -357,7 +357,7 @@ async fn test_error_mapping_bad_request() {
         .create();
     let client = Client::new(&server.url());
 
-    let err = client.data_put_public(b"bad").await.unwrap_err();
+    let err = client.data_put_public(b"bad", None).await.unwrap_err();
     match err {
         AntdError::BadRequest(msg) => assert_eq!(msg, "invalid data"),
         other => panic!("expected BadRequest, got: {other:?}"),
@@ -375,7 +375,7 @@ async fn test_error_mapping_payment() {
         .create();
     let client = Client::new(&server.url());
 
-    let err = client.data_put_public(b"data").await.unwrap_err();
+    let err = client.data_put_public(b"data", None).await.unwrap_err();
     match err {
         AntdError::Payment(msg) => assert_eq!(msg, "insufficient funds"),
         other => panic!("expected Payment, got: {other:?}"),
@@ -448,7 +448,7 @@ async fn test_error_mapping_already_exists() {
     let client = Client::new(&server.url());
 
     let err = client
-        .data_put_public(b"test")
+        .data_put_public(b"test", None)
         .await
         .unwrap_err();
     match err {

@@ -21,7 +21,6 @@
     <Protobuf Include="..\..\antd\proto\antd\v1\common.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
     <Protobuf Include="..\..\antd\proto\antd\v1\data.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
     <Protobuf Include="..\..\antd\proto\antd\v1\chunks.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
-    <Protobuf Include="..\..\antd\proto\antd\v1\graph.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
     <Protobuf Include="..\..\antd\proto\antd\v1\files.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
     <Protobuf Include="..\..\antd\proto\antd\v1\events.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
   </ItemGroup>
