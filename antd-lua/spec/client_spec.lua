@@ -116,18 +116,6 @@ local function setup_daemon()
     register_route("POST", "/v1/dirs/upload/public", 200,
         cjson.encode({ cost = "2000", address = "dir1" }))
     register_route("POST", "/v1/dirs/download/public", 200, "")
-    register_route("GET", "/v1/archives/public/arc1", 200,
-        cjson.encode({
-            entries = { {
-                path = "test.txt",
-                address = "abc",
-                created = 1000,
-                modified = 2000,
-                size = 42,
-            } },
-        }))
-    register_route("POST", "/v1/archives/public", 200,
-        cjson.encode({ cost = "50", address = "arc2" }))
     register_route("POST", "/v1/cost/file", 200,
         cjson.encode({ cost = "1000" }))
 end
@@ -248,31 +236,6 @@ describe("antd client", function()
         it("downloads a directory", function()
             local _, err = client:dir_download_public("dir1", "/tmp/outdir")
             assert.is_nil(err)
-        end)
-    end)
-
-    describe("archive_get_public", function()
-        it("retrieves an archive", function()
-            local arc, err = client:archive_get_public("arc1")
-            assert.is_nil(err)
-            assert.are.equal(1, #arc.entries)
-            assert.are.equal("test.txt", arc.entries[1].path)
-            assert.are.equal("abc", arc.entries[1].address)
-            assert.are.equal(1000, arc.entries[1].created)
-            assert.are.equal(2000, arc.entries[1].modified)
-            assert.are.equal(42, arc.entries[1].size)
-        end)
-    end)
-
-    describe("archive_put_public", function()
-        it("creates an archive", function()
-            local arc = antd.new_archive({
-                antd.new_archive_entry("test.txt", "abc", 1000, 2000, 42),
-            })
-            local result, err = client:archive_put_public(arc)
-            assert.is_nil(err)
-            assert.are.equal("arc2", result.address)
-            assert.are.equal("50", result.cost)
         end)
     end)
 

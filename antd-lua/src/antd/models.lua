@@ -26,32 +26,6 @@ function M.new_put_result(cost, address)
     }
 end
 
---- Create an ArchiveEntry table.
--- @param path string file path
--- @param address string hex address
--- @param created number created timestamp
--- @param modified number modified timestamp
--- @param size number file size in bytes
--- @return table
-function M.new_archive_entry(path, address, created, modified, size)
-    return {
-        path = path,
-        address = address,
-        created = created,
-        modified = modified,
-        size = size,
-    }
-end
-
---- Create an Archive table.
--- @param entries table list of ArchiveEntry tables
--- @return table
-function M.new_archive(entries)
-    return {
-        entries = entries or {},
-    }
-end
-
 --- Create a WalletAddress table.
 -- @param address string wallet address (e.g. "0x...")
 -- @return table

@@ -7,12 +7,6 @@ module Antd
   # Result of a put/create operation.
   PutResult = Struct.new(:cost, :address, keyword_init: true)
 
-  # A single entry in a file archive.
-  ArchiveEntry = Struct.new(:path, :address, :created, :modified, :size, keyword_init: true)
-
-  # A collection of archive entries.
-  Archive = Struct.new(:entries, keyword_init: true)
-
   # Wallet address result.
   WalletAddress = Struct.new(:address, keyword_init: true)
 

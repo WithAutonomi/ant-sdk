@@ -290,72 +290,11 @@ impl GrpcClient {
         Ok(())
     }
 
-    /// Retrieves an archive manifest by address.
-    pub async fn archive_get_public(&self, address: &str) -> Result<Archive, AntdError> {
-        let resp = self
-            .files
-            .clone()
-            .archive_get_public(proto::antd::v1::ArchiveGetRequest {
-                address: address.to_string(),
-            })
-            .await?
-            .into_inner();
-
-        let entries = resp
-            .entries
-            .into_iter()
-            .map(|e| ArchiveEntry {
-                path: e.path,
-                address: e.address,
-                created: e.created as i64,
-                modified: e.modified as i64,
-                size: e.size as i64,
-            })
-            .collect();
-
-        Ok(Archive { entries })
-    }
-
-    /// Creates an archive manifest on the network.
-    pub async fn archive_put_public(&self, archive: &Archive) -> Result<PutResult, AntdError> {
-        let proto_entries: Vec<proto::antd::v1::ArchiveEntry> = archive
-            .entries
-            .iter()
-            .map(|e| proto::antd::v1::ArchiveEntry {
-                path: e.path.clone(),
-                address: e.address.clone(),
-                created: e.created as u64,
-                modified: e.modified as u64,
-                size: e.size as u64,
-            })
-            .collect();
-
-        let resp = self
-            .files
-            .clone()
-            .archive_put_public(proto::antd::v1::ArchivePutRequest {
-                entries: proto_entries,
-            })
-            .await?
-            .into_inner();
-
-        let cost = resp
-            .cost
-            .map(|c| c.atto_tokens)
-            .unwrap_or_default();
-
-        Ok(PutResult {
-            cost,
-            address: resp.address,
-        })
-    }
-
     /// Estimates the cost of uploading a file.
     pub async fn file_cost(
         &self,
         path: &str,
         is_public: bool,
-        include_archive: bool,
     ) -> Result<String, AntdError> {
         let resp = self
             .files
@@ -363,7 +302,6 @@ impl GrpcClient {
             .get_file_cost(proto::antd::v1::FileCostRequest {
                 path: path.to_string(),
                 is_public,
-                include_archive,
             })
             .await?
             .into_inner();

@@ -12,8 +12,6 @@ import org.junit.jupiter.api.*;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.Base64;
-import java.util.Collections;
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -94,13 +92,6 @@ class AntdClientTest {
             }
             if ("POST".equals(method) && "/v1/dirs/download/public".equals(path)) {
                 return new MockResponse().setResponseCode(200);
-            }
-            if ("GET".equals(method) && "/v1/archives/public/arc1".equals(path)) {
-                return json("{\"entries\":[{\"path\":\"test.txt\",\"address\":\"abc\","
-                        + "\"created\":1000,\"modified\":2000,\"size\":42}]}");
-            }
-            if ("POST".equals(method) && "/v1/archives/public".equals(path)) {
-                return json("{\"cost\":\"50\",\"address\":\"arc2\"}");
             }
             if ("POST".equals(method) && "/v1/cost/file".equals(path)) {
                 return json("{\"cost\":\"1000\"}");
@@ -195,29 +186,8 @@ class AntdClientTest {
     }
 
     @Test
-    void testArchiveGetPublic() {
-        Archive arc = client.archiveGetPublic("arc1");
-        assertEquals(1, arc.entries().size());
-        ArchiveEntry entry = arc.entries().get(0);
-        assertEquals("test.txt", entry.path());
-        assertEquals("abc", entry.address());
-        assertEquals(1000L, entry.created());
-        assertEquals(2000L, entry.modified());
-        assertEquals(42L, entry.size());
-    }
-
-    @Test
-    void testArchivePutPublic() {
-        Archive arc = new Archive(List.of(
-                new ArchiveEntry("test.txt", "abc", 1000, 2000, 42)));
-        PutResult put = client.archivePutPublic(arc);
-        assertEquals("arc2", put.address());
-        assertEquals("50", put.cost());
-    }
-
-    @Test
     void testFileCost() {
-        String cost = client.fileCost("/tmp/test.txt", true, false);
+        String cost = client.fileCost("/tmp/test.txt", true);
         assertEquals("1000", cost);
     }
 

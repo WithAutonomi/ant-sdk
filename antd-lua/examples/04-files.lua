@@ -32,18 +32,6 @@ end
 
 print("Directory uploaded at: " .. dir_result.address)
 
--- Get archive manifest
-local archive, err4 = client:archive_get_public(dir_result.address)
-if err4 then
-    print("Archive error: " .. err4.message)
-    os.exit(1)
-end
-
-print("Archive entries:")
-for _, entry in ipairs(archive.entries) do
-    print("  " .. entry.path .. " (" .. entry.size .. " bytes)")
-end
-
 -- Estimate file upload cost
 local cost, err5 = client:file_cost("/path/to/myfile.txt", true, false)
 if err5 then

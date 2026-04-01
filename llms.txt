@@ -1,6 +1,6 @@
 # antd SDK
 
-> Go, JavaScript/TypeScript, Python, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, Elixir, Zig, Rust, C++, and Java SDKs for the Autonomi network via the antd daemon. Provides REST and gRPC transports, an MCP server (17 tools), and a local daemon that manages wallet, payments, and network connectivity.
+> Go, JavaScript/TypeScript, Python, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, Elixir, Zig, Rust, C++, and Java SDKs for the Autonomi network via the antd daemon. Provides REST and gRPC transports, an MCP server (14 tools), and a local daemon that manages wallet, payments, and network connectivity.
 
 ## Quick Start
 
@@ -28,7 +28,7 @@ data = client.data_get_public(result.address)
 - [Rust SDK](antd-rust/) — `cargo add antd-client` — REST + gRPC, async/tokio
 - [C++ SDK](antd-cpp/) — CMake FetchContent — REST + gRPC, sync + async (C++20)
 - [Java SDK](antd-java/) — Gradle/Maven — REST + gRPC, sync + async (Java 17+)
-- [MCP Server](antd-mcp/) — 17 tools for AI agent integration
+- [MCP Server](antd-mcp/) — 14 tools for AI agent integration
 
 ## API Reference
 
@@ -53,8 +53,6 @@ data = client.data_get_public(result.address)
 | POST | `/v1/files/download/public` | Download file from network |
 | POST | `/v1/dirs/upload/public` | Upload directory to network (accepts optional `payment_mode`) |
 | POST | `/v1/dirs/download/public` | Download directory from network |
-| GET | `/v1/archives/public/{addr}` | List archive entries |
-| POST | `/v1/archives/public` | Create archive manifest |
 | POST | `/v1/cost/file` | Estimate file upload cost |
 | GET | `/v1/wallet/address` | Get wallet public address |
 | GET | `/v1/wallet/balance` | Get wallet token and gas balances |
@@ -70,7 +68,7 @@ data = client.data_get_public(result.address)
 | HealthService | Check | health.proto |
 | DataService | GetPublic, PutPublic, StreamPublic, GetPrivate, PutPrivate, GetCost | data.proto |
 | ChunkService | Get, Put | chunks.proto |
-| FileService | UploadPublic, DownloadPublic, DirUploadPublic, DirDownloadPublic, ArchiveGetPublic, ArchivePutPublic, GetFileCost | files.proto |
+| FileService | UploadPublic, DownloadPublic, DirUploadPublic, DirDownloadPublic, GetFileCost | files.proto |
 | EventService | Subscribe | events.proto |
 
 ## Error Codes

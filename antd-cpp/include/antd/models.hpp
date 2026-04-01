@@ -18,20 +18,6 @@ struct PutResult {
     std::string address;  // hex
 };
 
-/// A single entry in a file archive.
-struct ArchiveEntry {
-    std::string path;
-    std::string address;
-    int64_t created{0};
-    int64_t modified{0};
-    int64_t size{0};
-};
-
-/// A collection of archive entries.
-struct Archive {
-    std::vector<ArchiveEntry> entries;
-};
-
 /// Wallet address response.
 struct WalletAddress {
     std::string address;  // 0x-prefixed hex

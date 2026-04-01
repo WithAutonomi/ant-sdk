@@ -130,19 +130,6 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any) (map
 	return result, resp.StatusCode, nil
 }
 
-func (c *Client) doHead(ctx context.Context, path string) (int, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, c.url(path), nil)
-	if err != nil {
-		return 0, fmt.Errorf("create request: %w", err)
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("http request: %w", err)
-	}
-	resp.Body.Close()
-	return resp.StatusCode, nil
-}
-
 func str(m map[string]any, key string) string {
 	if v, ok := m[key].(string); ok {
 		return v
@@ -155,20 +142,6 @@ func num64(m map[string]any, key string) int64 {
 		return int64(v)
 	}
 	return 0
-}
-
-func strSlice(m map[string]any, key string) []string {
-	arr, ok := m[key].([]any)
-	if !ok {
-		return nil
-	}
-	out := make([]string, 0, len(arr))
-	for _, v := range arr {
-		if s, ok := v.(string); ok {
-			out = append(out, s)
-		}
-	}
-	return out
 }
 
 func arrAt(m map[string]any, key string) []any {
@@ -337,51 +310,11 @@ func (c *Client) DirDownloadPublic(ctx context.Context, address, destPath string
 	return err
 }
 
-// ArchiveGetPublic retrieves an archive manifest by address.
-func (c *Client) ArchiveGetPublic(ctx context.Context, address string) (*Archive, error) {
-	j, _, err := c.doJSON(ctx, http.MethodGet, "/v1/archives/public/"+address, nil)
-	if err != nil {
-		return nil, err
-	}
-	var entries []ArchiveEntry
-	for _, e := range arrAt(j, "entries") {
-		if em, ok := e.(map[string]any); ok {
-			entries = append(entries, ArchiveEntry{
-				Path:     str(em, "path"),
-				Address:  str(em, "address"),
-				Created:  num64(em, "created"),
-				Modified: num64(em, "modified"),
-				Size:     num64(em, "size"),
-			})
-		}
-	}
-	return &Archive{Entries: entries}, nil
-}
-
-// ArchivePutPublic creates an archive manifest on the network.
-func (c *Client) ArchivePutPublic(ctx context.Context, archive Archive) (*PutResult, error) {
-	entries := make([]map[string]any, len(archive.Entries))
-	for i, e := range archive.Entries {
-		entries[i] = map[string]any{
-			"path": e.Path, "address": e.Address,
-			"created": e.Created, "modified": e.Modified, "size": e.Size,
-		}
-	}
-	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/archives/public", map[string]any{
-		"entries": entries,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &PutResult{Cost: str(j, "cost"), Address: str(j, "address")}, nil
-}
-
 // FileCost estimates the cost of uploading a file.
-func (c *Client) FileCost(ctx context.Context, path string, isPublic bool, includeArchive bool) (string, error) {
+func (c *Client) FileCost(ctx context.Context, path string, isPublic bool) (string, error) {
 	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/cost/file", map[string]any{
-		"path":            path,
-		"is_public":       isPublic,
-		"include_archive": includeArchive,
+		"path":      path,
+		"is_public": isPublic,
 	})
 	if err != nil {
 		return "", err

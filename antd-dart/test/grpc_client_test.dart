@@ -81,24 +81,9 @@ Future<PutResult> dirUploadPublic(String path) =>
 Future<void> dirDownloadPublic(String address, String destPath) =>
       _maybeThrow(null);
 
-Future<Archive> archiveGetPublic(String address) =>
-      _maybeThrow(const Archive(entries: [
-        ArchiveEntry(
-          path: 'test.txt',
-          address: 'abc',
-          created: 1000,
-          modified: 2000,
-          size: 42,
-        ),
-      ]));
-
-Future<PutResult> archivePutPublic(Archive archive) =>
-      _maybeThrow(const PutResult(cost: '50', address: 'arc2'));
-
 Future<String> fileCost(
     String path, {
     bool isPublic = true,
-    bool includeArchive = false,
   }) =>
       _maybeThrow('1000');
 
@@ -207,37 +192,10 @@ void main() {
       await client.dirDownloadPublic('dir1', '/tmp/outdir');
     });
 
-    test('get archive', () async {
-      final client = _FakeGrpcClient();
-      final arc = await client.archiveGetPublic('arc1');
-      expect(arc.entries.length, equals(1));
-      expect(arc.entries[0].path, equals('test.txt'));
-      expect(arc.entries[0].address, equals('abc'));
-      expect(arc.entries[0].created, equals(1000));
-      expect(arc.entries[0].modified, equals(2000));
-      expect(arc.entries[0].size, equals(42));
-    });
-
-    test('put archive', () async {
-      final client = _FakeGrpcClient();
-      const archive = Archive(entries: [
-        ArchiveEntry(
-          path: 'test.txt',
-          address: 'abc',
-          created: 1000,
-          modified: 2000,
-          size: 42,
-        ),
-      ]);
-      final result = await client.archivePutPublic(archive);
-      expect(result.cost, equals('50'));
-      expect(result.address, equals('arc2'));
-    });
-
     test('file cost', () async {
       final client = _FakeGrpcClient();
       final cost =
-          await client.fileCost('/tmp/test.txt', isPublic: true, includeArchive: false);
+          await client.fileCost('/tmp/test.txt', isPublic: true);
       expect(cost, equals('1000'));
     });
   });

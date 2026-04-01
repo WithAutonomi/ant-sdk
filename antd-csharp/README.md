@@ -52,7 +52,7 @@ using var client = AntdClient.CreateRest(
     timeout: TimeSpan.FromSeconds(30)
 );
 
-// gRPC transport
+// gRPC transport (wallet operations and payment_mode are REST-only)
 using var grpcClient = AntdClient.CreateGrpc(
     target: "http://localhost:50051"
 );
@@ -96,9 +96,7 @@ All methods are async and return `Task<T>`. The client implements `IDisposable`.
 | `FileDownloadPublicAsync(string address, string dest)` | — | Download file |
 | `DirUploadPublicAsync(string path)` | `PutResult` | Upload directory |
 | `DirDownloadPublicAsync(string address, string dest)` | — | Download directory |
-| `ArchiveGetPublicAsync(string address)` | `Archive` | Get archive |
-| `ArchivePutPublicAsync(Archive archive)` | `PutResult` | Create archive |
-| `FileCostAsync(string path, bool isPublic, bool includeArchive)` | `string` | Estimate cost |
+| `FileCostAsync(string path, bool isPublic)` | `string` | Estimate cost |
 
 ## Models
 
@@ -108,8 +106,6 @@ All models are sealed records (immutable).
 |-------|--------|-------------|
 | `HealthStatus` | `Ok`, `Network` | Health check result |
 | `PutResult` | `Cost`, `Address` | Write operation result |
-| `ArchiveEntry` | `Path`, `Address`, `Created`, `Modified`, `Size` | Archive file entry |
-| `Archive` | `Entries` | Archive manifest |
 
 ## Error Handling
 

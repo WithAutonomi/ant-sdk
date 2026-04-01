@@ -137,39 +137,12 @@ class TestClient < Minitest::Test
     assert_nil @client.dir_download_public("dir1", "/tmp/outdir")
   end
 
-  def test_archive_get_public
-    body = {
-      entries: [{ path: "test.txt", address: "abc", created: 1000, modified: 2000, size: 42 }]
-    }.to_json
-    stub_request(:get, "#{BASE}/v1/archives/public/arc1")
-      .to_return(status: 200, body: body,
-                 headers: { "Content-Type" => "application/json" })
-
-    arc = @client.archive_get_public("arc1")
-    assert_equal 1, arc.entries.length
-    assert_equal "test.txt", arc.entries[0].path
-    assert_equal 42, arc.entries[0].size
-  end
-
-  def test_archive_put_public
-    stub_request(:post, "#{BASE}/v1/archives/public")
-      .to_return(status: 200, body: '{"cost":"50","address":"arc2"}',
-                 headers: { "Content-Type" => "application/json" })
-
-    archive = Antd::Archive.new(entries: [
-      Antd::ArchiveEntry.new(path: "test.txt", address: "abc", created: 1000, modified: 2000, size: 42)
-    ])
-    result = @client.archive_put_public(archive)
-    assert_equal "50", result.cost
-    assert_equal "arc2", result.address
-  end
-
   def test_file_cost
     stub_request(:post, "#{BASE}/v1/cost/file")
       .to_return(status: 200, body: '{"cost":"1000"}',
                  headers: { "Content-Type" => "application/json" })
 
-    cost = @client.file_cost("/tmp/test.txt", true, false)
+    cost = @client.file_cost("/tmp/test.txt", true)
     assert_equal "1000", cost
   end
 

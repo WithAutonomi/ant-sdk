@@ -17,8 +17,6 @@ from .exceptions import (
     TooLargeError,
 )
 from .models import (
-    Archive,
-    ArchiveEntry,
     HealthStatus,
     PutResult,
 )
@@ -177,38 +175,10 @@ class GrpcClient:
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
-    def archive_get_public(self, address: str) -> Archive:
-        try:
-            resp = self._files.ArchiveGetPublic(files_pb2.ArchiveGetRequest(address=address))
-            entries = [
-                ArchiveEntry(
-                    path=e.path, address=e.address,
-                    created=e.created, modified=e.modified, size=e.size,
-                )
-                for e in resp.entries
-            ]
-            return Archive(entries=entries)
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    def archive_put_public(self, archive: Archive) -> PutResult:
-        try:
-            pb_entries = [
-                files_pb2.ArchiveEntry(
-                    path=e.path, address=e.address,
-                    created=e.created, modified=e.modified, size=e.size,
-                )
-                for e in archive.entries
-            ]
-            resp = self._files.ArchivePutPublic(files_pb2.ArchivePutRequest(entries=pb_entries))
-            return PutResult(cost=resp.cost.atto_tokens, address=resp.address)
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    def file_cost(self, path: str, is_public: bool = True, include_archive: bool = False) -> str:
+    def file_cost(self, path: str, is_public: bool = True) -> str:
         try:
             resp = self._files.GetFileCost(files_pb2.FileCostRequest(
-                path=path, is_public=is_public, include_archive=include_archive))
+                path=path, is_public=is_public))
             return resp.atto_tokens
         except grpc.RpcError as e:
             _handle_rpc_error(e)
@@ -364,41 +334,10 @@ class AsyncGrpcClient:
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
-    async def archive_get_public(self, address: str) -> Archive:
-        try:
-            resp = await self._files.ArchiveGetPublic(
-                files_pb2.ArchiveGetRequest(address=address))
-            entries = [
-                ArchiveEntry(
-                    path=e.path, address=e.address,
-                    created=e.created, modified=e.modified, size=e.size,
-                )
-                for e in resp.entries
-            ]
-            return Archive(entries=entries)
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    async def archive_put_public(self, archive: Archive) -> PutResult:
-        try:
-            pb_entries = [
-                files_pb2.ArchiveEntry(
-                    path=e.path, address=e.address,
-                    created=e.created, modified=e.modified, size=e.size,
-                )
-                for e in archive.entries
-            ]
-            resp = await self._files.ArchivePutPublic(
-                files_pb2.ArchivePutRequest(entries=pb_entries))
-            return PutResult(cost=resp.cost.atto_tokens, address=resp.address)
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    async def file_cost(self, path: str, is_public: bool = True,
-                        include_archive: bool = False) -> str:
+    async def file_cost(self, path: str, is_public: bool = True) -> str:
         try:
             resp = await self._files.GetFileCost(files_pb2.FileCostRequest(
-                path=path, is_public=is_public, include_archive=include_archive))
+                path=path, is_public=is_public))
             return resp.atto_tokens
         except grpc.RpcError as e:
             _handle_rpc_error(e)

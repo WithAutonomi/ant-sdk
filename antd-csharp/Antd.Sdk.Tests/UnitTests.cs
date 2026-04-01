@@ -381,7 +381,7 @@ public sealed class AntdRestClientTests : IDisposable
         Assert.Equal(503, ex.StatusCode);
     }
 
-    // ── Files / Archives ──
+    // ── Files ──
 
     [Fact]
     public async Task FileUploadPublicAsync_ReturnsPutResult()
@@ -397,27 +397,6 @@ public sealed class AntdRestClientTests : IDisposable
 
         Assert.Equal("10", result.Cost);
         Assert.Equal("file_addr_001", result.Address);
-    }
-
-    [Fact]
-    public async Task ArchiveGetPublicAsync_ReturnsArchiveEntries()
-    {
-        _server.RouteOk("GET", "/v1/archives/public/arch_addr", new
-        {
-            entries = new[]
-            {
-                new { path = "file1.txt", address = "addr1", created = 1000UL, modified = 2000UL, size = 512UL },
-                new { path = "file2.txt", address = "addr2", created = 1100UL, modified = 2100UL, size = 1024UL },
-            }
-        });
-        _server.Start();
-
-        var result = await _client.ArchiveGetPublicAsync("arch_addr");
-
-        Assert.Equal(2, result.Entries.Count);
-        Assert.Equal("file1.txt", result.Entries[0].Path);
-        Assert.Equal("addr2", result.Entries[1].Address);
-        Assert.Equal(1024UL, result.Entries[1].Size);
     }
 
     // ── External Signer ──

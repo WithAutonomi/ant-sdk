@@ -36,9 +36,7 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
     public func fileDownloadPublic(address: String, destPath: String) async throws { throw notImplemented() }
     public func dirUploadPublic(path: String, paymentMode: String? = nil) async throws -> PutResult { throw notImplemented() }
     public func dirDownloadPublic(address: String, destPath: String) async throws { throw notImplemented() }
-    public func archiveGetPublic(address: String) async throws -> Archive { throw notImplemented() }
-    public func archivePutPublic(archive: Archive) async throws -> PutResult { throw notImplemented() }
-    public func fileCost(path: String, isPublic: Bool = true, includeArchive: Bool = false) async throws -> String { throw notImplemented() }
+    public func fileCost(path: String, isPublic: Bool = true) async throws -> String { throw notImplemented() }
     public func walletAddress() async throws -> WalletAddress { throw notImplemented() }
     public func walletBalance() async throws -> WalletBalance { throw notImplemented() }
     public func walletApprove() async throws -> Bool { throw notImplemented() }

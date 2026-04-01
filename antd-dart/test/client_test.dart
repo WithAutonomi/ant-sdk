@@ -68,22 +68,6 @@ MockClient mockDaemon() {
         break;
       case 'POST /v1/dirs/download/public':
         return http.Response('', 200);
-      case 'GET /v1/archives/public/arc1':
-        body = {
-          'entries': [
-            {
-              'path': 'test.txt',
-              'address': 'abc',
-              'created': 1000,
-              'modified': 2000,
-              'size': 42,
-            }
-          ],
-        };
-        break;
-      case 'POST /v1/archives/public':
-        body = {'cost': '50', 'address': 'arc2'};
-        break;
       case 'POST /v1/cost/file':
         body = {'cost': '1000'};
         break;
@@ -200,23 +184,9 @@ void main() {
       client.close();
     });
 
-    test('get and put archives', () async {
-      final client = AntdClient(httpClient: mockDaemon());
-
-      final archive = await client.archiveGetPublic('arc1');
-      expect(archive.entries.length, equals(1));
-      expect(archive.entries[0].path, equals('test.txt'));
-      expect(archive.entries[0].size, equals(42));
-
-      final arcPut = await client.archivePutPublic(archive);
-      expect(arcPut.address, equals('arc2'));
-
-      client.close();
-    });
-
     test('estimates file cost', () async {
       final client = AntdClient(httpClient: mockDaemon());
-      final cost = await client.fileCost('/tmp/test.txt', isPublic: true, includeArchive: false);
+      final cost = await client.fileCost('/tmp/test.txt', isPublic: true);
       expect(cost, equals('1000'));
       client.close();
     });

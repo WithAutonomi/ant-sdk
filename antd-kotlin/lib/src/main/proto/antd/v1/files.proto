@@ -11,8 +11,6 @@ service FileService {
   rpc DownloadPublic(DownloadPublicRequest) returns (DownloadResponse);
   rpc DirUploadPublic(UploadFileRequest) returns (UploadPublicResponse);
   rpc DirDownloadPublic(DownloadPublicRequest) returns (DownloadResponse);
-  rpc ArchiveGetPublic(ArchiveGetRequest) returns (ArchiveGetResponse);
-  rpc ArchivePutPublic(ArchivePutRequest) returns (ArchivePutResponse);
   rpc GetFileCost(FileCostRequest) returns (Cost);
 }
 
@@ -32,33 +30,7 @@ message DownloadPublicRequest {
 
 message DownloadResponse {}
 
-message ArchiveGetRequest {
-  string address = 1; // hex
-}
-
-message ArchiveEntry {
-  string path = 1;
-  string address = 2;
-  uint64 created = 3;
-  uint64 modified = 4;
-  uint64 size = 5;
-}
-
-message ArchiveGetResponse {
-  repeated ArchiveEntry entries = 1;
-}
-
-message ArchivePutRequest {
-  repeated ArchiveEntry entries = 1;
-}
-
-message ArchivePutResponse {
-  Cost cost = 1;
-  string address = 2; // hex
-}
-
 message FileCostRequest {
   string path = 1;
   bool is_public = 2;
-  bool include_archive = 3;
 }

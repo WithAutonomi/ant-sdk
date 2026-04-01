@@ -322,64 +322,15 @@ class GrpcAntdClient {
     }
   }
 
-  /// Retrieves an archive manifest by address.
-  Future<Archive> archiveGetPublic(String address) async {
-    try {
-      final req = files_msg.ArchiveGetRequest()..address = address;
-      final resp = await _fileStub.archiveGetPublic(req);
-      return Archive(
-        entries: List<ArchiveEntry>.unmodifiable(
-          resp.entries.map(
-            (e) => ArchiveEntry(
-              path: e.path,
-              address: e.address,
-              created: e.created.toInt(),
-              modified: e.modified.toInt(),
-              size: e.size.toInt(),
-            ),
-          ),
-        ),
-      );
-    } on GrpcError catch (e) {
-      _handleError(e);
-    }
-  }
-
-  /// Creates an archive manifest on the network.
-  Future<PutResult> archivePutPublic(Archive archive) async {
-    try {
-      final req = files_msg.ArchivePutRequest()
-        ..entries.addAll(
-          archive.entries.map(
-            (e) => files_msg.ArchiveEntry()
-              ..path = e.path
-              ..address = e.address
-              ..created = e.created
-              ..modified = e.modified
-              ..size = e.size,
-          ),
-        );
-      final resp = await _fileStub.archivePutPublic(req);
-      return PutResult(
-        cost: resp.cost.attoTokens,
-        address: resp.address,
-      );
-    } on GrpcError catch (e) {
-      _handleError(e);
-    }
-  }
-
   /// Estimates the cost of uploading a file.
   Future<String> fileCost(
     String path, {
     bool isPublic = true,
-    bool includeArchive = false,
   }) async {
     try {
       final req = files_msg.FileCostRequest()
         ..path = path
-        ..isPublic = isPublic
-        ..includeArchive = includeArchive;
+        ..isPublic = isPublic;
       final resp = await _fileStub.getFileCost(req);
       return resp.attoTokens;
     } on GrpcError catch (e) {

@@ -280,65 +280,10 @@ defmodule Antd.Client do
     unwrap!(dir_download_public(client, address, dest_path))
   end
 
-  @doc "Retrieves an archive manifest by address."
-  @spec archive_get_public(t(), String.t()) :: {:ok, Antd.Archive.t()} | {:error, Exception.t()}
-  def archive_get_public(%__MODULE__{} = client, address) do
-    case do_json(client, :get, "/v1/archives/public/#{address}", nil) do
-      {:ok, body} ->
-        entries =
-          (body["entries"] || [])
-          |> Enum.map(fn e ->
-            %Antd.ArchiveEntry{
-              path: e["path"],
-              address: e["address"],
-              created: e["created"],
-              modified: e["modified"],
-              size: e["size"]
-            }
-          end)
-
-        {:ok, %Antd.Archive{entries: entries}}
-
-      {:error, _} = err ->
-        err
-    end
-  end
-
-  @doc "Like `archive_get_public/2` but raises on error."
-  @spec archive_get_public!(t(), String.t()) :: Antd.Archive.t()
-  def archive_get_public!(client, address), do: unwrap!(archive_get_public(client, address))
-
-  @doc "Creates an archive manifest on the network."
-  @spec archive_put_public(t(), Antd.Archive.t()) :: {:ok, Antd.PutResult.t()} | {:error, Exception.t()}
-  def archive_put_public(%__MODULE__{} = client, %Antd.Archive{} = archive) do
-    entries =
-      Enum.map(archive.entries, fn e ->
-        %{
-          path: e.path,
-          address: e.address,
-          created: e.created,
-          modified: e.modified,
-          size: e.size
-        }
-      end)
-
-    case do_json(client, :post, "/v1/archives/public", %{entries: entries}) do
-      {:ok, body} ->
-        {:ok, %Antd.PutResult{cost: body["cost"], address: body["address"]}}
-
-      {:error, _} = err ->
-        err
-    end
-  end
-
-  @doc "Like `archive_put_public/2` but raises on error."
-  @spec archive_put_public!(t(), Antd.Archive.t()) :: Antd.PutResult.t()
-  def archive_put_public!(client, archive), do: unwrap!(archive_put_public(client, archive))
-
   @doc "Estimates the cost of uploading a file."
-  @spec file_cost(t(), String.t(), boolean(), boolean()) :: {:ok, String.t()} | {:error, Exception.t()}
-  def file_cost(%__MODULE__{} = client, path, is_public, include_archive) do
-    payload = %{path: path, is_public: is_public, include_archive: include_archive}
+  @spec file_cost(t(), String.t(), boolean()) :: {:ok, String.t()} | {:error, Exception.t()}
+  def file_cost(%__MODULE__{} = client, path, is_public) do
+    payload = %{path: path, is_public: is_public}
 
     case do_json(client, :post, "/v1/cost/file", payload) do
       {:ok, body} -> {:ok, body["cost"]}
@@ -346,10 +291,10 @@ defmodule Antd.Client do
     end
   end
 
-  @doc "Like `file_cost/4` but raises on error."
-  @spec file_cost!(t(), String.t(), boolean(), boolean()) :: String.t()
-  def file_cost!(client, path, is_public, include_archive) do
-    unwrap!(file_cost(client, path, is_public, include_archive))
+  @doc "Like `file_cost/3` but raises on error."
+  @spec file_cost!(t(), String.t(), boolean()) :: String.t()
+  def file_cost!(client, path, is_public) do
+    unwrap!(file_cost(client, path, is_public))
   end
 
   # ---------------------------------------------------------------------------
@@ -545,15 +490,6 @@ defmodule Antd.Client do
 
       {:error, exception} ->
         {:error, %Antd.AntdError{message: Exception.message(exception), status_code: 0}}
-    end
-  end
-
-  defp do_head(%__MODULE__{} = client, path) do
-    url = client.base_url <> path
-
-    case Req.request(method: :head, url: url, receive_timeout: client.timeout, retry: false) do
-      {:ok, %Req.Response{status: status}} -> {:ok, status}
-      {:error, exception} -> {:error, %Antd.AntdError{message: Exception.message(exception), status_code: 0}}
     end
   end
 

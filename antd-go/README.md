@@ -112,9 +112,7 @@ All methods take a `context.Context` as the first parameter for cancellation and
 | `FileDownloadPublic(ctx, address, destPath)` | Download a file |
 | `DirUploadPublic(ctx, path)` | Upload a directory |
 | `DirDownloadPublic(ctx, address, destPath)` | Download a directory |
-| `ArchiveGetPublic(ctx, address)` | Get archive manifest |
-| `ArchivePutPublic(ctx, archive)` | Create archive manifest |
-| `FileCost(ctx, path, isPublic, includeArchive)` | Estimate upload cost |
+| `FileCost(ctx, path, isPublic)` | Estimate upload cost |
 
 ## gRPC Transport
 
@@ -193,6 +191,8 @@ client, _ := antd.NewGrpcClient("localhost:50051",
 client, _ := antd.NewGrpcClient("secure-host:443",
     antd.WithDialOptions(grpc.WithTransportCredentials(creds)))
 ```
+
+> **Note:** Wallet operations (address, balance, approve) and payment_mode are available via REST only.
 
 ### gRPC Error Mapping
 

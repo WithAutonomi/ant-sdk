@@ -161,52 +161,14 @@ module Antd
       nil
     end
 
-    # Retrieve an archive manifest by address.
-    # @param address [String]
-    # @return [Archive]
-    def archive_get_public(address)
-      req = Antd::V1::ArchiveGetRequest.new(address: address)
-      resp = grpc_call { @file_stub.archive_get_public(req) }
-      entries = resp.entries.map do |e|
-        ArchiveEntry.new(
-          path: e.path,
-          address: e.address,
-          created: e.created,
-          modified: e.modified,
-          size: e.size
-        )
-      end
-      Archive.new(entries: entries)
-    end
-
-    # Create an archive manifest on the network.
-    # @param archive [Archive]
-    # @return [PutResult]
-    def archive_put_public(archive)
-      entries = archive.entries.map do |e|
-        Antd::V1::ArchiveEntry.new(
-          path: e.path,
-          address: e.address,
-          created: e.created,
-          modified: e.modified,
-          size: e.size
-        )
-      end
-      req = Antd::V1::ArchivePutRequest.new(entries: entries)
-      resp = grpc_call { @file_stub.archive_put_public(req) }
-      PutResult.new(cost: resp.cost.atto_tokens, address: resp.address)
-    end
-
     # Estimate the cost of uploading a file.
     # @param path [String]
     # @param is_public [Boolean]
-    # @param include_archive [Boolean]
     # @return [String] cost in atto tokens
-    def file_cost(path, is_public, include_archive)
+    def file_cost(path, is_public)
       req = Antd::V1::FileCostRequest.new(
         path: path,
-        is_public: is_public,
-        include_archive: include_archive
+        is_public: is_public
       )
       resp = grpc_call { @file_stub.get_file_cost(req) }
       resp.atto_tokens

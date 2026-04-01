@@ -344,69 +344,11 @@ impl Client {
         Ok(())
     }
 
-    /// Retrieves an archive manifest by address.
-    pub async fn archive_get_public(&self, address: &str) -> Result<Archive, AntdError> {
-        let (j, _) = self
-            .do_json(
-                reqwest::Method::GET,
-                &format!("/v1/archives/public/{address}"),
-                None,
-            )
-            .await?;
-        let j = j.unwrap_or_default();
-        let entries = j
-            .get("entries")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .map(|e| ArchiveEntry {
-                        path: Self::str_field(e, "path"),
-                        address: Self::str_field(e, "address"),
-                        created: Self::i64_field(e, "created"),
-                        modified: Self::i64_field(e, "modified"),
-                        size: Self::i64_field(e, "size"),
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        Ok(Archive { entries })
-    }
-
-    /// Creates an archive manifest on the network.
-    pub async fn archive_put_public(&self, archive: &Archive) -> Result<PutResult, AntdError> {
-        let entries: Vec<Value> = archive
-            .entries
-            .iter()
-            .map(|e| {
-                json!({
-                    "path": e.path,
-                    "address": e.address,
-                    "created": e.created,
-                    "modified": e.modified,
-                    "size": e.size,
-                })
-            })
-            .collect();
-        let (j, _) = self
-            .do_json(
-                reqwest::Method::POST,
-                "/v1/archives/public",
-                Some(json!({ "entries": entries })),
-            )
-            .await?;
-        let j = j.unwrap_or_default();
-        Ok(PutResult {
-            cost: Self::str_field(&j, "cost"),
-            address: Self::str_field(&j, "address"),
-        })
-    }
-
     /// Estimates the cost of uploading a file.
     pub async fn file_cost(
         &self,
         path: &str,
         is_public: bool,
-        include_archive: bool,
     ) -> Result<String, AntdError> {
         let (j, _) = self
             .do_json(
@@ -415,7 +357,6 @@ impl Client {
                 Some(json!({
                     "path": path,
                     "is_public": is_public,
-                    "include_archive": include_archive,
                 })),
             )
             .await?;

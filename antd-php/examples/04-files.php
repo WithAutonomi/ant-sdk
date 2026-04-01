@@ -32,9 +32,3 @@ echo "Directory uploaded at: {$dirResult->address} (cost: {$dirResult->cost} att
 $client->dirDownloadPublic($dirResult->address, '/tmp/downloaded_dir');
 echo "Directory downloaded to /tmp/downloaded_dir\n";
 
-// Get archive manifest
-$archive = $client->archiveGetPublic($result->address);
-echo "Archive entries: " . count($archive->entries) . "\n";
-foreach ($archive->entries as $entry) {
-    echo "  {$entry->path} -> {$entry->address} ({$entry->size} bytes)\n";
-}

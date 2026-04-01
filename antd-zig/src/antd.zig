@@ -9,8 +9,6 @@ pub const discover = @import("discover.zig");
 
 pub const HealthStatus = models.HealthStatus;
 pub const PutResult = models.PutResult;
-pub const ArchiveEntry = models.ArchiveEntry;
-pub const Archive = models.Archive;
 pub const WalletAddress = models.WalletAddress;
 pub const WalletBalance = models.WalletBalance;
 pub const AntdError = errors.AntdError;
@@ -327,26 +325,6 @@ pub const Client = struct {
         _ = try self.doRequest(.POST, "/v1/dirs/download/public", req_body);
     }
 
-    /// Retrieve an archive manifest by address.
-    pub fn archiveGetPublic(self: *Client, address: []const u8) !Archive {
-        const path = try std.fmt.allocPrint(self.allocator, "/v1/archives/public/{s}", .{address});
-        defer self.allocator.free(path);
-        const resp = try self.doRequest(.GET, path, null) orelse return error.JsonError;
-        defer self.allocator.free(resp);
-        return json_helpers.parseArchive(self.allocator, resp);
-    }
-
-    /// Create an archive manifest on the network.
-    pub fn archivePutPublic(self: *Client, archive: Archive) !PutResult {
-        const req_body = try json_helpers.buildJsonBody(self.allocator, &.{
-            .{ .key = "entries", .value = .{ .archive_entries = archive.entries } },
-        });
-        defer self.allocator.free(req_body);
-        const resp = try self.doRequest(.POST, "/v1/archives/public", req_body) orelse return error.JsonError;
-        defer self.allocator.free(resp);
-        return json_helpers.parsePutResult(self.allocator, resp, "address");
-    }
-
     // --- External Signer (Two-Phase Upload) ---
 
     /// Prepare a file upload for external signing.
@@ -380,11 +358,10 @@ pub const Client = struct {
     }
 
     /// Estimate the cost of uploading a file.
-    pub fn fileCost(self: *Client, path: []const u8, is_public: bool, include_archive: bool) ![]const u8 {
+    pub fn fileCost(self: *Client, path: []const u8, is_public: bool) ![]const u8 {
         const req_body = try json_helpers.buildJsonBody(self.allocator, &.{
             .{ .key = "path", .value = .{ .string = path } },
             .{ .key = "is_public", .value = .{ .boolean = is_public } },
-            .{ .key = "include_archive", .value = .{ .boolean = include_archive } },
         });
         defer self.allocator.free(req_body);
         const resp = try self.doRequest(.POST, "/v1/cost/file", req_body) orelse return error.JsonError;

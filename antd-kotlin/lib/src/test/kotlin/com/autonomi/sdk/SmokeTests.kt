@@ -52,9 +52,6 @@ class SmokeTests {
         assertEquals("100", put.cost)
         assertEquals("abc123", put.address)
 
-        val archiveEntry = ArchiveEntry("/file.txt", "addr", 1000UL, 2000UL, 512UL)
-        val archive = Archive(listOf(archiveEntry))
-        assertEquals(1, archive.entries.size)
     }
 
     @Test

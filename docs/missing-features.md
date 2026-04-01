@@ -4,35 +4,19 @@ Features developers would likely expect but don't currently exist in the SDK.
 
 ---
 
-## 1. Wallet Operations in SDKs
+## 1. Wallet Operations — Extended
 
->> Some of these are essential, needs to be added
+> Core wallet endpoints are implemented. These are future extensions.
 
-1. Check wallet balance
-2. Transfer tokens
-3. View transaction history
-4. Create new wallets
+### What exists today (implemented)
 
-### What exists today
+- `GET /v1/wallet/address` — returns the wallet's public address
+- `GET /v1/wallet/balance` — returns token balance (atto) and gas balance (wei)
+- `POST /v1/wallet/approve` — approves ERC-20 token spend for the data-payments contract
+- CORS is enabled with `--enable-cors` flag, restricted to `http://127.0.0.1:<port>`
+- Merkle payment mode is supported via `payment_mode` field on data/file uploads
 
-- The daemon loads an `EvmWallet` from `AUTONOMI_WALLET_KEY` at startup
-- All write operations use this wallet internally via `PaymentOption::Wallet`
-- `ant-dev wallet show` prints the key, `ant-dev wallet fund` checks testnet funding
-- No wallet REST/gRPC endpoints exist — the wallet is invisible to SDK users
-- Cost estimation endpoints exist (`/v1/data/cost`, `/v1/cost/file`) but return string amounts with no way to check if the wallet can cover them
-
-### Approach: Add wallet service to antd
-
-Add a `WalletService` to antd (REST + gRPC):
-
-**New endpoints:**
-
-| Endpoint | Method | Description |
-|---|---|---|
-| `/v1/wallet/balance` | GET | Return current wallet balance in atto tokens |
-| `/v1/wallet/address` | GET | Return the wallet's public address |
-
-**Future consideration (needs more investigation):**
+### Still missing (future consideration)
 
 | Endpoint | Method | Description |
 |---|---|---|
@@ -40,28 +24,11 @@ Add a `WalletService` to antd (REST + gRPC):
 | `/v1/wallet/history` | GET | List recent transactions |
 | `/v1/wallet/create` | POST | Generate a new wallet keypair |
 
-**SDK methods (all languages):**
-
-```
-wallet_balance() → string (atto tokens)
-wallet_address() → string (hex address)
-```
-
-**Why balance and address first:**
-- Balance is essential — developers need to know if they can afford a write before attempting it
-- Address is needed for funding workflows (testnet faucets, receiving tokens)
-- Transfer and history depend on EVM capabilities that need investigation
-- Wallet creation may conflict with the daemon's single-wallet-at-startup design
-
-### Implementation notes
-
-- `ant_evm::EvmWallet` likely exposes balance and address methods already — this is a thin wrapper
-- The daemon's `AppState` already holds the wallet, so no architectural changes needed
-- Balance should be live (queried from EVM), not cached
+Transfer and history depend on EVM capabilities that need further investigation. Wallet creation may conflict with the daemon's single-wallet-at-startup design.
 
 ### Priority
 
-Critical — this is the most immediately useful feature. Developers currently fly blind on whether writes will succeed.
+Low — the core wallet operations cover the immediate developer need (check balance before writes, get address for funding). Extended operations are nice-to-have.
 
 ---
 
@@ -221,7 +188,7 @@ Medium — existence checks are straightforward to add. Replication status is li
 ### What exists today
 
 - All operations are single-item: one put, one get, one cost estimate per request
-- Archives let you group file metadata, but each file must be uploaded individually first
+- Each file must be uploaded individually
 - The underlying autonomi client library has no batch methods
 - gRPC default message size limit is 4MB (not configurable in current code)
 - REST uses base64 JSON (no multipart support)
@@ -266,7 +233,7 @@ Start with Approach B (client-side parallelism) — it requires no daemon change
 
 ## 6. Progress / Resumable Uploads
 
->> Useful, need to check on practical limits of the client
+> Useful, need to check on practical limits of the client
 
 1. Upload progress callbacks from SDKs
 2. Resumable uploads for large files
@@ -274,13 +241,12 @@ Start with Approach B (client-side parallelism) — it requires no daemon change
 
 ### What exists today
 
-- Event system infrastructure exists in both REST (SSE) and gRPC (streaming) but is **stubbed and non-functional**
-- gRPC `EventService.Subscribe` returns an empty stream
-- REST events code is marked `#[allow(dead_code)]`
-- Event types are defined: `UploadComplete` with `records_paid`, `records_already_paid`, `tokens_spent`
-- Download streaming works (`/v1/data/public/{addr}/stream` and gRPC `StreamPublic`)
-- File uploads are atomic — the daemon calls autonomi client, blocks until done, returns result
+- The SSE event stream endpoint (`GET /v1/data/public/{addr}/stream`) exists but is **stubbed** — it returns an empty stream (see `antd/src/rest/events.rs`)
+- The gRPC `EventService.Subscribe` is **stubbed** — returns an empty stream
+- Event types are defined in `antd/src/types.rs` (`ClientEventDto` with `kind`, `records_paid`, `records_already_paid`, `tokens_spent`) but are marked `#[allow(dead_code)]`
+- File uploads are atomic — the daemon calls the autonomi client, blocks until done, returns result
 - All SDKs use a 5-minute default timeout
+- Two-phase upload (`/v1/data/prepare`, `/v1/upload/prepare`, `/v1/upload/finalize`) provides an alternative flow where the caller has more control, but still no progress events
 
 ### Approach: Wire up the event system
 
@@ -316,7 +282,7 @@ Medium — progress events are valuable for UX but not blocking. Resumable uploa
 
 1. List all data stored by the current user/wallet
 2. Search stored data by metadata or tags
-3. Browse stored files and archives
+3. Browse stored files
 4. Filter or paginate results
 
 >> This is out of scope for the core sdk as the network is decentralised. This is offered by other products

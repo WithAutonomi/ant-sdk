@@ -257,7 +257,7 @@ func (c *GrpcClient) ChunkGet(ctx context.Context, address string) ([]byte, erro
 	return resp.GetData(), nil
 }
 
-// --- Files (7 methods) ---
+// --- Files (5 methods) ---
 
 // FileUploadPublic uploads a local file to the network.
 func (c *GrpcClient) FileUploadPublic(ctx context.Context, path string) (*PutResult, error) {
@@ -313,63 +313,14 @@ func (c *GrpcClient) DirDownloadPublic(ctx context.Context, address, destPath st
 	return errorFromGrpc(err)
 }
 
-// ArchiveGetPublic retrieves an archive manifest by address.
-func (c *GrpcClient) ArchiveGetPublic(ctx context.Context, address string) (*Archive, error) {
-	ctx, cancel := c.ctx(ctx)
-	defer cancel()
-
-	resp, err := c.file.ArchiveGetPublic(ctx, &pb.ArchiveGetRequest{Address: address})
-	if err != nil {
-		return nil, errorFromGrpc(err)
-	}
-	entries := make([]ArchiveEntry, len(resp.GetEntries()))
-	for i, e := range resp.GetEntries() {
-		entries[i] = ArchiveEntry{
-			Path:     e.GetPath(),
-			Address:  e.GetAddress(),
-			Created:  int64(e.GetCreated()),
-			Modified: int64(e.GetModified()),
-			Size:     int64(e.GetSize()),
-		}
-	}
-	return &Archive{Entries: entries}, nil
-}
-
-// ArchivePutPublic creates an archive manifest on the network.
-func (c *GrpcClient) ArchivePutPublic(ctx context.Context, archive Archive) (*PutResult, error) {
-	ctx, cancel := c.ctx(ctx)
-	defer cancel()
-
-	pbEntries := make([]*pb.ArchiveEntry, len(archive.Entries))
-	for i, e := range archive.Entries {
-		pbEntries[i] = &pb.ArchiveEntry{
-			Path:     e.Path,
-			Address:  e.Address,
-			Created:  uint64(e.Created),
-			Modified: uint64(e.Modified),
-			Size:     uint64(e.Size),
-		}
-	}
-
-	resp, err := c.file.ArchivePutPublic(ctx, &pb.ArchivePutRequest{Entries: pbEntries})
-	if err != nil {
-		return nil, errorFromGrpc(err)
-	}
-	return &PutResult{
-		Cost:    resp.GetCost().GetAttoTokens(),
-		Address: resp.GetAddress(),
-	}, nil
-}
-
 // FileCost estimates the cost of uploading a file.
-func (c *GrpcClient) FileCost(ctx context.Context, path string, isPublic bool, includeArchive bool) (string, error) {
+func (c *GrpcClient) FileCost(ctx context.Context, path string, isPublic bool) (string, error) {
 	ctx, cancel := c.ctx(ctx)
 	defer cancel()
 
 	resp, err := c.file.GetFileCost(ctx, &pb.FileCostRequest{
-		Path:           path,
-		IsPublic:       isPublic,
-		IncludeArchive: includeArchive,
+		Path:     path,
+		IsPublic: isPublic,
 	})
 	if err != nil {
 		return "", errorFromGrpc(err)

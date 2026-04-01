@@ -30,6 +30,10 @@ pub struct Config {
     /// Enable CORS headers
     #[arg(long, default_value_t = false, env = "ANTD_CORS")]
     pub cors: bool,
+
+    /// Log level: trace, debug, info, warn, error
+    #[arg(long, default_value = "info", env = "ANTD_LOG_LEVEL")]
+    pub log_level: String,
 }
 
 impl Config {

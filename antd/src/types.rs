@@ -146,28 +146,6 @@ pub struct DirUploadPublicResponse {
     pub address: String,
 }
 
-// ── Archives ──
-
-#[derive(Serialize, Deserialize)]
-pub struct ArchiveEntryDto {
-    pub path: String,
-    pub address: String,
-    pub created: u64,
-    pub modified: u64,
-    pub size: u64,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct ArchiveDto {
-    pub entries: Vec<ArchiveEntryDto>,
-}
-
-#[derive(Serialize)]
-pub struct ArchivePutResponse {
-    pub cost: String,
-    pub address: String,
-}
-
 // ── Cost ──
 
 #[derive(Serialize)]
@@ -176,25 +154,10 @@ pub struct CostResponse {
 }
 
 #[derive(Deserialize)]
-#[allow(dead_code)]
-pub struct CostEstimateRequest {
-    pub content_addrs: Vec<CostEstimateEntry>,
-}
-
-#[derive(Deserialize)]
-#[allow(dead_code)]
-pub struct CostEstimateEntry {
-    pub xorname: String, // hex
-    pub size: usize,
-}
-
-#[derive(Deserialize)]
 pub struct FileCostRequest {
     pub path: String,
     #[serde(default = "default_true")]
     pub is_public: bool,
-    #[serde(default)]
-    pub include_archive: bool,
 }
 
 fn default_true() -> bool {
@@ -248,18 +211,4 @@ pub struct WalletApproveResponse {
 pub struct HealthResponse {
     pub status: String,
     pub network: String,
-}
-
-// ── Events ──
-
-#[derive(Serialize)]
-#[allow(dead_code)]
-pub struct ClientEventDto {
-    pub kind: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub records_paid: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub records_already_paid: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tokens_spent: Option<String>,
 }

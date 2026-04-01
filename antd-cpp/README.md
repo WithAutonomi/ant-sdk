@@ -184,6 +184,8 @@ int main() {
 The `GrpcClient` throws the same `antd::AntdError` hierarchy as the REST
 client, translating gRPC status codes to the appropriate error subclass.
 
+> **Note:** Wallet operations (address, balance, approve) and payment_mode are available via REST only.
+
 ## Prerequisites
 
 - C++20 compiler (GCC 10+, Clang 10+, MSVC 19.29+)
@@ -242,9 +244,7 @@ All methods throw `antd::AntdError` (or a subclass) on failure.
 | `file_download_public(address, dest_path)` | Download a file |
 | `dir_upload_public(path)` | Upload a directory |
 | `dir_download_public(address, dest_path)` | Download a directory |
-| `archive_get_public(address)` | Get archive manifest |
-| `archive_put_public(archive)` | Create archive manifest |
-| `file_cost(path, is_public, include_archive)` | Estimate upload cost |
+| `file_cost(path, is_public)` | Estimate upload cost |
 
 ## Error Handling
 

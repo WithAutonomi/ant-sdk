@@ -52,7 +52,7 @@ void main() async {
 
 ## gRPC Transport
 
-The SDK includes a `GrpcAntdClient` class that provides the same 15 async
+The SDK includes a `GrpcAntdClient` class that provides the same async
 methods as the REST `AntdClient`, but communicates over gRPC.
 
 ### Setup
@@ -75,7 +75,7 @@ dart pub global activate protoc_plugin
 protoc --dart_out=grpc:lib/src/generated \
   -I../../antd/proto \
   antd/v1/common.proto antd/v1/health.proto antd/v1/data.proto \
-  antd/v1/chunks.proto antd/v1/graph.proto antd/v1/files.proto
+  antd/v1/chunks.proto antd/v1/files.proto antd/v1/events.proto
 ```
 
 ### Usage
@@ -113,6 +113,8 @@ void main() async {
 
 The `GrpcAntdClient` throws the same `AntdError` hierarchy as the REST client,
 translating gRPC status codes to the appropriate error subclass.
+
+> **Note:** Wallet operations (address, balance, approve) and payment_mode are available via REST only.
 
 ## Prerequisites
 
@@ -169,9 +171,7 @@ All methods return `Future<T>` and can throw `AntdError` subclasses.
 | `fileDownloadPublic(address, destPath)` | Download a file |
 | `dirUploadPublic(path)` | Upload a directory |
 | `dirDownloadPublic(address, destPath)` | Download a directory |
-| `archiveGetPublic(address)` | Get archive manifest |
-| `archivePutPublic(archive)` | Create archive manifest |
-| `fileCost(path, {isPublic, includeArchive})` | Estimate upload cost |
+| `fileCost(path, {isPublic})` | Estimate upload cost |
 
 ## Error Handling
 

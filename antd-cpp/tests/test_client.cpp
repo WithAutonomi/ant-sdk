@@ -130,31 +130,6 @@ TEST_CASE("GraphEntry from JSON") {
     CHECK(entry.descendants[0].public_key == "pk1");
 }
 
-TEST_CASE("Archive from JSON") {
-    auto j = json::parse(R"({
-        "entries":[{
-            "path":"test.txt","address":"abc",
-            "created":1000,"modified":2000,"size":42
-        }]
-    })");
-
-    antd::Archive archive;
-    for (const auto& e : j["entries"]) {
-        archive.entries.push_back(antd::ArchiveEntry{
-            e.value("path", ""),
-            e.value("address", ""),
-            e.value("created", int64_t{0}),
-            e.value("modified", int64_t{0}),
-            e.value("size", int64_t{0}),
-        });
-    }
-
-    CHECK(archive.entries.size() == 1);
-    CHECK(archive.entries[0].path == "test.txt");
-    CHECK(archive.entries[0].created == 1000);
-    CHECK(archive.entries[0].size == 42);
-}
-
 // ---------------------------------------------------------------------------
 // NOTE: Full integration tests require a running antd daemon.
 // The tests above validate JSON parsing, base64, and error mapping

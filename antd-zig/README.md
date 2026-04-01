@@ -117,9 +117,7 @@ All methods return `!T` (error union) using Zig's standard error handling.
 | `fileDownloadPublic` | `fn (self: *Client, address: []const u8, dest_path: []const u8) !void` | Download a file |
 | `dirUploadPublic` | `fn (self: *Client, path: []const u8) !PutResult` | Upload a directory |
 | `dirDownloadPublic` | `fn (self: *Client, address: []const u8, dest_path: []const u8) !void` | Download a directory |
-| `archiveGetPublic` | `fn (self: *Client, address: []const u8) !Archive` | Get archive manifest |
-| `archivePutPublic` | `fn (self: *Client, archive: Archive) !PutResult` | Create archive manifest |
-| `fileCost` | `fn (self: *Client, path: []const u8, is_public: bool, include_archive: bool) ![]const u8` | Estimate upload cost |
+| `fileCost` | `fn (self: *Client, path: []const u8, is_public: bool) ![]const u8` | Estimate upload cost |
 
 ## Error Handling
 
@@ -168,7 +166,7 @@ const result = client.health() catch |err| {
 The Zig SDK follows Zig's explicit memory management conventions:
 
 - **Caller owns all returned allocations.** You must free them when done.
-- Struct results (`HealthStatus`, `PutResult`, `Archive`) have a `deinit(allocator)` method that frees all owned memory.
+- Struct results (`HealthStatus`, `PutResult`) have a `deinit(allocator)` method that frees all owned memory.
 - Raw byte slices (`[]const u8`) returned by `dataGetPublic`, `dataGetPrivate`, `chunkGet`, `dataCost`, and `fileCost` must be freed with `allocator.free(result)`.
 - Use `defer` immediately after receiving a result to ensure cleanup.
 

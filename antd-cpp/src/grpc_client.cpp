@@ -289,53 +289,11 @@ void GrpcClient::dir_download_public(std::string_view address,
     check_status(impl_->file_stub->DirDownloadPublic(&ctx, req, &resp));
 }
 
-Archive GrpcClient::archive_get_public(std::string_view address) {
-    grpc::ClientContext ctx;
-    antd::v1::ArchiveGetRequest req;
-    req.set_address(std::string(address));
-    antd::v1::ArchiveGetResponse resp;
-    check_status(impl_->file_stub->ArchiveGetPublic(&ctx, req, &resp));
-
-    Archive archive;
-    for (int i = 0; i < resp.entries_size(); ++i) {
-        const auto& e = resp.entries(i);
-        archive.entries.push_back(ArchiveEntry{
-            .path = e.path(),
-            .address = e.address(),
-            .created = static_cast<int64_t>(e.created()),
-            .modified = static_cast<int64_t>(e.modified()),
-            .size = static_cast<int64_t>(e.size()),
-        });
-    }
-    return archive;
-}
-
-PutResult GrpcClient::archive_put_public(const Archive& archive) {
-    grpc::ClientContext ctx;
-    antd::v1::ArchivePutRequest req;
-    for (const auto& e : archive.entries) {
-        auto* entry = req.add_entries();
-        entry->set_path(e.path);
-        entry->set_address(e.address);
-        entry->set_created(static_cast<uint64_t>(e.created));
-        entry->set_modified(static_cast<uint64_t>(e.modified));
-        entry->set_size(static_cast<uint64_t>(e.size));
-    }
-    antd::v1::ArchivePutResponse resp;
-    check_status(impl_->file_stub->ArchivePutPublic(&ctx, req, &resp));
-    return PutResult{
-        .cost = resp.cost().atto_tokens(),
-        .address = resp.address(),
-    };
-}
-
-std::string GrpcClient::file_cost(std::string_view path, bool is_public,
-                                   bool include_archive) {
+std::string GrpcClient::file_cost(std::string_view path, bool is_public) {
     grpc::ClientContext ctx;
     antd::v1::FileCostRequest req;
     req.set_path(std::string(path));
     req.set_is_public(is_public);
-    req.set_include_archive(include_archive);
     antd::v1::Cost resp;
     check_status(impl_->file_stub->GetFileCost(&ctx, req, &resp));
     return resp.atto_tokens();

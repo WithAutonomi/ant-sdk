@@ -64,12 +64,12 @@ Low-level content-addressed storage. Data is the raw chunk — one block on the 
 
 Use for: custom chunking strategies, direct network interaction.
 
-#### Files & Archives
+#### Files
 
-Upload/download local files and directories. Under the hood, files are chunked and stored as Data, with an Archive manifest that maps paths to addresses.
+Upload/download local files and directories. Under the hood, files are chunked and stored as Data.
 
 ```
-Upload:    local path  ──▶  antd  ──▶  archive address
+Upload:    local path  ──▶  antd  ──▶  address
 Download:  address     ──▶  antd  ──▶  local path
 ```
 
@@ -114,3 +114,13 @@ print(f"Paid {result.cost} atto tokens")
 - **Never share secret keys**: Treat them like passwords. The public key (derived from the secret key) is safe to share.
 - **Private data**: Self-encrypted using the network's encryption scheme. The data map is needed for decryption.
 - **No access revocation**: Once data is public, it cannot be made private. Plan your key management accordingly.
+
+## Event System Status
+
+The daemon defines infrastructure for streaming events to clients, but it is currently **stubbed and non-functional**. Both transport mechanisms exist in code but return empty streams:
+
+- **REST SSE** (`GET /v1/data/public/{addr}/stream`): The route is registered and returns a chunked HTTP response, but no events are emitted. The handler in `antd/src/rest/events.rs` is a stub.
+- **gRPC streaming** (`EventService.Subscribe`): The gRPC service is defined in the proto and compiled, but the server-side implementation returns an empty stream immediately.
+- **Event types**: `ClientEventDto` is defined in `antd/src/types.rs` with fields for `kind`, `records_paid`, `records_already_paid`, and `tokens_spent`, but all fields are marked `#[allow(dead_code)]`.
+
+These are planned for future implementation. The intended use is upload progress tracking and completion notifications. See `docs/missing-features.md` section 6 for the design approach.

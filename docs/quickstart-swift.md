@@ -118,7 +118,7 @@ let dirResult = try await client.dirUploadPublic(path: "/path/to/directory")
 try await client.dirDownloadPublic(address: dirResult.address, destPath: "/path/to/output_dir")
 
 // Cost estimation
-let cost = try await client.fileCost(path: "/path/to/file.txt", isPublic: true, includeArchive: false)
+let cost = try await client.fileCost(path: "/path/to/file.txt")
 ```
 
 

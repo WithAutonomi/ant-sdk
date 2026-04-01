@@ -49,7 +49,7 @@ print(String(data: data, encoding: .utf8)!) // "Hello, Autonomi!"
 // REST (default, recommended)
 let restClient = AntdClient.createRest(baseURL: "http://localhost:8082")
 
-// gRPC (requires generated proto stubs)
+// gRPC (requires generated proto stubs; wallet operations and payment_mode are REST-only)
 let grpcClient = AntdClient.createGrpc(target: "localhost:50051")
 
 // Dynamic transport selection
@@ -65,7 +65,7 @@ All methods are `async throws` for use with Swift concurrency.
 | **Health** | `health()` |
 | **Data** | `dataPutPublic`, `dataGetPublic`, `dataPutPrivate`, `dataGetPrivate`, `dataCost` |
 | **Chunks** | `chunkPut`, `chunkGet` |
-| **Files** | `fileUploadPublic`, `fileDownloadPublic`, `dirUploadPublic`, `dirDownloadPublic`, `archiveGetPublic`, `archivePutPublic`, `fileCost` |
+| **Files** | `fileUploadPublic`, `fileDownloadPublic`, `dirUploadPublic`, `dirDownloadPublic`, `fileCost` |
 
 ## Error Handling
 

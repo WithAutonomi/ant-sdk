@@ -287,31 +287,8 @@ public class AntdClient implements AutoCloseable {
         doJson("POST", "/v1/dirs/download/public", body);
     }
 
-    public Archive archiveGetPublic(String address) {
-        Map<String, Object> j = doJson("GET", "/v1/archives/public/" + address, null);
-        List<ArchiveEntry> entries = new ArrayList<>();
-        for (Map<String, Object> em : listOfMaps(j, "entries")) {
-            entries.add(new ArchiveEntry(str(em, "path"), str(em, "address"),
-                    num(em, "created"), num(em, "modified"), num(em, "size")));
-        }
-        return new Archive(Collections.unmodifiableList(entries));
-    }
-
-    public PutResult archivePutPublic(Archive archive) {
-        List<Map<String, Object>> entries = new ArrayList<>();
-        for (ArchiveEntry e : archive.entries()) {
-            entries.add(Map.of(
-                    "path", e.path(), "address", e.address(),
-                    "created", e.created(), "modified", e.modified(), "size", e.size()
-            ));
-        }
-        String body = Json.object("entries", entries);
-        Map<String, Object> j = doJson("POST", "/v1/archives/public", body);
-        return new PutResult(str(j, "cost"), str(j, "address"));
-    }
-
-    public String fileCost(String path, boolean isPublic, boolean includeArchive) {
-        String body = Json.object("path", path, "is_public", isPublic, "include_archive", includeArchive);
+    public String fileCost(String path, boolean isPublic) {
+        String body = Json.object("path", path, "is_public", isPublic);
         Map<String, Object> j = doJson("POST", "/v1/cost/file", body);
         return str(j, "cost");
     }

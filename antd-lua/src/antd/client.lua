@@ -286,62 +286,14 @@ function Client:dir_download_public(address, dest_path)
     return nil, err
 end
 
---- Retrieve an archive manifest by address.
--- @param address string hex address
--- @return Archive|nil, error|nil
-function Client:archive_get_public(address)
-    local j, _, err = self:_do_json("GET", "/v1/archives/public/" .. address, nil)
-    if err then return nil, err end
-
-    local entries = {}
-    if j.entries and type(j.entries) == "table" then
-        for _, e in ipairs(j.entries) do
-            if type(e) == "table" then
-                entries[#entries + 1] = models.new_archive_entry(
-                    str(e, "path"),
-                    str(e, "address"),
-                    num(e, "created"),
-                    num(e, "modified"),
-                    num(e, "size")
-                )
-            end
-        end
-    end
-
-    return models.new_archive(entries), nil
-end
-
---- Create an archive manifest on the network.
--- @param archive table Archive with entries
--- @return PutResult|nil, error|nil
-function Client:archive_put_public(archive)
-    local entries = {}
-    for i, e in ipairs(archive.entries) do
-        entries[i] = {
-            path = e.path,
-            address = e.address,
-            created = e.created,
-            modified = e.modified,
-            size = e.size,
-        }
-    end
-    local j, _, err = self:_do_json("POST", "/v1/archives/public", {
-        entries = entries,
-    })
-    if err then return nil, err end
-    return models.new_put_result(str(j, "cost"), str(j, "address")), nil
-end
-
 --- Estimate cost of uploading a file.
 -- @param path string local file path
 -- @param is_public boolean whether the file will be public
--- @param include_archive boolean whether to include archive manifest
 -- @return string|nil cost in atto tokens, error|nil
-function Client:file_cost(path, is_public, include_archive)
+function Client:file_cost(path, is_public)
     local j, _, err = self:_do_json("POST", "/v1/cost/file", {
         path = path,
         is_public = is_public,
-        include_archive = include_archive,
     })
     if err then return nil, err end
     return str(j, "cost"), nil

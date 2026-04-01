@@ -109,31 +109,6 @@ test "parseCost extracts cost" {
     try testing.expectEqualStrings("500", result);
 }
 
-test "parseArchive parses entries" {
-    const body =
-        \\{"entries":[{"path":"test.txt","address":"abc","created":1000,"modified":2000,"size":42}]}
-    ;
-    const result = try json_helpers.parseArchive(testing.allocator, body);
-    defer result.deinit(testing.allocator);
-
-    try testing.expectEqual(@as(usize, 1), result.entries.len);
-    try testing.expectEqualStrings("test.txt", result.entries[0].path);
-    try testing.expectEqualStrings("abc", result.entries[0].address);
-    try testing.expectEqual(@as(i64, 1000), result.entries[0].created);
-    try testing.expectEqual(@as(i64, 2000), result.entries[0].modified);
-    try testing.expectEqual(@as(i64, 42), result.entries[0].size);
-}
-
-test "parseArchive handles empty entries" {
-    const body =
-        \\{"entries":[]}
-    ;
-    const result = try json_helpers.parseArchive(testing.allocator, body);
-    defer result.deinit(testing.allocator);
-
-    try testing.expectEqual(@as(usize, 0), result.entries.len);
-}
-
 // =============================================================================
 // Base64 encode/decode tests
 // =============================================================================
@@ -222,7 +197,6 @@ test "buildJsonBody with string fields" {
 test "buildJsonBody with boolean fields" {
     const body = try json_helpers.buildJsonBody(testing.allocator, &.{
         .{ .key = "is_public", .value = .{ .boolean = true } },
-        .{ .key = "include_archive", .value = .{ .boolean = false } },
     });
     defer testing.allocator.free(body);
 
@@ -231,9 +205,7 @@ test "buildJsonBody with boolean fields" {
     const obj = getJsonObject(parsed.value) orelse return error.JsonError;
 
     const is_public = getJsonBool(obj.get("is_public") orelse return error.JsonError) orelse return error.JsonError;
-    const include_archive = getJsonBool(obj.get("include_archive") orelse return error.JsonError) orelse return error.JsonError;
     try testing.expect(is_public);
-    try testing.expect(!include_archive);
 }
 
 test "buildJsonBody with string array" {
@@ -289,22 +261,6 @@ test "PutResult deinit frees memory" {
     const address = try testing.allocator.dupe(u8, "abc");
     const pr = models.PutResult{ .cost = cost, .address = address };
     pr.deinit(testing.allocator);
-}
-
-test "Archive deinit frees all entries" {
-    const path = try testing.allocator.dupe(u8, "test.txt");
-    const address = try testing.allocator.dupe(u8, "abc");
-    const entries = try testing.allocator.alloc(models.ArchiveEntry, 1);
-    entries[0] = .{
-        .path = path,
-        .address = address,
-        .created = 1000,
-        .modified = 2000,
-        .size = 42,
-    };
-
-    const archive = models.Archive{ .entries = entries };
-    archive.deinit(testing.allocator);
 }
 
 // Note: Integration tests that exercise the full Client against a running antd

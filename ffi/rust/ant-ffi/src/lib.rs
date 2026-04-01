@@ -98,6 +98,23 @@ pub enum ClientError {
     InternalError { reason: String },
 }
 
+#[uniffi::export]
+impl ClientError {
+    /// Numeric error code for programmatic handling across FFI.
+    pub fn code(&self) -> i32 {
+        match self {
+            ClientError::InitializationFailed { .. } => 1,
+            ClientError::NetworkError { .. } => 2,
+            ClientError::PaymentError { .. } => 3,
+            ClientError::InvalidInput { .. } => 4,
+            ClientError::NotFound { .. } => 5,
+            ClientError::AlreadyExists => 6,
+            ClientError::WalletNotConfigured => 7,
+            ClientError::InternalError { .. } => 8,
+        }
+    }
+}
+
 /// Map ant-core errors to FFI errors.
 impl From<ant_core::data::Error> for ClientError {
     fn from(e: ant_core::data::Error) -> Self {
@@ -121,4 +138,15 @@ pub enum WalletError {
     CreationFailed { reason: String },
     #[error("Operation failed: {reason}")]
     OperationFailed { reason: String },
+}
+
+#[uniffi::export]
+impl WalletError {
+    /// Numeric error code for programmatic handling across FFI.
+    pub fn code(&self) -> i32 {
+        match self {
+            WalletError::CreationFailed { .. } => 1,
+            WalletError::OperationFailed { .. } => 2,
+        }
+    }
 }

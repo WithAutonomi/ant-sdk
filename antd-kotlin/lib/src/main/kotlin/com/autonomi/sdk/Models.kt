@@ -9,12 +9,6 @@ data class HealthStatus(val ok: Boolean, val network: String)
 /** Result of a put/create operation that stores data on the network. */
 data class PutResult(val cost: String, val address: String)
 
-/** A single entry in an archive manifest. */
-data class ArchiveEntry(val path: String, val address: String, val created: ULong, val modified: ULong, val size: ULong)
-
-/** An archive manifest containing file entries. */
-data class Archive(val entries: List<ArchiveEntry>)
-
 /** Wallet address response. */
 data class WalletAddress(val address: String)
 
@@ -65,20 +59,6 @@ internal data class DataGetDto(
 @Serializable
 internal data class CostDto(
     val cost: String,
-)
-
-@Serializable
-internal data class ArchiveEntryDto(
-    val path: String,
-    val address: String,
-    val created: ULong,
-    val modified: ULong,
-    val size: ULong,
-)
-
-@Serializable
-internal data class ArchiveDto(
-    val entries: List<ArchiveEntryDto>? = null,
 )
 
 @Serializable

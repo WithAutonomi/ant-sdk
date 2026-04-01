@@ -12,8 +12,6 @@ Usage:
 from __future__ import annotations
 
 from .models import (
-    Archive,
-    ArchiveEntry,
     FinalizeUploadResult,
     HealthStatus,
     PaymentInfo,
@@ -44,8 +42,6 @@ __all__ = [
     "AsyncAntdClient",
     # Models
     "HealthStatus",
-    "Archive",
-    "ArchiveEntry",
     "PutResult",
     "WalletAddress",
     "WalletBalance",

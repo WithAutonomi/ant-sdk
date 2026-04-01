@@ -24,7 +24,7 @@ ffi/
 │           ├── network.rs    # Network wrapper
 │           ├── payment.rs    # Wallet, PaymentOption
 │           ├── data.rs       # Chunk, ChunkAddress, DataAddress, DataMapChunk
-│           └── files.rs      # PublicArchive, PrivateArchive, Metadata
+│           └── files.rs      # File upload/download, Metadata
 ├── csharp/
 │   ├── AntFfi.sln
 │   ├── AntFfi/              # .NET 8.0 library
@@ -109,7 +109,6 @@ All methods are exposed on the `Client` object:
 | **Data** | `data_get_public`, `data_put_public`, `data_get`, `data_put`, `data_cost` |
 | **Files** | `file_upload`, `file_upload_public`, `file_download`, `file_download_public`, `file_cost` |
 | **Directories** | `dir_upload`, `dir_upload_public`, `dir_download`, `dir_download_public` |
-| **Archives** | `archive_get`, `archive_get_public`, `archive_put`, `archive_put_public`, `archive_cost` |
 
 ## Type Mapping
 
@@ -127,3 +126,9 @@ All methods are exposed on the `Client` object:
 ## Async
 
 All async Client methods use `#[uniffi::export(async_runtime = "tokio")]`. The generated C# bindings expose them as `Task<T>` methods with proper async/await support. The generated Kotlin bindings expose them as `suspend` functions for use with Kotlin coroutines. The generated Swift bindings expose them as `async throws` functions for use with Swift concurrency.
+
+## Security Notes
+
+- **Private key zeroing**: Private keys passed to the FFI layer are zeroed from memory (via the `zeroize` crate) immediately after use. The original string content is overwritten before deallocation.
+- **Hardware wallets**: For high-security environments, consider hardware wallet integration via the external signer flow (`prepare_data_upload` / `finalize_upload`) rather than passing raw private keys.
+- **No key persistence**: The FFI layer does not persist private keys to disk. Keys exist only in memory for the duration of wallet construction.

@@ -51,7 +51,7 @@ fun main() = runBlocking {
 // REST (default, recommended)
 val restClient = AntdClient.createRest("http://localhost:8082")
 
-// gRPC (higher throughput)
+// gRPC (higher throughput; wallet operations and payment_mode are REST-only)
 val grpcClient = AntdClient.createGrpc("localhost:50051")
 
 // Dynamic transport selection
@@ -67,7 +67,7 @@ All methods are `suspend` functions for use with Kotlin coroutines.
 | **Health** | `health()` |
 | **Data** | `dataPutPublic`, `dataGetPublic`, `dataPutPrivate`, `dataGetPrivate`, `dataCost` |
 | **Chunks** | `chunkPut`, `chunkGet` |
-| **Files** | `fileUploadPublic`, `fileDownloadPublic`, `dirUploadPublic`, `dirDownloadPublic`, `archiveGetPublic`, `archivePutPublic`, `fileCost` |
+| **Files** | `fileUploadPublic`, `fileDownloadPublic`, `dirUploadPublic`, `dirDownloadPublic`, `fileCost` |
 
 ## Error Handling
 

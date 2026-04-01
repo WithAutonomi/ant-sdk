@@ -30,9 +30,6 @@ final class SmokeTests: XCTestCase {
         XCTAssertEqual(put.cost, "100")
         XCTAssertEqual(put.address, "abc123")
 
-        let archiveEntry = ArchiveEntry(path: "/file.txt", address: "addr", created: 1000, modified: 2000, size: 512)
-        let archive = Archive(entries: [archiveEntry])
-        XCTAssertEqual(archive.entries.count, 1)
     }
 
     func testErrorHierarchy() {

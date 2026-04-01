@@ -163,33 +163,6 @@ impl v1::file_service_server::FileService for MockFileService {
         Ok(Response::new(v1::DownloadResponse {}))
     }
 
-    async fn archive_get_public(
-        &self,
-        _request: Request<v1::ArchiveGetRequest>,
-    ) -> Result<Response<v1::ArchiveGetResponse>, Status> {
-        Ok(Response::new(v1::ArchiveGetResponse {
-            entries: vec![v1::ArchiveEntry {
-                path: "test.txt".to_string(),
-                address: "abc".to_string(),
-                created: 1000,
-                modified: 2000,
-                size: 42,
-            }],
-        }))
-    }
-
-    async fn archive_put_public(
-        &self,
-        _request: Request<v1::ArchivePutRequest>,
-    ) -> Result<Response<v1::ArchivePutResponse>, Status> {
-        Ok(Response::new(v1::ArchivePutResponse {
-            cost: Some(v1::Cost {
-                atto_tokens: "50".to_string(),
-            }),
-            address: "arc2".to_string(),
-        }))
-    }
-
     async fn get_file_cost(
         &self,
         _request: Request<v1::FileCostRequest>,
@@ -373,39 +346,10 @@ async fn test_grpc_dir_download_public() {
 }
 
 #[tokio::test]
-async fn test_grpc_archive_get_public() {
-    let client = start_mock_server().await;
-    let archive = client.archive_get_public("arc1").await.unwrap();
-    assert_eq!(archive.entries.len(), 1);
-    assert_eq!(archive.entries[0].path, "test.txt");
-    assert_eq!(archive.entries[0].address, "abc");
-    assert_eq!(archive.entries[0].created, 1000);
-    assert_eq!(archive.entries[0].modified, 2000);
-    assert_eq!(archive.entries[0].size, 42);
-}
-
-#[tokio::test]
-async fn test_grpc_archive_put_public() {
-    let client = start_mock_server().await;
-    let archive = Archive {
-        entries: vec![ArchiveEntry {
-            path: "test.txt".to_string(),
-            address: "abc".to_string(),
-            created: 1000,
-            modified: 2000,
-            size: 42,
-        }],
-    };
-    let result = client.archive_put_public(&archive).await.unwrap();
-    assert_eq!(result.address, "arc2");
-    assert_eq!(result.cost, "50");
-}
-
-#[tokio::test]
 async fn test_grpc_file_cost() {
     let client = start_mock_server().await;
     let cost = client
-        .file_cost("/tmp/test.txt", true, false)
+        .file_cost("/tmp/test.txt", true)
         .await
         .unwrap();
     assert_eq!(cost, "1000");

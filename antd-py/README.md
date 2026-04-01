@@ -45,7 +45,7 @@ from antd import AntdClient, AsyncAntdClient
 # REST (default)
 client = AntdClient(transport="rest", base_url="http://localhost:8082", timeout=30)
 
-# gRPC
+# gRPC (wallet operations and payment_mode are available via REST only)
 client = AntdClient(transport="grpc", target="localhost:50051")
 
 # Async REST
@@ -96,9 +96,7 @@ await aclient.close()
 | `file_download_public(address: str, dest: str)` | `None` | Download a file |
 | `dir_upload_public(path: str)` | `PutResult` | Upload a directory |
 | `dir_download_public(address: str, dest: str)` | `None` | Download a directory |
-| `archive_get_public(address: str)` | `Archive` | Get archive manifest |
-| `archive_put_public(archive: Archive)` | `PutResult` | Create archive manifest |
-| `file_cost(path: str, is_public: bool, include_archive: bool)` | `str` | Estimate file cost |
+| `file_cost(path: str, is_public: bool)` | `str` | Estimate file cost |
 
 ## Models
 
@@ -108,8 +106,6 @@ All models are frozen dataclasses (immutable).
 |-------|--------|-------------|
 | `HealthStatus` | `ok: bool`, `network: str` | Health check result |
 | `PutResult` | `cost: str`, `address: str` | Write operation result |
-| `ArchiveEntry` | `path`, `address`, `created`, `modified`, `size` | Archive file entry |
-| `Archive` | `entries: list[ArchiveEntry]` | Archive manifest |
 
 ## Error Handling
 

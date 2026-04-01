@@ -9,8 +9,6 @@ import httpx
 
 from .exceptions import raise_for_http_status
 from .models import (
-    Archive,
-    ArchiveEntry,
     FinalizeUploadResult,
     HealthStatus,
     PaymentInfo,
@@ -164,36 +162,10 @@ class RestClient:
         })
         _check(resp)
 
-    def archive_get_public(self, address: str) -> Archive:
-        resp = self._http.get(f"/v1/archives/public/{address}")
-        _check(resp)
-        j = resp.json()
-        entries = [
-            ArchiveEntry(
-                path=e["path"], address=e["address"],
-                created=e["created"], modified=e["modified"], size=e["size"],
-            )
-            for e in j.get("entries", [])
-        ]
-        return Archive(entries=entries)
-
-    def archive_put_public(self, archive: Archive) -> PutResult:
-        resp = self._http.post("/v1/archives/public", json={
-            "entries": [
-                {"path": e.path, "address": e.address,
-                 "created": e.created, "modified": e.modified, "size": e.size}
-                for e in archive.entries
-            ],
-        })
-        _check(resp)
-        j = resp.json()
-        return PutResult(cost=j.get("cost", ""), address=j.get("address", ""))
-
-    def file_cost(self, path: str, is_public: bool = True, include_archive: bool = False) -> str:
+    def file_cost(self, path: str, is_public: bool = True) -> str:
         resp = self._http.post("/v1/cost/file", json={
             "path": path,
             "is_public": is_public,
-            "include_archive": include_archive,
         })
         _check(resp)
         return resp.json().get("cost", "")
@@ -411,36 +383,10 @@ class AsyncRestClient:
         })
         _check(resp)
 
-    async def archive_get_public(self, address: str) -> Archive:
-        resp = await self._http.get(f"/v1/archives/public/{address}")
-        _check(resp)
-        j = resp.json()
-        entries = [
-            ArchiveEntry(
-                path=e["path"], address=e["address"],
-                created=e["created"], modified=e["modified"], size=e["size"],
-            )
-            for e in j.get("entries", [])
-        ]
-        return Archive(entries=entries)
-
-    async def archive_put_public(self, archive: Archive) -> PutResult:
-        resp = await self._http.post("/v1/archives/public", json={
-            "entries": [
-                {"path": e.path, "address": e.address,
-                 "created": e.created, "modified": e.modified, "size": e.size}
-                for e in archive.entries
-            ],
-        })
-        _check(resp)
-        j = resp.json()
-        return PutResult(cost=j.get("cost", ""), address=j.get("address", ""))
-
-    async def file_cost(self, path: str, is_public: bool = True, include_archive: bool = False) -> str:
+    async def file_cost(self, path: str, is_public: bool = True) -> str:
         resp = await self._http.post("/v1/cost/file", json={
             "path": path,
             "is_public": is_public,
-            "include_archive": include_archive,
         })
         _check(resp)
         return resp.json().get("cost", "")

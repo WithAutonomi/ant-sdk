@@ -141,22 +141,10 @@ std::future<void> AsyncClient::dir_download_public(std::string address, std::str
         });
 }
 
-std::future<Archive> AsyncClient::archive_get_public(std::string address) {
-    return std::async(std::launch::async, [this, addr = std::move(address)] {
-        return client_.archive_get_public(addr);
-    });
-}
-
-std::future<PutResult> AsyncClient::archive_put_public(const Archive& archive) {
-    return std::async(std::launch::async, [this, archive] {
-        return client_.archive_put_public(archive);
-    });
-}
-
-std::future<std::string> AsyncClient::file_cost(std::string path, bool is_public, bool include_archive) {
+std::future<std::string> AsyncClient::file_cost(std::string path, bool is_public) {
     return std::async(std::launch::async,
-        [this, p = std::move(path), is_public, include_archive] {
-            return client_.file_cost(p, is_public, include_archive);
+        [this, p = std::move(path), is_public] {
+            return client_.file_cost(p, is_public);
         });
 }
 

@@ -110,58 +110,6 @@ pub fn parseCost(allocator: Allocator, body: []const u8) ![]const u8 {
 }
 
 
-/// Parse an Archive from a JSON response body.
-pub fn parseArchive(allocator: Allocator, body: []const u8) !models.Archive {
-    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
-        return error.JsonError;
-    defer parsed.deinit();
-    const root = parsed.value;
-
-    const obj = switch (root) {
-        .object => |o| o,
-        else => return error.JsonError,
-    };
-
-    const entries_val = obj.get("entries") orelse return .{ .entries = &[_]models.ArchiveEntry{} };
-    const entries_arr = switch (entries_val) {
-        .array => |a| a,
-        else => return .{ .entries = &[_]models.ArchiveEntry{} },
-    };
-
-    if (entries_arr.items.len == 0) return .{ .entries = &[_]models.ArchiveEntry{} };
-
-    const entries = allocator.alloc(models.ArchiveEntry, entries_arr.items.len) catch
-        return error.JsonError;
-    var count: usize = 0;
-    errdefer {
-        for (entries[0..count]) |e| e.deinit(allocator);
-        allocator.free(entries);
-    }
-
-    for (entries_arr.items) |item| {
-        const e_obj = switch (item) {
-            .object => |o| o,
-            else => return error.JsonError,
-        };
-        const path = dupeString(allocator, e_obj.get("path") orelse .null) catch
-            return error.JsonError;
-        errdefer allocator.free(path);
-        const address = dupeString(allocator, e_obj.get("address") orelse .null) catch
-            return error.JsonError;
-
-        entries[count] = .{
-            .path = path,
-            .address = address,
-            .created = jsonInt(e_obj.get("created") orelse .null),
-            .modified = jsonInt(e_obj.get("modified") orelse .null),
-            .size = jsonInt(e_obj.get("size") orelse .null),
-        };
-        count += 1;
-    }
-
-    return .{ .entries = entries };
-}
-
 // --- JSON body construction helpers ---
 // These use manual string building to avoid std.json.writeStream API differences
 // across Zig versions.
@@ -225,7 +173,6 @@ pub const JsonValue = union(enum) {
     string: []const u8,
     boolean: bool,
     string_array: []const []const u8,
-    archive_entries: []const models.ArchiveEntry,
 };
 
 /// Build a JSON request body from key-value pairs.
@@ -261,24 +208,6 @@ pub fn buildJsonBody(allocator: Allocator, fields: []const struct { key: []const
                     const escaped_item = jsonEscapeString(allocator, item) catch return error.JsonError;
                     defer allocator.free(escaped_item);
                     try buf.appendSlice(allocator, escaped_item);
-                }
-                try buf.append(allocator, ']');
-            },
-            .archive_entries => |entries| {
-                try buf.append(allocator, '[');
-                for (entries, 0..) |e, j| {
-                    if (j > 0) try buf.append(allocator, ',');
-                    const p = jsonEscapeString(allocator, e.path) catch return error.JsonError;
-                    defer allocator.free(p);
-                    const a = jsonEscapeString(allocator, e.address) catch return error.JsonError;
-                    defer allocator.free(a);
-                    const entry_str = std.fmt.allocPrint(
-                        allocator,
-                        "{{\"path\":{s},\"address\":{s},\"created\":{d},\"modified\":{d},\"size\":{d}}}",
-                        .{ p, a, e.created, e.modified, e.size },
-                    ) catch return error.JsonError;
-                    defer allocator.free(entry_str);
-                    try buf.appendSlice(allocator, entry_str);
                 }
                 try buf.append(allocator, ']');
             },

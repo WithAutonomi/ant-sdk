@@ -96,6 +96,8 @@ All functions return `{:ok, result}` or `{:error, exception}` tuples, just like
 the REST client. Bang variants (e.g. `health!/1`) are also available. gRPC
 status codes are translated to the same `Antd.*Error` hierarchy.
 
+> **Note:** Wallet operations (address, balance, approve) and payment_mode are available via REST only.
+
 ## Prerequisites
 
 The antd daemon must be running. Start it with:
@@ -152,9 +154,7 @@ All functions take a `%Antd.Client{}` as the first argument. Each returns `{:ok,
 | `file_download_public(client, address, dest_path)` | Download a file |
 | `dir_upload_public(client, path)` | Upload a directory |
 | `dir_download_public(client, address, dest_path)` | Download a directory |
-| `archive_get_public(client, address)` | Get archive manifest |
-| `archive_put_public(client, archive)` | Create archive manifest |
-| `file_cost(client, path, is_public, include_archive)` | Estimate upload cost |
+| `file_cost(client, path, is_public)` | Estimate upload cost |
 
 ## Error Handling
 

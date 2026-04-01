@@ -173,37 +173,7 @@ public sealed class AntdGrpcClient : IAntdClient
         catch (RpcException ex) { throw Wrap(ex); }
     }
 
-    public async Task<Archive> ArchiveGetPublicAsync(string address)
-    {
-        try
-        {
-            var resp = await _files.ArchiveGetPublicAsync(new ArchiveGetRequest { Address = address });
-            var entries = resp.Entries.Select(e => new ArchiveEntry(e.Path, e.Address, e.Created, e.Modified, e.Size)).ToList();
-            return new Archive(entries);
-        }
-        catch (RpcException ex) { throw Wrap(ex); }
-    }
-
-    public async Task<PutResult> ArchivePutPublicAsync(Archive archive)
-    {
-        try
-        {
-            var req = new ArchivePutRequest();
-            req.Entries.AddRange(archive.Entries.Select(e => new Antd.V1.ArchiveEntry
-            {
-                Path = e.Path,
-                Address = e.Address,
-                Created = e.Created,
-                Modified = e.Modified,
-                Size = e.Size,
-            }));
-            var resp = await _files.ArchivePutPublicAsync(req);
-            return new PutResult(resp.Cost.AttoTokens, resp.Address);
-        }
-        catch (RpcException ex) { throw Wrap(ex); }
-    }
-
-    public async Task<string> FileCostAsync(string path, bool isPublic = true, bool includeArchive = false)
+    public async Task<string> FileCostAsync(string path, bool isPublic = true)
     {
         try
         {
@@ -211,7 +181,6 @@ public sealed class AntdGrpcClient : IAntdClient
             {
                 Path = path,
                 IsPublic = isPublic,
-                IncludeArchive = includeArchive,
             });
             return resp.AttoTokens;
         }

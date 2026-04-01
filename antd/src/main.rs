@@ -20,11 +20,22 @@ use state::AppState;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Parse config first so we can use --log-level for the subscriber
+    let config = Config::parse();
+
+    // Use --log-level / ANTD_LOG_LEVEL with "info" default
+    let log_level = &config.log_level;
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env().add_directive("info".parse().unwrap()))
+        .with_env_filter(
+            EnvFilter::from_default_env()
+                .add_directive(log_level.parse().unwrap_or_else(|e| {
+                    eprintln!("invalid log level '{log_level}': {e}, falling back to 'info'");
+                    "info".parse().expect("valid default log directive")
+                })),
+        )
         .init();
 
-    let config = Config::parse();
+    tracing::info!(log_level = %log_level, "logging initialized");
 
     // Resolve listen addresses (applying --rest-port / --grpc-port overrides)
     let rest_addr = config.resolved_rest_addr()?;
@@ -39,14 +50,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let actual_rest_addr = rest_listener.local_addr()?;
     let actual_grpc_addr = grpc_listener.local_addr()?;
 
+    // Log the REST and gRPC addresses at startup via tracing
+    tracing::info!(rest = %actual_rest_addr, grpc = %actual_grpc_addr, "server addresses resolved");
+
     // Banner
     println!();
     println!("  antd — Autonomi REST + gRPC Gateway");
     println!("  ==================================");
-    println!("  REST:    http://{}", actual_rest_addr);
-    println!("  gRPC:    {}", actual_grpc_addr);
-    println!("  Network: {}", config.network);
-    println!("  CORS:    {}", if config.cors { "enabled" } else { "disabled" });
+    println!("  REST:      http://{}", actual_rest_addr);
+    println!("  gRPC:      {}", actual_grpc_addr);
+    println!("  Network:   {}", config.network);
+    println!("  CORS:      {}", if config.cors { "enabled" } else { "disabled" });
+    println!("  Log level: {}", log_level);
     println!();
 
     // Write port file for SDK discovery
@@ -80,7 +95,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_default();
 
     if bootstrap_peers.is_empty() {
-        tracing::warn!("no bootstrap peers configured — set ANTD_PEERS or --peers");
+        if config.network != "local" {
+            tracing::warn!(
+                "no bootstrap peers configured and network is not 'local' — \
+                 the daemon may not be able to reach the network. \
+                 Set ANTD_PEERS or --peers"
+            );
+        } else {
+            tracing::warn!("no bootstrap peers configured — set ANTD_PEERS or --peers");
+        }
         if let Some(raw) = &config.peers {
             tracing::warn!(raw_peers = ?raw, "raw peer strings from config");
         }
@@ -206,39 +229,80 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Build REST router
     let app = rest::router(state.clone(), config.cors, actual_rest_addr.port());
 
-    // Spawn both servers
-    let grpc_state = state.clone();
-    let grpc_handle = tokio::spawn(async move {
-        if let Err(e) = grpc::serve(grpc_listener, grpc_state).await {
-            tracing::error!("gRPC server error: {e}");
+    // Run both servers concurrently via tokio::select!.
+    // If either server returns (with success or error), initiate shutdown.
+    let shutdown = shutdown_signal();
+    tokio::pin!(shutdown);
+
+    let shutdown_state = state.clone();
+    let server_result: Result<(), String> = tokio::select! {
+        result = grpc::serve(grpc_listener, state.clone()) => {
+            match result {
+                Ok(()) => {
+                    tracing::info!("gRPC server exited normally");
+                    Ok(())
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "gRPC server failed — initiating shutdown");
+                    Err(format!("gRPC server error: {e}"))
+                }
+            }
         }
-    });
-
-    let rest_handle = tokio::spawn(async move {
-        tracing::info!("REST server listening on {actual_rest_addr}");
-        if let Err(e) = axum::serve(rest_listener, app)
-            .with_graceful_shutdown(shutdown_signal())
-            .await
-        {
-            tracing::error!("REST server error: {e}");
+        result = async {
+            tracing::info!("REST server listening on {actual_rest_addr}");
+            axum::serve(rest_listener, app)
+                .with_graceful_shutdown(async {
+                    // Wait for the outer shutdown signal; when select! picks
+                    // another branch first this future is dropped, which is fine.
+                    std::future::pending::<()>().await
+                })
+                .await
+        } => {
+            match result {
+                Ok(()) => {
+                    tracing::info!("REST server exited normally");
+                    Ok(())
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "REST server failed — initiating shutdown");
+                    Err(format!("REST server error: {e}"))
+                }
+            }
         }
-    });
+        _ = &mut shutdown => {
+            tracing::info!("shutdown signal received — starting graceful shutdown");
 
-    tokio::select! {
-        _ = rest_handle => tracing::info!("REST server shut down"),
-        _ = grpc_handle => tracing::info!("gRPC server shut down"),
-    }
+            // Log pending upload count on shutdown
+            let pending_count = shutdown_state.pending_uploads.lock().await.len();
+            if pending_count > 0 {
+                tracing::warn!(count = pending_count, "abandoning pending uploads");
+            }
 
-    // Cleanup port file on shutdown
+            // Give servers a grace period to finish in-flight requests.
+            // The REST server's graceful shutdown is triggered by dropping,
+            // and gRPC server will be cancelled by select! dropping.
+            tracing::info!("allowing 5s grace period for in-flight requests");
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+            Ok(())
+        }
+    };
+
+    // Cleanup port file on both normal and error shutdown paths
     port_file::remove();
     tracing::info!("port file removed");
 
-    Ok(())
+    // Log final status
+    match &server_result {
+        Ok(()) => tracing::info!("daemon stopped"),
+        Err(e) => tracing::error!(error = %e, "daemon stopped due to error"),
+    }
+
+    server_result.map_err(|e| e.into())
 }
 
 async fn shutdown_signal() {
     tokio::signal::ctrl_c()
         .await
         .expect("failed to install Ctrl+C handler");
-    tracing::info!("shutdown signal received");
 }

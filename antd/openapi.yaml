@@ -17,6 +17,10 @@ tags:
     description: Raw chunk operations
   - name: files
     description: File and directory upload/download
+  - name: wallet
+    description: Wallet balance, address, and token approval
+  - name: upload
+    description: Two-phase upload for external signers
 
 paths:
   /health:
@@ -328,57 +332,6 @@ paths:
         "502":
           $ref: "#/components/responses/NetworkError"
 
-  /v1/archives/public/{addr}:
-    get:
-      tags: [files]
-      operationId: archiveGetPublic
-      summary: Get archive entries
-      description: List entries in a public archive manifest.
-      parameters:
-        - name: addr
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Hex address of the archive
-      responses:
-        "200":
-          description: Archive entries
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ArchiveDto"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /v1/archives/public:
-    post:
-      tags: [files]
-      operationId: archivePutPublic
-      summary: Create archive
-      description: Create a public archive manifest from file entries.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ArchiveDto"
-      responses:
-        "200":
-          description: Archive created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ArchivePutResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "402":
-          $ref: "#/components/responses/PaymentError"
-        "500":
-          $ref: "#/components/responses/InternalError"
-        "502":
-          $ref: "#/components/responses/NetworkError"
-
   /v1/cost/file:
     post:
       tags: [files]
@@ -401,6 +354,162 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "502":
           $ref: "#/components/responses/NetworkError"
+
+  # ── Wallet ──
+
+  /v1/wallet/address:
+    get:
+      tags: [wallet]
+      operationId: walletAddress
+      summary: Get wallet address
+      description: Return the public address of the daemon's configured wallet.
+      responses:
+        "200":
+          description: Wallet address
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletAddressResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/wallet/balance:
+    get:
+      tags: [wallet]
+      operationId: walletBalance
+      summary: Get wallet balance
+      description: >-
+        Query the EVM chain for the wallet's current token and gas balances.
+        Token balance is in atto (1 token = 10^18 atto).
+        Gas balance is in wei.
+      responses:
+        "200":
+          description: Wallet balances
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletBalanceResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/wallet/approve:
+    post:
+      tags: [wallet]
+      operationId: walletApprove
+      summary: Approve token spend
+      description: >-
+        Submit an ERC-20 approve transaction so the data-payments contract
+        can spend tokens on behalf of the wallet. Required before uploads
+        when using a fresh wallet.
+      responses:
+        "200":
+          description: Approval successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletApproveResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  # ── External Signer (two-phase upload) ──
+
+  /v1/data/prepare:
+    post:
+      tags: [upload]
+      operationId: prepareDataUpload
+      summary: Prepare data upload for external signer
+      description: >-
+        Phase 1 of two-phase upload for in-memory data. Encrypts and chunks
+        the data, collects storage quotes from the network, and returns a
+        payment intent. The caller signs and submits the EVM payment
+        transaction externally, then calls /v1/upload/finalize with the
+        transaction hashes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrepareDataUploadRequest"
+      responses:
+        "200":
+          description: Upload prepared, payment intent returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrepareUploadResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/upload/prepare:
+    post:
+      tags: [upload]
+      operationId: prepareFileUpload
+      summary: Prepare file upload for external signer
+      description: >-
+        Phase 1 of two-phase upload for a local file. Reads and encrypts
+        the file, collects storage quotes from the network, and returns a
+        payment intent. The caller signs and submits the EVM payment
+        transaction externally, then calls /v1/upload/finalize with the
+        transaction hashes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrepareUploadRequest"
+      responses:
+        "200":
+          description: Upload prepared, payment intent returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrepareUploadResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/upload/finalize:
+    post:
+      tags: [upload]
+      operationId: finalizeUpload
+      summary: Finalize externally-signed upload
+      description: >-
+        Phase 2 of two-phase upload. Takes the upload_id from a prepare
+        call and a map of quote_hash to tx_hash from the on-chain payment.
+        Builds payment proofs from the transaction hashes and uploads the
+        chunks to the network. Optionally stores the DataMap on-network.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinalizeUploadRequest"
+      responses:
+        "200":
+          description: Upload finalized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FinalizeUploadResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
 components:
   schemas:
@@ -425,28 +534,41 @@ components:
         data:
           type: string
           description: Base64-encoded data
+        payment_mode:
+          type: string
+          enum: [auto, merkle, single]
+          default: auto
+          description: "Payment mode: auto (default), merkle, or single"
 
     DataPutPublicResponse:
       type: object
-      required: [cost, address]
+      required: [address, chunks_stored, payment_mode_used]
       properties:
-        cost:
-          type: string
-          description: Cost in atto tokens
         address:
           type: string
           description: Hex address of stored data
+        chunks_stored:
+          type: integer
+          description: Number of chunks stored on the network
+        payment_mode_used:
+          type: string
+          enum: [auto, merkle, single]
+          description: Payment mode that was used
 
     DataPutPrivateResponse:
       type: object
-      required: [cost, data_map]
+      required: [data_map, chunks_stored, payment_mode_used]
       properties:
-        cost:
-          type: string
-          description: Cost in atto tokens
         data_map:
           type: string
           description: Hex-encoded data map for retrieval
+        chunks_stored:
+          type: integer
+          description: Number of chunks stored on the network
+        payment_mode_used:
+          type: string
+          enum: [auto, merkle, single]
+          description: Payment mode that was used
 
     DataGetResponse:
       type: object
@@ -500,6 +622,11 @@ components:
         path:
           type: string
           description: Absolute path to local file or directory
+        payment_mode:
+          type: string
+          enum: [auto, merkle, single]
+          default: auto
+          description: "Payment mode: auto (default), merkle, or single"
 
     FileUploadPublicResponse:
       type: object
@@ -530,42 +657,6 @@ components:
           type: string
           description: Absolute local path to save to
 
-    ArchiveEntryDto:
-      type: object
-      required: [path, address, created, modified, size]
-      properties:
-        path:
-          type: string
-        address:
-          type: string
-        created:
-          type: integer
-          format: uint64
-        modified:
-          type: integer
-          format: uint64
-        size:
-          type: integer
-          format: uint64
-
-    ArchiveDto:
-      type: object
-      required: [entries]
-      properties:
-        entries:
-          type: array
-          items:
-            $ref: "#/components/schemas/ArchiveEntryDto"
-
-    ArchivePutResponse:
-      type: object
-      required: [cost, address]
-      properties:
-        cost:
-          type: string
-        address:
-          type: string
-
     FileCostRequest:
       type: object
       required: [path]
@@ -576,9 +667,123 @@ components:
         is_public:
           type: boolean
           default: true
-        include_archive:
+    # -- Wallet --
+    WalletAddressResponse:
+      type: object
+      required: [address]
+      properties:
+        address:
+          type: string
+          description: Wallet public address (hex with 0x prefix)
+          example: "0x1234abcd..."
+
+    WalletBalanceResponse:
+      type: object
+      required: [balance, gas_balance]
+      properties:
+        balance:
+          type: string
+          description: Token balance in atto (smallest unit)
+        gas_balance:
+          type: string
+          description: Gas token balance in wei
+
+    WalletApproveResponse:
+      type: object
+      required: [approved]
+      properties:
+        approved:
+          type: boolean
+          description: Whether the token spend was approved
+
+    # -- External Signer (two-phase upload) --
+    PrepareDataUploadRequest:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: string
+          description: Base64-encoded data to upload
+
+    PrepareUploadRequest:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+          description: Absolute path to local file
+
+    PrepareUploadResponse:
+      type: object
+      required: [upload_id, payments, total_amount, data_payments_address, payment_token_address, rpc_url]
+      properties:
+        upload_id:
+          type: string
+          description: Opaque token to pass back to finalize
+        payments:
+          type: array
+          items:
+            $ref: "#/components/schemas/PaymentEntry"
+          description: Payment entries for each storage quote
+        total_amount:
+          type: string
+          description: Total amount to pay (atto tokens as decimal string)
+        data_payments_address:
+          type: string
+          description: Data payments contract address (hex with 0x prefix)
+        payment_token_address:
+          type: string
+          description: Payment token contract address (hex with 0x prefix)
+        rpc_url:
+          type: string
+          description: EVM RPC URL for submitting transactions
+
+    PaymentEntry:
+      type: object
+      required: [quote_hash, rewards_address, amount]
+      properties:
+        quote_hash:
+          type: string
+          description: Quote hash (hex, 32 bytes)
+        rewards_address:
+          type: string
+          description: Rewards address (hex with 0x prefix, 20 bytes)
+        amount:
+          type: string
+          description: Amount to pay (atto tokens as decimal string)
+
+    FinalizeUploadRequest:
+      type: object
+      required: [upload_id, tx_hashes]
+      properties:
+        upload_id:
+          type: string
+          description: The upload_id returned from a prepare call
+        tx_hashes:
+          type: object
+          additionalProperties:
+            type: string
+          description: Map of quote_hash (hex) to tx_hash (hex) from on-chain payment
+        store_data_map:
           type: boolean
           default: false
+          description: >-
+            If true, store the DataMap on-network and return its address.
+            If false (default), return the raw DataMap for caller-side storage.
+
+    FinalizeUploadResponse:
+      type: object
+      required: [data_map, chunks_stored]
+      properties:
+        data_map:
+          type: string
+          description: Hex-encoded serialized DataMap (always returned)
+        address:
+          type: string
+          description: Network address of the stored DataMap (only set when store_data_map=true)
+        chunks_stored:
+          type: integer
+          description: Number of chunks stored on the network
 
     # -- Common --
     CostResponse:
@@ -630,6 +835,12 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
     InternalError:
       description: Internal server error (500)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ServiceUnavailable:
+      description: Service unavailable — wallet not configured (503)
       content:
         application/json:
           schema:

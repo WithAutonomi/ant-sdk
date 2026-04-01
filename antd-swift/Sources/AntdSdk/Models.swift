@@ -22,32 +22,6 @@ public struct PutResult: Sendable, Equatable {
     }
 }
 
-/// A single entry in an archive manifest.
-public struct ArchiveEntry: Sendable, Equatable {
-    public let path: String
-    public let address: String
-    public let created: UInt64
-    public let modified: UInt64
-    public let size: UInt64
-
-    public init(path: String, address: String, created: UInt64, modified: UInt64, size: UInt64) {
-        self.path = path
-        self.address = address
-        self.created = created
-        self.modified = modified
-        self.size = size
-    }
-}
-
-/// An archive manifest containing file entries.
-public struct Archive: Sendable, Equatable {
-    public let entries: [ArchiveEntry]
-
-    public init(entries: [ArchiveEntry]) {
-        self.entries = entries
-    }
-}
-
 /// Wallet address result.
 public struct WalletAddress: Sendable, Equatable {
     public let address: String
