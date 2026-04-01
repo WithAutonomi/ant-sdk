@@ -30,15 +30,6 @@ import antd.v1.Chunks.GetChunkResponse;
 import antd.v1.Chunks.PutChunkRequest;
 import antd.v1.Chunks.PutChunkResponse;
 
-import antd.v1.GraphServiceGrpc;
-import antd.v1.Graph.GetGraphEntryRequest;
-import antd.v1.Graph.GetGraphEntryResponse;
-import antd.v1.Graph.CheckGraphEntryRequest;
-import antd.v1.Graph.GraphExistsResponse;
-import antd.v1.Graph.PutGraphEntryRequest;
-import antd.v1.Graph.PutGraphEntryResponse;
-import antd.v1.Graph.GraphEntryCostRequest;
-
 import antd.v1.FileServiceGrpc;
 import antd.v1.Files.UploadFileRequest;
 import antd.v1.Files.UploadPublicResponse;
@@ -84,7 +75,6 @@ class GrpcAntdClientTest {
                         .addService(new MockHealthService())
                         .addService(new MockDataService())
                         .addService(new MockChunkService())
-                        .addService(new MockGraphService())
                         .addService(new MockFileService())
                         .build()
                         .start();
@@ -200,57 +190,6 @@ class GrpcAntdClientTest {
         }
     }
 
-    static class MockGraphService extends GraphServiceGrpc.GraphServiceImplBase {
-        @Override
-        public void put(PutGraphEntryRequest request,
-                        StreamObserver<PutGraphEntryResponse> responseObserver) {
-            responseObserver.onNext(
-                    PutGraphEntryResponse.newBuilder()
-                            .setCost(Cost.newBuilder().setAttoTokens("500").build())
-                            .setAddress("ge1")
-                            .build());
-            responseObserver.onCompleted();
-        }
-
-        @Override
-        public void get(GetGraphEntryRequest request,
-                        StreamObserver<GetGraphEntryResponse> responseObserver) {
-            responseObserver.onNext(
-                    GetGraphEntryResponse.newBuilder()
-                            .setOwner("owner1")
-                            .setContent("abc")
-                            .addDescendants(antd.v1.Common.GraphDescendant.newBuilder()
-                                    .setPublicKey("pk1")
-                                    .setContent("desc1")
-                                    .build())
-                            .build());
-            responseObserver.onCompleted();
-        }
-
-        @Override
-        public void checkExistence(CheckGraphEntryRequest request,
-                                   StreamObserver<GraphExistsResponse> responseObserver) {
-            if ("ge1".equals(request.getAddress())) {
-                responseObserver.onNext(
-                        GraphExistsResponse.newBuilder()
-                                .setExists(true)
-                                .build());
-                responseObserver.onCompleted();
-            } else {
-                responseObserver.onError(
-                        Status.NOT_FOUND.withDescription("not found").asRuntimeException());
-            }
-        }
-
-        @Override
-        public void getCost(GraphEntryCostRequest request,
-                            StreamObserver<Cost> responseObserver) {
-            responseObserver.onNext(
-                    Cost.newBuilder().setAttoTokens("500").build());
-            responseObserver.onCompleted();
-        }
-    }
-
     static class MockFileService extends FileServiceGrpc.FileServiceImplBase {
         @Override
         public void uploadPublic(UploadFileRequest request,
@@ -325,7 +264,7 @@ class GrpcAntdClientTest {
     }
 
     // =========================================================================
-    // Tests — 19 methods
+    // Tests — 15 methods
     // =========================================================================
 
     // --- Health ---
@@ -384,42 +323,6 @@ class GrpcAntdClientTest {
     void testChunkGet() {
         byte[] data = client.chunkGet("chunk1");
         assertEquals("chunkdata", new String(data));
-    }
-
-    // --- Graph Entries ---
-
-    @Test
-    void testGraphEntryPut() {
-        PutResult put = client.graphEntryPut("sk1", Collections.emptyList(), "abc",
-                Collections.emptyList());
-        assertEquals("ge1", put.address());
-        assertEquals("500", put.cost());
-    }
-
-    @Test
-    void testGraphEntryGet() {
-        GraphEntry ge = client.graphEntryGet("ge1");
-        assertEquals("owner1", ge.owner());
-        assertEquals("abc", ge.content());
-        assertEquals(1, ge.descendants().size());
-        assertEquals("pk1", ge.descendants().get(0).publicKey());
-        assertEquals("desc1", ge.descendants().get(0).content());
-    }
-
-    @Test
-    void testGraphEntryExists() {
-        assertTrue(client.graphEntryExists("ge1"));
-    }
-
-    @Test
-    void testGraphEntryExistsNotFound() {
-        assertFalse(client.graphEntryExists("nonexistent"));
-    }
-
-    @Test
-    void testGraphEntryCost() {
-        String cost = client.graphEntryCost("pk1");
-        assertEquals("500", cost);
     }
 
     // --- Files & Directories ---

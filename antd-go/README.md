@@ -59,7 +59,10 @@ ant dev start
 ## Configuration
 
 ```go
-// Default: http://localhost:8080, 5 minute timeout
+// Auto-discover daemon via port file (recommended)
+client, url := antd.NewClientAutoDiscover()
+
+// Explicit URL (default: http://localhost:8082)
 client := antd.NewClient(antd.DefaultBaseURL)
 
 // Custom URL
@@ -70,6 +73,12 @@ client := antd.NewClient(antd.DefaultBaseURL, antd.WithTimeout(30 * time.Second)
 
 // Custom HTTP client
 client := antd.NewClient(antd.DefaultBaseURL, antd.WithHTTPClient(myHTTPClient))
+
+// Payment mode for uploads (defaults to "auto")
+result, _ := client.DataPutPublic(ctx, data, antd.WithPaymentMode("merkle"))
+// "auto" = merkle for 64+ chunks, single otherwise
+// "merkle" = force batch payments (saves gas, min 2 chunks)
+// "single" = per-chunk payments
 ```
 
 ## API Reference
@@ -96,14 +105,6 @@ All methods take a `context.Context` as the first parameter for cancellation and
 | `ChunkPut(ctx, data)` | Store a raw chunk |
 | `ChunkGet(ctx, address)` | Retrieve a chunk |
 
-### Graph Entries (DAG Nodes)
-| Method | Description |
-|--------|-------------|
-| `GraphEntryPut(ctx, secretKey, parents, content, descendants)` | Create entry |
-| `GraphEntryGet(ctx, address)` | Read entry |
-| `GraphEntryExists(ctx, address)` | Check if exists |
-| `GraphEntryCost(ctx, publicKey)` | Estimate creation cost |
-
 ### Files & Directories
 | Method | Description |
 |--------|-------------|
@@ -118,7 +119,7 @@ All methods take a `context.Context` as the first parameter for cancellation and
 ## gRPC Transport
 
 The SDK also provides a `GrpcClient` that connects to the antd daemon over gRPC.
-It exposes the same 19 methods with identical signatures and error types as the REST client.
+It exposes the same methods with identical signatures and error types as the REST client.
 
 ### Generating Proto Stubs
 

@@ -3,7 +3,7 @@
 
 int main() {
     try {
-        antd::Client client;  // defaults to http://localhost:8080
+        antd::Client client;  // defaults to http://localhost:8082
 
         auto health = client.health();
         std::cout << "OK: " << (health.ok ? "true" : "false") << "\n";

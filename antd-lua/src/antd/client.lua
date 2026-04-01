@@ -7,18 +7,19 @@ local cjson = require("cjson")
 local base64 = require("antd.base64")
 local errors = require("antd.errors")
 local models = require("antd.models")
+local discover = require("antd.discover")
 
 local Client = {}
 Client.__index = Client
 
 --- Default base URL for the antd daemon.
-Client.DEFAULT_BASE_URL = "http://localhost:8080"
+Client.DEFAULT_BASE_URL = "http://localhost:8082"
 
 --- Default request timeout in seconds.
 Client.DEFAULT_TIMEOUT = 300
 
 --- Create a new antd client.
--- @param base_url string base URL (default "http://localhost:8080")
+-- @param base_url string base URL (default "http://localhost:8082")
 -- @param opts table optional settings: { timeout = number }
 -- @return Client
 function Client:new(base_url, opts)
@@ -146,11 +147,16 @@ end
 
 --- Store public immutable data.
 -- @param data string raw bytes to store
+-- @param opts table optional settings: { payment_mode = string }
 -- @return PutResult|nil, error|nil
-function Client:data_put_public(data)
-    local j, _, err = self:_do_json("POST", "/v1/data/public", {
+function Client:data_put_public(data, opts)
+    local body = {
         data = base64.encode(data),
-    })
+    }
+    if opts and opts.payment_mode then
+        body.payment_mode = opts.payment_mode
+    end
+    local j, _, err = self:_do_json("POST", "/v1/data/public", body)
     if err then return nil, err end
     return models.new_put_result(str(j, "cost"), str(j, "address")), nil
 end
@@ -166,11 +172,16 @@ end
 
 --- Store private encrypted data.
 -- @param data string raw bytes to store
+-- @param opts table optional settings: { payment_mode = string }
 -- @return PutResult|nil, error|nil
-function Client:data_put_private(data)
-    local j, _, err = self:_do_json("POST", "/v1/data/private", {
+function Client:data_put_private(data, opts)
+    local body = {
         data = base64.encode(data),
-    })
+    }
+    if opts and opts.payment_mode then
+        body.payment_mode = opts.payment_mode
+    end
+    local j, _, err = self:_do_json("POST", "/v1/data/private", body)
     if err then return nil, err end
     return models.new_put_result(str(j, "cost"), str(j, "data_map")), nil
 end
@@ -217,90 +228,20 @@ function Client:chunk_get(address)
     return base64.decode(str(j, "data")), nil
 end
 
--- ── Graph ──
-
---- Create a graph entry (DAG node).
--- @param owner_secret_key string secret key
--- @param parents table list of parent addresses
--- @param content string hex content
--- @param descendants table list of {public_key=, content=} tables
--- @return PutResult|nil, error|nil
-function Client:graph_entry_put(owner_secret_key, parents, content, descendants)
-    local descs = {}
-    for i, d in ipairs(descendants) do
-        descs[i] = { public_key = d.public_key, content = d.content }
-    end
-    local j, _, err = self:_do_json("POST", "/v1/graph", {
-        owner_secret_key = owner_secret_key,
-        parents = parents,
-        content = content,
-        descendants = descs,
-    })
-    if err then return nil, err end
-    return models.new_put_result(str(j, "cost"), str(j, "address")), nil
-end
-
---- Retrieve a graph entry by address.
--- @param address string hex address
--- @return GraphEntry|nil, error|nil
-function Client:graph_entry_get(address)
-    local j, _, err = self:_do_json("GET", "/v1/graph/" .. address, nil)
-    if err then return nil, err end
-
-    local descs = {}
-    if j.descendants and type(j.descendants) == "table" then
-        for _, d in ipairs(j.descendants) do
-            if type(d) == "table" then
-                descs[#descs + 1] = models.new_graph_descendant(str(d, "public_key"), str(d, "content"))
-            end
-        end
-    end
-
-    local parents = {}
-    if j.parents and type(j.parents) == "table" then
-        for _, p in ipairs(j.parents) do
-            if type(p) == "string" then
-                parents[#parents + 1] = p
-            end
-        end
-    end
-
-    return models.new_graph_entry(str(j, "owner"), parents, str(j, "content"), descs), nil
-end
-
---- Check if a graph entry exists.
--- @param address string hex address
--- @return boolean|nil, error|nil
-function Client:graph_entry_exists(address)
-    local code, err = self:_do_head("/v1/graph/" .. address)
-    if err then return nil, err end
-    if code == 404 then return false, nil end
-    if code >= 300 then
-        return nil, errors.error_for_status(code, "graph entry exists check failed")
-    end
-    return true, nil
-end
-
---- Estimate cost of creating a graph entry.
--- @param public_key string hex public key
--- @return string|nil cost in atto tokens, error|nil
-function Client:graph_entry_cost(public_key)
-    local j, _, err = self:_do_json("POST", "/v1/graph/cost", {
-        public_key = public_key,
-    })
-    if err then return nil, err end
-    return str(j, "cost"), nil
-end
-
 -- ── Files ──
 
 --- Upload a file to the network.
 -- @param path string local file path
+-- @param opts table optional settings: { payment_mode = string }
 -- @return PutResult|nil, error|nil
-function Client:file_upload_public(path)
-    local j, _, err = self:_do_json("POST", "/v1/files/upload/public", {
+function Client:file_upload_public(path, opts)
+    local body = {
         path = path,
-    })
+    }
+    if opts and opts.payment_mode then
+        body.payment_mode = opts.payment_mode
+    end
+    local j, _, err = self:_do_json("POST", "/v1/files/upload/public", body)
     if err then return nil, err end
     return models.new_put_result(str(j, "cost"), str(j, "address")), nil
 end
@@ -319,11 +260,16 @@ end
 
 --- Upload a directory to the network.
 -- @param path string local directory path
+-- @param opts table optional settings: { payment_mode = string }
 -- @return PutResult|nil, error|nil
-function Client:dir_upload_public(path)
-    local j, _, err = self:_do_json("POST", "/v1/dirs/upload/public", {
+function Client:dir_upload_public(path, opts)
+    local body = {
         path = path,
-    })
+    }
+    if opts and opts.payment_mode then
+        body.payment_mode = opts.payment_mode
+    end
+    local j, _, err = self:_do_json("POST", "/v1/dirs/upload/public", body)
     if err then return nil, err end
     return models.new_put_result(str(j, "cost"), str(j, "address")), nil
 end
@@ -399,6 +345,127 @@ function Client:file_cost(path, is_public, include_archive)
     })
     if err then return nil, err end
     return str(j, "cost"), nil
+end
+
+-- ── Wallet ──
+
+--- Get the wallet's public address.
+-- @return table|nil {address=string}, error|nil
+function Client:wallet_address()
+    local j, _, err = self:_do_json("GET", "/v1/wallet/address", nil)
+    if err then return nil, err end
+    return { address = str(j, "address") }, nil
+end
+
+--- Get the wallet's token and gas balances.
+-- @return table|nil {balance=string, gas_balance=string}, error|nil
+function Client:wallet_balance()
+    local j, _, err = self:_do_json("GET", "/v1/wallet/balance", nil)
+    if err then return nil, err end
+    return { balance = str(j, "balance"), gas_balance = str(j, "gas_balance") }, nil
+end
+
+--- Approve the wallet to spend tokens on payment contracts (one-time operation).
+-- @return boolean|nil, error|nil
+function Client:wallet_approve()
+    local j, _, err = self:_do_json("POST", "/v1/wallet/approve", {})
+    if err then return nil, err end
+    return j.approved == true, nil
+end
+
+-- ── External Signer (Two-Phase Upload) ──
+
+--- Prepare a file upload for external signing.
+-- @param path string local file path
+-- @return table|nil PrepareUploadResult, error|nil
+function Client:prepare_upload(path)
+    local j, _, err = self:_do_json("POST", "/v1/upload/prepare", {
+        path = path,
+    })
+    if err then return nil, err end
+
+    local payments = {}
+    if j.payments and type(j.payments) == "table" then
+        for _, p in ipairs(j.payments) do
+            if type(p) == "table" then
+                payments[#payments + 1] = {
+                    quote_hash = str(p, "quote_hash"),
+                    rewards_address = str(p, "rewards_address"),
+                    amount = str(p, "amount"),
+                }
+            end
+        end
+    end
+
+    return {
+        upload_id = str(j, "upload_id"),
+        payments = payments,
+        total_amount = str(j, "total_amount"),
+        data_payments_address = str(j, "data_payments_address"),
+        payment_token_address = str(j, "payment_token_address"),
+        rpc_url = str(j, "rpc_url"),
+    }, nil
+end
+
+--- Prepare a data upload for external signing.
+-- Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+-- @param data string raw bytes to upload
+-- @return table|nil PrepareUploadResult, error|nil
+function Client:prepare_data_upload(data)
+    local j, _, err = self:_do_json("POST", "/v1/data/prepare", {
+        data = base64.encode(data),
+    })
+    if err then return nil, err end
+
+    local payments = {}
+    if j.payments and type(j.payments) == "table" then
+        for _, p in ipairs(j.payments) do
+            if type(p) == "table" then
+                payments[#payments + 1] = {
+                    quote_hash = str(p, "quote_hash"),
+                    rewards_address = str(p, "rewards_address"),
+                    amount = str(p, "amount"),
+                }
+            end
+        end
+    end
+
+    return {
+        upload_id = str(j, "upload_id"),
+        payments = payments,
+        total_amount = str(j, "total_amount"),
+        data_payments_address = str(j, "data_payments_address"),
+        payment_token_address = str(j, "payment_token_address"),
+        rpc_url = str(j, "rpc_url"),
+    }, nil
+end
+
+--- Finalize an upload after an external signer has submitted payment transactions.
+-- @param upload_id string the upload ID from prepare_upload
+-- @param tx_hashes table map of quote_hash to tx_hash
+-- @return table|nil FinalizeUploadResult, error|nil
+function Client:finalize_upload(upload_id, tx_hashes)
+    local j, _, err = self:_do_json("POST", "/v1/upload/finalize", {
+        upload_id = upload_id,
+        tx_hashes = tx_hashes,
+    })
+    if err then return nil, err end
+    return {
+        address = str(j, "address"),
+        chunks_stored = num(j, "chunks_stored"),
+    }, nil
+end
+
+--- Create a client using daemon port discovery.
+-- Falls back to the default base URL if discovery fails.
+-- @param opts table optional settings: { timeout = number }
+-- @return Client client, string url
+function Client.auto_discover(opts)
+    local url = discover.daemon_url()
+    if url == "" then
+        url = Client.DEFAULT_BASE_URL
+    end
+    return Client:new(url, opts), url
 end
 
 return Client

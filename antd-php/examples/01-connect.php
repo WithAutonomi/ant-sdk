@@ -10,7 +10,7 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 use Autonomi\Antd\AntdClient;
 
-$client = new AntdClient('http://localhost:8080');
+$client = new AntdClient('http://localhost:8082');
 
 $health = $client->health();
 echo "OK: " . ($health->ok ? 'true' : 'false') . "\n";

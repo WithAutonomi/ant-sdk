@@ -31,7 +31,7 @@ import java.util.*;
 public class AntdClient implements AutoCloseable {
 
     /** Default daemon address. */
-    public static final String DEFAULT_BASE_URL = "http://localhost:8080";
+    public static final String DEFAULT_BASE_URL = "http://localhost:8082";
 
     /** Default request timeout (5 minutes). */
     public static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(5);
@@ -39,6 +39,20 @@ public class AntdClient implements AutoCloseable {
     private final String baseUrl;
     private final HttpClient httpClient;
     private final Duration timeout;
+
+    /**
+     * Creates a client that auto-discovers the daemon via the {@code daemon.port} file.
+     * Falls back to {@link #DEFAULT_BASE_URL} if discovery fails.
+     *
+     * @return a new AntdClient connected to the discovered or default URL
+     */
+    public static AntdClient autoDiscover() {
+        String url = DaemonDiscovery.discoverDaemonUrl();
+        if (url.isEmpty()) {
+            url = DEFAULT_BASE_URL;
+        }
+        return new AntdClient(url);
+    }
 
     public AntdClient() {
         this(DEFAULT_BASE_URL, DEFAULT_TIMEOUT);
@@ -184,7 +198,13 @@ public class AntdClient implements AutoCloseable {
     // ── Data (Immutable) ──
 
     public PutResult dataPutPublic(byte[] data) {
-        String body = Json.object("data", b64Encode(data));
+        return dataPutPublic(data, null);
+    }
+
+    public PutResult dataPutPublic(byte[] data, String paymentMode) {
+        String body = paymentMode != null
+                ? Json.object("data", b64Encode(data), "payment_mode", paymentMode)
+                : Json.object("data", b64Encode(data));
         Map<String, Object> j = doJson("POST", "/v1/data/public", body);
         return new PutResult(str(j, "cost"), str(j, "address"));
     }
@@ -195,7 +215,13 @@ public class AntdClient implements AutoCloseable {
     }
 
     public PutResult dataPutPrivate(byte[] data) {
-        String body = Json.object("data", b64Encode(data));
+        return dataPutPrivate(data, null);
+    }
+
+    public PutResult dataPutPrivate(byte[] data, String paymentMode) {
+        String body = paymentMode != null
+                ? Json.object("data", b64Encode(data), "payment_mode", paymentMode)
+                : Json.object("data", b64Encode(data));
         Map<String, Object> j = doJson("POST", "/v1/data/private", body);
         return new PutResult(str(j, "cost"), str(j, "data_map"));
     }
@@ -225,51 +251,16 @@ public class AntdClient implements AutoCloseable {
         return b64Decode(str(j, "data"));
     }
 
-    // ── Graph Entries (DAG Nodes) ──
-
-    public PutResult graphEntryPut(String ownerSecretKey, List<String> parents,
-                                   String content, List<GraphDescendant> descendants) {
-        List<Map<String, Object>> descs = new ArrayList<>();
-        for (GraphDescendant d : descendants) {
-            descs.add(Map.of("public_key", d.publicKey(), "content", d.content()));
-        }
-        String body = Json.object(
-                "owner_secret_key", ownerSecretKey,
-                "parents", parents,
-                "content", content,
-                "descendants", descs
-        );
-        Map<String, Object> j = doJson("POST", "/v1/graph", body);
-        return new PutResult(str(j, "cost"), str(j, "address"));
-    }
-
-    public GraphEntry graphEntryGet(String address) {
-        Map<String, Object> j = doJson("GET", "/v1/graph/" + address, null);
-        List<GraphDescendant> descs = new ArrayList<>();
-        for (Map<String, Object> dm : listOfMaps(j, "descendants")) {
-            descs.add(new GraphDescendant(str(dm, "public_key"), str(dm, "content")));
-        }
-        return new GraphEntry(str(j, "owner"), strList(j, "parents"), str(j, "content"),
-                Collections.unmodifiableList(descs));
-    }
-
-    public boolean graphEntryExists(String address) {
-        int code = doHead("/v1/graph/" + address);
-        if (code == 404) return false;
-        if (code >= 300) throw ExceptionFactory.fromHttpStatus(code, "graph entry exists check failed");
-        return true;
-    }
-
-    public String graphEntryCost(String publicKey) {
-        String body = Json.object("public_key", publicKey);
-        Map<String, Object> j = doJson("POST", "/v1/graph/cost", body);
-        return str(j, "cost");
-    }
-
     // ── Files & Directories ──
 
     public PutResult fileUploadPublic(String path) {
-        String body = Json.object("path", path);
+        return fileUploadPublic(path, null);
+    }
+
+    public PutResult fileUploadPublic(String path, String paymentMode) {
+        String body = paymentMode != null
+                ? Json.object("path", path, "payment_mode", paymentMode)
+                : Json.object("path", path);
         Map<String, Object> j = doJson("POST", "/v1/files/upload/public", body);
         return new PutResult(str(j, "cost"), str(j, "address"));
     }
@@ -280,7 +271,13 @@ public class AntdClient implements AutoCloseable {
     }
 
     public PutResult dirUploadPublic(String path) {
-        String body = Json.object("path", path);
+        return dirUploadPublic(path, null);
+    }
+
+    public PutResult dirUploadPublic(String path, String paymentMode) {
+        String body = paymentMode != null
+                ? Json.object("path", path, "payment_mode", paymentMode)
+                : Json.object("path", path);
         Map<String, Object> j = doJson("POST", "/v1/dirs/upload/public", body);
         return new PutResult(str(j, "cost"), str(j, "address"));
     }
@@ -317,5 +314,94 @@ public class AntdClient implements AutoCloseable {
         String body = Json.object("path", path, "is_public", isPublic, "include_archive", includeArchive);
         Map<String, Object> j = doJson("POST", "/v1/cost/file", body);
         return str(j, "cost");
+    }
+
+    // ── Wallet ──
+
+    public WalletAddress walletAddress() {
+        Map<String, Object> j = doJson("GET", "/v1/wallet/address", null);
+        return new WalletAddress(str(j, "address"));
+    }
+
+    public WalletBalance walletBalance() {
+        Map<String, Object> j = doJson("GET", "/v1/wallet/balance", null);
+        return new WalletBalance(str(j, "balance"), str(j, "gas_balance"));
+    }
+
+    /**
+     * Approves the wallet to spend tokens on payment contracts.
+     * This is a one-time operation required before any storage operations.
+     *
+     * @return true if the wallet was approved
+     * @throws AntdException if no wallet is configured (HTTP 400) or on other errors
+     */
+    public boolean walletApprove() {
+        Map<String, Object> j = doJson("POST", "/v1/wallet/approve", "{}");
+        Object approved = j.get("approved");
+        return approved instanceof Boolean b && b;
+    }
+
+    // ── External Signer (Two-Phase Upload) ──
+
+    /**
+     * Prepares a file upload for external signing.
+     * Returns payment details that an external signer must process before calling {@link #finalizeUpload}.
+     *
+     * @param path local file path to upload
+     * @return PrepareUploadResult with upload_id, payments, and contract details
+     */
+    public PrepareUploadResult prepareUpload(String path) {
+        String body = Json.object("path", path);
+        Map<String, Object> j = doJson("POST", "/v1/upload/prepare", body);
+        List<PaymentInfo> payments = new ArrayList<>();
+        for (Map<String, Object> pm : listOfMaps(j, "payments")) {
+            payments.add(new PaymentInfo(str(pm, "quote_hash"), str(pm, "rewards_address"), str(pm, "amount")));
+        }
+        return new PrepareUploadResult(
+                str(j, "upload_id"),
+                Collections.unmodifiableList(payments),
+                str(j, "total_amount"),
+                str(j, "data_payments_address"),
+                str(j, "payment_token_address"),
+                str(j, "rpc_url")
+        );
+    }
+
+    /**
+     * Prepares a data upload for external signing.
+     * Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+     * Returns payment details that an external signer must process before calling {@link #finalizeUpload}.
+     *
+     * @param data raw bytes to upload
+     * @return PrepareUploadResult with upload_id, payments, and contract details
+     */
+    public PrepareUploadResult prepareDataUpload(byte[] data) {
+        String body = Json.object("data", b64Encode(data));
+        Map<String, Object> j = doJson("POST", "/v1/data/prepare", body);
+        List<PaymentInfo> payments = new ArrayList<>();
+        for (Map<String, Object> pm : listOfMaps(j, "payments")) {
+            payments.add(new PaymentInfo(str(pm, "quote_hash"), str(pm, "rewards_address"), str(pm, "amount")));
+        }
+        return new PrepareUploadResult(
+                str(j, "upload_id"),
+                Collections.unmodifiableList(payments),
+                str(j, "total_amount"),
+                str(j, "data_payments_address"),
+                str(j, "payment_token_address"),
+                str(j, "rpc_url")
+        );
+    }
+
+    /**
+     * Finalizes an upload after an external signer has submitted payment transactions.
+     *
+     * @param uploadId the upload ID returned by {@link #prepareUpload}
+     * @param txHashes map of quote_hash to tx_hash for each payment
+     * @return FinalizeUploadResult with address and chunks_stored
+     */
+    public FinalizeUploadResult finalizeUpload(String uploadId, Map<String, String> txHashes) {
+        String body = Json.object("upload_id", uploadId, "tx_hashes", txHashes);
+        Map<String, Object> j = doJson("POST", "/v1/upload/finalize", body);
+        return new FinalizeUploadResult(str(j, "address"), num(j, "chunks_stored"));
     }
 }

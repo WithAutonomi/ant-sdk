@@ -18,20 +18,6 @@ struct PutResult {
     std::string address;  // hex
 };
 
-/// A descendant entry in a graph node.
-struct GraphDescendant {
-    std::string public_key;  // hex
-    std::string content;     // hex, 32 bytes
-};
-
-/// A DAG node from the network.
-struct GraphEntry {
-    std::string owner;
-    std::vector<std::string> parents;
-    std::string content;
-    std::vector<GraphDescendant> descendants;
-};
-
 /// A single entry in a file archive.
 struct ArchiveEntry {
     std::string path;
@@ -44,6 +30,40 @@ struct ArchiveEntry {
 /// A collection of archive entries.
 struct Archive {
     std::vector<ArchiveEntry> entries;
+};
+
+/// Wallet address response.
+struct WalletAddress {
+    std::string address;  // 0x-prefixed hex
+};
+
+/// Wallet balance response.
+struct WalletBalance {
+    std::string balance;      // atto tokens as string
+    std::string gas_balance;  // atto tokens as string
+};
+
+/// A single payment required for an upload.
+struct PaymentInfo {
+    std::string quote_hash;      // hex
+    std::string rewards_address; // hex
+    std::string amount;          // atto tokens as string
+};
+
+/// Result of preparing an upload for external signing.
+struct PrepareUploadResult {
+    std::string upload_id;             // hex identifier
+    std::vector<PaymentInfo> payments;
+    std::string total_amount;
+    std::string data_payments_address; // contract address
+    std::string payment_token_address; // token contract address
+    std::string rpc_url;               // EVM RPC URL
+};
+
+/// Result of finalizing an externally-signed upload.
+struct FinalizeUploadResult {
+    std::string address;       // hex address of stored data
+    int64_t chunks_stored{0};
 };
 
 }  // namespace antd

@@ -109,20 +109,6 @@ local function setup_daemon()
     register_route("GET", "/v1/chunks/chunk1", 200,
         cjson.encode({ data = base64.encode("chunkdata") }))
 
-    -- Graph
-    register_route("POST", "/v1/graph", 200,
-        cjson.encode({ cost = "500", address = "ge1" }))
-    register_route("GET", "/v1/graph/ge1", 200,
-        cjson.encode({
-            owner = "owner1",
-            parents = {},
-            content = "abc",
-            descendants = { { public_key = "pk1", content = "desc1" } },
-        }))
-    register_route("HEAD", "/v1/graph/ge1", 200, "")
-    register_route("POST", "/v1/graph/cost", 200,
-        cjson.encode({ cost = "500" }))
-
     -- Files
     register_route("POST", "/v1/files/upload/public", 200,
         cjson.encode({ cost = "1000", address = "file1" }))
@@ -153,7 +139,7 @@ describe("antd client", function()
 
     before_each(function()
         setup_daemon()
-        client = antd.new_client("http://localhost:8080")
+        client = antd.new_client("http://localhost:8082")
     end)
 
     after_each(function()
@@ -230,42 +216,6 @@ describe("antd client", function()
             local data, err = client:chunk_get("chunk1")
             assert.is_nil(err)
             assert.are.equal("chunkdata", data)
-        end)
-    end)
-
-    describe("graph_entry_put", function()
-        it("creates a graph entry", function()
-            local result, err = client:graph_entry_put("sk1", {}, "abc", {})
-            assert.is_nil(err)
-            assert.are.equal("ge1", result.address)
-            assert.are.equal("500", result.cost)
-        end)
-    end)
-
-    describe("graph_entry_get", function()
-        it("retrieves a graph entry", function()
-            local ge, err = client:graph_entry_get("ge1")
-            assert.is_nil(err)
-            assert.are.equal("owner1", ge.owner)
-            assert.are.equal(1, #ge.descendants)
-            assert.are.equal("pk1", ge.descendants[1].public_key)
-            assert.are.equal("desc1", ge.descendants[1].content)
-        end)
-    end)
-
-    describe("graph_entry_exists", function()
-        it("returns true when entry exists", function()
-            local exists, err = client:graph_entry_exists("ge1")
-            assert.is_nil(err)
-            assert.is_true(exists)
-        end)
-    end)
-
-    describe("graph_entry_cost", function()
-        it("estimates graph entry cost", function()
-            local cost, err = client:graph_entry_cost("pk1")
-            assert.is_nil(err)
-            assert.are.equal("500", cost)
         end)
     end)
 
@@ -364,9 +314,9 @@ describe("antd client", function()
         end)
 
         it("maps 409 to already_exists error", function()
-            register_route("POST", "/v1/graph", 409,
+            register_route("POST", "/v1/data/public", 409,
                 cjson.encode({ error = "already exists" }))
-            local _, err = client:graph_entry_put("sk1", {}, "abc", {})
+            local _, err = client:data_put_public("test")
             assert.is_not_nil(err)
             assert.are.equal("already_exists", err.type)
             assert.are.equal(409, err.status_code)

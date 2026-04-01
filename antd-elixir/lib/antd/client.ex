@@ -7,7 +7,7 @@ defmodule Antd.Client do
   raise on error.
   """
 
-  @default_base_url "http://localhost:8080"
+  @default_base_url "http://localhost:8082"
   @default_timeout 300_000
 
   defstruct base_url: @default_base_url, timeout: @default_timeout
@@ -16,6 +16,32 @@ defmodule Antd.Client do
           base_url: String.t(),
           timeout: integer()
         }
+
+  @doc """
+  Creates a client using port discovery.
+
+  Reads the daemon.port file to find the REST port. Falls back to the
+  default base URL if the port file is not found.
+
+  ## Options
+
+    * `:timeout` - HTTP request timeout in milliseconds (default: 300_000)
+
+  ## Examples
+
+      {client, url} = Antd.Client.auto_discover()
+      {client, url} = Antd.Client.auto_discover(timeout: 30_000)
+  """
+  @spec auto_discover(keyword()) :: {t(), String.t()}
+  def auto_discover(opts \\ []) do
+    url =
+      case Antd.Discover.discover_daemon_url() do
+        "" -> @default_base_url
+        discovered -> discovered
+      end
+
+    {new(url, opts), url}
+  end
 
   @doc """
   Creates a new client.
@@ -28,7 +54,7 @@ defmodule Antd.Client do
 
       client = Antd.Client.new()
       client = Antd.Client.new("http://custom-host:9090")
-      client = Antd.Client.new("http://localhost:8080", timeout: 30_000)
+      client = Antd.Client.new("http://localhost:8082", timeout: 30_000)
   """
   @spec new(String.t(), keyword()) :: t()
   def new(base_url \\ @default_base_url, opts \\ []) do
@@ -63,9 +89,14 @@ defmodule Antd.Client do
   # ---------------------------------------------------------------------------
 
   @doc "Stores public immutable data on the network."
-  @spec data_put_public(t(), binary()) :: {:ok, Antd.PutResult.t()} | {:error, Exception.t()}
-  def data_put_public(%__MODULE__{} = client, data) when is_binary(data) do
-    case do_json(client, :post, "/v1/data/public", %{data: Base.encode64(data)}) do
+  @spec data_put_public(t(), binary(), keyword()) :: {:ok, Antd.PutResult.t()} | {:error, Exception.t()}
+  def data_put_public(%__MODULE__{} = client, data, opts \\ []) when is_binary(data) do
+    payload = %{data: Base.encode64(data)}
+    payload = case Keyword.get(opts, :payment_mode) do
+      nil -> payload
+      mode -> Map.put(payload, :payment_mode, mode)
+    end
+    case do_json(client, :post, "/v1/data/public", payload) do
       {:ok, body} ->
         {:ok, %Antd.PutResult{cost: body["cost"], address: body["address"]}}
 
@@ -75,8 +106,8 @@ defmodule Antd.Client do
   end
 
   @doc "Like `data_put_public/2` but raises on error."
-  @spec data_put_public!(t(), binary()) :: Antd.PutResult.t()
-  def data_put_public!(client, data), do: unwrap!(data_put_public(client, data))
+  @spec data_put_public!(t(), binary(), keyword()) :: Antd.PutResult.t()
+  def data_put_public!(client, data, opts \\ []), do: unwrap!(data_put_public(client, data, opts))
 
   @doc "Retrieves public data by address."
   @spec data_get_public(t(), String.t()) :: {:ok, binary()} | {:error, Exception.t()}
@@ -92,9 +123,14 @@ defmodule Antd.Client do
   def data_get_public!(client, address), do: unwrap!(data_get_public(client, address))
 
   @doc "Stores private encrypted data on the network."
-  @spec data_put_private(t(), binary()) :: {:ok, Antd.PutResult.t()} | {:error, Exception.t()}
-  def data_put_private(%__MODULE__{} = client, data) when is_binary(data) do
-    case do_json(client, :post, "/v1/data/private", %{data: Base.encode64(data)}) do
+  @spec data_put_private(t(), binary(), keyword()) :: {:ok, Antd.PutResult.t()} | {:error, Exception.t()}
+  def data_put_private(%__MODULE__{} = client, data, opts \\ []) when is_binary(data) do
+    payload = %{data: Base.encode64(data)}
+    payload = case Keyword.get(opts, :payment_mode) do
+      nil -> payload
+      mode -> Map.put(payload, :payment_mode, mode)
+    end
+    case do_json(client, :post, "/v1/data/private", payload) do
       {:ok, body} ->
         {:ok, %Antd.PutResult{cost: body["cost"], address: body["data_map"]}}
 
@@ -104,8 +140,8 @@ defmodule Antd.Client do
   end
 
   @doc "Like `data_put_private/2` but raises on error."
-  @spec data_put_private!(t(), binary()) :: Antd.PutResult.t()
-  def data_put_private!(client, data), do: unwrap!(data_put_private(client, data))
+  @spec data_put_private!(t(), binary(), keyword()) :: Antd.PutResult.t()
+  def data_put_private!(client, data, opts \\ []), do: unwrap!(data_put_private(client, data, opts))
 
   @doc "Retrieves private data using a data map."
   @spec data_get_private(t(), String.t()) :: {:ok, binary()} | {:error, Exception.t()}
@@ -169,105 +205,18 @@ defmodule Antd.Client do
   def chunk_get!(client, address), do: unwrap!(chunk_get(client, address))
 
   # ---------------------------------------------------------------------------
-  # Graph
-  # ---------------------------------------------------------------------------
-
-  @doc "Creates a new graph entry (DAG node)."
-  @spec graph_entry_put(t(), String.t(), [String.t()], String.t(), [Antd.GraphDescendant.t()]) ::
-          {:ok, Antd.PutResult.t()} | {:error, Exception.t()}
-  def graph_entry_put(%__MODULE__{} = client, owner_secret_key, parents, content, descendants) do
-    descs =
-      Enum.map(descendants, fn d ->
-        %{public_key: d.public_key, content: d.content}
-      end)
-
-    payload = %{
-      owner_secret_key: owner_secret_key,
-      parents: parents,
-      content: content,
-      descendants: descs
-    }
-
-    case do_json(client, :post, "/v1/graph", payload) do
-      {:ok, body} ->
-        {:ok, %Antd.PutResult{cost: body["cost"], address: body["address"]}}
-
-      {:error, _} = err ->
-        err
-    end
-  end
-
-  @doc "Like `graph_entry_put/5` but raises on error."
-  @spec graph_entry_put!(t(), String.t(), [String.t()], String.t(), [Antd.GraphDescendant.t()]) ::
-          Antd.PutResult.t()
-  def graph_entry_put!(client, owner_secret_key, parents, content, descendants) do
-    unwrap!(graph_entry_put(client, owner_secret_key, parents, content, descendants))
-  end
-
-  @doc "Retrieves a graph entry by address."
-  @spec graph_entry_get(t(), String.t()) :: {:ok, Antd.GraphEntry.t()} | {:error, Exception.t()}
-  def graph_entry_get(%__MODULE__{} = client, address) do
-    case do_json(client, :get, "/v1/graph/#{address}", nil) do
-      {:ok, body} ->
-        descendants =
-          (body["descendants"] || [])
-          |> Enum.map(fn d ->
-            %Antd.GraphDescendant{public_key: d["public_key"], content: d["content"]}
-          end)
-
-        {:ok,
-         %Antd.GraphEntry{
-           owner: body["owner"],
-           parents: body["parents"] || [],
-           content: body["content"],
-           descendants: descendants
-         }}
-
-      {:error, _} = err ->
-        err
-    end
-  end
-
-  @doc "Like `graph_entry_get/2` but raises on error."
-  @spec graph_entry_get!(t(), String.t()) :: Antd.GraphEntry.t()
-  def graph_entry_get!(client, address), do: unwrap!(graph_entry_get(client, address))
-
-  @doc "Checks if a graph entry exists at the given address."
-  @spec graph_entry_exists(t(), String.t()) :: {:ok, boolean()} | {:error, Exception.t()}
-  def graph_entry_exists(%__MODULE__{} = client, address) do
-    case do_head(client, "/v1/graph/#{address}") do
-      {:ok, status} when status >= 200 and status < 300 -> {:ok, true}
-      {:ok, 404} -> {:ok, false}
-      {:ok, status} -> {:error, Antd.Errors.error_for_status(status, "graph entry exists check failed")}
-      {:error, _} = err -> err
-    end
-  end
-
-  @doc "Like `graph_entry_exists/2` but raises on error."
-  @spec graph_entry_exists!(t(), String.t()) :: boolean()
-  def graph_entry_exists!(client, address), do: unwrap!(graph_entry_exists(client, address))
-
-  @doc "Estimates the cost of creating a graph entry."
-  @spec graph_entry_cost(t(), String.t()) :: {:ok, String.t()} | {:error, Exception.t()}
-  def graph_entry_cost(%__MODULE__{} = client, public_key) do
-    case do_json(client, :post, "/v1/graph/cost", %{public_key: public_key}) do
-      {:ok, body} -> {:ok, body["cost"]}
-      {:error, _} = err -> err
-    end
-  end
-
-  @doc "Like `graph_entry_cost/2` but raises on error."
-  @spec graph_entry_cost!(t(), String.t()) :: String.t()
-  def graph_entry_cost!(client, public_key), do: unwrap!(graph_entry_cost(client, public_key))
-
-  # ---------------------------------------------------------------------------
   # Files & Directories
   # ---------------------------------------------------------------------------
 
   @doc "Uploads a local file to the network."
-  @spec file_upload_public(t(), String.t()) :: {:ok, Antd.PutResult.t()} | {:error, Exception.t()}
-  def file_upload_public(%__MODULE__{} = client, path) do
-    case do_json(client, :post, "/v1/files/upload/public", %{path: path}) do
+  @spec file_upload_public(t(), String.t(), keyword()) :: {:ok, Antd.PutResult.t()} | {:error, Exception.t()}
+  def file_upload_public(%__MODULE__{} = client, path, opts \\ []) do
+    payload = %{path: path}
+    payload = case Keyword.get(opts, :payment_mode) do
+      nil -> payload
+      mode -> Map.put(payload, :payment_mode, mode)
+    end
+    case do_json(client, :post, "/v1/files/upload/public", payload) do
       {:ok, body} ->
         {:ok, %Antd.PutResult{cost: body["cost"], address: body["address"]}}
 
@@ -277,8 +226,8 @@ defmodule Antd.Client do
   end
 
   @doc "Like `file_upload_public/2` but raises on error."
-  @spec file_upload_public!(t(), String.t()) :: Antd.PutResult.t()
-  def file_upload_public!(client, path), do: unwrap!(file_upload_public(client, path))
+  @spec file_upload_public!(t(), String.t(), keyword()) :: Antd.PutResult.t()
+  def file_upload_public!(client, path, opts \\ []), do: unwrap!(file_upload_public(client, path, opts))
 
   @doc "Downloads a file from the network to a local path."
   @spec file_download_public(t(), String.t(), String.t()) :: :ok | {:error, Exception.t()}
@@ -296,9 +245,14 @@ defmodule Antd.Client do
   end
 
   @doc "Uploads a local directory to the network."
-  @spec dir_upload_public(t(), String.t()) :: {:ok, Antd.PutResult.t()} | {:error, Exception.t()}
-  def dir_upload_public(%__MODULE__{} = client, path) do
-    case do_json(client, :post, "/v1/dirs/upload/public", %{path: path}) do
+  @spec dir_upload_public(t(), String.t(), keyword()) :: {:ok, Antd.PutResult.t()} | {:error, Exception.t()}
+  def dir_upload_public(%__MODULE__{} = client, path, opts \\ []) do
+    payload = %{path: path}
+    payload = case Keyword.get(opts, :payment_mode) do
+      nil -> payload
+      mode -> Map.put(payload, :payment_mode, mode)
+    end
+    case do_json(client, :post, "/v1/dirs/upload/public", payload) do
       {:ok, body} ->
         {:ok, %Antd.PutResult{cost: body["cost"], address: body["address"]}}
 
@@ -308,8 +262,8 @@ defmodule Antd.Client do
   end
 
   @doc "Like `dir_upload_public/2` but raises on error."
-  @spec dir_upload_public!(t(), String.t()) :: Antd.PutResult.t()
-  def dir_upload_public!(client, path), do: unwrap!(dir_upload_public(client, path))
+  @spec dir_upload_public!(t(), String.t(), keyword()) :: Antd.PutResult.t()
+  def dir_upload_public!(client, path, opts \\ []), do: unwrap!(dir_upload_public(client, path, opts))
 
   @doc "Downloads a directory from the network to a local path."
   @spec dir_download_public(t(), String.t(), String.t()) :: :ok | {:error, Exception.t()}
@@ -396,6 +350,154 @@ defmodule Antd.Client do
   @spec file_cost!(t(), String.t(), boolean(), boolean()) :: String.t()
   def file_cost!(client, path, is_public, include_archive) do
     unwrap!(file_cost(client, path, is_public, include_archive))
+  end
+
+  # ---------------------------------------------------------------------------
+  # Wallet
+  # ---------------------------------------------------------------------------
+
+  @doc "Returns the wallet address configured on the daemon."
+  @spec wallet_address(t()) :: {:ok, Antd.WalletAddress.t()} | {:error, Exception.t()}
+  def wallet_address(%__MODULE__{} = client) do
+    case do_json(client, :get, "/v1/wallet/address", nil) do
+      {:ok, body} ->
+        {:ok, %Antd.WalletAddress{address: body["address"]}}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  @doc "Like `wallet_address/1` but raises on error."
+  @spec wallet_address!(t()) :: Antd.WalletAddress.t()
+  def wallet_address!(client), do: unwrap!(wallet_address(client))
+
+  @doc "Returns the wallet balance and gas balance."
+  @spec wallet_balance(t()) :: {:ok, Antd.WalletBalance.t()} | {:error, Exception.t()}
+  def wallet_balance(%__MODULE__{} = client) do
+    case do_json(client, :get, "/v1/wallet/balance", nil) do
+      {:ok, body} ->
+        {:ok, %Antd.WalletBalance{balance: body["balance"], gas_balance: body["gas_balance"]}}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  @doc "Like `wallet_balance/1` but raises on error."
+  @spec wallet_balance!(t()) :: Antd.WalletBalance.t()
+  def wallet_balance!(client), do: unwrap!(wallet_balance(client))
+
+  @doc "Approves the wallet to spend tokens on payment contracts (one-time operation)."
+  @spec wallet_approve(t()) :: {:ok, boolean()} | {:error, Exception.t()}
+  def wallet_approve(%__MODULE__{} = client) do
+    case do_json(client, :post, "/v1/wallet/approve", %{}) do
+      {:ok, body} ->
+        {:ok, body["approved"] == true}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  @doc "Like `wallet_approve/1` but raises on error."
+  @spec wallet_approve!(t()) :: boolean()
+  def wallet_approve!(client), do: unwrap!(wallet_approve(client))
+
+  # ---------------------------------------------------------------------------
+  # External Signer (Two-Phase Upload)
+  # ---------------------------------------------------------------------------
+
+  @doc "Prepares a file upload for external signing."
+  @spec prepare_upload(t(), String.t()) :: {:ok, Antd.PrepareUploadResult.t()} | {:error, Exception.t()}
+  def prepare_upload(%__MODULE__{} = client, path) do
+    case do_json(client, :post, "/v1/upload/prepare", %{path: path}) do
+      {:ok, body} ->
+        payments =
+          (body["payments"] || [])
+          |> Enum.map(fn p ->
+            %Antd.PaymentInfo{
+              quote_hash: p["quote_hash"],
+              rewards_address: p["rewards_address"],
+              amount: p["amount"]
+            }
+          end)
+
+        {:ok,
+         %Antd.PrepareUploadResult{
+           upload_id: body["upload_id"],
+           payments: payments,
+           total_amount: body["total_amount"],
+           data_payments_address: body["data_payments_address"],
+           payment_token_address: body["payment_token_address"],
+           rpc_url: body["rpc_url"]
+         }}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  @doc "Like `prepare_upload/2` but raises on error."
+  @spec prepare_upload!(t(), String.t()) :: Antd.PrepareUploadResult.t()
+  def prepare_upload!(client, path), do: unwrap!(prepare_upload(client, path))
+
+  @doc "Prepares a data upload for external signing."
+  @spec prepare_data_upload(t(), binary()) :: {:ok, Antd.PrepareUploadResult.t()} | {:error, Exception.t()}
+  def prepare_data_upload(%__MODULE__{} = client, data) when is_binary(data) do
+    case do_json(client, :post, "/v1/data/prepare", %{data: Base.encode64(data)}) do
+      {:ok, body} ->
+        payments =
+          (body["payments"] || [])
+          |> Enum.map(fn p ->
+            %Antd.PaymentInfo{
+              quote_hash: p["quote_hash"],
+              rewards_address: p["rewards_address"],
+              amount: p["amount"]
+            }
+          end)
+
+        {:ok,
+         %Antd.PrepareUploadResult{
+           upload_id: body["upload_id"],
+           payments: payments,
+           total_amount: body["total_amount"],
+           data_payments_address: body["data_payments_address"],
+           payment_token_address: body["payment_token_address"],
+           rpc_url: body["rpc_url"]
+         }}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  @doc "Like `prepare_data_upload/2` but raises on error."
+  @spec prepare_data_upload!(t(), binary()) :: Antd.PrepareUploadResult.t()
+  def prepare_data_upload!(client, data), do: unwrap!(prepare_data_upload(client, data))
+
+  @doc "Finalizes an upload after an external signer has submitted payment transactions."
+  @spec finalize_upload(t(), String.t(), map()) :: {:ok, Antd.FinalizeUploadResult.t()} | {:error, Exception.t()}
+  def finalize_upload(%__MODULE__{} = client, upload_id, tx_hashes) do
+    payload = %{upload_id: upload_id, tx_hashes: tx_hashes}
+
+    case do_json(client, :post, "/v1/upload/finalize", payload) do
+      {:ok, body} ->
+        {:ok,
+         %Antd.FinalizeUploadResult{
+           address: body["address"],
+           chunks_stored: body["chunks_stored"]
+         }}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  @doc "Like `finalize_upload/3` but raises on error."
+  @spec finalize_upload!(t(), String.t(), map()) :: Antd.FinalizeUploadResult.t()
+  def finalize_upload!(client, upload_id, tx_hashes) do
+    unwrap!(finalize_upload(client, upload_id, tx_hashes))
   end
 
   # ---------------------------------------------------------------------------

@@ -23,6 +23,19 @@ from .env import (
 )
 from .process import start_process, wait_for_http
 
+DEFAULT_REST_URL = "http://localhost:8082"
+
+def _discover_rest_url() -> str:
+    """Try to discover antd REST URL via port file, fall back to default."""
+    try:
+        from antd import discover_daemon_url
+        url = discover_daemon_url()
+        if url:
+            return url
+    except ImportError:
+        pass
+    return DEFAULT_REST_URL
+
 
 # ── ANSI colours (disabled on Windows without VT support) ──
 
@@ -109,6 +122,13 @@ def run(args) -> None:
     }
     if wallet_key:
         antd_env["AUTONOMI_WALLET_KEY"] = wallet_key
+    if manifest.get("evm"):
+        evm = manifest["evm"]
+        antd_env["EVM_RPC_URL"] = evm.get("rpc_url", "")
+        antd_env["EVM_PAYMENT_TOKEN_ADDRESS"] = evm.get("payment_token_address", "")
+        antd_env["EVM_DATA_PAYMENTS_ADDRESS"] = evm.get("data_payments_address", "")
+        if evm.get("merkle_payments_address"):
+            antd_env["EVM_MERKLE_PAYMENTS_ADDRESS"] = evm["merkle_payments_address"]
 
     antd_cmd = ["cargo", "run", "--", "--network", "local"]
     antd_proc = start_process(antd_cmd, cwd=antd_dir, env=antd_env, log_file=LOG_FILE)
@@ -122,21 +142,22 @@ def run(args) -> None:
     save_state({
         "devnet_pid": devnet_proc.pid,
         "antd_pid": antd_proc.pid,
-        "wallet_key": wallet_key or "",
+        "wallet_configured": bool(wallet_key),
         "bootstrap_peers": bootstrap_peers,
     })
 
     print()
     if ready:
+        rest_url = _discover_rest_url()
         print(green("=== Ready! ==="))
         print()
-        print(white("  REST:  http://localhost:8082"))
+        print(white(f"  REST:  {rest_url}"))
         print(white("  gRPC:  localhost:50051"))
         if wallet_key:
-            print(white(f"  Key:   {wallet_key[:10]}..."))
+            print(white("  Wallet: configured"))
         print()
         print(gray("Quick test:"))
-        print(gray("  curl http://localhost:8082/health"))
+        print(gray(f"  curl {rest_url}/health"))
         print()
         print(gray("To tear down:"))
         print(gray("  ant dev stop"))

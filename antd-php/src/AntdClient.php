@@ -11,8 +11,6 @@ use Autonomi\Antd\Errors\AntdError;
 use Autonomi\Antd\Errors\ErrorFactory;
 use Autonomi\Antd\Models\Archive;
 use Autonomi\Antd\Models\ArchiveEntry;
-use Autonomi\Antd\Models\GraphDescendant;
-use Autonomi\Antd\Models\GraphEntry;
 use Autonomi\Antd\Models\HealthStatus;
 use Autonomi\Antd\Models\PutResult;
 
@@ -25,7 +23,7 @@ class AntdClient
     private string $baseUrl;
 
     public function __construct(
-        string $baseUrl = 'http://localhost:8080',
+        string $baseUrl = 'http://localhost:8082',
         float $timeout = 300.0,
         ?Client $httpClient = null,
     ) {
@@ -34,6 +32,24 @@ class AntdClient
             'base_uri' => $this->baseUrl,
             'timeout' => $timeout,
         ]);
+    }
+
+    /**
+     * Create a client using daemon port discovery.
+     * Falls back to http://localhost:8082 if discovery fails.
+     *
+     * @param float $timeout Request timeout in seconds.
+     * @param \GuzzleHttp\Client|null $httpClient Optional HTTP client.
+     * @return array{0: self, 1: string} [$client, $url]
+     */
+    public static function autoDiscover(float $timeout = 300.0, ?Client $httpClient = null): array
+    {
+        $url = DaemonDiscovery::discoverDaemonUrl();
+        if ($url === '') {
+            $url = 'http://localhost:8082';
+        }
+        $client = new self($url, $timeout, $httpClient);
+        return [$client, $url];
     }
 
     // --- Internal helpers ---
@@ -193,11 +209,13 @@ class AntdClient
     /**
      * Store public immutable data on the network.
      */
-    public function dataPutPublic(string $data): PutResult
+    public function dataPutPublic(string $data, ?string $paymentMode = null): PutResult
     {
-        $json = $this->doJson('POST', '/v1/data/public', [
-            'data' => $this->b64Encode($data),
-        ]);
+        $body = ['data' => $this->b64Encode($data)];
+        if ($paymentMode !== null) {
+            $body['payment_mode'] = $paymentMode;
+        }
+        $json = $this->doJson('POST', '/v1/data/public', $body);
         return new PutResult(
             cost: $json['cost'] ?? '',
             address: $json['address'] ?? '',
@@ -209,11 +227,13 @@ class AntdClient
      *
      * @return PromiseInterface<PutResult>
      */
-    public function dataPutPublicAsync(string $data): PromiseInterface
+    public function dataPutPublicAsync(string $data, ?string $paymentMode = null): PromiseInterface
     {
-        return $this->doJsonAsync('POST', '/v1/data/public', [
-            'data' => $this->b64Encode($data),
-        ])->then(
+        $body = ['data' => $this->b64Encode($data)];
+        if ($paymentMode !== null) {
+            $body['payment_mode'] = $paymentMode;
+        }
+        return $this->doJsonAsync('POST', '/v1/data/public', $body)->then(
             fn(?array $json) => new PutResult(
                 cost: $json['cost'] ?? '',
                 address: $json['address'] ?? '',
@@ -245,11 +265,13 @@ class AntdClient
     /**
      * Store private encrypted data on the network.
      */
-    public function dataPutPrivate(string $data): PutResult
+    public function dataPutPrivate(string $data, ?string $paymentMode = null): PutResult
     {
-        $json = $this->doJson('POST', '/v1/data/private', [
-            'data' => $this->b64Encode($data),
-        ]);
+        $body = ['data' => $this->b64Encode($data)];
+        if ($paymentMode !== null) {
+            $body['payment_mode'] = $paymentMode;
+        }
+        $json = $this->doJson('POST', '/v1/data/private', $body);
         return new PutResult(
             cost: $json['cost'] ?? '',
             address: $json['data_map'] ?? '',
@@ -261,11 +283,13 @@ class AntdClient
      *
      * @return PromiseInterface<PutResult>
      */
-    public function dataPutPrivateAsync(string $data): PromiseInterface
+    public function dataPutPrivateAsync(string $data, ?string $paymentMode = null): PromiseInterface
     {
-        return $this->doJsonAsync('POST', '/v1/data/private', [
-            'data' => $this->b64Encode($data),
-        ])->then(
+        $body = ['data' => $this->b64Encode($data)];
+        if ($paymentMode !== null) {
+            $body['payment_mode'] = $paymentMode;
+        }
+        return $this->doJsonAsync('POST', '/v1/data/private', $body)->then(
             fn(?array $json) => new PutResult(
                 cost: $json['cost'] ?? '',
                 address: $json['data_map'] ?? '',
@@ -373,187 +397,18 @@ class AntdClient
         );
     }
 
-    // --- Graph ---
-
-    /**
-     * Create a new graph entry (DAG node).
-     *
-     * @param string $ownerSecretKey
-     * @param string[] $parents
-     * @param string $content
-     * @param GraphDescendant[] $descendants
-     */
-    public function graphEntryPut(
-        string $ownerSecretKey,
-        array $parents,
-        string $content,
-        array $descendants,
-    ): PutResult {
-        $descs = array_map(
-            fn(GraphDescendant $d) => ['public_key' => $d->publicKey, 'content' => $d->content],
-            $descendants,
-        );
-        $json = $this->doJson('POST', '/v1/graph', [
-            'owner_secret_key' => $ownerSecretKey,
-            'parents' => $parents,
-            'content' => $content,
-            'descendants' => $descs,
-        ]);
-        return new PutResult(
-            cost: $json['cost'] ?? '',
-            address: $json['address'] ?? '',
-        );
-    }
-
-    /**
-     * Async: Create a new graph entry (DAG node).
-     *
-     * @param string $ownerSecretKey
-     * @param string[] $parents
-     * @param string $content
-     * @param GraphDescendant[] $descendants
-     * @return PromiseInterface<PutResult>
-     */
-    public function graphEntryPutAsync(
-        string $ownerSecretKey,
-        array $parents,
-        string $content,
-        array $descendants,
-    ): PromiseInterface {
-        $descs = array_map(
-            fn(GraphDescendant $d) => ['public_key' => $d->publicKey, 'content' => $d->content],
-            $descendants,
-        );
-        return $this->doJsonAsync('POST', '/v1/graph', [
-            'owner_secret_key' => $ownerSecretKey,
-            'parents' => $parents,
-            'content' => $content,
-            'descendants' => $descs,
-        ])->then(
-            fn(?array $json) => new PutResult(
-                cost: $json['cost'] ?? '',
-                address: $json['address'] ?? '',
-            ),
-        );
-    }
-
-    /**
-     * Retrieve a graph entry by address.
-     */
-    public function graphEntryGet(string $address): GraphEntry
-    {
-        $json = $this->doJson('GET', '/v1/graph/' . $address);
-        $descendants = [];
-        foreach ($json['descendants'] ?? [] as $d) {
-            $descendants[] = new GraphDescendant(
-                publicKey: $d['public_key'] ?? '',
-                content: $d['content'] ?? '',
-            );
-        }
-        return new GraphEntry(
-            owner: $json['owner'] ?? '',
-            parents: $json['parents'] ?? [],
-            content: $json['content'] ?? '',
-            descendants: $descendants,
-        );
-    }
-
-    /**
-     * Async: Retrieve a graph entry by address.
-     *
-     * @return PromiseInterface<GraphEntry>
-     */
-    public function graphEntryGetAsync(string $address): PromiseInterface
-    {
-        return $this->doJsonAsync('GET', '/v1/graph/' . $address)->then(
-            function (?array $json) {
-                $descendants = [];
-                foreach ($json['descendants'] ?? [] as $d) {
-                    $descendants[] = new GraphDescendant(
-                        publicKey: $d['public_key'] ?? '',
-                        content: $d['content'] ?? '',
-                    );
-                }
-                return new GraphEntry(
-                    owner: $json['owner'] ?? '',
-                    parents: $json['parents'] ?? [],
-                    content: $json['content'] ?? '',
-                    descendants: $descendants,
-                );
-            },
-        );
-    }
-
-    /**
-     * Check if a graph entry exists at the given address.
-     */
-    public function graphEntryExists(string $address): bool
-    {
-        $code = $this->doHead('/v1/graph/' . $address);
-        if ($code === 404) {
-            return false;
-        }
-        if ($code >= 300) {
-            throw ErrorFactory::fromHttpStatus($code, 'graph entry exists check failed');
-        }
-        return true;
-    }
-
-    /**
-     * Async: Check if a graph entry exists at the given address.
-     *
-     * @return PromiseInterface<bool>
-     */
-    public function graphEntryExistsAsync(string $address): PromiseInterface
-    {
-        return $this->doHeadAsync('/v1/graph/' . $address)->then(
-            function (int $code) {
-                if ($code === 404) {
-                    return false;
-                }
-                if ($code >= 300) {
-                    throw ErrorFactory::fromHttpStatus($code, 'graph entry exists check failed');
-                }
-                return true;
-            },
-        );
-    }
-
-    /**
-     * Estimate the cost of creating a graph entry.
-     */
-    public function graphEntryCost(string $publicKey): string
-    {
-        $json = $this->doJson('POST', '/v1/graph/cost', [
-            'public_key' => $publicKey,
-        ]);
-        return $json['cost'] ?? '';
-    }
-
-    /**
-     * Async: Estimate the cost of creating a graph entry.
-     *
-     * @return PromiseInterface<string>
-     */
-    public function graphEntryCostAsync(string $publicKey): PromiseInterface
-    {
-        return $this->doJsonAsync('POST', '/v1/graph/cost', [
-            'public_key' => $publicKey,
-        ])->then(
-            fn(?array $json) => $json['cost'] ?? '',
-        );
-    }
-
     // --- Files ---
 
     /**
      * Upload a local file to the network.
      */
-    public function fileUploadPublic(string $path): PutResult
+    public function fileUploadPublic(string $path, ?string $paymentMode = null): PutResult
     {
-        $json = $this->doJson('POST', '/v1/files/upload/public', [
-            'path' => $path,
-        ]);
+        $body = ['path' => $path];
+        if ($paymentMode !== null) {
+            $body['payment_mode'] = $paymentMode;
+        }
+        $json = $this->doJson('POST', '/v1/files/upload/public', $body);
         return new PutResult(
             cost: $json['cost'] ?? '',
             address: $json['address'] ?? '',
@@ -565,11 +420,13 @@ class AntdClient
      *
      * @return PromiseInterface<PutResult>
      */
-    public function fileUploadPublicAsync(string $path): PromiseInterface
+    public function fileUploadPublicAsync(string $path, ?string $paymentMode = null): PromiseInterface
     {
-        return $this->doJsonAsync('POST', '/v1/files/upload/public', [
-            'path' => $path,
-        ])->then(
+        $body = ['path' => $path];
+        if ($paymentMode !== null) {
+            $body['payment_mode'] = $paymentMode;
+        }
+        return $this->doJsonAsync('POST', '/v1/files/upload/public', $body)->then(
             fn(?array $json) => new PutResult(
                 cost: $json['cost'] ?? '',
                 address: $json['address'] ?? '',
@@ -604,11 +461,13 @@ class AntdClient
     /**
      * Upload a local directory to the network.
      */
-    public function dirUploadPublic(string $path): PutResult
+    public function dirUploadPublic(string $path, ?string $paymentMode = null): PutResult
     {
-        $json = $this->doJson('POST', '/v1/dirs/upload/public', [
-            'path' => $path,
-        ]);
+        $body = ['path' => $path];
+        if ($paymentMode !== null) {
+            $body['payment_mode'] = $paymentMode;
+        }
+        $json = $this->doJson('POST', '/v1/dirs/upload/public', $body);
         return new PutResult(
             cost: $json['cost'] ?? '',
             address: $json['address'] ?? '',
@@ -620,11 +479,13 @@ class AntdClient
      *
      * @return PromiseInterface<PutResult>
      */
-    public function dirUploadPublicAsync(string $path): PromiseInterface
+    public function dirUploadPublicAsync(string $path, ?string $paymentMode = null): PromiseInterface
     {
-        return $this->doJsonAsync('POST', '/v1/dirs/upload/public', [
-            'path' => $path,
-        ])->then(
+        $body = ['path' => $path];
+        if ($paymentMode !== null) {
+            $body['payment_mode'] = $paymentMode;
+        }
+        return $this->doJsonAsync('POST', '/v1/dirs/upload/public', $body)->then(
             fn(?array $json) => new PutResult(
                 cost: $json['cost'] ?? '',
                 address: $json['address'] ?? '',
@@ -750,6 +611,86 @@ class AntdClient
         );
     }
 
+    // --- Wallet ---
+
+    /**
+     * Get the wallet's public address.
+     *
+     * @return array{address: string}
+     * @throws AntdError if no wallet is configured (HTTP 400)
+     */
+    public function walletAddress(): array
+    {
+        $json = $this->doJson('GET', '/v1/wallet/address');
+        return ['address' => $json['address'] ?? ''];
+    }
+
+    /**
+     * Async: Get the wallet's public address.
+     *
+     * @return PromiseInterface<array{address: string}>
+     */
+    public function walletAddressAsync(): PromiseInterface
+    {
+        return $this->doJsonAsync('GET', '/v1/wallet/address')->then(
+            fn(?array $json) => ['address' => $json['address'] ?? ''],
+        );
+    }
+
+    /**
+     * Get the wallet's token and gas balances.
+     *
+     * @return array{balance: string, gas_balance: string}
+     * @throws AntdError if no wallet is configured (HTTP 400)
+     */
+    public function walletBalance(): array
+    {
+        $json = $this->doJson('GET', '/v1/wallet/balance');
+        return [
+            'balance' => $json['balance'] ?? '',
+            'gas_balance' => $json['gas_balance'] ?? '',
+        ];
+    }
+
+    /**
+     * Async: Get the wallet's token and gas balances.
+     *
+     * @return PromiseInterface<array{balance: string, gas_balance: string}>
+     */
+    public function walletBalanceAsync(): PromiseInterface
+    {
+        return $this->doJsonAsync('GET', '/v1/wallet/balance')->then(
+            fn(?array $json) => [
+                'balance' => $json['balance'] ?? '',
+                'gas_balance' => $json['gas_balance'] ?? '',
+            ],
+        );
+    }
+
+    /**
+     * Approve the wallet to spend tokens on payment contracts (one-time operation).
+     *
+     * @return bool
+     * @throws AntdError if no wallet is configured (HTTP 400)
+     */
+    public function walletApprove(): bool
+    {
+        $json = $this->doJson('POST', '/v1/wallet/approve', []);
+        return $json['approved'] ?? false;
+    }
+
+    /**
+     * Async: Approve the wallet to spend tokens on payment contracts (one-time operation).
+     *
+     * @return PromiseInterface<bool>
+     */
+    public function walletApproveAsync(): PromiseInterface
+    {
+        return $this->doJsonAsync('POST', '/v1/wallet/approve', [])->then(
+            fn(?array $json) => $json['approved'] ?? false,
+        );
+    }
+
     /**
      * Estimate the cost of uploading a file.
      */
@@ -776,6 +717,124 @@ class AntdClient
             'include_archive' => $includeArchive,
         ])->then(
             fn(?array $json) => $json['cost'] ?? '',
+        );
+    }
+
+    // --- External Signer (Two-Phase Upload) ---
+
+    /**
+     * Prepare a file upload for external signing.
+     *
+     * @return array{upload_id: string, payments: array, total_amount: string, data_payments_address: string, payment_token_address: string, rpc_url: string}
+     */
+    public function prepareUpload(string $path): array
+    {
+        $json = $this->doJson('POST', '/v1/upload/prepare', ['path' => $path]);
+        return [
+            'upload_id' => $json['upload_id'] ?? '',
+            'payments' => $json['payments'] ?? [],
+            'total_amount' => $json['total_amount'] ?? '',
+            'data_payments_address' => $json['data_payments_address'] ?? '',
+            'payment_token_address' => $json['payment_token_address'] ?? '',
+            'rpc_url' => $json['rpc_url'] ?? '',
+        ];
+    }
+
+    /**
+     * Async: Prepare a file upload for external signing.
+     *
+     * @return PromiseInterface<array>
+     */
+    public function prepareUploadAsync(string $path): PromiseInterface
+    {
+        return $this->doJsonAsync('POST', '/v1/upload/prepare', ['path' => $path])->then(
+            fn(?array $json) => [
+                'upload_id' => $json['upload_id'] ?? '',
+                'payments' => $json['payments'] ?? [],
+                'total_amount' => $json['total_amount'] ?? '',
+                'data_payments_address' => $json['data_payments_address'] ?? '',
+                'payment_token_address' => $json['payment_token_address'] ?? '',
+                'rpc_url' => $json['rpc_url'] ?? '',
+            ],
+        );
+    }
+
+    /**
+     * Prepare a data upload for external signing.
+     * Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+     *
+     * @param string $data Raw bytes to upload.
+     * @return array{upload_id: string, payments: array, total_amount: string, data_payments_address: string, payment_token_address: string, rpc_url: string}
+     */
+    public function prepareDataUpload(string $data): array
+    {
+        $json = $this->doJson('POST', '/v1/data/prepare', ['data' => $this->b64Encode($data)]);
+        return [
+            'upload_id' => $json['upload_id'] ?? '',
+            'payments' => $json['payments'] ?? [],
+            'total_amount' => $json['total_amount'] ?? '',
+            'data_payments_address' => $json['data_payments_address'] ?? '',
+            'payment_token_address' => $json['payment_token_address'] ?? '',
+            'rpc_url' => $json['rpc_url'] ?? '',
+        ];
+    }
+
+    /**
+     * Async: Prepare a data upload for external signing.
+     *
+     * @param string $data Raw bytes to upload.
+     * @return PromiseInterface<array>
+     */
+    public function prepareDataUploadAsync(string $data): PromiseInterface
+    {
+        return $this->doJsonAsync('POST', '/v1/data/prepare', ['data' => $this->b64Encode($data)])->then(
+            fn(?array $json) => [
+                'upload_id' => $json['upload_id'] ?? '',
+                'payments' => $json['payments'] ?? [],
+                'total_amount' => $json['total_amount'] ?? '',
+                'data_payments_address' => $json['data_payments_address'] ?? '',
+                'payment_token_address' => $json['payment_token_address'] ?? '',
+                'rpc_url' => $json['rpc_url'] ?? '',
+            ],
+        );
+    }
+
+    /**
+     * Finalize an upload after an external signer has submitted payment transactions.
+     *
+     * @param string $uploadId The upload ID from prepareUpload.
+     * @param array<string, string> $txHashes Map of quote_hash to tx_hash.
+     * @return array{address: string, chunks_stored: int}
+     */
+    public function finalizeUpload(string $uploadId, array $txHashes): array
+    {
+        $json = $this->doJson('POST', '/v1/upload/finalize', [
+            'upload_id' => $uploadId,
+            'tx_hashes' => $txHashes,
+        ]);
+        return [
+            'address' => $json['address'] ?? '',
+            'chunks_stored' => (int) ($json['chunks_stored'] ?? 0),
+        ];
+    }
+
+    /**
+     * Async: Finalize an upload after an external signer has submitted payment transactions.
+     *
+     * @param string $uploadId The upload ID from prepareUpload.
+     * @param array<string, string> $txHashes Map of quote_hash to tx_hash.
+     * @return PromiseInterface<array{address: string, chunks_stored: int}>
+     */
+    public function finalizeUploadAsync(string $uploadId, array $txHashes): PromiseInterface
+    {
+        return $this->doJsonAsync('POST', '/v1/upload/finalize', [
+            'upload_id' => $uploadId,
+            'tx_hashes' => $txHashes,
+        ])->then(
+            fn(?array $json) => [
+                'address' => $json['address'] ?? '',
+                'chunks_stored' => (int) ($json['chunks_stored'] ?? 0),
+            ],
         );
     }
 }

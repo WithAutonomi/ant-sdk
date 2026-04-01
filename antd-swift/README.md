@@ -47,7 +47,7 @@ print(String(data: data, encoding: .utf8)!) // "Hello, Autonomi!"
 
 ```swift
 // REST (default, recommended)
-let restClient = AntdClient.createRest(baseURL: "http://localhost:8080")
+let restClient = AntdClient.createRest(baseURL: "http://localhost:8082")
 
 // gRPC (requires generated proto stubs)
 let grpcClient = AntdClient.createGrpc(target: "localhost:50051")
@@ -65,7 +65,6 @@ All methods are `async throws` for use with Swift concurrency.
 | **Health** | `health()` |
 | **Data** | `dataPutPublic`, `dataGetPublic`, `dataPutPrivate`, `dataGetPrivate`, `dataCost` |
 | **Chunks** | `chunkPut`, `chunkGet` |
-| **Graph** | `graphEntryPut`, `graphEntryGet`, `graphEntryExists`, `graphEntryCost` |
 | **Files** | `fileUploadPublic`, `fileDownloadPublic`, `dirUploadPublic`, `dirDownloadPublic`, `archiveGetPublic`, `archivePutPublic`, `fileCost` |
 
 ## Error Handling

@@ -47,19 +47,6 @@ func mockDaemon(t *testing.T) *httptest.Server {
 		case r.Method == "GET" && r.URL.Path == "/v1/chunks/chunk1":
 			json.NewEncoder(w).Encode(map[string]any{"data": base64.StdEncoding.EncodeToString([]byte("chunkdata"))})
 
-		// Graph
-		case r.Method == "POST" && r.URL.Path == "/v1/graph":
-			json.NewEncoder(w).Encode(map[string]any{"cost": "500", "address": "ge1"})
-		case r.Method == "GET" && r.URL.Path == "/v1/graph/ge1":
-			json.NewEncoder(w).Encode(map[string]any{
-				"owner": "owner1", "parents": []any{}, "content": "abc",
-				"descendants": []any{map[string]any{"public_key": "pk1", "content": "desc1"}},
-			})
-		case r.Method == "HEAD" && r.URL.Path == "/v1/graph/ge1":
-			w.WriteHeader(200)
-		case r.Method == "POST" && r.URL.Path == "/v1/graph/cost":
-			json.NewEncoder(w).Encode(map[string]any{"cost": "500"})
-
 		// Files
 		case r.Method == "POST" && r.URL.Path == "/v1/files/upload/public":
 			json.NewEncoder(w).Encode(map[string]any{"cost": "1000", "address": "file1"})
@@ -180,37 +167,6 @@ func TestChunks(t *testing.T) {
 	}
 	if string(data) != "chunkdata" {
 		t.Fatalf("unexpected chunk data: %s", data)
-	}
-}
-
-func TestGraph(t *testing.T) {
-	srv := mockDaemon(t)
-	defer srv.Close()
-	c := NewClient(srv.URL)
-	ctx := context.Background()
-
-	put, err := c.GraphEntryPut(ctx, "sk1", []string{}, "abc", []GraphDescendant{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if put.Address != "ge1" {
-		t.Fatalf("unexpected graph put: %+v", put)
-	}
-
-	ge, err := c.GraphEntryGet(ctx, "ge1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ge.Owner != "owner1" || len(ge.Descendants) != 1 {
-		t.Fatalf("unexpected graph entry: %+v", ge)
-	}
-
-	exists, err := c.GraphEntryExists(ctx, "ge1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !exists {
-		t.Fatal("expected graph entry to exist")
 	}
 }
 

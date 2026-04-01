@@ -5,7 +5,7 @@ info:
   version: 1.0.0
 
 servers:
-  - url: http://localhost:8080
+  - url: http://localhost:8082
     description: Local antd daemon
 
 tags:
@@ -15,8 +15,6 @@ tags:
     description: Public and private data storage
   - name: chunks
     description: Raw chunk operations
-  - name: graph
-    description: DAG graph entry operations
   - name: files
     description: File and directory upload/download
 
@@ -227,95 +225,6 @@ paths:
           $ref: "#/components/responses/PaymentError"
         "500":
           $ref: "#/components/responses/InternalError"
-        "502":
-          $ref: "#/components/responses/NetworkError"
-
-  /v1/graph/{addr}:
-    get:
-      tags: [graph]
-      operationId: graphEntryGet
-      summary: Read graph entry
-      description: Read a graph entry (DAG node) from the network.
-      parameters:
-        - name: addr
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Hex address of the graph entry
-      responses:
-        "200":
-          description: Graph entry data
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GraphEntryGetResponse"
-        "404":
-          $ref: "#/components/responses/NotFound"
-    head:
-      tags: [graph]
-      operationId: graphEntryCheckExistence
-      summary: Check graph entry existence
-      parameters:
-        - name: addr
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Graph entry exists
-        "404":
-          description: Graph entry not found
-
-  /v1/graph:
-    post:
-      tags: [graph]
-      operationId: graphEntryPut
-      summary: Create graph entry
-      description: Create a new graph entry (DAG node) on the network.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/GraphEntryPutRequest"
-      responses:
-        "200":
-          description: Graph entry created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GraphEntryPutResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "402":
-          $ref: "#/components/responses/PaymentError"
-        "500":
-          $ref: "#/components/responses/InternalError"
-        "502":
-          $ref: "#/components/responses/NetworkError"
-
-  /v1/graph/cost:
-    post:
-      tags: [graph]
-      operationId: graphEntryCost
-      summary: Estimate graph entry cost
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/GraphEntryCostRequest"
-      responses:
-        "200":
-          description: Cost estimate
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CostResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
         "502":
           $ref: "#/components/responses/NetworkError"
 
@@ -582,71 +491,6 @@ components:
         data:
           type: string
           description: Base64-encoded chunk data
-
-    # -- Graph --
-    GraphDescendant:
-      type: object
-      required: [public_key, content]
-      properties:
-        public_key:
-          type: string
-          description: Hex-encoded public key
-        content:
-          type: string
-          description: Hex-encoded content (32 bytes)
-
-    GraphEntryPutRequest:
-      type: object
-      required: [owner_secret_key, parents, content, descendants]
-      properties:
-        owner_secret_key:
-          type: string
-          description: Hex-encoded owner secret key
-        parents:
-          type: array
-          items:
-            type: string
-          description: List of hex-encoded parent public keys
-        content:
-          type: string
-          description: Hex-encoded content (32 bytes)
-        descendants:
-          type: array
-          items:
-            $ref: "#/components/schemas/GraphDescendant"
-
-    GraphEntryPutResponse:
-      type: object
-      required: [cost, address]
-      properties:
-        cost:
-          type: string
-        address:
-          type: string
-
-    GraphEntryGetResponse:
-      type: object
-      required: [owner, parents, content, descendants]
-      properties:
-        owner:
-          type: string
-        parents:
-          type: array
-          items:
-            type: string
-        content:
-          type: string
-        descendants:
-          type: array
-          items:
-            $ref: "#/components/schemas/GraphDescendant"
-
-    GraphEntryCostRequest:
-      type: object
-      required: [public_key]
-      properties:
-        public_key:
-          type: string
 
     # -- Files --
     FileUploadRequest:

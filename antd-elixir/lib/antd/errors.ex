@@ -97,6 +97,17 @@ defmodule Antd.NetworkError do
         }
 end
 
+defmodule Antd.ServiceUnavailableError do
+  @moduledoc "Service unavailable, e.g. wallet not configured (HTTP 503)."
+
+  defexception [:message, :status_code]
+
+  @type t :: %__MODULE__{
+          message: String.t(),
+          status_code: integer()
+        }
+end
+
 defmodule Antd.Errors do
   @moduledoc false
 
@@ -111,6 +122,7 @@ defmodule Antd.Errors do
       413 -> %Antd.TooLargeError{message: message, status_code: 413}
       500 -> %Antd.InternalError{message: message, status_code: 500}
       502 -> %Antd.NetworkError{message: message, status_code: 502}
+      503 -> %Antd.ServiceUnavailableError{message: message, status_code: 503}
       _ -> %Antd.AntdError{message: message, status_code: status_code}
     end
   end

@@ -1,6 +1,6 @@
 """Example 01: Connect to antd daemon and check health.
 
-Prerequisite: antd daemon running locally (default: http://localhost:8080).
+Prerequisite: antd daemon running locally (default: http://localhost:8082).
 """
 
 from antd import AntdClient

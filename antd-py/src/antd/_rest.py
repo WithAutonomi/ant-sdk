@@ -11,10 +11,13 @@ from .exceptions import raise_for_http_status
 from .models import (
     Archive,
     ArchiveEntry,
-    GraphDescendant,
-    GraphEntry,
+    FinalizeUploadResult,
     HealthStatus,
+    PaymentInfo,
+    PrepareUploadResult,
     PutResult,
+    WalletAddress,
+    WalletBalance,
 )
 
 if TYPE_CHECKING:
@@ -43,9 +46,24 @@ def _check(resp: httpx.Response) -> None:
 class RestClient:
     """Synchronous REST client for the antd daemon."""
 
-    def __init__(self, base_url: str = "http://localhost:8080", timeout: float = 300.0):
+    DEFAULT_BASE_URL = "http://localhost:8082"
+
+    def __init__(self, base_url: str = "http://localhost:8082", timeout: float = 300.0):
         self._base = base_url.rstrip("/")
         self._http = httpx.Client(base_url=self._base, timeout=timeout)
+
+    @classmethod
+    def auto_discover(cls, **kwargs) -> tuple["RestClient", str]:
+        """Create a client using daemon port discovery, falling back to the default URL.
+
+        Returns:
+            A tuple of ``(client, resolved_url)`` where *resolved_url* is the
+            URL that was actually used (discovered or default).
+        """
+        from ._discover import discover_daemon_url
+
+        url = discover_daemon_url() or cls.DEFAULT_BASE_URL
+        return cls(base_url=url, **kwargs), url
 
     def close(self) -> None:
         self._http.close()
@@ -66,8 +84,11 @@ class RestClient:
 
     # --- Data ---
 
-    def data_put_public(self, data: bytes) -> PutResult:
-        resp = self._http.post("/v1/data/public", json={"data": _b64(data)})
+    def data_put_public(self, data: bytes, payment_mode: str | None = None) -> PutResult:
+        body: dict = {"data": _b64(data)}
+        if payment_mode is not None:
+            body["payment_mode"] = payment_mode
+        resp = self._http.post("/v1/data/public", json=body)
         _check(resp)
         j = resp.json()
         return PutResult(cost=j["cost"], address=j["address"])
@@ -77,8 +98,11 @@ class RestClient:
         _check(resp)
         return _unb64(resp.json()["data"])
 
-    def data_put_private(self, data: bytes) -> PutResult:
-        resp = self._http.post("/v1/data/private", json={"data": _b64(data)})
+    def data_put_private(self, data: bytes, payment_mode: str | None = None) -> PutResult:
+        body: dict = {"data": _b64(data)}
+        if payment_mode is not None:
+            body["payment_mode"] = payment_mode
+        resp = self._http.post("/v1/data/private", json=body)
         _check(resp)
         j = resp.json()
         return PutResult(cost=j["cost"], address=j["data_map"])
@@ -106,48 +130,13 @@ class RestClient:
         _check(resp)
         return _unb64(resp.json()["data"])
 
-    # --- Graph ---
-
-    def graph_entry_put(self, owner_secret_key: str, parents: list[str], content: str,
-                        descendants: list[GraphDescendant]) -> PutResult:
-        resp = self._http.post("/v1/graph", json={
-            "owner_secret_key": owner_secret_key,
-            "parents": parents,
-            "content": content,
-            "descendants": [{"public_key": d.public_key, "content": d.content} for d in descendants],
-        })
-        _check(resp)
-        j = resp.json()
-        return PutResult(cost=j["cost"], address=j["address"])
-
-    def graph_entry_get(self, address: str) -> GraphEntry:
-        resp = self._http.get(f"/v1/graph/{address}")
-        _check(resp)
-        j = resp.json()
-        return GraphEntry(
-            owner=j["owner"],
-            parents=j.get("parents", []),
-            content=j["content"],
-            descendants=[GraphDescendant(public_key=d["public_key"], content=d["content"])
-                         for d in j.get("descendants", [])],
-        )
-
-    def graph_entry_exists(self, address: str) -> bool:
-        resp = self._http.head(f"/v1/graph/{address}")
-        if resp.status_code == 404:
-            return False
-        _check(resp)
-        return True
-
-    def graph_entry_cost(self, public_key: str) -> str:
-        resp = self._http.post("/v1/graph/cost", json={"public_key": public_key})
-        _check(resp)
-        return resp.json()["cost"]
-
     # --- Files ---
 
-    def file_upload_public(self, path: str) -> PutResult:
-        resp = self._http.post("/v1/files/upload/public", json={"path": path})
+    def file_upload_public(self, path: str, payment_mode: str | None = None) -> PutResult:
+        body: dict = {"path": path}
+        if payment_mode is not None:
+            body["payment_mode"] = payment_mode
+        resp = self._http.post("/v1/files/upload/public", json=body)
         _check(resp)
         j = resp.json()
         return PutResult(cost=j["cost"], address=j["address"])
@@ -159,8 +148,11 @@ class RestClient:
         })
         _check(resp)
 
-    def dir_upload_public(self, path: str) -> PutResult:
-        resp = self._http.post("/v1/dirs/upload/public", json={"path": path})
+    def dir_upload_public(self, path: str, payment_mode: str | None = None) -> PutResult:
+        body: dict = {"path": path}
+        if payment_mode is not None:
+            body["payment_mode"] = payment_mode
+        resp = self._http.post("/v1/dirs/upload/public", json=body)
         _check(resp)
         j = resp.json()
         return PutResult(cost=j["cost"], address=j["address"])
@@ -206,13 +198,119 @@ class RestClient:
         _check(resp)
         return resp.json()["cost"]
 
+    # --- Wallet ---
+
+    def wallet_address(self) -> WalletAddress:
+        resp = self._http.get("/v1/wallet/address")
+        _check(resp)
+        j = resp.json()
+        return WalletAddress(address=j["address"])
+
+    def wallet_balance(self) -> WalletBalance:
+        resp = self._http.get("/v1/wallet/balance")
+        _check(resp)
+        j = resp.json()
+        return WalletBalance(balance=j["balance"], gas_balance=j["gas_balance"])
+
+    def wallet_approve(self) -> bool:
+        """Approve the wallet to spend tokens on payment contracts (one-time operation)."""
+        resp = self._http.post("/v1/wallet/approve", json={})
+        _check(resp)
+        j = resp.json()
+        return j.get("approved", False)
+
+    # --- External Signer (Two-Phase Upload) ---
+
+    def prepare_upload(self, path: str) -> PrepareUploadResult:
+        """Prepare a file upload for external signing.
+
+        Returns payment details that an external signer must process
+        before calling finalize_upload.
+        """
+        resp = self._http.post("/v1/upload/prepare", json={"path": path})
+        _check(resp)
+        j = resp.json()
+        payments = [
+            PaymentInfo(
+                quote_hash=p["quote_hash"],
+                rewards_address=p["rewards_address"],
+                amount=p["amount"],
+            )
+            for p in j.get("payments", [])
+        ]
+        return PrepareUploadResult(
+            upload_id=j["upload_id"],
+            payments=payments,
+            total_amount=j.get("total_amount", ""),
+            data_payments_address=j.get("data_payments_address", ""),
+            payment_token_address=j.get("payment_token_address", ""),
+            rpc_url=j.get("rpc_url", ""),
+        )
+
+    def prepare_data_upload(self, data: bytes) -> PrepareUploadResult:
+        """Prepare a data upload for external signing.
+
+        Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+        Returns payment details that an external signer must process
+        before calling finalize_upload.
+        """
+        resp = self._http.post("/v1/data/prepare", json={"data": _b64(data)})
+        _check(resp)
+        j = resp.json()
+        payments = [
+            PaymentInfo(
+                quote_hash=p["quote_hash"],
+                rewards_address=p["rewards_address"],
+                amount=p["amount"],
+            )
+            for p in j.get("payments", [])
+        ]
+        return PrepareUploadResult(
+            upload_id=j["upload_id"],
+            payments=payments,
+            total_amount=j.get("total_amount", ""),
+            data_payments_address=j.get("data_payments_address", ""),
+            payment_token_address=j.get("payment_token_address", ""),
+            rpc_url=j.get("rpc_url", ""),
+        )
+
+    def finalize_upload(self, upload_id: str, tx_hashes: dict[str, str]) -> FinalizeUploadResult:
+        """Finalize an upload after an external signer has submitted payment transactions.
+
+        Args:
+            upload_id: The upload ID returned by prepare_upload.
+            tx_hashes: Map of quote_hash to tx_hash for each payment.
+        """
+        resp = self._http.post("/v1/upload/finalize", json={
+            "upload_id": upload_id,
+            "tx_hashes": tx_hashes,
+        })
+        _check(resp)
+        j = resp.json()
+        return FinalizeUploadResult(address=j["address"], chunks_stored=j.get("chunks_stored", 0))
+
 
 class AsyncRestClient:
     """Asynchronous REST client for the antd daemon."""
 
-    def __init__(self, base_url: str = "http://localhost:8080", timeout: float = 300.0):
+    DEFAULT_BASE_URL = "http://localhost:8082"
+
+    def __init__(self, base_url: str = "http://localhost:8082", timeout: float = 300.0):
         self._base = base_url.rstrip("/")
         self._http = httpx.AsyncClient(base_url=self._base, timeout=timeout)
+
+    @classmethod
+    def auto_discover(cls, **kwargs) -> tuple["AsyncRestClient", str]:
+        """Create a client using daemon port discovery, falling back to the default URL.
+
+        Returns:
+            A tuple of ``(client, resolved_url)`` where *resolved_url* is the
+            URL that was actually used (discovered or default).
+        """
+        from ._discover import discover_daemon_url
+
+        url = discover_daemon_url() or cls.DEFAULT_BASE_URL
+        return cls(base_url=url, **kwargs), url
 
     async def close(self) -> None:
         await self._http.aclose()
@@ -233,8 +331,11 @@ class AsyncRestClient:
 
     # --- Data ---
 
-    async def data_put_public(self, data: bytes) -> PutResult:
-        resp = await self._http.post("/v1/data/public", json={"data": _b64(data)})
+    async def data_put_public(self, data: bytes, payment_mode: str | None = None) -> PutResult:
+        body: dict = {"data": _b64(data)}
+        if payment_mode is not None:
+            body["payment_mode"] = payment_mode
+        resp = await self._http.post("/v1/data/public", json=body)
         _check(resp)
         j = resp.json()
         return PutResult(cost=j["cost"], address=j["address"])
@@ -244,8 +345,11 @@ class AsyncRestClient:
         _check(resp)
         return _unb64(resp.json()["data"])
 
-    async def data_put_private(self, data: bytes) -> PutResult:
-        resp = await self._http.post("/v1/data/private", json={"data": _b64(data)})
+    async def data_put_private(self, data: bytes, payment_mode: str | None = None) -> PutResult:
+        body: dict = {"data": _b64(data)}
+        if payment_mode is not None:
+            body["payment_mode"] = payment_mode
+        resp = await self._http.post("/v1/data/private", json=body)
         _check(resp)
         j = resp.json()
         return PutResult(cost=j["cost"], address=j["data_map"])
@@ -273,48 +377,13 @@ class AsyncRestClient:
         _check(resp)
         return _unb64(resp.json()["data"])
 
-    # --- Graph ---
-
-    async def graph_entry_put(self, owner_secret_key: str, parents: list[str], content: str,
-                              descendants: list[GraphDescendant]) -> PutResult:
-        resp = await self._http.post("/v1/graph", json={
-            "owner_secret_key": owner_secret_key,
-            "parents": parents,
-            "content": content,
-            "descendants": [{"public_key": d.public_key, "content": d.content} for d in descendants],
-        })
-        _check(resp)
-        j = resp.json()
-        return PutResult(cost=j["cost"], address=j["address"])
-
-    async def graph_entry_get(self, address: str) -> GraphEntry:
-        resp = await self._http.get(f"/v1/graph/{address}")
-        _check(resp)
-        j = resp.json()
-        return GraphEntry(
-            owner=j["owner"],
-            parents=j.get("parents", []),
-            content=j["content"],
-            descendants=[GraphDescendant(public_key=d["public_key"], content=d["content"])
-                         for d in j.get("descendants", [])],
-        )
-
-    async def graph_entry_exists(self, address: str) -> bool:
-        resp = await self._http.head(f"/v1/graph/{address}")
-        if resp.status_code == 404:
-            return False
-        _check(resp)
-        return True
-
-    async def graph_entry_cost(self, public_key: str) -> str:
-        resp = await self._http.post("/v1/graph/cost", json={"public_key": public_key})
-        _check(resp)
-        return resp.json()["cost"]
-
     # --- Files ---
 
-    async def file_upload_public(self, path: str) -> PutResult:
-        resp = await self._http.post("/v1/files/upload/public", json={"path": path})
+    async def file_upload_public(self, path: str, payment_mode: str | None = None) -> PutResult:
+        body: dict = {"path": path}
+        if payment_mode is not None:
+            body["payment_mode"] = payment_mode
+        resp = await self._http.post("/v1/files/upload/public", json=body)
         _check(resp)
         j = resp.json()
         return PutResult(cost=j["cost"], address=j["address"])
@@ -326,8 +395,11 @@ class AsyncRestClient:
         })
         _check(resp)
 
-    async def dir_upload_public(self, path: str) -> PutResult:
-        resp = await self._http.post("/v1/dirs/upload/public", json={"path": path})
+    async def dir_upload_public(self, path: str, payment_mode: str | None = None) -> PutResult:
+        body: dict = {"path": path}
+        if payment_mode is not None:
+            body["payment_mode"] = payment_mode
+        resp = await self._http.post("/v1/dirs/upload/public", json=body)
         _check(resp)
         j = resp.json()
         return PutResult(cost=j["cost"], address=j["address"])
@@ -372,3 +444,94 @@ class AsyncRestClient:
         })
         _check(resp)
         return resp.json()["cost"]
+
+    # --- Wallet ---
+
+    async def wallet_address(self) -> WalletAddress:
+        resp = await self._http.get("/v1/wallet/address")
+        _check(resp)
+        j = resp.json()
+        return WalletAddress(address=j["address"])
+
+    async def wallet_balance(self) -> WalletBalance:
+        resp = await self._http.get("/v1/wallet/balance")
+        _check(resp)
+        j = resp.json()
+        return WalletBalance(balance=j["balance"], gas_balance=j["gas_balance"])
+
+    async def wallet_approve(self) -> bool:
+        """Approve the wallet to spend tokens on payment contracts (one-time operation)."""
+        resp = await self._http.post("/v1/wallet/approve", json={})
+        _check(resp)
+        j = resp.json()
+        return j.get("approved", False)
+
+    # --- External Signer (Two-Phase Upload) ---
+
+    async def prepare_upload(self, path: str) -> PrepareUploadResult:
+        """Prepare a file upload for external signing.
+
+        Returns payment details that an external signer must process
+        before calling finalize_upload.
+        """
+        resp = await self._http.post("/v1/upload/prepare", json={"path": path})
+        _check(resp)
+        j = resp.json()
+        payments = [
+            PaymentInfo(
+                quote_hash=p["quote_hash"],
+                rewards_address=p["rewards_address"],
+                amount=p["amount"],
+            )
+            for p in j.get("payments", [])
+        ]
+        return PrepareUploadResult(
+            upload_id=j["upload_id"],
+            payments=payments,
+            total_amount=j.get("total_amount", ""),
+            data_payments_address=j.get("data_payments_address", ""),
+            payment_token_address=j.get("payment_token_address", ""),
+            rpc_url=j.get("rpc_url", ""),
+        )
+
+    async def prepare_data_upload(self, data: bytes) -> PrepareUploadResult:
+        """Prepare a data upload for external signing.
+
+        Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+        Returns payment details that an external signer must process
+        before calling finalize_upload.
+        """
+        resp = await self._http.post("/v1/data/prepare", json={"data": _b64(data)})
+        _check(resp)
+        j = resp.json()
+        payments = [
+            PaymentInfo(
+                quote_hash=p["quote_hash"],
+                rewards_address=p["rewards_address"],
+                amount=p["amount"],
+            )
+            for p in j.get("payments", [])
+        ]
+        return PrepareUploadResult(
+            upload_id=j["upload_id"],
+            payments=payments,
+            total_amount=j.get("total_amount", ""),
+            data_payments_address=j.get("data_payments_address", ""),
+            payment_token_address=j.get("payment_token_address", ""),
+            rpc_url=j.get("rpc_url", ""),
+        )
+
+    async def finalize_upload(self, upload_id: str, tx_hashes: dict[str, str]) -> FinalizeUploadResult:
+        """Finalize an upload after an external signer has submitted payment transactions.
+
+        Args:
+            upload_id: The upload ID returned by prepare_upload.
+            tx_hashes: Map of quote_hash to tx_hash for each payment.
+        """
+        resp = await self._http.post("/v1/upload/finalize", json={
+            "upload_id": upload_id,
+            "tx_hashes": tx_hashes,
+        })
+        _check(resp)
+        j = resp.json()
+        return FinalizeUploadResult(address=j["address"], chunks_stored=j.get("chunks_stored", 0))

@@ -28,7 +28,7 @@ ant dev start
 {:ok, client} = Antd.Client.new()
 
 # Custom endpoint
-{:ok, client} = Antd.Client.new(transport: :rest, base_url: "http://localhost:8080")
+{:ok, client} = Antd.Client.new(transport: :rest, base_url: "http://localhost:8082")
 
 # gRPC transport
 {:ok, client} = Antd.Client.new(transport: :grpc, target: "localhost:50051")
@@ -105,30 +105,6 @@ IO.puts("File address: #{result.address}")
 {:ok, cost} = Antd.Client.file_cost(client, "/path/to/file.txt")
 ```
 
-## Graph Entries (DAG Nodes)
-
-```elixir
-key = :crypto.strong_rand_bytes(32) |> Base.encode16(case: :lower)
-content = :crypto.strong_rand_bytes(32) |> Base.encode16(case: :lower)
-
-# Create a root node
-{:ok, result} = Antd.Client.graph_entry_put(client, key,
-  parents: [],
-  content: content,
-  descendants: []
-)
-IO.puts("Graph entry: #{result.address}")
-
-# Read
-{:ok, entry} = Antd.Client.graph_entry_get(client, result.address)
-IO.puts("Owner: #{entry.owner}")
-IO.puts("Content: #{entry.content}")
-IO.puts("Parents: #{inspect(entry.parents)}")
-IO.puts("Descendants: #{inspect(entry.descendants)}")
-
-# Check existence
-{:ok, exists} = Antd.Client.graph_entry_exists(client, result.address)
-```
 
 ## Error Handling
 

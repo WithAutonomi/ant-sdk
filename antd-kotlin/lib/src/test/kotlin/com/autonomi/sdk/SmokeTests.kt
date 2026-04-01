@@ -52,11 +52,6 @@ class SmokeTests {
         assertEquals("100", put.cost)
         assertEquals("abc123", put.address)
 
-        val desc = GraphDescendant("pk", "content")
-        val entry = GraphEntry("owner", listOf("p1"), "c", listOf(desc))
-        assertEquals(1, entry.parents.size)
-        assertEquals(1, entry.descendants.size)
-
         val archiveEntry = ArchiveEntry("/file.txt", "addr", 1000UL, 2000UL, 512UL)
         val archive = Archive(listOf(archiveEntry))
         assertEquals(1, archive.entries.size)

@@ -37,7 +37,7 @@ import java.util.concurrent.CompletableFuture;
 public class AsyncAntdClient implements AutoCloseable {
 
     /** Default daemon address. */
-    public static final String DEFAULT_BASE_URL = "http://localhost:8080";
+    public static final String DEFAULT_BASE_URL = "http://localhost:8082";
 
     /** Default request timeout (5 minutes). */
     public static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(5);
@@ -226,55 +226,6 @@ public class AsyncAntdClient implements AutoCloseable {
     public CompletableFuture<byte[]> chunkGetAsync(String address) {
         return doJsonAsync("GET", "/v1/chunks/" + address, null)
                 .thenApply(j -> b64Decode(str(j, "data")));
-    }
-
-    // ── Graph Entries (DAG Nodes) ──
-
-    /** Async variant of {@link AntdClient#graphEntryPut(String, List, String, List)}. */
-    public CompletableFuture<PutResult> graphEntryPutAsync(String ownerSecretKey, List<String> parents,
-                                                           String content, List<GraphDescendant> descendants) {
-        List<Map<String, Object>> descs = new ArrayList<>();
-        for (GraphDescendant d : descendants) {
-            descs.add(Map.of("public_key", d.publicKey(), "content", d.content()));
-        }
-        String body = Json.object(
-                "owner_secret_key", ownerSecretKey,
-                "parents", parents,
-                "content", content,
-                "descendants", descs
-        );
-        return doJsonAsync("POST", "/v1/graph", body)
-                .thenApply(j -> new PutResult(str(j, "cost"), str(j, "address")));
-    }
-
-    /** Async variant of {@link AntdClient#graphEntryGet(String)}. */
-    public CompletableFuture<GraphEntry> graphEntryGetAsync(String address) {
-        return doJsonAsync("GET", "/v1/graph/" + address, null)
-                .thenApply(j -> {
-                    List<GraphDescendant> descs = new ArrayList<>();
-                    for (Map<String, Object> dm : listOfMaps(j, "descendants")) {
-                        descs.add(new GraphDescendant(str(dm, "public_key"), str(dm, "content")));
-                    }
-                    return new GraphEntry(str(j, "owner"), strList(j, "parents"), str(j, "content"),
-                            Collections.unmodifiableList(descs));
-                });
-    }
-
-    /** Async variant of {@link AntdClient#graphEntryExists(String)}. */
-    public CompletableFuture<Boolean> graphEntryExistsAsync(String address) {
-        return doHeadAsync("/v1/graph/" + address)
-                .thenApply(code -> {
-                    if (code == 404) return false;
-                    if (code >= 300) throw ExceptionFactory.fromHttpStatus(code, "graph entry exists check failed");
-                    return true;
-                });
-    }
-
-    /** Async variant of {@link AntdClient#graphEntryCost(String)}. */
-    public CompletableFuture<String> graphEntryCostAsync(String publicKey) {
-        String body = Json.object("public_key", publicKey);
-        return doJsonAsync("POST", "/v1/graph/cost", body)
-                .thenApply(j -> str(j, "cost"));
     }
 
     // ── Files & Directories ──

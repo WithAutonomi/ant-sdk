@@ -14,7 +14,7 @@ import (
 )
 
 // DefaultBaseURL is the default address of the antd daemon.
-const DefaultBaseURL = "http://localhost:8080"
+const DefaultBaseURL = "http://localhost:8082"
 
 // DefaultTimeout is the default request timeout.
 const DefaultTimeout = 5 * time.Minute
@@ -37,6 +37,17 @@ type Client struct {
 	baseURL string
 	timeout time.Duration
 	http    *http.Client
+}
+
+// NewClientAutoDiscover creates a client that discovers the daemon URL automatically.
+// It reads the port file written by antd on startup, falling back to DefaultBaseURL.
+// Returns the client and the resolved URL.
+func NewClientAutoDiscover(opts ...Option) (*Client, string) {
+	url := DiscoverDaemonURL()
+	if url == "" {
+		url = DefaultBaseURL
+	}
+	return NewClient(url, opts...), url
 }
 
 // NewClient creates a new antd REST client.
@@ -181,13 +192,29 @@ func (c *Client) Health(ctx context.Context) (*HealthStatus, error) {
 	}, nil
 }
 
+// PaymentMode controls how payments are made for storage operations.
+type PaymentMode string
+
+const (
+	// PaymentModeAuto lets the server choose the best payment strategy.
+	PaymentModeAuto PaymentMode = "auto"
+	// PaymentModeMerkle uses Merkle-based batch payments.
+	PaymentModeMerkle PaymentMode = "merkle"
+	// PaymentModeSingle uses individual payment per chunk.
+	PaymentModeSingle PaymentMode = "single"
+)
+
 // --- Data ---
 
 // DataPutPublic stores public immutable data on the network.
-func (c *Client) DataPutPublic(ctx context.Context, data []byte) (*PutResult, error) {
-	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/data/public", map[string]any{
+func (c *Client) DataPutPublic(ctx context.Context, data []byte, paymentMode ...PaymentMode) (*PutResult, error) {
+	body := map[string]any{
 		"data": b64Encode(data),
-	})
+	}
+	if len(paymentMode) > 0 && paymentMode[0] != "" {
+		body["payment_mode"] = string(paymentMode[0])
+	}
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/data/public", body)
 	if err != nil {
 		return nil, err
 	}
@@ -204,10 +231,14 @@ func (c *Client) DataGetPublic(ctx context.Context, address string) ([]byte, err
 }
 
 // DataPutPrivate stores private encrypted data on the network.
-func (c *Client) DataPutPrivate(ctx context.Context, data []byte) (*PutResult, error) {
-	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/data/private", map[string]any{
+func (c *Client) DataPutPrivate(ctx context.Context, data []byte, paymentMode ...PaymentMode) (*PutResult, error) {
+	body := map[string]any{
 		"data": b64Encode(data),
-	})
+	}
+	if len(paymentMode) > 0 && paymentMode[0] != "" {
+		body["payment_mode"] = string(paymentMode[0])
+	}
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/data/private", body)
 	if err != nil {
 		return nil, err
 	}
@@ -256,79 +287,17 @@ func (c *Client) ChunkGet(ctx context.Context, address string) ([]byte, error) {
 	return b64Decode(str(j, "data"))
 }
 
-// --- Graph ---
-
-// GraphEntryPut creates a new graph entry (DAG node).
-func (c *Client) GraphEntryPut(ctx context.Context, ownerSecretKey string, parents []string, content string, descendants []GraphDescendant) (*PutResult, error) {
-	descs := make([]map[string]any, len(descendants))
-	for i, d := range descendants {
-		descs[i] = map[string]any{"public_key": d.PublicKey, "content": d.Content}
-	}
-	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/graph", map[string]any{
-		"owner_secret_key": ownerSecretKey,
-		"parents":          parents,
-		"content":          content,
-		"descendants":      descs,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &PutResult{Cost: str(j, "cost"), Address: str(j, "address")}, nil
-}
-
-// GraphEntryGet retrieves a graph entry by address.
-func (c *Client) GraphEntryGet(ctx context.Context, address string) (*GraphEntry, error) {
-	j, _, err := c.doJSON(ctx, http.MethodGet, "/v1/graph/"+address, nil)
-	if err != nil {
-		return nil, err
-	}
-	var descs []GraphDescendant
-	for _, d := range arrAt(j, "descendants") {
-		if dm, ok := d.(map[string]any); ok {
-			descs = append(descs, GraphDescendant{PublicKey: str(dm, "public_key"), Content: str(dm, "content")})
-		}
-	}
-	return &GraphEntry{
-		Owner:       str(j, "owner"),
-		Parents:     strSlice(j, "parents"),
-		Content:     str(j, "content"),
-		Descendants: descs,
-	}, nil
-}
-
-// GraphEntryExists checks if a graph entry exists at the given address.
-func (c *Client) GraphEntryExists(ctx context.Context, address string) (bool, error) {
-	code, err := c.doHead(ctx, "/v1/graph/"+address)
-	if err != nil {
-		return false, err
-	}
-	if code == 404 {
-		return false, nil
-	}
-	if code >= 300 {
-		return false, errorForStatus(code, "graph entry exists check failed")
-	}
-	return true, nil
-}
-
-// GraphEntryCost estimates the cost of creating a graph entry.
-func (c *Client) GraphEntryCost(ctx context.Context, publicKey string) (string, error) {
-	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/graph/cost", map[string]any{
-		"public_key": publicKey,
-	})
-	if err != nil {
-		return "", err
-	}
-	return str(j, "cost"), nil
-}
-
 // --- Files ---
 
 // FileUploadPublic uploads a local file to the network.
-func (c *Client) FileUploadPublic(ctx context.Context, path string) (*PutResult, error) {
-	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/files/upload/public", map[string]any{
+func (c *Client) FileUploadPublic(ctx context.Context, path string, paymentMode ...PaymentMode) (*PutResult, error) {
+	body := map[string]any{
 		"path": path,
-	})
+	}
+	if len(paymentMode) > 0 && paymentMode[0] != "" {
+		body["payment_mode"] = string(paymentMode[0])
+	}
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/files/upload/public", body)
 	if err != nil {
 		return nil, err
 	}
@@ -345,10 +314,14 @@ func (c *Client) FileDownloadPublic(ctx context.Context, address, destPath strin
 }
 
 // DirUploadPublic uploads a local directory to the network.
-func (c *Client) DirUploadPublic(ctx context.Context, path string) (*PutResult, error) {
-	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/dirs/upload/public", map[string]any{
+func (c *Client) DirUploadPublic(ctx context.Context, path string, paymentMode ...PaymentMode) (*PutResult, error) {
+	body := map[string]any{
 		"path": path,
-	})
+	}
+	if len(paymentMode) > 0 && paymentMode[0] != "" {
+		body["payment_mode"] = string(paymentMode[0])
+	}
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/dirs/upload/public", body)
 	if err != nil {
 		return nil, err
 	}
@@ -414,4 +387,118 @@ func (c *Client) FileCost(ctx context.Context, path string, isPublic bool, inclu
 		return "", err
 	}
 	return str(j, "cost"), nil
+}
+
+// --- Wallet ---
+
+// WalletAddress returns the wallet's public address.
+func (c *Client) WalletAddress(ctx context.Context) (*WalletAddress, error) {
+	j, _, err := c.doJSON(ctx, http.MethodGet, "/v1/wallet/address", nil)
+	if err != nil {
+		return nil, err
+	}
+	return &WalletAddress{Address: str(j, "address")}, nil
+}
+
+// WalletBalance returns the wallet's token and gas balances.
+func (c *Client) WalletBalance(ctx context.Context) (*WalletBalance, error) {
+	j, _, err := c.doJSON(ctx, http.MethodGet, "/v1/wallet/balance", nil)
+	if err != nil {
+		return nil, err
+	}
+	return &WalletBalance{
+		Balance:    str(j, "balance"),
+		GasBalance: str(j, "gas_balance"),
+	}, nil
+}
+
+// WalletApprove approves the wallet to spend tokens on payment contracts.
+// This is a one-time operation required before any storage operations.
+func (c *Client) WalletApprove(ctx context.Context) error {
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/wallet/approve", map[string]any{})
+	if err != nil {
+		return err
+	}
+	_ = j
+	return nil
+}
+
+// --- External Signer (Two-Phase Upload) ---
+
+// PrepareUpload prepares a file upload for external signing.
+// Returns payment details that an external signer must process before calling FinalizeUpload.
+func (c *Client) PrepareUpload(ctx context.Context, path string) (*PrepareUploadResult, error) {
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/upload/prepare", map[string]any{
+		"path": path,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var payments []PaymentInfo
+	for _, p := range arrAt(j, "payments") {
+		if pm, ok := p.(map[string]any); ok {
+			payments = append(payments, PaymentInfo{
+				QuoteHash:      str(pm, "quote_hash"),
+				RewardsAddress: str(pm, "rewards_address"),
+				Amount:         str(pm, "amount"),
+			})
+		}
+	}
+	return &PrepareUploadResult{
+		UploadID:            str(j, "upload_id"),
+		Payments:            payments,
+		TotalAmount:         str(j, "total_amount"),
+		DataPaymentsAddress: str(j, "data_payments_address"),
+		PaymentTokenAddress: str(j, "payment_token_address"),
+		RPCUrl:              str(j, "rpc_url"),
+	}, nil
+}
+
+// PrepareDataUpload prepares a data upload for external signing.
+// Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+// Returns payment details that an external signer must process before calling FinalizeUpload.
+func (c *Client) PrepareDataUpload(ctx context.Context, data []byte) (*PrepareUploadResult, error) {
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/data/prepare", map[string]any{
+		"data": b64Encode(data),
+	})
+	if err != nil {
+		return nil, err
+	}
+	var payments []PaymentInfo
+	for _, p := range arrAt(j, "payments") {
+		if pm, ok := p.(map[string]any); ok {
+			payments = append(payments, PaymentInfo{
+				QuoteHash:      str(pm, "quote_hash"),
+				RewardsAddress: str(pm, "rewards_address"),
+				Amount:         str(pm, "amount"),
+			})
+		}
+	}
+	return &PrepareUploadResult{
+		UploadID:            str(j, "upload_id"),
+		Payments:            payments,
+		TotalAmount:         str(j, "total_amount"),
+		DataPaymentsAddress: str(j, "data_payments_address"),
+		PaymentTokenAddress: str(j, "payment_token_address"),
+		RPCUrl:              str(j, "rpc_url"),
+	}, nil
+}
+
+// FinalizeUpload finalizes an upload after an external signer has submitted payment transactions.
+// txHashes maps quote_hash to tx_hash for each payment.
+// If storeDataMap is true, the DataMap is also stored on-network and Address is returned (requires a daemon wallet).
+func (c *Client) FinalizeUpload(ctx context.Context, uploadID string, txHashes map[string]string, storeDataMap bool) (*FinalizeUploadResult, error) {
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/upload/finalize", map[string]any{
+		"upload_id":      uploadID,
+		"tx_hashes":      txHashes,
+		"store_data_map": storeDataMap,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &FinalizeUploadResult{
+		DataMap:      str(j, "data_map"),
+		Address:      str(j, "address"),
+		ChunksStored: num64(j, "chunks_stored"),
+	}, nil
 }

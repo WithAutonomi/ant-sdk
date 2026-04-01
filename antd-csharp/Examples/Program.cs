@@ -16,14 +16,12 @@ class Program
             case "2": await Example02_Data(); break;
             case "3": await Example03_Chunks(); break;
             case "4": await Example04_Files(); break;
-            case "5": await Example05_Graph(); break;
             case "6": await Example06_PrivateData(); break;
             case "all":
                 await Example01_Connect();
                 await Example02_Data();
                 await Example03_Chunks();
                 await Example04_Files();
-                await Example05_Graph();
                 await Example06_PrivateData();
                 break;
             default:
@@ -133,43 +131,6 @@ class Program
         }
 
         Console.WriteLine("File upload/download OK!\n");
-    }
-
-    /// <summary>Example 05: Graph entry (DAG node) operations.</summary>
-    static async Task Example05_Graph()
-    {
-        Console.WriteLine("=== Example 05: Graph ===");
-        using var client = AntdClient.CreateRest();
-
-        var secretKey = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLower();
-
-        // Create a root graph entry
-        var content = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLower();
-        var result = await client.GraphEntryPutAsync(
-            secretKey,
-            new List<string>(),
-            content,
-            new List<GraphDescendant>()
-        );
-        Console.WriteLine($"Graph entry created at: {result.Address}");
-        Console.WriteLine($"Cost: {result.Cost} atto tokens");
-
-        // Read
-        var entry = await client.GraphEntryGetAsync(result.Address);
-        Console.WriteLine($"Owner: {entry.Owner}");
-        Console.WriteLine($"Content: {entry.Content}");
-        Console.WriteLine($"Parents: {entry.Parents.Count}");
-        Console.WriteLine($"Descendants: {entry.Descendants.Count}");
-
-        // Check existence
-        var exists = await client.GraphEntryExistsAsync(result.Address);
-        Console.WriteLine($"Graph entry exists: {exists}");
-
-        // Estimate cost
-        var cost = await client.GraphEntryCostAsync(secretKey);
-        Console.WriteLine($"Cost estimate for new entry: {cost} atto tokens");
-
-        Console.WriteLine("Graph entry operations OK!\n");
     }
 
     /// <summary>Example 06: Private (encrypted) data round-trip.</summary>

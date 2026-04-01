@@ -1,6 +1,6 @@
 # ant-sdk
 
-A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized network. Store data, build DAGs, and more — from Go, JavaScript/TypeScript, Python, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, Elixir, Zig, Rust, C++, Java, or AI agents.
+A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized network. Store data permanently and more — from Go, JavaScript/TypeScript, Python, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, Elixir, Zig, Rust, C++, Java, or AI agents.
 
 ## Architecture
 
@@ -29,6 +29,53 @@ A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized 
 
 **antd** is a local gateway daemon (written in Rust) that exposes the Autonomi network via REST and gRPC APIs. The SDKs and MCP server talk to antd — your application code never touches the network directly.
 
+### Port Discovery
+
+All SDKs support automatic daemon discovery. When antd starts, it writes a `daemon.port` file containing the REST and gRPC ports to a platform-specific location:
+
+| Platform | Path |
+|----------|------|
+| Windows | `%APPDATA%\ant\daemon.port` |
+| Linux | `~/.local/share/ant/daemon.port` (or `$XDG_DATA_HOME/ant/`) |
+| macOS | `~/Library/Application Support/ant/daemon.port` |
+
+Every SDK provides an auto-discover constructor that reads this file and connects automatically:
+
+```python
+# Python
+client, url = RestClient.auto_discover()
+```
+
+```go
+// Go
+client, url := antd.NewClientAutoDiscover()
+```
+
+```typescript
+// TypeScript
+const { client, url } = RestClient.autoDiscover();
+```
+
+This is especially useful in managed mode, where a parent process (e.g. indelible) spawns antd with `--rest-port 0` to let the OS assign a free port. The SDK discovers the actual port via the port file without any hardcoded configuration.
+
+If no port file is found, all SDKs fall back to the default REST endpoint (`http://localhost:8082`) or gRPC target (`localhost:50051`).
+
+### External Signer Support
+
+All SDKs support two-phase uploads for applications that manage their own wallet (browser wallets, hardware signers, etc.):
+
+1. **`prepare_upload(path)`** -- returns payment details (quote hashes, amounts, contract addresses, RPC URL)
+2. Your application submits EVM payment transactions using its own signer
+3. **`finalize_upload(upload_id, tx_hashes)`** -- confirms payments and stores data on the network
+
+### Payment Modes
+
+All data and file upload operations accept an optional `payment_mode` parameter (defaults to `"auto"`):
+
+- **`auto`** — Uses merkle batch payments for uploads of 64+ chunks, single payments otherwise. Recommended for most use cases.
+- **`merkle`** — Forces merkle batch payments regardless of chunk count (minimum 2 chunks). Saves gas on larger uploads.
+- **`single`** — Forces per-chunk payments. Useful for small data or debugging.
+
 ## Components
 
 ### Infrastructure
@@ -36,7 +83,7 @@ A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized 
 | Component | Language | Description |
 |-----------|----------|-------------|
 | [`antd/`](antd/) | Rust | REST + gRPC gateway daemon |
-| [`antd-mcp/`](antd-mcp/) | Python | MCP server exposing 14 tools for AI agents (Claude, etc.) |
+| [`antd-mcp/`](antd-mcp/) | Python | MCP server exposing 19 tools for AI agents (Claude, etc.) |
 | [`ant-dev/`](ant-dev/) | Python | Developer CLI for local environment management |
 
 ### Language SDKs
@@ -65,9 +112,9 @@ A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized 
 
 **Required:**
 
-- **Rust** toolchain — for building antd and the Autonomi network
+- **Rust** toolchain — for building antd
 - **Python 3.10+** — for the dev CLI (`ant-dev`) and MCP server
-- **autonomi** repo cloned as a sibling: `git clone https://github.com/maidsafe/autonomi ../autonomi`
+- **ant-node** repo cloned as sibling (for local testnet only): `git clone https://github.com/WithAutonomi/ant-node ../ant-node`
 
 **Language-specific** (install only what you need):
 
@@ -131,7 +178,7 @@ client = AntdClient()
 status = client.health()
 print(f"Network: {status.network}")
 
-# Store data on the network
+# Store data on the network (payment_mode defaults to "auto")
 result = client.data_put_public(b"Hello, Autonomi!")
 print(f"Address: {result.address}")
 print(f"Cost: {result.cost} atto tokens")
@@ -139,6 +186,9 @@ print(f"Cost: {result.cost} atto tokens")
 # Retrieve it back
 data = client.data_get_public(result.address)
 print(data.decode())  # "Hello, Autonomi!"
+
+# For large uploads, you can explicitly set payment_mode:
+# result = client.data_put_public(large_data, payment_mode="merkle")
 ```
 
 ### Write your first app (JavaScript/TypeScript)
@@ -216,7 +266,7 @@ import (
 )
 
 func main() {
-    client := antd.NewClient(antd.DefaultBaseURL)
+    client, _ := antd.NewClientAutoDiscover()
     ctx := context.Background()
 
     health, err := client.Health(ctx)
@@ -371,7 +421,6 @@ The Autonomi network provides these core primitives, all accessible through the 
 |-----------|-------------|
 | **Data** | Store/retrieve arbitrary byte blobs (public or private/encrypted) |
 | **Chunks** | Low-level content-addressed storage |
-| **Graph Entries** | Append-only DAG nodes with parent/descendant links |
 | **Files** | File/directory upload with archive manifests |
 
 ## Developer CLI Reference

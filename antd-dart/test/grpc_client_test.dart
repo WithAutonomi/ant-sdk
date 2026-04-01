@@ -8,7 +8,7 @@ import 'package:test/test.dart';
 // Standalone fake gRPC client for testing.
 //
 // Does NOT import grpc_client.dart (which requires proto-generated stubs).
-// Instead, defines a _FakeGrpcClient with the same 19-method API that returns
+// Instead, defines a _FakeGrpcClient with the same 15-method API that returns
 // canned responses or throws fake gRPC-like errors for error mapping tests.
 // ---------------------------------------------------------------------------
 
@@ -34,7 +34,7 @@ Exception mapGrpcError(FakeGrpcError e) {
   }
 }
 
-/// Fake gRPC client returning canned responses for all 19 methods.
+/// Fake gRPC client returning canned responses for all 15 methods.
 class _FakeGrpcClient {
   final FakeGrpcError? errorToThrow;
 
@@ -68,27 +68,6 @@ Future<PutResult> chunkPut(Uint8List data) =>
 
 Future<Uint8List> chunkGet(String address) =>
       _maybeThrow(Uint8List.fromList([99, 104, 117, 110, 107])); // "chunk"
-
-Future<PutResult> graphEntryPut(
-    String ownerSecretKey,
-    List<String> parents,
-    String content,
-    List<GraphDescendant> descendants,
-  ) =>
-      _maybeThrow(const PutResult(cost: '500', address: 'ge1'));
-
-Future<GraphEntry> graphEntryGet(String address) =>
-      _maybeThrow(const GraphEntry(
-        owner: 'owner1',
-        parents: [],
-        content: 'abc',
-        descendants: [GraphDescendant(publicKey: 'pk1', content: 'desc1')],
-      ));
-
-Future<bool> graphEntryExists(String address) =>
-      _maybeThrow(address == 'ge1');
-
-Future<String> graphEntryCost(String publicKey) => _maybeThrow('500');
 
 Future<PutResult> fileUploadPublic(String path) =>
       _maybeThrow(const PutResult(cost: '1000', address: 'file1'));
@@ -137,7 +116,7 @@ _FakeGrpcClient errorClient(int grpcCode, String message) {
 
 void main() {
   // -------------------------------------------------------------------------
-  // Happy-path tests – all 19 methods
+  // Happy-path tests – all 15 methods
   // -------------------------------------------------------------------------
 
   group('Health', () {
@@ -199,41 +178,6 @@ void main() {
       final client = _FakeGrpcClient();
       final data = await client.chunkGet('chunk1');
       expect(String.fromCharCodes(data), equals('chunk'));
-    });
-  });
-
-  group('Graph', () {
-    test('put graph entry', () async {
-      final client = _FakeGrpcClient();
-      final result = await client.graphEntryPut('sk1', [], 'abc', []);
-      expect(result.cost, equals('500'));
-      expect(result.address, equals('ge1'));
-    });
-
-    test('get graph entry', () async {
-      final client = _FakeGrpcClient();
-      final entry = await client.graphEntryGet('ge1');
-      expect(entry.owner, equals('owner1'));
-      expect(entry.parents, isEmpty);
-      expect(entry.content, equals('abc'));
-      expect(entry.descendants.length, equals(1));
-      expect(entry.descendants[0].publicKey, equals('pk1'));
-      expect(entry.descendants[0].content, equals('desc1'));
-    });
-
-    test('graph entry exists returns true', () async {
-      final client = _FakeGrpcClient();
-      expect(await client.graphEntryExists('ge1'), isTrue);
-    });
-
-    test('graph entry exists returns false', () async {
-      final client = _FakeGrpcClient();
-      expect(await client.graphEntryExists('missing'), isFalse);
-    });
-
-    test('graph entry cost', () async {
-      final client = _FakeGrpcClient();
-      expect(await client.graphEntryCost('pk1'), equals('500'));
     });
   });
 
@@ -386,14 +330,6 @@ void main() {
       expect(
         () => client.chunkGet('addr'),
         throwsA(isA<InternalError>()),
-      );
-    });
-
-    test('error propagates from graphEntryPut', () async {
-      final client = errorClient(6, 'duplicate');
-      expect(
-        () => client.graphEntryPut('sk', [], 'c', []),
-        throwsA(isA<AlreadyExistsError>()),
       );
     });
 

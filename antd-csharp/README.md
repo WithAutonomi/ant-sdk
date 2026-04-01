@@ -48,7 +48,7 @@ using Antd.Sdk;
 
 // REST transport (default)
 using var client = AntdClient.CreateRest(
-    baseUrl: "http://localhost:8080",
+    baseUrl: "http://localhost:8082",
     timeout: TimeSpan.FromSeconds(30)
 );
 
@@ -88,15 +88,6 @@ All methods are async and return `Task<T>`. The client implements `IDisposable`.
 | `ChunkPutAsync(byte[] data)` | `PutResult` | Store a raw chunk |
 | `ChunkGetAsync(string address)` | `byte[]` | Retrieve a chunk |
 
-### Graph
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `GraphEntryPutAsync(string key, List<string> parents, string content, List<GraphDescendant> desc)` | `PutResult` | Create |
-| `GraphEntryGetAsync(string address)` | `GraphEntry` | Read |
-| `GraphEntryExistsAsync(string address)` | `bool` | Check existence |
-| `GraphEntryCostAsync(string publicKey)` | `string` | Estimate cost |
-
 ### Files
 
 | Method | Returns | Description |
@@ -117,8 +108,6 @@ All models are sealed records (immutable).
 |-------|--------|-------------|
 | `HealthStatus` | `Ok`, `Network` | Health check result |
 | `PutResult` | `Cost`, `Address` | Write operation result |
-| `GraphDescendant` | `PublicKey`, `Content` | Graph descendant entry |
-| `GraphEntry` | `Owner`, `Parents`, `Content`, `Descendants` | Graph DAG node |
 | `ArchiveEntry` | `Path`, `Address`, `Created`, `Modified`, `Size` | Archive file entry |
 | `Archive` | `Entries` | Archive manifest |
 
@@ -167,7 +156,6 @@ dotnet run -- 1     # Connect
 dotnet run -- 2     # Public data
 dotnet run -- 3     # Chunks
 dotnet run -- 4     # Files
-dotnet run -- 5     # Graph
 dotnet run -- 6     # Private data
 dotnet run -- all   # Run all
 ```

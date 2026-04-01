@@ -23,6 +23,7 @@ public final class ExceptionFactory {
             case 413 -> new TooLargeException(message);
             case 500 -> new InternalException(message);
             case 502 -> new NetworkException(message);
+            case 503 -> new ServiceUnavailableException(message);
             default -> new AntdException(statusCode, message);
         };
     }

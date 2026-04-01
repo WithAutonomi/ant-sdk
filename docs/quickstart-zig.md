@@ -54,7 +54,7 @@ pub fn main() !void {
     // Custom endpoint
     var client2 = try antd.Client.init(allocator, .{
         .transport = .rest,
-        .base_url = "http://localhost:8080",
+        .base_url = "http://localhost:8082",
     });
     defer client2.deinit();
 
@@ -134,39 +134,6 @@ try client.dirDownloadPublic(dir_result.address, "/path/to/output_dir");
 const cost = try client.fileCost("/path/to/file.txt");
 ```
 
-## Graph Entries (DAG Nodes)
-
-```zig
-var prng = std.Random.DefaultPrng.init(blk: {
-    var seed: u64 = undefined;
-    std.posix.getrandom(std.mem.asBytes(&seed)) catch unreachable;
-    break :blk seed;
-});
-const random = prng.random();
-
-var key_buf: [32]u8 = undefined;
-random.bytes(&key_buf);
-const key = std.fmt.bytesToHex(key_buf, .lower);
-
-var content_buf: [32]u8 = undefined;
-random.bytes(&content_buf);
-const content = std.fmt.bytesToHex(content_buf, .lower);
-
-// Create root node
-const result = try client.graphEntryPut(&key, &.{}, &content, &.{});
-defer result.deinit(allocator);
-std.debug.print("Graph entry: {s}\n", .{result.address});
-
-// Read
-const entry = try client.graphEntryGet(result.address);
-defer entry.deinit(allocator);
-std.debug.print("Owner: {s}\n", .{entry.owner});
-std.debug.print("Content: {s}\n", .{entry.content});
-
-// Check existence
-const exists = try client.graphEntryExists(result.address);
-std.debug.print("Exists: {}\n", .{exists});
-```
 
 ## Error Handling
 
@@ -214,7 +181,6 @@ zig build run -- 1      # Connect
 zig build run -- 2      # Public data
 zig build run -- 3      # Chunks
 zig build run -- 4      # Files
-zig build run -- 5      # Graph entries
 zig build run -- 6      # Private data
 zig build run -- all    # Run all examples
 ```

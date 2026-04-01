@@ -1,12 +1,12 @@
 # antd SDK
 
-> Go, JavaScript/TypeScript, Python, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, Elixir, Zig, Rust, C++, and Java SDKs for the Autonomi network via the antd daemon. Provides REST and gRPC transports, an MCP server (14 tools), and a local daemon that manages wallet, payments, and network connectivity.
+> Go, JavaScript/TypeScript, Python, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, Elixir, Zig, Rust, C++, and Java SDKs for the Autonomi network via the antd daemon. Provides REST and gRPC transports, an MCP server (17 tools), and a local daemon that manages wallet, payments, and network connectivity.
 
 ## Quick Start
 
 ```python
 from antd import AntdClient
-client = AntdClient()  # REST on localhost:8080
+client = AntdClient()  # REST on localhost:8082
 result = client.data_put_public(b"hello world")
 data = client.data_get_public(result.address)
 ```
@@ -28,7 +28,7 @@ data = client.data_get_public(result.address)
 - [Rust SDK](antd-rust/) — `cargo add antd-client` — REST + gRPC, async/tokio
 - [C++ SDK](antd-cpp/) — CMake FetchContent — REST + gRPC, sync + async (C++20)
 - [Java SDK](antd-java/) — Gradle/Maven — REST + gRPC, sync + async (Java 17+)
-- [MCP Server](antd-mcp/) — 14 tools for AI agent integration
+- [MCP Server](antd-mcp/) — 17 tools for AI agent integration
 
 ## API Reference
 
@@ -43,23 +43,25 @@ data = client.data_get_public(result.address)
 | GET | `/health` | Health check and network status |
 | GET | `/v1/data/public/{addr}` | Retrieve public data by address |
 | GET | `/v1/data/public/{addr}/stream` | Stream public data by address |
-| POST | `/v1/data/public` | Store public data |
+| POST | `/v1/data/public` | Store public data (accepts optional `payment_mode`) |
 | GET | `/v1/data/private` | Retrieve private (encrypted) data |
-| POST | `/v1/data/private` | Store private (encrypted) data |
+| POST | `/v1/data/private` | Store private (encrypted) data (accepts optional `payment_mode`) |
 | POST | `/v1/data/cost` | Estimate data storage cost |
 | GET | `/v1/chunks/{addr}` | Get raw chunk by address |
 | POST | `/v1/chunks` | Store raw chunk |
-| GET | `/v1/graph/{addr}` | Read graph entry (DAG node) |
-| HEAD | `/v1/graph/{addr}` | Check graph entry existence |
-| POST | `/v1/graph` | Create graph entry |
-| POST | `/v1/graph/cost` | Estimate graph entry cost |
-| POST | `/v1/files/upload/public` | Upload file to network |
+| POST | `/v1/files/upload/public` | Upload file to network (accepts optional `payment_mode`) |
 | POST | `/v1/files/download/public` | Download file from network |
-| POST | `/v1/dirs/upload/public` | Upload directory to network |
+| POST | `/v1/dirs/upload/public` | Upload directory to network (accepts optional `payment_mode`) |
 | POST | `/v1/dirs/download/public` | Download directory from network |
 | GET | `/v1/archives/public/{addr}` | List archive entries |
 | POST | `/v1/archives/public` | Create archive manifest |
 | POST | `/v1/cost/file` | Estimate file upload cost |
+| GET | `/v1/wallet/address` | Get wallet public address |
+| GET | `/v1/wallet/balance` | Get wallet token and gas balances |
+| POST | `/v1/wallet/approve` | Approve wallet to spend tokens on payment contracts |
+| POST | `/v1/data/prepare` | Prepare data upload for external signer (two-phase upload) |
+| POST | `/v1/upload/prepare` | Prepare file upload for external signer (two-phase upload) |
+| POST | `/v1/upload/finalize` | Finalize externally-signed upload |
 
 ## gRPC Services
 
@@ -68,7 +70,6 @@ data = client.data_get_public(result.address)
 | HealthService | Check | health.proto |
 | DataService | GetPublic, PutPublic, StreamPublic, GetPrivate, PutPrivate, GetCost | data.proto |
 | ChunkService | Get, Put | chunks.proto |
-| GraphService | Get, CheckExistence, Put, GetCost | graph.proto |
 | FileService | UploadPublic, DownloadPublic, DirUploadPublic, DirDownloadPublic, ArchiveGetPublic, ArchivePutPublic, GetFileCost | files.proto |
 | EventService | Subscribe | events.proto |
 
@@ -83,6 +84,7 @@ data = client.data_get_public(result.address)
 | 413 | RESOURCE_EXHAUSTED | TooLargeError | Payload too large |
 | 500 | INTERNAL | InternalError | Server error |
 | 502 | UNAVAILABLE | NetworkError | Network unreachable |
+| 503 | UNAVAILABLE | ServiceUnavailableError | Wallet not configured |
 
 ## Examples
 
@@ -102,7 +104,37 @@ data = client.data_get_public(result.address)
 - [C++ examples](antd-cpp/examples/) — runnable example files
 - [Java examples](antd-java/examples/) — runnable example files
 
-## Default Ports
+## Port Discovery
 
-- REST: `http://localhost:8080`
+All SDKs support automatic daemon discovery via a `daemon.port` file written by antd on startup. Every SDK provides an auto-discover constructor:
+
+```python
+client, url = RestClient.auto_discover()           # Python
+```
+```go
+client, url := antd.NewClientAutoDiscover()        // Go
+```
+```typescript
+const { client, url } = RestClient.autoDiscover(); // TypeScript
+```
+
+Port file locations: `%APPDATA%\ant\daemon.port` (Windows), `~/.local/share/ant/daemon.port` (Linux), `~/Library/Application Support/ant/daemon.port` (macOS). File format: two lines — REST port, gRPC port.
+
+## Default Ports (fallback when no port file)
+
+- REST: `http://localhost:8082`
 - gRPC: `localhost:50051`
+
+## Payment Modes
+
+All data and file PUT/upload endpoints accept an optional `payment_mode` field in the request body:
+
+| Mode | Behavior |
+|------|----------|
+| `"auto"` (default) | Uses merkle batch payments for 64+ chunks, single payments otherwise |
+| `"merkle"` | Forces merkle batch payments regardless of chunk count (minimum 2 chunks). Saves gas on larger uploads |
+| `"single"` | Forces per-chunk payments. Useful for small data or debugging |
+
+REST example: `POST /v1/data/public` with `{"data": "<base64>", "payment_mode": "merkle"}`
+
+All SDK `*_put_public`, `*_put_private`, `file_upload_public`, and `dir_upload_public` methods accept a `payment_mode` parameter (defaults to `"auto"`).

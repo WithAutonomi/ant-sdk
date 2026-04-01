@@ -18,9 +18,20 @@ import java.time.Duration
 import java.util.Base64
 
 class AntdRestClient(
-    baseUrl: String = "http://localhost:8080",
+    baseUrl: String = "http://localhost:8082",
     timeout: Duration = Duration.ofSeconds(300),
 ) : IAntdClient {
+
+    companion object {
+        /**
+         * Create a client by auto-discovering the daemon port from the
+         * `daemon.port` file.  Falls back to `http://localhost:8082` if not found.
+         */
+        fun autoDiscover(timeout: Duration = Duration.ofSeconds(300)): AntdRestClient {
+            val url = DaemonDiscovery.discoverDaemonUrl().ifEmpty { "http://localhost:8082" }
+            return AntdRestClient(url, timeout)
+        }
+    }
 
     private val baseUrl = baseUrl.trimEnd('/')
     private val http = OkHttpClient.Builder()
@@ -92,8 +103,11 @@ class AntdRestClient(
 
     // ── Data ──
 
-    override suspend fun dataPutPublic(data: ByteArray): PutResult {
-        val body = buildJsonObject { put("data", b64(data)) }.toString()
+    override suspend fun dataPutPublic(data: ByteArray, paymentMode: String?): PutResult {
+        val body = buildJsonObject {
+            put("data", b64(data))
+            if (paymentMode != null) put("payment_mode", paymentMode)
+        }.toString()
         val resp = postJson<DataPutPublicDto>("/v1/data/public", body)
         return PutResult(resp.cost, resp.address)
     }
@@ -103,8 +117,11 @@ class AntdRestClient(
         return fromB64(resp.data)
     }
 
-    override suspend fun dataPutPrivate(data: ByteArray): PutResult {
-        val body = buildJsonObject { put("data", b64(data)) }.toString()
+    override suspend fun dataPutPrivate(data: ByteArray, paymentMode: String?): PutResult {
+        val body = buildJsonObject {
+            put("data", b64(data))
+            if (paymentMode != null) put("payment_mode", paymentMode)
+        }.toString()
         val resp = postJson<DataPutPrivateDto>("/v1/data/private", body)
         return PutResult(resp.cost, resp.dataMap)
     }
@@ -133,49 +150,13 @@ class AntdRestClient(
         return fromB64(resp.data)
     }
 
-    // ── Graph ──
-
-    override suspend fun graphEntryPut(
-        ownerSecretKey: String,
-        parents: List<String>,
-        content: String,
-        descendants: List<GraphDescendant>,
-    ): PutResult {
-        val body = buildJsonObject {
-            put("owner_secret_key", ownerSecretKey)
-            putJsonArray("parents") { parents.forEach { add(JsonPrimitive(it)) } }
-            put("content", content)
-            putJsonArray("descendants") {
-                descendants.forEach { d ->
-                    add(buildJsonObject {
-                        put("public_key", d.publicKey)
-                        put("content", d.content)
-                    })
-                }
-            }
-        }.toString()
-        val resp = postJson<DataPutPublicDto>("/v1/graph", body)
-        return PutResult(resp.cost, resp.address)
-    }
-
-    override suspend fun graphEntryGet(address: String): GraphEntry {
-        val resp = getJson<GraphEntryDto>("/v1/graph/$address")
-        val descendants = resp.descendants?.map { GraphDescendant(it.publicKey, it.content) } ?: emptyList()
-        return GraphEntry(resp.owner, resp.parents ?: emptyList(), resp.content, descendants)
-    }
-
-    override suspend fun graphEntryExists(address: String): Boolean = headExists("/v1/graph/$address")
-
-    override suspend fun graphEntryCost(publicKey: String): String {
-        val body = buildJsonObject { put("public_key", publicKey) }.toString()
-        val resp = postJson<CostDto>("/v1/graph/cost", body)
-        return resp.cost
-    }
-
     // ── Files ──
 
-    override suspend fun fileUploadPublic(path: String): PutResult {
-        val body = buildJsonObject { put("path", path) }.toString()
+    override suspend fun fileUploadPublic(path: String, paymentMode: String?): PutResult {
+        val body = buildJsonObject {
+            put("path", path)
+            if (paymentMode != null) put("payment_mode", paymentMode)
+        }.toString()
         val resp = postJson<DataPutPublicDto>("/v1/files/upload/public", body)
         return PutResult(resp.cost, resp.address)
     }
@@ -188,8 +169,11 @@ class AntdRestClient(
         postJsonNoResult("/v1/files/download/public", body)
     }
 
-    override suspend fun dirUploadPublic(path: String): PutResult {
-        val body = buildJsonObject { put("path", path) }.toString()
+    override suspend fun dirUploadPublic(path: String, paymentMode: String?): PutResult {
+        val body = buildJsonObject {
+            put("path", path)
+            if (paymentMode != null) put("payment_mode", paymentMode)
+        }.toString()
         val resp = postJson<DataPutPublicDto>("/v1/dirs/upload/public", body)
         return PutResult(resp.cost, resp.address)
     }
@@ -234,5 +218,54 @@ class AntdRestClient(
         }.toString()
         val resp = postJson<CostDto>("/v1/cost/file", body)
         return resp.cost
+    }
+
+    // ── Wallet ──
+
+    override suspend fun walletAddress(): WalletAddress {
+        val resp = getJson<WalletAddressDto>("/v1/wallet/address")
+        return WalletAddress(resp.address)
+    }
+
+    override suspend fun walletBalance(): WalletBalance {
+        val resp = getJson<WalletBalanceDto>("/v1/wallet/balance")
+        return WalletBalance(resp.balance, resp.gasBalance)
+    }
+
+    /** Approves the wallet to spend tokens on payment contracts (one-time operation). */
+    override suspend fun walletApprove(): Boolean {
+        val body = buildJsonObject {}.toString()
+        val resp = postJson<WalletApproveDto>("/v1/wallet/approve", body)
+        return resp.approved
+    }
+
+    // ── External Signer (Two-Phase Upload) ──
+
+    /** Prepares a file upload for external signing. */
+    override suspend fun prepareUpload(path: String): PrepareUploadResult {
+        val body = buildJsonObject { put("path", path) }.toString()
+        val resp = postJson<PrepareUploadDto>("/v1/upload/prepare", body)
+        val payments = resp.payments?.map { PaymentInfo(it.quoteHash, it.rewardsAddress, it.amount) } ?: emptyList()
+        return PrepareUploadResult(resp.uploadId, payments, resp.totalAmount, resp.dataPaymentsAddress, resp.paymentTokenAddress, resp.rpcUrl)
+    }
+
+    /** Prepares a data upload for external signing. */
+    override suspend fun prepareDataUpload(data: ByteArray): PrepareUploadResult {
+        val body = buildJsonObject { put("data", b64(data)) }.toString()
+        val resp = postJson<PrepareUploadDto>("/v1/data/prepare", body)
+        val payments = resp.payments?.map { PaymentInfo(it.quoteHash, it.rewardsAddress, it.amount) } ?: emptyList()
+        return PrepareUploadResult(resp.uploadId, payments, resp.totalAmount, resp.dataPaymentsAddress, resp.paymentTokenAddress, resp.rpcUrl)
+    }
+
+    /** Finalizes an upload after an external signer has submitted payment transactions. */
+    override suspend fun finalizeUpload(uploadId: String, txHashes: Map<String, String>): FinalizeUploadResult {
+        val body = buildJsonObject {
+            put("upload_id", uploadId)
+            put("tx_hashes", buildJsonObject {
+                txHashes.forEach { (k, v) -> put(k, v) }
+            })
+        }.toString()
+        val resp = postJson<FinalizeUploadDto>("/v1/upload/finalize", body)
+        return FinalizeUploadResult(resp.address, resp.chunksStored)
     }
 }

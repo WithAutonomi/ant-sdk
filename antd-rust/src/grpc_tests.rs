@@ -121,55 +121,6 @@ impl v1::chunk_service_server::ChunkService for MockChunkService {
 }
 
 #[derive(Default)]
-struct MockGraphService;
-
-#[tonic::async_trait]
-impl v1::graph_service_server::GraphService for MockGraphService {
-    async fn put(
-        &self,
-        _request: Request<v1::PutGraphEntryRequest>,
-    ) -> Result<Response<v1::PutGraphEntryResponse>, Status> {
-        Ok(Response::new(v1::PutGraphEntryResponse {
-            cost: Some(v1::Cost {
-                atto_tokens: "500".to_string(),
-            }),
-            address: "ge1".to_string(),
-        }))
-    }
-
-    async fn get(
-        &self,
-        _request: Request<v1::GetGraphEntryRequest>,
-    ) -> Result<Response<v1::GetGraphEntryResponse>, Status> {
-        Ok(Response::new(v1::GetGraphEntryResponse {
-            owner: "owner1".to_string(),
-            parents: vec![],
-            content: "abc".to_string(),
-            descendants: vec![v1::GraphDescendant {
-                public_key: "pk1".to_string(),
-                content: "desc1".to_string(),
-            }],
-        }))
-    }
-
-    async fn check_existence(
-        &self,
-        _request: Request<v1::CheckGraphEntryRequest>,
-    ) -> Result<Response<v1::GraphExistsResponse>, Status> {
-        Ok(Response::new(v1::GraphExistsResponse { exists: true }))
-    }
-
-    async fn get_cost(
-        &self,
-        _request: Request<v1::GraphEntryCostRequest>,
-    ) -> Result<Response<v1::Cost>, Status> {
-        Ok(Response::new(v1::Cost {
-            atto_tokens: "500".to_string(),
-        }))
-    }
-}
-
-#[derive(Default)]
 struct MockFileService;
 
 #[tonic::async_trait]
@@ -285,9 +236,6 @@ async fn start_mock_server() -> GrpcClient {
             .add_service(v1::chunk_service_server::ChunkServiceServer::new(
                 MockChunkService,
             ))
-            .add_service(v1::graph_service_server::GraphServiceServer::new(
-                MockGraphService,
-            ))
             .add_service(v1::file_service_server::FileServiceServer::new(
                 MockFileService,
             ))
@@ -328,7 +276,7 @@ async fn start_error_server(code: tonic::Code, msg: &str) -> GrpcClient {
     GrpcClient::new(&format!("http://{addr}")).await.unwrap()
 }
 
-// --- Tests for all 19 gRPC methods ---
+// --- Tests for all gRPC methods ---
 
 #[tokio::test]
 async fn test_grpc_health() {
@@ -388,41 +336,6 @@ async fn test_grpc_chunk_get() {
     let client = start_mock_server().await;
     let data = client.chunk_get("chunk1").await.unwrap();
     assert_eq!(data, b"chunkdata");
-}
-
-#[tokio::test]
-async fn test_grpc_graph_entry_put() {
-    let client = start_mock_server().await;
-    let result = client
-        .graph_entry_put("sk1", &[], "abc", &[])
-        .await
-        .unwrap();
-    assert_eq!(result.address, "ge1");
-    assert_eq!(result.cost, "500");
-}
-
-#[tokio::test]
-async fn test_grpc_graph_entry_get() {
-    let client = start_mock_server().await;
-    let entry = client.graph_entry_get("ge1").await.unwrap();
-    assert_eq!(entry.owner, "owner1");
-    assert_eq!(entry.descendants.len(), 1);
-    assert_eq!(entry.descendants[0].public_key, "pk1");
-    assert_eq!(entry.descendants[0].content, "desc1");
-}
-
-#[tokio::test]
-async fn test_grpc_graph_entry_exists() {
-    let client = start_mock_server().await;
-    let exists = client.graph_entry_exists("ge1").await.unwrap();
-    assert!(exists);
-}
-
-#[tokio::test]
-async fn test_grpc_graph_entry_cost() {
-    let client = start_mock_server().await;
-    let cost = client.graph_entry_cost("pk1").await.unwrap();
-    assert_eq!(cost, "500");
 }
 
 #[tokio::test]

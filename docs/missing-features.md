@@ -78,7 +78,7 @@ Critical — this is the most immediately useful feature. Developers currently f
 
 - The FFI layer (`ffi/rust/ant-ffi/src/keys.rs` and `key_derivation.rs`) has full BLS key types: `SecretKey`, `PublicKey`, `MainSecretKey`, `MainPubkey`, `DerivedSecretKey`, `DerivedPubkey`, `DerivationIndex`, `Signature`
 - SDK examples generate throwaway keys with `os.urandom(32).hex()` — no persistence or reuse
-- Graph operations accept a raw hex secret key string — no identity concept
+- SDK examples generate throwaway keys with `os.urandom(32).hex()` — no persistence or reuse
 - The daemon loads its wallet key from `AUTONOMI_WALLET_KEY` env var at startup
 - No key-related REST/gRPC endpoints exist
 
@@ -173,7 +173,6 @@ Start with Approach A since the BLS derived key primitives already exist in the 
 
 ### What exists today
 
-- `HEAD /v1/graph/{addr}` checks graph entry existence (returns 200 or 404)
 - No existence check for data or chunks
 - No replication status API
 - No re-upload or pinning mechanism
@@ -326,7 +325,7 @@ Medium — progress events are valuable for UX but not blocking. Resumable uploa
 
 1. Update data and get a stable pointer to the latest version
 2. Version history or changelog for a piece of data
-3. High-level mutable reference abstraction built on top of graph entries
+3. High-level mutable reference abstraction
 4. Diff or compare between versions
 
 >> As there is no mutable data, this is out of scope. Also this would be handled by a higher level application
@@ -334,7 +333,7 @@ Medium — progress events are valuable for UX but not blocking. Resumable uploa
 ## Higher-Level Abstractions
 
 1. JSON document store (serialize and deserialize objects)
-2. Key-value store built on graph entries
+2. Key-value store
 3. Append-only log abstraction
 4. Pub/sub or message queue patterns
 5. DNS-like naming (human-readable names to addresses)

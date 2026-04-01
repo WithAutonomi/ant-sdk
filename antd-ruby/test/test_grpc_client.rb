@@ -25,16 +25,6 @@ rescue LoadError
       def data_cost(d)       grpc_call { @data_stub.get_cost(nil).atto_tokens } end
       def chunk_put(d)       grpc_call { r = @chunk_stub.put(nil); PutResult.new(cost: r.cost.atto_tokens, address: r.address) } end
       def chunk_get(a)       grpc_call { @chunk_stub.get(nil).data } end
-      def graph_entry_put(k, p, c, ds) grpc_call { r = @graph_stub.put(nil); PutResult.new(cost: r.cost.atto_tokens, address: r.address) } end
-      def graph_entry_get(a)
-        grpc_call do
-          r = @graph_stub.get(nil)
-          descs = r.descendants.map { |d| GraphDescendant.new(public_key: d.public_key, content: d.content) }
-          GraphEntry.new(owner: r.owner, parents: r.parents.to_a, content: r.content, descendants: descs)
-        end
-      end
-      def graph_entry_exists(a) grpc_call { @graph_stub.check_existence(nil).exists } end
-      def graph_entry_cost(k) grpc_call { @graph_stub.get_cost(nil).atto_tokens } end
       def file_upload_public(p) grpc_call { r = @file_stub.upload_public(nil); PutResult.new(cost: r.cost.atto_tokens, address: r.address) } end
       def file_download_public(a, d) grpc_call { @file_stub.download_public(nil); nil } end
       def dir_upload_public(p) grpc_call { r = @file_stub.dir_upload_public(nil); PutResult.new(cost: r.cost.atto_tokens, address: r.address) } end
@@ -105,9 +95,6 @@ module FakeGrpc
   # Simulates a cost sub-message with an atto_tokens field.
   Cost = Struct.new(:atto_tokens, keyword_init: true)
 
-  # A canned gRPC response descriptor that responds to the proto methods.
-  GraphDescendant = Struct.new(:public_key, :content, keyword_init: true)
-
   # Archive entry proto mimic.
   ArchiveEntry = Struct.new(:path, :address, :created, :modified, :size, keyword_init: true)
 
@@ -150,29 +137,6 @@ module FakeGrpc
 
     def get(_req)
       OpenStruct.new(data: "chunkdata")
-    end
-  end
-
-  class GraphStub
-    def put(_req)
-      OpenStruct.new(cost: Cost.new(atto_tokens: "500"), address: "ge1")
-    end
-
-    def get(_req)
-      OpenStruct.new(
-        owner: "owner1",
-        parents: [],
-        content: "abc",
-        descendants: [GraphDescendant.new(public_key: "pk1", content: "desc1")]
-      )
-    end
-
-    def check_existence(_req)
-      OpenStruct.new(exists: true)
-    end
-
-    def get_cost(_req)
-      OpenStruct.new(atto_tokens: "500")
     end
   end
 
@@ -236,7 +200,6 @@ def build_fake_client
   client.instance_variable_set(:@health_stub, FakeGrpc::HealthStub.new)
   client.instance_variable_set(:@data_stub, FakeGrpc::DataStub.new)
   client.instance_variable_set(:@chunk_stub, FakeGrpc::ChunkStub.new)
-  client.instance_variable_set(:@graph_stub, FakeGrpc::GraphStub.new)
   client.instance_variable_set(:@file_stub, FakeGrpc::FileStub.new)
   client
 end
@@ -247,7 +210,6 @@ def build_error_client(error)
   client.instance_variable_set(:@health_stub, stub)
   client.instance_variable_set(:@data_stub, stub)
   client.instance_variable_set(:@chunk_stub, stub)
-  client.instance_variable_set(:@graph_stub, stub)
   client.instance_variable_set(:@file_stub, stub)
   client
 end
@@ -313,33 +275,6 @@ class TestGrpcClient < Minitest::Test
   def test_chunk_get
     data = @client.chunk_get("chunk1")
     assert_equal "chunkdata", data
-  end
-
-  # --- Graph ---
-
-  def test_graph_entry_put
-    result = @client.graph_entry_put("sk1", [], "abc", [])
-    assert_equal "500", result.cost
-    assert_equal "ge1", result.address
-  end
-
-  def test_graph_entry_get
-    ge = @client.graph_entry_get("ge1")
-    assert_equal "owner1", ge.owner
-    assert_equal [], ge.parents
-    assert_equal "abc", ge.content
-    assert_equal 1, ge.descendants.length
-    assert_equal "pk1", ge.descendants[0].public_key
-    assert_equal "desc1", ge.descendants[0].content
-  end
-
-  def test_graph_entry_exists
-    assert @client.graph_entry_exists("ge1")
-  end
-
-  def test_graph_entry_cost
-    cost = @client.graph_entry_cost("pk1")
-    assert_equal "500", cost
   end
 
   # --- Files ---
@@ -442,11 +377,6 @@ class TestGrpcClient < Minitest::Test
   def test_error_propagates_from_chunk_get
     client = build_error_client(grpc_error(:INTERNAL, "boom"))
     assert_raises(Antd::InternalError) { client.chunk_get("addr") }
-  end
-
-  def test_error_propagates_from_graph_entry_put
-    client = build_error_client(grpc_error(:ALREADY_EXISTS, "dup"))
-    assert_raises(Antd::AlreadyExistsError) { client.graph_entry_put("sk", [], "c", []) }
   end
 
   def test_error_propagates_from_file_upload

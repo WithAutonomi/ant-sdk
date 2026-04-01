@@ -6,6 +6,7 @@
 #include <string_view>
 #include <vector>
 
+#include "discover.hpp"
 #include "errors.hpp"
 #include "models.hpp"
 
@@ -16,7 +17,7 @@ inline constexpr const char* kDefaultGrpcTarget = "localhost:50051";
 
 /// gRPC client for the antd daemon.
 ///
-/// Provides the same 19 methods as the REST `Client`, but communicates over
+/// Provides the same methods as the REST `Client`, but communicates over
 /// gRPC using the proto-generated stubs from `antd/v1/*.proto`.
 ///
 /// All methods throw antd::AntdError (or a subclass) on failure.
@@ -37,6 +38,14 @@ public:
     GrpcClient& operator=(const GrpcClient&) = delete;
     GrpcClient(GrpcClient&&) noexcept;
     GrpcClient& operator=(GrpcClient&&) noexcept;
+
+    /// Create a client by auto-discovering the daemon gRPC port from the
+    /// daemon.port file.  Falls back to kDefaultGrpcTarget if not found.
+    static GrpcClient auto_discover() {
+        auto target = discover_grpc_target();
+        if (target.empty()) target = kDefaultGrpcTarget;
+        return GrpcClient(target);
+    }
 
     // --- Health ---
 
@@ -67,23 +76,6 @@ public:
 
     /// Retrieve a chunk by address.
     std::vector<uint8_t> chunk_get(std::string_view address);
-
-    // --- Graph Entries (DAG Nodes) ---
-
-    /// Create a new graph entry.
-    PutResult graph_entry_put(std::string_view owner_secret_key,
-                              const std::vector<std::string>& parents,
-                              std::string_view content,
-                              const std::vector<GraphDescendant>& descendants);
-
-    /// Retrieve a graph entry by address.
-    GraphEntry graph_entry_get(std::string_view address);
-
-    /// Check if a graph entry exists at the given address.
-    bool graph_entry_exists(std::string_view address);
-
-    /// Estimate the cost of creating a graph entry.
-    std::string graph_entry_cost(std::string_view public_key);
 
     // --- Files & Directories ---
 

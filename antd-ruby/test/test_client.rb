@@ -4,7 +4,7 @@ require_relative "test_helper"
 require "base64"
 
 class TestClient < Minitest::Test
-  BASE = "http://localhost:8080"
+  BASE = "http://localhost:8082"
 
   def setup
     @client = Antd::Client.new(base_url: BASE)
@@ -97,57 +97,6 @@ class TestClient < Minitest::Test
 
     data = @client.chunk_get("chunk1")
     assert_equal "chunkdata", data
-  end
-
-  # --- Graph ---
-
-  def test_graph_entry_put
-    stub_request(:post, "#{BASE}/v1/graph")
-      .to_return(status: 200, body: '{"cost":"500","address":"ge1"}',
-                 headers: { "Content-Type" => "application/json" })
-
-    result = @client.graph_entry_put("sk1", [], "abc", [])
-    assert_equal "500", result.cost
-    assert_equal "ge1", result.address
-  end
-
-  def test_graph_entry_get
-    body = {
-      owner: "owner1", parents: [], content: "abc",
-      descendants: [{ public_key: "pk1", content: "desc1" }]
-    }.to_json
-    stub_request(:get, "#{BASE}/v1/graph/ge1")
-      .to_return(status: 200, body: body,
-                 headers: { "Content-Type" => "application/json" })
-
-    ge = @client.graph_entry_get("ge1")
-    assert_equal "owner1", ge.owner
-    assert_equal 1, ge.descendants.length
-    assert_equal "pk1", ge.descendants[0].public_key
-    assert_equal "desc1", ge.descendants[0].content
-  end
-
-  def test_graph_entry_exists
-    stub_request(:head, "#{BASE}/v1/graph/ge1")
-      .to_return(status: 200)
-
-    assert @client.graph_entry_exists("ge1")
-  end
-
-  def test_graph_entry_exists_not_found
-    stub_request(:head, "#{BASE}/v1/graph/missing")
-      .to_return(status: 404)
-
-    refute @client.graph_entry_exists("missing")
-  end
-
-  def test_graph_entry_cost
-    stub_request(:post, "#{BASE}/v1/graph/cost")
-      .to_return(status: 200, body: '{"cost":"500"}',
-                 headers: { "Content-Type" => "application/json" })
-
-    cost = @client.graph_entry_cost("pk1")
-    assert_equal "500", cost
   end
 
   # --- Files ---

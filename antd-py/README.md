@@ -23,7 +23,7 @@ pip install -e ".[all]"
 ```python
 from antd import AntdClient
 
-client = AntdClient()  # REST transport, localhost:8080
+client = AntdClient()  # REST transport, localhost:8082
 
 # Health check
 status = client.health()
@@ -43,7 +43,7 @@ print(data.decode())  # "Hello, Autonomi!"
 from antd import AntdClient, AsyncAntdClient
 
 # REST (default)
-client = AntdClient(transport="rest", base_url="http://localhost:8080", timeout=30)
+client = AntdClient(transport="rest", base_url="http://localhost:8082", timeout=30)
 
 # gRPC
 client = AntdClient(transport="grpc", target="localhost:50051")
@@ -88,15 +88,6 @@ await aclient.close()
 | `chunk_put(data: bytes)` | `PutResult` | Store a raw chunk |
 | `chunk_get(address: str)` | `bytes` | Retrieve a chunk |
 
-#### Graph
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `graph_entry_put(owner_key: str, parents: list[str], content: str, descendants: list[GraphDescendant])` | `PutResult` | Create a graph entry |
-| `graph_entry_get(address: str)` | `GraphEntry` | Read a graph entry |
-| `graph_entry_exists(address: str)` | `bool` | Check if a graph entry exists |
-| `graph_entry_cost(public_key: str)` | `str` | Estimate graph entry cost |
-
 #### Files
 
 | Method | Returns | Description |
@@ -117,8 +108,6 @@ All models are frozen dataclasses (immutable).
 |-------|--------|-------------|
 | `HealthStatus` | `ok: bool`, `network: str` | Health check result |
 | `PutResult` | `cost: str`, `address: str` | Write operation result |
-| `GraphDescendant` | `public_key: str`, `content: str` | Graph descendant entry |
-| `GraphEntry` | `owner`, `parents`, `content`, `descendants` | Graph DAG node |
 | `ArchiveEntry` | `path`, `address`, `created`, `modified`, `size` | Archive file entry |
 | `Archive` | `entries: list[ArchiveEntry]` | Archive manifest |
 
@@ -162,7 +151,6 @@ python examples/01_connect.py      # Health check
 python examples/02_data.py         # Store/retrieve data
 python examples/03_chunks.py       # Raw chunks
 python examples/04_files.py        # File upload/download
-python examples/05_graph.py        # Graph entries (DAG)
 python examples/06_private_data.py # Private data with data maps
 ```
 

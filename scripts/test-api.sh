@@ -7,7 +7,7 @@ set -uo pipefail
 ## Prerequisite: antd running on local testnet (./scripts/start-local.sh)
 ##
 ## Currently tests health + chunks (working with ant-node).
-## Data, files, graph, and private data are not yet implemented.
+## Data, files, and private data are not yet implemented.
 
 BASE_URL="${ANTD_BASE_URL:-http://localhost:8082}"
 PASS=0
@@ -67,7 +67,7 @@ echo ""
 # ══════════════════════════════════════════════════════════════════════
 # Test 01: Health Check
 # ══════════════════════════════════════════════════════════════════════
-echo -e "${YELLOW}[01/06] Health Check${NC}"
+echo -e "${YELLOW}[01/05] Health Check${NC}"
 
 RESP=$(curl -s "$BASE_URL/health")
 STATUS=$(echo "$RESP" | jq -r '.status // empty')
@@ -81,14 +81,14 @@ echo -e "       ${GRAY}Network: $NETWORK${NC}"
 # Test 02: Public Data (SKIPPED)
 # ══════════════════════════════════════════════════════════════════════
 echo ""
-echo -e "${YELLOW}[02/06] Public Data${NC}"
+echo -e "${YELLOW}[02/05] Public Data${NC}"
 skip_test "public data put/get/cost"
 
 # ══════════════════════════════════════════════════════════════════════
 # Test 03: Raw Chunks — store and retrieve
 # ══════════════════════════════════════════════════════════════════════
 echo ""
-echo -e "${YELLOW}[03/06] Chunks${NC}"
+echo -e "${YELLOW}[03/05] Chunks${NC}"
 
 CHUNK_PAYLOAD="Raw chunk content for direct storage"
 CHUNK_B64=$(b64encode "$CHUNK_PAYLOAD")
@@ -119,21 +119,14 @@ fi
 # Test 04: Files (SKIPPED)
 # ══════════════════════════════════════════════════════════════════════
 echo ""
-echo -e "${YELLOW}[04/06] Files${NC}"
+echo -e "${YELLOW}[04/05] Files${NC}"
 skip_test "file upload/download/cost"
 
 # ══════════════════════════════════════════════════════════════════════
-# Test 05: Graph Entries (SKIPPED)
+# Test 05: Private Data (SKIPPED)
 # ══════════════════════════════════════════════════════════════════════
 echo ""
-echo -e "${YELLOW}[05/06] Graph Entries${NC}"
-skip_test "graph entry put/get/exists/cost"
-
-# ══════════════════════════════════════════════════════════════════════
-# Test 06: Private Data (SKIPPED)
-# ══════════════════════════════════════════════════════════════════════
-echo ""
-echo -e "${YELLOW}[06/06] Private Data${NC}"
+echo -e "${YELLOW}[05/05] Private Data${NC}"
 skip_test "private data put/get"
 
 # ══════════════════════════════════════════════════════════════════════

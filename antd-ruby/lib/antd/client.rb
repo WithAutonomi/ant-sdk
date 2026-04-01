@@ -6,11 +6,24 @@ require "base64"
 require "uri"
 
 module Antd
-  DEFAULT_BASE_URL = "http://localhost:8080"
+  DEFAULT_BASE_URL = "http://localhost:8082"
   DEFAULT_TIMEOUT  = 300 # seconds
 
   # REST client for the antd daemon.
   class Client
+    # Creates a client using port discovery.
+    #
+    # Reads the daemon.port file to find the REST port. Falls back to the
+    # default base URL if the port file is not found.
+    #
+    # @param kwargs [Hash] options passed to +initialize+ (e.g. +:timeout+)
+    # @return [Array(Client, String)] the client and the resolved URL
+    def self.auto_discover(**kwargs)
+      url = Antd::Discover.daemon_url
+      url = DEFAULT_BASE_URL if url.empty?
+      [new(base_url: url, **kwargs), url]
+    end
+
     # @param base_url [String] Base URL of the antd daemon
     # @param timeout  [Integer] HTTP request timeout in seconds
     def initialize(base_url: DEFAULT_BASE_URL, timeout: DEFAULT_TIMEOUT)
@@ -32,8 +45,10 @@ module Antd
     # Store public immutable data on the network.
     # @param data [String] raw bytes
     # @return [PutResult]
-    def data_put_public(data)
-      j = do_json(:post, "/v1/data/public", { data: b64_encode(data) })
+    def data_put_public(data, payment_mode: nil)
+      body = { data: b64_encode(data) }
+      body[:payment_mode] = payment_mode if payment_mode
+      j = do_json(:post, "/v1/data/public", body)
       PutResult.new(cost: j["cost"], address: j["address"])
     end
 
@@ -48,8 +63,10 @@ module Antd
     # Store private encrypted data on the network.
     # @param data [String] raw bytes
     # @return [PutResult]
-    def data_put_private(data)
-      j = do_json(:post, "/v1/data/private", { data: b64_encode(data) })
+    def data_put_private(data, payment_mode: nil)
+      body = { data: b64_encode(data) }
+      body[:payment_mode] = payment_mode if payment_mode
+      j = do_json(:post, "/v1/data/private", body)
       PutResult.new(cost: j["cost"], address: j["data_map"])
     end
 
@@ -87,67 +104,15 @@ module Antd
       b64_decode(j["data"])
     end
 
-    # --- Graph ---
-
-    # Create a new graph entry (DAG node).
-    # @param owner_secret_key [String]
-    # @param parents [Array<String>]
-    # @param content [String]
-    # @param descendants [Array<GraphDescendant>]
-    # @return [PutResult]
-    def graph_entry_put(owner_secret_key, parents, content, descendants)
-      descs = descendants.map { |d| { public_key: d.public_key, content: d.content } }
-      j = do_json(:post, "/v1/graph", {
-        owner_secret_key: owner_secret_key,
-        parents: parents,
-        content: content,
-        descendants: descs
-      })
-      PutResult.new(cost: j["cost"], address: j["address"])
-    end
-
-    # Retrieve a graph entry by address.
-    # @param address [String]
-    # @return [GraphEntry]
-    def graph_entry_get(address)
-      j = do_json(:get, "/v1/graph/#{address}")
-      descs = (j["descendants"] || []).map do |d|
-        GraphDescendant.new(public_key: d["public_key"], content: d["content"])
-      end
-      GraphEntry.new(
-        owner: j["owner"],
-        parents: j["parents"] || [],
-        content: j["content"],
-        descendants: descs
-      )
-    end
-
-    # Check if a graph entry exists at the given address.
-    # @param address [String]
-    # @return [Boolean]
-    def graph_entry_exists(address)
-      code = do_head("/v1/graph/#{address}")
-      return false if code == 404
-      raise Antd.error_for_status(code, "graph entry exists check failed") if code >= 300
-
-      true
-    end
-
-    # Estimate the cost of creating a graph entry.
-    # @param public_key [String]
-    # @return [String] cost in atto tokens
-    def graph_entry_cost(public_key)
-      j = do_json(:post, "/v1/graph/cost", { public_key: public_key })
-      j["cost"]
-    end
-
     # --- Files ---
 
     # Upload a local file to the network.
     # @param path [String] local file path
     # @return [PutResult]
-    def file_upload_public(path)
-      j = do_json(:post, "/v1/files/upload/public", { path: path })
+    def file_upload_public(path, payment_mode: nil)
+      body = { path: path }
+      body[:payment_mode] = payment_mode if payment_mode
+      j = do_json(:post, "/v1/files/upload/public", body)
       PutResult.new(cost: j["cost"], address: j["address"])
     end
 
@@ -163,8 +128,10 @@ module Antd
     # Upload a local directory to the network.
     # @param path [String] local directory path
     # @return [PutResult]
-    def dir_upload_public(path)
-      j = do_json(:post, "/v1/dirs/upload/public", { path: path })
+    def dir_upload_public(path, payment_mode: nil)
+      body = { path: path }
+      body[:payment_mode] = payment_mode if payment_mode
+      j = do_json(:post, "/v1/dirs/upload/public", body)
       PutResult.new(cost: j["cost"], address: j["address"])
     end
 
@@ -217,6 +184,88 @@ module Antd
         include_archive: include_archive
       })
       j["cost"]
+    end
+
+    # --- Wallet ---
+
+    # Get the wallet address configured on the daemon.
+    # @return [WalletAddress]
+    def wallet_address
+      j = do_json(:get, "/v1/wallet/address")
+      WalletAddress.new(address: j["address"])
+    end
+
+    # Get the wallet balance and gas balance.
+    # @return [WalletBalance]
+    def wallet_balance
+      j = do_json(:get, "/v1/wallet/balance")
+      WalletBalance.new(balance: j["balance"], gas_balance: j["gas_balance"])
+    end
+
+    # Approve the wallet to spend tokens on payment contracts (one-time operation).
+    # @return [Boolean]
+    def wallet_approve
+      j = do_json(:post, "/v1/wallet/approve", {})
+      j["approved"] == true
+    end
+
+    # --- External Signer (Two-Phase Upload) ---
+
+    # Prepare a file upload for external signing.
+    # @param path [String] local file path
+    # @return [PrepareUploadResult]
+    def prepare_upload(path)
+      j = do_json(:post, "/v1/upload/prepare", { path: path })
+      payments = (j["payments"] || []).map do |p|
+        PaymentInfo.new(
+          quote_hash: p["quote_hash"],
+          rewards_address: p["rewards_address"],
+          amount: p["amount"]
+        )
+      end
+      PrepareUploadResult.new(
+        upload_id: j["upload_id"],
+        payments: payments,
+        total_amount: j["total_amount"],
+        data_payments_address: j["data_payments_address"],
+        payment_token_address: j["payment_token_address"],
+        rpc_url: j["rpc_url"]
+      )
+    end
+
+    # Prepare a data upload for external signing.
+    # Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+    # @param data [String] raw bytes to upload
+    # @return [PrepareUploadResult]
+    def prepare_data_upload(data)
+      j = do_json(:post, "/v1/data/prepare", { data: b64_encode(data) })
+      payments = (j["payments"] || []).map do |p|
+        PaymentInfo.new(
+          quote_hash: p["quote_hash"],
+          rewards_address: p["rewards_address"],
+          amount: p["amount"]
+        )
+      end
+      PrepareUploadResult.new(
+        upload_id: j["upload_id"],
+        payments: payments,
+        total_amount: j["total_amount"],
+        data_payments_address: j["data_payments_address"],
+        payment_token_address: j["payment_token_address"],
+        rpc_url: j["rpc_url"]
+      )
+    end
+
+    # Finalize an upload after an external signer has submitted payment transactions.
+    # @param upload_id [String] the upload ID from prepare_upload
+    # @param tx_hashes [Hash<String, String>] map of quote_hash to tx_hash
+    # @return [FinalizeUploadResult]
+    def finalize_upload(upload_id, tx_hashes)
+      j = do_json(:post, "/v1/upload/finalize", {
+        upload_id: upload_id,
+        tx_hashes: tx_hashes
+      })
+      FinalizeUploadResult.new(address: j["address"], chunks_stored: j["chunks_stored"].to_i)
     end
 
     private

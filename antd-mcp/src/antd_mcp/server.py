@@ -12,18 +12,20 @@ from mcp.server.fastmcp import FastMCP
 
 from antd import AsyncAntdClient
 from antd.exceptions import AntdError
-from antd.models import GraphDescendant
-
+from .discover import discover_daemon_url
 from .errors import format_error, format_unexpected_error
 
 # ---------------------------------------------------------------------------
 # Lifespan — create/close a single AsyncRestClient for the server's lifetime
 # ---------------------------------------------------------------------------
 
+_DEFAULT_BASE_URL = "http://127.0.0.1:8082"
+
 
 @asynccontextmanager
 async def lifespan(server: FastMCP):
-    base_url = os.environ.get("ANTD_BASE_URL", "http://localhost:8080")
+    # Priority: env var > port-file discovery > default
+    base_url = os.environ.get("ANTD_BASE_URL") or discover_daemon_url() or _DEFAULT_BASE_URL
     client = AsyncAntdClient(transport="rest", base_url=base_url)
     # Query the daemon's network on startup
     network = "unknown"
@@ -83,12 +85,16 @@ def _err(exc: Exception, network: str) -> str:
 async def store_data(
     text: str,
     private: bool = False,
+    payment_mode: str = "auto",
 ) -> str:
     """Store text on the Autonomi network.
 
     Args:
         text: The text content to store.
         private: If True, store as private (encrypted). Default: public.
+        payment_mode: Payment strategy — "auto" (default, uses merkle for 64+
+            chunks), "merkle" (force batch payments, min 2 chunks), or "single"
+            (per-chunk payments).
 
     Returns:
         JSON with address and cost, or error details.
@@ -97,9 +103,9 @@ async def store_data(
     data = text.encode("utf-8")
     try:
         if private:
-            result = await client.data_put_private(data)
+            result = await client.data_put_private(data, payment_mode=payment_mode)
         else:
-            result = await client.data_put_public(data)
+            result = await client.data_put_public(data, payment_mode=payment_mode)
         return _ok({"address": result.address, "cost": result.cost}, network)
     except AntdError as exc:
         return _err_antd(exc, network)
@@ -148,12 +154,16 @@ async def retrieve_data(
 async def upload_file(
     path: str,
     is_directory: bool = False,
+    payment_mode: str = "auto",
 ) -> str:
     """Upload a local file or directory to the Autonomi network (public).
 
     Args:
         path: Absolute path to the local file or directory.
         is_directory: Set True if path is a directory.
+        payment_mode: Payment strategy — "auto" (default, uses merkle for 64+
+            chunks), "merkle" (force batch payments, min 2 chunks), or "single"
+            (per-chunk payments).
 
     Returns:
         JSON with address and cost, or error details.
@@ -161,9 +171,9 @@ async def upload_file(
     client, network = _get_ctx()
     try:
         if is_directory:
-            result = await client.dir_upload_public(path)
+            result = await client.dir_upload_public(path, payment_mode=payment_mode)
         else:
-            result = await client.file_upload_public(path)
+            result = await client.file_upload_public(path, payment_mode=payment_mode)
         return _ok({"address": result.address, "cost": result.cost}, network)
     except AntdError as exc:
         return _err_antd(exc, network)
@@ -265,7 +275,53 @@ async def check_balance() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Tool 7: chunk_put
+# Tool 7: wallet_address
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def wallet_address() -> str:
+    """Get the wallet's public address from the antd daemon.
+
+    Returns:
+        JSON with the wallet address (e.g. "0x..."), or error details.
+        Returns an error if no wallet is configured.
+    """
+    client, network = _get_ctx()
+    try:
+        result = await client.wallet_address()
+        return _ok({"address": result.address}, network)
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
+# Tool 8: wallet_balance
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def wallet_balance() -> str:
+    """Get the wallet's token and gas balances from the antd daemon.
+
+    Returns:
+        JSON with balance (token balance) and gas_balance (gas token balance),
+        both as strings in atto units. Returns an error if no wallet is configured.
+    """
+    client, network = _get_ctx()
+    try:
+        result = await client.wallet_balance()
+        return _ok({"balance": result.balance, "gas_balance": result.gas_balance}, network)
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
+# Tool 9: chunk_put
 # ---------------------------------------------------------------------------
 
 
@@ -293,7 +349,7 @@ async def chunk_put(
 
 
 # ---------------------------------------------------------------------------
-# Tool 8: chunk_get
+# Tool 10: chunk_get
 # ---------------------------------------------------------------------------
 
 
@@ -320,137 +376,7 @@ async def chunk_get(
 
 
 # ---------------------------------------------------------------------------
-# Tool 9: create_graph_entry
-# ---------------------------------------------------------------------------
-
-
-@mcp.tool()
-async def create_graph_entry(
-    owner_secret_key: str,
-    content: str,
-    parents: list[str] | None = None,
-    descendants: list[dict] | None = None,
-) -> str:
-    """Create a graph entry (DAG node) on the Autonomi network.
-
-    Args:
-        owner_secret_key: Hex-encoded secret key of the graph entry owner.
-        content: Hex-encoded content (32 bytes).
-        parents: List of parent graph entry addresses. Default: empty.
-        descendants: List of descendant objects, each with "public_key" and "content" (hex).
-            Default: empty.
-
-    Returns:
-        JSON with graph entry address and cost, or error details.
-    """
-    client, network = _get_ctx()
-    try:
-        desc = [
-            GraphDescendant(public_key=d["public_key"], content=d["content"])
-            for d in (descendants or [])
-        ]
-        result = await client.graph_entry_put(
-            owner_secret_key, parents or [], content, desc,
-        )
-        return _ok({"address": result.address, "cost": result.cost}, network)
-    except AntdError as exc:
-        return _err_antd(exc, network)
-    except Exception as exc:
-        return _err(exc, network)
-
-
-# ---------------------------------------------------------------------------
-# Tool 10: get_graph_entry
-# ---------------------------------------------------------------------------
-
-
-@mcp.tool()
-async def get_graph_entry(
-    address: str,
-) -> str:
-    """Read a graph entry from the Autonomi network.
-
-    Args:
-        address: Hex address of the graph entry.
-
-    Returns:
-        JSON with graph entry details (owner, parents, content, descendants),
-        or error details.
-    """
-    client, network = _get_ctx()
-    try:
-        g = await client.graph_entry_get(address)
-        return _ok({
-            "owner": g.owner,
-            "parents": g.parents,
-            "content": g.content,
-            "descendants": [
-                {"public_key": d.public_key, "content": d.content}
-                for d in g.descendants
-            ],
-        }, network)
-    except AntdError as exc:
-        return _err_antd(exc, network)
-    except Exception as exc:
-        return _err(exc, network)
-
-
-# ---------------------------------------------------------------------------
-# Tool 11: graph_entry_exists
-# ---------------------------------------------------------------------------
-
-
-@mcp.tool()
-async def graph_entry_exists(
-    address: str,
-) -> str:
-    """Check if a graph entry exists on the Autonomi network.
-
-    Args:
-        address: Hex address of the graph entry.
-
-    Returns:
-        JSON with exists boolean, or error details.
-    """
-    client, network = _get_ctx()
-    try:
-        exists = await client.graph_entry_exists(address)
-        return _ok({"exists": exists}, network)
-    except AntdError as exc:
-        return _err_antd(exc, network)
-    except Exception as exc:
-        return _err(exc, network)
-
-
-# ---------------------------------------------------------------------------
-# Tool 12: graph_entry_cost
-# ---------------------------------------------------------------------------
-
-
-@mcp.tool()
-async def graph_entry_cost(
-    public_key: str,
-) -> str:
-    """Estimate the cost to create a graph entry.
-
-    Args:
-        public_key: Hex-encoded public key of the graph entry owner.
-
-    Returns:
-        JSON with cost in atto tokens, or error details.
-    """
-    client, network = _get_ctx()
-    try:
-        cost = await client.graph_entry_cost(public_key)
-        return _ok({"cost": cost}, network)
-    except AntdError as exc:
-        return _err_antd(exc, network)
-    except Exception as exc:
-        return _err(exc, network)
-
-
-# ---------------------------------------------------------------------------
-# Tool 13: archive_get
+# Tool 11: archive_get
 # ---------------------------------------------------------------------------
 
 
@@ -489,7 +415,32 @@ async def archive_get(
 
 
 # ---------------------------------------------------------------------------
-# Tool 14: archive_put
+# Tool 12: wallet_approve
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def wallet_approve() -> str:
+    """Approve the wallet to spend tokens on payment contracts.
+
+    This is a one-time operation required before any storage operations.
+    Must be called after configuring a wallet but before storing data.
+
+    Returns:
+        JSON with approved boolean, or error details.
+    """
+    client, network = _get_ctx()
+    try:
+        result = await client.wallet_approve()
+        return _ok({"approved": result}, network)
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
+# Tool 13: archive_put
 # ---------------------------------------------------------------------------
 
 
@@ -521,6 +472,127 @@ async def archive_put(
         ])
         result = await client.archive_put_public(archive)
         return _ok({"address": result.address, "cost": result.cost}, network)
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
+# Tool 14: prepare_upload
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def prepare_upload(
+    path: str,
+) -> str:
+    """Prepare a file upload for external signing (two-phase upload).
+
+    Returns payment details including contract addresses, quote hashes, and
+    amounts that an external signer must process before calling finalize_upload.
+
+    Args:
+        path: Absolute path to the local file to upload.
+
+    Returns:
+        JSON with upload_id, payments array (quote_hash, rewards_address, amount),
+        total_amount, data_payments_address, payment_token_address, and rpc_url.
+    """
+    client, network = _get_ctx()
+    try:
+        result = await client.prepare_upload(path)
+        return _ok({
+            "upload_id": result.upload_id,
+            "payments": [
+                {
+                    "quote_hash": p.quote_hash,
+                    "rewards_address": p.rewards_address,
+                    "amount": p.amount,
+                }
+                for p in result.payments
+            ],
+            "total_amount": result.total_amount,
+            "data_payments_address": result.data_payments_address,
+            "payment_token_address": result.payment_token_address,
+            "rpc_url": result.rpc_url,
+        }, network)
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
+# Tool 15: prepare_data_upload
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def prepare_data_upload(
+    data: str,
+) -> str:
+    """Prepare a data upload for external signing (two-phase upload).
+
+    Takes base64-encoded data and returns payment details including contract
+    addresses, quote hashes, and amounts that an external signer must process
+    before calling finalize_upload.
+
+    Args:
+        data: Base64-encoded bytes to upload.
+
+    Returns:
+        JSON with upload_id, payments array (quote_hash, rewards_address, amount),
+        total_amount, data_payments_address, payment_token_address, and rpc_url.
+    """
+    client, network = _get_ctx()
+    try:
+        raw = base64.b64decode(data)
+        result = await client.prepare_data_upload(raw)
+        return _ok({
+            "upload_id": result.upload_id,
+            "payments": [
+                {
+                    "quote_hash": p.quote_hash,
+                    "rewards_address": p.rewards_address,
+                    "amount": p.amount,
+                }
+                for p in result.payments
+            ],
+            "total_amount": result.total_amount,
+            "data_payments_address": result.data_payments_address,
+            "payment_token_address": result.payment_token_address,
+            "rpc_url": result.rpc_url,
+        }, network)
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
+# Tool 16: finalize_upload
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def finalize_upload(
+    upload_id: str,
+    tx_hashes: dict[str, str],
+) -> str:
+    """Finalize a two-phase upload after payment transactions are submitted.
+
+    Args:
+        upload_id: The upload ID returned by prepare_upload.
+        tx_hashes: Map of quote_hash to tx_hash for each payment.
+
+    Returns:
+        JSON with address (hex) and chunks_stored count.
+    """
+    client, network = _get_ctx()
+    try:
+        result = await client.finalize_upload(upload_id, tx_hashes)
+        return _ok({"address": result.address, "chunks_stored": result.chunks_stored}, network)
     except AntdError as exc:
         return _err_antd(exc, network)
     except Exception as exc:

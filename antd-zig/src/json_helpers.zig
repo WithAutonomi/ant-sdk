@@ -290,6 +290,22 @@ pub fn buildDataBody(allocator: Allocator, data: []const u8) ![]const u8 {
     return std.fmt.allocPrint(allocator, "{{\"data\":{s}}}", .{escaped}) catch return error.JsonError;
 }
 
+/// Build a JSON body for a data upload with an optional payment_mode field.
+pub fn buildDataBodyWithPaymentMode(allocator: Allocator, data: []const u8, payment_mode: []const u8) ![]const u8 {
+    const encoded_len = std.base64.standard.Encoder.calcSize(data.len);
+    const encoded = allocator.alloc(u8, encoded_len) catch return error.JsonError;
+    defer allocator.free(encoded);
+    _ = std.base64.standard.Encoder.encode(encoded, data);
+
+    const escaped_data = jsonEscapeString(allocator, encoded) catch return error.JsonError;
+    defer allocator.free(escaped_data);
+
+    const escaped_mode = jsonEscapeString(allocator, payment_mode) catch return error.JsonError;
+    defer allocator.free(escaped_mode);
+
+    return std.fmt.allocPrint(allocator, "{{\"data\":{s},\"payment_mode\":{s}}}", .{ escaped_data, escaped_mode }) catch return error.JsonError;
+}
+
 /// Values supported in JSON body construction.
 pub const JsonValue = union(enum) {
     string: []const u8,
@@ -372,6 +388,60 @@ pub fn buildJsonBody(allocator: Allocator, fields: []const struct { key: []const
 
     try buf.append(allocator, '}');
     return buf.toOwnedSlice(allocator);
+}
+
+/// Parse a WalletAddress from a JSON response body.
+pub fn parseWalletAddress(allocator: Allocator, body: []const u8) !models.WalletAddress {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
+        return error.JsonError;
+    defer parsed.deinit();
+    const root = parsed.value;
+
+    const obj = switch (root) {
+        .object => |o| o,
+        else => return error.JsonError,
+    };
+
+    return .{
+        .address = dupeString(allocator, obj.get("address") orelse .null) catch
+            return error.JsonError,
+    };
+}
+
+/// Parse a WalletBalance from a JSON response body.
+pub fn parseWalletBalance(allocator: Allocator, body: []const u8) !models.WalletBalance {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
+        return error.JsonError;
+    defer parsed.deinit();
+    const root = parsed.value;
+
+    const obj = switch (root) {
+        .object => |o| o,
+        else => return error.JsonError,
+    };
+
+    return .{
+        .balance = dupeString(allocator, obj.get("balance") orelse .null) catch
+            return error.JsonError,
+        .gas_balance = dupeString(allocator, obj.get("gas_balance") orelse .null) catch
+            return error.JsonError,
+    };
+}
+
+/// Extract a boolean field from a JSON response body.
+pub fn parseBoolField(allocator: Allocator, body: []const u8, key: []const u8) !bool {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
+        return error.JsonError;
+    defer parsed.deinit();
+    const obj = switch (parsed.value) {
+        .object => |o| o,
+        else => return error.JsonError,
+    };
+    const val = obj.get(key) orelse return false;
+    return switch (val) {
+        .bool => |b| b,
+        else => false,
+    };
 }
 
 /// Extract the "error" message from a JSON error response body.

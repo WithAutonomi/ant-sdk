@@ -3,11 +3,12 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
+import 'discover.dart';
 import 'errors.dart';
 import 'models.dart';
 
 /// Default base URL for the antd daemon.
-const defaultBaseUrl = 'http://localhost:8080';
+const defaultBaseUrl = 'http://localhost:8082';
 
 /// Default request timeout.
 const defaultTimeout = Duration(minutes: 5);
@@ -21,7 +22,7 @@ class AntdClient {
 
   /// Creates a new antd REST client.
   ///
-  /// [baseUrl] defaults to `http://localhost:8080`.
+  /// [baseUrl] defaults to `http://localhost:8082`.
   /// [timeout] defaults to 5 minutes.
   /// [httpClient] optionally provide a custom HTTP client (e.g. for testing).
   AntdClient({
@@ -32,6 +33,22 @@ class AntdClient {
         _timeout = timeout,
         _httpClient = httpClient ?? http.Client(),
         _ownsClient = httpClient == null;
+
+  /// Creates an antd REST client by auto-discovering the daemon port from the
+  /// daemon.port file written by antd on startup. Falls back to [defaultBaseUrl]
+  /// if the port file is not found.
+  factory AntdClient.autoDiscover({
+    Duration timeout = defaultTimeout,
+    http.Client? httpClient,
+  }) {
+    final discovered = discoverDaemonUrl();
+    final baseUrl = discovered.isNotEmpty ? discovered : defaultBaseUrl;
+    return AntdClient(
+      baseUrl: baseUrl,
+      timeout: timeout,
+      httpClient: httpClient,
+    );
+  }
 
   /// Closes the HTTP client. Only closes if the client was created internally.
   void close() {
@@ -126,10 +143,12 @@ class AntdClient {
   // --- Data ---
 
   /// Stores public immutable data on the network.
-  Future<PutResult> dataPutPublic(Uint8List data) async {
-    final json = await _doJson('POST', '/v1/data/public', {
+  Future<PutResult> dataPutPublic(Uint8List data, {String? paymentMode}) async {
+    final body = <String, dynamic>{
       'data': _b64Encode(data),
-    });
+    };
+    if (paymentMode != null) body['payment_mode'] = paymentMode;
+    final json = await _doJson('POST', '/v1/data/public', body);
     return PutResult.fromJson(json!);
   }
 
@@ -140,10 +159,12 @@ class AntdClient {
   }
 
   /// Stores private encrypted data on the network.
-  Future<PutResult> dataPutPrivate(Uint8List data) async {
-    final json = await _doJson('POST', '/v1/data/private', {
+  Future<PutResult> dataPutPrivate(Uint8List data, {String? paymentMode}) async {
+    final body = <String, dynamic>{
       'data': _b64Encode(data),
-    });
+    };
+    if (paymentMode != null) body['payment_mode'] = paymentMode;
+    final json = await _doJson('POST', '/v1/data/private', body);
     return PutResult.fromJson(json!, addressKey: 'data_map');
   }
 
@@ -178,57 +199,15 @@ class AntdClient {
     return _b64Decode(json!['data'] as String);
   }
 
-  // --- Graph ---
-
-  /// Creates a new graph entry (DAG node).
-  Future<PutResult> graphEntryPut(
-    String ownerSecretKey,
-    List<String> parents,
-    String content,
-    List<GraphDescendant> descendants,
-  ) async {
-    final json = await _doJson('POST', '/v1/graph', {
-      'owner_secret_key': ownerSecretKey,
-      'parents': parents,
-      'content': content,
-      'descendants': descendants.map((d) => d.toJson()).toList(),
-    });
-    return PutResult.fromJson(json!);
-  }
-
-  /// Retrieves a graph entry by address.
-  Future<GraphEntry> graphEntryGet(String address) async {
-    final json = await _doJson('GET', '/v1/graph/$address');
-    return GraphEntry.fromJson(json!);
-  }
-
-  /// Checks if a graph entry exists at the given address.
-  Future<bool> graphEntryExists(String address) async {
-    final code = await _doHead('/v1/graph/$address');
-    if (code == 404) {
-      return false;
-    }
-    if (code >= 300) {
-      throw errorForStatus(code, 'graph entry exists check failed');
-    }
-    return true;
-  }
-
-  /// Estimates the cost of creating a graph entry.
-  Future<String> graphEntryCost(String publicKey) async {
-    final json = await _doJson('POST', '/v1/graph/cost', {
-      'public_key': publicKey,
-    });
-    return json!['cost'] as String;
-  }
-
   // --- Files ---
 
   /// Uploads a local file to the network.
-  Future<PutResult> fileUploadPublic(String path) async {
-    final json = await _doJson('POST', '/v1/files/upload/public', {
+  Future<PutResult> fileUploadPublic(String path, {String? paymentMode}) async {
+    final body = <String, dynamic>{
       'path': path,
-    });
+    };
+    if (paymentMode != null) body['payment_mode'] = paymentMode;
+    final json = await _doJson('POST', '/v1/files/upload/public', body);
     return PutResult.fromJson(json!);
   }
 
@@ -241,10 +220,12 @@ class AntdClient {
   }
 
   /// Uploads a local directory to the network.
-  Future<PutResult> dirUploadPublic(String path) async {
-    final json = await _doJson('POST', '/v1/dirs/upload/public', {
+  Future<PutResult> dirUploadPublic(String path, {String? paymentMode}) async {
+    final body = <String, dynamic>{
       'path': path,
-    });
+    };
+    if (paymentMode != null) body['payment_mode'] = paymentMode;
+    final json = await _doJson('POST', '/v1/dirs/upload/public', body);
     return PutResult.fromJson(json!);
   }
 
@@ -282,5 +263,52 @@ class AntdClient {
       'include_archive': includeArchive,
     });
     return json!['cost'] as String;
+  }
+
+  // --- Wallet ---
+
+  /// Returns the wallet address configured on the daemon.
+  Future<WalletAddress> walletAddress() async {
+    final json = await _doJson('GET', '/v1/wallet/address');
+    return WalletAddress.fromJson(json!);
+  }
+
+  /// Returns the wallet balance (tokens and gas).
+  Future<WalletBalance> walletBalance() async {
+    final json = await _doJson('GET', '/v1/wallet/balance');
+    return WalletBalance.fromJson(json!);
+  }
+
+  /// Approves the wallet to spend tokens on payment contracts (one-time operation).
+  Future<bool> walletApprove() async {
+    final json = await _doJson('POST', '/v1/wallet/approve', {});
+    return json!['approved'] as bool;
+  }
+
+  // --- External Signer (Two-Phase Upload) ---
+
+  /// Prepares a file upload for external signing.
+  Future<PrepareUploadResult> prepareUpload(String path) async {
+    final json = await _doJson('POST', '/v1/upload/prepare', {'path': path});
+    return PrepareUploadResult.fromJson(json!);
+  }
+
+  /// Prepares a data upload for external signing.
+  /// Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+  Future<PrepareUploadResult> prepareDataUpload(Uint8List data) async {
+    final json = await _doJson('POST', '/v1/data/prepare', {'data': _b64Encode(data)});
+    return PrepareUploadResult.fromJson(json!);
+  }
+
+  /// Finalizes an upload after an external signer has submitted payment transactions.
+  Future<FinalizeUploadResult> finalizeUpload(
+    String uploadId,
+    Map<String, String> txHashes,
+  ) async {
+    final json = await _doJson('POST', '/v1/upload/finalize', {
+      'upload_id': uploadId,
+      'tx_hashes': txHashes,
+    });
+    return FinalizeUploadResult.fromJson(json!);
   }
 }

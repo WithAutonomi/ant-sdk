@@ -99,6 +99,7 @@ print(k[2:] if k.startswith('0x') else k)
 EVM_RPC_URL=$(python -c "import json; print(json.load(open('$MANIFEST_FILE'))['evm']['rpc_url'])" 2>/dev/null)
 EVM_TOKEN_ADDR=$(python -c "import json; print(json.load(open('$MANIFEST_FILE'))['evm']['payment_token_address'])" 2>/dev/null)
 EVM_PAYMENTS_ADDR=$(python -c "import json; print(json.load(open('$MANIFEST_FILE'))['evm']['data_payments_address'])" 2>/dev/null)
+EVM_MERKLE_ADDR=$(python -c "import json; print(json.load(open('$MANIFEST_FILE'))['evm'].get('merkle_payments_address', ''))" 2>/dev/null)
 NODE_COUNT=$(python -c "import json; print(json.load(open('$MANIFEST_FILE')).get('node_count', '?'))" 2>/dev/null)
 BASE_PORT=$(python -c "import json; print(json.load(open('$MANIFEST_FILE')).get('base_port', '?'))" 2>/dev/null)
 
@@ -113,6 +114,7 @@ echo -e "${YELLOW}[2/3] Starting antd...${NC}"
     EVM_RPC_URL="$EVM_RPC_URL" \
     EVM_PAYMENT_TOKEN_ADDRESS="$EVM_TOKEN_ADDR" \
     EVM_DATA_PAYMENTS_ADDRESS="$EVM_PAYMENTS_ADDR" \
+    EVM_MERKLE_PAYMENTS_ADDRESS="$EVM_MERKLE_ADDR" \
     cargo run -- --network local 2>&1) &
 ANTD_PID=$!
 
@@ -137,7 +139,7 @@ if $READY; then
     echo ""
     echo -e "${WHITE}  REST:  http://localhost:8082${NC}"
     echo -e "${WHITE}  gRPC:  localhost:50051${NC}"
-    echo -e "${WHITE}  Key:   ${WALLET_KEY:0:10}...${NC}"
+    echo -e "${WHITE}  Wallet: configured${NC}"
     echo ""
     echo -e "${GRAY}Run tests:${NC}"
     echo -e "${GRAY}  ./scripts/test-api.sh${NC}"

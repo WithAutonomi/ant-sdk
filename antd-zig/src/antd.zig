@@ -5,20 +5,23 @@ const http = std.http;
 pub const models = @import("models.zig");
 pub const errors = @import("errors.zig");
 pub const json_helpers = @import("json_helpers.zig");
+pub const discover = @import("discover.zig");
 
 pub const HealthStatus = models.HealthStatus;
 pub const PutResult = models.PutResult;
-pub const GraphDescendant = models.GraphDescendant;
-pub const GraphEntry = models.GraphEntry;
 pub const ArchiveEntry = models.ArchiveEntry;
 pub const Archive = models.Archive;
+pub const WalletAddress = models.WalletAddress;
+pub const WalletBalance = models.WalletBalance;
 pub const AntdError = errors.AntdError;
 pub const ErrorInfo = errors.ErrorInfo;
 pub const errorForStatus = errors.errorForStatus;
 pub const JsonValue = json_helpers.JsonValue;
+pub const discoverDaemonUrl = discover.discoverDaemonUrl;
+pub const discoverGrpcTarget = discover.discoverGrpcTarget;
 
 /// Default antd daemon address.
-pub const default_base_url = "http://localhost:8080";
+pub const default_base_url = "http://localhost:8082";
 
 /// REST client for the antd daemon.
 pub const Client = struct {
@@ -33,6 +36,17 @@ pub const Client = struct {
         return .{
             .allocator = allocator,
             .base_url = base_url,
+        };
+    }
+
+    /// Create a client using daemon port discovery.
+    /// Falls back to the default base URL if discovery fails.
+    /// Note: if a discovered URL is returned, the caller owns that memory.
+    pub fn autoDiscover(allocator: Allocator) Client {
+        const url = discover.discoverDaemonUrl(allocator);
+        return .{
+            .allocator = allocator,
+            .base_url = url orelse default_base_url,
         };
     }
 
@@ -164,8 +178,11 @@ pub const Client = struct {
     // --- Data ---
 
     /// Store public immutable data on the network.
-    pub fn dataPutPublic(self: *Client, data: []const u8) !PutResult {
-        const req_body = try json_helpers.buildDataBody(self.allocator, data);
+    pub fn dataPutPublic(self: *Client, data: []const u8, payment_mode: ?[]const u8) !PutResult {
+        const req_body = if (payment_mode) |mode|
+            try json_helpers.buildDataBodyWithPaymentMode(self.allocator, data, mode)
+        else
+            try json_helpers.buildDataBody(self.allocator, data);
         defer self.allocator.free(req_body);
         const resp = try self.doRequest(.POST, "/v1/data/public", req_body) orelse return error.JsonError;
         defer self.allocator.free(resp);
@@ -182,8 +199,11 @@ pub const Client = struct {
     }
 
     /// Store private encrypted data on the network.
-    pub fn dataPutPrivate(self: *Client, data: []const u8) !PutResult {
-        const req_body = try json_helpers.buildDataBody(self.allocator, data);
+    pub fn dataPutPrivate(self: *Client, data: []const u8, payment_mode: ?[]const u8) !PutResult {
+        const req_body = if (payment_mode) |mode|
+            try json_helpers.buildDataBodyWithPaymentMode(self.allocator, data, mode)
+        else
+            try json_helpers.buildDataBody(self.allocator, data);
         defer self.allocator.free(req_body);
         const resp = try self.doRequest(.POST, "/v1/data/private", req_body) orelse return error.JsonError;
         defer self.allocator.free(resp);
@@ -228,66 +248,42 @@ pub const Client = struct {
         return json_helpers.parseBase64Data(self.allocator, resp);
     }
 
-    // --- Graph ---
+    // --- Wallet ---
 
-    /// Create a new graph entry (DAG node).
-    pub fn graphEntryPut(
-        self: *Client,
-        owner_secret_key: []const u8,
-        parents: []const []const u8,
-        content: []const u8,
-        descendants: []const GraphDescendant,
-    ) !PutResult {
-        const req_body = try json_helpers.buildJsonBody(self.allocator, &.{
-            .{ .key = "owner_secret_key", .value = .{ .string = owner_secret_key } },
-            .{ .key = "parents", .value = .{ .string_array = parents } },
-            .{ .key = "content", .value = .{ .string = content } },
-            .{ .key = "descendants", .value = .{ .descendants = descendants } },
-        });
-        defer self.allocator.free(req_body);
-        const resp = try self.doRequest(.POST, "/v1/graph", req_body) orelse return error.JsonError;
+    /// Get the wallet's public address.
+    pub fn walletAddress(self: *Client) !WalletAddress {
+        const resp = try self.doRequest(.GET, "/v1/wallet/address", null) orelse return error.JsonError;
         defer self.allocator.free(resp);
-        return json_helpers.parsePutResult(self.allocator, resp, "address");
+        return json_helpers.parseWalletAddress(self.allocator, resp);
     }
 
-    /// Retrieve a graph entry by address.
-    pub fn graphEntryGet(self: *Client, address: []const u8) !GraphEntry {
-        const path = try std.fmt.allocPrint(self.allocator, "/v1/graph/{s}", .{address});
-        defer self.allocator.free(path);
-        const resp = try self.doRequest(.GET, path, null) orelse return error.JsonError;
+    /// Get the wallet's token and gas balances.
+    pub fn walletBalance(self: *Client) !WalletBalance {
+        const resp = try self.doRequest(.GET, "/v1/wallet/balance", null) orelse return error.JsonError;
         defer self.allocator.free(resp);
-        return json_helpers.parseGraphEntry(self.allocator, resp);
+        return json_helpers.parseWalletBalance(self.allocator, resp);
     }
 
-    /// Check if a graph entry exists at the given address.
-    pub fn graphEntryExists(self: *Client, address: []const u8) !bool {
-        const path = try std.fmt.allocPrint(self.allocator, "/v1/graph/{s}", .{address});
-        defer self.allocator.free(path);
-        _ = self.doRequest(.HEAD, path, null) catch |err| {
-            if (err == error.NotFound) return false;
-            return err;
-        };
-        return true;
-    }
-
-    /// Estimate the cost of creating a graph entry.
-    pub fn graphEntryCost(self: *Client, public_key: []const u8) ![]const u8 {
-        const req_body = try json_helpers.buildJsonBody(self.allocator, &.{
-            .{ .key = "public_key", .value = .{ .string = public_key } },
-        });
-        defer self.allocator.free(req_body);
-        const resp = try self.doRequest(.POST, "/v1/graph/cost", req_body) orelse return error.JsonError;
+    /// Approve the wallet to spend tokens on payment contracts (one-time operation).
+    pub fn walletApprove(self: *Client) !bool {
+        const resp = try self.doRequest(.POST, "/v1/wallet/approve", "{}") orelse return error.JsonError;
         defer self.allocator.free(resp);
-        return json_helpers.parseCost(self.allocator, resp);
+        return json_helpers.parseBoolField(self.allocator, resp, "approved");
     }
 
     // --- Files ---
 
     /// Upload a local file to the network.
-    pub fn fileUploadPublic(self: *Client, path: []const u8) !PutResult {
-        const req_body = try json_helpers.buildJsonBody(self.allocator, &.{
-            .{ .key = "path", .value = .{ .string = path } },
-        });
+    pub fn fileUploadPublic(self: *Client, path: []const u8, payment_mode: ?[]const u8) !PutResult {
+        const req_body = if (payment_mode) |mode|
+            try json_helpers.buildJsonBody(self.allocator, &.{
+                .{ .key = "path", .value = .{ .string = path } },
+                .{ .key = "payment_mode", .value = .{ .string = mode } },
+            })
+        else
+            try json_helpers.buildJsonBody(self.allocator, &.{
+                .{ .key = "path", .value = .{ .string = path } },
+            });
         defer self.allocator.free(req_body);
         const resp = try self.doRequest(.POST, "/v1/files/upload/public", req_body) orelse return error.JsonError;
         defer self.allocator.free(resp);
@@ -305,10 +301,16 @@ pub const Client = struct {
     }
 
     /// Upload a local directory to the network.
-    pub fn dirUploadPublic(self: *Client, path: []const u8) !PutResult {
-        const req_body = try json_helpers.buildJsonBody(self.allocator, &.{
-            .{ .key = "path", .value = .{ .string = path } },
-        });
+    pub fn dirUploadPublic(self: *Client, path: []const u8, payment_mode: ?[]const u8) !PutResult {
+        const req_body = if (payment_mode) |mode|
+            try json_helpers.buildJsonBody(self.allocator, &.{
+                .{ .key = "path", .value = .{ .string = path } },
+                .{ .key = "payment_mode", .value = .{ .string = mode } },
+            })
+        else
+            try json_helpers.buildJsonBody(self.allocator, &.{
+                .{ .key = "path", .value = .{ .string = path } },
+            });
         defer self.allocator.free(req_body);
         const resp = try self.doRequest(.POST, "/v1/dirs/upload/public", req_body) orelse return error.JsonError;
         defer self.allocator.free(resp);
@@ -343,6 +345,38 @@ pub const Client = struct {
         const resp = try self.doRequest(.POST, "/v1/archives/public", req_body) orelse return error.JsonError;
         defer self.allocator.free(resp);
         return json_helpers.parsePutResult(self.allocator, resp, "address");
+    }
+
+    // --- External Signer (Two-Phase Upload) ---
+
+    /// Prepare a file upload for external signing.
+    /// Returns raw JSON response body that the caller must parse.
+    pub fn prepareUpload(self: *Client, path: []const u8) ![]const u8 {
+        const req_body = try json_helpers.buildJsonBody(self.allocator, &.{
+            .{ .key = "path", .value = .{ .string = path } },
+        });
+        defer self.allocator.free(req_body);
+        const resp = try self.doRequest(.POST, "/v1/upload/prepare", req_body) orelse return error.JsonError;
+        return resp;
+    }
+
+    /// Prepare a data upload for external signing.
+    /// Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+    /// Returns raw JSON response body that the caller must parse.
+    pub fn prepareDataUpload(self: *Client, data: []const u8) ![]const u8 {
+        const req_body = try json_helpers.buildDataBody(self.allocator, data);
+        defer self.allocator.free(req_body);
+        const resp = try self.doRequest(.POST, "/v1/data/prepare", req_body) orelse return error.JsonError;
+        return resp;
+    }
+
+    /// Finalize an upload after an external signer has submitted payment transactions.
+    /// Returns raw JSON response body that the caller must parse.
+    pub fn finalizeUpload(self: *Client, upload_id: []const u8, tx_hashes_json: []const u8) ![]const u8 {
+        // Caller must provide a pre-built JSON body with upload_id and tx_hashes
+        const resp = try self.doRequest(.POST, "/v1/upload/finalize", tx_hashes_json) orelse return error.JsonError;
+        _ = upload_id;
+        return resp;
     }
 
     /// Estimate the cost of uploading a file.

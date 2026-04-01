@@ -5,6 +5,7 @@ use base64::Engine;
 use reqwest;
 use serde_json::{json, Value};
 
+use crate::discover::discover_daemon_url;
 use crate::errors::{error_for_status, AntdError};
 use crate::models::*;
 
@@ -25,7 +26,7 @@ fn url_encode(s: &str) -> String {
 }
 
 /// Default base URL of the antd daemon.
-pub const DEFAULT_BASE_URL: &str = "http://localhost:8080";
+pub const DEFAULT_BASE_URL: &str = "http://localhost:8082";
 
 /// Default request timeout (5 minutes).
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
@@ -41,6 +42,22 @@ impl Client {
     /// Creates a new client with the given base URL and default timeout.
     pub fn new(base_url: &str) -> Self {
         Self::with_timeout(base_url, DEFAULT_TIMEOUT)
+    }
+
+    /// Creates a client by auto-discovering the daemon port file, falling back
+    /// to [`DEFAULT_BASE_URL`] if discovery fails.
+    pub fn auto_discover() -> Self {
+        let url = discover_daemon_url()
+            .unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
+        Self::new(&url)
+    }
+
+    /// Like [`auto_discover`](Self::auto_discover) but with a custom request
+    /// timeout.
+    pub fn auto_discover_with_timeout(timeout: Duration) -> Self {
+        let url = discover_daemon_url()
+            .unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
+        Self::with_timeout(&url, timeout)
     }
 
     /// Creates a new client with the given base URL and custom timeout.
@@ -145,12 +162,16 @@ impl Client {
     // --- Data ---
 
     /// Stores public immutable data on the network.
-    pub async fn data_put_public(&self, data: &[u8]) -> Result<PutResult, AntdError> {
+    pub async fn data_put_public(&self, data: &[u8], payment_mode: Option<&str>) -> Result<PutResult, AntdError> {
+        let mut body = json!({ "data": Self::b64_encode(data) });
+        if let Some(mode) = payment_mode {
+            body["payment_mode"] = json!(mode);
+        }
         let (j, _) = self
             .do_json(
                 reqwest::Method::POST,
                 "/v1/data/public",
-                Some(json!({ "data": Self::b64_encode(data) })),
+                Some(body),
             )
             .await?;
         let j = j.unwrap_or_default();
@@ -174,12 +195,16 @@ impl Client {
     }
 
     /// Stores private encrypted data on the network.
-    pub async fn data_put_private(&self, data: &[u8]) -> Result<PutResult, AntdError> {
+    pub async fn data_put_private(&self, data: &[u8], payment_mode: Option<&str>) -> Result<PutResult, AntdError> {
+        let mut body = json!({ "data": Self::b64_encode(data) });
+        if let Some(mode) = payment_mode {
+            body["payment_mode"] = json!(mode);
+        }
         let (j, _) = self
             .do_json(
                 reqwest::Method::POST,
                 "/v1/data/private",
-                Some(json!({ "data": Self::b64_encode(data) })),
+                Some(body),
             )
             .await?;
         let j = j.unwrap_or_default();
@@ -247,115 +272,19 @@ impl Client {
         Self::b64_decode(&Self::str_field(&j, "data"))
     }
 
-    // --- Graph ---
-
-    /// Creates a new graph entry (DAG node).
-    pub async fn graph_entry_put(
-        &self,
-        owner_secret_key: &str,
-        parents: &[String],
-        content: &str,
-        descendants: &[GraphDescendant],
-    ) -> Result<PutResult, AntdError> {
-        let descs: Vec<Value> = descendants
-            .iter()
-            .map(|d| json!({ "public_key": d.public_key, "content": d.content }))
-            .collect();
-        let (j, _) = self
-            .do_json(
-                reqwest::Method::POST,
-                "/v1/graph",
-                Some(json!({
-                    "owner_secret_key": owner_secret_key,
-                    "parents": parents,
-                    "content": content,
-                    "descendants": descs,
-                })),
-            )
-            .await?;
-        let j = j.unwrap_or_default();
-        Ok(PutResult {
-            cost: Self::str_field(&j, "cost"),
-            address: Self::str_field(&j, "address"),
-        })
-    }
-
-    /// Retrieves a graph entry by address.
-    pub async fn graph_entry_get(&self, address: &str) -> Result<GraphEntry, AntdError> {
-        let (j, _) = self
-            .do_json(
-                reqwest::Method::GET,
-                &format!("/v1/graph/{address}"),
-                None,
-            )
-            .await?;
-        let j = j.unwrap_or_default();
-        let descendants = j
-            .get("descendants")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .map(|d| GraphDescendant {
-                        public_key: Self::str_field(d, "public_key"),
-                        content: Self::str_field(d, "content"),
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let parents = j
-            .get("parents")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default();
-        Ok(GraphEntry {
-            owner: Self::str_field(&j, "owner"),
-            parents,
-            content: Self::str_field(&j, "content"),
-            descendants,
-        })
-    }
-
-    /// Checks if a graph entry exists at the given address.
-    pub async fn graph_entry_exists(&self, address: &str) -> Result<bool, AntdError> {
-        let code = self.do_head(&format!("/v1/graph/{address}")).await?;
-        if code == 404 {
-            return Ok(false);
-        }
-        if code >= 300 {
-            return Err(error_for_status(
-                code,
-                "graph entry exists check failed".to_string(),
-            ));
-        }
-        Ok(true)
-    }
-
-    /// Estimates the cost of creating a graph entry.
-    pub async fn graph_entry_cost(&self, public_key: &str) -> Result<String, AntdError> {
-        let (j, _) = self
-            .do_json(
-                reqwest::Method::POST,
-                "/v1/graph/cost",
-                Some(json!({ "public_key": public_key })),
-            )
-            .await?;
-        let j = j.unwrap_or_default();
-        Ok(Self::str_field(&j, "cost"))
-    }
-
     // --- Files ---
 
     /// Uploads a local file to the network.
-    pub async fn file_upload_public(&self, path: &str) -> Result<PutResult, AntdError> {
+    pub async fn file_upload_public(&self, path: &str, payment_mode: Option<&str>) -> Result<PutResult, AntdError> {
+        let mut body = json!({ "path": path });
+        if let Some(mode) = payment_mode {
+            body["payment_mode"] = json!(mode);
+        }
         let (j, _) = self
             .do_json(
                 reqwest::Method::POST,
                 "/v1/files/upload/public",
-                Some(json!({ "path": path })),
+                Some(body),
             )
             .await?;
         let j = j.unwrap_or_default();
@@ -381,12 +310,16 @@ impl Client {
     }
 
     /// Uploads a local directory to the network.
-    pub async fn dir_upload_public(&self, path: &str) -> Result<PutResult, AntdError> {
+    pub async fn dir_upload_public(&self, path: &str, payment_mode: Option<&str>) -> Result<PutResult, AntdError> {
+        let mut body = json!({ "path": path });
+        if let Some(mode) = payment_mode {
+            body["payment_mode"] = json!(mode);
+        }
         let (j, _) = self
             .do_json(
                 reqwest::Method::POST,
                 "/v1/dirs/upload/public",
-                Some(json!({ "path": path })),
+                Some(body),
             )
             .await?;
         let j = j.unwrap_or_default();
@@ -488,5 +421,140 @@ impl Client {
             .await?;
         let j = j.unwrap_or_default();
         Ok(Self::str_field(&j, "cost"))
+    }
+
+    // --- Wallet ---
+
+    /// Returns the wallet address configured in the daemon.
+    pub async fn wallet_address(&self) -> Result<WalletAddress, AntdError> {
+        let (j, _) = self
+            .do_json(reqwest::Method::GET, "/v1/wallet/address", None)
+            .await?;
+        let j = j.unwrap_or_default();
+        Ok(WalletAddress {
+            address: Self::str_field(&j, "address"),
+        })
+    }
+
+    /// Returns the wallet balance from the daemon.
+    pub async fn wallet_balance(&self) -> Result<WalletBalance, AntdError> {
+        let (j, _) = self
+            .do_json(reqwest::Method::GET, "/v1/wallet/balance", None)
+            .await?;
+        let j = j.unwrap_or_default();
+        Ok(WalletBalance {
+            balance: Self::str_field(&j, "balance"),
+            gas_balance: Self::str_field(&j, "gas_balance"),
+        })
+    }
+
+    /// Approves the wallet to spend tokens on payment contracts.
+    /// This is a one-time operation required before any storage operations.
+    pub async fn wallet_approve(&self) -> Result<bool, AntdError> {
+        let (j, _) = self
+            .do_json(
+                reqwest::Method::POST,
+                "/v1/wallet/approve",
+                Some(json!({})),
+            )
+            .await?;
+        let j = j.unwrap_or_default();
+        Ok(j.get("approved").and_then(|v| v.as_bool()).unwrap_or(false))
+    }
+
+    // --- External Signer (Two-Phase Upload) ---
+
+    /// Prepares a file upload for external signing.
+    /// Returns payment details that an external signer must process before calling
+    /// [`finalize_upload`](Self::finalize_upload).
+    pub async fn prepare_upload(&self, path: &str) -> Result<PrepareUploadResult, AntdError> {
+        let (j, _) = self
+            .do_json(
+                reqwest::Method::POST,
+                "/v1/upload/prepare",
+                Some(json!({ "path": path })),
+            )
+            .await?;
+        let j = j.unwrap_or_default();
+        let payments = j
+            .get("payments")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .map(|p| PaymentInfo {
+                        quote_hash: Self::str_field(p, "quote_hash"),
+                        rewards_address: Self::str_field(p, "rewards_address"),
+                        amount: Self::str_field(p, "amount"),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(PrepareUploadResult {
+            upload_id: Self::str_field(&j, "upload_id"),
+            payments,
+            total_amount: Self::str_field(&j, "total_amount"),
+            data_payments_address: Self::str_field(&j, "data_payments_address"),
+            payment_token_address: Self::str_field(&j, "payment_token_address"),
+            rpc_url: Self::str_field(&j, "rpc_url"),
+        })
+    }
+
+    /// Prepares a data upload for external signing.
+    /// Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+    /// Returns payment details that an external signer must process before calling
+    /// [`finalize_upload`](Self::finalize_upload).
+    pub async fn prepare_data_upload(&self, data: &[u8]) -> Result<PrepareUploadResult, AntdError> {
+        let (j, _) = self
+            .do_json(
+                reqwest::Method::POST,
+                "/v1/data/prepare",
+                Some(json!({ "data": Self::b64_encode(data) })),
+            )
+            .await?;
+        let j = j.unwrap_or_default();
+        let payments = j
+            .get("payments")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .map(|p| PaymentInfo {
+                        quote_hash: Self::str_field(p, "quote_hash"),
+                        rewards_address: Self::str_field(p, "rewards_address"),
+                        amount: Self::str_field(p, "amount"),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(PrepareUploadResult {
+            upload_id: Self::str_field(&j, "upload_id"),
+            payments,
+            total_amount: Self::str_field(&j, "total_amount"),
+            data_payments_address: Self::str_field(&j, "data_payments_address"),
+            payment_token_address: Self::str_field(&j, "payment_token_address"),
+            rpc_url: Self::str_field(&j, "rpc_url"),
+        })
+    }
+
+    /// Finalizes an upload after an external signer has submitted payment transactions.
+    pub async fn finalize_upload(
+        &self,
+        upload_id: &str,
+        tx_hashes: &std::collections::HashMap<String, String>,
+    ) -> Result<FinalizeUploadResult, AntdError> {
+        let (j, _) = self
+            .do_json(
+                reqwest::Method::POST,
+                "/v1/upload/finalize",
+                Some(json!({
+                    "upload_id": upload_id,
+                    "tx_hashes": tx_hashes,
+                })),
+            )
+            .await?;
+        let j = j.unwrap_or_default();
+        Ok(FinalizeUploadResult {
+            address: Self::str_field(&j, "address"),
+            chunks_stored: Self::i64_field(&j, "chunks_stored"),
+        })
     }
 }

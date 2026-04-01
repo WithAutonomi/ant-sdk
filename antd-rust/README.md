@@ -53,7 +53,7 @@ ant dev start
 use antd_client::{Client, DEFAULT_BASE_URL};
 use std::time::Duration;
 
-// Default: http://localhost:8080, 5 minute timeout
+// Default: http://localhost:8082, 5 minute timeout
 let client = Client::new(DEFAULT_BASE_URL);
 
 // Custom URL
@@ -87,14 +87,6 @@ All methods are `async` and return `Result<T, AntdError>`.
 | `chunk_put(data)` | Store a raw chunk |
 | `chunk_get(address)` | Retrieve a chunk |
 
-### Graph Entries (DAG Nodes)
-| Method | Description |
-|--------|-------------|
-| `graph_entry_put(secret_key, parents, content, descendants)` | Create entry |
-| `graph_entry_get(address)` | Read entry |
-| `graph_entry_exists(address)` | Check if exists |
-| `graph_entry_cost(public_key)` | Estimate creation cost |
-
 ### Files & Directories
 | Method | Description |
 |--------|-------------|
@@ -108,7 +100,7 @@ All methods are `async` and return `Result<T, AntdError>`.
 
 ## gRPC Transport
 
-The SDK also provides a gRPC client with the same 19 async methods. It connects to the
+The SDK also provides a gRPC client with the same async methods. It connects to the
 antd daemon's gRPC endpoint (default `localhost:50051`) using [tonic](https://github.com/hyperium/tonic).
 
 ```rust
@@ -174,7 +166,6 @@ See the [examples/](examples/) directory:
 - `02-data` — Public data storage and retrieval
 - `03-chunks` — Raw chunk operations
 - `04-files` — File and directory upload/download
-- `05-graph` — Graph entry (DAG node) operations
 - `06-private-data` — Private encrypted data storage
 
 Run an example:

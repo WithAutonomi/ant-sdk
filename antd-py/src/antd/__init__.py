@@ -14,11 +14,15 @@ from __future__ import annotations
 from .models import (
     Archive,
     ArchiveEntry,
-    GraphDescendant,
-    GraphEntry,
+    FinalizeUploadResult,
     HealthStatus,
+    PaymentInfo,
+    PrepareUploadResult,
     PutResult,
+    WalletAddress,
+    WalletBalance,
 )
+from ._discover import discover_daemon_url, discover_grpc_target
 from .exceptions import (
     AntdError,
     AlreadyExistsError,
@@ -32,6 +36,9 @@ from .exceptions import (
 )
 
 __all__ = [
+    # Discovery
+    "discover_daemon_url",
+    "discover_grpc_target",
     # Factory functions
     "AntdClient",
     "AsyncAntdClient",
@@ -39,9 +46,9 @@ __all__ = [
     "HealthStatus",
     "Archive",
     "ArchiveEntry",
-    "GraphDescendant",
-    "GraphEntry",
     "PutResult",
+    "WalletAddress",
+    "WalletBalance",
     # Exceptions
     "AntdError",
     "AlreadyExistsError",
@@ -61,7 +68,7 @@ def AntdClient(transport: str = "rest", **kwargs):
     Args:
         transport: "rest" (default) or "grpc"
         **kwargs: Passed to the underlying client constructor.
-            REST: base_url (default "http://localhost:8080"), timeout
+            REST: base_url (default "http://localhost:8082"), timeout
             gRPC: target (default "localhost:50051")
     """
     if transport == "rest":
@@ -80,7 +87,7 @@ def AsyncAntdClient(transport: str = "rest", **kwargs):
     Args:
         transport: "rest" (default) or "grpc"
         **kwargs: Passed to the underlying client constructor.
-            REST: base_url (default "http://localhost:8080"), timeout
+            REST: base_url (default "http://localhost:8082"), timeout
             gRPC: target (default "localhost:50051")
     """
     if transport == "rest":

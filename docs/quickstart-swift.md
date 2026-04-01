@@ -49,7 +49,7 @@ let client = try AntdClient.createRest()
 
 // Custom endpoint
 let client2 = try AntdClient.createRest(
-    baseURL: URL(string: "http://localhost:8080")!,
+    baseURL: URL(string: "http://localhost:8082")!,
     timeout: 30
 )
 
@@ -121,33 +121,6 @@ try await client.dirDownloadPublic(address: dirResult.address, destPath: "/path/
 let cost = try await client.fileCost(path: "/path/to/file.txt", isPublic: true, includeArchive: false)
 ```
 
-## Graph Entries (DAG Nodes)
-
-```swift
-var keyBytes = [UInt8](repeating: 0, count: 32)
-_ = SecRandomCopyBytes(kSecRandomDefault, keyBytes.count, &keyBytes)
-let secretKey = keyBytes.map { String(format: "%02x", $0) }.joined()
-
-var contentBytes = [UInt8](repeating: 0, count: 32)
-_ = SecRandomCopyBytes(kSecRandomDefault, contentBytes.count, &contentBytes)
-let content = contentBytes.map { String(format: "%02x", $0) }.joined()
-
-// Create root node
-let result = try await client.graphEntryPut(
-    ownerSecretKey: secretKey,
-    parents: [],
-    content: content,
-    descendants: []
-)
-
-// Read
-let entry = try await client.graphEntryGet(address: result.address)
-print("Owner: \(entry.owner)")
-print("Parents: \(entry.parents.count)")
-
-// Check existence
-let exists = try await client.graphEntryExists(address: result.address)
-```
 
 ## Error Handling
 
@@ -189,7 +162,6 @@ swift run AntdExamples 1     # Connect
 swift run AntdExamples 2     # Public data
 swift run AntdExamples 3     # Chunks
 swift run AntdExamples 4     # Files
-swift run AntdExamples 5     # Graph entries
 swift run AntdExamples 6     # Private data
 swift run AntdExamples all   # Run all examples
 ```

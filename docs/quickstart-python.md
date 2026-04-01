@@ -25,7 +25,7 @@ client = AntdClient()
 aclient = AsyncAntdClient()
 
 # Custom endpoint
-client = AntdClient(transport="rest", base_url="http://localhost:8080")
+client = AntdClient(transport="rest", base_url="http://localhost:8082")
 
 # gRPC transport
 client = AntdClient(transport="grpc", target="localhost:50051")
@@ -92,34 +92,6 @@ client.dir_download_public(result.address, "/path/to/output_dir")
 cost = client.file_cost("/path/to/file.txt")
 ```
 
-## Graph Entries (DAG Nodes)
-
-```python
-import os
-from antd import GraphDescendant
-
-key = os.urandom(32).hex()
-content = os.urandom(32).hex()
-
-# Create a root node
-result = client.graph_entry_put(
-    key,
-    parents=[],
-    content=content,
-    descendants=[],
-)
-print(f"Graph entry: {result.address}")
-
-# Read
-entry = client.graph_entry_get(result.address)
-print(f"Owner: {entry.owner}")
-print(f"Content: {entry.content}")
-print(f"Parents: {entry.parents}")
-print(f"Descendants: {entry.descendants}")
-
-# Check existence
-exists = client.graph_entry_exists(result.address)
-```
 
 ## Async Usage
 

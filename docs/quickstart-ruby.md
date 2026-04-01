@@ -24,7 +24,7 @@ require 'antd'
 client = Antd::Client.new
 
 # Custom endpoint
-client = Antd::Client.new(transport: :rest, base_url: "http://localhost:8080")
+client = Antd::Client.new(transport: :rest, base_url: "http://localhost:8082")
 
 # gRPC transport
 client = Antd::Client.new(transport: :grpc, target: "localhost:50051")
@@ -91,33 +91,6 @@ client.dir_download_public(result.address, "/path/to/output_dir")
 cost = client.file_cost("/path/to/file.txt")
 ```
 
-## Graph Entries (DAG Nodes)
-
-```ruby
-require 'securerandom'
-
-key = SecureRandom.hex(32)
-content = SecureRandom.hex(32)
-
-# Create a root node
-result = client.graph_entry_put(
-  key,
-  parents: [],
-  content: content,
-  descendants: [],
-)
-puts "Graph entry: #{result.address}"
-
-# Read
-entry = client.graph_entry_get(result.address)
-puts "Owner: #{entry.owner}"
-puts "Content: #{entry.content}"
-puts "Parents: #{entry.parents}"
-puts "Descendants: #{entry.descendants}"
-
-# Check existence
-exists = client.graph_entry_exists(result.address)
-```
 
 ## Error Handling
 

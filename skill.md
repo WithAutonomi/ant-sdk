@@ -6,11 +6,13 @@ You are helping a developer build an application on the **Autonomi** decentraliz
 
 Autonomi is a permanent, decentralized data network. Data is content-addressed (immutable). Storage is pay-once, reads are free.
 
-**How it works:** A local Rust daemon (`antd`) connects to the network and exposes REST + gRPC APIs. Your app talks to antd through a language SDK. The developer never touches the network directly.
+**How it works:** A local Rust daemon (`antd`) connects to the network and exposes REST + gRPC APIs. Your app talks to antd through a language SDK. The developer never touches the network directly. All SDKs support automatic daemon discovery via a port file written by antd on startup.
 
 ```
 App  →  SDK  →  antd daemon (localhost)  →  Autonomi Network
 ```
+
+**Port discovery:** antd writes `daemon.port` to the platform data dir (`%APPDATA%\ant\` on Windows, `~/.local/share/ant/` on Linux, `~/Library/Application Support/ant/` on macOS). All SDKs provide auto-discover constructors that read this file. When generating client code, prefer the auto-discover constructor (e.g. `NewClientAutoDiscover()` in Go, `RestClient.auto_discover()` in Python) over hardcoded URLs. Default fallback: REST on `localhost:8082`, gRPC on `localhost:50051`.
 
 For detailed API signatures and endpoint documentation, see:
 - **[llms.txt](llms.txt)** — concise overview of all REST endpoints, gRPC services, error codes, and SDK links
@@ -53,12 +55,6 @@ This is the most important decision. Match the developer's use case to the right
 | **Chunks** | You need custom chunking logic | Advanced/low-level use cases only |
 | **Files** | Uploading local files or directories | Static sites, media hosting, backups |
 
-### Append-only
-
-| Primitive | Use When | Example |
-|-----------|----------|---------|
-| **Graph Entries** | Building linked data structures | Version history, social graphs, audit logs |
-
 ## Common Patterns
 
 ### Pattern 1: Immutable Data Storage
@@ -66,13 +62,18 @@ This is the most important decision. Match the developer's use case to the right
 Store data permanently on the network. Content-addressed, so duplicate data is free.
 
 ```python
-# Store public data
+# Store public data (payment_mode defaults to "auto")
 result = client.data_put_public(b"Hello, Autonomi!")
 print(f"Address: {result.address}")
 
 # Retrieve it back
 data = client.data_get_public(result.address)
+
+# For large uploads, explicitly use merkle batch payments to save gas
+result = client.data_put_public(large_data, payment_mode="merkle")
 ```
+
+All write operations accept an optional `payment_mode` parameter: `"auto"` (default — uses merkle for 64+ chunks), `"merkle"` (force batch payments, min 2 chunks), or `"single"` (per-chunk payments). The `"auto"` mode is recommended for most use cases.
 
 **When to suggest this:** Developer wants permanent, immutable content storage with public readability.
 
@@ -89,20 +90,27 @@ data = client.data_get_private(result.address)
 
 **When to suggest this:** Developer wants encrypted storage that only they can access.
 
-### Pattern 3: Graph (Linked History)
+### Pattern 3: External Signer (Two-Phase Upload)
 
-DAG nodes with parent/descendant links for building append-only structures.
+When the application manages its own wallet (e.g. a browser wallet or hardware signer), use the two-phase upload flow instead of the daemon's built-in wallet:
 
 ```python
-entry1 = client.graph_entry_put(key1, parents=[], content=content1, descendants=[])
-entry2 = client.graph_entry_put(key2, parents=[entry1.address], content=content2, descendants=[])
+# Phase 1: Prepare — get payment details
+prep = client.prepare_upload("/path/to/file")
+# prep.upload_id, prep.payments, prep.total_amount, prep.data_payments_address, etc.
+
+# ... external signer submits EVM transactions for each payment ...
+
+# Phase 2: Finalize — confirm payments and store data
+result = client.finalize_upload(prep.upload_id, {"0xquotehash": "0xtxhash", ...})
+print(f"Stored at: {result.address}, chunks: {result.chunks_stored}")
 ```
 
-**When to suggest this:** Developer needs an audit log, version chain, social graph, or any linked data structure.
+**When to suggest this:** Developer has their own wallet/signer and doesn't want to use antd's built-in wallet. Common in web apps, mobile apps, or enterprise integrations.
 
 ## Key Rules
 
-1. **Every write costs tokens.** Always offer to estimate cost first with the `*_cost` methods. Reads are free.
+1. **Every write costs tokens.** Always offer to estimate cost first with the `*_cost` methods (now fully implemented for both data and files). Before the first storage operation, the wallet must be approved via `wallet_approve()`. Reads are free.
 2. **Data is permanent.** Once stored, it cannot be deleted. Warn developers about storing sensitive data publicly.
 3. **No access revocation.** Once data is public, it stays public.
 4. **Content-addressed = deduplication.** Storing the same bytes twice produces the same address and doesn't cost extra.
@@ -118,6 +126,7 @@ All SDKs use the same error hierarchy. Always generate code with proper error ha
 | `PaymentError` / `PaymentException` | 402 | Wallet has insufficient funds |
 | `AlreadyExistsError` / `AlreadyExistsException` | 409 | Trying to create something that exists |
 | `NetworkError` / `NetworkException` | 502 | Daemon can't reach the network |
+| `ServiceUnavailableError` / `ServiceUnavailableException` | 503 | Wallet not configured |
 | `BadRequestError` / `BadRequestException` | 400 | Invalid parameters |
 
 Python/JS/Swift use `Error` suffix. C#/Kotlin use `Exception` suffix. All inherit from a base `AntdError`/`AntdException`.
@@ -128,7 +137,7 @@ When a developer asks to build something, follow this sequence:
 
 1. **Pick the language** — ask if not obvious from context
 2. **Start the daemon** — remind them: `ant dev start` (or `pip install -e ant-dev/ && ant dev start`)
-3. **Create the client** — show the 2-line connection code for their language
+3. **Create the client** — use the auto-discover constructor for their language (falls back to defaults if antd port file isn't present)
 4. **Check health** — `client.health()` to verify the daemon is running
 5. **Match their use case to a primitive** — use the tables above
 6. **Estimate cost** — call the `*_cost` method before any write

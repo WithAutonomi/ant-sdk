@@ -8,11 +8,21 @@ import io.grpc.Status
 
 class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
 
+    companion object {
+        /**
+         * Create a client by auto-discovering the daemon gRPC port from the
+         * `daemon.port` file.  Falls back to `localhost:50051` if not found.
+         */
+        fun autoDiscover(): AntdGrpcClient {
+            val target = DaemonDiscovery.discoverGrpcTarget().ifEmpty { "localhost:50051" }
+            return AntdGrpcClient(target)
+        }
+    }
+
     private val channel = ManagedChannelBuilder.forTarget(target).usePlaintext().build()
     private val healthStub = HealthServiceGrpcKt.HealthServiceCoroutineStub(channel)
     private val dataStub = DataServiceGrpcKt.DataServiceCoroutineStub(channel)
     private val chunkStub = ChunkServiceGrpcKt.ChunkServiceCoroutineStub(channel)
-    private val graphStub = GraphServiceGrpcKt.GraphServiceCoroutineStub(channel)
     private val fileStub = FileServiceGrpcKt.FileServiceCoroutineStub(channel)
 
     override fun close() {
@@ -38,7 +48,7 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
 
     // ── Data ──
 
-    override suspend fun dataPutPublic(data: ByteArray): PutResult = try {
+    override suspend fun dataPutPublic(data: ByteArray, paymentMode: String?): PutResult = try {
         val resp = dataStub.putPublic(putPublicDataRequest { this.data = ByteString.copyFrom(data) })
         PutResult(resp.cost.attoTokens, resp.address)
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
@@ -48,7 +58,7 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
         resp.data.toByteArray()
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
-    override suspend fun dataPutPrivate(data: ByteArray): PutResult = try {
+    override suspend fun dataPutPrivate(data: ByteArray, paymentMode: String?): PutResult = try {
         val resp = dataStub.putPrivate(putPrivateDataRequest { this.data = ByteString.copyFrom(data) })
         PutResult(resp.cost.attoTokens, resp.dataMap)
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
@@ -75,46 +85,9 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
         resp.data.toByteArray()
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
-    // ── Graph ──
-
-    override suspend fun graphEntryPut(
-        ownerSecretKey: String,
-        parents: List<String>,
-        content: String,
-        descendants: List<GraphDescendant>,
-    ): PutResult = try {
-        val resp = graphStub.put(putGraphEntryRequest {
-            this.ownerSecretKey = ownerSecretKey
-            this.content = content
-            this.parents.addAll(parents)
-            this.descendants.addAll(descendants.map { d ->
-                graphDescendant { publicKey = d.publicKey; this.content = d.content }
-            })
-        })
-        PutResult(resp.cost.attoTokens, resp.address)
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
-    override suspend fun graphEntryGet(address: String): GraphEntry = try {
-        val resp = graphStub.get(getGraphEntryRequest { this.address = address })
-        val desc = resp.descendantsList.map { GraphDescendant(it.publicKey, it.content) }
-        GraphEntry(resp.owner, resp.parentsList, resp.content, desc)
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
-    override suspend fun graphEntryExists(address: String): Boolean = try {
-        val resp = graphStub.checkExistence(checkGraphEntryRequest { this.address = address })
-        resp.exists
-    } catch (ex: StatusRuntimeException) {
-        if (ex.status.code == Status.Code.NOT_FOUND) false else throw wrap(ex)
-    }
-
-    override suspend fun graphEntryCost(publicKey: String): String = try {
-        val resp = graphStub.getCost(graphEntryCostRequest { this.publicKey = publicKey })
-        resp.attoTokens
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
     // ── Files ──
 
-    override suspend fun fileUploadPublic(path: String): PutResult = try {
+    override suspend fun fileUploadPublic(path: String, paymentMode: String?): PutResult = try {
         val resp = fileStub.uploadPublic(uploadFileRequest { this.path = path })
         PutResult(resp.cost.attoTokens, resp.address)
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
@@ -124,7 +97,7 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
         Unit
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
-    override suspend fun dirUploadPublic(path: String): PutResult = try {
+    override suspend fun dirUploadPublic(path: String, paymentMode: String?): PutResult = try {
         val resp = fileStub.dirUploadPublic(uploadFileRequest { this.path = path })
         PutResult(resp.cost.attoTokens, resp.address)
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
@@ -158,4 +131,18 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
         })
         resp.attoTokens
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
+
+    // ── Wallet ──
+
+    override suspend fun walletAddress(): WalletAddress {
+        throw UnsupportedOperationException("walletAddress is not yet supported via gRPC")
+    }
+
+    override suspend fun walletBalance(): WalletBalance {
+        throw UnsupportedOperationException("walletBalance is not yet supported via gRPC")
+    }
+
+    override suspend fun walletApprove(): Boolean {
+        throw UnsupportedOperationException("walletApprove not available via gRPC")
+    }
 }

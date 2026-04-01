@@ -1,19 +1,21 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include "discover.hpp"
 #include "errors.hpp"
 #include "models.hpp"
 
 namespace antd {
 
 /// Default address of the antd daemon.
-inline constexpr const char* kDefaultBaseURL = "http://localhost:8080";
+inline constexpr const char* kDefaultBaseURL = "http://localhost:8082";
 
 /// Default request timeout in seconds (5 minutes).
 inline constexpr int kDefaultTimeoutSeconds = 300;
@@ -34,6 +36,14 @@ public:
     Client(Client&&) noexcept;
     Client& operator=(Client&&) noexcept;
 
+    /// Create a client by auto-discovering the daemon port from the
+    /// daemon.port file.  Falls back to kDefaultBaseURL if not found.
+    static Client auto_discover(int timeout_seconds = kDefaultTimeoutSeconds) {
+        auto url = discover_daemon_url();
+        if (url.empty()) url = kDefaultBaseURL;
+        return Client(url, timeout_seconds);
+    }
+
     // --- Health ---
 
     /// Check daemon status.
@@ -42,13 +52,13 @@ public:
     // --- Data (Immutable) ---
 
     /// Store public immutable data on the network.
-    PutResult data_put_public(const std::vector<uint8_t>& data);
+    PutResult data_put_public(const std::vector<uint8_t>& data, const std::string& payment_mode = "");
 
     /// Retrieve public data by address.
     std::vector<uint8_t> data_get_public(std::string_view address);
 
     /// Store private encrypted data on the network.
-    PutResult data_put_private(const std::vector<uint8_t>& data);
+    PutResult data_put_private(const std::vector<uint8_t>& data, const std::string& payment_mode = "");
 
     /// Retrieve private data using a data map.
     std::vector<uint8_t> data_get_private(std::string_view data_map);
@@ -64,33 +74,16 @@ public:
     /// Retrieve a chunk by address.
     std::vector<uint8_t> chunk_get(std::string_view address);
 
-    // --- Graph Entries (DAG Nodes) ---
-
-    /// Create a new graph entry.
-    PutResult graph_entry_put(std::string_view owner_secret_key,
-                              const std::vector<std::string>& parents,
-                              std::string_view content,
-                              const std::vector<GraphDescendant>& descendants);
-
-    /// Retrieve a graph entry by address.
-    GraphEntry graph_entry_get(std::string_view address);
-
-    /// Check if a graph entry exists at the given address.
-    bool graph_entry_exists(std::string_view address);
-
-    /// Estimate the cost of creating a graph entry.
-    std::string graph_entry_cost(std::string_view public_key);
-
     // --- Files & Directories ---
 
     /// Upload a local file to the network.
-    PutResult file_upload_public(std::string_view path);
+    PutResult file_upload_public(std::string_view path, const std::string& payment_mode = "");
 
     /// Download a file from the network to a local path.
     void file_download_public(std::string_view address, std::string_view dest_path);
 
     /// Upload a local directory to the network.
-    PutResult dir_upload_public(std::string_view path);
+    PutResult dir_upload_public(std::string_view path, const std::string& payment_mode = "");
 
     /// Download a directory from the network to a local path.
     void dir_download_public(std::string_view address, std::string_view dest_path);
@@ -103,6 +96,30 @@ public:
 
     /// Estimate the cost of uploading a file.
     std::string file_cost(std::string_view path, bool is_public, bool include_archive);
+
+    // --- Wallet ---
+
+    /// Get the wallet address configured on the daemon.
+    WalletAddress wallet_address();
+
+    /// Get the wallet balance (tokens and gas).
+    WalletBalance wallet_balance();
+
+    /// Approve the wallet to spend tokens on payment contracts (one-time operation).
+    bool wallet_approve();
+
+    // --- External Signer (Two-Phase Upload) ---
+
+    /// Prepare a file upload for external signing.
+    PrepareUploadResult prepare_upload(std::string_view path);
+
+    /// Prepare a data upload for external signing.
+    /// Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+    PrepareUploadResult prepare_data_upload(const std::vector<uint8_t>& data);
+
+    /// Finalize an upload after an external signer has submitted payment transactions.
+    FinalizeUploadResult finalize_upload(std::string_view upload_id,
+                                          const std::map<std::string, std::string>& tx_hashes);
 
 private:
     struct Impl;

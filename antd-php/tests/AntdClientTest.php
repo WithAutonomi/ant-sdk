@@ -14,7 +14,6 @@ use Autonomi\Antd\Errors\TooLargeError;
 use Autonomi\Antd\Errors\AlreadyExistsError;
 use Autonomi\Antd\Models\Archive;
 use Autonomi\Antd\Models\ArchiveEntry;
-use Autonomi\Antd\Models\GraphDescendant;
 use GuzzleHttp\Client;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
@@ -27,7 +26,7 @@ class AntdClientTest extends TestCase
     {
         $handlerStack = HandlerStack::create($mock);
         $httpClient = new Client(['handler' => $handlerStack]);
-        return new AntdClient('http://localhost:8080', 300.0, $httpClient);
+        return new AntdClient('http://localhost:8082', 300.0, $httpClient);
     }
 
     private function jsonResponse(int $status, array $body): Response
@@ -127,65 +126,6 @@ class AntdClientTest extends TestCase
         $client = $this->createClient($mock);
         $data = $client->chunkGet('chunk1');
         $this->assertSame('chunkdata', $data);
-    }
-
-    // --- Graph ---
-
-    public function testGraphEntryPut(): void
-    {
-        $mock = new MockHandler([
-            $this->jsonResponse(200, ['cost' => '500', 'address' => 'ge1']),
-        ]);
-        $client = $this->createClient($mock);
-        $result = $client->graphEntryPut('sk1', [], 'abc', []);
-        $this->assertSame('ge1', $result->address);
-        $this->assertSame('500', $result->cost);
-    }
-
-    public function testGraphEntryGet(): void
-    {
-        $mock = new MockHandler([
-            $this->jsonResponse(200, [
-                'owner' => 'owner1',
-                'parents' => [],
-                'content' => 'abc',
-                'descendants' => [['public_key' => 'pk1', 'content' => 'desc1']],
-            ]),
-        ]);
-        $client = $this->createClient($mock);
-        $entry = $client->graphEntryGet('ge1');
-        $this->assertSame('owner1', $entry->owner);
-        $this->assertCount(1, $entry->descendants);
-        $this->assertSame('pk1', $entry->descendants[0]->publicKey);
-        $this->assertSame('desc1', $entry->descendants[0]->content);
-    }
-
-    public function testGraphEntryExists(): void
-    {
-        $mock = new MockHandler([
-            new Response(200),
-        ]);
-        $client = $this->createClient($mock);
-        $this->assertTrue($client->graphEntryExists('ge1'));
-    }
-
-    public function testGraphEntryExistsNotFound(): void
-    {
-        $mock = new MockHandler([
-            new Response(404),
-        ]);
-        $client = $this->createClient($mock);
-        $this->assertFalse($client->graphEntryExists('missing'));
-    }
-
-    public function testGraphEntryCost(): void
-    {
-        $mock = new MockHandler([
-            $this->jsonResponse(200, ['cost' => '500']),
-        ]);
-        $client = $this->createClient($mock);
-        $cost = $client->graphEntryCost('pk1');
-        $this->assertSame('500', $cost);
     }
 
     // --- Files ---

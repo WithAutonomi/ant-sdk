@@ -23,7 +23,7 @@ use Autonomi\Antd\AntdClient;
 $client = new AntdClient();
 
 // Custom endpoint
-$client = new AntdClient(transport: 'rest', baseUrl: 'http://localhost:8080');
+$client = new AntdClient(transport: 'rest', baseUrl: 'http://localhost:8082');
 
 // gRPC transport
 $client = new AntdClient(transport: 'grpc', target: 'localhost:50051');
@@ -90,31 +90,6 @@ $client->dirDownloadPublic($result->address, "/path/to/output_dir");
 $cost = $client->fileCost("/path/to/file.txt");
 ```
 
-## Graph Entries (DAG Nodes)
-
-```php
-$key = bin2hex(random_bytes(32));
-$content = bin2hex(random_bytes(32));
-
-// Create a root node
-$result = $client->graphEntryPut(
-    $key,
-    parents: [],
-    content: $content,
-    descendants: [],
-);
-echo "Graph entry: {$result->address}\n";
-
-// Read
-$entry = $client->graphEntryGet($result->address);
-echo "Owner: {$entry->owner}\n";
-echo "Content: {$entry->content}\n";
-echo "Parents: " . count($entry->parents) . "\n";
-echo "Descendants: " . count($entry->descendants) . "\n";
-
-// Check existence
-$exists = $client->graphEntryExists($result->address);
-```
 
 ## Error Handling
 

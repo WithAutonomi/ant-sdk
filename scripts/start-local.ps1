@@ -90,6 +90,7 @@ $walletKey = $manifest.evm.wallet_private_key -replace '^0x', ''
 $evmRpcUrl = $manifest.evm.rpc_url
 $evmTokenAddr = $manifest.evm.payment_token_address
 $evmPaymentsAddr = $manifest.evm.data_payments_address
+$evmMerkleAddr = if ($manifest.evm.merkle_payments_address) { $manifest.evm.merkle_payments_address } else { "" }
 
 Write-Host "       Devnet ready: $($manifest.node_count) nodes, base port $($manifest.base_port)" -ForegroundColor Green
 Write-Host "       EVM:   $evmRpcUrl" -ForegroundColor Green
@@ -97,11 +98,12 @@ Write-Host "       EVM:   $evmRpcUrl" -ForegroundColor Green
 # ── 3. Start antd ──
 Write-Host "[2/3] Starting antd..." -ForegroundColor Yellow
 $antdEnv = @{
-    ANTD_PEERS                 = $bootstrapPeers
-    AUTONOMI_WALLET_KEY        = $walletKey
-    EVM_RPC_URL                = $evmRpcUrl
-    EVM_PAYMENT_TOKEN_ADDRESS  = $evmTokenAddr
-    EVM_DATA_PAYMENTS_ADDRESS  = $evmPaymentsAddr
+    ANTD_PEERS                    = $bootstrapPeers
+    AUTONOMI_WALLET_KEY           = $walletKey
+    EVM_RPC_URL                   = $evmRpcUrl
+    EVM_PAYMENT_TOKEN_ADDRESS     = $evmTokenAddr
+    EVM_DATA_PAYMENTS_ADDRESS     = $evmPaymentsAddr
+    EVM_MERKLE_PAYMENTS_ADDRESS   = $evmMerkleAddr
 }
 # Merge with current environment
 $mergedEnv = [System.Collections.Generic.Dictionary[string,string]]::new()
@@ -160,7 +162,7 @@ if ($ready) {
     Write-Host ""
     Write-Host "  REST:  http://localhost:8082" -ForegroundColor White
     Write-Host "  gRPC:  localhost:50051" -ForegroundColor White
-    Write-Host "  Key:   $($walletKey.Substring(0,10))..." -ForegroundColor White
+    Write-Host "  Wallet: configured" -ForegroundColor White
     Write-Host ""
     Write-Host "Run tests:" -ForegroundColor Gray
     Write-Host "  .\scripts\test-api.ps1" -ForegroundColor Gray

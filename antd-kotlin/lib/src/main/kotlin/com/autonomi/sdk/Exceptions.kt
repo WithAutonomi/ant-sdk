@@ -14,6 +14,7 @@ class PaymentException(message: String, statusCode: Int = 402) : AntdException(m
 class NetworkException(message: String, statusCode: Int = 502) : AntdException(message, statusCode)
 class TooLargeException(message: String, statusCode: Int = 413) : AntdException(message, statusCode)
 class InternalException(message: String, statusCode: Int = 500) : AntdException(message, statusCode)
+class ServiceUnavailableException(message: String, statusCode: Int = 503) : AntdException(message, statusCode)
 
 internal object ExceptionMapping {
 
@@ -25,6 +26,7 @@ internal object ExceptionMapping {
         413 -> TooLargeException(body, statusCode)
         500 -> InternalException(body, statusCode)
         502 -> NetworkException(body, statusCode)
+        503 -> ServiceUnavailableException(body, statusCode)
         else -> AntdException(body, statusCode)
     }
 

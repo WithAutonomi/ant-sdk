@@ -52,7 +52,7 @@ void main() async {
 
 ## gRPC Transport
 
-The SDK includes a `GrpcAntdClient` class that provides the same 19 async
+The SDK includes a `GrpcAntdClient` class that provides the same 15 async
 methods as the REST `AntdClient`, but communicates over gRPC.
 
 ### Setup
@@ -125,7 +125,7 @@ ant dev start
 ## Configuration
 
 ```dart
-// Default: http://localhost:8080, 5 minute timeout
+// Default: http://localhost:8082, 5 minute timeout
 final client = AntdClient();
 
 // Custom URL
@@ -161,14 +161,6 @@ All methods return `Future<T>` and can throw `AntdError` subclasses.
 |--------|-------------|
 | `chunkPut(data)` | Store a raw chunk |
 | `chunkGet(address)` | Retrieve a chunk |
-
-### Graph Entries (DAG Nodes)
-| Method | Description |
-|--------|-------------|
-| `graphEntryPut(secretKey, parents, content, descendants)` | Create entry |
-| `graphEntryGet(address)` | Read entry |
-| `graphEntryExists(address)` | Check if exists |
-| `graphEntryCost(publicKey)` | Estimate creation cost |
 
 ### Files & Directories
 | Method | Description |
@@ -216,5 +208,4 @@ See the [example/](example/) directory:
 - `02_data` — Public data storage and retrieval
 - `03_chunks` — Raw chunk operations
 - `04_files` — File and directory upload/download
-- `05_graph` — Graph entry (DAG node) operations
 - `06_private_data` — Private encrypted data storage

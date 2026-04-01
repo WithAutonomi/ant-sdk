@@ -3,11 +3,14 @@ use std::sync::Arc;
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
-use ant_node::core::{CoreNodeConfig, MultiAddr, NodeMode, P2PNode};
+use ant_core::data::{
+    Client, ClientConfig, CoreNodeConfig, MultiAddr, NodeMode, P2PNode, Wallet,
+};
 
 mod config;
 mod error;
 mod grpc;
+mod port_file;
 mod rest;
 mod state;
 mod types;
@@ -23,15 +26,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = Config::parse();
 
+    // Resolve listen addresses (applying --rest-port / --grpc-port overrides)
+    let rest_addr = config.resolved_rest_addr()?;
+    let grpc_addr = config.resolved_grpc_addr()?;
+
+    // Bind listeners early to capture actual ports (important for port 0)
+    let rest_listener = tokio::net::TcpListener::bind(rest_addr).await
+        .map_err(|e| format!("failed to bind REST listener on {rest_addr}: {e}"))?;
+    let grpc_listener = tokio::net::TcpListener::bind(grpc_addr).await
+        .map_err(|e| format!("failed to bind gRPC listener on {grpc_addr}: {e}"))?;
+
+    let actual_rest_addr = rest_listener.local_addr()?;
+    let actual_grpc_addr = grpc_listener.local_addr()?;
+
     // Banner
     println!();
     println!("  antd — Autonomi REST + gRPC Gateway");
     println!("  ==================================");
-    println!("  REST:    http://{}", config.rest_addr);
-    println!("  gRPC:    {}", config.grpc_addr);
+    println!("  REST:    http://{}", actual_rest_addr);
+    println!("  gRPC:    {}", actual_grpc_addr);
     println!("  Network: {}", config.network);
     println!("  CORS:    {}", if config.cors { "enabled" } else { "disabled" });
     println!();
+
+    // Write port file for SDK discovery
+    let port_file_path = port_file::write(actual_rest_addr.port(), actual_grpc_addr.port());
+    match &port_file_path {
+        Some(p) => tracing::info!(path = %p.display(), "port file written"),
+        None => tracing::warn!("could not determine data directory — port file not written"),
+    }
 
     // Parse bootstrap peers
     let bootstrap_peers: Vec<MultiAddr> = config
@@ -105,71 +128,79 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let peers = node.connected_peers().await;
     tracing::info!(count = peers.len(), peers = ?peers, "peer status at startup");
 
+    // Build ant-core Client from the P2P node
+    let node = Arc::new(node);
+    let mut client = Client::from_node(node, ClientConfig::default());
+
     // Load EVM wallet if configured
-    let wallet = match std::env::var("AUTONOMI_WALLET_KEY") {
-        Ok(wallet_key) => {
-            let rpc_url = std::env::var("EVM_RPC_URL")
-                .unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
+    if let Ok(wallet_key) = std::env::var("AUTONOMI_WALLET_KEY") {
+        let rpc_url = std::env::var("EVM_RPC_URL")
+            .unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
+        let token_addr = std::env::var("EVM_PAYMENT_TOKEN_ADDRESS")
+            .unwrap_or_default();
+        let payments_addr = std::env::var("EVM_DATA_PAYMENTS_ADDRESS")
+            .unwrap_or_default();
+        let merkle_addr = std::env::var("EVM_MERKLE_PAYMENTS_ADDRESS").ok();
+        tracing::info!(%rpc_url, "loading EVM wallet...");
+        let network = evmlib::Network::new_custom(
+            &rpc_url,
+            &token_addr,
+            &payments_addr,
+            merkle_addr.as_deref(),
+        );
+        match Wallet::new_from_private_key(network, &wallet_key) {
+            Ok(w) => {
+                tracing::info!(address = %w.address(), "EVM wallet loaded");
+                client = client.with_wallet(w);
+            }
+            Err(e) => {
+                tracing::warn!("failed to load EVM wallet: {e}");
+            }
+        }
+    } else {
+        // No wallet — but still configure EVM network if available,
+        // to enable external signer flow (prepare-upload/finalize-upload)
+        let rpc_url = std::env::var("EVM_RPC_URL").ok();
+        if let Some(rpc_url) = rpc_url {
             let token_addr = std::env::var("EVM_PAYMENT_TOKEN_ADDRESS")
                 .unwrap_or_default();
             let payments_addr = std::env::var("EVM_DATA_PAYMENTS_ADDRESS")
                 .unwrap_or_default();
-            tracing::info!(%rpc_url, "loading EVM wallet...");
+            let merkle_addr = std::env::var("EVM_MERKLE_PAYMENTS_ADDRESS").ok();
             let network = evmlib::Network::new_custom(
                 &rpc_url,
                 &token_addr,
                 &payments_addr,
-                None,
+                merkle_addr.as_deref(),
             );
-            match evmlib::wallet::Wallet::new_from_private_key(network, &wallet_key) {
-                Ok(w) => {
-                    tracing::info!(address = %w.address(), "EVM wallet loaded");
-                    Some(w)
-                }
-                Err(e) => {
-                    tracing::warn!("failed to load EVM wallet: {e}");
-                    None
-                }
-            }
+            client = client.with_evm_network(network);
+            tracing::info!(%rpc_url, "EVM network configured (external signer mode)");
+        } else {
+            tracing::info!("no AUTONOMI_WALLET_KEY or EVM_RPC_URL set — write operations will fail");
         }
-        Err(_) => {
-            tracing::info!("no AUTONOMI_WALLET_KEY set — write operations will fail");
-            None
-        }
-    };
+    }
 
     let state = Arc::new(AppState {
-        node: Arc::new(node),
+        client: Arc::new(client),
         network: config.network.clone(),
         bootstrap_peers,
-        wallet,
+        pending_uploads: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
     });
 
-    // Parse addresses
-    let rest_addr: std::net::SocketAddr = config
-        .rest_addr
-        .parse()
-        .map_err(|e| format!("invalid REST address: {e}"))?;
-    let grpc_addr: std::net::SocketAddr = config
-        .grpc_addr
-        .parse()
-        .map_err(|e| format!("invalid gRPC address: {e}"))?;
-
     // Build REST router
-    let app = rest::router(state.clone(), config.cors);
+    let app = rest::router(state.clone(), config.cors, actual_rest_addr.port());
 
     // Spawn both servers
     let grpc_state = state.clone();
     let grpc_handle = tokio::spawn(async move {
-        if let Err(e) = grpc::serve(grpc_addr, grpc_state).await {
+        if let Err(e) = grpc::serve(grpc_listener, grpc_state).await {
             tracing::error!("gRPC server error: {e}");
         }
     });
 
     let rest_handle = tokio::spawn(async move {
-        tracing::info!("REST server listening on {rest_addr}");
-        let listener = tokio::net::TcpListener::bind(rest_addr).await.unwrap();
-        axum::serve(listener, app)
+        tracing::info!("REST server listening on {actual_rest_addr}");
+        axum::serve(rest_listener, app)
             .with_graceful_shutdown(shutdown_signal())
             .await
             .unwrap();
@@ -179,6 +210,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ = rest_handle => tracing::info!("REST server shut down"),
         _ = grpc_handle => tracing::info!("gRPC server shut down"),
     }
+
+    // Cleanup port file on shutdown
+    port_file::remove();
+    tracing::info!("port file removed");
 
     Ok(())
 }

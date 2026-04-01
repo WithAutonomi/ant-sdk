@@ -32,7 +32,7 @@ func WithDialOptions(opts ...grpc.DialOption) GrpcOption {
 	return func(c *GrpcClient) { c.dialOpts = append(c.dialOpts, opts...) }
 }
 
-// GrpcClient is a gRPC client for the antd daemon. It exposes the same 19
+// GrpcClient is a gRPC client for the antd daemon. It exposes the same
 // methods as the REST Client, using the same model types and error types.
 type GrpcClient struct {
 	conn    *grpc.ClientConn
@@ -43,8 +43,19 @@ type GrpcClient struct {
 	health pb.HealthServiceClient
 	data   pb.DataServiceClient
 	chunk  pb.ChunkServiceClient
-	graph  pb.GraphServiceClient
-	file   pb.FileServiceClient
+	file pb.FileServiceClient
+}
+
+// NewGrpcClientAutoDiscover creates a gRPC client that discovers the daemon target
+// automatically. It reads the port file written by antd on startup, falling back
+// to DefaultGrpcTarget. Returns the client, the resolved target, and any error.
+func NewGrpcClientAutoDiscover(opts ...GrpcOption) (*GrpcClient, string, error) {
+	target := DiscoverGrpcTarget()
+	if target == "" {
+		target = DefaultGrpcTarget
+	}
+	c, err := NewGrpcClient(target, opts...)
+	return c, target, err
 }
 
 // NewGrpcClient creates a new gRPC client connected to the given target
@@ -71,7 +82,6 @@ func NewGrpcClient(target string, opts ...GrpcOption) (*GrpcClient, error) {
 	c.health = pb.NewHealthServiceClient(conn)
 	c.data = pb.NewDataServiceClient(conn)
 	c.chunk = pb.NewChunkServiceClient(conn)
-	c.graph = pb.NewGraphServiceClient(conn)
 	c.file = pb.NewFileServiceClient(conn)
 
 	return c, nil
@@ -245,84 +255,6 @@ func (c *GrpcClient) ChunkGet(ctx context.Context, address string) ([]byte, erro
 		return nil, errorFromGrpc(err)
 	}
 	return resp.GetData(), nil
-}
-
-// --- Graph (4 methods) ---
-
-// GraphEntryPut creates a new graph entry (DAG node).
-func (c *GrpcClient) GraphEntryPut(ctx context.Context, ownerSecretKey string, parents []string, content string, descendants []GraphDescendant) (*PutResult, error) {
-	ctx, cancel := c.ctx(ctx)
-	defer cancel()
-
-	pbDescs := make([]*pb.GraphDescendant, len(descendants))
-	for i, d := range descendants {
-		pbDescs[i] = &pb.GraphDescendant{
-			PublicKey: d.PublicKey,
-			Content:   d.Content,
-		}
-	}
-
-	resp, err := c.graph.Put(ctx, &pb.PutGraphEntryRequest{
-		OwnerSecretKey: ownerSecretKey,
-		Parents:        parents,
-		Content:        content,
-		Descendants:    pbDescs,
-	})
-	if err != nil {
-		return nil, errorFromGrpc(err)
-	}
-	return &PutResult{
-		Cost:    resp.GetCost().GetAttoTokens(),
-		Address: resp.GetAddress(),
-	}, nil
-}
-
-// GraphEntryGet retrieves a graph entry by address.
-func (c *GrpcClient) GraphEntryGet(ctx context.Context, address string) (*GraphEntry, error) {
-	ctx, cancel := c.ctx(ctx)
-	defer cancel()
-
-	resp, err := c.graph.Get(ctx, &pb.GetGraphEntryRequest{Address: address})
-	if err != nil {
-		return nil, errorFromGrpc(err)
-	}
-	descs := make([]GraphDescendant, len(resp.GetDescendants()))
-	for i, d := range resp.GetDescendants() {
-		descs[i] = GraphDescendant{
-			PublicKey: d.GetPublicKey(),
-			Content:   d.GetContent(),
-		}
-	}
-	return &GraphEntry{
-		Owner:       resp.GetOwner(),
-		Parents:     resp.GetParents(),
-		Content:     resp.GetContent(),
-		Descendants: descs,
-	}, nil
-}
-
-// GraphEntryExists checks if a graph entry exists at the given address.
-func (c *GrpcClient) GraphEntryExists(ctx context.Context, address string) (bool, error) {
-	ctx, cancel := c.ctx(ctx)
-	defer cancel()
-
-	resp, err := c.graph.CheckExistence(ctx, &pb.CheckGraphEntryRequest{Address: address})
-	if err != nil {
-		return false, errorFromGrpc(err)
-	}
-	return resp.GetExists(), nil
-}
-
-// GraphEntryCost estimates the cost of creating a graph entry.
-func (c *GrpcClient) GraphEntryCost(ctx context.Context, publicKey string) (string, error) {
-	ctx, cancel := c.ctx(ctx)
-	defer cancel()
-
-	resp, err := c.graph.GetCost(ctx, &pb.GraphEntryCostRequest{PublicKey: publicKey})
-	if err != nil {
-		return "", errorFromGrpc(err)
-	}
-	return resp.GetAttoTokens(), nil
 }
 
 // --- Files (7 methods) ---

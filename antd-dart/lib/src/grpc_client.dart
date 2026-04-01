@@ -10,18 +10,16 @@ import 'generated/antd/v1/data.pbgrpc.dart' as data_pb;
 import 'generated/antd/v1/data.pb.dart' as data_msg;
 import 'generated/antd/v1/chunks.pbgrpc.dart' as chunks_pb;
 import 'generated/antd/v1/chunks.pb.dart' as chunks_msg;
-import 'generated/antd/v1/graph.pbgrpc.dart' as graph_pb;
-import 'generated/antd/v1/graph.pb.dart' as graph_msg;
-import 'generated/antd/v1/common.pb.dart' as common_pb;
 import 'generated/antd/v1/files.pbgrpc.dart' as files_pb;
 import 'generated/antd/v1/files.pb.dart' as files_msg;
 
+import 'discover.dart';
 import 'errors.dart';
 import 'models.dart';
 
 /// gRPC client for the antd daemon.
 ///
-/// Provides the same 19 async methods as [AntdClient] (REST), but communicates
+/// Provides the same 15 async methods as [AntdClient] (REST), but communicates
 /// over gRPC using the proto-generated stubs from `antd/v1/*.proto`.
 ///
 /// **Proto compilation**: Run `protoc` with the Dart gRPC plugin to generate
@@ -39,7 +37,6 @@ class GrpcAntdClient {
   final health_pb.HealthServiceClient _healthStub;
   final data_pb.DataServiceClient _dataStub;
   final chunks_pb.ChunkServiceClient _chunkStub;
-  final graph_pb.GraphServiceClient _graphStub;
   final files_pb.FileServiceClient _fileStub;
 
   /// Creates a new antd gRPC client.
@@ -86,15 +83,6 @@ class GrpcAntdClient {
                     credentials: ChannelCredentials.insecure()),
               ),
         ),
-        _graphStub = graph_pb.GraphServiceClient(
-          channel ??
-              ClientChannel(
-                host,
-                port: port,
-                options: const ChannelOptions(
-                    credentials: ChannelCredentials.insecure()),
-              ),
-        ),
         _fileStub = files_pb.FileServiceClient(
           channel ??
               ClientChannel(
@@ -104,6 +92,20 @@ class GrpcAntdClient {
                     credentials: ChannelCredentials.insecure()),
               ),
         );
+
+  /// Creates a gRPC client by auto-discovering the daemon port from the
+  /// daemon.port file written by antd on startup. Falls back to
+  /// `localhost:50051` if the port file is not found or has no gRPC line.
+  factory GrpcAntdClient.autoDiscover() {
+    final target = discoverGrpcTarget();
+    if (target.isEmpty) {
+      return GrpcAntdClient.withChannel();
+    }
+    final parts = target.split(':');
+    final host = parts[0];
+    final port = int.parse(parts[1]);
+    return GrpcAntdClient.withChannel(host: host, port: port);
+  }
 
   /// Factory constructor that creates stubs from a single shared channel.
   factory GrpcAntdClient.withChannel({
@@ -259,81 +261,6 @@ class GrpcAntdClient {
       final req = chunks_msg.GetChunkRequest()..address = address;
       final resp = await _chunkStub.get(req);
       return Uint8List.fromList(resp.data);
-    } on GrpcError catch (e) {
-      _handleError(e);
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Graph Entries (DAG Nodes)
-  // ---------------------------------------------------------------------------
-
-  /// Creates a new graph entry (DAG node).
-  Future<PutResult> graphEntryPut(
-    String ownerSecretKey,
-    List<String> parents,
-    String content,
-    List<GraphDescendant> descendants,
-  ) async {
-    try {
-      final req = graph_msg.PutGraphEntryRequest()
-        ..ownerSecretKey = ownerSecretKey
-        ..parents.addAll(parents)
-        ..content = content
-        ..descendants.addAll(
-          descendants.map(
-            (d) => common_pb.GraphDescendant()
-              ..publicKey = d.publicKey
-              ..content = d.content,
-          ),
-        );
-      final resp = await _graphStub.put(req);
-      return PutResult(
-        cost: resp.cost.attoTokens,
-        address: resp.address,
-      );
-    } on GrpcError catch (e) {
-      _handleError(e);
-    }
-  }
-
-  /// Retrieves a graph entry by address.
-  Future<GraphEntry> graphEntryGet(String address) async {
-    try {
-      final req = graph_msg.GetGraphEntryRequest()..address = address;
-      final resp = await _graphStub.get(req);
-      return GraphEntry(
-        owner: resp.owner,
-        parents: List<String>.unmodifiable(resp.parents),
-        content: resp.content,
-        descendants: List<GraphDescendant>.unmodifiable(
-          resp.descendants.map(
-            (d) => GraphDescendant(publicKey: d.publicKey, content: d.content),
-          ),
-        ),
-      );
-    } on GrpcError catch (e) {
-      _handleError(e);
-    }
-  }
-
-  /// Checks if a graph entry exists at the given address.
-  Future<bool> graphEntryExists(String address) async {
-    try {
-      final req = graph_msg.CheckGraphEntryRequest()..address = address;
-      final resp = await _graphStub.checkExistence(req);
-      return resp.exists;
-    } on GrpcError catch (e) {
-      _handleError(e);
-    }
-  }
-
-  /// Estimates the cost of creating a graph entry.
-  Future<String> graphEntryCost(String publicKey) async {
-    try {
-      final req = graph_msg.GraphEntryCostRequest()..publicKey = publicKey;
-      final resp = await _graphStub.getCost(req);
-      return resp.attoTokens;
     } on GrpcError catch (e) {
       _handleError(e);
     }

@@ -45,7 +45,7 @@ int main() {
     // Custom endpoint
     auto client2 = antd::Client::builder()
         .transport("rest")
-        .base_url("http://localhost:8080")
+        .base_url("http://localhost:8082")
         .timeout(std::chrono::seconds(30))
         .build();
 
@@ -132,44 +132,6 @@ client.dir_download_public(dir_result.address, "/path/to/output_dir");
 auto cost = client.file_cost("/path/to/file.txt");
 ```
 
-## Graph Entries (DAG Nodes)
-
-```cpp
-#include <antd/antd.hpp>
-#include <random>
-
-std::random_device rd;
-std::mt19937 gen(rd());
-std::uniform_int_distribution<uint8_t> dist(0, 255);
-
-auto random_hex = [&](size_t bytes) {
-    std::string hex;
-    hex.reserve(bytes * 2);
-    for (size_t i = 0; i < bytes; ++i)
-        std::format_to(std::back_inserter(hex), "{:02x}", dist(gen));
-    return hex;
-};
-
-auto key = random_hex(32);
-auto content = random_hex(32);
-
-// Create root node
-auto result = client.graph_entry_put(
-    key,
-    {},        // parents
-    content,
-    {}         // descendants
-);
-std::println("Graph entry: {}", result.address);
-
-// Read
-auto entry = client.graph_entry_get(result.address);
-std::println("Owner: {}", entry.owner);
-std::println("Content: {}", entry.content);
-
-// Check existence
-bool exists = client.graph_entry_exists(result.address);
-```
 
 ## Error Handling
 
@@ -213,7 +175,6 @@ cmake --build build
 ./build/02_data
 ./build/03_chunks
 ./build/04_files
-./build/05_graph
 ./build/06_private
 ```
 

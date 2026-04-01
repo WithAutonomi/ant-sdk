@@ -107,10 +107,12 @@ HealthStatus Client::health() {
 // Data (Immutable)
 // ---------------------------------------------------------------------------
 
-PutResult Client::data_put_public(const std::vector<uint8_t>& data) {
-    auto j = impl_->do_json("POST", "/v1/data/public", json{
-        {"data", detail::base64_encode(data)},
-    });
+PutResult Client::data_put_public(const std::vector<uint8_t>& data, const std::string& payment_mode) {
+    json body = {{"data", detail::base64_encode(data)}};
+    if (!payment_mode.empty()) {
+        body["payment_mode"] = payment_mode;
+    }
+    auto j = impl_->do_json("POST", "/v1/data/public", body);
     return PutResult{
         .cost = j.value("cost", ""),
         .address = j.value("address", ""),
@@ -122,10 +124,12 @@ std::vector<uint8_t> Client::data_get_public(std::string_view address) {
     return detail::base64_decode(j.value("data", ""));
 }
 
-PutResult Client::data_put_private(const std::vector<uint8_t>& data) {
-    auto j = impl_->do_json("POST", "/v1/data/private", json{
-        {"data", detail::base64_encode(data)},
-    });
+PutResult Client::data_put_private(const std::vector<uint8_t>& data, const std::string& payment_mode) {
+    json body = {{"data", detail::base64_encode(data)}};
+    if (!payment_mode.empty()) {
+        body["payment_mode"] = payment_mode;
+    }
+    auto j = impl_->do_json("POST", "/v1/data/private", body);
     return PutResult{
         .cost = j.value("cost", ""),
         .address = j.value("data_map", ""),
@@ -165,85 +169,15 @@ std::vector<uint8_t> Client::chunk_get(std::string_view address) {
 }
 
 // ---------------------------------------------------------------------------
-// Graph Entries (DAG Nodes)
-// ---------------------------------------------------------------------------
-
-PutResult Client::graph_entry_put(std::string_view owner_secret_key,
-                                   const std::vector<std::string>& parents,
-                                   std::string_view content,
-                                   const std::vector<GraphDescendant>& descendants) {
-    json descs = json::array();
-    for (const auto& d : descendants) {
-        descs.push_back(json{{"public_key", d.public_key}, {"content", d.content}});
-    }
-
-    auto j = impl_->do_json("POST", "/v1/graph", json{
-        {"owner_secret_key", std::string(owner_secret_key)},
-        {"parents", parents},
-        {"content", std::string(content)},
-        {"descendants", descs},
-    });
-    return PutResult{
-        .cost = j.value("cost", ""),
-        .address = j.value("address", ""),
-    };
-}
-
-GraphEntry Client::graph_entry_get(std::string_view address) {
-    auto j = impl_->do_json("GET", "/v1/graph/" + std::string(address));
-
-    GraphEntry entry;
-    entry.owner = j.value("owner", "");
-    entry.content = j.value("content", "");
-
-    if (j.contains("parents") && j["parents"].is_array()) {
-        for (const auto& p : j["parents"]) {
-            if (p.is_string()) {
-                entry.parents.push_back(p.get<std::string>());
-            }
-        }
-    }
-
-    if (j.contains("descendants") && j["descendants"].is_array()) {
-        for (const auto& d : j["descendants"]) {
-            if (d.is_object()) {
-                entry.descendants.push_back(GraphDescendant{
-                    .public_key = d.value("public_key", ""),
-                    .content = d.value("content", ""),
-                });
-            }
-        }
-    }
-
-    return entry;
-}
-
-bool Client::graph_entry_exists(std::string_view address) {
-    int code = impl_->do_head("/v1/graph/" + std::string(address));
-    if (code == 404) {
-        return false;
-    }
-    if (code >= 300) {
-        error_for_status(code, "graph entry exists check failed");
-    }
-    return true;
-}
-
-std::string Client::graph_entry_cost(std::string_view public_key) {
-    auto j = impl_->do_json("POST", "/v1/graph/cost", json{
-        {"public_key", std::string(public_key)},
-    });
-    return j.value("cost", "");
-}
-
-// ---------------------------------------------------------------------------
 // Files & Directories
 // ---------------------------------------------------------------------------
 
-PutResult Client::file_upload_public(std::string_view path) {
-    auto j = impl_->do_json("POST", "/v1/files/upload/public", json{
-        {"path", std::string(path)},
-    });
+PutResult Client::file_upload_public(std::string_view path, const std::string& payment_mode) {
+    json body = {{"path", std::string(path)}};
+    if (!payment_mode.empty()) {
+        body["payment_mode"] = payment_mode;
+    }
+    auto j = impl_->do_json("POST", "/v1/files/upload/public", body);
     return PutResult{
         .cost = j.value("cost", ""),
         .address = j.value("address", ""),
@@ -257,10 +191,12 @@ void Client::file_download_public(std::string_view address, std::string_view des
     });
 }
 
-PutResult Client::dir_upload_public(std::string_view path) {
-    auto j = impl_->do_json("POST", "/v1/dirs/upload/public", json{
-        {"path", std::string(path)},
-    });
+PutResult Client::dir_upload_public(std::string_view path, const std::string& payment_mode) {
+    json body = {{"path", std::string(path)}};
+    if (!payment_mode.empty()) {
+        body["payment_mode"] = payment_mode;
+    }
+    auto j = impl_->do_json("POST", "/v1/dirs/upload/public", body);
     return PutResult{
         .cost = j.value("cost", ""),
         .address = j.value("address", ""),
@@ -323,6 +259,105 @@ std::string Client::file_cost(std::string_view path, bool is_public, bool includ
         {"include_archive", include_archive},
     });
     return j.value("cost", "");
+}
+
+// ---------------------------------------------------------------------------
+// Wallet
+// ---------------------------------------------------------------------------
+
+WalletAddress Client::wallet_address() {
+    auto j = impl_->do_json("GET", "/v1/wallet/address");
+    return WalletAddress{
+        .address = j.value("address", ""),
+    };
+}
+
+WalletBalance Client::wallet_balance() {
+    auto j = impl_->do_json("GET", "/v1/wallet/balance");
+    return WalletBalance{
+        .balance = j.value("balance", ""),
+        .gas_balance = j.value("gas_balance", ""),
+    };
+}
+
+bool Client::wallet_approve() {
+    auto j = impl_->do_json("POST", "/v1/wallet/approve", json::object());
+    return j.value("approved", false);
+}
+
+// ---------------------------------------------------------------------------
+// External Signer (Two-Phase Upload)
+// ---------------------------------------------------------------------------
+
+PrepareUploadResult Client::prepare_upload(std::string_view path) {
+    auto j = impl_->do_json("POST", "/v1/upload/prepare", json{
+        {"path", std::string(path)},
+    });
+
+    PrepareUploadResult result;
+    result.upload_id = j.value("upload_id", "");
+    result.total_amount = j.value("total_amount", "");
+    result.data_payments_address = j.value("data_payments_address", "");
+    result.payment_token_address = j.value("payment_token_address", "");
+    result.rpc_url = j.value("rpc_url", "");
+
+    if (j.contains("payments") && j["payments"].is_array()) {
+        for (const auto& p : j["payments"]) {
+            if (p.is_object()) {
+                result.payments.push_back(PaymentInfo{
+                    .quote_hash = p.value("quote_hash", ""),
+                    .rewards_address = p.value("rewards_address", ""),
+                    .amount = p.value("amount", ""),
+                });
+            }
+        }
+    }
+
+    return result;
+}
+
+PrepareUploadResult Client::prepare_data_upload(const std::vector<uint8_t>& data) {
+    auto j = impl_->do_json("POST", "/v1/data/prepare", json{
+        {"data", detail::base64_encode(data)},
+    });
+
+    PrepareUploadResult result;
+    result.upload_id = j.value("upload_id", "");
+    result.total_amount = j.value("total_amount", "");
+    result.data_payments_address = j.value("data_payments_address", "");
+    result.payment_token_address = j.value("payment_token_address", "");
+    result.rpc_url = j.value("rpc_url", "");
+
+    if (j.contains("payments") && j["payments"].is_array()) {
+        for (const auto& p : j["payments"]) {
+            if (p.is_object()) {
+                result.payments.push_back(PaymentInfo{
+                    .quote_hash = p.value("quote_hash", ""),
+                    .rewards_address = p.value("rewards_address", ""),
+                    .amount = p.value("amount", ""),
+                });
+            }
+        }
+    }
+
+    return result;
+}
+
+FinalizeUploadResult Client::finalize_upload(std::string_view upload_id,
+                                               const std::map<std::string, std::string>& tx_hashes) {
+    json hashes = json::object();
+    for (const auto& [k, v] : tx_hashes) {
+        hashes[k] = v;
+    }
+
+    auto j = impl_->do_json("POST", "/v1/upload/finalize", json{
+        {"upload_id", std::string(upload_id)},
+        {"tx_hashes", hashes},
+    });
+    return FinalizeUploadResult{
+        .address = j.value("address", ""),
+        .chunks_stored = j.value("chunks_stored", int64_t{0}),
+    };
 }
 
 }  // namespace antd

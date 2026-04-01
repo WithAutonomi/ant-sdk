@@ -1,9 +1,9 @@
 #!/usr/bin/env pwsh
 # Run C# SDK integration tests (REST + gRPC)
-# Requires a running antd daemon with REST on :8080 and gRPC on :50051
+# Requires a running antd daemon with REST on :8082 and gRPC on :50051
 
 param(
-    [string]$RestEndpoint = "http://localhost:8080",
+    [string]$RestEndpoint = "http://localhost:8082",
     [string]$GrpcEndpoint = "http://localhost:50051"
 )
 

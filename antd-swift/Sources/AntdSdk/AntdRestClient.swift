@@ -5,7 +5,7 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
     private let baseURL: String
     private let session: URLSession
 
-    public init(baseURL: String = "http://localhost:8080", timeout: TimeInterval = 300) {
+    public init(baseURL: String = "http://localhost:8082", timeout: TimeInterval = 300) {
         self.baseURL = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = timeout
@@ -75,8 +75,10 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
 
     // MARK: - Data
 
-    public func dataPutPublic(_ data: Data) async throws -> PutResult {
-        let resp: CostAddressDTO = try await postJSON("/v1/data/public", body: ["data": data.base64EncodedString()])
+    public func dataPutPublic(_ data: Data, paymentMode: String? = nil) async throws -> PutResult {
+        var body: [String: Any] = ["data": data.base64EncodedString()]
+        if let mode = paymentMode { body["payment_mode"] = mode }
+        let resp: CostAddressDTO = try await postJSON("/v1/data/public", body: body)
         return PutResult(cost: resp.cost, address: resp.address)
     }
 
@@ -86,8 +88,10 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         return decoded
     }
 
-    public func dataPutPrivate(_ data: Data) async throws -> PutResult {
-        let resp: CostDataMapDTO = try await postJSON("/v1/data/private", body: ["data": data.base64EncodedString()])
+    public func dataPutPrivate(_ data: Data, paymentMode: String? = nil) async throws -> PutResult {
+        var body: [String: Any] = ["data": data.base64EncodedString()]
+        if let mode = paymentMode { body["payment_mode"] = mode }
+        let resp: CostDataMapDTO = try await postJSON("/v1/data/private", body: body)
         return PutResult(cost: resp.cost, address: resp.dataMap)
     }
 
@@ -115,38 +119,12 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         return decoded
     }
 
-    // MARK: - Graph
-
-    public func graphEntryPut(ownerSecretKey: String, parents: [String], content: String, descendants: [GraphDescendant]) async throws -> PutResult {
-        let body: [String: Any] = [
-            "owner_secret_key": ownerSecretKey,
-            "parents": parents,
-            "content": content,
-            "descendants": descendants.map { ["public_key": $0.publicKey, "content": $0.content] },
-        ]
-        let resp: CostAddressDTO = try await postJSON("/v1/graph", body: body)
-        return PutResult(cost: resp.cost, address: resp.address)
-    }
-
-    public func graphEntryGet(address: String) async throws -> GraphEntry {
-        let resp: GraphEntryDTO = try await getJSON("/v1/graph/\(address)")
-        let desc = (resp.descendants ?? []).map { GraphDescendant(publicKey: $0.publicKey, content: $0.content) }
-        return GraphEntry(owner: resp.owner, parents: resp.parents ?? [], content: resp.content, descendants: desc)
-    }
-
-    public func graphEntryExists(address: String) async throws -> Bool {
-        try await headExists("/v1/graph/\(address)")
-    }
-
-    public func graphEntryCost(publicKey: String) async throws -> String {
-        let resp: CostDTO = try await postJSON("/v1/graph/cost", body: ["public_key": publicKey])
-        return resp.cost
-    }
-
     // MARK: - Files
 
-    public func fileUploadPublic(path: String) async throws -> PutResult {
-        let resp: CostAddressDTO = try await postJSON("/v1/files/upload/public", body: ["path": path])
+    public func fileUploadPublic(path: String, paymentMode: String? = nil) async throws -> PutResult {
+        var body: [String: Any] = ["path": path]
+        if let mode = paymentMode { body["payment_mode"] = mode }
+        let resp: CostAddressDTO = try await postJSON("/v1/files/upload/public", body: body)
         return PutResult(cost: resp.cost, address: resp.address)
     }
 
@@ -154,8 +132,10 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         try await postJSONNoResult("/v1/files/download/public", body: ["address": address, "dest_path": destPath])
     }
 
-    public func dirUploadPublic(path: String) async throws -> PutResult {
-        let resp: CostAddressDTO = try await postJSON("/v1/dirs/upload/public", body: ["path": path])
+    public func dirUploadPublic(path: String, paymentMode: String? = nil) async throws -> PutResult {
+        var body: [String: Any] = ["path": path]
+        if let mode = paymentMode { body["payment_mode"] = mode }
+        let resp: CostAddressDTO = try await postJSON("/v1/dirs/upload/public", body: body)
         return PutResult(cost: resp.cost, address: resp.address)
     }
 
@@ -185,6 +165,48 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         let resp: CostDTO = try await postJSON("/v1/cost/file", body: body)
         return resp.cost
     }
+
+    // MARK: - Wallet
+
+    public func walletAddress() async throws -> WalletAddress {
+        let resp: WalletAddressDTO = try await getJSON("/v1/wallet/address")
+        return WalletAddress(address: resp.address)
+    }
+
+    public func walletBalance() async throws -> WalletBalance {
+        let resp: WalletBalanceDTO = try await getJSON("/v1/wallet/balance")
+        return WalletBalance(balance: resp.balance, gasBalance: resp.gasBalance)
+    }
+
+    /// Approves the wallet to spend tokens on payment contracts (one-time operation).
+    public func walletApprove() async throws -> Bool {
+        let resp: WalletApproveDTO = try await postJSON("/v1/wallet/approve", body: [:] as [String: Any])
+        return resp.approved
+    }
+
+    // MARK: - External Signer (Two-Phase Upload)
+
+    /// Prepares a file upload for external signing.
+    public func prepareUpload(path: String) async throws -> PrepareUploadResult {
+        let resp: PrepareUploadDTO = try await postJSON("/v1/upload/prepare", body: ["path": path])
+        let payments = (resp.payments ?? []).map { PaymentInfo(quoteHash: $0.quoteHash, rewardsAddress: $0.rewardsAddress, amount: $0.amount) }
+        return PrepareUploadResult(uploadId: resp.uploadId, payments: payments, totalAmount: resp.totalAmount, dataPaymentsAddress: resp.dataPaymentsAddress, paymentTokenAddress: resp.paymentTokenAddress, rpcUrl: resp.rpcUrl)
+    }
+
+    /// Prepares a data upload for external signing.
+    /// Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+    public func prepareDataUpload(_ data: Data) async throws -> PrepareUploadResult {
+        let resp: PrepareUploadDTO = try await postJSON("/v1/data/prepare", body: ["data": data.base64EncodedString()])
+        let payments = (resp.payments ?? []).map { PaymentInfo(quoteHash: $0.quoteHash, rewardsAddress: $0.rewardsAddress, amount: $0.amount) }
+        return PrepareUploadResult(uploadId: resp.uploadId, payments: payments, totalAmount: resp.totalAmount, dataPaymentsAddress: resp.dataPaymentsAddress, paymentTokenAddress: resp.paymentTokenAddress, rpcUrl: resp.rpcUrl)
+    }
+
+    /// Finalizes an upload after an external signer has submitted payment transactions.
+    public func finalizeUpload(uploadId: String, txHashes: [String: String]) async throws -> FinalizeUploadResult {
+        let body: [String: Any] = ["upload_id": uploadId, "tx_hashes": txHashes]
+        let resp: FinalizeUploadDTO = try await postJSON("/v1/upload/finalize", body: body)
+        return FinalizeUploadResult(address: resp.address, chunksStored: resp.chunksStored)
+    }
 }
 
 // MARK: - Internal DTOs
@@ -212,18 +234,6 @@ private struct CostDTO: Decodable {
     let cost: String
 }
 
-private struct GraphDescendantDTO: Decodable {
-    let publicKey: String
-    let content: String
-}
-
-private struct GraphEntryDTO: Decodable {
-    let owner: String
-    let parents: [String]?
-    let content: String
-    let descendants: [GraphDescendantDTO]?
-}
-
 private struct ArchiveEntryDTO: Decodable {
     let path: String
     let address: String
@@ -234,6 +244,39 @@ private struct ArchiveEntryDTO: Decodable {
 
 private struct ArchiveDTO: Decodable {
     let entries: [ArchiveEntryDTO]?
+}
+
+private struct WalletAddressDTO: Decodable {
+    let address: String
+}
+
+private struct WalletBalanceDTO: Decodable {
+    let balance: String
+    let gasBalance: String
+}
+
+private struct WalletApproveDTO: Decodable {
+    let approved: Bool
+}
+
+private struct PaymentInfoDTO: Decodable {
+    let quoteHash: String
+    let rewardsAddress: String
+    let amount: String
+}
+
+private struct PrepareUploadDTO: Decodable {
+    let uploadId: String
+    let payments: [PaymentInfoDTO]?
+    let totalAmount: String
+    let dataPaymentsAddress: String
+    let paymentTokenAddress: String
+    let rpcUrl: String
+}
+
+private struct FinalizeUploadDTO: Decodable {
+    let address: String
+    let chunksStored: Int64
 }
 
 extension JSONDecoder {

@@ -15,10 +15,20 @@ public sealed class AntdRestClient : IAntdClient
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
-    public AntdRestClient(string baseUrl = "http://localhost:8080", TimeSpan? timeout = null)
+    public AntdRestClient(string baseUrl = "http://localhost:8082", TimeSpan? timeout = null)
     {
         _baseUrl = baseUrl.TrimEnd('/');
         _http = new HttpClient { BaseAddress = new Uri(_baseUrl), Timeout = timeout ?? TimeSpan.FromSeconds(300) };
+    }
+
+    /// <summary>
+    /// Creates an AntdRestClient by reading the daemon.port file written by antd.
+    /// Falls back to the default base URL if the port file is not found.
+    /// </summary>
+    public static AntdRestClient AutoDiscover(TimeSpan? timeout = null)
+    {
+        var url = DaemonDiscovery.DiscoverDaemonUrl();
+        return string.IsNullOrEmpty(url) ? new AntdRestClient(timeout: timeout) : new AntdRestClient(url, timeout);
     }
 
     public void Dispose() => _http.Dispose();
@@ -81,9 +91,12 @@ public sealed class AntdRestClient : IAntdClient
 
     // ── Data ──
 
-    public async Task<PutResult> DataPutPublicAsync(byte[] data)
+    public async Task<PutResult> DataPutPublicAsync(byte[] data, string? paymentMode = null)
     {
-        var resp = await PostJsonAsync<DataPutPublicDto>("/v1/data/public", new { data = Convert.ToBase64String(data) });
+        object body = paymentMode != null
+            ? new { data = Convert.ToBase64String(data), payment_mode = paymentMode }
+            : new { data = Convert.ToBase64String(data) };
+        var resp = await PostJsonAsync<DataPutPublicDto>("/v1/data/public", body);
         return new PutResult(resp.Cost, resp.Address);
     }
 
@@ -93,9 +106,12 @@ public sealed class AntdRestClient : IAntdClient
         return Convert.FromBase64String(resp.Data);
     }
 
-    public async Task<PutResult> DataPutPrivateAsync(byte[] data)
+    public async Task<PutResult> DataPutPrivateAsync(byte[] data, string? paymentMode = null)
     {
-        var resp = await PostJsonAsync<DataPutPrivateDto>("/v1/data/private", new { data = Convert.ToBase64String(data) });
+        object body = paymentMode != null
+            ? new { data = Convert.ToBase64String(data), payment_mode = paymentMode }
+            : new { data = Convert.ToBase64String(data) };
+        var resp = await PostJsonAsync<DataPutPrivateDto>("/v1/data/private", body);
         return new PutResult(resp.Cost, resp.DataMap);
     }
 
@@ -125,41 +141,14 @@ public sealed class AntdRestClient : IAntdClient
         return Convert.FromBase64String(resp.Data);
     }
 
-    // ── Graph ──
-
-    public async Task<PutResult> GraphEntryPutAsync(string ownerSecretKey, List<string> parents, string content, List<GraphDescendant> descendants)
-    {
-        var body = new
-        {
-            owner_secret_key = ownerSecretKey,
-            parents,
-            content,
-            descendants = descendants.Select(d => new { public_key = d.PublicKey, content = d.Content }).ToList(),
-        };
-        var resp = await PostJsonAsync<DataPutPublicDto>("/v1/graph", body);
-        return new PutResult(resp.Cost, resp.Address);
-    }
-
-    public async Task<GraphEntry> GraphEntryGetAsync(string address)
-    {
-        var resp = await GetJsonAsync<GraphEntryDto>($"/v1/graph/{address}");
-        var descendants = resp.Descendants?.Select(d => new GraphDescendant(d.PublicKey, d.Content)).ToList() ?? [];
-        return new GraphEntry(resp.Owner, resp.Parents ?? [], resp.Content, descendants);
-    }
-
-    public Task<bool> GraphEntryExistsAsync(string address) => HeadExistsAsync($"/v1/graph/{address}");
-
-    public async Task<string> GraphEntryCostAsync(string publicKey)
-    {
-        var resp = await PostJsonAsync<CostDto>("/v1/graph/cost", new { public_key = publicKey });
-        return resp.Cost;
-    }
-
     // ── Files ──
 
-    public async Task<PutResult> FileUploadPublicAsync(string path)
+    public async Task<PutResult> FileUploadPublicAsync(string path, string? paymentMode = null)
     {
-        var resp = await PostJsonAsync<DataPutPublicDto>("/v1/files/upload/public", new { path });
+        object body = paymentMode != null
+            ? new { path, payment_mode = paymentMode }
+            : (object)new { path };
+        var resp = await PostJsonAsync<DataPutPublicDto>("/v1/files/upload/public", body);
         return new PutResult(resp.Cost, resp.Address);
     }
 
@@ -168,9 +157,12 @@ public sealed class AntdRestClient : IAntdClient
         await PostJsonNoResultAsync("/v1/files/download/public", new { address, dest_path = destPath });
     }
 
-    public async Task<PutResult> DirUploadPublicAsync(string path)
+    public async Task<PutResult> DirUploadPublicAsync(string path, string? paymentMode = null)
     {
-        var resp = await PostJsonAsync<DataPutPublicDto>("/v1/dirs/upload/public", new { path });
+        object body = paymentMode != null
+            ? new { path, payment_mode = paymentMode }
+            : (object)new { path };
+        var resp = await PostJsonAsync<DataPutPublicDto>("/v1/dirs/upload/public", body);
         return new PutResult(resp.Cost, resp.Address);
     }
 
@@ -210,6 +202,61 @@ public sealed class AntdRestClient : IAntdClient
         return resp.Cost;
     }
 
+    // ── Wallet ──
+
+    public async Task<WalletAddress> WalletAddressAsync()
+    {
+        var resp = await GetJsonAsync<WalletAddressDto>("/v1/wallet/address");
+        return new WalletAddress(resp.Address);
+    }
+
+    public async Task<WalletBalance> WalletBalanceAsync()
+    {
+        var resp = await GetJsonAsync<WalletBalanceDto>("/v1/wallet/balance");
+        return new WalletBalance(resp.Balance, resp.GasBalance);
+    }
+
+    /// <summary>
+    /// Approves the wallet to spend tokens on payment contracts (one-time operation).
+    /// </summary>
+    public async Task<bool> WalletApproveAsync()
+    {
+        var resp = await PostJsonAsync<WalletApproveDto>("/v1/wallet/approve", new { });
+        return resp.Approved;
+    }
+
+    // ── External Signer (Two-Phase Upload) ──
+
+    /// <summary>
+    /// Prepares a file upload for external signing.
+    /// </summary>
+    public async Task<PrepareUploadResult> PrepareUploadAsync(string path)
+    {
+        var resp = await PostJsonAsync<PrepareUploadDto>("/v1/upload/prepare", new { path });
+        var payments = resp.Payments?.Select(p => new PaymentInfo(p.QuoteHash, p.RewardsAddress, p.Amount)).ToList() ?? [];
+        return new PrepareUploadResult(resp.UploadId, payments, resp.TotalAmount, resp.DataPaymentsAddress, resp.PaymentTokenAddress, resp.RpcUrl);
+    }
+
+    /// <summary>
+    /// Prepares a data upload for external signing.
+    /// Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
+    /// </summary>
+    public async Task<PrepareUploadResult> PrepareDataUploadAsync(byte[] data)
+    {
+        var resp = await PostJsonAsync<PrepareUploadDto>("/v1/data/prepare", new { data = Convert.ToBase64String(data) });
+        var payments = resp.Payments?.Select(p => new PaymentInfo(p.QuoteHash, p.RewardsAddress, p.Amount)).ToList() ?? [];
+        return new PrepareUploadResult(resp.UploadId, payments, resp.TotalAmount, resp.DataPaymentsAddress, resp.PaymentTokenAddress, resp.RpcUrl);
+    }
+
+    /// <summary>
+    /// Finalizes an upload after an external signer has submitted payment transactions.
+    /// </summary>
+    public async Task<FinalizeUploadResult> FinalizeUploadAsync(string uploadId, Dictionary<string, string> txHashes)
+    {
+        var resp = await PostJsonAsync<FinalizeUploadDto>("/v1/upload/finalize", new { upload_id = uploadId, tx_hashes = txHashes });
+        return new FinalizeUploadResult(resp.Address, resp.ChunksStored);
+    }
+
     // ── Internal DTOs for JSON deserialization ──
 
     private sealed record HealthResponseDto(
@@ -230,16 +277,6 @@ public sealed class AntdRestClient : IAntdClient
     private sealed record CostDto(
         [property: JsonPropertyName("cost")] string Cost);
 
-    private sealed record GraphDescendantDto(
-        [property: JsonPropertyName("public_key")] string PublicKey,
-        [property: JsonPropertyName("content")] string Content);
-
-    private sealed record GraphEntryDto(
-        [property: JsonPropertyName("owner")] string Owner,
-        [property: JsonPropertyName("parents")] List<string>? Parents,
-        [property: JsonPropertyName("content")] string Content,
-        [property: JsonPropertyName("descendants")] List<GraphDescendantDto>? Descendants);
-
     private sealed record ArchiveEntryDto(
         [property: JsonPropertyName("path")] string Path,
         [property: JsonPropertyName("address")] string Address,
@@ -249,4 +286,31 @@ public sealed class AntdRestClient : IAntdClient
 
     private sealed record ArchiveDto(
         [property: JsonPropertyName("entries")] List<ArchiveEntryDto>? Entries);
+
+    private sealed record WalletAddressDto(
+        [property: JsonPropertyName("address")] string Address);
+
+    private sealed record WalletBalanceDto(
+        [property: JsonPropertyName("balance")] string Balance,
+        [property: JsonPropertyName("gas_balance")] string GasBalance);
+
+    private sealed record WalletApproveDto(
+        [property: JsonPropertyName("approved")] bool Approved);
+
+    private sealed record PaymentInfoDto(
+        [property: JsonPropertyName("quote_hash")] string QuoteHash,
+        [property: JsonPropertyName("rewards_address")] string RewardsAddress,
+        [property: JsonPropertyName("amount")] string Amount);
+
+    private sealed record PrepareUploadDto(
+        [property: JsonPropertyName("upload_id")] string UploadId,
+        [property: JsonPropertyName("payments")] List<PaymentInfoDto>? Payments,
+        [property: JsonPropertyName("total_amount")] string TotalAmount,
+        [property: JsonPropertyName("data_payments_address")] string DataPaymentsAddress,
+        [property: JsonPropertyName("payment_token_address")] string PaymentTokenAddress,
+        [property: JsonPropertyName("rpc_url")] string RpcUrl);
+
+    private sealed record FinalizeUploadDto(
+        [property: JsonPropertyName("address")] string Address,
+        [property: JsonPropertyName("chunks_stored")] long ChunksStored);
 }

@@ -47,7 +47,7 @@ try (var client = AntdClient.create()) {
 // Custom endpoint
 try (var client = AntdClient.builder()
         .transport("rest")
-        .baseUrl("http://localhost:8080")
+        .baseUrl("http://localhost:8082")
         .timeout(Duration.ofSeconds(30))
         .build()) {
     // use client
@@ -127,44 +127,6 @@ client.dirDownloadPublic(dirResult.address(), "/path/to/output_dir");
 long cost = client.fileCost("/path/to/file.txt");
 ```
 
-## Graph Entries (DAG Nodes)
-
-```java
-import com.autonomi.antd.GraphDescendant;
-import java.security.SecureRandom;
-import java.util.HexFormat;
-import java.util.List;
-
-var random = new SecureRandom();
-var hex = HexFormat.of();
-
-byte[] keyBytes = new byte[32];
-random.nextBytes(keyBytes);
-String key = hex.formatHex(keyBytes);
-
-byte[] contentBytes = new byte[32];
-random.nextBytes(contentBytes);
-String content = hex.formatHex(contentBytes);
-
-// Create root node
-var result = client.graphEntryPut(
-    key,
-    List.of(),   // parents
-    content,
-    List.of()    // descendants
-);
-System.out.println("Graph entry: " + result.address());
-
-// Read
-var entry = client.graphEntryGet(result.address());
-System.out.println("Owner: " + entry.owner());
-System.out.println("Content: " + entry.content());
-System.out.println("Parents: " + entry.parents());
-System.out.println("Descendants: " + entry.descendants());
-
-// Check existence
-boolean exists = client.graphEntryExists(result.address());
-```
 
 ## Error Handling
 
@@ -207,7 +169,6 @@ cd antd-java
 ./gradlew run --args="2"    # Public data
 ./gradlew run --args="3"    # Chunks
 ./gradlew run --args="4"    # Files
-./gradlew run --args="5"    # Graph entries
 ./gradlew run --args="6"    # Private data
 ./gradlew run --args="all"  # Run all examples
 

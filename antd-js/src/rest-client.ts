@@ -1,16 +1,20 @@
+import { discoverDaemonUrl } from "./discover.js";
 import { fromHttpStatus } from "./errors.js";
 import type {
   Archive,
   ArchiveEntry,
-  GraphDescendant,
-  GraphEntry,
+  FinalizeUploadResult,
   HealthStatus,
+  PaymentInfo,
+  PrepareUploadResult,
   PutResult,
+  WalletAddress,
+  WalletBalance,
 } from "./models.js";
 
 /** Options for creating a REST client. */
 export interface RestClientOptions {
-  /** Base URL of the antd daemon. Defaults to "http://localhost:8080". */
+  /** Base URL of the antd daemon. Defaults to "http://localhost:8082". */
   baseUrl?: string;
   /** Request timeout in milliseconds. Defaults to 300000 (5 minutes). */
   timeout?: number;
@@ -21,8 +25,25 @@ export class RestClient {
   private readonly baseUrl: string;
   private readonly timeout: number;
 
+  /**
+   * Creates a REST client by auto-discovering the daemon port from the
+   * daemon.port file written by antd on startup. Falls back to the default
+   * base URL if the port file is not found.
+   *
+   * @returns An object with the created `client` and the discovered `url`
+   *          (empty string if discovery failed and default was used).
+   */
+  static autoDiscover(options?: RestClientOptions): { client: RestClient; url: string } {
+    const discovered = discoverDaemonUrl();
+    const opts: RestClientOptions = { ...options };
+    if (discovered !== "") {
+      opts.baseUrl = discovered;
+    }
+    return { client: new RestClient(opts), url: discovered };
+  }
+
   constructor(options: RestClientOptions = {}) {
-    this.baseUrl = (options.baseUrl ?? "http://localhost:8080").replace(/\/+$/, "");
+    this.baseUrl = (options.baseUrl ?? "http://localhost:8082").replace(/\/+$/, "");
     this.timeout = options.timeout ?? 300_000;
   }
 
@@ -108,10 +129,10 @@ export class RestClient {
 
   // ---- Data ----
 
-  async dataPutPublic(data: Buffer): Promise<PutResult> {
-    const j = await this.postJson<{ cost: string; address: string }>("/v1/data/public", {
-      data: RestClient.b64(data),
-    });
+  async dataPutPublic(data: Buffer, options?: { paymentMode?: string }): Promise<PutResult> {
+    const body: Record<string, unknown> = { data: RestClient.b64(data) };
+    if (options?.paymentMode) body.payment_mode = options.paymentMode;
+    const j = await this.postJson<{ cost: string; address: string }>("/v1/data/public", body);
     return { cost: j.cost, address: j.address };
   }
 
@@ -120,10 +141,10 @@ export class RestClient {
     return RestClient.unb64(j.data);
   }
 
-  async dataPutPrivate(data: Buffer): Promise<PutResult> {
-    const j = await this.postJson<{ cost: string; data_map: string }>("/v1/data/private", {
-      data: RestClient.b64(data),
-    });
+  async dataPutPrivate(data: Buffer, options?: { paymentMode?: string }): Promise<PutResult> {
+    const body: Record<string, unknown> = { data: RestClient.b64(data) };
+    if (options?.paymentMode) body.payment_mode = options.paymentMode;
+    const j = await this.postJson<{ cost: string; data_map: string }>("/v1/data/private", body);
     return { cost: j.cost, address: j.data_map };
   }
 
@@ -153,61 +174,12 @@ export class RestClient {
     return RestClient.unb64(j.data);
   }
 
-  // ---- Graph ----
-
-  async graphEntryPut(
-    ownerSecretKey: string,
-    parents: string[],
-    content: string,
-    descendants: GraphDescendant[],
-  ): Promise<PutResult> {
-    const j = await this.postJson<{ cost: string; address: string }>("/v1/graph", {
-      owner_secret_key: ownerSecretKey,
-      parents,
-      content,
-      descendants: descendants.map((d) => ({
-        public_key: d.publicKey,
-        content: d.content,
-      })),
-    });
-    return { cost: j.cost, address: j.address };
-  }
-
-  async graphEntryGet(address: string): Promise<GraphEntry> {
-    const j = await this.getJson<{
-      owner: string;
-      parents?: string[];
-      content: string;
-      descendants?: { public_key: string; content: string }[];
-    }>(`/v1/graph/${address}`);
-    return {
-      owner: j.owner,
-      parents: j.parents ?? [],
-      content: j.content,
-      descendants: (j.descendants ?? []).map((d) => ({
-        publicKey: d.public_key,
-        content: d.content,
-      })),
-    };
-  }
-
-  async graphEntryExists(address: string): Promise<boolean> {
-    return this.headExists(`/v1/graph/${address}`);
-  }
-
-  async graphEntryCost(publicKey: string): Promise<string> {
-    const j = await this.postJson<{ cost: string }>("/v1/graph/cost", {
-      public_key: publicKey,
-    });
-    return j.cost;
-  }
-
   // ---- Files ----
 
-  async fileUploadPublic(path: string): Promise<PutResult> {
-    const j = await this.postJson<{ cost: string; address: string }>("/v1/files/upload/public", {
-      path,
-    });
+  async fileUploadPublic(path: string, options?: { paymentMode?: string }): Promise<PutResult> {
+    const body: Record<string, unknown> = { path };
+    if (options?.paymentMode) body.payment_mode = options.paymentMode;
+    const j = await this.postJson<{ cost: string; address: string }>("/v1/files/upload/public", body);
     return { cost: j.cost, address: j.address };
   }
 
@@ -218,10 +190,10 @@ export class RestClient {
     });
   }
 
-  async dirUploadPublic(path: string): Promise<PutResult> {
-    const j = await this.postJson<{ cost: string; address: string }>("/v1/dirs/upload/public", {
-      path,
-    });
+  async dirUploadPublic(path: string, options?: { paymentMode?: string }): Promise<PutResult> {
+    const body: Record<string, unknown> = { path };
+    if (options?.paymentMode) body.payment_mode = options.paymentMode;
+    const j = await this.postJson<{ cost: string; address: string }>("/v1/dirs/upload/public", body);
     return { cost: j.cost, address: j.address };
   }
 
@@ -270,5 +242,85 @@ export class RestClient {
       include_archive: includeArchive,
     });
     return j.cost;
+  }
+
+  // ---- Wallet ----
+
+  async walletAddress(): Promise<WalletAddress> {
+    const j = await this.getJson<{ address: string }>("/v1/wallet/address");
+    return { address: j.address };
+  }
+
+  async walletBalance(): Promise<WalletBalance> {
+    const j = await this.getJson<{ balance: string; gas_balance: string }>("/v1/wallet/balance");
+    return { balance: j.balance, gasBalance: j.gas_balance };
+  }
+
+  /** Approve the wallet to spend tokens on payment contracts (one-time operation). */
+  async walletApprove(): Promise<boolean> {
+    const j = await this.postJson<{ approved: boolean }>("/v1/wallet/approve", {});
+    return j.approved;
+  }
+
+  // ---- External Signer (Two-Phase Upload) ----
+
+  /** Prepare a file upload for external signing. */
+  async prepareUpload(path: string): Promise<PrepareUploadResult> {
+    const j = await this.postJson<{
+      upload_id: string;
+      payments: { quote_hash: string; rewards_address: string; amount: string }[];
+      total_amount: string;
+      data_payments_address: string;
+      payment_token_address: string;
+      rpc_url: string;
+    }>("/v1/upload/prepare", { path });
+    return {
+      uploadId: j.upload_id,
+      payments: (j.payments ?? []).map((p) => ({
+        quoteHash: p.quote_hash,
+        rewardsAddress: p.rewards_address,
+        amount: p.amount,
+      })),
+      totalAmount: j.total_amount,
+      dataPaymentsAddress: j.data_payments_address,
+      paymentTokenAddress: j.payment_token_address,
+      rpcUrl: j.rpc_url,
+    };
+  }
+
+  /** Prepare a data upload for external signing. */
+  async prepareDataUpload(data: Buffer): Promise<PrepareUploadResult> {
+    const j = await this.postJson<{
+      upload_id: string;
+      payments: { quote_hash: string; rewards_address: string; amount: string }[];
+      total_amount: string;
+      data_payments_address: string;
+      payment_token_address: string;
+      rpc_url: string;
+    }>("/v1/data/prepare", { data: RestClient.b64(data) });
+    return {
+      uploadId: j.upload_id,
+      payments: (j.payments ?? []).map((p) => ({
+        quoteHash: p.quote_hash,
+        rewardsAddress: p.rewards_address,
+        amount: p.amount,
+      })),
+      totalAmount: j.total_amount,
+      dataPaymentsAddress: j.data_payments_address,
+      paymentTokenAddress: j.payment_token_address,
+      rpcUrl: j.rpc_url,
+    };
+  }
+
+  /** Finalize an upload after an external signer has submitted payment transactions. */
+  async finalizeUpload(
+    uploadId: string,
+    txHashes: Record<string, string>,
+  ): Promise<FinalizeUploadResult> {
+    const j = await this.postJson<{ address: string; chunks_stored: number }>(
+      "/v1/upload/finalize",
+      { upload_id: uploadId, tx_hashes: txHashes },
+    );
+    return { address: j.address, chunksStored: j.chunks_stored };
   }
 }

@@ -14,9 +14,9 @@ interface IAntdClient : Closeable {
     suspend fun health(): HealthStatus
 
     // Data
-    suspend fun dataPutPublic(data: ByteArray): PutResult
+    suspend fun dataPutPublic(data: ByteArray, paymentMode: String? = null): PutResult
     suspend fun dataGetPublic(address: String): ByteArray
-    suspend fun dataPutPrivate(data: ByteArray): PutResult
+    suspend fun dataPutPrivate(data: ByteArray, paymentMode: String? = null): PutResult
     suspend fun dataGetPrivate(dataMap: String): ByteArray
     suspend fun dataCost(data: ByteArray): String
 
@@ -24,18 +24,22 @@ interface IAntdClient : Closeable {
     suspend fun chunkPut(data: ByteArray): PutResult
     suspend fun chunkGet(address: String): ByteArray
 
-    // Graph
-    suspend fun graphEntryPut(ownerSecretKey: String, parents: List<String>, content: String, descendants: List<GraphDescendant>): PutResult
-    suspend fun graphEntryGet(address: String): GraphEntry
-    suspend fun graphEntryExists(address: String): Boolean
-    suspend fun graphEntryCost(publicKey: String): String
-
     // Files
-    suspend fun fileUploadPublic(path: String): PutResult
+    suspend fun fileUploadPublic(path: String, paymentMode: String? = null): PutResult
     suspend fun fileDownloadPublic(address: String, destPath: String)
-    suspend fun dirUploadPublic(path: String): PutResult
+    suspend fun dirUploadPublic(path: String, paymentMode: String? = null): PutResult
     suspend fun dirDownloadPublic(address: String, destPath: String)
     suspend fun archiveGetPublic(address: String): Archive
     suspend fun archivePutPublic(archive: Archive): PutResult
     suspend fun fileCost(path: String, isPublic: Boolean = true, includeArchive: Boolean = false): String
+
+    // Wallet
+    suspend fun walletAddress(): WalletAddress
+    suspend fun walletBalance(): WalletBalance
+    suspend fun walletApprove(): Boolean
+
+    // External Signer (Two-Phase Upload)
+    suspend fun prepareUpload(path: String): PrepareUploadResult
+    suspend fun prepareDataUpload(data: ByteArray): PrepareUploadResult
+    suspend fun finalizeUpload(uploadId: String, txHashes: Map<String, String>): FinalizeUploadResult
 }

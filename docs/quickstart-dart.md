@@ -25,7 +25,7 @@ import 'package:antd/antd.dart';
 final client = AntdClient();
 
 // Custom endpoint
-final client2 = AntdClient(transport: 'rest', baseUrl: 'http://localhost:8080');
+final client2 = AntdClient(transport: 'rest', baseUrl: 'http://localhost:8082');
 
 // gRPC transport
 final grpcClient = AntdClient(transport: 'grpc', target: 'localhost:50051');
@@ -96,39 +96,6 @@ await client.dirDownloadPublic(dirResult.address, '/path/to/output_dir');
 final cost = await client.fileCost('/path/to/file.txt');
 ```
 
-## Graph Entries (DAG Nodes)
-
-```dart
-import 'dart:math';
-import 'dart:typed_data';
-
-String randomHex(int bytes) {
-  final rng = Random.secure();
-  return List.generate(bytes, (_) => rng.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
-}
-
-final key = randomHex(32);
-final content = randomHex(32);
-
-// Create a root node
-final result = await client.graphEntryPut(
-  key,
-  parents: [],
-  content: content,
-  descendants: [],
-);
-print('Graph entry: ${result.address}');
-
-// Read
-final entry = await client.graphEntryGet(result.address);
-print('Owner: ${entry.owner}');
-print('Content: ${entry.content}');
-print('Parents: ${entry.parents}');
-print('Descendants: ${entry.descendants}');
-
-// Check existence
-final exists = await client.graphEntryExists(result.address);
-```
 
 ## Error Handling
 

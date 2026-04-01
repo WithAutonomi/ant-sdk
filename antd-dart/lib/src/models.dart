@@ -41,75 +41,6 @@ class PutResult {
   String toString() => 'PutResult(cost: $cost, address: $address)';
 }
 
-/// GraphDescendant is a descendant entry in a graph node.
-class GraphDescendant {
-  /// The public key in hex.
-  final String publicKey;
-
-  /// The content in hex (32 bytes).
-  final String content;
-
-  const GraphDescendant({required this.publicKey, required this.content});
-
-  factory GraphDescendant.fromJson(Map<String, dynamic> json) {
-    return GraphDescendant(
-      publicKey: json['public_key'] as String? ?? '',
-      content: json['content'] as String? ?? '',
-    );
-  }
-
-  Map<String, dynamic> toJson() => {
-        'public_key': publicKey,
-        'content': content,
-      };
-
-  @override
-  String toString() =>
-      'GraphDescendant(publicKey: $publicKey, content: $content)';
-}
-
-/// GraphEntry is a DAG node from the network.
-class GraphEntry {
-  /// The owner public key.
-  final String owner;
-
-  /// Parent addresses.
-  final List<String> parents;
-
-  /// The content hash.
-  final String content;
-
-  /// Descendant entries.
-  final List<GraphDescendant> descendants;
-
-  const GraphEntry({
-    required this.owner,
-    required this.parents,
-    required this.content,
-    required this.descendants,
-  });
-
-  factory GraphEntry.fromJson(Map<String, dynamic> json) {
-    return GraphEntry(
-      owner: json['owner'] as String? ?? '',
-      parents: (json['parents'] as List<dynamic>?)
-              ?.map((e) => e as String)
-              .toList() ??
-          [],
-      content: json['content'] as String? ?? '',
-      descendants: (json['descendants'] as List<dynamic>?)
-              ?.map((e) =>
-                  GraphDescendant.fromJson(e as Map<String, dynamic>))
-              .toList() ??
-          [],
-    );
-  }
-
-  @override
-  String toString() =>
-      'GraphEntry(owner: $owner, parents: $parents, content: $content, descendants: $descendants)';
-}
-
 /// ArchiveEntry is a single entry in a file archive.
 class ArchiveEntry {
   /// The file path within the archive.
@@ -176,4 +107,127 @@ class Archive {
 
   @override
   String toString() => 'Archive(entries: $entries)';
+}
+
+/// WalletAddress is the wallet address response.
+class WalletAddress {
+  /// The 0x-prefixed hex address.
+  final String address;
+
+  const WalletAddress({required this.address});
+
+  factory WalletAddress.fromJson(Map<String, dynamic> json) {
+    return WalletAddress(
+      address: json['address'] as String? ?? '',
+    );
+  }
+
+  @override
+  String toString() => 'WalletAddress(address: $address)';
+}
+
+/// WalletBalance is the wallet balance response.
+class WalletBalance {
+  /// Token balance in atto tokens as a string.
+  final String balance;
+
+  /// Gas balance in atto tokens as a string.
+  final String gasBalance;
+
+  const WalletBalance({required this.balance, required this.gasBalance});
+
+  factory WalletBalance.fromJson(Map<String, dynamic> json) {
+    return WalletBalance(
+      balance: json['balance'] as String? ?? '',
+      gasBalance: json['gas_balance'] as String? ?? '',
+    );
+  }
+
+  @override
+  String toString() =>
+      'WalletBalance(balance: $balance, gasBalance: $gasBalance)';
+}
+
+/// A single payment required for an upload.
+class PaymentInfo {
+  final String quoteHash;
+  final String rewardsAddress;
+  final String amount;
+
+  const PaymentInfo({
+    required this.quoteHash,
+    required this.rewardsAddress,
+    required this.amount,
+  });
+
+  factory PaymentInfo.fromJson(Map<String, dynamic> json) {
+    return PaymentInfo(
+      quoteHash: json['quote_hash'] as String? ?? '',
+      rewardsAddress: json['rewards_address'] as String? ?? '',
+      amount: json['amount'] as String? ?? '',
+    );
+  }
+
+  @override
+  String toString() =>
+      'PaymentInfo(quoteHash: $quoteHash, rewardsAddress: $rewardsAddress, amount: $amount)';
+}
+
+/// Result of preparing an upload for external signing.
+class PrepareUploadResult {
+  final String uploadId;
+  final List<PaymentInfo> payments;
+  final String totalAmount;
+  final String dataPaymentsAddress;
+  final String paymentTokenAddress;
+  final String rpcUrl;
+
+  const PrepareUploadResult({
+    required this.uploadId,
+    required this.payments,
+    required this.totalAmount,
+    required this.dataPaymentsAddress,
+    required this.paymentTokenAddress,
+    required this.rpcUrl,
+  });
+
+  factory PrepareUploadResult.fromJson(Map<String, dynamic> json) {
+    return PrepareUploadResult(
+      uploadId: json['upload_id'] as String? ?? '',
+      payments: (json['payments'] as List<dynamic>?)
+              ?.map((e) => PaymentInfo.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
+      totalAmount: json['total_amount'] as String? ?? '',
+      dataPaymentsAddress: json['data_payments_address'] as String? ?? '',
+      paymentTokenAddress: json['payment_token_address'] as String? ?? '',
+      rpcUrl: json['rpc_url'] as String? ?? '',
+    );
+  }
+
+  @override
+  String toString() =>
+      'PrepareUploadResult(uploadId: $uploadId, payments: $payments, totalAmount: $totalAmount)';
+}
+
+/// Result of finalizing an externally-signed upload.
+class FinalizeUploadResult {
+  final String address;
+  final int chunksStored;
+
+  const FinalizeUploadResult({
+    required this.address,
+    required this.chunksStored,
+  });
+
+  factory FinalizeUploadResult.fromJson(Map<String, dynamic> json) {
+    return FinalizeUploadResult(
+      address: json['address'] as String? ?? '',
+      chunksStored: (json['chunks_stored'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  @override
+  String toString() =>
+      'FinalizeUploadResult(address: $address, chunksStored: $chunksStored)';
 }

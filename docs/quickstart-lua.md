@@ -23,7 +23,7 @@ local client = antd.new_client()
 -- Custom endpoint
 local client = antd.new_client({
     transport = "rest",
-    base_url = "http://localhost:8080",
+    base_url = "http://localhost:8082",
 })
 
 -- gRPC transport
@@ -108,41 +108,6 @@ local cost, err = client:file_cost("/path/to/file.txt")
 if err then error(err) end
 ```
 
-## Graph Entries (DAG Nodes)
-
-```lua
-local function random_hex(bytes)
-    local hex = {}
-    for i = 1, bytes do
-        hex[i] = string.format("%02x", math.random(0, 255))
-    end
-    return table.concat(hex)
-end
-
-local key = random_hex(32)
-local content = random_hex(32)
-
--- Create a root node
-local result, err = client:graph_entry_put(key, {
-    parents = {},
-    content = content,
-    descendants = {},
-})
-if err then error(err) end
-print("Graph entry: " .. result.address)
-
--- Read
-local entry, err = client:graph_entry_get(result.address)
-if err then error(err) end
-print("Owner: " .. entry.owner)
-print("Content: " .. entry.content)
-print("Parents: " .. #entry.parents)
-print("Descendants: " .. #entry.descendants)
-
--- Check existence
-local exists, err = client:graph_entry_exists(result.address)
-if err then error(err) end
-```
 
 ## Error Handling
 

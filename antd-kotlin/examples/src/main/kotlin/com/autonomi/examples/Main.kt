@@ -13,14 +13,12 @@ fun main(args: Array<String>) = runBlocking {
         "2" -> example02Data()
         "3" -> example03Chunks()
         "4" -> example04Files()
-        "5" -> example05Graph()
         "6" -> example06PrivateData()
         "all" -> {
             example01Connect()
             example02Data()
             example03Chunks()
             example04Files()
-            example05Graph()
             example06PrivateData()
         }
         else -> println("Unknown example: $example. Use 1-6 or 'all'.")
@@ -126,43 +124,6 @@ suspend fun example04Files() {
     }
 
     println("File upload/download OK!\n")
-    client.close()
-}
-
-/** Example 05: Graph entry (DAG node) operations. */
-suspend fun example05Graph() {
-    println("=== Example 05: Graph ===")
-    val client = AntdClient.createRest()
-
-    val secretKey = randomHex()
-
-    // Create a root graph entry
-    val content = randomHex()
-    val result = client.graphEntryPut(
-        secretKey,
-        emptyList(),
-        content,
-        emptyList(),
-    )
-    println("Graph entry created at: ${result.address}")
-    println("Cost: ${result.cost} atto tokens")
-
-    // Read
-    val entry = client.graphEntryGet(result.address)
-    println("Owner: ${entry.owner}")
-    println("Content: ${entry.content}")
-    println("Parents: ${entry.parents.size}")
-    println("Descendants: ${entry.descendants.size}")
-
-    // Check existence
-    val exists = client.graphEntryExists(result.address)
-    println("Graph entry exists: $exists")
-
-    // Estimate cost
-    val cost = client.graphEntryCost(secretKey)
-    println("Cost estimate for new entry: $cost atto tokens")
-
-    println("Graph entry operations OK!\n")
     client.close()
 }
 

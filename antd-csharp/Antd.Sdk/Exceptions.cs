@@ -47,6 +47,12 @@ public class NetworkException : AntdException
         : base(message, statusCode) { }
 }
 
+public class ServiceUnavailableException : AntdException
+{
+    public ServiceUnavailableException(string message, int statusCode = 503)
+        : base(message, statusCode) { }
+}
+
 public class TooLargeException : AntdException
 {
     public TooLargeException(string message, int statusCode = 413)
@@ -73,6 +79,7 @@ internal static class ExceptionMapping
             413 => new TooLargeException(body, code),
             500 => new InternalException(body, code),
             502 => new NetworkException(body, code),
+            503 => new ServiceUnavailableException(body, code),
             _ => new AntdException(body, code),
         };
     }

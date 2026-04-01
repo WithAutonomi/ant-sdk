@@ -1,5 +1,6 @@
 use tonic::transport::{Channel, Endpoint};
 
+use crate::discover::discover_grpc_target;
 use crate::errors::AntdError;
 use crate::models::*;
 
@@ -16,7 +17,6 @@ use proto::antd::v1::{
     chunk_service_client::ChunkServiceClient,
     data_service_client::DataServiceClient,
     file_service_client::FileServiceClient,
-    graph_service_client::GraphServiceClient,
     health_service_client::HealthServiceClient,
 };
 
@@ -25,14 +25,13 @@ pub const DEFAULT_GRPC_ENDPOINT: &str = "http://localhost:50051";
 
 /// gRPC client for the antd daemon.
 ///
-/// Provides the same 19 async methods as [`crate::Client`] but communicates
+/// Provides the same async methods as [`crate::Client`] but communicates
 /// over gRPC instead of REST/JSON.
 #[derive(Debug, Clone)]
 pub struct GrpcClient {
     health: HealthServiceClient<Channel>,
     data: DataServiceClient<Channel>,
     chunks: ChunkServiceClient<Channel>,
-    graph: GraphServiceClient<Channel>,
     files: FileServiceClient<Channel>,
 }
 
@@ -42,6 +41,14 @@ impl GrpcClient {
     /// This is an alias for [`GrpcClient::connect`].
     pub async fn new(endpoint: &str) -> Result<Self, AntdError> {
         Self::connect(endpoint).await
+    }
+
+    /// Creates a gRPC client by auto-discovering the daemon port file,
+    /// falling back to [`DEFAULT_GRPC_ENDPOINT`] if discovery fails.
+    pub async fn auto_discover() -> Result<Self, AntdError> {
+        let endpoint = discover_grpc_target()
+            .unwrap_or_else(|| DEFAULT_GRPC_ENDPOINT.to_string());
+        Self::connect(&endpoint).await
     }
 
     /// Connects to the antd gRPC server at the given endpoint.
@@ -56,7 +63,6 @@ impl GrpcClient {
             health: HealthServiceClient::new(channel.clone()),
             data: DataServiceClient::new(channel.clone()),
             chunks: ChunkServiceClient::new(channel.clone()),
-            graph: GraphServiceClient::new(channel.clone()),
             files: FileServiceClient::new(channel),
         })
     }
@@ -202,103 +208,6 @@ impl GrpcClient {
             .into_inner();
 
         Ok(resp.data)
-    }
-
-    // --- Graph ---
-
-    /// Creates a new graph entry (DAG node).
-    pub async fn graph_entry_put(
-        &self,
-        owner_secret_key: &str,
-        parents: &[String],
-        content: &str,
-        descendants: &[GraphDescendant],
-    ) -> Result<PutResult, AntdError> {
-        let proto_descendants: Vec<proto::antd::v1::GraphDescendant> = descendants
-            .iter()
-            .map(|d| proto::antd::v1::GraphDescendant {
-                public_key: d.public_key.clone(),
-                content: d.content.clone(),
-            })
-            .collect();
-
-        let resp = self
-            .graph
-            .clone()
-            .put(proto::antd::v1::PutGraphEntryRequest {
-                owner_secret_key: owner_secret_key.to_string(),
-                parents: parents.to_vec(),
-                content: content.to_string(),
-                descendants: proto_descendants,
-            })
-            .await?
-            .into_inner();
-
-        let cost = resp
-            .cost
-            .map(|c| c.atto_tokens)
-            .unwrap_or_default();
-
-        Ok(PutResult {
-            cost,
-            address: resp.address,
-        })
-    }
-
-    /// Retrieves a graph entry by address.
-    pub async fn graph_entry_get(&self, address: &str) -> Result<GraphEntry, AntdError> {
-        let resp = self
-            .graph
-            .clone()
-            .get(proto::antd::v1::GetGraphEntryRequest {
-                address: address.to_string(),
-            })
-            .await?
-            .into_inner();
-
-        let descendants = resp
-            .descendants
-            .into_iter()
-            .map(|d| GraphDescendant {
-                public_key: d.public_key,
-                content: d.content,
-            })
-            .collect();
-
-        Ok(GraphEntry {
-            owner: resp.owner,
-            parents: resp.parents,
-            content: resp.content,
-            descendants,
-        })
-    }
-
-    /// Checks if a graph entry exists at the given address.
-    pub async fn graph_entry_exists(&self, address: &str) -> Result<bool, AntdError> {
-        let resp = self
-            .graph
-            .clone()
-            .check_existence(proto::antd::v1::CheckGraphEntryRequest {
-                address: address.to_string(),
-            })
-            .await?
-            .into_inner();
-
-        Ok(resp.exists)
-    }
-
-    /// Estimates the cost of creating a graph entry.
-    pub async fn graph_entry_cost(&self, public_key: &str) -> Result<String, AntdError> {
-        let resp = self
-            .graph
-            .clone()
-            .get_cost(proto::antd::v1::GraphEntryCostRequest {
-                public_key: public_key.to_string(),
-            })
-            .await?
-            .into_inner();
-
-        Ok(resp.atto_tokens)
     }
 
     // --- Files ---

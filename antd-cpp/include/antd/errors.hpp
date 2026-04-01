@@ -63,6 +63,12 @@ public:
     NetworkError(const std::string& msg) : AntdError(502, msg) {}
 };
 
+/// Service unavailable, e.g. wallet not configured (HTTP 503).
+class ServiceUnavailableError : public AntdError {
+public:
+    ServiceUnavailableError(const std::string& msg) : AntdError(503, msg) {}
+};
+
 /// Throw the appropriate AntdError subclass for an HTTP status code.
 [[noreturn]] inline void error_for_status(int code, const std::string& message) {
     switch (code) {
@@ -73,6 +79,7 @@ public:
         case 413: throw TooLargeError(message);
         case 500: throw InternalError(message);
         case 502: throw NetworkError(message);
+        case 503: throw ServiceUnavailableError(message);
         default:  throw AntdError(code, message);
     }
 }

@@ -52,6 +52,11 @@ class NetworkError extends AntdError {
   const NetworkError(String message) : super(502, message);
 }
 
+/// Service unavailable, e.g. wallet not configured (HTTP 503).
+class ServiceUnavailableError extends AntdError {
+  const ServiceUnavailableError(String message) : super(503, message);
+}
+
 /// Returns the appropriate error type for an HTTP status code.
 AntdError errorForStatus(int statusCode, String message) {
   switch (statusCode) {
@@ -69,6 +74,8 @@ AntdError errorForStatus(int statusCode, String message) {
       return InternalError(message);
     case 502:
       return NetworkError(message);
+    case 503:
+      return ServiceUnavailableError(message);
     default:
       return AntdError(statusCode, message);
   }

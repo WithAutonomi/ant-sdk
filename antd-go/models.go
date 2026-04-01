@@ -12,20 +12,6 @@ type PutResult struct {
 	Address string `json:"address"` // hex
 }
 
-// GraphDescendant is a descendant entry in a graph node.
-type GraphDescendant struct {
-	PublicKey string `json:"public_key"` // hex
-	Content   string `json:"content"`    // hex, 32 bytes
-}
-
-// GraphEntry is a DAG node from the network.
-type GraphEntry struct {
-	Owner       string            `json:"owner"`
-	Parents     []string          `json:"parents"`
-	Content     string            `json:"content"`
-	Descendants []GraphDescendant `json:"descendants"`
-}
-
 // ArchiveEntry is a single entry in a file archive.
 type ArchiveEntry struct {
 	Path     string `json:"path"`
@@ -38,4 +24,39 @@ type ArchiveEntry struct {
 // Archive is a collection of archive entries.
 type Archive struct {
 	Entries []ArchiveEntry `json:"entries"`
+}
+
+// WalletAddress is the result of a wallet address query.
+type WalletAddress struct {
+	Address string `json:"address"` // hex with 0x prefix
+}
+
+// WalletBalance is the result of a wallet balance query.
+type WalletBalance struct {
+	Balance    string `json:"balance"`     // token balance in atto
+	GasBalance string `json:"gas_balance"` // gas balance in wei
+}
+
+// PaymentInfo describes a single payment required for an upload.
+type PaymentInfo struct {
+	QuoteHash      string `json:"quote_hash"`      // hex
+	RewardsAddress string `json:"rewards_address"` // hex
+	Amount         string `json:"amount"`          // atto tokens as string
+}
+
+// PrepareUploadResult is the result of preparing an upload for external signing.
+type PrepareUploadResult struct {
+	UploadID            string        `json:"upload_id"`             // hex identifier
+	Payments            []PaymentInfo `json:"payments"`              // payments to sign
+	TotalAmount         string        `json:"total_amount"`          // total atto tokens
+	DataPaymentsAddress string        `json:"data_payments_address"` // contract address
+	PaymentTokenAddress string        `json:"payment_token_address"` // token contract address
+	RPCUrl              string        `json:"rpc_url"`               // EVM RPC URL
+}
+
+// FinalizeUploadResult is the result of finalizing an externally-signed upload.
+type FinalizeUploadResult struct {
+	DataMap      string `json:"data_map"`                // hex-encoded serialized DataMap (always returned)
+	Address      string `json:"address,omitempty"`        // network address (only when store_data_map=true)
+	ChunksStored int64  `json:"chunks_stored"`           // number of chunks stored
 }

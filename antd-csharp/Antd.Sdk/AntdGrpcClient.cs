@@ -11,7 +11,6 @@ public sealed class AntdGrpcClient : IAntdClient
     private readonly HealthService.HealthServiceClient _health;
     private readonly DataService.DataServiceClient _data;
     private readonly ChunkService.ChunkServiceClient _chunks;
-    private readonly GraphService.GraphServiceClient _graph;
     private readonly FileService.FileServiceClient _files;
 
     public AntdGrpcClient(string target = "http://localhost:50051")
@@ -20,8 +19,17 @@ public sealed class AntdGrpcClient : IAntdClient
         _health = new HealthService.HealthServiceClient(_channel);
         _data = new DataService.DataServiceClient(_channel);
         _chunks = new ChunkService.ChunkServiceClient(_channel);
-        _graph = new GraphService.GraphServiceClient(_channel);
         _files = new FileService.FileServiceClient(_channel);
+    }
+
+    /// <summary>
+    /// Creates an AntdGrpcClient by reading the daemon.port file written by antd.
+    /// Falls back to the default target if the port file is not found.
+    /// </summary>
+    public static AntdGrpcClient AutoDiscover()
+    {
+        var target = DaemonDiscovery.DiscoverGrpcTarget();
+        return string.IsNullOrEmpty(target) ? new AntdGrpcClient() : new AntdGrpcClient(target);
     }
 
     public void Dispose() => _channel.Dispose();
@@ -53,7 +61,7 @@ public sealed class AntdGrpcClient : IAntdClient
 
     // ── Data ──
 
-    public async Task<PutResult> DataPutPublicAsync(byte[] data)
+    public async Task<PutResult> DataPutPublicAsync(byte[] data, string? paymentMode = null)
     {
         try
         {
@@ -73,7 +81,7 @@ public sealed class AntdGrpcClient : IAntdClient
         catch (RpcException ex) { throw Wrap(ex); }
     }
 
-    public async Task<PutResult> DataPutPrivateAsync(byte[] data)
+    public async Task<PutResult> DataPutPrivateAsync(byte[] data, string? paymentMode = null)
     {
         try
         {
@@ -125,67 +133,9 @@ public sealed class AntdGrpcClient : IAntdClient
         catch (RpcException ex) { throw Wrap(ex); }
     }
 
-    // ── Graph ──
-
-    public async Task<PutResult> GraphEntryPutAsync(string ownerSecretKey, List<string> parents, string content, List<GraphDescendant> descendants)
-    {
-        try
-        {
-            var req = new PutGraphEntryRequest
-            {
-                OwnerSecretKey = ownerSecretKey,
-                Content = content,
-            };
-            req.Parents.AddRange(parents);
-            req.Descendants.AddRange(descendants.Select(d => new Antd.V1.GraphDescendant
-            {
-                PublicKey = d.PublicKey,
-                Content = d.Content,
-            }));
-            var resp = await _graph.PutAsync(req);
-            return new PutResult(resp.Cost.AttoTokens, resp.Address);
-        }
-        catch (RpcException ex) { throw Wrap(ex); }
-    }
-
-    public async Task<GraphEntry> GraphEntryGetAsync(string address)
-    {
-        try
-        {
-            var resp = await _graph.GetAsync(new GetGraphEntryRequest { Address = address });
-            var descendants = resp.Descendants.Select(d => new GraphDescendant(d.PublicKey, d.Content)).ToList();
-            return new GraphEntry(resp.Owner, resp.Parents.ToList(), resp.Content, descendants);
-        }
-        catch (RpcException ex) { throw Wrap(ex); }
-    }
-
-    public async Task<bool> GraphEntryExistsAsync(string address)
-    {
-        try
-        {
-            var resp = await _graph.CheckExistenceAsync(new CheckGraphEntryRequest { Address = address });
-            return resp.Exists;
-        }
-        catch (RpcException ex) when (ex.StatusCode == StatusCode.NotFound)
-        {
-            return false;
-        }
-        catch (RpcException ex) { throw Wrap(ex); }
-    }
-
-    public async Task<string> GraphEntryCostAsync(string publicKey)
-    {
-        try
-        {
-            var resp = await _graph.GetCostAsync(new GraphEntryCostRequest { PublicKey = publicKey });
-            return resp.AttoTokens;
-        }
-        catch (RpcException ex) { throw Wrap(ex); }
-    }
-
     // ── Files ──
 
-    public async Task<PutResult> FileUploadPublicAsync(string path)
+    public async Task<PutResult> FileUploadPublicAsync(string path, string? paymentMode = null)
     {
         try
         {
@@ -204,7 +154,7 @@ public sealed class AntdGrpcClient : IAntdClient
         catch (RpcException ex) { throw Wrap(ex); }
     }
 
-    public async Task<PutResult> DirUploadPublicAsync(string path)
+    public async Task<PutResult> DirUploadPublicAsync(string path, string? paymentMode = null)
     {
         try
         {

@@ -38,7 +38,7 @@ cmake --build build
 #include <iostream>
 
 int main() {
-    antd::Client client;  // defaults to http://localhost:8080
+    antd::Client client;  // defaults to http://localhost:8082
 
     // Check daemon health
     auto health = client.health();
@@ -68,7 +68,7 @@ No additional dependencies are required — only C++20 `<future>`.
 #include <iostream>
 
 int main() {
-    antd::AsyncClient client;  // defaults to http://localhost:8080
+    antd::AsyncClient client;  // defaults to http://localhost:8082
 
     // Fire off two requests concurrently
     auto health_future = client.health();
@@ -131,7 +131,7 @@ for (auto& f : futures) {
 
 ## gRPC Transport
 
-The SDK includes a `GrpcClient` class that provides the same 19 methods as the
+The SDK includes a `GrpcClient` class that provides the same methods as the
 REST `Client`, but communicates over gRPC. This can offer lower latency and
 better streaming support for large data transfers.
 
@@ -197,14 +197,14 @@ ant dev start
 ## Configuration
 
 ```cpp
-// Default: http://localhost:8080, 5 minute timeout
+// Default: http://localhost:8082, 5 minute timeout
 antd::Client client;
 
 // Custom URL
 antd::Client client("http://custom-host:9090");
 
 // Custom URL and timeout (seconds)
-antd::Client client("http://localhost:8080", 30);
+antd::Client client("http://localhost:8082", 30);
 ```
 
 ## API Reference
@@ -233,15 +233,6 @@ All methods throw `antd::AntdError` (or a subclass) on failure.
 |--------|-------------|
 | `chunk_put(data)` | Store a raw chunk |
 | `chunk_get(address)` | Retrieve a chunk |
-
-### Graph Entries (DAG Nodes)
-
-| Method | Description |
-|--------|-------------|
-| `graph_entry_put(secret_key, parents, content, descendants)` | Create entry |
-| `graph_entry_get(address)` | Read entry |
-| `graph_entry_exists(address)` | Check if exists |
-| `graph_entry_cost(public_key)` | Estimate creation cost |
 
 ### Files & Directories
 
@@ -303,5 +294,4 @@ See the [examples/](examples/) directory:
 - `02-data` — Public data storage and retrieval
 - `03-chunks` — Raw chunk operations
 - `04-files` — File and directory upload/download
-- `05-graph` — Graph entry (DAG node) operations
 - `06-private-data` — Private encrypted data storage
