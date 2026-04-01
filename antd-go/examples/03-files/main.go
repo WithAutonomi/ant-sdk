@@ -14,7 +14,7 @@ func main() {
 	ctx := context.Background()
 
 	// Estimate cost first
-	cost, err := client.FileCost(ctx, "/path/to/file.txt", true, false)
+	cost, err := client.FileCost(ctx, "/path/to/file.txt", true)
 	if err != nil {
 		log.Fatal(err)
 	}
