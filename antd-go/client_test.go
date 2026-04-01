@@ -67,6 +67,44 @@ func mockDaemon(t *testing.T) *httptest.Server {
 		case r.Method == "POST" && r.URL.Path == "/v1/cost/file":
 			json.NewEncoder(w).Encode(map[string]any{"cost": "1000"})
 
+		// Wallet address
+		case r.Method == "GET" && r.URL.Path == "/v1/wallet/address":
+			json.NewEncoder(w).Encode(map[string]any{"address": "0xabc123"})
+
+		// Wallet balance
+		case r.Method == "GET" && r.URL.Path == "/v1/wallet/balance":
+			json.NewEncoder(w).Encode(map[string]any{"balance": "1000", "gas_balance": "500"})
+
+		// Wallet approve
+		case r.Method == "POST" && r.URL.Path == "/v1/wallet/approve":
+			json.NewEncoder(w).Encode(map[string]any{"approved": true})
+
+		// Prepare upload (file)
+		case r.Method == "POST" && r.URL.Path == "/v1/upload/prepare":
+			json.NewEncoder(w).Encode(map[string]any{
+				"upload_id":              "up1",
+				"payments":              []any{map[string]any{"quote_hash": "qh1", "rewards_address": "ra1", "amount": "100"}},
+				"total_amount":          "100",
+				"data_payments_address": "dp1",
+				"payment_token_address": "pt1",
+				"rpc_url":              "http://localhost:8545",
+			})
+
+		// Prepare data upload
+		case r.Method == "POST" && r.URL.Path == "/v1/data/prepare":
+			json.NewEncoder(w).Encode(map[string]any{
+				"upload_id":              "up2",
+				"payments":              []any{map[string]any{"quote_hash": "qh1", "rewards_address": "ra1", "amount": "100"}},
+				"total_amount":          "100",
+				"data_payments_address": "dp1",
+				"payment_token_address": "pt1",
+				"rpc_url":              "http://localhost:8545",
+			})
+
+		// Finalize upload
+		case r.Method == "POST" && r.URL.Path == "/v1/upload/finalize":
+			json.NewEncoder(w).Encode(map[string]any{"address": "fin1", "chunks_stored": float64(3)})
+
 		// 404 for anything else
 		default:
 			w.WriteHeader(404)
@@ -211,6 +249,115 @@ func TestFiles(t *testing.T) {
 	}
 	if cost != "1000" {
 		t.Fatalf("unexpected file cost: %s", cost)
+	}
+}
+
+func TestWalletAddress(t *testing.T) {
+	srv := mockDaemon(t)
+	defer srv.Close()
+	c := NewClient(srv.URL)
+	wa, err := c.WalletAddress(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wa.Address != "0xabc123" {
+		t.Fatalf("unexpected address: %s", wa.Address)
+	}
+}
+
+func TestWalletBalance(t *testing.T) {
+	srv := mockDaemon(t)
+	defer srv.Close()
+	c := NewClient(srv.URL)
+	wb, err := c.WalletBalance(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wb.Balance != "1000" || wb.GasBalance != "500" {
+		t.Fatalf("unexpected balance: %+v", wb)
+	}
+}
+
+func TestWalletApprove(t *testing.T) {
+	srv := mockDaemon(t)
+	defer srv.Close()
+	c := NewClient(srv.URL)
+	err := c.WalletApprove(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPrepareUpload(t *testing.T) {
+	srv := mockDaemon(t)
+	defer srv.Close()
+	c := NewClient(srv.URL)
+	res, err := c.PrepareUpload(context.Background(), "/tmp/test.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.UploadID != "up1" {
+		t.Fatalf("unexpected upload_id: %s", res.UploadID)
+	}
+	if len(res.Payments) != 1 || res.Payments[0].QuoteHash != "qh1" {
+		t.Fatalf("unexpected payments: %+v", res.Payments)
+	}
+	if res.TotalAmount != "100" {
+		t.Fatalf("unexpected total_amount: %s", res.TotalAmount)
+	}
+	if res.DataPaymentsAddress != "dp1" {
+		t.Fatalf("unexpected data_payments_address: %s", res.DataPaymentsAddress)
+	}
+	if res.PaymentTokenAddress != "pt1" {
+		t.Fatalf("unexpected payment_token_address: %s", res.PaymentTokenAddress)
+	}
+	if res.RPCUrl != "http://localhost:8545" {
+		t.Fatalf("unexpected rpc_url: %s", res.RPCUrl)
+	}
+}
+
+func TestPrepareDataUpload(t *testing.T) {
+	srv := mockDaemon(t)
+	defer srv.Close()
+	c := NewClient(srv.URL)
+	res, err := c.PrepareDataUpload(context.Background(), []byte("testdata"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.UploadID != "up2" {
+		t.Fatalf("unexpected upload_id: %s", res.UploadID)
+	}
+	if len(res.Payments) != 1 || res.Payments[0].RewardsAddress != "ra1" {
+		t.Fatalf("unexpected payments: %+v", res.Payments)
+	}
+	if res.TotalAmount != "100" {
+		t.Fatalf("unexpected total_amount: %s", res.TotalAmount)
+	}
+	if res.DataPaymentsAddress != "dp1" {
+		t.Fatalf("unexpected data_payments_address: %s", res.DataPaymentsAddress)
+	}
+	if res.PaymentTokenAddress != "pt1" {
+		t.Fatalf("unexpected payment_token_address: %s", res.PaymentTokenAddress)
+	}
+	if res.RPCUrl != "http://localhost:8545" {
+		t.Fatalf("unexpected rpc_url: %s", res.RPCUrl)
+	}
+}
+
+func TestFinalizeUpload(t *testing.T) {
+	srv := mockDaemon(t)
+	defer srv.Close()
+	c := NewClient(srv.URL)
+	txHashes := map[string]string{"qh1": "tx1"}
+	res, err := c.FinalizeUpload(context.Background(), "up1", txHashes, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Address != "fin1" {
+		t.Fatalf("unexpected address: %s", res.Address)
+	}
+	if res.ChunksStored != 3 {
+		t.Fatalf("unexpected chunks_stored: %d", res.ChunksStored)
 	}
 }
 
