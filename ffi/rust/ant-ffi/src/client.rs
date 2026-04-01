@@ -117,7 +117,7 @@ impl Client {
     #[uniffi::constructor]
     pub async fn connect_with_wallet(
         peers: Vec<String>,
-        private_key: String,
+        mut private_key: String,
         rpc_url: String,
         payment_token_address: String,
         data_payments_address: String,
@@ -166,8 +166,11 @@ impl Client {
             &data_payments_address,
             None,
         );
-        let wallet = evmlib::wallet::Wallet::new_from_private_key(network, &private_key)
-            .map_err(|e| ClientError::InitializationFailed {
+        let result = evmlib::wallet::Wallet::new_from_private_key(network, &private_key);
+        // Clear the private key from memory as soon as possible
+        private_key.replace_range(.., &"0".repeat(private_key.len()));
+        private_key.clear();
+        let wallet = result.map_err(|e| ClientError::InitializationFailed {
                 reason: format!("failed to create wallet: {e}"),
             })?;
 

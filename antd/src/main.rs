@@ -200,10 +200,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let rest_handle = tokio::spawn(async move {
         tracing::info!("REST server listening on {actual_rest_addr}");
-        axum::serve(rest_listener, app)
+        if let Err(e) = axum::serve(rest_listener, app)
             .with_graceful_shutdown(shutdown_signal())
             .await
-            .unwrap();
+        {
+            tracing::error!("REST server error: {e}");
+        }
     });
 
     tokio::select! {

@@ -19,8 +19,12 @@ pub async fn data_put_public(
         return Err(AntdError::ServiceUnavailable("wallet not configured — set AUTONOMI_WALLET_KEY".into()));
     }
 
+    const MAX_PAYLOAD_SIZE: usize = 100 * 1024 * 1024; // 100 MB
     let data = BASE64.decode(&req.data)
         .map_err(|e| AntdError::BadRequest(format!("invalid base64: {e}")))?;
+    if data.len() > MAX_PAYLOAD_SIZE {
+        return Err(AntdError::TooLarge);
+    }
 
     let mode = parse_payment_mode(req.payment_mode.as_deref())
         .map_err(AntdError::BadRequest)?;
@@ -72,8 +76,12 @@ pub async fn data_put_private(
         return Err(AntdError::ServiceUnavailable("wallet not configured — set AUTONOMI_WALLET_KEY".into()));
     }
 
+    const MAX_PAYLOAD_SIZE: usize = 100 * 1024 * 1024; // 100 MB
     let data = BASE64.decode(&req.data)
         .map_err(|e| AntdError::BadRequest(format!("invalid base64: {e}")))?;
+    if data.len() > MAX_PAYLOAD_SIZE {
+        return Err(AntdError::TooLarge);
+    }
 
     let mode = parse_payment_mode(req.payment_mode.as_deref())
         .map_err(AntdError::BadRequest)?;

@@ -213,6 +213,28 @@ class GrpcClient:
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
+    # --- Wallet (not yet available via gRPC) ---
+
+    def wallet_address(self):
+        raise NotImplementedError("wallet_address is not yet supported via gRPC")
+
+    def wallet_balance(self):
+        raise NotImplementedError("wallet_balance is not yet supported via gRPC")
+
+    def wallet_approve(self) -> bool:
+        raise NotImplementedError("wallet_approve is not yet supported via gRPC")
+
+    # --- External Signer (not yet available via gRPC) ---
+
+    def prepare_upload(self, path: str):
+        raise NotImplementedError("prepare_upload is not yet supported via gRPC")
+
+    def prepare_data_upload(self, data: bytes):
+        raise NotImplementedError("prepare_data_upload is not yet supported via gRPC")
+
+    def finalize_upload(self, upload_id: str, tx_hashes: dict):
+        raise NotImplementedError("finalize_upload is not yet supported via gRPC")
+
 
 class AsyncGrpcClient:
     """Asynchronous gRPC client for the antd daemon."""
@@ -380,3 +402,25 @@ class AsyncGrpcClient:
             return resp.atto_tokens
         except grpc.RpcError as e:
             _handle_rpc_error(e)
+
+    # --- Wallet (not yet available via gRPC) ---
+
+    async def wallet_address(self):
+        raise NotImplementedError("wallet_address is not yet supported via gRPC")
+
+    async def wallet_balance(self):
+        raise NotImplementedError("wallet_balance is not yet supported via gRPC")
+
+    async def wallet_approve(self) -> bool:
+        raise NotImplementedError("wallet_approve is not yet supported via gRPC")
+
+    # --- External Signer (not yet available via gRPC) ---
+
+    async def prepare_upload(self, path: str):
+        raise NotImplementedError("prepare_upload is not yet supported via gRPC")
+
+    async def prepare_data_upload(self, data: bytes):
+        raise NotImplementedError("prepare_data_upload is not yet supported via gRPC")
+
+    async def finalize_upload(self, upload_id: str, tx_hashes: dict):
+        raise NotImplementedError("finalize_upload is not yet supported via gRPC")

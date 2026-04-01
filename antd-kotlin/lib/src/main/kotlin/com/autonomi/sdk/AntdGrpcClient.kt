@@ -145,4 +145,18 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
     override suspend fun walletApprove(): Boolean {
         throw UnsupportedOperationException("walletApprove not available via gRPC")
     }
+
+    // ── External Signer (not yet available via gRPC) ──
+
+    override suspend fun prepareUpload(path: String): PrepareUploadResult {
+        throw UnsupportedOperationException("prepareUpload is not yet supported via gRPC")
+    }
+
+    override suspend fun prepareDataUpload(data: ByteArray): PrepareUploadResult {
+        throw UnsupportedOperationException("prepareDataUpload is not yet supported via gRPC")
+    }
+
+    override suspend fun finalizeUpload(uploadId: String, txHashes: Map<String, String>): FinalizeUploadResult {
+        throw UnsupportedOperationException("finalizeUpload is not yet supported via gRPC")
+    }
 }
