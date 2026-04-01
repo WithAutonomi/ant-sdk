@@ -109,92 +109,6 @@ pub fn parseCost(allocator: Allocator, body: []const u8) ![]const u8 {
         return error.JsonError;
 }
 
-/// Parse a GraphEntry from a JSON response body.
-pub fn parseGraphEntry(allocator: Allocator, body: []const u8) !models.GraphEntry {
-    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
-        return error.JsonError;
-    defer parsed.deinit();
-    const root = parsed.value;
-
-    const obj = switch (root) {
-        .object => |o| o,
-        else => return error.JsonError,
-    };
-
-    const owner = dupeString(allocator, obj.get("owner") orelse .null) catch
-        return error.JsonError;
-    errdefer allocator.free(owner);
-
-    const content = dupeString(allocator, obj.get("content") orelse .null) catch
-        return error.JsonError;
-    errdefer allocator.free(content);
-
-    // Parse parents array
-    const parents = blk: {
-        const parents_val = obj.get("parents") orelse break :blk &[_][]const u8{};
-        const parents_arr = switch (parents_val) {
-            .array => |a| a,
-            else => break :blk &[_][]const u8{},
-        };
-        if (parents_arr.items.len == 0) break :blk &[_][]const u8{};
-
-        const parents_slice = allocator.alloc([]const u8, parents_arr.items.len) catch
-            return error.JsonError;
-        var count: usize = 0;
-        errdefer {
-            for (parents_slice[0..count]) |p| allocator.free(p);
-            allocator.free(parents_slice);
-        }
-        for (parents_arr.items) |item| {
-            parents_slice[count] = dupeString(allocator, item) catch return error.JsonError;
-            count += 1;
-        }
-        break :blk parents_slice;
-    };
-    errdefer {
-        for (parents) |p| allocator.free(p);
-        if (parents.len > 0) allocator.free(parents);
-    }
-
-    // Parse descendants array
-    const descendants = blk: {
-        const desc_val = obj.get("descendants") orelse break :blk &[_]models.GraphDescendant{};
-        const desc_arr = switch (desc_val) {
-            .array => |a| a,
-            else => break :blk &[_]models.GraphDescendant{},
-        };
-        if (desc_arr.items.len == 0) break :blk &[_]models.GraphDescendant{};
-
-        const desc_slice = allocator.alloc(models.GraphDescendant, desc_arr.items.len) catch
-            return error.JsonError;
-        var count: usize = 0;
-        errdefer {
-            for (desc_slice[0..count]) |d| d.deinit(allocator);
-            allocator.free(desc_slice);
-        }
-        for (desc_arr.items) |item| {
-            const d_obj = switch (item) {
-                .object => |o| o,
-                else => return error.JsonError,
-            };
-            const pk = dupeString(allocator, d_obj.get("public_key") orelse .null) catch
-                return error.JsonError;
-            errdefer allocator.free(pk);
-            const dc = dupeString(allocator, d_obj.get("content") orelse .null) catch
-                return error.JsonError;
-            desc_slice[count] = .{ .public_key = pk, .content = dc };
-            count += 1;
-        }
-        break :blk desc_slice;
-    };
-
-    return .{
-        .owner = owner,
-        .parents = parents,
-        .content = content,
-        .descendants = descendants,
-    };
-}
 
 /// Parse an Archive from a JSON response body.
 pub fn parseArchive(allocator: Allocator, body: []const u8) !models.Archive {
@@ -311,7 +225,6 @@ pub const JsonValue = union(enum) {
     string: []const u8,
     boolean: bool,
     string_array: []const []const u8,
-    descendants: []const models.GraphDescendant,
     archive_entries: []const models.ArchiveEntry,
 };
 
@@ -348,20 +261,6 @@ pub fn buildJsonBody(allocator: Allocator, fields: []const struct { key: []const
                     const escaped_item = jsonEscapeString(allocator, item) catch return error.JsonError;
                     defer allocator.free(escaped_item);
                     try buf.appendSlice(allocator, escaped_item);
-                }
-                try buf.append(allocator, ']');
-            },
-            .descendants => |descs| {
-                try buf.append(allocator, '[');
-                for (descs, 0..) |d, j| {
-                    if (j > 0) try buf.append(allocator, ',');
-                    const pk = jsonEscapeString(allocator, d.public_key) catch return error.JsonError;
-                    defer allocator.free(pk);
-                    const ct = jsonEscapeString(allocator, d.content) catch return error.JsonError;
-                    defer allocator.free(ct);
-                    const entry_str = std.fmt.allocPrint(allocator, "{{\"public_key\":{s},\"content\":{s}}}", .{ pk, ct }) catch return error.JsonError;
-                    defer allocator.free(entry_str);
-                    try buf.appendSlice(allocator, entry_str);
                 }
                 try buf.append(allocator, ']');
             },
