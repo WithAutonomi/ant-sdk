@@ -35,8 +35,6 @@ pub fn router(state: Arc<AppState>, enable_cors: bool, rest_port: u16) -> Router
         .route("/v1/files/download/public", post(files::file_download_public))
         .route("/v1/dirs/upload/public", post(files::dir_upload_public))
         .route("/v1/dirs/download/public", post(files::dir_download_public))
-        .route("/v1/archives/public/{addr}", get(files::archive_get_public))
-        .route("/v1/archives/public", post(files::archive_put_public))
         // Cost
         .route("/v1/cost/file", post(files::file_cost))
         // External signer (two-phase upload)

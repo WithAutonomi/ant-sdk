@@ -22,32 +22,6 @@ defmodule Antd.PutResult do
         }
 end
 
-defmodule Antd.ArchiveEntry do
-  @moduledoc "A single entry in a file archive."
-
-  @enforce_keys [:path, :address, :created, :modified, :size]
-  defstruct [:path, :address, :created, :modified, :size]
-
-  @type t :: %__MODULE__{
-          path: String.t(),
-          address: String.t(),
-          created: integer(),
-          modified: integer(),
-          size: integer()
-        }
-end
-
-defmodule Antd.Archive do
-  @moduledoc "A collection of archive entries."
-
-  @enforce_keys [:entries]
-  defstruct [:entries]
-
-  @type t :: %__MODULE__{
-          entries: [Antd.ArchiveEntry.t()]
-        }
-end
-
 defmodule Antd.WalletAddress do
   @moduledoc "Wallet address result."
 

@@ -225,53 +225,10 @@ void Client::dir_download_public(std::string_view address, std::string_view dest
     });
 }
 
-Archive Client::archive_get_public(std::string_view address) {
-    auto j = impl_->do_json("GET", "/v1/archives/public/" + std::string(address));
-
-    Archive archive;
-    if (j.contains("entries") && j["entries"].is_array()) {
-        for (const auto& e : j["entries"]) {
-            if (e.is_object()) {
-                archive.entries.push_back(ArchiveEntry{
-                    .path = e.value("path", ""),
-                    .address = e.value("address", ""),
-                    .created = e.value("created", int64_t{0}),
-                    .modified = e.value("modified", int64_t{0}),
-                    .size = e.value("size", int64_t{0}),
-                });
-            }
-        }
-    }
-
-    return archive;
-}
-
-PutResult Client::archive_put_public(const Archive& archive) {
-    json entries = json::array();
-    for (const auto& e : archive.entries) {
-        entries.push_back(json{
-            {"path", e.path},
-            {"address", e.address},
-            {"created", e.created},
-            {"modified", e.modified},
-            {"size", e.size},
-        });
-    }
-
-    auto j = impl_->do_json("POST", "/v1/archives/public", json{
-        {"entries", entries},
-    });
-    return PutResult{
-        .cost = j.value("cost", ""),
-        .address = j.value("address", ""),
-    };
-}
-
-std::string Client::file_cost(std::string_view path, bool is_public, bool include_archive) {
+std::string Client::file_cost(std::string_view path, bool is_public) {
     auto j = impl_->do_json("POST", "/v1/cost/file", json{
         {"path", std::string(path)},
         {"is_public", is_public},
-        {"include_archive", include_archive},
     });
     return j.value("cost", "");
 }

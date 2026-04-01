@@ -32,26 +32,19 @@ import antd.v1.FileServiceGrpc;
 import antd.v1.Files.UploadFileRequest;
 import antd.v1.Files.UploadPublicResponse;
 import antd.v1.Files.DownloadPublicRequest;
-import antd.v1.Files.ArchiveGetRequest;
-import antd.v1.Files.ArchiveGetResponse;
-import antd.v1.Files.ArchivePutRequest;
-import antd.v1.Files.ArchivePutResponse;
 import antd.v1.Files.FileCostRequest;
 
 import antd.v1.Common.Cost;
 
 import com.google.protobuf.ByteString;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
  * gRPC client for the antd daemon — the gateway to the Autonomi decentralized network.
  *
  * <p>Uses {@code io.grpc} blocking stubs for synchronous calls. Implements the same
- * 15 methods as {@link AntdClient} but communicates over gRPC instead of REST.
+ * methods as {@link AntdClient} but communicates over gRPC instead of REST.
  *
  * <p>Implements {@link AutoCloseable} so it can be used in try-with-resources blocks.
  *
@@ -340,57 +333,13 @@ public class GrpcAntdClient implements AutoCloseable {
     }
 
     /**
-     * Get an archive manifest by address.
-     */
-    public Archive archiveGetPublic(String address) {
-        try {
-            ArchiveGetRequest req = ArchiveGetRequest.newBuilder()
-                    .setAddress(address)
-                    .build();
-            ArchiveGetResponse resp = fileStub.archiveGetPublic(req);
-            List<ArchiveEntry> entries = new ArrayList<>();
-            for (antd.v1.Files.ArchiveEntry e : resp.getEntriesList()) {
-                entries.add(new ArchiveEntry(
-                        e.getPath(), e.getAddress(),
-                        e.getCreated(), e.getModified(), e.getSize()));
-            }
-            return new Archive(Collections.unmodifiableList(entries));
-        } catch (StatusRuntimeException e) {
-            throw mapException(e);
-        }
-    }
-
-    /**
-     * Create an archive manifest on the network.
-     */
-    public PutResult archivePutPublic(Archive archive) {
-        try {
-            ArchivePutRequest.Builder builder = ArchivePutRequest.newBuilder();
-            for (ArchiveEntry e : archive.entries()) {
-                builder.addEntries(antd.v1.Files.ArchiveEntry.newBuilder()
-                        .setPath(e.path())
-                        .setAddress(e.address())
-                        .setCreated(e.created())
-                        .setModified(e.modified())
-                        .setSize(e.size())
-                        .build());
-            }
-            ArchivePutResponse resp = fileStub.archivePutPublic(builder.build());
-            return new PutResult(resp.getCost().getAttoTokens(), resp.getAddress());
-        } catch (StatusRuntimeException e) {
-            throw mapException(e);
-        }
-    }
-
-    /**
      * Estimate the cost of uploading a file.
      */
-    public String fileCost(String path, boolean isPublic, boolean includeArchive) {
+    public String fileCost(String path, boolean isPublic) {
         try {
             FileCostRequest req = FileCostRequest.newBuilder()
                     .setPath(path)
                     .setIsPublic(isPublic)
-                    .setIncludeArchive(includeArchive)
                     .build();
             Cost resp = fileStub.getFileCost(req);
             return resp.getAttoTokens();

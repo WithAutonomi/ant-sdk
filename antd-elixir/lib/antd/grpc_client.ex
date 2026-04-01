@@ -299,72 +299,13 @@ defmodule Antd.GrpcClient do
     unwrap!(dir_download_public(client, address, dest_path))
   end
 
-  @doc "Retrieves an archive manifest by address."
-  @spec archive_get_public(t(), String.t()) :: {:ok, Antd.Archive.t()} | {:error, Exception.t()}
-  def archive_get_public(%__MODULE__{channel: channel}, address) do
-    req = Antd.V1.ArchiveGetRequest.new(address: address)
-
-    case Antd.V1.FileService.Stub.archive_get_public(channel, req) do
-      {:ok, resp} ->
-        entries =
-          Enum.map(resp.entries, fn e ->
-            %Antd.ArchiveEntry{
-              path: e.path,
-              address: e.address,
-              created: e.created,
-              modified: e.modified,
-              size: e.size
-            }
-          end)
-
-        {:ok, %Antd.Archive{entries: entries}}
-
-      {:error, rpc_error} ->
-        {:error, translate_error(rpc_error)}
-    end
-  end
-
-  @doc "Like `archive_get_public/2` but raises on error."
-  @spec archive_get_public!(t(), String.t()) :: Antd.Archive.t()
-  def archive_get_public!(client, address), do: unwrap!(archive_get_public(client, address))
-
-  @doc "Creates an archive manifest on the network."
-  @spec archive_put_public(t(), Antd.Archive.t()) :: {:ok, Antd.PutResult.t()} | {:error, Exception.t()}
-  def archive_put_public(%__MODULE__{channel: channel}, %Antd.Archive{} = archive) do
-    entries =
-      Enum.map(archive.entries, fn e ->
-        Antd.V1.ArchiveEntry.new(
-          path: e.path,
-          address: e.address,
-          created: e.created,
-          modified: e.modified,
-          size: e.size
-        )
-      end)
-
-    req = Antd.V1.ArchivePutRequest.new(entries: entries)
-
-    case Antd.V1.FileService.Stub.archive_put_public(channel, req) do
-      {:ok, resp} ->
-        {:ok, %Antd.PutResult{cost: resp.cost.atto_tokens, address: resp.address}}
-
-      {:error, rpc_error} ->
-        {:error, translate_error(rpc_error)}
-    end
-  end
-
-  @doc "Like `archive_put_public/2` but raises on error."
-  @spec archive_put_public!(t(), Antd.Archive.t()) :: Antd.PutResult.t()
-  def archive_put_public!(client, archive), do: unwrap!(archive_put_public(client, archive))
-
   @doc "Estimates the cost of uploading a file."
-  @spec file_cost(t(), String.t(), boolean(), boolean()) :: {:ok, String.t()} | {:error, Exception.t()}
-  def file_cost(%__MODULE__{channel: channel}, path, is_public, include_archive) do
+  @spec file_cost(t(), String.t(), boolean()) :: {:ok, String.t()} | {:error, Exception.t()}
+  def file_cost(%__MODULE__{channel: channel}, path, is_public) do
     req =
       Antd.V1.FileCostRequest.new(
         path: path,
-        is_public: is_public,
-        include_archive: include_archive
+        is_public: is_public
       )
 
     case Antd.V1.FileService.Stub.get_file_cost(channel, req) do
@@ -373,10 +314,10 @@ defmodule Antd.GrpcClient do
     end
   end
 
-  @doc "Like `file_cost/4` but raises on error."
-  @spec file_cost!(t(), String.t(), boolean(), boolean()) :: String.t()
-  def file_cost!(client, path, is_public, include_archive) do
-    unwrap!(file_cost(client, path, is_public, include_archive))
+  @doc "Like `file_cost/3` but raises on error."
+  @spec file_cost!(t(), String.t(), boolean()) :: String.t()
+  def file_cost!(client, path, is_public) do
+    unwrap!(file_cost(client, path, is_public))
   end
 
   # ---------------------------------------------------------------------------

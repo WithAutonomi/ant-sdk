@@ -171,33 +171,9 @@ public sealed class AntdRestClient : IAntdClient
         await PostJsonNoResultAsync("/v1/dirs/download/public", new { address, dest_path = destPath });
     }
 
-    public async Task<Archive> ArchiveGetPublicAsync(string address)
+    public async Task<string> FileCostAsync(string path, bool isPublic = true)
     {
-        var resp = await GetJsonAsync<ArchiveDto>($"/v1/archives/public/{address}");
-        var entries = resp.Entries?.Select(e => new ArchiveEntry(e.Path, e.Address, e.Created, e.Modified, e.Size)).ToList() ?? [];
-        return new Archive(entries);
-    }
-
-    public async Task<PutResult> ArchivePutPublicAsync(Archive archive)
-    {
-        var body = new
-        {
-            entries = archive.Entries.Select(e => new
-            {
-                path = e.Path,
-                address = e.Address,
-                created = e.Created,
-                modified = e.Modified,
-                size = e.Size,
-            }).ToList(),
-        };
-        var resp = await PostJsonAsync<DataPutPublicDto>("/v1/archives/public", body);
-        return new PutResult(resp.Cost, resp.Address);
-    }
-
-    public async Task<string> FileCostAsync(string path, bool isPublic = true, bool includeArchive = false)
-    {
-        var body = new { path, is_public = isPublic, include_archive = includeArchive };
+        var body = new { path, is_public = isPublic };
         var resp = await PostJsonAsync<CostDto>("/v1/cost/file", body);
         return resp.Cost;
     }
@@ -276,16 +252,6 @@ public sealed class AntdRestClient : IAntdClient
 
     private sealed record CostDto(
         [property: JsonPropertyName("cost")] string Cost);
-
-    private sealed record ArchiveEntryDto(
-        [property: JsonPropertyName("path")] string Path,
-        [property: JsonPropertyName("address")] string Address,
-        [property: JsonPropertyName("created")] ulong Created,
-        [property: JsonPropertyName("modified")] ulong Modified,
-        [property: JsonPropertyName("size")] ulong Size);
-
-    private sealed record ArchiveDto(
-        [property: JsonPropertyName("entries")] List<ArchiveEntryDto>? Entries);
 
     private sealed record WalletAddressDto(
         [property: JsonPropertyName("address")] string Address);

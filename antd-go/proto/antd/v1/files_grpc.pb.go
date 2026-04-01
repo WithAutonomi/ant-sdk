@@ -23,8 +23,6 @@ const (
 	FileService_DownloadPublic_FullMethodName    = "/antd.v1.FileService/DownloadPublic"
 	FileService_DirUploadPublic_FullMethodName   = "/antd.v1.FileService/DirUploadPublic"
 	FileService_DirDownloadPublic_FullMethodName = "/antd.v1.FileService/DirDownloadPublic"
-	FileService_ArchiveGetPublic_FullMethodName  = "/antd.v1.FileService/ArchiveGetPublic"
-	FileService_ArchivePutPublic_FullMethodName  = "/antd.v1.FileService/ArchivePutPublic"
 	FileService_GetFileCost_FullMethodName       = "/antd.v1.FileService/GetFileCost"
 )
 
@@ -36,8 +34,6 @@ type FileServiceClient interface {
 	DownloadPublic(ctx context.Context, in *DownloadPublicRequest, opts ...grpc.CallOption) (*DownloadResponse, error)
 	DirUploadPublic(ctx context.Context, in *UploadFileRequest, opts ...grpc.CallOption) (*UploadPublicResponse, error)
 	DirDownloadPublic(ctx context.Context, in *DownloadPublicRequest, opts ...grpc.CallOption) (*DownloadResponse, error)
-	ArchiveGetPublic(ctx context.Context, in *ArchiveGetRequest, opts ...grpc.CallOption) (*ArchiveGetResponse, error)
-	ArchivePutPublic(ctx context.Context, in *ArchivePutRequest, opts ...grpc.CallOption) (*ArchivePutResponse, error)
 	GetFileCost(ctx context.Context, in *FileCostRequest, opts ...grpc.CallOption) (*Cost, error)
 }
 
@@ -89,26 +85,6 @@ func (c *fileServiceClient) DirDownloadPublic(ctx context.Context, in *DownloadP
 	return out, nil
 }
 
-func (c *fileServiceClient) ArchiveGetPublic(ctx context.Context, in *ArchiveGetRequest, opts ...grpc.CallOption) (*ArchiveGetResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ArchiveGetResponse)
-	err := c.cc.Invoke(ctx, FileService_ArchiveGetPublic_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *fileServiceClient) ArchivePutPublic(ctx context.Context, in *ArchivePutRequest, opts ...grpc.CallOption) (*ArchivePutResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ArchivePutResponse)
-	err := c.cc.Invoke(ctx, FileService_ArchivePutPublic_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *fileServiceClient) GetFileCost(ctx context.Context, in *FileCostRequest, opts ...grpc.CallOption) (*Cost, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Cost)
@@ -127,8 +103,6 @@ type FileServiceServer interface {
 	DownloadPublic(context.Context, *DownloadPublicRequest) (*DownloadResponse, error)
 	DirUploadPublic(context.Context, *UploadFileRequest) (*UploadPublicResponse, error)
 	DirDownloadPublic(context.Context, *DownloadPublicRequest) (*DownloadResponse, error)
-	ArchiveGetPublic(context.Context, *ArchiveGetRequest) (*ArchiveGetResponse, error)
-	ArchivePutPublic(context.Context, *ArchivePutRequest) (*ArchivePutResponse, error)
 	GetFileCost(context.Context, *FileCostRequest) (*Cost, error)
 	mustEmbedUnimplementedFileServiceServer()
 }
@@ -151,12 +125,6 @@ func (UnimplementedFileServiceServer) DirUploadPublic(context.Context, *UploadFi
 }
 func (UnimplementedFileServiceServer) DirDownloadPublic(context.Context, *DownloadPublicRequest) (*DownloadResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DirDownloadPublic not implemented")
-}
-func (UnimplementedFileServiceServer) ArchiveGetPublic(context.Context, *ArchiveGetRequest) (*ArchiveGetResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ArchiveGetPublic not implemented")
-}
-func (UnimplementedFileServiceServer) ArchivePutPublic(context.Context, *ArchivePutRequest) (*ArchivePutResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ArchivePutPublic not implemented")
 }
 func (UnimplementedFileServiceServer) GetFileCost(context.Context, *FileCostRequest) (*Cost, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetFileCost not implemented")
@@ -254,42 +222,6 @@ func _FileService_DirDownloadPublic_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
-func _FileService_ArchiveGetPublic_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ArchiveGetRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileServiceServer).ArchiveGetPublic(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: FileService_ArchiveGetPublic_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileServiceServer).ArchiveGetPublic(ctx, req.(*ArchiveGetRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FileService_ArchivePutPublic_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ArchivePutRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FileServiceServer).ArchivePutPublic(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: FileService_ArchivePutPublic_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileServiceServer).ArchivePutPublic(ctx, req.(*ArchivePutRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _FileService_GetFileCost_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(FileCostRequest)
 	if err := dec(in); err != nil {
@@ -330,14 +262,6 @@ var FileService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DirDownloadPublic",
 			Handler:    _FileService_DirDownloadPublic_Handler,
-		},
-		{
-			MethodName: "ArchiveGetPublic",
-			Handler:    _FileService_ArchiveGetPublic_Handler,
-		},
-		{
-			MethodName: "ArchivePutPublic",
-			Handler:    _FileService_ArchivePutPublic_Handler,
 		},
 		{
 			MethodName: "GetFileCost",

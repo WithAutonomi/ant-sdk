@@ -83,7 +83,7 @@ All data and file upload operations accept an optional `payment_mode` parameter 
 | Component | Language | Description |
 |-----------|----------|-------------|
 | [`antd/`](antd/) | Rust | REST + gRPC gateway daemon |
-| [`antd-mcp/`](antd-mcp/) | Python | MCP server exposing 19 tools for AI agents (Claude, etc.) |
+| [`antd-mcp/`](antd-mcp/) | Python | MCP server exposing 14 tools for AI agents (Claude, etc.) |
 | [`ant-dev/`](ant-dev/) | Python | Developer CLI for local environment management |
 
 ### Language SDKs
@@ -421,7 +421,7 @@ The Autonomi network provides these core primitives, all accessible through the 
 |-----------|-------------|
 | **Data** | Store/retrieve arbitrary byte blobs (public or private/encrypted) |
 | **Chunks** | Low-level content-addressed storage |
-| **Files** | File/directory upload with archive manifests |
+| **Files** | File/directory upload and download |
 
 ## Developer CLI Reference
 

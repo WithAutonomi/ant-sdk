@@ -35,10 +35,6 @@ import antd.v1.Files.UploadFileRequest;
 import antd.v1.Files.UploadPublicResponse;
 import antd.v1.Files.DownloadPublicRequest;
 import antd.v1.Files.DownloadResponse;
-import antd.v1.Files.ArchiveGetRequest;
-import antd.v1.Files.ArchiveGetResponse;
-import antd.v1.Files.ArchivePutRequest;
-import antd.v1.Files.ArchivePutResponse;
 import antd.v1.Files.FileCostRequest;
 
 import antd.v1.Common.Cost;
@@ -46,9 +42,6 @@ import antd.v1.Common.Cost;
 import com.google.protobuf.ByteString;
 
 import org.junit.jupiter.api.*;
-
-import java.util.Collections;
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -228,33 +221,6 @@ class GrpcAntdClientTest {
         }
 
         @Override
-        public void archiveGetPublic(ArchiveGetRequest request,
-                                     StreamObserver<ArchiveGetResponse> responseObserver) {
-            responseObserver.onNext(
-                    ArchiveGetResponse.newBuilder()
-                            .addEntries(antd.v1.Files.ArchiveEntry.newBuilder()
-                                    .setPath("test.txt")
-                                    .setAddress("abc")
-                                    .setCreated(1000)
-                                    .setModified(2000)
-                                    .setSize(42)
-                                    .build())
-                            .build());
-            responseObserver.onCompleted();
-        }
-
-        @Override
-        public void archivePutPublic(ArchivePutRequest request,
-                                     StreamObserver<ArchivePutResponse> responseObserver) {
-            responseObserver.onNext(
-                    ArchivePutResponse.newBuilder()
-                            .setCost(Cost.newBuilder().setAttoTokens("50").build())
-                            .setAddress("arc2")
-                            .build());
-            responseObserver.onCompleted();
-        }
-
-        @Override
         public void getFileCost(FileCostRequest request,
                                 StreamObserver<Cost> responseObserver) {
             responseObserver.onNext(
@@ -264,7 +230,7 @@ class GrpcAntdClientTest {
     }
 
     // =========================================================================
-    // Tests — 15 methods
+    // Tests
     // =========================================================================
 
     // --- Health ---
@@ -352,29 +318,8 @@ class GrpcAntdClientTest {
     }
 
     @Test
-    void testArchiveGetPublic() {
-        Archive arc = client.archiveGetPublic("arc1");
-        assertEquals(1, arc.entries().size());
-        ArchiveEntry entry = arc.entries().get(0);
-        assertEquals("test.txt", entry.path());
-        assertEquals("abc", entry.address());
-        assertEquals(1000L, entry.created());
-        assertEquals(2000L, entry.modified());
-        assertEquals(42L, entry.size());
-    }
-
-    @Test
-    void testArchivePutPublic() {
-        Archive arc = new Archive(List.of(
-                new ArchiveEntry("test.txt", "abc", 1000, 2000, 42)));
-        PutResult put = client.archivePutPublic(arc);
-        assertEquals("arc2", put.address());
-        assertEquals("50", put.cost());
-    }
-
-    @Test
     void testFileCost() {
-        String cost = client.fileCost("/tmp/test.txt", true, false);
+        String cost = client.fileCost("/tmp/test.txt", true);
         assertEquals("1000", cost);
     }
 

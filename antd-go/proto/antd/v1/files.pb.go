@@ -205,278 +205,17 @@ func (*DownloadResponse) Descriptor() ([]byte, []int) {
 	return file_antd_v1_files_proto_rawDescGZIP(), []int{3}
 }
 
-type ArchiveGetRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Address       string                 `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"` // hex
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ArchiveGetRequest) Reset() {
-	*x = ArchiveGetRequest{}
-	mi := &file_antd_v1_files_proto_msgTypes[4]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ArchiveGetRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ArchiveGetRequest) ProtoMessage() {}
-
-func (x *ArchiveGetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_antd_v1_files_proto_msgTypes[4]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ArchiveGetRequest.ProtoReflect.Descriptor instead.
-func (*ArchiveGetRequest) Descriptor() ([]byte, []int) {
-	return file_antd_v1_files_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *ArchiveGetRequest) GetAddress() string {
-	if x != nil {
-		return x.Address
-	}
-	return ""
-}
-
-type ArchiveEntry struct {
+type FileCostRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
-	Address       string                 `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"`
-	Created       uint64                 `protobuf:"varint,3,opt,name=created,proto3" json:"created,omitempty"`
-	Modified      uint64                 `protobuf:"varint,4,opt,name=modified,proto3" json:"modified,omitempty"`
-	Size          uint64                 `protobuf:"varint,5,opt,name=size,proto3" json:"size,omitempty"`
+	IsPublic      bool                   `protobuf:"varint,2,opt,name=is_public,json=isPublic,proto3" json:"is_public,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ArchiveEntry) Reset() {
-	*x = ArchiveEntry{}
-	mi := &file_antd_v1_files_proto_msgTypes[5]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ArchiveEntry) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ArchiveEntry) ProtoMessage() {}
-
-func (x *ArchiveEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_antd_v1_files_proto_msgTypes[5]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ArchiveEntry.ProtoReflect.Descriptor instead.
-func (*ArchiveEntry) Descriptor() ([]byte, []int) {
-	return file_antd_v1_files_proto_rawDescGZIP(), []int{5}
-}
-
-func (x *ArchiveEntry) GetPath() string {
-	if x != nil {
-		return x.Path
-	}
-	return ""
-}
-
-func (x *ArchiveEntry) GetAddress() string {
-	if x != nil {
-		return x.Address
-	}
-	return ""
-}
-
-func (x *ArchiveEntry) GetCreated() uint64 {
-	if x != nil {
-		return x.Created
-	}
-	return 0
-}
-
-func (x *ArchiveEntry) GetModified() uint64 {
-	if x != nil {
-		return x.Modified
-	}
-	return 0
-}
-
-func (x *ArchiveEntry) GetSize() uint64 {
-	if x != nil {
-		return x.Size
-	}
-	return 0
-}
-
-type ArchiveGetResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Entries       []*ArchiveEntry        `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ArchiveGetResponse) Reset() {
-	*x = ArchiveGetResponse{}
-	mi := &file_antd_v1_files_proto_msgTypes[6]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ArchiveGetResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ArchiveGetResponse) ProtoMessage() {}
-
-func (x *ArchiveGetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_antd_v1_files_proto_msgTypes[6]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ArchiveGetResponse.ProtoReflect.Descriptor instead.
-func (*ArchiveGetResponse) Descriptor() ([]byte, []int) {
-	return file_antd_v1_files_proto_rawDescGZIP(), []int{6}
-}
-
-func (x *ArchiveGetResponse) GetEntries() []*ArchiveEntry {
-	if x != nil {
-		return x.Entries
-	}
-	return nil
-}
-
-type ArchivePutRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Entries       []*ArchiveEntry        `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ArchivePutRequest) Reset() {
-	*x = ArchivePutRequest{}
-	mi := &file_antd_v1_files_proto_msgTypes[7]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ArchivePutRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ArchivePutRequest) ProtoMessage() {}
-
-func (x *ArchivePutRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_antd_v1_files_proto_msgTypes[7]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ArchivePutRequest.ProtoReflect.Descriptor instead.
-func (*ArchivePutRequest) Descriptor() ([]byte, []int) {
-	return file_antd_v1_files_proto_rawDescGZIP(), []int{7}
-}
-
-func (x *ArchivePutRequest) GetEntries() []*ArchiveEntry {
-	if x != nil {
-		return x.Entries
-	}
-	return nil
-}
-
-type ArchivePutResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Cost          *Cost                  `protobuf:"bytes,1,opt,name=cost,proto3" json:"cost,omitempty"`
-	Address       string                 `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"` // hex
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ArchivePutResponse) Reset() {
-	*x = ArchivePutResponse{}
-	mi := &file_antd_v1_files_proto_msgTypes[8]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ArchivePutResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ArchivePutResponse) ProtoMessage() {}
-
-func (x *ArchivePutResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_antd_v1_files_proto_msgTypes[8]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ArchivePutResponse.ProtoReflect.Descriptor instead.
-func (*ArchivePutResponse) Descriptor() ([]byte, []int) {
-	return file_antd_v1_files_proto_rawDescGZIP(), []int{8}
-}
-
-func (x *ArchivePutResponse) GetCost() *Cost {
-	if x != nil {
-		return x.Cost
-	}
-	return nil
-}
-
-func (x *ArchivePutResponse) GetAddress() string {
-	if x != nil {
-		return x.Address
-	}
-	return ""
-}
-
-type FileCostRequest struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	Path           string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
-	IsPublic       bool                   `protobuf:"varint,2,opt,name=is_public,json=isPublic,proto3" json:"is_public,omitempty"`
-	IncludeArchive bool                   `protobuf:"varint,3,opt,name=include_archive,json=includeArchive,proto3" json:"include_archive,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
 }
 
 func (x *FileCostRequest) Reset() {
 	*x = FileCostRequest{}
-	mi := &file_antd_v1_files_proto_msgTypes[9]
+	mi := &file_antd_v1_files_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -488,7 +227,7 @@ func (x *FileCostRequest) String() string {
 func (*FileCostRequest) ProtoMessage() {}
 
 func (x *FileCostRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_antd_v1_files_proto_msgTypes[9]
+	mi := &file_antd_v1_files_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -501,7 +240,7 @@ func (x *FileCostRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileCostRequest.ProtoReflect.Descriptor instead.
 func (*FileCostRequest) Descriptor() ([]byte, []int) {
-	return file_antd_v1_files_proto_rawDescGZIP(), []int{9}
+	return file_antd_v1_files_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *FileCostRequest) GetPath() string {
@@ -514,13 +253,6 @@ func (x *FileCostRequest) GetPath() string {
 func (x *FileCostRequest) GetIsPublic() bool {
 	if x != nil {
 		return x.IsPublic
-	}
-	return false
-}
-
-func (x *FileCostRequest) GetIncludeArchive() bool {
-	if x != nil {
-		return x.IncludeArchive
 	}
 	return false
 }
@@ -538,33 +270,15 @@ const file_antd_v1_files_proto_rawDesc = "" +
 	"\x15DownloadPublicRequest\x12\x18\n" +
 	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x1b\n" +
 	"\tdest_path\x18\x02 \x01(\tR\bdestPath\"\x12\n" +
-	"\x10DownloadResponse\"-\n" +
-	"\x11ArchiveGetRequest\x12\x18\n" +
-	"\aaddress\x18\x01 \x01(\tR\aaddress\"\x86\x01\n" +
-	"\fArchiveEntry\x12\x12\n" +
-	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
-	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x18\n" +
-	"\acreated\x18\x03 \x01(\x04R\acreated\x12\x1a\n" +
-	"\bmodified\x18\x04 \x01(\x04R\bmodified\x12\x12\n" +
-	"\x04size\x18\x05 \x01(\x04R\x04size\"E\n" +
-	"\x12ArchiveGetResponse\x12/\n" +
-	"\aentries\x18\x01 \x03(\v2\x15.antd.v1.ArchiveEntryR\aentries\"D\n" +
-	"\x11ArchivePutRequest\x12/\n" +
-	"\aentries\x18\x01 \x03(\v2\x15.antd.v1.ArchiveEntryR\aentries\"Q\n" +
-	"\x12ArchivePutResponse\x12!\n" +
-	"\x04cost\x18\x01 \x01(\v2\r.antd.v1.CostR\x04cost\x12\x18\n" +
-	"\aaddress\x18\x02 \x01(\tR\aaddress\"k\n" +
+	"\x10DownloadResponse\"B\n" +
 	"\x0fFileCostRequest\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x1b\n" +
-	"\tis_public\x18\x02 \x01(\bR\bisPublic\x12'\n" +
-	"\x0finclude_archive\x18\x03 \x01(\bR\x0eincludeArchive2\x95\x04\n" +
+	"\tis_public\x18\x02 \x01(\bR\bisPublic2\xfb\x02\n" +
 	"\vFileService\x12I\n" +
 	"\fUploadPublic\x12\x1a.antd.v1.UploadFileRequest\x1a\x1d.antd.v1.UploadPublicResponse\x12K\n" +
 	"\x0eDownloadPublic\x12\x1e.antd.v1.DownloadPublicRequest\x1a\x19.antd.v1.DownloadResponse\x12L\n" +
 	"\x0fDirUploadPublic\x12\x1a.antd.v1.UploadFileRequest\x1a\x1d.antd.v1.UploadPublicResponse\x12N\n" +
-	"\x11DirDownloadPublic\x12\x1e.antd.v1.DownloadPublicRequest\x1a\x19.antd.v1.DownloadResponse\x12K\n" +
-	"\x10ArchiveGetPublic\x12\x1a.antd.v1.ArchiveGetRequest\x1a\x1b.antd.v1.ArchiveGetResponse\x12K\n" +
-	"\x10ArchivePutPublic\x12\x1a.antd.v1.ArchivePutRequest\x1a\x1b.antd.v1.ArchivePutResponse\x126\n" +
+	"\x11DirDownloadPublic\x12\x1e.antd.v1.DownloadPublicRequest\x1a\x19.antd.v1.DownloadResponse\x126\n" +
 	"\vGetFileCost\x12\x18.antd.v1.FileCostRequest\x1a\r.antd.v1.CostB\n" +
 	"\xaa\x02\aAntd.V1b\x06proto3"
 
@@ -580,44 +294,32 @@ func file_antd_v1_files_proto_rawDescGZIP() []byte {
 	return file_antd_v1_files_proto_rawDescData
 }
 
-var file_antd_v1_files_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_antd_v1_files_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_antd_v1_files_proto_goTypes = []any{
 	(*UploadFileRequest)(nil),     // 0: antd.v1.UploadFileRequest
 	(*UploadPublicResponse)(nil),  // 1: antd.v1.UploadPublicResponse
 	(*DownloadPublicRequest)(nil), // 2: antd.v1.DownloadPublicRequest
 	(*DownloadResponse)(nil),      // 3: antd.v1.DownloadResponse
-	(*ArchiveGetRequest)(nil),     // 4: antd.v1.ArchiveGetRequest
-	(*ArchiveEntry)(nil),          // 5: antd.v1.ArchiveEntry
-	(*ArchiveGetResponse)(nil),    // 6: antd.v1.ArchiveGetResponse
-	(*ArchivePutRequest)(nil),     // 7: antd.v1.ArchivePutRequest
-	(*ArchivePutResponse)(nil),    // 8: antd.v1.ArchivePutResponse
-	(*FileCostRequest)(nil),       // 9: antd.v1.FileCostRequest
-	(*Cost)(nil),                  // 10: antd.v1.Cost
+	(*FileCostRequest)(nil),       // 4: antd.v1.FileCostRequest
+	(*Cost)(nil),                  // 5: antd.v1.Cost
 }
 var file_antd_v1_files_proto_depIdxs = []int32{
-	10, // 0: antd.v1.UploadPublicResponse.cost:type_name -> antd.v1.Cost
-	5,  // 1: antd.v1.ArchiveGetResponse.entries:type_name -> antd.v1.ArchiveEntry
-	5,  // 2: antd.v1.ArchivePutRequest.entries:type_name -> antd.v1.ArchiveEntry
-	10, // 3: antd.v1.ArchivePutResponse.cost:type_name -> antd.v1.Cost
-	0,  // 4: antd.v1.FileService.UploadPublic:input_type -> antd.v1.UploadFileRequest
-	2,  // 5: antd.v1.FileService.DownloadPublic:input_type -> antd.v1.DownloadPublicRequest
-	0,  // 6: antd.v1.FileService.DirUploadPublic:input_type -> antd.v1.UploadFileRequest
-	2,  // 7: antd.v1.FileService.DirDownloadPublic:input_type -> antd.v1.DownloadPublicRequest
-	4,  // 8: antd.v1.FileService.ArchiveGetPublic:input_type -> antd.v1.ArchiveGetRequest
-	7,  // 9: antd.v1.FileService.ArchivePutPublic:input_type -> antd.v1.ArchivePutRequest
-	9,  // 10: antd.v1.FileService.GetFileCost:input_type -> antd.v1.FileCostRequest
-	1,  // 11: antd.v1.FileService.UploadPublic:output_type -> antd.v1.UploadPublicResponse
-	3,  // 12: antd.v1.FileService.DownloadPublic:output_type -> antd.v1.DownloadResponse
-	1,  // 13: antd.v1.FileService.DirUploadPublic:output_type -> antd.v1.UploadPublicResponse
-	3,  // 14: antd.v1.FileService.DirDownloadPublic:output_type -> antd.v1.DownloadResponse
-	6,  // 15: antd.v1.FileService.ArchiveGetPublic:output_type -> antd.v1.ArchiveGetResponse
-	8,  // 16: antd.v1.FileService.ArchivePutPublic:output_type -> antd.v1.ArchivePutResponse
-	10, // 17: antd.v1.FileService.GetFileCost:output_type -> antd.v1.Cost
-	11, // [11:18] is the sub-list for method output_type
-	4,  // [4:11] is the sub-list for method input_type
-	4,  // [4:4] is the sub-list for extension type_name
-	4,  // [4:4] is the sub-list for extension extendee
-	0,  // [0:4] is the sub-list for field type_name
+	5, // 0: antd.v1.UploadPublicResponse.cost:type_name -> antd.v1.Cost
+	0, // 1: antd.v1.FileService.UploadPublic:input_type -> antd.v1.UploadFileRequest
+	2, // 2: antd.v1.FileService.DownloadPublic:input_type -> antd.v1.DownloadPublicRequest
+	0, // 3: antd.v1.FileService.DirUploadPublic:input_type -> antd.v1.UploadFileRequest
+	2, // 4: antd.v1.FileService.DirDownloadPublic:input_type -> antd.v1.DownloadPublicRequest
+	4, // 5: antd.v1.FileService.GetFileCost:input_type -> antd.v1.FileCostRequest
+	1, // 6: antd.v1.FileService.UploadPublic:output_type -> antd.v1.UploadPublicResponse
+	3, // 7: antd.v1.FileService.DownloadPublic:output_type -> antd.v1.DownloadResponse
+	1, // 8: antd.v1.FileService.DirUploadPublic:output_type -> antd.v1.UploadPublicResponse
+	3, // 9: antd.v1.FileService.DirDownloadPublic:output_type -> antd.v1.DownloadResponse
+	5, // 10: antd.v1.FileService.GetFileCost:output_type -> antd.v1.Cost
+	6, // [6:11] is the sub-list for method output_type
+	1, // [1:6] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_antd_v1_files_proto_init() }
@@ -632,7 +334,7 @@ func file_antd_v1_files_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_antd_v1_files_proto_rawDesc), len(file_antd_v1_files_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

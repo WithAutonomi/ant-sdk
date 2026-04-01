@@ -129,9 +129,7 @@ All methods return `value, err` following Lua convention. On success `err` is `n
 | `client:file_download_public(address, dest_path)` | Download a file |
 | `client:dir_upload_public(path)` | Upload a directory |
 | `client:dir_download_public(address, dest_path)` | Download a directory |
-| `client:archive_get_public(address)` | Get archive manifest |
-| `client:archive_put_public(archive)` | Create archive manifest |
-| `client:file_cost(path, is_public, include_archive)` | Estimate upload cost |
+| `client:file_cost(path, is_public)` | Estimate upload cost |
 
 ## Error Handling
 
@@ -163,17 +161,6 @@ end
 | `too_large` | 413 | Payload too large |
 | `internal` | 500 | Server error |
 | `network` | 502 | Network unreachable |
-
-## Models
-
-Constructor functions are available for creating model tables:
-
-```lua
-local antd = require("antd")
-
-local entry = antd.new_archive_entry("file.txt", "abc123", 1000, 2000, 42)
-local archive = antd.new_archive({ entry })
-```
 
 ## Examples
 

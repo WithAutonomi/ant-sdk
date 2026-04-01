@@ -91,14 +91,8 @@ public:
     /// Download a directory from the network to a local path.
     void dir_download_public(std::string_view address, std::string_view dest_path);
 
-    /// Retrieve an archive manifest by address.
-    Archive archive_get_public(std::string_view address);
-
-    /// Create an archive manifest on the network.
-    PutResult archive_put_public(const Archive& archive);
-
     /// Estimate the cost of uploading a file.
-    std::string file_cost(std::string_view path, bool is_public, bool include_archive);
+    std::string file_cost(std::string_view path, bool is_public);
 
 private:
     struct Impl;

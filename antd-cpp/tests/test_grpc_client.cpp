@@ -223,25 +223,6 @@ TEST_CASE("PutResult from gRPC graph entry put response") {
     CHECK(r.address == "ge1");
 }
 
-TEST_CASE("Archive from gRPC response fields") {
-    // Simulates parsing an ArchiveGetResponse
-    antd::Archive archive;
-    archive.entries.push_back(antd::ArchiveEntry{
-        .path = "test.txt",
-        .address = "abc",
-        .created = 1000,
-        .modified = 2000,
-        .size = 42,
-    });
-
-    CHECK(archive.entries.size() == 1);
-    CHECK(archive.entries[0].path == "test.txt");
-    CHECK(archive.entries[0].address == "abc");
-    CHECK(archive.entries[0].created == 1000);
-    CHECK(archive.entries[0].modified == 2000);
-    CHECK(archive.entries[0].size == 42);
-}
-
 TEST_CASE("PutResult from gRPC file upload public response") {
     antd::PutResult r;
     r.cost = "1000";
@@ -258,15 +239,6 @@ TEST_CASE("PutResult from gRPC dir upload public response") {
 
     CHECK(r.cost == "2000");
     CHECK(r.address == "dir1");
-}
-
-TEST_CASE("PutResult from gRPC archive put public response") {
-    antd::PutResult r;
-    r.cost = "50";
-    r.address = "arc2";
-
-    CHECK(r.cost == "50");
-    CHECK(r.address == "arc2");
 }
 
 TEST_CASE("Cost string from gRPC data cost response") {

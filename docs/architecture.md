@@ -64,12 +64,12 @@ Low-level content-addressed storage. Data is the raw chunk — one block on the 
 
 Use for: custom chunking strategies, direct network interaction.
 
-#### Files & Archives
+#### Files
 
-Upload/download local files and directories. Under the hood, files are chunked and stored as Data, with an Archive manifest that maps paths to addresses.
+Upload/download local files and directories. Under the hood, files are chunked and stored as Data.
 
 ```
-Upload:    local path  ──▶  antd  ──▶  archive address
+Upload:    local path  ──▶  antd  ──▶  address
 Download:  address     ──▶  antd  ──▶  local path
 ```
 

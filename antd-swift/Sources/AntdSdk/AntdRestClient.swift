@@ -144,25 +144,8 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         try await postJSONNoResult("/v1/dirs/download/public", body: ["address": address, "dest_path": destPath])
     }
 
-    public func archiveGetPublic(address: String) async throws -> Archive {
-        let resp: ArchiveDTO = try await getJSON("/v1/archives/public/\(address)")
-        let entries = (resp.entries ?? []).map { ArchiveEntry(path: $0.path, address: $0.address, created: $0.created, modified: $0.modified, size: $0.size) }
-        return Archive(entries: entries)
-    }
-
-    public func archivePutPublic(archive: Archive) async throws -> PutResult {
-        let body: [String: Any] = [
-            "entries": archive.entries.map { [
-                "path": $0.path, "address": $0.address,
-                "created": $0.created, "modified": $0.modified, "size": $0.size,
-            ] as [String: Any] },
-        ]
-        let resp: CostAddressDTO = try await postJSON("/v1/archives/public", body: body)
-        return PutResult(cost: resp.cost, address: resp.address)
-    }
-
-    public func fileCost(path: String, isPublic: Bool = true, includeArchive: Bool = false) async throws -> String {
-        let body: [String: Any] = ["path": path, "is_public": isPublic, "include_archive": includeArchive]
+    public func fileCost(path: String, isPublic: Bool = true) async throws -> String {
+        let body: [String: Any] = ["path": path, "is_public": isPublic]
         let resp: CostDTO = try await postJSON("/v1/cost/file", body: body)
         return resp.cost
     }
@@ -233,18 +216,6 @@ private struct DataDTO: Decodable {
 
 private struct CostDTO: Decodable {
     let cost: String
-}
-
-private struct ArchiveEntryDTO: Decodable {
-    let path: String
-    let address: String
-    let created: UInt64
-    let modified: UInt64
-    let size: UInt64
-}
-
-private struct ArchiveDTO: Decodable {
-    let entries: [ArchiveEntryDTO]?
 }
 
 private struct WalletAddressDTO: Decodable {

@@ -1,6 +1,6 @@
 # antd-mcp — MCP Server for Autonomi
 
-An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that exposes the Autonomi network as 13 tools for AI agents. Works with Claude Desktop, Claude Code, and any MCP-compatible client.
+An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that exposes the Autonomi network as 14 tools for AI agents. Works with Claude Desktop, Claude Code, and any MCP-compatible client.
 
 ## Installation
 
@@ -72,13 +72,6 @@ The server will auto-discover the daemon via the port file. Add `"env": {"ANTD_B
 | 10 | `chunk_put(data)` | Store a raw chunk (base64 input) |
 | 11 | `chunk_get(address)` | Retrieve a chunk (base64 output) |
 
-### Archive Operations
-
-| # | Tool | Description |
-|---|------|-------------|
-| 12 | `archive_get(address)` | List files in an archive |
-| 13 | `archive_put(entries)` | Create an archive manifest |
-
 ### Payment Modes
 
 The `store_data` and `upload_file` tools accept an optional `payment_mode` parameter:
@@ -119,7 +112,7 @@ antd-mcp/
 ├── pyproject.toml
 └── src/antd_mcp/
     ├── __init__.py
-    ├── server.py      # 13 MCP tool definitions
+    ├── server.py      # 14 MCP tool definitions
     ├── discover.py    # Daemon port-file discovery
     └── errors.py      # Error formatting
 ```

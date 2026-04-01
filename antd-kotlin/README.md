@@ -67,7 +67,7 @@ All methods are `suspend` functions for use with Kotlin coroutines.
 | **Health** | `health()` |
 | **Data** | `dataPutPublic`, `dataGetPublic`, `dataPutPrivate`, `dataGetPrivate`, `dataCost` |
 | **Chunks** | `chunkPut`, `chunkGet` |
-| **Files** | `fileUploadPublic`, `fileDownloadPublic`, `dirUploadPublic`, `dirDownloadPublic`, `archiveGetPublic`, `archivePutPublic`, `fileCost` |
+| **Files** | `fileUploadPublic`, `fileDownloadPublic`, `dirUploadPublic`, `dirDownloadPublic`, `fileCost` |
 
 ## Error Handling
 

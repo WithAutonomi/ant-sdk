@@ -49,10 +49,6 @@ defmodule Antd do
   defdelegate dir_upload_public!(client, path), to: Antd.Client
   defdelegate dir_download_public(client, address, dest_path), to: Antd.Client
   defdelegate dir_download_public!(client, address, dest_path), to: Antd.Client
-  defdelegate archive_get_public(client, address), to: Antd.Client
-  defdelegate archive_get_public!(client, address), to: Antd.Client
-  defdelegate archive_put_public(client, archive), to: Antd.Client
-  defdelegate archive_put_public!(client, archive), to: Antd.Client
-  defdelegate file_cost(client, path, is_public, include_archive), to: Antd.Client
-  defdelegate file_cost!(client, path, is_public, include_archive), to: Antd.Client
+  defdelegate file_cost(client, path, is_public), to: Antd.Client
+  defdelegate file_cost!(client, path, is_public), to: Antd.Client
 end

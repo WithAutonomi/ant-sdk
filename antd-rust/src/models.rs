@@ -16,22 +16,6 @@ pub struct PutResult {
     pub address: String,
 }
 
-/// A single entry in a file archive.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ArchiveEntry {
-    pub path: String,
-    pub address: String,
-    pub created: i64,
-    pub modified: i64,
-    pub size: i64,
-}
-
-/// A collection of archive entries.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Archive {
-    pub entries: Vec<ArchiveEntry>,
-}
-
 /// Wallet address from the antd daemon.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WalletAddress {

@@ -102,10 +102,6 @@ On startup, antd writes a `daemon.port` file containing the actual REST port, gR
 | `GET` | `/v1/wallet/address` | Get wallet public address |
 | `GET` | `/v1/wallet/balance` | Get token and gas balances |
 | `POST` | `/v1/wallet/approve` | Approve token spend for payment contracts |
-| **Archives** *(stub)* | | |
-| `GET` | `/v1/archives/public/{address}` | Get archive manifest |
-| `POST` | `/v1/archives/public` | Create archive manifest |
-
 ### gRPC API (default: `localhost:50051`)
 
 gRPC services mirror the REST API. Proto definitions are in `proto/antd/v1/`:

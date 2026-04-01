@@ -117,9 +117,7 @@ All methods throw `AntdException` (or a typed subclass) on failure.
 | `fileDownloadPublic(address, destPath)` | Download a file |
 | `dirUploadPublic(path)` | Upload a directory |
 | `dirDownloadPublic(address, destPath)` | Download a directory |
-| `archiveGetPublic(address)` | Get archive manifest |
-| `archivePutPublic(archive)` | Create archive manifest |
-| `fileCost(path, isPublic, includeArchive)` | Estimate upload cost |
+| `fileCost(path, isPublic)` | Estimate upload cost |
 
 ## Async Usage
 
@@ -165,7 +163,7 @@ var client = new AsyncAntdClient("http://custom:9090");                      // 
 var client = new AsyncAntdClient("http://localhost:8082", Duration.ofSeconds(30)); // custom timeout
 ```
 
-All 15 methods follow the naming convention `methodNameAsync()` and return `CompletableFuture<T>` where `T` matches the sync return type. Void methods return `CompletableFuture<Void>`.
+All methods follow the naming convention `methodNameAsync()` and return `CompletableFuture<T>` where `T` matches the sync return type. Void methods return `CompletableFuture<Void>`.
 
 ## gRPC Transport
 

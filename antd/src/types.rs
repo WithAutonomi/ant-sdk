@@ -146,28 +146,6 @@ pub struct DirUploadPublicResponse {
     pub address: String,
 }
 
-// ── Archives ──
-
-#[derive(Serialize, Deserialize)]
-pub struct ArchiveEntryDto {
-    pub path: String,
-    pub address: String,
-    pub created: u64,
-    pub modified: u64,
-    pub size: u64,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct ArchiveDto {
-    pub entries: Vec<ArchiveEntryDto>,
-}
-
-#[derive(Serialize)]
-pub struct ArchivePutResponse {
-    pub cost: String,
-    pub address: String,
-}
-
 // ── Cost ──
 
 #[derive(Serialize)]
@@ -193,8 +171,6 @@ pub struct FileCostRequest {
     pub path: String,
     #[serde(default = "default_true")]
     pub is_public: bool,
-    #[serde(default)]
-    pub include_archive: bool,
 }
 
 fn default_true() -> bool {

@@ -290,28 +290,10 @@ Download a directory to a local path.
 
 Request: `{"address": "<hex>", "dest_path": "/absolute/path"}`
 
-#### `GET /v1/archives/public/{addr}`
-List entries in an archive manifest.
-
-Response:
-```json
-{
-  "entries": [
-    {"path": "file.txt", "address": "<hex>", "created": 1700000000, "modified": 1700000000, "size": 42}
-  ]
-}
-```
-
-#### `POST /v1/archives/public`
-Create an archive manifest from entries.
-
-Request: same structure as the GET response above.
-Response: `{"cost": "<atto_tokens>", "address": "<hex>"}`
-
 #### `POST /v1/cost/file`
 Estimate file upload cost.
 
-Request: `{"path": "/path/to/file", "is_public": true, "include_archive": false}`
+Request: `{"path": "/path/to/file", "is_public": true}`
 Response: `{"cost": "<atto_tokens>"}`
 
 #### `GET /v1/wallet/address`
@@ -403,9 +385,7 @@ Default target: `localhost:50051`. Package: `antd.v1`.
 - `DownloadPublic(DownloadPublicRequest{address, dest_path}) → DownloadResponse{}`
 - `DirUploadPublic(UploadFileRequest{path}) → UploadPublicResponse{cost, address}`
 - `DirDownloadPublic(DownloadPublicRequest{address, dest_path}) → DownloadResponse{}`
-- `ArchiveGetPublic(ArchiveGetRequest{address}) → ArchiveGetResponse{entries}`
-- `ArchivePutPublic(ArchivePutRequest{entries}) → ArchivePutResponse{cost, address}`
-- `GetFileCost(FileCostRequest{path, is_public, include_archive}) → Cost{atto_tokens}`
+- `GetFileCost(FileCostRequest{path, is_public}) → Cost{atto_tokens}`
 
 ### EventService (events.proto)
 - `Subscribe(SubscribeRequest{}) → stream ClientEventProto{kind, records_paid, records_already_paid, tokens_spent}`
@@ -424,8 +404,6 @@ JS/TS, PHP, Lua, and Zig are REST-only.
 |------|--------|-------------|
 | HealthStatus | ok: bool, network: string | Health check result |
 | PutResult | cost: string, address: string | Result from any create/put operation |
-| ArchiveEntry | path, address, created: int, modified: int, size: int | Archive file entry |
-| Archive | entries: list[ArchiveEntry] | Archive manifest |
 
 ---
 
@@ -489,9 +467,7 @@ client.fileUploadPublic(path: string): Promise<PutResult>
 client.fileDownloadPublic(address: string, destPath: string): Promise<void>
 client.dirUploadPublic(path: string): Promise<PutResult>
 client.dirDownloadPublic(address: string, destPath: string): Promise<void>
-client.archiveGetPublic(address: string): Promise<Archive>
-client.archivePutPublic(archive: Archive): Promise<PutResult>
-client.fileCost(path: string, isPublic?: boolean, includeArchive?: boolean): Promise<string>
+client.fileCost(path: string, isPublic?: boolean): Promise<string>
 
 // Wallet
 client.walletAddress(): Promise<WalletAddress>
@@ -530,9 +506,7 @@ client.file_upload_public(path: str) → PutResult
 client.file_download_public(address: str, dest_path: str) → None
 client.dir_upload_public(path: str) → PutResult
 client.dir_download_public(address: str, dest_path: str) → None
-client.archive_get_public(address: str) → Archive
-client.archive_put_public(archive: Archive) → PutResult
-client.file_cost(path: str, is_public: bool = True, include_archive: bool = False) → str
+client.file_cost(path: str, is_public: bool = True) → str
 
 # Wallet
 client.wallet_address() → WalletAddress
@@ -571,9 +545,7 @@ Task<PutResult> FileUploadPublicAsync(string path);
 Task FileDownloadPublicAsync(string address, string destPath);
 Task<PutResult> DirUploadPublicAsync(string path);
 Task DirDownloadPublicAsync(string address, string destPath);
-Task<Archive> ArchiveGetPublicAsync(string address);
-Task<PutResult> ArchivePutPublicAsync(Archive archive);
-Task<string> FileCostAsync(string path, bool isPublic = true, bool includeArchive = false);
+Task<string> FileCostAsync(string path, bool isPublic = true);
 
 // Wallet
 Task<WalletAddress> WalletAddressAsync();
@@ -612,9 +584,7 @@ suspend fun fileUploadPublic(path: String): PutResult
 suspend fun fileDownloadPublic(address: String, destPath: String)
 suspend fun dirUploadPublic(path: String): PutResult
 suspend fun dirDownloadPublic(address: String, destPath: String)
-suspend fun archiveGetPublic(address: String): Archive
-suspend fun archivePutPublic(archive: Archive): PutResult
-suspend fun fileCost(path: String, isPublic: Boolean = true, includeArchive: Boolean = false): String
+suspend fun fileCost(path: String, isPublic: Boolean = true): String
 
 // Wallet
 suspend fun walletAddress(): WalletAddress
@@ -655,9 +625,7 @@ func fileUploadPublic(path: String) async throws -> PutResult
 func fileDownloadPublic(address: String, destPath: String) async throws
 func dirUploadPublic(path: String) async throws -> PutResult
 func dirDownloadPublic(address: String, destPath: String) async throws
-func archiveGetPublic(address: String) async throws -> Archive
-func archivePutPublic(archive: Archive) async throws -> PutResult
-func fileCost(path: String, isPublic: Bool, includeArchive: Bool) async throws -> String
+func fileCost(path: String, isPublic: Bool) async throws -> String
 
 // Wallet
 func walletAddress() async throws -> WalletAddress
@@ -695,9 +663,7 @@ func (c *Client) FileUploadPublic(ctx context.Context, path string) (*PutResult,
 func (c *Client) FileDownloadPublic(ctx context.Context, address string, destPath string) error
 func (c *Client) DirUploadPublic(ctx context.Context, path string) (*PutResult, error)
 func (c *Client) DirDownloadPublic(ctx context.Context, address string, destPath string) error
-func (c *Client) ArchiveGetPublic(ctx context.Context, address string) (*Archive, error)
-func (c *Client) ArchivePutPublic(ctx context.Context, archive *Archive) (*PutResult, error)
-func (c *Client) FileCost(ctx context.Context, path string, isPublic bool, includeArchive bool) (string, error)
+func (c *Client) FileCost(ctx context.Context, path string, isPublic bool) (string, error)
 
 // Wallet
 func (c *Client) WalletAddress(ctx context.Context) (*WalletAddress, error)
@@ -738,9 +704,7 @@ PutResult fileUploadPublic(String path) throws AntdException
 void fileDownloadPublic(String address, String destPath) throws AntdException
 PutResult dirUploadPublic(String path) throws AntdException
 void dirDownloadPublic(String address, String destPath) throws AntdException
-Archive archiveGetPublic(String address) throws AntdException
-PutResult archivePutPublic(Archive archive) throws AntdException
-String fileCost(String path, boolean isPublic, boolean includeArchive) throws AntdException
+String fileCost(String path, boolean isPublic) throws AntdException
 
 // Wallet
 WalletAddress walletAddress() throws AntdException
@@ -756,7 +720,7 @@ boolean walletApprove() throws AntdException
 
 ```rust
 // cargo add antd-client
-use antd_client::{Client, PutResult, HealthStatus, Archive, AntdError};
+use antd_client::{Client, PutResult, HealthStatus, AntdError};
 
 let client = Client::new("http://localhost:8082");        // REST, localhost:8082
 
@@ -781,9 +745,7 @@ async fn file_upload_public(&self, path: &str) -> Result<PutResult, AntdError>
 async fn file_download_public(&self, address: &str, dest_path: &str) -> Result<(), AntdError>
 async fn dir_upload_public(&self, path: &str) -> Result<PutResult, AntdError>
 async fn dir_download_public(&self, address: &str, dest_path: &str) -> Result<(), AntdError>
-async fn archive_get_public(&self, address: &str) -> Result<Archive, AntdError>
-async fn archive_put_public(&self, archive: &Archive) -> Result<PutResult, AntdError>
-async fn file_cost(&self, path: &str, is_public: bool, include_archive: bool) -> Result<String, AntdError>
+async fn file_cost(&self, path: &str, is_public: bool) -> Result<String, AntdError>
 
 // Wallet
 async fn wallet_address(&self) -> Result<WalletAddress, AntdError>
@@ -825,9 +787,7 @@ antd::PutResult fileUploadPublic(const std::string& path)
 void fileDownloadPublic(const std::string& address, const std::string& destPath)
 antd::PutResult dirUploadPublic(const std::string& path)
 void dirDownloadPublic(const std::string& address, const std::string& destPath)
-antd::Archive archiveGetPublic(const std::string& address)
-antd::PutResult archivePutPublic(const antd::Archive& archive)
-std::string fileCost(const std::string& path, bool isPublic = true, bool includeArchive = false)
+std::string fileCost(const std::string& path, bool isPublic = true)
 
 // Wallet
 antd::WalletAddress walletAddress()
@@ -869,9 +829,7 @@ client.file_upload_public(path) → PutResult
 client.file_download_public(address, dest_path) → nil
 client.dir_upload_public(path) → PutResult
 client.dir_download_public(address, dest_path) → nil
-client.archive_get_public(address) → Archive
-client.archive_put_public(archive) → PutResult
-client.file_cost(path, is_public: true, include_archive: false) → String
+client.file_cost(path, is_public: true) → String
 
 # Wallet
 client.wallet_address → WalletAddress
@@ -910,9 +868,7 @@ $client->fileUploadPublic(string $path): PutResult
 $client->fileDownloadPublic(string $address, string $destPath): void
 $client->dirUploadPublic(string $path): PutResult
 $client->dirDownloadPublic(string $address, string $destPath): void
-$client->archiveGetPublic(string $address): Archive
-$client->archivePutPublic(Archive $archive): PutResult
-$client->fileCost(string $path, bool $isPublic = true, bool $includeArchive = false): string
+$client->fileCost(string $path, bool $isPublic = true): string
 
 // Wallet
 $client->walletAddress(): array{address: string}
@@ -951,9 +907,7 @@ Future<PutResult> fileUploadPublic(String path)
 Future<void> fileDownloadPublic(String address, String destPath)
 Future<PutResult> dirUploadPublic(String path)
 Future<void> dirDownloadPublic(String address, String destPath)
-Future<Archive> archiveGetPublic(String address)
-Future<PutResult> archivePutPublic(Archive archive)
-Future<String> fileCost(String path, {bool isPublic = true, bool includeArchive = false})
+Future<String> fileCost(String path, {bool isPublic = true})
 
 // Wallet
 Future<WalletAddress> walletAddress()
@@ -992,9 +946,7 @@ client:file_upload_public(path) → PutResult
 client:file_download_public(address, dest_path) → nil
 client:dir_upload_public(path) → PutResult
 client:dir_download_public(address, dest_path) → nil
-client:archive_get_public(address) → Archive
-client:archive_put_public(archive) → PutResult
-client:file_cost(path, is_public, include_archive) → string
+client:file_cost(path, is_public) → string
 
 -- Wallet
 client:wallet_address() → {address=string}
@@ -1031,9 +983,7 @@ Antd.Client.file_upload_public(client, path) :: {:ok, PutResult.t()} | {:error, 
 Antd.Client.file_download_public(client, address, dest_path) :: :ok | {:error, term()}
 Antd.Client.dir_upload_public(client, path) :: {:ok, PutResult.t()} | {:error, term()}
 Antd.Client.dir_download_public(client, address, dest_path) :: :ok | {:error, term()}
-Antd.Client.archive_get_public(client, address) :: {:ok, Archive.t()} | {:error, term()}
-Antd.Client.archive_put_public(client, archive) :: {:ok, PutResult.t()} | {:error, term()}
-Antd.Client.file_cost(client, path, is_public \\ true, include_archive \\ false) :: {:ok, String.t()} | {:error, term()}
+Antd.Client.file_cost(client, path, is_public \\ true) :: {:ok, String.t()} | {:error, term()}
 
 # Wallet
 Antd.Client.wallet_address(client) :: {:ok, WalletAddress.t()} | {:error, term()}
@@ -1073,9 +1023,7 @@ fn fileUploadPublic(self: *Client, path: []const u8) !PutResult
 fn fileDownloadPublic(self: *Client, address: []const u8, dest_path: []const u8) !void
 fn dirUploadPublic(self: *Client, path: []const u8) !PutResult
 fn dirDownloadPublic(self: *Client, address: []const u8, dest_path: []const u8) !void
-fn archiveGetPublic(self: *Client, address: []const u8) !Archive
-fn archivePutPublic(self: *Client, archive: Archive) !PutResult
-fn fileCost(self: *Client, path: []const u8, is_public: bool, include_archive: bool) ![]u8
+fn fileCost(self: *Client, path: []const u8, is_public: bool) ![]u8
 
 // Wallet
 fn walletAddress(self: *Client) !WalletAddress
@@ -1095,8 +1043,6 @@ fn walletApprove(self: *Client) !bool
 | `download_file` | `file_download_public` / `dir_download_public` | Download file or directory |
 | `chunk_put` | `chunk_put` | Store raw chunk |
 | `chunk_get` | `chunk_get` | Retrieve raw chunk |
-| `archive_get` | `archive_get_public` | List archive entries |
-| `archive_put` | `archive_put_public` | Create archive |
 | `get_cost` | `data_cost` / `file_cost` | Estimate storage cost |
 | `check_balance` | `health` | Check daemon health |
 | `wallet_address` | `wallet_address` | Get wallet public address |

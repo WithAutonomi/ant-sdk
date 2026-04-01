@@ -126,20 +126,6 @@ pub async fn dir_download_public(
     Ok(axum::http::StatusCode::OK)
 }
 
-pub async fn archive_get_public(
-    State(_state): State<Arc<AppState>>,
-    axum::extract::Path(_addr): axum::extract::Path<String>,
-) -> Result<Json<ArchiveDto>, AntdError> {
-    Err(AntdError::NotImplemented("archive operations not yet available".into()))
-}
-
-pub async fn archive_put_public(
-    State(_state): State<Arc<AppState>>,
-    Json(_req): Json<ArchiveDto>,
-) -> Result<Json<ArchivePutResponse>, AntdError> {
-    Err(AntdError::NotImplemented("archive operations not yet available".into()))
-}
-
 pub async fn file_cost(
     State(state): State<Arc<AppState>>,
     Json(req): Json<FileCostRequest>,

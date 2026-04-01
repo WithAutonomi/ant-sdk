@@ -169,9 +169,7 @@ All methods return `Future<T>` and can throw `AntdError` subclasses.
 | `fileDownloadPublic(address, destPath)` | Download a file |
 | `dirUploadPublic(path)` | Upload a directory |
 | `dirDownloadPublic(address, destPath)` | Download a directory |
-| `archiveGetPublic(address)` | Get archive manifest |
-| `archivePutPublic(archive)` | Create archive manifest |
-| `fileCost(path, {isPublic, includeArchive})` | Estimate upload cost |
+| `fileCost(path, {isPublic})` | Estimate upload cost |
 
 ## Error Handling
 

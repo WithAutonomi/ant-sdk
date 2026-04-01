@@ -65,7 +65,7 @@ All methods are `async throws` for use with Swift concurrency.
 | **Health** | `health()` |
 | **Data** | `dataPutPublic`, `dataGetPublic`, `dataPutPrivate`, `dataGetPrivate`, `dataCost` |
 | **Chunks** | `chunkPut`, `chunkGet` |
-| **Files** | `fileUploadPublic`, `fileDownloadPublic`, `dirUploadPublic`, `dirDownloadPublic`, `archiveGetPublic`, `archivePutPublic`, `fileCost` |
+| **Files** | `fileUploadPublic`, `fileDownloadPublic`, `dirUploadPublic`, `dirDownloadPublic`, `fileCost` |
 
 ## Error Handling
 

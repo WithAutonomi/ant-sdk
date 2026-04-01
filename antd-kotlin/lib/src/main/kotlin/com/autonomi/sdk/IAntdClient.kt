@@ -29,9 +29,7 @@ interface IAntdClient : Closeable {
     suspend fun fileDownloadPublic(address: String, destPath: String)
     suspend fun dirUploadPublic(path: String, paymentMode: String? = null): PutResult
     suspend fun dirDownloadPublic(address: String, destPath: String)
-    suspend fun archiveGetPublic(address: String): Archive
-    suspend fun archivePutPublic(archive: Archive): PutResult
-    suspend fun fileCost(path: String, isPublic: Boolean = true, includeArchive: Boolean = false): String
+    suspend fun fileCost(path: String, isPublic: Boolean = true): String
 
     // Wallet
     suspend fun walletAddress(): WalletAddress

@@ -25,10 +25,3 @@ IO.puts("Directory downloaded to /tmp/mydir_copy")
 # Estimate file upload cost
 {:ok, cost} = Antd.Client.file_cost(client, "/tmp/example.txt", true, false)
 IO.puts("Estimated upload cost: #{cost} atto")
-
-# Work with archive manifests
-{:ok, archive} = Antd.Client.archive_get_public(client, result.address)
-
-for entry <- archive.entries do
-  IO.puts("  #{entry.path} -> #{entry.address} (#{entry.size} bytes)")
-end

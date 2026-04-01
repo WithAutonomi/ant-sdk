@@ -144,44 +144,14 @@ module Antd
       nil
     end
 
-    # Retrieve an archive manifest by address.
-    # @param address [String]
-    # @return [Archive]
-    def archive_get_public(address)
-      j = do_json(:get, "/v1/archives/public/#{address}")
-      entries = (j["entries"] || []).map do |e|
-        ArchiveEntry.new(
-          path: e["path"],
-          address: e["address"],
-          created: e["created"].to_i,
-          modified: e["modified"].to_i,
-          size: e["size"].to_i
-        )
-      end
-      Archive.new(entries: entries)
-    end
-
-    # Create an archive manifest on the network.
-    # @param archive [Archive]
-    # @return [PutResult]
-    def archive_put_public(archive)
-      entries = archive.entries.map do |e|
-        { path: e.path, address: e.address, created: e.created, modified: e.modified, size: e.size }
-      end
-      j = do_json(:post, "/v1/archives/public", { entries: entries })
-      PutResult.new(cost: j["cost"], address: j["address"])
-    end
-
     # Estimate the cost of uploading a file.
     # @param path [String]
     # @param is_public [Boolean]
-    # @param include_archive [Boolean]
     # @return [String] cost in atto tokens
-    def file_cost(path, is_public, include_archive)
+    def file_cost(path, is_public)
       j = do_json(:post, "/v1/cost/file", {
         path: path,
-        is_public: is_public,
-        include_archive: include_archive
+        is_public: is_public
       })
       j["cost"]
     end

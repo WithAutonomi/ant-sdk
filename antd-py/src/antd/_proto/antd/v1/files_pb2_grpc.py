@@ -3,8 +3,8 @@
 import grpc
 import warnings
 
-from antd._proto.antd.v1 import common_pb2 as antd_dot_v1_dot_common__pb2
-from antd._proto.antd.v1 import files_pb2 as antd_dot_v1_dot_files__pb2
+from antd.v1 import common_pb2 as antd_dot_v1_dot_common__pb2
+from antd.v1 import files_pb2 as antd_dot_v1_dot_files__pb2
 
 GRPC_GENERATED_VERSION = '1.78.0'
 GRPC_VERSION = grpc.__version__
@@ -55,16 +55,6 @@ class FileServiceStub(object):
                 request_serializer=antd_dot_v1_dot_files__pb2.DownloadPublicRequest.SerializeToString,
                 response_deserializer=antd_dot_v1_dot_files__pb2.DownloadResponse.FromString,
                 _registered_method=True)
-        self.ArchiveGetPublic = channel.unary_unary(
-                '/antd.v1.FileService/ArchiveGetPublic',
-                request_serializer=antd_dot_v1_dot_files__pb2.ArchiveGetRequest.SerializeToString,
-                response_deserializer=antd_dot_v1_dot_files__pb2.ArchiveGetResponse.FromString,
-                _registered_method=True)
-        self.ArchivePutPublic = channel.unary_unary(
-                '/antd.v1.FileService/ArchivePutPublic',
-                request_serializer=antd_dot_v1_dot_files__pb2.ArchivePutRequest.SerializeToString,
-                response_deserializer=antd_dot_v1_dot_files__pb2.ArchivePutResponse.FromString,
-                _registered_method=True)
         self.GetFileCost = channel.unary_unary(
                 '/antd.v1.FileService/GetFileCost',
                 request_serializer=antd_dot_v1_dot_files__pb2.FileCostRequest.SerializeToString,
@@ -99,18 +89,6 @@ class FileServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def ArchiveGetPublic(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def ArchivePutPublic(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
     def GetFileCost(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -139,16 +117,6 @@ def add_FileServiceServicer_to_server(servicer, server):
                     servicer.DirDownloadPublic,
                     request_deserializer=antd_dot_v1_dot_files__pb2.DownloadPublicRequest.FromString,
                     response_serializer=antd_dot_v1_dot_files__pb2.DownloadResponse.SerializeToString,
-            ),
-            'ArchiveGetPublic': grpc.unary_unary_rpc_method_handler(
-                    servicer.ArchiveGetPublic,
-                    request_deserializer=antd_dot_v1_dot_files__pb2.ArchiveGetRequest.FromString,
-                    response_serializer=antd_dot_v1_dot_files__pb2.ArchiveGetResponse.SerializeToString,
-            ),
-            'ArchivePutPublic': grpc.unary_unary_rpc_method_handler(
-                    servicer.ArchivePutPublic,
-                    request_deserializer=antd_dot_v1_dot_files__pb2.ArchivePutRequest.FromString,
-                    response_serializer=antd_dot_v1_dot_files__pb2.ArchivePutResponse.SerializeToString,
             ),
             'GetFileCost': grpc.unary_unary_rpc_method_handler(
                     servicer.GetFileCost,
@@ -264,60 +232,6 @@ class FileService(object):
             '/antd.v1.FileService/DirDownloadPublic',
             antd_dot_v1_dot_files__pb2.DownloadPublicRequest.SerializeToString,
             antd_dot_v1_dot_files__pb2.DownloadResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def ArchiveGetPublic(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/antd.v1.FileService/ArchiveGetPublic',
-            antd_dot_v1_dot_files__pb2.ArchiveGetRequest.SerializeToString,
-            antd_dot_v1_dot_files__pb2.ArchiveGetResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def ArchivePutPublic(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/antd.v1.FileService/ArchivePutPublic',
-            antd_dot_v1_dot_files__pb2.ArchivePutRequest.SerializeToString,
-            antd_dot_v1_dot_files__pb2.ArchivePutResponse.FromString,
             options,
             channel_credentials,
             insecure,

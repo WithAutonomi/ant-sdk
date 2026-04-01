@@ -10,20 +10,6 @@ export interface PutResult {
   address: string; // hex
 }
 
-/** An entry in a file archive. */
-export interface ArchiveEntry {
-  path: string;
-  address: string;
-  created: number;
-  modified: number;
-  size: number;
-}
-
-/** A collection of archive entries. */
-export interface Archive {
-  entries: ArchiveEntry[];
-}
-
 /** Wallet address response. */
 export interface WalletAddress {
   address: string; // 0x-prefixed hex

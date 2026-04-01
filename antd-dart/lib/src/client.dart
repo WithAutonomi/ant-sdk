@@ -237,30 +237,14 @@ class AntdClient {
     });
   }
 
-  /// Retrieves an archive manifest by address.
-  Future<Archive> archiveGetPublic(String address) async {
-    final json = await _doJson('GET', '/v1/archives/public/$address');
-    return Archive.fromJson(json!);
-  }
-
-  /// Creates an archive manifest on the network.
-  Future<PutResult> archivePutPublic(Archive archive) async {
-    final json = await _doJson('POST', '/v1/archives/public', {
-      'entries': archive.entries.map((e) => e.toJson()).toList(),
-    });
-    return PutResult.fromJson(json!);
-  }
-
   /// Estimates the cost of uploading a file.
   Future<String> fileCost(
     String path, {
     bool isPublic = true,
-    bool includeArchive = false,
   }) async {
     final json = await _doJson('POST', '/v1/cost/file', {
       'path': path,
       'is_public': isPublic,
-      'include_archive': includeArchive,
     });
     return json!['cost'] as String;
   }

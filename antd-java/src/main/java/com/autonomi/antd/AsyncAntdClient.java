@@ -258,36 +258,9 @@ public class AsyncAntdClient implements AutoCloseable {
                 .thenApply(j -> null);
     }
 
-    /** Async variant of {@link AntdClient#archiveGetPublic(String)}. */
-    public CompletableFuture<Archive> archiveGetPublicAsync(String address) {
-        return doJsonAsync("GET", "/v1/archives/public/" + address, null)
-                .thenApply(j -> {
-                    List<ArchiveEntry> entries = new ArrayList<>();
-                    for (Map<String, Object> em : listOfMaps(j, "entries")) {
-                        entries.add(new ArchiveEntry(str(em, "path"), str(em, "address"),
-                                num(em, "created"), num(em, "modified"), num(em, "size")));
-                    }
-                    return new Archive(Collections.unmodifiableList(entries));
-                });
-    }
-
-    /** Async variant of {@link AntdClient#archivePutPublic(Archive)}. */
-    public CompletableFuture<PutResult> archivePutPublicAsync(Archive archive) {
-        List<Map<String, Object>> entries = new ArrayList<>();
-        for (ArchiveEntry e : archive.entries()) {
-            entries.add(Map.of(
-                    "path", e.path(), "address", e.address(),
-                    "created", e.created(), "modified", e.modified(), "size", e.size()
-            ));
-        }
-        String body = Json.object("entries", entries);
-        return doJsonAsync("POST", "/v1/archives/public", body)
-                .thenApply(j -> new PutResult(str(j, "cost"), str(j, "address")));
-    }
-
-    /** Async variant of {@link AntdClient#fileCost(String, boolean, boolean)}. */
-    public CompletableFuture<String> fileCostAsync(String path, boolean isPublic, boolean includeArchive) {
-        String body = Json.object("path", path, "is_public", isPublic, "include_archive", includeArchive);
+    /** Async variant of {@link AntdClient#fileCost(String, boolean)}. */
+    public CompletableFuture<String> fileCostAsync(String path, boolean isPublic) {
+        String body = Json.object("path", path, "is_public", isPublic);
         return doJsonAsync("POST", "/v1/cost/file", body)
                 .thenApply(j -> str(j, "cost"));
     }

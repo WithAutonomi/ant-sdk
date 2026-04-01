@@ -138,9 +138,7 @@ client = Antd::Client.new(base_url: "http://custom-host:9090", timeout: 30)
 | `file_download_public(address, dest_path)` | Download a file |
 | `dir_upload_public(path)` | Upload a directory |
 | `dir_download_public(address, dest_path)` | Download a directory |
-| `archive_get_public(address)` | Get archive manifest |
-| `archive_put_public(archive)` | Create archive manifest |
-| `file_cost(path, is_public, include_archive)` | Estimate upload cost |
+| `file_cost(path, is_public)` | Estimate upload cost |
 
 ## Error Handling
 

@@ -9,8 +9,6 @@ use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Promise\PromiseInterface;
 use Autonomi\Antd\Errors\AntdError;
 use Autonomi\Antd\Errors\ErrorFactory;
-use Autonomi\Antd\Models\Archive;
-use Autonomi\Antd\Models\ArchiveEntry;
 use Autonomi\Antd\Models\HealthStatus;
 use Autonomi\Antd\Models\PutResult;
 
@@ -517,100 +515,6 @@ class AntdClient
         ])->then(fn() => null);
     }
 
-    /**
-     * Retrieve an archive manifest by address.
-     */
-    public function archiveGetPublic(string $address): Archive
-    {
-        $json = $this->doJson('GET', '/v1/archives/public/' . $address);
-        $entries = [];
-        foreach ($json['entries'] ?? [] as $e) {
-            $entries[] = new ArchiveEntry(
-                path: $e['path'] ?? '',
-                address: $e['address'] ?? '',
-                created: (int) ($e['created'] ?? 0),
-                modified: (int) ($e['modified'] ?? 0),
-                size: (int) ($e['size'] ?? 0),
-            );
-        }
-        return new Archive(entries: $entries);
-    }
-
-    /**
-     * Async: Retrieve an archive manifest by address.
-     *
-     * @return PromiseInterface<Archive>
-     */
-    public function archiveGetPublicAsync(string $address): PromiseInterface
-    {
-        return $this->doJsonAsync('GET', '/v1/archives/public/' . $address)->then(
-            function (?array $json) {
-                $entries = [];
-                foreach ($json['entries'] ?? [] as $e) {
-                    $entries[] = new ArchiveEntry(
-                        path: $e['path'] ?? '',
-                        address: $e['address'] ?? '',
-                        created: (int) ($e['created'] ?? 0),
-                        modified: (int) ($e['modified'] ?? 0),
-                        size: (int) ($e['size'] ?? 0),
-                    );
-                }
-                return new Archive(entries: $entries);
-            },
-        );
-    }
-
-    /**
-     * Create an archive manifest on the network.
-     */
-    public function archivePutPublic(Archive $archive): PutResult
-    {
-        $entries = array_map(
-            fn(ArchiveEntry $e) => [
-                'path' => $e->path,
-                'address' => $e->address,
-                'created' => $e->created,
-                'modified' => $e->modified,
-                'size' => $e->size,
-            ],
-            $archive->entries,
-        );
-        $json = $this->doJson('POST', '/v1/archives/public', [
-            'entries' => $entries,
-        ]);
-        return new PutResult(
-            cost: $json['cost'] ?? '',
-            address: $json['address'] ?? '',
-        );
-    }
-
-    /**
-     * Async: Create an archive manifest on the network.
-     *
-     * @return PromiseInterface<PutResult>
-     */
-    public function archivePutPublicAsync(Archive $archive): PromiseInterface
-    {
-        $entries = array_map(
-            fn(ArchiveEntry $e) => [
-                'path' => $e->path,
-                'address' => $e->address,
-                'created' => $e->created,
-                'modified' => $e->modified,
-                'size' => $e->size,
-            ],
-            $archive->entries,
-        );
-        return $this->doJsonAsync('POST', '/v1/archives/public', [
-            'entries' => $entries,
-        ])->then(
-            fn(?array $json) => new PutResult(
-                cost: $json['cost'] ?? '',
-                address: $json['address'] ?? '',
-            ),
-        );
-    }
-
     // --- Wallet ---
 
     /**
@@ -694,12 +598,11 @@ class AntdClient
     /**
      * Estimate the cost of uploading a file.
      */
-    public function fileCost(string $path, bool $isPublic, bool $includeArchive): string
+    public function fileCost(string $path, bool $isPublic): string
     {
         $json = $this->doJson('POST', '/v1/cost/file', [
             'path' => $path,
             'is_public' => $isPublic,
-            'include_archive' => $includeArchive,
         ]);
         return $json['cost'] ?? '';
     }
@@ -709,12 +612,11 @@ class AntdClient
      *
      * @return PromiseInterface<string>
      */
-    public function fileCostAsync(string $path, bool $isPublic, bool $includeArchive): PromiseInterface
+    public function fileCostAsync(string $path, bool $isPublic): PromiseInterface
     {
         return $this->doJsonAsync('POST', '/v1/cost/file', [
             'path' => $path,
             'is_public' => $isPublic,
-            'include_archive' => $includeArchive,
         ])->then(
             fn(?array $json) => $json['cost'] ?? '',
         );

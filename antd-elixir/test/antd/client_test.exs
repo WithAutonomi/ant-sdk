@@ -215,36 +215,6 @@ defmodule Antd.ClientTest do
     assert :ok = Antd.Client.dir_download_public(client, "dir1", "/tmp/outdir")
   end
 
-  test "archive_get_public/2 retrieves an archive", %{bypass: bypass, client: client} do
-    Bypass.expect_once(bypass, "GET", "/v1/archives/public/arc1", fn conn ->
-      conn
-      |> Plug.Conn.put_resp_content_type("application/json")
-      |> Plug.Conn.resp(200, Jason.encode!(%{
-        entries: [%{path: "test.txt", address: "abc", created: 1000, modified: 2000, size: 42}]
-      }))
-    end)
-
-    assert {:ok, %Antd.Archive{entries: [%Antd.ArchiveEntry{path: "test.txt", size: 42}]}} =
-             Antd.Client.archive_get_public(client, "arc1")
-  end
-
-  test "archive_put_public/2 creates an archive", %{bypass: bypass, client: client} do
-    Bypass.expect_once(bypass, "POST", "/v1/archives/public", fn conn ->
-      conn
-      |> Plug.Conn.put_resp_content_type("application/json")
-      |> Plug.Conn.resp(200, Jason.encode!(%{cost: "50", address: "arc2"}))
-    end)
-
-    archive = %Antd.Archive{
-      entries: [
-        %Antd.ArchiveEntry{path: "test.txt", address: "abc", created: 1000, modified: 2000, size: 42}
-      ]
-    }
-
-    assert {:ok, %Antd.PutResult{cost: "50", address: "arc2"}} =
-             Antd.Client.archive_put_public(client, archive)
-  end
-
   test "file_cost/4 estimates file upload cost", %{bypass: bypass, client: client} do
     Bypass.expect_once(bypass, "POST", "/v1/cost/file", fn conn ->
       conn

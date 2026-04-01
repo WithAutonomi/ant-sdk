@@ -96,14 +96,8 @@ public:
     /// Download a directory from the network to a local path.
     std::future<void> dir_download_public(std::string address, std::string dest_path);
 
-    /// Retrieve an archive manifest by address.
-    std::future<Archive> archive_get_public(std::string address);
-
-    /// Create an archive manifest on the network.
-    std::future<PutResult> archive_put_public(const Archive& archive);
-
     /// Estimate the cost of uploading a file.
-    std::future<std::string> file_cost(std::string path, bool is_public, bool include_archive);
+    std::future<std::string> file_cost(std::string path, bool is_public);
 
 private:
     Client client_;

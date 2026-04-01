@@ -12,20 +12,6 @@ type PutResult struct {
 	Address string `json:"address"` // hex
 }
 
-// ArchiveEntry is a single entry in a file archive.
-type ArchiveEntry struct {
-	Path     string `json:"path"`
-	Address  string `json:"address"`
-	Created  int64  `json:"created"`
-	Modified int64  `json:"modified"`
-	Size     int64  `json:"size"`
-}
-
-// Archive is a collection of archive entries.
-type Archive struct {
-	Entries []ArchiveEntry `json:"entries"`
-}
-
 // WalletAddress is the result of a wallet address query.
 type WalletAddress struct {
 	Address string `json:"address"` // hex with 0x prefix

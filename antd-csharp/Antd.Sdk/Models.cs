@@ -6,12 +6,6 @@ public sealed record HealthStatus(bool Ok, string Network);
 /// <summary>Result of a put/create operation that stores data on the network.</summary>
 public sealed record PutResult(string Cost, string Address);
 
-/// <summary>A single entry in an archive manifest.</summary>
-public sealed record ArchiveEntry(string Path, string Address, ulong Created, ulong Modified, ulong Size);
-
-/// <summary>An archive manifest containing file entries.</summary>
-public sealed record Archive(List<ArchiveEntry> Entries);
-
 /// <summary>Wallet address from the antd daemon.</summary>
 public sealed record WalletAddress(string Address);
 

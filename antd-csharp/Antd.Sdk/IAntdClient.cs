@@ -21,9 +21,7 @@ public interface IAntdClient : IDisposable
     Task FileDownloadPublicAsync(string address, string destPath);
     Task<PutResult> DirUploadPublicAsync(string path, string? paymentMode = null);
     Task DirDownloadPublicAsync(string address, string destPath);
-    Task<Archive> ArchiveGetPublicAsync(string address);
-    Task<PutResult> ArchivePutPublicAsync(Archive archive);
-    Task<string> FileCostAsync(string path, bool isPublic = true, bool includeArchive = false);
+    Task<string> FileCostAsync(string path, bool isPublic = true);
 
     // Wallet
     Task<WalletAddress> WalletAddressAsync();

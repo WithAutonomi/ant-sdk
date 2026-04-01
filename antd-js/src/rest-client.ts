@@ -1,8 +1,6 @@
 import { discoverDaemonUrl } from "./discover.js";
 import { fromHttpStatus, NetworkError } from "./errors.js";
 import type {
-  Archive,
-  ArchiveEntry,
   FinalizeUploadResult,
   HealthStatus,
   PaymentInfo,
@@ -210,42 +208,13 @@ export class RestClient {
     });
   }
 
-  async archiveGetPublic(address: string): Promise<Archive> {
-    const j = await this.getJson<{
-      entries?: { path: string; address: string; created: number; modified: number; size: number }[];
-    }>(`/v1/archives/public/${address}`);
-    const entries: ArchiveEntry[] = (j.entries ?? []).map((e) => ({
-      path: e.path,
-      address: e.address,
-      created: e.created,
-      modified: e.modified,
-      size: e.size,
-    }));
-    return { entries };
-  }
-
-  async archivePutPublic(archive: Archive): Promise<PutResult> {
-    const j = await this.postJson<{ cost: string; address: string }>("/v1/archives/public", {
-      entries: archive.entries.map((e) => ({
-        path: e.path,
-        address: e.address,
-        created: e.created,
-        modified: e.modified,
-        size: e.size,
-      })),
-    });
-    return { cost: j.cost, address: j.address };
-  }
-
   async fileCost(
     path: string,
     isPublic: boolean = true,
-    includeArchive: boolean = false,
   ): Promise<string> {
     const j = await this.postJson<{ cost: string }>("/v1/cost/file", {
       path,
       is_public: isPublic,
-      include_archive: includeArchive,
     });
     return j.cost;
   }

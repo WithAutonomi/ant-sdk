@@ -105,21 +105,6 @@ func (m *mockFileService) DirDownloadPublic(_ context.Context, _ *pb.DownloadPub
 	return &pb.DownloadResponse{}, nil
 }
 
-func (m *mockFileService) ArchiveGetPublic(_ context.Context, _ *pb.ArchiveGetRequest) (*pb.ArchiveGetResponse, error) {
-	return &pb.ArchiveGetResponse{
-		Entries: []*pb.ArchiveEntry{
-			{Path: "test.txt", Address: "abc", Created: 1000, Modified: 2000, Size: 42},
-		},
-	}, nil
-}
-
-func (m *mockFileService) ArchivePutPublic(_ context.Context, _ *pb.ArchivePutRequest) (*pb.ArchivePutResponse, error) {
-	return &pb.ArchivePutResponse{
-		Cost:    &pb.Cost{AttoTokens: "50"},
-		Address: "arc2",
-	}, nil
-}
-
 func (m *mockFileService) GetFileCost(_ context.Context, _ *pb.FileCostRequest) (*pb.Cost, error) {
 	return &pb.Cost{AttoTokens: "1000"}, nil
 }
@@ -336,39 +321,9 @@ func TestGrpcDirDownloadPublic(t *testing.T) {
 	}
 }
 
-func TestGrpcArchiveGetPublic(t *testing.T) {
-	c := startMockServer(t)
-	arc, err := c.ArchiveGetPublic(context.Background(), "arc1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(arc.Entries) != 1 || arc.Entries[0].Path != "test.txt" {
-		t.Fatalf("unexpected archive: %+v", arc)
-	}
-	if arc.Entries[0].Address != "abc" || arc.Entries[0].Created != 1000 || arc.Entries[0].Modified != 2000 || arc.Entries[0].Size != 42 {
-		t.Fatalf("unexpected archive entry: %+v", arc.Entries[0])
-	}
-}
-
-func TestGrpcArchivePutPublic(t *testing.T) {
-	c := startMockServer(t)
-	arc := Archive{
-		Entries: []ArchiveEntry{
-			{Path: "test.txt", Address: "abc", Created: 1000, Modified: 2000, Size: 42},
-		},
-	}
-	put, err := c.ArchivePutPublic(context.Background(), arc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if put.Address != "arc2" || put.Cost != "50" {
-		t.Fatalf("unexpected archive put: %+v", put)
-	}
-}
-
 func TestGrpcFileCost(t *testing.T) {
 	c := startMockServer(t)
-	cost, err := c.FileCost(context.Background(), "/tmp/test.txt", true, false)
+	cost, err := c.FileCost(context.Background(), "/tmp/test.txt", true)
 	if err != nil {
 		t.Fatal(err)
 	}

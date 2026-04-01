@@ -274,7 +274,7 @@ try "File content stored on Autonomi!".write(
 )
 
 do {
-    let cost = try await client.fileCost(path: srcPath, isPublic: true, includeArchive: false)
+    let cost = try await client.fileCost(path: srcPath)
     print("Upload cost: \(cost) atto tokens")
 
     let result = try await client.fileUploadPublic(path: srcPath)

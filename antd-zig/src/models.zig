@@ -22,20 +22,6 @@ pub const PutResult = struct {
     }
 };
 
-/// A single entry in a file archive.
-pub const ArchiveEntry = struct {
-    path: []const u8,
-    address: []const u8,
-    created: i64,
-    modified: i64,
-    size: i64,
-
-    pub fn deinit(self: ArchiveEntry, allocator: Allocator) void {
-        allocator.free(self.path);
-        allocator.free(self.address);
-    }
-};
-
 /// Result of a wallet address query.
 pub const WalletAddress = struct {
     address: []const u8,
@@ -56,14 +42,3 @@ pub const WalletBalance = struct {
     }
 };
 
-/// A collection of archive entries.
-pub const Archive = struct {
-    entries: []const ArchiveEntry,
-
-    pub fn deinit(self: Archive, allocator: Allocator) void {
-        for (self.entries) |e| {
-            e.deinit(allocator);
-        }
-        allocator.free(self.entries);
-    }
-};

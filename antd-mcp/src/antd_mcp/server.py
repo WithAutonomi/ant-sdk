@@ -197,7 +197,7 @@ async def download_file(
     Args:
         address: The network address of the file/directory.
         dest_path: Local path to save to.
-        is_directory: Set True if the address points to a directory archive.
+        is_directory: Set True if the address points to a directory.
 
     Returns:
         JSON confirming success, or error details.
@@ -376,46 +376,7 @@ async def chunk_get(
 
 
 # ---------------------------------------------------------------------------
-# Tool 11: archive_get
-# ---------------------------------------------------------------------------
-
-
-@mcp.tool()
-async def archive_get(
-    address: str,
-) -> str:
-    """List files in a public archive on the Autonomi network.
-
-    Args:
-        address: Hex address of the archive.
-
-    Returns:
-        JSON with list of archive entries (path, address, created, modified, size),
-        or error details.
-    """
-    client, network = _get_ctx()
-    try:
-        archive = await client.archive_get_public(address)
-        return _ok({
-            "entries": [
-                {
-                    "path": e.path,
-                    "address": e.address,
-                    "created": e.created,
-                    "modified": e.modified,
-                    "size": e.size,
-                }
-                for e in archive.entries
-            ],
-        }, network)
-    except AntdError as exc:
-        return _err_antd(exc, network)
-    except Exception as exc:
-        return _err(exc, network)
-
-
-# ---------------------------------------------------------------------------
-# Tool 12: wallet_approve
+# Tool 11: wallet_approve
 # ---------------------------------------------------------------------------
 
 
@@ -440,46 +401,7 @@ async def wallet_approve() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Tool 13: archive_put
-# ---------------------------------------------------------------------------
-
-
-@mcp.tool()
-async def archive_put(
-    entries: list[dict],
-) -> str:
-    """Create a public archive from a list of file entries.
-
-    Args:
-        entries: List of entry objects, each with "path", "address", "created",
-            "modified", and "size" fields.
-
-    Returns:
-        JSON with archive address and cost, or error details.
-    """
-    client, network = _get_ctx()
-    try:
-        from antd.models import Archive, ArchiveEntry
-        archive = Archive(entries=[
-            ArchiveEntry(
-                path=e["path"],
-                address=e["address"],
-                created=e["created"],
-                modified=e["modified"],
-                size=e["size"],
-            )
-            for e in entries
-        ])
-        result = await client.archive_put_public(archive)
-        return _ok({"address": result.address, "cost": result.cost}, network)
-    except AntdError as exc:
-        return _err_antd(exc, network)
-    except Exception as exc:
-        return _err(exc, network)
-
-
-# ---------------------------------------------------------------------------
-# Tool 14: prepare_upload
+# Tool 12: prepare_upload
 # ---------------------------------------------------------------------------
 
 
@@ -524,7 +446,7 @@ async def prepare_upload(
 
 
 # ---------------------------------------------------------------------------
-# Tool 15: prepare_data_upload
+# Tool 13: prepare_data_upload
 # ---------------------------------------------------------------------------
 
 
@@ -571,7 +493,7 @@ async def prepare_data_upload(
 
 
 # ---------------------------------------------------------------------------
-# Tool 16: finalize_upload
+# Tool 14: finalize_upload
 # ---------------------------------------------------------------------------
 
 

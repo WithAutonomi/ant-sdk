@@ -1,8 +1,6 @@
 export type {
   HealthStatus,
   PutResult,
-  ArchiveEntry,
-  Archive,
   WalletAddress,
   WalletBalance,
   PaymentInfo,

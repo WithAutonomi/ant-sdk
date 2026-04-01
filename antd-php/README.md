@@ -85,9 +85,7 @@ $client = new AntdClient('http://localhost:8082', 300.0, $myGuzzleClient);
 | `fileDownloadPublic(string $address, string $destPath)` | Download a file |
 | `dirUploadPublic(string $path)` | Upload a directory |
 | `dirDownloadPublic(string $address, string $destPath)` | Download a directory |
-| `archiveGetPublic(string $address)` | Get archive manifest |
-| `archivePutPublic(Archive $archive)` | Create archive manifest |
-| `fileCost(string $path, bool $isPublic, bool $includeArchive)` | Estimate upload cost |
+| `fileCost(string $path, bool $isPublic)` | Estimate upload cost |
 
 ## Async Usage
 

@@ -24,7 +24,7 @@ ffi/
 │           ├── network.rs    # Network wrapper
 │           ├── payment.rs    # Wallet, PaymentOption
 │           ├── data.rs       # Chunk, ChunkAddress, DataAddress, DataMapChunk
-│           └── files.rs      # PublicArchive, PrivateArchive, Metadata
+│           └── files.rs      # File upload/download, Metadata
 ├── csharp/
 │   ├── AntFfi.sln
 │   ├── AntFfi/              # .NET 8.0 library
@@ -109,7 +109,6 @@ All methods are exposed on the `Client` object:
 | **Data** | `data_get_public`, `data_put_public`, `data_get`, `data_put`, `data_cost` |
 | **Files** | `file_upload`, `file_upload_public`, `file_download`, `file_download_public`, `file_cost` |
 | **Directories** | `dir_upload`, `dir_upload_public`, `dir_download`, `dir_download_public` |
-| **Archives** | `archive_get`, `archive_get_public`, `archive_put`, `archive_put_public`, `archive_cost` |
 
 ## Type Mapping
 

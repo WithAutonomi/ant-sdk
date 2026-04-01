@@ -137,12 +137,6 @@ impl pb::file_service_server::FileService for FileServiceImpl {
     async fn dir_download_public(&self, _r: Request<pb::DownloadPublicRequest>) -> Result<Response<pb::DownloadResponse>, Status> {
         Err(not_implemented("dir download public"))
     }
-    async fn archive_get_public(&self, _r: Request<pb::ArchiveGetRequest>) -> Result<Response<pb::ArchiveGetResponse>, Status> {
-        Err(not_implemented("archive get public"))
-    }
-    async fn archive_put_public(&self, _r: Request<pb::ArchivePutRequest>) -> Result<Response<pb::ArchivePutResponse>, Status> {
-        Err(not_implemented("archive put public"))
-    }
     async fn get_file_cost(&self, _r: Request<pb::FileCostRequest>) -> Result<Response<pb::Cost>, Status> {
         Err(not_implemented("file cost"))
     }

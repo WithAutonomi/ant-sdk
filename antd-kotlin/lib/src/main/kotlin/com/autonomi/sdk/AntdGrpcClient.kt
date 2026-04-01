@@ -107,27 +107,9 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
         Unit
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
-    override suspend fun archiveGetPublic(address: String): Archive = try {
-        val resp = fileStub.archiveGetPublic(archiveGetRequest { this.address = address })
-        val entries = resp.entriesList.map { ArchiveEntry(it.path, it.address, it.created.toULong(), it.modified.toULong(), it.size.toULong()) }
-        Archive(entries)
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
-    override suspend fun archivePutPublic(archive: Archive): PutResult = try {
-        val resp = fileStub.archivePutPublic(archivePutRequest {
-            this.entries.addAll(archive.entries.map { e ->
-                archiveEntry {
-                    path = e.path; address = e.address
-                    created = e.created.toLong(); modified = e.modified.toLong(); size = e.size.toLong()
-                }
-            })
-        })
-        PutResult(resp.cost.attoTokens, resp.address)
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
-    override suspend fun fileCost(path: String, isPublic: Boolean, includeArchive: Boolean): String = try {
+    override suspend fun fileCost(path: String, isPublic: Boolean): String = try {
         val resp = fileStub.getFileCost(fileCostRequest {
-            this.path = path; this.isPublic = isPublic; this.includeArchive = includeArchive
+            this.path = path; this.isPublic = isPublic
         })
         resp.attoTokens
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }

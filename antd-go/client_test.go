@@ -56,14 +56,6 @@ func mockDaemon(t *testing.T) *httptest.Server {
 			json.NewEncoder(w).Encode(map[string]any{"cost": "2000", "address": "dir1"})
 		case r.Method == "POST" && r.URL.Path == "/v1/dirs/download/public":
 			w.WriteHeader(200)
-		case r.Method == "GET" && r.URL.Path == "/v1/archives/public/arc1":
-			json.NewEncoder(w).Encode(map[string]any{
-				"entries": []any{map[string]any{
-					"path": "test.txt", "address": "abc", "created": float64(1000), "modified": float64(2000), "size": float64(42),
-				}},
-			})
-		case r.Method == "POST" && r.URL.Path == "/v1/archives/public":
-			json.NewEncoder(w).Encode(map[string]any{"cost": "50", "address": "arc2"})
 		case r.Method == "POST" && r.URL.Path == "/v1/cost/file":
 			json.NewEncoder(w).Encode(map[string]any{"cost": "1000"})
 
@@ -227,23 +219,7 @@ func TestFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	arc, err := c.ArchiveGetPublic(ctx, "arc1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(arc.Entries) != 1 || arc.Entries[0].Path != "test.txt" {
-		t.Fatalf("unexpected archive: %+v", arc)
-	}
-
-	arcPut, err := c.ArchivePutPublic(ctx, *arc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if arcPut.Address != "arc2" {
-		t.Fatalf("unexpected archive put: %+v", arcPut)
-	}
-
-	cost, err := c.FileCost(ctx, "/tmp/test.txt", true, false)
+	cost, err := c.FileCost(ctx, "/tmp/test.txt", true)
 	if err != nil {
 		t.Fatal(err)
 	}

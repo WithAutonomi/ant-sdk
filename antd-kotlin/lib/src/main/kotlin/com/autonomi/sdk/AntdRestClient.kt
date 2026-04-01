@@ -4,11 +4,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -187,35 +184,10 @@ class AntdRestClient(
         postJsonNoResult("/v1/dirs/download/public", body)
     }
 
-    override suspend fun archiveGetPublic(address: String): Archive {
-        val resp = getJson<ArchiveDto>("/v1/archives/public/$address")
-        val entries = resp.entries?.map { ArchiveEntry(it.path, it.address, it.created, it.modified, it.size) } ?: emptyList()
-        return Archive(entries)
-    }
-
-    override suspend fun archivePutPublic(archive: Archive): PutResult {
-        val body = buildJsonObject {
-            putJsonArray("entries") {
-                archive.entries.forEach { e ->
-                    add(buildJsonObject {
-                        put("path", e.path)
-                        put("address", e.address)
-                        put("created", e.created.toLong())
-                        put("modified", e.modified.toLong())
-                        put("size", e.size.toLong())
-                    })
-                }
-            }
-        }.toString()
-        val resp = postJson<DataPutPublicDto>("/v1/archives/public", body)
-        return PutResult(resp.cost, resp.address)
-    }
-
-    override suspend fun fileCost(path: String, isPublic: Boolean, includeArchive: Boolean): String {
+    override suspend fun fileCost(path: String, isPublic: Boolean): String {
         val body = buildJsonObject {
             put("path", path)
             put("is_public", isPublic)
-            put("include_archive", includeArchive)
         }.toString()
         val resp = postJson<CostDto>("/v1/cost/file", body)
         return resp.cost

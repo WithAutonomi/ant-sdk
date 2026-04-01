@@ -19,10 +19,6 @@ defmodule Antd.GrpcClientTest do
     defstruct [:public_key, :content]
   end
 
-  defmodule FakeArchiveEntry do
-    defstruct [:path, :address, :created, :modified, :size]
-  end
-
   # A fake channel token that our mock stubs recognise.
   defmodule FakeChannel do
     defstruct mode: :ok
@@ -250,39 +246,6 @@ defmodule Antd.GrpcClientTest do
     assert result == :ok
   end
 
-  test "archive_get_public returns Archive" do
-    {:ok, arc} = simulate_grpc_call(:ok, fn ->
-      %Antd.Archive{
-        entries: [
-          %Antd.ArchiveEntry{
-            path: "test.txt",
-            address: "abc",
-            created: 1000,
-            modified: 2000,
-            size: 42
-          }
-        ]
-      }
-    end)
-
-    assert length(arc.entries) == 1
-    entry = hd(arc.entries)
-    assert entry.path == "test.txt"
-    assert entry.address == "abc"
-    assert entry.created == 1000
-    assert entry.modified == 2000
-    assert entry.size == 42
-  end
-
-  test "archive_put_public returns PutResult" do
-    {:ok, result} = simulate_grpc_call(:ok, fn ->
-      %Antd.PutResult{cost: "50", address: "arc2"}
-    end)
-
-    assert result.cost == "50"
-    assert result.address == "arc2"
-  end
-
   test "file_cost returns cost string" do
     {:ok, cost} = simulate_grpc_call(:ok, fn -> "1000" end)
     assert cost == "1000"
@@ -409,14 +372,4 @@ defmodule Antd.GrpcClientTest do
     assert length(entry.descendants) == 1
   end
 
-  test "Archive struct fields are accessible" do
-    arc = %Antd.Archive{
-      entries: [
-        %Antd.ArchiveEntry{path: "a.txt", address: "x", created: 0, modified: 0, size: 1}
-      ]
-    }
-
-    assert length(arc.entries) == 1
-    assert hd(arc.entries).path == "a.txt"
-  end
 end

@@ -121,26 +121,6 @@ fn mock_dir_download_public(server: &mut ServerGuard) -> Mock {
         .create()
 }
 
-fn mock_archive_get_public(server: &mut ServerGuard) -> Mock {
-    server
-        .mock("GET", "/v1/archives/public/arc1")
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(
-            r#"{"entries":[{"path":"test.txt","address":"abc","created":1000,"modified":2000,"size":42}]}"#,
-        )
-        .create()
-}
-
-fn mock_archive_put_public(server: &mut ServerGuard) -> Mock {
-    server
-        .mock("POST", "/v1/archives/public")
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"cost":"50","address":"arc2"}"#)
-        .create()
-}
-
 fn mock_file_cost(server: &mut ServerGuard) -> Mock {
     server
         .mock("POST", "/v1/cost/file")
@@ -281,48 +261,13 @@ async fn test_dir_download_public() {
 }
 
 #[tokio::test]
-async fn test_archive_get_public() {
-    let mut server = mock_server().await;
-    let _m = mock_archive_get_public(&mut server);
-    let client = Client::new(&server.url());
-
-    let archive = client.archive_get_public("arc1").await.unwrap();
-    assert_eq!(archive.entries.len(), 1);
-    assert_eq!(archive.entries[0].path, "test.txt");
-    assert_eq!(archive.entries[0].address, "abc");
-    assert_eq!(archive.entries[0].created, 1000);
-    assert_eq!(archive.entries[0].modified, 2000);
-    assert_eq!(archive.entries[0].size, 42);
-}
-
-#[tokio::test]
-async fn test_archive_put_public() {
-    let mut server = mock_server().await;
-    let _m = mock_archive_put_public(&mut server);
-    let client = Client::new(&server.url());
-
-    let archive = Archive {
-        entries: vec![ArchiveEntry {
-            path: "test.txt".to_string(),
-            address: "abc".to_string(),
-            created: 1000,
-            modified: 2000,
-            size: 42,
-        }],
-    };
-    let result = client.archive_put_public(&archive).await.unwrap();
-    assert_eq!(result.address, "arc2");
-    assert_eq!(result.cost, "50");
-}
-
-#[tokio::test]
 async fn test_file_cost() {
     let mut server = mock_server().await;
     let _m = mock_file_cost(&mut server);
     let client = Client::new(&server.url());
 
     let cost = client
-        .file_cost("/tmp/test.txt", true, false)
+        .file_cost("/tmp/test.txt", true)
         .await
         .unwrap();
     assert_eq!(cost, "1000");

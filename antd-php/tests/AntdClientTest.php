@@ -12,8 +12,6 @@ use Autonomi\Antd\Errors\InternalError;
 use Autonomi\Antd\Errors\NetworkError;
 use Autonomi\Antd\Errors\TooLargeError;
 use Autonomi\Antd\Errors\AlreadyExistsError;
-use Autonomi\Antd\Models\Archive;
-use Autonomi\Antd\Models\ArchiveEntry;
 use GuzzleHttp\Client;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
@@ -171,43 +169,6 @@ class AntdClientTest extends TestCase
         $client = $this->createClient($mock);
         $client->dirDownloadPublic('dir1', '/tmp/outdir');
         $this->assertTrue(true);
-    }
-
-    public function testArchiveGetPublic(): void
-    {
-        $mock = new MockHandler([
-            $this->jsonResponse(200, [
-                'entries' => [[
-                    'path' => 'test.txt',
-                    'address' => 'abc',
-                    'created' => 1000,
-                    'modified' => 2000,
-                    'size' => 42,
-                ]],
-            ]),
-        ]);
-        $client = $this->createClient($mock);
-        $archive = $client->archiveGetPublic('arc1');
-        $this->assertCount(1, $archive->entries);
-        $this->assertSame('test.txt', $archive->entries[0]->path);
-        $this->assertSame('abc', $archive->entries[0]->address);
-        $this->assertSame(1000, $archive->entries[0]->created);
-        $this->assertSame(2000, $archive->entries[0]->modified);
-        $this->assertSame(42, $archive->entries[0]->size);
-    }
-
-    public function testArchivePutPublic(): void
-    {
-        $mock = new MockHandler([
-            $this->jsonResponse(200, ['cost' => '50', 'address' => 'arc2']),
-        ]);
-        $client = $this->createClient($mock);
-        $archive = new Archive(entries: [
-            new ArchiveEntry(path: 'test.txt', address: 'abc', created: 1000, modified: 2000, size: 42),
-        ]);
-        $result = $client->archivePutPublic($archive);
-        $this->assertSame('arc2', $result->address);
-        $this->assertSame('50', $result->cost);
     }
 
     public function testFileCost(): void

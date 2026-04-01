@@ -328,57 +328,6 @@ paths:
         "502":
           $ref: "#/components/responses/NetworkError"
 
-  /v1/archives/public/{addr}:
-    get:
-      tags: [files]
-      operationId: archiveGetPublic
-      summary: Get archive entries
-      description: List entries in a public archive manifest.
-      parameters:
-        - name: addr
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Hex address of the archive
-      responses:
-        "200":
-          description: Archive entries
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ArchiveDto"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /v1/archives/public:
-    post:
-      tags: [files]
-      operationId: archivePutPublic
-      summary: Create archive
-      description: Create a public archive manifest from file entries.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ArchiveDto"
-      responses:
-        "200":
-          description: Archive created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ArchivePutResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "402":
-          $ref: "#/components/responses/PaymentError"
-        "500":
-          $ref: "#/components/responses/InternalError"
-        "502":
-          $ref: "#/components/responses/NetworkError"
-
   /v1/cost/file:
     post:
       tags: [files]
@@ -530,42 +479,6 @@ components:
           type: string
           description: Absolute local path to save to
 
-    ArchiveEntryDto:
-      type: object
-      required: [path, address, created, modified, size]
-      properties:
-        path:
-          type: string
-        address:
-          type: string
-        created:
-          type: integer
-          format: uint64
-        modified:
-          type: integer
-          format: uint64
-        size:
-          type: integer
-          format: uint64
-
-    ArchiveDto:
-      type: object
-      required: [entries]
-      properties:
-        entries:
-          type: array
-          items:
-            $ref: "#/components/schemas/ArchiveEntryDto"
-
-    ArchivePutResponse:
-      type: object
-      required: [cost, address]
-      properties:
-        cost:
-          type: string
-        address:
-          type: string
-
     FileCostRequest:
       type: object
       required: [path]
@@ -576,10 +489,6 @@ components:
         is_public:
           type: boolean
           default: true
-        include_archive:
-          type: boolean
-          default: false
-
     # -- Common --
     CostResponse:
       type: object

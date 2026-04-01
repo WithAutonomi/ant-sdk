@@ -29,14 +29,6 @@ rescue LoadError
       def file_download_public(a, d) grpc_call { @file_stub.download_public(nil); nil } end
       def dir_upload_public(p) grpc_call { r = @file_stub.dir_upload_public(nil); PutResult.new(cost: r.cost.atto_tokens, address: r.address) } end
       def dir_download_public(a, d) grpc_call { @file_stub.dir_download_public(nil); nil } end
-      def archive_get_public(a)
-        grpc_call do
-          r = @file_stub.archive_get_public(nil)
-          entries = r.entries.map { |e| ArchiveEntry.new(path: e.path, address: e.address, created: e.created, modified: e.modified, size: e.size) }
-          Archive.new(entries: entries)
-        end
-      end
-      def archive_put_public(arc) grpc_call { r = @file_stub.archive_put_public(nil); PutResult.new(cost: r.cost.atto_tokens, address: r.address) } end
       def file_cost(p, ip = true, ia = false) grpc_call { @file_stub.get_file_cost(nil).atto_tokens } end
 
       private
@@ -95,9 +87,6 @@ module FakeGrpc
   # Simulates a cost sub-message with an atto_tokens field.
   Cost = Struct.new(:atto_tokens, keyword_init: true)
 
-  # Archive entry proto mimic.
-  ArchiveEntry = Struct.new(:path, :address, :created, :modified, :size, keyword_init: true)
-
   # --------------------------------------------------
   # Fake stub classes
   # --------------------------------------------------
@@ -155,16 +144,6 @@ module FakeGrpc
 
     def dir_download_public(_req)
       OpenStruct.new
-    end
-
-    def archive_get_public(_req)
-      OpenStruct.new(entries: [
-        ArchiveEntry.new(path: "test.txt", address: "abc", created: 1000, modified: 2000, size: 42)
-      ])
-    end
-
-    def archive_put_public(_req)
-      OpenStruct.new(cost: Cost.new(atto_tokens: "50"), address: "arc2")
     end
 
     def get_file_cost(_req)
@@ -297,25 +276,6 @@ class TestGrpcClient < Minitest::Test
 
   def test_dir_download_public
     assert_nil @client.dir_download_public("dir1", "/tmp/outdir")
-  end
-
-  def test_archive_get_public
-    arc = @client.archive_get_public("arc1")
-    assert_equal 1, arc.entries.length
-    assert_equal "test.txt", arc.entries[0].path
-    assert_equal "abc", arc.entries[0].address
-    assert_equal 1000, arc.entries[0].created
-    assert_equal 2000, arc.entries[0].modified
-    assert_equal 42, arc.entries[0].size
-  end
-
-  def test_archive_put_public
-    archive = Antd::Archive.new(entries: [
-      Antd::ArchiveEntry.new(path: "test.txt", address: "abc", created: 1000, modified: 2000, size: 42)
-    ])
-    result = @client.archive_put_public(archive)
-    assert_equal "50", result.cost
-    assert_equal "arc2", result.address
   end
 
   def test_file_cost

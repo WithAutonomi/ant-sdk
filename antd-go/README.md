@@ -112,9 +112,7 @@ All methods take a `context.Context` as the first parameter for cancellation and
 | `FileDownloadPublic(ctx, address, destPath)` | Download a file |
 | `DirUploadPublic(ctx, path)` | Upload a directory |
 | `DirDownloadPublic(ctx, address, destPath)` | Download a directory |
-| `ArchiveGetPublic(ctx, address)` | Get archive manifest |
-| `ArchivePutPublic(ctx, archive)` | Create archive manifest |
-| `FileCost(ctx, path, isPublic, includeArchive)` | Estimate upload cost |
+| `FileCost(ctx, path, isPublic)` | Estimate upload cost |
 
 ## gRPC Transport
 

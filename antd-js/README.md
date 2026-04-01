@@ -83,17 +83,13 @@ All methods are `async` and return Promises.
 | `fileDownloadPublic(address, destPath)` | `void` | Download file |
 | `dirUploadPublic(path)` | `PutResult` | Upload directory |
 | `dirDownloadPublic(address, destPath)` | `void` | Download directory |
-| `archiveGetPublic(address)` | `Archive` | List archive entries |
-| `archivePutPublic(archive)` | `PutResult` | Create archive manifest |
-| `fileCost(path, isPublic?, includeArchive?)` | `string` | Estimate upload cost |
+| `fileCost(path, isPublic?)` | `string` | Estimate upload cost |
 
 ## Models
 
 ```typescript
 interface HealthStatus { ok: boolean; network: string }
 interface PutResult { cost: string; address: string }
-interface ArchiveEntry { path: string; address: string; created: number; modified: number; size: number }
-interface Archive { entries: ArchiveEntry[] }
 ```
 
 ## Errors

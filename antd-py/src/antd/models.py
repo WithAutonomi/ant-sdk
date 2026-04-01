@@ -19,22 +19,6 @@ class PutResult:
 
 
 @dataclass(frozen=True)
-class ArchiveEntry:
-    """An entry in a file archive."""
-    path: str
-    address: str
-    created: int
-    modified: int
-    size: int
-
-
-@dataclass(frozen=True)
-class Archive:
-    """A collection of archive entries."""
-    entries: list[ArchiveEntry] = field(default_factory=list)
-
-
-@dataclass(frozen=True)
 class WalletAddress:
     """Wallet address from the antd daemon."""
     address: str    # hex, e.g. "0x..."

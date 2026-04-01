@@ -221,7 +221,7 @@ Medium — existence checks are straightforward to add. Replication status is li
 ### What exists today
 
 - All operations are single-item: one put, one get, one cost estimate per request
-- Archives let you group file metadata, but each file must be uploaded individually first
+- Each file must be uploaded individually
 - The underlying autonomi client library has no batch methods
 - gRPC default message size limit is 4MB (not configurable in current code)
 - REST uses base64 JSON (no multipart support)
@@ -316,7 +316,7 @@ Medium — progress events are valuable for UX but not blocking. Resumable uploa
 
 1. List all data stored by the current user/wallet
 2. Search stored data by metadata or tags
-3. Browse stored files and archives
+3. Browse stored files
 4. Filter or paginate results
 
 >> This is out of scope for the core sdk as the network is decentralised. This is offered by other products
