@@ -136,9 +136,24 @@ PutResult Client::data_put_private(const std::vector<uint8_t>& data, const std::
     };
 }
 
+static std::string url_encode(std::string_view value) {
+    std::string encoded;
+    encoded.reserve(value.size());
+    for (unsigned char c : value) {
+        if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+            encoded += static_cast<char>(c);
+        } else {
+            char buf[4];
+            std::snprintf(buf, sizeof(buf), "%%%02X", c);
+            encoded += buf;
+        }
+    }
+    return encoded;
+}
+
 std::vector<uint8_t> Client::data_get_private(std::string_view data_map) {
     auto j = impl_->do_json("GET",
-        "/v1/data/private?data_map=" + std::string(data_map));
+        "/v1/data/private?data_map=" + url_encode(data_map));
     return detail::base64_decode(j.value("data", ""));
 }
 

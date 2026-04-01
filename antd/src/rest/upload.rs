@@ -21,10 +21,9 @@ pub async fn prepare_upload(
     State(state): State<Arc<AppState>>,
     Json(req): Json<PrepareUploadRequest>,
 ) -> Result<Json<PrepareUploadResponse>, AntdError> {
-    let path = PathBuf::from(&req.path);
-    if !path.exists() {
-        return Err(AntdError::BadRequest(format!("file not found: {}", req.path)));
-    }
+    let path = PathBuf::from(&req.path)
+        .canonicalize()
+        .map_err(|e| AntdError::BadRequest(format!("invalid path {}: {e}", req.path)))?;
 
     let client = state.client.clone();
     let prepared = tokio::spawn(async move {

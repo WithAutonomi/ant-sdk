@@ -20,7 +20,7 @@ class ErrorFactory
             500 => new InternalError($message),
             502 => new NetworkError($message),
             503 => new ServiceUnavailableError($message),
-            default => new AntdError($code, $message),
+            default => new AntdError($code, $message ?? ''),
         };
     }
 }

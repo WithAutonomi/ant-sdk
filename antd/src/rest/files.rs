@@ -16,10 +16,9 @@ pub async fn file_upload_public(
         return Err(AntdError::ServiceUnavailable("wallet not configured — set AUTONOMI_WALLET_KEY".into()));
     }
 
-    let path = PathBuf::from(&req.path);
-    if !path.exists() {
-        return Err(AntdError::BadRequest(format!("file not found: {}", req.path)));
-    }
+    let path = PathBuf::from(&req.path)
+        .canonicalize()
+        .map_err(|e| AntdError::BadRequest(format!("invalid path {}: {e}", req.path)))?;
 
     let mode = parse_payment_mode(req.payment_mode.as_deref())
         .map_err(AntdError::BadRequest)?;
@@ -50,6 +49,11 @@ pub async fn file_download_public(
         .map_err(|_| AntdError::BadRequest("address must be 32 bytes".into()))?;
 
     let dest = PathBuf::from(&req.dest_path);
+    // Validate the parent directory exists (but dest itself may not yet)
+    if let Some(parent) = dest.parent() {
+        let _ = parent.canonicalize()
+            .map_err(|e| AntdError::BadRequest(format!("invalid dest_path {}: {e}", req.dest_path)))?;
+    }
     let client = state.client.clone();
     tokio::spawn(async move {
         let data_map = client.data_map_fetch(&address).await
@@ -70,7 +74,9 @@ pub async fn dir_upload_public(
         return Err(AntdError::ServiceUnavailable("wallet not configured — set AUTONOMI_WALLET_KEY".into()));
     }
 
-    let path = PathBuf::from(&req.path);
+    let path = PathBuf::from(&req.path)
+        .canonicalize()
+        .map_err(|e| AntdError::BadRequest(format!("invalid path {}: {e}", req.path)))?;
     if !path.is_dir() {
         return Err(AntdError::BadRequest(format!("not a directory: {}", req.path)));
     }
@@ -104,6 +110,10 @@ pub async fn dir_download_public(
         .map_err(|_| AntdError::BadRequest("address must be 32 bytes".into()))?;
 
     let dest = PathBuf::from(&req.dest_path);
+    if let Some(parent) = dest.parent() {
+        let _ = parent.canonicalize()
+            .map_err(|e| AntdError::BadRequest(format!("invalid dest_path {}: {e}", req.dest_path)))?;
+    }
     let client = state.client.clone();
     tokio::spawn(async move {
         let data_map = client.data_map_fetch(&address).await
@@ -134,10 +144,9 @@ pub async fn file_cost(
     State(state): State<Arc<AppState>>,
     Json(req): Json<FileCostRequest>,
 ) -> Result<Json<CostResponse>, AntdError> {
-    let path = PathBuf::from(&req.path);
-    if !path.exists() {
-        return Err(AntdError::BadRequest(format!("path not found: {}", req.path)));
-    }
+    let path = PathBuf::from(&req.path)
+        .canonicalize()
+        .map_err(|e| AntdError::BadRequest(format!("invalid path {}: {e}", req.path)))?;
 
     // Read file, encrypt to get chunks, then quote each
     let client = state.client.clone();

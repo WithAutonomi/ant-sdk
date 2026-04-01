@@ -105,9 +105,28 @@ class DaemonDiscovery
      */
     private static function isProcessAlive(int $pid): bool
     {
+        if ($pid <= 0) {
+            return false;
+        }
+
         if (PHP_OS_FAMILY === 'Windows') {
-            $out = shell_exec("tasklist /FI \"PID eq {$pid}\" /NH 2>NUL");
-            return $out !== null && stripos($out, (string) $pid) !== false;
+            // Use COM WMI query to avoid shell_exec injection risks.
+            // Falls back to trusting the port file if COM is unavailable.
+            if (class_exists('COM', false)) {
+                try {
+                    /** @phpstan-ignore-next-line */
+                    $wmi = new \COM('WbemScripting.SWbemLocator');
+                    /** @phpstan-ignore-next-line */
+                    $service = $wmi->ConnectServer('.', 'root\\cimv2');
+                    $query = $service->ExecQuery(
+                        'SELECT ProcessId FROM Win32_Process WHERE ProcessId = ' . $pid
+                    );
+                    return $query->Count > 0;
+                } catch (\Throwable) {
+                    return true; // Cannot check; trust the port file.
+                }
+            }
+            return true; // COM not available; trust the port file.
         }
 
         // Unix: prefer posix_kill, fall back to /proc

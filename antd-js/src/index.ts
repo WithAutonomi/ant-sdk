@@ -20,6 +20,7 @@ export {
   NetworkError,
   TooLargeError,
   InternalError,
+  ServiceUnavailableError,
   fromHttpStatus,
 } from "./errors.js";
 

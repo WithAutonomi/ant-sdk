@@ -1,5 +1,5 @@
 import { discoverDaemonUrl } from "./discover.js";
-import { fromHttpStatus } from "./errors.js";
+import { fromHttpStatus, NetworkError } from "./errors.js";
 import type {
   Archive,
   ArchiveEntry,
@@ -71,6 +71,12 @@ export class RestClient {
         signal: controller.signal,
       });
       return resp;
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw new NetworkError(`request timed out after ${this.timeout}ms`);
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new NetworkError(msg);
     } finally {
       clearTimeout(timer);
     }
