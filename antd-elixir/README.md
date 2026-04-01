@@ -96,6 +96,8 @@ All functions return `{:ok, result}` or `{:error, exception}` tuples, just like
 the REST client. Bang variants (e.g. `health!/1`) are also available. gRPC
 status codes are translated to the same `Antd.*Error` hierarchy.
 
+> **Note:** Wallet operations (address, balance, approve) and payment_mode are available via REST only.
+
 ## Prerequisites
 
 The antd daemon must be running. Start it with:

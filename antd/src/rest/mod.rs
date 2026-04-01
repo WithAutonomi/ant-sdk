@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::extract::State;
+use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderValue, Method};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -8,6 +8,9 @@ use tower_http::cors::CorsLayer;
 
 use crate::state::AppState;
 use crate::types::HealthResponse;
+
+/// 100 MB body limit for all requests.
+const MAX_BODY_SIZE: usize = 100 * 1024 * 1024;
 
 pub mod chunks;
 pub mod data;
@@ -45,6 +48,7 @@ pub fn router(state: Arc<AppState>, enable_cors: bool, rest_port: u16) -> Router
         .route("/v1/wallet/address", get(wallet::wallet_address))
         .route("/v1/wallet/balance", get(wallet::wallet_balance))
         .route("/v1/wallet/approve", post(wallet::wallet_approve))
+        .layer(DefaultBodyLimit::max(MAX_BODY_SIZE))
         .with_state(state);
 
     if enable_cors {

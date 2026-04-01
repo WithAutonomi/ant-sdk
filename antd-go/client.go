@@ -130,19 +130,6 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any) (map
 	return result, resp.StatusCode, nil
 }
 
-func (c *Client) doHead(ctx context.Context, path string) (int, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, c.url(path), nil)
-	if err != nil {
-		return 0, fmt.Errorf("create request: %w", err)
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("http request: %w", err)
-	}
-	resp.Body.Close()
-	return resp.StatusCode, nil
-}
-
 func str(m map[string]any, key string) string {
 	if v, ok := m[key].(string); ok {
 		return v
@@ -155,20 +142,6 @@ func num64(m map[string]any, key string) int64 {
 		return int64(v)
 	}
 	return 0
-}
-
-func strSlice(m map[string]any, key string) []string {
-	arr, ok := m[key].([]any)
-	if !ok {
-		return nil
-	}
-	out := make([]string, 0, len(arr))
-	for _, v := range arr {
-		if s, ok := v.(string); ok {
-			out = append(out, s)
-		}
-	}
-	return out
 }
 
 func arrAt(m map[string]any, key string) []any {

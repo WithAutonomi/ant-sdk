@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use zeroize::Zeroize;
+
 use crate::WalletError;
 
 /// EVM wallet for paying storage costs.
@@ -28,8 +30,7 @@ impl Wallet {
         );
         let result = evmlib::wallet::Wallet::new_from_private_key(network, &private_key);
         // Clear the private key from memory as soon as possible
-        private_key.replace_range(.., &"0".repeat(private_key.len()));
-        private_key.clear();
+        private_key.zeroize();
         let wallet = result.map_err(|e| WalletError::CreationFailed {
                 reason: e.to_string(),
             })?;

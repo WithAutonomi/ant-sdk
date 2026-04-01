@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use tokio::sync::Mutex;
+use zeroize::Zeroize;
 
 use ant_core::data::{
     Client as CoreClient, ClientConfig, CoreNodeConfig, MultiAddr, NodeMode, P2PNode,
@@ -168,8 +169,7 @@ impl Client {
         );
         let result = evmlib::wallet::Wallet::new_from_private_key(network, &private_key);
         // Clear the private key from memory as soon as possible
-        private_key.replace_range(.., &"0".repeat(private_key.len()));
-        private_key.clear();
+        private_key.zeroize();
         let wallet = result.map_err(|e| ClientError::InitializationFailed {
                 reason: format!("failed to create wallet: {e}"),
             })?;
@@ -273,6 +273,17 @@ impl Client {
 
     /// Retrieve private data using a hex-encoded data map.
     pub async fn data_get_private(&self, data_map_hex: String) -> Result<Vec<u8>, ClientError> {
+        // Reject unreasonably large hex input (20 MB hex = 10 MB decoded)
+        const MAX_HEX_INPUT: usize = 20 * 1024 * 1024;
+        if data_map_hex.len() > MAX_HEX_INPUT {
+            return Err(ClientError::InvalidInput {
+                reason: format!(
+                    "data map hex too large: {} bytes (max {})",
+                    data_map_hex.len(),
+                    MAX_HEX_INPUT
+                ),
+            });
+        }
         let data_map_bytes =
             hex::decode(&data_map_hex).map_err(|e| ClientError::InvalidInput {
                 reason: format!("invalid hex: {e}"),

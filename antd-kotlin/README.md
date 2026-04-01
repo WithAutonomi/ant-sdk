@@ -51,7 +51,7 @@ fun main() = runBlocking {
 // REST (default, recommended)
 val restClient = AntdClient.createRest("http://localhost:8082")
 
-// gRPC (higher throughput)
+// gRPC (higher throughput; wallet operations and payment_mode are REST-only)
 val grpcClient = AntdClient.createGrpc("localhost:50051")
 
 // Dynamic transport selection

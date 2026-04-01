@@ -49,7 +49,7 @@ print(String(data: data, encoding: .utf8)!) // "Hello, Autonomi!"
 // REST (default, recommended)
 let restClient = AntdClient.createRest(baseURL: "http://localhost:8082")
 
-// gRPC (requires generated proto stubs)
+// gRPC (requires generated proto stubs; wallet operations and payment_mode are REST-only)
 let grpcClient = AntdClient.createGrpc(target: "localhost:50051")
 
 // Dynamic transport selection

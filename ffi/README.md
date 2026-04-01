@@ -126,3 +126,9 @@ All methods are exposed on the `Client` object:
 ## Async
 
 All async Client methods use `#[uniffi::export(async_runtime = "tokio")]`. The generated C# bindings expose them as `Task<T>` methods with proper async/await support. The generated Kotlin bindings expose them as `suspend` functions for use with Kotlin coroutines. The generated Swift bindings expose them as `async throws` functions for use with Swift concurrency.
+
+## Security Notes
+
+- **Private key zeroing**: Private keys passed to the FFI layer are zeroed from memory (via the `zeroize` crate) immediately after use. The original string content is overwritten before deallocation.
+- **Hardware wallets**: For high-security environments, consider hardware wallet integration via the external signer flow (`prepare_data_upload` / `finalize_upload`) rather than passing raw private keys.
+- **No key persistence**: The FFI layer does not persist private keys to disk. Keys exist only in memory for the duration of wallet construction.

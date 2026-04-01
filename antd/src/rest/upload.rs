@@ -23,7 +23,10 @@ pub async fn prepare_upload(
 ) -> Result<Json<PrepareUploadResponse>, AntdError> {
     let path = PathBuf::from(&req.path)
         .canonicalize()
-        .map_err(|e| AntdError::BadRequest(format!("invalid path {}: {e}", req.path)))?;
+        .map_err(|e| {
+            tracing::warn!(path = %req.path, error = %e, "invalid prepare-upload path");
+            AntdError::BadRequest("invalid path".into())
+        })?;
 
     let client = state.client.clone();
     let prepared = tokio::spawn(async move {

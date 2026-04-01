@@ -114,6 +114,8 @@ void main() async {
 The `GrpcAntdClient` throws the same `AntdError` hierarchy as the REST client,
 translating gRPC status codes to the appropriate error subclass.
 
+> **Note:** Wallet operations (address, balance, approve) and payment_mode are available via REST only.
+
 ## Prerequisites
 
 The antd daemon must be running. Start it with:

@@ -127,6 +127,8 @@ The `GrpcClient` has identical method signatures to the REST `Client`, so switch
 transports requires only changing the constructor. gRPC status codes are automatically
 mapped to `AntdError` variants via the `Grpc` error variant.
 
+> **Note:** Wallet operations (address, balance, approve) and payment_mode are available via REST only.
+
 ## Error Handling
 
 All errors are returned as `AntdError` variants. Use `match` for specific handling:

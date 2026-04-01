@@ -45,7 +45,7 @@ from antd import AntdClient, AsyncAntdClient
 # REST (default)
 client = AntdClient(transport="rest", base_url="http://localhost:8082", timeout=30)
 
-# gRPC
+# gRPC (wallet operations and payment_mode are available via REST only)
 client = AntdClient(transport="grpc", target="localhost:50051")
 
 # Async REST

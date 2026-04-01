@@ -45,6 +45,9 @@ pub async fn data_get_public(
     State(state): State<Arc<AppState>>,
     Path(addr): Path<String>,
 ) -> Result<Json<DataGetResponse>, AntdError> {
+    if addr.len() != 64 {
+        return Err(AntdError::BadRequest("address must be exactly 64 hex characters".into()));
+    }
     let address_bytes = hex::decode(&addr)
         .map_err(|e| AntdError::BadRequest(format!("invalid hex address: {e}")))?;
     let address: [u8; 32] = address_bytes
@@ -101,6 +104,16 @@ pub async fn data_get_private(
     let data_map_bytes = hex::decode(&query.data_map)
         .map_err(|e| AntdError::BadRequest(format!("invalid hex data_map: {e}")))?;
 
+    // Reject oversized data maps before deserialization (10 MB limit)
+    const MAX_DATA_MAP_SIZE: usize = 10 * 1024 * 1024;
+    if data_map_bytes.len() > MAX_DATA_MAP_SIZE {
+        return Err(AntdError::BadRequest(format!(
+            "data map too large: {} bytes exceeds {} byte limit",
+            data_map_bytes.len(),
+            MAX_DATA_MAP_SIZE,
+        )));
+    }
+
     let data_map: ant_core::data::DataMap = rmp_serde::from_slice(&data_map_bytes)
         .map_err(|e| AntdError::BadRequest(format!("invalid data map: {e}")))?;
 
@@ -141,8 +154,7 @@ pub async fn data_cost(
                 }
                 Err(e) => {
                     // AlreadyStored means no cost for this chunk
-                    let core_err_str = format!("{e}");
-                    if !core_err_str.contains("AlreadyStored") {
+                    if !matches!(e, ant_core::data::Error::AlreadyStored) {
                         return Err(AntdError::from_core(e));
                     }
                 }
@@ -158,8 +170,11 @@ pub async fn data_cost(
 
 pub async fn data_stream_public(
     State(_state): State<Arc<AppState>>,
-    Path(_addr): Path<String>,
+    Path(addr): Path<String>,
 ) -> Result<Sse<impl tokio_stream::Stream<Item = Result<Event, std::convert::Infallible>>>, AntdError> {
+    if addr.len() != 64 {
+        return Err(AntdError::BadRequest("address must be exactly 64 hex characters".into()));
+    }
     let stream = futures::stream::empty();
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }

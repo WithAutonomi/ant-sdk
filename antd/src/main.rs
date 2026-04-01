@@ -21,7 +21,7 @@ use state::AppState;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env().add_directive("info".parse().unwrap()))
+        .with_env_filter(EnvFilter::from_default_env().add_directive("info".parse().expect("valid default log directive")))
         .init();
 
     let config = Config::parse();
@@ -80,7 +80,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_default();
 
     if bootstrap_peers.is_empty() {
-        tracing::warn!("no bootstrap peers configured — set ANTD_PEERS or --peers");
+        if config.network != "local" {
+            tracing::warn!(
+                "no bootstrap peers configured and network is not 'local' — \
+                 the daemon may not be able to reach the network. \
+                 Set ANTD_PEERS or --peers"
+            );
+        } else {
+            tracing::warn!("no bootstrap peers configured — set ANTD_PEERS or --peers");
+        }
         if let Some(raw) = &config.peers {
             tracing::warn!(raw_peers = ?raw, "raw peer strings from config");
         }

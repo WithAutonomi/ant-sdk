@@ -190,7 +190,9 @@ try (var client = new GrpcAntdClient("myhost:50051")) {
 }
 ```
 
-The gRPC client uses `io.grpc` blocking stubs and maps gRPC status codes to the same `AntdException` hierarchy:
+The gRPC client uses `io.grpc` blocking stubs and maps gRPC status codes to the same `AntdException` hierarchy.
+
+> **Note:** Wallet operations (address, balance, approve) and payment_mode are available via REST only.
 
 | gRPC Status | Exception Type |
 |-------------|---------------|

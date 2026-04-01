@@ -52,7 +52,7 @@ using var client = AntdClient.CreateRest(
     timeout: TimeSpan.FromSeconds(30)
 );
 
-// gRPC transport
+// gRPC transport (wallet operations and payment_mode are REST-only)
 using var grpcClient = AntdClient.CreateGrpc(
     target: "http://localhost:50051"
 );

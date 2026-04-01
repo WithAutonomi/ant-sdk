@@ -18,7 +18,10 @@ pub async fn file_upload_public(
 
     let path = PathBuf::from(&req.path)
         .canonicalize()
-        .map_err(|e| AntdError::BadRequest(format!("invalid path {}: {e}", req.path)))?;
+        .map_err(|e| {
+            tracing::warn!(path = %req.path, error = %e, "invalid upload path");
+            AntdError::BadRequest("invalid path".into())
+        })?;
 
     let mode = parse_payment_mode(req.payment_mode.as_deref())
         .map_err(AntdError::BadRequest)?;
@@ -42,6 +45,9 @@ pub async fn file_download_public(
     State(state): State<Arc<AppState>>,
     Json(req): Json<FileDownloadRequest>,
 ) -> Result<axum::http::StatusCode, AntdError> {
+    if req.address.len() != 64 {
+        return Err(AntdError::BadRequest("address must be exactly 64 hex characters".into()));
+    }
     let address_bytes = hex::decode(&req.address)
         .map_err(|e| AntdError::BadRequest(format!("invalid hex address: {e}")))?;
     let address: [u8; 32] = address_bytes
@@ -49,11 +55,22 @@ pub async fn file_download_public(
         .map_err(|_| AntdError::BadRequest("address must be 32 bytes".into()))?;
 
     let dest = PathBuf::from(&req.dest_path);
-    // Validate the parent directory exists (but dest itself may not yet)
-    if let Some(parent) = dest.parent() {
-        let _ = parent.canonicalize()
-            .map_err(|e| AntdError::BadRequest(format!("invalid dest_path {}: {e}", req.dest_path)))?;
+    // Validate the parent directory exists and prevent path traversal via symlinks
+    let canonical_parent = dest.parent()
+        .ok_or_else(|| AntdError::BadRequest("dest_path has no parent directory".into()))?
+        .canonicalize()
+        .map_err(|e| {
+            tracing::warn!(dest_path = %req.dest_path, error = %e, "invalid dest_path");
+            AntdError::BadRequest("invalid destination path".into())
+        })?;
+    let dest = canonical_parent.join(
+        dest.file_name()
+            .ok_or_else(|| AntdError::BadRequest("dest_path has no filename".into()))?,
+    );
+    if !dest.starts_with(&canonical_parent) {
+        return Err(AntdError::BadRequest("destination path escapes allowed directory".into()));
     }
+
     let client = state.client.clone();
     tokio::spawn(async move {
         let data_map = client.data_map_fetch(&address).await
@@ -76,9 +93,12 @@ pub async fn dir_upload_public(
 
     let path = PathBuf::from(&req.path)
         .canonicalize()
-        .map_err(|e| AntdError::BadRequest(format!("invalid path {}: {e}", req.path)))?;
+        .map_err(|e| {
+            tracing::warn!(path = %req.path, error = %e, "invalid directory upload path");
+            AntdError::BadRequest("invalid path".into())
+        })?;
     if !path.is_dir() {
-        return Err(AntdError::BadRequest(format!("not a directory: {}", req.path)));
+        return Err(AntdError::BadRequest("path is not a directory".into()));
     }
 
     let mode = parse_payment_mode(req.payment_mode.as_deref())
@@ -103,6 +123,9 @@ pub async fn dir_download_public(
     State(state): State<Arc<AppState>>,
     Json(req): Json<FileDownloadRequest>,
 ) -> Result<axum::http::StatusCode, AntdError> {
+    if req.address.len() != 64 {
+        return Err(AntdError::BadRequest("address must be exactly 64 hex characters".into()));
+    }
     let address_bytes = hex::decode(&req.address)
         .map_err(|e| AntdError::BadRequest(format!("invalid hex address: {e}")))?;
     let address: [u8; 32] = address_bytes
@@ -110,10 +133,22 @@ pub async fn dir_download_public(
         .map_err(|_| AntdError::BadRequest("address must be 32 bytes".into()))?;
 
     let dest = PathBuf::from(&req.dest_path);
-    if let Some(parent) = dest.parent() {
-        let _ = parent.canonicalize()
-            .map_err(|e| AntdError::BadRequest(format!("invalid dest_path {}: {e}", req.dest_path)))?;
+    // Validate the parent directory exists and prevent path traversal via symlinks
+    let canonical_parent = dest.parent()
+        .ok_or_else(|| AntdError::BadRequest("dest_path has no parent directory".into()))?
+        .canonicalize()
+        .map_err(|e| {
+            tracing::warn!(dest_path = %req.dest_path, error = %e, "invalid dest_path");
+            AntdError::BadRequest("invalid destination path".into())
+        })?;
+    let dest = canonical_parent.join(
+        dest.file_name()
+            .ok_or_else(|| AntdError::BadRequest("dest_path has no filename".into()))?,
+    );
+    if !dest.starts_with(&canonical_parent) {
+        return Err(AntdError::BadRequest("destination path escapes allowed directory".into()));
     }
+
     let client = state.client.clone();
     tokio::spawn(async move {
         let data_map = client.data_map_fetch(&address).await
@@ -132,7 +167,10 @@ pub async fn file_cost(
 ) -> Result<Json<CostResponse>, AntdError> {
     let path = PathBuf::from(&req.path)
         .canonicalize()
-        .map_err(|e| AntdError::BadRequest(format!("invalid path {}: {e}", req.path)))?;
+        .map_err(|e| {
+            tracing::warn!(path = %req.path, error = %e, "invalid file cost path");
+            AntdError::BadRequest("invalid path".into())
+        })?;
 
     // Read file, encrypt to get chunks, then quote each
     let client = state.client.clone();
@@ -155,8 +193,8 @@ pub async fn file_cost(
                     }
                 }
                 Err(e) => {
-                    let core_err_str = format!("{e}");
-                    if !core_err_str.contains("AlreadyStored") {
+                    // AlreadyStored means no cost for this chunk
+                    if !matches!(e, ant_core::data::Error::AlreadyStored) {
                         return Err(AntdError::from_core(e));
                     }
                 }

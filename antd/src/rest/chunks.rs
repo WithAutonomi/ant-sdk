@@ -14,6 +14,9 @@ pub async fn chunk_get(
     State(state): State<Arc<AppState>>,
     Path(addr): Path<String>,
 ) -> Result<Json<ChunkGetResponse>, AntdError> {
+    if addr.len() != 64 {
+        return Err(AntdError::BadRequest("address must be exactly 64 hex characters".into()));
+    }
     let address_bytes = hex::decode(&addr)
         .map_err(|e| AntdError::BadRequest(format!("invalid hex address: {e}")))?;
     let address: [u8; 32] = address_bytes

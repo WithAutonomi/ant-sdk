@@ -192,6 +192,8 @@ client, _ := antd.NewGrpcClient("secure-host:443",
     antd.WithDialOptions(grpc.WithTransportCredentials(creds)))
 ```
 
+> **Note:** Wallet operations (address, balance, approve) and payment_mode are available via REST only.
+
 ### gRPC Error Mapping
 
 gRPC status codes are mapped to the same typed errors as the REST client:
