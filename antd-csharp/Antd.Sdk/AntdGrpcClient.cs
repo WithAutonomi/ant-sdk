@@ -217,4 +217,26 @@ public sealed class AntdGrpcClient : IAntdClient
         }
         catch (RpcException ex) { throw Wrap(ex); }
     }
+
+    // ── Wallet (not yet available via gRPC) ──
+
+    public Task<WalletAddress> WalletAddressAsync()
+        => throw new NotSupportedException("WalletAddress is not yet supported via gRPC");
+
+    public Task<WalletBalance> WalletBalanceAsync()
+        => throw new NotSupportedException("WalletBalance is not yet supported via gRPC");
+
+    public Task<bool> WalletApproveAsync()
+        => throw new NotSupportedException("WalletApprove is not yet supported via gRPC");
+
+    // ── External Signer (not yet available via gRPC) ──
+
+    public Task<PrepareUploadResult> PrepareUploadAsync(string path)
+        => throw new NotSupportedException("PrepareUpload is not yet supported via gRPC");
+
+    public Task<PrepareUploadResult> PrepareDataUploadAsync(byte[] data)
+        => throw new NotSupportedException("PrepareDataUpload is not yet supported via gRPC");
+
+    public Task<FinalizeUploadResult> FinalizeUploadAsync(string uploadId, Dictionary<string, string> txHashes)
+        => throw new NotSupportedException("FinalizeUpload is not yet supported via gRPC");
 }

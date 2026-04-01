@@ -5,7 +5,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::new(DEFAULT_BASE_URL);
 
     // Upload a file
-    let result = client.file_upload_public("/tmp/example.txt").await?;
+    let result = client.file_upload_public("/tmp/example.txt", None).await?;
     println!("File uploaded at: {} (cost: {} atto)", result.address, result.cost);
 
     // Download a file
@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("File downloaded");
 
     // Upload a directory
-    let dir_result = client.dir_upload_public("/tmp/mydir").await?;
+    let dir_result = client.dir_upload_public("/tmp/mydir", None).await?;
     println!("Directory uploaded at: {}", dir_result.address);
 
     // Download a directory
