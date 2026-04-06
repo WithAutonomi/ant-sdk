@@ -133,6 +133,62 @@ local function num(t, key)
     return 0
 end
 
+--- Build a prepare-upload result table from a parsed JSON response.
+-- Extracts legacy wave_batch fields and new merkle batch fields.
+local function build_prepare_result(j)
+    local payment_type = j.payment_type or "wave_batch"
+
+    local payments = {}
+    if j.payments and type(j.payments) == "table" then
+        for _, p in ipairs(j.payments) do
+            if type(p) == "table" then
+                payments[#payments + 1] = {
+                    quote_hash = str(p, "quote_hash"),
+                    rewards_address = str(p, "rewards_address"),
+                    amount = str(p, "amount"),
+                }
+            end
+        end
+    end
+
+    local pool_commitments = {}
+    if payment_type == "merkle_batch" and j.pool_commitments and type(j.pool_commitments) == "table" then
+        for _, pc in ipairs(j.pool_commitments) do
+            if type(pc) == "table" then
+                local candidates = {}
+                if pc.candidates and type(pc.candidates) == "table" then
+                    for _, c in ipairs(pc.candidates) do
+                        if type(c) == "table" then
+                            candidates[#candidates + 1] = {
+                                rewards_address = c.rewards_address or "",
+                                amount = c.amount or "",
+                            }
+                        end
+                    end
+                end
+                pool_commitments[#pool_commitments + 1] = {
+                    pool_hash = pc.pool_hash or "",
+                    candidates = candidates,
+                }
+            end
+        end
+    end
+
+    return {
+        upload_id = str(j, "upload_id"),
+        payments = payments,
+        total_amount = str(j, "total_amount"),
+        data_payments_address = str(j, "data_payments_address"),
+        payment_token_address = str(j, "payment_token_address"),
+        rpc_url = str(j, "rpc_url"),
+        payment_type = payment_type,
+        depth = num(j, "depth"),
+        pool_commitments = pool_commitments,
+        merkle_payment_timestamp = num(j, "merkle_payment_timestamp"),
+        merkle_payments_address = str(j, "merkle_payments_address"),
+    }
+end
+
 -- ── Health ──
 
 --- Check daemon health.
@@ -335,28 +391,7 @@ function Client:prepare_upload(path)
         path = path,
     })
     if err then return nil, err end
-
-    local payments = {}
-    if j.payments and type(j.payments) == "table" then
-        for _, p in ipairs(j.payments) do
-            if type(p) == "table" then
-                payments[#payments + 1] = {
-                    quote_hash = str(p, "quote_hash"),
-                    rewards_address = str(p, "rewards_address"),
-                    amount = str(p, "amount"),
-                }
-            end
-        end
-    end
-
-    return {
-        upload_id = str(j, "upload_id"),
-        payments = payments,
-        total_amount = str(j, "total_amount"),
-        data_payments_address = str(j, "data_payments_address"),
-        payment_token_address = str(j, "payment_token_address"),
-        rpc_url = str(j, "rpc_url"),
-    }, nil
+    return build_prepare_result(j), nil
 end
 
 --- Prepare a data upload for external signing.
@@ -368,28 +403,7 @@ function Client:prepare_data_upload(data)
         data = base64.encode(data),
     })
     if err then return nil, err end
-
-    local payments = {}
-    if j.payments and type(j.payments) == "table" then
-        for _, p in ipairs(j.payments) do
-            if type(p) == "table" then
-                payments[#payments + 1] = {
-                    quote_hash = str(p, "quote_hash"),
-                    rewards_address = str(p, "rewards_address"),
-                    amount = str(p, "amount"),
-                }
-            end
-        end
-    end
-
-    return {
-        upload_id = str(j, "upload_id"),
-        payments = payments,
-        total_amount = str(j, "total_amount"),
-        data_payments_address = str(j, "data_payments_address"),
-        payment_token_address = str(j, "payment_token_address"),
-        rpc_url = str(j, "rpc_url"),
-    }, nil
+    return build_prepare_result(j), nil
 end
 
 --- Finalize an upload after an external signer has submitted payment transactions.
@@ -400,6 +414,24 @@ function Client:finalize_upload(upload_id, tx_hashes)
     local j, _, err = self:_do_json("POST", "/v1/upload/finalize", {
         upload_id = upload_id,
         tx_hashes = tx_hashes,
+    })
+    if err then return nil, err end
+    return {
+        address = str(j, "address"),
+        chunks_stored = num(j, "chunks_stored"),
+    }, nil
+end
+
+--- Finalize a merkle-batch upload after selecting a winning pool.
+-- @param upload_id string the upload ID from prepare_upload
+-- @param winner_pool_hash string hash of the winning pool commitment
+-- @param store_data_map boolean whether to store the data map on-network (default false)
+-- @return table|nil FinalizeUploadResult, error|nil
+function Client:finalize_merkle_upload(upload_id, winner_pool_hash, store_data_map)
+    local j, _, err = self:_do_json("POST", "/v1/upload/finalize", {
+        upload_id = upload_id,
+        winner_pool_hash = winner_pool_hash,
+        store_data_map = store_data_map or false,
     })
     if err then return nil, err end
     return {

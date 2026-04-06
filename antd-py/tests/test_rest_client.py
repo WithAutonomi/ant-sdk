@@ -11,7 +11,16 @@ import pytest
 
 from antd._rest import RestClient
 from antd.exceptions import BadRequestError, NetworkError, NotFoundError
-from antd.models import HealthStatus, PutResult, WalletAddress, WalletBalance
+from antd.models import (
+    CandidateNodeEntry,
+    FinalizeUploadResult,
+    HealthStatus,
+    PoolCommitmentEntry,
+    PrepareUploadResult,
+    PutResult,
+    WalletAddress,
+    WalletBalance,
+)
 
 
 def _b64(data: bytes) -> str:
@@ -96,6 +105,62 @@ class _MockHandler(BaseHTTPRequestHandler):
 
         elif path == "/v1/wallet/approve":
             self._json_response(200, {"approved": True})
+
+        elif path == "/v1/upload/prepare":
+            req = json.loads(body) if body else {}
+            # Return merkle response when path contains "merkle", else wave_batch
+            if "merkle" in req.get("path", ""):
+                self._json_response(200, {
+                    "upload_id": "up_merkle_1",
+                    "payment_type": "merkle_batch",
+                    "payments": [],
+                    "total_amount": "5000",
+                    "data_payments_address": "0xDP",
+                    "payment_token_address": "0xTK",
+                    "rpc_url": "http://rpc.local",
+                    "depth": 3,
+                    "pool_commitments": [
+                        {
+                            "pool_hash": "pool_abc",
+                            "candidates": [
+                                {"rewards_address": "0xR1", "amount": "2000"},
+                                {"rewards_address": "0xR2", "amount": "3000"},
+                            ],
+                        },
+                    ],
+                    "merkle_payment_timestamp": 1700000000,
+                    "merkle_payments_address": "0xMERKLE",
+                })
+            elif "compat" in req.get("path", ""):
+                # Backward compat: no payment_type field
+                self._json_response(200, {
+                    "upload_id": "up_compat_1",
+                    "payments": [
+                        {"quote_hash": "qh1", "rewards_address": "0xR1", "amount": "100"},
+                    ],
+                    "total_amount": "100",
+                    "data_payments_address": "0xDP",
+                    "payment_token_address": "0xTK",
+                    "rpc_url": "http://rpc.local",
+                })
+            else:
+                self._json_response(200, {
+                    "upload_id": "up_wave_1",
+                    "payment_type": "wave_batch",
+                    "payments": [
+                        {"quote_hash": "qh1", "rewards_address": "0xR1", "amount": "100"},
+                    ],
+                    "total_amount": "100",
+                    "data_payments_address": "0xDP",
+                    "payment_token_address": "0xTK",
+                    "rpc_url": "http://rpc.local",
+                })
+
+        elif path == "/v1/upload/finalize":
+            req = json.loads(body) if body else {}
+            # Store the request so tests can inspect it
+            self.server._last_finalize_request = req
+            self._json_response(200, {"address": "0xFINAL", "chunks_stored": 42})
 
         else:
             self._json_response(404, {"error": f"unknown route: {path}"})
@@ -199,6 +264,69 @@ class TestWalletBalance:
 class TestWalletApprove:
     def test_returns_true(self, client: RestClient):
         assert client.wallet_approve() is True
+
+
+class TestPrepareUploadMerkle:
+    """Verify merkle_batch prepare_upload response is parsed correctly."""
+
+    def test_prepare_upload_merkle(self, client: RestClient):
+        result = client.prepare_upload("/tmp/merkle/file.dat")
+        assert isinstance(result, PrepareUploadResult)
+        assert result.upload_id == "up_merkle_1"
+        assert result.payment_type == "merkle_batch"
+        assert result.depth == 3
+        assert result.total_amount == "5000"
+        assert result.merkle_payment_timestamp == 1700000000
+        assert result.merkle_payments_address == "0xMERKLE"
+        # pool_commitments
+        assert len(result.pool_commitments) == 1
+        pc = result.pool_commitments[0]
+        assert isinstance(pc, PoolCommitmentEntry)
+        assert pc.pool_hash == "pool_abc"
+        assert len(pc.candidates) == 2
+        assert isinstance(pc.candidates[0], CandidateNodeEntry)
+        assert pc.candidates[0].rewards_address == "0xR1"
+        assert pc.candidates[0].amount == "2000"
+        assert pc.candidates[1].rewards_address == "0xR2"
+        assert pc.candidates[1].amount == "3000"
+        # payments list should be empty for merkle
+        assert result.payments == []
+
+
+class TestFinalizeMerkleUpload:
+    """Verify finalize_merkle_upload sends winner_pool_hash."""
+
+    def test_finalize_merkle_upload(self, client: RestClient, mock_server):
+        result = client.finalize_merkle_upload(
+            upload_id="up_merkle_1",
+            winner_pool_hash="pool_abc",
+            store_data_map=True,
+        )
+        assert isinstance(result, FinalizeUploadResult)
+        assert result.address == "0xFINAL"
+        assert result.chunks_stored == 42
+        # Verify the request body sent to the server
+        req = mock_server._last_finalize_request
+        assert req["upload_id"] == "up_merkle_1"
+        assert req["winner_pool_hash"] == "pool_abc"
+        assert req["store_data_map"] is True
+
+
+class TestPrepareUploadBackwardCompat:
+    """Verify missing payment_type defaults to wave_batch."""
+
+    def test_prepare_upload_backward_compat(self, client: RestClient):
+        result = client.prepare_upload("/tmp/compat/file.dat")
+        assert isinstance(result, PrepareUploadResult)
+        assert result.upload_id == "up_compat_1"
+        assert result.payment_type == "wave_batch"
+        assert result.depth == 0
+        assert result.pool_commitments == []
+        assert result.merkle_payment_timestamp == 0
+        assert result.merkle_payments_address == ""
+        # wave_batch payments should still be parsed
+        assert len(result.payments) == 1
+        assert result.payments[0].quote_hash == "qh1"
 
 
 class TestErrorMapping:

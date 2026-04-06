@@ -40,4 +40,8 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
     public func walletAddress() async throws -> WalletAddress { throw notImplemented() }
     public func walletBalance() async throws -> WalletBalance { throw notImplemented() }
     public func walletApprove() async throws -> Bool { throw notImplemented() }
+    public func prepareUpload(path: String) async throws -> PrepareUploadResult { throw notImplemented() }
+    public func prepareDataUpload(_ data: Data) async throws -> PrepareUploadResult { throw notImplemented() }
+    public func finalizeUpload(uploadId: String, txHashes: [String: String]) async throws -> FinalizeUploadResult { throw notImplemented() }
+    public func finalizeMerkleUpload(uploadId: String, winnerPoolHash: String) async throws -> FinalizeMerkleUploadResult { throw notImplemented() }
 }

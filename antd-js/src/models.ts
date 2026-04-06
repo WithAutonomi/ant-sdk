@@ -28,6 +28,18 @@ export interface PaymentInfo {
   amount: string; // atto tokens
 }
 
+/** A candidate node entry within a merkle pool commitment. */
+export interface CandidateNodeEntry {
+  rewardsAddress: string;
+  amount: string;
+}
+
+/** A pool commitment containing candidate nodes for merkle batch payments. */
+export interface PoolCommitmentEntry {
+  poolHash: string;
+  candidates: CandidateNodeEntry[];
+}
+
 /** Result of preparing an upload for external signing. */
 export interface PrepareUploadResult {
   uploadId: string; // hex identifier
@@ -36,6 +48,11 @@ export interface PrepareUploadResult {
   dataPaymentsAddress: string; // contract address
   paymentTokenAddress: string; // token contract address
   rpcUrl: string; // EVM RPC URL
+  paymentType: string; // "wave_batch" or "merkle"
+  depth?: number; // merkle tree depth (merkle only)
+  poolCommitments?: PoolCommitmentEntry[]; // pool commitments (merkle only)
+  merklePaymentTimestamp?: number; // payment timestamp (merkle only)
+  merklePaymentsAddress?: string; // merkle contract address (merkle only)
 }
 
 /** Result of finalizing an externally-signed upload. */

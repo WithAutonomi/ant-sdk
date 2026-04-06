@@ -141,4 +141,8 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
     override suspend fun finalizeUpload(uploadId: String, txHashes: Map<String, String>): FinalizeUploadResult {
         throw UnsupportedOperationException("finalizeUpload is not yet supported via gRPC")
     }
+
+    override suspend fun finalizeMerkleUpload(uploadId: String, winnerPoolHash: String): FinalizeMerkleUploadResult {
+        throw UnsupportedOperationException("finalizeMerkleUpload is not yet supported via gRPC")
+    }
 }

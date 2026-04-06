@@ -357,29 +357,8 @@ defmodule Antd.Client do
   @spec prepare_upload(t(), String.t()) :: {:ok, Antd.PrepareUploadResult.t()} | {:error, Exception.t()}
   def prepare_upload(%__MODULE__{} = client, path) do
     case do_json(client, :post, "/v1/upload/prepare", %{path: path}) do
-      {:ok, body} ->
-        payments =
-          (body["payments"] || [])
-          |> Enum.map(fn p ->
-            %Antd.PaymentInfo{
-              quote_hash: p["quote_hash"],
-              rewards_address: p["rewards_address"],
-              amount: p["amount"]
-            }
-          end)
-
-        {:ok,
-         %Antd.PrepareUploadResult{
-           upload_id: body["upload_id"],
-           payments: payments,
-           total_amount: body["total_amount"],
-           data_payments_address: body["data_payments_address"],
-           payment_token_address: body["payment_token_address"],
-           rpc_url: body["rpc_url"]
-         }}
-
-      {:error, _} = err ->
-        err
+      {:ok, body} -> {:ok, parse_prepare_response(body)}
+      {:error, _} = err -> err
     end
   end
 
@@ -391,29 +370,8 @@ defmodule Antd.Client do
   @spec prepare_data_upload(t(), binary()) :: {:ok, Antd.PrepareUploadResult.t()} | {:error, Exception.t()}
   def prepare_data_upload(%__MODULE__{} = client, data) when is_binary(data) do
     case do_json(client, :post, "/v1/data/prepare", %{data: Base.encode64(data)}) do
-      {:ok, body} ->
-        payments =
-          (body["payments"] || [])
-          |> Enum.map(fn p ->
-            %Antd.PaymentInfo{
-              quote_hash: p["quote_hash"],
-              rewards_address: p["rewards_address"],
-              amount: p["amount"]
-            }
-          end)
-
-        {:ok,
-         %Antd.PrepareUploadResult{
-           upload_id: body["upload_id"],
-           payments: payments,
-           total_amount: body["total_amount"],
-           data_payments_address: body["data_payments_address"],
-           payment_token_address: body["payment_token_address"],
-           rpc_url: body["rpc_url"]
-         }}
-
-      {:error, _} = err ->
-        err
+      {:ok, body} -> {:ok, parse_prepare_response(body)}
+      {:error, _} = err -> err
     end
   end
 
@@ -445,9 +403,90 @@ defmodule Antd.Client do
     unwrap!(finalize_upload(client, upload_id, tx_hashes))
   end
 
+  @doc "Finalizes a merkle-batch upload after selecting a winning pool."
+  @spec finalize_merkle_upload(t(), String.t(), String.t(), keyword()) ::
+          {:ok, Antd.FinalizeUploadResult.t()} | {:error, Exception.t()}
+  def finalize_merkle_upload(%__MODULE__{} = client, upload_id, winner_pool_hash, opts \\ []) do
+    payload = %{upload_id: upload_id, winner_pool_hash: winner_pool_hash}
+
+    payload =
+      case Keyword.get(opts, :store_data_map) do
+        nil -> payload
+        val -> Map.put(payload, :store_data_map, val)
+      end
+
+    case do_json(client, :post, "/v1/upload/finalize", payload) do
+      {:ok, body} ->
+        {:ok,
+         %Antd.FinalizeUploadResult{
+           address: body["address"],
+           chunks_stored: body["chunks_stored"]
+         }}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  @doc "Like `finalize_merkle_upload/4` but raises on error."
+  @spec finalize_merkle_upload!(t(), String.t(), String.t(), keyword()) :: Antd.FinalizeUploadResult.t()
+  def finalize_merkle_upload!(client, upload_id, winner_pool_hash, opts \\ []) do
+    unwrap!(finalize_merkle_upload(client, upload_id, winner_pool_hash, opts))
+  end
+
   # ---------------------------------------------------------------------------
   # Internal helpers
   # ---------------------------------------------------------------------------
+
+  defp parse_prepare_response(body) do
+    payment_type = body["payment_type"] || "wave_batch"
+
+    payments =
+      (body["payments"] || [])
+      |> Enum.map(fn p ->
+        %Antd.PaymentInfo{
+          quote_hash: p["quote_hash"],
+          rewards_address: p["rewards_address"],
+          amount: p["amount"]
+        }
+      end)
+
+    pool_commitments =
+      if payment_type == "merkle_batch" do
+        (body["pool_commitments"] || [])
+        |> Enum.map(fn pc ->
+          candidates =
+            (pc["candidates"] || [])
+            |> Enum.map(fn c ->
+              %Antd.CandidateNodeEntry{
+                rewards_address: c["rewards_address"] || "",
+                amount: c["amount"] || ""
+              }
+            end)
+
+          %Antd.PoolCommitmentEntry{
+            pool_hash: pc["pool_hash"] || "",
+            candidates: candidates
+          }
+        end)
+      else
+        []
+      end
+
+    %Antd.PrepareUploadResult{
+      upload_id: body["upload_id"] || "",
+      payments: payments,
+      total_amount: body["total_amount"] || "",
+      data_payments_address: body["data_payments_address"] || "",
+      payment_token_address: body["payment_token_address"] || "",
+      rpc_url: body["rpc_url"] || "",
+      payment_type: payment_type,
+      depth: body["depth"] || 0,
+      pool_commitments: pool_commitments,
+      merkle_payment_timestamp: body["merkle_payment_timestamp"] || 0,
+      merkle_payments_address: body["merkle_payments_address"] || ""
+    }
+  end
 
   defp unwrap!({:ok, result}), do: result
   defp unwrap!(:ok), do: :ok

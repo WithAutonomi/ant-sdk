@@ -358,8 +358,64 @@ func (c *Client) WalletApprove(ctx context.Context) error {
 
 // --- External Signer (Two-Phase Upload) ---
 
+// parsePrepareResponse parses a prepare-upload JSON response into PrepareUploadResult.
+// Handles both wave_batch and merkle payment types.
+func parsePrepareResponse(j map[string]any) *PrepareUploadResult {
+	result := &PrepareUploadResult{
+		UploadID:            str(j, "upload_id"),
+		PaymentType:         str(j, "payment_type"),
+		TotalAmount:         str(j, "total_amount"),
+		DataPaymentsAddress: str(j, "data_payments_address"),
+		PaymentTokenAddress: str(j, "payment_token_address"),
+		RPCUrl:              str(j, "rpc_url"),
+	}
+
+	// Default to wave_batch for backward compatibility with older daemons
+	if result.PaymentType == "" {
+		result.PaymentType = "wave_batch"
+	}
+
+	// Parse wave-batch payments
+	for _, p := range arrAt(j, "payments") {
+		if pm, ok := p.(map[string]any); ok {
+			result.Payments = append(result.Payments, PaymentInfo{
+				QuoteHash:      str(pm, "quote_hash"),
+				RewardsAddress: str(pm, "rewards_address"),
+				Amount:         str(pm, "amount"),
+			})
+		}
+	}
+
+	// Parse merkle fields
+	if result.PaymentType == "merkle" {
+		result.Depth = int(num64(j, "depth"))
+		result.MerklePaymentTimestamp = uint64(num64(j, "merkle_payment_timestamp"))
+		result.MerklePaymentsAddress = str(j, "merkle_payments_address")
+
+		for _, pc := range arrAt(j, "pool_commitments") {
+			if pcm, ok := pc.(map[string]any); ok {
+				entry := PoolCommitmentEntry{
+					PoolHash: str(pcm, "pool_hash"),
+				}
+				for _, c := range arrAt(pcm, "candidates") {
+					if cm, ok := c.(map[string]any); ok {
+						entry.Candidates = append(entry.Candidates, CandidateNodeEntry{
+							RewardsAddress: str(cm, "rewards_address"),
+							Amount:         str(cm, "amount"),
+						})
+					}
+				}
+				result.PoolCommitments = append(result.PoolCommitments, entry)
+			}
+		}
+	}
+
+	return result
+}
+
 // PrepareUpload prepares a file upload for external signing.
-// Returns payment details that an external signer must process before calling FinalizeUpload.
+// Returns payment details that an external signer must process before calling
+// FinalizeUpload (wave_batch) or FinalizeMerkleUpload (merkle).
 func (c *Client) PrepareUpload(ctx context.Context, path string) (*PrepareUploadResult, error) {
 	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/upload/prepare", map[string]any{
 		"path": path,
@@ -367,29 +423,13 @@ func (c *Client) PrepareUpload(ctx context.Context, path string) (*PrepareUpload
 	if err != nil {
 		return nil, err
 	}
-	var payments []PaymentInfo
-	for _, p := range arrAt(j, "payments") {
-		if pm, ok := p.(map[string]any); ok {
-			payments = append(payments, PaymentInfo{
-				QuoteHash:      str(pm, "quote_hash"),
-				RewardsAddress: str(pm, "rewards_address"),
-				Amount:         str(pm, "amount"),
-			})
-		}
-	}
-	return &PrepareUploadResult{
-		UploadID:            str(j, "upload_id"),
-		Payments:            payments,
-		TotalAmount:         str(j, "total_amount"),
-		DataPaymentsAddress: str(j, "data_payments_address"),
-		PaymentTokenAddress: str(j, "payment_token_address"),
-		RPCUrl:              str(j, "rpc_url"),
-	}, nil
+	return parsePrepareResponse(j), nil
 }
 
 // PrepareDataUpload prepares a data upload for external signing.
 // Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
-// Returns payment details that an external signer must process before calling FinalizeUpload.
+// Returns payment details that an external signer must process before calling
+// FinalizeUpload (wave_batch) or FinalizeMerkleUpload (merkle).
 func (c *Client) PrepareDataUpload(ctx context.Context, data []byte) (*PrepareUploadResult, error) {
 	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/data/prepare", map[string]any{
 		"data": b64Encode(data),
@@ -397,27 +437,10 @@ func (c *Client) PrepareDataUpload(ctx context.Context, data []byte) (*PrepareUp
 	if err != nil {
 		return nil, err
 	}
-	var payments []PaymentInfo
-	for _, p := range arrAt(j, "payments") {
-		if pm, ok := p.(map[string]any); ok {
-			payments = append(payments, PaymentInfo{
-				QuoteHash:      str(pm, "quote_hash"),
-				RewardsAddress: str(pm, "rewards_address"),
-				Amount:         str(pm, "amount"),
-			})
-		}
-	}
-	return &PrepareUploadResult{
-		UploadID:            str(j, "upload_id"),
-		Payments:            payments,
-		TotalAmount:         str(j, "total_amount"),
-		DataPaymentsAddress: str(j, "data_payments_address"),
-		PaymentTokenAddress: str(j, "payment_token_address"),
-		RPCUrl:              str(j, "rpc_url"),
-	}, nil
+	return parsePrepareResponse(j), nil
 }
 
-// FinalizeUpload finalizes an upload after an external signer has submitted payment transactions.
+// FinalizeUpload finalizes a wave-batch upload after an external signer has submitted payment transactions.
 // txHashes maps quote_hash to tx_hash for each payment.
 // If storeDataMap is true, the DataMap is also stored on-network and Address is returned (requires a daemon wallet).
 func (c *Client) FinalizeUpload(ctx context.Context, uploadID string, txHashes map[string]string, storeDataMap bool) (*FinalizeUploadResult, error) {
@@ -425,6 +448,25 @@ func (c *Client) FinalizeUpload(ctx context.Context, uploadID string, txHashes m
 		"upload_id":      uploadID,
 		"tx_hashes":      txHashes,
 		"store_data_map": storeDataMap,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &FinalizeUploadResult{
+		DataMap:      str(j, "data_map"),
+		Address:      str(j, "address"),
+		ChunksStored: num64(j, "chunks_stored"),
+	}, nil
+}
+
+// FinalizeMerkleUpload finalizes a merkle upload after the external signer has submitted
+// the payForMerkleTree transaction. winnerPoolHash is the bytes32 value from the
+// MerklePaymentMade event (hex with 0x prefix).
+func (c *Client) FinalizeMerkleUpload(ctx context.Context, uploadID string, winnerPoolHash string, storeDataMap bool) (*FinalizeUploadResult, error) {
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/upload/finalize", map[string]any{
+		"upload_id":        uploadID,
+		"winner_pool_hash": winnerPoolHash,
+		"store_data_map":   storeDataMap,
 	})
 	if err != nil {
 		return nil, err

@@ -58,11 +58,47 @@ defmodule Antd.PaymentInfo do
         }
 end
 
+defmodule Antd.CandidateNodeEntry do
+  @moduledoc "A candidate node within a merkle payment pool."
+
+  @enforce_keys [:rewards_address, :amount]
+  defstruct [:rewards_address, :amount]
+
+  @type t :: %__MODULE__{
+          rewards_address: String.t(),
+          amount: String.t()
+        }
+end
+
+defmodule Antd.PoolCommitmentEntry do
+  @moduledoc "A pool commitment containing candidate nodes for merkle batch payment."
+
+  @enforce_keys [:pool_hash, :candidates]
+  defstruct [:pool_hash, :candidates]
+
+  @type t :: %__MODULE__{
+          pool_hash: String.t(),
+          candidates: [Antd.CandidateNodeEntry.t()]
+        }
+end
+
 defmodule Antd.PrepareUploadResult do
   @moduledoc "Result of preparing an upload for external signing."
 
   @enforce_keys [:upload_id, :payments, :total_amount, :data_payments_address, :payment_token_address, :rpc_url]
-  defstruct [:upload_id, :payments, :total_amount, :data_payments_address, :payment_token_address, :rpc_url]
+  defstruct [
+    :upload_id,
+    :payments,
+    :total_amount,
+    :data_payments_address,
+    :payment_token_address,
+    :rpc_url,
+    :payment_type,
+    :depth,
+    :pool_commitments,
+    :merkle_payment_timestamp,
+    :merkle_payments_address
+  ]
 
   @type t :: %__MODULE__{
           upload_id: String.t(),
@@ -70,7 +106,12 @@ defmodule Antd.PrepareUploadResult do
           total_amount: String.t(),
           data_payments_address: String.t(),
           payment_token_address: String.t(),
-          rpc_url: String.t()
+          rpc_url: String.t(),
+          payment_type: String.t() | nil,
+          depth: integer() | nil,
+          pool_commitments: [Antd.PoolCommitmentEntry.t()] | nil,
+          merkle_payment_timestamp: integer() | nil,
+          merkle_payments_address: String.t() | nil
         }
 end
 

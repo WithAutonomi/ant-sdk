@@ -828,7 +828,7 @@ dependencies = [
 [[package]]
 name = "ant-core"
 version = "0.1.1"
-source = "git+https://github.com/WithAutonomi/ant-client#cd562eb7bfef7fceee3e34f807e8d3666c93cab5"
+source = "git+https://github.com/WithAutonomi/ant-client#796d0df75d748419a004aec6f5e288b41d8b496e"
 dependencies = [
  "ant-node",
  "async-stream",
@@ -849,10 +849,13 @@ dependencies = [
  "reqwest 0.12.28",
  "rmp-serde",
  "saorsa-pqc 0.5.1",
+ "self-replace",
  "self_encryption",
+ "semver 1.0.27",
  "serde",
  "serde_json",
  "tar",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
@@ -877,9 +880,8 @@ dependencies = [
 
 [[package]]
 name = "ant-node"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3bc2ac7c262accf6b4ab73448816662c921303c4a81932379b90edfdee3e4a5d"
+version = "0.10.0-rc.1"
+source = "git+https://github.com/WithAutonomi/ant-node?rev=6dfc7178a940fc842ab3c6542265d9750a08b060#6dfc7178a940fc842ab3c6542265d9750a08b060"
 dependencies = [
  "aes-gcm-siv",
  "blake3",
@@ -898,6 +900,7 @@ dependencies = [
  "lru",
  "objc2",
  "objc2-foundation",
+ "page_size",
  "parking_lot",
  "postcard",
  "rand 0.8.5",
@@ -2474,9 +2477,9 @@ dependencies = [
 
 [[package]]
 name = "evmlib"
-version = "0.5.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d608fcd0976beee509fef7fa391735571cb2fffd715ddca174322180300b6615"
+checksum = "1338c23c9ce1b4e54ff5cc65e53ce859095f121bfc742e474e1e1f2e03748000"
 dependencies = [
  "alloy",
  "ant-merkle",
@@ -5134,9 +5137,9 @@ dependencies = [
 
 [[package]]
 name = "saorsa-core"
-version = "0.21.0"
+version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19de0950a0c9c9a3f97681c539e513c52c909866caddef5d825fe2dcbd1b0173"
+checksum = "ad51589091bdbfbf8c42b5db37428a1cad0febd0af616ef3fe3a0f38dc921b24"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5248,9 +5251,9 @@ dependencies = [
 
 [[package]]
 name = "saorsa-transport"
-version = "0.30.1"
+version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbe38ad2be12e4be34e203e79a33eab1664c23a4b65a1ff4b08973ae9af01f01"
+checksum = "0e33412e61b0cb630410981a629f967a858b1663be8f71b75eadb66c9588ef26"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6271,6 +6274,7 @@ dependencies = [
  "futures-util",
  "http",
  "http-body",
+ "http-body-util",
  "iri-string",
  "pin-project-lite",
  "tower 0.5.3",

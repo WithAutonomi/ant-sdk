@@ -55,7 +55,32 @@ public struct PaymentInfo: Sendable, Equatable {
     }
 }
 
+/// A candidate node entry within a merkle pool commitment.
+public struct CandidateNodeEntry: Sendable, Equatable {
+    public let rewardsAddress: String
+    public let amount: String
+
+    public init(rewardsAddress: String, amount: String) {
+        self.rewardsAddress = rewardsAddress
+        self.amount = amount
+    }
+}
+
+/// A pool commitment entry containing candidates for merkle batch payments.
+public struct PoolCommitmentEntry: Sendable, Equatable {
+    public let poolHash: String
+    public let candidates: [CandidateNodeEntry]
+
+    public init(poolHash: String, candidates: [CandidateNodeEntry]) {
+        self.poolHash = poolHash
+        self.candidates = candidates
+    }
+}
+
 /// Result of preparing an upload for external signing.
+///
+/// `paymentType` is `"wave_batch"` or `"merkle"` -- determines which fields are populated
+/// and which contract call the external signer must make.
 public struct PrepareUploadResult: Sendable, Equatable {
     public let uploadId: String
     public let payments: [PaymentInfo]
@@ -64,18 +89,49 @@ public struct PrepareUploadResult: Sendable, Equatable {
     public let paymentTokenAddress: String
     public let rpcUrl: String
 
-    public init(uploadId: String, payments: [PaymentInfo], totalAmount: String, dataPaymentsAddress: String, paymentTokenAddress: String, rpcUrl: String) {
+    /// `"wave_batch"` or `"merkle"`.
+    public let paymentType: String
+
+    /// Merkle tree depth (1-8). Present when `paymentType == "merkle"`.
+    public let depth: Int?
+
+    /// Pool commitments for `payForMerkleTree()`. Present when `paymentType == "merkle"`.
+    public let poolCommitments: [PoolCommitmentEntry]?
+
+    /// Unix timestamp for merkle payment. Present when `paymentType == "merkle"`.
+    public let merklePaymentTimestamp: UInt64?
+
+    /// Merkle vault contract address. Present when `paymentType == "merkle"`.
+    public let merklePaymentsAddress: String?
+
+    public init(uploadId: String, payments: [PaymentInfo], totalAmount: String, dataPaymentsAddress: String, paymentTokenAddress: String, rpcUrl: String, paymentType: String = "wave_batch", depth: Int? = nil, poolCommitments: [PoolCommitmentEntry]? = nil, merklePaymentTimestamp: UInt64? = nil, merklePaymentsAddress: String? = nil) {
         self.uploadId = uploadId
         self.payments = payments
         self.totalAmount = totalAmount
         self.dataPaymentsAddress = dataPaymentsAddress
         self.paymentTokenAddress = paymentTokenAddress
         self.rpcUrl = rpcUrl
+        self.paymentType = paymentType
+        self.depth = depth
+        self.poolCommitments = poolCommitments
+        self.merklePaymentTimestamp = merklePaymentTimestamp
+        self.merklePaymentsAddress = merklePaymentsAddress
     }
 }
 
 /// Result of finalizing an externally-signed upload.
 public struct FinalizeUploadResult: Sendable, Equatable {
+    public let address: String
+    public let chunksStored: Int64
+
+    public init(address: String, chunksStored: Int64) {
+        self.address = address
+        self.chunksStored = chunksStored
+    }
+}
+
+/// Result of finalizing a merkle batch upload.
+public struct FinalizeMerkleUploadResult: Sendable, Equatable {
     public let address: String
     public let chunksStored: Int64
 

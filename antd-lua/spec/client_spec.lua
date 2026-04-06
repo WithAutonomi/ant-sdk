@@ -247,6 +247,94 @@ describe("antd client", function()
         end)
     end)
 
+    -- ── Merkle Batch Payment ──
+
+    describe("prepare_upload merkle", function()
+        it("parses merkle batch response with pool commitments", function()
+            register_route("POST", "/v1/upload/prepare", 200,
+                cjson.encode({
+                    upload_id = "up_merkle_1",
+                    payment_type = "merkle_batch",
+                    depth = 3,
+                    total_amount = "5000",
+                    payments = {},
+                    data_payments_address = "0xDATA",
+                    payment_token_address = "0xTOKEN",
+                    rpc_url = "http://localhost:8545",
+                    merkle_payment_timestamp = 1700000000,
+                    merkle_payments_address = "0xMERKLE",
+                    pool_commitments = {
+                        {
+                            pool_hash = "pool_abc",
+                            candidates = {
+                                { rewards_address = "0xR1", amount = "2000" },
+                                { rewards_address = "0xR2", amount = "3000" },
+                            },
+                        },
+                    },
+                }))
+
+            local result, err = client:prepare_upload("/tmp/merkle/file.dat")
+            assert.is_nil(err)
+            assert.are.equal("up_merkle_1", result.upload_id)
+            assert.are.equal("merkle_batch", result.payment_type)
+            assert.are.equal(3, result.depth)
+            assert.are.equal("5000", result.total_amount)
+            assert.are.equal(1700000000, result.merkle_payment_timestamp)
+            assert.are.equal("0xMERKLE", result.merkle_payments_address)
+            assert.are.equal(0, #result.payments)
+
+            assert.are.equal(1, #result.pool_commitments)
+            local pc = result.pool_commitments[1]
+            assert.are.equal("pool_abc", pc.pool_hash)
+            assert.are.equal(2, #pc.candidates)
+            assert.are.equal("0xR1", pc.candidates[1].rewards_address)
+            assert.are.equal("2000", pc.candidates[1].amount)
+            assert.are.equal("0xR2", pc.candidates[2].rewards_address)
+            assert.are.equal("3000", pc.candidates[2].amount)
+        end)
+    end)
+
+    describe("finalize_merkle_upload", function()
+        it("finalizes with winner pool hash", function()
+            register_route("POST", "/v1/upload/finalize", 200,
+                cjson.encode({ address = "0xFINAL", chunks_stored = 42 }))
+
+            local result, err = client:finalize_merkle_upload("up_merkle_1", "pool_abc", true)
+            assert.is_nil(err)
+            assert.are.equal("0xFINAL", result.address)
+            assert.are.equal(42, result.chunks_stored)
+        end)
+    end)
+
+    describe("prepare_upload backward compat", function()
+        it("defaults payment_type to wave_batch when absent", function()
+            register_route("POST", "/v1/upload/prepare", 200,
+                cjson.encode({
+                    upload_id = "up_compat_1",
+                    payments = {
+                        { quote_hash = "qh1", rewards_address = "0xR1", amount = "100" },
+                    },
+                    total_amount = "100",
+                    data_payments_address = "0xDATA",
+                    payment_token_address = "0xTOKEN",
+                    rpc_url = "http://localhost:8545",
+                }))
+
+            local result, err = client:prepare_upload("/tmp/compat/file.dat")
+            assert.is_nil(err)
+            assert.are.equal("up_compat_1", result.upload_id)
+            assert.are.equal("wave_batch", result.payment_type)
+            assert.are.equal(0, result.depth)
+            assert.are.equal(0, #result.pool_commitments)
+            assert.are.equal(0, result.merkle_payment_timestamp)
+            assert.are.equal("", result.merkle_payments_address)
+
+            assert.are.equal(1, #result.payments)
+            assert.are.equal("qh1", result.payments[1].quote_hash)
+        end)
+    end)
+
     describe("error mapping", function()
         it("maps 404 to not_found error", function()
             register_route("GET", "/health", 404,

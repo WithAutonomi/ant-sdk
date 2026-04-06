@@ -186,21 +186,7 @@ module Antd
     # @return [PrepareUploadResult]
     def prepare_upload(path)
       j = do_json(:post, "/v1/upload/prepare", { path: path })
-      payments = (j["payments"] || []).map do |p|
-        PaymentInfo.new(
-          quote_hash: p["quote_hash"],
-          rewards_address: p["rewards_address"],
-          amount: p["amount"]
-        )
-      end
-      PrepareUploadResult.new(
-        upload_id: j["upload_id"],
-        payments: payments,
-        total_amount: j["total_amount"],
-        data_payments_address: j["data_payments_address"],
-        payment_token_address: j["payment_token_address"],
-        rpc_url: j["rpc_url"]
-      )
+      parse_prepare_response(j)
     end
 
     # Prepare a data upload for external signing.
@@ -209,21 +195,7 @@ module Antd
     # @return [PrepareUploadResult]
     def prepare_data_upload(data)
       j = do_json(:post, "/v1/data/prepare", { data: b64_encode(data) })
-      payments = (j["payments"] || []).map do |p|
-        PaymentInfo.new(
-          quote_hash: p["quote_hash"],
-          rewards_address: p["rewards_address"],
-          amount: p["amount"]
-        )
-      end
-      PrepareUploadResult.new(
-        upload_id: j["upload_id"],
-        payments: payments,
-        total_amount: j["total_amount"],
-        data_payments_address: j["data_payments_address"],
-        payment_token_address: j["payment_token_address"],
-        rpc_url: j["rpc_url"]
-      )
+      parse_prepare_response(j)
     end
 
     # Finalize an upload after an external signer has submitted payment transactions.
@@ -238,7 +210,64 @@ module Antd
       FinalizeUploadResult.new(address: j["address"], chunks_stored: j["chunks_stored"].to_i)
     end
 
+    # Finalize a merkle-batch upload after selecting a winning pool.
+    # @param upload_id [String] the upload ID from prepare_upload
+    # @param winner_pool_hash [String] hash of the winning pool commitment
+    # @param store_data_map [Boolean] whether to store the data map on-network
+    # @return [FinalizeUploadResult]
+    def finalize_merkle_upload(upload_id, winner_pool_hash, store_data_map: false)
+      j = do_json(:post, "/v1/upload/finalize", {
+        upload_id: upload_id,
+        winner_pool_hash: winner_pool_hash,
+        store_data_map: store_data_map
+      })
+      FinalizeUploadResult.new(address: j["address"], chunks_stored: j["chunks_stored"].to_i)
+    end
+
     private
+
+    # Parse a prepare-upload JSON response into a PrepareUploadResult.
+    def parse_prepare_response(j)
+      payment_type = j["payment_type"] || "wave_batch"
+
+      payments = (j["payments"] || []).map do |p|
+        PaymentInfo.new(
+          quote_hash: p["quote_hash"],
+          rewards_address: p["rewards_address"],
+          amount: p["amount"]
+        )
+      end
+
+      pool_commitments = []
+      if payment_type == "merkle_batch"
+        (j["pool_commitments"] || []).each do |pc|
+          candidates = (pc["candidates"] || []).map do |c|
+            CandidateNodeEntry.new(
+              rewards_address: c["rewards_address"] || "",
+              amount: c["amount"] || ""
+            )
+          end
+          pool_commitments << PoolCommitmentEntry.new(
+            pool_hash: pc["pool_hash"] || "",
+            candidates: candidates
+          )
+        end
+      end
+
+      PrepareUploadResult.new(
+        upload_id: j["upload_id"] || "",
+        payments: payments,
+        total_amount: j["total_amount"] || "",
+        data_payments_address: j["data_payments_address"] || "",
+        payment_token_address: j["payment_token_address"] || "",
+        rpc_url: j["rpc_url"] || "",
+        payment_type: payment_type,
+        depth: j["depth"] || 0,
+        pool_commitments: pool_commitments,
+        merkle_payment_timestamp: j["merkle_payment_timestamp"] || 0,
+        merkle_payments_address: j["merkle_payments_address"] || ""
+      )
+    end
 
     def b64_encode(data)
       Base64.strict_encode64(data)

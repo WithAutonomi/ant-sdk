@@ -218,16 +218,14 @@ class AntdRestClient(
     override suspend fun prepareUpload(path: String): PrepareUploadResult {
         val body = buildJsonObject { put("path", path) }.toString()
         val resp = postJson<PrepareUploadDto>("/v1/upload/prepare", body)
-        val payments = resp.payments?.map { PaymentInfo(it.quoteHash, it.rewardsAddress, it.amount) } ?: emptyList()
-        return PrepareUploadResult(resp.uploadId, payments, resp.totalAmount, resp.dataPaymentsAddress, resp.paymentTokenAddress, resp.rpcUrl)
+        return mapPrepareUpload(resp)
     }
 
     /** Prepares a data upload for external signing. */
     override suspend fun prepareDataUpload(data: ByteArray): PrepareUploadResult {
         val body = buildJsonObject { put("data", b64(data)) }.toString()
         val resp = postJson<PrepareUploadDto>("/v1/data/prepare", body)
-        val payments = resp.payments?.map { PaymentInfo(it.quoteHash, it.rewardsAddress, it.amount) } ?: emptyList()
-        return PrepareUploadResult(resp.uploadId, payments, resp.totalAmount, resp.dataPaymentsAddress, resp.paymentTokenAddress, resp.rpcUrl)
+        return mapPrepareUpload(resp)
     }
 
     /** Finalizes an upload after an external signer has submitted payment transactions. */
@@ -240,5 +238,35 @@ class AntdRestClient(
         }.toString()
         val resp = postJson<FinalizeUploadDto>("/v1/upload/finalize", body)
         return FinalizeUploadResult(resp.address, resp.chunksStored)
+    }
+
+    /** Finalizes a merkle batch upload by selecting a winner pool. */
+    override suspend fun finalizeMerkleUpload(uploadId: String, winnerPoolHash: String): FinalizeMerkleUploadResult {
+        val body = buildJsonObject {
+            put("upload_id", uploadId)
+            put("winner_pool_hash", winnerPoolHash)
+        }.toString()
+        val resp = postJson<FinalizeUploadDto>("/v1/upload/finalize", body)
+        return FinalizeMerkleUploadResult(resp.address, resp.chunksStored)
+    }
+
+    private fun mapPrepareUpload(resp: PrepareUploadDto): PrepareUploadResult {
+        val payments = resp.payments?.map { PaymentInfo(it.quoteHash, it.rewardsAddress, it.amount) } ?: emptyList()
+        val poolCommitments = resp.poolCommitments?.map { pc ->
+            PoolCommitmentEntry(pc.poolHash, pc.candidates.map { CandidateNodeEntry(it.rewardsAddress, it.amount) })
+        }
+        return PrepareUploadResult(
+            uploadId = resp.uploadId,
+            payments = payments,
+            totalAmount = resp.totalAmount,
+            dataPaymentsAddress = resp.dataPaymentsAddress,
+            paymentTokenAddress = resp.paymentTokenAddress,
+            rpcUrl = resp.rpcUrl,
+            paymentType = resp.paymentType ?: "wave_batch",
+            depth = resp.depth,
+            poolCommitments = poolCommitments,
+            merklePaymentTimestamp = resp.merklePaymentTimestamp,
+            merklePaymentsAddress = resp.merklePaymentsAddress,
+        )
     }
 }

@@ -437,6 +437,29 @@ impl Client {
             data_payments_address: Self::str_field(&j, "data_payments_address"),
             payment_token_address: Self::str_field(&j, "payment_token_address"),
             rpc_url: Self::str_field(&j, "rpc_url"),
+            payment_type: Self::str_field(&j, "payment_type"),
+            depth: j.get("depth").and_then(|v| v.as_u64()).map(|v| v as u8),
+            pool_commitments: j.get("pool_commitments").and_then(|v| v.as_array()).map(|arr| {
+                arr.iter()
+                    .map(|p| PoolCommitmentEntry {
+                        pool_hash: Self::str_field(p, "pool_hash"),
+                        candidates: p
+                            .get("candidates")
+                            .and_then(|c| c.as_array())
+                            .map(|ca| {
+                                ca.iter()
+                                    .map(|c| CandidateNodeEntry {
+                                        rewards_address: Self::str_field(c, "rewards_address"),
+                                        amount: Self::str_field(c, "amount"),
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                    })
+                    .collect()
+            }),
+            merkle_payment_timestamp: j.get("merkle_payment_timestamp").and_then(|v| v.as_u64()),
+            merkle_payments_address: j.get("merkle_payments_address").and_then(|v| v.as_str()).map(|s| s.to_string()),
         })
     }
 
@@ -473,6 +496,29 @@ impl Client {
             data_payments_address: Self::str_field(&j, "data_payments_address"),
             payment_token_address: Self::str_field(&j, "payment_token_address"),
             rpc_url: Self::str_field(&j, "rpc_url"),
+            payment_type: Self::str_field(&j, "payment_type"),
+            depth: j.get("depth").and_then(|v| v.as_u64()).map(|v| v as u8),
+            pool_commitments: j.get("pool_commitments").and_then(|v| v.as_array()).map(|arr| {
+                arr.iter()
+                    .map(|p| PoolCommitmentEntry {
+                        pool_hash: Self::str_field(p, "pool_hash"),
+                        candidates: p
+                            .get("candidates")
+                            .and_then(|c| c.as_array())
+                            .map(|ca| {
+                                ca.iter()
+                                    .map(|c| CandidateNodeEntry {
+                                        rewards_address: Self::str_field(c, "rewards_address"),
+                                        amount: Self::str_field(c, "amount"),
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                    })
+                    .collect()
+            }),
+            merkle_payment_timestamp: j.get("merkle_payment_timestamp").and_then(|v| v.as_u64()),
+            merkle_payments_address: j.get("merkle_payments_address").and_then(|v| v.as_str()).map(|s| s.to_string()),
         })
     }
 
@@ -489,6 +535,31 @@ impl Client {
                 Some(json!({
                     "upload_id": upload_id,
                     "tx_hashes": tx_hashes,
+                })),
+            )
+            .await?;
+        let j = j.unwrap_or_default();
+        Ok(FinalizeUploadResult {
+            address: Self::str_field(&j, "address"),
+            chunks_stored: Self::i64_field(&j, "chunks_stored"),
+        })
+    }
+
+    /// Finalizes a merkle batch upload after the winning pool has been determined.
+    pub async fn finalize_merkle_upload(
+        &self,
+        upload_id: &str,
+        winner_pool_hash: &str,
+        store_data_map: bool,
+    ) -> Result<FinalizeUploadResult, AntdError> {
+        let (j, _) = self
+            .do_json(
+                reqwest::Method::POST,
+                "/v1/upload/finalize",
+                Some(json!({
+                    "upload_id": upload_id,
+                    "winner_pool_hash": winner_pool_hash,
+                    "store_data_map": store_data_map,
                 })),
             )
             .await?;
