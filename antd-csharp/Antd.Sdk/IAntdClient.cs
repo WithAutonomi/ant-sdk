@@ -32,4 +32,5 @@ public interface IAntdClient : IDisposable
     Task<PrepareUploadResult> PrepareUploadAsync(string path);
     Task<PrepareUploadResult> PrepareDataUploadAsync(byte[] data);
     Task<FinalizeUploadResult> FinalizeUploadAsync(string uploadId, Dictionary<string, string> txHashes);
+    Task<FinalizeMerkleUploadResult> FinalizeMerkleUploadAsync(string uploadId, string winnerPoolHash);
 }

@@ -261,18 +261,23 @@ bool Client::wallet_approve() {
 // External Signer (Two-Phase Upload)
 // ---------------------------------------------------------------------------
 
-PrepareUploadResult Client::prepare_upload(std::string_view path) {
-    auto j = impl_->do_json("POST", "/v1/upload/prepare", json{
-        {"path", std::string(path)},
-    });
-
+/// Parse a prepare-upload JSON response into PrepareUploadResult.
+/// Handles both wave_batch and merkle payment types.
+static PrepareUploadResult parse_prepare_response(const json& j) {
     PrepareUploadResult result;
     result.upload_id = j.value("upload_id", "");
+    result.payment_type = j.value("payment_type", "");
     result.total_amount = j.value("total_amount", "");
     result.data_payments_address = j.value("data_payments_address", "");
     result.payment_token_address = j.value("payment_token_address", "");
     result.rpc_url = j.value("rpc_url", "");
 
+    // Default to wave_batch for backward compatibility with older daemons
+    if (result.payment_type.empty()) {
+        result.payment_type = "wave_batch";
+    }
+
+    // Parse wave-batch payments
     if (j.contains("payments") && j["payments"].is_array()) {
         for (const auto& p : j["payments"]) {
             if (p.is_object()) {
@@ -285,38 +290,52 @@ PrepareUploadResult Client::prepare_upload(std::string_view path) {
         }
     }
 
+    // Parse merkle fields
+    if (result.payment_type == "merkle") {
+        result.depth = j.value("depth", 0);
+        result.merkle_payment_timestamp = j.value("merkle_payment_timestamp", uint64_t{0});
+        result.merkle_payments_address = j.value("merkle_payments_address", "");
+
+        if (j.contains("pool_commitments") && j["pool_commitments"].is_array()) {
+            for (const auto& pc : j["pool_commitments"]) {
+                if (!pc.is_object()) continue;
+                PoolCommitmentEntry entry;
+                entry.pool_hash = pc.value("pool_hash", "");
+                if (pc.contains("candidates") && pc["candidates"].is_array()) {
+                    for (const auto& c : pc["candidates"]) {
+                        if (c.is_object()) {
+                            entry.candidates.push_back(CandidateNodeEntry{
+                                .rewards_address = c.value("rewards_address", ""),
+                                .amount = c.value("amount", ""),
+                            });
+                        }
+                    }
+                }
+                result.pool_commitments.push_back(std::move(entry));
+            }
+        }
+    }
+
     return result;
+}
+
+PrepareUploadResult Client::prepare_upload(std::string_view path) {
+    auto j = impl_->do_json("POST", "/v1/upload/prepare", json{
+        {"path", std::string(path)},
+    });
+    return parse_prepare_response(j);
 }
 
 PrepareUploadResult Client::prepare_data_upload(const std::vector<uint8_t>& data) {
     auto j = impl_->do_json("POST", "/v1/data/prepare", json{
         {"data", detail::base64_encode(data)},
     });
-
-    PrepareUploadResult result;
-    result.upload_id = j.value("upload_id", "");
-    result.total_amount = j.value("total_amount", "");
-    result.data_payments_address = j.value("data_payments_address", "");
-    result.payment_token_address = j.value("payment_token_address", "");
-    result.rpc_url = j.value("rpc_url", "");
-
-    if (j.contains("payments") && j["payments"].is_array()) {
-        for (const auto& p : j["payments"]) {
-            if (p.is_object()) {
-                result.payments.push_back(PaymentInfo{
-                    .quote_hash = p.value("quote_hash", ""),
-                    .rewards_address = p.value("rewards_address", ""),
-                    .amount = p.value("amount", ""),
-                });
-            }
-        }
-    }
-
-    return result;
+    return parse_prepare_response(j);
 }
 
 FinalizeUploadResult Client::finalize_upload(std::string_view upload_id,
-                                               const std::map<std::string, std::string>& tx_hashes) {
+                                               const std::map<std::string, std::string>& tx_hashes,
+                                               bool store_data_map) {
     json hashes = json::object();
     for (const auto& [k, v] : tx_hashes) {
         hashes[k] = v;
@@ -325,8 +344,25 @@ FinalizeUploadResult Client::finalize_upload(std::string_view upload_id,
     auto j = impl_->do_json("POST", "/v1/upload/finalize", json{
         {"upload_id", std::string(upload_id)},
         {"tx_hashes", hashes},
+        {"store_data_map", store_data_map},
     });
     return FinalizeUploadResult{
+        .data_map = j.value("data_map", ""),
+        .address = j.value("address", ""),
+        .chunks_stored = j.value("chunks_stored", int64_t{0}),
+    };
+}
+
+FinalizeUploadResult Client::finalize_merkle_upload(std::string_view upload_id,
+                                                      std::string_view winner_pool_hash,
+                                                      bool store_data_map) {
+    auto j = impl_->do_json("POST", "/v1/upload/finalize", json{
+        {"upload_id", std::string(upload_id)},
+        {"winner_pool_hash", std::string(winner_pool_hash)},
+        {"store_data_map", store_data_map},
+    });
+    return FinalizeUploadResult{
+        .data_map = j.value("data_map", ""),
         .address = j.value("address", ""),
         .chunks_stored = j.value("chunks_stored", int64_t{0}),
     };

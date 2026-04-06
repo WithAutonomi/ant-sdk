@@ -9,9 +9,11 @@ import httpx
 
 from .exceptions import raise_for_http_status
 from .models import (
+    CandidateNodeEntry,
     FinalizeUploadResult,
     HealthStatus,
     PaymentInfo,
+    PoolCommitmentEntry,
     PrepareUploadResult,
     PutResult,
     WalletAddress,
@@ -39,6 +41,47 @@ def _check(resp: httpx.Response) -> None:
     except Exception:
         msg = resp.text
     raise_for_http_status(resp.status_code, msg)
+
+
+def _parse_prepare_result(j: dict) -> PrepareUploadResult:
+    """Parse a prepare-upload JSON response into a PrepareUploadResult."""
+    payment_type = j.get("payment_type", "wave_batch")
+    payments = [
+        PaymentInfo(
+            quote_hash=p["quote_hash"],
+            rewards_address=p["rewards_address"],
+            amount=p["amount"],
+        )
+        for p in j.get("payments", [])
+    ]
+
+    pool_commitments: list[PoolCommitmentEntry] = []
+    if payment_type == "merkle_batch":
+        for pc in j.get("pool_commitments", []):
+            candidates = [
+                CandidateNodeEntry(
+                    rewards_address=c.get("rewards_address", ""),
+                    amount=c.get("amount", ""),
+                )
+                for c in pc.get("candidates", [])
+            ]
+            pool_commitments.append(
+                PoolCommitmentEntry(pool_hash=pc.get("pool_hash", ""), candidates=candidates)
+            )
+
+    return PrepareUploadResult(
+        upload_id=j.get("upload_id", ""),
+        payments=payments,
+        total_amount=j.get("total_amount", ""),
+        data_payments_address=j.get("data_payments_address", ""),
+        payment_token_address=j.get("payment_token_address", ""),
+        rpc_url=j.get("rpc_url", ""),
+        payment_type=payment_type,
+        depth=j.get("depth", 0),
+        pool_commitments=pool_commitments,
+        merkle_payment_timestamp=j.get("merkle_payment_timestamp", 0),
+        merkle_payments_address=j.get("merkle_payments_address", ""),
+    )
 
 
 class RestClient:
@@ -201,23 +244,7 @@ class RestClient:
         """
         resp = self._http.post("/v1/upload/prepare", json={"path": path})
         _check(resp)
-        j = resp.json()
-        payments = [
-            PaymentInfo(
-                quote_hash=p["quote_hash"],
-                rewards_address=p["rewards_address"],
-                amount=p["amount"],
-            )
-            for p in j.get("payments", [])
-        ]
-        return PrepareUploadResult(
-            upload_id=j.get("upload_id", ""),
-            payments=payments,
-            total_amount=j.get("total_amount", ""),
-            data_payments_address=j.get("data_payments_address", ""),
-            payment_token_address=j.get("payment_token_address", ""),
-            rpc_url=j.get("rpc_url", ""),
-        )
+        return _parse_prepare_result(resp.json())
 
     def prepare_data_upload(self, data: bytes) -> PrepareUploadResult:
         """Prepare a data upload for external signing.
@@ -228,23 +255,7 @@ class RestClient:
         """
         resp = self._http.post("/v1/data/prepare", json={"data": _b64(data)})
         _check(resp)
-        j = resp.json()
-        payments = [
-            PaymentInfo(
-                quote_hash=p["quote_hash"],
-                rewards_address=p["rewards_address"],
-                amount=p["amount"],
-            )
-            for p in j.get("payments", [])
-        ]
-        return PrepareUploadResult(
-            upload_id=j.get("upload_id", ""),
-            payments=payments,
-            total_amount=j.get("total_amount", ""),
-            data_payments_address=j.get("data_payments_address", ""),
-            payment_token_address=j.get("payment_token_address", ""),
-            rpc_url=j.get("rpc_url", ""),
-        )
+        return _parse_prepare_result(resp.json())
 
     def finalize_upload(self, upload_id: str, tx_hashes: dict[str, str]) -> FinalizeUploadResult:
         """Finalize an upload after an external signer has submitted payment transactions.
@@ -256,6 +267,25 @@ class RestClient:
         resp = self._http.post("/v1/upload/finalize", json={
             "upload_id": upload_id,
             "tx_hashes": tx_hashes,
+        })
+        _check(resp)
+        j = resp.json()
+        return FinalizeUploadResult(address=j.get("address", ""), chunks_stored=j.get("chunks_stored", 0))
+
+    def finalize_merkle_upload(
+        self, upload_id: str, winner_pool_hash: str, store_data_map: bool = False,
+    ) -> FinalizeUploadResult:
+        """Finalize a merkle-batch upload after selecting a winning pool.
+
+        Args:
+            upload_id: The upload ID returned by prepare_upload.
+            winner_pool_hash: Hash of the winning pool commitment.
+            store_data_map: Whether to store the data map on-network.
+        """
+        resp = self._http.post("/v1/upload/finalize", json={
+            "upload_id": upload_id,
+            "winner_pool_hash": winner_pool_hash,
+            "store_data_map": store_data_map,
         })
         _check(resp)
         j = resp.json()
@@ -422,23 +452,7 @@ class AsyncRestClient:
         """
         resp = await self._http.post("/v1/upload/prepare", json={"path": path})
         _check(resp)
-        j = resp.json()
-        payments = [
-            PaymentInfo(
-                quote_hash=p["quote_hash"],
-                rewards_address=p["rewards_address"],
-                amount=p["amount"],
-            )
-            for p in j.get("payments", [])
-        ]
-        return PrepareUploadResult(
-            upload_id=j.get("upload_id", ""),
-            payments=payments,
-            total_amount=j.get("total_amount", ""),
-            data_payments_address=j.get("data_payments_address", ""),
-            payment_token_address=j.get("payment_token_address", ""),
-            rpc_url=j.get("rpc_url", ""),
-        )
+        return _parse_prepare_result(resp.json())
 
     async def prepare_data_upload(self, data: bytes) -> PrepareUploadResult:
         """Prepare a data upload for external signing.
@@ -449,23 +463,7 @@ class AsyncRestClient:
         """
         resp = await self._http.post("/v1/data/prepare", json={"data": _b64(data)})
         _check(resp)
-        j = resp.json()
-        payments = [
-            PaymentInfo(
-                quote_hash=p["quote_hash"],
-                rewards_address=p["rewards_address"],
-                amount=p["amount"],
-            )
-            for p in j.get("payments", [])
-        ]
-        return PrepareUploadResult(
-            upload_id=j.get("upload_id", ""),
-            payments=payments,
-            total_amount=j.get("total_amount", ""),
-            data_payments_address=j.get("data_payments_address", ""),
-            payment_token_address=j.get("payment_token_address", ""),
-            rpc_url=j.get("rpc_url", ""),
-        )
+        return _parse_prepare_result(resp.json())
 
     async def finalize_upload(self, upload_id: str, tx_hashes: dict[str, str]) -> FinalizeUploadResult:
         """Finalize an upload after an external signer has submitted payment transactions.
@@ -477,6 +475,25 @@ class AsyncRestClient:
         resp = await self._http.post("/v1/upload/finalize", json={
             "upload_id": upload_id,
             "tx_hashes": tx_hashes,
+        })
+        _check(resp)
+        j = resp.json()
+        return FinalizeUploadResult(address=j.get("address", ""), chunks_stored=j.get("chunks_stored", 0))
+
+    async def finalize_merkle_upload(
+        self, upload_id: str, winner_pool_hash: str, store_data_map: bool = False,
+    ) -> FinalizeUploadResult:
+        """Finalize a merkle-batch upload after selecting a winning pool.
+
+        Args:
+            upload_id: The upload ID returned by prepare_upload.
+            winner_pool_hash: Hash of the winning pool commitment.
+            store_data_map: Whether to store the data map on-network.
+        """
+        resp = await self._http.post("/v1/upload/finalize", json={
+            "upload_id": upload_id,
+            "winner_pool_hash": winner_pool_hash,
+            "store_data_map": store_data_map,
         })
         _check(resp)
         j = resp.json()

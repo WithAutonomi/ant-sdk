@@ -4,6 +4,8 @@ export type {
   WalletAddress,
   WalletBalance,
   PaymentInfo,
+  CandidateNodeEntry,
+  PoolCommitmentEntry,
   PrepareUploadResult,
   FinalizeUploadResult,
 } from "./models.js";

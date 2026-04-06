@@ -111,9 +111,19 @@ public:
     /// Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
     PrepareUploadResult prepare_data_upload(const std::vector<uint8_t>& data);
 
-    /// Finalize an upload after an external signer has submitted payment transactions.
+    /// Finalize a wave-batch upload after an external signer has submitted payment transactions.
     FinalizeUploadResult finalize_upload(std::string_view upload_id,
-                                          const std::map<std::string, std::string>& tx_hashes);
+                                          const std::map<std::string, std::string>& tx_hashes,
+                                          bool store_data_map = false);
+
+    /// Finalize a merkle upload after the external signer has submitted
+    /// the payForMerkleTree transaction.
+    /// @param upload_id      The upload ID from prepare_upload.
+    /// @param winner_pool_hash  The bytes32 value from the MerklePaymentMade event (hex with 0x prefix).
+    /// @param store_data_map Whether to store the data map on-network.
+    FinalizeUploadResult finalize_merkle_upload(std::string_view upload_id,
+                                                 std::string_view winner_pool_hash,
+                                                 bool store_data_map = false);
 
 private:
     struct Impl;

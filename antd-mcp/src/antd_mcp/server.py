@@ -405,40 +405,65 @@ async def wallet_approve() -> str:
 # ---------------------------------------------------------------------------
 
 
+def _prepare_result_to_dict(result) -> dict:
+    """Convert a PrepareUploadResult to a JSON-safe dict."""
+    d: dict = {
+        "upload_id": result.upload_id,
+        "payment_type": result.payment_type or "wave_batch",
+        "total_amount": result.total_amount,
+        "payment_token_address": result.payment_token_address,
+        "rpc_url": result.rpc_url,
+    }
+    if result.payment_type == "merkle":
+        d["depth"] = result.depth
+        d["merkle_payment_timestamp"] = result.merkle_payment_timestamp
+        d["merkle_payments_address"] = result.merkle_payments_address
+        d["pool_commitments"] = [
+            {
+                "pool_hash": pc.pool_hash,
+                "candidates": [
+                    {"rewards_address": c.rewards_address, "amount": c.amount}
+                    for c in pc.candidates
+                ],
+            }
+            for pc in result.pool_commitments
+        ]
+    else:
+        d["data_payments_address"] = result.data_payments_address
+        d["payments"] = [
+            {
+                "quote_hash": p.quote_hash,
+                "rewards_address": p.rewards_address,
+                "amount": p.amount,
+            }
+            for p in result.payments
+        ]
+    return d
+
+
 @mcp.tool()
 async def prepare_upload(
     path: str,
 ) -> str:
     """Prepare a file upload for external signing (two-phase upload).
 
-    Returns payment details including contract addresses, quote hashes, and
-    amounts that an external signer must process before calling finalize_upload.
+    Returns payment details with a payment_type discriminator:
+    - "wave_batch": per-quote payments for payForQuotes() (< 64 chunks)
+    - "merkle": depth, pool_commitments, timestamp for payForMerkleTree() (>= 64 chunks)
+
+    For wave_batch, call finalize_upload with tx_hashes.
+    For merkle, call finalize_merkle_upload with winner_pool_hash.
 
     Args:
         path: Absolute path to the local file to upload.
 
     Returns:
-        JSON with upload_id, payments array (quote_hash, rewards_address, amount),
-        total_amount, data_payments_address, payment_token_address, and rpc_url.
+        JSON with upload_id, payment_type, and type-specific payment fields.
     """
     client, network = _get_ctx()
     try:
         result = await client.prepare_upload(path)
-        return _ok({
-            "upload_id": result.upload_id,
-            "payments": [
-                {
-                    "quote_hash": p.quote_hash,
-                    "rewards_address": p.rewards_address,
-                    "amount": p.amount,
-                }
-                for p in result.payments
-            ],
-            "total_amount": result.total_amount,
-            "data_payments_address": result.data_payments_address,
-            "payment_token_address": result.payment_token_address,
-            "rpc_url": result.rpc_url,
-        }, network)
+        return _ok(_prepare_result_to_dict(result), network)
     except AntdError as exc:
         return _err_antd(exc, network)
     except Exception as exc:
@@ -456,36 +481,20 @@ async def prepare_data_upload(
 ) -> str:
     """Prepare a data upload for external signing (two-phase upload).
 
-    Takes base64-encoded data and returns payment details including contract
-    addresses, quote hashes, and amounts that an external signer must process
-    before calling finalize_upload.
+    Takes base64-encoded data and returns payment details with a payment_type
+    discriminator ("wave_batch" or "merkle"). See prepare_upload for details.
 
     Args:
         data: Base64-encoded bytes to upload.
 
     Returns:
-        JSON with upload_id, payments array (quote_hash, rewards_address, amount),
-        total_amount, data_payments_address, payment_token_address, and rpc_url.
+        JSON with upload_id, payment_type, and type-specific payment fields.
     """
     client, network = _get_ctx()
     try:
         raw = base64.b64decode(data)
         result = await client.prepare_data_upload(raw)
-        return _ok({
-            "upload_id": result.upload_id,
-            "payments": [
-                {
-                    "quote_hash": p.quote_hash,
-                    "rewards_address": p.rewards_address,
-                    "amount": p.amount,
-                }
-                for p in result.payments
-            ],
-            "total_amount": result.total_amount,
-            "data_payments_address": result.data_payments_address,
-            "payment_token_address": result.payment_token_address,
-            "rpc_url": result.rpc_url,
-        }, network)
+        return _ok(_prepare_result_to_dict(result), network)
     except AntdError as exc:
         return _err_antd(exc, network)
     except Exception as exc:
@@ -514,6 +523,39 @@ async def finalize_upload(
     client, network = _get_ctx()
     try:
         result = await client.finalize_upload(upload_id, tx_hashes)
+        return _ok({"address": result.address, "chunks_stored": result.chunks_stored}, network)
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
+# Tool 15: finalize_merkle_upload
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def finalize_merkle_upload(
+    upload_id: str,
+    winner_pool_hash: str,
+) -> str:
+    """Finalize a merkle two-phase upload after the merkle payment transaction.
+
+    Use this instead of finalize_upload when prepare_upload returned
+    payment_type "merkle". The winner_pool_hash comes from the
+    MerklePaymentMade event emitted by the on-chain payForMerkleTree call.
+
+    Args:
+        upload_id: The upload ID returned by prepare_upload.
+        winner_pool_hash: The bytes32 winner pool hash from MerklePaymentMade event (hex with 0x prefix).
+
+    Returns:
+        JSON with address (hex) and chunks_stored count.
+    """
+    client, network = _get_ctx()
+    try:
+        result = await client.finalize_merkle_upload(upload_id, winner_pool_hash)
         return _ok({"address": result.address, "chunks_stored": result.chunks_stored}, network)
     except AntdError as exc:
         return _err_antd(exc, network)

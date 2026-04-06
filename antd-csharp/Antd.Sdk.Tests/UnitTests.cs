@@ -443,4 +443,99 @@ public sealed class AntdRestClientTests : IDisposable
         Assert.Equal("final_addr_001", result.Address);
         Assert.Equal(42, result.ChunksStored);
     }
+
+    [Fact]
+    public async Task PrepareUploadAsync_Merkle_ReturnsPoolCommitments()
+    {
+        _server.RouteOk("POST", "/v1/upload/prepare", new
+        {
+            upload_id = "up_merkle_1",
+            payments = Array.Empty<object>(),
+            total_amount = "500",
+            data_payments_address = "dpa_m",
+            payment_token_address = "pta_m",
+            rpc_url = "https://rpc.example.com",
+            payment_type = "merkle_batch",
+            depth = 3,
+            pool_commitments = new[]
+            {
+                new
+                {
+                    pool_hash = "pool_abc",
+                    candidates = new[]
+                    {
+                        new { rewards_address = "ra_1", amount = "200" },
+                        new { rewards_address = "ra_2", amount = "300" }
+                    }
+                }
+            },
+            merkle_payment_timestamp = 1700000000L,
+            merkle_payments_address = "mpa_1"
+        });
+        _server.Start();
+
+        var result = await _client.PrepareUploadAsync("/tmp/merkle.dat");
+
+        Assert.Equal("up_merkle_1", result.UploadId);
+        Assert.Equal("merkle_batch", result.PaymentType);
+        Assert.Equal(3, result.Depth);
+        Assert.NotNull(result.PoolCommitments);
+        Assert.Single(result.PoolCommitments);
+        Assert.Equal("pool_abc", result.PoolCommitments[0].PoolHash);
+        Assert.Equal(2, result.PoolCommitments[0].Candidates.Count);
+        Assert.Equal("ra_1", result.PoolCommitments[0].Candidates[0].RewardsAddress);
+        Assert.Equal("200", result.PoolCommitments[0].Candidates[0].Amount);
+        Assert.Equal("ra_2", result.PoolCommitments[0].Candidates[1].RewardsAddress);
+        Assert.Equal("300", result.PoolCommitments[0].Candidates[1].Amount);
+        Assert.Equal(1700000000L, result.MerklePaymentTimestamp);
+        Assert.Equal("mpa_1", result.MerklePaymentsAddress);
+        Assert.Equal("500", result.TotalAmount);
+        Assert.Empty(result.Payments);
+    }
+
+    [Fact]
+    public async Task FinalizeMerkleUploadAsync_ReturnsResult()
+    {
+        _server.RouteOk("POST", "/v1/upload/finalize", new
+        {
+            address = "merkle_addr_001",
+            chunks_stored = 99
+        });
+        _server.Start();
+
+        var result = await _client.FinalizeMerkleUploadAsync("up_merkle_1", "pool_abc");
+
+        Assert.Equal("merkle_addr_001", result.Address);
+        Assert.Equal(99, result.ChunksStored);
+    }
+
+    [Fact]
+    public async Task PrepareUploadAsync_BackwardCompat_DefaultsPaymentType()
+    {
+        // Simulate an older daemon response without merkle fields
+        _server.RouteOk("POST", "/v1/upload/prepare", new
+        {
+            upload_id = "up_legacy",
+            payments = new[]
+            {
+                new { quote_hash = "qh1", rewards_address = "ra1", amount = "100" }
+            },
+            total_amount = "100",
+            data_payments_address = "dpa1",
+            payment_token_address = "pta1",
+            rpc_url = "https://rpc.example.com"
+        });
+        _server.Start();
+
+        var result = await _client.PrepareUploadAsync("/tmp/legacy.dat");
+
+        Assert.Equal("up_legacy", result.UploadId);
+        Assert.Equal("wave_batch", result.PaymentType);
+        Assert.Null(result.Depth);
+        Assert.Null(result.PoolCommitments);
+        Assert.Null(result.MerklePaymentTimestamp);
+        Assert.Null(result.MerklePaymentsAddress);
+        Assert.Single(result.Payments);
+        Assert.Equal("qh1", result.Payments[0].QuoteHash);
+    }
 }

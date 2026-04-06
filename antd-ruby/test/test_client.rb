@@ -146,6 +146,97 @@ class TestClient < Minitest::Test
     assert_equal "1000", cost
   end
 
+  # --- Merkle Batch Payment ---
+
+  def test_prepare_upload_merkle
+    response_body = {
+      upload_id: "up_merkle_1",
+      payment_type: "merkle_batch",
+      depth: 3,
+      total_amount: "5000",
+      payments: [],
+      data_payments_address: "0xDATA",
+      payment_token_address: "0xTOKEN",
+      rpc_url: "http://localhost:8545",
+      merkle_payment_timestamp: 1700000000,
+      merkle_payments_address: "0xMERKLE",
+      pool_commitments: [
+        {
+          pool_hash: "pool_abc",
+          candidates: [
+            { rewards_address: "0xR1", amount: "2000" },
+            { rewards_address: "0xR2", amount: "3000" }
+          ]
+        }
+      ]
+    }.to_json
+
+    stub_request(:post, "#{BASE}/v1/upload/prepare")
+      .to_return(status: 200, body: response_body,
+                 headers: { "Content-Type" => "application/json" })
+
+    result = @client.prepare_upload("/tmp/merkle/file.dat")
+    assert_instance_of Antd::PrepareUploadResult, result
+    assert_equal "up_merkle_1", result.upload_id
+    assert_equal "merkle_batch", result.payment_type
+    assert_equal 3, result.depth
+    assert_equal "5000", result.total_amount
+    assert_equal 1700000000, result.merkle_payment_timestamp
+    assert_equal "0xMERKLE", result.merkle_payments_address
+    assert_equal [], result.payments
+
+    assert_equal 1, result.pool_commitments.length
+    pc = result.pool_commitments[0]
+    assert_instance_of Antd::PoolCommitmentEntry, pc
+    assert_equal "pool_abc", pc.pool_hash
+    assert_equal 2, pc.candidates.length
+    assert_instance_of Antd::CandidateNodeEntry, pc.candidates[0]
+    assert_equal "0xR1", pc.candidates[0].rewards_address
+    assert_equal "2000", pc.candidates[0].amount
+    assert_equal "0xR2", pc.candidates[1].rewards_address
+    assert_equal "3000", pc.candidates[1].amount
+  end
+
+  def test_finalize_merkle_upload
+    stub_request(:post, "#{BASE}/v1/upload/finalize")
+      .to_return(status: 200, body: '{"address":"0xFINAL","chunks_stored":42}',
+                 headers: { "Content-Type" => "application/json" })
+
+    result = @client.finalize_merkle_upload("up_merkle_1", "pool_abc", store_data_map: true)
+    assert_instance_of Antd::FinalizeUploadResult, result
+    assert_equal "0xFINAL", result.address
+    assert_equal 42, result.chunks_stored
+  end
+
+  def test_prepare_upload_backward_compat
+    response_body = {
+      upload_id: "up_compat_1",
+      payments: [
+        { quote_hash: "qh1", rewards_address: "0xR1", amount: "100" }
+      ],
+      total_amount: "100",
+      data_payments_address: "0xDATA",
+      payment_token_address: "0xTOKEN",
+      rpc_url: "http://localhost:8545"
+    }.to_json
+
+    stub_request(:post, "#{BASE}/v1/upload/prepare")
+      .to_return(status: 200, body: response_body,
+                 headers: { "Content-Type" => "application/json" })
+
+    result = @client.prepare_upload("/tmp/compat/file.dat")
+    assert_instance_of Antd::PrepareUploadResult, result
+    assert_equal "up_compat_1", result.upload_id
+    assert_equal "wave_batch", result.payment_type
+    assert_equal 0, result.depth
+    assert_equal [], result.pool_commitments
+    assert_equal 0, result.merkle_payment_timestamp
+    assert_equal "", result.merkle_payments_address
+
+    assert_equal 1, result.payments.length
+    assert_equal "qh1", result.payments[0].quote_hash
+  end
+
   # --- Error Mapping ---
 
   def test_error_404

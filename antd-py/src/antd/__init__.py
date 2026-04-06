@@ -12,9 +12,11 @@ Usage:
 from __future__ import annotations
 
 from .models import (
+    CandidateNodeEntry,
     FinalizeUploadResult,
     HealthStatus,
     PaymentInfo,
+    PoolCommitmentEntry,
     PrepareUploadResult,
     PutResult,
     WalletAddress,
@@ -41,7 +43,12 @@ __all__ = [
     "AntdClient",
     "AsyncAntdClient",
     # Models
+    "CandidateNodeEntry",
+    "FinalizeUploadResult",
     "HealthStatus",
+    "PaymentInfo",
+    "PoolCommitmentEntry",
+    "PrepareUploadResult",
     "PutResult",
     "WalletAddress",
     "WalletBalance",

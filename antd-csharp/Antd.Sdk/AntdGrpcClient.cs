@@ -208,4 +208,7 @@ public sealed class AntdGrpcClient : IAntdClient
 
     public Task<FinalizeUploadResult> FinalizeUploadAsync(string uploadId, Dictionary<string, string> txHashes)
         => throw new NotSupportedException("FinalizeUpload is not yet supported via gRPC");
+
+    public Task<FinalizeMerkleUploadResult> FinalizeMerkleUploadAsync(string uploadId, string winnerPoolHash)
+        => throw new NotSupportedException("FinalizeMerkleUpload is not yet supported via gRPC");
 }

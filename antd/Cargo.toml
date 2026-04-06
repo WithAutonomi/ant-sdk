@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 ant-core = { git = "https://github.com/WithAutonomi/ant-client" }
 self_encryption = "0.35.0"
-evmlib = "0.5.0"
+evmlib = "0.8.0"
 axum = { version = "0.8", features = ["macros"] }
 tower-http = { version = "0.6", features = ["cors", "limit", "trace"] }
 tonic = "0.12"

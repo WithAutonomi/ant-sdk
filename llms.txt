@@ -57,9 +57,9 @@ data = client.data_get_public(result.address)
 | GET | `/v1/wallet/address` | Get wallet public address |
 | GET | `/v1/wallet/balance` | Get wallet token and gas balances |
 | POST | `/v1/wallet/approve` | Approve wallet to spend tokens on payment contracts |
-| POST | `/v1/data/prepare` | Prepare data upload for external signer (two-phase upload) |
-| POST | `/v1/upload/prepare` | Prepare file upload for external signer (two-phase upload) |
-| POST | `/v1/upload/finalize` | Finalize externally-signed upload |
+| POST | `/v1/data/prepare` | Prepare data upload for external signer — returns `payment_type` ("wave_batch" or "merkle") |
+| POST | `/v1/upload/prepare` | Prepare file upload for external signer — returns `payment_type` ("wave_batch" or "merkle") |
+| POST | `/v1/upload/finalize` | Finalize upload — accepts `tx_hashes` (wave_batch) or `winner_pool_hash` (merkle) |
 
 ## gRPC Services
 

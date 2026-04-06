@@ -18,7 +18,17 @@ data class WalletBalance(val balance: String, val gasBalance: String)
 /** A single payment required for an upload. */
 data class PaymentInfo(val quoteHash: String, val rewardsAddress: String, val amount: String)
 
-/** Result of preparing an upload for external signing. */
+/** A candidate node entry within a merkle pool commitment. */
+data class CandidateNodeEntry(val rewardsAddress: String, val amount: String)
+
+/** A pool commitment entry containing candidates for merkle batch payments. */
+data class PoolCommitmentEntry(val poolHash: String, val candidates: List<CandidateNodeEntry>)
+
+/**
+ * Result of preparing an upload for external signing.
+ * [paymentType] is "wave_batch" or "merkle" -- determines which fields are populated
+ * and which contract call the external signer must make.
+ */
 data class PrepareUploadResult(
     val uploadId: String,
     val payments: List<PaymentInfo>,
@@ -26,10 +36,18 @@ data class PrepareUploadResult(
     val dataPaymentsAddress: String,
     val paymentTokenAddress: String,
     val rpcUrl: String,
+    val paymentType: String = "wave_batch",
+    val depth: Int? = null,
+    val poolCommitments: List<PoolCommitmentEntry>? = null,
+    val merklePaymentTimestamp: Long? = null,
+    val merklePaymentsAddress: String? = null,
 )
 
 /** Result of finalizing an externally-signed upload. */
 data class FinalizeUploadResult(val address: String, val chunksStored: Long)
+
+/** Result of finalizing a merkle batch upload. */
+data class FinalizeMerkleUploadResult(val address: String, val chunksStored: Long)
 
 // ── Internal DTOs for JSON deserialization ──
 
@@ -85,6 +103,18 @@ internal data class PaymentInfoDto(
 )
 
 @Serializable
+internal data class CandidateNodeEntryDto(
+    @SerialName("rewards_address") val rewardsAddress: String,
+    val amount: String,
+)
+
+@Serializable
+internal data class PoolCommitmentEntryDto(
+    @SerialName("pool_hash") val poolHash: String,
+    val candidates: List<CandidateNodeEntryDto>,
+)
+
+@Serializable
 internal data class PrepareUploadDto(
     @SerialName("upload_id") val uploadId: String,
     val payments: List<PaymentInfoDto>? = null,
@@ -92,6 +122,11 @@ internal data class PrepareUploadDto(
     @SerialName("data_payments_address") val dataPaymentsAddress: String,
     @SerialName("payment_token_address") val paymentTokenAddress: String,
     @SerialName("rpc_url") val rpcUrl: String,
+    @SerialName("payment_type") val paymentType: String? = null,
+    val depth: Int? = null,
+    @SerialName("pool_commitments") val poolCommitments: List<PoolCommitmentEntryDto>? = null,
+    @SerialName("merkle_payment_timestamp") val merklePaymentTimestamp: Long? = null,
+    @SerialName("merkle_payments_address") val merklePaymentsAddress: String? = null,
 )
 
 @Serializable

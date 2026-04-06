@@ -12,6 +12,7 @@ import org.junit.jupiter.api.*;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -210,6 +211,154 @@ class AntdClientTest {
                 AntdException ex = assertThrows(AntdException.class, errClient::health);
                 assertInstanceOf(NotFoundException.class, ex);
                 assertEquals(404, ex.getStatusCode());
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Merkle payment tests
+    // -------------------------------------------------------------------------
+
+    /** Returns a mock server that responds with merkle payment type. */
+    private MockWebServer startMerkleDaemon() throws IOException {
+        MockWebServer srv = new MockWebServer();
+        srv.setDispatcher(new Dispatcher() {
+            @Override
+            public MockResponse dispatch(RecordedRequest request) {
+                String path = request.getPath();
+                String method = request.getMethod();
+
+                if ("POST".equals(method) && "/v1/upload/prepare".equals(path)) {
+                    return json(
+                        "{\"upload_id\":\"mup1\","
+                        + "\"payment_type\":\"merkle\","
+                        + "\"depth\":5,"
+                        + "\"pool_commitments\":[{\"pool_hash\":\"0xaabbccdd\","
+                        + "\"candidates\":[{\"rewards_address\":\"0x1111\",\"amount\":\"500\"},"
+                        + "{\"rewards_address\":\"0x2222\",\"amount\":\"600\"}]}],"
+                        + "\"merkle_payment_timestamp\":1712150400,"
+                        + "\"merkle_payments_address\":\"0xmerkle\","
+                        + "\"total_amount\":\"0\","
+                        + "\"payment_token_address\":\"0xtoken\","
+                        + "\"rpc_url\":\"http://localhost:8545\"}"
+                    );
+                }
+
+                if ("POST".equals(method) && "/v1/data/prepare".equals(path)) {
+                    return json(
+                        "{\"upload_id\":\"mup2\","
+                        + "\"payment_type\":\"merkle\","
+                        + "\"depth\":3,"
+                        + "\"pool_commitments\":[{\"pool_hash\":\"0xeeff\",\"candidates\":[]}],"
+                        + "\"merkle_payment_timestamp\":1712150500,"
+                        + "\"merkle_payments_address\":\"0xmerkle2\","
+                        + "\"total_amount\":\"0\","
+                        + "\"payment_token_address\":\"0xtoken2\","
+                        + "\"rpc_url\":\"http://localhost:8546\"}"
+                    );
+                }
+
+                if ("POST".equals(method) && "/v1/upload/finalize".equals(path)) {
+                    return json("{\"address\":\"addr_merkle\",\"chunks_stored\":100}");
+                }
+
+                return new MockResponse()
+                        .setResponseCode(404)
+                        .setHeader("Content-Type", "application/json")
+                        .setBody("{\"error\":\"not found\"}");
+            }
+
+            private MockResponse json(String body) {
+                return new MockResponse()
+                        .setHeader("Content-Type", "application/json")
+                        .setBody(body);
+            }
+        });
+        srv.start();
+        return srv;
+    }
+
+    @Test
+    void testPrepareUploadMerkle() throws IOException {
+        try (MockWebServer merkleSrv = startMerkleDaemon()) {
+            try (AntdClient mc = new AntdClient(merkleSrv.url("/").toString(), Duration.ofSeconds(10))) {
+                PrepareUploadResult res = mc.prepareUpload("/tmp/bigfile.bin");
+
+                assertEquals("mup1", res.uploadId());
+                assertEquals("merkle", res.paymentType());
+                assertEquals(Integer.valueOf(5), res.depth());
+                assertEquals(Long.valueOf(1712150400L), res.merklePaymentTimestamp());
+                assertEquals("0xmerkle", res.merklePaymentsAddress());
+                assertEquals("0xtoken", res.paymentTokenAddress());
+                assertEquals("http://localhost:8545", res.rpcUrl());
+                assertEquals("0", res.totalAmount());
+
+                // Pool commitments
+                assertNotNull(res.poolCommitments());
+                assertEquals(1, res.poolCommitments().size());
+                PoolCommitmentEntry pc = res.poolCommitments().get(0);
+                assertEquals("0xaabbccdd", pc.poolHash());
+                assertEquals(2, pc.candidates().size());
+                assertEquals("0x1111", pc.candidates().get(0).rewardsAddress());
+                assertEquals("500", pc.candidates().get(0).amount());
+                assertEquals("0x2222", pc.candidates().get(1).rewardsAddress());
+                assertEquals("600", pc.candidates().get(1).amount());
+
+                // Wave-batch fields should be empty
+                assertTrue(res.payments().isEmpty());
+            }
+        }
+    }
+
+    @Test
+    void testFinalizeMerkleUpload() throws IOException {
+        try (MockWebServer merkleSrv = startMerkleDaemon()) {
+            try (AntdClient mc = new AntdClient(merkleSrv.url("/").toString(), Duration.ofSeconds(10))) {
+                FinalizeUploadResult res = mc.finalizeMerkleUpload("mup1", "0xwinnerhash");
+
+                assertEquals("addr_merkle", res.address());
+                assertEquals(100L, res.chunksStored());
+            }
+        }
+    }
+
+    @Test
+    void testPrepareUploadBackwardCompat() throws IOException {
+        // Simulate an older daemon that doesn't send payment_type
+        try (MockWebServer oldSrv = new MockWebServer()) {
+            oldSrv.setDispatcher(new Dispatcher() {
+                @Override
+                public MockResponse dispatch(RecordedRequest request) {
+                    return new MockResponse()
+                            .setHeader("Content-Type", "application/json")
+                            .setBody(
+                                "{\"upload_id\":\"old1\","
+                                + "\"payments\":[{\"quote_hash\":\"qh1\",\"rewards_address\":\"ra1\",\"amount\":\"50\"}],"
+                                + "\"total_amount\":\"50\","
+                                + "\"data_payments_address\":\"dp_old\","
+                                + "\"payment_token_address\":\"pt_old\","
+                                + "\"rpc_url\":\"http://localhost:8545\"}"
+                            );
+                }
+            });
+            oldSrv.start();
+
+            try (AntdClient oc = new AntdClient(oldSrv.url("/").toString(), Duration.ofSeconds(10))) {
+                PrepareUploadResult res = oc.prepareUpload("/tmp/test.txt");
+
+                // Should default to wave_batch when payment_type is missing
+                assertEquals("wave_batch", res.paymentType());
+                assertEquals("old1", res.uploadId());
+                assertEquals(1, res.payments().size());
+                assertEquals("qh1", res.payments().get(0).quoteHash());
+                assertEquals("ra1", res.payments().get(0).rewardsAddress());
+                assertEquals("50", res.payments().get(0).amount());
+
+                // Merkle fields should be null
+                assertNull(res.depth());
+                assertNull(res.poolCommitments());
+                assertNull(res.merklePaymentTimestamp());
+                assertNull(res.merklePaymentsAddress());
             }
         }
     }

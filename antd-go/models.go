@@ -31,13 +31,38 @@ type PaymentInfo struct {
 }
 
 // PrepareUploadResult is the result of preparing an upload for external signing.
+// PaymentType is "wave_batch" or "merkle" — determines which fields are populated
+// and which contract call the external signer must make.
 type PrepareUploadResult struct {
-	UploadID            string        `json:"upload_id"`             // hex identifier
-	Payments            []PaymentInfo `json:"payments"`              // payments to sign
-	TotalAmount         string        `json:"total_amount"`          // total atto tokens
-	DataPaymentsAddress string        `json:"data_payments_address"` // contract address
-	PaymentTokenAddress string        `json:"payment_token_address"` // token contract address
-	RPCUrl              string        `json:"rpc_url"`               // EVM RPC URL
+	UploadID    string `json:"upload_id"`    // hex identifier
+	PaymentType string `json:"payment_type"` // "wave_batch" or "merkle"
+
+	// Wave-batch fields (present when PaymentType == "wave_batch")
+	Payments            []PaymentInfo `json:"payments,omitempty"`              // per-quote payments for payForQuotes()
+	DataPaymentsAddress string        `json:"data_payments_address,omitempty"` // wave-batch contract address
+
+	// Merkle fields (present when PaymentType == "merkle")
+	Depth                  int                    `json:"depth,omitempty"`                    // merkle tree depth (1-8)
+	PoolCommitments        []PoolCommitmentEntry  `json:"pool_commitments,omitempty"`         // for payForMerkleTree()
+	MerklePaymentTimestamp uint64                 `json:"merkle_payment_timestamp,omitempty"` // unix seconds
+	MerklePaymentsAddress  string                 `json:"merkle_payments_address,omitempty"`  // merkle vault contract
+
+	// Common fields (always present)
+	TotalAmount         string `json:"total_amount"`          // total atto tokens ("0" for merkle)
+	PaymentTokenAddress string `json:"payment_token_address"` // token contract address
+	RPCUrl              string `json:"rpc_url"`               // EVM RPC URL
+}
+
+// PoolCommitmentEntry describes a pool commitment for the merkle payment contract.
+type PoolCommitmentEntry struct {
+	PoolHash   string               `json:"pool_hash"`   // hex, 32 bytes with 0x prefix
+	Candidates []CandidateNodeEntry `json:"candidates"`  // exactly 16 nodes
+}
+
+// CandidateNodeEntry describes a candidate node in a pool commitment.
+type CandidateNodeEntry struct {
+	RewardsAddress string `json:"rewards_address"` // hex with 0x prefix
+	Amount         string `json:"amount"`          // node price as decimal string
 }
 
 // FinalizeUploadResult is the result of finalizing an externally-signed upload.

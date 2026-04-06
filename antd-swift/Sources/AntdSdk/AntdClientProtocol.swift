@@ -36,4 +36,5 @@ public protocol AntdClientProtocol: Sendable {
     func prepareUpload(path: String) async throws -> PrepareUploadResult
     func prepareDataUpload(_ data: Data) async throws -> PrepareUploadResult
     func finalizeUpload(uploadId: String, txHashes: [String: String]) async throws -> FinalizeUploadResult
+    func finalizeMerkleUpload(uploadId: String, winnerPoolHash: String) async throws -> FinalizeMerkleUploadResult
 }

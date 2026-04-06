@@ -169,13 +169,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if payments_addr.is_empty() {
             tracing::warn!("EVM_DATA_PAYMENTS_ADDRESS is empty — payments may fail");
         }
-        let merkle_addr = std::env::var("EVM_MERKLE_PAYMENTS_ADDRESS").ok();
         tracing::info!(%rpc_url, "loading EVM wallet...");
         let network = evmlib::Network::new_custom(
             &rpc_url,
             &token_addr,
             &payments_addr,
-            merkle_addr.as_deref(),
         );
         match Wallet::new_from_private_key(network, &wallet_key) {
             Ok(w) => {
@@ -195,12 +193,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .unwrap_or_default();
             let payments_addr = std::env::var("EVM_DATA_PAYMENTS_ADDRESS")
                 .unwrap_or_default();
-            let merkle_addr = std::env::var("EVM_MERKLE_PAYMENTS_ADDRESS").ok();
             let network = evmlib::Network::new_custom(
                 &rpc_url,
                 &token_addr,
                 &payments_addr,
-                merkle_addr.as_deref(),
             );
             client = client.with_evm_network(network);
             tracing::info!(%rpc_url, "EVM network configured (external signer mode)");

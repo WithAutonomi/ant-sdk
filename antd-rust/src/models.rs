@@ -43,6 +43,24 @@ pub struct PaymentInfo {
     pub amount: String,
 }
 
+/// A candidate node entry within a merkle batch payment pool.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CandidateNodeEntry {
+    /// Hex-encoded rewards address.
+    pub rewards_address: String,
+    /// Amount in atto tokens as a string.
+    pub amount: String,
+}
+
+/// A pool commitment entry for merkle batch payments.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PoolCommitmentEntry {
+    /// Hex-encoded pool hash.
+    pub pool_hash: String,
+    /// Candidate nodes in this pool.
+    pub candidates: Vec<CandidateNodeEntry>,
+}
+
 /// Result of preparing an upload for external signing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrepareUploadResult {
@@ -58,6 +76,21 @@ pub struct PrepareUploadResult {
     pub payment_token_address: String,
     /// EVM RPC URL for submitting transactions.
     pub rpc_url: String,
+    /// Payment type: "direct" or "merkle". Empty for legacy responses.
+    #[serde(rename = "payment_type", default)]
+    pub payment_type: String,
+    /// Merkle tree depth (merkle payments only).
+    #[serde(rename = "depth", default)]
+    pub depth: Option<u8>,
+    /// Pool commitments for merkle batch payments.
+    #[serde(rename = "pool_commitments", default)]
+    pub pool_commitments: Option<Vec<PoolCommitmentEntry>>,
+    /// Timestamp for merkle payment submission.
+    #[serde(rename = "merkle_payment_timestamp", default)]
+    pub merkle_payment_timestamp: Option<u64>,
+    /// Contract address for merkle payments.
+    #[serde(rename = "merkle_payments_address", default)]
+    pub merkle_payments_address: Option<String>,
 }
 
 /// Result of finalizing an externally-signed upload.
