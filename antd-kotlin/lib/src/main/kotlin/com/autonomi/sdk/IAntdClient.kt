@@ -40,4 +40,5 @@ interface IAntdClient : Closeable {
     suspend fun prepareUpload(path: String): PrepareUploadResult
     suspend fun prepareDataUpload(data: ByteArray): PrepareUploadResult
     suspend fun finalizeUpload(uploadId: String, txHashes: Map<String, String>): FinalizeUploadResult
+    suspend fun finalizeMerkleUpload(uploadId: String, winnerPoolHash: String): FinalizeMerkleUploadResult
 }

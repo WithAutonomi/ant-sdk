@@ -92,18 +92,27 @@ data = client.data_get_private(result.address)
 
 ### Pattern 3: External Signer (Two-Phase Upload)
 
-When the application manages its own wallet (e.g. a browser wallet or hardware signer), use the two-phase upload flow instead of the daemon's built-in wallet:
+When the application manages its own wallet (e.g. a browser wallet or hardware signer), use the two-phase upload flow instead of the daemon's built-in wallet. The prepare step returns a `payment_type` that determines the payment contract call:
 
 ```python
 # Phase 1: Prepare — get payment details
 prep = client.prepare_upload("/path/to/file")
-# prep.upload_id, prep.payments, prep.total_amount, prep.data_payments_address, etc.
 
-# ... external signer submits EVM transactions for each payment ...
+if prep.payment_type == "wave_batch":
+    # Small files (< 64 chunks): call payForQuotes() with per-quote payments
+    # prep.payments, prep.data_payments_address, prep.total_amount
+    # ... external signer submits EVM payForQuotes() transaction ...
+    result = client.finalize_upload(prep.upload_id, {"0xquotehash": "0xtxhash", ...})
 
-# Phase 2: Finalize — confirm payments and store data
-result = client.finalize_upload(prep.upload_id, {"0xquotehash": "0xtxhash", ...})
-print(f"Stored at: {result.address}, chunks: {result.chunks_stored}")
+elif prep.payment_type == "merkle":
+    # Large files (>= 64 chunks): call payForMerkleTree() — gas-efficient batch
+    # prep.depth, prep.pool_commitments, prep.merkle_payment_timestamp,
+    # prep.merkle_payments_address
+    # ... external signer submits EVM payForMerkleTree() transaction ...
+    # ... extract winner_pool_hash from MerklePaymentMade event ...
+    result = client.finalize_merkle_upload(prep.upload_id, "0xwinnerpoolhash")
+
+print(f"Stored: {result.chunks_stored} chunks")
 ```
 
 **When to suggest this:** Developer has their own wallet/signer and doesn't want to use antd's built-in wallet. Common in web apps, mobile apps, or enterprise integrations.

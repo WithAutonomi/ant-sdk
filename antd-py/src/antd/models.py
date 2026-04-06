@@ -40,6 +40,20 @@ class PaymentInfo:
 
 
 @dataclass(frozen=True)
+class CandidateNodeEntry:
+    """A candidate node within a merkle payment pool."""
+    rewards_address: str = ""
+    amount: str = ""
+
+
+@dataclass(frozen=True)
+class PoolCommitmentEntry:
+    """A pool commitment containing candidate nodes for merkle batch payment."""
+    pool_hash: str = ""
+    candidates: list[CandidateNodeEntry] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class PrepareUploadResult:
     """Result of preparing an upload for external signing."""
     upload_id: str                    # hex identifier
@@ -48,6 +62,11 @@ class PrepareUploadResult:
     data_payments_address: str = ""   # contract address
     payment_token_address: str = ""   # token contract address
     rpc_url: str = ""                 # EVM RPC URL
+    payment_type: str = ""            # "wave_batch" or "merkle_batch"
+    depth: int = 0                    # merkle tree depth
+    pool_commitments: list[PoolCommitmentEntry] = field(default_factory=list)
+    merkle_payment_timestamp: int = 0
+    merkle_payments_address: str = "" # merkle payments contract address
 
 
 @dataclass(frozen=True)

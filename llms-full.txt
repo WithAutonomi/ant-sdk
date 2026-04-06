@@ -320,44 +320,58 @@ Prepare a data upload for external signing (two-phase upload). Instead of antd p
 from its built-in wallet, this returns payment details for an external signer.
 
 Request: `{"data": "base64-encoded-bytes"}`
-Response:
+
+The response includes a `payment_type` discriminator that determines the payment flow:
+
+**Wave-batch response** (< 64 chunks — call `payForQuotes()`, finalize with `tx_hashes`):
 ```json
 {
   "upload_id": "hex-string",
+  "payment_type": "wave_batch",
   "payments": [
     { "quote_hash": "0x...", "rewards_address": "0x...", "amount": "123" }
   ],
   "total_amount": "456",
   "data_payments_address": "0x...",
+  "payment_token_address": "0x...",
+  "rpc_url": "http://..."
+}
+```
+
+**Merkle response** (>= 64 chunks — call `payForMerkleTree()`, finalize with `winner_pool_hash`):
+```json
+{
+  "upload_id": "hex-string",
+  "payment_type": "merkle",
+  "depth": 5,
+  "pool_commitments": [
+    {
+      "pool_hash": "0x...",
+      "candidates": [
+        { "rewards_address": "0x...", "amount": "1000" }
+      ]
+    }
+  ],
+  "merkle_payment_timestamp": 1712150400,
+  "merkle_payments_address": "0x...",
+  "total_amount": "0",
   "payment_token_address": "0x...",
   "rpc_url": "http://..."
 }
 ```
 
 #### `POST /v1/upload/prepare`
-Prepare a file upload for external signing (two-phase upload). Instead of antd paying
-from its built-in wallet, this returns payment details for an external signer.
+Prepare a file upload for external signing. Same response format as `/v1/data/prepare`.
 
 Request: `{"path": "/path/to/file"}`
-Response:
-```json
-{
-  "upload_id": "hex-string",
-  "payments": [
-    { "quote_hash": "0x...", "rewards_address": "0x...", "amount": "123" }
-  ],
-  "total_amount": "456",
-  "data_payments_address": "0x...",
-  "payment_token_address": "0x...",
-  "rpc_url": "http://..."
-}
-```
 
 #### `POST /v1/upload/finalize`
-Finalize an upload after an external signer has submitted payment transactions on-chain.
+Finalize an upload after an external signer has submitted payment on-chain.
+Provide either `tx_hashes` (wave_batch) or `winner_pool_hash` (merkle).
 
-Request: `{"upload_id": "hex-string", "tx_hashes": {"0xquotehash": "0xtxhash", ...}}`
-Response: `{"address": "hex", "chunks_stored": 5}`
+Wave-batch request: `{"upload_id": "hex", "tx_hashes": {"0xquotehash": "0xtxhash", ...}}`
+Merkle request: `{"upload_id": "hex", "winner_pool_hash": "0x..."}`
+Response: `{"data_map": "hex", "address": "hex", "chunks_stored": 5}`
 
 ---
 

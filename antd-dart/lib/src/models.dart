@@ -105,7 +105,63 @@ class PaymentInfo {
       'PaymentInfo(quoteHash: $quoteHash, rewardsAddress: $rewardsAddress, amount: $amount)';
 }
 
+/// A candidate node entry within a merkle pool commitment.
+class CandidateNodeEntry {
+  /// The 0x-prefixed hex rewards address.
+  final String rewardsAddress;
+
+  /// Node price as a decimal string (atto tokens).
+  final String amount;
+
+  const CandidateNodeEntry({
+    required this.rewardsAddress,
+    required this.amount,
+  });
+
+  factory CandidateNodeEntry.fromJson(Map<String, dynamic> json) {
+    return CandidateNodeEntry(
+      rewardsAddress: json['rewards_address'] as String? ?? '',
+      amount: json['amount'] as String? ?? '',
+    );
+  }
+
+  @override
+  String toString() =>
+      'CandidateNodeEntry(rewardsAddress: $rewardsAddress, amount: $amount)';
+}
+
+/// A pool commitment containing candidate nodes for merkle batch payments.
+class PoolCommitmentEntry {
+  /// The 0x-prefixed hex pool hash (32 bytes).
+  final String poolHash;
+
+  /// Candidate nodes in this pool (exactly 16).
+  final List<CandidateNodeEntry> candidates;
+
+  const PoolCommitmentEntry({
+    required this.poolHash,
+    required this.candidates,
+  });
+
+  factory PoolCommitmentEntry.fromJson(Map<String, dynamic> json) {
+    return PoolCommitmentEntry(
+      poolHash: json['pool_hash'] as String? ?? '',
+      candidates: (json['candidates'] as List<dynamic>?)
+              ?.map(
+                  (e) => CandidateNodeEntry.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
+    );
+  }
+
+  @override
+  String toString() =>
+      'PoolCommitmentEntry(poolHash: $poolHash, candidates: $candidates)';
+}
+
 /// Result of preparing an upload for external signing.
+/// [paymentType] is "wave_batch" or "merkle" -- determines which fields are
+/// populated and which contract call the external signer must make.
 class PrepareUploadResult {
   final String uploadId;
   final List<PaymentInfo> payments;
@@ -114,6 +170,21 @@ class PrepareUploadResult {
   final String paymentTokenAddress;
   final String rpcUrl;
 
+  /// "wave_batch" or "merkle".
+  final String paymentType;
+
+  /// Merkle tree depth (1-8). Present only when [paymentType] == "merkle".
+  final int? depth;
+
+  /// Pool commitments for payForMerkleTree(). Present only when [paymentType] == "merkle".
+  final List<PoolCommitmentEntry>? poolCommitments;
+
+  /// Unix-seconds timestamp for the merkle payment. Present only when [paymentType] == "merkle".
+  final int? merklePaymentTimestamp;
+
+  /// Merkle vault contract address. Present only when [paymentType] == "merkle".
+  final String? merklePaymentsAddress;
+
   const PrepareUploadResult({
     required this.uploadId,
     required this.payments,
@@ -121,6 +192,11 @@ class PrepareUploadResult {
     required this.dataPaymentsAddress,
     required this.paymentTokenAddress,
     required this.rpcUrl,
+    this.paymentType = 'wave_batch',
+    this.depth,
+    this.poolCommitments,
+    this.merklePaymentTimestamp,
+    this.merklePaymentsAddress,
   });
 
   factory PrepareUploadResult.fromJson(Map<String, dynamic> json) {
@@ -134,12 +210,22 @@ class PrepareUploadResult {
       dataPaymentsAddress: json['data_payments_address'] as String? ?? '',
       paymentTokenAddress: json['payment_token_address'] as String? ?? '',
       rpcUrl: json['rpc_url'] as String? ?? '',
+      paymentType: json['payment_type'] as String? ?? 'wave_batch',
+      depth: (json['depth'] as num?)?.toInt(),
+      poolCommitments: (json['pool_commitments'] as List<dynamic>?)
+          ?.map(
+              (e) => PoolCommitmentEntry.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      merklePaymentTimestamp:
+          (json['merkle_payment_timestamp'] as num?)?.toInt(),
+      merklePaymentsAddress:
+          json['merkle_payments_address'] as String?,
     );
   }
 
   @override
   String toString() =>
-      'PrepareUploadResult(uploadId: $uploadId, payments: $payments, totalAmount: $totalAmount)';
+      'PrepareUploadResult(uploadId: $uploadId, paymentType: $paymentType, totalAmount: $totalAmount)';
 }
 
 /// Result of finalizing an externally-signed upload.

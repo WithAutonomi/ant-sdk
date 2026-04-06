@@ -130,6 +130,69 @@ fn mock_file_cost(server: &mut ServerGuard) -> Mock {
         .create()
 }
 
+fn mock_prepare_upload_merkle(server: &mut ServerGuard) -> Mock {
+    server
+        .mock("POST", "/v1/upload/prepare")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{
+            "upload_id": "up123",
+            "payments": [],
+            "total_amount": "5000",
+            "data_payments_address": "0xDP",
+            "payment_token_address": "0xPT",
+            "rpc_url": "http://rpc.local",
+            "payment_type": "merkle",
+            "depth": 4,
+            "pool_commitments": [
+                {
+                    "pool_hash": "0xpool1",
+                    "candidates": [
+                        {"rewards_address": "0xnode1", "amount": "1000"},
+                        {"rewards_address": "0xnode2", "amount": "2000"}
+                    ]
+                },
+                {
+                    "pool_hash": "0xpool2",
+                    "candidates": [
+                        {"rewards_address": "0xnode3", "amount": "2000"}
+                    ]
+                }
+            ],
+            "merkle_payment_timestamp": 1700000000,
+            "merkle_payments_address": "0xMP"
+        }"#)
+        .create()
+}
+
+fn mock_finalize_merkle_upload(server: &mut ServerGuard) -> Mock {
+    server
+        .mock("POST", "/v1/upload/finalize")
+        .match_body(Matcher::JsonString(
+            r#"{"upload_id":"up123","winner_pool_hash":"0xpool1","store_data_map":true}"#.to_string(),
+        ))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"address":"addr456","chunks_stored":10}"#)
+        .create()
+}
+
+fn mock_prepare_upload_legacy(server: &mut ServerGuard) -> Mock {
+    server
+        .mock("POST", "/v1/upload/prepare")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{
+            "upload_id": "up_old",
+            "payments": [{"quote_hash":"qh1","rewards_address":"0xr1","amount":"100"}],
+            "total_amount": "100",
+            "data_payments_address": "0xDP",
+            "payment_token_address": "0xPT",
+            "rpc_url": "http://rpc.local"
+        }"#)
+        .create()
+}
+
 #[tokio::test]
 async fn test_health() {
     let mut server = mock_server().await;
@@ -400,4 +463,62 @@ async fn test_error_mapping_already_exists() {
         AntdError::AlreadyExists(msg) => assert_eq!(msg, "already exists"),
         other => panic!("expected AlreadyExists, got: {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn test_prepare_upload_merkle() {
+    let mut server = mock_server().await;
+    let _m = mock_prepare_upload_merkle(&mut server);
+    let client = Client::new(&server.url());
+
+    let result = client.prepare_upload("/tmp/test.bin").await.unwrap();
+    assert_eq!(result.upload_id, "up123");
+    assert_eq!(result.payment_type, "merkle");
+    assert_eq!(result.total_amount, "5000");
+    assert_eq!(result.depth, Some(4));
+    assert_eq!(result.merkle_payment_timestamp, Some(1700000000));
+    assert_eq!(result.merkle_payments_address.as_deref(), Some("0xMP"));
+
+    let pools = result.pool_commitments.unwrap();
+    assert_eq!(pools.len(), 2);
+    assert_eq!(pools[0].pool_hash, "0xpool1");
+    assert_eq!(pools[0].candidates.len(), 2);
+    assert_eq!(pools[0].candidates[0].rewards_address, "0xnode1");
+    assert_eq!(pools[0].candidates[0].amount, "1000");
+    assert_eq!(pools[0].candidates[1].rewards_address, "0xnode2");
+    assert_eq!(pools[0].candidates[1].amount, "2000");
+    assert_eq!(pools[1].pool_hash, "0xpool2");
+    assert_eq!(pools[1].candidates.len(), 1);
+    assert_eq!(pools[1].candidates[0].rewards_address, "0xnode3");
+}
+
+#[tokio::test]
+async fn test_finalize_merkle_upload() {
+    let mut server = mock_server().await;
+    let _m = mock_finalize_merkle_upload(&mut server);
+    let client = Client::new(&server.url());
+
+    let result = client
+        .finalize_merkle_upload("up123", "0xpool1", true)
+        .await
+        .unwrap();
+    assert_eq!(result.address, "addr456");
+    assert_eq!(result.chunks_stored, 10);
+}
+
+#[tokio::test]
+async fn test_prepare_upload_backward_compat() {
+    let mut server = mock_server().await;
+    let _m = mock_prepare_upload_legacy(&mut server);
+    let client = Client::new(&server.url());
+
+    let result = client.prepare_upload("/tmp/old.bin").await.unwrap();
+    assert_eq!(result.upload_id, "up_old");
+    assert_eq!(result.payment_type, "");
+    assert_eq!(result.depth, None);
+    assert!(result.pool_commitments.is_none());
+    assert!(result.merkle_payment_timestamp.is_none());
+    assert!(result.merkle_payments_address.is_none());
+    assert_eq!(result.payments.len(), 1);
+    assert_eq!(result.payments[0].quote_hash, "qh1");
 }

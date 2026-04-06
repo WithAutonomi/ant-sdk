@@ -173,23 +173,55 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
     /// Prepares a file upload for external signing.
     public func prepareUpload(path: String) async throws -> PrepareUploadResult {
         let resp: PrepareUploadDTO = try await postJSON("/v1/upload/prepare", body: ["path": path])
-        let payments = (resp.payments ?? []).map { PaymentInfo(quoteHash: $0.quoteHash, rewardsAddress: $0.rewardsAddress, amount: $0.amount) }
-        return PrepareUploadResult(uploadId: resp.uploadId, payments: payments, totalAmount: resp.totalAmount, dataPaymentsAddress: resp.dataPaymentsAddress, paymentTokenAddress: resp.paymentTokenAddress, rpcUrl: resp.rpcUrl)
+        return mapPrepareDTO(resp)
     }
 
     /// Prepares a data upload for external signing.
     /// Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
     public func prepareDataUpload(_ data: Data) async throws -> PrepareUploadResult {
         let resp: PrepareUploadDTO = try await postJSON("/v1/data/prepare", body: ["data": data.base64EncodedString()])
-        let payments = (resp.payments ?? []).map { PaymentInfo(quoteHash: $0.quoteHash, rewardsAddress: $0.rewardsAddress, amount: $0.amount) }
-        return PrepareUploadResult(uploadId: resp.uploadId, payments: payments, totalAmount: resp.totalAmount, dataPaymentsAddress: resp.dataPaymentsAddress, paymentTokenAddress: resp.paymentTokenAddress, rpcUrl: resp.rpcUrl)
+        return mapPrepareDTO(resp)
     }
 
-    /// Finalizes an upload after an external signer has submitted payment transactions.
+    /// Finalizes a wave-batch upload after an external signer has submitted payment transactions.
     public func finalizeUpload(uploadId: String, txHashes: [String: String]) async throws -> FinalizeUploadResult {
         let body: [String: Any] = ["upload_id": uploadId, "tx_hashes": txHashes]
         let resp: FinalizeUploadDTO = try await postJSON("/v1/upload/finalize", body: body)
         return FinalizeUploadResult(address: resp.address, chunksStored: resp.chunksStored)
+    }
+
+    /// Finalizes a merkle batch upload after the external signer has submitted
+    /// the `payForMerkleTree` transaction. `winnerPoolHash` is the bytes32 value
+    /// from the `MerklePaymentMade` event (hex with 0x prefix).
+    public func finalizeMerkleUpload(uploadId: String, winnerPoolHash: String) async throws -> FinalizeMerkleUploadResult {
+        let body: [String: Any] = ["upload_id": uploadId, "winner_pool_hash": winnerPoolHash]
+        let resp: FinalizeUploadDTO = try await postJSON("/v1/upload/finalize", body: body)
+        return FinalizeMerkleUploadResult(address: resp.address, chunksStored: resp.chunksStored)
+    }
+
+    // MARK: - Prepare DTO Mapping
+
+    private func mapPrepareDTO(_ resp: PrepareUploadDTO) -> PrepareUploadResult {
+        let payments = (resp.payments ?? []).map { PaymentInfo(quoteHash: $0.quoteHash, rewardsAddress: $0.rewardsAddress, amount: $0.amount) }
+        let poolCommitments = resp.poolCommitments?.map { pc in
+            PoolCommitmentEntry(
+                poolHash: pc.poolHash,
+                candidates: pc.candidates.map { CandidateNodeEntry(rewardsAddress: $0.rewardsAddress, amount: $0.amount) }
+            )
+        }
+        return PrepareUploadResult(
+            uploadId: resp.uploadId,
+            payments: payments,
+            totalAmount: resp.totalAmount,
+            dataPaymentsAddress: resp.dataPaymentsAddress,
+            paymentTokenAddress: resp.paymentTokenAddress,
+            rpcUrl: resp.rpcUrl,
+            paymentType: resp.paymentType ?? "wave_batch",
+            depth: resp.depth,
+            poolCommitments: poolCommitments,
+            merklePaymentTimestamp: resp.merklePaymentTimestamp,
+            merklePaymentsAddress: resp.merklePaymentsAddress
+        )
     }
 }
 
@@ -237,6 +269,16 @@ private struct PaymentInfoDTO: Decodable {
     let amount: String
 }
 
+private struct CandidateNodeEntryDTO: Decodable {
+    let rewardsAddress: String
+    let amount: String
+}
+
+private struct PoolCommitmentEntryDTO: Decodable {
+    let poolHash: String
+    let candidates: [CandidateNodeEntryDTO]
+}
+
 private struct PrepareUploadDTO: Decodable {
     let uploadId: String
     let payments: [PaymentInfoDTO]?
@@ -244,6 +286,11 @@ private struct PrepareUploadDTO: Decodable {
     let dataPaymentsAddress: String
     let paymentTokenAddress: String
     let rpcUrl: String
+    let paymentType: String?
+    let depth: Int?
+    let poolCommitments: [PoolCommitmentEntryDTO]?
+    let merklePaymentTimestamp: UInt64?
+    let merklePaymentsAddress: String?
 }
 
 private struct FinalizeUploadDTO: Decodable {

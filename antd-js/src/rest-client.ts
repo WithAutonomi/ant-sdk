@@ -1,9 +1,11 @@
 import { discoverDaemonUrl } from "./discover.js";
 import { fromHttpStatus, NetworkError } from "./errors.js";
 import type {
+  CandidateNodeEntry,
   FinalizeUploadResult,
   HealthStatus,
   PaymentInfo,
+  PoolCommitmentEntry,
   PrepareUploadResult,
   PutResult,
   WalletAddress,
@@ -248,8 +250,13 @@ export class RestClient {
       data_payments_address: string;
       payment_token_address: string;
       rpc_url: string;
+      payment_type?: string;
+      depth?: number;
+      pool_commitments?: { pool_hash: string; candidates: { rewards_address: string; amount: string }[] }[];
+      merkle_payment_timestamp?: number;
+      merkle_payments_address?: string;
     }>("/v1/upload/prepare", { path });
-    return {
+    const result: PrepareUploadResult = {
       uploadId: j.upload_id,
       payments: (j.payments ?? []).map((p) => ({
         quoteHash: p.quote_hash,
@@ -260,7 +267,21 @@ export class RestClient {
       dataPaymentsAddress: j.data_payments_address,
       paymentTokenAddress: j.payment_token_address,
       rpcUrl: j.rpc_url,
+      paymentType: j.payment_type ?? "wave_batch",
     };
+    if (j.depth !== undefined) result.depth = j.depth;
+    if (j.pool_commitments !== undefined) {
+      result.poolCommitments = j.pool_commitments.map((pc) => ({
+        poolHash: pc.pool_hash,
+        candidates: pc.candidates.map((c) => ({
+          rewardsAddress: c.rewards_address,
+          amount: c.amount,
+        })),
+      }));
+    }
+    if (j.merkle_payment_timestamp !== undefined) result.merklePaymentTimestamp = j.merkle_payment_timestamp;
+    if (j.merkle_payments_address !== undefined) result.merklePaymentsAddress = j.merkle_payments_address;
+    return result;
   }
 
   /** Prepare a data upload for external signing. */
@@ -272,8 +293,13 @@ export class RestClient {
       data_payments_address: string;
       payment_token_address: string;
       rpc_url: string;
+      payment_type?: string;
+      depth?: number;
+      pool_commitments?: { pool_hash: string; candidates: { rewards_address: string; amount: string }[] }[];
+      merkle_payment_timestamp?: number;
+      merkle_payments_address?: string;
     }>("/v1/data/prepare", { data: RestClient.b64(data) });
-    return {
+    const result: PrepareUploadResult = {
       uploadId: j.upload_id,
       payments: (j.payments ?? []).map((p) => ({
         quoteHash: p.quote_hash,
@@ -284,7 +310,21 @@ export class RestClient {
       dataPaymentsAddress: j.data_payments_address,
       paymentTokenAddress: j.payment_token_address,
       rpcUrl: j.rpc_url,
+      paymentType: j.payment_type ?? "wave_batch",
     };
+    if (j.depth !== undefined) result.depth = j.depth;
+    if (j.pool_commitments !== undefined) {
+      result.poolCommitments = j.pool_commitments.map((pc) => ({
+        poolHash: pc.pool_hash,
+        candidates: pc.candidates.map((c) => ({
+          rewardsAddress: c.rewards_address,
+          amount: c.amount,
+        })),
+      }));
+    }
+    if (j.merkle_payment_timestamp !== undefined) result.merklePaymentTimestamp = j.merkle_payment_timestamp;
+    if (j.merkle_payments_address !== undefined) result.merklePaymentsAddress = j.merkle_payments_address;
+    return result;
   }
 
   /** Finalize an upload after an external signer has submitted payment transactions. */
@@ -295,6 +335,19 @@ export class RestClient {
     const j = await this.postJson<{ address: string; chunks_stored: number }>(
       "/v1/upload/finalize",
       { upload_id: uploadId, tx_hashes: txHashes },
+    );
+    return { address: j.address, chunksStored: j.chunks_stored };
+  }
+
+  /** Finalize a merkle batch upload after selecting a winning pool. */
+  async finalizeMerkleUpload(
+    uploadId: string,
+    winnerPoolHash: string,
+    storeDataMap = false,
+  ): Promise<FinalizeUploadResult> {
+    const j = await this.postJson<{ address: string; chunks_stored: number }>(
+      "/v1/upload/finalize",
+      { upload_id: uploadId, winner_pool_hash: winnerPoolHash, store_data_map: storeDataMap },
     );
     return { address: j.address, chunksStored: j.chunks_stored };
   }

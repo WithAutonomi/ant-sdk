@@ -295,4 +295,22 @@ class AntdClient {
     });
     return FinalizeUploadResult.fromJson(json!);
   }
+
+  /// Finalizes a merkle batch upload after selecting a winning pool.
+  ///
+  /// [uploadId] is the hex upload identifier from [prepareUpload].
+  /// [winnerPoolHash] is the 0x-prefixed pool hash selected by the signer.
+  /// [storeDataMap] if true, stores the data map on the network (default false).
+  Future<FinalizeUploadResult> finalizeMerkleUpload(
+    String uploadId,
+    String winnerPoolHash, {
+    bool storeDataMap = false,
+  }) async {
+    final json = await _doJson('POST', '/v1/upload/finalize', {
+      'upload_id': uploadId,
+      'winner_pool_hash': winnerPoolHash,
+      'store_data_map': storeDataMap,
+    });
+    return FinalizeUploadResult.fromJson(json!);
+  }
 }

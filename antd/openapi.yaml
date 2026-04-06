@@ -457,10 +457,12 @@ paths:
       summary: Prepare file upload for external signer
       description: >-
         Phase 1 of two-phase upload for a local file. Reads and encrypts
-        the file, collects storage quotes from the network, and returns a
-        payment intent. The caller signs and submits the EVM payment
-        transaction externally, then calls /v1/upload/finalize with the
-        transaction hashes.
+        the file, collects storage quotes from the network, and returns
+        payment details. The response includes a payment_type discriminator
+        ("wave_batch" for < 64 chunks, "merkle" for >= 64 chunks) that
+        determines which contract call and finalize parameters to use.
+        For wave_batch, call payForQuotes() then finalize with tx_hashes.
+        For merkle, call payForMerkleTree() then finalize with winner_pool_hash.
       requestBody:
         required: true
         content:
@@ -488,9 +490,10 @@ paths:
       summary: Finalize externally-signed upload
       description: >-
         Phase 2 of two-phase upload. Takes the upload_id from a prepare
-        call and a map of quote_hash to tx_hash from the on-chain payment.
-        Builds payment proofs from the transaction hashes and uploads the
-        chunks to the network. Optionally stores the DataMap on-network.
+        call and either tx_hashes (wave_batch) or winner_pool_hash (merkle)
+        from the on-chain payment. The server detects the payment type
+        from the stored prepared upload and validates the request fields
+        accordingly. Optionally stores the DataMap on-network.
       requestBody:
         required: true
         content:
@@ -715,28 +718,81 @@ components:
 
     PrepareUploadResponse:
       type: object
-      required: [upload_id, payments, total_amount, data_payments_address, payment_token_address, rpc_url]
+      required: [upload_id, payment_type, total_amount, payment_token_address, rpc_url]
       properties:
         upload_id:
           type: string
           description: Opaque token to pass back to finalize
+        payment_type:
+          type: string
+          enum: [wave_batch, merkle]
+          description: >-
+            Discriminator for payment flow. "wave_batch" (< 64 chunks) means
+            call payForQuotes() and finalize with tx_hashes. "merkle" (>= 64 chunks)
+            means call payForMerkleTree() and finalize with winner_pool_hash.
+        # -- Wave-batch fields (present when payment_type == "wave_batch") --
         payments:
           type: array
           items:
             $ref: "#/components/schemas/PaymentEntry"
-          description: Payment entries for each storage quote
-        total_amount:
-          type: string
-          description: Total amount to pay (atto tokens as decimal string)
+          description: Per-quote payment entries for payForQuotes() (wave_batch only)
         data_payments_address:
           type: string
-          description: Data payments contract address (hex with 0x prefix)
+          description: Data payments contract address (wave_batch only)
+        # -- Merkle fields (present when payment_type == "merkle") --
+        depth:
+          type: integer
+          description: Merkle tree depth 1-8 (merkle only)
+        pool_commitments:
+          type: array
+          items:
+            $ref: "#/components/schemas/PoolCommitmentEntry"
+          description: Pool commitments for payForMerkleTree() (merkle only)
+        merkle_payment_timestamp:
+          type: integer
+          format: int64
+          description: Unix timestamp for the merkle payment (merkle only)
+        merkle_payments_address:
+          type: string
+          description: Merkle payment vault contract address (merkle only)
+        # -- Common fields --
+        total_amount:
+          type: string
+          description: >-
+            Total amount to pay (atto tokens as decimal string).
+            For merkle this is "0" since cost is determined on-chain.
         payment_token_address:
           type: string
           description: Payment token contract address (hex with 0x prefix)
         rpc_url:
           type: string
           description: EVM RPC URL for submitting transactions
+
+    PoolCommitmentEntry:
+      type: object
+      required: [pool_hash, candidates]
+      properties:
+        pool_hash:
+          type: string
+          description: Pool hash (hex, 32 bytes with 0x prefix)
+        candidates:
+          type: array
+          minItems: 16
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/CandidateNodeEntry"
+          description: Exactly 16 candidate nodes
+
+    CandidateNodeEntry:
+      type: object
+      required: [rewards_address, amount]
+      properties:
+        rewards_address:
+          type: string
+          description: Node rewards address (hex with 0x prefix, 20 bytes)
+        amount:
+          type: string
+          description: Node price (decimal string)
 
     PaymentEntry:
       type: object
@@ -754,7 +810,10 @@ components:
 
     FinalizeUploadRequest:
       type: object
-      required: [upload_id, tx_hashes]
+      required: [upload_id]
+      description: >-
+        Provide either tx_hashes (wave_batch) or winner_pool_hash (merkle).
+        The server validates based on the stored prepared upload type.
       properties:
         upload_id:
           type: string
@@ -763,7 +822,14 @@ components:
           type: object
           additionalProperties:
             type: string
-          description: Map of quote_hash (hex) to tx_hash (hex) from on-chain payment
+          description: >-
+            Wave-batch only: map of quote_hash (hex) to tx_hash (hex) from
+            the payForQuotes() on-chain payment
+        winner_pool_hash:
+          type: string
+          description: >-
+            Merkle only: bytes32 winner pool hash (hex with 0x prefix) from
+            the MerklePaymentMade event emitted by payForMerkleTree()
         store_data_map:
           type: boolean
           default: false

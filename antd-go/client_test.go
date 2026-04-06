@@ -71,10 +71,11 @@ func mockDaemon(t *testing.T) *httptest.Server {
 		case r.Method == "POST" && r.URL.Path == "/v1/wallet/approve":
 			json.NewEncoder(w).Encode(map[string]any{"approved": true})
 
-		// Prepare upload (file)
+		// Prepare upload (file) — wave_batch
 		case r.Method == "POST" && r.URL.Path == "/v1/upload/prepare":
 			json.NewEncoder(w).Encode(map[string]any{
 				"upload_id":              "up1",
+				"payment_type":          "wave_batch",
 				"payments":              []any{map[string]any{"quote_hash": "qh1", "rewards_address": "ra1", "amount": "100"}},
 				"total_amount":          "100",
 				"data_payments_address": "dp1",
@@ -82,10 +83,11 @@ func mockDaemon(t *testing.T) *httptest.Server {
 				"rpc_url":              "http://localhost:8545",
 			})
 
-		// Prepare data upload
+		// Prepare data upload — wave_batch
 		case r.Method == "POST" && r.URL.Path == "/v1/data/prepare":
 			json.NewEncoder(w).Encode(map[string]any{
 				"upload_id":              "up2",
+				"payment_type":          "wave_batch",
 				"payments":              []any{map[string]any{"quote_hash": "qh1", "rewards_address": "ra1", "amount": "100"}},
 				"total_amount":          "100",
 				"data_payments_address": "dp1",
@@ -275,6 +277,9 @@ func TestPrepareUpload(t *testing.T) {
 	if res.UploadID != "up1" {
 		t.Fatalf("unexpected upload_id: %s", res.UploadID)
 	}
+	if res.PaymentType != "wave_batch" {
+		t.Fatalf("unexpected payment_type: %s", res.PaymentType)
+	}
 	if len(res.Payments) != 1 || res.Payments[0].QuoteHash != "qh1" {
 		t.Fatalf("unexpected payments: %+v", res.Payments)
 	}
@@ -356,5 +361,182 @@ func TestErrorMapping(t *testing.T) {
 	}
 	if nf.StatusCode != 404 {
 		t.Fatalf("expected status 404, got %d", nf.StatusCode)
+	}
+}
+
+// --- Merkle payment tests ---
+
+// mockMerkleDaemon returns a test server that responds with merkle payment type.
+func mockMerkleDaemon(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/v1/upload/prepare":
+			json.NewEncoder(w).Encode(map[string]any{
+				"upload_id":    "mup1",
+				"payment_type": "merkle",
+				"depth":        float64(5),
+				"pool_commitments": []any{
+					map[string]any{
+						"pool_hash": "0xaabbccdd",
+						"candidates": []any{
+							map[string]any{"rewards_address": "0x1111", "amount": "500"},
+							map[string]any{"rewards_address": "0x2222", "amount": "600"},
+						},
+					},
+				},
+				"merkle_payment_timestamp": float64(1712150400),
+				"merkle_payments_address":  "0xmerkle",
+				"total_amount":             "0",
+				"payment_token_address":    "0xtoken",
+				"rpc_url":                  "http://localhost:8545",
+			})
+
+		case r.Method == "POST" && r.URL.Path == "/v1/data/prepare":
+			json.NewEncoder(w).Encode(map[string]any{
+				"upload_id":    "mup2",
+				"payment_type": "merkle",
+				"depth":        float64(3),
+				"pool_commitments": []any{
+					map[string]any{
+						"pool_hash":  "0xeeff",
+						"candidates": []any{},
+					},
+				},
+				"merkle_payment_timestamp": float64(1712150500),
+				"merkle_payments_address":  "0xmerkle2",
+				"total_amount":             "0",
+				"payment_token_address":    "0xtoken2",
+				"rpc_url":                  "http://localhost:8546",
+			})
+
+		case r.Method == "POST" && r.URL.Path == "/v1/upload/finalize":
+			json.NewEncoder(w).Encode(map[string]any{
+				"data_map":      "dm_merkle",
+				"address":       "addr_merkle",
+				"chunks_stored": float64(100),
+			})
+
+		default:
+			w.WriteHeader(404)
+			json.NewEncoder(w).Encode(map[string]any{"error": "not found"})
+		}
+	}))
+}
+
+func TestPrepareUploadMerkle(t *testing.T) {
+	srv := mockMerkleDaemon(t)
+	defer srv.Close()
+	c := NewClient(srv.URL)
+	res, err := c.PrepareUpload(context.Background(), "/tmp/bigfile.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.UploadID != "mup1" {
+		t.Fatalf("unexpected upload_id: %s", res.UploadID)
+	}
+	if res.PaymentType != "merkle" {
+		t.Fatalf("unexpected payment_type: %s", res.PaymentType)
+	}
+	if res.Depth != 5 {
+		t.Fatalf("unexpected depth: %d", res.Depth)
+	}
+	if res.MerklePaymentTimestamp != 1712150400 {
+		t.Fatalf("unexpected timestamp: %d", res.MerklePaymentTimestamp)
+	}
+	if res.MerklePaymentsAddress != "0xmerkle" {
+		t.Fatalf("unexpected merkle_payments_address: %s", res.MerklePaymentsAddress)
+	}
+	if len(res.PoolCommitments) != 1 {
+		t.Fatalf("expected 1 pool commitment, got %d", len(res.PoolCommitments))
+	}
+	pc := res.PoolCommitments[0]
+	if pc.PoolHash != "0xaabbccdd" {
+		t.Fatalf("unexpected pool_hash: %s", pc.PoolHash)
+	}
+	if len(pc.Candidates) != 2 {
+		t.Fatalf("expected 2 candidates, got %d", len(pc.Candidates))
+	}
+	if pc.Candidates[0].RewardsAddress != "0x1111" || pc.Candidates[0].Amount != "500" {
+		t.Fatalf("unexpected candidate 0: %+v", pc.Candidates[0])
+	}
+	if pc.Candidates[1].RewardsAddress != "0x2222" || pc.Candidates[1].Amount != "600" {
+		t.Fatalf("unexpected candidate 1: %+v", pc.Candidates[1])
+	}
+	// Wave-batch fields should be empty
+	if len(res.Payments) != 0 {
+		t.Fatalf("expected no payments for merkle, got %d", len(res.Payments))
+	}
+	if res.TotalAmount != "0" {
+		t.Fatalf("expected total_amount 0 for merkle, got %s", res.TotalAmount)
+	}
+}
+
+func TestPrepareDataUploadMerkle(t *testing.T) {
+	srv := mockMerkleDaemon(t)
+	defer srv.Close()
+	c := NewClient(srv.URL)
+	res, err := c.PrepareDataUpload(context.Background(), []byte("bigdata"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.PaymentType != "merkle" {
+		t.Fatalf("unexpected payment_type: %s", res.PaymentType)
+	}
+	if res.Depth != 3 {
+		t.Fatalf("unexpected depth: %d", res.Depth)
+	}
+	if res.MerklePaymentsAddress != "0xmerkle2" {
+		t.Fatalf("unexpected merkle_payments_address: %s", res.MerklePaymentsAddress)
+	}
+}
+
+func TestFinalizeMerkleUpload(t *testing.T) {
+	srv := mockMerkleDaemon(t)
+	defer srv.Close()
+	c := NewClient(srv.URL)
+	res, err := c.FinalizeMerkleUpload(context.Background(), "mup1", "0xwinnerhash", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.DataMap != "dm_merkle" {
+		t.Fatalf("unexpected data_map: %s", res.DataMap)
+	}
+	if res.ChunksStored != 100 {
+		t.Fatalf("unexpected chunks_stored: %d", res.ChunksStored)
+	}
+}
+
+func TestPrepareUploadBackwardCompat(t *testing.T) {
+	// Simulate an older daemon that doesn't send payment_type
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"upload_id":              "old1",
+			"payments":              []any{map[string]any{"quote_hash": "qh1", "rewards_address": "ra1", "amount": "50"}},
+			"total_amount":          "50",
+			"data_payments_address": "dp_old",
+			"payment_token_address": "pt_old",
+			"rpc_url":              "http://localhost:8545",
+		})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	res, err := c.PrepareUpload(context.Background(), "/tmp/test.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Should default to wave_batch when payment_type is missing
+	if res.PaymentType != "wave_batch" {
+		t.Fatalf("expected wave_batch default, got: %s", res.PaymentType)
+	}
+	if res.UploadID != "old1" {
+		t.Fatalf("unexpected upload_id: %s", res.UploadID)
+	}
+	if len(res.Payments) != 1 {
+		t.Fatalf("expected 1 payment, got %d", len(res.Payments))
 	}
 }

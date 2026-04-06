@@ -327,7 +327,63 @@ describe("RestClient", () => {
         dataPaymentsAddress: "0xdp",
         paymentTokenAddress: "0xpt",
         rpcUrl: "http://rpc.local",
+        paymentType: "wave_batch",
       });
+    });
+
+    it("defaults paymentType to wave_batch when not in response", async () => {
+      const result = await client.prepareUpload("/some/file.txt");
+      expect(result.paymentType).toBe("wave_batch");
+      expect(result.depth).toBeUndefined();
+      expect(result.poolCommitments).toBeUndefined();
+      expect(result.merklePaymentTimestamp).toBeUndefined();
+      expect(result.merklePaymentsAddress).toBeUndefined();
+    });
+
+    it("parses merkle response fields", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+          Promise.resolve(
+            jsonResponse(200, {
+              upload_id: "uid-merkle",
+              payments: [],
+              total_amount: "500",
+              data_payments_address: "0xdp",
+              payment_token_address: "0xpt",
+              rpc_url: "http://rpc.local",
+              payment_type: "merkle",
+              depth: 3,
+              pool_commitments: [
+                {
+                  pool_hash: "0xpool1",
+                  candidates: [
+                    { rewards_address: "0xnode1", amount: "200" },
+                    { rewards_address: "0xnode2", amount: "300" },
+                  ],
+                },
+              ],
+              merkle_payment_timestamp: 1700000000,
+              merkle_payments_address: "0xmerkle",
+            }),
+          ),
+        ),
+      );
+
+      const result = await client.prepareUpload("/some/file.txt");
+      expect(result.paymentType).toBe("merkle");
+      expect(result.depth).toBe(3);
+      expect(result.merklePaymentTimestamp).toBe(1700000000);
+      expect(result.merklePaymentsAddress).toBe("0xmerkle");
+      expect(result.poolCommitments).toEqual([
+        {
+          poolHash: "0xpool1",
+          candidates: [
+            { rewardsAddress: "0xnode1", amount: "200" },
+            { rewardsAddress: "0xnode2", amount: "300" },
+          ],
+        },
+      ]);
     });
   });
 
@@ -338,6 +394,7 @@ describe("RestClient", () => {
       expect(result.totalAmount).toBe("150");
       expect(result.payments).toHaveLength(1);
       expect(result.payments[0].quoteHash).toBe("0xq2");
+      expect(result.paymentType).toBe("wave_batch");
     });
   });
 
@@ -345,6 +402,35 @@ describe("RestClient", () => {
     it("returns FinalizeUploadResult with address and chunksStored", async () => {
       const result = await client.finalizeUpload("uid-1", { "0xq1": "0xtx1" });
       expect(result).toEqual({ address: "0xfinal", chunksStored: 5 });
+    });
+  });
+
+  describe("finalizeMerkleUpload()", () => {
+    it("returns FinalizeUploadResult with address and chunksStored", async () => {
+      const result = await client.finalizeMerkleUpload("uid-merkle", "0xpool1");
+      expect(result).toEqual({ address: "0xfinal", chunksStored: 5 });
+    });
+
+    it("sends correct request body with winner_pool_hash", async () => {
+      await client.finalizeMerkleUpload("uid-merkle", "0xpool1");
+
+      const fetchFn = vi.mocked(fetch);
+      const [, init] = fetchFn.mock.calls[0];
+      const body = JSON.parse(init!.body as string);
+      expect(body).toEqual({
+        upload_id: "uid-merkle",
+        winner_pool_hash: "0xpool1",
+        store_data_map: false,
+      });
+    });
+
+    it("passes store_data_map when true", async () => {
+      await client.finalizeMerkleUpload("uid-merkle", "0xpool1", true);
+
+      const fetchFn = vi.mocked(fetch);
+      const [, init] = fetchFn.mock.calls[0];
+      const body = JSON.parse(init!.body as string);
+      expect(body.store_data_map).toBe(true);
     });
   });
 

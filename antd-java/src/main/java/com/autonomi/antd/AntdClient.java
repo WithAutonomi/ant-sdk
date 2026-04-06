@@ -321,8 +321,63 @@ public class AntdClient implements AutoCloseable {
     // ── External Signer (Two-Phase Upload) ──
 
     /**
+     * Parses a prepare-upload JSON response into a PrepareUploadResult.
+     * Handles both wave_batch and merkle payment types.
+     */
+    private static PrepareUploadResult parsePrepareResponse(Map<String, Object> j) {
+        String paymentType = str(j, "payment_type");
+        if (paymentType.isEmpty()) {
+            paymentType = "wave_batch";
+        }
+
+        // Parse wave-batch payments
+        List<PaymentInfo> payments = new ArrayList<>();
+        for (Map<String, Object> pm : listOfMaps(j, "payments")) {
+            payments.add(new PaymentInfo(str(pm, "quote_hash"), str(pm, "rewards_address"), str(pm, "amount")));
+        }
+
+        // Parse merkle fields
+        Integer depth = null;
+        List<PoolCommitmentEntry> poolCommitments = null;
+        Long merklePaymentTimestamp = null;
+        String merklePaymentsAddress = null;
+
+        if ("merkle".equals(paymentType)) {
+            long depthVal = num(j, "depth");
+            depth = (int) depthVal;
+            merklePaymentTimestamp = num(j, "merkle_payment_timestamp");
+            merklePaymentsAddress = str(j, "merkle_payments_address");
+
+            poolCommitments = new ArrayList<>();
+            for (Map<String, Object> pcm : listOfMaps(j, "pool_commitments")) {
+                List<CandidateNodeEntry> candidates = new ArrayList<>();
+                for (Map<String, Object> cm : listOfMaps(pcm, "candidates")) {
+                    candidates.add(new CandidateNodeEntry(str(cm, "rewards_address"), str(cm, "amount")));
+                }
+                poolCommitments.add(new PoolCommitmentEntry(str(pcm, "pool_hash"), Collections.unmodifiableList(candidates)));
+            }
+            poolCommitments = Collections.unmodifiableList(poolCommitments);
+        }
+
+        return new PrepareUploadResult(
+                str(j, "upload_id"),
+                paymentType,
+                Collections.unmodifiableList(payments),
+                str(j, "total_amount"),
+                str(j, "data_payments_address"),
+                str(j, "payment_token_address"),
+                str(j, "rpc_url"),
+                depth,
+                poolCommitments,
+                merklePaymentTimestamp,
+                merklePaymentsAddress
+        );
+    }
+
+    /**
      * Prepares a file upload for external signing.
-     * Returns payment details that an external signer must process before calling {@link #finalizeUpload}.
+     * Returns payment details that an external signer must process before calling
+     * {@link #finalizeUpload} (wave_batch) or {@link #finalizeMerkleUpload} (merkle).
      *
      * @param path local file path to upload
      * @return PrepareUploadResult with upload_id, payments, and contract details
@@ -330,24 +385,14 @@ public class AntdClient implements AutoCloseable {
     public PrepareUploadResult prepareUpload(String path) {
         String body = Json.object("path", path);
         Map<String, Object> j = doJson("POST", "/v1/upload/prepare", body);
-        List<PaymentInfo> payments = new ArrayList<>();
-        for (Map<String, Object> pm : listOfMaps(j, "payments")) {
-            payments.add(new PaymentInfo(str(pm, "quote_hash"), str(pm, "rewards_address"), str(pm, "amount")));
-        }
-        return new PrepareUploadResult(
-                str(j, "upload_id"),
-                Collections.unmodifiableList(payments),
-                str(j, "total_amount"),
-                str(j, "data_payments_address"),
-                str(j, "payment_token_address"),
-                str(j, "rpc_url")
-        );
+        return parsePrepareResponse(j);
     }
 
     /**
      * Prepares a data upload for external signing.
      * Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
-     * Returns payment details that an external signer must process before calling {@link #finalizeUpload}.
+     * Returns payment details that an external signer must process before calling
+     * {@link #finalizeUpload} (wave_batch) or {@link #finalizeMerkleUpload} (merkle).
      *
      * @param data raw bytes to upload
      * @return PrepareUploadResult with upload_id, payments, and contract details
@@ -355,22 +400,11 @@ public class AntdClient implements AutoCloseable {
     public PrepareUploadResult prepareDataUpload(byte[] data) {
         String body = Json.object("data", b64Encode(data));
         Map<String, Object> j = doJson("POST", "/v1/data/prepare", body);
-        List<PaymentInfo> payments = new ArrayList<>();
-        for (Map<String, Object> pm : listOfMaps(j, "payments")) {
-            payments.add(new PaymentInfo(str(pm, "quote_hash"), str(pm, "rewards_address"), str(pm, "amount")));
-        }
-        return new PrepareUploadResult(
-                str(j, "upload_id"),
-                Collections.unmodifiableList(payments),
-                str(j, "total_amount"),
-                str(j, "data_payments_address"),
-                str(j, "payment_token_address"),
-                str(j, "rpc_url")
-        );
+        return parsePrepareResponse(j);
     }
 
     /**
-     * Finalizes an upload after an external signer has submitted payment transactions.
+     * Finalizes a wave-batch upload after an external signer has submitted payment transactions.
      *
      * @param uploadId the upload ID returned by {@link #prepareUpload}
      * @param txHashes map of quote_hash to tx_hash for each payment
@@ -378,6 +412,21 @@ public class AntdClient implements AutoCloseable {
      */
     public FinalizeUploadResult finalizeUpload(String uploadId, Map<String, String> txHashes) {
         String body = Json.object("upload_id", uploadId, "tx_hashes", txHashes);
+        Map<String, Object> j = doJson("POST", "/v1/upload/finalize", body);
+        return new FinalizeUploadResult(str(j, "address"), num(j, "chunks_stored"));
+    }
+
+    /**
+     * Finalizes a merkle upload after the external signer has submitted the
+     * payForMerkleTree transaction. The winnerPoolHash is the bytes32 value from
+     * the MerklePaymentMade event (hex with 0x prefix).
+     *
+     * @param uploadId       the upload ID returned by {@link #prepareUpload}
+     * @param winnerPoolHash bytes32 pool hash from MerklePaymentMade event
+     * @return FinalizeUploadResult with address and chunks_stored
+     */
+    public FinalizeUploadResult finalizeMerkleUpload(String uploadId, String winnerPoolHash) {
+        String body = Json.object("upload_id", uploadId, "winner_pool_hash", winnerPoolHash);
         Map<String, Object> j = doJson("POST", "/v1/upload/finalize", body);
         return new FinalizeUploadResult(str(j, "address"), num(j, "chunks_stored"));
     }
