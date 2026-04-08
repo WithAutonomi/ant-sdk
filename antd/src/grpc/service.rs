@@ -94,10 +94,7 @@ impl pb::data_service_server::DataService for DataServiceImpl {
         let client = self.state.client.clone();
         let address = tokio::spawn(async move {
             let result = client
-                .data_upload_with_mode(
-                    Bytes::from(data),
-                    ant_core::data::PaymentMode::Auto,
-                )
+                .data_upload_with_mode(Bytes::from(data), ant_core::data::PaymentMode::Auto)
                 .await
                 .map_err(AntdError::from_core)?;
             let address = client
@@ -118,8 +115,7 @@ impl pb::data_service_server::DataService for DataServiceImpl {
         }))
     }
 
-    type StreamPublicStream =
-        tokio_stream::wrappers::ReceiverStream<Result<pb::DataChunk, Status>>;
+    type StreamPublicStream = tokio_stream::wrappers::ReceiverStream<Result<pb::DataChunk, Status>>;
     async fn stream_public(
         &self,
         _r: Request<pb::StreamPublicDataRequest>,
@@ -179,10 +175,7 @@ impl pb::data_service_server::DataService for DataServiceImpl {
         let client = self.state.client.clone();
         let data_map_hex = tokio::spawn(async move {
             let result = client
-                .data_upload_with_mode(
-                    Bytes::from(data),
-                    ant_core::data::PaymentMode::Auto,
-                )
+                .data_upload_with_mode(Bytes::from(data), ant_core::data::PaymentMode::Auto)
                 .await
                 .map_err(AntdError::from_core)?;
             let data_map_bytes = rmp_serde::to_vec(&result.data_map)

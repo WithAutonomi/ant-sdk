@@ -14,15 +14,12 @@ fn build_prepare_response(
     upload_id: String,
     prepared: &ant_core::data::PreparedUpload,
 ) -> Result<PrepareUploadResponse, AntdError> {
-    let rpc_url = std::env::var("EVM_RPC_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
-    let payment_token_address = std::env::var("EVM_PAYMENT_TOKEN_ADDRESS")
-        .unwrap_or_default();
+    let rpc_url =
+        std::env::var("EVM_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
+    let payment_token_address = std::env::var("EVM_PAYMENT_TOKEN_ADDRESS").unwrap_or_default();
 
     match &prepared.payment_info {
-        ant_core::data::ExternalPaymentInfo::WaveBatch {
-            payment_intent, ..
-        } => {
+        ant_core::data::ExternalPaymentInfo::WaveBatch { payment_intent, .. } => {
             let payments: Vec<PaymentEntry> = payment_intent
                 .payments
                 .iter()
@@ -33,8 +30,8 @@ fn build_prepare_response(
                 })
                 .collect();
 
-            let data_payments_address = std::env::var("EVM_DATA_PAYMENTS_ADDRESS")
-                .unwrap_or_default();
+            let data_payments_address =
+                std::env::var("EVM_DATA_PAYMENTS_ADDRESS").unwrap_or_default();
 
             Ok(PrepareUploadResponse {
                 upload_id,
@@ -50,11 +47,9 @@ fn build_prepare_response(
                 rpc_url,
             })
         }
-        ant_core::data::ExternalPaymentInfo::Merkle {
-            prepared_batch, ..
-        } => {
-            let merkle_payments_address = std::env::var("EVM_MERKLE_PAYMENTS_ADDRESS")
-                .unwrap_or_default();
+        ant_core::data::ExternalPaymentInfo::Merkle { prepared_batch, .. } => {
+            let merkle_payments_address =
+                std::env::var("EVM_MERKLE_PAYMENTS_ADDRESS").unwrap_or_default();
 
             // Serialize pool commitments for JSON response.
             // Each candidate has rewards_address + price (maps to contract's amount).
@@ -226,17 +221,16 @@ pub async fn finalize_upload(
                 tx_hashes_raw
                     .iter()
                     .map(|(quote_hex, tx_hex)| {
-                        let quote_bytes: [u8; 32] =
-                            hex::decode(quote_hex.trim_start_matches("0x"))
-                                .map_err(|e| {
-                                    AntdError::BadRequest(format!(
-                                        "invalid quote_hash {quote_hex}: {e}"
-                                    ))
-                                })?
-                                .try_into()
-                                .map_err(|_| {
-                                    AntdError::BadRequest("quote_hash must be 32 bytes".into())
-                                })?;
+                        let quote_bytes: [u8; 32] = hex::decode(quote_hex.trim_start_matches("0x"))
+                            .map_err(|e| {
+                                AntdError::BadRequest(format!(
+                                    "invalid quote_hash {quote_hex}: {e}"
+                                ))
+                            })?
+                            .try_into()
+                            .map_err(|_| {
+                                AntdError::BadRequest("quote_hash must be 32 bytes".into())
+                            })?;
                         let tx_bytes: [u8; 32] = hex::decode(tx_hex.trim_start_matches("0x"))
                             .map_err(|e| {
                                 AntdError::BadRequest(format!("invalid tx_hash {tx_hex}: {e}"))
@@ -290,15 +284,10 @@ pub async fn finalize_upload(
                 ));
             }
 
-            let winner_pool_hash: [u8; 32] =
-                hex::decode(winner_hash_hex.trim_start_matches("0x"))
-                    .map_err(|e| {
-                        AntdError::BadRequest(format!("invalid winner_pool_hash: {e}"))
-                    })?
-                    .try_into()
-                    .map_err(|_| {
-                        AntdError::BadRequest("winner_pool_hash must be 32 bytes".into())
-                    })?;
+            let winner_pool_hash: [u8; 32] = hex::decode(winner_hash_hex.trim_start_matches("0x"))
+                .map_err(|e| AntdError::BadRequest(format!("invalid winner_pool_hash: {e}")))?
+                .try_into()
+                .map_err(|_| AntdError::BadRequest("winner_pool_hash must be 32 bytes".into()))?;
 
             tokio::spawn(async move {
                 let result = client

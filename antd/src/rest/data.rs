@@ -3,8 +3,8 @@ use std::sync::Arc;
 use axum::extract::{Path, Query, State};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::Json;
-use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
 use bytes::Bytes;
 
 use crate::error::AntdError;
@@ -16,23 +16,31 @@ pub async fn data_put_public(
     Json(req): Json<DataPutRequest>,
 ) -> Result<Json<DataPutPublicResponse>, AntdError> {
     if state.client.wallet().is_none() {
-        return Err(AntdError::ServiceUnavailable("wallet not configured — set AUTONOMI_WALLET_KEY".into()));
+        return Err(AntdError::ServiceUnavailable(
+            "wallet not configured — set AUTONOMI_WALLET_KEY".into(),
+        ));
     }
 
-    let data = BASE64.decode(&req.data)
+    let data = BASE64
+        .decode(&req.data)
         .map_err(|e| AntdError::BadRequest(format!("invalid base64: {e}")))?;
 
-    let mode = parse_payment_mode(req.payment_mode.as_deref())
-        .map_err(AntdError::BadRequest)?;
+    let mode = parse_payment_mode(req.payment_mode.as_deref()).map_err(AntdError::BadRequest)?;
 
     let client = state.client.clone();
     let (address, chunks_stored, payment_mode_used) = tokio::spawn(async move {
-        let result = client.data_upload_with_mode(Bytes::from(data), mode).await
+        let result = client
+            .data_upload_with_mode(Bytes::from(data), mode)
+            .await
             .map_err(AntdError::from_core)?;
-        let address = client.data_map_store(&result.data_map).await
+        let address = client
+            .data_map_store(&result.data_map)
+            .await
             .map_err(AntdError::from_core)?;
         Ok::<_, AntdError>((address, result.chunks_stored, result.payment_mode_used))
-    }).await.map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
+    })
+    .await
+    .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
 
     Ok(Json(DataPutPublicResponse {
         address: hex::encode(address),
@@ -46,7 +54,9 @@ pub async fn data_get_public(
     Path(addr): Path<String>,
 ) -> Result<Json<DataGetResponse>, AntdError> {
     if addr.len() != 64 {
-        return Err(AntdError::BadRequest("address must be exactly 64 hex characters".into()));
+        return Err(AntdError::BadRequest(
+            "address must be exactly 64 hex characters".into(),
+        ));
     }
     let address_bytes = hex::decode(&addr)
         .map_err(|e| AntdError::BadRequest(format!("invalid hex address: {e}")))?;
@@ -56,11 +66,17 @@ pub async fn data_get_public(
 
     let client = state.client.clone();
     let content = tokio::spawn(async move {
-        let data_map = client.data_map_fetch(&address).await
+        let data_map = client
+            .data_map_fetch(&address)
+            .await
             .map_err(AntdError::from_core)?;
-        client.data_download(&data_map).await
+        client
+            .data_download(&data_map)
+            .await
             .map_err(AntdError::from_core)
-    }).await.map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
+    })
+    .await
+    .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
 
     Ok(Json(DataGetResponse {
         data: BASE64.encode(&content),
@@ -72,23 +88,33 @@ pub async fn data_put_private(
     Json(req): Json<DataPutRequest>,
 ) -> Result<Json<DataPutPrivateResponse>, AntdError> {
     if state.client.wallet().is_none() {
-        return Err(AntdError::ServiceUnavailable("wallet not configured — set AUTONOMI_WALLET_KEY".into()));
+        return Err(AntdError::ServiceUnavailable(
+            "wallet not configured — set AUTONOMI_WALLET_KEY".into(),
+        ));
     }
 
-    let data = BASE64.decode(&req.data)
+    let data = BASE64
+        .decode(&req.data)
         .map_err(|e| AntdError::BadRequest(format!("invalid base64: {e}")))?;
 
-    let mode = parse_payment_mode(req.payment_mode.as_deref())
-        .map_err(AntdError::BadRequest)?;
+    let mode = parse_payment_mode(req.payment_mode.as_deref()).map_err(AntdError::BadRequest)?;
 
     let client = state.client.clone();
     let (data_map_hex, chunks_stored, payment_mode_used) = tokio::spawn(async move {
-        let result = client.data_upload_with_mode(Bytes::from(data), mode).await
+        let result = client
+            .data_upload_with_mode(Bytes::from(data), mode)
+            .await
             .map_err(AntdError::from_core)?;
         let data_map_bytes = rmp_serde::to_vec(&result.data_map)
             .map_err(|e| AntdError::Internal(format!("failed to serialize data map: {e}")))?;
-        Ok::<_, AntdError>((hex::encode(data_map_bytes), result.chunks_stored, result.payment_mode_used))
-    }).await.map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
+        Ok::<_, AntdError>((
+            hex::encode(data_map_bytes),
+            result.chunks_stored,
+            result.payment_mode_used,
+        ))
+    })
+    .await
+    .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
 
     Ok(Json(DataPutPrivateResponse {
         data_map: data_map_hex,
@@ -119,9 +145,13 @@ pub async fn data_get_private(
 
     let client = state.client.clone();
     let content = tokio::spawn(async move {
-        client.data_download(&data_map).await
+        client
+            .data_download(&data_map)
+            .await
             .map_err(AntdError::from_core)
-    }).await.map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
+    })
+    .await
+    .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
 
     Ok(Json(DataGetResponse {
         data: BASE64.encode(&content),
@@ -132,7 +162,8 @@ pub async fn data_cost(
     State(state): State<Arc<AppState>>,
     Json(req): Json<DataCostRequest>,
 ) -> Result<Json<CostResponse>, AntdError> {
-    let data = BASE64.decode(&req.data)
+    let data = BASE64
+        .decode(&req.data)
         .map_err(|e| AntdError::BadRequest(format!("invalid base64: {e}")))?;
 
     // Encrypt to determine chunk count and addresses, then quote each
@@ -161,7 +192,9 @@ pub async fn data_cost(
             }
         }
         Ok::<_, AntdError>(total)
-    }).await.map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
+    })
+    .await
+    .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
 
     Ok(Json(CostResponse {
         cost: total_cost.to_string(),
@@ -171,9 +204,12 @@ pub async fn data_cost(
 pub async fn data_stream_public(
     State(_state): State<Arc<AppState>>,
     Path(addr): Path<String>,
-) -> Result<Sse<impl tokio_stream::Stream<Item = Result<Event, std::convert::Infallible>>>, AntdError> {
+) -> Result<Sse<impl tokio_stream::Stream<Item = Result<Event, std::convert::Infallible>>>, AntdError>
+{
     if addr.len() != 64 {
-        return Err(AntdError::BadRequest("address must be exactly 64 hex characters".into()));
+        return Err(AntdError::BadRequest(
+            "address must be exactly 64 hex characters".into(),
+        ));
     }
     let stream = futures::stream::empty();
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))

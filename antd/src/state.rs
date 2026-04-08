@@ -31,7 +31,11 @@ impl AppState {
         uploads.retain(|_, v| v.created_at.elapsed() < max_age);
         let removed = before - uploads.len();
         if removed > 0 {
-            tracing::info!(removed, remaining = uploads.len(), "cleaned up stale pending uploads");
+            tracing::info!(
+                removed,
+                remaining = uploads.len(),
+                "cleaned up stale pending uploads"
+            );
         }
     }
 }

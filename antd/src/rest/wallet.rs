@@ -10,8 +10,9 @@ use crate::types::*;
 pub async fn wallet_address(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<WalletAddressResponse>, AntdError> {
-    let wallet = state.client.wallet()
-        .ok_or_else(|| AntdError::ServiceUnavailable("wallet not configured — set AUTONOMI_WALLET_KEY".into()))?;
+    let wallet = state.client.wallet().ok_or_else(|| {
+        AntdError::ServiceUnavailable("wallet not configured — set AUTONOMI_WALLET_KEY".into())
+    })?;
 
     Ok(Json(WalletAddressResponse {
         address: format!("{:#x}", wallet.address()),
@@ -21,13 +22,18 @@ pub async fn wallet_address(
 pub async fn wallet_balance(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<WalletBalanceResponse>, AntdError> {
-    let wallet = state.client.wallet()
-        .ok_or_else(|| AntdError::ServiceUnavailable("wallet not configured — set AUTONOMI_WALLET_KEY".into()))?;
+    let wallet = state.client.wallet().ok_or_else(|| {
+        AntdError::ServiceUnavailable("wallet not configured — set AUTONOMI_WALLET_KEY".into())
+    })?;
 
-    let balance = wallet.balance_of_tokens().await
+    let balance = wallet
+        .balance_of_tokens()
+        .await
         .map_err(|e| AntdError::Internal(format!("failed to get token balance: {e}")))?;
 
-    let gas_balance = wallet.balance_of_gas_tokens().await
+    let gas_balance = wallet
+        .balance_of_gas_tokens()
+        .await
         .map_err(|e| AntdError::Internal(format!("failed to get gas balance: {e}")))?;
 
     Ok(Json(WalletBalanceResponse {
@@ -40,16 +46,20 @@ pub async fn wallet_approve(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<WalletApproveResponse>, AntdError> {
     if state.client.wallet().is_none() {
-        return Err(AntdError::ServiceUnavailable("wallet not configured — set AUTONOMI_WALLET_KEY".into()));
+        return Err(AntdError::ServiceUnavailable(
+            "wallet not configured — set AUTONOMI_WALLET_KEY".into(),
+        ));
     }
 
     let client = state.client.clone();
     tokio::spawn(async move {
-        client.approve_token_spend().await
+        client
+            .approve_token_spend()
+            .await
             .map_err(AntdError::from_core)
-    }).await.map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
+    })
+    .await
+    .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
 
-    Ok(Json(WalletApproveResponse {
-        approved: true,
-    }))
+    Ok(Json(WalletApproveResponse { approved: true }))
 }

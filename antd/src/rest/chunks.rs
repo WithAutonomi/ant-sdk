@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use axum::extract::{Path, State};
 use axum::Json;
-use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
 use bytes::Bytes;
 
 use crate::error::AntdError;
@@ -15,7 +15,9 @@ pub async fn chunk_get(
     Path(addr): Path<String>,
 ) -> Result<Json<ChunkGetResponse>, AntdError> {
     if addr.len() != 64 {
-        return Err(AntdError::BadRequest("address must be exactly 64 hex characters".into()));
+        return Err(AntdError::BadRequest(
+            "address must be exactly 64 hex characters".into(),
+        ));
     }
     let address_bytes = hex::decode(&addr)
         .map_err(|e| AntdError::BadRequest(format!("invalid hex address: {e}")))?;
@@ -23,7 +25,10 @@ pub async fn chunk_get(
         .try_into()
         .map_err(|_| AntdError::BadRequest("address must be 32 bytes".into()))?;
 
-    let chunk = state.client.chunk_get(&address).await
+    let chunk = state
+        .client
+        .chunk_get(&address)
+        .await
         .map_err(|e| AntdError::from_core(e))?
         .ok_or_else(|| AntdError::NotFound("chunk not found".into()))?;
 
@@ -47,7 +52,10 @@ pub async fn chunk_put(
         .map_err(|e| AntdError::BadRequest(format!("invalid base64: {e}")))?;
 
     let content = Bytes::from(data);
-    let address = state.client.chunk_put(content).await
+    let address = state
+        .client
+        .chunk_put(content)
+        .await
         .map_err(|e| AntdError::from_core(e))?;
 
     Ok(Json(ChunkPutResponse {
