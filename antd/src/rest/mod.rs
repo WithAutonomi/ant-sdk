@@ -32,10 +32,7 @@ fn generate_request_id() -> String {
 /// Middleware that assigns a unique request ID to each incoming request.
 /// The ID is added to a tracing span (so all logs for that request are correlated)
 /// and included in the response as the `x-request-id` header.
-async fn request_id_middleware(
-    request: Request<axum::body::Body>,
-    next: Next,
-) -> Response {
+async fn request_id_middleware(request: Request<axum::body::Body>, next: Next) -> Response {
     let request_id = generate_request_id();
     let method = request.method().clone();
     let uri = request.uri().path().to_string();
@@ -70,7 +67,10 @@ pub fn router(state: Arc<AppState>, enable_cors: bool, rest_port: u16) -> Router
         .route("/health", get(health))
         // Data
         .route("/v1/data/public/{addr}", get(data::data_get_public))
-        .route("/v1/data/public/{addr}/stream", get(data::data_stream_public))
+        .route(
+            "/v1/data/public/{addr}/stream",
+            get(data::data_stream_public),
+        )
         .route("/v1/data/public", post(data::data_put_public))
         .route("/v1/data/private", get(data::data_get_private))
         .route("/v1/data/private", post(data::data_put_private))
@@ -80,7 +80,10 @@ pub fn router(state: Arc<AppState>, enable_cors: bool, rest_port: u16) -> Router
         .route("/v1/chunks", post(chunks::chunk_put))
         // Files
         .route("/v1/files/upload/public", post(files::file_upload_public))
-        .route("/v1/files/download/public", post(files::file_download_public))
+        .route(
+            "/v1/files/download/public",
+            post(files::file_download_public),
+        )
         .route("/v1/dirs/upload/public", post(files::dir_upload_public))
         .route("/v1/dirs/download/public", post(files::dir_download_public))
         // Cost

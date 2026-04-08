@@ -17,7 +17,8 @@ pub struct AppState {
     pub client: Arc<Client>,
     /// Network mode label ("local", "default", etc.)
     pub network: String,
-    /// Bootstrap peer addresses.
+    /// Bootstrap peer addresses (retained for diagnostics/logging).
+    #[allow(dead_code)]
     pub bootstrap_peers: Vec<MultiAddr>,
     /// Pending prepared uploads awaiting external payment (upload_id → state).
     pub pending_uploads: Arc<Mutex<HashMap<String, TimestampedUpload>>>,
@@ -31,7 +32,11 @@ impl AppState {
         uploads.retain(|_, v| v.created_at.elapsed() < max_age);
         let removed = before - uploads.len();
         if removed > 0 {
-            tracing::info!(removed, remaining = uploads.len(), "cleaned up stale pending uploads");
+            tracing::info!(
+                removed,
+                remaining = uploads.len(),
+                "cleaned up stale pending uploads"
+            );
         }
     }
 }

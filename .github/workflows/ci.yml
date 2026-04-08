@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "antd/**"
+      - "antd-rust/**"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    paths:
+      - "antd/**"
+      - "antd-rust/**"
+      - ".github/workflows/ci.yml"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Check (antd)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: antd
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: arduino/setup-protoc@v3
+        with:
+          version: "25.x"
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --locked -- -D warnings
+
+      - name: Build docs
+        run: cargo doc --locked --no-deps
+
+      - name: Run tests
+        run: cargo test --locked
+
+  audit:
+    name: Security audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: antd
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Audit dependencies
+        run: cargo audit
+
+  contract-tests:
+    name: API contract tests (antd-rust)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: antd-rust
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: arduino/setup-protoc@v3
+        with:
+          version: "25.x"
+
+      - name: Run contract tests
+        run: cargo test --locked

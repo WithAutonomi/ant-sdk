@@ -95,7 +95,12 @@ impl IntoResponse for AntdError {
             code: self.code().to_string(),
         })
         .unwrap_or_else(|_| r#"{"error":"internal error","code":"INTERNAL_ERROR"}"#.to_string());
-        (status, [(axum::http::header::CONTENT_TYPE, "application/json")], body).into_response()
+        (
+            status,
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            body,
+        )
+            .into_response()
     }
 }
 

@@ -203,6 +203,7 @@ pub struct CostResponse {
 #[derive(Deserialize)]
 pub struct FileCostRequest {
     pub path: String,
+    #[allow(dead_code)]
     #[serde(default = "default_true")]
     pub is_public: bool,
 }
@@ -217,7 +218,9 @@ pub fn parse_payment_mode(mode: Option<&str>) -> Result<ant_core::data::PaymentM
         None | Some("auto") => Ok(ant_core::data::PaymentMode::Auto),
         Some("merkle") => Ok(ant_core::data::PaymentMode::Merkle),
         Some("single") => Ok(ant_core::data::PaymentMode::Single),
-        Some(other) => Err(format!("invalid payment_mode: {other:?}. Use \"auto\", \"merkle\", or \"single\"")),
+        Some(other) => Err(format!(
+            "invalid payment_mode: {other:?}. Use \"auto\", \"merkle\", or \"single\""
+        )),
     }
 }
 

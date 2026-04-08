@@ -1,11 +1,11 @@
+#![deny(unsafe_code)]
+
 use std::sync::Arc;
 
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
-use ant_core::data::{
-    Client, ClientConfig, CoreNodeConfig, MultiAddr, NodeMode, P2PNode, Wallet,
-};
+use ant_core::data::{Client, ClientConfig, CoreNodeConfig, MultiAddr, NodeMode, P2PNode, Wallet};
 
 mod config;
 mod error;
@@ -26,13 +26,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Use --log-level / ANTD_LOG_LEVEL with "info" default
     let log_level = &config.log_level;
     tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::from_default_env()
-                .add_directive(log_level.parse().unwrap_or_else(|e| {
-                    eprintln!("invalid log level '{log_level}': {e}, falling back to 'info'");
-                    "info".parse().expect("valid default log directive")
-                })),
-        )
+        .with_env_filter(EnvFilter::from_default_env().add_directive(
+            log_level.parse().unwrap_or_else(|e| {
+                eprintln!("invalid log level '{log_level}': {e}, falling back to 'info'");
+                "info".parse().expect("valid default log directive")
+            }),
+        ))
         .init();
 
     tracing::info!(log_level = %log_level, "logging initialized");
@@ -42,9 +41,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_addr = config.resolved_grpc_addr()?;
 
     // Bind listeners early to capture actual ports (important for port 0)
-    let rest_listener = tokio::net::TcpListener::bind(rest_addr).await
+    let rest_listener = tokio::net::TcpListener::bind(rest_addr)
+        .await
         .map_err(|e| format!("failed to bind REST listener on {rest_addr}: {e}"))?;
-    let grpc_listener = tokio::net::TcpListener::bind(grpc_addr).await
+    let grpc_listener = tokio::net::TcpListener::bind(grpc_addr)
+        .await
         .map_err(|e| format!("failed to bind gRPC listener on {grpc_addr}: {e}"))?;
 
     let actual_rest_addr = rest_listener.local_addr()?;
@@ -60,7 +61,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  REST:      http://{}", actual_rest_addr);
     println!("  gRPC:      {}", actual_grpc_addr);
     println!("  Network:   {}", config.network);
-    println!("  CORS:      {}", if config.cors { "enabled" } else { "disabled" });
+    println!(
+        "  CORS:      {}",
+        if config.cors { "enabled" } else { "disabled" }
+    );
     println!("  Log level: {}", log_level);
     println!();
 
@@ -112,9 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Init P2P node in client mode
     tracing::info!(network = %config.network, "connecting to Autonomi network...");
 
-    let mut builder = CoreNodeConfig::builder()
-        .mode(NodeMode::Client)
-        .port(0); // OS assigns ephemeral port
+    let mut builder = CoreNodeConfig::builder().mode(NodeMode::Client).port(0); // OS assigns ephemeral port
 
     if config.network == "local" {
         builder = builder.local(true).allow_loopback(true).ipv6(false);
@@ -124,13 +126,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         builder = builder.bootstrap_peer(peer.clone());
     }
 
-    let node_config = builder.build()
+    let node_config = builder
+        .build()
         .map_err(|e| format!("failed to build node config: {e}"))?;
 
-    let node = P2PNode::new(node_config).await
+    let node = P2PNode::new(node_config)
+        .await
         .map_err(|e| format!("failed to create P2P node: {e}"))?;
 
-    node.start().await
+    node.start()
+        .await
         .map_err(|e| format!("failed to start P2P node: {e}"))?;
 
     tracing::info!("P2P node started in client mode");
@@ -157,12 +162,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Load EVM wallet if configured
     if let Ok(wallet_key) = std::env::var("AUTONOMI_WALLET_KEY") {
-        let rpc_url = std::env::var("EVM_RPC_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
-        let token_addr = std::env::var("EVM_PAYMENT_TOKEN_ADDRESS")
-            .unwrap_or_default();
-        let payments_addr = std::env::var("EVM_DATA_PAYMENTS_ADDRESS")
-            .unwrap_or_default();
+        let rpc_url =
+            std::env::var("EVM_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
+        let token_addr = std::env::var("EVM_PAYMENT_TOKEN_ADDRESS").unwrap_or_default();
+        let payments_addr = std::env::var("EVM_DATA_PAYMENTS_ADDRESS").unwrap_or_default();
         if token_addr.is_empty() {
             tracing::warn!("EVM_PAYMENT_TOKEN_ADDRESS is empty — payments may fail");
         }
@@ -170,11 +173,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tracing::warn!("EVM_DATA_PAYMENTS_ADDRESS is empty — payments may fail");
         }
         tracing::info!(%rpc_url, "loading EVM wallet...");
-        let network = evmlib::Network::new_custom(
-            &rpc_url,
-            &token_addr,
-            &payments_addr,
-        );
+        let network = evmlib::Network::new_custom(&rpc_url, &token_addr, &payments_addr);
         match Wallet::new_from_private_key(network, &wallet_key) {
             Ok(w) => {
                 tracing::info!(address = %w.address(), "EVM wallet loaded");
@@ -189,19 +188,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // to enable external signer flow (prepare-upload/finalize-upload)
         let rpc_url = std::env::var("EVM_RPC_URL").ok();
         if let Some(rpc_url) = rpc_url {
-            let token_addr = std::env::var("EVM_PAYMENT_TOKEN_ADDRESS")
-                .unwrap_or_default();
-            let payments_addr = std::env::var("EVM_DATA_PAYMENTS_ADDRESS")
-                .unwrap_or_default();
-            let network = evmlib::Network::new_custom(
-                &rpc_url,
-                &token_addr,
-                &payments_addr,
-            );
+            let token_addr = std::env::var("EVM_PAYMENT_TOKEN_ADDRESS").unwrap_or_default();
+            let payments_addr = std::env::var("EVM_DATA_PAYMENTS_ADDRESS").unwrap_or_default();
+            let network = evmlib::Network::new_custom(&rpc_url, &token_addr, &payments_addr);
             client = client.with_evm_network(network);
             tracing::info!(%rpc_url, "EVM network configured (external signer mode)");
         } else {
-            tracing::info!("no AUTONOMI_WALLET_KEY or EVM_RPC_URL set — write operations will fail");
+            tracing::info!(
+                "no AUTONOMI_WALLET_KEY or EVM_RPC_URL set — write operations will fail"
+            );
         }
     }
 
