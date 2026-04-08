@@ -8,6 +8,7 @@ use crate::error::AntdError;
 use crate::state::AppState;
 
 // Generated protobuf modules
+#[allow(dead_code)]
 pub mod pb {
     tonic::include_proto!("antd.v1");
 }

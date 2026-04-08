@@ -203,6 +203,7 @@ pub struct CostResponse {
 #[derive(Deserialize)]
 pub struct FileCostRequest {
     pub path: String,
+    #[allow(dead_code)]
     #[serde(default = "default_true")]
     pub is_public: bool,
 }

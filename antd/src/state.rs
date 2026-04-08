@@ -17,7 +17,8 @@ pub struct AppState {
     pub client: Arc<Client>,
     /// Network mode label ("local", "default", etc.)
     pub network: String,
-    /// Bootstrap peer addresses.
+    /// Bootstrap peer addresses (retained for diagnostics/logging).
+    #[allow(dead_code)]
     pub bootstrap_peers: Vec<MultiAddr>,
     /// Pending prepared uploads awaiting external payment (upload_id → state).
     pub pending_uploads: Arc<Mutex<HashMap<String, TimestampedUpload>>>,

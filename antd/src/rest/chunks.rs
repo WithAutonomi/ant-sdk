@@ -29,7 +29,7 @@ pub async fn chunk_get(
         .client
         .chunk_get(&address)
         .await
-        .map_err(|e| AntdError::from_core(e))?
+        .map_err(AntdError::from_core)?
         .ok_or_else(|| AntdError::NotFound("chunk not found".into()))?;
 
     Ok(Json(ChunkGetResponse {
@@ -56,7 +56,7 @@ pub async fn chunk_put(
         .client
         .chunk_put(content)
         .await
-        .map_err(|e| AntdError::from_core(e))?;
+        .map_err(AntdError::from_core)?;
 
     Ok(Json(ChunkPutResponse {
         // ant-core chunk_put returns only the address; cost is pre-paid via
