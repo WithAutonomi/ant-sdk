@@ -89,8 +89,9 @@ $bootstrapPeers = ($manifest.bootstrap -join ",")
 $walletKey = $manifest.evm.wallet_private_key -replace '^0x', ''
 $evmRpcUrl = $manifest.evm.rpc_url
 $evmTokenAddr = $manifest.evm.payment_token_address
-$evmPaymentsAddr = $manifest.evm.data_payments_address
-$evmMerkleAddr = if ($manifest.evm.merkle_payments_address) { $manifest.evm.merkle_payments_address } else { "" }
+# ant-node >=0.10 unified data_payments_address + merkle_payments_address into payment_vault_address
+$evmPaymentsAddr = if ($manifest.evm.payment_vault_address) { $manifest.evm.payment_vault_address } elseif ($manifest.evm.data_payments_address) { $manifest.evm.data_payments_address } else { "" }
+$evmMerkleAddr = if ($manifest.evm.payment_vault_address) { $manifest.evm.payment_vault_address } elseif ($manifest.evm.merkle_payments_address) { $manifest.evm.merkle_payments_address } else { "" }
 
 Write-Host "       Devnet ready: $($manifest.node_count) nodes, base port $($manifest.base_port)" -ForegroundColor Green
 Write-Host "       EVM:   $evmRpcUrl" -ForegroundColor Green

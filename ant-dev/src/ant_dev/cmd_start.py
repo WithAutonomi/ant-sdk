@@ -126,9 +126,9 @@ def run(args) -> None:
         evm = manifest["evm"]
         antd_env["EVM_RPC_URL"] = evm.get("rpc_url", "")
         antd_env["EVM_PAYMENT_TOKEN_ADDRESS"] = evm.get("payment_token_address", "")
-        antd_env["EVM_DATA_PAYMENTS_ADDRESS"] = evm.get("data_payments_address", "")
-        if evm.get("merkle_payments_address"):
-            antd_env["EVM_MERKLE_PAYMENTS_ADDRESS"] = evm["merkle_payments_address"]
+        # ant-node >=0.10 unified into payment_vault_address
+        antd_env["EVM_DATA_PAYMENTS_ADDRESS"] = evm.get("payment_vault_address", evm.get("data_payments_address", ""))
+        antd_env["EVM_MERKLE_PAYMENTS_ADDRESS"] = evm.get("payment_vault_address", evm.get("merkle_payments_address", ""))
 
     antd_cmd = ["cargo", "run", "--", "--network", "local"]
     antd_proc = start_process(antd_cmd, cwd=antd_dir, env=antd_env, log_file=LOG_FILE)
