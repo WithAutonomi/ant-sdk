@@ -268,7 +268,7 @@ static PrepareUploadResult parse_prepare_response(const json& j) {
     result.upload_id = j.value("upload_id", "");
     result.payment_type = j.value("payment_type", "");
     result.total_amount = j.value("total_amount", "");
-    result.data_payments_address = j.value("data_payments_address", "");
+    result.payment_vault_address = j.value("payment_vault_address", "");
     result.payment_token_address = j.value("payment_token_address", "");
     result.rpc_url = j.value("rpc_url", "");
 
@@ -294,7 +294,6 @@ static PrepareUploadResult parse_prepare_response(const json& j) {
     if (result.payment_type == "merkle") {
         result.depth = j.value("depth", 0);
         result.merkle_payment_timestamp = j.value("merkle_payment_timestamp", uint64_t{0});
-        result.merkle_payments_address = j.value("merkle_payments_address", "");
 
         if (j.contains("pool_commitments") && j["pool_commitments"].is_array()) {
             for (const auto& pc : j["pool_commitments"]) {

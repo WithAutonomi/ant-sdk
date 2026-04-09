@@ -70,8 +70,8 @@ pub struct PrepareUploadResult {
     pub payments: Vec<PaymentInfo>,
     /// Total amount across all payments.
     pub total_amount: String,
-    /// Data payments contract address.
-    pub data_payments_address: String,
+    /// Payment vault contract address.
+    pub payment_vault_address: String,
     /// Payment token contract address.
     pub payment_token_address: String,
     /// EVM RPC URL for submitting transactions.
@@ -88,9 +88,6 @@ pub struct PrepareUploadResult {
     /// Timestamp for merkle payment submission.
     #[serde(rename = "merkle_payment_timestamp", default)]
     pub merkle_payment_timestamp: Option<u64>,
-    /// Contract address for merkle payments.
-    #[serde(rename = "merkle_payments_address", default)]
-    pub merkle_payments_address: Option<String>,
 }
 
 /// Result of finalizing an externally-signed upload.

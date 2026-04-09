@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-## REST API integration tests using only curl + jq.
-## Zero dependencies beyond standard Unix tools.
+## REST API integration tests using curl + jq.
 ##
-## Prerequisite: antd running on local testnet (./scripts/start-local.sh)
+## Prerequisites:
+##   - curl
+##   - jq (https://jqlang.github.io/jq/ — install via: apt install jq / brew install jq / choco install jq)
+##   - antd running on local testnet (./scripts/start-local.sh)
 ##
 ## Currently tests health + chunks (working with ant-node).
 ## Data, files, and private data are not yet implemented.

@@ -85,7 +85,7 @@ public struct PrepareUploadResult: Sendable, Equatable {
     public let uploadId: String
     public let payments: [PaymentInfo]
     public let totalAmount: String
-    public let dataPaymentsAddress: String
+    public let paymentVaultAddress: String
     public let paymentTokenAddress: String
     public let rpcUrl: String
 
@@ -101,21 +101,17 @@ public struct PrepareUploadResult: Sendable, Equatable {
     /// Unix timestamp for merkle payment. Present when `paymentType == "merkle"`.
     public let merklePaymentTimestamp: UInt64?
 
-    /// Merkle vault contract address. Present when `paymentType == "merkle"`.
-    public let merklePaymentsAddress: String?
-
-    public init(uploadId: String, payments: [PaymentInfo], totalAmount: String, dataPaymentsAddress: String, paymentTokenAddress: String, rpcUrl: String, paymentType: String = "wave_batch", depth: Int? = nil, poolCommitments: [PoolCommitmentEntry]? = nil, merklePaymentTimestamp: UInt64? = nil, merklePaymentsAddress: String? = nil) {
+    public init(uploadId: String, payments: [PaymentInfo], totalAmount: String, paymentVaultAddress: String, paymentTokenAddress: String, rpcUrl: String, paymentType: String = "wave_batch", depth: Int? = nil, poolCommitments: [PoolCommitmentEntry]? = nil, merklePaymentTimestamp: UInt64? = nil) {
         self.uploadId = uploadId
         self.payments = payments
         self.totalAmount = totalAmount
-        self.dataPaymentsAddress = dataPaymentsAddress
+        self.paymentVaultAddress = paymentVaultAddress
         self.paymentTokenAddress = paymentTokenAddress
         self.rpcUrl = rpcUrl
         self.paymentType = paymentType
         self.depth = depth
         self.poolCommitments = poolCommitments
         self.merklePaymentTimestamp = merklePaymentTimestamp
-        self.merklePaymentsAddress = merklePaymentsAddress
     }
 }
 

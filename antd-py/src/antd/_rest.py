@@ -73,14 +73,13 @@ def _parse_prepare_result(j: dict) -> PrepareUploadResult:
         upload_id=j.get("upload_id", ""),
         payments=payments,
         total_amount=j.get("total_amount", ""),
-        data_payments_address=j.get("data_payments_address", ""),
+        payment_vault_address=j.get("payment_vault_address", ""),
         payment_token_address=j.get("payment_token_address", ""),
         rpc_url=j.get("rpc_url", ""),
         payment_type=payment_type,
         depth=j.get("depth", 0),
         pool_commitments=pool_commitments,
         merkle_payment_timestamp=j.get("merkle_payment_timestamp", 0),
-        merkle_payments_address=j.get("merkle_payments_address", ""),
     )
 
 

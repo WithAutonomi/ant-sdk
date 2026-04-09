@@ -332,7 +332,7 @@ The response includes a `payment_type` discriminator that determines the payment
     { "quote_hash": "0x...", "rewards_address": "0x...", "amount": "123" }
   ],
   "total_amount": "456",
-  "data_payments_address": "0x...",
+  "payment_vault_address": "0x...",
   "payment_token_address": "0x...",
   "rpc_url": "http://..."
 }
@@ -353,7 +353,7 @@ The response includes a `payment_type` discriminator that determines the payment
     }
   ],
   "merkle_payment_timestamp": 1712150400,
-  "merkle_payments_address": "0x...",
+  "payment_vault_address": "0x...",
   "total_amount": "0",
   "payment_token_address": "0x...",
   "rpc_url": "http://..."

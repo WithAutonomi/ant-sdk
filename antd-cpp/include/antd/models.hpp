@@ -57,16 +57,15 @@ struct PrepareUploadResult {
 
     // Wave-batch fields (present when payment_type == "wave_batch")
     std::vector<PaymentInfo> payments;        // per-quote payments for payForQuotes()
-    std::string data_payments_address;        // wave-batch contract address
 
     // Merkle fields (present when payment_type == "merkle")
     int depth{0};                                        // merkle tree depth (1-8)
     std::vector<PoolCommitmentEntry> pool_commitments;   // for payForMerkleTree()
     uint64_t merkle_payment_timestamp{0};                // unix seconds
-    std::string merkle_payments_address;                 // merkle vault contract
 
     // Common fields (always present)
     std::string total_amount;
+    std::string payment_vault_address; // unified payment vault contract address
     std::string payment_token_address; // token contract address
     std::string rpc_url;               // EVM RPC URL
 };

@@ -258,11 +258,10 @@ describe("antd client", function()
                     depth = 3,
                     total_amount = "5000",
                     payments = {},
-                    data_payments_address = "0xDATA",
+                    payment_vault_address = "0xMERKLE",
                     payment_token_address = "0xTOKEN",
                     rpc_url = "http://localhost:8545",
                     merkle_payment_timestamp = 1700000000,
-                    merkle_payments_address = "0xMERKLE",
                     pool_commitments = {
                         {
                             pool_hash = "pool_abc",
@@ -281,7 +280,7 @@ describe("antd client", function()
             assert.are.equal(3, result.depth)
             assert.are.equal("5000", result.total_amount)
             assert.are.equal(1700000000, result.merkle_payment_timestamp)
-            assert.are.equal("0xMERKLE", result.merkle_payments_address)
+            assert.are.equal("0xMERKLE", result.payment_vault_address)
             assert.are.equal(0, #result.payments)
 
             assert.are.equal(1, #result.pool_commitments)
@@ -316,7 +315,7 @@ describe("antd client", function()
                         { quote_hash = "qh1", rewards_address = "0xR1", amount = "100" },
                     },
                     total_amount = "100",
-                    data_payments_address = "0xDATA",
+                    payment_vault_address = "0xDATA",
                     payment_token_address = "0xTOKEN",
                     rpc_url = "http://localhost:8545",
                 }))
@@ -328,7 +327,6 @@ describe("antd client", function()
             assert.are.equal(0, result.depth)
             assert.are.equal(0, #result.pool_commitments)
             assert.are.equal(0, result.merkle_payment_timestamp)
-            assert.are.equal("", result.merkle_payments_address)
 
             assert.are.equal(1, #result.payments)
             assert.are.equal("qh1", result.payments[1].quote_hash)

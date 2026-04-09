@@ -271,7 +271,7 @@ defmodule Antd.ClientTest do
         upload_id: "up1",
         payments: [%{quote_hash: "qh1", rewards_address: "ra1", amount: "100"}],
         total_amount: "100",
-        data_payments_address: "dpa1",
+        payment_vault_address: "pva1",
         payment_token_address: "pta1",
         rpc_url: "http://rpc",
         payment_type: "wave_batch"
@@ -294,7 +294,7 @@ defmodule Antd.ClientTest do
         upload_id: "up2",
         payments: [],
         total_amount: "0",
-        data_payments_address: "dpa2",
+        payment_vault_address: "pva2",
         payment_token_address: "pta2",
         rpc_url: "http://rpc"
       }))
@@ -312,13 +312,12 @@ defmodule Antd.ClientTest do
         upload_id: "up3",
         payments: [],
         total_amount: "500",
-        data_payments_address: "dpa3",
+        payment_vault_address: "pva3",
         payment_token_address: "pta3",
         rpc_url: "http://rpc",
         payment_type: "merkle_batch",
         depth: 4,
         merkle_payment_timestamp: 1234567890,
-        merkle_payments_address: "mpa1",
         pool_commitments: [
           %{
             pool_hash: "ph1",
@@ -341,7 +340,6 @@ defmodule Antd.ClientTest do
     assert result.payment_type == "merkle_batch"
     assert result.depth == 4
     assert result.merkle_payment_timestamp == 1234567890
-    assert result.merkle_payments_address == "mpa1"
     assert length(result.pool_commitments) == 2
 
     [pool1, pool2] = result.pool_commitments
@@ -365,7 +363,7 @@ defmodule Antd.ClientTest do
         upload_id: "up4",
         payments: [%{quote_hash: "qh2", rewards_address: "ra2", amount: "50"}],
         total_amount: "50",
-        data_payments_address: "dpa4",
+        payment_vault_address: "pva4",
         payment_token_address: "pta4",
         rpc_url: "http://rpc",
         payment_type: "wave_batch"

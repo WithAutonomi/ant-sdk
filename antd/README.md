@@ -23,7 +23,7 @@ ANTD_PEERS="/ip4/..." \
 AUTONOMI_WALLET_KEY="hex_key" \
 EVM_RPC_URL="http://127.0.0.1:8545" \
 EVM_PAYMENT_TOKEN_ADDRESS="0x..." \
-EVM_DATA_PAYMENTS_ADDRESS="0x..." \
+EVM_PAYMENT_VAULT_ADDRESS="0x..." \
 cargo run -- --network local
 
 # With dynamic ports (for managed mode / port discovery)
@@ -60,8 +60,7 @@ All options can be set via CLI flags or environment variables:
 | `AUTONOMI_WALLET_KEY` | Hex-encoded wallet private key for payments (direct wallet mode) |
 | `EVM_RPC_URL` | EVM JSON-RPC endpoint (default: `http://127.0.0.1:8545`) |
 | `EVM_PAYMENT_TOKEN_ADDRESS` | Payment token contract address |
-| `EVM_DATA_PAYMENTS_ADDRESS` | Data payments contract address |
-| `EVM_MERKLE_PAYMENTS_ADDRESS` | Merkle batch payments contract address (optional) |
+| `EVM_PAYMENT_VAULT_ADDRESS` | Payment vault contract address |
 
 antd supports two wallet modes:
 - **Direct wallet**: Set `AUTONOMI_WALLET_KEY` — antd signs payment transactions internally

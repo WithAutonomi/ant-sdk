@@ -434,7 +434,7 @@ impl Client {
             upload_id: Self::str_field(&j, "upload_id"),
             payments,
             total_amount: Self::str_field(&j, "total_amount"),
-            data_payments_address: Self::str_field(&j, "data_payments_address"),
+            payment_vault_address: Self::str_field(&j, "payment_vault_address"),
             payment_token_address: Self::str_field(&j, "payment_token_address"),
             rpc_url: Self::str_field(&j, "rpc_url"),
             payment_type: Self::str_field(&j, "payment_type"),
@@ -459,7 +459,6 @@ impl Client {
                     .collect()
             }),
             merkle_payment_timestamp: j.get("merkle_payment_timestamp").and_then(|v| v.as_u64()),
-            merkle_payments_address: j.get("merkle_payments_address").and_then(|v| v.as_str()).map(|s| s.to_string()),
         })
     }
 
@@ -493,7 +492,7 @@ impl Client {
             upload_id: Self::str_field(&j, "upload_id"),
             payments,
             total_amount: Self::str_field(&j, "total_amount"),
-            data_payments_address: Self::str_field(&j, "data_payments_address"),
+            payment_vault_address: Self::str_field(&j, "payment_vault_address"),
             payment_token_address: Self::str_field(&j, "payment_token_address"),
             rpc_url: Self::str_field(&j, "rpc_url"),
             payment_type: Self::str_field(&j, "payment_type"),
@@ -518,7 +517,6 @@ impl Client {
                     .collect()
             }),
             merkle_payment_timestamp: j.get("merkle_payment_timestamp").and_then(|v| v.as_u64()),
-            merkle_payments_address: j.get("merkle_payments_address").and_then(|v| v.as_str()).map(|s| s.to_string()),
         })
     }
 

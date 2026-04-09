@@ -412,7 +412,7 @@ public sealed class AntdRestClientTests : IDisposable
                 new { quote_hash = "qh1", rewards_address = "ra1", amount = "100" }
             },
             total_amount = "100",
-            data_payments_address = "dpa1",
+            payment_vault_address = "pva1",
             payment_token_address = "pta1",
             rpc_url = "https://rpc.example.com"
         });
@@ -452,7 +452,7 @@ public sealed class AntdRestClientTests : IDisposable
             upload_id = "up_merkle_1",
             payments = Array.Empty<object>(),
             total_amount = "500",
-            data_payments_address = "dpa_m",
+            payment_vault_address = "pva_m",
             payment_token_address = "pta_m",
             rpc_url = "https://rpc.example.com",
             payment_type = "merkle_batch",
@@ -469,8 +469,7 @@ public sealed class AntdRestClientTests : IDisposable
                     }
                 }
             },
-            merkle_payment_timestamp = 1700000000L,
-            merkle_payments_address = "mpa_1"
+            merkle_payment_timestamp = 1700000000L
         });
         _server.Start();
 
@@ -488,7 +487,6 @@ public sealed class AntdRestClientTests : IDisposable
         Assert.Equal("ra_2", result.PoolCommitments[0].Candidates[1].RewardsAddress);
         Assert.Equal("300", result.PoolCommitments[0].Candidates[1].Amount);
         Assert.Equal(1700000000L, result.MerklePaymentTimestamp);
-        Assert.Equal("mpa_1", result.MerklePaymentsAddress);
         Assert.Equal("500", result.TotalAmount);
         Assert.Empty(result.Payments);
     }
@@ -521,7 +519,7 @@ public sealed class AntdRestClientTests : IDisposable
                 new { quote_hash = "qh1", rewards_address = "ra1", amount = "100" }
             },
             total_amount = "100",
-            data_payments_address = "dpa1",
+            payment_vault_address = "pva1",
             payment_token_address = "pta1",
             rpc_url = "https://rpc.example.com"
         });
@@ -534,7 +532,6 @@ public sealed class AntdRestClientTests : IDisposable
         Assert.Null(result.Depth);
         Assert.Null(result.PoolCommitments);
         Assert.Null(result.MerklePaymentTimestamp);
-        Assert.Null(result.MerklePaymentsAddress);
         Assert.Single(result.Payments);
         Assert.Equal("qh1", result.Payments[0].QuoteHash);
     }

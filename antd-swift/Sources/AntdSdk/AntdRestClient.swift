@@ -213,14 +213,13 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
             uploadId: resp.uploadId,
             payments: payments,
             totalAmount: resp.totalAmount,
-            dataPaymentsAddress: resp.dataPaymentsAddress,
+            paymentVaultAddress: resp.paymentVaultAddress,
             paymentTokenAddress: resp.paymentTokenAddress,
             rpcUrl: resp.rpcUrl,
             paymentType: resp.paymentType ?? "wave_batch",
             depth: resp.depth,
             poolCommitments: poolCommitments,
-            merklePaymentTimestamp: resp.merklePaymentTimestamp,
-            merklePaymentsAddress: resp.merklePaymentsAddress
+            merklePaymentTimestamp: resp.merklePaymentTimestamp
         )
     }
 }
@@ -283,14 +282,13 @@ private struct PrepareUploadDTO: Decodable {
     let uploadId: String
     let payments: [PaymentInfoDTO]?
     let totalAmount: String
-    let dataPaymentsAddress: String
+    let paymentVaultAddress: String
     let paymentTokenAddress: String
     let rpcUrl: String
     let paymentType: String?
     let depth: Int?
     let poolCommitments: [PoolCommitmentEntryDTO]?
     let merklePaymentTimestamp: UInt64?
-    let merklePaymentsAddress: String?
 }
 
 private struct FinalizeUploadDTO: Decodable {

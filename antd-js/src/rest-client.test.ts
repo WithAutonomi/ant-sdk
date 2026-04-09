@@ -126,7 +126,7 @@ const routes: Route[] = [
           { quote_hash: "0xq1", rewards_address: "0xr1", amount: "300" },
         ],
         total_amount: "300",
-        data_payments_address: "0xdp",
+        payment_vault_address: "0xdp",
         payment_token_address: "0xpt",
         rpc_url: "http://rpc.local",
       }),
@@ -143,7 +143,7 @@ const routes: Route[] = [
           { quote_hash: "0xq2", rewards_address: "0xr2", amount: "150" },
         ],
         total_amount: "150",
-        data_payments_address: "0xdp2",
+        payment_vault_address: "0xdp2",
         payment_token_address: "0xpt2",
         rpc_url: "http://rpc2.local",
       }),
@@ -324,7 +324,7 @@ describe("RestClient", () => {
           { quoteHash: "0xq1", rewardsAddress: "0xr1", amount: "300" },
         ],
         totalAmount: "300",
-        dataPaymentsAddress: "0xdp",
+        paymentVaultAddress: "0xdp",
         paymentTokenAddress: "0xpt",
         rpcUrl: "http://rpc.local",
         paymentType: "wave_batch",
@@ -337,7 +337,7 @@ describe("RestClient", () => {
       expect(result.depth).toBeUndefined();
       expect(result.poolCommitments).toBeUndefined();
       expect(result.merklePaymentTimestamp).toBeUndefined();
-      expect(result.merklePaymentsAddress).toBeUndefined();
+      expect(result.paymentVaultAddress).toBeDefined();
     });
 
     it("parses merkle response fields", async () => {
@@ -349,7 +349,7 @@ describe("RestClient", () => {
               upload_id: "uid-merkle",
               payments: [],
               total_amount: "500",
-              data_payments_address: "0xdp",
+              payment_vault_address: "0xmerkle",
               payment_token_address: "0xpt",
               rpc_url: "http://rpc.local",
               payment_type: "merkle",
@@ -364,7 +364,6 @@ describe("RestClient", () => {
                 },
               ],
               merkle_payment_timestamp: 1700000000,
-              merkle_payments_address: "0xmerkle",
             }),
           ),
         ),
@@ -374,7 +373,7 @@ describe("RestClient", () => {
       expect(result.paymentType).toBe("merkle");
       expect(result.depth).toBe(3);
       expect(result.merklePaymentTimestamp).toBe(1700000000);
-      expect(result.merklePaymentsAddress).toBe("0xmerkle");
+      expect(result.paymentVaultAddress).toBe("0xmerkle");
       expect(result.poolCommitments).toEqual([
         {
           poolHash: "0xpool1",

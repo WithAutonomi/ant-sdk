@@ -38,19 +38,18 @@ type PrepareUploadResult struct {
 	PaymentType string `json:"payment_type"` // "wave_batch" or "merkle"
 
 	// Wave-batch fields (present when PaymentType == "wave_batch")
-	Payments            []PaymentInfo `json:"payments,omitempty"`              // per-quote payments for payForQuotes()
-	DataPaymentsAddress string        `json:"data_payments_address,omitempty"` // wave-batch contract address
+	Payments []PaymentInfo `json:"payments,omitempty"` // per-quote payments for payForQuotes()
 
 	// Merkle fields (present when PaymentType == "merkle")
-	Depth                  int                    `json:"depth,omitempty"`                    // merkle tree depth (1-8)
-	PoolCommitments        []PoolCommitmentEntry  `json:"pool_commitments,omitempty"`         // for payForMerkleTree()
-	MerklePaymentTimestamp uint64                 `json:"merkle_payment_timestamp,omitempty"` // unix seconds
-	MerklePaymentsAddress  string                 `json:"merkle_payments_address,omitempty"`  // merkle vault contract
+	Depth                  int                   `json:"depth,omitempty"`                    // merkle tree depth (1-8)
+	PoolCommitments        []PoolCommitmentEntry `json:"pool_commitments,omitempty"`         // for payForMerkleTree()
+	MerklePaymentTimestamp uint64                `json:"merkle_payment_timestamp,omitempty"` // unix seconds
 
 	// Common fields (always present)
-	TotalAmount         string `json:"total_amount"`          // total atto tokens ("0" for merkle)
-	PaymentTokenAddress string `json:"payment_token_address"` // token contract address
-	RPCUrl              string `json:"rpc_url"`               // EVM RPC URL
+	TotalAmount         string `json:"total_amount"`           // total atto tokens ("0" for merkle)
+	PaymentVaultAddress string `json:"payment_vault_address,omitempty"` // payment vault contract address
+	PaymentTokenAddress string `json:"payment_token_address"`  // token contract address
+	RPCUrl              string `json:"rpc_url"`                // EVM RPC URL
 }
 
 // PoolCommitmentEntry describes a pool commitment for the merkle payment contract.

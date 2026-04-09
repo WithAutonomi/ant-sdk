@@ -100,14 +100,14 @@ prep = client.prepare_upload("/path/to/file")
 
 if prep.payment_type == "wave_batch":
     # Small files (< 64 chunks): call payForQuotes() with per-quote payments
-    # prep.payments, prep.data_payments_address, prep.total_amount
+    # prep.payments, prep.payment_vault_address, prep.total_amount
     # ... external signer submits EVM payForQuotes() transaction ...
     result = client.finalize_upload(prep.upload_id, {"0xquotehash": "0xtxhash", ...})
 
 elif prep.payment_type == "merkle":
     # Large files (>= 64 chunks): call payForMerkleTree() — gas-efficient batch
     # prep.depth, prep.pool_commitments, prep.merkle_payment_timestamp,
-    # prep.merkle_payments_address
+    # prep.payment_vault_address
     # ... external signer submits EVM payForMerkleTree() transaction ...
     # ... extract winner_pool_hash from MerklePaymentMade event ...
     result = client.finalize_merkle_upload(prep.upload_id, "0xwinnerpoolhash")

@@ -33,14 +33,13 @@ data class PrepareUploadResult(
     val uploadId: String,
     val payments: List<PaymentInfo>,
     val totalAmount: String,
-    val dataPaymentsAddress: String,
+    val paymentVaultAddress: String,
     val paymentTokenAddress: String,
     val rpcUrl: String,
     val paymentType: String = "wave_batch",
     val depth: Int? = null,
     val poolCommitments: List<PoolCommitmentEntry>? = null,
     val merklePaymentTimestamp: Long? = null,
-    val merklePaymentsAddress: String? = null,
 )
 
 /** Result of finalizing an externally-signed upload. */
@@ -119,14 +118,13 @@ internal data class PrepareUploadDto(
     @SerialName("upload_id") val uploadId: String,
     val payments: List<PaymentInfoDto>? = null,
     @SerialName("total_amount") val totalAmount: String,
-    @SerialName("data_payments_address") val dataPaymentsAddress: String,
+    @SerialName("payment_vault_address") val paymentVaultAddress: String,
     @SerialName("payment_token_address") val paymentTokenAddress: String,
     @SerialName("rpc_url") val rpcUrl: String,
     @SerialName("payment_type") val paymentType: String? = null,
     val depth: Int? = null,
     @SerialName("pool_commitments") val poolCommitments: List<PoolCommitmentEntryDto>? = null,
     @SerialName("merkle_payment_timestamp") val merklePaymentTimestamp: Long? = null,
-    @SerialName("merkle_payments_address") val merklePaymentsAddress: String? = null,
 )
 
 @Serializable

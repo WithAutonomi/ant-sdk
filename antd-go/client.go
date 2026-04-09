@@ -365,7 +365,7 @@ func parsePrepareResponse(j map[string]any) *PrepareUploadResult {
 		UploadID:            str(j, "upload_id"),
 		PaymentType:         str(j, "payment_type"),
 		TotalAmount:         str(j, "total_amount"),
-		DataPaymentsAddress: str(j, "data_payments_address"),
+		PaymentVaultAddress: str(j, "payment_vault_address"),
 		PaymentTokenAddress: str(j, "payment_token_address"),
 		RPCUrl:              str(j, "rpc_url"),
 	}
@@ -390,7 +390,6 @@ func parsePrepareResponse(j map[string]any) *PrepareUploadResult {
 	if result.PaymentType == "merkle" {
 		result.Depth = int(num64(j, "depth"))
 		result.MerklePaymentTimestamp = uint64(num64(j, "merkle_payment_timestamp"))
-		result.MerklePaymentsAddress = str(j, "merkle_payments_address")
 
 		for _, pc := range arrAt(j, "pool_commitments") {
 			if pcm, ok := pc.(map[string]any); ok {

@@ -166,7 +166,7 @@ class PrepareUploadResult {
   final String uploadId;
   final List<PaymentInfo> payments;
   final String totalAmount;
-  final String dataPaymentsAddress;
+  final String paymentVaultAddress;
   final String paymentTokenAddress;
   final String rpcUrl;
 
@@ -182,21 +182,17 @@ class PrepareUploadResult {
   /// Unix-seconds timestamp for the merkle payment. Present only when [paymentType] == "merkle".
   final int? merklePaymentTimestamp;
 
-  /// Merkle vault contract address. Present only when [paymentType] == "merkle".
-  final String? merklePaymentsAddress;
-
   const PrepareUploadResult({
     required this.uploadId,
     required this.payments,
     required this.totalAmount,
-    required this.dataPaymentsAddress,
+    required this.paymentVaultAddress,
     required this.paymentTokenAddress,
     required this.rpcUrl,
     this.paymentType = 'wave_batch',
     this.depth,
     this.poolCommitments,
     this.merklePaymentTimestamp,
-    this.merklePaymentsAddress,
   });
 
   factory PrepareUploadResult.fromJson(Map<String, dynamic> json) {
@@ -207,7 +203,7 @@ class PrepareUploadResult {
               .toList() ??
           [],
       totalAmount: json['total_amount'] as String? ?? '',
-      dataPaymentsAddress: json['data_payments_address'] as String? ?? '',
+      paymentVaultAddress: json['payment_vault_address'] as String? ?? '',
       paymentTokenAddress: json['payment_token_address'] as String? ?? '',
       rpcUrl: json['rpc_url'] as String? ?? '',
       paymentType: json['payment_type'] as String? ?? 'wave_batch',
@@ -218,8 +214,6 @@ class PrepareUploadResult {
           .toList(),
       merklePaymentTimestamp:
           (json['merkle_payment_timestamp'] as num?)?.toInt(),
-      merklePaymentsAddress:
-          json['merkle_payments_address'] as String?,
     );
   }
 

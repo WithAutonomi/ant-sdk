@@ -139,7 +139,7 @@ fn mock_prepare_upload_merkle(server: &mut ServerGuard) -> Mock {
             "upload_id": "up123",
             "payments": [],
             "total_amount": "5000",
-            "data_payments_address": "0xDP",
+            "payment_vault_address": "0xMP",
             "payment_token_address": "0xPT",
             "rpc_url": "http://rpc.local",
             "payment_type": "merkle",
@@ -159,8 +159,7 @@ fn mock_prepare_upload_merkle(server: &mut ServerGuard) -> Mock {
                     ]
                 }
             ],
-            "merkle_payment_timestamp": 1700000000,
-            "merkle_payments_address": "0xMP"
+            "merkle_payment_timestamp": 1700000000
         }"#)
         .create()
 }
@@ -186,7 +185,7 @@ fn mock_prepare_upload_legacy(server: &mut ServerGuard) -> Mock {
             "upload_id": "up_old",
             "payments": [{"quote_hash":"qh1","rewards_address":"0xr1","amount":"100"}],
             "total_amount": "100",
-            "data_payments_address": "0xDP",
+            "payment_vault_address": "0xDP",
             "payment_token_address": "0xPT",
             "rpc_url": "http://rpc.local"
         }"#)
@@ -477,7 +476,7 @@ async fn test_prepare_upload_merkle() {
     assert_eq!(result.total_amount, "5000");
     assert_eq!(result.depth, Some(4));
     assert_eq!(result.merkle_payment_timestamp, Some(1700000000));
-    assert_eq!(result.merkle_payments_address.as_deref(), Some("0xMP"));
+    assert_eq!(result.payment_vault_address, "0xMP");
 
     let pools = result.pool_commitments.unwrap();
     assert_eq!(pools.len(), 2);
@@ -518,7 +517,7 @@ async fn test_prepare_upload_backward_compat() {
     assert_eq!(result.depth, None);
     assert!(result.pool_commitments.is_none());
     assert!(result.merkle_payment_timestamp.is_none());
-    assert!(result.merkle_payments_address.is_none());
+    assert_eq!(result.payment_vault_address, "0xDP");
     assert_eq!(result.payments.len(), 1);
     assert_eq!(result.payments[0].quote_hash, "qh1");
 }

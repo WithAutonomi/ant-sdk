@@ -248,13 +248,12 @@ public sealed class AntdRestClient : IAntdClient
             new PoolCommitmentEntry(pc.PoolHash, pc.Candidates.Select(c => new CandidateNodeEntry(c.RewardsAddress, c.Amount)).ToList())
         ).ToList();
         return new PrepareUploadResult(
-            resp.UploadId, payments, resp.TotalAmount, resp.DataPaymentsAddress,
+            resp.UploadId, payments, resp.TotalAmount, resp.PaymentVaultAddress,
             resp.PaymentTokenAddress, resp.RpcUrl,
             PaymentType: resp.PaymentType ?? "wave_batch",
             Depth: resp.Depth,
             PoolCommitments: poolCommitments,
-            MerklePaymentTimestamp: resp.MerklePaymentTimestamp,
-            MerklePaymentsAddress: resp.MerklePaymentsAddress);
+            MerklePaymentTimestamp: resp.MerklePaymentTimestamp);
     }
 
     // ── Internal DTOs for JSON deserialization ──
@@ -304,14 +303,13 @@ public sealed class AntdRestClient : IAntdClient
         [property: JsonPropertyName("upload_id")] string UploadId,
         [property: JsonPropertyName("payments")] List<PaymentInfoDto>? Payments,
         [property: JsonPropertyName("total_amount")] string TotalAmount,
-        [property: JsonPropertyName("data_payments_address")] string DataPaymentsAddress,
+        [property: JsonPropertyName("payment_vault_address")] string PaymentVaultAddress,
         [property: JsonPropertyName("payment_token_address")] string PaymentTokenAddress,
         [property: JsonPropertyName("rpc_url")] string RpcUrl,
         [property: JsonPropertyName("payment_type")] string? PaymentType = null,
         [property: JsonPropertyName("depth")] int? Depth = null,
         [property: JsonPropertyName("pool_commitments")] List<PoolCommitmentEntryDto>? PoolCommitments = null,
-        [property: JsonPropertyName("merkle_payment_timestamp")] long? MerklePaymentTimestamp = null,
-        [property: JsonPropertyName("merkle_payments_address")] string? MerklePaymentsAddress = null);
+        [property: JsonPropertyName("merkle_payment_timestamp")] long? MerklePaymentTimestamp = null);
 
     private sealed record FinalizeUploadDto(
         [property: JsonPropertyName("address")] string Address,
