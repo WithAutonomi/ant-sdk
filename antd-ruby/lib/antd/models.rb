@@ -25,9 +25,9 @@ module Antd
   # Result of preparing an upload for external signing.
   PrepareUploadResult = Struct.new(
     :upload_id, :payments, :total_amount,
-    :data_payments_address, :payment_token_address, :rpc_url,
+    :payment_vault_address, :payment_token_address, :rpc_url,
     :payment_type, :depth, :pool_commitments,
-    :merkle_payment_timestamp, :merkle_payments_address,
+    :merkle_payment_timestamp,
     keyword_init: true
   )
 

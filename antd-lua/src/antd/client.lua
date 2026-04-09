@@ -178,14 +178,13 @@ local function build_prepare_result(j)
         upload_id = str(j, "upload_id"),
         payments = payments,
         total_amount = str(j, "total_amount"),
-        data_payments_address = str(j, "data_payments_address"),
+        payment_vault_address = str(j, "payment_vault_address"),
         payment_token_address = str(j, "payment_token_address"),
         rpc_url = str(j, "rpc_url"),
         payment_type = payment_type,
         depth = num(j, "depth"),
         pool_commitments = pool_commitments,
         merkle_payment_timestamp = num(j, "merkle_payment_timestamp"),
-        merkle_payments_address = str(j, "merkle_payments_address"),
     }
 end
 

@@ -75,43 +75,6 @@ std::future<std::vector<uint8_t>> AsyncClient::chunk_get(std::string address) {
 }
 
 // ---------------------------------------------------------------------------
-// Graph Entries (DAG Nodes)
-// ---------------------------------------------------------------------------
-
-std::future<PutResult> AsyncClient::graph_entry_put(
-        std::string owner_secret_key,
-        std::vector<std::string> parents,
-        std::string content,
-        std::vector<GraphDescendant> descendants) {
-    return std::async(std::launch::async,
-        [this,
-         osk = std::move(owner_secret_key),
-         p   = std::move(parents),
-         c   = std::move(content),
-         d   = std::move(descendants)] {
-            return client_.graph_entry_put(osk, p, c, d);
-        });
-}
-
-std::future<GraphEntry> AsyncClient::graph_entry_get(std::string address) {
-    return std::async(std::launch::async, [this, addr = std::move(address)] {
-        return client_.graph_entry_get(addr);
-    });
-}
-
-std::future<bool> AsyncClient::graph_entry_exists(std::string address) {
-    return std::async(std::launch::async, [this, addr = std::move(address)] {
-        return client_.graph_entry_exists(addr);
-    });
-}
-
-std::future<std::string> AsyncClient::graph_entry_cost(std::string public_key) {
-    return std::async(std::launch::async, [this, pk = std::move(public_key)] {
-        return client_.graph_entry_cost(pk);
-    });
-}
-
-// ---------------------------------------------------------------------------
 // Files & Directories
 // ---------------------------------------------------------------------------
 

@@ -17,6 +17,9 @@ fn build_prepare_response(
     let rpc_url =
         std::env::var("EVM_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
     let payment_token_address = std::env::var("EVM_PAYMENT_TOKEN_ADDRESS").unwrap_or_default();
+    let payment_vault_address = std::env::var("EVM_PAYMENT_VAULT_ADDRESS")
+        .or_else(|_| std::env::var("EVM_DATA_PAYMENTS_ADDRESS"))
+        .unwrap_or_default();
 
     match &prepared.payment_info {
         ant_core::data::ExternalPaymentInfo::WaveBatch { payment_intent, .. } => {
@@ -30,27 +33,20 @@ fn build_prepare_response(
                 })
                 .collect();
 
-            let data_payments_address =
-                std::env::var("EVM_DATA_PAYMENTS_ADDRESS").unwrap_or_default();
-
             Ok(PrepareUploadResponse {
                 upload_id,
                 payment_type: "wave_batch".into(),
                 payments,
-                data_payments_address: Some(data_payments_address),
                 depth: None,
                 pool_commitments: None,
                 merkle_payment_timestamp: None,
-                merkle_payments_address: None,
                 total_amount: payment_intent.total_amount.to_string(),
+                payment_vault_address,
                 payment_token_address,
                 rpc_url,
             })
         }
         ant_core::data::ExternalPaymentInfo::Merkle { prepared_batch, .. } => {
-            let merkle_payments_address =
-                std::env::var("EVM_MERKLE_PAYMENTS_ADDRESS").unwrap_or_default();
-
             // Serialize pool commitments for JSON response.
             // Each candidate has rewards_address + price (maps to contract's amount).
             let pool_commitments: Vec<PoolCommitmentEntry> = prepared_batch
@@ -73,12 +69,11 @@ fn build_prepare_response(
                 upload_id,
                 payment_type: "merkle".into(),
                 payments: vec![],
-                data_payments_address: None,
                 depth: Some(prepared_batch.depth),
                 pool_commitments: Some(pool_commitments),
                 merkle_payment_timestamp: Some(prepared_batch.merkle_payment_timestamp),
-                merkle_payments_address: Some(merkle_payments_address),
                 total_amount: "0".into(),
+                payment_vault_address,
                 payment_token_address,
                 rpc_url,
             })

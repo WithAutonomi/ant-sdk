@@ -82,9 +82,6 @@ pub struct PrepareUploadResponse {
     /// Per-quote payment entries for `payForQuotes()`.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub payments: Vec<PaymentEntry>,
-    /// Data payments contract address (wave-batch only).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data_payments_address: Option<String>,
 
     // --- Merkle fields (present when payment_type == "merkle") ---
     /// Merkle tree depth (1-8).
@@ -96,14 +93,13 @@ pub struct PrepareUploadResponse {
     /// Timestamp for the merkle payment (unix seconds).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub merkle_payment_timestamp: Option<u64>,
-    /// Merkle payment vault contract address.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub merkle_payments_address: Option<String>,
 
     // --- Common fields (always present) ---
     /// Total amount to pay (atto tokens as decimal string).
     /// For merkle this is "0" since cost is determined on-chain.
     pub total_amount: String,
+    /// Unified payment vault contract address (hex with 0x prefix).
+    pub payment_vault_address: String,
     /// Payment token contract address (hex with 0x prefix).
     pub payment_token_address: String,
     /// EVM RPC URL for submitting transactions.
@@ -279,24 +275,22 @@ mod tests {
                 rewards_address: "0xbb".into(),
                 amount: "100".into(),
             }],
-            data_payments_address: Some("0xcc".into()),
             depth: None,
             pool_commitments: None,
             merkle_payment_timestamp: None,
-            merkle_payments_address: None,
             total_amount: "100".into(),
+            payment_vault_address: "0xcc".into(),
             payment_token_address: "0xdd".into(),
             rpc_url: "http://localhost:8545".into(),
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["payment_type"], "wave_batch");
         assert_eq!(json["payments"][0]["quote_hash"], "0xaa");
-        assert_eq!(json["data_payments_address"], "0xcc");
+        assert_eq!(json["payment_vault_address"], "0xcc");
         // Merkle fields must be absent
         assert!(json.get("depth").is_none());
         assert!(json.get("pool_commitments").is_none());
         assert!(json.get("merkle_payment_timestamp").is_none());
-        assert!(json.get("merkle_payments_address").is_none());
     }
 
     #[test]
@@ -305,7 +299,6 @@ mod tests {
             upload_id: "def456".into(),
             payment_type: "merkle".into(),
             payments: vec![],
-            data_payments_address: None,
             depth: Some(5),
             pool_commitments: Some(vec![PoolCommitmentEntry {
                 pool_hash: "0xaabb".into(),
@@ -315,8 +308,8 @@ mod tests {
                 }],
             }]),
             merkle_payment_timestamp: Some(1712150400),
-            merkle_payments_address: Some("0xee".into()),
             total_amount: "0".into(),
+            payment_vault_address: "0xee".into(),
             payment_token_address: "0xdd".into(),
             rpc_url: "http://localhost:8545".into(),
         };
@@ -325,10 +318,9 @@ mod tests {
         assert_eq!(json["depth"], 5);
         assert_eq!(json["merkle_payment_timestamp"], 1712150400u64);
         assert_eq!(json["pool_commitments"][0]["pool_hash"], "0xaabb");
-        assert_eq!(json["merkle_payments_address"], "0xee");
+        assert_eq!(json["payment_vault_address"], "0xee");
         // Wave fields must be absent
         assert!(json.get("payments").is_none());
-        assert!(json.get("data_payments_address").is_none());
     }
 
     #[test]

@@ -237,7 +237,7 @@ class AntdClientTest {
                         + "\"candidates\":[{\"rewards_address\":\"0x1111\",\"amount\":\"500\"},"
                         + "{\"rewards_address\":\"0x2222\",\"amount\":\"600\"}]}],"
                         + "\"merkle_payment_timestamp\":1712150400,"
-                        + "\"merkle_payments_address\":\"0xmerkle\","
+                        + "\"payment_vault_address\":\"0xmerkle\","
                         + "\"total_amount\":\"0\","
                         + "\"payment_token_address\":\"0xtoken\","
                         + "\"rpc_url\":\"http://localhost:8545\"}"
@@ -251,7 +251,7 @@ class AntdClientTest {
                         + "\"depth\":3,"
                         + "\"pool_commitments\":[{\"pool_hash\":\"0xeeff\",\"candidates\":[]}],"
                         + "\"merkle_payment_timestamp\":1712150500,"
-                        + "\"merkle_payments_address\":\"0xmerkle2\","
+                        + "\"payment_vault_address\":\"0xmerkle2\","
                         + "\"total_amount\":\"0\","
                         + "\"payment_token_address\":\"0xtoken2\","
                         + "\"rpc_url\":\"http://localhost:8546\"}"
@@ -288,7 +288,7 @@ class AntdClientTest {
                 assertEquals("merkle", res.paymentType());
                 assertEquals(Integer.valueOf(5), res.depth());
                 assertEquals(Long.valueOf(1712150400L), res.merklePaymentTimestamp());
-                assertEquals("0xmerkle", res.merklePaymentsAddress());
+                assertEquals("0xmerkle", res.paymentVaultAddress());
                 assertEquals("0xtoken", res.paymentTokenAddress());
                 assertEquals("http://localhost:8545", res.rpcUrl());
                 assertEquals("0", res.totalAmount());
@@ -335,7 +335,7 @@ class AntdClientTest {
                                 "{\"upload_id\":\"old1\","
                                 + "\"payments\":[{\"quote_hash\":\"qh1\",\"rewards_address\":\"ra1\",\"amount\":\"50\"}],"
                                 + "\"total_amount\":\"50\","
-                                + "\"data_payments_address\":\"dp_old\","
+                                + "\"payment_vault_address\":\"dp_old\","
                                 + "\"payment_token_address\":\"pt_old\","
                                 + "\"rpc_url\":\"http://localhost:8545\"}"
                             );
@@ -358,7 +358,6 @@ class AntdClientTest {
                 assertNull(res.depth());
                 assertNull(res.poolCommitments());
                 assertNull(res.merklePaymentTimestamp());
-                assertNull(res.merklePaymentsAddress());
             }
         }
     }

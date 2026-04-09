@@ -247,14 +247,13 @@ export class RestClient {
       upload_id: string;
       payments: { quote_hash: string; rewards_address: string; amount: string }[];
       total_amount: string;
-      data_payments_address: string;
+      payment_vault_address: string;
       payment_token_address: string;
       rpc_url: string;
       payment_type?: string;
       depth?: number;
       pool_commitments?: { pool_hash: string; candidates: { rewards_address: string; amount: string }[] }[];
       merkle_payment_timestamp?: number;
-      merkle_payments_address?: string;
     }>("/v1/upload/prepare", { path });
     const result: PrepareUploadResult = {
       uploadId: j.upload_id,
@@ -264,7 +263,7 @@ export class RestClient {
         amount: p.amount,
       })),
       totalAmount: j.total_amount,
-      dataPaymentsAddress: j.data_payments_address,
+      paymentVaultAddress: j.payment_vault_address,
       paymentTokenAddress: j.payment_token_address,
       rpcUrl: j.rpc_url,
       paymentType: j.payment_type ?? "wave_batch",
@@ -280,7 +279,6 @@ export class RestClient {
       }));
     }
     if (j.merkle_payment_timestamp !== undefined) result.merklePaymentTimestamp = j.merkle_payment_timestamp;
-    if (j.merkle_payments_address !== undefined) result.merklePaymentsAddress = j.merkle_payments_address;
     return result;
   }
 
@@ -290,14 +288,13 @@ export class RestClient {
       upload_id: string;
       payments: { quote_hash: string; rewards_address: string; amount: string }[];
       total_amount: string;
-      data_payments_address: string;
+      payment_vault_address: string;
       payment_token_address: string;
       rpc_url: string;
       payment_type?: string;
       depth?: number;
       pool_commitments?: { pool_hash: string; candidates: { rewards_address: string; amount: string }[] }[];
       merkle_payment_timestamp?: number;
-      merkle_payments_address?: string;
     }>("/v1/data/prepare", { data: RestClient.b64(data) });
     const result: PrepareUploadResult = {
       uploadId: j.upload_id,
@@ -307,7 +304,7 @@ export class RestClient {
         amount: p.amount,
       })),
       totalAmount: j.total_amount,
-      dataPaymentsAddress: j.data_payments_address,
+      paymentVaultAddress: j.payment_vault_address,
       paymentTokenAddress: j.payment_token_address,
       rpcUrl: j.rpc_url,
       paymentType: j.payment_type ?? "wave_batch",
@@ -323,7 +320,6 @@ export class RestClient {
       }));
     }
     if (j.merkle_payment_timestamp !== undefined) result.merklePaymentTimestamp = j.merkle_payment_timestamp;
-    if (j.merkle_payments_address !== undefined) result.merklePaymentsAddress = j.merkle_payments_address;
     return result;
   }
 

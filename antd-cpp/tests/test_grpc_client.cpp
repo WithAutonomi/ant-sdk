@@ -183,37 +183,6 @@ TEST_CASE("PutResult from gRPC chunk put response") {
     CHECK(r.address == "chunk1");
 }
 
-TEST_CASE("GraphEntry from gRPC response fields") {
-    // Simulates parsing a GetGraphEntryResponse
-    antd::GraphEntry entry;
-    entry.owner = "owner1";
-    entry.content = "abc";
-    entry.parents = {};  // empty parents list
-    entry.descendants.push_back(antd::GraphDescendant{
-        .public_key = "pk1",
-        .content = "desc1",
-    });
-
-    CHECK(entry.owner == "owner1");
-    CHECK(entry.content == "abc");
-    CHECK(entry.parents.empty());
-    CHECK(entry.descendants.size() == 1);
-    CHECK(entry.descendants[0].public_key == "pk1");
-    CHECK(entry.descendants[0].content == "desc1");
-}
-
-TEST_CASE("GraphEntry with parents from gRPC response") {
-    antd::GraphEntry entry;
-    entry.owner = "owner1";
-    entry.content = "abc";
-    entry.parents = {"p1", "p2"};
-    entry.descendants = {};
-
-    CHECK(entry.parents.size() == 2);
-    CHECK(entry.parents[0] == "p1");
-    CHECK(entry.parents[1] == "p2");
-}
-
 TEST_CASE("PutResult from gRPC graph entry put response") {
     antd::PutResult r;
     r.cost = "500";

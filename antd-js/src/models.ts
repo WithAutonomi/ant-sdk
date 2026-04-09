@@ -45,14 +45,13 @@ export interface PrepareUploadResult {
   uploadId: string; // hex identifier
   payments: PaymentInfo[];
   totalAmount: string;
-  dataPaymentsAddress: string; // contract address
+  paymentVaultAddress: string; // payment vault contract address
   paymentTokenAddress: string; // token contract address
   rpcUrl: string; // EVM RPC URL
   paymentType: string; // "wave_batch" or "merkle"
   depth?: number; // merkle tree depth (merkle only)
   poolCommitments?: PoolCommitmentEntry[]; // pool commitments (merkle only)
   merklePaymentTimestamp?: number; // payment timestamp (merkle only)
-  merklePaymentsAddress?: string; // merkle contract address (merkle only)
 }
 
 /** Result of finalizing an externally-signed upload. */

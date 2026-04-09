@@ -258,14 +258,13 @@ module Antd
         upload_id: j["upload_id"] || "",
         payments: payments,
         total_amount: j["total_amount"] || "",
-        data_payments_address: j["data_payments_address"] || "",
+        payment_vault_address: j["payment_vault_address"] || "",
         payment_token_address: j["payment_token_address"] || "",
         rpc_url: j["rpc_url"] || "",
         payment_type: payment_type,
         depth: j["depth"] || 0,
         pool_commitments: pool_commitments,
-        merkle_payment_timestamp: j["merkle_payment_timestamp"] || 0,
-        merkle_payments_address: j["merkle_payments_address"] || ""
+        merkle_payment_timestamp: j["merkle_payment_timestamp"] || 0
       )
     end
 

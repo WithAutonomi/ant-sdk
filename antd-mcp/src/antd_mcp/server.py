@@ -414,10 +414,10 @@ def _prepare_result_to_dict(result) -> dict:
         "payment_token_address": result.payment_token_address,
         "rpc_url": result.rpc_url,
     }
+    d["payment_vault_address"] = result.payment_vault_address
     if result.payment_type == "merkle":
         d["depth"] = result.depth
         d["merkle_payment_timestamp"] = result.merkle_payment_timestamp
-        d["merkle_payments_address"] = result.merkle_payments_address
         d["pool_commitments"] = [
             {
                 "pool_hash": pc.pool_hash,
@@ -429,7 +429,6 @@ def _prepare_result_to_dict(result) -> dict:
             for pc in result.pool_commitments
         ]
     else:
-        d["data_payments_address"] = result.data_payments_address
         d["payments"] = [
             {
                 "quote_hash": p.quote_hash,

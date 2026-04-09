@@ -89,8 +89,7 @@ $bootstrapPeers = ($manifest.bootstrap -join ",")
 $walletKey = $manifest.evm.wallet_private_key -replace '^0x', ''
 $evmRpcUrl = $manifest.evm.rpc_url
 $evmTokenAddr = $manifest.evm.payment_token_address
-$evmPaymentsAddr = $manifest.evm.data_payments_address
-$evmMerkleAddr = if ($manifest.evm.merkle_payments_address) { $manifest.evm.merkle_payments_address } else { "" }
+$evmVaultAddr = if ($manifest.evm.payment_vault_address) { $manifest.evm.payment_vault_address } elseif ($manifest.evm.data_payments_address) { $manifest.evm.data_payments_address } else { "" }
 
 Write-Host "       Devnet ready: $($manifest.node_count) nodes, base port $($manifest.base_port)" -ForegroundColor Green
 Write-Host "       EVM:   $evmRpcUrl" -ForegroundColor Green
@@ -102,8 +101,7 @@ $antdEnv = @{
     AUTONOMI_WALLET_KEY           = $walletKey
     EVM_RPC_URL                   = $evmRpcUrl
     EVM_PAYMENT_TOKEN_ADDRESS     = $evmTokenAddr
-    EVM_DATA_PAYMENTS_ADDRESS     = $evmPaymentsAddr
-    EVM_MERKLE_PAYMENTS_ADDRESS   = $evmMerkleAddr
+    EVM_PAYMENT_VAULT_ADDRESS     = $evmVaultAddr
 }
 # Merge with current environment
 $mergedEnv = [System.Collections.Generic.Dictionary[string,string]]::new()

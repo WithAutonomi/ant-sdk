@@ -155,11 +155,10 @@ class TestClient < Minitest::Test
       depth: 3,
       total_amount: "5000",
       payments: [],
-      data_payments_address: "0xDATA",
+      payment_vault_address: "0xMERKLE",
       payment_token_address: "0xTOKEN",
       rpc_url: "http://localhost:8545",
       merkle_payment_timestamp: 1700000000,
-      merkle_payments_address: "0xMERKLE",
       pool_commitments: [
         {
           pool_hash: "pool_abc",
@@ -182,7 +181,7 @@ class TestClient < Minitest::Test
     assert_equal 3, result.depth
     assert_equal "5000", result.total_amount
     assert_equal 1700000000, result.merkle_payment_timestamp
-    assert_equal "0xMERKLE", result.merkle_payments_address
+    assert_equal "0xMERKLE", result.payment_vault_address
     assert_equal [], result.payments
 
     assert_equal 1, result.pool_commitments.length
@@ -215,7 +214,7 @@ class TestClient < Minitest::Test
         { quote_hash: "qh1", rewards_address: "0xR1", amount: "100" }
       ],
       total_amount: "100",
-      data_payments_address: "0xDATA",
+      payment_vault_address: "0xDATA",
       payment_token_address: "0xTOKEN",
       rpc_url: "http://localhost:8545"
     }.to_json
@@ -231,7 +230,7 @@ class TestClient < Minitest::Test
     assert_equal 0, result.depth
     assert_equal [], result.pool_commitments
     assert_equal 0, result.merkle_payment_timestamp
-    assert_equal "", result.merkle_payments_address
+    assert_equal "0xDATA", result.payment_vault_address
 
     assert_equal 1, result.payments.length
     assert_equal "qh1", result.payments[0].quote_hash

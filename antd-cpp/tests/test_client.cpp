@@ -101,35 +101,6 @@ TEST_CASE("PutResult from JSON") {
     CHECK(r.address == "abc123");
 }
 
-TEST_CASE("GraphEntry from JSON") {
-    auto j = json::parse(R"({
-        "owner":"owner1",
-        "parents":["p1","p2"],
-        "content":"abc",
-        "descendants":[{"public_key":"pk1","content":"desc1"}]
-    })");
-
-    antd::GraphEntry entry;
-    entry.owner = j.value("owner", "");
-    entry.content = j.value("content", "");
-    for (const auto& p : j["parents"]) {
-        entry.parents.push_back(p.get<std::string>());
-    }
-    for (const auto& d : j["descendants"]) {
-        entry.descendants.push_back(antd::GraphDescendant{
-            d.value("public_key", ""),
-            d.value("content", ""),
-        });
-    }
-
-    CHECK(entry.owner == "owner1");
-    CHECK(entry.parents.size() == 2);
-    CHECK(entry.parents[0] == "p1");
-    CHECK(entry.content == "abc");
-    CHECK(entry.descendants.size() == 1);
-    CHECK(entry.descendants[0].public_key == "pk1");
-}
-
 // ---------------------------------------------------------------------------
 // PrepareUploadResult: merkle payment parsing
 // ---------------------------------------------------------------------------
@@ -140,8 +111,8 @@ TEST_CASE("PrepareUploadResult merkle from JSON") {
         "payment_type": "merkle",
         "depth": 5,
         "merkle_payment_timestamp": 1712150400,
-        "merkle_payments_address": "0xmerkle",
         "total_amount": "0",
+        "payment_vault_address": "0xvault",
         "payment_token_address": "0xtoken",
         "rpc_url": "http://rpc.example.com",
         "pool_commitments": [
@@ -160,7 +131,7 @@ TEST_CASE("PrepareUploadResult merkle from JSON") {
     r.upload_id = j.value("upload_id", "");
     r.payment_type = j.value("payment_type", "");
     r.total_amount = j.value("total_amount", "");
-    r.data_payments_address = j.value("data_payments_address", "");
+    r.payment_vault_address = j.value("payment_vault_address", "");
     r.payment_token_address = j.value("payment_token_address", "");
     r.rpc_url = j.value("rpc_url", "");
 
@@ -183,7 +154,6 @@ TEST_CASE("PrepareUploadResult merkle from JSON") {
     if (r.payment_type == "merkle") {
         r.depth = j.value("depth", 0);
         r.merkle_payment_timestamp = j.value("merkle_payment_timestamp", uint64_t{0});
-        r.merkle_payments_address = j.value("merkle_payments_address", "");
 
         if (j.contains("pool_commitments") && j["pool_commitments"].is_array()) {
             for (const auto& pc : j["pool_commitments"]) {
@@ -209,8 +179,8 @@ TEST_CASE("PrepareUploadResult merkle from JSON") {
     CHECK(r.payment_type == "merkle");
     CHECK(r.depth == 5);
     CHECK(r.merkle_payment_timestamp == 1712150400);
-    CHECK(r.merkle_payments_address == "0xmerkle");
     CHECK(r.total_amount == "0");
+    CHECK(r.payment_vault_address == "0xvault");
     CHECK(r.payment_token_address == "0xtoken");
     CHECK(r.rpc_url == "http://rpc.example.com");
     CHECK(r.payments.empty());
@@ -258,7 +228,7 @@ TEST_CASE("PrepareUploadResult backward compat - no payment_type defaults to wav
     auto j = json::parse(R"({
         "upload_id": "up_old",
         "total_amount": "5000",
-        "data_payments_address": "0xdp",
+        "payment_vault_address": "0xvault",
         "payment_token_address": "0xtoken",
         "rpc_url": "http://rpc.old.com",
         "payments": [
@@ -271,7 +241,7 @@ TEST_CASE("PrepareUploadResult backward compat - no payment_type defaults to wav
     r.upload_id = j.value("upload_id", "");
     r.payment_type = j.value("payment_type", "");
     r.total_amount = j.value("total_amount", "");
-    r.data_payments_address = j.value("data_payments_address", "");
+    r.payment_vault_address = j.value("payment_vault_address", "");
     r.payment_token_address = j.value("payment_token_address", "");
     r.rpc_url = j.value("rpc_url", "");
 
@@ -294,7 +264,7 @@ TEST_CASE("PrepareUploadResult backward compat - no payment_type defaults to wav
     CHECK(r.payment_type == "wave_batch");
     CHECK(r.upload_id == "up_old");
     CHECK(r.total_amount == "5000");
-    CHECK(r.data_payments_address == "0xdp");
+    CHECK(r.payment_vault_address == "0xvault");
     REQUIRE(r.payments.size() == 2);
     CHECK(r.payments[0].quote_hash == "qh1");
     CHECK(r.payments[1].quote_hash == "qh2");
@@ -302,7 +272,6 @@ TEST_CASE("PrepareUploadResult backward compat - no payment_type defaults to wav
     // Merkle fields should be at defaults
     CHECK(r.depth == 0);
     CHECK(r.merkle_payment_timestamp == 0);
-    CHECK(r.merkle_payments_address.empty());
     CHECK(r.pool_commitments.empty());
 }
 

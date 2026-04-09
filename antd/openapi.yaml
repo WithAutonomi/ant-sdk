@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: antd REST API
   description: REST API for the antd daemon — gateway to the Autonomi network.
-  version: 1.0.0
+  version: 2.0.0
 
 servers:
   - url: http://localhost:8082
@@ -718,7 +718,7 @@ components:
 
     PrepareUploadResponse:
       type: object
-      required: [upload_id, payment_type, total_amount, payment_token_address, rpc_url]
+      required: [upload_id, payment_type, total_amount, payment_vault_address, payment_token_address, rpc_url]
       properties:
         upload_id:
           type: string
@@ -736,9 +736,6 @@ components:
           items:
             $ref: "#/components/schemas/PaymentEntry"
           description: Per-quote payment entries for payForQuotes() (wave_batch only)
-        data_payments_address:
-          type: string
-          description: Data payments contract address (wave_batch only)
         # -- Merkle fields (present when payment_type == "merkle") --
         depth:
           type: integer
@@ -752,15 +749,15 @@ components:
           type: integer
           format: int64
           description: Unix timestamp for the merkle payment (merkle only)
-        merkle_payments_address:
-          type: string
-          description: Merkle payment vault contract address (merkle only)
         # -- Common fields --
         total_amount:
           type: string
           description: >-
             Total amount to pay (atto tokens as decimal string).
             For merkle this is "0" since cost is determined on-chain.
+        payment_vault_address:
+          type: string
+          description: Payment vault contract address (hex with 0x prefix)
         payment_token_address:
           type: string
           description: Payment token contract address (hex with 0x prefix)

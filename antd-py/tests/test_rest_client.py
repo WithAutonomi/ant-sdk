@@ -115,7 +115,7 @@ class _MockHandler(BaseHTTPRequestHandler):
                     "payment_type": "merkle_batch",
                     "payments": [],
                     "total_amount": "5000",
-                    "data_payments_address": "0xDP",
+                    "payment_vault_address": "0xMERKLE",
                     "payment_token_address": "0xTK",
                     "rpc_url": "http://rpc.local",
                     "depth": 3,
@@ -129,7 +129,6 @@ class _MockHandler(BaseHTTPRequestHandler):
                         },
                     ],
                     "merkle_payment_timestamp": 1700000000,
-                    "merkle_payments_address": "0xMERKLE",
                 })
             elif "compat" in req.get("path", ""):
                 # Backward compat: no payment_type field
@@ -139,7 +138,7 @@ class _MockHandler(BaseHTTPRequestHandler):
                         {"quote_hash": "qh1", "rewards_address": "0xR1", "amount": "100"},
                     ],
                     "total_amount": "100",
-                    "data_payments_address": "0xDP",
+                    "payment_vault_address": "0xDP",
                     "payment_token_address": "0xTK",
                     "rpc_url": "http://rpc.local",
                 })
@@ -151,7 +150,7 @@ class _MockHandler(BaseHTTPRequestHandler):
                         {"quote_hash": "qh1", "rewards_address": "0xR1", "amount": "100"},
                     ],
                     "total_amount": "100",
-                    "data_payments_address": "0xDP",
+                    "payment_vault_address": "0xDP",
                     "payment_token_address": "0xTK",
                     "rpc_url": "http://rpc.local",
                 })
@@ -277,7 +276,7 @@ class TestPrepareUploadMerkle:
         assert result.depth == 3
         assert result.total_amount == "5000"
         assert result.merkle_payment_timestamp == 1700000000
-        assert result.merkle_payments_address == "0xMERKLE"
+        assert result.payment_vault_address == "0xMERKLE"
         # pool_commitments
         assert len(result.pool_commitments) == 1
         pc = result.pool_commitments[0]
@@ -323,7 +322,7 @@ class TestPrepareUploadBackwardCompat:
         assert result.depth == 0
         assert result.pool_commitments == []
         assert result.merkle_payment_timestamp == 0
-        assert result.merkle_payments_address == ""
+        assert result.payment_vault_address == "0xDP"
         # wave_batch payments should still be parsed
         assert len(result.payments) == 1
         assert result.payments[0].quote_hash == "qh1"

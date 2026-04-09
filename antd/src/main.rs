@@ -165,12 +165,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let rpc_url =
             std::env::var("EVM_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
         let token_addr = std::env::var("EVM_PAYMENT_TOKEN_ADDRESS").unwrap_or_default();
-        let payments_addr = std::env::var("EVM_DATA_PAYMENTS_ADDRESS").unwrap_or_default();
+        let payments_addr = std::env::var("EVM_PAYMENT_VAULT_ADDRESS")
+            .or_else(|_| std::env::var("EVM_DATA_PAYMENTS_ADDRESS"))
+            .unwrap_or_default();
         if token_addr.is_empty() {
             tracing::warn!("EVM_PAYMENT_TOKEN_ADDRESS is empty — payments may fail");
         }
         if payments_addr.is_empty() {
-            tracing::warn!("EVM_DATA_PAYMENTS_ADDRESS is empty — payments may fail");
+            tracing::warn!("EVM_PAYMENT_VAULT_ADDRESS is empty — payments may fail");
         }
         tracing::info!(%rpc_url, "loading EVM wallet...");
         let network = evmlib::Network::new_custom(&rpc_url, &token_addr, &payments_addr);
@@ -189,7 +191,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let rpc_url = std::env::var("EVM_RPC_URL").ok();
         if let Some(rpc_url) = rpc_url {
             let token_addr = std::env::var("EVM_PAYMENT_TOKEN_ADDRESS").unwrap_or_default();
-            let payments_addr = std::env::var("EVM_DATA_PAYMENTS_ADDRESS").unwrap_or_default();
+            let payments_addr = std::env::var("EVM_PAYMENT_VAULT_ADDRESS")
+                .or_else(|_| std::env::var("EVM_DATA_PAYMENTS_ADDRESS"))
+                .unwrap_or_default();
             let network = evmlib::Network::new_custom(&rpc_url, &token_addr, &payments_addr);
             client = client.with_evm_network(network);
             tracing::info!(%rpc_url, "EVM network configured (external signer mode)");

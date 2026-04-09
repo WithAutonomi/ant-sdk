@@ -121,7 +121,7 @@ impl Client {
         mut private_key: String,
         rpc_url: String,
         payment_token_address: String,
-        data_payments_address: String,
+        payment_vault_address: String,
     ) -> Result<Arc<Self>, ClientError> {
         let mut builder = CoreNodeConfig::builder()
             .mode(NodeMode::Client)
@@ -164,7 +164,7 @@ impl Client {
         let network = evmlib::Network::new_custom(
             &rpc_url,
             &payment_token_address,
-            &data_payments_address,
+            &payment_vault_address,
             None,
         );
         let result = evmlib::wallet::Wallet::new_from_private_key(network, &private_key);

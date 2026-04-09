@@ -477,14 +477,13 @@ defmodule Antd.Client do
       upload_id: body["upload_id"] || "",
       payments: payments,
       total_amount: body["total_amount"] || "",
-      data_payments_address: body["data_payments_address"] || "",
+      payment_vault_address: body["payment_vault_address"] || "",
       payment_token_address: body["payment_token_address"] || "",
       rpc_url: body["rpc_url"] || "",
       payment_type: payment_type,
       depth: body["depth"] || 0,
       pool_commitments: pool_commitments,
-      merkle_payment_timestamp: body["merkle_payment_timestamp"] || 0,
-      merkle_payments_address: body["merkle_payments_address"] || ""
+      merkle_payment_timestamp: body["merkle_payment_timestamp"] || 0
     }
   end
 

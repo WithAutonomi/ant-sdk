@@ -26,14 +26,13 @@ public sealed record PrepareUploadResult(
     string UploadId,
     List<PaymentInfo> Payments,
     string TotalAmount,
-    string DataPaymentsAddress,
+    string PaymentVaultAddress,
     string PaymentTokenAddress,
     string RpcUrl,
     string PaymentType = "wave_batch",
     int? Depth = null,
     List<PoolCommitmentEntry>? PoolCommitments = null,
-    long? MerklePaymentTimestamp = null,
-    string? MerklePaymentsAddress = null);
+    long? MerklePaymentTimestamp = null);
 
 /// <summary>Result of finalizing an externally-signed upload.</summary>
 public sealed record FinalizeUploadResult(string Address, long ChunksStored);

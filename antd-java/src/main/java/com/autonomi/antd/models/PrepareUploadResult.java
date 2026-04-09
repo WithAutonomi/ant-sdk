@@ -11,23 +11,21 @@ import java.util.List;
  * @param paymentType            "wave_batch" or "merkle"
  * @param payments               per-quote payments for payForQuotes() (wave_batch only)
  * @param totalAmount            total atto tokens ("0" for merkle)
- * @param dataPaymentsAddress    wave-batch contract address (wave_batch only)
+ * @param paymentVaultAddress     payment vault contract address
  * @param paymentTokenAddress    payment token contract address
  * @param rpcUrl                 EVM RPC URL for submitting transactions
  * @param depth                  merkle tree depth 1-8 (merkle only)
  * @param poolCommitments        pool commitments for payForMerkleTree() (merkle only)
  * @param merklePaymentTimestamp unix seconds timestamp (merkle only)
- * @param merklePaymentsAddress  merkle vault contract address (merkle only)
  */
 public record PrepareUploadResult(
         String uploadId,
         String paymentType,
         List<PaymentInfo> payments,
         String totalAmount,
-        String dataPaymentsAddress,
+        String paymentVaultAddress,
         String paymentTokenAddress,
         String rpcUrl,
         Integer depth,
         List<PoolCommitmentEntry> poolCommitments,
-        Long merklePaymentTimestamp,
-        String merklePaymentsAddress) {}
+        Long merklePaymentTimestamp) {}

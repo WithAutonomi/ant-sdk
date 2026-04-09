@@ -65,23 +65,6 @@ public:
     /// Retrieve a chunk by address.
     std::future<std::vector<uint8_t>> chunk_get(std::string address);
 
-    // --- Graph Entries (DAG Nodes) ---
-
-    /// Create a new graph entry.
-    std::future<PutResult> graph_entry_put(std::string owner_secret_key,
-                                           std::vector<std::string> parents,
-                                           std::string content,
-                                           std::vector<GraphDescendant> descendants);
-
-    /// Retrieve a graph entry by address.
-    std::future<GraphEntry> graph_entry_get(std::string address);
-
-    /// Check if a graph entry exists at the given address.
-    std::future<bool> graph_entry_exists(std::string address);
-
-    /// Estimate the cost of creating a graph entry.
-    std::future<std::string> graph_entry_cost(std::string public_key);
-
     // --- Files & Directories ---
 
     /// Upload a local file to the network.

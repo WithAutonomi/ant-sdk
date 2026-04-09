@@ -340,13 +340,11 @@ public class AntdClient implements AutoCloseable {
         Integer depth = null;
         List<PoolCommitmentEntry> poolCommitments = null;
         Long merklePaymentTimestamp = null;
-        String merklePaymentsAddress = null;
 
         if ("merkle".equals(paymentType)) {
             long depthVal = num(j, "depth");
             depth = (int) depthVal;
             merklePaymentTimestamp = num(j, "merkle_payment_timestamp");
-            merklePaymentsAddress = str(j, "merkle_payments_address");
 
             poolCommitments = new ArrayList<>();
             for (Map<String, Object> pcm : listOfMaps(j, "pool_commitments")) {
@@ -364,13 +362,12 @@ public class AntdClient implements AutoCloseable {
                 paymentType,
                 Collections.unmodifiableList(payments),
                 str(j, "total_amount"),
-                str(j, "data_payments_address"),
+                str(j, "payment_vault_address"),
                 str(j, "payment_token_address"),
                 str(j, "rpc_url"),
                 depth,
                 poolCommitments,
-                merklePaymentTimestamp,
-                merklePaymentsAddress
+                merklePaymentTimestamp
         );
     }
 

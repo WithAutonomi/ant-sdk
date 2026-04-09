@@ -78,7 +78,7 @@ func mockDaemon(t *testing.T) *httptest.Server {
 				"payment_type":          "wave_batch",
 				"payments":              []any{map[string]any{"quote_hash": "qh1", "rewards_address": "ra1", "amount": "100"}},
 				"total_amount":          "100",
-				"data_payments_address": "dp1",
+				"payment_vault_address": "dp1",
 				"payment_token_address": "pt1",
 				"rpc_url":              "http://localhost:8545",
 			})
@@ -90,7 +90,7 @@ func mockDaemon(t *testing.T) *httptest.Server {
 				"payment_type":          "wave_batch",
 				"payments":              []any{map[string]any{"quote_hash": "qh1", "rewards_address": "ra1", "amount": "100"}},
 				"total_amount":          "100",
-				"data_payments_address": "dp1",
+				"payment_vault_address": "dp1",
 				"payment_token_address": "pt1",
 				"rpc_url":              "http://localhost:8545",
 			})
@@ -286,8 +286,8 @@ func TestPrepareUpload(t *testing.T) {
 	if res.TotalAmount != "100" {
 		t.Fatalf("unexpected total_amount: %s", res.TotalAmount)
 	}
-	if res.DataPaymentsAddress != "dp1" {
-		t.Fatalf("unexpected data_payments_address: %s", res.DataPaymentsAddress)
+	if res.PaymentVaultAddress != "dp1" {
+		t.Fatalf("unexpected payment_vault_address: %s", res.PaymentVaultAddress)
 	}
 	if res.PaymentTokenAddress != "pt1" {
 		t.Fatalf("unexpected payment_token_address: %s", res.PaymentTokenAddress)
@@ -314,8 +314,8 @@ func TestPrepareDataUpload(t *testing.T) {
 	if res.TotalAmount != "100" {
 		t.Fatalf("unexpected total_amount: %s", res.TotalAmount)
 	}
-	if res.DataPaymentsAddress != "dp1" {
-		t.Fatalf("unexpected data_payments_address: %s", res.DataPaymentsAddress)
+	if res.PaymentVaultAddress != "dp1" {
+		t.Fatalf("unexpected payment_vault_address: %s", res.PaymentVaultAddress)
 	}
 	if res.PaymentTokenAddress != "pt1" {
 		t.Fatalf("unexpected payment_token_address: %s", res.PaymentTokenAddress)
@@ -388,7 +388,7 @@ func mockMerkleDaemon(t *testing.T) *httptest.Server {
 					},
 				},
 				"merkle_payment_timestamp": float64(1712150400),
-				"merkle_payments_address":  "0xmerkle",
+				"payment_vault_address":    "0xmerkle",
 				"total_amount":             "0",
 				"payment_token_address":    "0xtoken",
 				"rpc_url":                  "http://localhost:8545",
@@ -406,7 +406,7 @@ func mockMerkleDaemon(t *testing.T) *httptest.Server {
 					},
 				},
 				"merkle_payment_timestamp": float64(1712150500),
-				"merkle_payments_address":  "0xmerkle2",
+				"payment_vault_address":    "0xmerkle2",
 				"total_amount":             "0",
 				"payment_token_address":    "0xtoken2",
 				"rpc_url":                  "http://localhost:8546",
@@ -446,8 +446,8 @@ func TestPrepareUploadMerkle(t *testing.T) {
 	if res.MerklePaymentTimestamp != 1712150400 {
 		t.Fatalf("unexpected timestamp: %d", res.MerklePaymentTimestamp)
 	}
-	if res.MerklePaymentsAddress != "0xmerkle" {
-		t.Fatalf("unexpected merkle_payments_address: %s", res.MerklePaymentsAddress)
+	if res.PaymentVaultAddress != "0xmerkle" {
+		t.Fatalf("unexpected payment_vault_address: %s", res.PaymentVaultAddress)
 	}
 	if len(res.PoolCommitments) != 1 {
 		t.Fatalf("expected 1 pool commitment, got %d", len(res.PoolCommitments))
@@ -488,8 +488,8 @@ func TestPrepareDataUploadMerkle(t *testing.T) {
 	if res.Depth != 3 {
 		t.Fatalf("unexpected depth: %d", res.Depth)
 	}
-	if res.MerklePaymentsAddress != "0xmerkle2" {
-		t.Fatalf("unexpected merkle_payments_address: %s", res.MerklePaymentsAddress)
+	if res.PaymentVaultAddress != "0xmerkle2" {
+		t.Fatalf("unexpected payment_vault_address: %s", res.PaymentVaultAddress)
 	}
 }
 
@@ -517,7 +517,7 @@ func TestPrepareUploadBackwardCompat(t *testing.T) {
 			"upload_id":              "old1",
 			"payments":              []any{map[string]any{"quote_hash": "qh1", "rewards_address": "ra1", "amount": "50"}},
 			"total_amount":          "50",
-			"data_payments_address": "dp_old",
+			"payment_vault_address": "dp_old",
 			"payment_token_address": "pt_old",
 			"rpc_url":              "http://localhost:8545",
 		})

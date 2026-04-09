@@ -627,7 +627,7 @@ class AntdClient
     /**
      * Prepare a file upload for external signing.
      *
-     * @return array{upload_id: string, payments: array, total_amount: string, data_payments_address: string, payment_token_address: string, rpc_url: string}
+     * @return array{upload_id: string, payments: array, total_amount: string, payment_vault_address: string, payment_token_address: string, rpc_url: string}
      */
     public function prepareUpload(string $path): array
     {
@@ -636,7 +636,7 @@ class AntdClient
             'upload_id' => $json['upload_id'] ?? '',
             'payments' => $json['payments'] ?? [],
             'total_amount' => $json['total_amount'] ?? '',
-            'data_payments_address' => $json['data_payments_address'] ?? '',
+            'payment_vault_address' => $json['payment_vault_address'] ?? '',
             'payment_token_address' => $json['payment_token_address'] ?? '',
             'rpc_url' => $json['rpc_url'] ?? '',
         ];
@@ -654,7 +654,7 @@ class AntdClient
                 'upload_id' => $json['upload_id'] ?? '',
                 'payments' => $json['payments'] ?? [],
                 'total_amount' => $json['total_amount'] ?? '',
-                'data_payments_address' => $json['data_payments_address'] ?? '',
+                'payment_vault_address' => $json['payment_vault_address'] ?? '',
                 'payment_token_address' => $json['payment_token_address'] ?? '',
                 'rpc_url' => $json['rpc_url'] ?? '',
             ],
@@ -666,7 +666,7 @@ class AntdClient
      * Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
      *
      * @param string $data Raw bytes to upload.
-     * @return array{upload_id: string, payments: array, total_amount: string, data_payments_address: string, payment_token_address: string, rpc_url: string}
+     * @return array{upload_id: string, payments: array, total_amount: string, payment_vault_address: string, payment_token_address: string, rpc_url: string}
      */
     public function prepareDataUpload(string $data): array
     {
@@ -675,7 +675,7 @@ class AntdClient
             'upload_id' => $json['upload_id'] ?? '',
             'payments' => $json['payments'] ?? [],
             'total_amount' => $json['total_amount'] ?? '',
-            'data_payments_address' => $json['data_payments_address'] ?? '',
+            'payment_vault_address' => $json['payment_vault_address'] ?? '',
             'payment_token_address' => $json['payment_token_address'] ?? '',
             'rpc_url' => $json['rpc_url'] ?? '',
         ];
@@ -694,7 +694,7 @@ class AntdClient
                 'upload_id' => $json['upload_id'] ?? '',
                 'payments' => $json['payments'] ?? [],
                 'total_amount' => $json['total_amount'] ?? '',
-                'data_payments_address' => $json['data_payments_address'] ?? '',
+                'payment_vault_address' => $json['payment_vault_address'] ?? '',
                 'payment_token_address' => $json['payment_token_address'] ?? '',
                 'rpc_url' => $json['rpc_url'] ?? '',
             ],

@@ -8,7 +8,7 @@ crate-type = ["cdylib", "staticlib", "lib"]
 
 [dependencies]
 ant-core = { git = "https://github.com/WithAutonomi/ant-client" }
-evmlib = "0.5.0"
+evmlib = "0.8.0"
 bytes = "1"
 hex = "0.4"
 rand = "0.8"

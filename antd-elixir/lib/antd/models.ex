@@ -85,33 +85,31 @@ end
 defmodule Antd.PrepareUploadResult do
   @moduledoc "Result of preparing an upload for external signing."
 
-  @enforce_keys [:upload_id, :payments, :total_amount, :data_payments_address, :payment_token_address, :rpc_url]
+  @enforce_keys [:upload_id, :payments, :total_amount, :payment_vault_address, :payment_token_address, :rpc_url]
   defstruct [
     :upload_id,
     :payments,
     :total_amount,
-    :data_payments_address,
+    :payment_vault_address,
     :payment_token_address,
     :rpc_url,
     :payment_type,
     :depth,
     :pool_commitments,
-    :merkle_payment_timestamp,
-    :merkle_payments_address
+    :merkle_payment_timestamp
   ]
 
   @type t :: %__MODULE__{
           upload_id: String.t(),
           payments: [Antd.PaymentInfo.t()],
           total_amount: String.t(),
-          data_payments_address: String.t(),
+          payment_vault_address: String.t(),
           payment_token_address: String.t(),
           rpc_url: String.t(),
           payment_type: String.t() | nil,
           depth: integer() | nil,
           pool_commitments: [Antd.PoolCommitmentEntry.t()] | nil,
-          merkle_payment_timestamp: integer() | nil,
-          merkle_payments_address: String.t() | nil
+          merkle_payment_timestamp: integer() | nil
         }
 end
 

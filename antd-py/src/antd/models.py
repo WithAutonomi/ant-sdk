@@ -59,14 +59,13 @@ class PrepareUploadResult:
     upload_id: str                    # hex identifier
     payments: list[PaymentInfo] = field(default_factory=list)
     total_amount: str = ""
-    data_payments_address: str = ""   # contract address
+    payment_vault_address: str = ""   # payment vault contract address
     payment_token_address: str = ""   # token contract address
     rpc_url: str = ""                 # EVM RPC URL
     payment_type: str = ""            # "wave_batch" or "merkle_batch"
     depth: int = 0                    # merkle tree depth
     pool_commitments: list[PoolCommitmentEntry] = field(default_factory=list)
     merkle_payment_timestamp: int = 0
-    merkle_payments_address: str = "" # merkle payments contract address
 
 
 @dataclass(frozen=True)
