@@ -98,7 +98,8 @@ print(k[2:] if k.startswith('0x') else k)
 
 EVM_RPC_URL=$(python -c "import json; print(json.load(open('$MANIFEST_FILE'))['evm']['rpc_url'])" 2>/dev/null)
 EVM_TOKEN_ADDR=$(python -c "import json; print(json.load(open('$MANIFEST_FILE'))['evm']['payment_token_address'])" 2>/dev/null)
-EVM_PAYMENTS_ADDR=$(python -c "import json; print(json.load(open('$MANIFEST_FILE'))['evm']['data_payments_address'])" 2>/dev/null)
+# ant-node >=0.10 renamed data_payments_address -> payment_vault_address
+EVM_PAYMENTS_ADDR=$(python -c "import json; e=json.load(open('$MANIFEST_FILE'))['evm']; print(e.get('payment_vault_address', e.get('data_payments_address', '')))" 2>/dev/null)
 EVM_MERKLE_ADDR=$(python -c "import json; print(json.load(open('$MANIFEST_FILE'))['evm'].get('merkle_payments_address', ''))" 2>/dev/null)
 NODE_COUNT=$(python -c "import json; print(json.load(open('$MANIFEST_FILE')).get('node_count', '?'))" 2>/dev/null)
 BASE_PORT=$(python -c "import json; print(json.load(open('$MANIFEST_FILE')).get('base_port', '?'))" 2>/dev/null)
