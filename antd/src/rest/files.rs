@@ -26,7 +26,7 @@ pub async fn file_upload_public(
     let mode = parse_payment_mode(req.payment_mode.as_deref()).map_err(AntdError::BadRequest)?;
 
     let client = state.client.clone();
-    let address = tokio::spawn(async move {
+    let (result, address) = tokio::spawn(async move {
         let result = client
             .file_upload_with_mode(&path, mode)
             .await
@@ -35,14 +35,18 @@ pub async fn file_upload_public(
             .data_map_store(&result.data_map)
             .await
             .map_err(AntdError::from_core)?;
-        Ok::<_, AntdError>(address)
+        Ok::<_, AntdError>((result, address))
     })
     .await
     .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
 
     Ok(Json(FileUploadPublicResponse {
-        cost: String::new(),
+        cost: result.storage_cost_atto.clone(),
         address: hex::encode(address),
+        storage_cost_atto: result.storage_cost_atto,
+        gas_cost_wei: result.gas_cost_wei.to_string(),
+        chunks_stored: result.chunks_stored as u64,
+        payment_mode_used: format_payment_mode(result.payment_mode_used),
     }))
 }
 
@@ -120,7 +124,7 @@ pub async fn dir_upload_public(
     let mode = parse_payment_mode(req.payment_mode.as_deref()).map_err(AntdError::BadRequest)?;
 
     let client = state.client.clone();
-    let address = tokio::spawn(async move {
+    let (result, address) = tokio::spawn(async move {
         let result = client
             .file_upload_with_mode(&path, mode)
             .await
@@ -129,14 +133,18 @@ pub async fn dir_upload_public(
             .data_map_store(&result.data_map)
             .await
             .map_err(AntdError::from_core)?;
-        Ok::<_, AntdError>(address)
+        Ok::<_, AntdError>((result, address))
     })
     .await
     .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
 
     Ok(Json(DirUploadPublicResponse {
-        cost: String::new(),
+        cost: result.storage_cost_atto.clone(),
         address: hex::encode(address),
+        storage_cost_atto: result.storage_cost_atto,
+        gas_cost_wei: result.gas_cost_wei.to_string(),
+        chunks_stored: result.chunks_stored as u64,
+        payment_mode_used: format_payment_mode(result.payment_mode_used),
     }))
 }
 

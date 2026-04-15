@@ -34,6 +34,24 @@ pub struct Config {
     /// Log level: trace, debug, info, warn, error
     #[arg(long, default_value = "info", env = "ANTD_LOG_LEVEL")]
     pub log_level: String,
+
+    /// Timeout in seconds for lightweight network operations (quotes, DHT lookups).
+    #[arg(long, env = "ANTD_QUOTE_TIMEOUT_SECS")]
+    pub quote_timeout_secs: Option<u64>,
+
+    /// Timeout in seconds for chunk store (PUT) operations. Should be higher
+    /// than --quote-timeout-secs because each PUT transfers ~4MB to multiple peers.
+    #[arg(long, env = "ANTD_STORE_TIMEOUT_SECS")]
+    pub store_timeout_secs: Option<u64>,
+
+    /// Maximum number of chunks quoted or downloaded concurrently (pure network I/O).
+    #[arg(long, env = "ANTD_QUOTE_CONCURRENCY")]
+    pub quote_concurrency: Option<usize>,
+
+    /// Maximum number of chunks stored concurrently during uploads. Lower values
+    /// reduce outbound bandwidth pressure on slow connections.
+    #[arg(long, env = "ANTD_STORE_CONCURRENCY")]
+    pub store_concurrency: Option<usize>,
 }
 
 impl Config {

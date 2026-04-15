@@ -325,7 +325,7 @@ impl pb::file_service_server::FileService for FileServiceImpl {
         })?;
 
         let client = self.state.client.clone();
-        let address = tokio::spawn(async move {
+        let (result, address) = tokio::spawn(async move {
             let result = client
                 .file_upload_with_mode(&path, ant_core::data::PaymentMode::Auto)
                 .await
@@ -334,7 +334,7 @@ impl pb::file_service_server::FileService for FileServiceImpl {
                 .data_map_store(&result.data_map)
                 .await
                 .map_err(AntdError::from_core)?;
-            Ok::<_, AntdError>(address)
+            Ok::<_, AntdError>((result, address))
         })
         .await
         .map_err(|e| Status::internal(format!("task failed: {e}")))?
@@ -342,9 +342,13 @@ impl pb::file_service_server::FileService for FileServiceImpl {
 
         Ok(Response::new(pb::UploadPublicResponse {
             cost: Some(pb::Cost {
-                atto_tokens: String::new(),
+                atto_tokens: result.storage_cost_atto.clone(),
             }),
             address: hex::encode(address),
+            storage_cost_atto: result.storage_cost_atto,
+            gas_cost_wei: result.gas_cost_wei.to_string(),
+            chunks_stored: result.chunks_stored as u64,
+            payment_mode_used: crate::types::format_payment_mode(result.payment_mode_used),
         }))
     }
 
@@ -423,7 +427,7 @@ impl pb::file_service_server::FileService for FileServiceImpl {
         }
 
         let client = self.state.client.clone();
-        let address = tokio::spawn(async move {
+        let (result, address) = tokio::spawn(async move {
             let result = client
                 .file_upload_with_mode(&path, ant_core::data::PaymentMode::Auto)
                 .await
@@ -432,7 +436,7 @@ impl pb::file_service_server::FileService for FileServiceImpl {
                 .data_map_store(&result.data_map)
                 .await
                 .map_err(AntdError::from_core)?;
-            Ok::<_, AntdError>(address)
+            Ok::<_, AntdError>((result, address))
         })
         .await
         .map_err(|e| Status::internal(format!("task failed: {e}")))?
@@ -440,9 +444,13 @@ impl pb::file_service_server::FileService for FileServiceImpl {
 
         Ok(Response::new(pb::UploadPublicResponse {
             cost: Some(pb::Cost {
-                atto_tokens: String::new(),
+                atto_tokens: result.storage_cost_atto.clone(),
             }),
             address: hex::encode(address),
+            storage_cost_atto: result.storage_cost_atto,
+            gas_cost_wei: result.gas_cost_wei.to_string(),
+            chunks_stored: result.chunks_stored as u64,
+            payment_mode_used: crate::types::format_payment_mode(result.payment_mode_used),
         }))
     }
 

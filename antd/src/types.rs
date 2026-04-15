@@ -173,8 +173,20 @@ pub struct FileUploadRequest {
 
 #[derive(Serialize)]
 pub struct FileUploadPublicResponse {
+    /// Deprecated alias for `storage_cost_atto`. Kept for backward compatibility
+    /// with clients that parsed this field when it was always empty; new code
+    /// should read `storage_cost_atto`.
     pub cost: String,
     pub address: String,
+    /// Total storage cost paid in token units (atto). "0" if all chunks already existed.
+    pub storage_cost_atto: String,
+    /// Total gas cost paid in wei, as a decimal string (u128 exceeds JSON safe-integer range).
+    /// "0" if no on-chain transactions were made.
+    pub gas_cost_wei: String,
+    /// Number of chunks stored on the network.
+    pub chunks_stored: u64,
+    /// Which payment mode was actually used ("auto", "merkle", or "single").
+    pub payment_mode_used: String,
 }
 
 #[derive(Deserialize)]
@@ -185,8 +197,17 @@ pub struct FileDownloadRequest {
 
 #[derive(Serialize)]
 pub struct DirUploadPublicResponse {
+    /// Deprecated alias for `storage_cost_atto`. Kept for backward compatibility.
     pub cost: String,
     pub address: String,
+    /// Total storage cost paid in token units (atto). "0" if all chunks already existed.
+    pub storage_cost_atto: String,
+    /// Total gas cost paid in wei, as a decimal string.
+    pub gas_cost_wei: String,
+    /// Number of chunks stored on the network.
+    pub chunks_stored: u64,
+    /// Which payment mode was actually used ("auto", "merkle", or "single").
+    pub payment_mode_used: String,
 }
 
 // ── Cost ──

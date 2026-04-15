@@ -633,21 +633,67 @@ components:
 
     FileUploadPublicResponse:
       type: object
-      required: [cost, address]
+      required:
+        [
+          cost,
+          address,
+          storage_cost_atto,
+          gas_cost_wei,
+          chunks_stored,
+          payment_mode_used,
+        ]
       properties:
         cost:
           type: string
+          deprecated: true
+          description: Alias for storage_cost_atto; kept for backward compatibility.
         address:
           type: string
+        storage_cost_atto:
+          type: string
+          description: Total storage cost paid in token units (atto). "0" if all chunks already existed.
+        gas_cost_wei:
+          type: string
+          description: Total gas cost in wei as a decimal string (u128 exceeds JSON safe-integer range). "0" if no on-chain transactions were made.
+        chunks_stored:
+          type: integer
+          format: uint64
+          description: Number of chunks stored on the network.
+        payment_mode_used:
+          type: string
+          enum: [auto, merkle, single]
+          description: Which payment mode was actually used.
 
     DirUploadPublicResponse:
       type: object
-      required: [cost, address]
+      required:
+        [
+          cost,
+          address,
+          storage_cost_atto,
+          gas_cost_wei,
+          chunks_stored,
+          payment_mode_used,
+        ]
       properties:
         cost:
           type: string
+          deprecated: true
+          description: Alias for storage_cost_atto; kept for backward compatibility.
         address:
           type: string
+        storage_cost_atto:
+          type: string
+          description: Total storage cost paid in token units (atto).
+        gas_cost_wei:
+          type: string
+          description: Total gas cost in wei as a decimal string.
+        chunks_stored:
+          type: integer
+          format: uint64
+        payment_mode_used:
+          type: string
+          enum: [auto, merkle, single]
 
     FileDownloadRequest:
       type: object
