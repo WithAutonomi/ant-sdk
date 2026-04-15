@@ -341,9 +341,6 @@ impl pb::file_service_server::FileService for FileServiceImpl {
         .map_err(tonic::Status::from)?;
 
         Ok(Response::new(pb::UploadPublicResponse {
-            cost: Some(pb::Cost {
-                atto_tokens: result.storage_cost_atto.clone(),
-            }),
             address: hex::encode(address),
             storage_cost_atto: result.storage_cost_atto,
             gas_cost_wei: result.gas_cost_wei.to_string(),
@@ -443,9 +440,6 @@ impl pb::file_service_server::FileService for FileServiceImpl {
         .map_err(tonic::Status::from)?;
 
         Ok(Response::new(pb::UploadPublicResponse {
-            cost: Some(pb::Cost {
-                atto_tokens: result.storage_cost_atto.clone(),
-            }),
             address: hex::encode(address),
             storage_cost_atto: result.storage_cost_atto,
             gas_cost_wei: result.gas_cost_wei.to_string(),

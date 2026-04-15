@@ -41,7 +41,6 @@ pub async fn file_upload_public(
     .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
 
     Ok(Json(FileUploadPublicResponse {
-        cost: result.storage_cost_atto.clone(),
         address: hex::encode(address),
         storage_cost_atto: result.storage_cost_atto,
         gas_cost_wei: result.gas_cost_wei.to_string(),
@@ -139,7 +138,6 @@ pub async fn dir_upload_public(
     .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
 
     Ok(Json(DirUploadPublicResponse {
-        cost: result.storage_cost_atto.clone(),
         address: hex::encode(address),
         storage_cost_atto: result.storage_cost_atto,
         gas_cost_wei: result.gas_cost_wei.to_string(),

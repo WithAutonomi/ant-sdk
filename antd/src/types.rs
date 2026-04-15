@@ -173,10 +173,6 @@ pub struct FileUploadRequest {
 
 #[derive(Serialize)]
 pub struct FileUploadPublicResponse {
-    /// Deprecated alias for `storage_cost_atto`. Kept for backward compatibility
-    /// with clients that parsed this field when it was always empty; new code
-    /// should read `storage_cost_atto`.
-    pub cost: String,
     pub address: String,
     /// Total storage cost paid in token units (atto). "0" if all chunks already existed.
     pub storage_cost_atto: String,
@@ -197,8 +193,6 @@ pub struct FileDownloadRequest {
 
 #[derive(Serialize)]
 pub struct DirUploadPublicResponse {
-    /// Deprecated alias for `storage_cost_atto`. Kept for backward compatibility.
-    pub cost: String,
     pub address: String,
     /// Total storage cost paid in token units (atto). "0" if all chunks already existed.
     pub storage_cost_atto: String,

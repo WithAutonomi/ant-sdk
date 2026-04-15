@@ -634,19 +634,8 @@ components:
     FileUploadPublicResponse:
       type: object
       required:
-        [
-          cost,
-          address,
-          storage_cost_atto,
-          gas_cost_wei,
-          chunks_stored,
-          payment_mode_used,
-        ]
+        [address, storage_cost_atto, gas_cost_wei, chunks_stored, payment_mode_used]
       properties:
-        cost:
-          type: string
-          deprecated: true
-          description: Alias for storage_cost_atto; kept for backward compatibility.
         address:
           type: string
         storage_cost_atto:
@@ -667,19 +656,8 @@ components:
     DirUploadPublicResponse:
       type: object
       required:
-        [
-          cost,
-          address,
-          storage_cost_atto,
-          gas_cost_wei,
-          chunks_stored,
-          payment_mode_used,
-        ]
+        [address, storage_cost_atto, gas_cost_wei, chunks_stored, payment_mode_used]
       properties:
-        cost:
-          type: string
-          deprecated: true
-          description: Alias for storage_cost_atto; kept for backward compatibility.
         address:
           type: string
         storage_cost_atto:
