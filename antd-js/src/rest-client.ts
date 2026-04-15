@@ -2,6 +2,7 @@ import { discoverDaemonUrl } from "./discover.js";
 import { fromHttpStatus, NetworkError } from "./errors.js";
 import type {
   CandidateNodeEntry,
+  FileUploadResult,
   FinalizeUploadResult,
   HealthStatus,
   PaymentInfo,
@@ -182,11 +183,23 @@ export class RestClient {
 
   // ---- Files ----
 
-  async fileUploadPublic(path: string, options?: { paymentMode?: string }): Promise<PutResult> {
+  async fileUploadPublic(path: string, options?: { paymentMode?: string }): Promise<FileUploadResult> {
     const body: Record<string, unknown> = { path };
     if (options?.paymentMode) body.payment_mode = options.paymentMode;
-    const j = await this.postJson<{ cost: string; address: string }>("/v1/files/upload/public", body);
-    return { cost: j.cost, address: j.address };
+    const j = await this.postJson<{
+      address: string;
+      storage_cost_atto: string;
+      gas_cost_wei: string;
+      chunks_stored: number;
+      payment_mode_used: string;
+    }>("/v1/files/upload/public", body);
+    return {
+      address: j.address,
+      storageCostAtto: j.storage_cost_atto,
+      gasCostWei: j.gas_cost_wei,
+      chunksStored: j.chunks_stored,
+      paymentModeUsed: j.payment_mode_used,
+    };
   }
 
   async fileDownloadPublic(address: string, destPath: string): Promise<void> {
@@ -196,11 +209,23 @@ export class RestClient {
     });
   }
 
-  async dirUploadPublic(path: string, options?: { paymentMode?: string }): Promise<PutResult> {
+  async dirUploadPublic(path: string, options?: { paymentMode?: string }): Promise<FileUploadResult> {
     const body: Record<string, unknown> = { path };
     if (options?.paymentMode) body.payment_mode = options.paymentMode;
-    const j = await this.postJson<{ cost: string; address: string }>("/v1/dirs/upload/public", body);
-    return { cost: j.cost, address: j.address };
+    const j = await this.postJson<{
+      address: string;
+      storage_cost_atto: string;
+      gas_cost_wei: string;
+      chunks_stored: number;
+      payment_mode_used: string;
+    }>("/v1/dirs/upload/public", body);
+    return {
+      address: j.address,
+      storageCostAtto: j.storage_cost_atto,
+      gasCostWei: j.gas_cost_wei,
+      chunksStored: j.chunks_stored,
+      paymentModeUsed: j.payment_mode_used,
+    };
   }
 
   async dirDownloadPublic(address: string, destPath: string): Promise<void> {

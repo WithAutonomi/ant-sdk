@@ -26,6 +26,24 @@ function M.new_put_result(cost, address)
     }
 end
 
+--- Create a FileUploadResult table.
+-- Returned by file_upload_public and dir_upload_public.
+-- @param address string hex network address
+-- @param storage_cost_atto string storage cost in atto, "0" if all chunks already existed
+-- @param gas_cost_wei string gas cost in wei as decimal string
+-- @param chunks_stored number number of chunks stored on the network (uint64)
+-- @param payment_mode_used string "auto", "merkle", or "single"
+-- @return table
+function M.new_file_upload_result(address, storage_cost_atto, gas_cost_wei, chunks_stored, payment_mode_used)
+    return {
+        address = address,
+        storage_cost_atto = storage_cost_atto,
+        gas_cost_wei = gas_cost_wei,
+        chunks_stored = chunks_stored,
+        payment_mode_used = payment_mode_used,
+    }
+end
+
 --- Create a WalletAddress table.
 -- @param address string wallet address (e.g. "0x...")
 -- @return table

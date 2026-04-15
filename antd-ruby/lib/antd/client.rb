@@ -108,12 +108,12 @@ module Antd
 
     # Upload a local file to the network.
     # @param path [String] local file path
-    # @return [PutResult]
+    # @return [FileUploadResult]
     def file_upload_public(path, payment_mode: nil)
       body = { path: path }
       body[:payment_mode] = payment_mode if payment_mode
       j = do_json(:post, "/v1/files/upload/public", body)
-      PutResult.new(cost: j["cost"], address: j["address"])
+      file_upload_result_from(j)
     end
 
     # Download a file from the network to a local path.
@@ -127,12 +127,12 @@ module Antd
 
     # Upload a local directory to the network.
     # @param path [String] local directory path
-    # @return [PutResult]
+    # @return [FileUploadResult]
     def dir_upload_public(path, payment_mode: nil)
       body = { path: path }
       body[:payment_mode] = payment_mode if payment_mode
       j = do_json(:post, "/v1/dirs/upload/public", body)
-      PutResult.new(cost: j["cost"], address: j["address"])
+      file_upload_result_from(j)
     end
 
     # Download a directory from the network to a local path.
@@ -225,6 +225,17 @@ module Antd
     end
 
     private
+
+    # Build a FileUploadResult from the JSON returned by file/dir upload public.
+    def file_upload_result_from(j)
+      FileUploadResult.new(
+        address: j["address"] || "",
+        storage_cost_atto: j["storage_cost_atto"] || "",
+        gas_cost_wei: j["gas_cost_wei"] || "",
+        chunks_stored: (j["chunks_stored"] || 0).to_i,
+        payment_mode_used: j["payment_mode_used"] || ""
+      )
+    end
 
     # Parse a prepare-upload JSON response into a PrepareUploadResult.
     def parse_prepare_response(j)

@@ -147,6 +147,12 @@ impl Client {
             .unwrap_or_default()
     }
 
+    fn u64_field(v: &Value, key: &str) -> u64 {
+        v.get(key)
+            .and_then(|v| v.as_u64())
+            .unwrap_or_default()
+    }
+
     // --- Health ---
 
     /// Checks the antd daemon status.
@@ -275,7 +281,7 @@ impl Client {
     // --- Files ---
 
     /// Uploads a local file to the network.
-    pub async fn file_upload_public(&self, path: &str, payment_mode: Option<&str>) -> Result<PutResult, AntdError> {
+    pub async fn file_upload_public(&self, path: &str, payment_mode: Option<&str>) -> Result<FileUploadResult, AntdError> {
         let mut body = json!({ "path": path });
         if let Some(mode) = payment_mode {
             body["payment_mode"] = json!(mode);
@@ -288,9 +294,12 @@ impl Client {
             )
             .await?;
         let j = j.unwrap_or_default();
-        Ok(PutResult {
-            cost: Self::str_field(&j, "cost"),
+        Ok(FileUploadResult {
             address: Self::str_field(&j, "address"),
+            storage_cost_atto: Self::str_field(&j, "storage_cost_atto"),
+            gas_cost_wei: Self::str_field(&j, "gas_cost_wei"),
+            chunks_stored: Self::u64_field(&j, "chunks_stored"),
+            payment_mode_used: Self::str_field(&j, "payment_mode_used"),
         })
     }
 
@@ -310,7 +319,7 @@ impl Client {
     }
 
     /// Uploads a local directory to the network.
-    pub async fn dir_upload_public(&self, path: &str, payment_mode: Option<&str>) -> Result<PutResult, AntdError> {
+    pub async fn dir_upload_public(&self, path: &str, payment_mode: Option<&str>) -> Result<FileUploadResult, AntdError> {
         let mut body = json!({ "path": path });
         if let Some(mode) = payment_mode {
             body["payment_mode"] = json!(mode);
@@ -323,9 +332,12 @@ impl Client {
             )
             .await?;
         let j = j.unwrap_or_default();
-        Ok(PutResult {
-            cost: Self::str_field(&j, "cost"),
+        Ok(FileUploadResult {
             address: Self::str_field(&j, "address"),
+            storage_cost_atto: Self::str_field(&j, "storage_cost_atto"),
+            gas_cost_wei: Self::str_field(&j, "gas_cost_wei"),
+            chunks_stored: Self::u64_field(&j, "chunks_stored"),
+            payment_mode_used: Self::str_field(&j, "payment_mode_used"),
         })
     }
 

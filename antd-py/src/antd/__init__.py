@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from .models import (
     CandidateNodeEntry,
+    FileUploadResult,
     FinalizeUploadResult,
     HealthStatus,
     PaymentInfo,
@@ -44,6 +45,7 @@ __all__ = [
     "AsyncAntdClient",
     # Models
     "CandidateNodeEntry",
+    "FileUploadResult",
     "FinalizeUploadResult",
     "HealthStatus",
     "PaymentInfo",

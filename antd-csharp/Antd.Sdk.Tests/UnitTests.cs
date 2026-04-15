@@ -384,19 +384,47 @@ public sealed class AntdRestClientTests : IDisposable
     // ── Files ──
 
     [Fact]
-    public async Task FileUploadPublicAsync_ReturnsPutResult()
+    public async Task FileUploadPublicAsync_ReturnsFileUploadResult()
     {
         _server.RouteOk("POST", "/v1/files/upload/public", new
         {
-            cost = "10",
-            address = "file_addr_001"
+            address = "file_addr_001",
+            storage_cost_atto = "1000",
+            gas_cost_wei = "42",
+            chunks_stored = 3,
+            payment_mode_used = "auto"
         });
         _server.Start();
 
         var result = await _client.FileUploadPublicAsync("/tmp/test.txt");
 
-        Assert.Equal("10", result.Cost);
         Assert.Equal("file_addr_001", result.Address);
+        Assert.Equal("1000", result.StorageCostAtto);
+        Assert.Equal("42", result.GasCostWei);
+        Assert.Equal(3UL, result.ChunksStored);
+        Assert.Equal("auto", result.PaymentModeUsed);
+    }
+
+    [Fact]
+    public async Task DirUploadPublicAsync_ReturnsFileUploadResult()
+    {
+        _server.RouteOk("POST", "/v1/dirs/upload/public", new
+        {
+            address = "dir_addr_001",
+            storage_cost_atto = "2000",
+            gas_cost_wei = "100",
+            chunks_stored = 5,
+            payment_mode_used = "merkle"
+        });
+        _server.Start();
+
+        var result = await _client.DirUploadPublicAsync("/tmp/mydir");
+
+        Assert.Equal("dir_addr_001", result.Address);
+        Assert.Equal("2000", result.StorageCostAtto);
+        Assert.Equal("100", result.GasCostWei);
+        Assert.Equal(5UL, result.ChunksStored);
+        Assert.Equal("merkle", result.PaymentModeUsed);
     }
 
     // ── External Signer ──

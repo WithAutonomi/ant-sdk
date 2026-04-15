@@ -12,7 +12,8 @@ if err then
 end
 
 print("File uploaded at: " .. result.address)
-print("Cost: " .. result.cost .. " atto")
+print("Storage cost: " .. result.storage_cost_atto .. " atto, gas: " .. result.gas_cost_wei .. " wei")
+print("Chunks stored: " .. result.chunks_stored .. ", payment mode: " .. result.payment_mode_used)
 
 -- Download the file
 local _, err2 = client:file_download_public(result.address, "/tmp/downloaded.txt")

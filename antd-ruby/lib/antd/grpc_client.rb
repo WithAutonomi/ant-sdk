@@ -125,11 +125,11 @@ module Antd
 
     # Upload a local file to the network.
     # @param path [String] local file path
-    # @return [PutResult]
+    # @return [FileUploadResult]
     def file_upload_public(path)
       req = Antd::V1::UploadFileRequest.new(path: path)
       resp = grpc_call { @file_stub.upload_public(req) }
-      PutResult.new(cost: resp.cost.atto_tokens, address: resp.address)
+      file_upload_result_from_proto(resp)
     end
 
     # Download a file from the network to a local path.
@@ -144,11 +144,11 @@ module Antd
 
     # Upload a local directory to the network.
     # @param path [String] local directory path
-    # @return [PutResult]
+    # @return [FileUploadResult]
     def dir_upload_public(path)
       req = Antd::V1::UploadFileRequest.new(path: path)
       resp = grpc_call { @file_stub.dir_upload_public(req) }
-      PutResult.new(cost: resp.cost.atto_tokens, address: resp.address)
+      file_upload_result_from_proto(resp)
     end
 
     # Download a directory from the network to a local path.
@@ -175,6 +175,17 @@ module Antd
     end
 
     private
+
+    # Build a FileUploadResult from an UploadPublicResponse proto.
+    def file_upload_result_from_proto(resp)
+      FileUploadResult.new(
+        address: resp.address,
+        storage_cost_atto: resp.storage_cost_atto,
+        gas_cost_wei: resp.gas_cost_wei,
+        chunks_stored: resp.chunks_stored,
+        payment_mode_used: resp.payment_mode_used
+      )
+    end
 
     # Executes a gRPC call and translates errors to Antd error types.
     def grpc_call

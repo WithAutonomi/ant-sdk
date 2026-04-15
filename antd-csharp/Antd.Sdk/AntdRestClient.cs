@@ -143,13 +143,13 @@ public sealed class AntdRestClient : IAntdClient
 
     // ── Files ──
 
-    public async Task<PutResult> FileUploadPublicAsync(string path, string? paymentMode = null)
+    public async Task<FileUploadResult> FileUploadPublicAsync(string path, string? paymentMode = null)
     {
         object body = paymentMode != null
             ? new { path, payment_mode = paymentMode }
             : (object)new { path };
-        var resp = await PostJsonAsync<DataPutPublicDto>("/v1/files/upload/public", body);
-        return new PutResult(resp.Cost, resp.Address);
+        var resp = await PostJsonAsync<FileUploadPublicDto>("/v1/files/upload/public", body);
+        return new FileUploadResult(resp.Address, resp.StorageCostAtto, resp.GasCostWei, resp.ChunksStored, resp.PaymentModeUsed);
     }
 
     public async Task FileDownloadPublicAsync(string address, string destPath)
@@ -157,13 +157,13 @@ public sealed class AntdRestClient : IAntdClient
         await PostJsonNoResultAsync("/v1/files/download/public", new { address, dest_path = destPath });
     }
 
-    public async Task<PutResult> DirUploadPublicAsync(string path, string? paymentMode = null)
+    public async Task<FileUploadResult> DirUploadPublicAsync(string path, string? paymentMode = null)
     {
         object body = paymentMode != null
             ? new { path, payment_mode = paymentMode }
             : (object)new { path };
-        var resp = await PostJsonAsync<DataPutPublicDto>("/v1/dirs/upload/public", body);
-        return new PutResult(resp.Cost, resp.Address);
+        var resp = await PostJsonAsync<FileUploadPublicDto>("/v1/dirs/upload/public", body);
+        return new FileUploadResult(resp.Address, resp.StorageCostAtto, resp.GasCostWei, resp.ChunksStored, resp.PaymentModeUsed);
     }
 
     public async Task DirDownloadPublicAsync(string address, string destPath)
@@ -265,6 +265,13 @@ public sealed class AntdRestClient : IAntdClient
     private sealed record DataPutPublicDto(
         [property: JsonPropertyName("cost")] string Cost,
         [property: JsonPropertyName("address")] string Address);
+
+    private sealed record FileUploadPublicDto(
+        [property: JsonPropertyName("address")] string Address,
+        [property: JsonPropertyName("storage_cost_atto")] string StorageCostAtto,
+        [property: JsonPropertyName("gas_cost_wei")] string GasCostWei,
+        [property: JsonPropertyName("chunks_stored")] ulong ChunksStored,
+        [property: JsonPropertyName("payment_mode_used")] string PaymentModeUsed);
 
     private sealed record DataPutPrivateDto(
         [property: JsonPropertyName("cost")] string Cost,

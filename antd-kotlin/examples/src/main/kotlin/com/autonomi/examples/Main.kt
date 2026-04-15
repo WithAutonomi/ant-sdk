@@ -109,7 +109,8 @@ suspend fun example04Files() {
         // Upload
         val result = client.fileUploadPublic(srcFile.absolutePath)
         println("File uploaded to: ${result.address}")
-        println("Actual cost: ${result.cost} atto tokens")
+        println("Storage cost: ${result.storageCostAtto} atto, gas: ${result.gasCostWei} wei")
+        println("Chunks stored: ${result.chunksStored}, payment mode: ${result.paymentModeUsed}")
 
         // Download to new location
         val destPath = srcFile.absolutePath + ".downloaded"

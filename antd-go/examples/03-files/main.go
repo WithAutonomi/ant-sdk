@@ -25,7 +25,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("Uploaded to %s (cost: %s atto)\n", result.Address, result.Cost)
+	fmt.Printf("Uploaded to %s (storage: %s atto, gas: %s wei, chunks: %d, mode: %s)\n",
+		result.Address, result.StorageCostAtto, result.GasCostWei, result.ChunksStored, result.PaymentModeUsed)
 
 	// Download
 	err = client.FileDownloadPublic(ctx, result.Address, "/path/to/output.txt")

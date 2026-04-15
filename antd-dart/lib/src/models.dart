@@ -41,6 +41,46 @@ class PutResult {
   String toString() => 'PutResult(cost: $cost, address: $address)';
 }
 
+/// Result of a public file or directory upload.
+class FileUploadResult {
+  /// Hex network address of the uploaded file/directory.
+  final String address;
+
+  /// Storage cost in atto, "0" if all chunks already existed.
+  final String storageCostAtto;
+
+  /// Gas cost in wei as decimal string.
+  final String gasCostWei;
+
+  /// Number of chunks stored on the network (uint64).
+  final int chunksStored;
+
+  /// Which payment mode was actually used: "auto", "merkle", or "single".
+  final String paymentModeUsed;
+
+  const FileUploadResult({
+    required this.address,
+    required this.storageCostAtto,
+    required this.gasCostWei,
+    required this.chunksStored,
+    required this.paymentModeUsed,
+  });
+
+  factory FileUploadResult.fromJson(Map<String, dynamic> json) {
+    return FileUploadResult(
+      address: json['address'] as String? ?? '',
+      storageCostAtto: json['storage_cost_atto'] as String? ?? '',
+      gasCostWei: json['gas_cost_wei'] as String? ?? '',
+      chunksStored: (json['chunks_stored'] as num?)?.toInt() ?? 0,
+      paymentModeUsed: json['payment_mode_used'] as String? ?? '',
+    );
+  }
+
+  @override
+  String toString() =>
+      'FileUploadResult(address: $address, storageCostAtto: $storageCostAtto, gasCostWei: $gasCostWei, chunksStored: $chunksStored, paymentModeUsed: $paymentModeUsed)';
+}
+
 /// WalletAddress is the wallet address response.
 class WalletAddress {
   /// The 0x-prefixed hex address.

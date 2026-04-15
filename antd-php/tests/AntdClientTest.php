@@ -131,12 +131,21 @@ class AntdClientTest extends TestCase
     public function testFileUploadPublic(): void
     {
         $mock = new MockHandler([
-            $this->jsonResponse(200, ['cost' => '1000', 'address' => 'file1']),
+            $this->jsonResponse(200, [
+                'address' => 'file1',
+                'storage_cost_atto' => '1000',
+                'gas_cost_wei' => '42',
+                'chunks_stored' => 3,
+                'payment_mode_used' => 'auto',
+            ]),
         ]);
         $client = $this->createClient($mock);
         $result = $client->fileUploadPublic('/tmp/test.txt');
         $this->assertSame('file1', $result->address);
-        $this->assertSame('1000', $result->cost);
+        $this->assertSame('1000', $result->storageCostAtto);
+        $this->assertSame('42', $result->gasCostWei);
+        $this->assertSame(3, $result->chunksStored);
+        $this->assertSame('auto', $result->paymentModeUsed);
     }
 
     public function testFileDownloadPublic(): void
@@ -153,12 +162,21 @@ class AntdClientTest extends TestCase
     public function testDirUploadPublic(): void
     {
         $mock = new MockHandler([
-            $this->jsonResponse(200, ['cost' => '2000', 'address' => 'dir1']),
+            $this->jsonResponse(200, [
+                'address' => 'dir1',
+                'storage_cost_atto' => '2000',
+                'gas_cost_wei' => '100',
+                'chunks_stored' => 5,
+                'payment_mode_used' => 'merkle',
+            ]),
         ]);
         $client = $this->createClient($mock);
         $result = $client->dirUploadPublic('/tmp/mydir');
         $this->assertSame('dir1', $result->address);
-        $this->assertSame('2000', $result->cost);
+        $this->assertSame('2000', $result->storageCostAtto);
+        $this->assertSame('100', $result->gasCostWei);
+        $this->assertSame(5, $result->chunksStored);
+        $this->assertSame('merkle', $result->paymentModeUsed);
     }
 
     public function testDirDownloadPublic(): void

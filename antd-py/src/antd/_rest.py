@@ -10,6 +10,7 @@ import httpx
 from .exceptions import raise_for_http_status
 from .models import (
     CandidateNodeEntry,
+    FileUploadResult,
     FinalizeUploadResult,
     HealthStatus,
     PaymentInfo,
@@ -19,6 +20,17 @@ from .models import (
     WalletAddress,
     WalletBalance,
 )
+
+
+def _parse_file_upload_result(j: dict) -> FileUploadResult:
+    """Parse a file/dir upload public JSON response into a FileUploadResult."""
+    return FileUploadResult(
+        address=j.get("address", ""),
+        storage_cost_atto=j.get("storage_cost_atto", ""),
+        gas_cost_wei=j.get("gas_cost_wei", ""),
+        chunks_stored=int(j.get("chunks_stored", 0)),
+        payment_mode_used=j.get("payment_mode_used", ""),
+    )
 
 if TYPE_CHECKING:
     pass
@@ -172,14 +184,13 @@ class RestClient:
 
     # --- Files ---
 
-    def file_upload_public(self, path: str, payment_mode: str | None = None) -> PutResult:
+    def file_upload_public(self, path: str, payment_mode: str | None = None) -> FileUploadResult:
         body: dict = {"path": path}
         if payment_mode is not None:
             body["payment_mode"] = payment_mode
         resp = self._http.post("/v1/files/upload/public", json=body)
         _check(resp)
-        j = resp.json()
-        return PutResult(cost=j.get("cost", ""), address=j.get("address", ""))
+        return _parse_file_upload_result(resp.json())
 
     def file_download_public(self, address: str, dest_path: str) -> None:
         resp = self._http.post("/v1/files/download/public", json={
@@ -188,14 +199,13 @@ class RestClient:
         })
         _check(resp)
 
-    def dir_upload_public(self, path: str, payment_mode: str | None = None) -> PutResult:
+    def dir_upload_public(self, path: str, payment_mode: str | None = None) -> FileUploadResult:
         body: dict = {"path": path}
         if payment_mode is not None:
             body["payment_mode"] = payment_mode
         resp = self._http.post("/v1/dirs/upload/public", json=body)
         _check(resp)
-        j = resp.json()
-        return PutResult(cost=j.get("cost", ""), address=j.get("address", ""))
+        return _parse_file_upload_result(resp.json())
 
     def dir_download_public(self, address: str, dest_path: str) -> None:
         resp = self._http.post("/v1/dirs/download/public", json={
@@ -380,14 +390,13 @@ class AsyncRestClient:
 
     # --- Files ---
 
-    async def file_upload_public(self, path: str, payment_mode: str | None = None) -> PutResult:
+    async def file_upload_public(self, path: str, payment_mode: str | None = None) -> FileUploadResult:
         body: dict = {"path": path}
         if payment_mode is not None:
             body["payment_mode"] = payment_mode
         resp = await self._http.post("/v1/files/upload/public", json=body)
         _check(resp)
-        j = resp.json()
-        return PutResult(cost=j.get("cost", ""), address=j.get("address", ""))
+        return _parse_file_upload_result(resp.json())
 
     async def file_download_public(self, address: str, dest_path: str) -> None:
         resp = await self._http.post("/v1/files/download/public", json={
@@ -396,14 +405,13 @@ class AsyncRestClient:
         })
         _check(resp)
 
-    async def dir_upload_public(self, path: str, payment_mode: str | None = None) -> PutResult:
+    async def dir_upload_public(self, path: str, payment_mode: str | None = None) -> FileUploadResult:
         body: dict = {"path": path}
         if payment_mode is not None:
             body["payment_mode"] = payment_mode
         resp = await self._http.post("/v1/dirs/upload/public", json=body)
         _check(resp)
-        j = resp.json()
-        return PutResult(cost=j.get("cost", ""), address=j.get("address", ""))
+        return _parse_file_upload_result(resp.json())
 
     async def dir_download_public(self, address: str, dest_path: str) -> None:
         resp = await self._http.post("/v1/dirs/download/public", json={

@@ -202,13 +202,13 @@ class AntdClient {
   // --- Files ---
 
   /// Uploads a local file to the network.
-  Future<PutResult> fileUploadPublic(String path, {String? paymentMode}) async {
+  Future<FileUploadResult> fileUploadPublic(String path, {String? paymentMode}) async {
     final body = <String, dynamic>{
       'path': path,
     };
     if (paymentMode != null) body['payment_mode'] = paymentMode;
     final json = await _doJson('POST', '/v1/files/upload/public', body);
-    return PutResult.fromJson(json!);
+    return FileUploadResult.fromJson(json!);
   }
 
   /// Downloads a file from the network to a local path.
@@ -220,13 +220,13 @@ class AntdClient {
   }
 
   /// Uploads a local directory to the network.
-  Future<PutResult> dirUploadPublic(String path, {String? paymentMode}) async {
+  Future<FileUploadResult> dirUploadPublic(String path, {String? paymentMode}) async {
     final body = <String, dynamic>{
       'path': path,
     };
     if (paymentMode != null) body['payment_mode'] = paymentMode;
     final json = await _doJson('POST', '/v1/dirs/upload/public', body);
-    return PutResult.fromJson(json!);
+    return FileUploadResult.fromJson(json!);
   }
 
   /// Downloads a directory from the network to a local path.

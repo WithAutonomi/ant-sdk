@@ -189,8 +189,11 @@ class GrpcAntdClientTest {
                                  StreamObserver<UploadPublicResponse> responseObserver) {
             responseObserver.onNext(
                     UploadPublicResponse.newBuilder()
-                            .setCost(Cost.newBuilder().setAttoTokens("1000").build())
                             .setAddress("file1")
+                            .setStorageCostAtto("1000")
+                            .setGasCostWei("42")
+                            .setChunksStored(3L)
+                            .setPaymentModeUsed("auto")
                             .build());
             responseObserver.onCompleted();
         }
@@ -207,8 +210,11 @@ class GrpcAntdClientTest {
                                     StreamObserver<UploadPublicResponse> responseObserver) {
             responseObserver.onNext(
                     UploadPublicResponse.newBuilder()
-                            .setCost(Cost.newBuilder().setAttoTokens("2000").build())
                             .setAddress("dir1")
+                            .setStorageCostAtto("2000")
+                            .setGasCostWei("100")
+                            .setChunksStored(5L)
+                            .setPaymentModeUsed("merkle")
                             .build());
             responseObserver.onCompleted();
         }
@@ -295,9 +301,12 @@ class GrpcAntdClientTest {
 
     @Test
     void testFileUploadPublic() {
-        PutResult put = client.fileUploadPublic("/tmp/test.txt");
+        FileUploadResult put = client.fileUploadPublic("/tmp/test.txt");
         assertEquals("file1", put.address());
-        assertEquals("1000", put.cost());
+        assertEquals("1000", put.storageCostAtto());
+        assertEquals("42", put.gasCostWei());
+        assertEquals(3L, put.chunksStored());
+        assertEquals("auto", put.paymentModeUsed());
     }
 
     @Test
@@ -307,9 +316,12 @@ class GrpcAntdClientTest {
 
     @Test
     void testDirUploadPublic() {
-        PutResult put = client.dirUploadPublic("/tmp/mydir");
+        FileUploadResult put = client.dirUploadPublic("/tmp/mydir");
         assertEquals("dir1", put.address());
-        assertEquals("2000", put.cost());
+        assertEquals("2000", put.storageCostAtto());
+        assertEquals("100", put.gasCostWei());
+        assertEquals(5L, put.chunksStored());
+        assertEquals("merkle", put.paymentModeUsed());
     }
 
     @Test

@@ -9,6 +9,7 @@ use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Promise\PromiseInterface;
 use Autonomi\Antd\Errors\AntdError;
 use Autonomi\Antd\Errors\ErrorFactory;
+use Autonomi\Antd\Models\FileUploadResult;
 use Autonomi\Antd\Models\HealthStatus;
 use Autonomi\Antd\Models\PutResult;
 
@@ -400,23 +401,20 @@ class AntdClient
     /**
      * Upload a local file to the network.
      */
-    public function fileUploadPublic(string $path, ?string $paymentMode = null): PutResult
+    public function fileUploadPublic(string $path, ?string $paymentMode = null): FileUploadResult
     {
         $body = ['path' => $path];
         if ($paymentMode !== null) {
             $body['payment_mode'] = $paymentMode;
         }
         $json = $this->doJson('POST', '/v1/files/upload/public', $body);
-        return new PutResult(
-            cost: $json['cost'] ?? '',
-            address: $json['address'] ?? '',
-        );
+        return self::parseFileUploadResult($json);
     }
 
     /**
      * Async: Upload a local file to the network.
      *
-     * @return PromiseInterface<PutResult>
+     * @return PromiseInterface<FileUploadResult>
      */
     public function fileUploadPublicAsync(string $path, ?string $paymentMode = null): PromiseInterface
     {
@@ -425,10 +423,18 @@ class AntdClient
             $body['payment_mode'] = $paymentMode;
         }
         return $this->doJsonAsync('POST', '/v1/files/upload/public', $body)->then(
-            fn(?array $json) => new PutResult(
-                cost: $json['cost'] ?? '',
-                address: $json['address'] ?? '',
-            ),
+            fn(?array $json) => self::parseFileUploadResult($json ?? []),
+        );
+    }
+
+    private static function parseFileUploadResult(array $json): FileUploadResult
+    {
+        return new FileUploadResult(
+            address: (string)($json['address'] ?? ''),
+            storageCostAtto: (string)($json['storage_cost_atto'] ?? ''),
+            gasCostWei: (string)($json['gas_cost_wei'] ?? ''),
+            chunksStored: (int)($json['chunks_stored'] ?? 0),
+            paymentModeUsed: (string)($json['payment_mode_used'] ?? ''),
         );
     }
 
@@ -459,23 +465,20 @@ class AntdClient
     /**
      * Upload a local directory to the network.
      */
-    public function dirUploadPublic(string $path, ?string $paymentMode = null): PutResult
+    public function dirUploadPublic(string $path, ?string $paymentMode = null): FileUploadResult
     {
         $body = ['path' => $path];
         if ($paymentMode !== null) {
             $body['payment_mode'] = $paymentMode;
         }
         $json = $this->doJson('POST', '/v1/dirs/upload/public', $body);
-        return new PutResult(
-            cost: $json['cost'] ?? '',
-            address: $json['address'] ?? '',
-        );
+        return self::parseFileUploadResult($json);
     }
 
     /**
      * Async: Upload a local directory to the network.
      *
-     * @return PromiseInterface<PutResult>
+     * @return PromiseInterface<FileUploadResult>
      */
     public function dirUploadPublicAsync(string $path, ?string $paymentMode = null): PromiseInterface
     {
@@ -484,10 +487,7 @@ class AntdClient
             $body['payment_mode'] = $paymentMode;
         }
         return $this->doJsonAsync('POST', '/v1/dirs/upload/public', $body)->then(
-            fn(?array $json) => new PutResult(
-                cost: $json['cost'] ?? '',
-                address: $json['address'] ?? '',
-            ),
+            fn(?array $json) => self::parseFileUploadResult($json ?? []),
         );
     }
 

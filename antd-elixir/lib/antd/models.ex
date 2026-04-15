@@ -22,6 +22,26 @@ defmodule Antd.PutResult do
         }
 end
 
+defmodule Antd.FileUploadResult do
+  @moduledoc """
+  Result of a public file or directory upload.
+
+  Returned by `Antd.Client.file_upload_public/2`,
+  `Antd.Client.dir_upload_public/2`, and the equivalent gRPC client functions.
+  """
+
+  @enforce_keys [:address, :storage_cost_atto, :gas_cost_wei, :chunks_stored, :payment_mode_used]
+  defstruct [:address, :storage_cost_atto, :gas_cost_wei, :chunks_stored, :payment_mode_used]
+
+  @type t :: %__MODULE__{
+          address: String.t(),
+          storage_cost_atto: String.t(),
+          gas_cost_wei: String.t(),
+          chunks_stored: non_neg_integer(),
+          payment_mode_used: String.t()
+        }
+end
+
 defmodule Antd.WalletAddress do
   @moduledoc "Wallet address result."
 

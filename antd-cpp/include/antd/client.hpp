@@ -77,13 +77,13 @@ public:
     // --- Files & Directories ---
 
     /// Upload a local file to the network.
-    PutResult file_upload_public(std::string_view path, const std::string& payment_mode = "");
+    FileUploadResult file_upload_public(std::string_view path, const std::string& payment_mode = "");
 
     /// Download a file from the network to a local path.
     void file_download_public(std::string_view address, std::string_view dest_path);
 
     /// Upload a local directory to the network.
-    PutResult dir_upload_public(std::string_view path, const std::string& payment_mode = "");
+    FileUploadResult dir_upload_public(std::string_view path, const std::string& payment_mode = "");
 
     /// Download a directory from the network to a local path.
     void dir_download_public(std::string_view address, std::string_view dest_path);

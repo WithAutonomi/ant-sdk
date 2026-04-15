@@ -19,6 +19,16 @@ class PutResult:
 
 
 @dataclass(frozen=True)
+class FileUploadResult:
+    """Result of a public file or directory upload."""
+    address: str               # hex network address
+    storage_cost_atto: str     # storage cost in atto, "0" if all chunks already existed
+    gas_cost_wei: str          # gas cost in wei as decimal string
+    chunks_stored: int         # number of chunks stored on the network
+    payment_mode_used: str     # "auto", "merkle", or "single"
+
+
+@dataclass(frozen=True)
 class WalletAddress:
     """Wallet address from the antd daemon."""
     address: str    # hex, e.g. "0x..."

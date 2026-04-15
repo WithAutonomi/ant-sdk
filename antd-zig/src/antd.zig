@@ -9,6 +9,7 @@ pub const discover = @import("discover.zig");
 
 pub const HealthStatus = models.HealthStatus;
 pub const PutResult = models.PutResult;
+pub const FileUploadResult = models.FileUploadResult;
 pub const WalletAddress = models.WalletAddress;
 pub const WalletBalance = models.WalletBalance;
 pub const AntdError = errors.AntdError;
@@ -272,7 +273,7 @@ pub const Client = struct {
     // --- Files ---
 
     /// Upload a local file to the network.
-    pub fn fileUploadPublic(self: *Client, path: []const u8, payment_mode: ?[]const u8) !PutResult {
+    pub fn fileUploadPublic(self: *Client, path: []const u8, payment_mode: ?[]const u8) !FileUploadResult {
         const req_body = if (payment_mode) |mode|
             try json_helpers.buildJsonBody(self.allocator, &.{
                 .{ .key = "path", .value = .{ .string = path } },
@@ -285,7 +286,7 @@ pub const Client = struct {
         defer self.allocator.free(req_body);
         const resp = try self.doRequest(.POST, "/v1/files/upload/public", req_body) orelse return error.JsonError;
         defer self.allocator.free(resp);
-        return json_helpers.parsePutResult(self.allocator, resp, "address");
+        return json_helpers.parseFileUploadResult(self.allocator, resp);
     }
 
     /// Download a file from the network to a local path.
@@ -299,7 +300,7 @@ pub const Client = struct {
     }
 
     /// Upload a local directory to the network.
-    pub fn dirUploadPublic(self: *Client, path: []const u8, payment_mode: ?[]const u8) !PutResult {
+    pub fn dirUploadPublic(self: *Client, path: []const u8, payment_mode: ?[]const u8) !FileUploadResult {
         const req_body = if (payment_mode) |mode|
             try json_helpers.buildJsonBody(self.allocator, &.{
                 .{ .key = "path", .value = .{ .string = path } },
@@ -312,7 +313,7 @@ pub const Client = struct {
         defer self.allocator.free(req_body);
         const resp = try self.doRequest(.POST, "/v1/dirs/upload/public", req_body) orelse return error.JsonError;
         defer self.allocator.free(resp);
-        return json_helpers.parsePutResult(self.allocator, resp, "address");
+        return json_helpers.parseFileUploadResult(self.allocator, resp);
     }
 
     /// Download a directory from the network to a local path.

@@ -59,12 +59,24 @@ MockClient mockDaemon() {
 
       // Files
       case 'POST /v1/files/upload/public':
-        body = {'cost': '1000', 'address': 'file1'};
+        body = {
+          'address': 'file1',
+          'storage_cost_atto': '1000',
+          'gas_cost_wei': '42',
+          'chunks_stored': 3,
+          'payment_mode_used': 'auto',
+        };
         break;
       case 'POST /v1/files/download/public':
         return http.Response('', 200);
       case 'POST /v1/dirs/upload/public':
-        body = {'cost': '2000', 'address': 'dir1'};
+        body = {
+          'address': 'dir1',
+          'storage_cost_atto': '2000',
+          'gas_cost_wei': '100',
+          'chunks_stored': 5,
+          'payment_mode_used': 'merkle',
+        };
         break;
       case 'POST /v1/dirs/download/public':
         return http.Response('', 200);
@@ -167,6 +179,10 @@ void main() {
 
       final put = await client.fileUploadPublic('/tmp/test.txt');
       expect(put.address, equals('file1'));
+      expect(put.storageCostAtto, equals('1000'));
+      expect(put.gasCostWei, equals('42'));
+      expect(put.chunksStored, equals(3));
+      expect(put.paymentModeUsed, equals('auto'));
 
       await client.fileDownloadPublic('file1', '/tmp/out.txt');
 
@@ -178,6 +194,10 @@ void main() {
 
       final put = await client.dirUploadPublic('/tmp/mydir');
       expect(put.address, equals('dir1'));
+      expect(put.storageCostAtto, equals('2000'));
+      expect(put.gasCostWei, equals('100'));
+      expect(put.chunksStored, equals(5));
+      expect(put.paymentModeUsed, equals('merkle'));
 
       await client.dirDownloadPublic('dir1', '/tmp/outdir');
 

@@ -176,15 +176,18 @@ std::vector<uint8_t> GrpcClient::chunk_get(std::string_view address) {
 // Files & Directories
 // ---------------------------------------------------------------------------
 
-PutResult GrpcClient::file_upload_public(std::string_view path) {
+FileUploadResult GrpcClient::file_upload_public(std::string_view path) {
     grpc::ClientContext ctx;
     antd::v1::UploadFileRequest req;
     req.set_path(std::string(path));
     antd::v1::UploadPublicResponse resp;
     check_status(impl_->file_stub->UploadPublic(&ctx, req, &resp));
-    return PutResult{
-        .cost = resp.cost().atto_tokens(),
+    return FileUploadResult{
         .address = resp.address(),
+        .storage_cost_atto = resp.storage_cost_atto(),
+        .gas_cost_wei = resp.gas_cost_wei(),
+        .chunks_stored = resp.chunks_stored(),
+        .payment_mode_used = resp.payment_mode_used(),
     };
 }
 
@@ -198,15 +201,18 @@ void GrpcClient::file_download_public(std::string_view address,
     check_status(impl_->file_stub->DownloadPublic(&ctx, req, &resp));
 }
 
-PutResult GrpcClient::dir_upload_public(std::string_view path) {
+FileUploadResult GrpcClient::dir_upload_public(std::string_view path) {
     grpc::ClientContext ctx;
     antd::v1::UploadFileRequest req;
     req.set_path(std::string(path));
     antd::v1::UploadPublicResponse resp;
     check_status(impl_->file_stub->DirUploadPublic(&ctx, req, &resp));
-    return PutResult{
-        .cost = resp.cost().atto_tokens(),
+    return FileUploadResult{
         .address = resp.address(),
+        .storage_cost_atto = resp.storage_cost_atto(),
+        .gas_cost_wei = resp.gas_cost_wei(),
+        .chunks_stored = resp.chunks_stored(),
+        .payment_mode_used = resp.payment_mode_used(),
     };
 }
 

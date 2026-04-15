@@ -22,6 +22,22 @@ pub const PutResult = struct {
     }
 };
 
+/// Result of a public file or directory upload.
+pub const FileUploadResult = struct {
+    address: []const u8,
+    storage_cost_atto: []const u8,
+    gas_cost_wei: []const u8,
+    chunks_stored: u64,
+    payment_mode_used: []const u8,
+
+    pub fn deinit(self: FileUploadResult, allocator: Allocator) void {
+        allocator.free(self.address);
+        allocator.free(self.storage_cost_atto);
+        allocator.free(self.gas_cost_wei);
+        allocator.free(self.payment_mode_used);
+    }
+};
+
 /// Result of a wallet address query.
 pub const WalletAddress = struct {
     address: []const u8,

@@ -22,6 +22,23 @@ public struct PutResult: Sendable, Equatable {
     }
 }
 
+/// Result of a public file or directory upload.
+public struct FileUploadResult: Sendable, Equatable {
+    public let address: String
+    public let storageCostAtto: String
+    public let gasCostWei: String
+    public let chunksStored: UInt64
+    public let paymentModeUsed: String
+
+    public init(address: String, storageCostAtto: String, gasCostWei: String, chunksStored: UInt64, paymentModeUsed: String) {
+        self.address = address
+        self.storageCostAtto = storageCostAtto
+        self.gasCostWei = gasCostWei
+        self.chunksStored = chunksStored
+        self.paymentModeUsed = paymentModeUsed
+    }
+}
+
 /// Wallet address result.
 public struct WalletAddress: Sendable, Equatable {
     public let address: String

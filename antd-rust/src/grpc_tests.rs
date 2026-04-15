@@ -130,10 +130,11 @@ impl v1::file_service_server::FileService for MockFileService {
         _request: Request<v1::UploadFileRequest>,
     ) -> Result<Response<v1::UploadPublicResponse>, Status> {
         Ok(Response::new(v1::UploadPublicResponse {
-            cost: Some(v1::Cost {
-                atto_tokens: "1000".to_string(),
-            }),
             address: "file1".to_string(),
+            storage_cost_atto: "1000".to_string(),
+            gas_cost_wei: "42".to_string(),
+            chunks_stored: 3,
+            payment_mode_used: "auto".to_string(),
         }))
     }
 
@@ -149,10 +150,11 @@ impl v1::file_service_server::FileService for MockFileService {
         _request: Request<v1::UploadFileRequest>,
     ) -> Result<Response<v1::UploadPublicResponse>, Status> {
         Ok(Response::new(v1::UploadPublicResponse {
-            cost: Some(v1::Cost {
-                atto_tokens: "2000".to_string(),
-            }),
             address: "dir1".to_string(),
+            storage_cost_atto: "2000".to_string(),
+            gas_cost_wei: "100".to_string(),
+            chunks_stored: 5,
+            payment_mode_used: "merkle".to_string(),
         }))
     }
 
@@ -316,7 +318,10 @@ async fn test_grpc_file_upload_public() {
     let client = start_mock_server().await;
     let result = client.file_upload_public("/tmp/test.txt").await.unwrap();
     assert_eq!(result.address, "file1");
-    assert_eq!(result.cost, "1000");
+    assert_eq!(result.storage_cost_atto, "1000");
+    assert_eq!(result.gas_cost_wei, "42");
+    assert_eq!(result.chunks_stored, 3);
+    assert_eq!(result.payment_mode_used, "auto");
 }
 
 #[tokio::test]
@@ -333,7 +338,10 @@ async fn test_grpc_dir_upload_public() {
     let client = start_mock_server().await;
     let result = client.dir_upload_public("/tmp/mydir").await.unwrap();
     assert_eq!(result.address, "dir1");
-    assert_eq!(result.cost, "2000");
+    assert_eq!(result.storage_cost_atto, "2000");
+    assert_eq!(result.gas_cost_wei, "100");
+    assert_eq!(result.chunks_stored, 5);
+    assert_eq!(result.payment_mode_used, "merkle");
 }
 
 #[tokio::test]

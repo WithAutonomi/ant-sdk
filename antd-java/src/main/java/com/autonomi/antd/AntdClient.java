@@ -253,16 +253,16 @@ public class AntdClient implements AutoCloseable {
 
     // ── Files & Directories ──
 
-    public PutResult fileUploadPublic(String path) {
+    public FileUploadResult fileUploadPublic(String path) {
         return fileUploadPublic(path, null);
     }
 
-    public PutResult fileUploadPublic(String path, String paymentMode) {
+    public FileUploadResult fileUploadPublic(String path, String paymentMode) {
         String body = paymentMode != null
                 ? Json.object("path", path, "payment_mode", paymentMode)
                 : Json.object("path", path);
         Map<String, Object> j = doJson("POST", "/v1/files/upload/public", body);
-        return new PutResult(str(j, "cost"), str(j, "address"));
+        return parseFileUploadResult(j);
     }
 
     public void fileDownloadPublic(String address, String destPath) {
@@ -270,16 +270,25 @@ public class AntdClient implements AutoCloseable {
         doJson("POST", "/v1/files/download/public", body);
     }
 
-    public PutResult dirUploadPublic(String path) {
+    public FileUploadResult dirUploadPublic(String path) {
         return dirUploadPublic(path, null);
     }
 
-    public PutResult dirUploadPublic(String path, String paymentMode) {
+    public FileUploadResult dirUploadPublic(String path, String paymentMode) {
         String body = paymentMode != null
                 ? Json.object("path", path, "payment_mode", paymentMode)
                 : Json.object("path", path);
         Map<String, Object> j = doJson("POST", "/v1/dirs/upload/public", body);
-        return new PutResult(str(j, "cost"), str(j, "address"));
+        return parseFileUploadResult(j);
+    }
+
+    private static FileUploadResult parseFileUploadResult(Map<String, Object> j) {
+        return new FileUploadResult(
+                str(j, "address"),
+                str(j, "storage_cost_atto"),
+                str(j, "gas_cost_wei"),
+                num(j, "chunks_stored"),
+                str(j, "payment_mode_used"));
     }
 
     public void dirDownloadPublic(String address, String destPath) {

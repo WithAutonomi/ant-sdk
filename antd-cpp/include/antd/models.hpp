@@ -18,6 +18,15 @@ struct PutResult {
     std::string address;  // hex
 };
 
+/// Result of a public file or directory upload.
+struct FileUploadResult {
+    std::string address;            // hex network address
+    std::string storage_cost_atto;  // storage cost in atto, "0" if all chunks already existed
+    std::string gas_cost_wei;       // gas cost in wei as decimal string
+    uint64_t chunks_stored{0};      // number of chunks stored on the network
+    std::string payment_mode_used;  // "auto", "merkle", or "single"
+};
+
 /// Wallet address response.
 struct WalletAddress {
     std::string address;  // 0x-prefixed hex

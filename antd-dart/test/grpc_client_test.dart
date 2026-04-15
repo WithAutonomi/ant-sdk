@@ -69,14 +69,26 @@ Future<PutResult> chunkPut(Uint8List data) =>
 Future<Uint8List> chunkGet(String address) =>
       _maybeThrow(Uint8List.fromList([99, 104, 117, 110, 107])); // "chunk"
 
-Future<PutResult> fileUploadPublic(String path) =>
-      _maybeThrow(const PutResult(cost: '1000', address: 'file1'));
+Future<FileUploadResult> fileUploadPublic(String path) =>
+      _maybeThrow(const FileUploadResult(
+        address: 'file1',
+        storageCostAtto: '1000',
+        gasCostWei: '42',
+        chunksStored: 3,
+        paymentModeUsed: 'auto',
+      ));
 
 Future<void> fileDownloadPublic(String address, String destPath) =>
       _maybeThrow(null);
 
-Future<PutResult> dirUploadPublic(String path) =>
-      _maybeThrow(const PutResult(cost: '2000', address: 'dir1'));
+Future<FileUploadResult> dirUploadPublic(String path) =>
+      _maybeThrow(const FileUploadResult(
+        address: 'dir1',
+        storageCostAtto: '2000',
+        gasCostWei: '100',
+        chunksStored: 5,
+        paymentModeUsed: 'merkle',
+      ));
 
 Future<void> dirDownloadPublic(String address, String destPath) =>
       _maybeThrow(null);
@@ -170,8 +182,11 @@ void main() {
     test('upload file', () async {
       final client = _FakeGrpcClient();
       final result = await client.fileUploadPublic('/tmp/test.txt');
-      expect(result.cost, equals('1000'));
       expect(result.address, equals('file1'));
+      expect(result.storageCostAtto, equals('1000'));
+      expect(result.gasCostWei, equals('42'));
+      expect(result.chunksStored, equals(3));
+      expect(result.paymentModeUsed, equals('auto'));
     });
 
     test('download file', () async {
@@ -183,8 +198,11 @@ void main() {
     test('upload directory', () async {
       final client = _FakeGrpcClient();
       final result = await client.dirUploadPublic('/tmp/mydir');
-      expect(result.cost, equals('2000'));
       expect(result.address, equals('dir1'));
+      expect(result.storageCostAtto, equals('2000'));
+      expect(result.gasCostWei, equals('100'));
+      expect(result.chunksStored, equals(5));
+      expect(result.paymentModeUsed, equals('merkle'));
     });
 
     test('download directory', () async {

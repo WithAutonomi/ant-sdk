@@ -275,13 +275,13 @@ public class GrpcAntdClient implements AutoCloseable {
     /**
      * Upload a file to the network (public).
      */
-    public PutResult fileUploadPublic(String path) {
+    public FileUploadResult fileUploadPublic(String path) {
         try {
             UploadFileRequest req = UploadFileRequest.newBuilder()
                     .setPath(path)
                     .build();
             UploadPublicResponse resp = fileStub.uploadPublic(req);
-            return new PutResult(resp.getCost().getAttoTokens(), resp.getAddress());
+            return toFileUploadResult(resp);
         } catch (StatusRuntimeException e) {
             throw mapException(e);
         }
@@ -305,16 +305,25 @@ public class GrpcAntdClient implements AutoCloseable {
     /**
      * Upload a directory to the network (public).
      */
-    public PutResult dirUploadPublic(String path) {
+    public FileUploadResult dirUploadPublic(String path) {
         try {
             UploadFileRequest req = UploadFileRequest.newBuilder()
                     .setPath(path)
                     .build();
             UploadPublicResponse resp = fileStub.dirUploadPublic(req);
-            return new PutResult(resp.getCost().getAttoTokens(), resp.getAddress());
+            return toFileUploadResult(resp);
         } catch (StatusRuntimeException e) {
             throw mapException(e);
         }
+    }
+
+    private static FileUploadResult toFileUploadResult(UploadPublicResponse resp) {
+        return new FileUploadResult(
+                resp.getAddress(),
+                resp.getStorageCostAtto(),
+                resp.getGasCostWei(),
+                resp.getChunksStored(),
+                resp.getPaymentModeUsed());
     }
 
     /**

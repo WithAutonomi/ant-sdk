@@ -83,13 +83,13 @@ class AntdClientTest {
 
             // Files
             if ("POST".equals(method) && "/v1/files/upload/public".equals(path)) {
-                return json("{\"cost\":\"1000\",\"address\":\"file1\"}");
+                return json("{\"address\":\"file1\",\"storage_cost_atto\":\"1000\",\"gas_cost_wei\":\"42\",\"chunks_stored\":3,\"payment_mode_used\":\"auto\"}");
             }
             if ("POST".equals(method) && "/v1/files/download/public".equals(path)) {
                 return new MockResponse().setResponseCode(200);
             }
             if ("POST".equals(method) && "/v1/dirs/upload/public".equals(path)) {
-                return json("{\"cost\":\"2000\",\"address\":\"dir1\"}");
+                return json("{\"address\":\"dir1\",\"storage_cost_atto\":\"2000\",\"gas_cost_wei\":\"100\",\"chunks_stored\":5,\"payment_mode_used\":\"merkle\"}");
             }
             if ("POST".equals(method) && "/v1/dirs/download/public".equals(path)) {
                 return new MockResponse().setResponseCode(200);
@@ -164,9 +164,12 @@ class AntdClientTest {
 
     @Test
     void testFileUploadPublic() {
-        PutResult put = client.fileUploadPublic("/tmp/test.txt");
+        FileUploadResult put = client.fileUploadPublic("/tmp/test.txt");
         assertEquals("file1", put.address());
-        assertEquals("1000", put.cost());
+        assertEquals("1000", put.storageCostAtto());
+        assertEquals("42", put.gasCostWei());
+        assertEquals(3L, put.chunksStored());
+        assertEquals("auto", put.paymentModeUsed());
     }
 
     @Test
@@ -176,9 +179,12 @@ class AntdClientTest {
 
     @Test
     void testDirUploadPublic() {
-        PutResult put = client.dirUploadPublic("/tmp/mydir");
+        FileUploadResult put = client.dirUploadPublic("/tmp/mydir");
         assertEquals("dir1", put.address());
-        assertEquals("2000", put.cost());
+        assertEquals("2000", put.storageCostAtto());
+        assertEquals("100", put.gasCostWei());
+        assertEquals(5L, put.chunksStored());
+        assertEquals("merkle", put.paymentModeUsed());
     }
 
     @Test
