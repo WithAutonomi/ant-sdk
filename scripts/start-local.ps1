@@ -39,17 +39,50 @@ if ($env:ANT_NODE_DIR) {
     }
 }
 
-# Clean up old files
-foreach ($f in @($manifestFile, $devnetLog, $antdLog)) {
-    if (Test-Path $f) { Remove-Item $f -Force }
-}
-
 Write-Host ""
 Write-Host "=== antd Local Test Environment ===" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  SDK:     $sdkRoot" -ForegroundColor Gray
 Write-Host "  Node:    $antNodeDir" -ForegroundColor Gray
 Write-Host ""
+
+# ── Pre-flight: detect lingering processes from a previous run ──
+# (Must run BEFORE any file cleanup — a live ant-devnet locks its log file.)
+$strays = @()
+Get-Process -Name antd         -ErrorAction SilentlyContinue | ForEach-Object { $strays += "  antd         (PID $($_.Id))" }
+Get-Process -Name "ant-devnet" -ErrorAction SilentlyContinue | ForEach-Object { $strays += "  ant-devnet   (PID $($_.Id))" }
+Get-Process -Name anvil        -ErrorAction SilentlyContinue | ForEach-Object { $strays += "  anvil        (PID $($_.Id))" }
+
+if ($strays.Count -gt 0) {
+    $bar = ([char]0x2588).ToString() * 60
+    Write-Host ""
+    Write-Host $bar -ForegroundColor Yellow
+    Write-Host "  WARNING: lingering processes from a previous run" -ForegroundColor Yellow
+    Write-Host $bar -ForegroundColor Yellow
+    Write-Host ""
+    $strays | ForEach-Object { Write-Host $_ -ForegroundColor Gray }
+    Write-Host ""
+    Write-Host "  These will likely cause port conflicts or a silent devnet timeout." -ForegroundColor Yellow
+    Write-Host ""
+    $choice = "$(Read-Host '  Run kill-local to stop them? [Y]es / [n]o / [c]ancel')".Trim().ToLower()
+    if ($choice -eq 'c' -or $choice -eq 'cancel') {
+        Write-Host "Cancelled." -ForegroundColor Gray
+        exit 0
+    } elseif ($choice -eq 'n' -or $choice -eq 'no') {
+        Write-Host "Continuing without cleanup." -ForegroundColor Yellow
+        Write-Host ""
+    } else {
+        Write-Host ""
+        & "$scriptDir\kill-local.ps1"
+        Start-Sleep -Seconds 1
+    }
+}
+
+# Clean up old files (SilentlyContinue: if user chose to keep strays, a locked log is tolerable —
+# Start-Process will fail later with a clearer message than Remove-Item would.)
+foreach ($f in @($manifestFile, $devnetLog, "$devnetLog.err", $antdLog)) {
+    if (Test-Path $f) { Remove-Item $f -Force -ErrorAction SilentlyContinue }
+}
 
 # ── 1. Start ant devnet ──
 Write-Host "[1/3] Starting ant devnet (25 nodes + EVM)..." -ForegroundColor Yellow

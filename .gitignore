@@ -40,6 +40,8 @@ pubspec.lock
 # PHP
 vendor/
 composer.lock
+composer-setup.php
+composer.phar
 
 # Elixir
 _build/
