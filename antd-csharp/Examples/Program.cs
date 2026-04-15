@@ -114,7 +114,8 @@ class Program
             // Upload
             var result = await client.FileUploadPublicAsync(srcPath);
             Console.WriteLine($"File uploaded to: {result.Address}");
-            Console.WriteLine($"Actual cost: {result.Cost} atto tokens");
+            Console.WriteLine($"Storage cost: {result.StorageCostAtto} atto, gas: {result.GasCostWei} wei");
+            Console.WriteLine($"Chunks stored: {result.ChunksStored}, payment mode: {result.PaymentModeUsed}");
 
             // Download to new location
             var destPath = srcPath + ".downloaded";

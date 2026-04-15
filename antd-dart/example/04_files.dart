@@ -7,7 +7,9 @@ void main() async {
   try {
     // Upload a file
     final result = await client.fileUploadPublic('/path/to/file.txt');
-    print('File uploaded at ${result.address} (cost: ${result.cost} atto)');
+    print('File uploaded at ${result.address}');
+    print('  storage: ${result.storageCostAtto} atto, gas: ${result.gasCostWei} wei');
+    print('  chunks: ${result.chunksStored}, mode: ${result.paymentModeUsed}');
 
     // Download a file
     await client.fileDownloadPublic(result.address, '/path/to/output.txt');

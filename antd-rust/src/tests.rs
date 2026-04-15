@@ -90,7 +90,7 @@ fn mock_file_upload_public(server: &mut ServerGuard) -> Mock {
         .mock("POST", "/v1/files/upload/public")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"cost":"1000","address":"file1"}"#)
+        .with_body(r#"{"address":"file1","storage_cost_atto":"1000","gas_cost_wei":"42","chunks_stored":3,"payment_mode_used":"auto"}"#)
         .create()
 }
 
@@ -108,7 +108,7 @@ fn mock_dir_upload_public(server: &mut ServerGuard) -> Mock {
         .mock("POST", "/v1/dirs/upload/public")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"cost":"2000","address":"dir1"}"#)
+        .with_body(r#"{"address":"dir1","storage_cost_atto":"2000","gas_cost_wei":"100","chunks_stored":5,"payment_mode_used":"merkle"}"#)
         .create()
 }
 
@@ -284,7 +284,10 @@ async fn test_file_upload_public() {
 
     let result = client.file_upload_public("/tmp/test.txt", None).await.unwrap();
     assert_eq!(result.address, "file1");
-    assert_eq!(result.cost, "1000");
+    assert_eq!(result.storage_cost_atto, "1000");
+    assert_eq!(result.gas_cost_wei, "42");
+    assert_eq!(result.chunks_stored, 3);
+    assert_eq!(result.payment_mode_used, "auto");
 }
 
 #[tokio::test]
@@ -307,7 +310,10 @@ async fn test_dir_upload_public() {
 
     let result = client.dir_upload_public("/tmp/mydir", None).await.unwrap();
     assert_eq!(result.address, "dir1");
-    assert_eq!(result.cost, "2000");
+    assert_eq!(result.storage_cost_atto, "2000");
+    assert_eq!(result.gas_cost_wei, "100");
+    assert_eq!(result.chunks_stored, 5);
+    assert_eq!(result.payment_mode_used, "merkle");
 }
 
 #[tokio::test]

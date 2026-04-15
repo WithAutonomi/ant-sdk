@@ -156,9 +156,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let peers = node.connected_peers().await;
     tracing::info!(count = peers.len(), peers = ?peers, "peer status at startup");
 
-    // Build ant-core Client from the P2P node
+    // Build ant-core Client from the P2P node, applying any CLI overrides
+    // to ClientConfig (timeouts and concurrency).
+    let mut client_config = ClientConfig::default();
+    if let Some(v) = config.quote_timeout_secs {
+        client_config.quote_timeout_secs = v;
+    }
+    if let Some(v) = config.store_timeout_secs {
+        client_config.store_timeout_secs = v;
+    }
+    if let Some(v) = config.quote_concurrency {
+        client_config.quote_concurrency = v;
+    }
+    if let Some(v) = config.store_concurrency {
+        client_config.store_concurrency = v;
+    }
+    tracing::info!(
+        quote_timeout_secs = client_config.quote_timeout_secs,
+        store_timeout_secs = client_config.store_timeout_secs,
+        quote_concurrency = client_config.quote_concurrency,
+        store_concurrency = client_config.store_concurrency,
+        "client config resolved"
+    );
+
     let node = Arc::new(node);
-    let mut client = Client::from_node(node, ClientConfig::default());
+    let mut client = Client::from_node(node, client_config);
 
     // Load EVM wallet if configured
     if let Ok(wallet_key) = std::env::var("AUTONOMI_WALLET_KEY") {

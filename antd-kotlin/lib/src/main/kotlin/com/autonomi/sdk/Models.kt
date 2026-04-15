@@ -9,6 +9,15 @@ data class HealthStatus(val ok: Boolean, val network: String)
 /** Result of a put/create operation that stores data on the network. */
 data class PutResult(val cost: String, val address: String)
 
+/** Result of a public file or directory upload. */
+data class FileUploadResult(
+    val address: String,
+    val storageCostAtto: String,
+    val gasCostWei: String,
+    val chunksStored: ULong,
+    val paymentModeUsed: String,
+)
+
 /** Wallet address response. */
 data class WalletAddress(val address: String)
 
@@ -60,6 +69,15 @@ internal data class HealthResponseDto(
 internal data class DataPutPublicDto(
     val cost: String,
     val address: String,
+)
+
+@Serializable
+internal data class FileUploadPublicDto(
+    val address: String,
+    @SerialName("storage_cost_atto") val storageCostAtto: String,
+    @SerialName("gas_cost_wei") val gasCostWei: String,
+    @SerialName("chunks_stored") val chunksStored: ULong,
+    @SerialName("payment_mode_used") val paymentModeUsed: String,
 )
 
 @Serializable

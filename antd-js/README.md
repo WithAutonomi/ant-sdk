@@ -79,9 +79,9 @@ All methods are `async` and return Promises.
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `fileUploadPublic(path)` | `PutResult` | Upload file |
+| `fileUploadPublic(path)` | `FileUploadResult` | Upload file |
 | `fileDownloadPublic(address, destPath)` | `void` | Download file |
-| `dirUploadPublic(path)` | `PutResult` | Upload directory |
+| `dirUploadPublic(path)` | `FileUploadResult` | Upload directory |
 | `dirDownloadPublic(address, destPath)` | `void` | Download directory |
 | `fileCost(path, isPublic?)` | `string` | Estimate upload cost |
 

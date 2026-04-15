@@ -23,7 +23,8 @@ try:
     # Upload file
     result = client.file_upload_public(src_path)
     print(f"File uploaded to: {result.address}")
-    print(f"Actual cost: {result.cost} atto tokens")
+    print(f"Storage cost: {result.storage_cost_atto} atto, gas: {result.gas_cost_wei} wei")
+    print(f"Chunks stored: {result.chunks_stored}, payment mode: {result.payment_mode_used}")
 
     # Download to new location
     dest_path = src_path + ".downloaded"

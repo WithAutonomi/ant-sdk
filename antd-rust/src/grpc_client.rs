@@ -213,7 +213,7 @@ impl GrpcClient {
     // --- Files ---
 
     /// Uploads a local file to the network.
-    pub async fn file_upload_public(&self, path: &str) -> Result<PutResult, AntdError> {
+    pub async fn file_upload_public(&self, path: &str) -> Result<FileUploadResult, AntdError> {
         let resp = self
             .files
             .clone()
@@ -223,14 +223,12 @@ impl GrpcClient {
             .await?
             .into_inner();
 
-        let cost = resp
-            .cost
-            .map(|c| c.atto_tokens)
-            .unwrap_or_default();
-
-        Ok(PutResult {
-            cost,
+        Ok(FileUploadResult {
             address: resp.address,
+            storage_cost_atto: resp.storage_cost_atto,
+            gas_cost_wei: resp.gas_cost_wei,
+            chunks_stored: resp.chunks_stored,
+            payment_mode_used: resp.payment_mode_used,
         })
     }
 
@@ -252,7 +250,7 @@ impl GrpcClient {
     }
 
     /// Uploads a local directory to the network.
-    pub async fn dir_upload_public(&self, path: &str) -> Result<PutResult, AntdError> {
+    pub async fn dir_upload_public(&self, path: &str) -> Result<FileUploadResult, AntdError> {
         let resp = self
             .files
             .clone()
@@ -262,14 +260,12 @@ impl GrpcClient {
             .await?
             .into_inner();
 
-        let cost = resp
-            .cost
-            .map(|c| c.atto_tokens)
-            .unwrap_or_default();
-
-        Ok(PutResult {
-            cost,
+        Ok(FileUploadResult {
             address: resp.address,
+            storage_cost_atto: resp.storage_cost_atto,
+            gas_cost_wei: resp.gas_cost_wei,
+            chunks_stored: resp.chunks_stored,
+            payment_mode_used: resp.payment_mode_used,
         })
     }
 

@@ -87,9 +87,15 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
 
     // ── Files ──
 
-    override suspend fun fileUploadPublic(path: String, paymentMode: String?): PutResult = try {
+    override suspend fun fileUploadPublic(path: String, paymentMode: String?): FileUploadResult = try {
         val resp = fileStub.uploadPublic(uploadFileRequest { this.path = path })
-        PutResult(resp.cost.attoTokens, resp.address)
+        FileUploadResult(
+            address = resp.address,
+            storageCostAtto = resp.storageCostAtto,
+            gasCostWei = resp.gasCostWei,
+            chunksStored = resp.chunksStored.toULong(),
+            paymentModeUsed = resp.paymentModeUsed,
+        )
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
     override suspend fun fileDownloadPublic(address: String, destPath: String) = try {
@@ -97,9 +103,15 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
         Unit
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
-    override suspend fun dirUploadPublic(path: String, paymentMode: String?): PutResult = try {
+    override suspend fun dirUploadPublic(path: String, paymentMode: String?): FileUploadResult = try {
         val resp = fileStub.dirUploadPublic(uploadFileRequest { this.path = path })
-        PutResult(resp.cost.attoTokens, resp.address)
+        FileUploadResult(
+            address = resp.address,
+            storageCostAtto = resp.storageCostAtto,
+            gasCostWei = resp.gasCostWei,
+            chunksStored = resp.chunksStored.toULong(),
+            paymentModeUsed = resp.paymentModeUsed,
+        )
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
     override suspend fun dirDownloadPublic(address: String, destPath: String) = try {

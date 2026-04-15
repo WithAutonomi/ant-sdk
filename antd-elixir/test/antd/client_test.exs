@@ -114,11 +114,23 @@ defmodule Antd.ClientTest do
     Bypass.expect_once(bypass, "POST", "/v1/files/upload/public", fn conn ->
       conn
       |> Plug.Conn.put_resp_content_type("application/json")
-      |> Plug.Conn.resp(200, Jason.encode!(%{cost: "1000", address: "file1"}))
+      |> Plug.Conn.resp(200, Jason.encode!(%{
+           address: "file1",
+           storage_cost_atto: "1000",
+           gas_cost_wei: "42",
+           chunks_stored: 3,
+           payment_mode_used: "auto"
+         }))
     end)
 
-    assert {:ok, %Antd.PutResult{cost: "1000", address: "file1"}} =
-             Antd.Client.file_upload_public(client, "/tmp/test.txt")
+    assert {:ok,
+            %Antd.FileUploadResult{
+              address: "file1",
+              storage_cost_atto: "1000",
+              gas_cost_wei: "42",
+              chunks_stored: 3,
+              payment_mode_used: "auto"
+            }} = Antd.Client.file_upload_public(client, "/tmp/test.txt")
   end
 
   test "file_download_public/3 downloads a file", %{bypass: bypass, client: client} do
@@ -135,11 +147,23 @@ defmodule Antd.ClientTest do
     Bypass.expect_once(bypass, "POST", "/v1/dirs/upload/public", fn conn ->
       conn
       |> Plug.Conn.put_resp_content_type("application/json")
-      |> Plug.Conn.resp(200, Jason.encode!(%{cost: "2000", address: "dir1"}))
+      |> Plug.Conn.resp(200, Jason.encode!(%{
+           address: "dir1",
+           storage_cost_atto: "2000",
+           gas_cost_wei: "100",
+           chunks_stored: 5,
+           payment_mode_used: "merkle"
+         }))
     end)
 
-    assert {:ok, %Antd.PutResult{cost: "2000", address: "dir1"}} =
-             Antd.Client.dir_upload_public(client, "/tmp/mydir")
+    assert {:ok,
+            %Antd.FileUploadResult{
+              address: "dir1",
+              storage_cost_atto: "2000",
+              gas_cost_wei: "100",
+              chunks_stored: 5,
+              payment_mode_used: "merkle"
+            }} = Antd.Client.dir_upload_public(client, "/tmp/mydir")
   end
 
   test "dir_download_public/3 downloads a directory", %{bypass: bypass, client: client} do

@@ -74,13 +74,13 @@ class RestClientTest {
 
             // Files
             if (method == "POST" && path == "/v1/files/upload/public") {
-                return json("""{"cost":"1000","address":"file1"}""")
+                return json("""{"address":"file1","storage_cost_atto":"1000","gas_cost_wei":"42","chunks_stored":3,"payment_mode_used":"auto"}""")
             }
             if (method == "POST" && path == "/v1/files/download/public") {
                 return MockResponse().setResponseCode(200)
             }
             if (method == "POST" && path == "/v1/dirs/upload/public") {
-                return json("""{"cost":"2000","address":"dir1"}""")
+                return json("""{"address":"dir1","storage_cost_atto":"2000","gas_cost_wei":"100","chunks_stored":5,"payment_mode_used":"merkle"}""")
             }
             if (method == "POST" && path == "/v1/dirs/download/public") {
                 return MockResponse().setResponseCode(200)
@@ -164,10 +164,13 @@ class RestClientTest {
     }
 
     @Test
-    fun `fileUploadPublic returns PutResult`() = runTest {
+    fun `fileUploadPublic returns FileUploadResult`() = runTest {
         val result = client.fileUploadPublic("/tmp/test.txt")
         assertEquals("file1", result.address)
-        assertEquals("1000", result.cost)
+        assertEquals("1000", result.storageCostAtto)
+        assertEquals("42", result.gasCostWei)
+        assertEquals(3UL, result.chunksStored)
+        assertEquals("auto", result.paymentModeUsed)
     }
 
     @Test
@@ -176,10 +179,13 @@ class RestClientTest {
     }
 
     @Test
-    fun `dirUploadPublic returns PutResult`() = runTest {
+    fun `dirUploadPublic returns FileUploadResult`() = runTest {
         val result = client.dirUploadPublic("/tmp/mydir")
         assertEquals("dir1", result.address)
-        assertEquals("2000", result.cost)
+        assertEquals("2000", result.storageCostAtto)
+        assertEquals("100", result.gasCostWei)
+        assertEquals(5UL, result.chunksStored)
+        assertEquals("merkle", result.paymentModeUsed)
     }
 
     @Test

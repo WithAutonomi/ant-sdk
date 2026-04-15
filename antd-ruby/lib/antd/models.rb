@@ -7,6 +7,16 @@ module Antd
   # Result of a put/create operation.
   PutResult = Struct.new(:cost, :address, keyword_init: true)
 
+  # Result of a public file or directory upload.
+  FileUploadResult = Struct.new(
+    :address,            # hex network address
+    :storage_cost_atto,  # storage cost in atto, "0" if all chunks already existed
+    :gas_cost_wei,       # gas cost in wei as decimal string
+    :chunks_stored,      # number of chunks stored on the network (uint64)
+    :payment_mode_used,  # "auto", "merkle", or "single"
+    keyword_init: true
+  )
+
   # Wallet address result.
   WalletAddress = Struct.new(:address, keyword_init: true)
 

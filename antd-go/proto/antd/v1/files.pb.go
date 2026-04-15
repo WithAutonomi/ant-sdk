@@ -66,11 +66,18 @@ func (x *UploadFileRequest) GetPath() string {
 }
 
 type UploadPublicResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Cost          *Cost                  `protobuf:"bytes,1,opt,name=cost,proto3" json:"cost,omitempty"`
-	Address       string                 `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"` // hex
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Address string                 `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"` // hex
+	// Total storage cost paid in token units (atto). "0" if all chunks already existed.
+	StorageCostAtto string `protobuf:"bytes,3,opt,name=storage_cost_atto,json=storageCostAtto,proto3" json:"storage_cost_atto,omitempty"`
+	// Total gas cost paid in wei, as a decimal string (u128 exceeds JSON safe-integer range).
+	GasCostWei string `protobuf:"bytes,4,opt,name=gas_cost_wei,json=gasCostWei,proto3" json:"gas_cost_wei,omitempty"`
+	// Number of chunks stored on the network.
+	ChunksStored uint64 `protobuf:"varint,5,opt,name=chunks_stored,json=chunksStored,proto3" json:"chunks_stored,omitempty"`
+	// Which payment mode was actually used ("auto", "merkle", or "single").
+	PaymentModeUsed string `protobuf:"bytes,6,opt,name=payment_mode_used,json=paymentModeUsed,proto3" json:"payment_mode_used,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *UploadPublicResponse) Reset() {
@@ -103,16 +110,37 @@ func (*UploadPublicResponse) Descriptor() ([]byte, []int) {
 	return file_antd_v1_files_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *UploadPublicResponse) GetCost() *Cost {
-	if x != nil {
-		return x.Cost
-	}
-	return nil
-}
-
 func (x *UploadPublicResponse) GetAddress() string {
 	if x != nil {
 		return x.Address
+	}
+	return ""
+}
+
+func (x *UploadPublicResponse) GetStorageCostAtto() string {
+	if x != nil {
+		return x.StorageCostAtto
+	}
+	return ""
+}
+
+func (x *UploadPublicResponse) GetGasCostWei() string {
+	if x != nil {
+		return x.GasCostWei
+	}
+	return ""
+}
+
+func (x *UploadPublicResponse) GetChunksStored() uint64 {
+	if x != nil {
+		return x.ChunksStored
+	}
+	return 0
+}
+
+func (x *UploadPublicResponse) GetPaymentModeUsed() string {
+	if x != nil {
+		return x.PaymentModeUsed
 	}
 	return ""
 }
@@ -263,10 +291,14 @@ const file_antd_v1_files_proto_rawDesc = "" +
 	"\n" +
 	"\x13antd/v1/files.proto\x12\aantd.v1\x1a\x14antd/v1/common.proto\"'\n" +
 	"\x11UploadFileRequest\x12\x12\n" +
-	"\x04path\x18\x01 \x01(\tR\x04path\"S\n" +
-	"\x14UploadPublicResponse\x12!\n" +
-	"\x04cost\x18\x01 \x01(\v2\r.antd.v1.CostR\x04cost\x12\x18\n" +
-	"\aaddress\x18\x02 \x01(\tR\aaddress\"N\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\"\xdb\x01\n" +
+	"\x14UploadPublicResponse\x12\x18\n" +
+	"\aaddress\x18\x02 \x01(\tR\aaddress\x12*\n" +
+	"\x11storage_cost_atto\x18\x03 \x01(\tR\x0fstorageCostAtto\x12 \n" +
+	"\fgas_cost_wei\x18\x04 \x01(\tR\n" +
+	"gasCostWei\x12#\n" +
+	"\rchunks_stored\x18\x05 \x01(\x04R\fchunksStored\x12*\n" +
+	"\x11payment_mode_used\x18\x06 \x01(\tR\x0fpaymentModeUsedJ\x04\b\x01\x10\x02R\x04cost\"N\n" +
 	"\x15DownloadPublicRequest\x12\x18\n" +
 	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x1b\n" +
 	"\tdest_path\x18\x02 \x01(\tR\bdestPath\"\x12\n" +
@@ -304,22 +336,21 @@ var file_antd_v1_files_proto_goTypes = []any{
 	(*Cost)(nil),                  // 5: antd.v1.Cost
 }
 var file_antd_v1_files_proto_depIdxs = []int32{
-	5, // 0: antd.v1.UploadPublicResponse.cost:type_name -> antd.v1.Cost
-	0, // 1: antd.v1.FileService.UploadPublic:input_type -> antd.v1.UploadFileRequest
-	2, // 2: antd.v1.FileService.DownloadPublic:input_type -> antd.v1.DownloadPublicRequest
-	0, // 3: antd.v1.FileService.DirUploadPublic:input_type -> antd.v1.UploadFileRequest
-	2, // 4: antd.v1.FileService.DirDownloadPublic:input_type -> antd.v1.DownloadPublicRequest
-	4, // 5: antd.v1.FileService.GetFileCost:input_type -> antd.v1.FileCostRequest
-	1, // 6: antd.v1.FileService.UploadPublic:output_type -> antd.v1.UploadPublicResponse
-	3, // 7: antd.v1.FileService.DownloadPublic:output_type -> antd.v1.DownloadResponse
-	1, // 8: antd.v1.FileService.DirUploadPublic:output_type -> antd.v1.UploadPublicResponse
-	3, // 9: antd.v1.FileService.DirDownloadPublic:output_type -> antd.v1.DownloadResponse
-	5, // 10: antd.v1.FileService.GetFileCost:output_type -> antd.v1.Cost
-	6, // [6:11] is the sub-list for method output_type
-	1, // [1:6] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	0, // 0: antd.v1.FileService.UploadPublic:input_type -> antd.v1.UploadFileRequest
+	2, // 1: antd.v1.FileService.DownloadPublic:input_type -> antd.v1.DownloadPublicRequest
+	0, // 2: antd.v1.FileService.DirUploadPublic:input_type -> antd.v1.UploadFileRequest
+	2, // 3: antd.v1.FileService.DirDownloadPublic:input_type -> antd.v1.DownloadPublicRequest
+	4, // 4: antd.v1.FileService.GetFileCost:input_type -> antd.v1.FileCostRequest
+	1, // 5: antd.v1.FileService.UploadPublic:output_type -> antd.v1.UploadPublicResponse
+	3, // 6: antd.v1.FileService.DownloadPublic:output_type -> antd.v1.DownloadResponse
+	1, // 7: antd.v1.FileService.DirUploadPublic:output_type -> antd.v1.UploadPublicResponse
+	3, // 8: antd.v1.FileService.DirDownloadPublic:output_type -> antd.v1.DownloadResponse
+	5, // 9: antd.v1.FileService.GetFileCost:output_type -> antd.v1.Cost
+	5, // [5:10] is the sub-list for method output_type
+	0, // [0:5] is the sub-list for method input_type
+	0, // [0:0] is the sub-list for extension type_name
+	0, // [0:0] is the sub-list for extension extendee
+	0, // [0:0] is the sub-list for field type_name
 }
 
 func init() { file_antd_v1_files_proto_init() }

@@ -288,7 +288,7 @@ end
 --- Upload a file to the network.
 -- @param path string local file path
 -- @param opts table optional settings: { payment_mode = string }
--- @return PutResult|nil, error|nil
+-- @return FileUploadResult|nil, error|nil
 function Client:file_upload_public(path, opts)
     local body = {
         path = path,
@@ -298,7 +298,13 @@ function Client:file_upload_public(path, opts)
     end
     local j, _, err = self:_do_json("POST", "/v1/files/upload/public", body)
     if err then return nil, err end
-    return models.new_put_result(str(j, "cost"), str(j, "address")), nil
+    return models.new_file_upload_result(
+        str(j, "address"),
+        str(j, "storage_cost_atto"),
+        str(j, "gas_cost_wei"),
+        num(j, "chunks_stored"),
+        str(j, "payment_mode_used")
+    ), nil
 end
 
 --- Download a file from the network.
@@ -316,7 +322,7 @@ end
 --- Upload a directory to the network.
 -- @param path string local directory path
 -- @param opts table optional settings: { payment_mode = string }
--- @return PutResult|nil, error|nil
+-- @return FileUploadResult|nil, error|nil
 function Client:dir_upload_public(path, opts)
     local body = {
         path = path,
@@ -326,7 +332,13 @@ function Client:dir_upload_public(path, opts)
     end
     local j, _, err = self:_do_json("POST", "/v1/dirs/upload/public", body)
     if err then return nil, err end
-    return models.new_put_result(str(j, "cost"), str(j, "address")), nil
+    return models.new_file_upload_result(
+        str(j, "address"),
+        str(j, "storage_cost_atto"),
+        str(j, "gas_cost_wei"),
+        num(j, "chunks_stored"),
+        str(j, "payment_mode_used")
+    ), nil
 end
 
 --- Download a directory from the network.

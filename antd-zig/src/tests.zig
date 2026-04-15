@@ -88,6 +88,20 @@ test "parsePutResult parses data_map key" {
     try testing.expectEqualStrings("dm123", result.address);
 }
 
+test "parseFileUploadResult parses all fields" {
+    const body =
+        \\{"address":"file1","storage_cost_atto":"1000","gas_cost_wei":"42","chunks_stored":3,"payment_mode_used":"auto"}
+    ;
+    const result = try json_helpers.parseFileUploadResult(testing.allocator, body);
+    defer result.deinit(testing.allocator);
+
+    try testing.expectEqualStrings("file1", result.address);
+    try testing.expectEqualStrings("1000", result.storage_cost_atto);
+    try testing.expectEqualStrings("42", result.gas_cost_wei);
+    try testing.expectEqual(@as(u64, 3), result.chunks_stored);
+    try testing.expectEqualStrings("auto", result.payment_mode_used);
+}
+
 test "parseBase64Data decodes data" {
     // "hello" in base64 is "aGVsbG8="
     const body =

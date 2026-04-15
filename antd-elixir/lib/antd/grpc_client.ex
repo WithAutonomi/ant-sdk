@@ -230,13 +230,13 @@ defmodule Antd.GrpcClient do
   # ---------------------------------------------------------------------------
 
   @doc "Uploads a local file to the network."
-  @spec file_upload_public(t(), String.t()) :: {:ok, Antd.PutResult.t()} | {:error, Exception.t()}
+  @spec file_upload_public(t(), String.t()) :: {:ok, Antd.FileUploadResult.t()} | {:error, Exception.t()}
   def file_upload_public(%__MODULE__{channel: channel}, path) do
     req = Antd.V1.UploadFileRequest.new(path: path)
 
     case Antd.V1.FileService.Stub.upload_public(channel, req) do
       {:ok, resp} ->
-        {:ok, %Antd.PutResult{cost: resp.cost.atto_tokens, address: resp.address}}
+        {:ok, file_upload_result_from_resp(resp)}
 
       {:error, rpc_error} ->
         {:error, translate_error(rpc_error)}
@@ -244,7 +244,7 @@ defmodule Antd.GrpcClient do
   end
 
   @doc "Like `file_upload_public/2` but raises on error."
-  @spec file_upload_public!(t(), String.t()) :: Antd.PutResult.t()
+  @spec file_upload_public!(t(), String.t()) :: Antd.FileUploadResult.t()
   def file_upload_public!(client, path), do: unwrap!(file_upload_public(client, path))
 
   @doc "Downloads a file from the network to a local path."
@@ -265,13 +265,13 @@ defmodule Antd.GrpcClient do
   end
 
   @doc "Uploads a local directory to the network."
-  @spec dir_upload_public(t(), String.t()) :: {:ok, Antd.PutResult.t()} | {:error, Exception.t()}
+  @spec dir_upload_public(t(), String.t()) :: {:ok, Antd.FileUploadResult.t()} | {:error, Exception.t()}
   def dir_upload_public(%__MODULE__{channel: channel}, path) do
     req = Antd.V1.UploadFileRequest.new(path: path)
 
     case Antd.V1.FileService.Stub.dir_upload_public(channel, req) do
       {:ok, resp} ->
-        {:ok, %Antd.PutResult{cost: resp.cost.atto_tokens, address: resp.address}}
+        {:ok, file_upload_result_from_resp(resp)}
 
       {:error, rpc_error} ->
         {:error, translate_error(rpc_error)}
@@ -279,8 +279,18 @@ defmodule Antd.GrpcClient do
   end
 
   @doc "Like `dir_upload_public/2` but raises on error."
-  @spec dir_upload_public!(t(), String.t()) :: Antd.PutResult.t()
+  @spec dir_upload_public!(t(), String.t()) :: Antd.FileUploadResult.t()
   def dir_upload_public!(client, path), do: unwrap!(dir_upload_public(client, path))
+
+  defp file_upload_result_from_resp(resp) do
+    %Antd.FileUploadResult{
+      address: resp.address,
+      storage_cost_atto: resp.storage_cost_atto,
+      gas_cost_wei: resp.gas_cost_wei,
+      chunks_stored: resp.chunks_stored,
+      payment_mode_used: resp.payment_mode_used
+    }
+  end
 
   @doc "Downloads a directory from the network to a local path."
   @spec dir_download_public(t(), String.t(), String.t()) :: :ok | {:error, Exception.t()}

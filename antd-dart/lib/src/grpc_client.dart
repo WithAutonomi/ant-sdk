@@ -271,13 +271,16 @@ class GrpcAntdClient {
   // ---------------------------------------------------------------------------
 
   /// Uploads a local file to the network.
-  Future<PutResult> fileUploadPublic(String path) async {
+  Future<FileUploadResult> fileUploadPublic(String path) async {
     try {
       final req = files_msg.UploadFileRequest()..path = path;
       final resp = await _fileStub.uploadPublic(req);
-      return PutResult(
-        cost: resp.cost.attoTokens,
+      return FileUploadResult(
         address: resp.address,
+        storageCostAtto: resp.storageCostAtto,
+        gasCostWei: resp.gasCostWei,
+        chunksStored: resp.chunksStored.toInt(),
+        paymentModeUsed: resp.paymentModeUsed,
       );
     } on GrpcError catch (e) {
       _handleError(e);
@@ -297,13 +300,16 @@ class GrpcAntdClient {
   }
 
   /// Uploads a local directory to the network.
-  Future<PutResult> dirUploadPublic(String path) async {
+  Future<FileUploadResult> dirUploadPublic(String path) async {
     try {
       final req = files_msg.UploadFileRequest()..path = path;
       final resp = await _fileStub.dirUploadPublic(req);
-      return PutResult(
-        cost: resp.cost.attoTokens,
+      return FileUploadResult(
         address: resp.address,
+        storageCostAtto: resp.storageCostAtto,
+        gasCostWei: resp.gasCostWei,
+        chunksStored: resp.chunksStored.toInt(),
+        paymentModeUsed: resp.paymentModeUsed,
       );
     } on GrpcError catch (e) {
       _handleError(e);

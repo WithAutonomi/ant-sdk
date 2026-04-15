@@ -24,7 +24,8 @@ try {
   // Upload file
   const result = await client.fileUploadPublic(srcPath);
   console.log(`File uploaded to: ${result.address}`);
-  console.log(`Actual cost: ${result.cost} atto tokens`);
+  console.log(`Storage cost: ${result.storageCostAtto} atto, gas: ${result.gasCostWei} wei`);
+  console.log(`Chunks stored: ${result.chunksStored}, payment mode: ${result.paymentModeUsed}`);
 
   // Download to new location
   const destPath = srcPath + ".downloaded";

@@ -92,9 +92,9 @@ await aclient.close()
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `file_upload_public(path: str)` | `PutResult` | Upload a file |
+| `file_upload_public(path: str)` | `FileUploadResult` | Upload a file |
 | `file_download_public(address: str, dest: str)` | `None` | Download a file |
-| `dir_upload_public(path: str)` | `PutResult` | Upload a directory |
+| `dir_upload_public(path: str)` | `FileUploadResult` | Upload a directory |
 | `dir_download_public(address: str, dest: str)` | `None` | Download a directory |
 | `file_cost(path: str, is_public: bool)` | `str` | Estimate file cost |
 

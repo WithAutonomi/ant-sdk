@@ -111,10 +111,22 @@ local function setup_daemon()
 
     -- Files
     register_route("POST", "/v1/files/upload/public", 200,
-        cjson.encode({ cost = "1000", address = "file1" }))
+        cjson.encode({
+            address = "file1",
+            storage_cost_atto = "1000",
+            gas_cost_wei = "42",
+            chunks_stored = 3,
+            payment_mode_used = "auto",
+        }))
     register_route("POST", "/v1/files/download/public", 200, "")
     register_route("POST", "/v1/dirs/upload/public", 200,
-        cjson.encode({ cost = "2000", address = "dir1" }))
+        cjson.encode({
+            address = "dir1",
+            storage_cost_atto = "2000",
+            gas_cost_wei = "100",
+            chunks_stored = 5,
+            payment_mode_used = "merkle",
+        }))
     register_route("POST", "/v1/dirs/download/public", 200, "")
     register_route("POST", "/v1/cost/file", 200,
         cjson.encode({ cost = "1000" }))
@@ -212,7 +224,10 @@ describe("antd client", function()
             local result, err = client:file_upload_public("/tmp/test.txt")
             assert.is_nil(err)
             assert.are.equal("file1", result.address)
-            assert.are.equal("1000", result.cost)
+            assert.are.equal("1000", result.storage_cost_atto)
+            assert.are.equal("42", result.gas_cost_wei)
+            assert.are.equal(3, result.chunks_stored)
+            assert.are.equal("auto", result.payment_mode_used)
         end)
     end)
 
@@ -228,7 +243,10 @@ describe("antd client", function()
             local result, err = client:dir_upload_public("/tmp/mydir")
             assert.is_nil(err)
             assert.are.equal("dir1", result.address)
-            assert.are.equal("2000", result.cost)
+            assert.are.equal("2000", result.storage_cost_atto)
+            assert.are.equal("100", result.gas_cost_wei)
+            assert.are.equal(5, result.chunks_stored)
+            assert.are.equal("merkle", result.payment_mode_used)
         end)
     end)
 

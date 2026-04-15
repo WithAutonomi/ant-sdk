@@ -94,6 +94,34 @@ const routes: Route[] = [
     respond: () => jsonResponse(200, { data: b64("chunk bytes") }),
   },
 
+  // File upload public
+  {
+    method: "POST",
+    match: (p) => p === "/v1/files/upload/public",
+    respond: () =>
+      jsonResponse(200, {
+        address: "0xfile",
+        storage_cost_atto: "1000",
+        gas_cost_wei: "42",
+        chunks_stored: 3,
+        payment_mode_used: "auto",
+      }),
+  },
+
+  // Dir upload public
+  {
+    method: "POST",
+    match: (p) => p === "/v1/dirs/upload/public",
+    respond: () =>
+      jsonResponse(200, {
+        address: "0xdir",
+        storage_cost_atto: "2000",
+        gas_cost_wei: "100",
+        chunks_stored: 5,
+        payment_mode_used: "merkle",
+      }),
+  },
+
   // Wallet address
   {
     method: "GET",
@@ -287,6 +315,34 @@ describe("RestClient", () => {
     it("returns decoded Buffer", async () => {
       const result = await client.chunkGet("0xchunk");
       expect(result.toString()).toBe("chunk bytes");
+    });
+  });
+
+  // ---- Files ----
+
+  describe("fileUploadPublic()", () => {
+    it("returns FileUploadResult with all five fields", async () => {
+      const result = await client.fileUploadPublic("/tmp/foo.txt");
+      expect(result).toEqual({
+        address: "0xfile",
+        storageCostAtto: "1000",
+        gasCostWei: "42",
+        chunksStored: 3,
+        paymentModeUsed: "auto",
+      });
+    });
+  });
+
+  describe("dirUploadPublic()", () => {
+    it("returns FileUploadResult with all five fields", async () => {
+      const result = await client.dirUploadPublic("/tmp/mydir");
+      expect(result).toEqual({
+        address: "0xdir",
+        storageCostAtto: "2000",
+        gasCostWei: "100",
+        chunksStored: 5,
+        paymentModeUsed: "merkle",
+      });
     });
   });
 

@@ -19,8 +19,20 @@ message UploadFileRequest {
 }
 
 message UploadPublicResponse {
-  Cost cost = 1;
+  // Field 1 reserved: previously an empty `Cost cost` alias, removed pre-GA
+  // because no client read it. Do not reuse this field number to avoid wire
+  // collisions with any cached generated stubs.
+  reserved 1;
+  reserved "cost";
   string address = 2; // hex
+  // Total storage cost paid in token units (atto). "0" if all chunks already existed.
+  string storage_cost_atto = 3;
+  // Total gas cost paid in wei, as a decimal string (u128 exceeds JSON safe-integer range).
+  string gas_cost_wei = 4;
+  // Number of chunks stored on the network.
+  uint64 chunks_stored = 5;
+  // Which payment mode was actually used ("auto", "merkle", or "single").
+  string payment_mode_used = 6;
 }
 
 message DownloadPublicRequest {

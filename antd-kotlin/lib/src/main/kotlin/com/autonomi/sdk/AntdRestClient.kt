@@ -150,13 +150,19 @@ class AntdRestClient(
 
     // ── Files ──
 
-    override suspend fun fileUploadPublic(path: String, paymentMode: String?): PutResult {
+    override suspend fun fileUploadPublic(path: String, paymentMode: String?): FileUploadResult {
         val body = buildJsonObject {
             put("path", path)
             if (paymentMode != null) put("payment_mode", paymentMode)
         }.toString()
-        val resp = postJson<DataPutPublicDto>("/v1/files/upload/public", body)
-        return PutResult(resp.cost, resp.address)
+        val resp = postJson<FileUploadPublicDto>("/v1/files/upload/public", body)
+        return FileUploadResult(
+            address = resp.address,
+            storageCostAtto = resp.storageCostAtto,
+            gasCostWei = resp.gasCostWei,
+            chunksStored = resp.chunksStored,
+            paymentModeUsed = resp.paymentModeUsed,
+        )
     }
 
     override suspend fun fileDownloadPublic(address: String, destPath: String) {
@@ -167,13 +173,19 @@ class AntdRestClient(
         postJsonNoResult("/v1/files/download/public", body)
     }
 
-    override suspend fun dirUploadPublic(path: String, paymentMode: String?): PutResult {
+    override suspend fun dirUploadPublic(path: String, paymentMode: String?): FileUploadResult {
         val body = buildJsonObject {
             put("path", path)
             if (paymentMode != null) put("payment_mode", paymentMode)
         }.toString()
-        val resp = postJson<DataPutPublicDto>("/v1/dirs/upload/public", body)
-        return PutResult(resp.cost, resp.address)
+        val resp = postJson<FileUploadPublicDto>("/v1/dirs/upload/public", body)
+        return FileUploadResult(
+            address = resp.address,
+            storageCostAtto = resp.storageCostAtto,
+            gasCostWei = resp.gasCostWei,
+            chunksStored = resp.chunksStored,
+            paymentModeUsed = resp.paymentModeUsed,
+        )
     }
 
     override suspend fun dirDownloadPublic(address: String, destPath: String) {

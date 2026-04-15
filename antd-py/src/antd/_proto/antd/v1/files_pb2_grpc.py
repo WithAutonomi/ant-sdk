@@ -3,8 +3,8 @@
 import grpc
 import warnings
 
-from antd.v1 import common_pb2 as antd_dot_v1_dot_common__pb2
-from antd.v1 import files_pb2 as antd_dot_v1_dot_files__pb2
+from antd._proto.antd.v1 import common_pb2 as antd_dot_v1_dot_common__pb2
+from antd._proto.antd.v1 import files_pb2 as antd_dot_v1_dot_files__pb2
 
 GRPC_GENERATED_VERSION = '1.78.0'
 GRPC_VERSION = grpc.__version__

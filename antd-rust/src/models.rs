@@ -16,6 +16,24 @@ pub struct PutResult {
     pub address: String,
 }
 
+/// Result of a public file or directory upload.
+///
+/// Returned by [`crate::Client::file_upload_public`],
+/// [`crate::Client::dir_upload_public`], and the equivalent gRPC methods.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileUploadResult {
+    /// Hex-encoded network address of the uploaded file or directory.
+    pub address: String,
+    /// Total storage cost paid in token units (atto). `"0"` if all chunks already existed.
+    pub storage_cost_atto: String,
+    /// Total gas cost paid in wei as a decimal string (u128 exceeds JSON safe-integer range).
+    pub gas_cost_wei: String,
+    /// Number of chunks stored on the network.
+    pub chunks_stored: u64,
+    /// Which payment mode was actually used (`"auto"`, `"merkle"`, or `"single"`).
+    pub payment_mode_used: String,
+}
+
 /// Wallet address from the antd daemon.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WalletAddress {

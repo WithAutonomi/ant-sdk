@@ -102,7 +102,8 @@ func example04Files() async throws {
 
     let result = try await client.fileUploadPublic(path: srcPath)
     print("File uploaded to: \(result.address)")
-    print("Actual cost: \(result.cost) atto tokens")
+    print("Storage cost: \(result.storageCostAtto) atto, gas: \(result.gasCostWei) wei")
+    print("Chunks stored: \(result.chunksStored), payment mode: \(result.paymentModeUsed)")
 
     let destPath = srcPath + ".downloaded"
     try await client.fileDownloadPublic(address: result.address, destPath: destPath)

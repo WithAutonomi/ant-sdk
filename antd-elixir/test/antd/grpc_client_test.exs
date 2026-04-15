@@ -170,13 +170,22 @@ defmodule Antd.GrpcClientTest do
   # Files & Directories
   # ---------------------------------------------------------------------------
 
-  test "file_upload_public returns PutResult" do
+  test "file_upload_public returns FileUploadResult" do
     {:ok, result} = simulate_grpc_call(:ok, fn ->
-      %Antd.PutResult{cost: "1000", address: "file1"}
+      %Antd.FileUploadResult{
+        address: "file1",
+        storage_cost_atto: "1000",
+        gas_cost_wei: "42",
+        chunks_stored: 3,
+        payment_mode_used: "auto"
+      }
     end)
 
-    assert result.cost == "1000"
     assert result.address == "file1"
+    assert result.storage_cost_atto == "1000"
+    assert result.gas_cost_wei == "42"
+    assert result.chunks_stored == 3
+    assert result.payment_mode_used == "auto"
   end
 
   test "file_download_public returns :ok" do
@@ -184,13 +193,22 @@ defmodule Antd.GrpcClientTest do
     assert result == :ok
   end
 
-  test "dir_upload_public returns PutResult" do
+  test "dir_upload_public returns FileUploadResult" do
     {:ok, result} = simulate_grpc_call(:ok, fn ->
-      %Antd.PutResult{cost: "2000", address: "dir1"}
+      %Antd.FileUploadResult{
+        address: "dir1",
+        storage_cost_atto: "2000",
+        gas_cost_wei: "100",
+        chunks_stored: 5,
+        payment_mode_used: "merkle"
+      }
     end)
 
-    assert result.cost == "2000"
     assert result.address == "dir1"
+    assert result.storage_cost_atto == "2000"
+    assert result.gas_cost_wei == "100"
+    assert result.chunks_stored == 5
+    assert result.payment_mode_used == "merkle"
   end
 
   test "dir_download_public returns :ok" do

@@ -209,7 +209,7 @@ defmodule Antd.Client do
   # ---------------------------------------------------------------------------
 
   @doc "Uploads a local file to the network."
-  @spec file_upload_public(t(), String.t(), keyword()) :: {:ok, Antd.PutResult.t()} | {:error, Exception.t()}
+  @spec file_upload_public(t(), String.t(), keyword()) :: {:ok, Antd.FileUploadResult.t()} | {:error, Exception.t()}
   def file_upload_public(%__MODULE__{} = client, path, opts \\ []) do
     payload = %{path: path}
     payload = case Keyword.get(opts, :payment_mode) do
@@ -218,7 +218,7 @@ defmodule Antd.Client do
     end
     case do_json(client, :post, "/v1/files/upload/public", payload) do
       {:ok, body} ->
-        {:ok, %Antd.PutResult{cost: body["cost"], address: body["address"]}}
+        {:ok, file_upload_result_from_body(body)}
 
       {:error, _} = err ->
         err
@@ -226,7 +226,7 @@ defmodule Antd.Client do
   end
 
   @doc "Like `file_upload_public/2` but raises on error."
-  @spec file_upload_public!(t(), String.t(), keyword()) :: Antd.PutResult.t()
+  @spec file_upload_public!(t(), String.t(), keyword()) :: Antd.FileUploadResult.t()
   def file_upload_public!(client, path, opts \\ []), do: unwrap!(file_upload_public(client, path, opts))
 
   @doc "Downloads a file from the network to a local path."
@@ -245,7 +245,7 @@ defmodule Antd.Client do
   end
 
   @doc "Uploads a local directory to the network."
-  @spec dir_upload_public(t(), String.t(), keyword()) :: {:ok, Antd.PutResult.t()} | {:error, Exception.t()}
+  @spec dir_upload_public(t(), String.t(), keyword()) :: {:ok, Antd.FileUploadResult.t()} | {:error, Exception.t()}
   def dir_upload_public(%__MODULE__{} = client, path, opts \\ []) do
     payload = %{path: path}
     payload = case Keyword.get(opts, :payment_mode) do
@@ -254,7 +254,7 @@ defmodule Antd.Client do
     end
     case do_json(client, :post, "/v1/dirs/upload/public", payload) do
       {:ok, body} ->
-        {:ok, %Antd.PutResult{cost: body["cost"], address: body["address"]}}
+        {:ok, file_upload_result_from_body(body)}
 
       {:error, _} = err ->
         err
@@ -262,8 +262,18 @@ defmodule Antd.Client do
   end
 
   @doc "Like `dir_upload_public/2` but raises on error."
-  @spec dir_upload_public!(t(), String.t(), keyword()) :: Antd.PutResult.t()
+  @spec dir_upload_public!(t(), String.t(), keyword()) :: Antd.FileUploadResult.t()
   def dir_upload_public!(client, path, opts \\ []), do: unwrap!(dir_upload_public(client, path, opts))
+
+  defp file_upload_result_from_body(body) do
+    %Antd.FileUploadResult{
+      address: Map.get(body, "address", ""),
+      storage_cost_atto: Map.get(body, "storage_cost_atto", ""),
+      gas_cost_wei: Map.get(body, "gas_cost_wei", ""),
+      chunks_stored: Map.get(body, "chunks_stored", 0),
+      payment_mode_used: Map.get(body, "payment_mode_used", "")
+    }
+  end
 
   @doc "Downloads a directory from the network to a local path."
   @spec dir_download_public(t(), String.t(), String.t()) :: :ok | {:error, Exception.t()}

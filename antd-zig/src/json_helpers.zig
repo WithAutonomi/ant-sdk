@@ -66,6 +66,52 @@ pub fn parsePutResult(allocator: Allocator, body: []const u8, address_key: []con
     return .{ .cost = cost, .address = address };
 }
 
+/// Parse a FileUploadResult from a JSON response body. Used for both
+/// file_upload_public and dir_upload_public responses.
+pub fn parseFileUploadResult(allocator: Allocator, body: []const u8) !models.FileUploadResult {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
+        return error.JsonError;
+    defer parsed.deinit();
+    const root = parsed.value;
+
+    const obj = switch (root) {
+        .object => |o| o,
+        else => return error.JsonError,
+    };
+
+    const address = dupeString(allocator, obj.get("address") orelse .null) catch
+        return error.JsonError;
+    errdefer allocator.free(address);
+
+    const storage_cost_atto = dupeString(allocator, obj.get("storage_cost_atto") orelse .null) catch
+        return error.JsonError;
+    errdefer allocator.free(storage_cost_atto);
+
+    const gas_cost_wei = dupeString(allocator, obj.get("gas_cost_wei") orelse .null) catch
+        return error.JsonError;
+    errdefer allocator.free(gas_cost_wei);
+
+    const chunks_stored: u64 = blk: {
+        const v = obj.get("chunks_stored") orelse break :blk 0;
+        break :blk switch (v) {
+            .integer => |i| if (i < 0) 0 else @intCast(i),
+            .float => |f| @intFromFloat(f),
+            else => 0,
+        };
+    };
+
+    const payment_mode_used = dupeString(allocator, obj.get("payment_mode_used") orelse .null) catch
+        return error.JsonError;
+
+    return .{
+        .address = address,
+        .storage_cost_atto = storage_cost_atto,
+        .gas_cost_wei = gas_cost_wei,
+        .chunks_stored = chunks_stored,
+        .payment_mode_used = payment_mode_used,
+    };
+}
+
 /// Parse base64-encoded "data" field from JSON response and decode it.
 pub fn parseBase64Data(allocator: Allocator, body: []const u8) ![]const u8 {
     const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch

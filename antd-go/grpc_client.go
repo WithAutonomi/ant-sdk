@@ -260,7 +260,7 @@ func (c *GrpcClient) ChunkGet(ctx context.Context, address string) ([]byte, erro
 // --- Files (5 methods) ---
 
 // FileUploadPublic uploads a local file to the network.
-func (c *GrpcClient) FileUploadPublic(ctx context.Context, path string) (*PutResult, error) {
+func (c *GrpcClient) FileUploadPublic(ctx context.Context, path string) (*FileUploadResult, error) {
 	ctx, cancel := c.ctx(ctx)
 	defer cancel()
 
@@ -268,9 +268,12 @@ func (c *GrpcClient) FileUploadPublic(ctx context.Context, path string) (*PutRes
 	if err != nil {
 		return nil, errorFromGrpc(err)
 	}
-	return &PutResult{
-		Cost:    resp.GetCost().GetAttoTokens(),
-		Address: resp.GetAddress(),
+	return &FileUploadResult{
+		Address:         resp.GetAddress(),
+		StorageCostAtto: resp.GetStorageCostAtto(),
+		GasCostWei:      resp.GetGasCostWei(),
+		ChunksStored:    resp.GetChunksStored(),
+		PaymentModeUsed: resp.GetPaymentModeUsed(),
 	}, nil
 }
 
@@ -287,7 +290,7 @@ func (c *GrpcClient) FileDownloadPublic(ctx context.Context, address, destPath s
 }
 
 // DirUploadPublic uploads a local directory to the network.
-func (c *GrpcClient) DirUploadPublic(ctx context.Context, path string) (*PutResult, error) {
+func (c *GrpcClient) DirUploadPublic(ctx context.Context, path string) (*FileUploadResult, error) {
 	ctx, cancel := c.ctx(ctx)
 	defer cancel()
 
@@ -295,9 +298,12 @@ func (c *GrpcClient) DirUploadPublic(ctx context.Context, path string) (*PutResu
 	if err != nil {
 		return nil, errorFromGrpc(err)
 	}
-	return &PutResult{
-		Cost:    resp.GetCost().GetAttoTokens(),
-		Address: resp.GetAddress(),
+	return &FileUploadResult{
+		Address:         resp.GetAddress(),
+		StorageCostAtto: resp.GetStorageCostAtto(),
+		GasCostWei:      resp.GetGasCostWei(),
+		ChunksStored:    resp.GetChunksStored(),
+		PaymentModeUsed: resp.GetPaymentModeUsed(),
 	}, nil
 }
 

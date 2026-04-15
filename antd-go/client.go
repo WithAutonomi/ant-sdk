@@ -144,6 +144,13 @@ func num64(m map[string]any, key string) int64 {
 	return 0
 }
 
+func unum64(m map[string]any, key string) uint64 {
+	if v, ok := m[key].(float64); ok {
+		return uint64(v)
+	}
+	return 0
+}
+
 func arrAt(m map[string]any, key string) []any {
 	if v, ok := m[key].([]any); ok {
 		return v
@@ -263,7 +270,7 @@ func (c *Client) ChunkGet(ctx context.Context, address string) ([]byte, error) {
 // --- Files ---
 
 // FileUploadPublic uploads a local file to the network.
-func (c *Client) FileUploadPublic(ctx context.Context, path string, paymentMode ...PaymentMode) (*PutResult, error) {
+func (c *Client) FileUploadPublic(ctx context.Context, path string, paymentMode ...PaymentMode) (*FileUploadResult, error) {
 	body := map[string]any{
 		"path": path,
 	}
@@ -274,7 +281,13 @@ func (c *Client) FileUploadPublic(ctx context.Context, path string, paymentMode 
 	if err != nil {
 		return nil, err
 	}
-	return &PutResult{Cost: str(j, "cost"), Address: str(j, "address")}, nil
+	return &FileUploadResult{
+		Address:         str(j, "address"),
+		StorageCostAtto: str(j, "storage_cost_atto"),
+		GasCostWei:      str(j, "gas_cost_wei"),
+		ChunksStored:    unum64(j, "chunks_stored"),
+		PaymentModeUsed: str(j, "payment_mode_used"),
+	}, nil
 }
 
 // FileDownloadPublic downloads a file from the network to a local path.
@@ -287,7 +300,7 @@ func (c *Client) FileDownloadPublic(ctx context.Context, address, destPath strin
 }
 
 // DirUploadPublic uploads a local directory to the network.
-func (c *Client) DirUploadPublic(ctx context.Context, path string, paymentMode ...PaymentMode) (*PutResult, error) {
+func (c *Client) DirUploadPublic(ctx context.Context, path string, paymentMode ...PaymentMode) (*FileUploadResult, error) {
 	body := map[string]any{
 		"path": path,
 	}
@@ -298,7 +311,13 @@ func (c *Client) DirUploadPublic(ctx context.Context, path string, paymentMode .
 	if err != nil {
 		return nil, err
 	}
-	return &PutResult{Cost: str(j, "cost"), Address: str(j, "address")}, nil
+	return &FileUploadResult{
+		Address:         str(j, "address"),
+		StorageCostAtto: str(j, "storage_cost_atto"),
+		GasCostWei:      str(j, "gas_cost_wei"),
+		ChunksStored:    unum64(j, "chunks_stored"),
+		PaymentModeUsed: str(j, "payment_mode_used"),
+	}, nil
 }
 
 // DirDownloadPublic downloads a directory from the network to a local path.

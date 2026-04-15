@@ -12,6 +12,16 @@ type PutResult struct {
 	Address string `json:"address"` // hex
 }
 
+// FileUploadResult is the result of a public file or directory upload.
+// Returned by FileUploadPublic and DirUploadPublic on both REST and gRPC clients.
+type FileUploadResult struct {
+	Address         string `json:"address"`           // hex network address
+	StorageCostAtto string `json:"storage_cost_atto"` // total storage cost in atto, "0" if all chunks already existed
+	GasCostWei      string `json:"gas_cost_wei"`      // total gas cost in wei as decimal string
+	ChunksStored    uint64 `json:"chunks_stored"`     // number of chunks stored on the network
+	PaymentModeUsed string `json:"payment_mode_used"` // "auto", "merkle", or "single"
+}
+
 // WalletAddress is the result of a wallet address query.
 type WalletAddress struct {
 	Address string `json:"address"` // hex with 0x prefix

@@ -122,22 +122,34 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
 
     // MARK: - Files
 
-    public func fileUploadPublic(path: String, paymentMode: String? = nil) async throws -> PutResult {
+    public func fileUploadPublic(path: String, paymentMode: String? = nil) async throws -> FileUploadResult {
         var body: [String: Any] = ["path": path]
         if let mode = paymentMode { body["payment_mode"] = mode }
-        let resp: CostAddressDTO = try await postJSON("/v1/files/upload/public", body: body)
-        return PutResult(cost: resp.cost, address: resp.address)
+        let resp: FileUploadPublicDTO = try await postJSON("/v1/files/upload/public", body: body)
+        return FileUploadResult(
+            address: resp.address,
+            storageCostAtto: resp.storageCostAtto,
+            gasCostWei: resp.gasCostWei,
+            chunksStored: resp.chunksStored,
+            paymentModeUsed: resp.paymentModeUsed
+        )
     }
 
     public func fileDownloadPublic(address: String, destPath: String) async throws {
         try await postJSONNoResult("/v1/files/download/public", body: ["address": address, "dest_path": destPath])
     }
 
-    public func dirUploadPublic(path: String, paymentMode: String? = nil) async throws -> PutResult {
+    public func dirUploadPublic(path: String, paymentMode: String? = nil) async throws -> FileUploadResult {
         var body: [String: Any] = ["path": path]
         if let mode = paymentMode { body["payment_mode"] = mode }
-        let resp: CostAddressDTO = try await postJSON("/v1/dirs/upload/public", body: body)
-        return PutResult(cost: resp.cost, address: resp.address)
+        let resp: FileUploadPublicDTO = try await postJSON("/v1/dirs/upload/public", body: body)
+        return FileUploadResult(
+            address: resp.address,
+            storageCostAtto: resp.storageCostAtto,
+            gasCostWei: resp.gasCostWei,
+            chunksStored: resp.chunksStored,
+            paymentModeUsed: resp.paymentModeUsed
+        )
     }
 
     public func dirDownloadPublic(address: String, destPath: String) async throws {
@@ -234,6 +246,22 @@ private struct HealthResponseDTO: Decodable {
 private struct CostAddressDTO: Decodable {
     let cost: String
     let address: String
+}
+
+private struct FileUploadPublicDTO: Decodable {
+    let address: String
+    let storageCostAtto: String
+    let gasCostWei: String
+    let chunksStored: UInt64
+    let paymentModeUsed: String
+
+    enum CodingKeys: String, CodingKey {
+        case address
+        case storageCostAtto = "storage_cost_atto"
+        case gasCostWei = "gas_cost_wei"
+        case chunksStored = "chunks_stored"
+        case paymentModeUsed = "payment_mode_used"
+    }
 }
 
 private struct CostDataMapDTO: Decodable {

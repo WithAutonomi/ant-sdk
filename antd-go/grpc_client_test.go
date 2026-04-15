@@ -85,8 +85,11 @@ type mockFileService struct {
 
 func (m *mockFileService) UploadPublic(_ context.Context, _ *pb.UploadFileRequest) (*pb.UploadPublicResponse, error) {
 	return &pb.UploadPublicResponse{
-		Cost:    &pb.Cost{AttoTokens: "1000"},
-		Address: "file1",
+		Address:         "file1",
+		StorageCostAtto: "1000",
+		GasCostWei:      "42",
+		ChunksStored:    3,
+		PaymentModeUsed: "auto",
 	}, nil
 }
 
@@ -96,8 +99,11 @@ func (m *mockFileService) DownloadPublic(_ context.Context, _ *pb.DownloadPublic
 
 func (m *mockFileService) DirUploadPublic(_ context.Context, _ *pb.UploadFileRequest) (*pb.UploadPublicResponse, error) {
 	return &pb.UploadPublicResponse{
-		Cost:    &pb.Cost{AttoTokens: "2000"},
-		Address: "dir1",
+		Address:         "dir1",
+		StorageCostAtto: "2000",
+		GasCostWei:      "100",
+		ChunksStored:    5,
+		PaymentModeUsed: "merkle",
 	}, nil
 }
 
@@ -289,7 +295,7 @@ func TestGrpcFileUploadPublic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if put.Address != "file1" || put.Cost != "1000" {
+	if put.Address != "file1" || put.StorageCostAtto != "1000" || put.GasCostWei != "42" || put.ChunksStored != 3 || put.PaymentModeUsed != "auto" {
 		t.Fatalf("unexpected file upload: %+v", put)
 	}
 }
@@ -308,7 +314,7 @@ func TestGrpcDirUploadPublic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if put.Address != "dir1" || put.Cost != "2000" {
+	if put.Address != "dir1" || put.StorageCostAtto != "2000" || put.GasCostWei != "100" || put.ChunksStored != 5 || put.PaymentModeUsed != "merkle" {
 		t.Fatalf("unexpected dir upload: %+v", put)
 	}
 }

@@ -10,6 +10,15 @@ export interface PutResult {
   address: string; // hex
 }
 
+/** Result of a public file or directory upload. */
+export interface FileUploadResult {
+  address: string; // hex network address
+  storageCostAtto: string; // storage cost in atto, "0" if all chunks already existed
+  gasCostWei: string; // gas cost in wei as decimal string
+  chunksStored: number; // number of chunks stored on the network (uint64)
+  paymentModeUsed: string; // "auto", "merkle", or "single"
+}
+
 /** Wallet address response. */
 export interface WalletAddress {
   address: string; // 0x-prefixed hex

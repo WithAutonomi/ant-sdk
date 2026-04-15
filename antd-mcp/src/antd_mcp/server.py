@@ -166,7 +166,8 @@ async def upload_file(
             (per-chunk payments).
 
     Returns:
-        JSON with address and cost, or error details.
+        JSON with address, storage_cost_atto, gas_cost_wei, chunks_stored, and
+        payment_mode_used, or error details.
     """
     client, network = _get_ctx()
     try:
@@ -174,7 +175,13 @@ async def upload_file(
             result = await client.dir_upload_public(path, payment_mode=payment_mode)
         else:
             result = await client.file_upload_public(path, payment_mode=payment_mode)
-        return _ok({"address": result.address, "cost": result.cost}, network)
+        return _ok({
+            "address": result.address,
+            "storage_cost_atto": result.storage_cost_atto,
+            "gas_cost_wei": result.gas_cost_wei,
+            "chunks_stored": result.chunks_stored,
+            "payment_mode_used": result.payment_mode_used,
+        }, network)
     except AntdError as exc:
         return _err_antd(exc, network)
     except Exception as exc:

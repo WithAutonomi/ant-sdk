@@ -68,13 +68,13 @@ public:
     // --- Files & Directories ---
 
     /// Upload a local file to the network.
-    std::future<PutResult> file_upload_public(std::string path);
+    std::future<FileUploadResult> file_upload_public(std::string path);
 
     /// Download a file from the network to a local path.
     std::future<void> file_download_public(std::string address, std::string dest_path);
 
     /// Upload a local directory to the network.
-    std::future<PutResult> dir_upload_public(std::string path);
+    std::future<FileUploadResult> dir_upload_public(std::string path);
 
     /// Download a directory from the network to a local path.
     std::future<void> dir_download_public(std::string address, std::string dest_path);

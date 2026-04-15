@@ -6,6 +6,14 @@ public sealed record HealthStatus(bool Ok, string Network);
 /// <summary>Result of a put/create operation that stores data on the network.</summary>
 public sealed record PutResult(string Cost, string Address);
 
+/// <summary>Result of a public file or directory upload.</summary>
+public sealed record FileUploadResult(
+    string Address,
+    string StorageCostAtto,
+    string GasCostWei,
+    ulong ChunksStored,
+    string PaymentModeUsed);
+
 /// <summary>Wallet address from the antd daemon.</summary>
 public sealed record WalletAddress(string Address);
 

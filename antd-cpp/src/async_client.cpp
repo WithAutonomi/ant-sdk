@@ -78,7 +78,7 @@ std::future<std::vector<uint8_t>> AsyncClient::chunk_get(std::string address) {
 // Files & Directories
 // ---------------------------------------------------------------------------
 
-std::future<PutResult> AsyncClient::file_upload_public(std::string path) {
+std::future<FileUploadResult> AsyncClient::file_upload_public(std::string path) {
     return std::async(std::launch::async, [this, p = std::move(path)] {
         return client_.file_upload_public(p);
     });
@@ -91,7 +91,7 @@ std::future<void> AsyncClient::file_download_public(std::string address, std::st
         });
 }
 
-std::future<PutResult> AsyncClient::dir_upload_public(std::string path) {
+std::future<FileUploadResult> AsyncClient::dir_upload_public(std::string path) {
     return std::async(std::launch::async, [this, p = std::move(path)] {
         return client_.dir_upload_public(p);
     });

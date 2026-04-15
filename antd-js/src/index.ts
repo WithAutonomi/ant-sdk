@@ -1,6 +1,7 @@
 export type {
   HealthStatus,
   PutResult,
+  FileUploadResult,
   WalletAddress,
   WalletBalance,
   PaymentInfo,

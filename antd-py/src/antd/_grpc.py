@@ -17,9 +17,20 @@ from .exceptions import (
     TooLargeError,
 )
 from .models import (
+    FileUploadResult,
     HealthStatus,
     PutResult,
 )
+
+
+def _file_upload_result_from_resp(resp) -> FileUploadResult:
+    return FileUploadResult(
+        address=resp.address,
+        storage_cost_atto=resp.storage_cost_atto,
+        gas_cost_wei=resp.gas_cost_wei,
+        chunks_stored=resp.chunks_stored,
+        payment_mode_used=resp.payment_mode_used,
+    )
 
 from antd._proto.antd.v1 import data_pb2, data_pb2_grpc
 from antd._proto.antd.v1 import chunks_pb2, chunks_pb2_grpc
@@ -147,10 +158,10 @@ class GrpcClient:
 
     # --- Files ---
 
-    def file_upload_public(self, path: str) -> PutResult:
+    def file_upload_public(self, path: str) -> FileUploadResult:
         try:
             resp = self._files.UploadPublic(files_pb2.UploadFileRequest(path=path))
-            return PutResult(cost=resp.cost.atto_tokens, address=resp.address)
+            return _file_upload_result_from_resp(resp)
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
@@ -161,10 +172,10 @@ class GrpcClient:
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
-    def dir_upload_public(self, path: str) -> PutResult:
+    def dir_upload_public(self, path: str) -> FileUploadResult:
         try:
             resp = self._files.DirUploadPublic(files_pb2.UploadFileRequest(path=path))
-            return PutResult(cost=resp.cost.atto_tokens, address=resp.address)
+            return _file_upload_result_from_resp(resp)
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
@@ -306,10 +317,10 @@ class AsyncGrpcClient:
 
     # --- Files ---
 
-    async def file_upload_public(self, path: str) -> PutResult:
+    async def file_upload_public(self, path: str) -> FileUploadResult:
         try:
             resp = await self._files.UploadPublic(files_pb2.UploadFileRequest(path=path))
-            return PutResult(cost=resp.cost.atto_tokens, address=resp.address)
+            return _file_upload_result_from_resp(resp)
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
@@ -320,10 +331,10 @@ class AsyncGrpcClient:
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
-    async def dir_upload_public(self, path: str) -> PutResult:
+    async def dir_upload_public(self, path: str) -> FileUploadResult:
         try:
             resp = await self._files.DirUploadPublic(files_pb2.UploadFileRequest(path=path))
-            return PutResult(cost=resp.cost.atto_tokens, address=resp.address)
+            return _file_upload_result_from_resp(resp)
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 

@@ -18,7 +18,9 @@ echo "Estimated cost: {$cost} atto\n";
 
 // Upload a file
 $result = $client->fileUploadPublic('/tmp/test.txt');
-echo "File uploaded at: {$result->address} (cost: {$result->cost} atto)\n";
+echo "File uploaded at: {$result->address}\n";
+echo "  storage: {$result->storageCostAtto} atto, gas: {$result->gasCostWei} wei\n";
+echo "  chunks: {$result->chunksStored}, mode: {$result->paymentModeUsed}\n";
 
 // Download the file
 $client->fileDownloadPublic($result->address, '/tmp/downloaded.txt');
@@ -26,7 +28,9 @@ echo "File downloaded to /tmp/downloaded.txt\n";
 
 // Upload a directory
 $dirResult = $client->dirUploadPublic('/tmp/mydir');
-echo "Directory uploaded at: {$dirResult->address} (cost: {$dirResult->cost} atto)\n";
+echo "Directory uploaded at: {$dirResult->address}\n";
+echo "  storage: {$dirResult->storageCostAtto} atto, gas: {$dirResult->gasCostWei} wei\n";
+echo "  chunks: {$dirResult->chunksStored}, mode: {$dirResult->paymentModeUsed}\n";
 
 // Download the directory
 $client->dirDownloadPublic($dirResult->address, '/tmp/downloaded_dir');

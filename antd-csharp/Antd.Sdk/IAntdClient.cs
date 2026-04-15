@@ -17,9 +17,9 @@ public interface IAntdClient : IDisposable
     Task<byte[]> ChunkGetAsync(string address);
 
     // Files
-    Task<PutResult> FileUploadPublicAsync(string path, string? paymentMode = null);
+    Task<FileUploadResult> FileUploadPublicAsync(string path, string? paymentMode = null);
     Task FileDownloadPublicAsync(string address, string destPath);
-    Task<PutResult> DirUploadPublicAsync(string path, string? paymentMode = null);
+    Task<FileUploadResult> DirUploadPublicAsync(string path, string? paymentMode = null);
     Task DirDownloadPublicAsync(string address, string destPath);
     Task<string> FileCostAsync(string path, bool isPublic = true);
 
