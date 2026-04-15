@@ -14,13 +14,18 @@ echo -e "${CYAN}=== Tearing down local environment ===${NC}"
 echo ""
 
 # 1. Kill antd
-echo -e "${YELLOW}[1/2] Stopping antd...${NC}"
+echo -e "${YELLOW}[1/3] Stopping antd...${NC}"
 pkill -f 'target/(debug|release)/antd' 2>/dev/null || true
 echo -e "${GREEN}       Done${NC}"
 
 # 2. Kill ant devnet
-echo -e "${YELLOW}[2/2] Stopping ant devnet...${NC}"
+echo -e "${YELLOW}[2/3] Stopping ant devnet...${NC}"
 pkill -f 'target/(debug|release)/ant-devnet' 2>/dev/null || true
+echo -e "${GREEN}       Done${NC}"
+
+# 3. Kill anvil (EVM) — spawned by ant-devnet, doesn't die with parent
+echo -e "${YELLOW}[3/3] Stopping anvil (EVM)...${NC}"
+pkill -x anvil 2>/dev/null || true
 echo -e "${GREEN}       Done${NC}"
 
 # Clean up saved PIDs

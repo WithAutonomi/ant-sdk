@@ -56,6 +56,49 @@ echo -e "${GRAY}  SDK:     $SDK_ROOT${NC}"
 echo -e "${GRAY}  Node:    $ANT_NODE_DIR${NC}"
 echo ""
 
+# ── Pre-flight: detect lingering processes from a previous run ──
+ANTD_STRAYS=$(pgrep -f 'target/(debug|release)/antd' 2>/dev/null || true)
+DEVNET_STRAYS=$(pgrep -f 'target/(debug|release)/ant-devnet' 2>/dev/null || true)
+ANVIL_STRAYS=$(pgrep -x anvil 2>/dev/null || true)
+
+if [[ -n "$ANTD_STRAYS" || -n "$DEVNET_STRAYS" || -n "$ANVIL_STRAYS" ]]; then
+    BAR='████████████████████████████████████████████████████████████'
+    echo ""
+    echo -e "${YELLOW}${BAR}${NC}"
+    echo -e "${YELLOW}  WARNING: lingering processes from a previous run${NC}"
+    echo -e "${YELLOW}${BAR}${NC}"
+    echo ""
+    if [[ -n "$ANTD_STRAYS" ]]; then
+        echo -e "${GRAY}  antd         PIDs: $(echo $ANTD_STRAYS | tr '\n' ' ')${NC}"
+    fi
+    if [[ -n "$DEVNET_STRAYS" ]]; then
+        echo -e "${GRAY}  ant-devnet   PIDs: $(echo $DEVNET_STRAYS | tr '\n' ' ')${NC}"
+    fi
+    if [[ -n "$ANVIL_STRAYS" ]]; then
+        echo -e "${GRAY}  anvil        PIDs: $(echo $ANVIL_STRAYS | tr '\n' ' ')${NC}"
+    fi
+    echo ""
+    echo -e "${YELLOW}  These will likely cause port conflicts or a silent devnet timeout.${NC}"
+    echo ""
+    read -r -p "  Run kill-local to stop them? [Y]es / [n]o / [c]ancel " choice || true
+    choice=$(printf '%s' "${choice:-y}" | tr '[:upper:]' '[:lower:]')
+    case "$choice" in
+        c|cancel)
+            echo -e "${GRAY}Cancelled.${NC}"
+            exit 0
+            ;;
+        n|no)
+            echo -e "${YELLOW}Continuing without cleanup.${NC}"
+            echo ""
+            ;;
+        *)
+            echo ""
+            "$SCRIPT_DIR/kill-local.sh" || true
+            sleep 1
+            ;;
+    esac
+fi
+
 # ── 1. Start ant devnet ──
 echo -e "${YELLOW}[1/3] Starting ant devnet (25 nodes + EVM)...${NC}"
 (cd "$ANT_NODE_DIR" && cargo run --release --bin ant-devnet -- --preset default --enable-evm --manifest "$MANIFEST_FILE" 2>&1) &
