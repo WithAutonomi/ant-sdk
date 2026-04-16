@@ -930,7 +930,7 @@ dependencies = [
 
 [[package]]
 name = "antd"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ant-core",
  "axum 0.8.8",
