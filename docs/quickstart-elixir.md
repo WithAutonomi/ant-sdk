@@ -62,9 +62,9 @@ IO.puts("Cost: #{result.cost} atto tokens")
 {:ok, data} = Antd.Client.data_get_public(client, result.address)
 IO.puts(data)  # "Hello, Autonomi!"
 
-# Cost estimation
-{:ok, cost} = Antd.Client.data_cost(client, "some data")
-IO.puts("Would cost: #{cost} atto tokens")
+# Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
+{:ok, est} = Antd.Client.data_cost(client, "some data")
+IO.puts("Estimate: #{est.file_size} bytes in #{est.chunk_count} chunks, #{est.cost} atto, gas #{est.estimated_gas_cost_wei} wei, mode #{est.payment_mode}")
 
 # Bang variants
 result = Antd.Client.data_put_public!(client, "Hello, Autonomi!")
@@ -101,8 +101,8 @@ IO.puts("File address: #{result.address}")
 # Download a directory
 :ok = Antd.Client.dir_download_public(client, result.address, "/path/to/output_dir")
 
-# Cost estimation
-{:ok, cost} = Antd.Client.file_cost(client, "/path/to/file.txt")
+# Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
+{:ok, est} = Antd.Client.file_cost(client, "/path/to/file.txt")
 ```
 
 

@@ -57,9 +57,9 @@ print('Cost: ${result.cost} atto tokens');
 final data = await client.dataGetPublic(result.address);
 print(utf8.decode(data));  // "Hello, Autonomi!"
 
-// Cost estimation
-final cost = await client.dataCost(utf8.encode('some data'));
-print('Would cost: $cost atto tokens');
+// Cost estimation — returns size, chunks, gas, and payment mode
+final est = await client.dataCost(utf8.encode('some data'));
+print('Estimate: ${est.fileSize} bytes in ${est.chunkCount} chunks, ${est.cost} atto, gas ${est.estimatedGasCostWei} wei, mode ${est.paymentMode}');
 ```
 
 ## Private Data
@@ -92,8 +92,8 @@ final dirResult = await client.dirUploadPublic('/path/to/directory');
 // Download a directory
 await client.dirDownloadPublic(dirResult.address, '/path/to/output_dir');
 
-// Cost estimation
-final cost = await client.fileCost('/path/to/file.txt');
+// Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
+final est = await client.fileCost('/path/to/file.txt');
 ```
 
 

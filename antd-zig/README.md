@@ -100,7 +100,7 @@ All methods return `!T` (error union) using Zig's standard error handling.
 | `dataGetPublic` | `fn (self: *Client, address: []const u8) ![]const u8` | Retrieve public data |
 | `dataPutPrivate` | `fn (self: *Client, data: []const u8) !PutResult` | Store encrypted private data |
 | `dataGetPrivate` | `fn (self: *Client, data_map: []const u8) ![]const u8` | Retrieve private data |
-| `dataCost` | `fn (self: *Client, data: []const u8) ![]const u8` | Estimate storage cost |
+| `dataCost` | `fn (self: *Client, data: []const u8) !UploadCostEstimate` | Estimate storage cost — returns size, chunks, gas, payment mode |
 
 ### Chunks
 
@@ -117,7 +117,7 @@ All methods return `!T` (error union) using Zig's standard error handling.
 | `fileDownloadPublic` | `fn (self: *Client, address: []const u8, dest_path: []const u8) !void` | Download a file |
 | `dirUploadPublic` | `fn (self: *Client, path: []const u8) !PutResult` | Upload a directory |
 | `dirDownloadPublic` | `fn (self: *Client, address: []const u8, dest_path: []const u8) !void` | Download a directory |
-| `fileCost` | `fn (self: *Client, path: []const u8, is_public: bool) ![]const u8` | Estimate upload cost |
+| `fileCost` | `fn (self: *Client, path: []const u8, is_public: bool) !UploadCostEstimate` | Estimate upload cost — returns size, chunks, gas, payment mode |
 
 ## Error Handling
 
@@ -166,8 +166,8 @@ const result = client.health() catch |err| {
 The Zig SDK follows Zig's explicit memory management conventions:
 
 - **Caller owns all returned allocations.** You must free them when done.
-- Struct results (`HealthStatus`, `PutResult`) have a `deinit(allocator)` method that frees all owned memory.
-- Raw byte slices (`[]const u8`) returned by `dataGetPublic`, `dataGetPrivate`, `chunkGet`, `dataCost`, and `fileCost` must be freed with `allocator.free(result)`.
+- Struct results (`HealthStatus`, `PutResult`, `UploadCostEstimate`) have a `deinit(allocator)` method that frees all owned memory.
+- Raw byte slices (`[]const u8`) returned by `dataGetPublic`, `dataGetPrivate`, and `chunkGet` must be freed with `allocator.free(result)`.
 - Use `defer` immediately after receiving a result to ensure cleanup.
 
 ```zig

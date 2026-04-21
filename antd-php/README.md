@@ -70,7 +70,7 @@ $client = new AntdClient('http://localhost:8082', 300.0, $myGuzzleClient);
 | `dataGetPublic(string $address)` | Retrieve public data |
 | `dataPutPrivate(string $data)` | Store encrypted private data |
 | `dataGetPrivate(string $dataMap)` | Retrieve private data |
-| `dataCost(string $data)` | Estimate storage cost |
+| `dataCost(string $data)` | Estimate storage cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ### Chunks
 | Method | Description |
@@ -85,7 +85,7 @@ $client = new AntdClient('http://localhost:8082', 300.0, $myGuzzleClient);
 | `fileDownloadPublic(string $address, string $destPath)` | Download a file |
 | `dirUploadPublic(string $path)` | Upload a directory |
 | `dirDownloadPublic(string $address, string $destPath)` | Download a directory |
-| `fileCost(string $path, bool $isPublic)` | Estimate upload cost |
+| `fileCost(string $path, bool $isPublic)` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ## Async Usage
 

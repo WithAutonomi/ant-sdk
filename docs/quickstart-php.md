@@ -51,9 +51,9 @@ echo "Cost: {$result->cost} atto tokens\n";
 $data = $client->dataGetPublic($result->address);
 echo $data;  // "Hello, Autonomi!"
 
-// Cost estimation
-$cost = $client->dataCost("some data");
-echo "Would cost: {$cost} atto tokens\n";
+// Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
+$est = $client->dataCost("some data");
+echo "Estimate: {$est->fileSize} bytes in {$est->chunkCount} chunks, {$est->cost} atto, gas {$est->estimatedGasCostWei} wei, mode {$est->paymentMode}\n";
 ```
 
 ## Private Data
@@ -86,8 +86,8 @@ $result = $client->dirUploadPublic("/path/to/directory");
 // Download a directory
 $client->dirDownloadPublic($result->address, "/path/to/output_dir");
 
-// Cost estimation
-$cost = $client->fileCost("/path/to/file.txt");
+// Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
+$est = $client->fileCost("/path/to/file.txt");
 ```
 
 

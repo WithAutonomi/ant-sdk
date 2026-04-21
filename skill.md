@@ -119,7 +119,7 @@ print(f"Stored: {result.chunks_stored} chunks")
 
 ## Key Rules
 
-1. **Every write costs tokens.** Always offer to estimate cost first with the `*_cost` methods (now fully implemented for both data and files). Before the first storage operation, the wallet must be approved via `wallet_approve()`. Reads are free.
+1. **Every write costs tokens.** Always offer to estimate cost first with the `*_cost` methods — they return an `UploadCostEstimate` with `cost`, `file_size`, `chunk_count`, `estimated_gas_cost_wei`, and `payment_mode`. Before the first storage operation, the wallet must be approved via `wallet_approve()`. Reads are free.
 2. **Data is permanent.** Once stored, it cannot be deleted. Warn developers about storing sensitive data publicly.
 3. **No access revocation.** Once data is public, it stays public.
 4. **Content-addressed = deduplication.** Storing the same bytes twice produces the same address and doesn't cost extra.
@@ -149,7 +149,7 @@ When a developer asks to build something, follow this sequence:
 3. **Create the client** — use the auto-discover constructor for their language (falls back to defaults if antd port file isn't present)
 4. **Check health** — `client.health()` to verify the daemon is running
 5. **Match their use case to a primitive** — use the tables above
-6. **Estimate cost** — call the `*_cost` method before any write
+6. **Estimate cost** — call the `*_cost` method before any write (returns an `UploadCostEstimate` with size/chunks/gas/mode)
 7. **Implement with error handling** — always wrap writes in try/catch
 
 ## Reference

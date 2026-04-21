@@ -76,8 +76,8 @@ Console.WriteLine($"Cost: {result.Cost} atto tokens");
 var data = await client.DataGetPublicAsync(result.Address);
 Console.WriteLine(Encoding.UTF8.GetString(data));
 
-// Cost estimation
-var cost = await client.DataCostAsync(payload);
+// Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
+var est = await client.DataCostAsync(payload);
 ```
 
 ## Private Data
@@ -108,8 +108,8 @@ var dirResult = await client.DirUploadPublicAsync("/path/to/directory");
 // Download a directory
 await client.DirDownloadPublicAsync(dirResult.Address, "/path/to/output_dir");
 
-// Cost estimation
-var cost = await client.FileCostAsync("/path/to/file.txt");
+// Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
+var est = await client.FileCostAsync("/path/to/file.txt");
 ```
 
 

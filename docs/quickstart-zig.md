@@ -93,9 +93,11 @@ const data = try client.dataGetPublic(result.address);
 defer allocator.free(data);
 std.debug.print("{s}\n", .{data}); // "Hello, Autonomi!"
 
-// Cost estimation
-const cost = try client.dataCost("some data");
-std.debug.print("Would cost: {d} atto tokens\n", .{cost});
+// Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
+const est = try client.dataCost("some data");
+defer est.deinit(allocator);
+std.debug.print("Estimate: {d} bytes in {d} chunks, {s} atto, gas {s} wei, mode {s}\n",
+    .{ est.file_size, est.chunk_count, est.cost, est.estimated_gas_cost_wei, est.payment_mode });
 ```
 
 ## Private Data
@@ -130,8 +132,9 @@ defer dir_result.deinit(allocator);
 // Download a directory
 try client.dirDownloadPublic(dir_result.address, "/path/to/output_dir");
 
-// Cost estimation
-const cost = try client.fileCost("/path/to/file.txt");
+// Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
+const est = try client.fileCost("/path/to/file.txt", true);
+defer est.deinit(allocator);
 ```
 
 

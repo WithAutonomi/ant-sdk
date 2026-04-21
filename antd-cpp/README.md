@@ -78,9 +78,11 @@ int main() {
     auto health = health_future.get();
     std::cout << "OK: " << health.ok << "\n";
 
-    // Block until the cost estimate completes
-    auto cost = cost_future.get();
-    std::cout << "Cost: " << cost << " atto\n";
+    // Block until the cost estimate completes — returns UploadCostEstimate
+    auto est = cost_future.get();
+    std::cout << "Estimate: " << est.file_size << " bytes in " << est.chunk_count
+              << " chunks, " << est.cost << " atto, gas " << est.estimated_gas_cost_wei
+              << " wei, mode " << est.payment_mode << "\n";
 }
 ```
 
@@ -227,7 +229,7 @@ All methods throw `antd::AntdError` (or a subclass) on failure.
 | `data_get_public(address)` | Retrieve public data |
 | `data_put_private(data)` | Store encrypted private data |
 | `data_get_private(data_map)` | Retrieve private data |
-| `data_cost(data)` | Estimate storage cost |
+| `data_cost(data)` | Estimate storage cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ### Chunks
 
@@ -244,7 +246,7 @@ All methods throw `antd::AntdError` (or a subclass) on failure.
 | `file_download_public(address, dest_path)` | Download a file |
 | `dir_upload_public(path)` | Upload a directory |
 | `dir_download_public(address, dest_path)` | Download a directory |
-| `file_cost(path, is_public)` | Estimate upload cost |
+| `file_cost(path, is_public)` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ## Error Handling
 
