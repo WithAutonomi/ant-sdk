@@ -43,4 +43,16 @@ module Antd
 
   # Result of finalizing an externally-signed upload.
   FinalizeUploadResult = Struct.new(:address, :chunks_stored, keyword_init: true)
+
+  # Pre-upload cost breakdown returned by +data_cost+ and +file_cost+.
+  # The server samples up to 5 chunk addresses and extrapolates the storage
+  # cost. Gas is an advisory heuristic, not a live gas-oracle query.
+  UploadCostEstimate = Struct.new(
+    :cost,                    # storage cost in atto tokens
+    :file_size,               # original file size in bytes
+    :chunk_count,             # number of data chunks
+    :estimated_gas_cost_wei,  # advisory gas heuristic in wei
+    :payment_mode,            # "auto" | "merkle" | "single"
+    keyword_init: true
+  )
 end

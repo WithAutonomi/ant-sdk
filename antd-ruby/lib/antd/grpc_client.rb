@@ -92,13 +92,19 @@ module Antd
       resp.data
     end
 
-    # Estimate the cost of storing data.
+    # Pre-upload cost breakdown for the given bytes.
     # @param data [String] raw bytes
-    # @return [String] cost in atto tokens
+    # @return [UploadCostEstimate]
     def data_cost(data)
       req = Antd::V1::DataCostRequest.new(data: data.b)
       resp = grpc_call { @data_stub.get_cost(req) }
-      resp.atto_tokens
+      UploadCostEstimate.new(
+        cost: resp.atto_tokens,
+        file_size: resp.file_size,
+        chunk_count: resp.chunk_count,
+        estimated_gas_cost_wei: resp.estimated_gas_cost_wei,
+        payment_mode: resp.payment_mode
+      )
     end
 
     # --- Chunks ---
@@ -161,17 +167,23 @@ module Antd
       nil
     end
 
-    # Estimate the cost of uploading a file.
+    # Pre-upload cost breakdown for the file at +path+.
     # @param path [String]
     # @param is_public [Boolean]
-    # @return [String] cost in atto tokens
+    # @return [UploadCostEstimate]
     def file_cost(path, is_public)
       req = Antd::V1::FileCostRequest.new(
         path: path,
         is_public: is_public
       )
       resp = grpc_call { @file_stub.get_file_cost(req) }
-      resp.atto_tokens
+      UploadCostEstimate.new(
+        cost: resp.atto_tokens,
+        file_size: resp.file_size,
+        chunk_count: resp.chunk_count,
+        estimated_gas_cost_wei: resp.estimated_gas_cost_wei,
+        payment_mode: resp.payment_mode
+      )
     end
 
     private
