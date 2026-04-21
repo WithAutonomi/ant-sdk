@@ -46,7 +46,13 @@ MockClient mockDaemon() {
 
       // Data cost
       case 'POST /v1/data/cost':
-        body = {'cost': '50'};
+        body = {
+          'cost': '50',
+          'file_size': 4,
+          'chunk_count': 3,
+          'estimated_gas_cost_wei': '150000000000000',
+          'payment_mode': 'single',
+        };
         break;
 
       // Chunks
@@ -81,7 +87,13 @@ MockClient mockDaemon() {
       case 'POST /v1/dirs/download/public':
         return http.Response('', 200);
       case 'POST /v1/cost/file':
-        body = {'cost': '1000'};
+        body = {
+          'cost': '1000',
+          'file_size': 4096,
+          'chunk_count': 3,
+          'estimated_gas_cost_wei': '150000000000000',
+          'payment_mode': 'auto',
+        };
         break;
 
       // 404 for anything else
@@ -151,10 +163,14 @@ void main() {
   });
 
   group('Data Cost', () {
-    test('estimates storage cost', () async {
+    test('returns full breakdown', () async {
       final client = AntdClient(httpClient: mockDaemon());
-      final cost = await client.dataCost(Uint8List.fromList(utf8.encode('test')));
-      expect(cost, equals('50'));
+      final est = await client.dataCost(Uint8List.fromList(utf8.encode('test')));
+      expect(est.cost, equals('50'));
+      expect(est.fileSize, equals(4));
+      expect(est.chunkCount, equals(3));
+      expect(est.estimatedGasCostWei, equals('150000000000000'));
+      expect(est.paymentMode, equals('single'));
       client.close();
     });
   });
@@ -204,10 +220,14 @@ void main() {
       client.close();
     });
 
-    test('estimates file cost', () async {
+    test('returns full breakdown', () async {
       final client = AntdClient(httpClient: mockDaemon());
-      final cost = await client.fileCost('/tmp/test.txt', isPublic: true);
-      expect(cost, equals('1000'));
+      final est = await client.fileCost('/tmp/test.txt', isPublic: true);
+      expect(est.cost, equals('1000'));
+      expect(est.fileSize, equals(4096));
+      expect(est.chunkCount, equals(3));
+      expect(est.estimatedGasCostWei, equals('150000000000000'));
+      expect(est.paymentMode, equals('auto'));
       client.close();
     });
   });
