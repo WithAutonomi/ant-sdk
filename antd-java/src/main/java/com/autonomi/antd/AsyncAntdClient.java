@@ -207,10 +207,15 @@ public class AsyncAntdClient implements AutoCloseable {
     }
 
     /** Async variant of {@link AntdClient#dataCost(byte[])}. */
-    public CompletableFuture<String> dataCostAsync(byte[] data) {
+    public CompletableFuture<UploadCostEstimate> dataCostAsync(byte[] data) {
         String body = Json.object("data", b64Encode(data));
         return doJsonAsync("POST", "/v1/data/cost", body)
-                .thenApply(j -> str(j, "cost"));
+                .thenApply(j -> new UploadCostEstimate(
+                        str(j, "cost"),
+                        num(j, "file_size"),
+                        (int) num(j, "chunk_count"),
+                        str(j, "estimated_gas_cost_wei"),
+                        str(j, "payment_mode")));
     }
 
     // ── Chunks ──
@@ -268,9 +273,14 @@ public class AsyncAntdClient implements AutoCloseable {
     }
 
     /** Async variant of {@link AntdClient#fileCost(String, boolean)}. */
-    public CompletableFuture<String> fileCostAsync(String path, boolean isPublic) {
+    public CompletableFuture<UploadCostEstimate> fileCostAsync(String path, boolean isPublic) {
         String body = Json.object("path", path, "is_public", isPublic);
         return doJsonAsync("POST", "/v1/cost/file", body)
-                .thenApply(j -> str(j, "cost"));
+                .thenApply(j -> new UploadCostEstimate(
+                        str(j, "cost"),
+                        num(j, "file_size"),
+                        (int) num(j, "chunk_count"),
+                        str(j, "estimated_gas_cost_wei"),
+                        str(j, "payment_mode")));
     }
 }

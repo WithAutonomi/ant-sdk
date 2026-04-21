@@ -232,10 +232,21 @@ public class AntdClient implements AutoCloseable {
         return b64Decode(str(j, "data"));
     }
 
-    public String dataCost(byte[] data) {
+    /**
+     * Pre-upload cost breakdown for the given bytes.
+     *
+     * <p>The server samples a small number of chunk addresses and extrapolates,
+     * much faster than quoting every chunk on slow networks. Gas is advisory.
+     */
+    public UploadCostEstimate dataCost(byte[] data) {
         String body = Json.object("data", b64Encode(data));
         Map<String, Object> j = doJson("POST", "/v1/data/cost", body);
-        return str(j, "cost");
+        return new UploadCostEstimate(
+            str(j, "cost"),
+            num(j, "file_size"),
+            (int) num(j, "chunk_count"),
+            str(j, "estimated_gas_cost_wei"),
+            str(j, "payment_mode"));
     }
 
     // ── Chunks ──
@@ -296,10 +307,18 @@ public class AntdClient implements AutoCloseable {
         doJson("POST", "/v1/dirs/download/public", body);
     }
 
-    public String fileCost(String path, boolean isPublic) {
+    /**
+     * Pre-upload cost breakdown for the file at {@code path}.
+     */
+    public UploadCostEstimate fileCost(String path, boolean isPublic) {
         String body = Json.object("path", path, "is_public", isPublic);
         Map<String, Object> j = doJson("POST", "/v1/cost/file", body);
-        return str(j, "cost");
+        return new UploadCostEstimate(
+            str(j, "cost"),
+            num(j, "file_size"),
+            (int) num(j, "chunk_count"),
+            str(j, "estimated_gas_cost_wei"),
+            str(j, "payment_mode"));
     }
 
     // ── Wallet ──

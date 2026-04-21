@@ -70,7 +70,7 @@ class AntdClientTest {
 
             // Data cost
             if ("POST".equals(method) && "/v1/data/cost".equals(path)) {
-                return json("{\"cost\":\"50\"}");
+                return json("{\"cost\":\"50\",\"file_size\":4,\"chunk_count\":3,\"estimated_gas_cost_wei\":\"150000000000000\",\"payment_mode\":\"single\"}");
             }
 
             // Chunks
@@ -95,7 +95,7 @@ class AntdClientTest {
                 return new MockResponse().setResponseCode(200);
             }
             if ("POST".equals(method) && "/v1/cost/file".equals(path)) {
-                return json("{\"cost\":\"1000\"}");
+                return json("{\"cost\":\"1000\",\"file_size\":4096,\"chunk_count\":3,\"estimated_gas_cost_wei\":\"150000000000000\",\"payment_mode\":\"auto\"}");
             }
 
             // 404 fallback
@@ -149,8 +149,12 @@ class AntdClientTest {
 
     @Test
     void testDataCost() {
-        String cost = client.dataCost("test".getBytes());
-        assertEquals("50", cost);
+        UploadCostEstimate est = client.dataCost("test".getBytes());
+        assertEquals("50", est.cost());
+        assertEquals(4L, est.fileSize());
+        assertEquals(3, est.chunkCount());
+        assertEquals("150000000000000", est.estimatedGasCostWei());
+        assertEquals("single", est.paymentMode());
     }
 
     @Test
@@ -194,8 +198,12 @@ class AntdClientTest {
 
     @Test
     void testFileCost() {
-        String cost = client.fileCost("/tmp/test.txt", true);
-        assertEquals("1000", cost);
+        UploadCostEstimate est = client.fileCost("/tmp/test.txt", true);
+        assertEquals("1000", est.cost());
+        assertEquals(4096L, est.fileSize());
+        assertEquals(3, est.chunkCount());
+        assertEquals("150000000000000", est.estimatedGasCostWei());
+        assertEquals("auto", est.paymentMode());
     }
 
     @Test

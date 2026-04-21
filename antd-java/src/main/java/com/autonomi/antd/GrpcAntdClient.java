@@ -224,15 +224,20 @@ public class GrpcAntdClient implements AutoCloseable {
     }
 
     /**
-     * Estimate the cost of storing data.
+     * Pre-upload cost breakdown for the given bytes.
      */
-    public String dataCost(byte[] data) {
+    public UploadCostEstimate dataCost(byte[] data) {
         try {
             DataCostRequest req = DataCostRequest.newBuilder()
                     .setData(ByteString.copyFrom(data))
                     .build();
             Cost resp = dataStub.getCost(req);
-            return resp.getAttoTokens();
+            return new UploadCostEstimate(
+                    resp.getAttoTokens(),
+                    resp.getFileSize(),
+                    resp.getChunkCount(),
+                    resp.getEstimatedGasCostWei(),
+                    resp.getPaymentMode());
         } catch (StatusRuntimeException e) {
             throw mapException(e);
         }
@@ -342,16 +347,21 @@ public class GrpcAntdClient implements AutoCloseable {
     }
 
     /**
-     * Estimate the cost of uploading a file.
+     * Pre-upload cost breakdown for the file at {@code path}.
      */
-    public String fileCost(String path, boolean isPublic) {
+    public UploadCostEstimate fileCost(String path, boolean isPublic) {
         try {
             FileCostRequest req = FileCostRequest.newBuilder()
                     .setPath(path)
                     .setIsPublic(isPublic)
                     .build();
             Cost resp = fileStub.getFileCost(req);
-            return resp.getAttoTokens();
+            return new UploadCostEstimate(
+                    resp.getAttoTokens(),
+                    resp.getFileSize(),
+                    resp.getChunkCount(),
+                    resp.getEstimatedGasCostWei(),
+                    resp.getPaymentMode());
         } catch (StatusRuntimeException e) {
             throw mapException(e);
         }
