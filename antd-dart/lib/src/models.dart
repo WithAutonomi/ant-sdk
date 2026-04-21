@@ -283,3 +283,46 @@ class FinalizeUploadResult {
   String toString() =>
       'FinalizeUploadResult(address: $address, chunksStored: $chunksStored)';
 }
+
+/// Pre-upload cost breakdown returned by `dataCost` and `fileCost`.
+///
+/// The server samples up to 5 chunk addresses and extrapolates the storage
+/// cost. Gas is an advisory heuristic, not a live gas-oracle query.
+class UploadCostEstimate {
+  /// Storage cost in atto tokens as a string.
+  final String cost;
+
+  /// Original file size in bytes.
+  final int fileSize;
+
+  /// Number of data chunks the file would split into.
+  final int chunkCount;
+
+  /// Advisory gas cost heuristic in wei as a string.
+  final String estimatedGasCostWei;
+
+  /// Payment mode: "auto", "merkle", or "single".
+  final String paymentMode;
+
+  const UploadCostEstimate({
+    required this.cost,
+    required this.fileSize,
+    required this.chunkCount,
+    required this.estimatedGasCostWei,
+    required this.paymentMode,
+  });
+
+  factory UploadCostEstimate.fromJson(Map<String, dynamic> json) {
+    return UploadCostEstimate(
+      cost: json['cost'] as String? ?? '',
+      fileSize: (json['file_size'] as num?)?.toInt() ?? 0,
+      chunkCount: (json['chunk_count'] as num?)?.toInt() ?? 0,
+      estimatedGasCostWei: json['estimated_gas_cost_wei'] as String? ?? '',
+      paymentMode: json['payment_mode'] as String? ?? '',
+    );
+  }
+
+  @override
+  String toString() =>
+      'UploadCostEstimate(cost: $cost, fileSize: $fileSize, chunkCount: $chunkCount, estimatedGasCostWei: $estimatedGasCostWei, paymentMode: $paymentMode)';
+}

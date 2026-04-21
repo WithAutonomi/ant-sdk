@@ -226,12 +226,18 @@ class GrpcAntdClient {
     }
   }
 
-  /// Estimates the cost of storing data.
-  Future<String> dataCost(Uint8List data) async {
+  /// Pre-upload cost breakdown for the given bytes.
+  Future<UploadCostEstimate> dataCost(Uint8List data) async {
     try {
       final req = data_msg.DataCostRequest()..data = data;
       final resp = await _dataStub.getCost(req);
-      return resp.attoTokens;
+      return UploadCostEstimate(
+        cost: resp.attoTokens,
+        fileSize: resp.fileSize.toInt(),
+        chunkCount: resp.chunkCount,
+        estimatedGasCostWei: resp.estimatedGasCostWei,
+        paymentMode: resp.paymentMode,
+      );
     } on GrpcError catch (e) {
       _handleError(e);
     }
@@ -328,8 +334,8 @@ class GrpcAntdClient {
     }
   }
 
-  /// Estimates the cost of uploading a file.
-  Future<String> fileCost(
+  /// Pre-upload cost breakdown for the file at [path].
+  Future<UploadCostEstimate> fileCost(
     String path, {
     bool isPublic = true,
   }) async {
@@ -338,7 +344,13 @@ class GrpcAntdClient {
         ..path = path
         ..isPublic = isPublic;
       final resp = await _fileStub.getFileCost(req);
-      return resp.attoTokens;
+      return UploadCostEstimate(
+        cost: resp.attoTokens,
+        fileSize: resp.fileSize.toInt(),
+        chunkCount: resp.chunkCount,
+        estimatedGasCostWei: resp.estimatedGasCostWei,
+        paymentMode: resp.paymentMode,
+      );
     } on GrpcError catch (e) {
       _handleError(e);
     }

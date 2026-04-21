@@ -20,12 +20,25 @@ const Cost$json = {
   '1': 'Cost',
   '2': [
     {'1': 'atto_tokens', '3': 1, '4': 1, '5': 9, '10': 'attoTokens'},
+    {'1': 'file_size', '3': 2, '4': 1, '5': 4, '10': 'fileSize'},
+    {'1': 'chunk_count', '3': 3, '4': 1, '5': 13, '10': 'chunkCount'},
+    {
+      '1': 'estimated_gas_cost_wei',
+      '3': 4,
+      '4': 1,
+      '5': 9,
+      '10': 'estimatedGasCostWei'
+    },
+    {'1': 'payment_mode', '3': 5, '4': 1, '5': 9, '10': 'paymentMode'},
   ],
 };
 
 /// Descriptor for `Cost`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List costDescriptor = $convert
-    .base64Decode('CgRDb3N0Eh8KC2F0dG9fdG9rZW5zGAEgASgJUgphdHRvVG9rZW5z');
+final $typed_data.Uint8List costDescriptor = $convert.base64Decode(
+    'CgRDb3N0Eh8KC2F0dG9fdG9rZW5zGAEgASgJUgphdHRvVG9rZW5zEhsKCWZpbGVfc2l6ZRgCIA'
+    'EoBFIIZmlsZVNpemUSHwoLY2h1bmtfY291bnQYAyABKA1SCmNodW5rQ291bnQSMwoWZXN0aW1h'
+    'dGVkX2dhc19jb3N0X3dlaRgEIAEoCVITZXN0aW1hdGVkR2FzQ29zdFdlaRIhCgxwYXltZW50X2'
+    '1vZGUYBSABKAlSC3BheW1lbnRNb2Rl');
 
 @$core.Deprecated('Use addressDescriptor instead')
 const Address$json = {
