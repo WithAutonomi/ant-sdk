@@ -129,10 +129,10 @@ class AntdRestClient(
         return fromB64(resp.data)
     }
 
-    override suspend fun dataCost(data: ByteArray): String {
+    override suspend fun dataCost(data: ByteArray): UploadCostEstimate {
         val body = buildJsonObject { put("data", b64(data)) }.toString()
         val resp = postJson<CostDto>("/v1/data/cost", body)
-        return resp.cost
+        return UploadCostEstimate(resp.cost, resp.fileSize, resp.chunkCount, resp.estimatedGasCostWei, resp.paymentMode)
     }
 
     // ── Chunks ──
@@ -196,13 +196,13 @@ class AntdRestClient(
         postJsonNoResult("/v1/dirs/download/public", body)
     }
 
-    override suspend fun fileCost(path: String, isPublic: Boolean): String {
+    override suspend fun fileCost(path: String, isPublic: Boolean): UploadCostEstimate {
         val body = buildJsonObject {
             put("path", path)
             put("is_public", isPublic)
         }.toString()
         val resp = postJson<CostDto>("/v1/cost/file", body)
-        return resp.cost
+        return UploadCostEstimate(resp.cost, resp.fileSize, resp.chunkCount, resp.estimatedGasCostWei, resp.paymentMode)
     }
 
     // ── Wallet ──

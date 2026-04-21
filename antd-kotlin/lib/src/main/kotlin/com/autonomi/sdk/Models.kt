@@ -57,6 +57,20 @@ data class FinalizeUploadResult(val address: String, val chunksStored: Long)
 /** Result of finalizing a merkle batch upload. */
 data class FinalizeMerkleUploadResult(val address: String, val chunksStored: Long)
 
+/**
+ * Pre-upload cost breakdown returned by `dataCost` and `fileCost`.
+ *
+ * The server samples up to 5 chunk addresses and extrapolates the storage
+ * cost. Gas is an advisory heuristic, not a live gas-oracle query.
+ */
+data class UploadCostEstimate(
+    val cost: String,
+    val fileSize: ULong,
+    val chunkCount: UInt,
+    val estimatedGasCostWei: String,
+    val paymentMode: String,
+)
+
 // ── Internal DTOs for JSON deserialization ──
 
 @Serializable
@@ -94,6 +108,10 @@ internal data class DataGetDto(
 @Serializable
 internal data class CostDto(
     val cost: String,
+    @SerialName("file_size") val fileSize: ULong = 0u,
+    @SerialName("chunk_count") val chunkCount: UInt = 0u,
+    @SerialName("estimated_gas_cost_wei") val estimatedGasCostWei: String = "",
+    @SerialName("payment_mode") val paymentMode: String = "",
 )
 
 @Serializable
