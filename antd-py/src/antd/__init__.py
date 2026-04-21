@@ -20,6 +20,7 @@ from .models import (
     PoolCommitmentEntry,
     PrepareUploadResult,
     PutResult,
+    UploadCostEstimate,
     WalletAddress,
     WalletBalance,
 )
@@ -52,6 +53,7 @@ __all__ = [
     "PoolCommitmentEntry",
     "PrepareUploadResult",
     "PutResult",
+    "UploadCostEstimate",
     "WalletAddress",
     "WalletBalance",
     # Exceptions

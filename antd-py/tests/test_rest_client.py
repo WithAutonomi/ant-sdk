@@ -98,7 +98,13 @@ class _MockHandler(BaseHTTPRequestHandler):
             self._json_response(200, {"cost": "50", "data_map": "dm_xyz"})
 
         elif path == "/v1/data/cost":
-            self._json_response(200, {"cost": "99"})
+            self._json_response(200, {
+                "cost": "99",
+                "file_size": 4,
+                "chunk_count": 3,
+                "estimated_gas_cost_wei": "150000000000000",
+                "payment_mode": "single",
+            })
 
         elif path == "/v1/chunks":
             self._json_response(200, {"cost": "10", "address": "chunk_addr_1"})
@@ -231,6 +237,16 @@ class TestDataCost:
     def test_returns_cost_string(self, client: RestClient):
         cost = client.data_cost(b"estimate me")
         assert cost == "99"
+
+
+class TestEstimateDataCost:
+    def test_returns_full_breakdown(self, client: RestClient):
+        est = client.estimate_data_cost(b"estimate me")
+        assert est.cost == "99"
+        assert est.file_size == 4
+        assert est.chunk_count == 3
+        assert est.estimated_gas_cost_wei == "150000000000000"
+        assert est.payment_mode == "single"
 
 
 class TestChunkRoundTrip:

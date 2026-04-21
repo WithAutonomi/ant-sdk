@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14\x61ntd/v1/common.proto\x12\x07\x61ntd.v1\"\x1b\n\x04\x43ost\x12\x13\n\x0b\x61tto_tokens\x18\x01 \x01(\t\"\x16\n\x07\x41\x64\x64ress\x12\x0b\n\x03hex\x18\x01 \x01(\t\"\x1d\n\x0ePublicKeyProto\x12\x0b\n\x03hex\x18\x01 \x01(\t\"\x1d\n\x0eSecretKeyProto\x12\x0b\n\x03hex\x18\x01 \x01(\t\"6\n\x0fGraphDescendant\x12\x12\n\npublic_key\x18\x01 \x01(\t\x12\x0f\n\x07\x63ontent\x18\x02 \x01(\tB\n\xaa\x02\x07\x41ntd.V1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14\x61ntd/v1/common.proto\x12\x07\x61ntd.v1\"y\n\x04\x43ost\x12\x13\n\x0b\x61tto_tokens\x18\x01 \x01(\t\x12\x11\n\tfile_size\x18\x02 \x01(\x04\x12\x13\n\x0b\x63hunk_count\x18\x03 \x01(\r\x12\x1e\n\x16\x65stimated_gas_cost_wei\x18\x04 \x01(\t\x12\x14\n\x0cpayment_mode\x18\x05 \x01(\t\"\x16\n\x07\x41\x64\x64ress\x12\x0b\n\x03hex\x18\x01 \x01(\t\"\x1d\n\x0ePublicKeyProto\x12\x0b\n\x03hex\x18\x01 \x01(\t\"\x1d\n\x0eSecretKeyProto\x12\x0b\n\x03hex\x18\x01 \x01(\t\"6\n\x0fGraphDescendant\x12\x12\n\npublic_key\x18\x01 \x01(\t\x12\x0f\n\x07\x63ontent\x18\x02 \x01(\tB\n\xaa\x02\x07\x41ntd.V1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -33,13 +33,13 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'\252\002\007Antd.V1'
   _globals['_COST']._serialized_start=33
-  _globals['_COST']._serialized_end=60
-  _globals['_ADDRESS']._serialized_start=62
-  _globals['_ADDRESS']._serialized_end=84
-  _globals['_PUBLICKEYPROTO']._serialized_start=86
-  _globals['_PUBLICKEYPROTO']._serialized_end=115
-  _globals['_SECRETKEYPROTO']._serialized_start=117
-  _globals['_SECRETKEYPROTO']._serialized_end=146
-  _globals['_GRAPHDESCENDANT']._serialized_start=148
-  _globals['_GRAPHDESCENDANT']._serialized_end=202
+  _globals['_COST']._serialized_end=154
+  _globals['_ADDRESS']._serialized_start=156
+  _globals['_ADDRESS']._serialized_end=178
+  _globals['_PUBLICKEYPROTO']._serialized_start=180
+  _globals['_PUBLICKEYPROTO']._serialized_end=209
+  _globals['_SECRETKEYPROTO']._serialized_start=211
+  _globals['_SECRETKEYPROTO']._serialized_end=240
+  _globals['_GRAPHDESCENDANT']._serialized_start=242
+  _globals['_GRAPHDESCENDANT']._serialized_end=296
 # @@protoc_insertion_point(module_scope)
