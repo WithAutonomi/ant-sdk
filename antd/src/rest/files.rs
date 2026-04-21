@@ -220,9 +220,9 @@ pub async fn file_cost(
 
     Ok(Json(CostResponse {
         cost: estimate.storage_cost_atto,
-        file_size: Some(estimate.file_size),
-        chunk_count: Some(estimate.chunk_count),
-        estimated_gas_cost_wei: Some(estimate.estimated_gas_cost_wei),
-        payment_mode: Some(format_payment_mode(estimate.payment_mode)),
+        file_size: estimate.file_size,
+        chunk_count: estimate.chunk_count,
+        estimated_gas_cost_wei: estimate.estimated_gas_cost_wei,
+        payment_mode: format_payment_mode(estimate.payment_mode),
     }))
 }

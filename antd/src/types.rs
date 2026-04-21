@@ -208,22 +208,18 @@ pub struct DirUploadPublicResponse {
 
 #[derive(Serialize)]
 pub struct CostResponse {
+    /// Storage cost in atto tokens as a string.
     pub cost: String,
-    /// Original file size in bytes. Populated by cost-estimate endpoints;
-    /// omitted from put/upload responses where it isn't meaningful.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_size: Option<u64>,
+    /// Original file size in bytes.
+    pub file_size: u64,
     /// Number of data chunks the file would split into.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub chunk_count: Option<usize>,
+    pub chunk_count: usize,
     /// Estimated gas cost in wei as a string (advisory heuristic, not a
     /// live gas-oracle query). String shape matches `cost` to avoid JS
     /// integer overflow.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub estimated_gas_cost_wei: Option<String>,
+    pub estimated_gas_cost_wei: String,
     /// Payment mode that would be used: `"auto" | "merkle" | "single"`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub payment_mode: Option<String>,
+    pub payment_mode: String,
 }
 
 #[derive(Deserialize)]
