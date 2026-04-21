@@ -246,11 +246,31 @@ async def get_cost(
     client, network = _get_ctx()
     try:
         if text is not None:
-            cost = await client.data_cost(text.encode("utf-8"))
-            return _ok({"cost": cost, "type": "data"}, network)
+            est = await client.data_cost(text.encode("utf-8"))
+            return _ok(
+                {
+                    "type": "data",
+                    "cost": est.cost,
+                    "file_size": est.file_size,
+                    "chunk_count": est.chunk_count,
+                    "estimated_gas_cost_wei": est.estimated_gas_cost_wei,
+                    "payment_mode": est.payment_mode,
+                },
+                network,
+            )
         elif file_path is not None:
-            cost = await client.file_cost(file_path)
-            return _ok({"cost": cost, "type": "file"}, network)
+            est = await client.file_cost(file_path)
+            return _ok(
+                {
+                    "type": "file",
+                    "cost": est.cost,
+                    "file_size": est.file_size,
+                    "chunk_count": est.chunk_count,
+                    "estimated_gas_cost_wei": est.estimated_gas_cost_wei,
+                    "payment_mode": est.payment_mode,
+                },
+                network,
+            )
         else:
             return _ok({"error": "BAD_REQUEST", "message": "Provide text or file_path"}, network)
     except AntdError as exc:
