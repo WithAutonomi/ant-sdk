@@ -5,10 +5,10 @@
 //! individual `EVM_*` env vars. Individual env vars always win over presets.
 //!
 //! Presets:
-//!   - `arbitrum-one`     → Arbitrum One mainnet
-//!   - `arbitrum-sepolia` → Arbitrum Sepolia testnet
-//!   - `local`            → localhost:8545 with empty addresses (devnet tooling
-//!                          supplies these via env)
+//!   - `arbitrum-one`: Arbitrum One mainnet
+//!   - `arbitrum-sepolia`: Arbitrum Sepolia testnet
+//!   - `local`: localhost:8545 with empty addresses (devnet tooling supplies
+//!     these via env)
 //!
 //! If `EVM_NETWORK` is unset, the preset defaults to `local` when
 //! `--network local` is supplied and `arbitrum-one` otherwise — so mainnet is
