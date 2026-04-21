@@ -144,3 +144,24 @@ defmodule Antd.FinalizeUploadResult do
           chunks_stored: integer()
         }
 end
+
+defmodule Antd.UploadCostEstimate do
+  @moduledoc """
+  Pre-upload cost breakdown returned by `Antd.Client.data_cost/2` and
+  `Antd.Client.file_cost/3`.
+
+  The server samples up to 5 chunk addresses and extrapolates the storage
+  cost. Gas is an advisory heuristic, not a live gas-oracle query.
+  """
+
+  @enforce_keys [:cost, :file_size, :chunk_count, :estimated_gas_cost_wei, :payment_mode]
+  defstruct [:cost, :file_size, :chunk_count, :estimated_gas_cost_wei, :payment_mode]
+
+  @type t :: %__MODULE__{
+          cost: String.t(),
+          file_size: non_neg_integer(),
+          chunk_count: non_neg_integer(),
+          estimated_gas_cost_wei: String.t(),
+          payment_mode: String.t()
+        }
+end
