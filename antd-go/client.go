@@ -235,6 +235,9 @@ func (c *Client) DataGetPrivate(ctx context.Context, dataMap string) ([]byte, er
 }
 
 // DataCost estimates the cost of storing data.
+//
+// Returns only the storage cost string for backward compatibility. For the
+// richer breakdown (chunk count, gas, payment mode) use [Client.EstimateDataCost].
 func (c *Client) DataCost(ctx context.Context, data []byte) (string, error) {
 	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/data/cost", map[string]any{
 		"data": b64Encode(data),
@@ -243,6 +246,26 @@ func (c *Client) DataCost(ctx context.Context, data []byte) (string, error) {
 		return "", err
 	}
 	return str(j, "cost"), nil
+}
+
+// EstimateDataCost returns a pre-upload cost breakdown for the given bytes.
+//
+// The server samples a small number of chunk addresses and extrapolates —
+// much faster than quoting every chunk on slow networks. Gas is advisory.
+func (c *Client) EstimateDataCost(ctx context.Context, data []byte) (*UploadCostEstimate, error) {
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/data/cost", map[string]any{
+		"data": b64Encode(data),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &UploadCostEstimate{
+		Cost:                str(j, "cost"),
+		FileSize:            unum64(j, "file_size"),
+		ChunkCount:          uint32(unum64(j, "chunk_count")),
+		EstimatedGasCostWei: str(j, "estimated_gas_cost_wei"),
+		PaymentMode:         str(j, "payment_mode"),
+	}, nil
 }
 
 // --- Chunks ---
@@ -330,6 +353,9 @@ func (c *Client) DirDownloadPublic(ctx context.Context, address, destPath string
 }
 
 // FileCost estimates the cost of uploading a file.
+//
+// Returns only the storage cost string for backward compatibility. For the
+// richer breakdown (chunk count, gas, payment mode) use [Client.EstimateFileCost].
 func (c *Client) FileCost(ctx context.Context, path string, isPublic bool) (string, error) {
 	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/cost/file", map[string]any{
 		"path":      path,
@@ -339,6 +365,27 @@ func (c *Client) FileCost(ctx context.Context, path string, isPublic bool) (stri
 		return "", err
 	}
 	return str(j, "cost"), nil
+}
+
+// EstimateFileCost returns a pre-upload cost breakdown for the file at path.
+//
+// The server samples a small number of chunk addresses and extrapolates —
+// much faster than quoting every chunk on slow networks. Gas is advisory.
+func (c *Client) EstimateFileCost(ctx context.Context, path string, isPublic bool) (*UploadCostEstimate, error) {
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/cost/file", map[string]any{
+		"path":      path,
+		"is_public": isPublic,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &UploadCostEstimate{
+		Cost:                str(j, "cost"),
+		FileSize:            unum64(j, "file_size"),
+		ChunkCount:          uint32(unum64(j, "chunk_count")),
+		EstimatedGasCostWei: str(j, "estimated_gas_cost_wei"),
+		PaymentMode:         str(j, "payment_mode"),
+	}, nil
 }
 
 // --- Wallet ---

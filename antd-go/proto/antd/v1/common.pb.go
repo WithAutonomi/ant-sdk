@@ -22,10 +22,17 @@ const (
 )
 
 type Cost struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AttoTokens    string                 `protobuf:"bytes,1,opt,name=atto_tokens,json=attoTokens,proto3" json:"atto_tokens,omitempty"` // AttoTokens as string (can exceed JS Number.MAX_SAFE_INTEGER)
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	AttoTokens string                 `protobuf:"bytes,1,opt,name=atto_tokens,json=attoTokens,proto3" json:"atto_tokens,omitempty"` // AttoTokens as string (can exceed JS Number.MAX_SAFE_INTEGER)
+	// Fields populated only by cost-estimation RPCs (GetCost, GetFileCost).
+	// Left at zero/empty for cost values returned by put/upload RPCs, where
+	// payment already happened and these fields are not meaningful.
+	FileSize            uint64 `protobuf:"varint,2,opt,name=file_size,json=fileSize,proto3" json:"file_size,omitempty"`                                     // original file size in bytes
+	ChunkCount          uint32 `protobuf:"varint,3,opt,name=chunk_count,json=chunkCount,proto3" json:"chunk_count,omitempty"`                               // number of data chunks the file splits into
+	EstimatedGasCostWei string `protobuf:"bytes,4,opt,name=estimated_gas_cost_wei,json=estimatedGasCostWei,proto3" json:"estimated_gas_cost_wei,omitempty"` // gas heuristic as string (can exceed JS safe int)
+	PaymentMode         string `protobuf:"bytes,5,opt,name=payment_mode,json=paymentMode,proto3" json:"payment_mode,omitempty"`                             // "auto" | "merkle" | "single"
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *Cost) Reset() {
@@ -61,6 +68,34 @@ func (*Cost) Descriptor() ([]byte, []int) {
 func (x *Cost) GetAttoTokens() string {
 	if x != nil {
 		return x.AttoTokens
+	}
+	return ""
+}
+
+func (x *Cost) GetFileSize() uint64 {
+	if x != nil {
+		return x.FileSize
+	}
+	return 0
+}
+
+func (x *Cost) GetChunkCount() uint32 {
+	if x != nil {
+		return x.ChunkCount
+	}
+	return 0
+}
+
+func (x *Cost) GetEstimatedGasCostWei() string {
+	if x != nil {
+		return x.EstimatedGasCostWei
+	}
+	return ""
+}
+
+func (x *Cost) GetPaymentMode() string {
+	if x != nil {
+		return x.PaymentMode
 	}
 	return ""
 }
@@ -253,10 +288,15 @@ var File_antd_v1_common_proto protoreflect.FileDescriptor
 
 const file_antd_v1_common_proto_rawDesc = "" +
 	"\n" +
-	"\x14antd/v1/common.proto\x12\aantd.v1\"'\n" +
+	"\x14antd/v1/common.proto\x12\aantd.v1\"\xbd\x01\n" +
 	"\x04Cost\x12\x1f\n" +
 	"\vatto_tokens\x18\x01 \x01(\tR\n" +
-	"attoTokens\"\x1b\n" +
+	"attoTokens\x12\x1b\n" +
+	"\tfile_size\x18\x02 \x01(\x04R\bfileSize\x12\x1f\n" +
+	"\vchunk_count\x18\x03 \x01(\rR\n" +
+	"chunkCount\x123\n" +
+	"\x16estimated_gas_cost_wei\x18\x04 \x01(\tR\x13estimatedGasCostWei\x12!\n" +
+	"\fpayment_mode\x18\x05 \x01(\tR\vpaymentMode\"\x1b\n" +
 	"\aAddress\x12\x10\n" +
 	"\x03hex\x18\x01 \x01(\tR\x03hex\"\"\n" +
 	"\x0ePublicKeyProto\x12\x10\n" +

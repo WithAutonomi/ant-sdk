@@ -97,7 +97,8 @@ All methods take a `context.Context` as the first parameter for cancellation and
 | `DataGetPublic(ctx, address)` | Retrieve public data |
 | `DataPutPrivate(ctx, data)` | Store encrypted private data |
 | `DataGetPrivate(ctx, dataMap)` | Retrieve private data |
-| `DataCost(ctx, data)` | Estimate storage cost |
+| `DataCost(ctx, data)` | Estimate storage cost (legacy — returns only the cost string) |
+| `EstimateDataCost(ctx, data)` | Estimate with full breakdown (chunks, gas, payment mode) |
 
 ### Chunks
 | Method | Description |
@@ -112,7 +113,8 @@ All methods take a `context.Context` as the first parameter for cancellation and
 | `FileDownloadPublic(ctx, address, destPath)` | Download a file |
 | `DirUploadPublic(ctx, path)` | Upload a directory |
 | `DirDownloadPublic(ctx, address, destPath)` | Download a directory |
-| `FileCost(ctx, path, isPublic)` | Estimate upload cost |
+| `FileCost(ctx, path, isPublic)` | Estimate upload cost (legacy — returns only the cost string) |
+| `EstimateFileCost(ctx, path, isPublic)` | Estimate with full breakdown (size, chunks, gas, payment mode) |
 
 ## gRPC Transport
 

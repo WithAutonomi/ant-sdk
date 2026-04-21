@@ -39,7 +39,13 @@ func mockDaemon(t *testing.T) *httptest.Server {
 
 		// Data cost
 		case r.Method == "POST" && r.URL.Path == "/v1/data/cost":
-			json.NewEncoder(w).Encode(map[string]any{"cost": "50"})
+			json.NewEncoder(w).Encode(map[string]any{
+				"cost":                   "50",
+				"file_size":              float64(4),
+				"chunk_count":            float64(3),
+				"estimated_gas_cost_wei": "150000000000000",
+				"payment_mode":           "single",
+			})
 
 		// Chunks
 		case r.Method == "POST" && r.URL.Path == "/v1/chunks":
@@ -69,7 +75,13 @@ func mockDaemon(t *testing.T) *httptest.Server {
 		case r.Method == "POST" && r.URL.Path == "/v1/dirs/download/public":
 			w.WriteHeader(200)
 		case r.Method == "POST" && r.URL.Path == "/v1/cost/file":
-			json.NewEncoder(w).Encode(map[string]any{"cost": "1000"})
+			json.NewEncoder(w).Encode(map[string]any{
+				"cost":                   "1000",
+				"file_size":              float64(4096),
+				"chunk_count":            float64(3),
+				"estimated_gas_cost_wei": "150000000000000",
+				"payment_mode":           "auto",
+			})
 
 		// Wallet address
 		case r.Method == "GET" && r.URL.Path == "/v1/wallet/address":
@@ -188,6 +200,53 @@ func TestDataCost(t *testing.T) {
 	}
 	if cost != "50" {
 		t.Fatalf("unexpected cost: %s", cost)
+	}
+}
+
+func TestEstimateDataCost(t *testing.T) {
+	srv := mockDaemon(t)
+	defer srv.Close()
+	c := NewClient(srv.URL)
+	est, err := c.EstimateDataCost(context.Background(), []byte("test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if est.Cost != "50" {
+		t.Fatalf("unexpected cost: %s", est.Cost)
+	}
+	if est.FileSize != 4 {
+		t.Fatalf("unexpected file_size: %d", est.FileSize)
+	}
+	if est.ChunkCount != 3 {
+		t.Fatalf("unexpected chunk_count: %d", est.ChunkCount)
+	}
+	if est.EstimatedGasCostWei != "150000000000000" {
+		t.Fatalf("unexpected gas: %s", est.EstimatedGasCostWei)
+	}
+	if est.PaymentMode != "single" {
+		t.Fatalf("unexpected payment_mode: %s", est.PaymentMode)
+	}
+}
+
+func TestEstimateFileCost(t *testing.T) {
+	srv := mockDaemon(t)
+	defer srv.Close()
+	c := NewClient(srv.URL)
+	est, err := c.EstimateFileCost(context.Background(), "/tmp/file.bin", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if est.Cost != "1000" {
+		t.Fatalf("unexpected cost: %s", est.Cost)
+	}
+	if est.FileSize != 4096 {
+		t.Fatalf("unexpected file_size: %d", est.FileSize)
+	}
+	if est.ChunkCount != 3 {
+		t.Fatalf("unexpected chunk_count: %d", est.ChunkCount)
+	}
+	if est.PaymentMode != "auto" {
+		t.Fatalf("unexpected payment_mode: %s", est.PaymentMode)
 	}
 }
 

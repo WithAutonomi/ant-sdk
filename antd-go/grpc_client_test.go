@@ -59,7 +59,13 @@ func (m *mockDataService) GetPrivate(_ context.Context, _ *pb.GetPrivateDataRequ
 }
 
 func (m *mockDataService) GetCost(_ context.Context, _ *pb.DataCostRequest) (*pb.Cost, error) {
-	return &pb.Cost{AttoTokens: "50"}, nil
+	return &pb.Cost{
+		AttoTokens:          "50",
+		FileSize:            4,
+		ChunkCount:          3,
+		EstimatedGasCostWei: "150000000000000",
+		PaymentMode:         "single",
+	}, nil
 }
 
 // mockChunkService implements pb.ChunkServiceServer.
@@ -112,7 +118,13 @@ func (m *mockFileService) DirDownloadPublic(_ context.Context, _ *pb.DownloadPub
 }
 
 func (m *mockFileService) GetFileCost(_ context.Context, _ *pb.FileCostRequest) (*pb.Cost, error) {
-	return &pb.Cost{AttoTokens: "1000"}, nil
+	return &pb.Cost{
+		AttoTokens:          "1000",
+		FileSize:            4096,
+		ChunkCount:          3,
+		EstimatedGasCostWei: "150000000000000",
+		PaymentMode:         "auto",
+	}, nil
 }
 
 // --- Error mock services ---
@@ -267,6 +279,18 @@ func TestGrpcDataCost(t *testing.T) {
 	}
 }
 
+func TestGrpcEstimateDataCost(t *testing.T) {
+	c := startMockServer(t)
+	est, err := c.EstimateDataCost(context.Background(), []byte("test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if est.Cost != "50" || est.FileSize != 4 || est.ChunkCount != 3 ||
+		est.EstimatedGasCostWei != "150000000000000" || est.PaymentMode != "single" {
+		t.Fatalf("unexpected estimate: %+v", est)
+	}
+}
+
 func TestGrpcChunkPut(t *testing.T) {
 	c := startMockServer(t)
 	put, err := c.ChunkPut(context.Background(), []byte("chunkdata"))
@@ -335,6 +359,18 @@ func TestGrpcFileCost(t *testing.T) {
 	}
 	if cost != "1000" {
 		t.Fatalf("unexpected file cost: %s", cost)
+	}
+}
+
+func TestGrpcEstimateFileCost(t *testing.T) {
+	c := startMockServer(t)
+	est, err := c.EstimateFileCost(context.Background(), "/tmp/test.txt", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if est.Cost != "1000" || est.FileSize != 4096 || est.ChunkCount != 3 ||
+		est.EstimatedGasCostWei != "150000000000000" || est.PaymentMode != "auto" {
+		t.Fatalf("unexpected estimate: %+v", est)
 	}
 }
 

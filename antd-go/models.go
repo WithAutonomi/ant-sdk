@@ -80,3 +80,17 @@ type FinalizeUploadResult struct {
 	Address      string `json:"address,omitempty"`        // network address (only when store_data_map=true)
 	ChunksStored int64  `json:"chunks_stored"`           // number of chunks stored
 }
+
+// UploadCostEstimate is the result of an estimate (EstimateDataCost / EstimateFileCost).
+//
+// Unlike [PutResult.Cost], which is a paid cost after upload, this is a
+// pre-upload estimate. The server samples up to 5 chunk addresses and
+// extrapolates the storage cost. Gas is an advisory heuristic, not a live
+// gas-oracle query.
+type UploadCostEstimate struct {
+	Cost                string `json:"cost"`                    // storage cost in atto tokens
+	FileSize            uint64 `json:"file_size"`               // original file size in bytes
+	ChunkCount          uint32 `json:"chunk_count"`             // number of data chunks
+	EstimatedGasCostWei string `json:"estimated_gas_cost_wei"`  // advisory wei heuristic
+	PaymentMode         string `json:"payment_mode"`            // "auto" | "merkle" | "single"
+}

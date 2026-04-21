@@ -217,6 +217,9 @@ func (c *GrpcClient) DataGetPrivate(ctx context.Context, dataMap string) ([]byte
 }
 
 // DataCost estimates the cost of storing data.
+//
+// Returns only the storage cost string for backward compatibility. For the
+// richer breakdown (chunk count, gas, payment mode) use [GrpcClient.EstimateDataCost].
 func (c *GrpcClient) DataCost(ctx context.Context, data []byte) (string, error) {
 	ctx, cancel := c.ctx(ctx)
 	defer cancel()
@@ -226,6 +229,27 @@ func (c *GrpcClient) DataCost(ctx context.Context, data []byte) (string, error) 
 		return "", errorFromGrpc(err)
 	}
 	return resp.GetAttoTokens(), nil
+}
+
+// EstimateDataCost returns a pre-upload cost breakdown for the given bytes.
+//
+// The server samples a small number of chunk addresses and extrapolates —
+// much faster than quoting every chunk on slow networks. Gas is advisory.
+func (c *GrpcClient) EstimateDataCost(ctx context.Context, data []byte) (*UploadCostEstimate, error) {
+	ctx, cancel := c.ctx(ctx)
+	defer cancel()
+
+	resp, err := c.data.GetCost(ctx, &pb.DataCostRequest{Data: data})
+	if err != nil {
+		return nil, errorFromGrpc(err)
+	}
+	return &UploadCostEstimate{
+		Cost:                resp.GetAttoTokens(),
+		FileSize:            resp.GetFileSize(),
+		ChunkCount:          resp.GetChunkCount(),
+		EstimatedGasCostWei: resp.GetEstimatedGasCostWei(),
+		PaymentMode:         resp.GetPaymentMode(),
+	}, nil
 }
 
 // --- Chunks (2 methods) ---
@@ -320,6 +344,9 @@ func (c *GrpcClient) DirDownloadPublic(ctx context.Context, address, destPath st
 }
 
 // FileCost estimates the cost of uploading a file.
+//
+// Returns only the storage cost string for backward compatibility. For the
+// richer breakdown (chunk count, gas, payment mode) use [GrpcClient.EstimateFileCost].
 func (c *GrpcClient) FileCost(ctx context.Context, path string, isPublic bool) (string, error) {
 	ctx, cancel := c.ctx(ctx)
 	defer cancel()
@@ -332,4 +359,28 @@ func (c *GrpcClient) FileCost(ctx context.Context, path string, isPublic bool) (
 		return "", errorFromGrpc(err)
 	}
 	return resp.GetAttoTokens(), nil
+}
+
+// EstimateFileCost returns a pre-upload cost breakdown for the file at path.
+//
+// The server samples a small number of chunk addresses and extrapolates —
+// much faster than quoting every chunk on slow networks. Gas is advisory.
+func (c *GrpcClient) EstimateFileCost(ctx context.Context, path string, isPublic bool) (*UploadCostEstimate, error) {
+	ctx, cancel := c.ctx(ctx)
+	defer cancel()
+
+	resp, err := c.file.GetFileCost(ctx, &pb.FileCostRequest{
+		Path:     path,
+		IsPublic: isPublic,
+	})
+	if err != nil {
+		return nil, errorFromGrpc(err)
+	}
+	return &UploadCostEstimate{
+		Cost:                resp.GetAttoTokens(),
+		FileSize:            resp.GetFileSize(),
+		ChunkCount:          resp.GetChunkCount(),
+		EstimatedGasCostWei: resp.GetEstimatedGasCostWei(),
+		PaymentMode:         resp.GetPaymentMode(),
+	}, nil
 }
