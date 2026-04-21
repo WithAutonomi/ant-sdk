@@ -101,7 +101,13 @@ local function setup_daemon()
 
     -- Data cost
     register_route("POST", "/v1/data/cost", 200,
-        cjson.encode({ cost = "50" }))
+        cjson.encode({
+            cost = "50",
+            file_size = 4,
+            chunk_count = 3,
+            estimated_gas_cost_wei = "150000000000000",
+            payment_mode = "single",
+        }))
 
     -- Chunks
     register_route("POST", "/v1/chunks", 200,
@@ -129,7 +135,13 @@ local function setup_daemon()
         }))
     register_route("POST", "/v1/dirs/download/public", 200, "")
     register_route("POST", "/v1/cost/file", 200,
-        cjson.encode({ cost = "1000" }))
+        cjson.encode({
+            cost = "1000",
+            file_size = 4096,
+            chunk_count = 3,
+            estimated_gas_cost_wei = "150000000000000",
+            payment_mode = "auto",
+        }))
 end
 
 -- ── Tests ──
@@ -195,10 +207,14 @@ describe("antd client", function()
     end)
 
     describe("data_cost", function()
-        it("estimates data cost", function()
-            local cost, err = client:data_cost("test")
+        it("returns full breakdown", function()
+            local est, err = client:data_cost("test")
             assert.is_nil(err)
-            assert.are.equal("50", cost)
+            assert.are.equal("50", est.cost)
+            assert.are.equal(4, est.file_size)
+            assert.are.equal(3, est.chunk_count)
+            assert.are.equal("150000000000000", est.estimated_gas_cost_wei)
+            assert.are.equal("single", est.payment_mode)
         end)
     end)
 
@@ -258,10 +274,14 @@ describe("antd client", function()
     end)
 
     describe("file_cost", function()
-        it("estimates file cost", function()
-            local cost, err = client:file_cost("/tmp/test.txt", true, false)
+        it("returns full breakdown", function()
+            local est, err = client:file_cost("/tmp/test.txt", true, false)
             assert.is_nil(err)
-            assert.are.equal("1000", cost)
+            assert.are.equal("1000", est.cost)
+            assert.are.equal(4096, est.file_size)
+            assert.are.equal(3, est.chunk_count)
+            assert.are.equal("150000000000000", est.estimated_gas_cost_wei)
+            assert.are.equal("auto", est.payment_mode)
         end)
     end)
 
