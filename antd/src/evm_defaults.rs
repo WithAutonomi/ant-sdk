@@ -5,16 +5,30 @@
 //! individual `EVM_*` env vars. Individual env vars always win over presets.
 //!
 //! Presets:
-//!   - `arbitrum-one`     → Arbitrum One mainnet (from `evmlib::Network`)
-//!   - `arbitrum-sepolia` → Arbitrum Sepolia testnet (from `evmlib::Network`)
+//!   - `arbitrum-one`     → Arbitrum One mainnet
+//!   - `arbitrum-sepolia` → Arbitrum Sepolia testnet
 //!   - `local`            → localhost:8545 with empty addresses (devnet tooling
 //!                          supplies these via env)
 //!
 //! If `EVM_NETWORK` is unset, the preset defaults to `local` when
 //! `--network local` is supplied and `arbitrum-one` otherwise — so mainnet is
 //! the well-lit path and opt-out rather than opt-in.
+//!
+//! Preset values mirror the canonical constants in
+//! `autonomi/evmlib/src/lib.rs` so antd reads/writes the same on-chain state
+//! as every other Autonomi component pointed at the same network. They are
+//! duplicated (rather than pulled from `evmlib` accessors) because the
+//! published `evmlib` crate does not yet expose them as `pub const`.
 
-use evmlib::Network;
+/// Arbitrum One mainnet defaults — `ARBITRUM_ONE_*` in `evmlib::lib`.
+const ARBITRUM_ONE_RPC_URL: &str = "https://arb1.arbitrum.io/rpc";
+const ARBITRUM_ONE_TOKEN: &str = "0xa78d8321B20c4Ef90eCd72f2588AA985A4BDb684";
+const ARBITRUM_ONE_VAULT: &str = "0xB1b5219f8Aaa18037A2506626Dd0406a46f70BcC";
+
+/// Arbitrum Sepolia testnet defaults — `ARBITRUM_SEPOLIA_TEST_*` in `evmlib::lib`.
+const ARBITRUM_SEPOLIA_RPC_URL: &str = "https://sepolia-rollup.arbitrum.io/rpc";
+const ARBITRUM_SEPOLIA_TOKEN: &str = "0x4bc1aCE0E66170375462cB4E6Af42Ad4D5EC689C";
+const ARBITRUM_SEPOLIA_VAULT: &str = "0x7f0842a78f7d4085d975ba91d630d680f91b1295";
 
 /// Resolved EVM configuration values ready to be passed to
 /// [`evmlib::Network::new_custom`].
@@ -43,8 +57,16 @@ where
     });
 
     let (def_rpc, def_token, def_vault) = match preset.as_str() {
-        "arbitrum-one" => preset_from(&Network::ArbitrumOne),
-        "arbitrum-sepolia" | "arbitrum-sepolia-test" => preset_from(&Network::ArbitrumSepoliaTest),
+        "arbitrum-one" => (
+            ARBITRUM_ONE_RPC_URL.to_string(),
+            ARBITRUM_ONE_TOKEN.to_string(),
+            ARBITRUM_ONE_VAULT.to_string(),
+        ),
+        "arbitrum-sepolia" | "arbitrum-sepolia-test" => (
+            ARBITRUM_SEPOLIA_RPC_URL.to_string(),
+            ARBITRUM_SEPOLIA_TOKEN.to_string(),
+            ARBITRUM_SEPOLIA_VAULT.to_string(),
+        ),
         _ => (
             "http://127.0.0.1:8545".to_string(),
             String::new(),
@@ -64,14 +86,6 @@ where
         vault_addr,
         preset,
     }
-}
-
-fn preset_from(network: &Network) -> (String, String, String) {
-    (
-        network.rpc_url().to_string(),
-        format!("{}", network.payment_token_address()),
-        format!("{}", network.data_payments_address()),
-    )
 }
 
 #[cfg(test)]
