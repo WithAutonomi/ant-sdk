@@ -121,10 +121,10 @@ public sealed class AntdRestClient : IAntdClient
         return Convert.FromBase64String(resp.Data);
     }
 
-    public async Task<string> DataCostAsync(byte[] data)
+    public async Task<UploadCostEstimate> DataCostAsync(byte[] data)
     {
         var resp = await PostJsonAsync<CostDto>("/v1/data/cost", new { data = Convert.ToBase64String(data) });
-        return resp.Cost;
+        return new UploadCostEstimate(resp.Cost, resp.FileSize, resp.ChunkCount, resp.EstimatedGasCostWei, resp.PaymentMode);
     }
 
     // ── Chunks ──
@@ -171,11 +171,11 @@ public sealed class AntdRestClient : IAntdClient
         await PostJsonNoResultAsync("/v1/dirs/download/public", new { address, dest_path = destPath });
     }
 
-    public async Task<string> FileCostAsync(string path, bool isPublic = true)
+    public async Task<UploadCostEstimate> FileCostAsync(string path, bool isPublic = true)
     {
         var body = new { path, is_public = isPublic };
         var resp = await PostJsonAsync<CostDto>("/v1/cost/file", body);
-        return resp.Cost;
+        return new UploadCostEstimate(resp.Cost, resp.FileSize, resp.ChunkCount, resp.EstimatedGasCostWei, resp.PaymentMode);
     }
 
     // ── Wallet ──
@@ -281,7 +281,11 @@ public sealed class AntdRestClient : IAntdClient
         [property: JsonPropertyName("data")] string Data);
 
     private sealed record CostDto(
-        [property: JsonPropertyName("cost")] string Cost);
+        [property: JsonPropertyName("cost")] string Cost,
+        [property: JsonPropertyName("file_size")] ulong FileSize = 0,
+        [property: JsonPropertyName("chunk_count")] uint ChunkCount = 0,
+        [property: JsonPropertyName("estimated_gas_cost_wei")] string EstimatedGasCostWei = "",
+        [property: JsonPropertyName("payment_mode")] string PaymentMode = "");
 
     private sealed record WalletAddressDto(
         [property: JsonPropertyName("address")] string Address);

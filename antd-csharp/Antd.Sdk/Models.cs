@@ -47,3 +47,16 @@ public sealed record FinalizeUploadResult(string Address, long ChunksStored);
 
 /// <summary>Result of finalizing a merkle batch upload.</summary>
 public sealed record FinalizeMerkleUploadResult(string Address, long ChunksStored);
+
+/// <summary>
+/// Pre-upload cost breakdown returned by <c>DataCostAsync</c> and <c>FileCostAsync</c>.
+///
+/// The server samples up to 5 chunk addresses and extrapolates the storage cost.
+/// Gas is an advisory heuristic, not a live gas-oracle query.
+/// </summary>
+public sealed record UploadCostEstimate(
+    string Cost,
+    ulong FileSize,
+    uint ChunkCount,
+    string EstimatedGasCostWei,
+    string PaymentMode);

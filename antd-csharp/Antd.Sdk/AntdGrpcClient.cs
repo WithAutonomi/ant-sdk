@@ -101,12 +101,14 @@ public sealed class AntdGrpcClient : IAntdClient
         catch (RpcException ex) { throw Wrap(ex); }
     }
 
-    public async Task<string> DataCostAsync(byte[] data)
+    public async Task<UploadCostEstimate> DataCostAsync(byte[] data)
     {
         try
         {
             var resp = await _data.GetCostAsync(new DataCostRequest { Data = ByteString.CopyFrom(data) });
-            return resp.AttoTokens;
+            return new UploadCostEstimate(
+                resp.AttoTokens, resp.FileSize, resp.ChunkCount,
+                resp.EstimatedGasCostWei, resp.PaymentMode);
         }
         catch (RpcException ex) { throw Wrap(ex); }
     }
@@ -173,7 +175,7 @@ public sealed class AntdGrpcClient : IAntdClient
         catch (RpcException ex) { throw Wrap(ex); }
     }
 
-    public async Task<string> FileCostAsync(string path, bool isPublic = true)
+    public async Task<UploadCostEstimate> FileCostAsync(string path, bool isPublic = true)
     {
         try
         {
@@ -182,7 +184,9 @@ public sealed class AntdGrpcClient : IAntdClient
                 Path = path,
                 IsPublic = isPublic,
             });
-            return resp.AttoTokens;
+            return new UploadCostEstimate(
+                resp.AttoTokens, resp.FileSize, resp.ChunkCount,
+                resp.EstimatedGasCostWei, resp.PaymentMode);
         }
         catch (RpcException ex) { throw Wrap(ex); }
     }

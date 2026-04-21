@@ -10,7 +10,7 @@ public interface IAntdClient : IDisposable
     Task<byte[]> DataGetPublicAsync(string address);
     Task<PutResult> DataPutPrivateAsync(byte[] data, string? paymentMode = null);
     Task<byte[]> DataGetPrivateAsync(string dataMap);
-    Task<string> DataCostAsync(byte[] data);
+    Task<UploadCostEstimate> DataCostAsync(byte[] data);
 
     // Chunks
     Task<PutResult> ChunkPutAsync(byte[] data);
@@ -21,7 +21,7 @@ public interface IAntdClient : IDisposable
     Task FileDownloadPublicAsync(string address, string destPath);
     Task<FileUploadResult> DirUploadPublicAsync(string path, string? paymentMode = null);
     Task DirDownloadPublicAsync(string address, string destPath);
-    Task<string> FileCostAsync(string path, bool isPublic = true);
+    Task<UploadCostEstimate> FileCostAsync(string path, bool isPublic = true);
 
     // Wallet
     Task<WalletAddress> WalletAddressAsync();
