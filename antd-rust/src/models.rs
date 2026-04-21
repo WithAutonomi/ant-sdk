@@ -116,3 +116,22 @@ pub struct FinalizeUploadResult {
     /// Number of chunks stored.
     pub chunks_stored: i64,
 }
+
+/// Pre-upload cost breakdown returned by `estimate_data_cost` /
+/// `estimate_file_cost`.
+///
+/// The server samples up to 5 chunk addresses and extrapolates the storage
+/// cost. Gas is an advisory heuristic, not a live gas-oracle query.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UploadCostEstimate {
+    /// Storage cost in atto tokens as a string.
+    pub cost: String,
+    /// Original file size in bytes.
+    pub file_size: u64,
+    /// Number of data chunks the file would split into.
+    pub chunk_count: u32,
+    /// Advisory gas cost heuristic in wei as a string.
+    pub estimated_gas_cost_wei: String,
+    /// Payment mode that would be used: `"auto"`, `"merkle"`, or `"single"`.
+    pub payment_mode: String,
+}

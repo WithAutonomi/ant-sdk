@@ -235,6 +235,10 @@ impl Client {
     }
 
     /// Estimates the cost of storing data.
+    ///
+    /// Returns only the storage cost string for backward compatibility. Use
+    /// [`Self::estimate_data_cost`] for the richer breakdown (chunks, gas,
+    /// payment mode).
     pub async fn data_cost(&self, data: &[u8]) -> Result<String, AntdError> {
         let (j, _) = self
             .do_json(
@@ -245,6 +249,32 @@ impl Client {
             .await?;
         let j = j.unwrap_or_default();
         Ok(Self::str_field(&j, "cost"))
+    }
+
+    /// Returns a pre-upload cost breakdown for the given bytes.
+    ///
+    /// The server samples a small number of chunk addresses and extrapolates,
+    /// which is much faster than quoting every chunk on slow networks. Gas is
+    /// advisory.
+    pub async fn estimate_data_cost(
+        &self,
+        data: &[u8],
+    ) -> Result<UploadCostEstimate, AntdError> {
+        let (j, _) = self
+            .do_json(
+                reqwest::Method::POST,
+                "/v1/data/cost",
+                Some(json!({ "data": Self::b64_encode(data) })),
+            )
+            .await?;
+        let j = j.unwrap_or_default();
+        Ok(UploadCostEstimate {
+            cost: Self::str_field(&j, "cost"),
+            file_size: Self::u64_field(&j, "file_size"),
+            chunk_count: Self::u64_field(&j, "chunk_count") as u32,
+            estimated_gas_cost_wei: Self::str_field(&j, "estimated_gas_cost_wei"),
+            payment_mode: Self::str_field(&j, "payment_mode"),
+        })
     }
 
     // --- Chunks ---
@@ -357,6 +387,10 @@ impl Client {
     }
 
     /// Estimates the cost of uploading a file.
+    ///
+    /// Returns only the storage cost string for backward compatibility. Use
+    /// [`Self::estimate_file_cost`] for the richer breakdown (size, chunks,
+    /// gas, payment mode).
     pub async fn file_cost(
         &self,
         path: &str,
@@ -374,6 +408,36 @@ impl Client {
             .await?;
         let j = j.unwrap_or_default();
         Ok(Self::str_field(&j, "cost"))
+    }
+
+    /// Returns a pre-upload cost breakdown for the file at `path`.
+    ///
+    /// The server samples a small number of chunk addresses and extrapolates,
+    /// which is much faster than quoting every chunk on slow networks. Gas is
+    /// advisory.
+    pub async fn estimate_file_cost(
+        &self,
+        path: &str,
+        is_public: bool,
+    ) -> Result<UploadCostEstimate, AntdError> {
+        let (j, _) = self
+            .do_json(
+                reqwest::Method::POST,
+                "/v1/cost/file",
+                Some(json!({
+                    "path": path,
+                    "is_public": is_public,
+                })),
+            )
+            .await?;
+        let j = j.unwrap_or_default();
+        Ok(UploadCostEstimate {
+            cost: Self::str_field(&j, "cost"),
+            file_size: Self::u64_field(&j, "file_size"),
+            chunk_count: Self::u64_field(&j, "chunk_count") as u32,
+            estimated_gas_cost_wei: Self::str_field(&j, "estimated_gas_cost_wei"),
+            payment_mode: Self::str_field(&j, "payment_mode"),
+        })
     }
 
     // --- Wallet ---

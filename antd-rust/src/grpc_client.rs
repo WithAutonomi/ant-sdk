@@ -159,6 +159,9 @@ impl GrpcClient {
     }
 
     /// Estimates the cost of storing data.
+    ///
+    /// Returns only the storage cost string for backward compatibility. Use
+    /// [`Self::estimate_data_cost`] for the richer breakdown.
     pub async fn data_cost(&self, data: &[u8]) -> Result<String, AntdError> {
         let resp = self
             .data
@@ -170,6 +173,29 @@ impl GrpcClient {
             .into_inner();
 
         Ok(resp.atto_tokens)
+    }
+
+    /// Returns a pre-upload cost breakdown for the given bytes.
+    pub async fn estimate_data_cost(
+        &self,
+        data: &[u8],
+    ) -> Result<UploadCostEstimate, AntdError> {
+        let resp = self
+            .data
+            .clone()
+            .get_cost(proto::antd::v1::DataCostRequest {
+                data: data.to_vec(),
+            })
+            .await?
+            .into_inner();
+
+        Ok(UploadCostEstimate {
+            cost: resp.atto_tokens,
+            file_size: resp.file_size,
+            chunk_count: resp.chunk_count,
+            estimated_gas_cost_wei: resp.estimated_gas_cost_wei,
+            payment_mode: resp.payment_mode,
+        })
     }
 
     // --- Chunks ---
@@ -287,6 +313,9 @@ impl GrpcClient {
     }
 
     /// Estimates the cost of uploading a file.
+    ///
+    /// Returns only the storage cost string for backward compatibility. Use
+    /// [`Self::estimate_file_cost`] for the richer breakdown.
     pub async fn file_cost(
         &self,
         path: &str,
@@ -303,5 +332,30 @@ impl GrpcClient {
             .into_inner();
 
         Ok(resp.atto_tokens)
+    }
+
+    /// Returns a pre-upload cost breakdown for the file at `path`.
+    pub async fn estimate_file_cost(
+        &self,
+        path: &str,
+        is_public: bool,
+    ) -> Result<UploadCostEstimate, AntdError> {
+        let resp = self
+            .files
+            .clone()
+            .get_file_cost(proto::antd::v1::FileCostRequest {
+                path: path.to_string(),
+                is_public,
+            })
+            .await?
+            .into_inner();
+
+        Ok(UploadCostEstimate {
+            cost: resp.atto_tokens,
+            file_size: resp.file_size,
+            chunk_count: resp.chunk_count,
+            estimated_gas_cost_wei: resp.estimated_gas_cost_wei,
+            payment_mode: resp.payment_mode,
+        })
     }
 }

@@ -36,6 +36,7 @@ impl v1::data_service_server::DataService for MockDataService {
         Ok(Response::new(v1::PutPublicDataResponse {
             cost: Some(v1::Cost {
                 atto_tokens: "100".to_string(),
+                ..Default::default()
             }),
             address: "abc123".to_string(),
         }))
@@ -57,6 +58,7 @@ impl v1::data_service_server::DataService for MockDataService {
         Ok(Response::new(v1::PutPrivateDataResponse {
             cost: Some(v1::Cost {
                 atto_tokens: "200".to_string(),
+                ..Default::default()
             }),
             data_map: "dm123".to_string(),
         }))
@@ -77,6 +79,10 @@ impl v1::data_service_server::DataService for MockDataService {
     ) -> Result<Response<v1::Cost>, Status> {
         Ok(Response::new(v1::Cost {
             atto_tokens: "50".to_string(),
+            file_size: 4,
+            chunk_count: 3,
+            estimated_gas_cost_wei: "150000000000000".to_string(),
+            payment_mode: "single".to_string(),
         }))
     }
 
@@ -105,6 +111,7 @@ impl v1::chunk_service_server::ChunkService for MockChunkService {
         Ok(Response::new(v1::PutChunkResponse {
             cost: Some(v1::Cost {
                 atto_tokens: "10".to_string(),
+                ..Default::default()
             }),
             address: "chunk1".to_string(),
         }))
@@ -171,6 +178,10 @@ impl v1::file_service_server::FileService for MockFileService {
     ) -> Result<Response<v1::Cost>, Status> {
         Ok(Response::new(v1::Cost {
             atto_tokens: "1000".to_string(),
+            file_size: 4096,
+            chunk_count: 3,
+            estimated_gas_cost_wei: "150000000000000".to_string(),
+            payment_mode: "auto".to_string(),
         }))
     }
 }
@@ -299,6 +310,17 @@ async fn test_grpc_data_cost() {
 }
 
 #[tokio::test]
+async fn test_grpc_estimate_data_cost() {
+    let client = start_mock_server().await;
+    let est = client.estimate_data_cost(b"test").await.unwrap();
+    assert_eq!(est.cost, "50");
+    assert_eq!(est.file_size, 4);
+    assert_eq!(est.chunk_count, 3);
+    assert_eq!(est.estimated_gas_cost_wei, "150000000000000");
+    assert_eq!(est.payment_mode, "single");
+}
+
+#[tokio::test]
 async fn test_grpc_chunk_put() {
     let client = start_mock_server().await;
     let result = client.chunk_put(b"chunkdata").await.unwrap();
@@ -361,6 +383,20 @@ async fn test_grpc_file_cost() {
         .await
         .unwrap();
     assert_eq!(cost, "1000");
+}
+
+#[tokio::test]
+async fn test_grpc_estimate_file_cost() {
+    let client = start_mock_server().await;
+    let est = client
+        .estimate_file_cost("/tmp/test.txt", true)
+        .await
+        .unwrap();
+    assert_eq!(est.cost, "1000");
+    assert_eq!(est.file_size, 4096);
+    assert_eq!(est.chunk_count, 3);
+    assert_eq!(est.estimated_gas_cost_wei, "150000000000000");
+    assert_eq!(est.payment_mode, "auto");
 }
 
 // --- gRPC error mapping tests ---

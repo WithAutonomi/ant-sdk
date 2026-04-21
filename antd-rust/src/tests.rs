@@ -62,7 +62,7 @@ fn mock_data_cost(server: &mut ServerGuard) -> Mock {
         .mock("POST", "/v1/data/cost")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"cost":"50"}"#)
+        .with_body(r#"{"cost":"50","file_size":4,"chunk_count":3,"estimated_gas_cost_wei":"150000000000000","payment_mode":"single"}"#)
         .create()
 }
 
@@ -126,7 +126,7 @@ fn mock_file_cost(server: &mut ServerGuard) -> Mock {
         .mock("POST", "/v1/cost/file")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"cost":"1000"}"#)
+        .with_body(r#"{"cost":"1000","file_size":4096,"chunk_count":3,"estimated_gas_cost_wei":"150000000000000","payment_mode":"auto"}"#)
         .create()
 }
 
@@ -256,6 +256,20 @@ async fn test_data_cost() {
 }
 
 #[tokio::test]
+async fn test_estimate_data_cost() {
+    let mut server = mock_server().await;
+    let _m = mock_data_cost(&mut server);
+    let client = Client::new(&server.url());
+
+    let est = client.estimate_data_cost(b"test").await.unwrap();
+    assert_eq!(est.cost, "50");
+    assert_eq!(est.file_size, 4);
+    assert_eq!(est.chunk_count, 3);
+    assert_eq!(est.estimated_gas_cost_wei, "150000000000000");
+    assert_eq!(est.payment_mode, "single");
+}
+
+#[tokio::test]
 async fn test_chunk_put() {
     let mut server = mock_server().await;
     let _m = mock_chunk_put(&mut server);
@@ -339,6 +353,23 @@ async fn test_file_cost() {
         .await
         .unwrap();
     assert_eq!(cost, "1000");
+}
+
+#[tokio::test]
+async fn test_estimate_file_cost() {
+    let mut server = mock_server().await;
+    let _m = mock_file_cost(&mut server);
+    let client = Client::new(&server.url());
+
+    let est = client
+        .estimate_file_cost("/tmp/test.txt", true)
+        .await
+        .unwrap();
+    assert_eq!(est.cost, "1000");
+    assert_eq!(est.file_size, 4096);
+    assert_eq!(est.chunk_count, 3);
+    assert_eq!(est.estimated_gas_cost_wei, "150000000000000");
+    assert_eq!(est.payment_mode, "auto");
 }
 
 #[tokio::test]
