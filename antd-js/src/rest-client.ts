@@ -162,37 +162,25 @@ export class RestClient {
   }
 
   /**
-   * Estimate storage cost (legacy — returns only the cost string).
-   *
-   * Use {@link RestClient.estimateDataCost} for the full breakdown.
-   */
-  async dataCost(data: Buffer): Promise<string> {
-    const j = await this.postJson<{ cost: string }>("/v1/data/cost", {
-      data: RestClient.b64(data),
-    });
-    return j.cost;
-  }
-
-  /**
    * Pre-upload cost breakdown for the given bytes.
    *
    * The server samples a small number of chunk addresses and extrapolates,
    * much faster than quoting every chunk on slow networks. Gas is advisory.
    */
-  async estimateDataCost(data: Buffer): Promise<UploadCostEstimate> {
+  async dataCost(data: Buffer): Promise<UploadCostEstimate> {
     const j = await this.postJson<{
       cost: string;
-      file_size?: number;
-      chunk_count?: number;
-      estimated_gas_cost_wei?: string;
-      payment_mode?: string;
+      file_size: number;
+      chunk_count: number;
+      estimated_gas_cost_wei: string;
+      payment_mode: string;
     }>("/v1/data/cost", { data: RestClient.b64(data) });
     return {
       cost: j.cost,
-      fileSize: j.file_size ?? 0,
-      chunkCount: j.chunk_count ?? 0,
-      estimatedGasCostWei: j.estimated_gas_cost_wei ?? "",
-      paymentMode: j.payment_mode ?? "",
+      fileSize: j.file_size,
+      chunkCount: j.chunk_count,
+      estimatedGasCostWei: j.estimated_gas_cost_wei,
+      paymentMode: j.payment_mode,
     };
   }
 
@@ -265,44 +253,28 @@ export class RestClient {
   }
 
   /**
-   * Estimate upload cost (legacy — returns only the cost string).
-   *
-   * Use {@link RestClient.estimateFileCost} for the full breakdown.
-   */
-  async fileCost(
-    path: string,
-    isPublic: boolean = true,
-  ): Promise<string> {
-    const j = await this.postJson<{ cost: string }>("/v1/cost/file", {
-      path,
-      is_public: isPublic,
-    });
-    return j.cost;
-  }
-
-  /**
    * Pre-upload cost breakdown for the file at `path`.
    *
    * The server samples a small number of chunk addresses and extrapolates,
    * much faster than quoting every chunk on slow networks. Gas is advisory.
    */
-  async estimateFileCost(
+  async fileCost(
     path: string,
     isPublic: boolean = true,
   ): Promise<UploadCostEstimate> {
     const j = await this.postJson<{
       cost: string;
-      file_size?: number;
-      chunk_count?: number;
-      estimated_gas_cost_wei?: string;
-      payment_mode?: string;
+      file_size: number;
+      chunk_count: number;
+      estimated_gas_cost_wei: string;
+      payment_mode: string;
     }>("/v1/cost/file", { path, is_public: isPublic });
     return {
       cost: j.cost,
-      fileSize: j.file_size ?? 0,
-      chunkCount: j.chunk_count ?? 0,
-      estimatedGasCostWei: j.estimated_gas_cost_wei ?? "",
-      paymentMode: j.payment_mode ?? "",
+      fileSize: j.file_size,
+      chunkCount: j.chunk_count,
+      estimatedGasCostWei: j.estimated_gas_cost_wei,
+      paymentMode: j.payment_mode,
     };
   }
 

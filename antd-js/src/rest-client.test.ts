@@ -301,17 +301,9 @@ describe("RestClient", () => {
   // ---- Data cost ----
 
   describe("dataCost()", () => {
-    it("returns cost string", async () => {
-      const data = Buffer.from("estimate me");
-      const result = await client.dataCost(data);
-      expect(result).toBe("50");
-    });
-  });
-
-  describe("estimateDataCost()", () => {
     it("returns full breakdown", async () => {
       const data = Buffer.from("estimate me");
-      const est = await client.estimateDataCost(data);
+      const est = await client.dataCost(data);
       expect(est.cost).toBe("50");
       expect(est.fileSize).toBe(4);
       expect(est.chunkCount).toBe(3);

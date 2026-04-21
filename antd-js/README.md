@@ -66,8 +66,7 @@ All methods are `async` and return Promises.
 | `dataGetPublic(address)` | `Buffer` | Retrieve public data by address |
 | `dataPutPrivate(data)` | `PutResult` | Store private (encrypted) data |
 | `dataGetPrivate(dataMap)` | `Buffer` | Retrieve private data by data map |
-| `dataCost(data)` | `string` | Estimate storage cost (legacy — cost string only) |
-| `estimateDataCost(data)` | `UploadCostEstimate` | Estimate with full breakdown (chunks, gas, payment mode) |
+| `dataCost(data)` | `UploadCostEstimate` | Estimate storage cost — size, chunks, gas, payment mode |
 
 ### Chunks
 
@@ -84,8 +83,7 @@ All methods are `async` and return Promises.
 | `fileDownloadPublic(address, destPath)` | `void` | Download file |
 | `dirUploadPublic(path)` | `FileUploadResult` | Upload directory |
 | `dirDownloadPublic(address, destPath)` | `void` | Download directory |
-| `fileCost(path, isPublic?)` | `string` | Estimate upload cost (legacy — cost string only) |
-| `estimateFileCost(path, isPublic?)` | `UploadCostEstimate` | Estimate with full breakdown (size, chunks, gas, payment mode) |
+| `fileCost(path, isPublic?)` | `UploadCostEstimate` | Estimate upload cost — size, chunks, gas, payment mode |
 
 ## Models
 
