@@ -12,6 +12,7 @@ pub const PutResult = models.PutResult;
 pub const FileUploadResult = models.FileUploadResult;
 pub const WalletAddress = models.WalletAddress;
 pub const WalletBalance = models.WalletBalance;
+pub const UploadCostEstimate = models.UploadCostEstimate;
 pub const AntdError = errors.AntdError;
 pub const ErrorInfo = errors.ErrorInfo;
 pub const errorForStatus = errors.errorForStatus;
@@ -218,13 +219,13 @@ pub const Client = struct {
         return json_helpers.parseBase64Data(self.allocator, resp);
     }
 
-    /// Estimate the cost of storing data.
-    pub fn dataCost(self: *Client, data: []const u8) ![]const u8 {
+    /// Pre-upload cost breakdown for the given bytes.
+    pub fn dataCost(self: *Client, data: []const u8) !models.UploadCostEstimate {
         const req_body = try json_helpers.buildDataBody(self.allocator, data);
         defer self.allocator.free(req_body);
         const resp = try self.doRequest(.POST, "/v1/data/cost", req_body) orelse return error.JsonError;
         defer self.allocator.free(resp);
-        return json_helpers.parseCost(self.allocator, resp);
+        return json_helpers.parseCostEstimate(self.allocator, resp);
     }
 
     // --- Chunks ---
@@ -358,8 +359,8 @@ pub const Client = struct {
         return resp;
     }
 
-    /// Estimate the cost of uploading a file.
-    pub fn fileCost(self: *Client, path: []const u8, is_public: bool) ![]const u8 {
+    /// Pre-upload cost breakdown for the file at `path`.
+    pub fn fileCost(self: *Client, path: []const u8, is_public: bool) !models.UploadCostEstimate {
         const req_body = try json_helpers.buildJsonBody(self.allocator, &.{
             .{ .key = "path", .value = .{ .string = path } },
             .{ .key = "is_public", .value = .{ .boolean = is_public } },
@@ -367,7 +368,7 @@ pub const Client = struct {
         defer self.allocator.free(req_body);
         const resp = try self.doRequest(.POST, "/v1/cost/file", req_body) orelse return error.JsonError;
         defer self.allocator.free(resp);
-        return json_helpers.parseCost(self.allocator, resp);
+        return json_helpers.parseCostEstimate(self.allocator, resp);
     }
 };
 

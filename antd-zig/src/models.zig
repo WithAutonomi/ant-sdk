@@ -58,3 +58,21 @@ pub const WalletBalance = struct {
     }
 };
 
+/// Pre-upload cost breakdown returned by `dataCost` and `fileCost`.
+///
+/// The server samples up to 5 chunk addresses and extrapolates the storage
+/// cost. Gas is an advisory heuristic, not a live gas-oracle query.
+pub const UploadCostEstimate = struct {
+    cost: []const u8,
+    file_size: u64,
+    chunk_count: u32,
+    estimated_gas_cost_wei: []const u8,
+    payment_mode: []const u8,
+
+    pub fn deinit(self: UploadCostEstimate, allocator: Allocator) void {
+        allocator.free(self.cost);
+        allocator.free(self.estimated_gas_cost_wei);
+        allocator.free(self.payment_mode);
+    }
+};
+

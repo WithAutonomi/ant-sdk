@@ -27,10 +27,13 @@ pub fn main() !void {
     std.debug.print("Download complete\n", .{});
 
     // Estimate file cost
-    const cost = try client.fileCost(file_path, true, false);
-    defer allocator.free(cost);
+    const est = try client.fileCost(file_path, true);
+    defer est.deinit(allocator);
 
-    std.debug.print("Estimated file cost: {s} atto\n", .{cost});
+    std.debug.print(
+        "Estimate: {d} bytes in {d} chunks, storage {s} atto, gas {s} wei, mode {s}\n",
+        .{ est.file_size, est.chunk_count, est.cost, est.estimated_gas_cost_wei, est.payment_mode },
+    );
 
     // Upload a directory
     const dir_path = "/tmp/example-dir";

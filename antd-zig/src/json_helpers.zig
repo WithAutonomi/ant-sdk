@@ -139,8 +139,8 @@ pub fn parseBase64Data(allocator: Allocator, body: []const u8) ![]const u8 {
     return decoded;
 }
 
-/// Parse a cost string from a JSON response body.
-pub fn parseCost(allocator: Allocator, body: []const u8) ![]const u8 {
+/// Parse an UploadCostEstimate from a JSON response body.
+pub fn parseCostEstimate(allocator: Allocator, body: []const u8) !models.UploadCostEstimate {
     const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
         return error.JsonError;
     defer parsed.deinit();
@@ -151,8 +151,21 @@ pub fn parseCost(allocator: Allocator, body: []const u8) ![]const u8 {
         else => return error.JsonError,
     };
 
-    return dupeString(allocator, obj.get("cost") orelse .null) catch
-        return error.JsonError;
+    return models.UploadCostEstimate{
+        .cost = try dupeString(allocator, obj.get("cost") orelse .null),
+        .file_size = dupeU64(obj.get("file_size") orelse .null),
+        .chunk_count = @intCast(dupeU64(obj.get("chunk_count") orelse .null)),
+        .estimated_gas_cost_wei = try dupeString(allocator, obj.get("estimated_gas_cost_wei") orelse .null),
+        .payment_mode = try dupeString(allocator, obj.get("payment_mode") orelse .null),
+    };
+}
+
+fn dupeU64(v: std.json.Value) u64 {
+    return switch (v) {
+        .integer => |n| if (n < 0) 0 else @intCast(n),
+        .float => |f| if (f < 0) 0 else @intFromFloat(f),
+        else => 0,
+    };
 }
 
 
