@@ -153,3 +153,23 @@ public struct FinalizeMerkleUploadResult: Sendable, Equatable {
         self.chunksStored = chunksStored
     }
 }
+
+/// Pre-upload cost breakdown returned by `dataCost` and `fileCost`.
+///
+/// The server samples up to 5 chunk addresses and extrapolates the storage
+/// cost. Gas is an advisory heuristic, not a live gas-oracle query.
+public struct UploadCostEstimate: Sendable, Equatable {
+    public let cost: String
+    public let fileSize: UInt64
+    public let chunkCount: UInt32
+    public let estimatedGasCostWei: String
+    public let paymentMode: String
+
+    public init(cost: String, fileSize: UInt64, chunkCount: UInt32, estimatedGasCostWei: String, paymentMode: String) {
+        self.cost = cost
+        self.fileSize = fileSize
+        self.chunkCount = chunkCount
+        self.estimatedGasCostWei = estimatedGasCostWei
+        self.paymentMode = paymentMode
+    }
+}
