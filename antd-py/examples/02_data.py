@@ -9,8 +9,12 @@ client = AntdClient()
 
 # Estimate cost before storing
 payload = b"Hello, Autonomi network!"
-cost = client.data_cost(payload)
-print(f"Estimated cost: {cost} atto tokens")
+est = client.data_cost(payload)
+print(
+    f"Estimate: {est.file_size} bytes in {est.chunk_count} chunks, "
+    f"storage {est.cost} atto, gas {est.estimated_gas_cost_wei} wei, "
+    f"mode {est.payment_mode}"
+)
 
 # Store public data
 result = client.data_put_public(payload)

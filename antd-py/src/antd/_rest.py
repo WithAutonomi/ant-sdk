@@ -176,16 +176,7 @@ class RestClient:
         _check(resp)
         return _unb64(resp.json().get("data", ""))
 
-    def data_cost(self, data: bytes) -> str:
-        """Estimate storage cost (legacy — returns only the cost string).
-
-        Use :meth:`estimate_data_cost` for the richer breakdown.
-        """
-        resp = self._http.post("/v1/data/cost", json={"data": _b64(data)})
-        _check(resp)
-        return resp.json().get("cost", "")
-
-    def estimate_data_cost(self, data: bytes) -> UploadCostEstimate:
+    def data_cost(self, data: bytes) -> UploadCostEstimate:
         """Pre-upload cost breakdown for the given bytes.
 
         The server samples a small number of chunk addresses and extrapolates,
@@ -240,19 +231,7 @@ class RestClient:
         })
         _check(resp)
 
-    def file_cost(self, path: str, is_public: bool = True) -> str:
-        """Estimate upload cost for a file (legacy — returns only the cost string).
-
-        Use :meth:`estimate_file_cost` for the richer breakdown.
-        """
-        resp = self._http.post("/v1/cost/file", json={
-            "path": path,
-            "is_public": is_public,
-        })
-        _check(resp)
-        return resp.json().get("cost", "")
-
-    def estimate_file_cost(self, path: str, is_public: bool = True) -> UploadCostEstimate:
+    def file_cost(self, path: str, is_public: bool = True) -> UploadCostEstimate:
         """Pre-upload cost breakdown for the file at ``path``.
 
         The server samples a small number of chunk addresses and extrapolates,
@@ -413,13 +392,7 @@ class AsyncRestClient:
         _check(resp)
         return _unb64(resp.json().get("data", ""))
 
-    async def data_cost(self, data: bytes) -> str:
-        """Estimate storage cost (legacy — returns only the cost string)."""
-        resp = await self._http.post("/v1/data/cost", json={"data": _b64(data)})
-        _check(resp)
-        return resp.json().get("cost", "")
-
-    async def estimate_data_cost(self, data: bytes) -> UploadCostEstimate:
+    async def data_cost(self, data: bytes) -> UploadCostEstimate:
         """Pre-upload cost breakdown for the given bytes."""
         resp = await self._http.post("/v1/data/cost", json={"data": _b64(data)})
         _check(resp)
@@ -470,16 +443,7 @@ class AsyncRestClient:
         })
         _check(resp)
 
-    async def file_cost(self, path: str, is_public: bool = True) -> str:
-        """Estimate upload cost (legacy — returns only the cost string)."""
-        resp = await self._http.post("/v1/cost/file", json={
-            "path": path,
-            "is_public": is_public,
-        })
-        _check(resp)
-        return resp.json().get("cost", "")
-
-    async def estimate_file_cost(self, path: str, is_public: bool = True) -> UploadCostEstimate:
+    async def file_cost(self, path: str, is_public: bool = True) -> UploadCostEstimate:
         """Pre-upload cost breakdown for the file at ``path``."""
         resp = await self._http.post("/v1/cost/file", json={
             "path": path,

@@ -234,14 +234,8 @@ class TestDataGetPrivate:
 
 
 class TestDataCost:
-    def test_returns_cost_string(self, client: RestClient):
-        cost = client.data_cost(b"estimate me")
-        assert cost == "99"
-
-
-class TestEstimateDataCost:
     def test_returns_full_breakdown(self, client: RestClient):
-        est = client.estimate_data_cost(b"estimate me")
+        est = client.data_cost(b"estimate me")
         assert est.cost == "99"
         assert est.file_size == 4
         assert est.chunk_count == 3

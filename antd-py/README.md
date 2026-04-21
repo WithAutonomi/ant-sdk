@@ -79,8 +79,7 @@ await aclient.close()
 | `data_get_public(address: str)` | `bytes` | Retrieve public data |
 | `data_put_private(data: bytes)` | `PutResult` | Store private (encrypted) data |
 | `data_get_private(data_map: str)` | `bytes` | Retrieve private data |
-| `data_cost(data: bytes)` | `str` | Estimate storage cost (legacy — cost string only) |
-| `estimate_data_cost(data: bytes)` | `UploadCostEstimate` | Estimate with full breakdown (chunks, gas, payment mode) |
+| `data_cost(data: bytes)` | `UploadCostEstimate` | Estimate storage cost — size, chunks, gas, payment mode |
 
 #### Chunks
 
@@ -97,8 +96,7 @@ await aclient.close()
 | `file_download_public(address: str, dest: str)` | `None` | Download a file |
 | `dir_upload_public(path: str)` | `FileUploadResult` | Upload a directory |
 | `dir_download_public(address: str, dest: str)` | `None` | Download a directory |
-| `file_cost(path: str, is_public: bool)` | `str` | Estimate file cost (legacy — cost string only) |
-| `estimate_file_cost(path: str, is_public: bool)` | `UploadCostEstimate` | Estimate with full breakdown (size, chunks, gas, payment mode) |
+| `file_cost(path: str, is_public: bool)` | `UploadCostEstimate` | Estimate file cost — size, chunks, gas, payment mode |
 
 ## Models
 
