@@ -305,14 +305,7 @@ async fn test_grpc_data_get_private() {
 #[tokio::test]
 async fn test_grpc_data_cost() {
     let client = start_mock_server().await;
-    let cost = client.data_cost(b"test").await.unwrap();
-    assert_eq!(cost, "50");
-}
-
-#[tokio::test]
-async fn test_grpc_estimate_data_cost() {
-    let client = start_mock_server().await;
-    let est = client.estimate_data_cost(b"test").await.unwrap();
+    let est = client.data_cost(b"test").await.unwrap();
     assert_eq!(est.cost, "50");
     assert_eq!(est.file_size, 4);
     assert_eq!(est.chunk_count, 3);
@@ -378,18 +371,8 @@ async fn test_grpc_dir_download_public() {
 #[tokio::test]
 async fn test_grpc_file_cost() {
     let client = start_mock_server().await;
-    let cost = client
-        .file_cost("/tmp/test.txt", true)
-        .await
-        .unwrap();
-    assert_eq!(cost, "1000");
-}
-
-#[tokio::test]
-async fn test_grpc_estimate_file_cost() {
-    let client = start_mock_server().await;
     let est = client
-        .estimate_file_cost("/tmp/test.txt", true)
+        .file_cost("/tmp/test.txt", true)
         .await
         .unwrap();
     assert_eq!(est.cost, "1000");

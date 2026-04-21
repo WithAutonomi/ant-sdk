@@ -79,8 +79,7 @@ All methods are `async` and return `Result<T, AntdError>`.
 | `data_get_public(address)` | Retrieve public data |
 | `data_put_private(data)` | Store encrypted private data |
 | `data_get_private(data_map)` | Retrieve private data |
-| `data_cost(data)` | Estimate storage cost (legacy — returns only the cost string) |
-| `estimate_data_cost(data)` | Estimate with full breakdown (chunks, gas, payment mode) |
+| `data_cost(data)` | Estimate storage cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ### Chunks
 | Method | Description |
@@ -95,8 +94,7 @@ All methods are `async` and return `Result<T, AntdError>`.
 | `file_download_public(address, dest_path)` | Download a file |
 | `dir_upload_public(path)` | Upload a directory |
 | `dir_download_public(address, dest_path)` | Download a directory |
-| `file_cost(path, is_public)` | Estimate upload cost (legacy — returns only the cost string) |
-| `estimate_file_cost(path, is_public)` | Estimate with full breakdown (size, chunks, gas, payment mode) |
+| `file_cost(path, is_public)` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ## gRPC Transport
 
