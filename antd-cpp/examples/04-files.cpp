@@ -30,8 +30,10 @@ int main() {
         std::cout << "Directory downloaded to /tmp/mydir-copy\n";
 
         // Estimate file upload cost
-        auto cost = client.file_cost("/tmp/example.txt", true);
-        std::cout << "Estimated file cost: " << cost << " atto\n";
+        auto est = client.file_cost("/tmp/example.txt", true);
+        std::cout << "Estimate: " << est.file_size << " bytes in " << est.chunk_count
+                  << " chunks, storage " << est.cost << " atto, gas "
+                  << est.estimated_gas_cost_wei << " wei, mode " << est.payment_mode << "\n";
 
     } catch (const antd::AntdError& e) {
         std::cerr << "Error: " << e.what() << "\n";

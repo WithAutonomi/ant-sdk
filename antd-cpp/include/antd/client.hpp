@@ -63,8 +63,8 @@ public:
     /// Retrieve private data using a data map.
     std::vector<uint8_t> data_get_private(std::string_view data_map);
 
-    /// Estimate the cost of storing data.
-    std::string data_cost(const std::vector<uint8_t>& data);
+    /// Pre-upload cost breakdown for the given bytes.
+    UploadCostEstimate data_cost(const std::vector<uint8_t>& data);
 
     // --- Chunks ---
 
@@ -88,8 +88,8 @@ public:
     /// Download a directory from the network to a local path.
     void dir_download_public(std::string_view address, std::string_view dest_path);
 
-    /// Estimate the cost of uploading a file.
-    std::string file_cost(std::string_view path, bool is_public);
+    /// Pre-upload cost breakdown for the file at `path`.
+    UploadCostEstimate file_cost(std::string_view path, bool is_public);
 
     // --- Wallet ---
 

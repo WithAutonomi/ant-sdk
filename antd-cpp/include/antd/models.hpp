@@ -86,4 +86,16 @@ struct FinalizeUploadResult {
     int64_t chunks_stored{0};
 };
 
+/// Pre-upload cost breakdown returned by data_cost and file_cost.
+///
+/// The server samples up to 5 chunk addresses and extrapolates the storage
+/// cost. Gas is an advisory heuristic, not a live gas-oracle query.
+struct UploadCostEstimate {
+    std::string cost;                    // storage cost in atto tokens
+    uint64_t file_size{0};               // original file size in bytes
+    uint32_t chunk_count{0};             // number of data chunks
+    std::string estimated_gas_cost_wei;  // advisory gas heuristic in wei
+    std::string payment_mode;            // "auto" | "merkle" | "single"
+};
+
 }  // namespace antd

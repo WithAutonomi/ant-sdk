@@ -21,8 +21,10 @@ int main() {
         std::cout << "Retrieved: " << text << "\n";
 
         // Estimate cost
-        auto cost = client.data_cost(data);
-        std::cout << "Estimated cost: " << cost << " atto\n";
+        auto est = client.data_cost(data);
+        std::cout << "Estimate: " << est.file_size << " bytes in " << est.chunk_count
+                  << " chunks, storage " << est.cost << " atto, gas "
+                  << est.estimated_gas_cost_wei << " wei, mode " << est.payment_mode << "\n";
 
     } catch (const antd::AntdError& e) {
         std::cerr << "Error: " << e.what() << "\n";

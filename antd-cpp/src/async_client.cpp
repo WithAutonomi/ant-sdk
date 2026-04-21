@@ -52,7 +52,7 @@ std::future<std::vector<uint8_t>> AsyncClient::data_get_private(std::string data
     });
 }
 
-std::future<std::string> AsyncClient::data_cost(const std::vector<uint8_t>& data) {
+std::future<UploadCostEstimate> AsyncClient::data_cost(const std::vector<uint8_t>& data) {
     return std::async(std::launch::async, [this, data] {
         return client_.data_cost(data);
     });
@@ -104,7 +104,7 @@ std::future<void> AsyncClient::dir_download_public(std::string address, std::str
         });
 }
 
-std::future<std::string> AsyncClient::file_cost(std::string path, bool is_public) {
+std::future<UploadCostEstimate> AsyncClient::file_cost(std::string path, bool is_public) {
     return std::async(std::launch::async,
         [this, p = std::move(path), is_public] {
             return client_.file_cost(p, is_public);

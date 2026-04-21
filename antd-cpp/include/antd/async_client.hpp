@@ -54,8 +54,8 @@ public:
     /// Retrieve private data using a data map.
     std::future<std::vector<uint8_t>> data_get_private(std::string data_map);
 
-    /// Estimate the cost of storing data.
-    std::future<std::string> data_cost(const std::vector<uint8_t>& data);
+    /// Pre-upload cost breakdown for the given bytes.
+    std::future<UploadCostEstimate> data_cost(const std::vector<uint8_t>& data);
 
     // --- Chunks ---
 
@@ -79,8 +79,8 @@ public:
     /// Download a directory from the network to a local path.
     std::future<void> dir_download_public(std::string address, std::string dest_path);
 
-    /// Estimate the cost of uploading a file.
-    std::future<std::string> file_cost(std::string path, bool is_public);
+    /// Pre-upload cost breakdown for the file at `path`.
+    std::future<UploadCostEstimate> file_cost(std::string path, bool is_public);
 
 private:
     Client client_;
