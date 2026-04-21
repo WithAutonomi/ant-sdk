@@ -9,7 +9,9 @@ use ant_core::data::{Client, ClientConfig, CoreNodeConfig, MultiAddr, NodeMode, 
 
 mod config;
 mod error;
+mod evm_defaults;
 mod grpc;
+mod peers;
 mod port_file;
 mod rest;
 mod state;
@@ -75,8 +77,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => tracing::warn!("could not determine data directory — port file not written"),
     }
 
-    // Parse bootstrap peers
-    let bootstrap_peers: Vec<MultiAddr> = config
+    // Parse bootstrap peers from --peers / ANTD_PEERS
+    let mut bootstrap_peers: Vec<MultiAddr> = config
         .peers
         .as_ref()
         .map(|peers| {
@@ -98,12 +100,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .unwrap_or_default();
 
+    // Fallback: try ant-client's shared bootstrap_peers.toml when no peers
+    // were supplied and we're not on the local devnet.
+    if bootstrap_peers.is_empty() && config.network != "local" {
+        let (fallback_peers, fallback_path) = peers::load_from_ant_client_config();
+        if !fallback_peers.is_empty() {
+            tracing::info!(
+                count = fallback_peers.len(),
+                path = ?fallback_path.as_ref().map(|p| p.display().to_string()),
+                "loaded bootstrap peers from ant-client bootstrap_peers.toml"
+            );
+            bootstrap_peers = fallback_peers;
+        }
+    }
+
     if bootstrap_peers.is_empty() {
         if config.network != "local" {
             tracing::warn!(
                 "no bootstrap peers configured and network is not 'local' — \
                  the daemon may not be able to reach the network. \
-                 Set ANTD_PEERS or --peers"
+                 Set ANTD_PEERS or --peers, or populate \
+                 %APPDATA%/ant/bootstrap_peers.toml (Linux: ~/.config/ant/)"
             );
         } else {
             tracing::warn!("no bootstrap peers configured — set ANTD_PEERS or --peers");
@@ -182,47 +199,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let node = Arc::new(node);
     let mut client = Client::from_node(node, client_config);
 
-    // Load EVM wallet if configured
-    if let Ok(wallet_key) = std::env::var("AUTONOMI_WALLET_KEY") {
-        let rpc_url =
-            std::env::var("EVM_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
-        let token_addr = std::env::var("EVM_PAYMENT_TOKEN_ADDRESS").unwrap_or_default();
-        let payments_addr = std::env::var("EVM_PAYMENT_VAULT_ADDRESS")
-            .or_else(|_| std::env::var("EVM_DATA_PAYMENTS_ADDRESS"))
-            .unwrap_or_default();
-        if token_addr.is_empty() {
-            tracing::warn!("EVM_PAYMENT_TOKEN_ADDRESS is empty — payments may fail");
-        }
-        if payments_addr.is_empty() {
-            tracing::warn!("EVM_PAYMENT_VAULT_ADDRESS is empty — payments may fail");
-        }
-        tracing::info!(%rpc_url, "loading EVM wallet...");
-        let network = evmlib::Network::new_custom(&rpc_url, &token_addr, &payments_addr);
-        match Wallet::new_from_private_key(network, &wallet_key) {
-            Ok(w) => {
-                tracing::info!(address = %w.address(), "EVM wallet loaded");
-                client = client.with_wallet(w);
-            }
-            Err(e) => {
-                tracing::warn!("failed to load EVM wallet: {e}");
-            }
-        }
+    // Resolve EVM configuration — network-aware defaults + env overrides.
+    let evm_cfg = evm_defaults::resolve(&config.network);
+    tracing::info!(
+        preset = %evm_cfg.preset,
+        rpc_url = %evm_cfg.rpc_url,
+        token = %evm_cfg.token_addr,
+        vault = %evm_cfg.vault_addr,
+        "EVM config resolved"
+    );
+
+    // Network::new_custom panics on invalid address strings, so only build it
+    // when both token and vault addresses are populated. Local mode without
+    // explicit devnet env vars intentionally leaves the client's EVM
+    // unconfigured, matching the pre-resolver behaviour.
+    if evm_cfg.token_addr.is_empty() || evm_cfg.vault_addr.is_empty() {
+        tracing::warn!(
+            token_empty = evm_cfg.token_addr.is_empty(),
+            vault_empty = evm_cfg.vault_addr.is_empty(),
+            "EVM token or vault address is empty — write operations will fail. \
+             Set EVM_NETWORK (arbitrum-one / arbitrum-sepolia) or the individual \
+             EVM_PAYMENT_TOKEN_ADDRESS / EVM_PAYMENT_VAULT_ADDRESS env vars."
+        );
     } else {
-        // No wallet — but still configure EVM network if available,
-        // to enable external signer flow (prepare-upload/finalize-upload)
-        let rpc_url = std::env::var("EVM_RPC_URL").ok();
-        if let Some(rpc_url) = rpc_url {
-            let token_addr = std::env::var("EVM_PAYMENT_TOKEN_ADDRESS").unwrap_or_default();
-            let payments_addr = std::env::var("EVM_PAYMENT_VAULT_ADDRESS")
-                .or_else(|_| std::env::var("EVM_DATA_PAYMENTS_ADDRESS"))
-                .unwrap_or_default();
-            let network = evmlib::Network::new_custom(&rpc_url, &token_addr, &payments_addr);
-            client = client.with_evm_network(network);
-            tracing::info!(%rpc_url, "EVM network configured (external signer mode)");
+        let network =
+            evmlib::Network::new_custom(&evm_cfg.rpc_url, &evm_cfg.token_addr, &evm_cfg.vault_addr);
+
+        if let Ok(wallet_key) = std::env::var("AUTONOMI_WALLET_KEY") {
+            tracing::info!(rpc_url = %evm_cfg.rpc_url, "loading EVM wallet...");
+            match Wallet::new_from_private_key(network, &wallet_key) {
+                Ok(w) => {
+                    tracing::info!(address = %w.address(), "EVM wallet loaded");
+                    client = client.with_wallet(w);
+                }
+                Err(e) => {
+                    tracing::warn!("failed to load EVM wallet: {e}");
+                }
+            }
         } else {
-            tracing::info!(
-                "no AUTONOMI_WALLET_KEY or EVM_RPC_URL set — write operations will fail"
-            );
+            // External signer mode: no wallet key, but the EVM network is
+            // still configured so prepare-upload/finalize-upload can work.
+            client = client.with_evm_network(network);
+            tracing::info!(rpc_url = %evm_cfg.rpc_url, "EVM network configured (external signer mode)");
         }
     }
 
