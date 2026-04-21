@@ -68,3 +68,17 @@ export interface FinalizeUploadResult {
   address: string; // hex address of stored data
   chunksStored: number;
 }
+
+/**
+ * Pre-upload cost breakdown returned by `estimateDataCost` / `estimateFileCost`.
+ *
+ * The server samples up to 5 chunk addresses and extrapolates the storage
+ * cost. Gas is an advisory heuristic, not a live gas-oracle query.
+ */
+export interface UploadCostEstimate {
+  cost: string; // storage cost in atto tokens
+  fileSize: number; // original file size in bytes (uint64)
+  chunkCount: number; // number of data chunks (uint32)
+  estimatedGasCostWei: string; // advisory gas heuristic in wei
+  paymentMode: string; // "auto" | "merkle" | "single"
+}
