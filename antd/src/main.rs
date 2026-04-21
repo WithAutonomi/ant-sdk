@@ -222,11 +222,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
              EVM_PAYMENT_TOKEN_ADDRESS / EVM_PAYMENT_VAULT_ADDRESS env vars."
         );
     } else {
-        let network = evmlib::Network::new_custom(
-            &evm_cfg.rpc_url,
-            &evm_cfg.token_addr,
-            &evm_cfg.vault_addr,
-        );
+        let network =
+            evmlib::Network::new_custom(&evm_cfg.rpc_url, &evm_cfg.token_addr, &evm_cfg.vault_addr);
 
         if let Ok(wallet_key) = std::env::var("AUTONOMI_WALLET_KEY") {
             tracing::info!(rpc_url = %evm_cfg.rpc_url, "loading EVM wallet...");

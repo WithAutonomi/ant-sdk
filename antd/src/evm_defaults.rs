@@ -154,10 +154,7 @@ mod tests {
 
     #[test]
     fn vault_address_legacy_var_is_honoured() {
-        let cfg = resolve_with(
-            "local",
-            env(&[("EVM_DATA_PAYMENTS_ADDRESS", "0xfeedface")]),
-        );
+        let cfg = resolve_with("local", env(&[("EVM_DATA_PAYMENTS_ADDRESS", "0xfeedface")]));
         assert_eq!(cfg.vault_addr, "0xfeedface");
     }
 
