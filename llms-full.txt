@@ -223,7 +223,7 @@ Response: `{"status": "ok", "network": "local"}`
 Store public (unencrypted) data on the network.
 
 Request: `{"data": "<base64>", "payment_mode": "auto"}` (payment_mode is optional, defaults to "auto")
-Response: `{"cost": "<atto_tokens>", "address": "<hex>"}`
+Response: `{"address": "<hex>", "chunks_stored": <uint>, "payment_mode_used": "auto|merkle|single"}`
 
 #### `GET /v1/data/public/{addr}`
 Retrieve public data by hex address.
@@ -237,7 +237,7 @@ Stream public data as chunked response. Same path params as above.
 Store private (encrypted) data. Returns a data map instead of address.
 
 Request: `{"data": "<base64>", "payment_mode": "auto"}` (payment_mode is optional, defaults to "auto")
-Response: `{"cost": "<atto_tokens>", "data_map": "<hex>"}`
+Response: `{"data_map": "<hex>", "chunks_stored": <uint>, "payment_mode_used": "auto|merkle|single"}`
 
 #### `GET /v1/data/private`
 Retrieve private data using data map.
@@ -246,10 +246,11 @@ Query params: `data_map=<hex>`
 Response: `{"data": "<base64>"}`
 
 #### `POST /v1/data/cost`
-Estimate cost to store data.
+Estimate cost to store data. Samples up to 5 chunk addresses for the on-chain
+quote, then extrapolates — much faster than quoting every chunk.
 
 Request: `{"data": "<base64>"}`
-Response: `{"cost": "<atto_tokens>"}`
+Response: `{"cost": "<atto_tokens>", "file_size": <uint>, "chunk_count": <uint>, "estimated_gas_cost_wei": "<wei>", "payment_mode": "auto|merkle|single"}`
 
 ### Chunks
 
@@ -272,7 +273,7 @@ Upload and download files/directories from the local filesystem.
 Upload a local file.
 
 Request: `{"path": "/absolute/path/to/file", "payment_mode": "auto"}` (payment_mode is optional, defaults to "auto")
-Response: `{"cost": "<atto_tokens>", "address": "<hex>"}`
+Response: `{"address": "<hex>", "storage_cost_atto": "<atto>", "gas_cost_wei": "<wei>", "chunks_stored": <uint>, "payment_mode_used": "auto|merkle|single"}`
 
 #### `POST /v1/files/download/public`
 Download a file to a local path.
@@ -283,18 +284,19 @@ Request: `{"address": "<hex>", "dest_path": "/absolute/path"}`
 Upload a local directory (recursively).
 
 Request: `{"path": "/absolute/path/to/dir", "payment_mode": "auto"}` (payment_mode is optional, defaults to "auto")
-Response: `{"cost": "<atto_tokens>", "address": "<hex>"}`
+Response: `{"address": "<hex>", "storage_cost_atto": "<atto>", "gas_cost_wei": "<wei>", "chunks_stored": <uint>, "payment_mode_used": "auto|merkle|single"}`
 
 #### `POST /v1/dirs/download/public`
 Download a directory to a local path.
 
 Request: `{"address": "<hex>", "dest_path": "/absolute/path"}`
 
-#### `POST /v1/cost/file`
-Estimate file upload cost.
+#### `POST /v1/files/cost`
+Estimate file upload cost. Samples up to 5 chunk addresses for the on-chain
+quote, then extrapolates — much faster than quoting every chunk.
 
-Request: `{"path": "/path/to/file", "is_public": true}`
-Response: `{"cost": "<atto_tokens>"}`
+Request: `{"path": "/path/to/file", "is_public": true}` (`is_public` optional, defaults to true)
+Response: `{"cost": "<atto_tokens>", "file_size": <uint>, "chunk_count": <uint>, "estimated_gas_cost_wei": "<wei>", "payment_mode": "auto|merkle|single"}`
 
 #### `GET /v1/wallet/address`
 Get the wallet's public address.

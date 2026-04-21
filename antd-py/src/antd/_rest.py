@@ -237,7 +237,7 @@ class RestClient:
         The server samples a small number of chunk addresses and extrapolates,
         much faster than quoting every chunk on slow networks. Gas is advisory.
         """
-        resp = self._http.post("/v1/cost/file", json={
+        resp = self._http.post("/v1/files/cost", json={
             "path": path,
             "is_public": is_public,
         })
@@ -445,7 +445,7 @@ class AsyncRestClient:
 
     async def file_cost(self, path: str, is_public: bool = True) -> UploadCostEstimate:
         """Pre-upload cost breakdown for the file at ``path``."""
-        resp = await self._http.post("/v1/cost/file", json={
+        resp = await self._http.post("/v1/files/cost", json={
             "path": path,
             "is_public": is_public,
         })

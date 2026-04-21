@@ -53,7 +53,7 @@ data = client.data_get_public(result.address)
 | POST | `/v1/files/download/public` | Download file from network |
 | POST | `/v1/dirs/upload/public` | Upload directory to network (accepts optional `payment_mode`) |
 | POST | `/v1/dirs/download/public` | Download directory from network |
-| POST | `/v1/cost/file` | Estimate file upload cost |
+| POST | `/v1/files/cost` | Estimate file upload cost |
 | GET | `/v1/wallet/address` | Get wallet public address |
 | GET | `/v1/wallet/balance` | Get wallet token and gas balances |
 | POST | `/v1/wallet/approve` | Approve wallet to spend tokens on payment contracts |

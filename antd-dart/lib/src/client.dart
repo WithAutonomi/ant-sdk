@@ -245,7 +245,7 @@ class AntdClient {
     String path, {
     bool isPublic = true,
   }) async {
-    final json = await _doJson('POST', '/v1/cost/file', {
+    final json = await _doJson('POST', '/v1/files/cost', {
       'path': path,
       'is_public': isPublic,
     });

@@ -268,7 +268,7 @@ export class RestClient {
       chunk_count: number;
       estimated_gas_cost_wei: string;
       payment_mode: string;
-    }>("/v1/cost/file", { path, is_public: isPublic });
+    }>("/v1/files/cost", { path, is_public: isPublic });
     return {
       cost: j.cost,
       fileSize: j.file_size,

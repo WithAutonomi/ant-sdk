@@ -94,7 +94,7 @@ class AntdClientTest {
             if ("POST".equals(method) && "/v1/dirs/download/public".equals(path)) {
                 return new MockResponse().setResponseCode(200);
             }
-            if ("POST".equals(method) && "/v1/cost/file".equals(path)) {
+            if ("POST".equals(method) && "/v1/files/cost".equals(path)) {
                 return json("{\"cost\":\"1000\",\"file_size\":4096,\"chunk_count\":3,\"estimated_gas_cost_wei\":\"150000000000000\",\"payment_mode\":\"auto\"}");
             }
 

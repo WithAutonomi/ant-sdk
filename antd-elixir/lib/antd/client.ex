@@ -306,7 +306,7 @@ defmodule Antd.Client do
   def file_cost(%__MODULE__{} = client, path, is_public) do
     payload = %{path: path, is_public: is_public}
 
-    case do_json(client, :post, "/v1/cost/file", payload) do
+    case do_json(client, :post, "/v1/files/cost", payload) do
       {:ok, body} ->
         {:ok,
          %Antd.UploadCostEstimate{

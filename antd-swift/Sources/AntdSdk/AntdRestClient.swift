@@ -163,7 +163,7 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
 
     public func fileCost(path: String, isPublic: Bool = true) async throws -> UploadCostEstimate {
         let body: [String: Any] = ["path": path, "is_public": isPublic]
-        let resp: CostDTO = try await postJSON("/v1/cost/file", body: body)
+        let resp: CostDTO = try await postJSON("/v1/files/cost", body: body)
         return UploadCostEstimate(
             cost: resp.cost,
             fileSize: resp.file_size ?? 0,

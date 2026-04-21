@@ -364,7 +364,7 @@ end
 -- @param is_public boolean whether the file will be public
 -- @return table|nil {cost, file_size, chunk_count, estimated_gas_cost_wei, payment_mode}, error|nil
 function Client:file_cost(path, is_public)
-    local j, _, err = self:_do_json("POST", "/v1/cost/file", {
+    local j, _, err = self:_do_json("POST", "/v1/files/cost", {
         path = path,
         is_public = is_public,
     })

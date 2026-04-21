@@ -177,7 +177,7 @@ defmodule Antd.ClientTest do
   end
 
   test "file_cost/3 estimates file upload cost", %{bypass: bypass, client: client} do
-    Bypass.expect_once(bypass, "POST", "/v1/cost/file", fn conn ->
+    Bypass.expect_once(bypass, "POST", "/v1/files/cost", fn conn ->
       conn
       |> Plug.Conn.put_resp_content_type("application/json")
       |> Plug.Conn.resp(200, Jason.encode!(%{cost: "1000"}))

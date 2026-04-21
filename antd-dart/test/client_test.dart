@@ -86,7 +86,7 @@ MockClient mockDaemon() {
         break;
       case 'POST /v1/dirs/download/public':
         return http.Response('', 200);
-      case 'POST /v1/cost/file':
+      case 'POST /v1/files/cost':
         body = {
           'cost': '1000',
           'file_size': 4096,

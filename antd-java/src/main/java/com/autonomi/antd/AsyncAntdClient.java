@@ -275,7 +275,7 @@ public class AsyncAntdClient implements AutoCloseable {
     /** Async variant of {@link AntdClient#fileCost(String, boolean)}. */
     public CompletableFuture<UploadCostEstimate> fileCostAsync(String path, boolean isPublic) {
         String body = Json.object("path", path, "is_public", isPublic);
-        return doJsonAsync("POST", "/v1/cost/file", body)
+        return doJsonAsync("POST", "/v1/files/cost", body)
                 .thenApply(j -> new UploadCostEstimate(
                         str(j, "cost"),
                         num(j, "file_size"),

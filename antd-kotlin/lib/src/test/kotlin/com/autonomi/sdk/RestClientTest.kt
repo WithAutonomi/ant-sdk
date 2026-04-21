@@ -85,7 +85,7 @@ class RestClientTest {
             if (method == "POST" && path == "/v1/dirs/download/public") {
                 return MockResponse().setResponseCode(200)
             }
-            if (method == "POST" && path == "/v1/cost/file") {
+            if (method == "POST" && path == "/v1/files/cost") {
                 return json("""{"cost":"1000","file_size":4096,"chunk_count":3,"estimated_gas_cost_wei":"150000000000000","payment_mode":"auto"}""")
             }
 

@@ -613,7 +613,7 @@ class AntdClient
      */
     public function fileCost(string $path, bool $isPublic): UploadCostEstimate
     {
-        $json = $this->doJson('POST', '/v1/cost/file', [
+        $json = $this->doJson('POST', '/v1/files/cost', [
             'path' => $path,
             'is_public' => $isPublic,
         ]);
@@ -633,7 +633,7 @@ class AntdClient
      */
     public function fileCostAsync(string $path, bool $isPublic): PromiseInterface
     {
-        return $this->doJsonAsync('POST', '/v1/cost/file', [
+        return $this->doJsonAsync('POST', '/v1/files/cost', [
             'path' => $path,
             'is_public' => $isPublic,
         ])->then(

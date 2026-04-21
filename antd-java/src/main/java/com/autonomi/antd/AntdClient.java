@@ -312,7 +312,7 @@ public class AntdClient implements AutoCloseable {
      */
     public UploadCostEstimate fileCost(String path, boolean isPublic) {
         String body = Json.object("path", path, "is_public", isPublic);
-        Map<String, Object> j = doJson("POST", "/v1/cost/file", body);
+        Map<String, Object> j = doJson("POST", "/v1/files/cost", body);
         return new UploadCostEstimate(
             str(j, "cost"),
             num(j, "file_size"),

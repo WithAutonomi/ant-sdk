@@ -332,7 +332,7 @@ paths:
         "502":
           $ref: "#/components/responses/NetworkError"
 
-  /v1/cost/file:
+  /v1/files/cost:
     post:
       tags: [files]
       operationId: fileCost

@@ -174,7 +174,7 @@ public sealed class AntdRestClient : IAntdClient
     public async Task<UploadCostEstimate> FileCostAsync(string path, bool isPublic = true)
     {
         var body = new { path, is_public = isPublic };
-        var resp = await PostJsonAsync<CostDto>("/v1/cost/file", body);
+        var resp = await PostJsonAsync<CostDto>("/v1/files/cost", body);
         return new UploadCostEstimate(resp.Cost, resp.FileSize, resp.ChunkCount, resp.EstimatedGasCostWei, resp.PaymentMode);
     }
 

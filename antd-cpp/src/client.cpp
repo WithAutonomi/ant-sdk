@@ -238,7 +238,7 @@ void Client::dir_download_public(std::string_view address, std::string_view dest
 }
 
 UploadCostEstimate Client::file_cost(std::string_view path, bool is_public) {
-    auto j = impl_->do_json("POST", "/v1/cost/file", json{
+    auto j = impl_->do_json("POST", "/v1/files/cost", json{
         {"path", std::string(path)},
         {"is_public", is_public},
     });

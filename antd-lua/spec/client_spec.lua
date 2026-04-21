@@ -134,7 +134,7 @@ local function setup_daemon()
             payment_mode_used = "merkle",
         }))
     register_route("POST", "/v1/dirs/download/public", 200, "")
-    register_route("POST", "/v1/cost/file", 200,
+    register_route("POST", "/v1/files/cost", 200,
         cjson.encode({
             cost = "1000",
             file_size = 4096,

@@ -155,7 +155,7 @@ module Antd
     # @param is_public [Boolean]
     # @return [UploadCostEstimate]
     def file_cost(path, is_public)
-      j = do_json(:post, "/v1/cost/file", {
+      j = do_json(:post, "/v1/files/cost", {
         path: path,
         is_public: is_public
       })

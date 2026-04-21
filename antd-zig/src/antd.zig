@@ -366,7 +366,7 @@ pub const Client = struct {
             .{ .key = "is_public", .value = .{ .boolean = is_public } },
         });
         defer self.allocator.free(req_body);
-        const resp = try self.doRequest(.POST, "/v1/cost/file", req_body) orelse return error.JsonError;
+        const resp = try self.doRequest(.POST, "/v1/files/cost", req_body) orelse return error.JsonError;
         defer self.allocator.free(resp);
         return json_helpers.parseCostEstimate(self.allocator, resp);
     }

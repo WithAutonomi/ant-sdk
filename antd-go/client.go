@@ -343,7 +343,7 @@ func (c *Client) DirDownloadPublic(ctx context.Context, address, destPath string
 // The server samples a small number of chunk addresses and extrapolates —
 // much faster than quoting every chunk on slow networks. Gas is advisory.
 func (c *Client) FileCost(ctx context.Context, path string, isPublic bool) (*UploadCostEstimate, error) {
-	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/cost/file", map[string]any{
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/files/cost", map[string]any{
 		"path":      path,
 		"is_public": isPublic,
 	})

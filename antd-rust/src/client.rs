@@ -379,7 +379,7 @@ impl Client {
         let (j, _) = self
             .do_json(
                 reqwest::Method::POST,
-                "/v1/cost/file",
+                "/v1/files/cost",
                 Some(json!({
                     "path": path,
                     "is_public": is_public,

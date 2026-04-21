@@ -74,7 +74,7 @@ func mockDaemon(t *testing.T) *httptest.Server {
 			})
 		case r.Method == "POST" && r.URL.Path == "/v1/dirs/download/public":
 			w.WriteHeader(200)
-		case r.Method == "POST" && r.URL.Path == "/v1/cost/file":
+		case r.Method == "POST" && r.URL.Path == "/v1/files/cost":
 			json.NewEncoder(w).Encode(map[string]any{
 				"cost":                   "1000",
 				"file_size":              float64(4096),

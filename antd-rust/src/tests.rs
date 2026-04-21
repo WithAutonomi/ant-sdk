@@ -123,7 +123,7 @@ fn mock_dir_download_public(server: &mut ServerGuard) -> Mock {
 
 fn mock_file_cost(server: &mut ServerGuard) -> Mock {
     server
-        .mock("POST", "/v1/cost/file")
+        .mock("POST", "/v1/files/cost")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"cost":"1000","file_size":4096,"chunk_count":3,"estimated_gas_cost_wei":"150000000000000","payment_mode":"auto"}"#)

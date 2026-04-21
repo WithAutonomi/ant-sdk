@@ -151,7 +151,7 @@ class TestClient < Minitest::Test
   end
 
   def test_file_cost
-    stub_request(:post, "#{BASE}/v1/cost/file")
+    stub_request(:post, "#{BASE}/v1/files/cost")
       .to_return(status: 200,
                  body: '{"cost":"1000","file_size":4096,"chunk_count":3,"estimated_gas_cost_wei":"150000000000000","payment_mode":"auto"}',
                  headers: { "Content-Type" => "application/json" })

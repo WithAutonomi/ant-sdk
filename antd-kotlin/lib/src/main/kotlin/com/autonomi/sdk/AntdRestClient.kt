@@ -201,7 +201,7 @@ class AntdRestClient(
             put("path", path)
             put("is_public", isPublic)
         }.toString()
-        val resp = postJson<CostDto>("/v1/cost/file", body)
+        val resp = postJson<CostDto>("/v1/files/cost", body)
         return UploadCostEstimate(resp.cost, resp.fileSize, resp.chunkCount, resp.estimatedGasCostWei, resp.paymentMode)
     }
 
