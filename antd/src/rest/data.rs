@@ -166,38 +166,36 @@ pub async fn data_cost(
         .decode(&req.data)
         .map_err(|e| AntdError::BadRequest(format!("invalid base64: {e}")))?;
 
-    // Encrypt to determine chunk count and addresses, then quote each
-    let client = state.client.clone();
-    let total_cost = tokio::spawn(async move {
-        use self_encryption::encrypt;
-        let (_data_map, encrypted_chunks) = encrypt(Bytes::from(data))
-            .map_err(|e| AntdError::Internal(format!("encryption failed: {e}")))?;
+    // estimate_upload_cost takes a path; stage the bytes in a temp file.
+    // Samples up to 5 chunk addresses instead of quoting every chunk — see
+    // ant-client PR #44.
+    let tmp = std::env::temp_dir().join(format!(
+        "antd_cost_{}_{}.bin",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    tokio::fs::write(&tmp, &data)
+        .await
+        .map_err(|e| AntdError::Internal(format!("failed to stage tempfile: {e}")))?;
 
-        let mut total = ant_core::data::U256::ZERO;
-        for chunk in &encrypted_chunks {
-            let address = ant_core::data::compute_address(&chunk.content);
-            let data_size = chunk.content.len() as u64;
-            match client.get_store_quotes(&address, data_size, 0).await {
-                Ok(quotes) => {
-                    for (_, _, _, price) in &quotes {
-                        total = total.saturating_add(*price);
-                    }
-                }
-                Err(e) => {
-                    // AlreadyStored means no cost for this chunk
-                    if !matches!(e, ant_core::data::Error::AlreadyStored) {
-                        return Err(AntdError::from_core(e));
-                    }
-                }
-            }
-        }
-        Ok::<_, AntdError>(total)
+    let client = state.client.clone();
+    let tmp_for_task = tmp.clone();
+    let estimate = tokio::spawn(async move {
+        client
+            .estimate_upload_cost(&tmp_for_task, ant_core::data::PaymentMode::Auto, None)
+            .await
     })
     .await
-    .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
+    .map_err(|e| AntdError::Internal(format!("task failed: {e}")))?;
+
+    let _ = tokio::fs::remove_file(&tmp).await;
+    let estimate = estimate.map_err(AntdError::from_core)?;
 
     Ok(Json(CostResponse {
-        cost: total_cost.to_string(),
+        cost: estimate.storage_cost_atto,
     }))
 }
 
