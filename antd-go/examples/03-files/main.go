@@ -14,9 +14,8 @@ func main() {
 	ctx := context.Background()
 
 	// Estimate cost first — rich breakdown so the user sees size/chunks/gas
-	// before paying. Legacy callers can still use client.FileCost if they
-	// only need the storage cost string.
-	est, err := client.EstimateFileCost(ctx, "/path/to/file.txt", true)
+	// before paying.
+	est, err := client.FileCost(ctx, "/path/to/file.txt", true)
 	if err != nil {
 		log.Fatal(err)
 	}

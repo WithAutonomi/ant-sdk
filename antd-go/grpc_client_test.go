@@ -270,18 +270,7 @@ func TestGrpcDataGetPrivate(t *testing.T) {
 
 func TestGrpcDataCost(t *testing.T) {
 	c := startMockServer(t)
-	cost, err := c.DataCost(context.Background(), []byte("test"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cost != "50" {
-		t.Fatalf("unexpected cost: %s", cost)
-	}
-}
-
-func TestGrpcEstimateDataCost(t *testing.T) {
-	c := startMockServer(t)
-	est, err := c.EstimateDataCost(context.Background(), []byte("test"))
+	est, err := c.DataCost(context.Background(), []byte("test"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,18 +342,7 @@ func TestGrpcDirDownloadPublic(t *testing.T) {
 
 func TestGrpcFileCost(t *testing.T) {
 	c := startMockServer(t)
-	cost, err := c.FileCost(context.Background(), "/tmp/test.txt", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cost != "1000" {
-		t.Fatalf("unexpected file cost: %s", cost)
-	}
-}
-
-func TestGrpcEstimateFileCost(t *testing.T) {
-	c := startMockServer(t)
-	est, err := c.EstimateFileCost(context.Background(), "/tmp/test.txt", true)
+	est, err := c.FileCost(context.Background(), "/tmp/test.txt", true)
 	if err != nil {
 		t.Fatal(err)
 	}

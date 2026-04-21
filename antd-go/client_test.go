@@ -194,59 +194,27 @@ func TestDataCost(t *testing.T) {
 	srv := mockDaemon(t)
 	defer srv.Close()
 	c := NewClient(srv.URL)
-	cost, err := c.DataCost(context.Background(), []byte("test"))
+	est, err := c.DataCost(context.Background(), []byte("test"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cost != "50" {
-		t.Fatalf("unexpected cost: %s", cost)
+	if est.Cost != "50" || est.FileSize != 4 || est.ChunkCount != 3 ||
+		est.EstimatedGasCostWei != "150000000000000" || est.PaymentMode != "single" {
+		t.Fatalf("unexpected estimate: %+v", est)
 	}
 }
 
-func TestEstimateDataCost(t *testing.T) {
+func TestFileCost(t *testing.T) {
 	srv := mockDaemon(t)
 	defer srv.Close()
 	c := NewClient(srv.URL)
-	est, err := c.EstimateDataCost(context.Background(), []byte("test"))
+	est, err := c.FileCost(context.Background(), "/tmp/file.bin", true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if est.Cost != "50" {
-		t.Fatalf("unexpected cost: %s", est.Cost)
-	}
-	if est.FileSize != 4 {
-		t.Fatalf("unexpected file_size: %d", est.FileSize)
-	}
-	if est.ChunkCount != 3 {
-		t.Fatalf("unexpected chunk_count: %d", est.ChunkCount)
-	}
-	if est.EstimatedGasCostWei != "150000000000000" {
-		t.Fatalf("unexpected gas: %s", est.EstimatedGasCostWei)
-	}
-	if est.PaymentMode != "single" {
-		t.Fatalf("unexpected payment_mode: %s", est.PaymentMode)
-	}
-}
-
-func TestEstimateFileCost(t *testing.T) {
-	srv := mockDaemon(t)
-	defer srv.Close()
-	c := NewClient(srv.URL)
-	est, err := c.EstimateFileCost(context.Background(), "/tmp/file.bin", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if est.Cost != "1000" {
-		t.Fatalf("unexpected cost: %s", est.Cost)
-	}
-	if est.FileSize != 4096 {
-		t.Fatalf("unexpected file_size: %d", est.FileSize)
-	}
-	if est.ChunkCount != 3 {
-		t.Fatalf("unexpected chunk_count: %d", est.ChunkCount)
-	}
-	if est.PaymentMode != "auto" {
-		t.Fatalf("unexpected payment_mode: %s", est.PaymentMode)
+	if est.Cost != "1000" || est.FileSize != 4096 || est.ChunkCount != 3 ||
+		est.PaymentMode != "auto" {
+		t.Fatalf("unexpected estimate: %+v", est)
 	}
 }
 
@@ -300,12 +268,12 @@ func TestFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cost, err := c.FileCost(ctx, "/tmp/test.txt", true)
+	est, err := c.FileCost(ctx, "/tmp/test.txt", true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cost != "1000" {
-		t.Fatalf("unexpected file cost: %s", cost)
+	if est.Cost != "1000" {
+		t.Fatalf("unexpected file cost: %+v", est)
 	}
 }
 
