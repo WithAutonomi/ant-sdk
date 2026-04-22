@@ -173,19 +173,29 @@ defmodule Antd.GrpcClient do
   @spec data_get_private!(t(), String.t()) :: binary()
   def data_get_private!(client, data_map), do: unwrap!(data_get_private(client, data_map))
 
-  @doc "Estimates the cost of storing data."
-  @spec data_cost(t(), binary()) :: {:ok, String.t()} | {:error, Exception.t()}
+  @doc "Pre-upload cost breakdown for the given bytes."
+  @spec data_cost(t(), binary()) :: {:ok, Antd.UploadCostEstimate.t()} | {:error, Exception.t()}
   def data_cost(%__MODULE__{channel: channel}, data) when is_binary(data) do
     req = Antd.V1.DataCostRequest.new(data: data)
 
     case Antd.V1.DataService.Stub.get_cost(channel, req) do
-      {:ok, resp} -> {:ok, resp.atto_tokens}
-      {:error, rpc_error} -> {:error, translate_error(rpc_error)}
+      {:ok, resp} ->
+        {:ok,
+         %Antd.UploadCostEstimate{
+           cost: resp.atto_tokens,
+           file_size: resp.file_size,
+           chunk_count: resp.chunk_count,
+           estimated_gas_cost_wei: resp.estimated_gas_cost_wei,
+           payment_mode: resp.payment_mode
+         }}
+
+      {:error, rpc_error} ->
+        {:error, translate_error(rpc_error)}
     end
   end
 
   @doc "Like `data_cost/2` but raises on error."
-  @spec data_cost!(t(), binary()) :: String.t()
+  @spec data_cost!(t(), binary()) :: Antd.UploadCostEstimate.t()
   def data_cost!(client, data), do: unwrap!(data_cost(client, data))
 
   # ---------------------------------------------------------------------------
@@ -309,8 +319,9 @@ defmodule Antd.GrpcClient do
     unwrap!(dir_download_public(client, address, dest_path))
   end
 
-  @doc "Estimates the cost of uploading a file."
-  @spec file_cost(t(), String.t(), boolean()) :: {:ok, String.t()} | {:error, Exception.t()}
+  @doc "Pre-upload cost breakdown for the file at `path`."
+  @spec file_cost(t(), String.t(), boolean()) ::
+          {:ok, Antd.UploadCostEstimate.t()} | {:error, Exception.t()}
   def file_cost(%__MODULE__{channel: channel}, path, is_public) do
     req =
       Antd.V1.FileCostRequest.new(
@@ -319,13 +330,23 @@ defmodule Antd.GrpcClient do
       )
 
     case Antd.V1.FileService.Stub.get_file_cost(channel, req) do
-      {:ok, resp} -> {:ok, resp.atto_tokens}
-      {:error, rpc_error} -> {:error, translate_error(rpc_error)}
+      {:ok, resp} ->
+        {:ok,
+         %Antd.UploadCostEstimate{
+           cost: resp.atto_tokens,
+           file_size: resp.file_size,
+           chunk_count: resp.chunk_count,
+           estimated_gas_cost_wei: resp.estimated_gas_cost_wei,
+           payment_mode: resp.payment_mode
+         }}
+
+      {:error, rpc_error} ->
+        {:error, translate_error(rpc_error)}
     end
   end
 
   @doc "Like `file_cost/3` but raises on error."
-  @spec file_cost!(t(), String.t(), boolean()) :: String.t()
+  @spec file_cost!(t(), String.t(), boolean()) :: Antd.UploadCostEstimate.t()
   def file_cost!(client, path, is_public) do
     unwrap!(file_cost(client, path, is_public))
   end

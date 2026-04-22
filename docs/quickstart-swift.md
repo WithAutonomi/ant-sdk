@@ -85,8 +85,8 @@ print("Cost: \(result.cost) atto tokens")
 let data = try await client.dataGetPublic(address: result.address)
 print(String(data: data, encoding: .utf8)!)
 
-// Cost estimation
-let cost = try await client.dataCost(payload)
+// Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
+let est = try await client.dataCost(payload)
 ```
 
 ## Private Data
@@ -117,8 +117,8 @@ let dirResult = try await client.dirUploadPublic(path: "/path/to/directory")
 // Download a directory
 try await client.dirDownloadPublic(address: dirResult.address, destPath: "/path/to/output_dir")
 
-// Cost estimation
-let cost = try await client.fileCost(path: "/path/to/file.txt")
+// Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
+let est = try await client.fileCost(path: "/path/to/file.txt")
 ```
 
 

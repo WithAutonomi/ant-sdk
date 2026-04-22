@@ -234,8 +234,12 @@ impl Client {
         Self::b64_decode(&Self::str_field(&j, "data"))
     }
 
-    /// Estimates the cost of storing data.
-    pub async fn data_cost(&self, data: &[u8]) -> Result<String, AntdError> {
+    /// Returns a pre-upload cost breakdown for the given bytes.
+    ///
+    /// The server samples a small number of chunk addresses and extrapolates,
+    /// which is much faster than quoting every chunk on slow networks. Gas is
+    /// advisory.
+    pub async fn data_cost(&self, data: &[u8]) -> Result<UploadCostEstimate, AntdError> {
         let (j, _) = self
             .do_json(
                 reqwest::Method::POST,
@@ -244,7 +248,13 @@ impl Client {
             )
             .await?;
         let j = j.unwrap_or_default();
-        Ok(Self::str_field(&j, "cost"))
+        Ok(UploadCostEstimate {
+            cost: Self::str_field(&j, "cost"),
+            file_size: Self::u64_field(&j, "file_size"),
+            chunk_count: Self::u64_field(&j, "chunk_count") as u32,
+            estimated_gas_cost_wei: Self::str_field(&j, "estimated_gas_cost_wei"),
+            payment_mode: Self::str_field(&j, "payment_mode"),
+        })
     }
 
     // --- Chunks ---
@@ -356,16 +366,20 @@ impl Client {
         Ok(())
     }
 
-    /// Estimates the cost of uploading a file.
+    /// Returns a pre-upload cost breakdown for the file at `path`.
+    ///
+    /// The server samples a small number of chunk addresses and extrapolates,
+    /// which is much faster than quoting every chunk on slow networks. Gas is
+    /// advisory.
     pub async fn file_cost(
         &self,
         path: &str,
         is_public: bool,
-    ) -> Result<String, AntdError> {
+    ) -> Result<UploadCostEstimate, AntdError> {
         let (j, _) = self
             .do_json(
                 reqwest::Method::POST,
-                "/v1/cost/file",
+                "/v1/files/cost",
                 Some(json!({
                     "path": path,
                     "is_public": is_public,
@@ -373,7 +387,13 @@ impl Client {
             )
             .await?;
         let j = j.unwrap_or_default();
-        Ok(Self::str_field(&j, "cost"))
+        Ok(UploadCostEstimate {
+            cost: Self::str_field(&j, "cost"),
+            file_size: Self::u64_field(&j, "file_size"),
+            chunk_count: Self::u64_field(&j, "chunk_count") as u32,
+            estimated_gas_cost_wei: Self::str_field(&j, "estimated_gas_cost_wei"),
+            payment_mode: Self::str_field(&j, "payment_mode"),
+        })
     }
 
     // --- Wallet ---

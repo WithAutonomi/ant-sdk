@@ -13,12 +13,14 @@ func main() {
 	client := antd.NewClient(antd.DefaultBaseURL)
 	ctx := context.Background()
 
-	// Estimate cost first
-	cost, err := client.FileCost(ctx, "/path/to/file.txt", true)
+	// Estimate cost first — rich breakdown so the user sees size/chunks/gas
+	// before paying.
+	est, err := client.FileCost(ctx, "/path/to/file.txt", true)
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("Estimated cost: %s atto\n", cost)
+	fmt.Printf("Estimate: %d bytes in %d chunks, storage %s atto, gas %s wei, mode %s\n",
+		est.FileSize, est.ChunkCount, est.Cost, est.EstimatedGasCostWei, est.PaymentMode)
 
 	// Upload
 	result, err := client.FileUploadPublic(ctx, "/path/to/file.txt")

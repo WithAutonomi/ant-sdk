@@ -208,47 +208,21 @@ pub async fn file_cost(
         AntdError::BadRequest("invalid path".into())
     })?;
 
-    // Read file, encrypt to get chunks, then quote each
-    //
-    // TODO: This reads the entire file into memory because self_encryption::encrypt()
-    // requires Bytes. For large files this is problematic. When/if self_encryption
-    // gains a streaming API (or ant-core exposes a file_cost method that handles
-    // chunking internally), replace this with a streaming approach using
-    // tokio::fs::File + tokio_util::io::ReaderStream.
     let client = state.client.clone();
-    let total_cost = tokio::spawn(async move {
-        use self_encryption::encrypt;
-        let file_data = tokio::fs::read(&path)
+    let estimate = tokio::spawn(async move {
+        client
+            .estimate_upload_cost(&path, ant_core::data::PaymentMode::Auto, None)
             .await
-            .map_err(|e| AntdError::Internal(format!("failed to read file: {e}")))?;
-
-        let (_data_map, encrypted_chunks) = encrypt(bytes::Bytes::from(file_data))
-            .map_err(|e| AntdError::Internal(format!("encryption failed: {e}")))?;
-
-        let mut total = ant_core::data::U256::ZERO;
-        for chunk in &encrypted_chunks {
-            let address = ant_core::data::compute_address(&chunk.content);
-            let data_size = chunk.content.len() as u64;
-            match client.get_store_quotes(&address, data_size, 0).await {
-                Ok(quotes) => {
-                    for (_, _, _, price) in &quotes {
-                        total = total.saturating_add(*price);
-                    }
-                }
-                Err(e) => {
-                    // AlreadyStored means no cost for this chunk
-                    if !matches!(e, ant_core::data::Error::AlreadyStored) {
-                        return Err(AntdError::from_core(e));
-                    }
-                }
-            }
-        }
-        Ok::<_, AntdError>(total)
     })
     .await
-    .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
+    .map_err(|e| AntdError::Internal(format!("task failed: {e}")))?
+    .map_err(AntdError::from_core)?;
 
     Ok(Json(CostResponse {
-        cost: total_cost.to_string(),
+        cost: estimate.storage_cost_atto,
+        file_size: estimate.file_size,
+        chunk_count: estimate.chunk_count,
+        estimated_gas_cost_wei: estimate.estimated_gas_cost_wei,
+        payment_mode: format_payment_mode(estimate.payment_mode),
     }))
 }

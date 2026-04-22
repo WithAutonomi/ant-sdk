@@ -10,8 +10,12 @@ const client = createClient();
 
 // Estimate cost before storing
 const payload = Buffer.from("Hello, Autonomi network!");
-const cost = await client.dataCost(payload);
-console.log(`Estimated cost: ${cost} atto tokens`);
+const est = await client.dataCost(payload);
+console.log(
+  `Estimate: ${est.fileSize} bytes in ${est.chunkCount} chunks, ` +
+    `storage ${est.cost} atto, gas ${est.estimatedGasCostWei} wei, ` +
+    `mode ${est.paymentMode}`
+);
 
 // Store public data
 const result = await client.dataPutPublic(payload);

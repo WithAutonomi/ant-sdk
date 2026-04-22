@@ -13,8 +13,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Retrieved: {}", String::from_utf8_lossy(&data));
 
     // Estimate cost before storing
-    let cost = client.data_cost(b"Some data to estimate").await?;
-    println!("Estimated cost: {} atto", cost);
+    let est = client.data_cost(b"Some data to estimate").await?;
+    println!(
+        "Estimate: {} bytes in {} chunks, storage {} atto, gas {} wei, mode {}",
+        est.file_size, est.chunk_count, est.cost, est.estimated_gas_cost_wei, est.payment_mode
+    );
 
     Ok(())
 }

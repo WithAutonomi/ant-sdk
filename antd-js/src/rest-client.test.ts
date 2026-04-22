@@ -77,7 +77,14 @@ const routes: Route[] = [
   {
     method: "POST",
     match: (p) => p === "/v1/data/cost",
-    respond: () => jsonResponse(200, { cost: "50" }),
+    respond: () =>
+      jsonResponse(200, {
+        cost: "50",
+        file_size: 4,
+        chunk_count: 3,
+        estimated_gas_cost_wei: "150000000000000",
+        payment_mode: "single",
+      }),
   },
 
   // Chunks PUT
@@ -294,10 +301,14 @@ describe("RestClient", () => {
   // ---- Data cost ----
 
   describe("dataCost()", () => {
-    it("returns cost string", async () => {
+    it("returns full breakdown", async () => {
       const data = Buffer.from("estimate me");
-      const result = await client.dataCost(data);
-      expect(result).toBe("50");
+      const est = await client.dataCost(data);
+      expect(est.cost).toBe("50");
+      expect(est.fileSize).toBe(4);
+      expect(est.chunkCount).toBe(3);
+      expect(est.estimatedGasCostWei).toBe("150000000000000");
+      expect(est.paymentMode).toBe("single");
     });
   });
 

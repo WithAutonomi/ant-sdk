@@ -20,6 +20,7 @@ from .models import (
     FileUploadResult,
     HealthStatus,
     PutResult,
+    UploadCostEstimate,
 )
 
 
@@ -30,6 +31,17 @@ def _file_upload_result_from_resp(resp) -> FileUploadResult:
         gas_cost_wei=resp.gas_cost_wei,
         chunks_stored=resp.chunks_stored,
         payment_mode_used=resp.payment_mode_used,
+    )
+
+
+def _estimate_from_cost(resp) -> UploadCostEstimate:
+    """Convert a pb::Cost response (from GetCost / GetFileCost) into an estimate."""
+    return UploadCostEstimate(
+        cost=resp.atto_tokens,
+        file_size=resp.file_size,
+        chunk_count=resp.chunk_count,
+        estimated_gas_cost_wei=resp.estimated_gas_cost_wei,
+        payment_mode=resp.payment_mode,
     )
 
 from antd._proto.antd.v1 import data_pb2, data_pb2_grpc
@@ -133,10 +145,11 @@ class GrpcClient:
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
-    def data_cost(self, data: bytes) -> str:
+    def data_cost(self, data: bytes) -> UploadCostEstimate:
+        """Pre-upload cost breakdown for the given bytes."""
         try:
             resp = self._data.GetCost(data_pb2.DataCostRequest(data=data))
-            return resp.atto_tokens
+            return _estimate_from_cost(resp)
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
@@ -186,11 +199,12 @@ class GrpcClient:
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
-    def file_cost(self, path: str, is_public: bool = True) -> str:
+    def file_cost(self, path: str, is_public: bool = True) -> UploadCostEstimate:
+        """Pre-upload cost breakdown for the file at ``path``."""
         try:
             resp = self._files.GetFileCost(files_pb2.FileCostRequest(
                 path=path, is_public=is_public))
-            return resp.atto_tokens
+            return _estimate_from_cost(resp)
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
@@ -292,10 +306,11 @@ class AsyncGrpcClient:
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
-    async def data_cost(self, data: bytes) -> str:
+    async def data_cost(self, data: bytes) -> UploadCostEstimate:
+        """Pre-upload cost breakdown for the given bytes."""
         try:
             resp = await self._data.GetCost(data_pb2.DataCostRequest(data=data))
-            return resp.atto_tokens
+            return _estimate_from_cost(resp)
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
@@ -345,11 +360,12 @@ class AsyncGrpcClient:
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
-    async def file_cost(self, path: str, is_public: bool = True) -> str:
+    async def file_cost(self, path: str, is_public: bool = True) -> UploadCostEstimate:
+        """Pre-upload cost breakdown for the file at ``path``."""
         try:
             resp = await self._files.GetFileCost(files_pb2.FileCostRequest(
                 path=path, is_public=is_public))
-            return resp.atto_tokens
+            return _estimate_from_cost(resp)
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 

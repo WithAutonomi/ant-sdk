@@ -78,12 +78,18 @@ module Antd
       b64_decode(j["data"])
     end
 
-    # Estimate the cost of storing data.
+    # Pre-upload cost breakdown for the given bytes.
     # @param data [String] raw bytes
-    # @return [String] cost in atto tokens
+    # @return [UploadCostEstimate]
     def data_cost(data)
       j = do_json(:post, "/v1/data/cost", { data: b64_encode(data) })
-      j["cost"]
+      UploadCostEstimate.new(
+        cost: j["cost"] || "",
+        file_size: j["file_size"] || 0,
+        chunk_count: j["chunk_count"] || 0,
+        estimated_gas_cost_wei: j["estimated_gas_cost_wei"] || "",
+        payment_mode: j["payment_mode"] || ""
+      )
     end
 
     # --- Chunks ---
@@ -144,16 +150,22 @@ module Antd
       nil
     end
 
-    # Estimate the cost of uploading a file.
+    # Pre-upload cost breakdown for the file at +path+.
     # @param path [String]
     # @param is_public [Boolean]
-    # @return [String] cost in atto tokens
+    # @return [UploadCostEstimate]
     def file_cost(path, is_public)
-      j = do_json(:post, "/v1/cost/file", {
+      j = do_json(:post, "/v1/files/cost", {
         path: path,
         is_public: is_public
       })
-      j["cost"]
+      UploadCostEstimate.new(
+        cost: j["cost"] || "",
+        file_size: j["file_size"] || 0,
+        chunk_count: j["chunk_count"] || 0,
+        estimated_gas_cost_wei: j["estimated_gas_cost_wei"] || "",
+        payment_mode: j["payment_mode"] || ""
+      )
     end
 
     # --- Wallet ---

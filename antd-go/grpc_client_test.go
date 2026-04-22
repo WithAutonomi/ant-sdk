@@ -59,7 +59,13 @@ func (m *mockDataService) GetPrivate(_ context.Context, _ *pb.GetPrivateDataRequ
 }
 
 func (m *mockDataService) GetCost(_ context.Context, _ *pb.DataCostRequest) (*pb.Cost, error) {
-	return &pb.Cost{AttoTokens: "50"}, nil
+	return &pb.Cost{
+		AttoTokens:          "50",
+		FileSize:            4,
+		ChunkCount:          3,
+		EstimatedGasCostWei: "150000000000000",
+		PaymentMode:         "single",
+	}, nil
 }
 
 // mockChunkService implements pb.ChunkServiceServer.
@@ -112,7 +118,13 @@ func (m *mockFileService) DirDownloadPublic(_ context.Context, _ *pb.DownloadPub
 }
 
 func (m *mockFileService) GetFileCost(_ context.Context, _ *pb.FileCostRequest) (*pb.Cost, error) {
-	return &pb.Cost{AttoTokens: "1000"}, nil
+	return &pb.Cost{
+		AttoTokens:          "1000",
+		FileSize:            4096,
+		ChunkCount:          3,
+		EstimatedGasCostWei: "150000000000000",
+		PaymentMode:         "auto",
+	}, nil
 }
 
 // --- Error mock services ---
@@ -258,12 +270,13 @@ func TestGrpcDataGetPrivate(t *testing.T) {
 
 func TestGrpcDataCost(t *testing.T) {
 	c := startMockServer(t)
-	cost, err := c.DataCost(context.Background(), []byte("test"))
+	est, err := c.DataCost(context.Background(), []byte("test"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cost != "50" {
-		t.Fatalf("unexpected cost: %s", cost)
+	if est.Cost != "50" || est.FileSize != 4 || est.ChunkCount != 3 ||
+		est.EstimatedGasCostWei != "150000000000000" || est.PaymentMode != "single" {
+		t.Fatalf("unexpected estimate: %+v", est)
 	}
 }
 
@@ -329,12 +342,13 @@ func TestGrpcDirDownloadPublic(t *testing.T) {
 
 func TestGrpcFileCost(t *testing.T) {
 	c := startMockServer(t)
-	cost, err := c.FileCost(context.Background(), "/tmp/test.txt", true)
+	est, err := c.FileCost(context.Background(), "/tmp/test.txt", true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cost != "1000" {
-		t.Fatalf("unexpected file cost: %s", cost)
+	if est.Cost != "1000" || est.FileSize != 4096 || est.ChunkCount != 3 ||
+		est.EstimatedGasCostWei != "150000000000000" || est.PaymentMode != "auto" {
+		t.Fatalf("unexpected estimate: %+v", est)
 	}
 }
 

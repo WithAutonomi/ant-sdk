@@ -29,7 +29,7 @@ DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x13\x61ntd/v1/gra
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
-_builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'antd._proto.antd._proto.antd.v1.graph_pb2', _globals)
+_builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'antd._proto.antd._proto.antd._proto.antd.v1.graph_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'\252\002\007Antd.V1'

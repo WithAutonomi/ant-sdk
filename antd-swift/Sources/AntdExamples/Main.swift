@@ -54,8 +54,8 @@ func example02Data() async throws {
 
     let payload = "Hello, Autonomi network!".data(using: .utf8)!
 
-    let cost = try await client.dataCost(payload)
-    print("Estimated cost: \(cost) atto tokens")
+    let est = try await client.dataCost(payload)
+    print("Estimate: \(est.fileSize) bytes in \(est.chunkCount) chunks, storage \(est.cost) atto, gas \(est.estimatedGasCostWei) wei, mode \(est.paymentMode)")
 
     let result = try await client.dataPutPublic(payload)
     print("Stored at address: \(result.address)")
@@ -97,8 +97,8 @@ func example04Files() async throws {
 
     defer { try? FileManager.default.removeItem(atPath: srcPath) }
 
-    let cost = try await client.fileCost(path: srcPath)
-    print("File upload cost estimate: \(cost) atto tokens")
+    let est = try await client.fileCost(path: srcPath)
+    print("Estimate: \(est.fileSize) bytes in \(est.chunkCount) chunks, storage \(est.cost) atto, gas \(est.estimatedGasCostWei) wei, mode \(est.paymentMode)")
 
     let result = try await client.fileUploadPublic(path: srcPath)
     print("File uploaded to: \(result.address)")

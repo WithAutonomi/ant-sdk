@@ -12,6 +12,7 @@
 
 import 'dart:core' as $core;
 
+import 'package:fixnum/fixnum.dart' as $fixnum;
 import 'package:protobuf/protobuf.dart' as $pb;
 
 export 'package:protobuf/protobuf.dart' show GeneratedMessageGenericExtensions;
@@ -19,9 +20,18 @@ export 'package:protobuf/protobuf.dart' show GeneratedMessageGenericExtensions;
 class Cost extends $pb.GeneratedMessage {
   factory Cost({
     $core.String? attoTokens,
+    $fixnum.Int64? fileSize,
+    $core.int? chunkCount,
+    $core.String? estimatedGasCostWei,
+    $core.String? paymentMode,
   }) {
     final result = create();
     if (attoTokens != null) result.attoTokens = attoTokens;
+    if (fileSize != null) result.fileSize = fileSize;
+    if (chunkCount != null) result.chunkCount = chunkCount;
+    if (estimatedGasCostWei != null)
+      result.estimatedGasCostWei = estimatedGasCostWei;
+    if (paymentMode != null) result.paymentMode = paymentMode;
     return result;
   }
 
@@ -39,6 +49,12 @@ class Cost extends $pb.GeneratedMessage {
       package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'),
       createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'attoTokens')
+    ..a<$fixnum.Int64>(
+        2, _omitFieldNames ? '' : 'fileSize', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..aI(3, _omitFieldNames ? '' : 'chunkCount', fieldType: $pb.PbFieldType.OU3)
+    ..aOS(4, _omitFieldNames ? '' : 'estimatedGasCostWei')
+    ..aOS(5, _omitFieldNames ? '' : 'paymentMode')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -67,6 +83,42 @@ class Cost extends $pb.GeneratedMessage {
   $core.bool hasAttoTokens() => $_has(0);
   @$pb.TagNumber(1)
   void clearAttoTokens() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $fixnum.Int64 get fileSize => $_getI64(1);
+  @$pb.TagNumber(2)
+  set fileSize($fixnum.Int64 value) => $_setInt64(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasFileSize() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearFileSize() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.int get chunkCount => $_getIZ(2);
+  @$pb.TagNumber(3)
+  set chunkCount($core.int value) => $_setUnsignedInt32(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasChunkCount() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearChunkCount() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.String get estimatedGasCostWei => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set estimatedGasCostWei($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasEstimatedGasCostWei() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearEstimatedGasCostWei() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.String get paymentMode => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set paymentMode($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasPaymentMode() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearPaymentMode() => $_clearField(5);
 }
 
 class Address extends $pb.GeneratedMessage {

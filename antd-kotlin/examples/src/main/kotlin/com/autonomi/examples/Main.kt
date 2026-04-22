@@ -54,8 +54,8 @@ suspend fun example02Data() {
     val payload = "Hello, Autonomi network!".toByteArray()
 
     // Estimate cost
-    val cost = client.dataCost(payload)
-    println("Estimated cost: $cost atto tokens")
+    val est = client.dataCost(payload)
+    println("Estimate: ${est.fileSize} bytes in ${est.chunkCount} chunks, storage ${est.cost} atto, gas ${est.estimatedGasCostWei} wei, mode ${est.paymentMode}")
 
     // Store public data
     val result = client.dataPutPublic(payload)
@@ -103,8 +103,8 @@ suspend fun example04Files() {
 
     try {
         // Estimate cost
-        val cost = client.fileCost(srcFile.absolutePath)
-        println("File upload cost estimate: $cost atto tokens")
+        val est = client.fileCost(srcFile.absolutePath)
+        println("Estimate: ${est.fileSize} bytes in ${est.chunkCount} chunks, storage ${est.cost} atto, gas ${est.estimatedGasCostWei} wei, mode ${est.paymentMode}")
 
         // Upload
         val result = client.fileUploadPublic(srcFile.absolutePath)

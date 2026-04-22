@@ -157,11 +157,17 @@ std::vector<uint8_t> Client::data_get_private(std::string_view data_map) {
     return detail::base64_decode(j.value("data", ""));
 }
 
-std::string Client::data_cost(const std::vector<uint8_t>& data) {
+UploadCostEstimate Client::data_cost(const std::vector<uint8_t>& data) {
     auto j = impl_->do_json("POST", "/v1/data/cost", json{
         {"data", detail::base64_encode(data)},
     });
-    return j.value("cost", "");
+    return UploadCostEstimate{
+        j.value("cost", std::string{}),
+        j.value("file_size", uint64_t{0}),
+        j.value("chunk_count", uint32_t{0}),
+        j.value("estimated_gas_cost_wei", std::string{}),
+        j.value("payment_mode", std::string{}),
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -231,12 +237,18 @@ void Client::dir_download_public(std::string_view address, std::string_view dest
     });
 }
 
-std::string Client::file_cost(std::string_view path, bool is_public) {
-    auto j = impl_->do_json("POST", "/v1/cost/file", json{
+UploadCostEstimate Client::file_cost(std::string_view path, bool is_public) {
+    auto j = impl_->do_json("POST", "/v1/files/cost", json{
         {"path", std::string(path)},
         {"is_public", is_public},
     });
-    return j.value("cost", "");
+    return UploadCostEstimate{
+        j.value("cost", std::string{}),
+        j.value("file_size", uint64_t{0}),
+        j.value("chunk_count", uint32_t{0}),
+        j.value("estimated_gas_cost_wei", std::string{}),
+        j.value("payment_mode", std::string{}),
+    };
 }
 
 // ---------------------------------------------------------------------------

@@ -31,3 +31,11 @@ postcard = { version = "1.1.3", features = ["use-std"] }
 
 [build-dependencies]
 tonic-build = "0.12"
+
+# Pin saorsa-core to the PR #92 merge commit on upstream main so CI runners
+# can resolve PRs #91 (Windows IPv6 split-stack) and #92 (mapped-v4
+# normalization in Happy Eyeballs), which are required for reliable operation
+# on Windows but ship after the latest v0.23.1 release. Drop this block
+# once saorsa-core publishes a release > v0.23.1 that includes both PRs.
+[patch.crates-io]
+saorsa-core = { git = "https://github.com/saorsa-labs/saorsa-core", rev = "50734d0416dce646da74f4477c9d4f46fa0cb969" }

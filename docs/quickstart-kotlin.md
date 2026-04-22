@@ -75,8 +75,8 @@ println("Cost: ${result.cost} atto tokens")
 val data = client.dataGetPublic(result.address)
 println(String(data))
 
-// Cost estimation
-val cost = client.dataCost(payload)
+// Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
+val est = client.dataCost(payload)
 ```
 
 ## Private Data
@@ -107,8 +107,8 @@ val dirResult = client.dirUploadPublic("/path/to/directory")
 // Download a directory
 client.dirDownloadPublic(dirResult.address, "/path/to/output_dir")
 
-// Cost estimation
-val cost = client.fileCost("/path/to/file.txt")
+// Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
+val est = client.fileCost("/path/to/file.txt")
 ```
 
 

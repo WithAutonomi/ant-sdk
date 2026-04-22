@@ -26,8 +26,11 @@ pub fn main() !void {
     std.debug.print("Retrieved: {s}\n", .{data});
 
     // Estimate storage cost
-    const cost = try client.dataCost("some data to estimate");
-    defer allocator.free(cost);
+    const est = try client.dataCost("some data to estimate");
+    defer est.deinit(allocator);
 
-    std.debug.print("Estimated cost: {s} atto\n", .{cost});
+    std.debug.print(
+        "Estimate: {d} bytes in {d} chunks, storage {s} atto, gas {s} wei, mode {s}\n",
+        .{ est.file_size, est.chunk_count, est.cost, est.estimated_gas_cost_wei, est.payment_mode },
+    );
 }

@@ -250,15 +250,21 @@ function Client:data_get_private(data_map)
     return base64.decode(str(j, "data")), nil
 end
 
---- Estimate cost of storing data.
+--- Pre-upload cost breakdown for the given bytes.
 -- @param data string raw bytes
--- @return string|nil cost in atto tokens, error|nil
+-- @return table|nil {cost, file_size, chunk_count, estimated_gas_cost_wei, payment_mode}, error|nil
 function Client:data_cost(data)
     local j, _, err = self:_do_json("POST", "/v1/data/cost", {
         data = base64.encode(data),
     })
     if err then return nil, err end
-    return str(j, "cost"), nil
+    return {
+        cost = str(j, "cost"),
+        file_size = num(j, "file_size"),
+        chunk_count = num(j, "chunk_count"),
+        estimated_gas_cost_wei = str(j, "estimated_gas_cost_wei"),
+        payment_mode = str(j, "payment_mode"),
+    }, nil
 end
 
 -- ── Chunks ──
@@ -356,14 +362,20 @@ end
 --- Estimate cost of uploading a file.
 -- @param path string local file path
 -- @param is_public boolean whether the file will be public
--- @return string|nil cost in atto tokens, error|nil
+-- @return table|nil {cost, file_size, chunk_count, estimated_gas_cost_wei, payment_mode}, error|nil
 function Client:file_cost(path, is_public)
-    local j, _, err = self:_do_json("POST", "/v1/cost/file", {
+    local j, _, err = self:_do_json("POST", "/v1/files/cost", {
         path = path,
         is_public = is_public,
     })
     if err then return nil, err end
-    return str(j, "cost"), nil
+    return {
+        cost = str(j, "cost"),
+        file_size = num(j, "file_size"),
+        chunk_count = num(j, "chunk_count"),
+        estimated_gas_cost_wei = str(j, "estimated_gas_cost_wei"),
+        payment_mode = str(j, "payment_mode"),
+    }, nil
 end
 
 -- ── Wallet ──

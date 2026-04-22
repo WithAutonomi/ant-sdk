@@ -68,9 +68,11 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
         resp.data.toByteArray()
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
-    override suspend fun dataCost(data: ByteArray): String = try {
+    override suspend fun dataCost(data: ByteArray): UploadCostEstimate = try {
         val resp = dataStub.getCost(dataCostRequest { this.data = ByteString.copyFrom(data) })
-        resp.attoTokens
+        UploadCostEstimate(
+            resp.attoTokens, resp.fileSize.toULong(), resp.chunkCount.toUInt(),
+            resp.estimatedGasCostWei, resp.paymentMode)
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
     // ── Chunks ──
@@ -119,11 +121,13 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
         Unit
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
-    override suspend fun fileCost(path: String, isPublic: Boolean): String = try {
+    override suspend fun fileCost(path: String, isPublic: Boolean): UploadCostEstimate = try {
         val resp = fileStub.getFileCost(fileCostRequest {
             this.path = path; this.isPublic = isPublic
         })
-        resp.attoTokens
+        UploadCostEstimate(
+            resp.attoTokens, resp.fileSize.toULong(), resp.chunkCount.toUInt(),
+            resp.estimatedGasCostWei, resp.paymentMode)
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
     // ── Wallet ──

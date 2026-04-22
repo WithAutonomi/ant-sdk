@@ -18,7 +18,7 @@ interface IAntdClient : Closeable {
     suspend fun dataGetPublic(address: String): ByteArray
     suspend fun dataPutPrivate(data: ByteArray, paymentMode: String? = null): PutResult
     suspend fun dataGetPrivate(dataMap: String): ByteArray
-    suspend fun dataCost(data: ByteArray): String
+    suspend fun dataCost(data: ByteArray): UploadCostEstimate
 
     // Chunks
     suspend fun chunkPut(data: ByteArray): PutResult
@@ -29,7 +29,7 @@ interface IAntdClient : Closeable {
     suspend fun fileDownloadPublic(address: String, destPath: String)
     suspend fun dirUploadPublic(path: String, paymentMode: String? = null): FileUploadResult
     suspend fun dirDownloadPublic(address: String, destPath: String)
-    suspend fun fileCost(path: String, isPublic: Boolean = true): String
+    suspend fun fileCost(path: String, isPublic: Boolean = true): UploadCostEstimate
 
     // Wallet
     suspend fun walletAddress(): WalletAddress

@@ -83,3 +83,17 @@ class FinalizeUploadResult:
     """Result of finalizing an externally-signed upload."""
     address: str         # hex address of stored data
     chunks_stored: int = 0
+
+
+@dataclass(frozen=True)
+class UploadCostEstimate:
+    """Pre-upload cost breakdown returned by estimate_data_cost / estimate_file_cost.
+
+    The server samples up to 5 chunk addresses and extrapolates the storage
+    cost. Gas is an advisory heuristic, not a live gas-oracle query.
+    """
+    cost: str                     # storage cost in atto tokens
+    file_size: int                # original file size in bytes
+    chunk_count: int              # number of data chunks
+    estimated_gas_cost_wei: str   # advisory gas heuristic in wei
+    payment_mode: str             # "auto" | "merkle" | "single"

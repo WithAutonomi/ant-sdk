@@ -52,9 +52,9 @@ puts "Cost: #{result.cost} atto tokens"
 data = client.data_get_public(result.address)
 puts data  # "Hello, Autonomi!"
 
-# Cost estimation
-cost = client.data_cost("some data")
-puts "Would cost: #{cost} atto tokens"
+# Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
+est = client.data_cost("some data")
+puts "Estimate: #{est.file_size} bytes in #{est.chunk_count} chunks, #{est.cost} atto, gas #{est.estimated_gas_cost_wei} wei, mode #{est.payment_mode}"
 ```
 
 ## Private Data
@@ -87,8 +87,8 @@ result = client.dir_upload_public("/path/to/directory")
 # Download a directory
 client.dir_download_public(result.address, "/path/to/output_dir")
 
-# Cost estimation
-cost = client.file_cost("/path/to/file.txt")
+# Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
+est = client.file_cost("/path/to/file.txt")
 ```
 
 

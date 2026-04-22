@@ -216,16 +216,25 @@ func (c *GrpcClient) DataGetPrivate(ctx context.Context, dataMap string) ([]byte
 	return resp.GetData(), nil
 }
 
-// DataCost estimates the cost of storing data.
-func (c *GrpcClient) DataCost(ctx context.Context, data []byte) (string, error) {
+// DataCost returns a pre-upload cost breakdown for the given bytes.
+//
+// The server samples a small number of chunk addresses and extrapolates —
+// much faster than quoting every chunk on slow networks. Gas is advisory.
+func (c *GrpcClient) DataCost(ctx context.Context, data []byte) (*UploadCostEstimate, error) {
 	ctx, cancel := c.ctx(ctx)
 	defer cancel()
 
 	resp, err := c.data.GetCost(ctx, &pb.DataCostRequest{Data: data})
 	if err != nil {
-		return "", errorFromGrpc(err)
+		return nil, errorFromGrpc(err)
 	}
-	return resp.GetAttoTokens(), nil
+	return &UploadCostEstimate{
+		Cost:                resp.GetAttoTokens(),
+		FileSize:            resp.GetFileSize(),
+		ChunkCount:          resp.GetChunkCount(),
+		EstimatedGasCostWei: resp.GetEstimatedGasCostWei(),
+		PaymentMode:         resp.GetPaymentMode(),
+	}, nil
 }
 
 // --- Chunks (2 methods) ---
@@ -319,8 +328,11 @@ func (c *GrpcClient) DirDownloadPublic(ctx context.Context, address, destPath st
 	return errorFromGrpc(err)
 }
 
-// FileCost estimates the cost of uploading a file.
-func (c *GrpcClient) FileCost(ctx context.Context, path string, isPublic bool) (string, error) {
+// FileCost returns a pre-upload cost breakdown for the file at path.
+//
+// The server samples a small number of chunk addresses and extrapolates —
+// much faster than quoting every chunk on slow networks. Gas is advisory.
+func (c *GrpcClient) FileCost(ctx context.Context, path string, isPublic bool) (*UploadCostEstimate, error) {
 	ctx, cancel := c.ctx(ctx)
 	defer cancel()
 
@@ -329,7 +341,13 @@ func (c *GrpcClient) FileCost(ctx context.Context, path string, isPublic bool) (
 		IsPublic: isPublic,
 	})
 	if err != nil {
-		return "", errorFromGrpc(err)
+		return nil, errorFromGrpc(err)
 	}
-	return resp.GetAttoTokens(), nil
+	return &UploadCostEstimate{
+		Cost:                resp.GetAttoTokens(),
+		FileSize:            resp.GetFileSize(),
+		ChunkCount:          resp.GetChunkCount(),
+		EstimatedGasCostWei: resp.GetEstimatedGasCostWei(),
+		PaymentMode:         resp.GetPaymentMode(),
+	}, nil
 }

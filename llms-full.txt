@@ -223,7 +223,7 @@ Response: `{"status": "ok", "network": "local"}`
 Store public (unencrypted) data on the network.
 
 Request: `{"data": "<base64>", "payment_mode": "auto"}` (payment_mode is optional, defaults to "auto")
-Response: `{"cost": "<atto_tokens>", "address": "<hex>"}`
+Response: `{"address": "<hex>", "chunks_stored": <uint>, "payment_mode_used": "auto|merkle|single"}`
 
 #### `GET /v1/data/public/{addr}`
 Retrieve public data by hex address.
@@ -237,7 +237,7 @@ Stream public data as chunked response. Same path params as above.
 Store private (encrypted) data. Returns a data map instead of address.
 
 Request: `{"data": "<base64>", "payment_mode": "auto"}` (payment_mode is optional, defaults to "auto")
-Response: `{"cost": "<atto_tokens>", "data_map": "<hex>"}`
+Response: `{"data_map": "<hex>", "chunks_stored": <uint>, "payment_mode_used": "auto|merkle|single"}`
 
 #### `GET /v1/data/private`
 Retrieve private data using data map.
@@ -246,10 +246,11 @@ Query params: `data_map=<hex>`
 Response: `{"data": "<base64>"}`
 
 #### `POST /v1/data/cost`
-Estimate cost to store data.
+Estimate cost to store data. Samples up to 5 chunk addresses for the on-chain
+quote, then extrapolates — much faster than quoting every chunk.
 
 Request: `{"data": "<base64>"}`
-Response: `{"cost": "<atto_tokens>"}`
+Response: `{"cost": "<atto_tokens>", "file_size": <uint>, "chunk_count": <uint>, "estimated_gas_cost_wei": "<wei>", "payment_mode": "auto|merkle|single"}`
 
 ### Chunks
 
@@ -272,7 +273,7 @@ Upload and download files/directories from the local filesystem.
 Upload a local file.
 
 Request: `{"path": "/absolute/path/to/file", "payment_mode": "auto"}` (payment_mode is optional, defaults to "auto")
-Response: `{"cost": "<atto_tokens>", "address": "<hex>"}`
+Response: `{"address": "<hex>", "storage_cost_atto": "<atto>", "gas_cost_wei": "<wei>", "chunks_stored": <uint>, "payment_mode_used": "auto|merkle|single"}`
 
 #### `POST /v1/files/download/public`
 Download a file to a local path.
@@ -283,18 +284,19 @@ Request: `{"address": "<hex>", "dest_path": "/absolute/path"}`
 Upload a local directory (recursively).
 
 Request: `{"path": "/absolute/path/to/dir", "payment_mode": "auto"}` (payment_mode is optional, defaults to "auto")
-Response: `{"cost": "<atto_tokens>", "address": "<hex>"}`
+Response: `{"address": "<hex>", "storage_cost_atto": "<atto>", "gas_cost_wei": "<wei>", "chunks_stored": <uint>, "payment_mode_used": "auto|merkle|single"}`
 
 #### `POST /v1/dirs/download/public`
 Download a directory to a local path.
 
 Request: `{"address": "<hex>", "dest_path": "/absolute/path"}`
 
-#### `POST /v1/cost/file`
-Estimate file upload cost.
+#### `POST /v1/files/cost`
+Estimate file upload cost. Samples up to 5 chunk addresses for the on-chain
+quote, then extrapolates — much faster than quoting every chunk.
 
-Request: `{"path": "/path/to/file", "is_public": true}`
-Response: `{"cost": "<atto_tokens>"}`
+Request: `{"path": "/path/to/file", "is_public": true}` (`is_public` optional, defaults to true)
+Response: `{"cost": "<atto_tokens>", "file_size": <uint>, "chunk_count": <uint>, "estimated_gas_cost_wei": "<wei>", "payment_mode": "auto|merkle|single"}`
 
 #### `GET /v1/wallet/address`
 Get the wallet's public address.
@@ -388,7 +390,7 @@ Default target: `localhost:50051`. Package: `antd.v1`.
 - `StreamPublic(StreamPublicDataRequest{address}) → stream DataChunk{data: bytes}`
 - `GetPrivate(GetPrivateDataRequest{data_map}) → GetPrivateDataResponse{data: bytes}`
 - `PutPrivate(PutPrivateDataRequest{data: bytes}) → PutPrivateDataResponse{cost, data_map}`
-- `GetCost(DataCostRequest{data: bytes}) → Cost{atto_tokens}`
+- `GetCost(DataCostRequest{data: bytes}) → Cost{atto_tokens, file_size, chunk_count, estimated_gas_cost_wei, payment_mode}`
 
 ### ChunkService (chunks.proto)
 - `Get(GetChunkRequest{address}) → GetChunkResponse{data: bytes}`
@@ -399,7 +401,7 @@ Default target: `localhost:50051`. Package: `antd.v1`.
 - `DownloadPublic(DownloadPublicRequest{address, dest_path}) → DownloadResponse{}`
 - `DirUploadPublic(UploadFileRequest{path}) → UploadPublicResponse{cost, address}`
 - `DirDownloadPublic(DownloadPublicRequest{address, dest_path}) → DownloadResponse{}`
-- `GetFileCost(FileCostRequest{path, is_public}) → Cost{atto_tokens}`
+- `GetFileCost(FileCostRequest{path, is_public}) → Cost{atto_tokens, file_size, chunk_count, estimated_gas_cost_wei, payment_mode}`
 
 ### EventService (events.proto)
 - `Subscribe(SubscribeRequest{}) → stream ClientEventProto{kind, records_paid, records_already_paid, tokens_spent}`
@@ -418,6 +420,7 @@ JS/TS, PHP, Lua, and Zig are REST-only.
 |------|--------|-------------|
 | HealthStatus | ok: bool, network: string | Health check result |
 | PutResult | cost: string, address: string | Result from any create/put operation |
+| UploadCostEstimate | cost: string, file_size: u64, chunk_count: u32, estimated_gas_cost_wei: string, payment_mode: string | Pre-upload cost breakdown returned by data_cost / file_cost. Server samples up to 5 chunk addresses and extrapolates; gas is an advisory heuristic. |
 
 ---
 
@@ -468,7 +471,7 @@ client.dataPutPublic(data: Buffer): Promise<PutResult>
 client.dataGetPublic(address: string): Promise<Buffer>
 client.dataPutPrivate(data: Buffer): Promise<PutResult>  // .address is the data_map
 client.dataGetPrivate(dataMap: string): Promise<Buffer>
-client.dataCost(data: Buffer): Promise<string>
+client.dataCost(data: Buffer): Promise<UploadCostEstimate>
 
 // Chunks
 client.chunkPut(data: Buffer): Promise<PutResult>
@@ -481,7 +484,7 @@ client.fileUploadPublic(path: string): Promise<PutResult>
 client.fileDownloadPublic(address: string, destPath: string): Promise<void>
 client.dirUploadPublic(path: string): Promise<PutResult>
 client.dirDownloadPublic(address: string, destPath: string): Promise<void>
-client.fileCost(path: string, isPublic?: boolean): Promise<string>
+client.fileCost(path: string, isPublic?: boolean): Promise<UploadCostEstimate>
 
 // Wallet
 client.walletAddress(): Promise<WalletAddress>
@@ -507,7 +510,7 @@ client.data_put_public(data: bytes) → PutResult
 client.data_get_public(address: str) → bytes
 client.data_put_private(data: bytes) → PutResult  # .address is the data_map
 client.data_get_private(data_map: str) → bytes
-client.data_cost(data: bytes) → str
+client.data_cost(data: bytes) → UploadCostEstimate
 
 # Chunks
 client.chunk_put(data: bytes) → PutResult
@@ -520,7 +523,7 @@ client.file_upload_public(path: str) → PutResult
 client.file_download_public(address: str, dest_path: str) → None
 client.dir_upload_public(path: str) → PutResult
 client.dir_download_public(address: str, dest_path: str) → None
-client.file_cost(path: str, is_public: bool = True) → str
+client.file_cost(path: str, is_public: bool = True) → UploadCostEstimate
 
 # Wallet
 client.wallet_address() → WalletAddress
@@ -546,7 +549,7 @@ Task<PutResult> DataPutPublicAsync(byte[] data);
 Task<byte[]> DataGetPublicAsync(string address);
 Task<PutResult> DataPutPrivateAsync(byte[] data);
 Task<byte[]> DataGetPrivateAsync(string dataMap);
-Task<string> DataCostAsync(byte[] data);
+Task<UploadCostEstimate> DataCostAsync(byte[] data);
 
 // Chunks
 Task<PutResult> ChunkPutAsync(byte[] data);
@@ -559,7 +562,7 @@ Task<PutResult> FileUploadPublicAsync(string path);
 Task FileDownloadPublicAsync(string address, string destPath);
 Task<PutResult> DirUploadPublicAsync(string path);
 Task DirDownloadPublicAsync(string address, string destPath);
-Task<string> FileCostAsync(string path, bool isPublic = true);
+Task<UploadCostEstimate> FileCostAsync(string path, bool isPublic = true);
 
 // Wallet
 Task<WalletAddress> WalletAddressAsync();
@@ -585,7 +588,7 @@ suspend fun dataPutPublic(data: ByteArray): PutResult
 suspend fun dataGetPublic(address: String): ByteArray
 suspend fun dataPutPrivate(data: ByteArray): PutResult
 suspend fun dataGetPrivate(dataMap: String): ByteArray
-suspend fun dataCost(data: ByteArray): String
+suspend fun dataCost(data: ByteArray): UploadCostEstimate
 
 // Chunks
 suspend fun chunkPut(data: ByteArray): PutResult
@@ -598,7 +601,7 @@ suspend fun fileUploadPublic(path: String): PutResult
 suspend fun fileDownloadPublic(address: String, destPath: String)
 suspend fun dirUploadPublic(path: String): PutResult
 suspend fun dirDownloadPublic(address: String, destPath: String)
-suspend fun fileCost(path: String, isPublic: Boolean = true): String
+suspend fun fileCost(path: String, isPublic: Boolean = true): UploadCostEstimate
 
 // Wallet
 suspend fun walletAddress(): WalletAddress
@@ -626,7 +629,7 @@ func dataPutPublic(_ data: Data) async throws -> PutResult
 func dataGetPublic(address: String) async throws -> Data
 func dataPutPrivate(_ data: Data) async throws -> PutResult
 func dataGetPrivate(dataMap: String) async throws -> Data
-func dataCost(_ data: Data) async throws -> String
+func dataCost(_ data: Data) async throws -> UploadCostEstimate
 
 // Chunks
 func chunkPut(_ data: Data) async throws -> PutResult
@@ -639,7 +642,7 @@ func fileUploadPublic(path: String) async throws -> PutResult
 func fileDownloadPublic(address: String, destPath: String) async throws
 func dirUploadPublic(path: String) async throws -> PutResult
 func dirDownloadPublic(address: String, destPath: String) async throws
-func fileCost(path: String, isPublic: Bool) async throws -> String
+func fileCost(path: String, isPublic: Bool) async throws -> UploadCostEstimate
 
 // Wallet
 func walletAddress() async throws -> WalletAddress
@@ -664,7 +667,7 @@ func (c *Client) DataPutPublic(ctx context.Context, data []byte) (*PutResult, er
 func (c *Client) DataGetPublic(ctx context.Context, address string) ([]byte, error)
 func (c *Client) DataPutPrivate(ctx context.Context, data []byte) (*PutResult, error)
 func (c *Client) DataGetPrivate(ctx context.Context, dataMap string) ([]byte, error)
-func (c *Client) DataCost(ctx context.Context, data []byte) (string, error)
+func (c *Client) DataCost(ctx context.Context, data []byte) (*UploadCostEstimate, error)
 
 // Chunks
 func (c *Client) ChunkPut(ctx context.Context, data []byte) (*PutResult, error)
@@ -677,7 +680,7 @@ func (c *Client) FileUploadPublic(ctx context.Context, path string) (*PutResult,
 func (c *Client) FileDownloadPublic(ctx context.Context, address string, destPath string) error
 func (c *Client) DirUploadPublic(ctx context.Context, path string) (*PutResult, error)
 func (c *Client) DirDownloadPublic(ctx context.Context, address string, destPath string) error
-func (c *Client) FileCost(ctx context.Context, path string, isPublic bool) (string, error)
+func (c *Client) FileCost(ctx context.Context, path string, isPublic bool) (*UploadCostEstimate, error)
 
 // Wallet
 func (c *Client) WalletAddress(ctx context.Context) (*WalletAddress, error)
@@ -705,7 +708,7 @@ PutResult dataPutPublic(byte[] data) throws AntdException
 byte[] dataGetPublic(String address) throws AntdException
 PutResult dataPutPrivate(byte[] data) throws AntdException  // .address() is the data_map
 byte[] dataGetPrivate(String dataMap) throws AntdException
-String dataCost(byte[] data) throws AntdException
+UploadCostEstimate dataCost(byte[] data) throws AntdException
 
 // Chunks
 PutResult chunkPut(byte[] data) throws AntdException
@@ -718,7 +721,7 @@ PutResult fileUploadPublic(String path) throws AntdException
 void fileDownloadPublic(String address, String destPath) throws AntdException
 PutResult dirUploadPublic(String path) throws AntdException
 void dirDownloadPublic(String address, String destPath) throws AntdException
-String fileCost(String path, boolean isPublic) throws AntdException
+UploadCostEstimate fileCost(String path, boolean isPublic) throws AntdException
 
 // Wallet
 WalletAddress walletAddress() throws AntdException
@@ -746,7 +749,7 @@ async fn data_put_public(&self, data: &[u8]) -> Result<PutResult, AntdError>
 async fn data_get_public(&self, address: &str) -> Result<Vec<u8>, AntdError>
 async fn data_put_private(&self, data: &[u8]) -> Result<PutResult, AntdError>  // .address is the data_map
 async fn data_get_private(&self, data_map: &str) -> Result<Vec<u8>, AntdError>
-async fn data_cost(&self, data: &[u8]) -> Result<String, AntdError>
+async fn data_cost(&self, data: &[u8]) -> Result<UploadCostEstimate, AntdError>
 
 // Chunks
 async fn chunk_put(&self, data: &[u8]) -> Result<PutResult, AntdError>
@@ -759,7 +762,7 @@ async fn file_upload_public(&self, path: &str) -> Result<PutResult, AntdError>
 async fn file_download_public(&self, address: &str, dest_path: &str) -> Result<(), AntdError>
 async fn dir_upload_public(&self, path: &str) -> Result<PutResult, AntdError>
 async fn dir_download_public(&self, address: &str, dest_path: &str) -> Result<(), AntdError>
-async fn file_cost(&self, path: &str, is_public: bool) -> Result<String, AntdError>
+async fn file_cost(&self, path: &str, is_public: bool) -> Result<UploadCostEstimate, AntdError>
 
 // Wallet
 async fn wallet_address(&self) -> Result<WalletAddress, AntdError>
@@ -788,7 +791,7 @@ antd::PutResult dataPutPublic(const std::vector<uint8_t>& data)
 std::vector<uint8_t> dataGetPublic(const std::string& address)
 antd::PutResult dataPutPrivate(const std::vector<uint8_t>& data)  // .address is the data_map
 std::vector<uint8_t> dataGetPrivate(const std::string& dataMap)
-std::string dataCost(const std::vector<uint8_t>& data)
+UploadCostEstimate dataCost(const std::vector<uint8_t>& data)
 
 // Chunks
 antd::PutResult chunkPut(const std::vector<uint8_t>& data)
@@ -801,7 +804,7 @@ antd::PutResult fileUploadPublic(const std::string& path)
 void fileDownloadPublic(const std::string& address, const std::string& destPath)
 antd::PutResult dirUploadPublic(const std::string& path)
 void dirDownloadPublic(const std::string& address, const std::string& destPath)
-std::string fileCost(const std::string& path, bool isPublic = true)
+UploadCostEstimate fileCost(const std::string& path, bool isPublic = true)
 
 // Wallet
 antd::WalletAddress walletAddress()
@@ -830,7 +833,7 @@ client.data_put_public(data) → PutResult
 client.data_get_public(address) → String
 client.data_put_private(data) → PutResult            # .address is the data_map
 client.data_get_private(data_map) → String
-client.data_cost(data) → String
+client.data_cost(data) → UploadCostEstimate
 
 # Chunks
 client.chunk_put(data) → PutResult
@@ -843,7 +846,7 @@ client.file_upload_public(path) → PutResult
 client.file_download_public(address, dest_path) → nil
 client.dir_upload_public(path) → PutResult
 client.dir_download_public(address, dest_path) → nil
-client.file_cost(path, is_public: true) → String
+client.file_cost(path, is_public: true) → UploadCostEstimate
 
 # Wallet
 client.wallet_address → WalletAddress
@@ -869,7 +872,7 @@ $client->dataPutPublic(string $data): PutResult
 $client->dataGetPublic(string $address): string
 $client->dataPutPrivate(string $data): PutResult     // ->address is the data_map
 $client->dataGetPrivate(string $dataMap): string
-$client->dataCost(string $data): string
+$client->dataCost(string $data): UploadCostEstimate
 
 // Chunks
 $client->chunkPut(string $data): PutResult
@@ -882,7 +885,7 @@ $client->fileUploadPublic(string $path): PutResult
 $client->fileDownloadPublic(string $address, string $destPath): void
 $client->dirUploadPublic(string $path): PutResult
 $client->dirDownloadPublic(string $address, string $destPath): void
-$client->fileCost(string $path, bool $isPublic = true): string
+$client->fileCost(string $path, bool $isPublic = true): UploadCostEstimate
 
 // Wallet
 $client->walletAddress(): array{address: string}
@@ -908,7 +911,7 @@ Future<PutResult> dataPutPublic(List<int> data)
 Future<List<int>> dataGetPublic(String address)
 Future<PutResult> dataPutPrivate(List<int> data)     // .address is the data_map
 Future<List<int>> dataGetPrivate(String dataMap)
-Future<String> dataCost(List<int> data)
+Future<UploadCostEstimate> dataCost(List<int> data)
 
 // Chunks
 Future<PutResult> chunkPut(List<int> data)
@@ -921,7 +924,7 @@ Future<PutResult> fileUploadPublic(String path)
 Future<void> fileDownloadPublic(String address, String destPath)
 Future<PutResult> dirUploadPublic(String path)
 Future<void> dirDownloadPublic(String address, String destPath)
-Future<String> fileCost(String path, {bool isPublic = true})
+Future<UploadCostEstimate> fileCost(String path, {bool isPublic = true})
 
 // Wallet
 Future<WalletAddress> walletAddress()
@@ -947,7 +950,7 @@ client:data_put_public(data) → PutResult
 client:data_get_public(address) → string
 client:data_put_private(data) → PutResult            -- .address is the data_map
 client:data_get_private(data_map) → string
-client:data_cost(data) → string
+client:data_cost(data) → UploadCostEstimate (table)
 
 -- Chunks
 client:chunk_put(data) → PutResult
@@ -960,7 +963,7 @@ client:file_upload_public(path) → PutResult
 client:file_download_public(address, dest_path) → nil
 client:dir_upload_public(path) → PutResult
 client:dir_download_public(address, dest_path) → nil
-client:file_cost(path, is_public) → string
+client:file_cost(path, is_public) → UploadCostEstimate (table)
 
 -- Wallet
 client:wallet_address() → {address=string}
@@ -984,7 +987,7 @@ Antd.Client.data_put_public(client, data) :: {:ok, PutResult.t()} | {:error, ter
 Antd.Client.data_get_public(client, address) :: {:ok, binary()} | {:error, term()}
 Antd.Client.data_put_private(client, data) :: {:ok, PutResult.t()} | {:error, term()}
 Antd.Client.data_get_private(client, data_map) :: {:ok, binary()} | {:error, term()}
-Antd.Client.data_cost(client, data) :: {:ok, String.t()} | {:error, term()}
+Antd.Client.data_cost(client, data) :: {:ok, Antd.UploadCostEstimate.t()} | {:error, term()}
 
 # Chunks
 Antd.Client.chunk_put(client, data) :: {:ok, PutResult.t()} | {:error, term()}
@@ -997,7 +1000,7 @@ Antd.Client.file_upload_public(client, path) :: {:ok, PutResult.t()} | {:error, 
 Antd.Client.file_download_public(client, address, dest_path) :: :ok | {:error, term()}
 Antd.Client.dir_upload_public(client, path) :: {:ok, PutResult.t()} | {:error, term()}
 Antd.Client.dir_download_public(client, address, dest_path) :: :ok | {:error, term()}
-Antd.Client.file_cost(client, path, is_public \\ true) :: {:ok, String.t()} | {:error, term()}
+Antd.Client.file_cost(client, path, is_public \\ true) :: {:ok, Antd.UploadCostEstimate.t()} | {:error, term()}
 
 # Wallet
 Antd.Client.wallet_address(client) :: {:ok, WalletAddress.t()} | {:error, term()}
@@ -1024,7 +1027,7 @@ fn dataPutPublic(self: *Client, data: []const u8) !PutResult
 fn dataGetPublic(self: *Client, address: []const u8) ![]u8
 fn dataPutPrivate(self: *Client, data: []const u8) !PutResult
 fn dataGetPrivate(self: *Client, data_map: []const u8) ![]u8
-fn dataCost(self: *Client, data: []const u8) ![]u8
+fn dataCost(self: *Client, data: []const u8) !UploadCostEstimate
 
 // Chunks
 fn chunkPut(self: *Client, data: []const u8) !PutResult
@@ -1037,7 +1040,7 @@ fn fileUploadPublic(self: *Client, path: []const u8) !PutResult
 fn fileDownloadPublic(self: *Client, address: []const u8, dest_path: []const u8) !void
 fn dirUploadPublic(self: *Client, path: []const u8) !PutResult
 fn dirDownloadPublic(self: *Client, address: []const u8, dest_path: []const u8) !void
-fn fileCost(self: *Client, path: []const u8, is_public: bool) ![]u8
+fn fileCost(self: *Client, path: []const u8, is_public: bool) !UploadCostEstimate
 
 // Wallet
 fn walletAddress(self: *Client) !WalletAddress

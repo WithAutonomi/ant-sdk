@@ -9,6 +9,7 @@ export type {
   PoolCommitmentEntry,
   PrepareUploadResult,
   FinalizeUploadResult,
+  UploadCostEstimate,
 } from "./models.js";
 
 export {

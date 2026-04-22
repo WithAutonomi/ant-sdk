@@ -155,8 +155,8 @@ public class TestRunner
     {
         try
         {
-            var cost = await _client.DataCostAsync(System.Text.Encoding.UTF8.GetBytes("cost estimation test data"));
-            Pass("Data cost", $"cost={cost}");
+            var est = await _client.DataCostAsync(System.Text.Encoding.UTF8.GetBytes("cost estimation test data"));
+            Pass("Data cost", $"cost={est.Cost} chunks={est.ChunkCount} size={est.FileSize} mode={est.PaymentMode}");
         }
         catch (Exception ex) { Fail("Data cost", ex.Message); }
     }

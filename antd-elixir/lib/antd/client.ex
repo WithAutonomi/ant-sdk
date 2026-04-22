@@ -158,17 +158,27 @@ defmodule Antd.Client do
   @spec data_get_private!(t(), String.t()) :: binary()
   def data_get_private!(client, data_map), do: unwrap!(data_get_private(client, data_map))
 
-  @doc "Estimates the cost of storing data."
-  @spec data_cost(t(), binary()) :: {:ok, String.t()} | {:error, Exception.t()}
+  @doc "Pre-upload cost breakdown for the given bytes."
+  @spec data_cost(t(), binary()) :: {:ok, Antd.UploadCostEstimate.t()} | {:error, Exception.t()}
   def data_cost(%__MODULE__{} = client, data) when is_binary(data) do
     case do_json(client, :post, "/v1/data/cost", %{data: Base.encode64(data)}) do
-      {:ok, body} -> {:ok, body["cost"]}
-      {:error, _} = err -> err
+      {:ok, body} ->
+        {:ok,
+         %Antd.UploadCostEstimate{
+           cost: body["cost"] || "",
+           file_size: body["file_size"] || 0,
+           chunk_count: body["chunk_count"] || 0,
+           estimated_gas_cost_wei: body["estimated_gas_cost_wei"] || "",
+           payment_mode: body["payment_mode"] || ""
+         }}
+
+      {:error, _} = err ->
+        err
     end
   end
 
   @doc "Like `data_cost/2` but raises on error."
-  @spec data_cost!(t(), binary()) :: String.t()
+  @spec data_cost!(t(), binary()) :: Antd.UploadCostEstimate.t()
   def data_cost!(client, data), do: unwrap!(data_cost(client, data))
 
   # ---------------------------------------------------------------------------
@@ -291,18 +301,29 @@ defmodule Antd.Client do
   end
 
   @doc "Estimates the cost of uploading a file."
-  @spec file_cost(t(), String.t(), boolean()) :: {:ok, String.t()} | {:error, Exception.t()}
+  @spec file_cost(t(), String.t(), boolean()) ::
+          {:ok, Antd.UploadCostEstimate.t()} | {:error, Exception.t()}
   def file_cost(%__MODULE__{} = client, path, is_public) do
     payload = %{path: path, is_public: is_public}
 
-    case do_json(client, :post, "/v1/cost/file", payload) do
-      {:ok, body} -> {:ok, body["cost"]}
-      {:error, _} = err -> err
+    case do_json(client, :post, "/v1/files/cost", payload) do
+      {:ok, body} ->
+        {:ok,
+         %Antd.UploadCostEstimate{
+           cost: body["cost"] || "",
+           file_size: body["file_size"] || 0,
+           chunk_count: body["chunk_count"] || 0,
+           estimated_gas_cost_wei: body["estimated_gas_cost_wei"] || "",
+           payment_mode: body["payment_mode"] || ""
+         }}
+
+      {:error, _} = err ->
+        err
     end
   end
 
   @doc "Like `file_cost/3` but raises on error."
-  @spec file_cost!(t(), String.t(), boolean()) :: String.t()
+  @spec file_cost!(t(), String.t(), boolean()) :: Antd.UploadCostEstimate.t()
   def file_cost!(client, path, is_public) do
     unwrap!(file_cost(client, path, is_public))
   end

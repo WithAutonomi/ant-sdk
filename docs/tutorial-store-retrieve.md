@@ -110,9 +110,10 @@ client = AntdClient()
 
 payload = b"Cost estimation example data"
 
-# Check cost first
-cost = client.data_cost(payload)
-print(f"Estimated cost: {cost} atto tokens")
+# Check cost first — returns UploadCostEstimate with size, chunks, gas, payment mode
+est = client.data_cost(payload)
+print(f"Estimate: {est.file_size} bytes in {est.chunk_count} chunks, "
+      f"{est.cost} atto, gas {est.estimated_gas_cost_wei} wei, mode {est.payment_mode}")
 
 # If acceptable, store it
 result = client.data_put_public(payload)
@@ -129,8 +130,9 @@ using var client = AntdClient.CreateRest();
 
 var payload = Encoding.UTF8.GetBytes("Cost estimation example data");
 
-var cost = await client.DataCostAsync(payload);
-Console.WriteLine($"Estimated cost: {cost} atto tokens");
+// Returns UploadCostEstimate with size, chunks, gas, payment mode
+var est = await client.DataCostAsync(payload);
+Console.WriteLine($"Estimate: {est.FileSize} bytes in {est.ChunkCount} chunks, {est.Cost} atto, gas {est.EstimatedGasCostWei} wei, mode {est.PaymentMode}");
 
 var result = await client.DataPutPublicAsync(payload);
 Console.WriteLine($"Actual cost: {result.Cost} atto tokens");
@@ -143,8 +145,9 @@ val client = AntdClient.createRest()
 
 val payload = "Cost estimation example data".toByteArray()
 
-val cost = client.dataCost(payload)
-println("Estimated cost: $cost atto tokens")
+// Returns UploadCostEstimate with size, chunks, gas, payment mode
+val est = client.dataCost(payload)
+println("Estimate: ${est.fileSize} bytes in ${est.chunkCount} chunks, ${est.cost} atto, gas ${est.estimatedGasCostWei} wei, mode ${est.paymentMode}")
 
 val result = client.dataPutPublic(payload)
 println("Actual cost: ${result.cost} atto tokens")
@@ -157,8 +160,9 @@ let client = try AntdClient.createRest()
 
 let payload = "Cost estimation example data".data(using: .utf8)!
 
-let cost = try await client.dataCost(payload)
-print("Estimated cost: \(cost) atto tokens")
+// Returns UploadCostEstimate with size, chunks, gas, payment mode
+let est = try await client.dataCost(payload)
+print("Estimate: \(est.fileSize) bytes in \(est.chunkCount) chunks, \(est.cost) atto, gas \(est.estimatedGasCostWei) wei, mode \(est.paymentMode)")
 
 let result = try await client.dataPutPublic(payload)
 print("Actual cost: \(result.cost) atto tokens")
@@ -182,9 +186,10 @@ src = os.path.join(tempfile.gettempdir(), "test-upload.txt")
 with open(src, "w") as f:
     f.write("File content stored on Autonomi!")
 
-# Estimate cost
-cost = client.file_cost(src)
-print(f"Upload cost estimate: {cost} atto tokens")
+# Estimate cost — returns UploadCostEstimate with size, chunks, gas, payment mode
+est = client.file_cost(src)
+print(f"Estimate: {est.file_size} bytes in {est.chunk_count} chunks, "
+      f"{est.cost} atto, gas {est.estimated_gas_cost_wei} wei, mode {est.payment_mode}")
 
 # Upload
 result = client.file_upload_public(src)
@@ -214,8 +219,8 @@ await File.WriteAllTextAsync(srcPath, "File content stored on Autonomi!");
 
 try
 {
-    var cost = await client.FileCostAsync(srcPath);
-    Console.WriteLine($"Upload cost: {cost} atto tokens");
+    var est = await client.FileCostAsync(srcPath);
+    Console.WriteLine($"Estimate: {est.FileSize} bytes in {est.ChunkCount} chunks, {est.Cost} atto, gas {est.EstimatedGasCostWei} wei, mode {est.PaymentMode}");
 
     var result = await client.FileUploadPublicAsync(srcPath);
     Console.WriteLine($"Uploaded to: {result.Address}");
@@ -243,8 +248,8 @@ val srcFile = java.io.File.createTempFile("test-upload", ".txt")
 srcFile.writeText("File content stored on Autonomi!")
 
 try {
-    val cost = client.fileCost(srcFile.absolutePath)
-    println("Upload cost: $cost atto tokens")
+    val est = client.fileCost(srcFile.absolutePath)
+    println("Estimate: ${est.fileSize} bytes in ${est.chunkCount} chunks, ${est.cost} atto, gas ${est.estimatedGasCostWei} wei, mode ${est.paymentMode}")
 
     val result = client.fileUploadPublic(srcFile.absolutePath)
     println("Uploaded to: ${result.address}")
@@ -274,8 +279,8 @@ try "File content stored on Autonomi!".write(
 )
 
 do {
-    let cost = try await client.fileCost(path: srcPath)
-    print("Upload cost: \(cost) atto tokens")
+    let est = try await client.fileCost(path: srcPath)
+    print("Estimate: \(est.fileSize) bytes in \(est.chunkCount) chunks, \(est.cost) atto, gas \(est.estimatedGasCostWei) wei, mode \(est.paymentMode)")
 
     let result = try await client.fileUploadPublic(path: srcPath)
     print("Uploaded to: \(result.address)")

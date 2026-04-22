@@ -96,11 +96,21 @@ class AntdClientTest extends TestCase
     public function testDataCost(): void
     {
         $mock = new MockHandler([
-            $this->jsonResponse(200, ['cost' => '50']),
+            $this->jsonResponse(200, [
+                'cost' => '50',
+                'file_size' => 4,
+                'chunk_count' => 3,
+                'estimated_gas_cost_wei' => '150000000000000',
+                'payment_mode' => 'single',
+            ]),
         ]);
         $client = $this->createClient($mock);
-        $cost = $client->dataCost('test');
-        $this->assertSame('50', $cost);
+        $est = $client->dataCost('test');
+        $this->assertSame('50', $est->cost);
+        $this->assertSame(4, $est->fileSize);
+        $this->assertSame(3, $est->chunkCount);
+        $this->assertSame('150000000000000', $est->estimatedGasCostWei);
+        $this->assertSame('single', $est->paymentMode);
     }
 
     // --- Chunks ---
@@ -192,11 +202,21 @@ class AntdClientTest extends TestCase
     public function testFileCost(): void
     {
         $mock = new MockHandler([
-            $this->jsonResponse(200, ['cost' => '1000']),
+            $this->jsonResponse(200, [
+                'cost' => '1000',
+                'file_size' => 4096,
+                'chunk_count' => 3,
+                'estimated_gas_cost_wei' => '150000000000000',
+                'payment_mode' => 'auto',
+            ]),
         ]);
         $client = $this->createClient($mock);
-        $cost = $client->fileCost('/tmp/test.txt', true, false);
-        $this->assertSame('1000', $cost);
+        $est = $client->fileCost('/tmp/test.txt', true);
+        $this->assertSame('1000', $est->cost);
+        $this->assertSame(4096, $est->fileSize);
+        $this->assertSame(3, $est->chunkCount);
+        $this->assertSame('150000000000000', $est->estimatedGasCostWei);
+        $this->assertSame('auto', $est->paymentMode);
     }
 
     // --- Error Mapping ---

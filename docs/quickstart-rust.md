@@ -67,9 +67,12 @@ println!("Cost: {} atto tokens", result.cost);
 let data = client.data_get_public(&result.address).await?;
 println!("{}", String::from_utf8_lossy(&data)); // "Hello, Autonomi!"
 
-// Cost estimation
-let cost = client.data_cost(b"some data").await?;
-println!("Would cost: {} atto tokens", cost);
+// Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
+let est = client.data_cost(b"some data").await?;
+println!(
+    "Estimate: {} bytes in {} chunks, {} atto, gas {} wei, mode {}",
+    est.file_size, est.chunk_count, est.cost, est.estimated_gas_cost_wei, est.payment_mode,
+);
 ```
 
 ## Private Data
@@ -100,8 +103,8 @@ let dir_result = client.dir_upload_public("/path/to/directory").await?;
 // Download a directory
 client.dir_download_public(&dir_result.address, "/path/to/output_dir").await?;
 
-// Cost estimation
-let cost = client.file_cost("/path/to/file.txt").await?;
+// Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
+let est = client.file_cost("/path/to/file.txt").await?;
 ```
 
 

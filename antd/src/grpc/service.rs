@@ -6,6 +6,7 @@ use tonic::{Request, Response, Status};
 
 use crate::error::AntdError;
 use crate::state::AppState;
+use crate::types::format_payment_mode;
 
 // Generated protobuf modules
 #[allow(dead_code)]
@@ -111,6 +112,7 @@ impl pb::data_service_server::DataService for DataServiceImpl {
         Ok(Response::new(pb::PutPublicDataResponse {
             cost: Some(pb::Cost {
                 atto_tokens: String::new(),
+                ..Default::default()
             }),
             address: hex::encode(address),
         }))
@@ -190,6 +192,7 @@ impl pb::data_service_server::DataService for DataServiceImpl {
         Ok(Response::new(pb::PutPrivateDataResponse {
             cost: Some(pb::Cost {
                 atto_tokens: String::new(),
+                ..Default::default()
             }),
             data_map: data_map_hex,
         }))
@@ -201,38 +204,40 @@ impl pb::data_service_server::DataService for DataServiceImpl {
     ) -> Result<Response<pb::Cost>, Status> {
         let data = request.into_inner().data;
 
-        let client = self.state.client.clone();
-        let total_cost = tokio::spawn(async move {
-            use self_encryption::encrypt;
-            let (_data_map, encrypted_chunks) = encrypt(Bytes::from(data))
-                .map_err(|e| AntdError::Internal(format!("encryption failed: {e}")))?;
+        // estimate_upload_cost takes a path; stage the bytes in a temp file.
+        let tmp = std::env::temp_dir().join(format!(
+            "antd_cost_{}_{}.bin",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        tokio::fs::write(&tmp, &data)
+            .await
+            .map_err(|e| Status::internal(format!("failed to stage tempfile: {e}")))?;
 
-            let mut total = ant_core::data::U256::ZERO;
-            for chunk in &encrypted_chunks {
-                let address = ant_core::data::compute_address(&chunk.content);
-                let data_size = chunk.content.len() as u64;
-                match client.get_store_quotes(&address, data_size, 0).await {
-                    Ok(quotes) => {
-                        for (_, _, _, price) in &quotes {
-                            total = total.saturating_add(*price);
-                        }
-                    }
-                    Err(e) => {
-                        // AlreadyStored means no cost for this chunk
-                        if !matches!(e, ant_core::data::Error::AlreadyStored) {
-                            return Err(AntdError::from_core(e));
-                        }
-                    }
-                }
-            }
-            Ok::<_, AntdError>(total)
+        let client = self.state.client.clone();
+        let tmp_for_task = tmp.clone();
+        let estimate = tokio::spawn(async move {
+            client
+                .estimate_upload_cost(&tmp_for_task, ant_core::data::PaymentMode::Auto, None)
+                .await
         })
         .await
-        .map_err(|e| Status::internal(format!("task failed: {e}")))?
-        .map_err(tonic::Status::from)?;
+        .map_err(|e| Status::internal(format!("task failed: {e}")))?;
+
+        let _ = tokio::fs::remove_file(&tmp).await;
+        let estimate = estimate
+            .map_err(AntdError::from_core)
+            .map_err(tonic::Status::from)?;
 
         Ok(Response::new(pb::Cost {
-            atto_tokens: total_cost.to_string(),
+            atto_tokens: estimate.storage_cost_atto,
+            file_size: estimate.file_size,
+            chunk_count: estimate.chunk_count as u32,
+            estimated_gas_cost_wei: estimate.estimated_gas_cost_wei,
+            payment_mode: format_payment_mode(estimate.payment_mode),
         }))
     }
 }
@@ -294,6 +299,7 @@ impl pb::chunk_service_server::ChunkService for ChunkServiceImpl {
             // via the wallet and not reported back per-chunk.
             cost: Some(pb::Cost {
                 atto_tokens: String::new(),
+                ..Default::default()
             }),
             address: hex::encode(address),
         }))
@@ -514,41 +520,22 @@ impl pb::file_service_server::FileService for FileServiceImpl {
         })?;
 
         let client = self.state.client.clone();
-        let total_cost = tokio::spawn(async move {
-            use self_encryption::encrypt;
-            let file_data = tokio::fs::read(&path)
+        let estimate = tokio::spawn(async move {
+            client
+                .estimate_upload_cost(&path, ant_core::data::PaymentMode::Auto, None)
                 .await
-                .map_err(|e| AntdError::Internal(format!("failed to read file: {e}")))?;
-
-            let (_data_map, encrypted_chunks) = encrypt(bytes::Bytes::from(file_data))
-                .map_err(|e| AntdError::Internal(format!("encryption failed: {e}")))?;
-
-            let mut total = ant_core::data::U256::ZERO;
-            for chunk in &encrypted_chunks {
-                let address = ant_core::data::compute_address(&chunk.content);
-                let data_size = chunk.content.len() as u64;
-                match client.get_store_quotes(&address, data_size, 0).await {
-                    Ok(quotes) => {
-                        for (_, _, _, price) in &quotes {
-                            total = total.saturating_add(*price);
-                        }
-                    }
-                    Err(e) => {
-                        // AlreadyStored means no cost for this chunk
-                        if !matches!(e, ant_core::data::Error::AlreadyStored) {
-                            return Err(AntdError::from_core(e));
-                        }
-                    }
-                }
-            }
-            Ok::<_, AntdError>(total)
         })
         .await
         .map_err(|e| Status::internal(format!("task failed: {e}")))?
+        .map_err(AntdError::from_core)
         .map_err(tonic::Status::from)?;
 
         Ok(Response::new(pb::Cost {
-            atto_tokens: total_cost.to_string(),
+            atto_tokens: estimate.storage_cost_atto,
+            file_size: estimate.file_size,
+            chunk_count: estimate.chunk_count as u32,
+            estimated_gas_cost_wei: estimate.estimated_gas_cost_wei,
+            payment_mode: format_payment_mode(estimate.payment_mode),
         }))
     }
 }

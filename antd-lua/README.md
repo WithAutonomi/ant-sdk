@@ -112,7 +112,7 @@ All methods return `value, err` following Lua convention. On success `err` is `n
 | `client:data_get_public(address)` | Retrieve public data |
 | `client:data_put_private(data)` | Store encrypted private data |
 | `client:data_get_private(data_map)` | Retrieve private data |
-| `client:data_cost(data)` | Estimate storage cost |
+| `client:data_cost(data)` | Estimate storage cost — returns a table with `cost`, `file_size`, `chunk_count`, `estimated_gas_cost_wei`, `payment_mode` |
 
 ### Chunks
 
@@ -129,7 +129,7 @@ All methods return `value, err` following Lua convention. On success `err` is `n
 | `client:file_download_public(address, dest_path)` | Download a file |
 | `client:dir_upload_public(path)` | Upload a directory |
 | `client:dir_download_public(address, dest_path)` | Download a directory |
-| `client:file_cost(path, is_public)` | Estimate upload cost |
+| `client:file_cost(path, is_public)` | Estimate upload cost — returns a table with `cost`, `file_size`, `chunk_count`, `estimated_gas_cost_wei`, `payment_mode` |
 
 ## Error Handling
 

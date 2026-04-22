@@ -79,7 +79,7 @@ All methods are async and return `Task<T>`. The client implements `IDisposable`.
 | `DataGetPublicAsync(string address)` | `byte[]` | Retrieve public data |
 | `DataPutPrivateAsync(byte[] data)` | `PutResult` | Store private data |
 | `DataGetPrivateAsync(string dataMap)` | `byte[]` | Retrieve private data |
-| `DataCostAsync(byte[] data)` | `string` | Estimate storage cost |
+| `DataCostAsync(byte[] data)` | `UploadCostEstimate` | Estimate storage cost — size, chunks, gas, payment mode |
 
 ### Chunks
 
@@ -96,7 +96,7 @@ All methods are async and return `Task<T>`. The client implements `IDisposable`.
 | `FileDownloadPublicAsync(string address, string dest)` | — | Download file |
 | `DirUploadPublicAsync(string path)` | `FileUploadResult` | Upload directory |
 | `DirDownloadPublicAsync(string address, string dest)` | — | Download directory |
-| `FileCostAsync(string path, bool isPublic)` | `string` | Estimate cost |
+| `FileCostAsync(string path, bool isPublic)` | `UploadCostEstimate` | Estimate cost — size, chunks, gas, payment mode |
 
 ## Models
 

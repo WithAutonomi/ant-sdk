@@ -17,8 +17,12 @@ with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
 
 try:
     # Estimate cost
-    cost = client.file_cost(src_path)
-    print(f"File upload cost estimate: {cost} atto tokens")
+    est = client.file_cost(src_path)
+    print(
+        f"Estimate: {est.file_size} bytes in {est.chunk_count} chunks, "
+        f"storage {est.cost} atto, gas {est.estimated_gas_cost_wei} wei, "
+        f"mode {est.payment_mode}"
+    )
 
     # Upload file
     result = client.file_upload_public(src_path)

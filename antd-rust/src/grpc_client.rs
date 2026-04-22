@@ -158,8 +158,8 @@ impl GrpcClient {
         Ok(resp.data)
     }
 
-    /// Estimates the cost of storing data.
-    pub async fn data_cost(&self, data: &[u8]) -> Result<String, AntdError> {
+    /// Returns a pre-upload cost breakdown for the given bytes.
+    pub async fn data_cost(&self, data: &[u8]) -> Result<UploadCostEstimate, AntdError> {
         let resp = self
             .data
             .clone()
@@ -169,7 +169,13 @@ impl GrpcClient {
             .await?
             .into_inner();
 
-        Ok(resp.atto_tokens)
+        Ok(UploadCostEstimate {
+            cost: resp.atto_tokens,
+            file_size: resp.file_size,
+            chunk_count: resp.chunk_count,
+            estimated_gas_cost_wei: resp.estimated_gas_cost_wei,
+            payment_mode: resp.payment_mode,
+        })
     }
 
     // --- Chunks ---
@@ -286,12 +292,12 @@ impl GrpcClient {
         Ok(())
     }
 
-    /// Estimates the cost of uploading a file.
+    /// Returns a pre-upload cost breakdown for the file at `path`.
     pub async fn file_cost(
         &self,
         path: &str,
         is_public: bool,
-    ) -> Result<String, AntdError> {
+    ) -> Result<UploadCostEstimate, AntdError> {
         let resp = self
             .files
             .clone()
@@ -302,6 +308,12 @@ impl GrpcClient {
             .await?
             .into_inner();
 
-        Ok(resp.atto_tokens)
+        Ok(UploadCostEstimate {
+            cost: resp.atto_tokens,
+            file_size: resp.file_size,
+            chunk_count: resp.chunk_count,
+            estimated_gas_cost_wei: resp.estimated_gas_cost_wei,
+            payment_mode: resp.payment_mode,
+        })
     }
 }

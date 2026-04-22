@@ -89,9 +89,11 @@ System.out.println("Cost: " + result.cost() + " atto tokens");
 byte[] data = client.dataGetPublic(result.address());
 System.out.println(new String(data, StandardCharsets.UTF_8)); // "Hello, Autonomi!"
 
-// Cost estimation
-long cost = client.dataCost(payload);
-System.out.println("Would cost: " + cost + " atto tokens");
+// Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
+UploadCostEstimate est = client.dataCost(payload);
+System.out.println("Estimate: " + est.fileSize() + " bytes in " + est.chunkCount()
+    + " chunks, " + est.cost() + " atto, gas " + est.estimatedGasCostWei()
+    + " wei, mode " + est.paymentMode());
 ```
 
 ## Private Data
@@ -123,8 +125,8 @@ var dirResult = client.dirUploadPublic("/path/to/directory");
 // Download a directory
 client.dirDownloadPublic(dirResult.address(), "/path/to/output_dir");
 
-// Cost estimation
-long cost = client.fileCost("/path/to/file.txt");
+// Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
+UploadCostEstimate est = client.fileCost("/path/to/file.txt");
 ```
 
 

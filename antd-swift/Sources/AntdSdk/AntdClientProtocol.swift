@@ -14,7 +14,7 @@ public protocol AntdClientProtocol: Sendable {
     func dataGetPublic(address: String) async throws -> Data
     func dataPutPrivate(_ data: Data, paymentMode: String?) async throws -> PutResult
     func dataGetPrivate(dataMap: String) async throws -> Data
-    func dataCost(_ data: Data) async throws -> String
+    func dataCost(_ data: Data) async throws -> UploadCostEstimate
 
     // Chunks
     func chunkPut(_ data: Data) async throws -> PutResult
@@ -25,7 +25,7 @@ public protocol AntdClientProtocol: Sendable {
     func fileDownloadPublic(address: String, destPath: String) async throws
     func dirUploadPublic(path: String, paymentMode: String?) async throws -> FileUploadResult
     func dirDownloadPublic(address: String, destPath: String) async throws
-    func fileCost(path: String, isPublic: Bool) async throws -> String
+    func fileCost(path: String, isPublic: Bool) async throws -> UploadCostEstimate
 
     // Wallet
     func walletAddress() async throws -> WalletAddress

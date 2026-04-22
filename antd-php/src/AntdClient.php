@@ -12,6 +12,7 @@ use Autonomi\Antd\Errors\ErrorFactory;
 use Autonomi\Antd\Models\FileUploadResult;
 use Autonomi\Antd\Models\HealthStatus;
 use Autonomi\Antd\Models\PutResult;
+use Autonomi\Antd\Models\UploadCostEstimate;
 
 /**
  * REST client for the antd daemon.
@@ -318,27 +319,39 @@ class AntdClient
     }
 
     /**
-     * Estimate the cost of storing data.
+     * Pre-upload cost breakdown for the given bytes.
      */
-    public function dataCost(string $data): string
+    public function dataCost(string $data): UploadCostEstimate
     {
         $json = $this->doJson('POST', '/v1/data/cost', [
             'data' => $this->b64Encode($data),
         ]);
-        return $json['cost'] ?? '';
+        return new UploadCostEstimate(
+            cost: $json['cost'] ?? '',
+            fileSize: (int) ($json['file_size'] ?? 0),
+            chunkCount: (int) ($json['chunk_count'] ?? 0),
+            estimatedGasCostWei: $json['estimated_gas_cost_wei'] ?? '',
+            paymentMode: $json['payment_mode'] ?? '',
+        );
     }
 
     /**
-     * Async: Estimate the cost of storing data.
+     * Async: pre-upload cost breakdown for the given bytes.
      *
-     * @return PromiseInterface<string>
+     * @return PromiseInterface<UploadCostEstimate>
      */
     public function dataCostAsync(string $data): PromiseInterface
     {
         return $this->doJsonAsync('POST', '/v1/data/cost', [
             'data' => $this->b64Encode($data),
         ])->then(
-            fn(?array $json) => $json['cost'] ?? '',
+            fn(?array $json) => new UploadCostEstimate(
+                cost: $json['cost'] ?? '',
+                fileSize: (int) ($json['file_size'] ?? 0),
+                chunkCount: (int) ($json['chunk_count'] ?? 0),
+                estimatedGasCostWei: $json['estimated_gas_cost_wei'] ?? '',
+                paymentMode: $json['payment_mode'] ?? '',
+            ),
         );
     }
 
@@ -598,13 +611,19 @@ class AntdClient
     /**
      * Estimate the cost of uploading a file.
      */
-    public function fileCost(string $path, bool $isPublic): string
+    public function fileCost(string $path, bool $isPublic): UploadCostEstimate
     {
-        $json = $this->doJson('POST', '/v1/cost/file', [
+        $json = $this->doJson('POST', '/v1/files/cost', [
             'path' => $path,
             'is_public' => $isPublic,
         ]);
-        return $json['cost'] ?? '';
+        return new UploadCostEstimate(
+            cost: $json['cost'] ?? '',
+            fileSize: (int) ($json['file_size'] ?? 0),
+            chunkCount: (int) ($json['chunk_count'] ?? 0),
+            estimatedGasCostWei: $json['estimated_gas_cost_wei'] ?? '',
+            paymentMode: $json['payment_mode'] ?? '',
+        );
     }
 
     /**
@@ -614,11 +633,17 @@ class AntdClient
      */
     public function fileCostAsync(string $path, bool $isPublic): PromiseInterface
     {
-        return $this->doJsonAsync('POST', '/v1/cost/file', [
+        return $this->doJsonAsync('POST', '/v1/files/cost', [
             'path' => $path,
             'is_public' => $isPublic,
         ])->then(
-            fn(?array $json) => $json['cost'] ?? '',
+            fn(?array $json) => new UploadCostEstimate(
+                cost: $json['cost'] ?? '',
+                fileSize: (int) ($json['file_size'] ?? 0),
+                chunkCount: (int) ($json['chunk_count'] ?? 0),
+                estimatedGasCostWei: $json['estimated_gas_cost_wei'] ?? '',
+                paymentMode: $json['payment_mode'] ?? '',
+            ),
         );
     }
 

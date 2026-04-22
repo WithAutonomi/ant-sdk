@@ -102,9 +102,14 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         return decoded
     }
 
-    public func dataCost(_ data: Data) async throws -> String {
+    public func dataCost(_ data: Data) async throws -> UploadCostEstimate {
         let resp: CostDTO = try await postJSON("/v1/data/cost", body: ["data": data.base64EncodedString()])
-        return resp.cost
+        return UploadCostEstimate(
+            cost: resp.cost,
+            fileSize: resp.file_size ?? 0,
+            chunkCount: resp.chunk_count ?? 0,
+            estimatedGasCostWei: resp.estimated_gas_cost_wei ?? "",
+            paymentMode: resp.payment_mode ?? "")
     }
 
     // MARK: - Chunks
@@ -156,10 +161,15 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         try await postJSONNoResult("/v1/dirs/download/public", body: ["address": address, "dest_path": destPath])
     }
 
-    public func fileCost(path: String, isPublic: Bool = true) async throws -> String {
+    public func fileCost(path: String, isPublic: Bool = true) async throws -> UploadCostEstimate {
         let body: [String: Any] = ["path": path, "is_public": isPublic]
-        let resp: CostDTO = try await postJSON("/v1/cost/file", body: body)
-        return resp.cost
+        let resp: CostDTO = try await postJSON("/v1/files/cost", body: body)
+        return UploadCostEstimate(
+            cost: resp.cost,
+            fileSize: resp.file_size ?? 0,
+            chunkCount: resp.chunk_count ?? 0,
+            estimatedGasCostWei: resp.estimated_gas_cost_wei ?? "",
+            paymentMode: resp.payment_mode ?? "")
     }
 
     // MARK: - Wallet
@@ -275,6 +285,10 @@ private struct DataDTO: Decodable {
 
 private struct CostDTO: Decodable {
     let cost: String
+    let file_size: UInt64?
+    let chunk_count: UInt32?
+    let estimated_gas_cost_wei: String?
+    let payment_mode: String?
 }
 
 private struct WalletAddressDTO: Decodable {

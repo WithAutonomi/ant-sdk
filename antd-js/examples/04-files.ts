@@ -18,8 +18,12 @@ writeFileSync(srcPath, "Hello from a file on Autonomi!");
 
 try {
   // Estimate cost
-  const cost = await client.fileCost(srcPath);
-  console.log(`File upload cost estimate: ${cost} atto tokens`);
+  const est = await client.fileCost(srcPath);
+  console.log(
+    `Estimate: ${est.fileSize} bytes in ${est.chunkCount} chunks, ` +
+      `storage ${est.cost} atto, gas ${est.estimatedGasCostWei} wei, ` +
+      `mode ${est.paymentMode}`
+  );
 
   // Upload file
   const result = await client.fileUploadPublic(srcPath);

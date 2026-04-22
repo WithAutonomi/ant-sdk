@@ -62,7 +62,7 @@ fn mock_data_cost(server: &mut ServerGuard) -> Mock {
         .mock("POST", "/v1/data/cost")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"cost":"50"}"#)
+        .with_body(r#"{"cost":"50","file_size":4,"chunk_count":3,"estimated_gas_cost_wei":"150000000000000","payment_mode":"single"}"#)
         .create()
 }
 
@@ -123,10 +123,10 @@ fn mock_dir_download_public(server: &mut ServerGuard) -> Mock {
 
 fn mock_file_cost(server: &mut ServerGuard) -> Mock {
     server
-        .mock("POST", "/v1/cost/file")
+        .mock("POST", "/v1/files/cost")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"cost":"1000"}"#)
+        .with_body(r#"{"cost":"1000","file_size":4096,"chunk_count":3,"estimated_gas_cost_wei":"150000000000000","payment_mode":"auto"}"#)
         .create()
 }
 
@@ -251,8 +251,12 @@ async fn test_data_cost() {
     let _m = mock_data_cost(&mut server);
     let client = Client::new(&server.url());
 
-    let cost = client.data_cost(b"test").await.unwrap();
-    assert_eq!(cost, "50");
+    let est = client.data_cost(b"test").await.unwrap();
+    assert_eq!(est.cost, "50");
+    assert_eq!(est.file_size, 4);
+    assert_eq!(est.chunk_count, 3);
+    assert_eq!(est.estimated_gas_cost_wei, "150000000000000");
+    assert_eq!(est.payment_mode, "single");
 }
 
 #[tokio::test]
@@ -334,11 +338,15 @@ async fn test_file_cost() {
     let _m = mock_file_cost(&mut server);
     let client = Client::new(&server.url());
 
-    let cost = client
+    let est = client
         .file_cost("/tmp/test.txt", true)
         .await
         .unwrap();
-    assert_eq!(cost, "1000");
+    assert_eq!(est.cost, "1000");
+    assert_eq!(est.file_size, 4096);
+    assert_eq!(est.chunk_count, 3);
+    assert_eq!(est.estimated_gas_cost_wei, "150000000000000");
+    assert_eq!(est.payment_mode, "auto");
 }
 
 #[tokio::test]

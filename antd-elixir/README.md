@@ -137,7 +137,7 @@ All functions take a `%Antd.Client{}` as the first argument. Each returns `{:ok,
 | `data_get_public(client, address)` | Retrieve public data |
 | `data_put_private(client, data)` | Store encrypted private data |
 | `data_get_private(client, data_map)` | Retrieve private data |
-| `data_cost(client, data)` | Estimate storage cost |
+| `data_cost(client, data)` | Estimate storage cost — returns `Antd.UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ### Chunks
 
@@ -154,7 +154,7 @@ All functions take a `%Antd.Client{}` as the first argument. Each returns `{:ok,
 | `file_download_public(client, address, dest_path)` | Download a file |
 | `dir_upload_public(client, path)` | Upload a directory |
 | `dir_download_public(client, address, dest_path)` | Download a directory |
-| `file_cost(client, path, is_public)` | Estimate upload cost |
+| `file_cost(client, path, is_public)` | Estimate upload cost — returns `Antd.UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ## Error Handling
 

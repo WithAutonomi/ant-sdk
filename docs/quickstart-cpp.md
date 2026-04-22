@@ -90,9 +90,10 @@ auto data = client.data_get_public(result.address);
 std::string text(data.begin(), data.end());
 std::println("{}", text); // "Hello, Autonomi!"
 
-// Cost estimation
-auto cost = client.data_cost(payload);
-std::println("Would cost: {} atto tokens", cost);
+// Cost estimation — returns size, chunks, gas, and payment mode
+auto est = client.data_cost(payload);
+std::println("Estimate: {} bytes in {} chunks, {} atto, gas {} wei, mode {}",
+             est.file_size, est.chunk_count, est.cost, est.estimated_gas_cost_wei, est.payment_mode);
 ```
 
 ## Private Data
@@ -128,8 +129,8 @@ auto dir_result = client.dir_upload_public("/path/to/directory");
 // Download a directory
 client.dir_download_public(dir_result.address, "/path/to/output_dir");
 
-// Cost estimation
-auto cost = client.file_cost("/path/to/file.txt");
+// Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
+auto est = client.file_cost("/path/to/file.txt");
 ```
 
 

@@ -70,11 +70,16 @@ class TestClient < Minitest::Test
 
   def test_data_cost
     stub_request(:post, "#{BASE}/v1/data/cost")
-      .to_return(status: 200, body: '{"cost":"50"}',
+      .to_return(status: 200,
+                 body: '{"cost":"50","file_size":4,"chunk_count":3,"estimated_gas_cost_wei":"150000000000000","payment_mode":"single"}',
                  headers: { "Content-Type" => "application/json" })
 
-    cost = @client.data_cost("test")
-    assert_equal "50", cost
+    est = @client.data_cost("test")
+    assert_equal "50", est.cost
+    assert_equal 4, est.file_size
+    assert_equal 3, est.chunk_count
+    assert_equal "150000000000000", est.estimated_gas_cost_wei
+    assert_equal "single", est.payment_mode
   end
 
   # --- Chunks ---
@@ -146,12 +151,17 @@ class TestClient < Minitest::Test
   end
 
   def test_file_cost
-    stub_request(:post, "#{BASE}/v1/cost/file")
-      .to_return(status: 200, body: '{"cost":"1000"}',
+    stub_request(:post, "#{BASE}/v1/files/cost")
+      .to_return(status: 200,
+                 body: '{"cost":"1000","file_size":4096,"chunk_count":3,"estimated_gas_cost_wei":"150000000000000","payment_mode":"auto"}',
                  headers: { "Content-Type" => "application/json" })
 
-    cost = @client.file_cost("/tmp/test.txt", true)
-    assert_equal "1000", cost
+    est = @client.file_cost("/tmp/test.txt", true)
+    assert_equal "1000", est.cost
+    assert_equal 4096, est.file_size
+    assert_equal 3, est.chunk_count
+    assert_equal "150000000000000", est.estimated_gas_cost_wei
+    assert_equal "auto", est.payment_mode
   end
 
   # --- Merkle Batch Payment ---

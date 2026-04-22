@@ -221,12 +221,23 @@ public sealed class AntdRestClientTests : IDisposable
     [Fact]
     public async Task DataCostAsync_ReturnsCost()
     {
-        _server.RouteOk("POST", "/v1/data/cost", new { cost = "7" });
+        _server.RouteOk("POST", "/v1/data/cost", new
+        {
+            cost = "7",
+            file_size = 4,
+            chunk_count = 3,
+            estimated_gas_cost_wei = "150000000000000",
+            payment_mode = "single",
+        });
         _server.Start();
 
-        var result = await _client.DataCostAsync(Encoding.UTF8.GetBytes("estimate me"));
+        var est = await _client.DataCostAsync(Encoding.UTF8.GetBytes("estimate me"));
 
-        Assert.Equal("7", result);
+        Assert.Equal("7", est.Cost);
+        Assert.Equal(4UL, est.FileSize);
+        Assert.Equal(3U, est.ChunkCount);
+        Assert.Equal("150000000000000", est.EstimatedGasCostWei);
+        Assert.Equal("single", est.PaymentMode);
     }
 
     // ── Chunks ──

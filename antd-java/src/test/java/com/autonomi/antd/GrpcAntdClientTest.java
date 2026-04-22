@@ -155,7 +155,13 @@ class GrpcAntdClientTest {
         public void getCost(DataCostRequest request,
                             StreamObserver<Cost> responseObserver) {
             responseObserver.onNext(
-                    Cost.newBuilder().setAttoTokens("50").build());
+                    Cost.newBuilder()
+                            .setAttoTokens("50")
+                            .setFileSize(4)
+                            .setChunkCount(3)
+                            .setEstimatedGasCostWei("150000000000000")
+                            .setPaymentMode("single")
+                            .build());
             responseObserver.onCompleted();
         }
     }
@@ -230,7 +236,13 @@ class GrpcAntdClientTest {
         public void getFileCost(FileCostRequest request,
                                 StreamObserver<Cost> responseObserver) {
             responseObserver.onNext(
-                    Cost.newBuilder().setAttoTokens("1000").build());
+                    Cost.newBuilder()
+                            .setAttoTokens("1000")
+                            .setFileSize(4096)
+                            .setChunkCount(3)
+                            .setEstimatedGasCostWei("150000000000000")
+                            .setPaymentMode("auto")
+                            .build());
             responseObserver.onCompleted();
         }
     }
@@ -278,8 +290,12 @@ class GrpcAntdClientTest {
 
     @Test
     void testDataCost() {
-        String cost = client.dataCost("test".getBytes());
-        assertEquals("50", cost);
+        UploadCostEstimate est = client.dataCost("test".getBytes());
+        assertEquals("50", est.cost());
+        assertEquals(4L, est.fileSize());
+        assertEquals(3, est.chunkCount());
+        assertEquals("150000000000000", est.estimatedGasCostWei());
+        assertEquals("single", est.paymentMode());
     }
 
     // --- Chunks ---
@@ -331,8 +347,12 @@ class GrpcAntdClientTest {
 
     @Test
     void testFileCost() {
-        String cost = client.fileCost("/tmp/test.txt", true);
-        assertEquals("1000", cost);
+        UploadCostEstimate est = client.fileCost("/tmp/test.txt", true);
+        assertEquals("1000", est.cost());
+        assertEquals(4096L, est.fileSize());
+        assertEquals(3, est.chunkCount());
+        assertEquals("150000000000000", est.estimatedGasCostWei());
+        assertEquals("auto", est.paymentMode());
     }
 
     // =========================================================================

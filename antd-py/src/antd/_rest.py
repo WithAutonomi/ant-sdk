@@ -17,6 +17,7 @@ from .models import (
     PoolCommitmentEntry,
     PrepareUploadResult,
     PutResult,
+    UploadCostEstimate,
     WalletAddress,
     WalletBalance,
 )
@@ -30,6 +31,17 @@ def _parse_file_upload_result(j: dict) -> FileUploadResult:
         gas_cost_wei=j.get("gas_cost_wei", ""),
         chunks_stored=int(j.get("chunks_stored", 0)),
         payment_mode_used=j.get("payment_mode_used", ""),
+    )
+
+
+def _parse_cost_estimate(j: dict) -> UploadCostEstimate:
+    """Parse a cost-estimate JSON response into an UploadCostEstimate."""
+    return UploadCostEstimate(
+        cost=j.get("cost", ""),
+        file_size=int(j.get("file_size", 0)),
+        chunk_count=int(j.get("chunk_count", 0)),
+        estimated_gas_cost_wei=j.get("estimated_gas_cost_wei", ""),
+        payment_mode=j.get("payment_mode", ""),
     )
 
 if TYPE_CHECKING:
@@ -164,10 +176,15 @@ class RestClient:
         _check(resp)
         return _unb64(resp.json().get("data", ""))
 
-    def data_cost(self, data: bytes) -> str:
+    def data_cost(self, data: bytes) -> UploadCostEstimate:
+        """Pre-upload cost breakdown for the given bytes.
+
+        The server samples a small number of chunk addresses and extrapolates,
+        much faster than quoting every chunk on slow networks. Gas is advisory.
+        """
         resp = self._http.post("/v1/data/cost", json={"data": _b64(data)})
         _check(resp)
-        return resp.json().get("cost", "")
+        return _parse_cost_estimate(resp.json())
 
     # --- Chunks ---
 
@@ -214,13 +231,18 @@ class RestClient:
         })
         _check(resp)
 
-    def file_cost(self, path: str, is_public: bool = True) -> str:
-        resp = self._http.post("/v1/cost/file", json={
+    def file_cost(self, path: str, is_public: bool = True) -> UploadCostEstimate:
+        """Pre-upload cost breakdown for the file at ``path``.
+
+        The server samples a small number of chunk addresses and extrapolates,
+        much faster than quoting every chunk on slow networks. Gas is advisory.
+        """
+        resp = self._http.post("/v1/files/cost", json={
             "path": path,
             "is_public": is_public,
         })
         _check(resp)
-        return resp.json().get("cost", "")
+        return _parse_cost_estimate(resp.json())
 
     # --- Wallet ---
 
@@ -370,10 +392,11 @@ class AsyncRestClient:
         _check(resp)
         return _unb64(resp.json().get("data", ""))
 
-    async def data_cost(self, data: bytes) -> str:
+    async def data_cost(self, data: bytes) -> UploadCostEstimate:
+        """Pre-upload cost breakdown for the given bytes."""
         resp = await self._http.post("/v1/data/cost", json={"data": _b64(data)})
         _check(resp)
-        return resp.json().get("cost", "")
+        return _parse_cost_estimate(resp.json())
 
     # --- Chunks ---
 
@@ -420,13 +443,14 @@ class AsyncRestClient:
         })
         _check(resp)
 
-    async def file_cost(self, path: str, is_public: bool = True) -> str:
-        resp = await self._http.post("/v1/cost/file", json={
+    async def file_cost(self, path: str, is_public: bool = True) -> UploadCostEstimate:
+        """Pre-upload cost breakdown for the file at ``path``."""
+        resp = await self._http.post("/v1/files/cost", json={
             "path": path,
             "is_public": is_public,
         })
         _check(resp)
-        return resp.json().get("cost", "")
+        return _parse_cost_estimate(resp.json())
 
     # --- Wallet ---
 

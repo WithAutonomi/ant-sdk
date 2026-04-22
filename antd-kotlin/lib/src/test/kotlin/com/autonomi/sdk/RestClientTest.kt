@@ -61,7 +61,7 @@ class RestClientTest {
 
             // Data cost
             if (method == "POST" && path == "/v1/data/cost") {
-                return json("""{"cost":"50"}""")
+                return json("""{"cost":"50","file_size":4,"chunk_count":3,"estimated_gas_cost_wei":"150000000000000","payment_mode":"single"}""")
             }
 
             // Chunks
@@ -85,8 +85,8 @@ class RestClientTest {
             if (method == "POST" && path == "/v1/dirs/download/public") {
                 return MockResponse().setResponseCode(200)
             }
-            if (method == "POST" && path == "/v1/cost/file") {
-                return json("""{"cost":"1000"}""")
+            if (method == "POST" && path == "/v1/files/cost") {
+                return json("""{"cost":"1000","file_size":4096,"chunk_count":3,"estimated_gas_cost_wei":"150000000000000","payment_mode":"auto"}""")
             }
 
             // 404 fallback
@@ -145,9 +145,13 @@ class RestClientTest {
     }
 
     @Test
-    fun `dataCost returns cost string`() = runTest {
-        val cost = client.dataCost("test".toByteArray())
-        assertEquals("50", cost)
+    fun `dataCost returns full breakdown`() = runTest {
+        val est = client.dataCost("test".toByteArray())
+        assertEquals("50", est.cost)
+        assertEquals(4uL, est.fileSize)
+        assertEquals(3u, est.chunkCount)
+        assertEquals("150000000000000", est.estimatedGasCostWei)
+        assertEquals("single", est.paymentMode)
     }
 
     @Test
@@ -194,9 +198,13 @@ class RestClientTest {
     }
 
     @Test
-    fun `fileCost returns cost string`() = runTest {
-        val cost = client.fileCost("/tmp/test.txt", true)
-        assertEquals("1000", cost)
+    fun `fileCost returns full breakdown`() = runTest {
+        val est = client.fileCost("/tmp/test.txt", true)
+        assertEquals("1000", est.cost)
+        assertEquals(4096uL, est.fileSize)
+        assertEquals(3u, est.chunkCount)
+        assertEquals("150000000000000", est.estimatedGasCostWei)
+        assertEquals("auto", est.paymentMode)
     }
 
     // -------------------------------------------------------------------------

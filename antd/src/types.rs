@@ -208,7 +208,18 @@ pub struct DirUploadPublicResponse {
 
 #[derive(Serialize)]
 pub struct CostResponse {
+    /// Storage cost in atto tokens as a string.
     pub cost: String,
+    /// Original file size in bytes.
+    pub file_size: u64,
+    /// Number of data chunks the file would split into.
+    pub chunk_count: usize,
+    /// Estimated gas cost in wei as a string (advisory heuristic, not a
+    /// live gas-oracle query). String shape matches `cost` to avoid JS
+    /// integer overflow.
+    pub estimated_gas_cost_wei: String,
+    /// Payment mode that would be used: `"auto" | "merkle" | "single"`.
+    pub payment_mode: String,
 }
 
 #[derive(Deserialize)]

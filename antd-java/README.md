@@ -100,7 +100,7 @@ All methods throw `AntdException` (or a typed subclass) on failure.
 | `dataGetPublic(address)` | Retrieve public data |
 | `dataPutPrivate(data)` | Store encrypted private data |
 | `dataGetPrivate(dataMap)` | Retrieve private data |
-| `dataCost(data)` | Estimate storage cost |
+| `dataCost(data)` | Estimate storage cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ### Chunks
 
@@ -117,7 +117,7 @@ All methods throw `AntdException` (or a typed subclass) on failure.
 | `fileDownloadPublic(address, destPath)` | Download a file |
 | `dirUploadPublic(path)` | Upload a directory |
 | `dirDownloadPublic(address, destPath)` | Download a directory |
-| `fileCost(path, isPublic)` | Estimate upload cost |
+| `fileCost(path, isPublic)` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ## Async Usage
 

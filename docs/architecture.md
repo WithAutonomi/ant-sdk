@@ -80,9 +80,9 @@ Use for: file hosting, static websites, media storage.
 Every write operation costs network tokens (measured in "atto tokens" — 1 token = 10^18 atto).
 
 ```python
-# Estimate before committing
-cost = client.data_cost(data)
-print(f"This will cost {cost} atto tokens")
+# Estimate before committing — returns size, chunks, gas, and payment mode
+est = client.data_cost(data)
+print(f"This will cost {est.cost} atto tokens ({est.chunk_count} chunks, gas {est.estimated_gas_cost_wei} wei)")
 
 # The actual write returns the real cost
 result = client.data_put_public(data)

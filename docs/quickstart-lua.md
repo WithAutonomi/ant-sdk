@@ -61,10 +61,12 @@ local data, err = client:data_get_public(result.address)
 if err then error(err) end
 print(data)  -- "Hello, Autonomi!"
 
--- Cost estimation
-local cost, err = client:data_cost("some data")
+-- Cost estimation — returns a table with cost, file_size, chunk_count,
+-- estimated_gas_cost_wei, payment_mode
+local est, err = client:data_cost("some data")
 if err then error(err) end
-print("Would cost: " .. cost .. " atto tokens")
+print(string.format("Estimate: %d bytes in %d chunks, %s atto, gas %s wei, mode %s",
+    est.file_size, est.chunk_count, est.cost, est.estimated_gas_cost_wei, est.payment_mode))
 ```
 
 ## Private Data
@@ -103,8 +105,8 @@ if err then error(err) end
 local ok, err = client:dir_download_public(result.address, "/path/to/output_dir")
 if err then error(err) end
 
--- Cost estimation
-local cost, err = client:file_cost("/path/to/file.txt")
+-- Cost estimation — returns a table with size, chunks, gas, payment mode
+local est, err = client:file_cost("/path/to/file.txt")
 if err then error(err) end
 ```
 

@@ -39,8 +39,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Directory downloaded");
 
     // Estimate file upload cost
-    let cost = client.file_cost("/tmp/example.txt", true).await?;
-    println!("Estimated cost: {} atto", cost);
+    let est = client.file_cost("/tmp/example.txt", true).await?;
+    println!(
+        "Estimate: {} bytes in {} chunks, storage {} atto, gas {} wei, mode {}",
+        est.file_size, est.chunk_count, est.cost, est.estimated_gas_cost_wei, est.payment_mode
+    );
 
     Ok(())
 }

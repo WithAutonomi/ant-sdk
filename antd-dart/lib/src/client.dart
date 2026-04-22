@@ -175,12 +175,15 @@ class AntdClient {
     return _b64Decode(json!['data'] as String);
   }
 
-  /// Estimates the cost of storing data.
-  Future<String> dataCost(Uint8List data) async {
+  /// Pre-upload cost breakdown for the given bytes.
+  ///
+  /// The server samples a small number of chunk addresses and extrapolates,
+  /// much faster than quoting every chunk on slow networks. Gas is advisory.
+  Future<UploadCostEstimate> dataCost(Uint8List data) async {
     final json = await _doJson('POST', '/v1/data/cost', {
       'data': _b64Encode(data),
     });
-    return json!['cost'] as String;
+    return UploadCostEstimate.fromJson(json!);
   }
 
   // --- Chunks ---
@@ -237,16 +240,16 @@ class AntdClient {
     });
   }
 
-  /// Estimates the cost of uploading a file.
-  Future<String> fileCost(
+  /// Pre-upload cost breakdown for the file at [path].
+  Future<UploadCostEstimate> fileCost(
     String path, {
     bool isPublic = true,
   }) async {
-    final json = await _doJson('POST', '/v1/cost/file', {
+    final json = await _doJson('POST', '/v1/files/cost', {
       'path': path,
       'is_public': isPublic,
     });
-    return json!['cost'] as String;
+    return UploadCostEstimate.fromJson(json!);
   }
 
   // --- Wallet ---
