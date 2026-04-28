@@ -5,21 +5,31 @@ use axum::extract::State;
 use axum::Json;
 
 use crate::error::AntdError;
+use crate::evm_defaults;
 use crate::state::AppState;
 use crate::types::*;
 
 /// Build a [`PrepareUploadResponse`] from a prepared upload, matching on the
 /// payment variant (wave-batch vs merkle) and serialising the appropriate fields.
+///
+/// The EVM addresses returned to the external signer are resolved through
+/// [`evm_defaults::resolve`] using the daemon's configured network — the same
+/// path that constructs the daemon's own internal-wallet client. Reading the
+/// raw `EVM_RPC_URL` / `EVM_PAYMENT_TOKEN_ADDRESS` / `EVM_PAYMENT_VAULT_ADDRESS`
+/// env vars here was a bug: an antd launched without those env vars (the
+/// expected mainnet shape, where the preset alone is enough) returned an
+/// empty token address and `http://127.0.0.1:8545` as the RPC URL, causing
+/// external signers (e.g. indelible) to call ERC-20 `approve` against the
+/// zero address and revert at gas estimation.
 fn build_prepare_response(
     upload_id: String,
     prepared: &ant_core::data::PreparedUpload,
+    network: &str,
 ) -> Result<PrepareUploadResponse, AntdError> {
-    let rpc_url =
-        std::env::var("EVM_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:8545".to_string());
-    let payment_token_address = std::env::var("EVM_PAYMENT_TOKEN_ADDRESS").unwrap_or_default();
-    let payment_vault_address = std::env::var("EVM_PAYMENT_VAULT_ADDRESS")
-        .or_else(|_| std::env::var("EVM_DATA_PAYMENTS_ADDRESS"))
-        .unwrap_or_default();
+    let evm_cfg = evm_defaults::resolve(network);
+    let rpc_url = evm_cfg.rpc_url;
+    let payment_token_address = evm_cfg.token_addr;
+    let payment_vault_address = evm_cfg.vault_addr;
 
     match &prepared.payment_info {
         ant_core::data::ExternalPaymentInfo::WaveBatch { payment_intent, .. } => {
@@ -115,7 +125,7 @@ pub async fn prepare_upload(
 
     // Generate a unique upload ID and store the prepared state
     let upload_id = hex::encode(rand::random::<[u8; 16]>());
-    let response = build_prepare_response(upload_id.clone(), &prepared)?;
+    let response = build_prepare_response(upload_id.clone(), &prepared, &state.network)?;
 
     state.pending_uploads.lock().await.insert(
         upload_id,
@@ -154,7 +164,7 @@ pub async fn prepare_data_upload(
     .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
 
     let upload_id = hex::encode(rand::random::<[u8; 16]>());
-    let response = build_prepare_response(upload_id.clone(), &prepared)?;
+    let response = build_prepare_response(upload_id.clone(), &prepared, &state.network)?;
 
     state.pending_uploads.lock().await.insert(
         upload_id,

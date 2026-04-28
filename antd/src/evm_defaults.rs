@@ -14,21 +14,16 @@
 //! `--network local` is supplied and `arbitrum-one` otherwise — so mainnet is
 //! the well-lit path and opt-out rather than opt-in.
 //!
-//! Preset values mirror the canonical constants in
-//! `autonomi/evmlib/src/lib.rs` so antd reads/writes the same on-chain state
-//! as every other Autonomi component pointed at the same network. They are
-//! duplicated (rather than pulled from `evmlib` accessors) because the
-//! published `evmlib` crate does not yet expose them as `pub const`.
+//! Preset addresses are pulled directly from `evmlib::Network` accessors so
+//! antd reads and writes the same on-chain state as every other Autonomi
+//! component pointed at the same network. Duplicating the constants here was
+//! the cause of a wrong-vault bug after evmlib unified single-node and merkle
+//! payments into one contract: the daemon's wallet path used evmlib's
+//! `EvmNetwork::ArbitrumOne` (correct), while the external-signer prepare
+//! response handed out the stale literal — so external signers paid the old
+//! vault and storers verifying against the new vault rejected the payment.
 
-/// Arbitrum One mainnet defaults — `ARBITRUM_ONE_*` in `evmlib::lib`.
-const ARBITRUM_ONE_RPC_URL: &str = "https://arb1.arbitrum.io/rpc";
-const ARBITRUM_ONE_TOKEN: &str = "0xa78d8321B20c4Ef90eCd72f2588AA985A4BDb684";
-const ARBITRUM_ONE_VAULT: &str = "0xB1b5219f8Aaa18037A2506626Dd0406a46f70BcC";
-
-/// Arbitrum Sepolia testnet defaults — `ARBITRUM_SEPOLIA_TEST_*` in `evmlib::lib`.
-const ARBITRUM_SEPOLIA_RPC_URL: &str = "https://sepolia-rollup.arbitrum.io/rpc";
-const ARBITRUM_SEPOLIA_TOKEN: &str = "0x4bc1aCE0E66170375462cB4E6Af42Ad4D5EC689C";
-const ARBITRUM_SEPOLIA_VAULT: &str = "0x7f0842a78f7d4085d975ba91d630d680f91b1295";
+use evmlib::Network as EvmNetwork;
 
 /// Resolved EVM configuration values ready to be passed to
 /// [`evmlib::Network::new_custom`].
@@ -57,16 +52,10 @@ where
     });
 
     let (def_rpc, def_token, def_vault) = match preset.as_str() {
-        "arbitrum-one" => (
-            ARBITRUM_ONE_RPC_URL.to_string(),
-            ARBITRUM_ONE_TOKEN.to_string(),
-            ARBITRUM_ONE_VAULT.to_string(),
-        ),
-        "arbitrum-sepolia" | "arbitrum-sepolia-test" => (
-            ARBITRUM_SEPOLIA_RPC_URL.to_string(),
-            ARBITRUM_SEPOLIA_TOKEN.to_string(),
-            ARBITRUM_SEPOLIA_VAULT.to_string(),
-        ),
+        "arbitrum-one" => preset_addresses(&EvmNetwork::ArbitrumOne),
+        "arbitrum-sepolia" | "arbitrum-sepolia-test" => {
+            preset_addresses(&EvmNetwork::ArbitrumSepoliaTest)
+        }
         _ => (
             "http://127.0.0.1:8545".to_string(),
             String::new(),
@@ -88,6 +77,17 @@ where
     }
 }
 
+/// Pull `(rpc_url, payment_token_address, payment_vault_address)` from a
+/// typed `evmlib::Network`. Used so the addresses we hand to external
+/// signers track evmlib's canonical constants on every version bump.
+fn preset_addresses(network: &EvmNetwork) -> (String, String, String) {
+    (
+        network.rpc_url().to_string(),
+        network.payment_token_address().to_string(),
+        network.payment_vault_address().to_string(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,18 +105,25 @@ mod tests {
     fn default_network_picks_arbitrum_one() {
         let cfg = resolve_with("default", env(&[]));
         assert_eq!(cfg.preset, "arbitrum-one");
-        assert_eq!(cfg.rpc_url, "https://arb1.arbitrum.io/rpc");
+
+        // Cross-check against evmlib's typed enum: this is the whole point of
+        // the refactor — these MUST stay in sync, otherwise external signers
+        // pay the wrong vault.
+        let canonical = &EvmNetwork::ArbitrumOne;
+        assert_eq!(cfg.rpc_url, canonical.rpc_url().to_string());
         assert!(
             cfg.token_addr
-                .eq_ignore_ascii_case("0xa78d8321B20c4Ef90eCd72f2588AA985A4BDb684"),
-            "unexpected token addr: {}",
-            cfg.token_addr
+                .eq_ignore_ascii_case(&canonical.payment_token_address().to_string()),
+            "token addr drifted from evmlib: cfg={}, evmlib={}",
+            cfg.token_addr,
+            canonical.payment_token_address()
         );
         assert!(
             cfg.vault_addr
-                .eq_ignore_ascii_case("0xB1b5219f8Aaa18037A2506626Dd0406a46f70BcC"),
-            "unexpected vault addr: {}",
-            cfg.vault_addr
+                .eq_ignore_ascii_case(&canonical.payment_vault_address().to_string()),
+            "vault addr drifted from evmlib: cfg={}, evmlib={}",
+            cfg.vault_addr,
+            canonical.payment_vault_address()
         );
     }
 
@@ -133,12 +140,18 @@ mod tests {
     fn evm_network_sepolia_picks_sepolia_addresses() {
         let cfg = resolve_with("default", env(&[("EVM_NETWORK", "arbitrum-sepolia")]));
         assert_eq!(cfg.preset, "arbitrum-sepolia");
-        assert_eq!(cfg.rpc_url, "https://sepolia-rollup.arbitrum.io/rpc");
+
+        let canonical = &EvmNetwork::ArbitrumSepoliaTest;
+        assert_eq!(cfg.rpc_url, canonical.rpc_url().to_string());
         assert!(
             cfg.token_addr
-                .eq_ignore_ascii_case("0x4bc1aCE0E66170375462cB4E6Af42Ad4D5EC689C"),
-            "unexpected token addr: {}",
-            cfg.token_addr
+                .eq_ignore_ascii_case(&canonical.payment_token_address().to_string()),
+            "sepolia token addr drifted from evmlib"
+        );
+        assert!(
+            cfg.vault_addr
+                .eq_ignore_ascii_case(&canonical.payment_vault_address().to_string()),
+            "sepolia vault addr drifted from evmlib"
         );
     }
 
