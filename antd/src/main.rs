@@ -5,7 +5,9 @@ use std::sync::Arc;
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
-use ant_core::data::{Client, ClientConfig, CoreNodeConfig, MultiAddr, NodeMode, P2PNode, Wallet};
+use ant_core::data::{
+    Client, ClientConfig, CoreNodeConfig, EvmNetwork, MultiAddr, NodeMode, P2PNode, Wallet,
+};
 
 mod config;
 mod error;
@@ -209,10 +211,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "EVM config resolved"
     );
 
-    // Network::new_custom panics on invalid address strings, so only build it
-    // when both token and vault addresses are populated. Local mode without
-    // explicit devnet env vars intentionally leaves the client's EVM
-    // unconfigured, matching the pre-resolver behaviour.
+    // For known mainnet/testnet presets use the typed EvmNetwork variants
+    // (ArbitrumOne / ArbitrumSepoliaTest) — they encode the chain-id and
+    // pricing constants that mainnet storers' median-quote payment verifier
+    // expects. evmlib::Network::new_custom builds a Custom variant whose
+    // payment encoding is rejected by mainnet storers with
+    // "Median quote payment verification failed", silently spending the
+    // user's ANT for no actual storage. Custom is reserved for `local`
+    // devnet or when individual EVM_* env vars override the canonical
+    // contract addresses.
+    let custom_overrides = std::env::var("EVM_RPC_URL").is_ok()
+        || std::env::var("EVM_PAYMENT_TOKEN_ADDRESS").is_ok()
+        || std::env::var("EVM_PAYMENT_VAULT_ADDRESS").is_ok()
+        || std::env::var("EVM_DATA_PAYMENTS_ADDRESS").is_ok();
     if evm_cfg.token_addr.is_empty() || evm_cfg.vault_addr.is_empty() {
         tracing::warn!(
             token_empty = evm_cfg.token_addr.is_empty(),
@@ -222,8 +233,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
              EVM_PAYMENT_TOKEN_ADDRESS / EVM_PAYMENT_VAULT_ADDRESS env vars."
         );
     } else {
-        let network =
-            evmlib::Network::new_custom(&evm_cfg.rpc_url, &evm_cfg.token_addr, &evm_cfg.vault_addr);
+        let network = match (evm_cfg.preset.as_str(), custom_overrides) {
+            ("arbitrum-one", false) => EvmNetwork::ArbitrumOne,
+            ("arbitrum-sepolia" | "arbitrum-sepolia-test", false) => {
+                EvmNetwork::ArbitrumSepoliaTest
+            }
+            _ => evmlib::Network::new_custom(
+                &evm_cfg.rpc_url,
+                &evm_cfg.token_addr,
+                &evm_cfg.vault_addr,
+            ),
+        };
 
         if let Ok(wallet_key) = std::env::var("AUTONOMI_WALLET_KEY") {
             tracing::info!(rpc_url = %evm_cfg.rpc_url, "loading EVM wallet...");
