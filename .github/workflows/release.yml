@@ -40,6 +40,13 @@ jobs:
       - uses: arduino/setup-protoc@v3
         with:
           version: "25.x"
+          # Authenticate to GitHub so the action's release-list API calls
+          # use our 5,000/hr token quota instead of the per-IP unauth
+          # quota (~60/hr), which was exhausted by other macOS/Linux
+          # runners on the same egress IP and failed the v0.3.0 and
+          # v0.5.0 releases. Reproduced 2026-04-28 against runs
+          # 24506528329 and 25060322954.
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }}
