@@ -2,6 +2,7 @@ import 'dart:io';
 
 const _portFileName = 'daemon.port';
 const _dataDirName = 'ant';
+const _sdkSubDirName = 'sdk';
 
 /// Reads the daemon.port file written by antd on startup and returns the
 /// REST base URL (e.g. "http://127.0.0.1:8082").
@@ -93,29 +94,33 @@ int _parsePort(String s) {
   return n;
 }
 
-/// Returns the platform-specific data directory for ant.
-///   - Windows: %APPDATA%\ant
-///   - macOS:   ~/Library/Application Support/ant
-///   - Linux:   $XDG_DATA_HOME/ant or ~/.local/share/ant
+/// Returns the platform-specific data directory for the antd SDK daemon.
+///   - Windows: %APPDATA%\ant\sdk
+///   - macOS:   ~/Library/Application Support/ant/sdk
+///   - Linux:   $XDG_DATA_HOME/ant/sdk or ~/.local/share/ant/sdk
+///
+/// The `sdk` subdirectory keeps antd's port file separate from the ant-node
+/// daemon, which writes to the same `ant` umbrella dir.
 String _dataDir() {
+  final sep = Platform.pathSeparator;
   if (Platform.isWindows) {
     final appdata = Platform.environment['APPDATA'] ?? '';
     if (appdata.isEmpty) return '';
-    return '$appdata${Platform.pathSeparator}$_dataDirName';
+    return '$appdata$sep$_dataDirName$sep$_sdkSubDirName';
   }
 
   if (Platform.isMacOS) {
     final home = Platform.environment['HOME'] ?? '';
     if (home.isEmpty) return '';
-    return '$home/Library/Application Support/$_dataDirName';
+    return '$home/Library/Application Support/$_dataDirName/$_sdkSubDirName';
   }
 
   // Linux and others
   final xdg = Platform.environment['XDG_DATA_HOME'] ?? '';
   if (xdg.isNotEmpty) {
-    return '$xdg/$_dataDirName';
+    return '$xdg/$_dataDirName/$_sdkSubDirName';
   }
   final home = Platform.environment['HOME'] ?? '';
   if (home.isEmpty) return '';
-  return '$home/.local/share/$_dataDirName';
+  return '$home/.local/share/$_dataDirName/$_sdkSubDirName';
 }

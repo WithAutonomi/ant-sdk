@@ -20,6 +20,7 @@ namespace {
 
 constexpr const char* kPortFileName = "daemon.port";
 constexpr const char* kDataDirName = "ant";
+constexpr const char* kSdkSubDirName = "sdk";
 
 /// Check whether a process with the given PID is alive.
 bool process_alive(unsigned long pid) {
@@ -47,27 +48,30 @@ uint16_t parse_port(const std::string& s) {
     }
 }
 
-/// Return the platform-specific data directory for ant.
-///   - Windows: %APPDATA%\ant
-///   - macOS:   ~/Library/Application Support/ant
-///   - Linux:   $XDG_DATA_HOME/ant or ~/.local/share/ant
+/// Return the platform-specific data directory for the antd SDK daemon.
+///   - Windows: %APPDATA%\ant\sdk
+///   - macOS:   ~/Library/Application Support/ant/sdk
+///   - Linux:   $XDG_DATA_HOME/ant/sdk or ~/.local/share/ant/sdk
+///
+/// The `sdk` subdirectory keeps antd's port file separate from the ant-node
+/// daemon, which writes to the same `ant` umbrella dir.
 fs::path data_dir() {
 #ifdef _WIN32
     const char* appdata = std::getenv("APPDATA");
     if (!appdata || appdata[0] == '\0') return {};
-    return fs::path(appdata) / kDataDirName;
+    return fs::path(appdata) / kDataDirName / kSdkSubDirName;
 #elif defined(__APPLE__)
     const char* home = std::getenv("HOME");
     if (!home || home[0] == '\0') return {};
-    return fs::path(home) / "Library" / "Application Support" / kDataDirName;
+    return fs::path(home) / "Library" / "Application Support" / kDataDirName / kSdkSubDirName;
 #else
     const char* xdg = std::getenv("XDG_DATA_HOME");
     if (xdg && xdg[0] != '\0') {
-        return fs::path(xdg) / kDataDirName;
+        return fs::path(xdg) / kDataDirName / kSdkSubDirName;
     }
     const char* home = std::getenv("HOME");
     if (!home || home[0] == '\0') return {};
-    return fs::path(home) / ".local" / "share" / kDataDirName;
+    return fs::path(home) / ".local" / "share" / kDataDirName / kSdkSubDirName;
 #endif
 }
 

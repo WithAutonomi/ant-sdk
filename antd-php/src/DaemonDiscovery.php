@@ -11,14 +11,18 @@ namespace Autonomi\Antd;
  * and PID of the daemon process (line 3). If a PID is present and the process is
  * not alive, the file is considered stale and discovery returns empty.
  * File location is platform-specific:
- * - Windows: %APPDATA%\ant\daemon.port
- * - macOS:   ~/Library/Application Support/ant/daemon.port
- * - Linux:   $XDG_DATA_HOME/ant/daemon.port or ~/.local/share/ant/daemon.port
+ * - Windows: %APPDATA%\ant\sdk\daemon.port
+ * - macOS:   ~/Library/Application Support/ant/sdk/daemon.port
+ * - Linux:   $XDG_DATA_HOME/ant/sdk/daemon.port or ~/.local/share/ant/sdk/daemon.port
+ *
+ * The `sdk` subdirectory keeps antd's port file separate from the ant-node
+ * daemon, which writes to the same `ant` umbrella dir.
  */
 class DaemonDiscovery
 {
     private const PORT_FILE_NAME = 'daemon.port';
     private const DATA_DIR_NAME = 'ant';
+    private const SDK_SUBDIR_NAME = 'sdk';
 
     /**
      * Reads the daemon.port file and returns the REST base URL
@@ -154,25 +158,25 @@ class DaemonDiscovery
                 if ($appdata === false || $appdata === '') {
                     return '';
                 }
-                return $appdata . DIRECTORY_SEPARATOR . self::DATA_DIR_NAME;
+                return $appdata . DIRECTORY_SEPARATOR . self::DATA_DIR_NAME . DIRECTORY_SEPARATOR . self::SDK_SUBDIR_NAME;
 
             case 'Darwin':
                 $home = getenv('HOME');
                 if ($home === false || $home === '') {
                     return '';
                 }
-                return $home . '/Library/Application Support/' . self::DATA_DIR_NAME;
+                return $home . '/Library/Application Support/' . self::DATA_DIR_NAME . '/' . self::SDK_SUBDIR_NAME;
 
             default: // Linux and others
                 $xdg = getenv('XDG_DATA_HOME');
                 if ($xdg !== false && $xdg !== '') {
-                    return $xdg . '/' . self::DATA_DIR_NAME;
+                    return $xdg . '/' . self::DATA_DIR_NAME . '/' . self::SDK_SUBDIR_NAME;
                 }
                 $home = getenv('HOME');
                 if ($home === false || $home === '') {
                     return '';
                 }
-                return $home . '/.local/share/' . self::DATA_DIR_NAME;
+                return $home . '/.local/share/' . self::DATA_DIR_NAME . '/' . self::SDK_SUBDIR_NAME;
         }
     }
 }

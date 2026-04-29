@@ -4,14 +4,18 @@ use std::path::PathBuf;
 
 const PORT_FILE_NAME: &str = "daemon.port";
 const DATA_DIR_NAME: &str = "ant";
+const SDK_SUBDIR_NAME: &str = "sdk";
 
-/// Returns the platform-specific data directory for ant.
+/// Returns the platform-specific data directory for the antd SDK daemon.
 ///
-/// - Windows: `%APPDATA%\ant`
-/// - macOS:   `~/Library/Application Support/ant`
-/// - Linux:   `$XDG_DATA_HOME/ant` or `~/.local/share/ant`
+/// - Windows: `%APPDATA%\ant\sdk`
+/// - macOS:   `~/Library/Application Support/ant/sdk`
+/// - Linux:   `$XDG_DATA_HOME/ant/sdk` or `~/.local/share/ant/sdk`
+///
+/// The `sdk` subdirectory keeps antd's port file separate from the ant-node
+/// daemon, which writes to the same `ant` umbrella dir.
 fn data_dir() -> Option<PathBuf> {
-    dirs::data_dir().map(|d| d.join(DATA_DIR_NAME))
+    dirs::data_dir().map(|d| d.join(DATA_DIR_NAME).join(SDK_SUBDIR_NAME))
 }
 
 /// Returns the full path to the port file.

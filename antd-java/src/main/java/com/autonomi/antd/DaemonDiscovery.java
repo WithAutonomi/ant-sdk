@@ -16,15 +16,19 @@ import java.util.List;
  *
  * <p>Port file locations by platform:
  * <ul>
- *   <li>Windows: {@code %APPDATA%\ant\daemon.port}</li>
- *   <li>macOS:   {@code ~/Library/Application Support/ant/daemon.port}</li>
- *   <li>Linux:   {@code $XDG_DATA_HOME/ant/daemon.port} or {@code ~/.local/share/ant/daemon.port}</li>
+ *   <li>Windows: {@code %APPDATA%\ant\sdk\daemon.port}</li>
+ *   <li>macOS:   {@code ~/Library/Application Support/ant/sdk/daemon.port}</li>
+ *   <li>Linux:   {@code $XDG_DATA_HOME/ant/sdk/daemon.port} or {@code ~/.local/share/ant/sdk/daemon.port}</li>
  * </ul>
+ *
+ * <p>The {@code sdk} subdirectory keeps antd's port file separate from the
+ * ant-node daemon, which writes to the same {@code ant} umbrella dir.
  */
 public final class DaemonDiscovery {
 
     private static final String PORT_FILE_NAME = "daemon.port";
     private static final String DATA_DIR_NAME = "ant";
+    private static final String SDK_SUBDIR_NAME = "sdk";
 
     private DaemonDiscovery() {}
 
@@ -123,11 +127,11 @@ public final class DaemonDiscovery {
     }
 
     /**
-     * Returns the platform-specific data directory for ant.
+     * Returns the platform-specific data directory for the antd SDK daemon.
      * <ul>
-     *   <li>Windows: {@code %APPDATA%\ant}</li>
-     *   <li>macOS:   {@code ~/Library/Application Support/ant}</li>
-     *   <li>Linux:   {@code $XDG_DATA_HOME/ant} or {@code ~/.local/share/ant}</li>
+     *   <li>Windows: {@code %APPDATA%\ant\sdk}</li>
+     *   <li>macOS:   {@code ~/Library/Application Support/ant/sdk}</li>
+     *   <li>Linux:   {@code $XDG_DATA_HOME/ant/sdk} or {@code ~/.local/share/ant/sdk}</li>
      * </ul>
      *
      * @return the data directory path, or null if it cannot be determined
@@ -140,7 +144,7 @@ public final class DaemonDiscovery {
             if (appdata == null || appdata.isEmpty()) {
                 return null;
             }
-            return Paths.get(appdata, DATA_DIR_NAME);
+            return Paths.get(appdata, DATA_DIR_NAME, SDK_SUBDIR_NAME);
         }
 
         if (os.contains("mac") || os.contains("darwin")) {
@@ -148,18 +152,18 @@ public final class DaemonDiscovery {
             if (home == null || home.isEmpty()) {
                 return null;
             }
-            return Paths.get(home, "Library", "Application Support", DATA_DIR_NAME);
+            return Paths.get(home, "Library", "Application Support", DATA_DIR_NAME, SDK_SUBDIR_NAME);
         }
 
         // Linux and others
         String xdg = System.getenv("XDG_DATA_HOME");
         if (xdg != null && !xdg.isEmpty()) {
-            return Paths.get(xdg, DATA_DIR_NAME);
+            return Paths.get(xdg, DATA_DIR_NAME, SDK_SUBDIR_NAME);
         }
         String home = System.getProperty("user.home");
         if (home == null || home.isEmpty()) {
             return null;
         }
-        return Paths.get(home, ".local", "share", DATA_DIR_NAME);
+        return Paths.get(home, ".local", "share", DATA_DIR_NAME, SDK_SUBDIR_NAME);
     }
 }

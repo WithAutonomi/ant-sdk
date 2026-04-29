@@ -13,12 +13,12 @@ import (
 func withTempPortFile(t *testing.T, content string) (cleanup func()) {
 	t.Helper()
 	dir := t.TempDir()
-	antDir := filepath.Join(dir, dataDirName)
-	if err := os.MkdirAll(antDir, 0o755); err != nil {
+	sdkDir := filepath.Join(dir, dataDirName, sdkSubDirName)
+	if err := os.MkdirAll(sdkDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if content != "" {
-		if err := os.WriteFile(filepath.Join(antDir, portFileName), []byte(content), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(sdkDir, portFileName), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -32,8 +32,8 @@ func withTempPortFile(t *testing.T, content string) (cleanup func()) {
 	case "darwin":
 		old := os.Getenv("HOME")
 		os.Setenv("HOME", dir)
-		// On macOS dataDir uses ~/Library/Application Support/ant, so adjust
-		macDir := filepath.Join(dir, "Library", "Application Support", dataDirName)
+		// On macOS dataDir uses ~/Library/Application Support/ant/sdk, so adjust
+		macDir := filepath.Join(dir, "Library", "Application Support", dataDirName, sdkSubDirName)
 		os.MkdirAll(macDir, 0o755)
 		if content != "" {
 			os.WriteFile(filepath.Join(macDir, portFileName), []byte(content), 0o644)

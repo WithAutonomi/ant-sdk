@@ -4,6 +4,7 @@ import * as os from "os";
 
 const PORT_FILE_NAME = "daemon.port";
 const DATA_DIR_NAME = "ant";
+const SDK_SUBDIR_NAME = "sdk";
 
 /**
  * Reads the daemon.port file written by antd on startup and returns the
@@ -82,31 +83,34 @@ function parsePort(s: string): number {
 }
 
 /**
- * Returns the platform-specific data directory for ant.
- *   - Windows: %APPDATA%\ant
- *   - macOS:   ~/Library/Application Support/ant
- *   - Linux:   $XDG_DATA_HOME/ant or ~/.local/share/ant
+ * Returns the platform-specific data directory for the antd SDK daemon.
+ *   - Windows: %APPDATA%\ant\sdk
+ *   - macOS:   ~/Library/Application Support/ant/sdk
+ *   - Linux:   $XDG_DATA_HOME/ant/sdk or ~/.local/share/ant/sdk
+ *
+ * The `sdk` subdirectory keeps antd's port file separate from the ant-node
+ * daemon, which writes to the same `ant` umbrella dir.
  */
 function dataDir(): string {
   switch (process.platform) {
     case "win32": {
       const appdata = process.env.APPDATA ?? "";
       if (appdata === "") return "";
-      return path.join(appdata, DATA_DIR_NAME);
+      return path.join(appdata, DATA_DIR_NAME, SDK_SUBDIR_NAME);
     }
     case "darwin": {
       const home = os.homedir();
       if (home === "") return "";
-      return path.join(home, "Library", "Application Support", DATA_DIR_NAME);
+      return path.join(home, "Library", "Application Support", DATA_DIR_NAME, SDK_SUBDIR_NAME);
     }
     default: {
       const xdg = process.env.XDG_DATA_HOME ?? "";
       if (xdg !== "") {
-        return path.join(xdg, DATA_DIR_NAME);
+        return path.join(xdg, DATA_DIR_NAME, SDK_SUBDIR_NAME);
       }
       const home = os.homedir();
       if (home === "") return "";
-      return path.join(home, ".local", "share", DATA_DIR_NAME);
+      return path.join(home, ".local", "share", DATA_DIR_NAME, SDK_SUBDIR_NAME);
     }
   }
 }

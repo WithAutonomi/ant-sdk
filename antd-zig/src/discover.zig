@@ -4,6 +4,7 @@ const builtin = @import("builtin");
 
 const port_file_name = "daemon.port";
 const data_dir_name = "ant";
+const sdk_subdir_name = "sdk";
 
 /// Reads the daemon.port file written by antd on startup and returns
 /// the REST base URL (e.g. "http://127.0.0.1:8082").
@@ -100,26 +101,26 @@ fn dataDir(allocator: Allocator) ?[]const u8 {
             const appdata = std.process.getEnvVarOwned(allocator, "APPDATA") catch return null;
             defer allocator.free(appdata);
             if (appdata.len == 0) return null;
-            return std.fs.path.join(allocator, &.{ appdata, data_dir_name }) catch null;
+            return std.fs.path.join(allocator, &.{ appdata, data_dir_name, sdk_subdir_name }) catch null;
         },
         .macos => {
             const home = std.process.getEnvVarOwned(allocator, "HOME") catch return null;
             defer allocator.free(home);
             if (home.len == 0) return null;
-            return std.fs.path.join(allocator, &.{ home, "Library", "Application Support", data_dir_name }) catch null;
+            return std.fs.path.join(allocator, &.{ home, "Library", "Application Support", data_dir_name, sdk_subdir_name }) catch null;
         },
         else => {
             // Linux and other Unix-like systems
             if (std.process.getEnvVarOwned(allocator, "XDG_DATA_HOME")) |xdg| {
                 defer allocator.free(xdg);
                 if (xdg.len > 0) {
-                    return std.fs.path.join(allocator, &.{ xdg, data_dir_name }) catch null;
+                    return std.fs.path.join(allocator, &.{ xdg, data_dir_name, sdk_subdir_name }) catch null;
                 }
             } else |_| {}
             const home = std.process.getEnvVarOwned(allocator, "HOME") catch return null;
             defer allocator.free(home);
             if (home.len == 0) return null;
-            return std.fs.path.join(allocator, &.{ home, ".local", "share", data_dir_name }) catch null;
+            return std.fs.path.join(allocator, &.{ home, ".local", "share", data_dir_name, sdk_subdir_name }) catch null;
         },
     }
 }

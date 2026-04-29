@@ -16,6 +16,7 @@ object DaemonDiscovery {
 
     private const val PORT_FILE_NAME = "daemon.port"
     private const val DATA_DIR_NAME = "ant"
+    private const val SDK_SUBDIR_NAME = "sdk"
 
     /**
      * Returns the REST base URL (e.g. `"http://127.0.0.1:8082"`) discovered
@@ -67,23 +68,25 @@ object DaemonDiscovery {
         ProcessHandle.of(pid).isPresent
 
     private fun dataDir(): Path? {
+        // The `sdk` subdirectory keeps antd's port file separate from the
+        // ant-node daemon, which writes to the same `ant` umbrella dir.
         val os = System.getProperty("os.name", "").lowercase()
         return when {
             os.contains("win") -> {
                 val appdata = System.getenv("APPDATA") ?: return null
-                Paths.get(appdata, DATA_DIR_NAME)
+                Paths.get(appdata, DATA_DIR_NAME, SDK_SUBDIR_NAME)
             }
             os.contains("mac") || os.contains("darwin") -> {
                 val home = System.getProperty("user.home") ?: return null
-                Paths.get(home, "Library", "Application Support", DATA_DIR_NAME)
+                Paths.get(home, "Library", "Application Support", DATA_DIR_NAME, SDK_SUBDIR_NAME)
             }
             else -> {
                 val xdg = System.getenv("XDG_DATA_HOME")
                 if (!xdg.isNullOrEmpty()) {
-                    Paths.get(xdg, DATA_DIR_NAME)
+                    Paths.get(xdg, DATA_DIR_NAME, SDK_SUBDIR_NAME)
                 } else {
                     val home = System.getProperty("user.home") ?: return null
-                    Paths.get(home, ".local", "share", DATA_DIR_NAME)
+                    Paths.get(home, ".local", "share", DATA_DIR_NAME, SDK_SUBDIR_NAME)
                 }
             }
         }

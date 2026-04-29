@@ -18,6 +18,7 @@ from pathlib import Path
 
 _PORT_FILE_NAME = "daemon.port"
 _DATA_DIR_NAME = "ant"
+_SDK_SUBDIR_NAME = "sdk"
 
 
 def discover_daemon_url() -> str:
@@ -104,24 +105,28 @@ def _parse_port(s: str) -> int:
 
 
 def _data_dir() -> str:
-    """Return the platform-specific data directory for ant, or ``""``."""
+    """Return the platform-specific data directory for the antd SDK daemon, or ``""``.
+
+    The ``sdk`` subdirectory keeps antd's port file separate from the
+    ant-node daemon, which writes to the same ``ant`` umbrella dir.
+    """
     if sys.platform == "win32":
         appdata = os.environ.get("APPDATA", "")
         if not appdata:
             return ""
-        return os.path.join(appdata, _DATA_DIR_NAME)
+        return os.path.join(appdata, _DATA_DIR_NAME, _SDK_SUBDIR_NAME)
 
     if sys.platform == "darwin":
         home = os.environ.get("HOME", "")
         if not home:
             return ""
-        return os.path.join(home, "Library", "Application Support", _DATA_DIR_NAME)
+        return os.path.join(home, "Library", "Application Support", _DATA_DIR_NAME, _SDK_SUBDIR_NAME)
 
     # Linux and others
     xdg = os.environ.get("XDG_DATA_HOME", "")
     if xdg:
-        return os.path.join(xdg, _DATA_DIR_NAME)
+        return os.path.join(xdg, _DATA_DIR_NAME, _SDK_SUBDIR_NAME)
     home = os.environ.get("HOME", "")
     if not home:
         return ""
-    return os.path.join(home, ".local", "share", _DATA_DIR_NAME)
+    return os.path.join(home, ".local", "share", _DATA_DIR_NAME, _SDK_SUBDIR_NAME)

@@ -11,6 +11,7 @@ import (
 
 const portFileName = "daemon.port"
 const dataDirName = "ant"
+const sdkSubDirName = "sdk"
 
 // DiscoverDaemonURL reads the daemon.port file written by antd on startup
 // and returns the REST base URL (e.g. "http://127.0.0.1:8082").
@@ -81,10 +82,13 @@ func parsePort(s string) uint16 {
 	return uint16(n)
 }
 
-// dataDir returns the platform-specific data directory for ant.
-//   - Windows: %APPDATA%\ant
-//   - macOS:   ~/Library/Application Support/ant
-//   - Linux:   $XDG_DATA_HOME/ant or ~/.local/share/ant
+// dataDir returns the platform-specific data directory for the antd SDK daemon.
+//   - Windows: %APPDATA%\ant\sdk
+//   - macOS:   ~/Library/Application Support/ant/sdk
+//   - Linux:   $XDG_DATA_HOME/ant/sdk or ~/.local/share/ant/sdk
+//
+// The sdk subdirectory keeps antd's port file separate from the ant-node
+// daemon, which writes to the same ant umbrella dir.
 func dataDir() string {
 	switch runtime.GOOS {
 	case "windows":
@@ -92,23 +96,23 @@ func dataDir() string {
 		if appdata == "" {
 			return ""
 		}
-		return filepath.Join(appdata, dataDirName)
+		return filepath.Join(appdata, dataDirName, sdkSubDirName)
 
 	case "darwin":
 		home := os.Getenv("HOME")
 		if home == "" {
 			return ""
 		}
-		return filepath.Join(home, "Library", "Application Support", dataDirName)
+		return filepath.Join(home, "Library", "Application Support", dataDirName, sdkSubDirName)
 
 	default: // linux and others
 		if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
-			return filepath.Join(xdg, dataDirName)
+			return filepath.Join(xdg, dataDirName, sdkSubDirName)
 		}
 		home := os.Getenv("HOME")
 		if home == "" {
 			return ""
 		}
-		return filepath.Join(home, ".local", "share", dataDirName)
+		return filepath.Join(home, ".local", "share", dataDirName, sdkSubDirName)
 	}
 }
