@@ -13,12 +13,16 @@ module Antd
   # considered stale and discovery returns empty.
   #
   # Port file location is platform-specific:
-  #   - Windows: %APPDATA%\ant\daemon.port
-  #   - macOS:   ~/Library/Application Support/ant/daemon.port
-  #   - Linux:   $XDG_DATA_HOME/ant/daemon.port or ~/.local/share/ant/daemon.port
+  #   - Windows: %APPDATA%\ant\sdk\daemon.port
+  #   - macOS:   ~/Library/Application Support/ant/sdk/daemon.port
+  #   - Linux:   $XDG_DATA_HOME/ant/sdk/daemon.port or ~/.local/share/ant/sdk/daemon.port
+  #
+  # The +sdk+ subdirectory keeps antd's port file separate from the ant-node
+  # daemon, which writes to the same +ant+ umbrella dir.
   module Discover
-    PORT_FILE_NAME = "daemon.port"
-    DATA_DIR_NAME  = "ant"
+    PORT_FILE_NAME  = "daemon.port"
+    DATA_DIR_NAME   = "ant"
+    SDK_SUBDIR_NAME = "sdk"
 
     # Reads the daemon.port file and returns the REST base URL
     # (e.g. "http://127.0.0.1:8082").
@@ -82,21 +86,21 @@ module Antd
         appdata = ENV["APPDATA"]
         return "" if appdata.nil? || appdata.empty?
 
-        File.join(appdata, DATA_DIR_NAME)
+        File.join(appdata, DATA_DIR_NAME, SDK_SUBDIR_NAME)
       when /darwin/
         home = ENV["HOME"]
         return "" if home.nil? || home.empty?
 
-        File.join(home, "Library", "Application Support", DATA_DIR_NAME)
+        File.join(home, "Library", "Application Support", DATA_DIR_NAME, SDK_SUBDIR_NAME)
       else
         xdg = ENV["XDG_DATA_HOME"]
         if xdg && !xdg.empty?
-          File.join(xdg, DATA_DIR_NAME)
+          File.join(xdg, DATA_DIR_NAME, SDK_SUBDIR_NAME)
         else
           home = ENV["HOME"]
           return "" if home.nil? || home.empty?
 
-          File.join(home, ".local", "share", DATA_DIR_NAME)
+          File.join(home, ".local", "share", DATA_DIR_NAME, SDK_SUBDIR_NAME)
         end
       end
     end

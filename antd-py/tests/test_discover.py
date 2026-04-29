@@ -17,10 +17,10 @@ from antd._discover import (
 
 
 def _write_port_file(tmp_path: Path, content: str, monkeypatch) -> None:
-    """Write a daemon.port file under tmp_path/ant/ and point env vars at it."""
-    ant_dir = tmp_path / "ant"
-    ant_dir.mkdir(exist_ok=True)
-    (ant_dir / "daemon.port").write_text(content, encoding="utf-8")
+    """Write a daemon.port file under tmp_path/ant/sdk/ and point env vars at it."""
+    sdk_dir = tmp_path / "ant" / "sdk"
+    sdk_dir.mkdir(parents=True, exist_ok=True)
+    (sdk_dir / "daemon.port").write_text(content, encoding="utf-8")
     # Use XDG_DATA_HOME on all platforms for test isolation
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     # Force sys.platform to linux so XDG_DATA_HOME is used
@@ -134,26 +134,26 @@ class TestDataDir:
         monkeypatch.setattr("sys.platform", "win32")
         monkeypatch.setenv("APPDATA", "C:\\Users\\test\\AppData\\Roaming")
         result = _data_dir()
-        assert result == os.path.join("C:\\Users\\test\\AppData\\Roaming", "ant")
+        assert result == os.path.join("C:\\Users\\test\\AppData\\Roaming", "ant", "sdk")
 
     def test_darwin(self, monkeypatch):
         monkeypatch.setattr("sys.platform", "darwin")
         monkeypatch.setenv("HOME", "/Users/test")
         result = _data_dir()
-        assert result == os.path.join("/Users/test", "Library", "Application Support", "ant")
+        assert result == os.path.join("/Users/test", "Library", "Application Support", "ant", "sdk")
 
     def test_linux_xdg(self, monkeypatch):
         monkeypatch.setattr("sys.platform", "linux")
         monkeypatch.setenv("XDG_DATA_HOME", "/custom/data")
         result = _data_dir()
-        assert result == os.path.join("/custom/data", "ant")
+        assert result == os.path.join("/custom/data", "ant", "sdk")
 
     def test_linux_no_xdg(self, monkeypatch):
         monkeypatch.setattr("sys.platform", "linux")
         monkeypatch.delenv("XDG_DATA_HOME", raising=False)
         monkeypatch.setenv("HOME", "/home/test")
         result = _data_dir()
-        assert result == os.path.join("/home/test", ".local", "share", "ant")
+        assert result == os.path.join("/home/test", ".local", "share", "ant", "sdk")
 
     def test_linux_no_home(self, monkeypatch):
         monkeypatch.setattr("sys.platform", "linux")

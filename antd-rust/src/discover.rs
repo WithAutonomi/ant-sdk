@@ -12,6 +12,7 @@ use std::path::PathBuf;
 
 const PORT_FILE_NAME: &str = "daemon.port";
 const DATA_DIR_NAME: &str = "ant";
+const SDK_SUBDIR_NAME: &str = "sdk";
 
 /// Reads the daemon port file and returns the REST base URL
 /// (e.g. `"http://127.0.0.1:8082"`), or `None` if the file is missing,
@@ -88,31 +89,34 @@ fn process_alive(pid: u32) -> bool {
         .unwrap_or(true) // if we can't check, trust the file
 }
 
-/// Returns the platform-specific data directory for ant.
+/// Returns the platform-specific data directory for the antd SDK daemon.
 ///
-/// - Windows: `%APPDATA%\ant`
-/// - macOS:   `~/Library/Application Support/ant`
-/// - Linux:   `$XDG_DATA_HOME/ant` or `~/.local/share/ant`
+/// - Windows: `%APPDATA%\ant\sdk`
+/// - macOS:   `~/Library/Application Support/ant/sdk`
+/// - Linux:   `$XDG_DATA_HOME/ant/sdk` or `~/.local/share/ant/sdk`
+///
+/// The `sdk` subdirectory keeps antd's port file separate from the ant-node
+/// daemon, which writes to the same `ant` umbrella dir.
 fn data_dir() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
         let appdata = env::var("APPDATA").ok()?;
-        Some(PathBuf::from(appdata).join(DATA_DIR_NAME))
+        Some(PathBuf::from(appdata).join(DATA_DIR_NAME).join(SDK_SUBDIR_NAME))
     }
 
     #[cfg(target_os = "macos")]
     {
         let home = env::var("HOME").ok()?;
-        Some(PathBuf::from(home).join("Library").join("Application Support").join(DATA_DIR_NAME))
+        Some(PathBuf::from(home).join("Library").join("Application Support").join(DATA_DIR_NAME).join(SDK_SUBDIR_NAME))
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         if let Ok(xdg) = env::var("XDG_DATA_HOME") {
-            return Some(PathBuf::from(xdg).join(DATA_DIR_NAME));
+            return Some(PathBuf::from(xdg).join(DATA_DIR_NAME).join(SDK_SUBDIR_NAME));
         }
         let home = env::var("HOME").ok()?;
-        Some(PathBuf::from(home).join(".local").join("share").join(DATA_DIR_NAME))
+        Some(PathBuf::from(home).join(".local").join("share").join(DATA_DIR_NAME).join(SDK_SUBDIR_NAME))
     }
 }
 

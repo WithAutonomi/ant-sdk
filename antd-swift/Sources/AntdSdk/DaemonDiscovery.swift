@@ -6,13 +6,17 @@ import Foundation
 /// and PID of the daemon process (line 3). If a PID is present and the process is
 /// not alive, the file is considered stale and discovery returns empty.
 /// File location is platform-specific:
-/// - macOS: `~/Library/Application Support/ant/daemon.port`
-/// - Linux: `$XDG_DATA_HOME/ant/daemon.port` or `~/.local/share/ant/daemon.port`
-/// - Windows: `%APPDATA%\ant\daemon.port`
+/// - macOS: `~/Library/Application Support/ant/sdk/daemon.port`
+/// - Linux: `$XDG_DATA_HOME/ant/sdk/daemon.port` or `~/.local/share/ant/sdk/daemon.port`
+/// - Windows: `%APPDATA%\ant\sdk\daemon.port`
+///
+/// The `sdk` subdirectory keeps antd's port file separate from the ant-node
+/// daemon, which writes to the same `ant` umbrella dir.
 public enum DaemonDiscovery {
 
     private static let portFileName = "daemon.port"
     private static let dataDirName = "ant"
+    private static let sdkSubDirName = "sdk"
 
     /// Reads the daemon.port file and returns the REST base URL
     /// (e.g. `"http://127.0.0.1:8082"`). Returns `""` if unavailable.
@@ -98,16 +102,16 @@ public enum DaemonDiscovery {
     private static func dataDir() -> String? {
         #if os(macOS)
         guard let home = ProcessInfo.processInfo.environment["HOME"], !home.isEmpty else { return nil }
-        return (home as NSString).appendingPathComponent("Library/Application Support/\(dataDirName)")
+        return (home as NSString).appendingPathComponent("Library/Application Support/\(dataDirName)/\(sdkSubDirName)")
         #elseif os(Linux)
         if let xdg = ProcessInfo.processInfo.environment["XDG_DATA_HOME"], !xdg.isEmpty {
-            return (xdg as NSString).appendingPathComponent(dataDirName)
+            return (xdg as NSString).appendingPathComponent("\(dataDirName)/\(sdkSubDirName)")
         }
         guard let home = ProcessInfo.processInfo.environment["HOME"], !home.isEmpty else { return nil }
-        return (home as NSString).appendingPathComponent(".local/share/\(dataDirName)")
+        return (home as NSString).appendingPathComponent(".local/share/\(dataDirName)/\(sdkSubDirName)")
         #elseif os(Windows)
         guard let appdata = ProcessInfo.processInfo.environment["APPDATA"], !appdata.isEmpty else { return nil }
-        return (appdata as NSString).appendingPathComponent(dataDirName)
+        return (appdata as NSString).appendingPathComponent("\(dataDirName)/\(sdkSubDirName)")
         #else
         return nil
         #endif

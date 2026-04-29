@@ -13,6 +13,7 @@ public static class DaemonDiscovery
 {
     private const string PortFileName = "daemon.port";
     private const string DataDirName = "ant";
+    private const string SdkSubDirName = "sdk";
 
     /// <summary>
     /// Reads line 1 of the daemon.port file and returns the REST base URL
@@ -92,31 +93,34 @@ public static class DaemonDiscovery
     }
 
     /// <summary>
-    /// Returns the platform-specific data directory for ant.
-    ///   Windows: %APPDATA%\ant
-    ///   macOS:   ~/Library/Application Support/ant
-    ///   Linux:   $XDG_DATA_HOME/ant or ~/.local/share/ant
+    /// Returns the platform-specific data directory for the antd SDK daemon.
+    ///   Windows: %APPDATA%\ant\sdk
+    ///   macOS:   ~/Library/Application Support/ant/sdk
+    ///   Linux:   $XDG_DATA_HOME/ant/sdk or ~/.local/share/ant/sdk
+    ///
+    /// The "sdk" subdirectory keeps antd's port file separate from the
+    /// ant-node daemon, which writes to the same "ant" umbrella dir.
     /// </summary>
     private static string DataDir()
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             var appdata = Environment.GetEnvironmentVariable("APPDATA");
-            return string.IsNullOrEmpty(appdata) ? "" : Path.Combine(appdata, DataDirName);
+            return string.IsNullOrEmpty(appdata) ? "" : Path.Combine(appdata, DataDirName, SdkSubDirName);
         }
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
             var home = Environment.GetEnvironmentVariable("HOME");
-            return string.IsNullOrEmpty(home) ? "" : Path.Combine(home, "Library", "Application Support", DataDirName);
+            return string.IsNullOrEmpty(home) ? "" : Path.Combine(home, "Library", "Application Support", DataDirName, SdkSubDirName);
         }
 
         // Linux and others
         var xdg = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
         if (!string.IsNullOrEmpty(xdg))
-            return Path.Combine(xdg, DataDirName);
+            return Path.Combine(xdg, DataDirName, SdkSubDirName);
 
         var homeDir = Environment.GetEnvironmentVariable("HOME");
-        return string.IsNullOrEmpty(homeDir) ? "" : Path.Combine(homeDir, ".local", "share", DataDirName);
+        return string.IsNullOrEmpty(homeDir) ? "" : Path.Combine(homeDir, ".local", "share", DataDirName, SdkSubDirName);
     }
 }

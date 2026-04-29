@@ -35,9 +35,11 @@ All SDKs support automatic daemon discovery. When antd starts, it writes a `daem
 
 | Platform | Path |
 |----------|------|
-| Windows | `%APPDATA%\ant\daemon.port` |
-| Linux | `~/.local/share/ant/daemon.port` (or `$XDG_DATA_HOME/ant/`) |
-| macOS | `~/Library/Application Support/ant/daemon.port` |
+| Windows | `%APPDATA%\ant\sdk\daemon.port` |
+| Linux | `~/.local/share/ant/sdk/daemon.port` (or `$XDG_DATA_HOME/ant/sdk/`) |
+| macOS | `~/Library/Application Support/ant/sdk/daemon.port` |
+
+The `sdk` subdirectory keeps antd's port file separate from the ant-node daemon, which writes to the same `ant` umbrella dir.
 
 Every SDK provides an auto-discover constructor that reads this file and connects automatically:
 

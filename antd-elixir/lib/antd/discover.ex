@@ -10,13 +10,17 @@ defmodule Antd.Discover do
   considered stale and discovery returns empty.
 
   Port file location is platform-specific:
-    - Windows: `%APPDATA%\\ant\\daemon.port`
-    - macOS:   `~/Library/Application Support/ant/daemon.port`
-    - Linux:   `$XDG_DATA_HOME/ant/daemon.port` or `~/.local/share/ant/daemon.port`
+    - Windows: `%APPDATA%\\ant\\sdk\\daemon.port`
+    - macOS:   `~/Library/Application Support/ant/sdk/daemon.port`
+    - Linux:   `$XDG_DATA_HOME/ant/sdk/daemon.port` or `~/.local/share/ant/sdk/daemon.port`
+
+  The `sdk` subdirectory keeps antd's port file separate from the ant-node
+  daemon, which writes to the same `ant` umbrella dir.
   """
 
   @port_file_name "daemon.port"
   @data_dir_name "ant"
+  @sdk_subdir_name "sdk"
 
   @doc """
   Reads the daemon.port file and returns the REST base URL
@@ -115,26 +119,26 @@ defmodule Antd.Discover do
         case System.get_env("APPDATA") do
           nil -> ""
           "" -> ""
-          appdata -> Path.join(appdata, @data_dir_name)
+          appdata -> Path.join([appdata, @data_dir_name, @sdk_subdir_name])
         end
 
       {:unix, :darwin} ->
         case System.get_env("HOME") do
           nil -> ""
           "" -> ""
-          home -> Path.join([home, "Library", "Application Support", @data_dir_name])
+          home -> Path.join([home, "Library", "Application Support", @data_dir_name, @sdk_subdir_name])
         end
 
       {:unix, _} ->
         case System.get_env("XDG_DATA_HOME") do
           xdg when is_binary(xdg) and xdg != "" ->
-            Path.join(xdg, @data_dir_name)
+            Path.join([xdg, @data_dir_name, @sdk_subdir_name])
 
           _ ->
             case System.get_env("HOME") do
               nil -> ""
               "" -> ""
-              home -> Path.join([home, ".local", "share", @data_dir_name])
+              home -> Path.join([home, ".local", "share", @data_dir_name, @sdk_subdir_name])
             end
         end
     end
