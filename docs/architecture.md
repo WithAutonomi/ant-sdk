@@ -123,4 +123,4 @@ The daemon defines infrastructure for streaming events to clients, but it is cur
 - **gRPC streaming** (`EventService.Subscribe`): The gRPC service is defined in the proto and compiled, but the server-side implementation returns an empty stream immediately.
 - **Event types**: `ClientEventDto` is defined in `antd/src/types.rs` with fields for `kind`, `records_paid`, `records_already_paid`, and `tokens_spent`, but all fields are marked `#[allow(dead_code)]`.
 
-These are planned for future implementation. The intended use is upload progress tracking and completion notifications. See `docs/missing-features.md` section 6 for the design approach.
+These are planned for future implementation. The intended use is upload progress tracking and completion notifications.
