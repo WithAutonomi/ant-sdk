@@ -24,6 +24,20 @@ from .models import (
 )
 
 
+def _health_status_from_resp(resp) -> HealthStatus:
+    """Convert a HealthCheckResponse pb message into a HealthStatus."""
+    return HealthStatus(
+        ok=resp.status == "ok",
+        network=resp.network or "unknown",
+        version=resp.version,
+        evm_network=resp.evm_network,
+        uptime_seconds=resp.uptime_seconds,
+        build_commit=resp.build_commit,
+        payment_token_address=resp.payment_token_address,
+        payment_vault_address=resp.payment_vault_address,
+    )
+
+
 def _file_upload_result_from_resp(resp) -> FileUploadResult:
     return FileUploadResult(
         address=resp.address,
@@ -109,7 +123,7 @@ class GrpcClient:
     def health(self) -> HealthStatus:
         try:
             resp = self._health.Check(health_pb2.HealthCheckRequest())
-            return HealthStatus(ok=resp.status == "ok", network=resp.network or "unknown")
+            return _health_status_from_resp(resp)
         except grpc.RpcError as e:
             if e.code() == grpc.StatusCode.UNAVAILABLE:
                 return HealthStatus(ok=False, network="unknown")
@@ -270,7 +284,7 @@ class AsyncGrpcClient:
     async def health(self) -> HealthStatus:
         try:
             resp = await self._health.Check(health_pb2.HealthCheckRequest())
-            return HealthStatus(ok=resp.status == "ok", network=resp.network or "unknown")
+            return _health_status_from_resp(resp)
         except grpc.RpcError as e:
             if e.code() == grpc.StatusCode.UNAVAILABLE:
                 return HealthStatus(ok=False, network="unknown")

@@ -25,14 +25,14 @@ _sym_db = _symbol_database.Default()
 from antd._proto.antd.v1 import common_pb2 as antd_dot_v1_dot_common__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14\x61ntd/v1/chunks.proto\x12\x07\x61ntd.v1\x1a\x14\x61ntd/v1/common.proto\"\"\n\x0fGetChunkRequest\x12\x0f\n\x07\x61\x64\x64ress\x18\x01 \x01(\t\" \n\x10GetChunkResponse\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\"\x1f\n\x0fPutChunkRequest\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\"@\n\x10PutChunkResponse\x12\x1b\n\x04\x63ost\x18\x01 \x01(\x0b\x32\r.antd.v1.Cost\x12\x0f\n\x07\x61\x64\x64ress\x18\x02 \x01(\t2\x86\x01\n\x0c\x43hunkService\x12:\n\x03Get\x12\x18.antd.v1.GetChunkRequest\x1a\x19.antd.v1.GetChunkResponse\x12:\n\x03Put\x12\x18.antd.v1.PutChunkRequest\x1a\x19.antd.v1.PutChunkResponseB\n\xaa\x02\x07\x41ntd.V1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14\x61ntd/v1/chunks.proto\x12\x07\x61ntd.v1\x1a\x14\x61ntd/v1/common.proto\"\"\n\x0fGetChunkRequest\x12\x0f\n\x07\x61\x64\x64ress\x18\x01 \x01(\t\" \n\x10GetChunkResponse\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\"\x1f\n\x0fPutChunkRequest\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\"@\n\x10PutChunkResponse\x12\x1b\n\x04\x63ost\x18\x01 \x01(\x0b\x32\r.antd.v1.Cost\x12\x0f\n\x07\x61\x64\x64ress\x18\x02 \x01(\t2\x86\x01\n\x0c\x43hunkService\x12:\n\x03Get\x12\x18.antd.v1.GetChunkRequest\x1a\x19.antd.v1.GetChunkResponse\x12:\n\x03Put\x12\x18.antd.v1.PutChunkRequest\x1a\x19.antd.v1.PutChunkResponseBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\x07\x41ntd.V1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'antd._proto.antd.v1.chunks_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
-  _globals['DESCRIPTOR']._serialized_options = b'\252\002\007Antd.V1'
+  _globals['DESCRIPTOR']._serialized_options = b'Z8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\252\002\007Antd.V1'
   _globals['_GETCHUNKREQUEST']._serialized_start=55
   _globals['_GETCHUNKREQUEST']._serialized_end=89
   _globals['_GETCHUNKRESPONSE']._serialized_start=91

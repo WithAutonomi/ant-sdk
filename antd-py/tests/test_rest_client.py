@@ -53,7 +53,16 @@ class _MockHandler(BaseHTTPRequestHandler):
         query = self.path.split("?")[1] if "?" in self.path else ""
 
         if path == "/health":
-            self._json_response(200, {"status": "ok", "network": "local"})
+            self._json_response(200, {
+                "status": "ok",
+                "network": "local",
+                "version": "0.4.0",
+                "evm_network": "local",
+                "uptime_seconds": 42,
+                "build_commit": "abcdef123456",
+                "payment_token_address": "0xtoken",
+                "payment_vault_address": "0xvault",
+            })
 
         elif path.startswith("/v1/data/public/"):
             addr = path.split("/v1/data/public/")[1]
@@ -202,6 +211,21 @@ class TestHealth:
         assert isinstance(status, HealthStatus)
         assert status.ok is True
         assert status.network == "local"
+        assert status.version == "0.4.0"
+        assert status.evm_network == "local"
+        assert status.uptime_seconds == 42
+        assert status.build_commit == "abcdef123456"
+        assert status.payment_token_address == "0xtoken"
+        assert status.payment_vault_address == "0xvault"
+
+    def test_pre_0_4_0_daemon_leaves_diagnostics_empty(self, client: RestClient):
+        # Older daemons reply with just status + network. The dataclass
+        # defaults make this case still parse cleanly.
+        from antd._rest import _health_status_from_json
+        s = _health_status_from_json({"status": "ok", "network": "default"})
+        assert s.ok is True and s.network == "default"
+        assert s.version == ""
+        assert s.uptime_seconds == 0
 
 
 class TestDataPutPublic:

@@ -24,14 +24,14 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14\x61ntd/v1/events.proto\x12\x07\x61ntd.v1\"\x12\n\x10SubscribeRequest\"j\n\x10\x43lientEventProto\x12\x0c\n\x04kind\x18\x01 \x01(\t\x12\x14\n\x0crecords_paid\x18\x02 \x01(\x04\x12\x1c\n\x14records_already_paid\x18\x03 \x01(\x04\x12\x14\n\x0ctokens_spent\x18\x04 \x01(\t2S\n\x0c\x45ventService\x12\x43\n\tSubscribe\x12\x19.antd.v1.SubscribeRequest\x1a\x19.antd.v1.ClientEventProto0\x01\x42\n\xaa\x02\x07\x41ntd.V1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14\x61ntd/v1/events.proto\x12\x07\x61ntd.v1\"\x12\n\x10SubscribeRequest\"j\n\x10\x43lientEventProto\x12\x0c\n\x04kind\x18\x01 \x01(\t\x12\x14\n\x0crecords_paid\x18\x02 \x01(\x04\x12\x1c\n\x14records_already_paid\x18\x03 \x01(\x04\x12\x14\n\x0ctokens_spent\x18\x04 \x01(\t2S\n\x0c\x45ventService\x12\x43\n\tSubscribe\x12\x19.antd.v1.SubscribeRequest\x1a\x19.antd.v1.ClientEventProto0\x01\x42\x44Z8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\x07\x41ntd.V1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'antd._proto.antd.v1.events_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
-  _globals['DESCRIPTOR']._serialized_options = b'\252\002\007Antd.V1'
+  _globals['DESCRIPTOR']._serialized_options = b'Z8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\252\002\007Antd.V1'
   _globals['_SUBSCRIBEREQUEST']._serialized_start=33
   _globals['_SUBSCRIBEREQUEST']._serialized_end=51
   _globals['_CLIENTEVENTPROTO']._serialized_start=53
