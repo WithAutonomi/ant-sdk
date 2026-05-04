@@ -20,6 +20,11 @@ impl v1::health_service_server::HealthService for MockHealthService {
         Ok(Response::new(v1::HealthCheckResponse {
             status: "ok".to_string(),
             network: "local".to_string(),
+            // Diagnostic fields added in 0.4.0 — left as defaults here
+            // because antd-rust's HealthStatus model has not yet been
+            // extended (tracked in issue #37). The mock just needs to
+            // satisfy the wire type.
+            ..Default::default()
         }))
     }
 }
