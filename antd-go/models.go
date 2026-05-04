@@ -2,8 +2,14 @@ package antd
 
 // HealthStatus is the result of a health check.
 type HealthStatus struct {
-	OK      bool   `json:"ok"`
-	Network string `json:"network"`
+	OK                  bool   `json:"ok"`
+	Network             string `json:"network"`
+	Version             string `json:"version"`        // antd crate version
+	EvmNetwork          string `json:"evm_network"`    // arbitrum-one, arbitrum-sepolia, local, custom
+	UptimeSeconds       uint64 `json:"uptime_seconds"` // seconds since daemon start
+	BuildCommit         string `json:"build_commit"`   // short git SHA, "" if unknown
+	PaymentTokenAddress string `json:"payment_token_address"`
+	PaymentVaultAddress string `json:"payment_vault_address"`
 }
 
 // PutResult is the result of a put/create operation.

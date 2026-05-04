@@ -58,11 +58,17 @@ func (*HealthCheckRequest) Descriptor() ([]byte, []int) {
 }
 
 type HealthCheckResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Status        string                 `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`   // "ok"
-	Network       string                 `protobuf:"bytes,2,opt,name=network,proto3" json:"network,omitempty"` // "default", "local", "alpha"
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	Status              string                 `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`                                                        // "ok"
+	Network             string                 `protobuf:"bytes,2,opt,name=network,proto3" json:"network,omitempty"`                                                      // "default", "local", "alpha"
+	Version             string                 `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`                                                      // antd crate version (e.g. "0.4.0")
+	EvmNetwork          string                 `protobuf:"bytes,4,opt,name=evm_network,json=evmNetwork,proto3" json:"evm_network,omitempty"`                              // EVM preset: "arbitrum-one", "arbitrum-sepolia", "local", "custom"
+	UptimeSeconds       uint64                 `protobuf:"varint,5,opt,name=uptime_seconds,json=uptimeSeconds,proto3" json:"uptime_seconds,omitempty"`                    // seconds since process start
+	BuildCommit         string                 `protobuf:"bytes,6,opt,name=build_commit,json=buildCommit,proto3" json:"build_commit,omitempty"`                           // short git SHA, or "" if built outside a git checkout
+	PaymentTokenAddress string                 `protobuf:"bytes,7,opt,name=payment_token_address,json=paymentTokenAddress,proto3" json:"payment_token_address,omitempty"` // token contract, or "" if unconfigured
+	PaymentVaultAddress string                 `protobuf:"bytes,8,opt,name=payment_vault_address,json=paymentVaultAddress,proto3" json:"payment_vault_address,omitempty"` // payment vault contract, or "" if unconfigured
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *HealthCheckResponse) Reset() {
@@ -109,18 +115,66 @@ func (x *HealthCheckResponse) GetNetwork() string {
 	return ""
 }
 
+func (x *HealthCheckResponse) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *HealthCheckResponse) GetEvmNetwork() string {
+	if x != nil {
+		return x.EvmNetwork
+	}
+	return ""
+}
+
+func (x *HealthCheckResponse) GetUptimeSeconds() uint64 {
+	if x != nil {
+		return x.UptimeSeconds
+	}
+	return 0
+}
+
+func (x *HealthCheckResponse) GetBuildCommit() string {
+	if x != nil {
+		return x.BuildCommit
+	}
+	return ""
+}
+
+func (x *HealthCheckResponse) GetPaymentTokenAddress() string {
+	if x != nil {
+		return x.PaymentTokenAddress
+	}
+	return ""
+}
+
+func (x *HealthCheckResponse) GetPaymentVaultAddress() string {
+	if x != nil {
+		return x.PaymentVaultAddress
+	}
+	return ""
+}
+
 var File_antd_v1_health_proto protoreflect.FileDescriptor
 
 const file_antd_v1_health_proto_rawDesc = "" +
 	"\n" +
 	"\x14antd/v1/health.proto\x12\aantd.v1\"\x14\n" +
-	"\x12HealthCheckRequest\"G\n" +
+	"\x12HealthCheckRequest\"\xb4\x02\n" +
 	"\x13HealthCheckResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\tR\x06status\x12\x18\n" +
-	"\anetwork\x18\x02 \x01(\tR\anetwork2S\n" +
+	"\anetwork\x18\x02 \x01(\tR\anetwork\x12\x18\n" +
+	"\aversion\x18\x03 \x01(\tR\aversion\x12\x1f\n" +
+	"\vevm_network\x18\x04 \x01(\tR\n" +
+	"evmNetwork\x12%\n" +
+	"\x0euptime_seconds\x18\x05 \x01(\x04R\ruptimeSeconds\x12!\n" +
+	"\fbuild_commit\x18\x06 \x01(\tR\vbuildCommit\x122\n" +
+	"\x15payment_token_address\x18\a \x01(\tR\x13paymentTokenAddress\x122\n" +
+	"\x15payment_vault_address\x18\b \x01(\tR\x13paymentVaultAddress2S\n" +
 	"\rHealthService\x12B\n" +
-	"\x05Check\x12\x1b.antd.v1.HealthCheckRequest\x1a\x1c.antd.v1.HealthCheckResponseB\n" +
-	"\xaa\x02\aAntd.V1b\x06proto3"
+	"\x05Check\x12\x1b.antd.v1.HealthCheckRequest\x1a\x1c.antd.v1.HealthCheckResponseBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\aAntd.V1b\x06proto3"
 
 var (
 	file_antd_v1_health_proto_rawDescOnce sync.Once

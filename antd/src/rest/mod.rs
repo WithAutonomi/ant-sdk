@@ -123,5 +123,11 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok".into(),
         network: state.network.clone(),
+        version: state.version.clone(),
+        evm_network: state.evm_preset.clone(),
+        uptime_seconds: state.started_at.elapsed().as_secs(),
+        build_commit: state.build_commit.clone(),
+        payment_token_address: state.evm_token_addr.clone(),
+        payment_vault_address: state.evm_vault_addr.clone(),
     })
 }

@@ -221,8 +221,7 @@ const file_antd_v1_chunks_proto_rawDesc = "" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress2\x86\x01\n" +
 	"\fChunkService\x12:\n" +
 	"\x03Get\x12\x18.antd.v1.GetChunkRequest\x1a\x19.antd.v1.GetChunkResponse\x12:\n" +
-	"\x03Put\x12\x18.antd.v1.PutChunkRequest\x1a\x19.antd.v1.PutChunkResponseB\n" +
-	"\xaa\x02\aAntd.V1b\x06proto3"
+	"\x03Put\x12\x18.antd.v1.PutChunkRequest\x1a\x19.antd.v1.PutChunkResponseBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\aAntd.V1b\x06proto3"
 
 var (
 	file_antd_v1_chunks_proto_rawDescOnce sync.Once

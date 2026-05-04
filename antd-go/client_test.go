@@ -19,7 +19,16 @@ func mockDaemon(t *testing.T) *httptest.Server {
 		switch {
 		// Health
 		case r.Method == "GET" && r.URL.Path == "/health":
-			json.NewEncoder(w).Encode(map[string]any{"status": "ok", "network": "local"})
+			json.NewEncoder(w).Encode(map[string]any{
+				"status":                "ok",
+				"network":               "local",
+				"version":               "0.4.0",
+				"evm_network":           "local",
+				"uptime_seconds":        42,
+				"build_commit":          "abcdef123456",
+				"payment_token_address": "0xtoken",
+				"payment_vault_address": "0xvault",
+			})
 
 		// Data put public
 		case r.Method == "POST" && r.URL.Path == "/v1/data/public":
@@ -141,6 +150,12 @@ func TestHealth(t *testing.T) {
 	}
 	if !h.OK || h.Network != "local" {
 		t.Fatalf("unexpected health: %+v", h)
+	}
+	if h.Version != "0.4.0" || h.EvmNetwork != "local" || h.UptimeSeconds != 42 {
+		t.Fatalf("unexpected diagnostic fields: %+v", h)
+	}
+	if h.BuildCommit != "abcdef123456" || h.PaymentTokenAddress != "0xtoken" || h.PaymentVaultAddress != "0xvault" {
+		t.Fatalf("unexpected build/payment fields: %+v", h)
 	}
 }
 

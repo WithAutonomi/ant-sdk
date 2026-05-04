@@ -283,6 +283,12 @@ pub struct WalletApproveResponse {
 pub struct HealthResponse {
     pub status: String,
     pub network: String,
+    pub version: String,
+    pub evm_network: String,
+    pub uptime_seconds: u64,
+    pub build_commit: String,
+    pub payment_token_address: String,
+    pub payment_vault_address: String,
 }
 
 // ── Tests ──
@@ -400,5 +406,49 @@ mod tests {
         let req: FinalizeUploadRequest = serde_json::from_str(json).unwrap();
         assert!(req.tx_hashes.is_some());
         assert!(req.tx_hashes.as_ref().unwrap().is_empty());
+    }
+
+    #[test]
+    fn health_response_serializes_all_fields() {
+        let resp = HealthResponse {
+            status: "ok".into(),
+            network: "default".into(),
+            version: "0.4.0".into(),
+            evm_network: "arbitrum-one".into(),
+            uptime_seconds: 12345,
+            build_commit: "abcdef123456".into(),
+            payment_token_address: "0xtoken".into(),
+            payment_vault_address: "0xvault".into(),
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["status"], "ok");
+        assert_eq!(json["network"], "default");
+        assert_eq!(json["version"], "0.4.0");
+        assert_eq!(json["evm_network"], "arbitrum-one");
+        assert_eq!(json["uptime_seconds"], 12345u64);
+        assert_eq!(json["build_commit"], "abcdef123456");
+        assert_eq!(json["payment_token_address"], "0xtoken");
+        assert_eq!(json["payment_vault_address"], "0xvault");
+    }
+
+    #[test]
+    fn health_response_keeps_empty_strings_for_unconfigured_evm() {
+        // Local devnet leaves token + vault empty; build_commit is empty for
+        // non-git source distributions. Empty strings must round-trip rather
+        // than being omitted.
+        let resp = HealthResponse {
+            status: "ok".into(),
+            network: "local".into(),
+            version: "0.4.0".into(),
+            evm_network: "local".into(),
+            uptime_seconds: 0,
+            build_commit: String::new(),
+            payment_token_address: String::new(),
+            payment_vault_address: String::new(),
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["build_commit"], "");
+        assert_eq!(json["payment_token_address"], "");
+        assert_eq!(json["payment_vault_address"], "");
     }
 }

@@ -519,7 +519,15 @@ components:
     # -- Health --
     HealthResponse:
       type: object
-      required: [status, network]
+      required:
+        - status
+        - network
+        - version
+        - evm_network
+        - uptime_seconds
+        - build_commit
+        - payment_token_address
+        - payment_vault_address
       properties:
         status:
           type: string
@@ -528,6 +536,32 @@ components:
           type: string
           example: "local"
           description: "Network name: default, local, or alpha"
+        version:
+          type: string
+          example: "0.4.0"
+          description: "antd crate version (CARGO_PKG_VERSION)"
+        evm_network:
+          type: string
+          example: "arbitrum-one"
+          description: "EVM preset: arbitrum-one, arbitrum-sepolia, local, or custom"
+        uptime_seconds:
+          type: integer
+          format: int64
+          minimum: 0
+          example: 12345
+          description: "Seconds since the daemon process started"
+        build_commit:
+          type: string
+          example: "1cbfb3ec85ad"
+          description: "Short git SHA captured at build time, or empty if unknown"
+        payment_token_address:
+          type: string
+          example: "0xde817De9d8AC8C3aA10C3Ed0EE5FCB6C53cE7B0a"
+          description: "Payment token contract address, or empty if unconfigured"
+        payment_vault_address:
+          type: string
+          example: "0x607483B50C5F06c25cDC316b6d1E071084EeC9f5"
+          description: "Payment vault contract address, or empty if unconfigured"
 
     # -- Data --
     DataPutRequest:

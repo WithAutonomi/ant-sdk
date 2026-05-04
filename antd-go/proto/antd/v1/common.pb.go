@@ -22,15 +22,12 @@ const (
 )
 
 type Cost struct {
-	state      protoimpl.MessageState `protogen:"open.v1"`
-	AttoTokens string                 `protobuf:"bytes,1,opt,name=atto_tokens,json=attoTokens,proto3" json:"atto_tokens,omitempty"` // AttoTokens as string (can exceed JS Number.MAX_SAFE_INTEGER)
-	// Fields populated only by cost-estimation RPCs (GetCost, GetFileCost).
-	// Left at zero/empty for cost values returned by put/upload RPCs, where
-	// payment already happened and these fields are not meaningful.
-	FileSize            uint64 `protobuf:"varint,2,opt,name=file_size,json=fileSize,proto3" json:"file_size,omitempty"`                                     // original file size in bytes
-	ChunkCount          uint32 `protobuf:"varint,3,opt,name=chunk_count,json=chunkCount,proto3" json:"chunk_count,omitempty"`                               // number of data chunks the file splits into
-	EstimatedGasCostWei string `protobuf:"bytes,4,opt,name=estimated_gas_cost_wei,json=estimatedGasCostWei,proto3" json:"estimated_gas_cost_wei,omitempty"` // gas heuristic as string (can exceed JS safe int)
-	PaymentMode         string `protobuf:"bytes,5,opt,name=payment_mode,json=paymentMode,proto3" json:"payment_mode,omitempty"`                             // "auto" | "merkle" | "single"
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	AttoTokens          string                 `protobuf:"bytes,1,opt,name=atto_tokens,json=attoTokens,proto3" json:"atto_tokens,omitempty"`                                // storage cost in atto tokens as string
+	FileSize            uint64                 `protobuf:"varint,2,opt,name=file_size,json=fileSize,proto3" json:"file_size,omitempty"`                                     // original file size in bytes
+	ChunkCount          uint32                 `protobuf:"varint,3,opt,name=chunk_count,json=chunkCount,proto3" json:"chunk_count,omitempty"`                               // number of data chunks the file splits into
+	EstimatedGasCostWei string                 `protobuf:"bytes,4,opt,name=estimated_gas_cost_wei,json=estimatedGasCostWei,proto3" json:"estimated_gas_cost_wei,omitempty"` // gas heuristic as string (can exceed JS safe int)
+	PaymentMode         string                 `protobuf:"bytes,5,opt,name=payment_mode,json=paymentMode,proto3" json:"payment_mode,omitempty"`                             // "auto" | "merkle" | "single"
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -306,8 +303,7 @@ const file_antd_v1_common_proto_rawDesc = "" +
 	"\x0fGraphDescendant\x12\x1d\n" +
 	"\n" +
 	"public_key\x18\x01 \x01(\tR\tpublicKey\x12\x18\n" +
-	"\acontent\x18\x02 \x01(\tR\acontentB\n" +
-	"\xaa\x02\aAntd.V1b\x06proto3"
+	"\acontent\x18\x02 \x01(\tR\acontentBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\aAntd.V1b\x06proto3"
 
 var (
 	file_antd_v1_common_proto_rawDescOnce sync.Once

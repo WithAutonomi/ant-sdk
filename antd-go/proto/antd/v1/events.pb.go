@@ -137,8 +137,7 @@ const file_antd_v1_events_proto_rawDesc = "" +
 	"\x14records_already_paid\x18\x03 \x01(\x04R\x12recordsAlreadyPaid\x12!\n" +
 	"\ftokens_spent\x18\x04 \x01(\tR\vtokensSpent2S\n" +
 	"\fEventService\x12C\n" +
-	"\tSubscribe\x12\x19.antd.v1.SubscribeRequest\x1a\x19.antd.v1.ClientEventProto0\x01B\n" +
-	"\xaa\x02\aAntd.V1b\x06proto3"
+	"\tSubscribe\x12\x19.antd.v1.SubscribeRequest\x1a\x19.antd.v1.ClientEventProto0\x01BDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\aAntd.V1b\x06proto3"
 
 var (
 	file_antd_v1_events_proto_rawDescOnce sync.Once
