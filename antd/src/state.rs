@@ -22,6 +22,18 @@ pub struct AppState {
     pub bootstrap_peers: Vec<MultiAddr>,
     /// Pending prepared uploads awaiting external payment (upload_id → state).
     pub pending_uploads: Arc<Mutex<HashMap<String, TimestampedUpload>>>,
+    /// Process start time, for /health uptime reporting.
+    pub started_at: std::time::Instant,
+    /// antd crate version (env!("CARGO_PKG_VERSION") at build time).
+    pub version: String,
+    /// Short git SHA captured by build.rs, or "" if unknown.
+    pub build_commit: String,
+    /// EVM preset name ("arbitrum-one", "arbitrum-sepolia", "local", "custom").
+    pub evm_preset: String,
+    /// Payment token contract address, or "" if unconfigured.
+    pub evm_token_addr: String,
+    /// Payment vault contract address, or "" if unconfigured.
+    pub evm_vault_addr: String,
 }
 
 impl AppState {

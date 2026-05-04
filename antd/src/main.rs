@@ -211,6 +211,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "EVM config resolved"
     );
 
+    // Capture preset + addresses for /health diagnostics before evm_cfg is
+    // consumed by the wallet/network setup below.
+    let evm_preset = evm_cfg.preset.clone();
+    let evm_token_addr = evm_cfg.token_addr.clone();
+    let evm_vault_addr = evm_cfg.vault_addr.clone();
+
     // For known mainnet/testnet presets use the typed EvmNetwork variants
     // (ArbitrumOne / ArbitrumSepoliaTest) — they encode the chain-id and
     // pricing constants that mainnet storers' median-quote payment verifier
@@ -269,6 +275,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         network: config.network.clone(),
         bootstrap_peers,
         pending_uploads: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        started_at: std::time::Instant::now(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        build_commit: env!("ANTD_BUILD_COMMIT").to_string(),
+        evm_preset,
+        evm_token_addr,
+        evm_vault_addr,
     });
 
     // Spawn background task to clean up stale pending uploads (1-hour TTL)

@@ -31,7 +31,7 @@ pub async fn serve(
         state: state.clone(),
     });
     let health_svc = HealthServiceServer::new(service::HealthServiceImpl {
-        network: state.network.clone(),
+        state: state.clone(),
     });
 
     let addr = listener.local_addr()?;

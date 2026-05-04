@@ -311,8 +311,7 @@ const file_antd_v1_files_proto_rawDesc = "" +
 	"\x0eDownloadPublic\x12\x1e.antd.v1.DownloadPublicRequest\x1a\x19.antd.v1.DownloadResponse\x12L\n" +
 	"\x0fDirUploadPublic\x12\x1a.antd.v1.UploadFileRequest\x1a\x1d.antd.v1.UploadPublicResponse\x12N\n" +
 	"\x11DirDownloadPublic\x12\x1e.antd.v1.DownloadPublicRequest\x1a\x19.antd.v1.DownloadResponse\x126\n" +
-	"\vGetFileCost\x12\x18.antd.v1.FileCostRequest\x1a\r.antd.v1.CostB\n" +
-	"\xaa\x02\aAntd.V1b\x06proto3"
+	"\vGetFileCost\x12\x18.antd.v1.FileCostRequest\x1a\r.antd.v1.CostBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\aAntd.V1b\x06proto3"
 
 var (
 	file_antd_v1_files_proto_rawDescOnce sync.Once

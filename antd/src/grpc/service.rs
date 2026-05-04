@@ -21,7 +21,7 @@ fn not_implemented(op: &str) -> Status {
 // ── HealthService ──
 
 pub struct HealthServiceImpl {
-    pub network: String,
+    pub state: Arc<AppState>,
 }
 
 #[tonic::async_trait]
@@ -32,7 +32,13 @@ impl pb::health_service_server::HealthService for HealthServiceImpl {
     ) -> Result<Response<pb::HealthCheckResponse>, Status> {
         Ok(Response::new(pb::HealthCheckResponse {
             status: "ok".into(),
-            network: self.network.clone(),
+            network: self.state.network.clone(),
+            version: self.state.version.clone(),
+            evm_network: self.state.evm_preset.clone(),
+            uptime_seconds: self.state.started_at.elapsed().as_secs(),
+            build_commit: self.state.build_commit.clone(),
+            payment_token_address: self.state.evm_token_addr.clone(),
+            payment_vault_address: self.state.evm_vault_addr.clone(),
         }))
     }
 }

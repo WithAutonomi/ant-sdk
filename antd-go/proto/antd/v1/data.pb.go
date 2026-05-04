@@ -558,8 +558,7 @@ const file_antd_v1_data_proto_rawDesc = "" +
 	"GetPrivate\x12\x1e.antd.v1.GetPrivateDataRequest\x1a\x1f.antd.v1.GetPrivateDataResponse\x12M\n" +
 	"\n" +
 	"PutPrivate\x12\x1e.antd.v1.PutPrivateDataRequest\x1a\x1f.antd.v1.PutPrivateDataResponse\x122\n" +
-	"\aGetCost\x12\x18.antd.v1.DataCostRequest\x1a\r.antd.v1.CostB\n" +
-	"\xaa\x02\aAntd.V1b\x06proto3"
+	"\aGetCost\x12\x18.antd.v1.DataCostRequest\x1a\r.antd.v1.CostBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\aAntd.V1b\x06proto3"
 
 var (
 	file_antd_v1_data_proto_rawDescOnce sync.Once

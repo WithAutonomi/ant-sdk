@@ -26,8 +26,14 @@ type mockHealthService struct {
 
 func (m *mockHealthService) Check(_ context.Context, _ *pb.HealthCheckRequest) (*pb.HealthCheckResponse, error) {
 	return &pb.HealthCheckResponse{
-		Status:  "ok",
-		Network: "local",
+		Status:              "ok",
+		Network:             "local",
+		Version:             "0.4.0",
+		EvmNetwork:          "local",
+		UptimeSeconds:       42,
+		BuildCommit:         "abcdef123456",
+		PaymentTokenAddress: "0xtoken",
+		PaymentVaultAddress: "0xvault",
 	}, nil
 }
 
@@ -221,6 +227,12 @@ func TestGrpcHealth(t *testing.T) {
 	}
 	if !h.OK || h.Network != "local" {
 		t.Fatalf("unexpected health: %+v", h)
+	}
+	if h.Version != "0.4.0" || h.EvmNetwork != "local" || h.UptimeSeconds != 42 {
+		t.Fatalf("unexpected diagnostic fields: %+v", h)
+	}
+	if h.BuildCommit != "abcdef123456" || h.PaymentTokenAddress != "0xtoken" || h.PaymentVaultAddress != "0xvault" {
+		t.Fatalf("unexpected build/payment fields: %+v", h)
 	}
 }
 

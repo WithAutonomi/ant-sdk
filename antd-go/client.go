@@ -167,8 +167,14 @@ func (c *Client) Health(ctx context.Context) (*HealthStatus, error) {
 		return nil, err
 	}
 	return &HealthStatus{
-		OK:      str(j, "status") == "ok",
-		Network: str(j, "network"),
+		OK:                  str(j, "status") == "ok",
+		Network:             str(j, "network"),
+		Version:             str(j, "version"),
+		EvmNetwork:          str(j, "evm_network"),
+		UptimeSeconds:       unum64(j, "uptime_seconds"),
+		BuildCommit:         str(j, "build_commit"),
+		PaymentTokenAddress: str(j, "payment_token_address"),
+		PaymentVaultAddress: str(j, "payment_vault_address"),
 	}, nil
 }
 

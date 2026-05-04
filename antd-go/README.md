@@ -30,7 +30,8 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
-    fmt.Printf("OK: %v, Network: %s\n", health.OK, health.Network)
+    fmt.Printf("OK: %v, Network: %s, Version: %s, EVM: %s\n",
+        health.OK, health.Network, health.Version, health.EvmNetwork)
 
     // Store data
     result, err := client.DataPutPublic(ctx, []byte("Hello, Autonomi!"))
@@ -88,7 +89,7 @@ All methods take a `context.Context` as the first parameter for cancellation and
 ### Health
 | Method | Description |
 |--------|-------------|
-| `Health(ctx)` | Check daemon status |
+| `Health(ctx)` | Check daemon status — returns `*HealthStatus` with daemon version, EVM network, uptime, build commit, and payment contract addresses |
 
 ### Data (Immutable)
 | Method | Description |
@@ -167,7 +168,8 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
-    fmt.Printf("OK: %v, Network: %s\n", health.OK, health.Network)
+    fmt.Printf("OK: %v, Network: %s, Version: %s, EVM: %s\n",
+        health.OK, health.Network, health.Version, health.EvmNetwork)
 
     result, err := client.DataPutPublic(ctx, []byte("Hello via gRPC!"))
     if err != nil {

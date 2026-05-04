@@ -155,8 +155,14 @@ func (c *GrpcClient) Health(ctx context.Context) (*HealthStatus, error) {
 		return nil, errorFromGrpc(err)
 	}
 	return &HealthStatus{
-		OK:      resp.GetStatus() == "ok",
-		Network: resp.GetNetwork(),
+		OK:                  resp.GetStatus() == "ok",
+		Network:             resp.GetNetwork(),
+		Version:             resp.GetVersion(),
+		EvmNetwork:          resp.GetEvmNetwork(),
+		UptimeSeconds:       resp.GetUptimeSeconds(),
+		BuildCommit:         resp.GetBuildCommit(),
+		PaymentTokenAddress: resp.GetPaymentTokenAddress(),
+		PaymentVaultAddress: resp.GetPaymentVaultAddress(),
 	}, nil
 }
 
