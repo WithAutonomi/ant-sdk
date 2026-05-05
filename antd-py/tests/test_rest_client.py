@@ -114,6 +114,9 @@ class _MockHandler(BaseHTTPRequestHandler):
 
         elif path == "/v1/upload/prepare":
             req = json.loads(body) if body else {}
+            # Stash the request so tests can inspect it.
+            self.server._last_prepare_request = req
+            self.server._last_prepare_was_public = req.get("visibility") == "public"
             # Return merkle response when path contains "merkle", else wave_batch
             if "merkle" in req.get("path", ""):
                 self._json_response(200, {
@@ -165,7 +168,16 @@ class _MockHandler(BaseHTTPRequestHandler):
             req = json.loads(body) if body else {}
             # Store the request so tests can inspect it
             self.server._last_finalize_request = req
-            self._json_response(200, {"address": "0xFINAL", "chunks_stored": 42})
+            response = {
+                "data_map": "0xDM",
+                "address": "0xFINAL",
+                "chunks_stored": 42,
+            }
+            # Emit data_map_address only when the matching prepare was public,
+            # mirroring antd's behavior at the wire layer.
+            if getattr(self.server, "_last_prepare_was_public", False):
+                response["data_map_address"] = "0xPUBADDR"
+            self._json_response(200, response)
 
         else:
             self._json_response(404, {"error": f"unknown route: {path}"})
@@ -364,3 +376,40 @@ class TestErrorMapping:
             _check(resp)
         assert exc_info.value.status_code == 502
         assert "bad gateway" in str(exc_info.value)
+
+
+class TestPrepareUploadPublic:
+    """Verify prepare_upload_public sends visibility="public" and surfaces the
+    bundled DataMap address on finalize."""
+
+    def test_sends_visibility_public(self, client: RestClient, mock_server):
+        client.prepare_upload_public("/tmp/pub/file.dat")
+        req = mock_server._last_prepare_request
+        assert req["visibility"] == "public"
+        assert req["path"] == "/tmp/pub/file.dat"
+
+    def test_finalize_surfaces_data_map_address_for_public(
+        self, client: RestClient, mock_server
+    ):
+        client.prepare_upload_public("/tmp/pub/file.dat")
+        result = client.finalize_upload("up_pub_1", {"qh1": "tx1"})
+        assert result.data_map_address == "0xPUBADDR"
+
+    def test_finalize_omits_data_map_address_for_private(
+        self, client: RestClient, mock_server
+    ):
+        # Old/private prepare path: daemon doesn't emit data_map_address;
+        # SDK must default the field to "" rather than crash.
+        client.prepare_upload("/tmp/private/file.dat")
+        result = client.finalize_upload("up_wave_1", {"qh1": "tx1"})
+        assert result.data_map_address == ""
+
+    def test_returned_result_is_a_finalize_upload_result(
+        self, client: RestClient, mock_server
+    ):
+        # Defensive: confirm the dataclass shape (other fields untouched).
+        client.prepare_upload_public("/tmp/pub/file.dat")
+        result = client.finalize_upload("up_pub_2", {"qh1": "tx1"})
+        assert isinstance(result, FinalizeUploadResult)
+        assert result.address == "0xFINAL"
+        assert result.chunks_stored == 42

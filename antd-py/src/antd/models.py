@@ -81,8 +81,9 @@ class PrepareUploadResult:
 @dataclass(frozen=True)
 class FinalizeUploadResult:
     """Result of finalizing an externally-signed upload."""
-    address: str         # hex address of stored data
+    address: str         # legacy: set when store_data_map=true was passed (paid by daemon wallet)
     chunks_stored: int = 0
+    data_map_address: str = ""  # set when prepare was called with visibility="public" (paid in same external-signer batch)
 
 
 @dataclass(frozen=True)

@@ -268,7 +268,7 @@ class RestClient:
     # --- External Signer (Two-Phase Upload) ---
 
     def prepare_upload(self, path: str) -> PrepareUploadResult:
-        """Prepare a file upload for external signing.
+        """Prepare a private file upload for external signing.
 
         Returns payment details that an external signer must process
         before calling finalize_upload.
@@ -277,12 +277,34 @@ class RestClient:
         _check(resp)
         return _parse_prepare_result(resp.json())
 
+    def prepare_upload_public(self, path: str) -> PrepareUploadResult:
+        """Prepare a public file upload for external signing.
+
+        In addition to the data chunks, the daemon bundles the serialized
+        DataMap chunk into the same payment batch — the external signer
+        signs ONE EVM transaction covering chunks + DataMap. After
+        finalize_upload, the result's data_map_address is the shareable
+        retrieval handle.
+
+        Requires antd >= 0.5.0.
+        """
+        resp = self._http.post(
+            "/v1/upload/prepare", json={"path": path, "visibility": "public"}
+        )
+        _check(resp)
+        return _parse_prepare_result(resp.json())
+
     def prepare_data_upload(self, data: bytes) -> PrepareUploadResult:
-        """Prepare a data upload for external signing.
+        """Prepare a private data upload for external signing.
 
         Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
         Returns payment details that an external signer must process
         before calling finalize_upload.
+
+        The public variant of this endpoint is not yet available — the
+        daemon returns 501 for visibility="public" until upstream ant-core
+        exposes data_prepare_upload_with_visibility. Use
+        prepare_upload_public with a file path instead.
         """
         resp = self._http.post("/v1/data/prepare", json={"data": _b64(data)})
         _check(resp)
@@ -301,7 +323,11 @@ class RestClient:
         })
         _check(resp)
         j = resp.json()
-        return FinalizeUploadResult(address=j.get("address", ""), chunks_stored=j.get("chunks_stored", 0))
+        return FinalizeUploadResult(
+            address=j.get("address", ""),
+            chunks_stored=j.get("chunks_stored", 0),
+            data_map_address=j.get("data_map_address", ""),
+        )
 
     def finalize_merkle_upload(
         self, upload_id: str, winner_pool_hash: str, store_data_map: bool = False,
@@ -320,7 +346,11 @@ class RestClient:
         })
         _check(resp)
         j = resp.json()
-        return FinalizeUploadResult(address=j.get("address", ""), chunks_stored=j.get("chunks_stored", 0))
+        return FinalizeUploadResult(
+            address=j.get("address", ""),
+            chunks_stored=j.get("chunks_stored", 0),
+            data_map_address=j.get("data_map_address", ""),
+        )
 
 
 class AsyncRestClient:
@@ -476,7 +506,7 @@ class AsyncRestClient:
     # --- External Signer (Two-Phase Upload) ---
 
     async def prepare_upload(self, path: str) -> PrepareUploadResult:
-        """Prepare a file upload for external signing.
+        """Prepare a private file upload for external signing.
 
         Returns payment details that an external signer must process
         before calling finalize_upload.
@@ -485,12 +515,34 @@ class AsyncRestClient:
         _check(resp)
         return _parse_prepare_result(resp.json())
 
+    async def prepare_upload_public(self, path: str) -> PrepareUploadResult:
+        """Prepare a public file upload for external signing.
+
+        In addition to the data chunks, the daemon bundles the serialized
+        DataMap chunk into the same payment batch — the external signer
+        signs ONE EVM transaction covering chunks + DataMap. After
+        finalize_upload, the result's data_map_address is the shareable
+        retrieval handle.
+
+        Requires antd >= 0.5.0.
+        """
+        resp = await self._http.post(
+            "/v1/upload/prepare", json={"path": path, "visibility": "public"}
+        )
+        _check(resp)
+        return _parse_prepare_result(resp.json())
+
     async def prepare_data_upload(self, data: bytes) -> PrepareUploadResult:
-        """Prepare a data upload for external signing.
+        """Prepare a private data upload for external signing.
 
         Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
         Returns payment details that an external signer must process
         before calling finalize_upload.
+
+        The public variant of this endpoint is not yet available — the
+        daemon returns 501 for visibility="public" until upstream ant-core
+        exposes data_prepare_upload_with_visibility. Use
+        prepare_upload_public with a file path instead.
         """
         resp = await self._http.post("/v1/data/prepare", json={"data": _b64(data)})
         _check(resp)
@@ -509,7 +561,11 @@ class AsyncRestClient:
         })
         _check(resp)
         j = resp.json()
-        return FinalizeUploadResult(address=j.get("address", ""), chunks_stored=j.get("chunks_stored", 0))
+        return FinalizeUploadResult(
+            address=j.get("address", ""),
+            chunks_stored=j.get("chunks_stored", 0),
+            data_map_address=j.get("data_map_address", ""),
+        )
 
     async def finalize_merkle_upload(
         self, upload_id: str, winner_pool_hash: str, store_data_map: bool = False,
@@ -528,4 +584,8 @@ class AsyncRestClient:
         })
         _check(resp)
         j = resp.json()
-        return FinalizeUploadResult(address=j.get("address", ""), chunks_stored=j.get("chunks_stored", 0))
+        return FinalizeUploadResult(
+            address=j.get("address", ""),
+            chunks_stored=j.get("chunks_stored", 0),
+            data_map_address=j.get("data_map_address", ""),
+        )
