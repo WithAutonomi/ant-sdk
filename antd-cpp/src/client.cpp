@@ -100,6 +100,12 @@ HealthStatus Client::health() {
     return HealthStatus{
         .ok = j.value("status", "") == "ok",
         .network = j.value("network", ""),
+        .version = j.value("version", ""),
+        .evm_network = j.value("evm_network", ""),
+        .uptime_seconds = j.value<std::uint64_t>("uptime_seconds", 0),
+        .build_commit = j.value("build_commit", ""),
+        .payment_token_address = j.value("payment_token_address", ""),
+        .payment_vault_address = j.value("payment_vault_address", ""),
     };
 }
 

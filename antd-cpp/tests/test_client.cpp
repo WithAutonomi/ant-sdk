@@ -82,13 +82,56 @@ TEST_CASE("AntdError subtypes are catchable as AntdError") {
 // ---------------------------------------------------------------------------
 
 TEST_CASE("HealthStatus from JSON") {
-    auto j = json::parse(R"({"status":"ok","network":"local"})");
-    antd::HealthStatus h;
-    h.ok = j.value("status", "") == "ok";
-    h.network = j.value("network", "");
+    auto j = json::parse(R"({
+        "status":"ok",
+        "network":"local",
+        "version":"0.4.0",
+        "evm_network":"local",
+        "uptime_seconds":42,
+        "build_commit":"abcdef123456",
+        "payment_token_address":"0xtoken",
+        "payment_vault_address":"0xvault"
+    })");
+    antd::HealthStatus h{
+        .ok = j.value("status", "") == "ok",
+        .network = j.value("network", ""),
+        .version = j.value("version", ""),
+        .evm_network = j.value("evm_network", ""),
+        .uptime_seconds = j.value<std::uint64_t>("uptime_seconds", 0),
+        .build_commit = j.value("build_commit", ""),
+        .payment_token_address = j.value("payment_token_address", ""),
+        .payment_vault_address = j.value("payment_vault_address", ""),
+    };
 
     CHECK(h.ok);
     CHECK(h.network == "local");
+    CHECK(h.version == "0.4.0");
+    CHECK(h.evm_network == "local");
+    CHECK(h.uptime_seconds == 42);
+    CHECK(h.build_commit == "abcdef123456");
+    CHECK(h.payment_token_address == "0xtoken");
+    CHECK(h.payment_vault_address == "0xvault");
+}
+
+TEST_CASE("HealthStatus defaults populate when pre-0.4.0 daemon omits diagnostics") {
+    auto j = json::parse(R"({"status":"ok","network":"default"})");
+    antd::HealthStatus h{
+        .ok = j.value("status", "") == "ok",
+        .network = j.value("network", ""),
+        .version = j.value("version", ""),
+        .evm_network = j.value("evm_network", ""),
+        .uptime_seconds = j.value<std::uint64_t>("uptime_seconds", 0),
+        .build_commit = j.value("build_commit", ""),
+        .payment_token_address = j.value("payment_token_address", ""),
+        .payment_vault_address = j.value("payment_vault_address", ""),
+    };
+
+    CHECK(h.ok);
+    CHECK(h.network == "default");
+    CHECK(h.version.empty());
+    CHECK(h.evm_network.empty());
+    CHECK(h.uptime_seconds == 0);
+    CHECK(h.build_commit.empty());
 }
 
 TEST_CASE("PutResult from JSON") {

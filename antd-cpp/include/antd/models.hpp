@@ -6,10 +6,21 @@
 
 namespace antd {
 
-/// Result of a health check.
+/// Health check result from the antd daemon.
+///
+/// The diagnostic fields (version, evm_network, uptime_seconds, build_commit,
+/// payment_token_address, payment_vault_address) were added in antd 0.4.0.
+/// They default to empty / 0 so the struct stays usable when talking to an
+/// older daemon that doesn't report them.
 struct HealthStatus {
     bool ok{false};
     std::string network;
+    std::string version;                ///< antd crate version, e.g. "0.4.0"
+    std::string evm_network;            ///< "arbitrum-one", "arbitrum-sepolia", "local", "custom"
+    std::uint64_t uptime_seconds{0};    ///< seconds since the daemon process started
+    std::string build_commit;           ///< short git SHA, "" if unknown
+    std::string payment_token_address;  ///< "" if unconfigured
+    std::string payment_vault_address;  ///< "" if unconfigured
 };
 
 /// Result of a put/create operation.

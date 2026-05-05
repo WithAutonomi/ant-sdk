@@ -86,6 +86,12 @@ HealthStatus GrpcClient::health() {
     return HealthStatus{
         .ok = resp.status() == "ok",
         .network = resp.network(),
+        .version = resp.version(),
+        .evm_network = resp.evm_network(),
+        .uptime_seconds = resp.uptime_seconds(),
+        .build_commit = resp.build_commit(),
+        .payment_token_address = resp.payment_token_address(),
+        .payment_vault_address = resp.payment_vault_address(),
     };
 }
 
