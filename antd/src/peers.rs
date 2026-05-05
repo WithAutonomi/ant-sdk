@@ -8,8 +8,7 @@ use ant_core::data::MultiAddr;
 /// Used as a last-resort fallback when neither CLI/env nor the on-disk
 /// `bootstrap_peers.toml` provided any peers, so a fresh release binary can
 /// reach mainnet without manual setup.
-const COMPILED_IN_BOOTSTRAP_PEERS_TOML: &str =
-    include_str!("../resources/bootstrap_peers.toml");
+const COMPILED_IN_BOOTSTRAP_PEERS_TOML: &str = include_str!("../resources/bootstrap_peers.toml");
 
 #[derive(serde::Deserialize)]
 struct BootstrapConfig {
