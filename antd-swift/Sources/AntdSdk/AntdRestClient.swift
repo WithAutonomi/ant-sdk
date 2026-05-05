@@ -67,7 +67,7 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
     public func health() async throws -> HealthStatus {
         do {
             let resp: HealthResponseDTO = try await getJSON("/health")
-            return HealthStatus(ok: resp.status == "ok", network: resp.network ?? "unknown")
+            return resp.toHealthStatus()
         } catch {
             return HealthStatus(ok: false, network: "unknown")
         }
@@ -251,6 +251,25 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
 private struct HealthResponseDTO: Decodable {
     let status: String?
     let network: String?
+    let version: String?
+    let evm_network: String?
+    let uptime_seconds: UInt64?
+    let build_commit: String?
+    let payment_token_address: String?
+    let payment_vault_address: String?
+
+    func toHealthStatus() -> HealthStatus {
+        HealthStatus(
+            ok: status == "ok",
+            network: network ?? "unknown",
+            version: version ?? "",
+            evmNetwork: evm_network ?? "",
+            uptimeSeconds: uptime_seconds ?? 0,
+            buildCommit: build_commit ?? "",
+            paymentTokenAddress: payment_token_address ?? "",
+            paymentVaultAddress: payment_vault_address ?? ""
+        )
+    }
 }
 
 private struct CostAddressDTO: Decodable {
