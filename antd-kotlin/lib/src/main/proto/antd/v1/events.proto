@@ -3,6 +3,7 @@ syntax = "proto3";
 package antd.v1;
 
 option csharp_namespace = "Antd.V1";
+option go_package = "github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1";
 
 service EventService {
   rpc Subscribe(SubscribeRequest) returns (stream ClientEventProto);

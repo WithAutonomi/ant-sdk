@@ -35,7 +35,16 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
 
     override suspend fun health(): HealthStatus = try {
         val resp = healthStub.check(healthCheckRequest { })
-        HealthStatus(resp.status == "ok", resp.network.ifEmpty { "unknown" })
+        HealthStatus(
+            ok = resp.status == "ok",
+            network = resp.network.ifEmpty { "unknown" },
+            version = resp.version,
+            evmNetwork = resp.evmNetwork,
+            uptimeSeconds = resp.uptimeSeconds.toULong(),
+            buildCommit = resp.buildCommit,
+            paymentTokenAddress = resp.paymentTokenAddress,
+            paymentVaultAddress = resp.paymentVaultAddress,
+        )
     } catch (ex: StatusRuntimeException) {
         if (ex.status.code == Status.Code.UNAVAILABLE) {
             HealthStatus(false, "unknown")

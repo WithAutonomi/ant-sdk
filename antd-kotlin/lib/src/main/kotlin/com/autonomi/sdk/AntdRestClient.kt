@@ -92,8 +92,7 @@ class AntdRestClient(
     // ── Health ──
 
     override suspend fun health(): HealthStatus = try {
-        val resp = getJson<HealthResponseDto>("/health")
-        HealthStatus(resp.status == "ok", resp.network ?: "unknown")
+        getJson<HealthResponseDto>("/health").toHealthStatus()
     } catch (_: Exception) {
         HealthStatus(false, "unknown")
     }

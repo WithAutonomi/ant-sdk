@@ -3,6 +3,7 @@ syntax = "proto3";
 package antd.v1;
 
 option csharp_namespace = "Antd.V1";
+option go_package = "github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1";
 
 service HealthService {
   rpc Check(HealthCheckRequest) returns (HealthCheckResponse);
@@ -13,4 +14,10 @@ message HealthCheckRequest {}
 message HealthCheckResponse {
   string status = 1;  // "ok"
   string network = 2; // "default", "local", "alpha"
+  string version = 3; // antd crate version (e.g. "0.4.0")
+  string evm_network = 4; // EVM preset: "arbitrum-one", "arbitrum-sepolia", "local", "custom"
+  uint64 uptime_seconds = 5; // seconds since process start
+  string build_commit = 6; // short git SHA, or "" if built outside a git checkout
+  string payment_token_address = 7; // token contract, or "" if unconfigured
+  string payment_vault_address = 8; // payment vault contract, or "" if unconfigured
 }
