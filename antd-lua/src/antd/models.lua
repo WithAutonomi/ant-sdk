@@ -5,13 +5,28 @@
 local M = {}
 
 --- Create a HealthStatus table.
+--
+-- The diagnostic fields (version, evm_network, uptime_seconds, build_commit,
+-- payment_token_address, payment_vault_address) were added in antd 0.4.0.
+-- The optional opts table populates them; missing keys default to "" / 0 so
+-- the function stays backward-compatible with the original 2-arg call shape.
+--
 -- @param ok boolean daemon is healthy
 -- @param network string network name
+-- @param opts table optional diagnostic fields: { version, evm_network,
+--   uptime_seconds, build_commit, payment_token_address, payment_vault_address }
 -- @return table
-function M.new_health_status(ok, network)
+function M.new_health_status(ok, network, opts)
+    opts = opts or {}
     return {
         ok = ok,
         network = network,
+        version = opts.version or "",
+        evm_network = opts.evm_network or "",
+        uptime_seconds = opts.uptime_seconds or 0,
+        build_commit = opts.build_commit or "",
+        payment_token_address = opts.payment_token_address or "",
+        payment_vault_address = opts.payment_vault_address or "",
     }
 end
 
