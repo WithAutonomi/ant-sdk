@@ -1,0 +1,22 @@
+# Autonomi Network — Bootstrap Peers (compiled-in default for antd)
+#
+# This file is embedded into the antd binary via include_str! and used as a
+# last-resort fallback when no peers are supplied via:
+#   1. --peers / ANTD_PEERS (CLI/env)
+#   2. %APPDATA%/ant/bootstrap_peers.toml (Linux: ~/.config/ant/) — the file
+#      ant-client's installer drops in
+#
+# Vendored from ant-client `resources/bootstrap_peers.toml`. Refresh on each
+# antd release if upstream rotates the list.
+#
+# Format: "ip:port" socket addresses. Port range for ant-node: 10000-10999.
+
+peers = [
+    "207.148.94.42:10000",
+    "45.77.50.10:10000",
+    "66.135.23.83:10000",
+    "149.248.9.2:10000",
+    "49.12.119.240:10000",
+    "5.161.25.133:10000",
+    "18.228.202.183:10000",
+]

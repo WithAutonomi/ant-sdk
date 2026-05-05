@@ -116,6 +116,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Last-resort fallback: peers vendored into the binary at compile time.
+    // Lets a fresh release binary reach mainnet without any prior ant-client
+    // installer step. CLI/env/file all take precedence over this.
+    if bootstrap_peers.is_empty() && config.network != "local" {
+        let compiled_in = peers::compiled_in_default_peers();
+        if !compiled_in.is_empty() {
+            tracing::info!(
+                count = compiled_in.len(),
+                "loaded compiled-in default bootstrap peers (no CLI/env/file peers were supplied)"
+            );
+            bootstrap_peers = compiled_in;
+        }
+    }
+
     if bootstrap_peers.is_empty() {
         if config.network != "local" {
             tracing::warn!(
