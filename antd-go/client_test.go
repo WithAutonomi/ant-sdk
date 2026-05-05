@@ -602,3 +602,102 @@ func TestPrepareUploadBackwardCompat(t *testing.T) {
 		t.Fatalf("expected 1 payment, got %d", len(res.Payments))
 	}
 }
+
+func TestPrepareUploadPublicSendsVisibility(t *testing.T) {
+	var capturedBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/upload/prepare" {
+			_ = json.NewDecoder(r.Body).Decode(&capturedBody)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"upload_id":             "up-pub-1",
+				"payment_type":          "wave_batch",
+				"payments":              []any{map[string]any{"quote_hash": "qh1", "rewards_address": "ra1", "amount": "100"}},
+				"total_amount":          "100",
+				"payment_vault_address": "dp1",
+				"payment_token_address": "pt1",
+				"rpc_url":               "http://localhost:8545",
+			})
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	res, err := c.PrepareUploadPublic(context.Background(), "/tmp/test.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := capturedBody["visibility"], "public"; got != want {
+		t.Fatalf("expected visibility=%q in request body, got %v", want, got)
+	}
+	if got, want := capturedBody["path"], "/tmp/test.txt"; got != want {
+		t.Fatalf("expected path=%q in request body, got %v", want, got)
+	}
+	if res.UploadID != "up-pub-1" {
+		t.Fatalf("unexpected upload_id: %s", res.UploadID)
+	}
+}
+
+func TestFinalizeUploadSurfacesDataMapAddress(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/upload/finalize" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data_map":         "deadbeef",
+				"data_map_address": "cafebabe",
+				"chunks_stored":    float64(4),
+			})
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	res, err := c.FinalizeUpload(context.Background(), "up1", map[string]string{"qh1": "tx1"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.DataMapAddress != "cafebabe" {
+		t.Fatalf("expected DataMapAddress=cafebabe, got %q", res.DataMapAddress)
+	}
+	if res.Address != "" {
+		t.Fatalf("expected empty legacy Address, got %q", res.Address)
+	}
+	if res.DataMap != "deadbeef" {
+		t.Fatalf("expected DataMap=deadbeef, got %q", res.DataMap)
+	}
+	if res.ChunksStored != 4 {
+		t.Fatalf("expected ChunksStored=4, got %d", res.ChunksStored)
+	}
+}
+
+func TestFinalizeUploadOmitsDataMapAddressForPrivate(t *testing.T) {
+	// Old daemons (pre-0.6.1) don't return data_map_address; field defaults to "".
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/upload/finalize" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data_map":      "deadbeef",
+				"chunks_stored": float64(2),
+			})
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	res, err := c.FinalizeUpload(context.Background(), "up1", map[string]string{"qh1": "tx1"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.DataMapAddress != "" {
+		t.Fatalf("expected empty DataMapAddress for old daemon, got %q", res.DataMapAddress)
+	}
+	if res.DataMap != "deadbeef" {
+		t.Fatalf("expected DataMap=deadbeef, got %q", res.DataMap)
+	}
+}
