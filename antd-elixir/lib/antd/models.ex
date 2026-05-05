@@ -1,12 +1,32 @@
 defmodule Antd.HealthStatus do
-  @moduledoc "Result of a health check."
+  @moduledoc """
+  Result of a health check.
+
+  The diagnostic fields (`:version`, `:evm_network`, `:uptime_seconds`,
+  `:build_commit`, `:payment_token_address`, `:payment_vault_address`) were
+  added in antd 0.4.0. They default to `""` / `0` so existing struct
+  constructions and pre-0.4.0 daemon responses both still work.
+  """
 
   @enforce_keys [:ok, :network]
-  defstruct [:ok, :network]
+  defstruct ok: nil,
+            network: nil,
+            version: "",
+            evm_network: "",
+            uptime_seconds: 0,
+            build_commit: "",
+            payment_token_address: "",
+            payment_vault_address: ""
 
   @type t :: %__MODULE__{
           ok: boolean(),
-          network: String.t()
+          network: String.t(),
+          version: String.t(),
+          evm_network: String.t(),
+          uptime_seconds: non_neg_integer(),
+          build_commit: String.t(),
+          payment_token_address: String.t(),
+          payment_vault_address: String.t()
         }
 end
 
