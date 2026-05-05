@@ -39,8 +39,43 @@ pub fn parseHealthStatus(allocator: Allocator, body: []const u8) !models.HealthS
 
     const network = dupeString(allocator, obj.get("network") orelse .null) catch
         return error.JsonError;
+    errdefer allocator.free(network);
 
-    return .{ .ok = ok, .network = network };
+    const version = dupeString(allocator, obj.get("version") orelse .null) catch
+        return error.JsonError;
+    errdefer allocator.free(version);
+
+    const evm_network = dupeString(allocator, obj.get("evm_network") orelse .null) catch
+        return error.JsonError;
+    errdefer allocator.free(evm_network);
+
+    const uptime_seconds: u64 = blk: {
+        const v = obj.get("uptime_seconds") orelse break :blk 0;
+        const n = jsonInt(v);
+        break :blk if (n < 0) 0 else @intCast(n);
+    };
+
+    const build_commit = dupeString(allocator, obj.get("build_commit") orelse .null) catch
+        return error.JsonError;
+    errdefer allocator.free(build_commit);
+
+    const payment_token_address = dupeString(allocator, obj.get("payment_token_address") orelse .null) catch
+        return error.JsonError;
+    errdefer allocator.free(payment_token_address);
+
+    const payment_vault_address = dupeString(allocator, obj.get("payment_vault_address") orelse .null) catch
+        return error.JsonError;
+
+    return .{
+        .ok = ok,
+        .network = network,
+        .version = version,
+        .evm_network = evm_network,
+        .uptime_seconds = uptime_seconds,
+        .build_commit = build_commit,
+        .payment_token_address = payment_token_address,
+        .payment_vault_address = payment_vault_address,
+    };
 }
 
 /// Parse a PutResult from a JSON response body. The address_key parameter

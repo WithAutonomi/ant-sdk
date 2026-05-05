@@ -2,12 +2,28 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 /// Result of a health check against the antd daemon.
+///
+/// The diagnostic fields (version, evm_network, uptime_seconds, build_commit,
+/// payment_token_address, payment_vault_address) were added in antd 0.4.0.
+/// They default to empty / 0 so the struct stays usable when talking to a
+/// pre-0.4.0 daemon that doesn't report them.
 pub const HealthStatus = struct {
     ok: bool,
     network: []const u8,
+    version: []const u8 = "",
+    evm_network: []const u8 = "",
+    uptime_seconds: u64 = 0,
+    build_commit: []const u8 = "",
+    payment_token_address: []const u8 = "",
+    payment_vault_address: []const u8 = "",
 
     pub fn deinit(self: HealthStatus, allocator: Allocator) void {
         allocator.free(self.network);
+        allocator.free(self.version);
+        allocator.free(self.evm_network);
+        allocator.free(self.build_commit);
+        allocator.free(self.payment_token_address);
+        allocator.free(self.payment_vault_address);
     }
 };
 
