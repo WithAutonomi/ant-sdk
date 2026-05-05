@@ -37,7 +37,16 @@ module Antd
     # @return [HealthStatus]
     def health
       j = do_json(:get, "/health")
-      HealthStatus.new(ok: j["status"] == "ok", network: j["network"])
+      HealthStatus.new(
+        ok: j["status"] == "ok",
+        network: j["network"],
+        version: j.fetch("version", ""),
+        evm_network: j.fetch("evm_network", ""),
+        uptime_seconds: j.fetch("uptime_seconds", 0),
+        build_commit: j.fetch("build_commit", ""),
+        payment_token_address: j.fetch("payment_token_address", ""),
+        payment_vault_address: j.fetch("payment_vault_address", "")
+      )
     end
 
     # --- Data ---

@@ -13,13 +13,40 @@ class TestClient < Minitest::Test
   # --- Health ---
 
   def test_health
+    body = {
+      status: "ok", network: "local",
+      version: "0.4.0", evm_network: "local", uptime_seconds: 42,
+      build_commit: "abcdef123456",
+      payment_token_address: "0xtoken", payment_vault_address: "0xvault"
+    }.to_json
     stub_request(:get, "#{BASE}/health")
-      .to_return(status: 200, body: '{"status":"ok","network":"local"}',
+      .to_return(status: 200, body: body,
                  headers: { "Content-Type" => "application/json" })
 
     h = @client.health
     assert h.ok
     assert_equal "local", h.network
+    assert_equal "0.4.0", h.version
+    assert_equal "local", h.evm_network
+    assert_equal 42, h.uptime_seconds
+    assert_equal "abcdef123456", h.build_commit
+    assert_equal "0xtoken", h.payment_token_address
+    assert_equal "0xvault", h.payment_vault_address
+  end
+
+  # Pre-0.4.0 daemons reply with just status + network — verify the
+  # diagnostic fields default to empty / 0 rather than NPE-ing.
+  def test_health_pre_0_4_0_daemon
+    stub_request(:get, "#{BASE}/health")
+      .to_return(status: 200, body: '{"status":"ok","network":"default"}',
+                 headers: { "Content-Type" => "application/json" })
+
+    h = @client.health
+    assert h.ok
+    assert_equal "default", h.network
+    assert_equal "", h.version
+    assert_equal "", h.evm_network
+    assert_equal 0, h.uptime_seconds
   end
 
   # --- Data Public ---

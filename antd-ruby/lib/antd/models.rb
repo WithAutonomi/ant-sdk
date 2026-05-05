@@ -2,7 +2,24 @@
 
 module Antd
   # Result of a health check.
-  HealthStatus = Struct.new(:ok, :network, keyword_init: true)
+  #
+  # The diagnostic fields (:version, :evm_network, :uptime_seconds,
+  # :build_commit, :payment_token_address, :payment_vault_address) were added
+  # in antd 0.4.0. They default to "" / 0 so existing two-arg
+  # `HealthStatus.new(ok:, network:)` calls keep working and pre-0.4.0 daemon
+  # responses parse cleanly.
+  HealthStatus = Struct.new(
+    :ok, :network,
+    :version, :evm_network, :uptime_seconds,
+    :build_commit, :payment_token_address, :payment_vault_address,
+    keyword_init: true
+  ) do
+    def initialize(ok:, network:, version: "", evm_network: "",
+                   uptime_seconds: 0, build_commit: "",
+                   payment_token_address: "", payment_vault_address: "")
+      super
+    end
+  end
 
   # Result of a put/create operation.
   PutResult = Struct.new(:cost, :address, keyword_init: true)
