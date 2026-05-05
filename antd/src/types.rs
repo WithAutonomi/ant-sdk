@@ -225,13 +225,33 @@ pub struct CostResponse {
 #[derive(Deserialize)]
 pub struct FileCostRequest {
     pub path: String,
-    #[allow(dead_code)]
     #[serde(default = "default_true")]
     pub is_public: bool,
 }
 
 fn default_true() -> bool {
     true
+}
+
+/// Adjust a chunk count + storage cost estimate to reflect a public upload,
+/// which bundles one additional DataMap chunk into the same payment batch.
+///
+/// Returns `(adjusted_chunk_count, adjusted_storage_cost_atto)`. If the input
+/// cost cannot be parsed, only the chunk count is bumped and the cost is
+/// returned unchanged.
+pub fn adjust_for_public_upload(chunk_count: usize, storage_cost_atto: &str) -> (usize, String) {
+    let new_chunk_count = chunk_count.saturating_add(1);
+    if chunk_count == 0 {
+        return (new_chunk_count, storage_cost_atto.to_string());
+    }
+    let total: ant_core::data::U256 = match storage_cost_atto.parse() {
+        Ok(v) => v,
+        Err(_) => return (new_chunk_count, storage_cost_atto.to_string()),
+    };
+    let divisor = ant_core::data::U256::from(chunk_count as u64);
+    let per_chunk = total / divisor;
+    let new_total = total + per_chunk;
+    (new_chunk_count, new_total.to_string())
 }
 
 /// Parse a payment mode string into ant-core's PaymentMode.
@@ -450,5 +470,60 @@ mod tests {
         assert_eq!(json["build_commit"], "");
         assert_eq!(json["payment_token_address"], "");
         assert_eq!(json["payment_vault_address"], "");
+    }
+
+    #[test]
+    fn adjust_for_public_upload_bumps_count_and_scales_cost() {
+        // 5 chunks, 1000 atto total → per-chunk = 200 atto.
+        // Public upload adds 1 chunk → 6 chunks, 1200 atto total.
+        let (chunks, cost) = adjust_for_public_upload(5, "1000");
+        assert_eq!(chunks, 6);
+        assert_eq!(cost, "1200");
+    }
+
+    #[test]
+    fn adjust_for_public_upload_handles_uneven_division() {
+        // 3 chunks, 100 atto total → per-chunk = 33 atto (integer divide).
+        // Result: 4 chunks, 133 atto. Slight rounding is acceptable for
+        // an estimate; exact pricing is the on-chain quote.
+        let (chunks, cost) = adjust_for_public_upload(3, "100");
+        assert_eq!(chunks, 4);
+        assert_eq!(cost, "133");
+    }
+
+    #[test]
+    fn adjust_for_public_upload_handles_large_atto_values() {
+        // Real-world atto costs frequently exceed u64. Verify U256 handles it.
+        // 10 chunks at 1e22 atto total = 10K ANT — well above u64::MAX.
+        let total = "10000000000000000000000"; // 1e22
+        let (chunks, cost) = adjust_for_public_upload(10, total);
+        assert_eq!(chunks, 11);
+        // 1e22 + 1e21 = 1.1e22
+        assert_eq!(cost, "11000000000000000000000");
+    }
+
+    #[test]
+    fn adjust_for_public_upload_zero_chunks_only_bumps_count() {
+        // Defensive: shouldn't happen in practice, but division-by-zero would.
+        let (chunks, cost) = adjust_for_public_upload(0, "0");
+        assert_eq!(chunks, 1);
+        assert_eq!(cost, "0");
+    }
+
+    #[test]
+    fn adjust_for_public_upload_unparseable_cost_only_bumps_count() {
+        // ant-core returns "0" for already-stored chunks; a non-numeric or
+        // negative value would be a contract bug, but stay graceful.
+        let (chunks, cost) = adjust_for_public_upload(5, "not-a-number");
+        assert_eq!(chunks, 6);
+        assert_eq!(cost, "not-a-number");
+    }
+
+    #[test]
+    fn adjust_for_public_upload_zero_cost_round_trips() {
+        // Already-stored case: cost stays 0, count still bumps.
+        let (chunks, cost) = adjust_for_public_upload(5, "0");
+        assert_eq!(chunks, 6);
+        assert_eq!(cost, "0");
     }
 }

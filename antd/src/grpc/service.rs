@@ -6,7 +6,7 @@ use tonic::{Request, Response, Status};
 
 use crate::error::AntdError;
 use crate::state::AppState;
-use crate::types::format_payment_mode;
+use crate::types::{adjust_for_public_upload, format_payment_mode};
 
 // Generated protobuf modules
 #[allow(dead_code)]
@@ -536,10 +536,16 @@ impl pb::file_service_server::FileService for FileServiceImpl {
         .map_err(AntdError::from_core)
         .map_err(tonic::Status::from)?;
 
+        let (chunk_count, atto_tokens) = if req.is_public {
+            adjust_for_public_upload(estimate.chunk_count, &estimate.storage_cost_atto)
+        } else {
+            (estimate.chunk_count, estimate.storage_cost_atto)
+        };
+
         Ok(Response::new(pb::Cost {
-            atto_tokens: estimate.storage_cost_atto,
+            atto_tokens,
             file_size: estimate.file_size,
-            chunk_count: estimate.chunk_count as u32,
+            chunk_count: chunk_count as u32,
             estimated_gas_cost_wei: estimate.estimated_gas_cost_wei,
             payment_mode: format_payment_mode(estimate.payment_mode),
         }))
