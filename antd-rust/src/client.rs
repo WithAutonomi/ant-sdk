@@ -162,6 +162,15 @@ impl Client {
         Ok(HealthStatus {
             ok: Self::str_field(&j, "status") == "ok",
             network: Self::str_field(&j, "network"),
+            version: Self::str_field(&j, "version"),
+            evm_network: Self::str_field(&j, "evm_network"),
+            uptime_seconds: j
+                .get("uptime_seconds")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0),
+            build_commit: Self::str_field(&j, "build_commit"),
+            payment_token_address: Self::str_field(&j, "payment_token_address"),
+            payment_vault_address: Self::str_field(&j, "payment_vault_address"),
         })
     }
 
