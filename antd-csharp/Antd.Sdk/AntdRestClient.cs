@@ -81,12 +81,31 @@ public sealed class AntdRestClient : IAntdClient
             if (!resp.IsSuccessStatusCode)
                 return new HealthStatus(false, "unknown");
             var json = await resp.Content.ReadFromJsonAsync<HealthResponseDto>(JsonOpts);
-            return new HealthStatus(json?.Status == "ok", json?.Network ?? "unknown");
+            return HealthStatusFromDto(json);
         }
         catch
         {
             return new HealthStatus(false, "unknown");
         }
+    }
+
+    /// <summary>
+    /// Convert a parsed <see cref="HealthResponseDto"/> into a typed
+    /// <see cref="HealthStatus"/>. Diagnostic fields default to empty / 0
+    /// when talking to a pre-0.4.0 daemon that omits them.
+    /// </summary>
+    internal static HealthStatus HealthStatusFromDto(HealthResponseDto? dto)
+    {
+        if (dto is null) return new HealthStatus(false, "unknown");
+        return new HealthStatus(
+            dto.Status == "ok",
+            dto.Network ?? "unknown",
+            dto.Version ?? "",
+            dto.EvmNetwork ?? "",
+            dto.UptimeSeconds ?? 0,
+            dto.BuildCommit ?? "",
+            dto.PaymentTokenAddress ?? "",
+            dto.PaymentVaultAddress ?? "");
     }
 
     // ── Data ──
@@ -258,9 +277,15 @@ public sealed class AntdRestClient : IAntdClient
 
     // ── Internal DTOs for JSON deserialization ──
 
-    private sealed record HealthResponseDto(
+    internal sealed record HealthResponseDto(
         [property: JsonPropertyName("status")] string Status,
-        [property: JsonPropertyName("network")] string? Network);
+        [property: JsonPropertyName("network")] string? Network,
+        [property: JsonPropertyName("version")] string? Version = null,
+        [property: JsonPropertyName("evm_network")] string? EvmNetwork = null,
+        [property: JsonPropertyName("uptime_seconds")] ulong? UptimeSeconds = null,
+        [property: JsonPropertyName("build_commit")] string? BuildCommit = null,
+        [property: JsonPropertyName("payment_token_address")] string? PaymentTokenAddress = null,
+        [property: JsonPropertyName("payment_vault_address")] string? PaymentVaultAddress = null);
 
     private sealed record DataPutPublicDto(
         [property: JsonPropertyName("cost")] string Cost,

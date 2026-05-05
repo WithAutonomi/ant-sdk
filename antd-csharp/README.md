@@ -69,7 +69,7 @@ All methods are async and return `Task<T>`. The client implements `IDisposable`.
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `HealthAsync()` | `HealthStatus` | Check daemon health |
+| `HealthAsync()` | `HealthStatus` | Check daemon health — also reports antd version, EVM network, uptime, build commit, and payment contract addresses (antd ≥ 0.4.0) |
 
 ### Data
 
@@ -104,7 +104,7 @@ All models are sealed records (immutable).
 
 | Model | Fields | Description |
 |-------|--------|-------------|
-| `HealthStatus` | `Ok`, `Network` | Health check result |
+| `HealthStatus` | `Ok`, `Network`, `Version`, `EvmNetwork`, `UptimeSeconds`, `BuildCommit`, `PaymentTokenAddress`, `PaymentVaultAddress` | Health check result (diagnostic fields require antd ≥ 0.4.0) |
 | `PutResult` | `Cost`, `Address` | Write operation result |
 | `FileUploadResult` | `Address`, `StorageCostAtto`, `GasCostWei`, `ChunksStored`, `PaymentModeUsed` | File/dir upload result |
 
