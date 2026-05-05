@@ -67,7 +67,7 @@ pub struct PrepareUploadRequest {
     /// caller) or `"public"` (DataMap chunk bundled into the same payment
     /// batch and stored on-network; its address is returned on finalize).
     /// Omitting this field is equivalent to `"private"` and preserves
-    /// pre-0.5.0 behavior.
+    /// pre-0.6.1 behavior.
     #[serde(default)]
     pub visibility: Option<String>,
 }
@@ -564,8 +564,7 @@ mod tests {
 
     #[test]
     fn prepare_request_visibility_defaults_to_none() {
-        let req: PrepareUploadRequest =
-            serde_json::from_str(r#"{"path":"/tmp/foo"}"#).unwrap();
+        let req: PrepareUploadRequest = serde_json::from_str(r#"{"path":"/tmp/foo"}"#).unwrap();
         assert_eq!(req.path, "/tmp/foo");
         assert!(req.visibility.is_none());
     }
@@ -579,8 +578,7 @@ mod tests {
 
     #[test]
     fn prepare_data_request_visibility_defaults_to_none() {
-        let req: PrepareDataUploadRequest =
-            serde_json::from_str(r#"{"data":"AAA="}"#).unwrap();
+        let req: PrepareDataUploadRequest = serde_json::from_str(r#"{"data":"AAA="}"#).unwrap();
         assert!(req.visibility.is_none());
     }
 

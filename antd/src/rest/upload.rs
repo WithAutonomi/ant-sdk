@@ -113,8 +113,7 @@ pub async fn prepare_upload(
             AntdError::BadRequest("invalid path".into())
         })?;
 
-    let visibility =
-        parse_visibility(req.visibility.as_deref()).map_err(AntdError::BadRequest)?;
+    let visibility = parse_visibility(req.visibility.as_deref()).map_err(AntdError::BadRequest)?;
 
     let client = state.client.clone();
     let prepared = tokio::spawn(async move {
@@ -152,8 +151,7 @@ pub async fn prepare_data_upload(
     use base64::Engine;
     use bytes::Bytes;
 
-    let visibility =
-        parse_visibility(req.visibility.as_deref()).map_err(AntdError::BadRequest)?;
+    let visibility = parse_visibility(req.visibility.as_deref()).map_err(AntdError::BadRequest)?;
 
     // Public visibility on the in-memory data path requires the upstream
     // `data_prepare_upload_with_visibility` (ant-client PR #73). Until that
@@ -289,7 +287,12 @@ pub async fn finalize_upload(
 
                 let data_map_address = result.data_map_address.map(hex::encode);
 
-                Ok::<_, AntdError>((data_map_hex, address, data_map_address, result.chunks_stored))
+                Ok::<_, AntdError>((
+                    data_map_hex,
+                    address,
+                    data_map_address,
+                    result.chunks_stored,
+                ))
             })
             .await
             .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??
@@ -337,7 +340,12 @@ pub async fn finalize_upload(
 
                 let data_map_address = result.data_map_address.map(hex::encode);
 
-                Ok::<_, AntdError>((data_map_hex, address, data_map_address, result.chunks_stored))
+                Ok::<_, AntdError>((
+                    data_map_hex,
+                    address,
+                    data_map_address,
+                    result.chunks_stored,
+                ))
             })
             .await
             .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??
