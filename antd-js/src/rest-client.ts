@@ -14,6 +14,34 @@ import type {
   WalletBalance,
 } from "./models.js";
 
+/** Wire shape of the antd /health response. All diagnostic fields are
+ * optional so we can still parse responses from a pre-0.4.0 daemon. */
+interface HealthJson {
+  status?: string;
+  network?: string;
+  version?: string;
+  evm_network?: string;
+  uptime_seconds?: number;
+  build_commit?: string;
+  payment_token_address?: string;
+  payment_vault_address?: string;
+}
+
+/** Convert a /health JSON response to a typed HealthStatus. Diagnostic fields
+ * default to empty/zero when talking to a pre-0.4.0 daemon. */
+export function healthStatusFromJson(j: HealthJson): HealthStatus {
+  return {
+    ok: j.status === "ok",
+    network: j.network ?? "unknown",
+    version: j.version ?? "",
+    evmNetwork: j.evm_network ?? "",
+    uptimeSeconds: j.uptime_seconds ?? 0,
+    buildCommit: j.build_commit ?? "",
+    paymentTokenAddress: j.payment_token_address ?? "",
+    paymentVaultAddress: j.payment_vault_address ?? "",
+  };
+}
+
 /** Options for creating a REST client. */
 export interface RestClientOptions {
   /** Base URL of the antd daemon. Defaults to "http://localhost:8082". */
@@ -131,8 +159,8 @@ export class RestClient {
   // ---- Health ----
 
   async health(): Promise<HealthStatus> {
-    const j = await this.getJson<{ status: string; network: string }>("/health");
-    return { ok: j.status === "ok", network: j.network ?? "unknown" };
+    const j = await this.getJson<HealthJson>("/health");
+    return healthStatusFromJson(j);
   }
 
   // ---- Data ----

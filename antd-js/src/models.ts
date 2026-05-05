@@ -1,7 +1,20 @@
-/** Health check result from the antd daemon. */
+/**
+ * Health check result from the antd daemon.
+ *
+ * The diagnostic fields (version, evmNetwork, uptimeSeconds, buildCommit,
+ * paymentTokenAddress, paymentVaultAddress) were added in antd 0.4.0. They
+ * default to "" / 0 so the type can still be constructed from the response of
+ * an older daemon that doesn't report them.
+ */
 export interface HealthStatus {
   ok: boolean;
   network: string; // "default", "local", "alpha"
+  version: string; // antd crate version, e.g. "0.4.0"
+  evmNetwork: string; // "arbitrum-one", "arbitrum-sepolia", "local", "custom"
+  uptimeSeconds: number; // seconds since the daemon process started
+  buildCommit: string; // short git SHA, "" if unknown
+  paymentTokenAddress: string; // "" if unconfigured
+  paymentVaultAddress: string; // "" if unconfigured
 }
 
 /** Result of a put/create operation. */

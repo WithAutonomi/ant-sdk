@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { RestClient } from "./rest-client.js";
+import { healthStatusFromJson, RestClient } from "./rest-client.js";
 import {
   NotFoundError,
   BadRequestError,
@@ -42,7 +42,16 @@ const routes: Route[] = [
   {
     method: "GET",
     match: (p) => p === "/health",
-    respond: () => jsonResponse(200, { status: "ok", network: "local" }),
+    respond: () => jsonResponse(200, {
+      status: "ok",
+      network: "local",
+      version: "0.4.0",
+      evm_network: "local",
+      uptime_seconds: 42,
+      build_commit: "abcdef123456",
+      payment_token_address: "0xtoken",
+      payment_vault_address: "0xvault",
+    }),
   },
 
   // Data public PUT
@@ -226,9 +235,31 @@ describe("RestClient", () => {
   // ---- Health ----
 
   describe("health()", () => {
-    it("returns ok: true and network name", async () => {
+    it("returns ok, network, and all 6 diagnostic fields", async () => {
       const result = await client.health();
-      expect(result).toEqual({ ok: true, network: "local" });
+      expect(result).toEqual({
+        ok: true,
+        network: "local",
+        version: "0.4.0",
+        evmNetwork: "local",
+        uptimeSeconds: 42,
+        buildCommit: "abcdef123456",
+        paymentTokenAddress: "0xtoken",
+        paymentVaultAddress: "0xvault",
+      });
+    });
+
+    it("defaults diagnostic fields to empty when talking to a pre-0.4.0 daemon", () => {
+      // Helper-level regression: older daemons reply with just {status, network}.
+      const status = healthStatusFromJson({ status: "ok", network: "default" });
+      expect(status.ok).toBe(true);
+      expect(status.network).toBe("default");
+      expect(status.version).toBe("");
+      expect(status.evmNetwork).toBe("");
+      expect(status.uptimeSeconds).toBe(0);
+      expect(status.buildCommit).toBe("");
+      expect(status.paymentTokenAddress).toBe("");
+      expect(status.paymentVaultAddress).toBe("");
     });
   });
 
