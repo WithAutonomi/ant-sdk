@@ -63,11 +63,24 @@ pub struct ChunkGetResponse {
 #[derive(Deserialize)]
 pub struct PrepareUploadRequest {
     pub path: String,
+    /// Upload visibility: `"private"` (default — DataMap returned to the
+    /// caller) or `"public"` (DataMap chunk bundled into the same payment
+    /// batch and stored on-network; its address is returned on finalize).
+    /// Omitting this field is equivalent to `"private"` and preserves
+    /// pre-0.5.0 behavior.
+    #[serde(default)]
+    pub visibility: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub struct PrepareDataUploadRequest {
     pub data: String, // base64
+    /// Same semantics as [`PrepareUploadRequest::visibility`]. Currently
+    /// only `"private"` (or omission) is accepted on this endpoint;
+    /// `"public"` returns 501 until upstream `ant-core` exposes
+    /// `data_prepare_upload_with_visibility` (tracked as ant-client PR #73).
+    #[serde(default)]
+    pub visibility: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -154,9 +167,18 @@ pub struct FinalizeUploadRequest {
 pub struct FinalizeUploadResponse {
     /// Hex-encoded serialized DataMap. Always returned.
     pub data_map: String,
-    /// Network address of the stored DataMap (only set when store_data_map=true).
+    /// Network address of the stored DataMap, only set when the legacy
+    /// `store_data_map=true` path published the DataMap via the daemon's
+    /// internal wallet. New callers should prefer `visibility:"public"`
+    /// on prepare and read [`Self::data_map_address`] instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub address: Option<String>,
+    /// Network address of the bundled DataMap chunk when the upload was
+    /// prepared with `visibility:"public"`. The DataMap chunk's payment
+    /// is part of the same external-signer batch as the data chunks, so
+    /// no separate daemon-wallet payment is required.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_map_address: Option<String>,
     /// Number of chunks stored on the network.
     pub chunks_stored: u64,
 }
@@ -272,6 +294,19 @@ pub fn format_payment_mode(mode: ant_core::data::PaymentMode) -> String {
         ant_core::data::PaymentMode::Auto => "auto".into(),
         ant_core::data::PaymentMode::Merkle => "merkle".into(),
         ant_core::data::PaymentMode::Single => "single".into(),
+    }
+}
+
+/// Parse a visibility string into ant-core's `Visibility` enum.
+///
+/// Accepts `"private"`, `"public"`, or absent (defaults to `Private`).
+pub fn parse_visibility(s: Option<&str>) -> Result<ant_core::data::Visibility, String> {
+    match s {
+        None | Some("private") => Ok(ant_core::data::Visibility::Private),
+        Some("public") => Ok(ant_core::data::Visibility::Public),
+        Some(other) => Err(format!(
+            "invalid visibility: {other:?}. Use \"private\" or \"public\""
+        )),
     }
 }
 
@@ -525,5 +560,79 @@ mod tests {
         let (chunks, cost) = adjust_for_public_upload(5, "0");
         assert_eq!(chunks, 6);
         assert_eq!(cost, "0");
+    }
+
+    #[test]
+    fn prepare_request_visibility_defaults_to_none() {
+        let req: PrepareUploadRequest =
+            serde_json::from_str(r#"{"path":"/tmp/foo"}"#).unwrap();
+        assert_eq!(req.path, "/tmp/foo");
+        assert!(req.visibility.is_none());
+    }
+
+    #[test]
+    fn prepare_request_visibility_round_trips_public() {
+        let req: PrepareUploadRequest =
+            serde_json::from_str(r#"{"path":"/tmp/foo","visibility":"public"}"#).unwrap();
+        assert_eq!(req.visibility.as_deref(), Some("public"));
+    }
+
+    #[test]
+    fn prepare_data_request_visibility_defaults_to_none() {
+        let req: PrepareDataUploadRequest =
+            serde_json::from_str(r#"{"data":"AAA="}"#).unwrap();
+        assert!(req.visibility.is_none());
+    }
+
+    #[test]
+    fn parse_visibility_accepts_known_values() {
+        assert!(matches!(
+            parse_visibility(None),
+            Ok(ant_core::data::Visibility::Private)
+        ));
+        assert!(matches!(
+            parse_visibility(Some("private")),
+            Ok(ant_core::data::Visibility::Private)
+        ));
+        assert!(matches!(
+            parse_visibility(Some("public")),
+            Ok(ant_core::data::Visibility::Public)
+        ));
+    }
+
+    #[test]
+    fn parse_visibility_rejects_unknown_values() {
+        let err = parse_visibility(Some("Public")).unwrap_err();
+        assert!(err.contains("Public"), "err was: {err}");
+        let err = parse_visibility(Some("")).unwrap_err();
+        assert!(err.contains("\"\""), "err was: {err}");
+    }
+
+    #[test]
+    fn finalize_response_serializes_data_map_address() {
+        let resp = FinalizeUploadResponse {
+            data_map: "deadbeef".into(),
+            address: None,
+            data_map_address: Some("cafebabe".into()),
+            chunks_stored: 4,
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["data_map"], "deadbeef");
+        assert_eq!(json["data_map_address"], "cafebabe");
+        assert!(json.get("address").is_none());
+        assert_eq!(json["chunks_stored"], 4);
+    }
+
+    #[test]
+    fn finalize_response_omits_data_map_address_when_private() {
+        let resp = FinalizeUploadResponse {
+            data_map: "deadbeef".into(),
+            address: None,
+            data_map_address: None,
+            chunks_stored: 4,
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert!(json.get("address").is_none());
+        assert!(json.get("data_map_address").is_none());
     }
 }
