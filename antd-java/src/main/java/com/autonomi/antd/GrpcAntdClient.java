@@ -155,10 +155,23 @@ public class GrpcAntdClient implements AutoCloseable {
     public HealthStatus health() {
         try {
             HealthCheckResponse resp = healthStub.check(HealthCheckRequest.getDefaultInstance());
-            return new HealthStatus("ok".equals(resp.getStatus()), resp.getNetwork());
+            return healthStatusFromGrpc(resp);
         } catch (StatusRuntimeException e) {
             throw mapException(e);
         }
+    }
+
+    /** Convert a gRPC HealthCheckResponse into a typed HealthStatus. */
+    static HealthStatus healthStatusFromGrpc(HealthCheckResponse resp) {
+        return new HealthStatus(
+                "ok".equals(resp.getStatus()),
+                resp.getNetwork(),
+                resp.getVersion(),
+                resp.getEvmNetwork(),
+                resp.getUptimeSeconds(),
+                resp.getBuildCommit(),
+                resp.getPaymentTokenAddress(),
+                resp.getPaymentVaultAddress());
     }
 
     // ── Data (Immutable) ──

@@ -174,7 +174,7 @@ public class AsyncAntdClient implements AutoCloseable {
     /** Async variant of {@link AntdClient#health()}. */
     public CompletableFuture<HealthStatus> healthAsync() {
         return doJsonAsync("GET", "/health", null)
-                .thenApply(j -> new HealthStatus("ok".equals(str(j, "status")), str(j, "network")));
+                .thenApply(AntdClient::parseHealthStatus);
     }
 
     // ── Data (Immutable) ──
