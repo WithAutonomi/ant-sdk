@@ -22,30 +22,35 @@ from pathlib import Path
 
 _PORT_FILE_NAME = "daemon.port"
 _DATA_DIR_NAME = "ant"
+_SDK_SUBDIR_NAME = "sdk"
 
 
 def _data_dir() -> Path | None:
-    """Return the platform-specific data directory for ant, or None."""
+    """Return the platform-specific data directory for the antd SDK daemon, or None.
+
+    The ``sdk`` subdirectory keeps antd's port file separate from the
+    ant-node daemon, which writes to the same ``ant`` umbrella dir.
+    """
     if sys.platform == "win32":
         appdata = os.environ.get("APPDATA")
         if not appdata:
             return None
-        return Path(appdata) / _DATA_DIR_NAME
+        return Path(appdata) / _DATA_DIR_NAME / _SDK_SUBDIR_NAME
 
     if sys.platform == "darwin":
         home = os.environ.get("HOME")
         if not home:
             return None
-        return Path(home) / "Library" / "Application Support" / _DATA_DIR_NAME
+        return Path(home) / "Library" / "Application Support" / _DATA_DIR_NAME / _SDK_SUBDIR_NAME
 
     # Linux and other Unix-likes
     xdg = os.environ.get("XDG_DATA_HOME")
     if xdg:
-        return Path(xdg) / _DATA_DIR_NAME
+        return Path(xdg) / _DATA_DIR_NAME / _SDK_SUBDIR_NAME
     home = os.environ.get("HOME")
     if not home:
         return None
-    return Path(home) / ".local" / "share" / _DATA_DIR_NAME
+    return Path(home) / ".local" / "share" / _DATA_DIR_NAME / _SDK_SUBDIR_NAME
 
 
 def _is_pid_alive(pid: int) -> bool:
