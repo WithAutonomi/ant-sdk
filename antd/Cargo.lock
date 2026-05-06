@@ -875,7 +875,7 @@ dependencies = [
 
 [[package]]
 name = "antd"
-version = "0.6.0-rc.1"
+version = "0.6.0"
 dependencies = [
  "ant-core",
  "axum 0.8.9",
