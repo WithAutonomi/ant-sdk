@@ -195,7 +195,14 @@ end
 function Client:health()
     local j, _, err = self:_do_json("GET", "/health", nil)
     if err then return nil, err end
-    return models.new_health_status(str(j, "status") == "ok", str(j, "network")), nil
+    return models.new_health_status(str(j, "status") == "ok", str(j, "network"), {
+        version = str(j, "version"),
+        evm_network = str(j, "evm_network"),
+        uptime_seconds = j.uptime_seconds or 0,
+        build_commit = str(j, "build_commit"),
+        payment_token_address = str(j, "payment_token_address"),
+        payment_vault_address = str(j, "payment_vault_address"),
+    }), nil
 end
 
 -- ── Data ──

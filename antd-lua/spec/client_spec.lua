@@ -81,7 +81,16 @@ local function setup_daemon()
 
     -- Health
     register_route("GET", "/health", 200,
-        cjson.encode({ status = "ok", network = "local" }))
+        cjson.encode({
+            status = "ok",
+            network = "local",
+            version = "0.4.0",
+            evm_network = "local",
+            uptime_seconds = 42,
+            build_commit = "abcdef123456",
+            payment_token_address = "0xtoken",
+            payment_vault_address = "0xvault",
+        }))
 
     -- Data put public
     register_route("POST", "/v1/data/public", 200,
@@ -164,11 +173,17 @@ describe("antd client", function()
     end)
 
     describe("health", function()
-        it("returns health status", function()
+        it("returns health status with all diagnostic fields", function()
             local h, err = client:health()
             assert.is_nil(err)
             assert.is_true(h.ok)
             assert.are.equal("local", h.network)
+            assert.are.equal("0.4.0", h.version)
+            assert.are.equal("local", h.evm_network)
+            assert.are.equal(42, h.uptime_seconds)
+            assert.are.equal("abcdef123456", h.build_commit)
+            assert.are.equal("0xtoken", h.payment_token_address)
+            assert.are.equal("0xvault", h.payment_vault_address)
         end)
     end)
 
