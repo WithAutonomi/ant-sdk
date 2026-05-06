@@ -19,7 +19,16 @@ MockClient mockDaemon() {
     switch ('$method $path') {
       // Health
       case 'GET /health':
-        body = {'status': 'ok', 'network': 'local'};
+        body = {
+          'status': 'ok',
+          'network': 'local',
+          'version': '0.4.0',
+          'evm_network': 'local',
+          'uptime_seconds': 42,
+          'build_commit': 'abcdef123456',
+          'payment_token_address': '0xtoken',
+          'payment_vault_address': '0xvault',
+        };
         break;
 
       // Data put public
@@ -123,12 +132,30 @@ MockClient errorDaemon(int statusCode, String errorMessage) {
 
 void main() {
   group('Health', () {
-    test('returns health status', () async {
+    test('returns health status with all diagnostic fields', () async {
       final client = AntdClient(httpClient: mockDaemon());
       final health = await client.health();
       expect(health.ok, isTrue);
       expect(health.network, equals('local'));
+      expect(health.version, equals('0.4.0'));
+      expect(health.evmNetwork, equals('local'));
+      expect(health.uptimeSeconds, equals(42));
+      expect(health.buildCommit, equals('abcdef123456'));
+      expect(health.paymentTokenAddress, equals('0xtoken'));
+      expect(health.paymentVaultAddress, equals('0xvault'));
       client.close();
+    });
+
+    test('HealthStatus.fromJson defaults diagnostics for pre-0.4.0 daemon', () {
+      // Older daemons reply with just status + network; the factory defaults
+      // populate the diagnostic fields with empty / 0.
+      final h = HealthStatus.fromJson({'status': 'ok', 'network': 'default'});
+      expect(h.ok, isTrue);
+      expect(h.network, equals('default'));
+      expect(h.version, equals(''));
+      expect(h.evmNetwork, equals(''));
+      expect(h.uptimeSeconds, equals(0));
+      expect(h.buildCommit, equals(''));
     });
   });
 

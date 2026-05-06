@@ -166,6 +166,12 @@ class GrpcAntdClient {
       return HealthStatus(
         ok: resp.status == 'ok',
         network: resp.network,
+        version: resp.version,
+        evmNetwork: resp.evmNetwork,
+        uptimeSeconds: resp.uptimeSeconds.toInt(),
+        buildCommit: resp.buildCommit,
+        paymentTokenAddress: resp.paymentTokenAddress,
+        paymentVaultAddress: resp.paymentVaultAddress,
       );
     } on GrpcError catch (e) {
       _handleError(e);

@@ -1,4 +1,9 @@
 /// HealthStatus is the result of a health check.
+///
+/// The diagnostic fields ([version], [evmNetwork], [uptimeSeconds],
+/// [buildCommit], [paymentTokenAddress], [paymentVaultAddress]) were added in
+/// antd 0.4.0. They default to '' / 0 so the class stays usable when talking
+/// to a pre-0.4.0 daemon that doesn't report them.
 class HealthStatus {
   /// Whether the daemon is healthy.
   final bool ok;
@@ -6,17 +11,52 @@ class HealthStatus {
   /// The network the daemon is connected to.
   final String network;
 
-  const HealthStatus({required this.ok, required this.network});
+  /// antd crate version, e.g. "0.4.0". Empty when talking to a pre-0.4.0 daemon.
+  final String version;
+
+  /// EVM preset name: "arbitrum-one", "arbitrum-sepolia", "local", "custom".
+  final String evmNetwork;
+
+  /// Seconds since the daemon process started.
+  final int uptimeSeconds;
+
+  /// Short git SHA captured at build time, "" if unknown.
+  final String buildCommit;
+
+  /// Payment token contract address, "" if unconfigured.
+  final String paymentTokenAddress;
+
+  /// Payment vault contract address, "" if unconfigured.
+  final String paymentVaultAddress;
+
+  const HealthStatus({
+    required this.ok,
+    required this.network,
+    this.version = '',
+    this.evmNetwork = '',
+    this.uptimeSeconds = 0,
+    this.buildCommit = '',
+    this.paymentTokenAddress = '',
+    this.paymentVaultAddress = '',
+  });
 
   factory HealthStatus.fromJson(Map<String, dynamic> json) {
     return HealthStatus(
       ok: json['status'] == 'ok',
       network: json['network'] as String? ?? '',
+      version: json['version'] as String? ?? '',
+      evmNetwork: json['evm_network'] as String? ?? '',
+      uptimeSeconds: (json['uptime_seconds'] as num?)?.toInt() ?? 0,
+      buildCommit: json['build_commit'] as String? ?? '',
+      paymentTokenAddress: json['payment_token_address'] as String? ?? '',
+      paymentVaultAddress: json['payment_vault_address'] as String? ?? '',
     );
   }
 
   @override
-  String toString() => 'HealthStatus(ok: $ok, network: $network)';
+  String toString() => 'HealthStatus(ok: $ok, network: $network, '
+      'version: $version, evmNetwork: $evmNetwork, '
+      'uptimeSeconds: $uptimeSeconds, buildCommit: $buildCommit)';
 }
 
 /// PutResult is the result of a put/create operation.
