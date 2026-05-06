@@ -73,7 +73,17 @@ defmodule Antd.Client do
   def health(%__MODULE__{} = client) do
     case do_json(client, :get, "/health", nil) do
       {:ok, body} ->
-        {:ok, %Antd.HealthStatus{ok: body["status"] == "ok", network: body["network"]}}
+        {:ok,
+         %Antd.HealthStatus{
+           ok: body["status"] == "ok",
+           network: body["network"],
+           version: Map.get(body, "version", ""),
+           evm_network: Map.get(body, "evm_network", ""),
+           uptime_seconds: Map.get(body, "uptime_seconds", 0),
+           build_commit: Map.get(body, "build_commit", ""),
+           payment_token_address: Map.get(body, "payment_token_address", ""),
+           payment_vault_address: Map.get(body, "payment_vault_address", "")
+         }}
 
       {:error, _} = err ->
         err

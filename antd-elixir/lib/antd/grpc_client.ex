@@ -92,7 +92,17 @@ defmodule Antd.GrpcClient do
 
     case Antd.V1.HealthService.Stub.check(channel, req) do
       {:ok, resp} ->
-        {:ok, %Antd.HealthStatus{ok: resp.status == "ok", network: resp.network}}
+        {:ok,
+         %Antd.HealthStatus{
+           ok: resp.status == "ok",
+           network: resp.network,
+           version: resp.version,
+           evm_network: resp.evm_network,
+           uptime_seconds: resp.uptime_seconds,
+           build_commit: resp.build_commit,
+           payment_token_address: resp.payment_token_address,
+           payment_vault_address: resp.payment_vault_address
+         }}
 
       {:error, rpc_error} ->
         {:error, translate_error(rpc_error)}

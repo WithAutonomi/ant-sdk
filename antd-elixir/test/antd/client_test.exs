@@ -11,14 +11,58 @@ defmodule Antd.ClientTest do
   # Health
   # ---------------------------------------------------------------------------
 
-  test "health/1 returns health status", %{bypass: bypass, client: client} do
+  test "health/1 returns health status with all diagnostic fields",
+       %{bypass: bypass, client: client} do
     Bypass.expect_once(bypass, "GET", "/health", fn conn ->
       conn
       |> Plug.Conn.put_resp_content_type("application/json")
-      |> Plug.Conn.resp(200, Jason.encode!(%{status: "ok", network: "local"}))
+      |> Plug.Conn.resp(
+        200,
+        Jason.encode!(%{
+          status: "ok",
+          network: "local",
+          version: "0.4.0",
+          evm_network: "local",
+          uptime_seconds: 42,
+          build_commit: "abcdef123456",
+          payment_token_address: "0xtoken",
+          payment_vault_address: "0xvault"
+        })
+      )
     end)
 
-    assert {:ok, %Antd.HealthStatus{ok: true, network: "local"}} = Antd.Client.health(client)
+    assert {:ok,
+            %Antd.HealthStatus{
+              ok: true,
+              network: "local",
+              version: "0.4.0",
+              evm_network: "local",
+              uptime_seconds: 42,
+              build_commit: "abcdef123456",
+              payment_token_address: "0xtoken",
+              payment_vault_address: "0xvault"
+            }} = Antd.Client.health(client)
+  end
+
+  test "health/1 defaults diagnostic fields when daemon is pre-0.4.0",
+       %{bypass: bypass, client: client} do
+    # Older daemons reply with just status + network; the struct defaults
+    # populate the diagnostic fields with empty / 0 instead of nil.
+    Bypass.expect_once(bypass, "GET", "/health", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(200, Jason.encode!(%{status: "ok", network: "default"}))
+    end)
+
+    assert {:ok,
+            %Antd.HealthStatus{
+              ok: true,
+              network: "default",
+              version: "",
+              evm_network: "",
+              uptime_seconds: 0,
+              build_commit: ""
+            }} = Antd.Client.health(client)
   end
 
   # ---------------------------------------------------------------------------
