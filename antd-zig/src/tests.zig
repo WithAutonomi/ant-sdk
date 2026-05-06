@@ -53,6 +53,27 @@ test "parseHealthStatus parses ok status" {
 
     try testing.expect(result.ok);
     try testing.expectEqualStrings("local", result.network);
+    // Pre-0.4.0 daemon shape: diagnostic fields default to empty / 0.
+    try testing.expectEqualStrings("", result.version);
+    try testing.expectEqualStrings("", result.evm_network);
+    try testing.expect(result.uptime_seconds == 0);
+}
+
+test "parseHealthStatus parses 0.4.0 diagnostic fields" {
+    const body =
+        \\{"status":"ok","network":"local","version":"0.4.0","evm_network":"local","uptime_seconds":42,"build_commit":"abcdef123456","payment_token_address":"0xtoken","payment_vault_address":"0xvault"}
+    ;
+    const result = try json_helpers.parseHealthStatus(testing.allocator, body);
+    defer result.deinit(testing.allocator);
+
+    try testing.expect(result.ok);
+    try testing.expectEqualStrings("local", result.network);
+    try testing.expectEqualStrings("0.4.0", result.version);
+    try testing.expectEqualStrings("local", result.evm_network);
+    try testing.expect(result.uptime_seconds == 42);
+    try testing.expectEqualStrings("abcdef123456", result.build_commit);
+    try testing.expectEqualStrings("0xtoken", result.payment_token_address);
+    try testing.expectEqualStrings("0xvault", result.payment_vault_address);
 }
 
 test "parseHealthStatus parses non-ok status" {
