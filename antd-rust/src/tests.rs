@@ -15,7 +15,18 @@ fn mock_health(server: &mut ServerGuard) -> Mock {
         .mock("GET", "/health")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"status":"ok","network":"local"}"#)
+        .with_body(
+            r#"{
+                "status":"ok",
+                "network":"local",
+                "version":"0.4.0",
+                "evm_network":"local",
+                "uptime_seconds":42,
+                "build_commit":"abcdef123456",
+                "payment_token_address":"0xtoken",
+                "payment_vault_address":"0xvault"
+            }"#,
+        )
         .create()
 }
 
@@ -201,6 +212,12 @@ async fn test_health() {
     let health = client.health().await.unwrap();
     assert!(health.ok);
     assert_eq!(health.network, "local");
+    assert_eq!(health.version, "0.4.0");
+    assert_eq!(health.evm_network, "local");
+    assert_eq!(health.uptime_seconds, 42);
+    assert_eq!(health.build_commit, "abcdef123456");
+    assert_eq!(health.payment_token_address, "0xtoken");
+    assert_eq!(health.payment_vault_address, "0xvault");
 }
 
 #[tokio::test]

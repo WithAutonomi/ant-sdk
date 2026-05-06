@@ -1,10 +1,27 @@
 use serde::{Deserialize, Serialize};
 
 /// Result of a health check against the antd daemon.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// The diagnostic fields (`version`, `evm_network`, `uptime_seconds`,
+/// `build_commit`, `payment_token_address`, `payment_vault_address`) were
+/// added in antd 0.4.0. They default to empty / 0 via `#[serde(default)]`,
+/// so deserialization tolerates pre-0.4.0 daemon responses.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HealthStatus {
     pub ok: bool,
     pub network: String,
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub evm_network: String,
+    #[serde(default)]
+    pub uptime_seconds: u64,
+    #[serde(default)]
+    pub build_commit: String,
+    #[serde(default)]
+    pub payment_token_address: String,
+    #[serde(default)]
+    pub payment_vault_address: String,
 }
 
 /// Result of a put/create operation containing cost and address.

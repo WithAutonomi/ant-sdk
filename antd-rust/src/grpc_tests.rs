@@ -20,11 +20,12 @@ impl v1::health_service_server::HealthService for MockHealthService {
         Ok(Response::new(v1::HealthCheckResponse {
             status: "ok".to_string(),
             network: "local".to_string(),
-            // Diagnostic fields added in 0.4.0 — left as defaults here
-            // because antd-rust's HealthStatus model has not yet been
-            // extended (tracked in issue #37). The mock just needs to
-            // satisfy the wire type.
-            ..Default::default()
+            version: "0.4.0".to_string(),
+            evm_network: "local".to_string(),
+            uptime_seconds: 42,
+            build_commit: "abcdef123456".to_string(),
+            payment_token_address: "0xtoken".to_string(),
+            payment_vault_address: "0xvault".to_string(),
         }))
     }
 }
@@ -275,6 +276,12 @@ async fn test_grpc_health() {
     let health = client.health().await.unwrap();
     assert!(health.ok);
     assert_eq!(health.network, "local");
+    assert_eq!(health.version, "0.4.0");
+    assert_eq!(health.evm_network, "local");
+    assert_eq!(health.uptime_seconds, 42);
+    assert_eq!(health.build_commit, "abcdef123456");
+    assert_eq!(health.payment_token_address, "0xtoken");
+    assert_eq!(health.payment_vault_address, "0xvault");
 }
 
 #[tokio::test]
