@@ -218,10 +218,16 @@ pub async fn file_cost(
     .map_err(|e| AntdError::Internal(format!("task failed: {e}")))?
     .map_err(AntdError::from_core)?;
 
+    let (chunk_count, cost) = if req.is_public {
+        adjust_for_public_upload(estimate.chunk_count, &estimate.storage_cost_atto)
+    } else {
+        (estimate.chunk_count, estimate.storage_cost_atto)
+    };
+
     Ok(Json(CostResponse {
-        cost: estimate.storage_cost_atto,
+        cost,
         file_size: estimate.file_size,
-        chunk_count: estimate.chunk_count,
+        chunk_count,
         estimated_gas_cost_wei: estimate.estimated_gas_cost_wei,
         payment_mode: format_payment_mode(estimate.payment_mode),
     }))
