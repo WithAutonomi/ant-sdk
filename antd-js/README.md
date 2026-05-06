@@ -56,7 +56,7 @@ All methods are `async` and return Promises.
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `health()` | `HealthStatus` | Check daemon health and network status |
+| `health()` | `HealthStatus` | Check daemon health — also reports antd version, EVM network, uptime, build commit, and payment contract addresses (antd ≥ 0.4.0) |
 
 ### Data
 
