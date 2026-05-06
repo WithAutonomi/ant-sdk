@@ -1,12 +1,12 @@
 [package]
 name = "antd"
-version = "0.4.0"
+version = "0.6.0-rc.1"
 edition = "2021"
 
 [dependencies]
-ant-core = { git = "https://github.com/WithAutonomi/ant-client", tag = "ant-cli-v0.2.0" }
+ant-core = { git = "https://github.com/WithAutonomi/ant-client", tag = "ant-cli-v0.2.2" }
 self_encryption = "0.35.0"
-evmlib = "0.8.0"
+evmlib = "0.8.1"
 axum = { version = "0.8", features = ["macros"] }
 tower-http = { version = "0.6", features = ["cors", "limit", "trace"] }
 tonic = "0.12"
