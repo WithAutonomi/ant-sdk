@@ -455,7 +455,7 @@ func parsePrepareResponse(j map[string]any) *PrepareUploadResult {
 	return result
 }
 
-// PrepareUpload prepares a file upload for external signing.
+// PrepareUpload prepares a private file upload for external signing.
 // Returns payment details that an external signer must process before calling
 // FinalizeUpload (wave_batch) or FinalizeMerkleUpload (merkle).
 func (c *Client) PrepareUpload(ctx context.Context, path string) (*PrepareUploadResult, error) {
@@ -468,10 +468,33 @@ func (c *Client) PrepareUpload(ctx context.Context, path string) (*PrepareUpload
 	return parsePrepareResponse(j), nil
 }
 
-// PrepareDataUpload prepares a data upload for external signing.
+// PrepareUploadPublic prepares a public file upload for external signing.
+// In addition to the data chunks, the daemon bundles the serialized DataMap
+// chunk into the same payment batch — so the external signer signs ONE EVM
+// transaction covering chunks + DataMap. After FinalizeUpload, the result's
+// DataMapAddress is the shareable retrieval handle.
+//
+// Requires antd >= 0.6.1.
+func (c *Client) PrepareUploadPublic(ctx context.Context, path string) (*PrepareUploadResult, error) {
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/upload/prepare", map[string]any{
+		"path":       path,
+		"visibility": "public",
+	})
+	if err != nil {
+		return nil, err
+	}
+	return parsePrepareResponse(j), nil
+}
+
+// PrepareDataUpload prepares a private data upload for external signing.
 // Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
 // Returns payment details that an external signer must process before calling
 // FinalizeUpload (wave_batch) or FinalizeMerkleUpload (merkle).
+//
+// The public variant of this endpoint is not yet available — the daemon
+// returns 501 for visibility:"public" until upstream ant-core exposes
+// data_prepare_upload_with_visibility. Use PrepareUploadPublic with a file
+// path instead.
 func (c *Client) PrepareDataUpload(ctx context.Context, data []byte) (*PrepareUploadResult, error) {
 	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/data/prepare", map[string]any{
 		"data": b64Encode(data),
@@ -495,9 +518,10 @@ func (c *Client) FinalizeUpload(ctx context.Context, uploadID string, txHashes m
 		return nil, err
 	}
 	return &FinalizeUploadResult{
-		DataMap:      str(j, "data_map"),
-		Address:      str(j, "address"),
-		ChunksStored: num64(j, "chunks_stored"),
+		DataMap:        str(j, "data_map"),
+		Address:        str(j, "address"),
+		DataMapAddress: str(j, "data_map_address"),
+		ChunksStored:   num64(j, "chunks_stored"),
 	}, nil
 }
 
@@ -514,8 +538,9 @@ func (c *Client) FinalizeMerkleUpload(ctx context.Context, uploadID string, winn
 		return nil, err
 	}
 	return &FinalizeUploadResult{
-		DataMap:      str(j, "data_map"),
-		Address:      str(j, "address"),
-		ChunksStored: num64(j, "chunks_stored"),
+		DataMap:        str(j, "data_map"),
+		Address:        str(j, "address"),
+		DataMapAddress: str(j, "data_map_address"),
+		ChunksStored:   num64(j, "chunks_stored"),
 	}, nil
 }
