@@ -447,6 +447,10 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "500":
           $ref: "#/components/responses/InternalError"
+        "501":
+          description: >-
+            visibility:"public" not yet supported on this endpoint —
+            blocked on upstream ant-client #73.
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
 
@@ -765,6 +769,15 @@ components:
         data:
           type: string
           description: Base64-encoded data to upload
+        visibility:
+          type: string
+          enum: [private, public]
+          description: >-
+            Upload visibility. "private" (default) returns the DataMap to
+            the caller. "public" is reserved — returns 501 until upstream
+            ant-core exposes data_prepare_upload_with_visibility (tracked
+            as ant-client PR #73). Use /v1/upload/prepare with a file path
+            today.
 
     PrepareUploadRequest:
       type: object
@@ -773,6 +786,15 @@ components:
         path:
           type: string
           description: Absolute path to local file
+        visibility:
+          type: string
+          enum: [private, public]
+          description: >-
+            Upload visibility. "private" (default) returns the DataMap to
+            the caller. "public" bundles the serialized DataMap chunk into
+            the same external-signer payment batch and surfaces its
+            network address on /v1/upload/finalize via data_map_address.
+            Omitting this field preserves pre-0.5.0 (private) behavior.
 
     PrepareUploadResponse:
       type: object
@@ -901,7 +923,17 @@ components:
           description: Hex-encoded serialized DataMap (always returned)
         address:
           type: string
-          description: Network address of the stored DataMap (only set when store_data_map=true)
+          description: >-
+            Network address of the DataMap stored via the legacy
+            store_data_map=true path (paid by the daemon's internal
+            wallet). Prefer visibility:"public" on prepare instead.
+        data_map_address:
+          type: string
+          description: >-
+            Network address of the bundled DataMap chunk when the upload
+            was prepared with visibility:"public". The DataMap chunk's
+            payment is part of the same external-signer batch as the
+            data chunks — no separate daemon-wallet payment.
         chunks_stored:
           type: integer
           description: Number of chunks stored on the network

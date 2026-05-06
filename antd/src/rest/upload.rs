@@ -113,10 +113,12 @@ pub async fn prepare_upload(
             AntdError::BadRequest("invalid path".into())
         })?;
 
+    let visibility = parse_visibility(req.visibility.as_deref()).map_err(AntdError::BadRequest)?;
+
     let client = state.client.clone();
     let prepared = tokio::spawn(async move {
         client
-            .file_prepare_upload(&path)
+            .file_prepare_upload_with_visibility(&path, visibility)
             .await
             .map_err(AntdError::from_core)
     })
@@ -148,6 +150,21 @@ pub async fn prepare_data_upload(
     use base64::engine::general_purpose::STANDARD as BASE64;
     use base64::Engine;
     use bytes::Bytes;
+
+    let visibility = parse_visibility(req.visibility.as_deref()).map_err(AntdError::BadRequest)?;
+
+    // Public visibility on the in-memory data path requires the upstream
+    // `data_prepare_upload_with_visibility` (ant-client PR #73). Until that
+    // lands, refuse the public variant rather than silently returning a
+    // private prepare. The file-path equivalent works today.
+    if matches!(visibility, ant_core::data::Visibility::Public) {
+        return Err(AntdError::NotImplemented(
+            "visibility:\"public\" is not yet supported on /v1/data/prepare; \
+             use /v1/upload/prepare with a file path, or wait for upstream \
+             ant-client #73 to land"
+                .into(),
+        ));
+    }
 
     let data = BASE64
         .decode(&req.data)
@@ -205,7 +222,7 @@ pub async fn finalize_upload(
     let store_on_network = req.store_data_map;
     let client = state.client.clone();
 
-    let (data_map_hex, address, chunks_stored) = match &prepared.payment_info {
+    let (data_map_hex, address, data_map_address, chunks_stored) = match &prepared.payment_info {
         ant_core::data::ExternalPaymentInfo::WaveBatch { .. } => {
             // Wave-batch: require tx_hashes
             let tx_hashes_raw = req.tx_hashes.ok_or_else(|| {
@@ -268,7 +285,14 @@ pub async fn finalize_upload(
                     None
                 };
 
-                Ok::<_, AntdError>((data_map_hex, address, result.chunks_stored))
+                let data_map_address = result.data_map_address.map(hex::encode);
+
+                Ok::<_, AntdError>((
+                    data_map_hex,
+                    address,
+                    data_map_address,
+                    result.chunks_stored,
+                ))
             })
             .await
             .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??
@@ -314,7 +338,14 @@ pub async fn finalize_upload(
                     None
                 };
 
-                Ok::<_, AntdError>((data_map_hex, address, result.chunks_stored))
+                let data_map_address = result.data_map_address.map(hex::encode);
+
+                Ok::<_, AntdError>((
+                    data_map_hex,
+                    address,
+                    data_map_address,
+                    result.chunks_stored,
+                ))
             })
             .await
             .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??
@@ -324,6 +355,7 @@ pub async fn finalize_upload(
     Ok(Json(FinalizeUploadResponse {
         data_map: data_map_hex,
         address,
+        data_map_address,
         chunks_stored: chunks_stored as u64,
     }))
 }
