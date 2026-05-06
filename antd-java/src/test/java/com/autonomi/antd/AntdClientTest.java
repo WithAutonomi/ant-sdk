@@ -47,7 +47,13 @@ class AntdClientTest {
 
             // Health
             if ("GET".equals(method) && "/health".equals(path)) {
-                return json("{\"status\":\"ok\",\"network\":\"local\"}");
+                return json("{\"status\":\"ok\",\"network\":\"local\"," +
+                        "\"version\":\"0.4.0\"," +
+                        "\"evm_network\":\"local\"," +
+                        "\"uptime_seconds\":42," +
+                        "\"build_commit\":\"abcdef123456\"," +
+                        "\"payment_token_address\":\"0xtoken\"," +
+                        "\"payment_vault_address\":\"0xvault\"}");
             }
 
             // Data put public
@@ -125,6 +131,24 @@ class AntdClientTest {
         HealthStatus h = client.health();
         assertTrue(h.ok());
         assertEquals("local", h.network());
+        assertEquals("0.4.0", h.version());
+        assertEquals("local", h.evmNetwork());
+        assertEquals(42L, h.uptimeSeconds());
+        assertEquals("abcdef123456", h.buildCommit());
+        assertEquals("0xtoken", h.paymentTokenAddress());
+        assertEquals("0xvault", h.paymentVaultAddress());
+    }
+
+    @Test
+    void testHealthBackwardCompatConstructor() {
+        // Pre-0.4.0 callers used new HealthStatus(ok, network); the diagnostic
+        // fields default to empty so the constructor stays usable.
+        HealthStatus h = new HealthStatus(true, "default");
+        assertTrue(h.ok());
+        assertEquals("default", h.network());
+        assertEquals("", h.version());
+        assertEquals(0L, h.uptimeSeconds());
+        assertEquals("", h.paymentTokenAddress());
     }
 
     @Test

@@ -98,6 +98,12 @@ class GrpcAntdClientTest {
                     HealthCheckResponse.newBuilder()
                             .setStatus("ok")
                             .setNetwork("local")
+                            .setVersion("0.4.0")
+                            .setEvmNetwork("local")
+                            .setUptimeSeconds(42)
+                            .setBuildCommit("abcdef123456")
+                            .setPaymentTokenAddress("0xtoken")
+                            .setPaymentVaultAddress("0xvault")
                             .build());
             responseObserver.onCompleted();
         }
@@ -258,6 +264,12 @@ class GrpcAntdClientTest {
         HealthStatus h = client.health();
         assertTrue(h.ok());
         assertEquals("local", h.network());
+        assertEquals("0.4.0", h.version());
+        assertEquals("local", h.evmNetwork());
+        assertEquals(42L, h.uptimeSeconds());
+        assertEquals("abcdef123456", h.buildCommit());
+        assertEquals("0xtoken", h.paymentTokenAddress());
+        assertEquals("0xvault", h.paymentVaultAddress());
     }
 
     // --- Data (Immutable) ---

@@ -191,8 +191,24 @@ public class AntdClient implements AutoCloseable {
     // ── Health ──
 
     public HealthStatus health() {
-        Map<String, Object> j = doJson("GET", "/health", null);
-        return new HealthStatus("ok".equals(str(j, "status")), str(j, "network"));
+        return parseHealthStatus(doJson("GET", "/health", null));
+    }
+
+    /**
+     * Convert a /health JSON response to a typed HealthStatus. Diagnostic
+     * fields default to empty / 0 when talking to a pre-0.4.0 daemon. Package-
+     * private so AsyncAntdClient can share the parser.
+     */
+    static HealthStatus parseHealthStatus(Map<String, Object> j) {
+        return new HealthStatus(
+                "ok".equals(str(j, "status")),
+                str(j, "network"),
+                str(j, "version"),
+                str(j, "evm_network"),
+                num(j, "uptime_seconds"),
+                str(j, "build_commit"),
+                str(j, "payment_token_address"),
+                str(j, "payment_vault_address"));
     }
 
     // ── Data (Immutable) ──

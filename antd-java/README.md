@@ -90,7 +90,7 @@ All methods throw `AntdException` (or a typed subclass) on failure.
 
 | Method | Description |
 |--------|-------------|
-| `health()` | Check daemon status |
+| `health()` | Check daemon status — returns `HealthStatus` carrying antd version, EVM network, uptime, build commit, and payment contract addresses (antd ≥ 0.4.0) |
 
 ### Data (Immutable)
 
