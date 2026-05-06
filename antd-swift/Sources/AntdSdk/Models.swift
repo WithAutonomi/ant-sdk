@@ -1,13 +1,39 @@
 import Foundation
 
 /// Health check result from the antd daemon.
+///
+/// The diagnostic fields (`version`, `evmNetwork`, `uptimeSeconds`,
+/// `buildCommit`, `paymentTokenAddress`, `paymentVaultAddress`) were added in
+/// antd 0.4.0. They default to `""` / `0` so the struct stays usable when
+/// talking to a pre-0.4.0 daemon that doesn't report them.
 public struct HealthStatus: Sendable, Equatable {
     public let ok: Bool
     public let network: String
+    public let version: String
+    public let evmNetwork: String
+    public let uptimeSeconds: UInt64
+    public let buildCommit: String
+    public let paymentTokenAddress: String
+    public let paymentVaultAddress: String
 
-    public init(ok: Bool, network: String) {
+    public init(
+        ok: Bool,
+        network: String,
+        version: String = "",
+        evmNetwork: String = "",
+        uptimeSeconds: UInt64 = 0,
+        buildCommit: String = "",
+        paymentTokenAddress: String = "",
+        paymentVaultAddress: String = ""
+    ) {
         self.ok = ok
         self.network = network
+        self.version = version
+        self.evmNetwork = evmNetwork
+        self.uptimeSeconds = uptimeSeconds
+        self.buildCommit = buildCommit
+        self.paymentTokenAddress = paymentTokenAddress
+        self.paymentVaultAddress = paymentVaultAddress
     }
 }
 
