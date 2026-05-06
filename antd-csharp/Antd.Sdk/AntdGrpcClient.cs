@@ -43,7 +43,7 @@ public sealed class AntdGrpcClient : IAntdClient
         try
         {
             var resp = await _health.CheckAsync(new HealthCheckRequest());
-            return new HealthStatus(resp.Status == "ok", resp.Network ?? "unknown");
+            return HealthStatusFromResp(resp);
         }
         catch (RpcException ex) when (ex.StatusCode == StatusCode.Unavailable)
         {
@@ -58,6 +58,21 @@ public sealed class AntdGrpcClient : IAntdClient
             return new HealthStatus(false, "unknown");
         }
     }
+
+    /// <summary>
+    /// Convert a gRPC <see cref="HealthCheckResponse"/> into a typed
+    /// <see cref="HealthStatus"/>.
+    /// </summary>
+    internal static HealthStatus HealthStatusFromResp(HealthCheckResponse resp) =>
+        new(
+            resp.Status == "ok",
+            resp.Network ?? "unknown",
+            resp.Version ?? "",
+            resp.EvmNetwork ?? "",
+            resp.UptimeSeconds,
+            resp.BuildCommit ?? "",
+            resp.PaymentTokenAddress ?? "",
+            resp.PaymentVaultAddress ?? "");
 
     // ── Data ──
 

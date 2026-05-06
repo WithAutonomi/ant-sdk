@@ -1,7 +1,23 @@
 namespace Antd.Sdk;
 
-/// <summary>Health check result from the antd daemon.</summary>
-public sealed record HealthStatus(bool Ok, string Network);
+/// <summary>
+/// Health check result from the antd daemon.
+///
+/// The diagnostic fields (<see cref="Version"/>, <see cref="EvmNetwork"/>,
+/// <see cref="UptimeSeconds"/>, <see cref="BuildCommit"/>,
+/// <see cref="PaymentTokenAddress"/>, <see cref="PaymentVaultAddress"/>) were
+/// added in antd 0.4.0. They default to <c>""</c> / <c>0</c> so the record
+/// stays constructable from a pre-0.4.0 daemon's response.
+/// </summary>
+public sealed record HealthStatus(
+    bool Ok,
+    string Network,
+    string Version = "",
+    string EvmNetwork = "",
+    ulong UptimeSeconds = 0,
+    string BuildCommit = "",
+    string PaymentTokenAddress = "",
+    string PaymentVaultAddress = "");
 
 /// <summary>Result of a put/create operation that stores data on the network.</summary>
 public sealed record PutResult(string Cost, string Address);

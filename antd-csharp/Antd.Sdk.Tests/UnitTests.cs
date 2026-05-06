@@ -124,13 +124,47 @@ public sealed class AntdRestClientTests : IDisposable
     [Fact]
     public async Task HealthAsync_ReturnsOk()
     {
-        _server.RouteOk("GET", "/health", new { status = "ok", network = "testnet" });
+        _server.RouteOk("GET", "/health", new
+        {
+            status = "ok",
+            network = "testnet",
+            version = "0.4.0",
+            evm_network = "local",
+            uptime_seconds = 42,
+            build_commit = "abcdef123456",
+            payment_token_address = "0xtoken",
+            payment_vault_address = "0xvault",
+        });
         _server.Start();
 
         var result = await _client.HealthAsync();
 
         Assert.True(result.Ok);
         Assert.Equal("testnet", result.Network);
+        Assert.Equal("0.4.0", result.Version);
+        Assert.Equal("local", result.EvmNetwork);
+        Assert.Equal(42UL, result.UptimeSeconds);
+        Assert.Equal("abcdef123456", result.BuildCommit);
+        Assert.Equal("0xtoken", result.PaymentTokenAddress);
+        Assert.Equal("0xvault", result.PaymentVaultAddress);
+    }
+
+    [Fact]
+    public async Task HealthAsync_PreV0_4_0Daemon_LeavesDiagnosticsEmpty()
+    {
+        // Older daemons reply with just status + network; the optional DTO
+        // properties default to null, and HealthStatusFromDto fills "" / 0.
+        _server.RouteOk("GET", "/health", new { status = "ok", network = "default" });
+        _server.Start();
+
+        var result = await _client.HealthAsync();
+
+        Assert.True(result.Ok);
+        Assert.Equal("default", result.Network);
+        Assert.Equal("", result.Version);
+        Assert.Equal("", result.EvmNetwork);
+        Assert.Equal(0UL, result.UptimeSeconds);
+        Assert.Equal("", result.BuildCommit);
     }
 
     [Fact]
