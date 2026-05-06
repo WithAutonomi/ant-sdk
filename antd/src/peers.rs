@@ -4,6 +4,17 @@ use std::net::SocketAddr;
 
 use ant_core::data::MultiAddr;
 
+/// Mainnet bootstrap peers vendored from `ant-client/resources/bootstrap_peers.toml`.
+/// Used as a last-resort fallback when neither CLI/env nor the on-disk
+/// `bootstrap_peers.toml` provided any peers, so a fresh release binary can
+/// reach mainnet without manual setup.
+const COMPILED_IN_BOOTSTRAP_PEERS_TOML: &str = include_str!("../resources/bootstrap_peers.toml");
+
+#[derive(serde::Deserialize)]
+struct BootstrapConfig {
+    peers: Vec<String>,
+}
+
 /// Convert a [`SocketAddr`] (as read from ant-client's `bootstrap_peers.toml`)
 /// into the libp2p-style `/ip4/<ip>/udp/<port>/quic` multiaddr string that
 /// saorsa-core expects, then parse it into a [`MultiAddr`].
@@ -44,6 +55,24 @@ pub fn load_from_ant_client_config() -> (Vec<MultiAddr>, Option<std::path::PathB
     (peers, path)
 }
 
+/// Last-resort fallback: parse the bootstrap_peers.toml that was vendored into
+/// the binary at compile time and return MultiAddrs. Returns an empty vector if
+/// the embedded file is malformed (which would be a build-time regression).
+pub fn compiled_in_default_peers() -> Vec<MultiAddr> {
+    match toml::from_str::<BootstrapConfig>(COMPILED_IN_BOOTSTRAP_PEERS_TOML) {
+        Ok(cfg) => cfg
+            .peers
+            .iter()
+            .filter_map(|s| s.parse::<SocketAddr>().ok())
+            .filter_map(|sa| socket_addr_to_multiaddr(&sa))
+            .collect(),
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to parse compiled-in bootstrap_peers.toml");
+            Vec::new()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -70,5 +99,21 @@ mod tests {
             as_str.contains("/ip6/") && as_str.contains("20000"),
             "unexpected multiaddr: {as_str}"
         );
+    }
+
+    #[test]
+    fn compiled_in_default_peers_parses_and_yields_multiaddrs() {
+        let peers = compiled_in_default_peers();
+        assert!(
+            !peers.is_empty(),
+            "embedded bootstrap_peers.toml produced zero peers"
+        );
+        for ma in &peers {
+            let as_str = format!("{ma}");
+            assert!(
+                as_str.contains("/udp/") && as_str.contains("/quic"),
+                "unexpected multiaddr shape: {as_str}"
+            );
+        }
     }
 }
