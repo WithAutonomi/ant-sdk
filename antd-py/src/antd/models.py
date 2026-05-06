@@ -6,9 +6,21 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class HealthStatus:
-    """Health check result from the antd daemon."""
+    """Health check result from the antd daemon.
+
+    The diagnostic fields (version, evm_network, uptime_seconds, build_commit,
+    payment_token_address, payment_vault_address) were added in antd 0.4.0.
+    They default to empty/zero so the dataclass remains constructable when
+    talking to an older daemon that doesn't report them.
+    """
     ok: bool
     network: str    # "default", "local", "alpha"
+    version: str = ""                  # antd crate version, e.g. "0.4.0"
+    evm_network: str = ""              # "arbitrum-one", "arbitrum-sepolia", "local", "custom"
+    uptime_seconds: int = 0            # seconds since the daemon process started
+    build_commit: str = ""             # short git SHA, "" if unknown
+    payment_token_address: str = ""    # "" if unconfigured
+    payment_vault_address: str = ""    # "" if unconfigured
 
 
 @dataclass(frozen=True)

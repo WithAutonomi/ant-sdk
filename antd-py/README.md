@@ -69,7 +69,7 @@ await aclient.close()
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `health()` | `HealthStatus` | Check daemon health |
+| `health()` | `HealthStatus` | Check daemon health — also surfaces antd version, EVM network, uptime, build commit, and payment contract addresses (antd ≥ 0.4.0) |
 
 #### Data
 

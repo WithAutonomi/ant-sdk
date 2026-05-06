@@ -24,18 +24,18 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14\x61ntd/v1/health.proto\x12\x07\x61ntd.v1\"\x14\n\x12HealthCheckRequest\"6\n\x13HealthCheckResponse\x12\x0e\n\x06status\x18\x01 \x01(\t\x12\x0f\n\x07network\x18\x02 \x01(\t2S\n\rHealthService\x12\x42\n\x05\x43heck\x12\x1b.antd.v1.HealthCheckRequest\x1a\x1c.antd.v1.HealthCheckResponseB\n\xaa\x02\x07\x41ntd.V1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14\x61ntd/v1/health.proto\x12\x07\x61ntd.v1\"\x14\n\x12HealthCheckRequest\"\xc8\x01\n\x13HealthCheckResponse\x12\x0e\n\x06status\x18\x01 \x01(\t\x12\x0f\n\x07network\x18\x02 \x01(\t\x12\x0f\n\x07version\x18\x03 \x01(\t\x12\x13\n\x0b\x65vm_network\x18\x04 \x01(\t\x12\x16\n\x0euptime_seconds\x18\x05 \x01(\x04\x12\x14\n\x0c\x62uild_commit\x18\x06 \x01(\t\x12\x1d\n\x15payment_token_address\x18\x07 \x01(\t\x12\x1d\n\x15payment_vault_address\x18\x08 \x01(\t2S\n\rHealthService\x12\x42\n\x05\x43heck\x12\x1b.antd.v1.HealthCheckRequest\x1a\x1c.antd.v1.HealthCheckResponseBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\x07\x41ntd.V1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'antd._proto.antd.v1.health_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
-  _globals['DESCRIPTOR']._serialized_options = b'\252\002\007Antd.V1'
+  _globals['DESCRIPTOR']._serialized_options = b'Z8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\252\002\007Antd.V1'
   _globals['_HEALTHCHECKREQUEST']._serialized_start=33
   _globals['_HEALTHCHECKREQUEST']._serialized_end=53
-  _globals['_HEALTHCHECKRESPONSE']._serialized_start=55
-  _globals['_HEALTHCHECKRESPONSE']._serialized_end=109
-  _globals['_HEALTHSERVICE']._serialized_start=111
-  _globals['_HEALTHSERVICE']._serialized_end=194
+  _globals['_HEALTHCHECKRESPONSE']._serialized_start=56
+  _globals['_HEALTHCHECKRESPONSE']._serialized_end=256
+  _globals['_HEALTHSERVICE']._serialized_start=258
+  _globals['_HEALTHSERVICE']._serialized_end=341
 # @@protoc_insertion_point(module_scope)

@@ -23,6 +23,21 @@ from .models import (
 )
 
 
+def _health_status_from_json(j: dict) -> HealthStatus:
+    """Parse a /health JSON response. Diagnostic fields default to empty when
+    talking to a pre-0.4.0 daemon."""
+    return HealthStatus(
+        ok=j.get("status") == "ok",
+        network=j.get("network", "unknown"),
+        version=j.get("version", ""),
+        evm_network=j.get("evm_network", ""),
+        uptime_seconds=int(j.get("uptime_seconds", 0)),
+        build_commit=j.get("build_commit", ""),
+        payment_token_address=j.get("payment_token_address", ""),
+        payment_vault_address=j.get("payment_vault_address", ""),
+    )
+
+
 def _parse_file_upload_result(j: dict) -> FileUploadResult:
     """Parse a file/dir upload public JSON response into a FileUploadResult."""
     return FileUploadResult(
@@ -144,7 +159,7 @@ class RestClient:
         resp = self._http.get("/health")
         _check(resp)
         j = resp.json()
-        return HealthStatus(ok=j.get("status") == "ok", network=j.get("network", "unknown"))
+        return _health_status_from_json(j)
 
     # --- Data ---
 
@@ -360,7 +375,7 @@ class AsyncRestClient:
         resp = await self._http.get("/health")
         _check(resp)
         j = resp.json()
-        return HealthStatus(ok=j.get("status") == "ok", network=j.get("network", "unknown"))
+        return _health_status_from_json(j)
 
     # --- Data ---
 
