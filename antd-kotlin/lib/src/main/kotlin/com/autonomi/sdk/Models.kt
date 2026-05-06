@@ -3,8 +3,24 @@ package com.autonomi.sdk
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-/** Health check result from the antd daemon. */
-data class HealthStatus(val ok: Boolean, val network: String)
+/**
+ * Health check result from the antd daemon.
+ *
+ * The diagnostic fields ([version], [evmNetwork], [uptimeSeconds],
+ * [buildCommit], [paymentTokenAddress], [paymentVaultAddress]) were added in
+ * antd 0.4.0. They default to "" / 0 so the type stays constructable from a
+ * pre-0.4.0 daemon's response.
+ */
+data class HealthStatus(
+    val ok: Boolean,
+    val network: String,
+    val version: String = "",
+    val evmNetwork: String = "",
+    val uptimeSeconds: ULong = 0u,
+    val buildCommit: String = "",
+    val paymentTokenAddress: String = "",
+    val paymentVaultAddress: String = "",
+)
 
 /** Result of a put/create operation that stores data on the network. */
 data class PutResult(val cost: String, val address: String)
@@ -77,6 +93,23 @@ data class UploadCostEstimate(
 internal data class HealthResponseDto(
     val status: String? = null,
     val network: String? = null,
+    val version: String? = null,
+    @SerialName("evm_network") val evmNetwork: String? = null,
+    @SerialName("uptime_seconds") val uptimeSeconds: ULong? = null,
+    @SerialName("build_commit") val buildCommit: String? = null,
+    @SerialName("payment_token_address") val paymentTokenAddress: String? = null,
+    @SerialName("payment_vault_address") val paymentVaultAddress: String? = null,
+)
+
+internal fun HealthResponseDto.toHealthStatus(): HealthStatus = HealthStatus(
+    ok = status == "ok",
+    network = network ?: "unknown",
+    version = version ?: "",
+    evmNetwork = evmNetwork ?: "",
+    uptimeSeconds = uptimeSeconds ?: 0u,
+    buildCommit = buildCommit ?: "",
+    paymentTokenAddress = paymentTokenAddress ?: "",
+    paymentVaultAddress = paymentVaultAddress ?: "",
 )
 
 @Serializable

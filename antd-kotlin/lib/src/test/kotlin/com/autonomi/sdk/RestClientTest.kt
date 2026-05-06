@@ -38,7 +38,7 @@ class RestClientTest {
 
             // Health
             if (method == "GET" && path == "/health") {
-                return json("""{"status":"ok","network":"local"}""")
+                return json("""{"status":"ok","network":"local","version":"0.4.0","evm_network":"local","uptime_seconds":42,"build_commit":"abcdef123456","payment_token_address":"0xtoken","payment_vault_address":"0xvault"}""")
             }
 
             // Data put public
@@ -116,6 +116,25 @@ class RestClientTest {
         val status = client.health()
         assertTrue(status.ok)
         assertEquals("local", status.network)
+        assertEquals("0.4.0", status.version)
+        assertEquals("local", status.evmNetwork)
+        assertEquals(42UL, status.uptimeSeconds)
+        assertEquals("abcdef123456", status.buildCommit)
+        assertEquals("0xtoken", status.paymentTokenAddress)
+        assertEquals("0xvault", status.paymentVaultAddress)
+    }
+
+    @Test
+    fun `HealthStatus defaults stay empty for pre-0_4_0 daemon shape`() {
+        // Older daemons reply with just status + network; the data class
+        // defaults populate the diagnostic fields so callers don't NPE.
+        val s = HealthStatus(ok = true, network = "default")
+        assertEquals("", s.version)
+        assertEquals("", s.evmNetwork)
+        assertEquals(0UL, s.uptimeSeconds)
+        assertEquals("", s.buildCommit)
+        assertEquals("", s.paymentTokenAddress)
+        assertEquals("", s.paymentVaultAddress)
     }
 
     @Test
