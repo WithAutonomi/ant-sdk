@@ -182,11 +182,7 @@ class AntdClient
      */
     public function health(): HealthStatus
     {
-        $json = $this->doJson('GET', '/health');
-        return new HealthStatus(
-            ok: ($json['status'] ?? '') === 'ok',
-            network: $json['network'] ?? '',
-        );
+        return self::healthStatusFromJson($this->doJson('GET', '/health'));
     }
 
     /**
@@ -197,10 +193,28 @@ class AntdClient
     public function healthAsync(): PromiseInterface
     {
         return $this->doJsonAsync('GET', '/health')->then(
-            fn(?array $json) => new HealthStatus(
-                ok: ($json['status'] ?? '') === 'ok',
-                network: $json['network'] ?? '',
-            ),
+            fn(?array $json) => self::healthStatusFromJson($json),
+        );
+    }
+
+    /**
+     * Convert a /health JSON response to a typed HealthStatus. Diagnostic
+     * fields default to '' / 0 when talking to a pre-0.4.0 daemon.
+     *
+     * @param array<string, mixed>|null $json
+     */
+    private static function healthStatusFromJson(?array $json): HealthStatus
+    {
+        $json ??= [];
+        return new HealthStatus(
+            ok: ($json['status'] ?? '') === 'ok',
+            network: $json['network'] ?? '',
+            version: $json['version'] ?? '',
+            evmNetwork: $json['evm_network'] ?? '',
+            uptimeSeconds: (int)($json['uptime_seconds'] ?? 0),
+            buildCommit: $json['build_commit'] ?? '',
+            paymentTokenAddress: $json['payment_token_address'] ?? '',
+            paymentVaultAddress: $json['payment_vault_address'] ?? '',
         );
     }
 

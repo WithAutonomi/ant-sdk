@@ -37,12 +37,43 @@ class AntdClientTest extends TestCase
     public function testHealth(): void
     {
         $mock = new MockHandler([
-            $this->jsonResponse(200, ['status' => 'ok', 'network' => 'local']),
+            $this->jsonResponse(200, [
+                'status' => 'ok',
+                'network' => 'local',
+                'version' => '0.4.0',
+                'evm_network' => 'local',
+                'uptime_seconds' => 42,
+                'build_commit' => 'abcdef123456',
+                'payment_token_address' => '0xtoken',
+                'payment_vault_address' => '0xvault',
+            ]),
         ]);
         $client = $this->createClient($mock);
         $health = $client->health();
         $this->assertTrue($health->ok);
         $this->assertSame('local', $health->network);
+        $this->assertSame('0.4.0', $health->version);
+        $this->assertSame('local', $health->evmNetwork);
+        $this->assertSame(42, $health->uptimeSeconds);
+        $this->assertSame('abcdef123456', $health->buildCommit);
+        $this->assertSame('0xtoken', $health->paymentTokenAddress);
+        $this->assertSame('0xvault', $health->paymentVaultAddress);
+    }
+
+    public function testHealthPreV0_4_0Daemon(): void
+    {
+        // Older daemons reply with just status + network; the empty defaults
+        // populate the diagnostic fields rather than throwing.
+        $mock = new MockHandler([
+            $this->jsonResponse(200, ['status' => 'ok', 'network' => 'default']),
+        ]);
+        $client = $this->createClient($mock);
+        $health = $client->health();
+        $this->assertTrue($health->ok);
+        $this->assertSame('default', $health->network);
+        $this->assertSame('', $health->version);
+        $this->assertSame('', $health->evmNetwork);
+        $this->assertSame(0, $health->uptimeSeconds);
     }
 
     // --- Data Public ---
