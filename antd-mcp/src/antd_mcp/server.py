@@ -289,12 +289,26 @@ async def check_health() -> str:
     """Check antd daemon health and network status.
 
     Returns:
-        JSON with health status and network name, or error details.
+        JSON with health, network, and (when reported by antd >= 0.4.0)
+        diagnostic fields: version, evm_network, uptime_seconds,
+        build_commit, payment_token_address, payment_vault_address.
     """
     client, network = _get_ctx()
     try:
         status = await client.health()
-        return _ok({"healthy": status.ok, "network": status.network}, network)
+        return _ok(
+            {
+                "healthy": status.ok,
+                "network": status.network,
+                "version": status.version,
+                "evm_network": status.evm_network,
+                "uptime_seconds": status.uptime_seconds,
+                "build_commit": status.build_commit,
+                "payment_token_address": status.payment_token_address,
+                "payment_vault_address": status.payment_vault_address,
+            },
+            network,
+        )
     except AntdError as exc:
         return _err_antd(exc, network)
     except Exception as exc:
