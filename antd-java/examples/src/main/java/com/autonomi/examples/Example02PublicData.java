@@ -1,3 +1,5 @@
+package com.autonomi.examples;
+
 import com.autonomi.antd.AntdClient;
 import com.autonomi.antd.models.PutResult;
 
