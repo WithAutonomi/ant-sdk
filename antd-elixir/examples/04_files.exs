@@ -25,4 +25,4 @@ IO.puts("Directory downloaded to /tmp/mydir_copy")
 
 # Estimate file upload cost
 {:ok, cost} = Antd.Client.file_cost(client, "/tmp/example.txt", true, false)
-IO.puts("Estimated upload cost: #{cost} atto")
+IO.puts("Estimated upload cost: #{cost.cost} atto (#{cost.chunk_count} chunks)")
