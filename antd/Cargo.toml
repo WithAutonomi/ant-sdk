@@ -4,7 +4,7 @@ version = "0.6.1"
 edition = "2021"
 
 [dependencies]
-ant-core = { git = "https://github.com/WithAutonomi/ant-client", tag = "ant-cli-v0.2.2" }
+ant-core = { git = "https://github.com/WithAutonomi/ant-client", rev = "c0f6a816ccd7ffe7a4922de4c68187b5a8d9d5a2" }  # ant-client#89 merge commit (Client::finalize_chunk); bump to a tag once ant-core cuts a release containing it
 self_encryption = "0.35.0"
 evmlib = "0.8.1"
 axum = { version = "0.8", features = ["macros"] }

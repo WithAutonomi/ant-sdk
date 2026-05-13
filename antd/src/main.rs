@@ -289,6 +289,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         network: config.network.clone(),
         bootstrap_peers,
         pending_uploads: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        pending_chunks: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
         started_at: std::time::Instant::now(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         build_commit: env!("ANTD_BUILD_COMMIT").to_string(),
@@ -297,13 +298,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         evm_vault_addr,
     });
 
-    // Spawn background task to clean up stale pending uploads (1-hour TTL)
+    // Spawn background task to clean up stale pending prepares (1-hour TTL)
     let cleanup_state = state.clone();
     tokio::spawn(async move {
         let ttl = std::time::Duration::from_secs(3600);
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(300)).await;
             cleanup_state.cleanup_stale_uploads(ttl).await;
+            cleanup_state.cleanup_stale_chunks(ttl).await;
         }
     });
 

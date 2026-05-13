@@ -88,6 +88,37 @@ type FinalizeUploadResult struct {
 	ChunksStored    int64  `json:"chunks_stored"`               // number of chunks stored
 }
 
+// PrepareChunkResult is the result of preparing a single-chunk publish for
+// external signing via POST /v1/chunks/prepare.
+//
+// When [AlreadyStored] is true, the chunk is already on-network — the only
+// populated fields are Address and AlreadyStored, and no finalize call is
+// needed. Otherwise the wave-batch payment fields describe what the external
+// signer must submit before calling FinalizeChunkUpload.
+type PrepareChunkResult struct {
+	// Content-addressed BLAKE3 of the chunk bytes (hex, 64 chars). Always set.
+	Address string `json:"address"`
+	// True if the chunk is already stored on the network and no payment is needed.
+	AlreadyStored bool `json:"already_stored"`
+
+	// Fields below are only populated when AlreadyStored == false.
+
+	// Opaque identifier to pass back to FinalizeChunkUpload.
+	UploadID string `json:"upload_id,omitempty"`
+	// Always "wave_batch" for single-chunk publishes (well below the merkle threshold).
+	PaymentType string `json:"payment_type,omitempty"`
+	// Per-quote payment entries for payForQuotes(). Typically 5–7 (one per peer in the close group).
+	Payments []PaymentInfo `json:"payments,omitempty"`
+	// Total amount to pay (atto tokens, decimal string).
+	TotalAmount string `json:"total_amount,omitempty"`
+	// Payment vault contract address (hex with 0x prefix).
+	PaymentVaultAddress string `json:"payment_vault_address,omitempty"`
+	// Payment token contract address (hex with 0x prefix).
+	PaymentTokenAddress string `json:"payment_token_address,omitempty"`
+	// EVM RPC URL for submitting transactions.
+	RPCUrl string `json:"rpc_url,omitempty"`
+}
+
 // UploadCostEstimate is the result of an estimate (EstimateDataCost / EstimateFileCost).
 //
 // Unlike [PutResult.Cost], which is a paid cost after upload, this is a

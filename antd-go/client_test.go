@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -699,5 +700,140 @@ func TestFinalizeUploadOmitsDataMapAddressForPrivate(t *testing.T) {
 	}
 	if res.DataMap != "deadbeef" {
 		t.Fatalf("expected DataMap=deadbeef, got %q", res.DataMap)
+	}
+}
+
+// ── Single-chunk external-signer (antd >= 0.7.0) ──
+
+func TestPrepareChunkUploadEncodesPayloadAndParsesResponse(t *testing.T) {
+	var capturedBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/chunks/prepare" {
+			_ = json.NewDecoder(r.Body).Decode(&capturedBody)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"address":        "aa" + strings.Repeat("00", 31),
+				"already_stored": false,
+				"upload_id":      "chunk-1",
+				"payment_type":   "wave_batch",
+				"payments": []any{
+					map[string]any{"quote_hash": "qh1", "rewards_address": "ra1", "amount": "100"},
+					map[string]any{"quote_hash": "qh2", "rewards_address": "ra2", "amount": "100"},
+				},
+				"total_amount":          "200",
+				"payment_vault_address": "0xvault",
+				"payment_token_address": "0xtoken",
+				"rpc_url":               "http://localhost:8545",
+			})
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	res, err := c.PrepareChunkUpload(context.Background(), []byte("hello"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Request: bytes must arrive base64-encoded under `data`.
+	if got, want := capturedBody["data"], "aGVsbG8="; got != want {
+		t.Fatalf("expected base64-encoded data %q, got %v", want, got)
+	}
+
+	if res.AlreadyStored {
+		t.Fatal("expected AlreadyStored=false")
+	}
+	if res.UploadID != "chunk-1" {
+		t.Fatalf("UploadID = %q, want chunk-1", res.UploadID)
+	}
+	if res.PaymentType != "wave_batch" {
+		t.Fatalf("PaymentType = %q, want wave_batch", res.PaymentType)
+	}
+	if len(res.Payments) != 2 {
+		t.Fatalf("expected 2 payments, got %d", len(res.Payments))
+	}
+	if res.Payments[0].QuoteHash != "qh1" || res.Payments[1].Amount != "100" {
+		t.Fatalf("unexpected payment shape: %+v", res.Payments)
+	}
+	if res.TotalAmount != "200" {
+		t.Fatalf("TotalAmount = %q, want 200", res.TotalAmount)
+	}
+	if res.PaymentVaultAddress != "0xvault" || res.RPCUrl != "http://localhost:8545" {
+		t.Fatalf("EVM config not parsed: %+v", res)
+	}
+}
+
+func TestPrepareChunkUploadAlreadyStoredOmitsPaymentFields(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/chunks/prepare" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"address":        "bb" + strings.Repeat("11", 31),
+				"already_stored": true,
+				// no upload_id, no payments, no payment_type, etc.
+			})
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	res, err := c.PrepareChunkUpload(context.Background(), []byte("already-on-network"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.AlreadyStored {
+		t.Fatal("expected AlreadyStored=true")
+	}
+	if res.Address == "" {
+		t.Fatal("Address must still be populated for already-stored chunks")
+	}
+	if res.UploadID != "" {
+		t.Fatalf("UploadID should be empty for already-stored, got %q", res.UploadID)
+	}
+	if len(res.Payments) != 0 {
+		t.Fatalf("Payments should be empty for already-stored, got %d", len(res.Payments))
+	}
+	if res.TotalAmount != "" || res.PaymentType != "" {
+		t.Fatalf("payment fields should be empty: %+v", res)
+	}
+}
+
+func TestFinalizeChunkUploadReturnsAddress(t *testing.T) {
+	var capturedBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/chunks/finalize" {
+			_ = json.NewDecoder(r.Body).Decode(&capturedBody)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"address": "cc" + strings.Repeat("22", 31),
+			})
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	addr, err := c.FinalizeChunkUpload(context.Background(), "chunk-1", map[string]string{
+		"qh1": "tx1",
+		"qh2": "tx2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if capturedBody["upload_id"] != "chunk-1" {
+		t.Fatalf("upload_id not sent: %v", capturedBody["upload_id"])
+	}
+	tx, ok := capturedBody["tx_hashes"].(map[string]any)
+	if !ok || tx["qh1"] != "tx1" || tx["qh2"] != "tx2" {
+		t.Fatalf("tx_hashes not sent correctly: %v", capturedBody["tx_hashes"])
+	}
+	if addr == "" || len(addr) != 64 {
+		t.Fatalf("expected 64-char hex address, got %q", addr)
 	}
 }
