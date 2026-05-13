@@ -114,7 +114,7 @@ internal fun HealthResponseDto.toHealthStatus(): HealthStatus = HealthStatus(
 
 @Serializable
 internal data class DataPutPublicDto(
-    val cost: String,
+    val cost: String = "",
     val address: String,
 )
 
@@ -129,7 +129,7 @@ internal data class FileUploadPublicDto(
 
 @Serializable
 internal data class DataPutPrivateDto(
-    val cost: String,
+    val cost: String = "",
     @SerialName("data_map") val dataMap: String,
 )
 
