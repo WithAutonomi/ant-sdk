@@ -189,9 +189,7 @@ pub async fn chunk_finalize(
         .iter()
         .map(|(quote_hex, tx_hex)| {
             let quote_bytes: [u8; 32] = hex::decode(quote_hex.trim_start_matches("0x"))
-                .map_err(|e| {
-                    AntdError::BadRequest(format!("invalid quote_hash {quote_hex}: {e}"))
-                })?
+                .map_err(|e| AntdError::BadRequest(format!("invalid quote_hash {quote_hex}: {e}")))?
                 .try_into()
                 .map_err(|_| AntdError::BadRequest("quote_hash must be 32 bytes".into()))?;
             let tx_bytes: [u8; 32] = hex::decode(tx_hex.trim_start_matches("0x"))

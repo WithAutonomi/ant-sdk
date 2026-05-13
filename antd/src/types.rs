@@ -768,8 +768,7 @@ mod tests {
 
     #[test]
     fn prepare_chunk_request_deserializes() {
-        let req: PrepareChunkRequest =
-            serde_json::from_str(r#"{"data":"SGVsbG8="}"#).unwrap();
+        let req: PrepareChunkRequest = serde_json::from_str(r#"{"data":"SGVsbG8="}"#).unwrap();
         assert_eq!(req.data, "SGVsbG8=");
     }
 
