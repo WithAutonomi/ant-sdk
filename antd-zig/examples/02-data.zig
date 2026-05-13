@@ -13,7 +13,7 @@ pub fn main() !void {
     const message = "Hello, Autonomi!";
     std.debug.print("Storing public data: {s}\n", .{message});
 
-    const put_result = try client.dataPutPublic(message);
+    const put_result = try client.dataPutPublic(message, null);
     defer put_result.deinit(allocator);
 
     std.debug.print("Stored at address: {s}\n", .{put_result.address});

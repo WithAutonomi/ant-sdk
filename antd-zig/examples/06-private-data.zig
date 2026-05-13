@@ -13,7 +13,7 @@ pub fn main() !void {
     const secret_message = "This is private data";
     std.debug.print("Storing private data...\n", .{});
 
-    const put_result = try client.dataPutPrivate(secret_message);
+    const put_result = try client.dataPutPrivate(secret_message, null);
     defer put_result.deinit(allocator);
 
     std.debug.print("Data map: {s}\n", .{put_result.address});
