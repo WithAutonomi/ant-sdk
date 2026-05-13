@@ -78,6 +78,8 @@ pub fn router(state: Arc<AppState>, enable_cors: bool, rest_port: u16) -> Router
         // Chunks
         .route("/v1/chunks/{addr}", get(chunks::chunk_get))
         .route("/v1/chunks", post(chunks::chunk_put))
+        .route("/v1/chunks/prepare", post(chunks::chunk_prepare))
+        .route("/v1/chunks/finalize", post(chunks::chunk_finalize))
         // Files
         .route("/v1/files/upload/public", post(files::file_upload_public))
         .route(

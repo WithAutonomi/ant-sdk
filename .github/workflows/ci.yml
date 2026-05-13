@@ -33,6 +33,11 @@ jobs:
       - uses: arduino/setup-protoc@v3
         with:
           version: "25.x"
+          # Authenticate to lift the action's release-list call from the
+          # ~60/hr per-IP unauth quota onto our 5,000/hr token quota.
+          # release.yml already does this (PR #31); ci.yml didn't, and
+          # PR #57's post-merge CI run flaked here on 2026-05-06.
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check formatting
         run: cargo fmt --check
@@ -75,6 +80,7 @@ jobs:
       - uses: arduino/setup-protoc@v3
         with:
           version: "25.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run contract tests
         run: cargo test --locked

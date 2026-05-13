@@ -1,12 +1,19 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use ant_core::data::{Client, MultiAddr, PreparedUpload};
+use ant_core::data::{Client, MultiAddr, PreparedChunk, PreparedUpload};
 use tokio::sync::Mutex;
 
 /// A prepared upload with a creation timestamp for TTL-based cleanup.
 pub struct TimestampedUpload {
     pub prepared: PreparedUpload,
+    pub created_at: std::time::Instant,
+}
+
+/// A prepared single-chunk publish with a creation timestamp for TTL-based
+/// cleanup. Mirrors [`TimestampedUpload`] but for the `/v1/chunks/prepare` flow.
+pub struct TimestampedChunk {
+    pub prepared: PreparedChunk,
     pub created_at: std::time::Instant,
 }
 
@@ -22,6 +29,11 @@ pub struct AppState {
     pub bootstrap_peers: Vec<MultiAddr>,
     /// Pending prepared uploads awaiting external payment (upload_id → state).
     pub pending_uploads: Arc<Mutex<HashMap<String, TimestampedUpload>>>,
+    /// Pending prepared single-chunk publishes awaiting external payment
+    /// (upload_id → state). Kept separate from [`Self::pending_uploads`]
+    /// because the inner type differs and the two flows touch different
+    /// ant-core surfaces.
+    pub pending_chunks: Arc<Mutex<HashMap<String, TimestampedChunk>>>,
     /// Process start time, for /health uptime reporting.
     pub started_at: std::time::Instant,
     /// antd crate version (env!("CARGO_PKG_VERSION") at build time).
@@ -48,6 +60,21 @@ impl AppState {
                 removed,
                 remaining = uploads.len(),
                 "cleaned up stale pending uploads"
+            );
+        }
+    }
+
+    /// Remove pending single-chunk prepares older than the given duration.
+    pub async fn cleanup_stale_chunks(&self, max_age: std::time::Duration) {
+        let mut chunks = self.pending_chunks.lock().await;
+        let before = chunks.len();
+        chunks.retain(|_, v| v.created_at.elapsed() < max_age);
+        let removed = before - chunks.len();
+        if removed > 0 {
+            tracing::info!(
+                removed,
+                remaining = chunks.len(),
+                "cleaned up stale pending chunks"
             );
         }
     }

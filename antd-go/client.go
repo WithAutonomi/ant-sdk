@@ -151,6 +151,13 @@ func unum64(m map[string]any, key string) uint64 {
 	return 0
 }
 
+func boolField(m map[string]any, key string) bool {
+	if v, ok := m[key].(bool); ok {
+		return v
+	}
+	return false
+}
+
 func arrAt(m map[string]any, key string) []any {
 	if v, ok := m[key].([]any); ok {
 		return v
@@ -280,6 +287,75 @@ func (c *Client) ChunkGet(ctx context.Context, address string) ([]byte, error) {
 		return nil, err
 	}
 	return b64Decode(str(j, "data"))
+}
+
+// PrepareChunkUpload prepares a single chunk for external-signer publish via
+// POST /v1/chunks/prepare.
+//
+// The daemon collects storage quotes from the close group, stashes the
+// prepared state, and returns either:
+//
+//   - AlreadyStored = true and Address set, if the chunk is already on-network.
+//     No payment or finalize call is needed.
+//   - AlreadyStored = false with UploadID + Payments + TotalAmount populated,
+//     in which case the caller signs and submits payForQuotes() externally,
+//     then calls FinalizeChunkUpload with the resulting tx hashes.
+//
+// Unlike ChunkPut, this method does NOT require the daemon to have a wallet —
+// all funds flow through the external signer.
+//
+// Requires antd >= 0.7.0.
+func (c *Client) PrepareChunkUpload(ctx context.Context, content []byte) (*PrepareChunkResult, error) {
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/chunks/prepare", map[string]any{
+		"data": b64Encode(content),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	r := &PrepareChunkResult{
+		Address:             str(j, "address"),
+		AlreadyStored:       boolField(j, "already_stored"),
+		UploadID:            str(j, "upload_id"),
+		PaymentType:         str(j, "payment_type"),
+		TotalAmount:         str(j, "total_amount"),
+		PaymentVaultAddress: str(j, "payment_vault_address"),
+		PaymentTokenAddress: str(j, "payment_token_address"),
+		RPCUrl:              str(j, "rpc_url"),
+	}
+	if payments, ok := j["payments"].([]any); ok {
+		for _, p := range payments {
+			pm, ok := p.(map[string]any)
+			if !ok {
+				continue
+			}
+			r.Payments = append(r.Payments, PaymentInfo{
+				QuoteHash:      str(pm, "quote_hash"),
+				RewardsAddress: str(pm, "rewards_address"),
+				Amount:         str(pm, "amount"),
+			})
+		}
+	}
+	return r, nil
+}
+
+// FinalizeChunkUpload submits a single chunk to the network after the external
+// signer has paid via POST /v1/chunks/finalize.
+//
+// txHashes maps each non-zero quote_hash from PrepareChunkUpload's Payments to
+// the corresponding tx_hash returned by payForQuotes(). Returns the hex-encoded
+// network address of the stored chunk (matches PrepareChunkResult.Address).
+//
+// Requires antd >= 0.7.0.
+func (c *Client) FinalizeChunkUpload(ctx context.Context, uploadID string, txHashes map[string]string) (string, error) {
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/chunks/finalize", map[string]any{
+		"upload_id": uploadID,
+		"tx_hashes": txHashes,
+	})
+	if err != nil {
+		return "", err
+	}
+	return str(j, "address"), nil
 }
 
 // --- Files ---

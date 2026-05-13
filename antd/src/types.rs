@@ -58,6 +58,77 @@ pub struct ChunkGetResponse {
     pub data: String, // base64
 }
 
+// ── External Signer (single-chunk publish) ──
+
+/// `POST /v1/chunks/prepare` — request a quote for publishing a single chunk
+/// via the external-signer flow. The daemon collects quotes from the close
+/// group, returns the payment shape, and stashes server-side state keyed by
+/// `upload_id` for the matching finalize call.
+#[derive(Deserialize)]
+pub struct PrepareChunkRequest {
+    /// Raw chunk bytes, base64-encoded. Maximum one ant-protocol chunk
+    /// (≤ 4 MiB before self-encryption is irrelevant here — the bytes are
+    /// stored verbatim as one chunk at their BLAKE3 address).
+    pub data: String,
+}
+
+/// `POST /v1/chunks/prepare` response. Mirrors [`PrepareUploadResponse`]'s
+/// wave-batch shape so external signers can reuse the same `payForQuotes()`
+/// path with no special-casing.
+///
+/// When the chunk is already on-network, `already_stored` is `true` and the
+/// `upload_id` / payment fields are omitted — the caller can update their
+/// records with `address` and skip the finalize step.
+#[derive(Serialize)]
+pub struct PrepareChunkResponse {
+    /// Content-addressed BLAKE3 of the chunk bytes (hex, 32 bytes). Computed
+    /// locally on the daemon; the caller can also derive it independently if
+    /// needed.
+    pub address: String,
+    /// `true` if the chunk was already stored on the network. In that case
+    /// no payment or finalize call is needed.
+    pub already_stored: bool,
+
+    /// Opaque token to pass back to finalize. Omitted when
+    /// `already_stored == true`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upload_id: Option<String>,
+    /// Always `"wave_batch"` for single-chunk publishes (single chunk is well
+    /// below the merkle threshold). Omitted when `already_stored == true`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payment_type: Option<String>,
+    /// Per-quote payment entries for `payForQuotes()`. Typically 5–7 entries
+    /// (one per peer in the close group). Empty/omitted when already stored.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub payments: Vec<PaymentEntry>,
+    /// Total amount to pay (atto tokens, decimal string). Omitted when
+    /// `already_stored == true`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_amount: Option<String>,
+    /// EVM configuration — same source as the file/data prepare flow. Omitted
+    /// when `already_stored == true`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payment_vault_address: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payment_token_address: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rpc_url: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct FinalizeChunkRequest {
+    /// The `upload_id` returned from `/v1/chunks/prepare`.
+    pub upload_id: String,
+    /// Map of quote_hash (hex) → tx_hash (hex) from the on-chain payment.
+    pub tx_hashes: HashMap<String, String>,
+}
+
+#[derive(Serialize)]
+pub struct FinalizeChunkResponse {
+    /// Network address of the stored chunk (hex, 32 bytes).
+    pub address: String,
+}
+
 // ── External Signer (two-phase upload) ──
 
 #[derive(Deserialize)]
@@ -632,5 +703,93 @@ mod tests {
         let json = serde_json::to_value(&resp).unwrap();
         assert!(json.get("address").is_none());
         assert!(json.get("data_map_address").is_none());
+    }
+
+    // ── Single-chunk external-signer ──
+
+    #[test]
+    fn prepare_chunk_response_for_new_chunk_includes_payment_shape() {
+        let resp = PrepareChunkResponse {
+            address: "deadbeef".repeat(8),
+            already_stored: false,
+            upload_id: Some("abc123".into()),
+            payment_type: Some("wave_batch".into()),
+            payments: vec![PaymentEntry {
+                quote_hash: "0xaa".into(),
+                rewards_address: "0xbb".into(),
+                amount: "100".into(),
+            }],
+            total_amount: Some("100".into()),
+            payment_vault_address: Some("0xcc".into()),
+            payment_token_address: Some("0xdd".into()),
+            rpc_url: Some("http://localhost:8545".into()),
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["already_stored"], false);
+        assert_eq!(json["upload_id"], "abc123");
+        assert_eq!(json["payment_type"], "wave_batch");
+        assert_eq!(json["payments"][0]["quote_hash"], "0xaa");
+        assert_eq!(json["total_amount"], "100");
+        assert_eq!(json["payment_vault_address"], "0xcc");
+        assert_eq!(json["rpc_url"], "http://localhost:8545");
+    }
+
+    #[test]
+    fn prepare_chunk_response_for_already_stored_omits_payment_fields() {
+        let resp = PrepareChunkResponse {
+            address: "deadbeef".repeat(8),
+            already_stored: true,
+            upload_id: None,
+            payment_type: None,
+            payments: Vec::new(),
+            total_amount: None,
+            payment_vault_address: None,
+            payment_token_address: None,
+            rpc_url: None,
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["already_stored"], true);
+        assert!(
+            json.get("upload_id").is_none(),
+            "upload_id should be skipped when already_stored"
+        );
+        assert!(json.get("payment_type").is_none());
+        assert!(json.get("payments").is_none());
+        assert!(json.get("total_amount").is_none());
+        assert!(json.get("payment_vault_address").is_none());
+        assert!(json.get("rpc_url").is_none());
+        // address is always present so the caller can update their records
+        assert_eq!(
+            json["address"].as_str().unwrap().len(),
+            64,
+            "BLAKE3 address must be 64 hex chars"
+        );
+    }
+
+    #[test]
+    fn prepare_chunk_request_deserializes() {
+        let req: PrepareChunkRequest = serde_json::from_str(r#"{"data":"SGVsbG8="}"#).unwrap();
+        assert_eq!(req.data, "SGVsbG8=");
+    }
+
+    #[test]
+    fn finalize_chunk_request_deserializes() {
+        let json = r#"{
+            "upload_id": "abc",
+            "tx_hashes": {"0xaa": "0xbb", "0xcc": "0xdd"}
+        }"#;
+        let req: FinalizeChunkRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.upload_id, "abc");
+        assert_eq!(req.tx_hashes.len(), 2);
+        assert_eq!(req.tx_hashes["0xaa"], "0xbb");
+    }
+
+    #[test]
+    fn finalize_chunk_response_serializes() {
+        let resp = FinalizeChunkResponse {
+            address: "deadbeef".repeat(8),
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["address"].as_str().unwrap().len(), 64);
     }
 }
