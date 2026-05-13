@@ -19,7 +19,9 @@ def main(argv: list[str] | None = None) -> None:
 
     # ant dev start
     p = dev_sub.add_parser("start", help="Start ant devnet + antd")
-    p.add_argument("--ant-node-dir", help="Path to ant-node repo")
+    # --autonomi-dir kept as a back-compat alias for older docs/scripts (#62).
+    p.add_argument("--ant-node-dir", "--autonomi-dir", dest="ant_node_dir",
+                   help="Path to ant-node repo")
     p.add_argument("--no-build", action="store_true", help="Skip build (use existing binaries)")
     p.add_argument("--enable-evm", action="store_true", help="Enable EVM payment enforcement")
 

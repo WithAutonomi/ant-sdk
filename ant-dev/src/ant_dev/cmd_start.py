@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -73,6 +74,14 @@ def run(args) -> None:
     print()
 
     # ── 1. Start ant-devnet ──
+    # Preflight: ant-devnet spawns anvil (Foundry) for the EVM testnet (#64).
+    # Without anvil on PATH the devnet times out with an unhelpful error.
+    if shutil.which("anvil") is None:
+        print(red("       ERROR: anvil (from Foundry) not found on PATH."))
+        print(gray("       ant-devnet needs anvil for the local EVM testnet."))
+        print(gray("       Install: curl -sL https://foundry.paradigm.xyz | bash && foundryup"))
+        sys.exit(1)
+
     print(yellow("[1/3] Starting ant devnet..."))
 
     devnet_cmd = [

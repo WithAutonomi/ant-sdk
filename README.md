@@ -117,6 +117,7 @@ All data and file upload operations accept an optional `payment_mode` parameter 
 - **Rust** toolchain — for building antd
 - **Python 3.10+** — for the dev CLI (`ant-dev`) and MCP server
 - **ant-node** repo cloned as sibling (for local testnet only): `git clone https://github.com/WithAutonomi/ant-node ../ant-node`
+- **Foundry** (provides `anvil`) — for the local EVM testnet that the devnet spawns: `curl -sL https://foundry.paradigm.xyz | bash && foundryup`
 
 **Language-specific** (install only what you need):
 
@@ -428,7 +429,7 @@ The Autonomi network provides these core primitives, all accessible through the 
 ## Developer CLI Reference
 
 ```
-ant dev start [--autonomi-dir PATH] [--no-build]    # Start local environment
+ant dev start [--ant-node-dir PATH] [--no-build]    # Start local environment
 ant dev stop                                         # Tear down everything
 ant dev status                                       # Show running processes + health
 ant dev example <name> [-l python|csharp]             # Run named example
