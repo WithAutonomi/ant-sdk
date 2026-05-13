@@ -1,8 +1,9 @@
-"""``ant dev stop`` — Tear down all local processes."""
+"""``ant dev stop`` -- Tear down all local processes."""
 
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 
@@ -34,6 +35,13 @@ def _kill_pid(pid: int) -> None:
         pass
 
 
+def _pkill(pattern: str) -> None:
+    """Best-effort pkill on POSIX; no-op on Windows."""
+    if sys.platform == "win32":
+        return
+    subprocess.run(["pkill", "-9", "-f", pattern], capture_output=True)
+
+
 def run(args) -> None:
     state = load_state()
 
@@ -45,23 +53,34 @@ def run(args) -> None:
     print(yellow("[1/2] Stopping antd..."))
     if pid := state.get("antd_pid"):
         _kill_pid(pid)
-    if sys.platform != "win32":
-        subprocess.run(
-            ["pkill", "-f", r"target/(debug|release)/antd"],
-            capture_output=True,
-        )
+    _pkill(r"target/(debug|release)/antd")
     print(green("       Done"))
 
-    # 2. Kill devnet
+    # 2. Kill devnet + the orphan children it leaves behind.
+    #
+    # ant-devnet does ``std::mem::forget(testnet)`` on the AnvilInstance to
+    # keep anvil running across the scope, then relies on process exit to
+    # clean it up. That cleanup only fires on graceful Drop -- SIGTERM/
+    # SIGKILL skip destructors, so anvil orphans every time we stop. Reap
+    # it explicitly, plus any antnode children spawned by ant-devnet.
+    # Tracked upstream in WithAutonomi/ant-sdk#73.
     print(yellow("[2/2] Stopping ant devnet..."))
     if pid := state.get("devnet_pid"):
         _kill_pid(pid)
-    if sys.platform != "win32":
-        subprocess.run(
-            ["pkill", "-f", r"target/(debug|release)/ant-devnet"],
-            capture_output=True,
-        )
+    _pkill(r"target/(debug|release)/ant-devnet")
+    _pkill(r"(^|/)anvil( |$)")
+    _pkill(r"target/(debug|release)/antnode")
     print(green("       Done"))
+
+    # ant-devnet does not clean up ~/.local/share/ant/ on SIGTERM either
+    # (same destructor-skip cause). Stale node identities accumulating
+    # there have caused subsequent ``ant dev start`` runs to flake/hang.
+    # Wipe known transient data dirs so the next start is from a clean slate.
+    if sys.platform != "win32":
+        for sub in ("nodes", "spill"):
+            path = os.path.expanduser(f"~/.local/share/ant/{sub}")
+            if os.path.isdir(path):
+                shutil.rmtree(path, ignore_errors=True)
 
     clear_state()
 
