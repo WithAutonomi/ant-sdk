@@ -40,4 +40,4 @@ if err5 then
     os.exit(1)
 end
 
-print("Estimated upload cost: " .. cost .. " atto")
+print(string.format("Estimated upload cost: %s atto (%d chunks)", cost.cost, cost.chunk_count))
