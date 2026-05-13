@@ -210,27 +210,27 @@ fn dupeU64(v: std.json.Value) u64 {
 
 /// Escape a string for JSON output.
 fn jsonEscapeString(allocator: Allocator, s: []const u8) ![]const u8 {
-    var list: std.ArrayList(u8) = .empty;
-    errdefer list.deinit(allocator);
-    try list.append(allocator, '"');
+    var list = std.ArrayList(u8).init(allocator);
+    errdefer list.deinit();
+    try list.append('"');
     for (s) |c| {
         switch (c) {
-            '"' => try list.appendSlice(allocator, "\\\""),
-            '\\' => try list.appendSlice(allocator, "\\\\"),
-            '\n' => try list.appendSlice(allocator, "\\n"),
-            '\r' => try list.appendSlice(allocator, "\\r"),
-            '\t' => try list.appendSlice(allocator, "\\t"),
+            '"' => try list.appendSlice("\\\""),
+            '\\' => try list.appendSlice("\\\\"),
+            '\n' => try list.appendSlice("\\n"),
+            '\r' => try list.appendSlice("\\r"),
+            '\t' => try list.appendSlice("\\t"),
             else => {
                 if (c < 0x20) {
-                    try list.writer(allocator).print("\\u{x:0>4}", .{c});
+                    try list.writer().print("\\u{x:0>4}", .{c});
                 } else {
-                    try list.append(allocator, c);
+                    try list.append(c);
                 }
             },
         }
     }
-    try list.append(allocator, '"');
-    return list.toOwnedSlice(allocator);
+    try list.append('"');
+    return list.toOwnedSlice();
 }
 
 /// Build a JSON object string with a single base64-encoded "data" field.
@@ -271,45 +271,45 @@ pub const JsonValue = union(enum) {
 
 /// Build a JSON request body from key-value pairs.
 pub fn buildJsonBody(allocator: Allocator, fields: []const struct { key: []const u8, value: JsonValue }) ![]const u8 {
-    var buf: std.ArrayList(u8) = .empty;
-    errdefer buf.deinit(allocator);
+    var buf = std.ArrayList(u8).init(allocator);
+    errdefer buf.deinit();
 
-    try buf.append(allocator, '{');
+    try buf.append('{');
 
     for (fields, 0..) |field, i| {
-        if (i > 0) try buf.append(allocator, ',');
+        if (i > 0) try buf.append(',');
 
         // Write key
         const escaped_key = jsonEscapeString(allocator, field.key) catch return error.JsonError;
         defer allocator.free(escaped_key);
-        try buf.appendSlice(allocator, escaped_key);
-        try buf.append(allocator, ':');
+        try buf.appendSlice(escaped_key);
+        try buf.append(':');
 
         // Write value
         switch (field.value) {
             .string => |s| {
                 const escaped_val = jsonEscapeString(allocator, s) catch return error.JsonError;
                 defer allocator.free(escaped_val);
-                try buf.appendSlice(allocator, escaped_val);
+                try buf.appendSlice(escaped_val);
             },
             .boolean => |b| {
-                try buf.appendSlice(allocator, if (b) "true" else "false");
+                try buf.appendSlice(if (b) "true" else "false");
             },
             .string_array => |arr| {
-                try buf.append(allocator, '[');
+                try buf.append('[');
                 for (arr, 0..) |item, j| {
-                    if (j > 0) try buf.append(allocator, ',');
+                    if (j > 0) try buf.append(',');
                     const escaped_item = jsonEscapeString(allocator, item) catch return error.JsonError;
                     defer allocator.free(escaped_item);
-                    try buf.appendSlice(allocator, escaped_item);
+                    try buf.appendSlice(escaped_item);
                 }
-                try buf.append(allocator, ']');
+                try buf.append(']');
             },
         }
     }
 
-    try buf.append(allocator, '}');
-    return buf.toOwnedSlice(allocator);
+    try buf.append('}');
+    return buf.toOwnedSlice();
 }
 
 /// Parse a WalletAddress from a JSON response body.

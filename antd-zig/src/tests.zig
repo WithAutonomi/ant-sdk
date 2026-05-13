@@ -134,14 +134,14 @@ test "parseBase64Data decodes data" {
     try testing.expectEqualStrings("hello", result);
 }
 
-test "parseCost extracts cost" {
+test "parseCostEstimate extracts cost" {
     const body =
-        \\{"cost":"500"}
+        \\{"cost":"500","file_size":0,"chunk_count":0,"estimated_gas_cost_wei":"0","payment_mode":""}
     ;
-    const result = try json_helpers.parseCost(testing.allocator, body);
-    defer testing.allocator.free(result);
+    const result = try json_helpers.parseCostEstimate(testing.allocator, body);
+    defer result.deinit(testing.allocator);
 
-    try testing.expectEqualStrings("500", result);
+    try testing.expectEqualStrings("500", result.cost);
 }
 
 // =============================================================================
