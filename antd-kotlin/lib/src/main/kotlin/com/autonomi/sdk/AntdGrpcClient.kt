@@ -96,6 +96,14 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
         resp.data.toByteArray()
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
+    override suspend fun prepareChunkUpload(data: ByteArray): PrepareChunkResult {
+        throw UnsupportedOperationException("prepareChunkUpload is not yet supported via gRPC")
+    }
+
+    override suspend fun finalizeChunkUpload(uploadId: String, txHashes: Map<String, String>): String {
+        throw UnsupportedOperationException("finalizeChunkUpload is not yet supported via gRPC")
+    }
+
     // ── Files ──
 
     override suspend fun fileUploadPublic(path: String, paymentMode: String?): FileUploadResult = try {
@@ -155,11 +163,15 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
 
     // ── External Signer (not yet available via gRPC) ──
 
-    override suspend fun prepareUpload(path: String): PrepareUploadResult {
+    override suspend fun prepareUpload(path: String, visibility: String?): PrepareUploadResult {
         throw UnsupportedOperationException("prepareUpload is not yet supported via gRPC")
     }
 
-    override suspend fun prepareDataUpload(data: ByteArray): PrepareUploadResult {
+    override suspend fun prepareUploadPublic(path: String): PrepareUploadResult {
+        throw UnsupportedOperationException("prepareUploadPublic is not yet supported via gRPC")
+    }
+
+    override suspend fun prepareDataUpload(data: ByteArray, visibility: String?): PrepareUploadResult {
         throw UnsupportedOperationException("prepareDataUpload is not yet supported via gRPC")
     }
 

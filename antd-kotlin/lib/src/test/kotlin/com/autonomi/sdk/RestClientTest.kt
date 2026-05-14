@@ -12,11 +12,13 @@ class RestClientTest {
 
     private lateinit var server: MockWebServer
     private lateinit var client: AntdRestClient
+    private lateinit var daemon: MockDaemon
 
     @BeforeTest
     fun setUp() {
         server = MockWebServer()
-        server.dispatcher = MockDaemon()
+        daemon = MockDaemon()
+        server.dispatcher = daemon
         server.start()
         client = AntdRestClient(baseUrl = server.url("/").toString())
     }
@@ -32,6 +34,16 @@ class RestClientTest {
     // -------------------------------------------------------------------------
 
     class MockDaemon : Dispatcher() {
+        // Tracks the most recent /v1/upload/prepare request body so tests can
+        // assert that `visibility` is forwarded correctly. Set to "public"
+        // when the prior prepare carried visibility:"public", so the
+        // /v1/upload/finalize stub can echo a data_map_address back.
+        var lastPrepareBody: String = ""
+        var lastVisibility: String? = null
+        // Tracks the most recent /v1/chunks/finalize body for tx_hashes
+        // shape assertions.
+        var lastChunkFinalizeBody: String = ""
+
         override fun dispatch(request: RecordedRequest): MockResponse {
             val path = request.path ?: ""
             val method = request.method ?: ""
@@ -87,6 +99,44 @@ class RestClientTest {
             }
             if (method == "POST" && path == "/v1/files/cost") {
                 return json("""{"cost":"1000","file_size":4096,"chunk_count":3,"estimated_gas_cost_wei":"150000000000000","payment_mode":"auto"}""")
+            }
+
+            // External-signer file/data prepare. Capture the request body so
+            // tests can assert visibility forwarding, and remember whether the
+            // current upload was public so /v1/upload/finalize can echo a
+            // data_map_address back.
+            if (method == "POST" && (path == "/v1/upload/prepare" || path == "/v1/data/prepare")) {
+                lastPrepareBody = request.body.readUtf8()
+                lastVisibility = "\"visibility\"\\s*:\\s*\"([^\"]+)\"".toRegex()
+                    .find(lastPrepareBody)?.groupValues?.get(1)
+                return json("""{"upload_id":"up-1","payment_type":"wave_batch","payments":[{"quote_hash":"qh1","rewards_address":"ra1","amount":"100"}],"total_amount":"100","payment_vault_address":"0xvault","payment_token_address":"0xtoken","rpc_url":"http://localhost:8545"}""")
+            }
+
+            // External-signer finalize. Echo a data_map_address when the prior
+            // prepare carried visibility:"public" (the DataMap chunk was paid
+            // and stored in the same external-signer batch).
+            if (method == "POST" && path == "/v1/upload/finalize") {
+                val dataMapAddress = if (lastVisibility == "public") "cafebabe" else ""
+                return json("""{"address":"","chunks_stored":4,"data_map":"deadbeef","data_map_address":"$dataMapAddress"}""")
+            }
+
+            // Single-chunk external-signer prepare. We decide which branch to
+            // exercise from the payload — bytes "already" trigger the
+            // already_stored short-circuit, anything else returns the full
+            // wave-batch payment intent.
+            if (method == "POST" && path == "/v1/chunks/prepare") {
+                val body = request.body.readUtf8()
+                val isAlready = body.contains("YWxyZWFkeQ==") // base64("already")
+                return if (isAlready) {
+                    json("""{"address":"bb${"11".repeat(31)}","already_stored":true}""")
+                } else {
+                    json("""{"address":"aa${"00".repeat(31)}","already_stored":false,"upload_id":"chunk-1","payment_type":"wave_batch","payments":[{"quote_hash":"qh1","rewards_address":"ra1","amount":"100"},{"quote_hash":"qh2","rewards_address":"ra2","amount":"100"}],"total_amount":"200","payment_vault_address":"0xvault","payment_token_address":"0xtoken","rpc_url":"http://localhost:8545"}""")
+                }
+            }
+
+            if (method == "POST" && path == "/v1/chunks/finalize") {
+                lastChunkFinalizeBody = request.body.readUtf8()
+                return json("""{"address":"cc${"22".repeat(31)}"}""")
             }
 
             // 404 fallback
@@ -382,5 +432,99 @@ class RestClientTest {
             errClient.close()
             errServer.shutdown()
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // V2-274: public-prepare visibility forwarding + chunk external-signer
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `prepareUpload omits visibility when null`() = runTest {
+        client.prepareUpload("/tmp/x.txt")
+        assertFalse(
+            daemon.lastPrepareBody.contains("visibility"),
+            "visibility key must be absent when not supplied; body=${daemon.lastPrepareBody}",
+        )
+    }
+
+    @Test
+    fun `prepareUploadPublic forwards visibility public`() = runTest {
+        val res = client.prepareUploadPublic("/tmp/x.txt")
+        assertTrue(
+            daemon.lastPrepareBody.contains("\"visibility\":\"public\""),
+            "expected visibility:public in request body; got ${daemon.lastPrepareBody}",
+        )
+        assertTrue(
+            daemon.lastPrepareBody.contains("\"path\":\"/tmp/x.txt\""),
+            "expected path forwarded; got ${daemon.lastPrepareBody}",
+        )
+        assertEquals("up-1", res.uploadId)
+    }
+
+    @Test
+    fun `finalizeUpload surfaces dataMapAddress after public prepare`() = runTest {
+        client.prepareUploadPublic("/tmp/x.txt")
+        val res = client.finalizeUpload("up-1", mapOf("qh1" to "tx1"))
+        assertEquals("cafebabe", res.dataMapAddress)
+        assertEquals("deadbeef", res.dataMap)
+        assertEquals(4L, res.chunksStored)
+        // Legacy on-network address stays empty when prepare bundled the
+        // DataMap chunk into the external-signer batch.
+        assertEquals("", res.address)
+    }
+
+    @Test
+    fun `finalizeUpload leaves dataMapAddress empty for private prepare`() = runTest {
+        client.prepareUpload("/tmp/x.txt")
+        val res = client.finalizeUpload("up-1", mapOf("qh1" to "tx1"))
+        assertEquals("", res.dataMapAddress)
+        assertEquals("deadbeef", res.dataMap)
+    }
+
+    @Test
+    fun `prepareChunkUpload parses wave-batch shape`() = runTest {
+        val res = client.prepareChunkUpload("hello".toByteArray())
+        assertFalse(res.alreadyStored)
+        assertEquals("chunk-1", res.uploadId)
+        assertEquals("wave_batch", res.paymentType)
+        assertEquals(2, res.payments.size)
+        assertEquals("qh1", res.payments[0].quoteHash)
+        assertEquals("100", res.payments[1].amount)
+        assertEquals("200", res.totalAmount)
+        assertEquals("0xvault", res.paymentVaultAddress)
+        assertEquals("http://localhost:8545", res.rpcUrl)
+        // Address is always populated (64 hex chars = 32 bytes).
+        assertEquals(64, res.address.length)
+    }
+
+    @Test
+    fun `prepareChunkUpload parses already-stored shape`() = runTest {
+        val res = client.prepareChunkUpload("already".toByteArray())
+        assertTrue(res.alreadyStored)
+        assertEquals(64, res.address.length)
+        // No payment / finalize plumbing when the chunk is already on-network.
+        assertEquals("", res.uploadId)
+        assertTrue(res.payments.isEmpty())
+        assertEquals("", res.paymentType)
+        assertEquals("", res.totalAmount)
+    }
+
+    @Test
+    fun `finalizeChunkUpload forwards uploadId and txHashes and returns address`() = runTest {
+        val addr = client.finalizeChunkUpload("chunk-1", mapOf("qh1" to "tx1", "qh2" to "tx2"))
+        assertEquals(64, addr.length)
+        assertTrue(
+            daemon.lastChunkFinalizeBody.contains("\"upload_id\":\"chunk-1\""),
+            "expected upload_id forwarded; got ${daemon.lastChunkFinalizeBody}",
+        )
+        // Both quote→tx entries must reach the daemon under tx_hashes.
+        assertTrue(
+            daemon.lastChunkFinalizeBody.contains("\"qh1\":\"tx1\""),
+            "missing qh1→tx1: ${daemon.lastChunkFinalizeBody}",
+        )
+        assertTrue(
+            daemon.lastChunkFinalizeBody.contains("\"qh2\":\"tx2\""),
+            "missing qh2→tx2: ${daemon.lastChunkFinalizeBody}",
+        )
     }
 }

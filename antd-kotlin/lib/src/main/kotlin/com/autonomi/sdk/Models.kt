@@ -67,11 +67,54 @@ data class PrepareUploadResult(
     val merklePaymentTimestamp: Long? = null,
 )
 
-/** Result of finalizing an externally-signed upload. */
-data class FinalizeUploadResult(val address: String, val chunksStored: Long)
+/**
+ * Result of finalizing an externally-signed upload.
+ *
+ * [dataMap] is the hex-encoded serialized DataMap (always populated).
+ * [dataMapAddress] is set when prepare was called with `visibility="public"` —
+ * the DataMap chunk was paid + stored in the same external-signer batch and
+ * the address is the shareable retrieval handle. Empty on pre-0.6.1 daemons
+ * or for private uploads.
+ */
+data class FinalizeUploadResult(
+    @SerialName("address") val address: String,
+    @SerialName("chunks_stored") val chunksStored: Long,
+    @SerialName("data_map") val dataMap: String = "",
+    @SerialName("data_map_address") val dataMapAddress: String = "",
+)
 
-/** Result of finalizing a merkle batch upload. */
-data class FinalizeMerkleUploadResult(val address: String, val chunksStored: Long)
+/**
+ * Result of finalizing a merkle batch upload.
+ *
+ * See [FinalizeUploadResult] for [dataMap] / [dataMapAddress] semantics.
+ */
+data class FinalizeMerkleUploadResult(
+    @SerialName("address") val address: String,
+    @SerialName("chunks_stored") val chunksStored: Long,
+    @SerialName("data_map") val dataMap: String = "",
+    @SerialName("data_map_address") val dataMapAddress: String = "",
+)
+
+/**
+ * Result of preparing a single-chunk external-signer publish via
+ * `POST /v1/chunks/prepare`.
+ *
+ * When [alreadyStored] is `true` the chunk is already on-network and no
+ * payment / finalize step is needed — [uploadId] and the payment fields are
+ * empty. Otherwise the wave-batch payment fields describe what the external
+ * signer must submit before calling `finalizeChunkUpload`.
+ */
+data class PrepareChunkResult(
+    val address: String,
+    val alreadyStored: Boolean = false,
+    val uploadId: String = "",
+    val paymentType: String = "",
+    val payments: List<PaymentInfo> = emptyList(),
+    val totalAmount: String = "",
+    val paymentVaultAddress: String = "",
+    val paymentTokenAddress: String = "",
+    val rpcUrl: String = "",
+)
 
 /**
  * Pre-upload cost breakdown returned by `dataCost` and `fileCost`.
@@ -198,6 +241,26 @@ internal data class PrepareUploadDto(
 
 @Serializable
 internal data class FinalizeUploadDto(
+    val address: String = "",
+    @SerialName("chunks_stored") val chunksStored: Long = 0,
+    @SerialName("data_map") val dataMap: String = "",
+    @SerialName("data_map_address") val dataMapAddress: String = "",
+)
+
+@Serializable
+internal data class PrepareChunkDto(
     val address: String,
-    @SerialName("chunks_stored") val chunksStored: Long,
+    @SerialName("already_stored") val alreadyStored: Boolean = false,
+    @SerialName("upload_id") val uploadId: String? = null,
+    @SerialName("payment_type") val paymentType: String? = null,
+    val payments: List<PaymentInfoDto>? = null,
+    @SerialName("total_amount") val totalAmount: String? = null,
+    @SerialName("payment_vault_address") val paymentVaultAddress: String? = null,
+    @SerialName("payment_token_address") val paymentTokenAddress: String? = null,
+    @SerialName("rpc_url") val rpcUrl: String? = null,
+)
+
+@Serializable
+internal data class FinalizeChunkDto(
+    val address: String,
 )
