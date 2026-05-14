@@ -1,3 +1,5 @@
+package com.autonomi.examples;
+
 import com.autonomi.antd.AntdClient;
 import com.autonomi.antd.models.FileUploadResult;
 
@@ -20,8 +22,8 @@ public class Example03Files {
             System.out.println("Downloaded successfully");
 
             // Estimate cost before uploading
-            String cost = client.fileCost("/path/to/file.txt", true);
-            System.out.println("Estimated cost: " + cost + " atto");
+            com.autonomi.antd.models.UploadCostEstimate cost = client.fileCost("/path/to/file.txt", true);
+            System.out.println("Estimated cost: " + cost.cost() + " atto (" + cost.chunkCount() + " chunks)");
         }
     }
 }
