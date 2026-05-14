@@ -123,7 +123,14 @@ LANGUAGES: dict[str, Adapter] = {
             "graph": "05-graph.lua", "private": "06-private-data.lua",
         },
         prep=[lambda cwd: ["luarocks", "--local", "--lua-version=5.4", "make"]],
-        run=lambda cwd, f: ["lua5.4", f"examples/{f}"],
+        # `luarocks --local make` installs into ~/.luarocks, which lua5.4
+        # doesn't pick up by default. Source `luarocks path` so LUA_PATH /
+        # LUA_CPATH point at the freshly-installed rocks.
+        run=lambda cwd, f: [
+            "bash", "-c",
+            'eval "$(luarocks --local --lua-version=5.4 path)" && exec lua5.4 "examples/$1"',
+            "--", f,
+        ],
     ),
     "cpp": Adapter(
         sdk_dir="antd-cpp",
@@ -191,9 +198,12 @@ LANGUAGES: dict[str, Adapter] = {
     ),
     "swift": Adapter(
         sdk_dir="antd-swift",
-        examples={},
-        run=lambda cwd, n: [],
-        skip_reason="REST/gRPC SDK is macOS-only per antd-swift README",
+        examples={
+            "connect": "1", "data": "2", "chunks": "3",
+            "files": "4", "private": "6", "all": "all",
+        },
+        prep=[lambda cwd: ["swift", "build"]],
+        run=lambda cwd, n: ["swift", "run", "AntdExamples", n],
     ),
 }
 
