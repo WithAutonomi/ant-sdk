@@ -42,6 +42,8 @@ end
 -- Re-export models
 M.new_health_status = models.new_health_status
 M.new_put_result = models.new_put_result
+M.new_prepare_chunk_result = models.new_prepare_chunk_result
+M.new_finalize_upload_result = models.new_finalize_upload_result
 
 -- Re-export errors
 M.errors = errors

@@ -79,4 +79,57 @@ function M.new_wallet_balance(balance, gas_balance)
     }
 end
 
+--- Create a PrepareChunkResult table.
+--
+-- Result of preparing a single-chunk external-signer publish via
+-- POST /v1/chunks/prepare. When `already_stored` is true the chunk is
+-- already on-network and no payment / finalize step is needed —
+-- `upload_id` and the payment fields are empty strings / empty list.
+--
+-- @param opts table {
+--     address = string,                  -- content-addressed BLAKE3 hex
+--     already_stored = boolean,
+--     upload_id = string,                -- empty when already_stored
+--     payment_type = string,             -- "wave_batch" (only mode for single chunks)
+--     payments = table,                  -- list of {quote_hash, rewards_address, amount}
+--     total_amount = string,
+--     payment_vault_address = string,
+--     payment_token_address = string,
+--     rpc_url = string,
+--   }
+-- @return table
+function M.new_prepare_chunk_result(opts)
+    opts = opts or {}
+    return {
+        address = opts.address or "",
+        already_stored = opts.already_stored == true,
+        upload_id = opts.upload_id or "",
+        payment_type = opts.payment_type or "",
+        payments = opts.payments or {},
+        total_amount = opts.total_amount or "",
+        payment_vault_address = opts.payment_vault_address or "",
+        payment_token_address = opts.payment_token_address or "",
+        rpc_url = opts.rpc_url or "",
+    }
+end
+
+--- Create a FinalizeUploadResult table.
+--
+-- @param opts table {
+--     address = string,           -- hex address (set when store_data_map=true was passed)
+--     chunks_stored = number,
+--     data_map = string,          -- hex-encoded msgpack DataMap (always returned)
+--     data_map_address = string,  -- set when prepare used visibility="public"
+--   }
+-- @return table
+function M.new_finalize_upload_result(opts)
+    opts = opts or {}
+    return {
+        address = opts.address or "",
+        chunks_stored = opts.chunks_stored or 0,
+        data_map = opts.data_map or "",
+        data_map_address = opts.data_map_address or "",
+    }
+end
+
 return M

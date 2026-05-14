@@ -296,6 +296,69 @@ function Client:chunk_get(address)
     return base64.decode(str(j, "data")), nil
 end
 
+--- Prepare a single chunk for external-signer publish.
+--
+-- The daemon collects storage quotes from the close group, stashes the
+-- prepared state, and returns either:
+--
+--   * `already_stored = true` with `address` populated — the chunk is
+--     already on-network, no payment or finalize call is needed.
+--   * `already_stored = false` with `upload_id`, `payments`, and
+--     `total_amount` populated — the caller signs and submits
+--     `payForQuotes()` externally, then calls
+--     :func:`finalize_chunk_upload` with the resulting tx hashes.
+--
+-- Unlike :func:`chunk_put`, this method does NOT require the daemon to
+-- have a wallet — all funds flow through the external signer.
+--
+-- @param data string raw chunk bytes
+-- @return table|nil PrepareChunkResult, error|nil
+function Client:prepare_chunk_upload(data)
+    local j, _, err = self:_do_json("POST", "/v1/chunks/prepare", {
+        data = base64.encode(data),
+    })
+    if err then return nil, err end
+
+    local payments = {}
+    if j.payments and type(j.payments) == "table" then
+        for _, p in ipairs(j.payments) do
+            if type(p) == "table" then
+                payments[#payments + 1] = {
+                    quote_hash = str(p, "quote_hash"),
+                    rewards_address = str(p, "rewards_address"),
+                    amount = str(p, "amount"),
+                }
+            end
+        end
+    end
+
+    return models.new_prepare_chunk_result({
+        address = str(j, "address"),
+        already_stored = j.already_stored == true,
+        upload_id = str(j, "upload_id"),
+        payment_type = str(j, "payment_type"),
+        payments = payments,
+        total_amount = str(j, "total_amount"),
+        payment_vault_address = str(j, "payment_vault_address"),
+        payment_token_address = str(j, "payment_token_address"),
+        rpc_url = str(j, "rpc_url"),
+    }), nil
+end
+
+--- Submit a prepared chunk to the network after external payment.
+--
+-- @param upload_id string the upload ID from prepare_chunk_upload
+-- @param tx_hashes table map of quote_hash to tx_hash (one per non-zero quote)
+-- @return string|nil hex address of stored chunk, error|nil
+function Client:finalize_chunk_upload(upload_id, tx_hashes)
+    local j, _, err = self:_do_json("POST", "/v1/chunks/finalize", {
+        upload_id = upload_id,
+        tx_hashes = tx_hashes,
+    })
+    if err then return nil, err end
+    return str(j, "address"), nil
+end
+
 -- ── Files ──
 
 --- Upload a file to the network.
@@ -414,14 +477,35 @@ end
 -- ── External Signer (Two-Phase Upload) ──
 
 --- Prepare a file upload for external signing.
+--
 -- @param path string local file path
+-- @param visibility string|nil "public" to bundle the DataMap chunk into
+--   the same external-signer payment batch (`data_map_address` on finalize
+--   becomes the shareable retrieval handle); "private" or nil keeps the
+--   existing private-only behaviour. When nil the field is omitted from
+--   the request body, preserving the pre-public daemon wire shape.
 -- @return table|nil PrepareUploadResult, error|nil
-function Client:prepare_upload(path)
-    local j, _, err = self:_do_json("POST", "/v1/upload/prepare", {
-        path = path,
-    })
+function Client:prepare_upload(path, visibility)
+    local body = { path = path }
+    if visibility ~= nil then
+        body.visibility = visibility
+    end
+    local j, _, err = self:_do_json("POST", "/v1/upload/prepare", body)
     if err then return nil, err end
     return build_prepare_result(j), nil
+end
+
+--- Convenience: prepare a public file upload for external signing.
+--
+-- Equivalent to :func:`prepare_upload` with `visibility = "public"`.
+-- The DataMap chunk is bundled into the same payment batch — after
+-- :func:`finalize_upload`, the result's `data_map_address` is the
+-- shareable retrieval handle.
+--
+-- @param path string local file path
+-- @return table|nil PrepareUploadResult, error|nil
+function Client:prepare_upload_public(path)
+    return self:prepare_upload(path, "public")
 end
 
 --- Prepare a data upload for external signing.
@@ -437,6 +521,12 @@ function Client:prepare_data_upload(data)
 end
 
 --- Finalize an upload after an external signer has submitted payment transactions.
+--
+-- `data_map_address` in the result is populated only when prepare was
+-- called with `visibility = "public"` — the DataMap chunk was bundled
+-- into the same external-signer payment batch and stored on-network.
+-- Older daemons that don't return `data_map_address` leave it as "".
+--
 -- @param upload_id string the upload ID from prepare_upload
 -- @param tx_hashes table map of quote_hash to tx_hash
 -- @return table|nil FinalizeUploadResult, error|nil
@@ -446,10 +536,12 @@ function Client:finalize_upload(upload_id, tx_hashes)
         tx_hashes = tx_hashes,
     })
     if err then return nil, err end
-    return {
+    return models.new_finalize_upload_result({
         address = str(j, "address"),
         chunks_stored = num(j, "chunks_stored"),
-    }, nil
+        data_map = str(j, "data_map"),
+        data_map_address = str(j, "data_map_address"),
+    }), nil
 end
 
 --- Finalize a merkle-batch upload after selecting a winning pool.
@@ -464,10 +556,12 @@ function Client:finalize_merkle_upload(upload_id, winner_pool_hash, store_data_m
         store_data_map = store_data_map or false,
     })
     if err then return nil, err end
-    return {
+    return models.new_finalize_upload_result({
         address = str(j, "address"),
         chunks_stored = num(j, "chunks_stored"),
-    }, nil
+        data_map = str(j, "data_map"),
+        data_map_address = str(j, "data_map_address"),
+    }), nil
 end
 
 --- Create a client using daemon port discovery.
