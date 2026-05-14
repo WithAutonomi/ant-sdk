@@ -484,6 +484,7 @@ def _prepare_result_to_dict(result) -> dict:
 @mcp.tool()
 async def prepare_upload(
     path: str,
+    visibility: str | None = None,
 ) -> str:
     """Prepare a file upload for external signing (two-phase upload).
 
@@ -496,13 +497,53 @@ async def prepare_upload(
 
     Args:
         path: Absolute path to the local file to upload.
+        visibility: ``"public"`` to bundle the DataMap chunk into the same
+            external-signer payment batch (the ``data_map_address`` on
+            ``finalize_upload`` becomes the shareable retrieval handle).
+            ``"private"`` or ``None`` keeps the existing private-only
+            behaviour.
 
     Returns:
         JSON with upload_id, payment_type, and type-specific payment fields.
     """
     client, network = _get_ctx()
     try:
-        result = await client.prepare_upload(path)
+        if visibility is None:
+            result = await client.prepare_upload(path)
+        else:
+            result = await client.prepare_upload(path, visibility=visibility)
+        return _ok(_prepare_result_to_dict(result), network)
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
+# Tool: prepare_upload_public
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def prepare_upload_public(
+    path: str,
+) -> str:
+    """Prepare a *public* file upload for external signing (two-phase upload).
+
+    Convenience wrapper equivalent to ``prepare_upload(path, visibility="public")``.
+    The DataMap chunk is bundled into the same external-signer payment batch,
+    so the ``data_map_address`` returned by ``finalize_upload`` is the
+    shareable retrieval handle.
+
+    Args:
+        path: Absolute path to the local file to upload.
+
+    Returns:
+        JSON with upload_id, payment_type, and type-specific payment fields.
+    """
+    client, network = _get_ctx()
+    try:
+        result = await client.prepare_upload_public(path)
         return _ok(_prepare_result_to_dict(result), network)
     except AntdError as exc:
         return _err_antd(exc, network)
@@ -558,12 +599,23 @@ async def finalize_upload(
         tx_hashes: Map of quote_hash to tx_hash for each payment.
 
     Returns:
-        JSON with address (hex) and chunks_stored count.
+        JSON with ``address`` (hex), ``chunks_stored`` count, ``data_map``
+        (hex-encoded msgpack DataMap — always returned), and
+        ``data_map_address`` (set when prepare used ``visibility="public"``,
+        empty otherwise).
     """
     client, network = _get_ctx()
     try:
         result = await client.finalize_upload(upload_id, tx_hashes)
-        return _ok({"address": result.address, "chunks_stored": result.chunks_stored}, network)
+        return _ok(
+            {
+                "address": result.address,
+                "chunks_stored": result.chunks_stored,
+                "data_map": result.data_map,
+                "data_map_address": result.data_map_address,
+            },
+            network,
+        )
     except AntdError as exc:
         return _err_antd(exc, network)
     except Exception as exc:
@@ -591,12 +643,119 @@ async def finalize_merkle_upload(
         winner_pool_hash: The bytes32 winner pool hash from MerklePaymentMade event (hex with 0x prefix).
 
     Returns:
-        JSON with address (hex) and chunks_stored count.
+        JSON with ``address`` (hex), ``chunks_stored`` count, ``data_map``
+        (hex-encoded msgpack DataMap — always returned), and
+        ``data_map_address`` (set when prepare used ``visibility="public"``,
+        empty otherwise).
     """
     client, network = _get_ctx()
     try:
         result = await client.finalize_merkle_upload(upload_id, winner_pool_hash)
-        return _ok({"address": result.address, "chunks_stored": result.chunks_stored}, network)
+        return _ok(
+            {
+                "address": result.address,
+                "chunks_stored": result.chunks_stored,
+                "data_map": result.data_map,
+                "data_map_address": result.data_map_address,
+            },
+            network,
+        )
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
+# Tool: prepare_chunk_upload
+# ---------------------------------------------------------------------------
+
+
+def _prepare_chunk_result_to_dict(result) -> dict:
+    """Convert a PrepareChunkResult to a JSON-safe dict.
+
+    Covers both branches:
+    - ``already_stored=True``: returns the minimal shape (address only).
+    - wave-batch payment intent: returns the full payment shape.
+    """
+    if result.already_stored:
+        return {
+            "address": result.address,
+            "already_stored": True,
+        }
+    return {
+        "address": result.address,
+        "already_stored": False,
+        "upload_id": result.upload_id,
+        "payment_type": result.payment_type or "wave_batch",
+        "total_amount": result.total_amount,
+        "payment_vault_address": result.payment_vault_address,
+        "payment_token_address": result.payment_token_address,
+        "rpc_url": result.rpc_url,
+        "payments": [
+            {
+                "quote_hash": p.quote_hash,
+                "rewards_address": p.rewards_address,
+                "amount": p.amount,
+            }
+            for p in result.payments
+        ],
+    }
+
+
+@mcp.tool()
+async def prepare_chunk_upload(
+    data_base64: str,
+) -> str:
+    """Prepare a single raw chunk for external-signer publish.
+
+    The returned JSON has one of two shapes:
+    - ``already_stored=True``: chunk is already on-network. No payment or
+      finalize step is needed; ``address`` is the network address.
+    - ``already_stored=False``: a wave-batch payment intent with ``upload_id``,
+      ``payments``, payment contract addresses, and ``rpc_url``. After the
+      external signer pays, call ``finalize_chunk_upload`` with the tx hashes.
+
+    Args:
+        data_base64: Base64-encoded chunk bytes.
+
+    Returns:
+        JSON with the prepare-chunk result, or error details.
+    """
+    client, network = _get_ctx()
+    try:
+        raw = base64.b64decode(data_base64)
+        result = await client.prepare_chunk_upload(raw)
+        return _ok(_prepare_chunk_result_to_dict(result), network)
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
+# Tool: finalize_chunk_upload
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def finalize_chunk_upload(
+    upload_id: str,
+    tx_hashes: dict[str, str],
+) -> str:
+    """Submit a prepared chunk to the network after external payment.
+
+    Args:
+        upload_id: The upload ID returned by ``prepare_chunk_upload``.
+        tx_hashes: Map of quote_hash to tx_hash for the wave-batch payments.
+
+    Returns:
+        JSON with ``address`` (hex) — the network address of the stored chunk.
+    """
+    client, network = _get_ctx()
+    try:
+        address = await client.finalize_chunk_upload(upload_id, tx_hashes)
+        return _ok({"address": address}, network)
     except AntdError as exc:
         return _err_antd(exc, network)
     except Exception as exc:
