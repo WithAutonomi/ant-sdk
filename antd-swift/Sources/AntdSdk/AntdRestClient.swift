@@ -16,6 +16,14 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         self.session = URLSession(configuration: config)
     }
 
+    /// Internal init for tests that want to inject a custom session
+    /// (typically with a stub `URLProtocol` registered via
+    /// `configuration.protocolClasses`).
+    internal init(baseURL: String, session: URLSession) {
+        self.baseURL = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        self.session = session
+    }
+
     // MARK: - Helpers
 
     private func getJSON<T: Decodable>(_ path: String) async throws -> T {
@@ -128,6 +136,42 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         return decoded
     }
 
+    /// Prepare a single chunk for external-signer publish.
+    ///
+    /// Returns either ``PrepareChunkResult/alreadyStored`` `= true` (no
+    /// payment needed) or a wave-batch payment intent. After the external
+    /// signer pays, call ``finalizeChunkUpload(uploadId:txHashes:)`` with the
+    /// resulting tx hashes.
+    public func prepareChunkUpload(_ data: Data) async throws -> PrepareChunkResult {
+        let resp: PrepareChunkDTO = try await postJSON(
+            "/v1/chunks/prepare",
+            body: ["data": data.base64EncodedString()]
+        )
+        let payments = (resp.payments ?? []).map {
+            PaymentInfo(quoteHash: $0.quoteHash, rewardsAddress: $0.rewardsAddress, amount: $0.amount)
+        }
+        return PrepareChunkResult(
+            address: resp.address,
+            alreadyStored: resp.alreadyStored ?? false,
+            uploadId: resp.uploadId ?? "",
+            paymentType: resp.paymentType ?? "",
+            payments: payments,
+            totalAmount: resp.totalAmount ?? "",
+            paymentVaultAddress: resp.paymentVaultAddress ?? "",
+            paymentTokenAddress: resp.paymentTokenAddress ?? "",
+            rpcUrl: resp.rpcUrl ?? ""
+        )
+    }
+
+    /// Submit a prepared chunk to the network after external payment.
+    /// Returns the network address of the stored chunk (matches
+    /// ``PrepareChunkResult/address``).
+    public func finalizeChunkUpload(uploadId: String, txHashes: [String: String]) async throws -> String {
+        let body: [String: Any] = ["upload_id": uploadId, "tx_hashes": txHashes]
+        let resp: AddressDTO = try await postJSON("/v1/chunks/finalize", body: body)
+        return resp.address
+    }
+
     // MARK: - Files
 
     public func fileUploadPublic(path: String, paymentMode: String? = nil) async throws -> FileUploadResult {
@@ -196,9 +240,27 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
     // MARK: - External Signer (Two-Phase Upload)
 
     /// Prepares a file upload for external signing.
-    public func prepareUpload(path: String) async throws -> PrepareUploadResult {
-        let resp: PrepareUploadDTO = try await postJSON("/v1/upload/prepare", body: ["path": path])
+    ///
+    /// - Parameters:
+    ///   - path: Path to the file to upload.
+    ///   - visibility: ``"public"`` bundles the DataMap chunk into the same
+    ///     external-signer payment batch — the resulting
+    ///     ``FinalizeUploadResult/dataMapAddress`` on finalize is the
+    ///     shareable retrieval handle. ``"private"`` or `nil` keeps the
+    ///     existing private-only behaviour. The field is omitted from the
+    ///     wire request when `nil`, preserving compatibility with daemons
+    ///     that predate the public-prepare wire shape.
+    public func prepareUpload(path: String, visibility: String? = nil) async throws -> PrepareUploadResult {
+        var body: [String: Any] = ["path": path]
+        if let visibility = visibility { body["visibility"] = visibility }
+        let resp: PrepareUploadDTO = try await postJSON("/v1/upload/prepare", body: body)
         return mapPrepareDTO(resp)
+    }
+
+    /// Convenience wrapper: prepare a *public* file upload for external signing.
+    /// Equivalent to ``prepareUpload(path:visibility:)`` with `visibility: "public"`.
+    public func prepareUploadPublic(path: String) async throws -> PrepareUploadResult {
+        try await prepareUpload(path: path, visibility: "public")
     }
 
     /// Prepares a data upload for external signing.
@@ -212,7 +274,12 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
     public func finalizeUpload(uploadId: String, txHashes: [String: String]) async throws -> FinalizeUploadResult {
         let body: [String: Any] = ["upload_id": uploadId, "tx_hashes": txHashes]
         let resp: FinalizeUploadDTO = try await postJSON("/v1/upload/finalize", body: body)
-        return FinalizeUploadResult(address: resp.address, chunksStored: resp.chunksStored)
+        return FinalizeUploadResult(
+            address: resp.address,
+            chunksStored: resp.chunksStored,
+            dataMap: resp.dataMap ?? "",
+            dataMapAddress: resp.dataMapAddress ?? ""
+        )
     }
 
     /// Finalizes a merkle batch upload after the external signer has submitted
@@ -221,7 +288,12 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
     public func finalizeMerkleUpload(uploadId: String, winnerPoolHash: String) async throws -> FinalizeMerkleUploadResult {
         let body: [String: Any] = ["upload_id": uploadId, "winner_pool_hash": winnerPoolHash]
         let resp: FinalizeUploadDTO = try await postJSON("/v1/upload/finalize", body: body)
-        return FinalizeMerkleUploadResult(address: resp.address, chunksStored: resp.chunksStored)
+        return FinalizeMerkleUploadResult(
+            address: resp.address,
+            chunksStored: resp.chunksStored,
+            dataMap: resp.dataMap ?? "",
+            dataMapAddress: resp.dataMapAddress ?? ""
+        )
     }
 
     // MARK: - Prepare DTO Mapping
@@ -362,6 +434,26 @@ private struct PrepareUploadDTO: Decodable {
 private struct FinalizeUploadDTO: Decodable {
     let address: String
     let chunksStored: Int64
+    // `data_map` is always present on success but old daemons may omit it;
+    // `data_map_address` is populated only when prepare was public.
+    let dataMap: String?
+    let dataMapAddress: String?
+}
+
+private struct PrepareChunkDTO: Decodable {
+    let address: String
+    let alreadyStored: Bool?
+    let uploadId: String?
+    let paymentType: String?
+    let payments: [PaymentInfoDTO]?
+    let totalAmount: String?
+    let paymentVaultAddress: String?
+    let paymentTokenAddress: String?
+    let rpcUrl: String?
+}
+
+private struct AddressDTO: Decodable {
+    let address: String
 }
 
 extension JSONDecoder {

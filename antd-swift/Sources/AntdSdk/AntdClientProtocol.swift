@@ -19,6 +19,8 @@ public protocol AntdClientProtocol: Sendable {
     // Chunks
     func chunkPut(_ data: Data) async throws -> PutResult
     func chunkGet(address: String) async throws -> Data
+    func prepareChunkUpload(_ data: Data) async throws -> PrepareChunkResult
+    func finalizeChunkUpload(uploadId: String, txHashes: [String: String]) async throws -> String
 
     // Files
     func fileUploadPublic(path: String, paymentMode: String?) async throws -> FileUploadResult
@@ -33,7 +35,8 @@ public protocol AntdClientProtocol: Sendable {
     func walletApprove() async throws -> Bool
 
     // External Signer (Two-Phase Upload)
-    func prepareUpload(path: String) async throws -> PrepareUploadResult
+    func prepareUpload(path: String, visibility: String?) async throws -> PrepareUploadResult
+    func prepareUploadPublic(path: String) async throws -> PrepareUploadResult
     func prepareDataUpload(_ data: Data) async throws -> PrepareUploadResult
     func finalizeUpload(uploadId: String, txHashes: [String: String]) async throws -> FinalizeUploadResult
     func finalizeMerkleUpload(uploadId: String, winnerPoolHash: String) async throws -> FinalizeMerkleUploadResult
