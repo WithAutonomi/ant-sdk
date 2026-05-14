@@ -74,6 +74,28 @@ public:
     /// Retrieve a chunk by address.
     std::vector<uint8_t> chunk_get(std::string_view address);
 
+    /// Prepare a single chunk for external-signer publish via POST /v1/chunks/prepare.
+    ///
+    /// Returns either `already_stored=true` with `address` set (no payment
+    /// needed and no finalize call) or a wave-batch payment intent with
+    /// `upload_id`, `payments`, and `total_amount` populated. After the
+    /// external signer pays, call `finalize_chunk_upload` with the resulting
+    /// tx hashes.
+    ///
+    /// Unlike `chunk_put`, this method does NOT require the daemon to have a
+    /// wallet — all funds flow through the external signer.
+    PrepareChunkResult prepare_chunk_upload(const std::vector<uint8_t>& data);
+
+    /// Submit a prepared chunk to the network after external payment via
+    /// POST /v1/chunks/finalize.
+    ///
+    /// `tx_hashes` maps each non-zero quote_hash from `prepare_chunk_upload`'s
+    /// `payments` to the corresponding tx_hash returned by `payForQuotes()`.
+    /// Returns the hex-encoded network address of the stored chunk (matches
+    /// `PrepareChunkResult::address`).
+    std::string finalize_chunk_upload(std::string_view upload_id,
+                                      const std::map<std::string, std::string>& tx_hashes);
+
     // --- Files & Directories ---
 
     /// Upload a local file to the network.
@@ -105,11 +127,30 @@ public:
     // --- External Signer (Two-Phase Upload) ---
 
     /// Prepare a file upload for external signing.
-    PrepareUploadResult prepare_upload(std::string_view path);
+    ///
+    /// @param path        Path to the file to upload.
+    /// @param visibility  When set, forwarded as a JSON field. Pass "public"
+    ///                    to bundle the DataMap chunk into the same
+    ///                    external-signer payment batch — the resulting
+    ///                    `FinalizeUploadResult::data_map_address` is the
+    ///                    shareable retrieval handle. When std::nullopt
+    ///                    (default) the field is omitted, preserving the
+    ///                    pre-public daemon wire shape.
+    PrepareUploadResult prepare_upload(std::string_view path,
+                                       std::optional<std::string> visibility = std::nullopt);
+
+    /// Convenience wrapper: prepare a *public* file upload for external signing.
+    /// Equivalent to `prepare_upload(path, "public")`. Requires antd >= 0.6.1.
+    PrepareUploadResult prepare_upload_public(std::string_view path);
 
     /// Prepare a data upload for external signing.
     /// Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
-    PrepareUploadResult prepare_data_upload(const std::vector<uint8_t>& data);
+    ///
+    /// Note: `visibility="public"` returns 501 from the daemon until upstream
+    /// ant-client exposes `data_prepare_upload_with_visibility`. Use
+    /// `prepare_upload_public` with a file path until then.
+    PrepareUploadResult prepare_data_upload(const std::vector<uint8_t>& data,
+                                            std::optional<std::string> visibility = std::nullopt);
 
     /// Finalize a wave-batch upload after an external signer has submitted payment transactions.
     FinalizeUploadResult finalize_upload(std::string_view upload_id,

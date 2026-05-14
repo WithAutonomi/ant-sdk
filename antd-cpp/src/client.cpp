@@ -195,6 +195,48 @@ std::vector<uint8_t> Client::chunk_get(std::string_view address) {
     return detail::base64_decode(j.value("data", ""));
 }
 
+PrepareChunkResult Client::prepare_chunk_upload(const std::vector<uint8_t>& data) {
+    auto j = impl_->do_json("POST", "/v1/chunks/prepare", json{
+        {"data", detail::base64_encode(data)},
+    });
+
+    PrepareChunkResult r;
+    r.address = j.value("address", "");
+    r.already_stored = j.value("already_stored", false);
+    r.upload_id = j.value("upload_id", "");
+    r.payment_type = j.value("payment_type", "");
+    r.total_amount = j.value("total_amount", "");
+    r.payment_vault_address = j.value("payment_vault_address", "");
+    r.payment_token_address = j.value("payment_token_address", "");
+    r.rpc_url = j.value("rpc_url", "");
+
+    if (j.contains("payments") && j["payments"].is_array()) {
+        for (const auto& p : j["payments"]) {
+            if (p.is_object()) {
+                r.payments.push_back(PaymentInfo{
+                    .quote_hash = p.value("quote_hash", ""),
+                    .rewards_address = p.value("rewards_address", ""),
+                    .amount = p.value("amount", ""),
+                });
+            }
+        }
+    }
+    return r;
+}
+
+std::string Client::finalize_chunk_upload(std::string_view upload_id,
+                                          const std::map<std::string, std::string>& tx_hashes) {
+    json hashes = json::object();
+    for (const auto& [k, v] : tx_hashes) {
+        hashes[k] = v;
+    }
+    auto j = impl_->do_json("POST", "/v1/chunks/finalize", json{
+        {"upload_id", std::string(upload_id)},
+        {"tx_hashes", hashes},
+    });
+    return j.value("address", "");
+}
+
 // ---------------------------------------------------------------------------
 // Files & Directories
 // ---------------------------------------------------------------------------
@@ -342,17 +384,27 @@ static PrepareUploadResult parse_prepare_response(const json& j) {
     return result;
 }
 
-PrepareUploadResult Client::prepare_upload(std::string_view path) {
-    auto j = impl_->do_json("POST", "/v1/upload/prepare", json{
-        {"path", std::string(path)},
-    });
+PrepareUploadResult Client::prepare_upload(std::string_view path,
+                                           std::optional<std::string> visibility) {
+    json body = {{"path", std::string(path)}};
+    if (visibility.has_value()) {
+        body["visibility"] = *visibility;
+    }
+    auto j = impl_->do_json("POST", "/v1/upload/prepare", body);
     return parse_prepare_response(j);
 }
 
-PrepareUploadResult Client::prepare_data_upload(const std::vector<uint8_t>& data) {
-    auto j = impl_->do_json("POST", "/v1/data/prepare", json{
-        {"data", detail::base64_encode(data)},
-    });
+PrepareUploadResult Client::prepare_upload_public(std::string_view path) {
+    return prepare_upload(path, std::string("public"));
+}
+
+PrepareUploadResult Client::prepare_data_upload(const std::vector<uint8_t>& data,
+                                                std::optional<std::string> visibility) {
+    json body = {{"data", detail::base64_encode(data)}};
+    if (visibility.has_value()) {
+        body["visibility"] = *visibility;
+    }
+    auto j = impl_->do_json("POST", "/v1/data/prepare", body);
     return parse_prepare_response(j);
 }
 
@@ -372,6 +424,7 @@ FinalizeUploadResult Client::finalize_upload(std::string_view upload_id,
     return FinalizeUploadResult{
         .data_map = j.value("data_map", ""),
         .address = j.value("address", ""),
+        .data_map_address = j.value("data_map_address", ""),
         .chunks_stored = j.value("chunks_stored", int64_t{0}),
     };
 }
@@ -387,6 +440,7 @@ FinalizeUploadResult Client::finalize_merkle_upload(std::string_view upload_id,
     return FinalizeUploadResult{
         .data_map = j.value("data_map", ""),
         .address = j.value("address", ""),
+        .data_map_address = j.value("data_map_address", ""),
         .chunks_stored = j.value("chunks_stored", int64_t{0}),
     };
 }

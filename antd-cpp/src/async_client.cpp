@@ -74,6 +74,21 @@ std::future<std::vector<uint8_t>> AsyncClient::chunk_get(std::string address) {
     });
 }
 
+std::future<PrepareChunkResult> AsyncClient::prepare_chunk_upload(const std::vector<uint8_t>& data) {
+    return std::async(std::launch::async, [this, data] {
+        return client_.prepare_chunk_upload(data);
+    });
+}
+
+std::future<std::string> AsyncClient::finalize_chunk_upload(
+    std::string upload_id,
+    std::map<std::string, std::string> tx_hashes) {
+    return std::async(std::launch::async,
+        [this, uid = std::move(upload_id), th = std::move(tx_hashes)] {
+            return client_.finalize_chunk_upload(uid, th);
+        });
+}
+
 // ---------------------------------------------------------------------------
 // Files & Directories
 // ---------------------------------------------------------------------------
