@@ -1,6 +1,7 @@
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use mockito::{Matcher, Mock, ServerGuard};
+use serde_json::json;
 
 use crate::errors::AntdError;
 use crate::models::*;
@@ -501,7 +502,7 @@ async fn test_prepare_upload_merkle() {
     let _m = mock_prepare_upload_merkle(&mut server);
     let client = Client::new(&server.url());
 
-    let result = client.prepare_upload("/tmp/test.bin").await.unwrap();
+    let result = client.prepare_upload("/tmp/test.bin", None).await.unwrap();
     assert_eq!(result.upload_id, "up123");
     assert_eq!(result.payment_type, "merkle");
     assert_eq!(result.total_amount, "5000");
@@ -542,7 +543,7 @@ async fn test_prepare_upload_backward_compat() {
     let _m = mock_prepare_upload_legacy(&mut server);
     let client = Client::new(&server.url());
 
-    let result = client.prepare_upload("/tmp/old.bin").await.unwrap();
+    let result = client.prepare_upload("/tmp/old.bin", None).await.unwrap();
     assert_eq!(result.upload_id, "up_old");
     assert_eq!(result.payment_type, "");
     assert_eq!(result.depth, None);
@@ -551,4 +552,207 @@ async fn test_prepare_upload_backward_compat() {
     assert_eq!(result.payment_vault_address, "0xDP");
     assert_eq!(result.payments.len(), 1);
     assert_eq!(result.payments[0].quote_hash, "qh1");
+}
+
+// ---------------------------------------------------------------------------
+// V2-249 PR4 + V2-274 — visibility, data_map_address, chunks prepare/finalize.
+// ---------------------------------------------------------------------------
+
+/// Body matcher for prepare_upload: asserts visibility="public" is forwarded.
+fn mock_prepare_upload_public(server: &mut ServerGuard) -> Mock {
+    server
+        .mock("POST", "/v1/upload/prepare")
+        .match_body(Matcher::Json(json!({
+            "path": "/tmp/wave/file.dat",
+            "visibility": "public",
+        })))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{
+            "upload_id": "up_wave_1",
+            "payment_type": "wave_batch",
+            "payments": [{"quote_hash":"qh1","rewards_address":"0xR1","amount":"100"}],
+            "total_amount": "100",
+            "payment_vault_address": "0xDP",
+            "payment_token_address": "0xPT",
+            "rpc_url": "http://rpc.local"
+        }"#)
+        .create()
+}
+
+#[tokio::test]
+async fn test_prepare_upload_public_forwards_visibility() {
+    let mut server = mock_server().await;
+    let _m = mock_prepare_upload_public(&mut server);
+    let client = Client::new(&server.url());
+
+    let result = client.prepare_upload_public("/tmp/wave/file.dat").await.unwrap();
+    assert_eq!(result.upload_id, "up_wave_1");
+    assert_eq!(result.payment_type, "wave_batch");
+    // The PartialJsonString matcher on the mock verifies the daemon saw
+    // visibility="public" — request would 501 otherwise.
+}
+
+#[tokio::test]
+async fn test_prepare_upload_without_visibility_omits_field() {
+    // Mock asserts the body has exactly {"path": "..."} — no visibility key.
+    let mut server = mock_server().await;
+    let _m = server
+        .mock("POST", "/v1/upload/prepare")
+        .match_body(Matcher::Json(json!({"path": "/tmp/wave/file.dat"})))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{
+            "upload_id": "up_priv",
+            "payment_type": "wave_batch",
+            "payments": [],
+            "total_amount": "0",
+            "payment_vault_address": "0xDP",
+            "payment_token_address": "0xPT",
+            "rpc_url": "http://rpc.local"
+        }"#)
+        .create();
+    let client = Client::new(&server.url());
+
+    let result = client.prepare_upload("/tmp/wave/file.dat", None).await.unwrap();
+    assert_eq!(result.upload_id, "up_priv");
+    // If `visibility: null` had been serialized, the strict Matcher::Json
+    // above would reject the request and the test would fail with a 501.
+}
+
+#[tokio::test]
+async fn test_finalize_upload_parses_data_map_address_when_present() {
+    let mut server = mock_server().await;
+    let _m = server
+        .mock("POST", "/v1/upload/finalize")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{
+            "address": "0xFINAL",
+            "chunks_stored": 42,
+            "data_map": "deadbeef",
+            "data_map_address": "0xDMAP"
+        }"#)
+        .create();
+    let client = Client::new(&server.url());
+
+    let mut tx_hashes = std::collections::HashMap::new();
+    tx_hashes.insert("qh1".to_string(), "tx1".to_string());
+    let result = client.finalize_upload("up_wave_1", &tx_hashes).await.unwrap();
+    assert_eq!(result.address, "0xFINAL");
+    assert_eq!(result.chunks_stored, 42);
+    assert_eq!(result.data_map, "deadbeef");
+    assert_eq!(result.data_map_address, "0xDMAP");
+}
+
+#[tokio::test]
+async fn test_finalize_upload_data_map_address_empty_when_absent() {
+    // Private uploads return no data_map_address — serde(default) means
+    // it deserializes to "".
+    let mut server = mock_server().await;
+    let _m = server
+        .mock("POST", "/v1/upload/finalize")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{
+            "address": "0xFINAL",
+            "chunks_stored": 7,
+            "data_map": "deadbeef"
+        }"#)
+        .create();
+    let client = Client::new(&server.url());
+
+    let tx_hashes = std::collections::HashMap::new();
+    let result = client.finalize_upload("up_priv", &tx_hashes).await.unwrap();
+    assert_eq!(result.address, "0xFINAL");
+    assert_eq!(result.data_map, "deadbeef");
+    assert_eq!(result.data_map_address, "");
+}
+
+#[tokio::test]
+async fn test_prepare_chunk_upload_already_stored() {
+    let mut server = mock_server().await;
+    let _m = server
+        .mock("POST", "/v1/chunks/prepare")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{
+            "address": "addr_already_stored",
+            "already_stored": true
+        }"#)
+        .create();
+    let client = Client::new(&server.url());
+
+    let result = client.prepare_chunk_upload(b"already_chunk").await.unwrap();
+    assert_eq!(result.address, "addr_already_stored");
+    assert!(result.already_stored);
+    assert_eq!(result.upload_id, "");
+    assert!(result.payments.is_empty());
+    assert_eq!(result.total_amount, "");
+    assert_eq!(result.payment_type, "");
+    assert_eq!(result.payment_vault_address, "");
+    assert_eq!(result.payment_token_address, "");
+    assert_eq!(result.rpc_url, "");
+}
+
+#[tokio::test]
+async fn test_prepare_chunk_upload_wave_batch() {
+    let mut server = mock_server().await;
+    let _m = server
+        .mock("POST", "/v1/chunks/prepare")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{
+            "address": "addr_chunk_new",
+            "already_stored": false,
+            "upload_id": "chunk_up_1",
+            "payment_type": "wave_batch",
+            "payments": [
+                {"quote_hash":"qhC","rewards_address":"0xRC","amount":"7"}
+            ],
+            "total_amount": "7",
+            "payment_vault_address": "0xVC",
+            "payment_token_address": "0xTC",
+            "rpc_url": "http://rpc.local"
+        }"#)
+        .create();
+    let client = Client::new(&server.url());
+
+    let result = client.prepare_chunk_upload(b"new_chunk").await.unwrap();
+    assert_eq!(result.address, "addr_chunk_new");
+    assert!(!result.already_stored);
+    assert_eq!(result.upload_id, "chunk_up_1");
+    assert_eq!(result.payment_type, "wave_batch");
+    assert_eq!(result.payments.len(), 1);
+    assert_eq!(result.payments[0].quote_hash, "qhC");
+    assert_eq!(result.payments[0].rewards_address, "0xRC");
+    assert_eq!(result.payments[0].amount, "7");
+    assert_eq!(result.total_amount, "7");
+    assert_eq!(result.payment_vault_address, "0xVC");
+    assert_eq!(result.payment_token_address, "0xTC");
+    assert_eq!(result.rpc_url, "http://rpc.local");
+}
+
+#[tokio::test]
+async fn test_finalize_chunk_upload_returns_address_and_forwards_body() {
+    let mut server = mock_server().await;
+    let _m = server
+        .mock("POST", "/v1/chunks/finalize")
+        .match_body(Matcher::Json(json!({
+            "upload_id": "chunk_up_1",
+            "tx_hashes": {"qhC": "tx_C"},
+        })))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"address": "addr_chunk_new"}"#)
+        .create();
+    let client = Client::new(&server.url());
+
+    let mut tx_hashes = std::collections::HashMap::new();
+    tx_hashes.insert("qhC".to_string(), "tx_C".to_string());
+    let addr = client
+        .finalize_chunk_upload("chunk_up_1", &tx_hashes)
+        .await
+        .unwrap();
+    assert_eq!(addr, "addr_chunk_new");
 }
