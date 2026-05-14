@@ -154,14 +154,61 @@ defmodule Antd.PrepareUploadResult do
 end
 
 defmodule Antd.FinalizeUploadResult do
-  @moduledoc "Result of finalizing an externally-signed upload."
+  @moduledoc """
+  Result of finalizing an externally-signed upload.
+
+  `:data_map` is the hex-encoded serialized DataMap (always returned by the
+  daemon on success). `:data_map_address` is populated only when prepare was
+  called with `visibility: "public"` — the DataMap chunk was bundled into the
+  same external-signer payment batch and stored on-network, and this is the
+  shareable retrieval handle.
+  """
 
   @enforce_keys [:address, :chunks_stored]
-  defstruct [:address, :chunks_stored]
+  defstruct [:address, :chunks_stored, data_map: "", data_map_address: ""]
 
   @type t :: %__MODULE__{
           address: String.t(),
-          chunks_stored: integer()
+          chunks_stored: integer(),
+          data_map: String.t(),
+          data_map_address: String.t()
+        }
+end
+
+defmodule Antd.PrepareChunkResult do
+  @moduledoc """
+  Result of preparing a single-chunk external-signer publish via
+  `POST /v1/chunks/prepare`.
+
+  When `:already_stored` is `true` the chunk is already on-network and no
+  payment / finalize step is needed — `:upload_id` and the payment fields
+  remain empty. Otherwise the wave-batch payment fields describe what the
+  external signer must submit before calling `finalize_chunk_upload/3`.
+  """
+
+  @enforce_keys [:address, :already_stored]
+  defstruct [
+    :address,
+    :already_stored,
+    upload_id: "",
+    payment_type: "",
+    payments: [],
+    total_amount: "",
+    payment_vault_address: "",
+    payment_token_address: "",
+    rpc_url: ""
+  ]
+
+  @type t :: %__MODULE__{
+          address: String.t(),
+          already_stored: boolean(),
+          upload_id: String.t(),
+          payment_type: String.t(),
+          payments: [Antd.PaymentInfo.t()],
+          total_amount: String.t(),
+          payment_vault_address: String.t(),
+          payment_token_address: String.t(),
+          rpc_url: String.t()
         }
 end
 

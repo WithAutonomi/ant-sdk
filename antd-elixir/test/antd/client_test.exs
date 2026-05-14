@@ -122,7 +122,7 @@ defmodule Antd.ClientTest do
       |> Plug.Conn.resp(200, Jason.encode!(%{cost: "50"}))
     end)
 
-    assert {:ok, "50"} = Antd.Client.data_cost(client, "test")
+    assert {:ok, %Antd.UploadCostEstimate{cost: "50"}} = Antd.Client.data_cost(client, "test")
   end
 
   # ---------------------------------------------------------------------------
@@ -227,7 +227,7 @@ defmodule Antd.ClientTest do
       |> Plug.Conn.resp(200, Jason.encode!(%{cost: "1000"}))
     end)
 
-    assert {:ok, "1000"} = Antd.Client.file_cost(client, "/tmp/test.txt", true)
+    assert {:ok, %Antd.UploadCostEstimate{cost: "1000"}} = Antd.Client.file_cost(client, "/tmp/test.txt", true)
   end
 
   # ---------------------------------------------------------------------------
@@ -495,5 +495,181 @@ defmodule Antd.ClientTest do
     assert {:ok, result} = Antd.Client.finalize_merkle_upload(client, "up3", "ph1", store_data_map: true)
     assert result.address == "addr3"
     assert result.chunks_stored == 8
+  end
+
+  # ---------------------------------------------------------------------------
+  # Public-prepare visibility & data_map_address (V2-249 PR4)
+  # ---------------------------------------------------------------------------
+
+  test "prepare_upload_public/2 forwards visibility=\"public\" in body",
+       %{bypass: bypass, client: client} do
+    Bypass.expect_once(bypass, "POST", "/v1/upload/prepare", fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      decoded = Jason.decode!(body)
+      assert decoded["path"] == "/tmp/pub.dat"
+      assert decoded["visibility"] == "public"
+
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(200, Jason.encode!(%{
+        upload_id: "up_pub_1",
+        payment_type: "wave_batch",
+        payments: [%{quote_hash: "qh1", rewards_address: "ra1", amount: "100"}],
+        total_amount: "100",
+        payment_vault_address: "pva1",
+        payment_token_address: "pta1",
+        rpc_url: "http://rpc"
+      }))
+    end)
+
+    assert {:ok, result} = Antd.Client.prepare_upload_public(client, "/tmp/pub.dat")
+    assert result.upload_id == "up_pub_1"
+  end
+
+  test "prepare_upload/3 without :visibility option omits the field on the wire",
+       %{bypass: bypass, client: client} do
+    Bypass.expect_once(bypass, "POST", "/v1/upload/prepare", fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      decoded = Jason.decode!(body)
+      # Pre-public daemon wire shape: no `visibility` key.
+      refute Map.has_key?(decoded, "visibility")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(200, Jason.encode!(%{
+        upload_id: "up_priv_1",
+        payment_type: "wave_batch",
+        payments: [],
+        total_amount: "0",
+        payment_vault_address: "pva",
+        payment_token_address: "pta",
+        rpc_url: "http://rpc"
+      }))
+    end)
+
+    assert {:ok, _} = Antd.Client.prepare_upload(client, "/tmp/priv.dat")
+  end
+
+  test "finalize_upload/3 surfaces data_map and data_map_address",
+       %{bypass: bypass, client: client} do
+    Bypass.expect_once(bypass, "POST", "/v1/upload/finalize", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(200, Jason.encode!(%{
+        address: "0xFINAL",
+        chunks_stored: 4,
+        data_map: "deadbeef",
+        data_map_address: "cafebabe"
+      }))
+    end)
+
+    assert {:ok, result} = Antd.Client.finalize_upload(client, "up_pub_1", %{"qh1" => "tx1"})
+    assert result.address == "0xFINAL"
+    assert result.chunks_stored == 4
+    assert result.data_map == "deadbeef"
+    assert result.data_map_address == "cafebabe"
+  end
+
+  test "finalize_upload/3 defaults data_map_address to \"\" for private uploads",
+       %{bypass: bypass, client: client} do
+    # Old daemons (and private prepares) don't include data_map_address.
+    Bypass.expect_once(bypass, "POST", "/v1/upload/finalize", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(200, Jason.encode!(%{
+        address: "0xFINAL",
+        chunks_stored: 2,
+        data_map: "deadbeef"
+      }))
+    end)
+
+    assert {:ok, result} = Antd.Client.finalize_upload(client, "up_priv_1", %{"qh1" => "tx1"})
+    assert result.data_map == "deadbeef"
+    assert result.data_map_address == ""
+  end
+
+  # ---------------------------------------------------------------------------
+  # Chunks two-phase external-signer (V2-274)
+  # ---------------------------------------------------------------------------
+
+  test "prepare_chunk_upload/2 base64-encodes data and parses wave-batch response",
+       %{bypass: bypass, client: client} do
+    Bypass.expect_once(bypass, "POST", "/v1/chunks/prepare", fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      decoded = Jason.decode!(body)
+      assert decoded["data"] == Base.encode64("hello")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(200, Jason.encode!(%{
+        address: "addr_chunk_new",
+        already_stored: false,
+        upload_id: "chunk_up_1",
+        payment_type: "wave_batch",
+        payments: [
+          %{quote_hash: "qhC", rewards_address: "0xRC", amount: "7"}
+        ],
+        total_amount: "7",
+        payment_vault_address: "0xVC",
+        payment_token_address: "0xTC",
+        rpc_url: "http://rpc.local"
+      }))
+    end)
+
+    assert {:ok, %Antd.PrepareChunkResult{} = result} =
+             Antd.Client.prepare_chunk_upload(client, "hello")
+
+    assert result.already_stored == false
+    assert result.address == "addr_chunk_new"
+    assert result.upload_id == "chunk_up_1"
+    assert result.payment_type == "wave_batch"
+    assert length(result.payments) == 1
+    [pm] = result.payments
+    assert pm.quote_hash == "qhC"
+    assert pm.rewards_address == "0xRC"
+    assert pm.amount == "7"
+    assert result.total_amount == "7"
+    assert result.payment_vault_address == "0xVC"
+    assert result.payment_token_address == "0xTC"
+    assert result.rpc_url == "http://rpc.local"
+  end
+
+  test "prepare_chunk_upload/2 already_stored omits payment fields",
+       %{bypass: bypass, client: client} do
+    Bypass.expect_once(bypass, "POST", "/v1/chunks/prepare", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(200, Jason.encode!(%{
+        address: "addr_already_stored",
+        already_stored: true
+      }))
+    end)
+
+    assert {:ok, %Antd.PrepareChunkResult{} = result} =
+             Antd.Client.prepare_chunk_upload(client, "already-on-network")
+
+    assert result.already_stored == true
+    assert result.address == "addr_already_stored"
+    assert result.upload_id == ""
+    assert result.payments == []
+    assert result.total_amount == ""
+    assert result.payment_type == ""
+  end
+
+  test "finalize_chunk_upload/3 sends body and returns address",
+       %{bypass: bypass, client: client} do
+    Bypass.expect_once(bypass, "POST", "/v1/chunks/finalize", fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      decoded = Jason.decode!(body)
+      assert decoded["upload_id"] == "chunk_up_1"
+      assert decoded["tx_hashes"] == %{"qhC" => "tx_C"}
+
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(200, Jason.encode!(%{address: "addr_chunk_new"}))
+    end)
+
+    assert {:ok, "addr_chunk_new"} =
+             Antd.Client.finalize_chunk_upload(client, "chunk_up_1", %{"qhC" => "tx_C"})
   end
 end
