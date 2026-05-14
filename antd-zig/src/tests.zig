@@ -298,6 +298,158 @@ test "PutResult deinit frees memory" {
     pr.deinit(testing.allocator);
 }
 
+// =============================================================================
+// V2-249 PR4 / V2-274: prepare-upload visibility forwarding,
+//                      data_map_address on finalize, single-chunk external signer.
+// =============================================================================
+//
+// These tests cover the wire-shape of the new surfaces. They don't spin up a
+// mock HTTP server — antd-zig's existing test scaffolding parses/builds JSON
+// bodies directly, so this stays consistent with the file. The Go and Python
+// SDKs have their own end-to-end mock tests in client_test.go / test_rest_client.py.
+
+test "buildPrepareUploadBody omits visibility when null (pre-0.6.1 wire shape)" {
+    const body = try json_helpers.buildPrepareUploadBody(testing.allocator, "/tmp/x.bin", null);
+    defer testing.allocator.free(body);
+
+    const parsed = try std.json.parseFromSlice(std.json.Value, testing.allocator, body, .{});
+    defer parsed.deinit();
+    const obj = getJsonObject(parsed.value) orelse return error.JsonError;
+
+    const path_val = getJsonString(obj.get("path") orelse return error.JsonError) orelse return error.JsonError;
+    try testing.expectEqualStrings("/tmp/x.bin", path_val);
+    // visibility key MUST NOT be present — pre-0.6.1 daemons reject unknown fields.
+    try testing.expect(obj.get("visibility") == null);
+}
+
+test "buildPrepareUploadBody forwards visibility=public (prepareUploadPublic shape)" {
+    const body = try json_helpers.buildPrepareUploadBody(testing.allocator, "/tmp/x.bin", "public");
+    defer testing.allocator.free(body);
+
+    const parsed = try std.json.parseFromSlice(std.json.Value, testing.allocator, body, .{});
+    defer parsed.deinit();
+    const obj = getJsonObject(parsed.value) orelse return error.JsonError;
+
+    const path_val = getJsonString(obj.get("path") orelse return error.JsonError) orelse return error.JsonError;
+    try testing.expectEqualStrings("/tmp/x.bin", path_val);
+    const vis_val = getJsonString(obj.get("visibility") orelse return error.JsonError) orelse return error.JsonError;
+    try testing.expectEqualStrings("public", vis_val);
+}
+
+test "buildPrepareDataBody forwards visibility and base64-encodes data" {
+    const body = try json_helpers.buildPrepareDataBody(testing.allocator, "hello", "private");
+    defer testing.allocator.free(body);
+
+    const parsed = try std.json.parseFromSlice(std.json.Value, testing.allocator, body, .{});
+    defer parsed.deinit();
+    const obj = getJsonObject(parsed.value) orelse return error.JsonError;
+
+    // "hello" → "aGVsbG8="
+    const data_val = getJsonString(obj.get("data") orelse return error.JsonError) orelse return error.JsonError;
+    try testing.expectEqualStrings("aGVsbG8=", data_val);
+    const vis_val = getJsonString(obj.get("visibility") orelse return error.JsonError) orelse return error.JsonError;
+    try testing.expectEqualStrings("private", vis_val);
+
+    // Null visibility must drop the field entirely.
+    const body_null = try json_helpers.buildPrepareDataBody(testing.allocator, "hello", null);
+    defer testing.allocator.free(body_null);
+    const parsed_null = try std.json.parseFromSlice(std.json.Value, testing.allocator, body_null, .{});
+    defer parsed_null.deinit();
+    const obj_null = getJsonObject(parsed_null.value) orelse return error.JsonError;
+    try testing.expect(obj_null.get("visibility") == null);
+}
+
+test "parseFinalizeUploadResult surfaces data_map_address for public uploads" {
+    const body =
+        \\{"data_map":"deadbeef","data_map_address":"cafebabe","chunks_stored":4}
+    ;
+    const result = try json_helpers.parseFinalizeUploadResult(testing.allocator, body);
+    defer result.deinit(testing.allocator);
+
+    try testing.expectEqualStrings("deadbeef", result.data_map);
+    try testing.expectEqualStrings("cafebabe", result.data_map_address);
+    try testing.expectEqualStrings("", result.address); // legacy field, only set when store_data_map=true
+    try testing.expectEqual(@as(u64, 4), result.chunks_stored);
+}
+
+test "parseFinalizeUploadResult defaults data_map_address to empty for old/private daemons" {
+    // Pre-0.6.1 daemons (and private uploads) omit data_map_address.
+    const body =
+        \\{"data_map":"deadbeef","chunks_stored":2}
+    ;
+    const result = try json_helpers.parseFinalizeUploadResult(testing.allocator, body);
+    defer result.deinit(testing.allocator);
+
+    try testing.expectEqualStrings("deadbeef", result.data_map);
+    try testing.expectEqualStrings("", result.data_map_address);
+    try testing.expectEqualStrings("", result.address);
+    try testing.expectEqual(@as(u64, 2), result.chunks_stored);
+}
+
+test "parsePrepareChunkResult parses already_stored branch" {
+    // already_stored:true → only address + already_stored populated.
+    const body =
+        \\{"address":"bb1111111111111111111111111111111111111111111111111111111111111111","already_stored":true}
+    ;
+    const result = try json_helpers.parsePrepareChunkResult(testing.allocator, body);
+    defer result.deinit(testing.allocator);
+
+    try testing.expect(result.already_stored);
+    try testing.expectEqualStrings(
+        "bb1111111111111111111111111111111111111111111111111111111111111111",
+        result.address,
+    );
+    try testing.expectEqualStrings("", result.upload_id);
+    try testing.expectEqualStrings("", result.payment_type);
+    try testing.expectEqual(@as(usize, 0), result.payments.len);
+    try testing.expectEqualStrings("", result.total_amount);
+}
+
+test "parsePrepareChunkResult parses wave-batch branch with payments" {
+    const body =
+        \\{"address":"aa00","already_stored":false,"upload_id":"chunk-1","payment_type":"wave_batch","payments":[{"quote_hash":"qh1","rewards_address":"ra1","amount":"100"},{"quote_hash":"qh2","rewards_address":"ra2","amount":"200"}],"total_amount":"300","payment_vault_address":"0xvault","payment_token_address":"0xtoken","rpc_url":"http://localhost:8545"}
+    ;
+    const result = try json_helpers.parsePrepareChunkResult(testing.allocator, body);
+    defer result.deinit(testing.allocator);
+
+    try testing.expect(!result.already_stored);
+    try testing.expectEqualStrings("aa00", result.address);
+    try testing.expectEqualStrings("chunk-1", result.upload_id);
+    try testing.expectEqualStrings("wave_batch", result.payment_type);
+    try testing.expectEqual(@as(usize, 2), result.payments.len);
+    try testing.expectEqualStrings("qh1", result.payments[0].quote_hash);
+    try testing.expectEqualStrings("ra1", result.payments[0].rewards_address);
+    try testing.expectEqualStrings("100", result.payments[0].amount);
+    try testing.expectEqualStrings("qh2", result.payments[1].quote_hash);
+    try testing.expectEqualStrings("200", result.payments[1].amount);
+    try testing.expectEqualStrings("300", result.total_amount);
+    try testing.expectEqualStrings("0xvault", result.payment_vault_address);
+    try testing.expectEqualStrings("0xtoken", result.payment_token_address);
+    try testing.expectEqualStrings("http://localhost:8545", result.rpc_url);
+}
+
+test "buildFinalizeChunkBody embeds upload_id and tx_hashes literal" {
+    const body = try json_helpers.buildFinalizeChunkBody(
+        testing.allocator,
+        "chunk-1",
+        "{\"qh1\":\"tx1\",\"qh2\":\"tx2\"}",
+    );
+    defer testing.allocator.free(body);
+
+    const parsed = try std.json.parseFromSlice(std.json.Value, testing.allocator, body, .{});
+    defer parsed.deinit();
+    const obj = getJsonObject(parsed.value) orelse return error.JsonError;
+
+    const id_val = getJsonString(obj.get("upload_id") orelse return error.JsonError) orelse return error.JsonError;
+    try testing.expectEqualStrings("chunk-1", id_val);
+
+    const tx_obj = getJsonObject(obj.get("tx_hashes") orelse return error.JsonError) orelse return error.JsonError;
+    const tx1 = getJsonString(tx_obj.get("qh1") orelse return error.JsonError) orelse return error.JsonError;
+    const tx2 = getJsonString(tx_obj.get("qh2") orelse return error.JsonError) orelse return error.JsonError;
+    try testing.expectEqualStrings("tx1", tx1);
+    try testing.expectEqualStrings("tx2", tx2);
+}
+
 // Note: Integration tests that exercise the full Client against a running antd
 // daemon are not included here. To run integration tests, start the daemon with
 // `ant dev start` and write tests that create a Client pointing at the daemon URL.
