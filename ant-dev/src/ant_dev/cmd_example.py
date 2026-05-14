@@ -66,9 +66,9 @@ def _run_one_python(script: Path) -> None:
         print(f"Example file not found: {script}")
         sys.exit(1)
 
-    # Use 'python' on Windows, 'python3' on Unix
-    python = "python" if sys.platform == "win32" else "python3"
-    result = subprocess.run([python, str(script)])
+    # Use the interpreter that runs ant-dev itself; in editable installs
+    # that points at the venv where antd[rest] is on sys.path (#63).
+    result = subprocess.run([sys.executable, str(script)])
     if result.returncode != 0:
         sys.exit(result.returncode)
 
