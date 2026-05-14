@@ -2,18 +2,30 @@ Mix.install([
   {:antd, path: ".."}
 ])
 
-# Store and retrieve public immutable data
+# Example 02: Store and retrieve public data, with cost estimation.
+#
+# Prerequisite: antd daemon running on local testnet.
+
 client = Antd.Client.new()
 
-# Store data
-{:ok, result} = Antd.Client.data_put_public(client, "Hello, Autonomi!")
-IO.puts("Stored at: #{result.address}")
-IO.puts("Cost: #{result.cost} atto")
+payload = "Hello, Autonomi!"
 
-# Retrieve data
+# Estimate cost before storing
+{:ok, est} = Antd.Client.data_cost(client, payload)
+IO.puts(
+  "Estimate: #{est.file_size} bytes in #{est.chunk_count} chunks, " <>
+  "storage #{est.cost} atto, gas #{est.estimated_gas_cost_wei} wei, " <>
+  "mode #{est.payment_mode}"
+)
+
+# Store public data
+{:ok, result} = Antd.Client.data_put_public(client, payload)
+IO.puts("Stored at address: #{result.address}")
+IO.puts("Actual cost: #{result.cost} atto tokens")
+
+# Retrieve it back
 {:ok, data} = Antd.Client.data_get_public(client, result.address)
 IO.puts("Retrieved: #{data}")
 
-# Estimate cost before storing
-{:ok, cost} = Antd.Client.data_cost(client, "Some data to estimate")
-IO.puts("Estimated cost: #{cost} atto")
+unless data == payload, do: raise "Round-trip mismatch!"
+IO.puts("Public data round-trip OK!")

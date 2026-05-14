@@ -27,4 +27,4 @@ IO.puts("Exists: #{exists}")
 
 # Estimate cost
 {:ok, cost} = Antd.Client.graph_entry_cost(client, "public_key_hex")
-IO.puts("Estimated graph entry cost: #{cost} atto")
+IO.puts("Estimated graph entry cost: #{cost.cost} atto (#{cost.chunk_count} chunks)")
