@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
 
@@ -79,7 +82,7 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         var body: [String: Any] = ["data": data.base64EncodedString()]
         if let mode = paymentMode { body["payment_mode"] = mode }
         let resp: CostAddressDTO = try await postJSON("/v1/data/public", body: body)
-        return PutResult(cost: resp.cost, address: resp.address)
+        return PutResult(cost: resp.cost ?? "", address: resp.address)
     }
 
     public func dataGetPublic(address: String) async throws -> Data {
@@ -92,7 +95,7 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         var body: [String: Any] = ["data": data.base64EncodedString()]
         if let mode = paymentMode { body["payment_mode"] = mode }
         let resp: CostDataMapDTO = try await postJSON("/v1/data/private", body: body)
-        return PutResult(cost: resp.cost, address: resp.dataMap)
+        return PutResult(cost: resp.cost ?? "", address: resp.dataMap)
     }
 
     public func dataGetPrivate(dataMap: String) async throws -> Data {
@@ -106,17 +109,17 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         let resp: CostDTO = try await postJSON("/v1/data/cost", body: ["data": data.base64EncodedString()])
         return UploadCostEstimate(
             cost: resp.cost,
-            fileSize: resp.file_size ?? 0,
-            chunkCount: resp.chunk_count ?? 0,
-            estimatedGasCostWei: resp.estimated_gas_cost_wei ?? "",
-            paymentMode: resp.payment_mode ?? "")
+            fileSize: resp.fileSize ?? 0,
+            chunkCount: resp.chunkCount ?? 0,
+            estimatedGasCostWei: resp.estimatedGasCostWei ?? "",
+            paymentMode: resp.paymentMode ?? "")
     }
 
     // MARK: - Chunks
 
     public func chunkPut(_ data: Data) async throws -> PutResult {
         let resp: CostAddressDTO = try await postJSON("/v1/chunks", body: ["data": data.base64EncodedString()])
-        return PutResult(cost: resp.cost, address: resp.address)
+        return PutResult(cost: resp.cost ?? "", address: resp.address)
     }
 
     public func chunkGet(address: String) async throws -> Data {
@@ -166,10 +169,10 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         let resp: CostDTO = try await postJSON("/v1/files/cost", body: body)
         return UploadCostEstimate(
             cost: resp.cost,
-            fileSize: resp.file_size ?? 0,
-            chunkCount: resp.chunk_count ?? 0,
-            estimatedGasCostWei: resp.estimated_gas_cost_wei ?? "",
-            paymentMode: resp.payment_mode ?? "")
+            fileSize: resp.fileSize ?? 0,
+            chunkCount: resp.chunkCount ?? 0,
+            estimatedGasCostWei: resp.estimatedGasCostWei ?? "",
+            paymentMode: resp.paymentMode ?? "")
     }
 
     // MARK: - Wallet
@@ -273,7 +276,8 @@ private struct HealthResponseDTO: Decodable {
 }
 
 private struct CostAddressDTO: Decodable {
-    let cost: String
+    // PUT responses sometimes omit `cost`; default to empty downstream (#69 in PR queue).
+    let cost: String?
     let address: String
 }
 
@@ -294,7 +298,7 @@ private struct FileUploadPublicDTO: Decodable {
 }
 
 private struct CostDataMapDTO: Decodable {
-    let cost: String
+    let cost: String?
     let dataMap: String
 }
 
@@ -304,10 +308,13 @@ private struct DataDTO: Decodable {
 
 private struct CostDTO: Decodable {
     let cost: String
-    let file_size: UInt64?
-    let chunk_count: UInt32?
-    let estimated_gas_cost_wei: String?
-    let payment_mode: String?
+    // Wire fields are snake_case (file_size, chunk_count, …); the shared
+    // JSONDecoder uses .convertFromSnakeCase, so name them camelCase here
+    // — otherwise decoding silently nils them out and the caller sees zeros.
+    let fileSize: UInt64?
+    let chunkCount: UInt32?
+    let estimatedGasCostWei: String?
+    let paymentMode: String?
 }
 
 private struct WalletAddressDTO: Decodable {
