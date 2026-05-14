@@ -121,7 +121,7 @@ pub const Client = struct {
 
         req.wait() catch return error.HttpError;
 
-        const status_code = @intFromEnum(req.status);
+        const status_code = @intFromEnum(req.response.status);
 
         // For HEAD requests, just check status
         if (method == .HEAD) {
