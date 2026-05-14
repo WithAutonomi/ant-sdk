@@ -16,6 +16,7 @@ from antd.models import (
     FinalizeUploadResult,
     HealthStatus,
     PoolCommitmentEntry,
+    PrepareChunkResult,
     PrepareUploadResult,
     PutResult,
     WalletAddress,
@@ -123,6 +124,8 @@ class _MockHandler(BaseHTTPRequestHandler):
 
         elif path == "/v1/upload/prepare":
             req = json.loads(body) if body else {}
+            # Stash the body so tests can assert visibility was forwarded.
+            self.server._last_prepare_request = req
             # Return merkle response when path contains "merkle", else wave_batch
             if "merkle" in req.get("path", ""):
                 self._json_response(200, {
@@ -174,7 +177,47 @@ class _MockHandler(BaseHTTPRequestHandler):
             req = json.loads(body) if body else {}
             # Store the request so tests can inspect it
             self.server._last_finalize_request = req
-            self._json_response(200, {"address": "0xFINAL", "chunks_stored": 42})
+            # Echo a data_map_address when the prior prepare was public.
+            last_prepare = getattr(self.server, "_last_prepare_request", {}) or {}
+            resp_body: dict = {
+                "address": "0xFINAL",
+                "chunks_stored": 42,
+                "data_map": "deadbeef",
+            }
+            if last_prepare.get("visibility") == "public":
+                resp_body["data_map_address"] = "0xDMAP"
+            self._json_response(200, resp_body)
+
+        elif path == "/v1/chunks/prepare":
+            req = json.loads(body) if body else {}
+            data_b64 = req.get("data", "")
+            # Decide already_stored vs needs-payment by the decoded prefix —
+            # lets the same handler cover both branches.
+            decoded = base64.b64decode(data_b64) if data_b64 else b""
+            if decoded.startswith(b"already_"):
+                self._json_response(200, {
+                    "address": "addr_already_stored",
+                    "already_stored": True,
+                })
+            else:
+                self._json_response(200, {
+                    "address": "addr_chunk_new",
+                    "already_stored": False,
+                    "upload_id": "chunk_up_1",
+                    "payment_type": "wave_batch",
+                    "payments": [
+                        {"quote_hash": "qhC", "rewards_address": "0xRC", "amount": "7"},
+                    ],
+                    "total_amount": "7",
+                    "payment_vault_address": "0xVC",
+                    "payment_token_address": "0xTC",
+                    "rpc_url": "http://rpc.local",
+                })
+
+        elif path == "/v1/chunks/finalize":
+            req = json.loads(body) if body else {}
+            self.server._last_chunk_finalize_request = req
+            self._json_response(200, {"address": "addr_chunk_new"})
 
         else:
             self._json_response(404, {"error": f"unknown route: {path}"})
@@ -360,6 +403,85 @@ class TestPrepareUploadBackwardCompat:
         # wave_batch payments should still be parsed
         assert len(result.payments) == 1
         assert result.payments[0].quote_hash == "qh1"
+
+
+class TestPrepareUploadPublic:
+    """Verify visibility="public" is forwarded and data_map_address surfaces on finalize."""
+
+    def test_prepare_upload_public_forwards_visibility(self, client: RestClient, mock_server):
+        result = client.prepare_upload_public("/tmp/wave/file.dat")
+        assert isinstance(result, PrepareUploadResult)
+        assert result.upload_id == "up_wave_1"
+        # Mock daemon should have seen visibility="public" in the request body.
+        assert mock_server._last_prepare_request["visibility"] == "public"
+
+    def test_prepare_upload_with_visibility_arg(self, client: RestClient, mock_server):
+        client.prepare_upload("/tmp/wave/file.dat", visibility="private")
+        assert mock_server._last_prepare_request["visibility"] == "private"
+
+    def test_prepare_upload_without_visibility_omits_field(self, client: RestClient, mock_server):
+        client.prepare_upload("/tmp/wave/file.dat")
+        # No visibility key — preserves the pre-public daemon wire shape.
+        assert "visibility" not in mock_server._last_prepare_request
+
+    def test_finalize_surfaces_data_map_address_for_public_upload(
+        self, client: RestClient, mock_server,
+    ):
+        client.prepare_upload_public("/tmp/wave/file.dat")
+        result = client.finalize_upload(
+            upload_id="up_wave_1",
+            tx_hashes={"qh1": "tx1"},
+        )
+        assert result.address == "0xFINAL"
+        assert result.data_map == "deadbeef"
+        assert result.data_map_address == "0xDMAP"
+
+    def test_finalize_omits_data_map_address_for_private_upload(
+        self, client: RestClient, mock_server,
+    ):
+        client.prepare_upload("/tmp/wave/file.dat")  # no visibility → private
+        result = client.finalize_upload(
+            upload_id="up_wave_1",
+            tx_hashes={"qh1": "tx1"},
+        )
+        assert result.data_map_address == ""
+
+
+class TestPrepareChunkUpload:
+    def test_already_stored_omits_payment_fields(self, client: RestClient):
+        result = client.prepare_chunk_upload(b"already_chunk_data")
+        assert isinstance(result, PrepareChunkResult)
+        assert result.address == "addr_already_stored"
+        assert result.already_stored is True
+        assert result.upload_id == ""
+        assert result.payments == []
+        assert result.total_amount == ""
+
+    def test_new_chunk_returns_wave_batch_intent(self, client: RestClient):
+        result = client.prepare_chunk_upload(b"new_chunk_data")
+        assert result.already_stored is False
+        assert result.address == "addr_chunk_new"
+        assert result.upload_id == "chunk_up_1"
+        assert result.payment_type == "wave_batch"
+        assert len(result.payments) == 1
+        assert result.payments[0].quote_hash == "qhC"
+        assert result.payments[0].amount == "7"
+        assert result.total_amount == "7"
+        assert result.payment_vault_address == "0xVC"
+        assert result.payment_token_address == "0xTC"
+        assert result.rpc_url == "http://rpc.local"
+
+
+class TestFinalizeChunkUpload:
+    def test_returns_address_and_forwards_tx_hashes(self, client: RestClient, mock_server):
+        addr = client.finalize_chunk_upload(
+            upload_id="chunk_up_1",
+            tx_hashes={"qhC": "tx_C"},
+        )
+        assert addr == "addr_chunk_new"
+        req = mock_server._last_chunk_finalize_request
+        assert req["upload_id"] == "chunk_up_1"
+        assert req["tx_hashes"] == {"qhC": "tx_C"}
 
 
 class TestErrorMapping:

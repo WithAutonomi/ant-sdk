@@ -15,6 +15,7 @@ from .models import (
     HealthStatus,
     PaymentInfo,
     PoolCommitmentEntry,
+    PrepareChunkResult,
     PrepareUploadResult,
     PutResult,
     UploadCostEstimate,
@@ -80,6 +81,44 @@ def _check(resp: httpx.Response) -> None:
     except Exception:
         msg = resp.text
     raise_for_http_status(resp.status_code, msg)
+
+
+def _parse_prepare_chunk_result(j: dict) -> PrepareChunkResult:
+    """Parse a /v1/chunks/prepare JSON response into a PrepareChunkResult."""
+    payments = [
+        PaymentInfo(
+            quote_hash=p["quote_hash"],
+            rewards_address=p["rewards_address"],
+            amount=p["amount"],
+        )
+        for p in j.get("payments", []) or []
+    ]
+    return PrepareChunkResult(
+        address=j.get("address", ""),
+        already_stored=bool(j.get("already_stored", False)),
+        upload_id=j.get("upload_id") or "",
+        payment_type=j.get("payment_type") or "",
+        payments=payments,
+        total_amount=j.get("total_amount") or "",
+        payment_vault_address=j.get("payment_vault_address") or "",
+        payment_token_address=j.get("payment_token_address") or "",
+        rpc_url=j.get("rpc_url") or "",
+    )
+
+
+def _parse_finalize_upload_result(j: dict) -> FinalizeUploadResult:
+    """Parse a /v1/upload/finalize JSON response.
+
+    `data_map_address` is populated only when prepare was called with
+    visibility="public" — the DataMap chunk was bundled into the same
+    external-signer payment batch and stored on-network.
+    """
+    return FinalizeUploadResult(
+        address=j.get("address") or "",
+        chunks_stored=int(j.get("chunks_stored", 0) or 0),
+        data_map=j.get("data_map") or "",
+        data_map_address=j.get("data_map_address") or "",
+    )
 
 
 def _parse_prepare_result(j: dict) -> PrepareUploadResult:
@@ -214,6 +253,30 @@ class RestClient:
         _check(resp)
         return _unb64(resp.json().get("data", ""))
 
+    def prepare_chunk_upload(self, data: bytes) -> PrepareChunkResult:
+        """Prepare a single chunk for external-signer publish.
+
+        Returns either ``already_stored=True`` (no payment needed) or a
+        wave-batch payment intent. After the external signer pays, call
+        :meth:`finalize_chunk_upload` with the resulting tx hashes.
+        """
+        resp = self._http.post("/v1/chunks/prepare", json={"data": _b64(data)})
+        _check(resp)
+        return _parse_prepare_chunk_result(resp.json())
+
+    def finalize_chunk_upload(self, upload_id: str, tx_hashes: dict[str, str]) -> str:
+        """Submit a prepared chunk to the network after external payment.
+
+        Returns the network address of the stored chunk (matches
+        :attr:`PrepareChunkResult.address`).
+        """
+        resp = self._http.post("/v1/chunks/finalize", json={
+            "upload_id": upload_id,
+            "tx_hashes": tx_hashes,
+        })
+        _check(resp)
+        return resp.json().get("address", "")
+
     # --- Files ---
 
     def file_upload_public(self, path: str, payment_mode: str | None = None) -> FileUploadResult:
@@ -282,24 +345,42 @@ class RestClient:
 
     # --- External Signer (Two-Phase Upload) ---
 
-    def prepare_upload(self, path: str) -> PrepareUploadResult:
+    def prepare_upload(self, path: str, visibility: str | None = None) -> PrepareUploadResult:
         """Prepare a file upload for external signing.
 
-        Returns payment details that an external signer must process
-        before calling finalize_upload.
+        Args:
+            path: Path to the file to upload.
+            visibility: ``"public"`` to bundle the DataMap chunk into the
+                same external-signer payment batch (the resulting
+                ``data_map_address`` on finalize is the shareable retrieval
+                handle). ``"private"`` or ``None`` keeps the existing
+                private-only behaviour.
         """
-        resp = self._http.post("/v1/upload/prepare", json={"path": path})
+        body: dict = {"path": path}
+        if visibility is not None:
+            body["visibility"] = visibility
+        resp = self._http.post("/v1/upload/prepare", json=body)
         _check(resp)
         return _parse_prepare_result(resp.json())
 
-    def prepare_data_upload(self, data: bytes) -> PrepareUploadResult:
+    def prepare_upload_public(self, path: str) -> PrepareUploadResult:
+        """Convenience wrapper: prepare a *public* file upload for external signing.
+
+        Equivalent to :meth:`prepare_upload` with ``visibility="public"``.
+        """
+        return self.prepare_upload(path, visibility="public")
+
+    def prepare_data_upload(self, data: bytes, visibility: str | None = None) -> PrepareUploadResult:
         """Prepare a data upload for external signing.
 
-        Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
-        Returns payment details that an external signer must process
-        before calling finalize_upload.
+        Note: ``visibility="public"`` returns 501 from the daemon until
+        upstream ant-client exposes ``data_prepare_upload_with_visibility``;
+        use :meth:`prepare_upload_public` with a file path until then.
         """
-        resp = self._http.post("/v1/data/prepare", json={"data": _b64(data)})
+        body: dict = {"data": _b64(data)}
+        if visibility is not None:
+            body["visibility"] = visibility
+        resp = self._http.post("/v1/data/prepare", json=body)
         _check(resp)
         return _parse_prepare_result(resp.json())
 
@@ -315,8 +396,7 @@ class RestClient:
             "tx_hashes": tx_hashes,
         })
         _check(resp)
-        j = resp.json()
-        return FinalizeUploadResult(address=j.get("address", ""), chunks_stored=j.get("chunks_stored", 0))
+        return _parse_finalize_upload_result(resp.json())
 
     def finalize_merkle_upload(
         self, upload_id: str, winner_pool_hash: str, store_data_map: bool = False,
@@ -326,7 +406,10 @@ class RestClient:
         Args:
             upload_id: The upload ID returned by prepare_upload.
             winner_pool_hash: Hash of the winning pool commitment.
-            store_data_map: Whether to store the data map on-network.
+            store_data_map: Whether to store the data map on-network. Kept for
+                backward compat — for visibility="public" prepares the DataMap
+                is already bundled in the external-signer batch and
+                ``data_map_address`` on the result is the shareable handle.
         """
         resp = self._http.post("/v1/upload/finalize", json={
             "upload_id": upload_id,
@@ -334,8 +417,7 @@ class RestClient:
             "store_data_map": store_data_map,
         })
         _check(resp)
-        j = resp.json()
-        return FinalizeUploadResult(address=j.get("address", ""), chunks_stored=j.get("chunks_stored", 0))
+        return _parse_finalize_upload_result(resp.json())
 
 
 class AsyncRestClient:
@@ -426,6 +508,24 @@ class AsyncRestClient:
         _check(resp)
         return _unb64(resp.json().get("data", ""))
 
+    async def prepare_chunk_upload(self, data: bytes) -> PrepareChunkResult:
+        """Prepare a single chunk for external-signer publish.
+
+        See :meth:`RestClient.prepare_chunk_upload`.
+        """
+        resp = await self._http.post("/v1/chunks/prepare", json={"data": _b64(data)})
+        _check(resp)
+        return _parse_prepare_chunk_result(resp.json())
+
+    async def finalize_chunk_upload(self, upload_id: str, tx_hashes: dict[str, str]) -> str:
+        """Submit a prepared chunk to the network after external payment."""
+        resp = await self._http.post("/v1/chunks/finalize", json={
+            "upload_id": upload_id,
+            "tx_hashes": tx_hashes,
+        })
+        _check(resp)
+        return resp.json().get("address", "")
+
     # --- Files ---
 
     async def file_upload_public(self, path: str, payment_mode: str | None = None) -> FileUploadResult:
@@ -490,57 +590,52 @@ class AsyncRestClient:
 
     # --- External Signer (Two-Phase Upload) ---
 
-    async def prepare_upload(self, path: str) -> PrepareUploadResult:
+    async def prepare_upload(self, path: str, visibility: str | None = None) -> PrepareUploadResult:
         """Prepare a file upload for external signing.
 
-        Returns payment details that an external signer must process
-        before calling finalize_upload.
+        See :meth:`RestClient.prepare_upload` for the ``visibility`` semantics.
         """
-        resp = await self._http.post("/v1/upload/prepare", json={"path": path})
+        body: dict = {"path": path}
+        if visibility is not None:
+            body["visibility"] = visibility
+        resp = await self._http.post("/v1/upload/prepare", json=body)
         _check(resp)
         return _parse_prepare_result(resp.json())
 
-    async def prepare_data_upload(self, data: bytes) -> PrepareUploadResult:
+    async def prepare_upload_public(self, path: str) -> PrepareUploadResult:
+        """Convenience wrapper: prepare a *public* file upload for external signing."""
+        return await self.prepare_upload(path, visibility="public")
+
+    async def prepare_data_upload(self, data: bytes, visibility: str | None = None) -> PrepareUploadResult:
         """Prepare a data upload for external signing.
 
-        Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
-        Returns payment details that an external signer must process
-        before calling finalize_upload.
+        Note: ``visibility="public"`` returns 501 from the daemon until upstream
+        ant-client exposes ``data_prepare_upload_with_visibility``.
         """
-        resp = await self._http.post("/v1/data/prepare", json={"data": _b64(data)})
+        body: dict = {"data": _b64(data)}
+        if visibility is not None:
+            body["visibility"] = visibility
+        resp = await self._http.post("/v1/data/prepare", json=body)
         _check(resp)
         return _parse_prepare_result(resp.json())
 
     async def finalize_upload(self, upload_id: str, tx_hashes: dict[str, str]) -> FinalizeUploadResult:
-        """Finalize an upload after an external signer has submitted payment transactions.
-
-        Args:
-            upload_id: The upload ID returned by prepare_upload.
-            tx_hashes: Map of quote_hash to tx_hash for each payment.
-        """
+        """Finalize an upload after an external signer has submitted payment transactions."""
         resp = await self._http.post("/v1/upload/finalize", json={
             "upload_id": upload_id,
             "tx_hashes": tx_hashes,
         })
         _check(resp)
-        j = resp.json()
-        return FinalizeUploadResult(address=j.get("address", ""), chunks_stored=j.get("chunks_stored", 0))
+        return _parse_finalize_upload_result(resp.json())
 
     async def finalize_merkle_upload(
         self, upload_id: str, winner_pool_hash: str, store_data_map: bool = False,
     ) -> FinalizeUploadResult:
-        """Finalize a merkle-batch upload after selecting a winning pool.
-
-        Args:
-            upload_id: The upload ID returned by prepare_upload.
-            winner_pool_hash: Hash of the winning pool commitment.
-            store_data_map: Whether to store the data map on-network.
-        """
+        """Finalize a merkle-batch upload after selecting a winning pool."""
         resp = await self._http.post("/v1/upload/finalize", json={
             "upload_id": upload_id,
             "winner_pool_hash": winner_pool_hash,
             "store_data_map": store_data_map,
         })
         _check(resp)
-        j = resp.json()
-        return FinalizeUploadResult(address=j.get("address", ""), chunks_stored=j.get("chunks_stored", 0))
+        return _parse_finalize_upload_result(resp.json())
