@@ -14,55 +14,55 @@ public class AntdError: Error, CustomStringConvertible {
 }
 
 public final class NotFoundError: AntdError {
-    public init(_ message: String, statusCode: Int = 404) {
+    public override init(_ message: String, statusCode: Int = 404) {
         super.init(message, statusCode: statusCode)
     }
 }
 
 public final class AlreadyExistsError: AntdError {
-    public init(_ message: String, statusCode: Int = 409) {
+    public override init(_ message: String, statusCode: Int = 409) {
         super.init(message, statusCode: statusCode)
     }
 }
 
 public final class ForkError: AntdError {
-    public init(_ message: String, statusCode: Int = 409) {
+    public override init(_ message: String, statusCode: Int = 409) {
         super.init(message, statusCode: statusCode)
     }
 }
 
 public final class BadRequestError: AntdError {
-    public init(_ message: String, statusCode: Int = 400) {
+    public override init(_ message: String, statusCode: Int = 400) {
         super.init(message, statusCode: statusCode)
     }
 }
 
 public final class PaymentError: AntdError {
-    public init(_ message: String, statusCode: Int = 402) {
+    public override init(_ message: String, statusCode: Int = 402) {
         super.init(message, statusCode: statusCode)
     }
 }
 
 public final class NetworkError: AntdError {
-    public init(_ message: String, statusCode: Int = 502) {
+    public override init(_ message: String, statusCode: Int = 502) {
         super.init(message, statusCode: statusCode)
     }
 }
 
 public final class TooLargeError: AntdError {
-    public init(_ message: String, statusCode: Int = 413) {
+    public override init(_ message: String, statusCode: Int = 413) {
         super.init(message, statusCode: statusCode)
     }
 }
 
 public final class InternalError: AntdError {
-    public init(_ message: String, statusCode: Int = 500) {
+    public override init(_ message: String, statusCode: Int = 500) {
         super.init(message, statusCode: statusCode)
     }
 }
 
 public final class ServiceUnavailableError: AntdError {
-    public init(_ message: String, statusCode: Int = 503) {
+    public override init(_ message: String, statusCode: Int = 503) {
         super.init(message, statusCode: statusCode)
     }
 }
