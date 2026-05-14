@@ -21,6 +21,9 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             artifact: antd-linux-amd64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            artifact: antd-linux-arm64
           - target: aarch64-apple-darwin
             os: macos-latest
             artifact: antd-darwin-arm64
