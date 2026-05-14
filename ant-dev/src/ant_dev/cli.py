@@ -34,7 +34,10 @@ def main(argv: list[str] | None = None) -> None:
     # ant dev example
     p = dev_sub.add_parser("example", help="Run a named example")
     p.add_argument("name", help="Example name: connect, data, chunks, files, graph, private, all")
-    p.add_argument("-l", "--language", default="python", choices=["python", "csharp"], help="Language (default: python)")
+    from .cmd_example import LANGUAGES as _EXAMPLE_LANGS
+    p.add_argument("-l", "--language", default="python",
+                   choices=sorted(_EXAMPLE_LANGS.keys()),
+                   help="Language (default: python)")
 
     # ant dev init
     p = dev_sub.add_parser("init", help="Scaffold a new project")
