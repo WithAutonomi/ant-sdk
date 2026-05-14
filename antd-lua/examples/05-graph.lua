@@ -47,4 +47,4 @@ if err4 then
     os.exit(1)
 end
 
-print("Estimated cost: " .. cost .. " atto")
+print(string.format("Estimated cost: %s atto (%d chunks)", cost.cost, cost.chunk_count))
