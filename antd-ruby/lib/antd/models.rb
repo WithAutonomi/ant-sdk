@@ -59,7 +59,41 @@ module Antd
   )
 
   # Result of finalizing an externally-signed upload.
-  FinalizeUploadResult = Struct.new(:address, :chunks_stored, keyword_init: true)
+  #
+  # +data_map+ is the hex-encoded msgpack DataMap (always returned by the
+  # daemon — kept as a convenience even when the caller doesn't need it).
+  # +data_map_address+ is populated only when prepare was called with
+  # +visibility: "public"+ — the DataMap chunk was paid + stored in the same
+  # external-signer batch, and this is the shareable retrieval handle.
+  FinalizeUploadResult = Struct.new(
+    :address, :chunks_stored, :data_map, :data_map_address,
+    keyword_init: true
+  ) do
+    def initialize(address: "", chunks_stored: 0, data_map: "", data_map_address: "")
+      super
+    end
+  end
+
+  # Result of preparing a single-chunk external-signer publish via
+  # +Client#prepare_chunk_upload+.
+  #
+  # When +already_stored+ is true the chunk is already on-network and no
+  # payment or finalize step is needed — +upload_id+ and the payment fields
+  # are empty. Otherwise the wave-batch payment fields describe what the
+  # external signer must submit before calling +finalize_chunk_upload+.
+  PrepareChunkResult = Struct.new(
+    :address, :already_stored, :upload_id, :payment_type,
+    :payments, :total_amount,
+    :payment_vault_address, :payment_token_address, :rpc_url,
+    keyword_init: true
+  ) do
+    def initialize(address: "", already_stored: false, upload_id: "",
+                   payment_type: "", payments: [], total_amount: "",
+                   payment_vault_address: "", payment_token_address: "",
+                   rpc_url: "")
+      super
+    end
+  end
 
   # Pre-upload cost breakdown returned by +data_cost+ and +file_cost+.
   # The server samples up to 5 chunk addresses and extrapolates the storage

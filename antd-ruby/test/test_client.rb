@@ -281,6 +281,148 @@ class TestClient < Minitest::Test
     assert_equal "qh1", result.payments[0].quote_hash
   end
 
+  # --- Public Prepare: visibility forwarding + data_map_address surfacing ---
+
+  # `prepare_upload_public` must POST visibility:"public" in the JSON body
+  # (sentinel for the daemon to bundle the DataMap chunk into the same
+  # external-signer batch). Verify via WebMock's request matcher.
+  def test_prepare_upload_public_forwards_visibility
+    response_body = {
+      upload_id: "up_public_1",
+      payment_type: "wave_batch",
+      payments: [{ quote_hash: "qh1", rewards_address: "0xR1", amount: "100" }],
+      total_amount: "100",
+      payment_vault_address: "0xDP",
+      payment_token_address: "0xTK",
+      rpc_url: "http://rpc.local"
+    }.to_json
+
+    stub_request(:post, "#{BASE}/v1/upload/prepare")
+      .with(body: hash_including("path" => "/tmp/wave/file.dat", "visibility" => "public"))
+      .to_return(status: 200, body: response_body,
+                 headers: { "Content-Type" => "application/json" })
+
+    result = @client.prepare_upload_public("/tmp/wave/file.dat")
+    assert_instance_of Antd::PrepareUploadResult, result
+    assert_equal "up_public_1", result.upload_id
+  end
+
+  # `prepare_upload` without a visibility kwarg must NOT include the
+  # visibility key — preserves the pre-public daemon wire shape.
+  def test_prepare_upload_omits_visibility_by_default
+    stub_request(:post, "#{BASE}/v1/upload/prepare")
+      .to_return(status: 200, body: '{"upload_id":"x","total_amount":"0","payments":[]}',
+                 headers: { "Content-Type" => "application/json" })
+
+    @client.prepare_upload("/tmp/file.dat")
+
+    assert_requested(:post, "#{BASE}/v1/upload/prepare") do |req|
+      body = JSON.parse(req.body)
+      !body.key?("visibility")
+    end
+  end
+
+  # Finalize: when the daemon bundled the DataMap into the external-signer
+  # batch (visibility="public" prepare), it returns a `data_map_address`
+  # alongside the hex DataMap blob. Verify both surface on the result Struct.
+  def test_finalize_upload_surfaces_data_map_address
+    stub_request(:post, "#{BASE}/v1/upload/finalize")
+      .to_return(status: 200,
+                 body: '{"address":"0xFINAL","chunks_stored":42,"data_map":"deadbeef","data_map_address":"0xDMAP"}',
+                 headers: { "Content-Type" => "application/json" })
+
+    result = @client.finalize_upload("up_public_1", { "qh1" => "tx1" })
+    assert_instance_of Antd::FinalizeUploadResult, result
+    assert_equal "0xFINAL", result.address
+    assert_equal 42, result.chunks_stored
+    assert_equal "deadbeef", result.data_map
+    assert_equal "0xDMAP", result.data_map_address
+  end
+
+  # Private upload finalize: data_map_address absent from daemon JSON →
+  # defaults to "" rather than nil (Struct convenience).
+  def test_finalize_upload_omits_data_map_address_for_private
+    stub_request(:post, "#{BASE}/v1/upload/finalize")
+      .to_return(status: 200, body: '{"address":"0xFINAL","chunks_stored":1,"data_map":"ab"}',
+                 headers: { "Content-Type" => "application/json" })
+
+    result = @client.finalize_upload("up_x", { "qh1" => "tx1" })
+    assert_equal "", result.data_map_address
+    assert_equal "ab", result.data_map
+  end
+
+  # --- Chunks: external-signer prepare/finalize ---
+
+  # Already-stored branch: daemon returns address + already_stored:true and no
+  # payment fields. The client must surface that flag and leave the payment
+  # fields at their defaults.
+  def test_prepare_chunk_upload_already_stored
+    stub_request(:post, "#{BASE}/v1/chunks/prepare")
+      .with(body: hash_including("data" => Base64.strict_encode64("already_chunk_data")))
+      .to_return(status: 200,
+                 body: '{"address":"addr_already_stored","already_stored":true}',
+                 headers: { "Content-Type" => "application/json" })
+
+    result = @client.prepare_chunk_upload("already_chunk_data")
+    assert_instance_of Antd::PrepareChunkResult, result
+    assert_equal "addr_already_stored", result.address
+    assert_equal true, result.already_stored
+    assert_equal "", result.upload_id
+    assert_equal [], result.payments
+    assert_equal "", result.total_amount
+  end
+
+  # New-chunk branch: daemon returns the full wave-batch shape. Verify all
+  # payment fields parse onto the Struct.
+  def test_prepare_chunk_upload_new_chunk
+    response_body = {
+      address: "addr_chunk_new",
+      already_stored: false,
+      upload_id: "chunk_up_1",
+      payment_type: "wave_batch",
+      payments: [
+        { quote_hash: "qhC", rewards_address: "0xRC", amount: "7" }
+      ],
+      total_amount: "7",
+      payment_vault_address: "0xVC",
+      payment_token_address: "0xTC",
+      rpc_url: "http://rpc.local"
+    }.to_json
+
+    stub_request(:post, "#{BASE}/v1/chunks/prepare")
+      .to_return(status: 200, body: response_body,
+                 headers: { "Content-Type" => "application/json" })
+
+    result = @client.prepare_chunk_upload("new_chunk_data")
+    assert_equal false, result.already_stored
+    assert_equal "addr_chunk_new", result.address
+    assert_equal "chunk_up_1", result.upload_id
+    assert_equal "wave_batch", result.payment_type
+    assert_equal 1, result.payments.length
+    assert_equal "qhC", result.payments[0].quote_hash
+    assert_equal "0xRC", result.payments[0].rewards_address
+    assert_equal "7", result.payments[0].amount
+    assert_equal "7", result.total_amount
+    assert_equal "0xVC", result.payment_vault_address
+    assert_equal "0xTC", result.payment_token_address
+    assert_equal "http://rpc.local", result.rpc_url
+  end
+
+  # Finalize: forwards upload_id + tx_hashes and returns the address as a
+  # plain string (mirrors Go's FinalizeChunkUpload signature).
+  def test_finalize_chunk_upload
+    stub_request(:post, "#{BASE}/v1/chunks/finalize")
+      .with(body: hash_including(
+        "upload_id" => "chunk_up_1",
+        "tx_hashes" => { "qhC" => "tx_C" }
+      ))
+      .to_return(status: 200, body: '{"address":"addr_chunk_new"}',
+                 headers: { "Content-Type" => "application/json" })
+
+    addr = @client.finalize_chunk_upload("chunk_up_1", { "qhC" => "tx_C" })
+    assert_equal "addr_chunk_new", addr
+  end
+
   # --- Error Mapping ---
 
   def test_error_404

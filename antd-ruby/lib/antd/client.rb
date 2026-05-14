@@ -119,6 +119,36 @@ module Antd
       b64_decode(j["data"])
     end
 
+    # Prepare a single chunk for external-signer publish.
+    #
+    # Returns either +already_stored: true+ (no payment needed) or a wave-batch
+    # payment intent. After the external signer pays, call
+    # +finalize_chunk_upload+ with the resulting tx hashes.
+    #
+    # Unlike +chunk_put+, this method does NOT require the daemon to have a
+    # wallet — all funds flow through the external signer.
+    #
+    # @param data [String] raw chunk bytes
+    # @return [PrepareChunkResult]
+    def prepare_chunk_upload(data)
+      j = do_json(:post, "/v1/chunks/prepare", { data: b64_encode(data) })
+      parse_prepare_chunk_response(j)
+    end
+
+    # Submit a prepared chunk to the network after external payment.
+    #
+    # @param upload_id [String] the upload ID from +prepare_chunk_upload+
+    # @param tx_hashes [Hash<String, String>] map of quote_hash to tx_hash
+    # @return [String] network address of the stored chunk
+    #   (matches +PrepareChunkResult#address+)
+    def finalize_chunk_upload(upload_id, tx_hashes)
+      j = do_json(:post, "/v1/chunks/finalize", {
+        upload_id: upload_id,
+        tx_hashes: tx_hashes
+      })
+      j["address"] || ""
+    end
+
     # --- Files ---
 
     # Upload a local file to the network.
@@ -203,11 +233,34 @@ module Antd
     # --- External Signer (Two-Phase Upload) ---
 
     # Prepare a file upload for external signing.
+    #
+    # @param path [String] local file path
+    # @param visibility [String, nil] +"public"+ to bundle the DataMap chunk
+    #   into the same external-signer payment batch (the resulting
+    #   +data_map_address+ on finalize is the shareable retrieval handle).
+    #   +"private"+ or +nil+ keeps the existing private-only behaviour. When
+    #   +nil+, the +visibility+ JSON field is omitted entirely to preserve
+    #   the pre-public daemon wire shape.
+    # @return [PrepareUploadResult]
+    def prepare_upload(path, visibility: nil)
+      body = { path: path }
+      body[:visibility] = visibility unless visibility.nil?
+      j = do_json(:post, "/v1/upload/prepare", body)
+      parse_prepare_response(j)
+    end
+
+    # Convenience wrapper: prepare a *public* file upload for external signing.
+    #
+    # Equivalent to +prepare_upload(path, visibility: "public")+. In addition
+    # to the data chunks, the daemon bundles the serialized DataMap chunk into
+    # the same payment batch — the external signer signs ONE EVM transaction
+    # covering chunks + DataMap. After +finalize_upload+, the result's
+    # +data_map_address+ is the shareable retrieval handle.
+    #
     # @param path [String] local file path
     # @return [PrepareUploadResult]
-    def prepare_upload(path)
-      j = do_json(:post, "/v1/upload/prepare", { path: path })
-      parse_prepare_response(j)
+    def prepare_upload_public(path)
+      prepare_upload(path, visibility: "public")
     end
 
     # Prepare a data upload for external signing.
@@ -228,7 +281,7 @@ module Antd
         upload_id: upload_id,
         tx_hashes: tx_hashes
       })
-      FinalizeUploadResult.new(address: j["address"], chunks_stored: j["chunks_stored"].to_i)
+      parse_finalize_response(j)
     end
 
     # Finalize a merkle-batch upload after selecting a winning pool.
@@ -242,7 +295,7 @@ module Antd
         winner_pool_hash: winner_pool_hash,
         store_data_map: store_data_map
       })
-      FinalizeUploadResult.new(address: j["address"], chunks_stored: j["chunks_stored"].to_i)
+      parse_finalize_response(j)
     end
 
     private
@@ -255,6 +308,43 @@ module Antd
         gas_cost_wei: j["gas_cost_wei"] || "",
         chunks_stored: (j["chunks_stored"] || 0).to_i,
         payment_mode_used: j["payment_mode_used"] || ""
+      )
+    end
+
+    # Parse a /v1/upload/finalize JSON response into a FinalizeUploadResult.
+    #
+    # +data_map_address+ is populated only when prepare was called with
+    # visibility="public" — the DataMap chunk was paid + stored in the same
+    # external-signer batch.
+    def parse_finalize_response(j)
+      FinalizeUploadResult.new(
+        address: j["address"] || "",
+        chunks_stored: (j["chunks_stored"] || 0).to_i,
+        data_map: j["data_map"] || "",
+        data_map_address: j["data_map_address"] || ""
+      )
+    end
+
+    # Parse a /v1/chunks/prepare JSON response into a PrepareChunkResult.
+    def parse_prepare_chunk_response(j)
+      payments = (j["payments"] || []).map do |p|
+        PaymentInfo.new(
+          quote_hash: p["quote_hash"],
+          rewards_address: p["rewards_address"],
+          amount: p["amount"]
+        )
+      end
+
+      PrepareChunkResult.new(
+        address: j["address"] || "",
+        already_stored: j["already_stored"] == true,
+        upload_id: j["upload_id"] || "",
+        payment_type: j["payment_type"] || "",
+        payments: payments,
+        total_amount: j["total_amount"] || "",
+        payment_vault_address: j["payment_vault_address"] || "",
+        payment_token_address: j["payment_token_address"] || "",
+        rpc_url: j["rpc_url"] || ""
       )
     end
 
