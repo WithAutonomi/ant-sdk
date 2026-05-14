@@ -24,6 +24,11 @@ def main(argv: list[str] | None = None) -> None:
                    help="Path to ant-node repo")
     p.add_argument("--no-build", action="store_true", help="Skip build (use existing binaries)")
     p.add_argument("--enable-evm", action="store_true", help="Enable EVM payment enforcement")
+    # `default` (25 nodes) reproducibly hits the manifest-wait timeout on
+    # cold-cache fresh starts (#73). `small` (10 nodes) is plenty for SDK
+    # development and starts in seconds.
+    p.add_argument("--preset", default="small", choices=["small", "default", "large"],
+                   help="ant-devnet size preset (default: small)")
 
     # ant dev stop
     dev_sub.add_parser("stop", help="Tear down all local processes")

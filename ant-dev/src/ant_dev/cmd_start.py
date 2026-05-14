@@ -86,7 +86,7 @@ def run(args) -> None:
 
     devnet_cmd = [
         "cargo", "run", "--release", "--bin", "ant-devnet", "--",
-        "--preset", "default",
+        "--preset", args.preset,
         "--enable-evm",
         "--manifest", str(DEVNET_MANIFEST),
     ]
