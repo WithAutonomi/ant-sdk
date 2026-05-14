@@ -15,7 +15,11 @@ internal sealed class MockServer : IDisposable
     private readonly HttpListener _listener = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly Dictionary<string, (int StatusCode, string Body)> _routes = new();
+    private readonly Dictionary<string, Func<string, (int StatusCode, string Body)>> _dynamicRoutes = new();
     private Task? _loop;
+
+    /// <summary>Most recent request body received for each "METHOD path" key.</summary>
+    public Dictionary<string, string> LastRequestBodies { get; } = new();
 
     public string BaseUrl { get; }
 
@@ -47,6 +51,16 @@ internal sealed class MockServer : IDisposable
         Route(method, path, 200, body);
     }
 
+    /// <summary>
+    /// Register a handler that picks the response from the request body —
+    /// used for endpoints whose response shape branches on input (e.g.
+    /// /v1/chunks/prepare, where already-stored and new-chunk paths differ).
+    /// </summary>
+    public void RouteDynamic(string method, string path, Func<string, (int StatusCode, string Body)> handler)
+    {
+        _dynamicRoutes[$"{method.ToUpperInvariant()} {path}"] = handler;
+    }
+
     public void Start()
     {
         _listener.Start();
@@ -72,7 +86,25 @@ internal sealed class MockServer : IDisposable
         var path = ctx.Request.Url!.AbsolutePath;
         var key = $"{method} {path}";
 
-        if (_routes.TryGetValue(key, out var route))
+        // Capture the request body (always — tests want to inspect what the
+        // client actually sent, regardless of which response variant we picked).
+        string requestBody = "";
+        if (ctx.Request.HasEntityBody)
+        {
+            using var reader = new System.IO.StreamReader(ctx.Request.InputStream, ctx.Request.ContentEncoding);
+            requestBody = reader.ReadToEnd();
+        }
+        LastRequestBodies[key] = requestBody;
+
+        if (_dynamicRoutes.TryGetValue(key, out var handler))
+        {
+            var (statusCode, body) = handler(requestBody);
+            ctx.Response.StatusCode = statusCode;
+            ctx.Response.ContentType = "application/json";
+            var bytes = Encoding.UTF8.GetBytes(body);
+            ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
+        }
+        else if (_routes.TryGetValue(key, out var route))
         {
             ctx.Response.StatusCode = route.StatusCode;
             ctx.Response.ContentType = "application/json";
@@ -578,6 +610,191 @@ public sealed class AntdRestClientTests : IDisposable
 
         Assert.Equal("merkle_addr_001", result.Address);
         Assert.Equal(99, result.ChunksStored);
+    }
+
+    // ── V2-249 / V2-274: public prepare + single-chunk external signer ──
+
+    [Fact]
+    public async Task PrepareUploadPublicAsync_SendsVisibilityPublic()
+    {
+        _server.RouteOk("POST", "/v1/upload/prepare", new
+        {
+            upload_id = "up_pub_1",
+            payments = new[]
+            {
+                new { quote_hash = "qh1", rewards_address = "ra1", amount = "100" }
+            },
+            total_amount = "100",
+            payment_vault_address = "0xVault",
+            payment_token_address = "0xToken",
+            rpc_url = "http://rpc.local"
+        });
+        _server.Start();
+
+        var result = await _client.PrepareUploadPublicAsync("/tmp/file.dat");
+
+        Assert.Equal("up_pub_1", result.UploadId);
+        // Body should have carried visibility=public.
+        var body = _server.LastRequestBodies["POST /v1/upload/prepare"];
+        using var doc = JsonDocument.Parse(body);
+        Assert.Equal("public", doc.RootElement.GetProperty("visibility").GetString());
+        Assert.Equal("/tmp/file.dat", doc.RootElement.GetProperty("path").GetString());
+    }
+
+    [Fact]
+    public async Task PrepareUploadAsync_NullVisibility_OmitsField()
+    {
+        _server.RouteOk("POST", "/v1/upload/prepare", new
+        {
+            upload_id = "up_priv_1",
+            payments = Array.Empty<object>(),
+            total_amount = "0",
+            payment_vault_address = "0xV",
+            payment_token_address = "0xT",
+            rpc_url = "http://rpc.local"
+        });
+        _server.Start();
+
+        await _client.PrepareUploadAsync("/tmp/private.dat");
+
+        // No visibility key — preserves the pre-public daemon wire shape.
+        var body = _server.LastRequestBodies["POST /v1/upload/prepare"];
+        using var doc = JsonDocument.Parse(body);
+        Assert.False(doc.RootElement.TryGetProperty("visibility", out _));
+        Assert.Equal("/tmp/private.dat", doc.RootElement.GetProperty("path").GetString());
+    }
+
+    [Fact]
+    public async Task FinalizeUploadAsync_SurfacesDataMapAddressOnPublicFinalize()
+    {
+        _server.RouteOk("POST", "/v1/upload/finalize", new
+        {
+            address = "",
+            chunks_stored = 4,
+            data_map = "deadbeef",
+            data_map_address = "cafebabe"
+        });
+        _server.Start();
+
+        var result = await _client.FinalizeUploadAsync(
+            "up_pub_1",
+            new Dictionary<string, string> { ["qh1"] = "tx1" });
+
+        Assert.Equal("deadbeef", result.DataMap);
+        Assert.Equal("cafebabe", result.DataMapAddress);
+        Assert.Equal(4L, result.ChunksStored);
+    }
+
+    [Fact]
+    public async Task FinalizeUploadAsync_PrivateUpload_OmitsDataMapAddress()
+    {
+        // Pre-0.6.1 daemons don't emit data_map_address — field defaults to "".
+        _server.RouteOk("POST", "/v1/upload/finalize", new
+        {
+            address = "0xFinal",
+            chunks_stored = 2,
+            data_map = "deadbeef"
+        });
+        _server.Start();
+
+        var result = await _client.FinalizeUploadAsync(
+            "up_priv_1",
+            new Dictionary<string, string> { ["qh1"] = "tx1" });
+
+        Assert.Equal("", result.DataMapAddress);
+        Assert.Equal("deadbeef", result.DataMap);
+        Assert.Equal("0xFinal", result.Address);
+    }
+
+    [Fact]
+    public async Task PrepareChunkUploadAsync_AlreadyStored_OmitsPaymentFields()
+    {
+        // already_stored=true → only address + already_stored matter, the
+        // payment fields are absent from the wire response.
+        _server.RouteOk("POST", "/v1/chunks/prepare", new
+        {
+            address = "aa" + new string('1', 62),
+            already_stored = true,
+        });
+        _server.Start();
+
+        var result = await _client.PrepareChunkUploadAsync(Encoding.UTF8.GetBytes("already-stored"));
+
+        Assert.True(result.AlreadyStored);
+        Assert.StartsWith("aa", result.Address);
+        Assert.Equal("", result.UploadId);
+        Assert.NotNull(result.Payments);
+        Assert.Empty(result.Payments!);
+        Assert.Equal("", result.TotalAmount);
+        Assert.Equal("", result.PaymentType);
+
+        // And the request body must be base64-encoded under `data`.
+        var body = _server.LastRequestBodies["POST /v1/chunks/prepare"];
+        using var doc = JsonDocument.Parse(body);
+        Assert.Equal(Convert.ToBase64String(Encoding.UTF8.GetBytes("already-stored")),
+            doc.RootElement.GetProperty("data").GetString());
+    }
+
+    [Fact]
+    public async Task PrepareChunkUploadAsync_NewChunk_ReturnsWaveBatchIntent()
+    {
+        _server.RouteOk("POST", "/v1/chunks/prepare", new
+        {
+            address = "bb" + new string('2', 62),
+            already_stored = false,
+            upload_id = "chunk_up_1",
+            payment_type = "wave_batch",
+            payments = new[]
+            {
+                new { quote_hash = "qh1", rewards_address = "ra1", amount = "100" },
+                new { quote_hash = "qh2", rewards_address = "ra2", amount = "100" },
+            },
+            total_amount = "200",
+            payment_vault_address = "0xVault",
+            payment_token_address = "0xToken",
+            rpc_url = "http://rpc.local",
+        });
+        _server.Start();
+
+        var result = await _client.PrepareChunkUploadAsync(Encoding.UTF8.GetBytes("new"));
+
+        Assert.False(result.AlreadyStored);
+        Assert.Equal("chunk_up_1", result.UploadId);
+        Assert.Equal("wave_batch", result.PaymentType);
+        Assert.NotNull(result.Payments);
+        Assert.Equal(2, result.Payments!.Count);
+        Assert.Equal("qh1", result.Payments[0].QuoteHash);
+        Assert.Equal("100", result.Payments[1].Amount);
+        Assert.Equal("200", result.TotalAmount);
+        Assert.Equal("0xVault", result.PaymentVaultAddress);
+        Assert.Equal("http://rpc.local", result.RpcUrl);
+    }
+
+    [Fact]
+    public async Task FinalizeChunkUploadAsync_ReturnsAddressAndForwardsTxHashes()
+    {
+        _server.RouteOk("POST", "/v1/chunks/finalize", new
+        {
+            address = "cc" + new string('3', 62),
+        });
+        _server.Start();
+
+        var txHashes = new Dictionary<string, string>
+        {
+            ["qh1"] = "tx1",
+            ["qh2"] = "tx2",
+        };
+        var addr = await _client.FinalizeChunkUploadAsync("chunk_up_1", txHashes);
+
+        Assert.StartsWith("cc", addr);
+        Assert.Equal(64, addr.Length);
+
+        var body = _server.LastRequestBodies["POST /v1/chunks/finalize"];
+        using var doc = JsonDocument.Parse(body);
+        Assert.Equal("chunk_up_1", doc.RootElement.GetProperty("upload_id").GetString());
+        var tx = doc.RootElement.GetProperty("tx_hashes");
+        Assert.Equal("tx1", tx.GetProperty("qh1").GetString());
+        Assert.Equal("tx2", tx.GetProperty("qh2").GetString());
     }
 
     [Fact]

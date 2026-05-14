@@ -150,6 +150,12 @@ public sealed class AntdGrpcClient : IAntdClient
         catch (RpcException ex) { throw Wrap(ex); }
     }
 
+    public Task<PrepareChunkResult> PrepareChunkUploadAsync(byte[] data)
+        => throw new NotSupportedException("PrepareChunkUpload is not yet supported via gRPC");
+
+    public Task<string> FinalizeChunkUploadAsync(string uploadId, IDictionary<string, string> txHashes)
+        => throw new NotSupportedException("FinalizeChunkUpload is not yet supported via gRPC");
+
     // ── Files ──
 
     public async Task<FileUploadResult> FileUploadPublicAsync(string path, string? paymentMode = null)
@@ -219,10 +225,13 @@ public sealed class AntdGrpcClient : IAntdClient
 
     // ── External Signer (not yet available via gRPC) ──
 
-    public Task<PrepareUploadResult> PrepareUploadAsync(string path)
+    public Task<PrepareUploadResult> PrepareUploadAsync(string path, string? visibility = null)
         => throw new NotSupportedException("PrepareUpload is not yet supported via gRPC");
 
-    public Task<PrepareUploadResult> PrepareDataUploadAsync(byte[] data)
+    public Task<PrepareUploadResult> PrepareUploadPublicAsync(string path)
+        => throw new NotSupportedException("PrepareUploadPublic is not yet supported via gRPC");
+
+    public Task<PrepareUploadResult> PrepareDataUploadAsync(byte[] data, string? visibility = null)
         => throw new NotSupportedException("PrepareDataUpload is not yet supported via gRPC");
 
     public Task<FinalizeUploadResult> FinalizeUploadAsync(string uploadId, Dictionary<string, string> txHashes)

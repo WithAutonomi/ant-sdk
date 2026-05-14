@@ -160,6 +160,51 @@ public sealed class AntdRestClient : IAntdClient
         return Convert.FromBase64String(resp.Data);
     }
 
+    /// <summary>
+    /// Prepares a single chunk for external-signer publish via
+    /// <c>POST /v1/chunks/prepare</c>.
+    ///
+    /// The daemon quotes the close group for the supplied bytes and returns
+    /// either <see cref="PrepareChunkResult.AlreadyStored"/> = <c>true</c> with
+    /// <see cref="PrepareChunkResult.Address"/> set (no payment needed), or a
+    /// wave-batch payment intent. Mirrors <see cref="ChunkPutAsync"/> but
+    /// routes payment through an external signer instead of the daemon wallet.
+    ///
+    /// Requires antd &gt;= 0.7.0.
+    /// </summary>
+    public async Task<PrepareChunkResult> PrepareChunkUploadAsync(byte[] data)
+    {
+        var resp = await PostJsonAsync<PrepareChunkDto>("/v1/chunks/prepare",
+            new { data = Convert.ToBase64String(data) });
+        var payments = resp.Payments?
+            .Select(p => new PaymentInfo(p.QuoteHash, p.RewardsAddress, p.Amount))
+            .ToList() ?? new List<PaymentInfo>();
+        return new PrepareChunkResult(
+            resp.Address ?? "",
+            resp.AlreadyStored,
+            resp.UploadId ?? "",
+            resp.PaymentType ?? "",
+            payments,
+            resp.TotalAmount ?? "",
+            resp.PaymentVaultAddress ?? "",
+            resp.PaymentTokenAddress ?? "",
+            resp.RpcUrl ?? "");
+    }
+
+    /// <summary>
+    /// Submits a prepared chunk to the network after the external signer has
+    /// paid via <c>POST /v1/chunks/finalize</c>. Returns the hex address of
+    /// the stored chunk (matches <see cref="PrepareChunkResult.Address"/>).
+    ///
+    /// Requires antd &gt;= 0.7.0.
+    /// </summary>
+    public async Task<string> FinalizeChunkUploadAsync(string uploadId, IDictionary<string, string> txHashes)
+    {
+        var resp = await PostJsonAsync<FinalizeChunkDto>("/v1/chunks/finalize",
+            new { upload_id = uploadId, tx_hashes = txHashes });
+        return resp.Address ?? "";
+    }
+
     // ── Files ──
 
     public async Task<FileUploadResult> FileUploadPublicAsync(string path, string? paymentMode = null)
@@ -225,19 +270,50 @@ public sealed class AntdRestClient : IAntdClient
     /// <summary>
     /// Prepares a file upload for external signing.
     /// </summary>
-    public async Task<PrepareUploadResult> PrepareUploadAsync(string path)
+    /// <param name="path">Path to the file to upload.</param>
+    /// <param name="visibility">
+    /// Pass <c>"public"</c> to bundle the DataMap chunk into the same
+    /// external-signer payment batch — the resulting
+    /// <see cref="FinalizeUploadResult.DataMapAddress"/> is the shareable
+    /// retrieval handle. <c>"private"</c> or <c>null</c> preserves the
+    /// pre-public daemon wire shape (private-only).
+    /// </param>
+    public async Task<PrepareUploadResult> PrepareUploadAsync(string path, string? visibility = null)
     {
-        var resp = await PostJsonAsync<PrepareUploadDto>("/v1/upload/prepare", new { path });
+        object body = visibility != null
+            ? new { path, visibility }
+            : (object)new { path };
+        var resp = await PostJsonAsync<PrepareUploadDto>("/v1/upload/prepare", body);
         return MapPrepareUpload(resp);
     }
+
+    /// <summary>
+    /// Convenience wrapper: prepares a <em>public</em> file upload for external
+    /// signing. Equivalent to <see cref="PrepareUploadAsync"/> with
+    /// <c>visibility="public"</c>.
+    ///
+    /// Requires antd &gt;= 0.6.1.
+    /// </summary>
+    public Task<PrepareUploadResult> PrepareUploadPublicAsync(string path)
+        => PrepareUploadAsync(path, visibility: "public");
 
     /// <summary>
     /// Prepares a data upload for external signing.
     /// Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
     /// </summary>
-    public async Task<PrepareUploadResult> PrepareDataUploadAsync(byte[] data)
+    /// <param name="data">Raw bytes to upload.</param>
+    /// <param name="visibility">
+    /// Pass <c>"public"</c> to request the public flow; note the daemon
+    /// currently returns 501 for <c>visibility="public"</c> on the data path
+    /// until upstream <c>data_prepare_upload_with_visibility</c> lands. Use
+    /// <see cref="PrepareUploadPublicAsync"/> with a file path until then.
+    /// </param>
+    public async Task<PrepareUploadResult> PrepareDataUploadAsync(byte[] data, string? visibility = null)
     {
-        var resp = await PostJsonAsync<PrepareUploadDto>("/v1/data/prepare", new { data = Convert.ToBase64String(data) });
+        object body = visibility != null
+            ? new { data = Convert.ToBase64String(data), visibility }
+            : (object)new { data = Convert.ToBase64String(data) };
+        var resp = await PostJsonAsync<PrepareUploadDto>("/v1/data/prepare", body);
         return MapPrepareUpload(resp);
     }
 
@@ -247,7 +323,11 @@ public sealed class AntdRestClient : IAntdClient
     public async Task<FinalizeUploadResult> FinalizeUploadAsync(string uploadId, Dictionary<string, string> txHashes)
     {
         var resp = await PostJsonAsync<FinalizeUploadDto>("/v1/upload/finalize", new { upload_id = uploadId, tx_hashes = txHashes });
-        return new FinalizeUploadResult(resp.Address, resp.ChunksStored);
+        return new FinalizeUploadResult(
+            resp.Address ?? "",
+            resp.ChunksStored,
+            resp.DataMap ?? "",
+            resp.DataMapAddress ?? "");
     }
 
     /// <summary>
@@ -257,7 +337,11 @@ public sealed class AntdRestClient : IAntdClient
     {
         var resp = await PostJsonAsync<FinalizeUploadDto>("/v1/upload/finalize",
             new { upload_id = uploadId, winner_pool_hash = winnerPoolHash });
-        return new FinalizeMerkleUploadResult(resp.Address, resp.ChunksStored);
+        return new FinalizeMerkleUploadResult(
+            resp.Address ?? "",
+            resp.ChunksStored,
+            resp.DataMap ?? "",
+            resp.DataMapAddress ?? "");
     }
 
     private static PrepareUploadResult MapPrepareUpload(PrepareUploadDto resp)
@@ -348,6 +432,22 @@ public sealed class AntdRestClient : IAntdClient
         [property: JsonPropertyName("merkle_payment_timestamp")] long? MerklePaymentTimestamp = null);
 
     private sealed record FinalizeUploadDto(
-        [property: JsonPropertyName("address")] string Address,
-        [property: JsonPropertyName("chunks_stored")] long ChunksStored);
+        [property: JsonPropertyName("address")] string? Address = null,
+        [property: JsonPropertyName("chunks_stored")] long ChunksStored = 0,
+        [property: JsonPropertyName("data_map")] string? DataMap = null,
+        [property: JsonPropertyName("data_map_address")] string? DataMapAddress = null);
+
+    private sealed record PrepareChunkDto(
+        [property: JsonPropertyName("address")] string? Address = null,
+        [property: JsonPropertyName("already_stored")] bool AlreadyStored = false,
+        [property: JsonPropertyName("upload_id")] string? UploadId = null,
+        [property: JsonPropertyName("payment_type")] string? PaymentType = null,
+        [property: JsonPropertyName("payments")] List<PaymentInfoDto>? Payments = null,
+        [property: JsonPropertyName("total_amount")] string? TotalAmount = null,
+        [property: JsonPropertyName("payment_vault_address")] string? PaymentVaultAddress = null,
+        [property: JsonPropertyName("payment_token_address")] string? PaymentTokenAddress = null,
+        [property: JsonPropertyName("rpc_url")] string? RpcUrl = null);
+
+    private sealed record FinalizeChunkDto(
+        [property: JsonPropertyName("address")] string? Address = null);
 }

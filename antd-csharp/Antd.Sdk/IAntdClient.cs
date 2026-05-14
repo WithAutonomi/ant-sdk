@@ -15,6 +15,8 @@ public interface IAntdClient : IDisposable
     // Chunks
     Task<PutResult> ChunkPutAsync(byte[] data);
     Task<byte[]> ChunkGetAsync(string address);
+    Task<PrepareChunkResult> PrepareChunkUploadAsync(byte[] data);
+    Task<string> FinalizeChunkUploadAsync(string uploadId, IDictionary<string, string> txHashes);
 
     // Files
     Task<FileUploadResult> FileUploadPublicAsync(string path, string? paymentMode = null);
@@ -29,8 +31,9 @@ public interface IAntdClient : IDisposable
     Task<bool> WalletApproveAsync();
 
     // External Signer (Two-Phase Upload)
-    Task<PrepareUploadResult> PrepareUploadAsync(string path);
-    Task<PrepareUploadResult> PrepareDataUploadAsync(byte[] data);
+    Task<PrepareUploadResult> PrepareUploadAsync(string path, string? visibility = null);
+    Task<PrepareUploadResult> PrepareUploadPublicAsync(string path);
+    Task<PrepareUploadResult> PrepareDataUploadAsync(byte[] data, string? visibility = null);
     Task<FinalizeUploadResult> FinalizeUploadAsync(string uploadId, Dictionary<string, string> txHashes);
     Task<FinalizeMerkleUploadResult> FinalizeMerkleUploadAsync(string uploadId, string winnerPoolHash);
 }

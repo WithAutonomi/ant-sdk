@@ -58,11 +58,54 @@ public sealed record PrepareUploadResult(
     List<PoolCommitmentEntry>? PoolCommitments = null,
     long? MerklePaymentTimestamp = null);
 
-/// <summary>Result of finalizing an externally-signed upload.</summary>
-public sealed record FinalizeUploadResult(string Address, long ChunksStored);
+/// <summary>
+/// Result of finalizing an externally-signed wave-batch upload.
+///
+/// <see cref="DataMap"/> is the hex-encoded serialized DataMap and is always
+/// populated. <see cref="DataMapAddress"/> is set only when prepare was called
+/// with <c>visibility="public"</c> — the DataMap chunk was bundled into the
+/// same external-signer payment batch and stored on-network, and the address
+/// is the shareable retrieval handle. Pre-0.6.1 daemons that don't emit this
+/// field leave it as <c>""</c>.
+/// </summary>
+public sealed record FinalizeUploadResult(
+    string Address,
+    long ChunksStored,
+    string DataMap = "",
+    string DataMapAddress = "");
 
-/// <summary>Result of finalizing a merkle batch upload.</summary>
-public sealed record FinalizeMerkleUploadResult(string Address, long ChunksStored);
+/// <summary>
+/// Result of finalizing a merkle batch upload.
+///
+/// See <see cref="FinalizeUploadResult"/> for the meaning of <see cref="DataMap"/>
+/// and <see cref="DataMapAddress"/>.
+/// </summary>
+public sealed record FinalizeMerkleUploadResult(
+    string Address,
+    long ChunksStored,
+    string DataMap = "",
+    string DataMapAddress = "");
+
+/// <summary>
+/// Result of preparing a single-chunk external-signer publish via
+/// <c>POST /v1/chunks/prepare</c>.
+///
+/// When <see cref="AlreadyStored"/> is <c>true</c> the chunk is already on
+/// the network — only <see cref="Address"/> and <see cref="AlreadyStored"/>
+/// are meaningful, and no finalize call is needed. Otherwise the wave-batch
+/// payment fields describe what the external signer must submit before
+/// calling <c>FinalizeChunkUploadAsync</c>.
+/// </summary>
+public sealed record PrepareChunkResult(
+    string Address,
+    bool AlreadyStored = false,
+    string UploadId = "",
+    string PaymentType = "",
+    List<PaymentInfo>? Payments = null,
+    string TotalAmount = "",
+    string PaymentVaultAddress = "",
+    string PaymentTokenAddress = "",
+    string RpcUrl = "");
 
 /// <summary>
 /// Pre-upload cost breakdown returned by <c>DataCostAsync</c> and <c>FileCostAsync</c>.
