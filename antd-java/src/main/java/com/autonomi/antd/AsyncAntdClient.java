@@ -233,6 +233,20 @@ public class AsyncAntdClient implements AutoCloseable {
                 .thenApply(j -> b64Decode(str(j, "data")));
     }
 
+    /** Async variant of {@link AntdClient#prepareChunkUpload(byte[])}. */
+    public CompletableFuture<PrepareChunkResult> prepareChunkUploadAsync(byte[] data) {
+        String body = Json.object("data", b64Encode(data));
+        return doJsonAsync("POST", "/v1/chunks/prepare", body)
+                .thenApply(AntdClient::parsePrepareChunkResult);
+    }
+
+    /** Async variant of {@link AntdClient#finalizeChunkUpload(String, Map)}. */
+    public CompletableFuture<String> finalizeChunkUploadAsync(String uploadId, Map<String, String> txHashes) {
+        String body = Json.object("upload_id", uploadId, "tx_hashes", txHashes);
+        return doJsonAsync("POST", "/v1/chunks/finalize", body)
+                .thenApply(j -> str(j, "address"));
+    }
+
     // ── Files & Directories ──
 
     /** Async variant of {@link AntdClient#fileUploadPublic(String)}. */

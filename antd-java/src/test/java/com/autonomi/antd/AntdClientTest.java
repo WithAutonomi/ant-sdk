@@ -360,6 +360,287 @@ class AntdClientTest {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // V2-249 PR4: visibility / data_map_address
+    // -------------------------------------------------------------------------
+
+    @Test
+    void testPrepareUploadOmitsVisibilityWhenNull() throws IOException {
+        // Default prepareUpload(path) must NOT send a `visibility` key, so
+        // pre-0.6.1 daemons keep working.
+        try (MockWebServer srv = new MockWebServer()) {
+            srv.setDispatcher(new Dispatcher() {
+                @Override
+                public MockResponse dispatch(RecordedRequest request) {
+                    return new MockResponse()
+                            .setHeader("Content-Type", "application/json")
+                            .setBody(
+                                "{\"upload_id\":\"up-priv-1\","
+                                + "\"payment_type\":\"wave_batch\","
+                                + "\"payments\":[{\"quote_hash\":\"qh1\",\"rewards_address\":\"ra1\",\"amount\":\"100\"}],"
+                                + "\"total_amount\":\"100\","
+                                + "\"payment_vault_address\":\"dp1\","
+                                + "\"payment_token_address\":\"pt1\","
+                                + "\"rpc_url\":\"http://localhost:8545\"}"
+                            );
+                }
+            });
+            srv.start();
+
+            try (AntdClient c = new AntdClient(srv.url("/").toString(), Duration.ofSeconds(10))) {
+                PrepareUploadResult res = c.prepareUpload("/tmp/private.bin");
+                assertEquals("up-priv-1", res.uploadId());
+
+                RecordedRequest req = srv.takeRequest();
+                String body = req.getBody().readUtf8();
+                assertFalse(body.contains("visibility"),
+                        "private prepareUpload must NOT include `visibility` key: " + body);
+                assertTrue(body.contains("\"path\""), "should still include `path`: " + body);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                fail("interrupted: " + e);
+            }
+        }
+    }
+
+    @Test
+    void testPrepareUploadPublicSendsVisibility() throws IOException {
+        try (MockWebServer srv = new MockWebServer()) {
+            srv.setDispatcher(new Dispatcher() {
+                @Override
+                public MockResponse dispatch(RecordedRequest request) {
+                    if ("POST".equals(request.getMethod()) && "/v1/upload/prepare".equals(request.getPath())) {
+                        return new MockResponse()
+                                .setHeader("Content-Type", "application/json")
+                                .setBody(
+                                    "{\"upload_id\":\"up-pub-1\","
+                                    + "\"payment_type\":\"wave_batch\","
+                                    + "\"payments\":[{\"quote_hash\":\"qh1\",\"rewards_address\":\"ra1\",\"amount\":\"100\"}],"
+                                    + "\"total_amount\":\"100\","
+                                    + "\"payment_vault_address\":\"dp1\","
+                                    + "\"payment_token_address\":\"pt1\","
+                                    + "\"rpc_url\":\"http://localhost:8545\"}"
+                                );
+                    }
+                    return new MockResponse().setResponseCode(404);
+                }
+            });
+            srv.start();
+
+            try (AntdClient c = new AntdClient(srv.url("/").toString(), Duration.ofSeconds(10))) {
+                PrepareUploadResult res = c.prepareUploadPublic("/tmp/public.bin");
+                assertEquals("up-pub-1", res.uploadId());
+
+                RecordedRequest req = srv.takeRequest();
+                String body = req.getBody().readUtf8();
+                assertTrue(body.contains("\"visibility\":\"public\""),
+                        "prepareUploadPublic must send visibility=public: " + body);
+                assertTrue(body.contains("\"path\":\"/tmp/public.bin\""),
+                        "should include path: " + body);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                fail("interrupted: " + e);
+            }
+        }
+    }
+
+    @Test
+    void testFinalizeUploadSurfacesDataMapAddress() throws IOException {
+        try (MockWebServer srv = new MockWebServer()) {
+            srv.setDispatcher(new Dispatcher() {
+                @Override
+                public MockResponse dispatch(RecordedRequest request) {
+                    if ("POST".equals(request.getMethod()) && "/v1/upload/finalize".equals(request.getPath())) {
+                        return new MockResponse()
+                                .setHeader("Content-Type", "application/json")
+                                .setBody("{\"data_map\":\"deadbeef\","
+                                        + "\"data_map_address\":\"cafebabe\","
+                                        + "\"chunks_stored\":4}");
+                    }
+                    return new MockResponse().setResponseCode(404);
+                }
+            });
+            srv.start();
+
+            try (AntdClient c = new AntdClient(srv.url("/").toString(), Duration.ofSeconds(10))) {
+                FinalizeUploadResult res = c.finalizeUpload("up1", Map.of("qh1", "tx1"));
+                assertEquals("deadbeef", res.dataMap());
+                assertEquals("cafebabe", res.dataMapAddress());
+                assertEquals("", res.address(),
+                        "legacy address must be empty when daemon returned only data_map_address");
+                assertEquals(4L, res.chunksStored());
+            }
+        }
+    }
+
+    @Test
+    void testFinalizeUploadOmitsDataMapAddressForPrivate() throws IOException {
+        // Pre-0.6.1 daemons don't return data_map / data_map_address; both
+        // default to empty strings via the parser.
+        try (MockWebServer srv = new MockWebServer()) {
+            srv.setDispatcher(new Dispatcher() {
+                @Override
+                public MockResponse dispatch(RecordedRequest request) {
+                    if ("POST".equals(request.getMethod()) && "/v1/upload/finalize".equals(request.getPath())) {
+                        return new MockResponse()
+                                .setHeader("Content-Type", "application/json")
+                                .setBody("{\"address\":\"addr-priv\",\"chunks_stored\":2}");
+                    }
+                    return new MockResponse().setResponseCode(404);
+                }
+            });
+            srv.start();
+
+            try (AntdClient c = new AntdClient(srv.url("/").toString(), Duration.ofSeconds(10))) {
+                FinalizeUploadResult res = c.finalizeUpload("up1", Map.of("qh1", "tx1"));
+                assertEquals("addr-priv", res.address());
+                assertEquals(2L, res.chunksStored());
+                assertEquals("", res.dataMap());
+                assertEquals("", res.dataMapAddress());
+            }
+        }
+    }
+
+    @Test
+    void testFinalizeUploadResultBackwardCompatConstructor() {
+        // The two-arg constructor must still work for callers that build
+        // synthetic results in tests / code.
+        FinalizeUploadResult r = new FinalizeUploadResult("addr", 7L);
+        assertEquals("addr", r.address());
+        assertEquals(7L, r.chunksStored());
+        assertEquals("", r.dataMap());
+        assertEquals("", r.dataMapAddress());
+    }
+
+    // -------------------------------------------------------------------------
+    // V2-274: single-chunk external-signer (antd >= 0.7.0)
+    // -------------------------------------------------------------------------
+
+    @Test
+    void testPrepareChunkUploadWaveBatch() throws IOException {
+        try (MockWebServer srv = new MockWebServer()) {
+            srv.setDispatcher(new Dispatcher() {
+                @Override
+                public MockResponse dispatch(RecordedRequest request) {
+                    if ("POST".equals(request.getMethod()) && "/v1/chunks/prepare".equals(request.getPath())) {
+                        return new MockResponse()
+                                .setHeader("Content-Type", "application/json")
+                                .setBody(
+                                    "{\"address\":\"aa00000000000000000000000000000000000000000000000000000000000000\","
+                                    + "\"already_stored\":false,"
+                                    + "\"upload_id\":\"chunk-1\","
+                                    + "\"payment_type\":\"wave_batch\","
+                                    + "\"payments\":["
+                                    + "{\"quote_hash\":\"qh1\",\"rewards_address\":\"ra1\",\"amount\":\"100\"},"
+                                    + "{\"quote_hash\":\"qh2\",\"rewards_address\":\"ra2\",\"amount\":\"100\"}],"
+                                    + "\"total_amount\":\"200\","
+                                    + "\"payment_vault_address\":\"0xvault\","
+                                    + "\"payment_token_address\":\"0xtoken\","
+                                    + "\"rpc_url\":\"http://localhost:8545\"}"
+                                );
+                    }
+                    return new MockResponse().setResponseCode(404);
+                }
+            });
+            srv.start();
+
+            try (AntdClient c = new AntdClient(srv.url("/").toString(), Duration.ofSeconds(10))) {
+                PrepareChunkResult res = c.prepareChunkUpload("hello".getBytes());
+
+                // Request: bytes must arrive base64-encoded under `data`.
+                RecordedRequest req = srv.takeRequest();
+                String body = req.getBody().readUtf8();
+                assertTrue(body.contains("\"data\":\"aGVsbG8=\""),
+                        "expected base64-encoded `hello` in body: " + body);
+
+                assertFalse(res.alreadyStored());
+                assertEquals("chunk-1", res.uploadId());
+                assertEquals("wave_batch", res.paymentType());
+                assertEquals(2, res.payments().size());
+                assertEquals("qh1", res.payments().get(0).quoteHash());
+                assertEquals("100", res.payments().get(1).amount());
+                assertEquals("200", res.totalAmount());
+                assertEquals("0xvault", res.paymentVaultAddress());
+                assertEquals("0xtoken", res.paymentTokenAddress());
+                assertEquals("http://localhost:8545", res.rpcUrl());
+                assertEquals(64, res.address().length(),
+                        "address should be 64 hex chars");
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                fail("interrupted: " + e);
+            }
+        }
+    }
+
+    @Test
+    void testPrepareChunkUploadAlreadyStored() throws IOException {
+        try (MockWebServer srv = new MockWebServer()) {
+            srv.setDispatcher(new Dispatcher() {
+                @Override
+                public MockResponse dispatch(RecordedRequest request) {
+                    if ("POST".equals(request.getMethod()) && "/v1/chunks/prepare".equals(request.getPath())) {
+                        return new MockResponse()
+                                .setHeader("Content-Type", "application/json")
+                                .setBody(
+                                    "{\"address\":\"bb11111111111111111111111111111111111111111111111111111111111111\","
+                                    + "\"already_stored\":true}"
+                                );
+                    }
+                    return new MockResponse().setResponseCode(404);
+                }
+            });
+            srv.start();
+
+            try (AntdClient c = new AntdClient(srv.url("/").toString(), Duration.ofSeconds(10))) {
+                PrepareChunkResult res = c.prepareChunkUpload("already-on-network".getBytes());
+                assertTrue(res.alreadyStored());
+                assertFalse(res.address().isEmpty(),
+                        "address must still be populated for already-stored chunks");
+                assertEquals("", res.uploadId());
+                assertTrue(res.payments().isEmpty());
+                assertEquals("", res.totalAmount());
+                assertEquals("", res.paymentType());
+            }
+        }
+    }
+
+    @Test
+    void testFinalizeChunkUploadReturnsAddress() throws IOException {
+        try (MockWebServer srv = new MockWebServer()) {
+            srv.setDispatcher(new Dispatcher() {
+                @Override
+                public MockResponse dispatch(RecordedRequest request) {
+                    if ("POST".equals(request.getMethod()) && "/v1/chunks/finalize".equals(request.getPath())) {
+                        return new MockResponse()
+                                .setHeader("Content-Type", "application/json")
+                                .setBody("{\"address\":\"cc22222222222222222222222222222222222222222222222222222222222222\"}");
+                    }
+                    return new MockResponse().setResponseCode(404);
+                }
+            });
+            srv.start();
+
+            try (AntdClient c = new AntdClient(srv.url("/").toString(), Duration.ofSeconds(10))) {
+                String addr = c.finalizeChunkUpload("chunk-1",
+                        Map.of("qh1", "tx1", "qh2", "tx2"));
+
+                RecordedRequest req = srv.takeRequest();
+                String body = req.getBody().readUtf8();
+                assertTrue(body.contains("\"upload_id\":\"chunk-1\""),
+                        "upload_id must be sent: " + body);
+                assertTrue(body.contains("\"tx_hashes\""), "tx_hashes must be sent: " + body);
+                assertTrue(body.contains("\"qh1\":\"tx1\""), "tx_hashes.qh1 missing: " + body);
+                assertTrue(body.contains("\"qh2\":\"tx2\""), "tx_hashes.qh2 missing: " + body);
+
+                assertEquals(64, addr.length(),
+                        "finalize should return 64-char hex address, got: " + addr);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                fail("interrupted: " + e);
+            }
+        }
+    }
+
     @Test
     void testPrepareUploadBackwardCompat() throws IOException {
         // Simulate an older daemon that doesn't send payment_type
