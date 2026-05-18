@@ -106,19 +106,6 @@ std::future<void> AsyncClient::file_download_public(std::string address, std::st
         });
 }
 
-std::future<FileUploadResult> AsyncClient::dir_upload_public(std::string path) {
-    return std::async(std::launch::async, [this, p = std::move(path)] {
-        return client_.dir_upload_public(p);
-    });
-}
-
-std::future<void> AsyncClient::dir_download_public(std::string address, std::string dest_path) {
-    return std::async(std::launch::async,
-        [this, addr = std::move(address), dest = std::move(dest_path)] {
-            client_.dir_download_public(addr, dest);
-        });
-}
-
 std::future<UploadCostEstimate> AsyncClient::file_cost(std::string path, bool is_public) {
     return std::async(std::launch::async,
         [this, p = std::move(path), is_public] {
