@@ -152,6 +152,7 @@ LANGUAGES: dict[str, Adapter] = {
         examples={
             "connect": "com.autonomi.examples.Example01Connect",
             "data": "com.autonomi.examples.Example02PublicData",
+            "chunks": "com.autonomi.examples.Example03Chunks",
             "files": "com.autonomi.examples.Example03Files",
             "errors": "com.autonomi.examples.Example05ErrorHandling",
             "private": "com.autonomi.examples.Example06PrivateData",
