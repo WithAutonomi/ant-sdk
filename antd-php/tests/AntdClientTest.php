@@ -217,36 +217,6 @@ class AntdClientTest extends TestCase
         $this->assertTrue(true);
     }
 
-    public function testDirUploadPublic(): void
-    {
-        $mock = new MockHandler([
-            $this->jsonResponse(200, [
-                'address' => 'dir1',
-                'storage_cost_atto' => '2000',
-                'gas_cost_wei' => '100',
-                'chunks_stored' => 5,
-                'payment_mode_used' => 'merkle',
-            ]),
-        ]);
-        $client = $this->createClient($mock);
-        $result = $client->dirUploadPublic('/tmp/mydir');
-        $this->assertSame('dir1', $result->address);
-        $this->assertSame('2000', $result->storageCostAtto);
-        $this->assertSame('100', $result->gasCostWei);
-        $this->assertSame(5, $result->chunksStored);
-        $this->assertSame('merkle', $result->paymentModeUsed);
-    }
-
-    public function testDirDownloadPublic(): void
-    {
-        $mock = new MockHandler([
-            new Response(200),
-        ]);
-        $client = $this->createClient($mock);
-        $client->dirDownloadPublic('dir1', '/tmp/outdir');
-        $this->assertTrue(true);
-    }
-
     public function testFileCost(): void
     {
         $mock = new MockHandler([

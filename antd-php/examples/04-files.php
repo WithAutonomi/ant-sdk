@@ -26,13 +26,3 @@ echo "  chunks: {$result->chunksStored}, mode: {$result->paymentModeUsed}\n";
 $client->fileDownloadPublic($result->address, '/tmp/downloaded.txt');
 echo "File downloaded to /tmp/downloaded.txt\n";
 
-// Upload a directory
-$dirResult = $client->dirUploadPublic('/tmp/mydir');
-echo "Directory uploaded at: {$dirResult->address}\n";
-echo "  storage: {$dirResult->storageCostAtto} atto, gas: {$dirResult->gasCostWei} wei\n";
-echo "  chunks: {$dirResult->chunksStored}, mode: {$dirResult->paymentModeUsed}\n";
-
-// Download the directory
-$client->dirDownloadPublic($dirResult->address, '/tmp/downloaded_dir');
-echo "Directory downloaded to /tmp/downloaded_dir\n";
-
