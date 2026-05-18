@@ -115,24 +115,6 @@ fn mock_file_download_public(server: &mut ServerGuard) -> Mock {
         .create()
 }
 
-fn mock_dir_upload_public(server: &mut ServerGuard) -> Mock {
-    server
-        .mock("POST", "/v1/dirs/upload/public")
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"address":"dir1","storage_cost_atto":"2000","gas_cost_wei":"100","chunks_stored":5,"payment_mode_used":"merkle"}"#)
-        .create()
-}
-
-fn mock_dir_download_public(server: &mut ServerGuard) -> Mock {
-    server
-        .mock("POST", "/v1/dirs/download/public")
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body("")
-        .create()
-}
-
 fn mock_file_cost(server: &mut ServerGuard) -> Mock {
     server
         .mock("POST", "/v1/files/cost")
@@ -320,32 +302,6 @@ async fn test_file_download_public() {
 
     client
         .file_download_public("file1", "/tmp/out.txt")
-        .await
-        .unwrap();
-}
-
-#[tokio::test]
-async fn test_dir_upload_public() {
-    let mut server = mock_server().await;
-    let _m = mock_dir_upload_public(&mut server);
-    let client = Client::new(&server.url());
-
-    let result = client.dir_upload_public("/tmp/mydir", None).await.unwrap();
-    assert_eq!(result.address, "dir1");
-    assert_eq!(result.storage_cost_atto, "2000");
-    assert_eq!(result.gas_cost_wei, "100");
-    assert_eq!(result.chunks_stored, 5);
-    assert_eq!(result.payment_mode_used, "merkle");
-}
-
-#[tokio::test]
-async fn test_dir_download_public() {
-    let mut server = mock_server().await;
-    let _m = mock_dir_download_public(&mut server);
-    let client = Client::new(&server.url());
-
-    client
-        .dir_download_public("dir1", "/tmp/outdir")
         .await
         .unwrap();
 }

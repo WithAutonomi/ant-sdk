@@ -21,23 +21,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     println!("File downloaded");
 
-    // Upload a directory
-    let dir_result = client.dir_upload_public("/tmp/mydir", None).await?;
-    println!(
-        "Directory uploaded at: {} (storage: {} atto, gas: {} wei, chunks: {}, mode: {})",
-        dir_result.address,
-        dir_result.storage_cost_atto,
-        dir_result.gas_cost_wei,
-        dir_result.chunks_stored,
-        dir_result.payment_mode_used,
-    );
-
-    // Download a directory
-    client
-        .dir_download_public(&dir_result.address, "/tmp/mydir-downloaded")
-        .await?;
-    println!("Directory downloaded");
-
     // Estimate file upload cost
     let est = client.file_cost("/tmp/example.txt", true).await?;
     println!(

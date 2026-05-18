@@ -87,13 +87,11 @@ All methods are `async` and return `Result<T, AntdError>`.
 | `chunk_put(data)` | Store a raw chunk |
 | `chunk_get(address)` | Retrieve a chunk |
 
-### Files & Directories
+### Files
 | Method | Description |
 |--------|-------------|
 | `file_upload_public(path)` | Upload a file |
 | `file_download_public(address, dest_path)` | Download a file |
-| `dir_upload_public(path)` | Upload a directory |
-| `dir_download_public(address, dest_path)` | Download a directory |
 | `file_cost(path, is_public)` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ## gRPC Transport
