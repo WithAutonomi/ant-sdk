@@ -94,8 +94,6 @@ All methods are async and return `Task<T>`. The client implements `IDisposable`.
 |--------|---------|-------------|
 | `FileUploadPublicAsync(string path)` | `FileUploadResult` | Upload file |
 | `FileDownloadPublicAsync(string address, string dest)` | — | Download file |
-| `DirUploadPublicAsync(string path)` | `FileUploadResult` | Upload directory |
-| `DirDownloadPublicAsync(string address, string dest)` | — | Download directory |
 | `FileCostAsync(string path, bool isPublic)` | `UploadCostEstimate` | Estimate cost — size, chunks, gas, payment mode |
 
 ## Models
