@@ -34,15 +34,4 @@ pub fn main() !void {
         "Estimate: {d} bytes in {d} chunks, storage {s} atto, gas {s} wei, mode {s}\n",
         .{ est.file_size, est.chunk_count, est.cost, est.estimated_gas_cost_wei, est.payment_mode },
     );
-
-    // Upload a directory
-    const dir_path = "/tmp/example-dir";
-    std.debug.print("Uploading directory: {s}\n", .{dir_path});
-
-    const dir_result = try client.dirUploadPublic(dir_path, null);
-    defer dir_result.deinit(allocator);
-
-    std.debug.print("Directory uploaded at: {s}\n", .{dir_result.address});
-    std.debug.print("Storage cost: {s} atto, gas: {s} wei\n", .{ dir_result.storage_cost_atto, dir_result.gas_cost_wei });
-    std.debug.print("Chunks stored: {d}, payment mode: {s}\n", .{ dir_result.chunks_stored, dir_result.payment_mode_used });
 }
