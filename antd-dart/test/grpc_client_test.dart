@@ -81,18 +81,6 @@ Future<FileUploadResult> fileUploadPublic(String path) =>
 Future<void> fileDownloadPublic(String address, String destPath) =>
       _maybeThrow(null);
 
-Future<FileUploadResult> dirUploadPublic(String path) =>
-      _maybeThrow(const FileUploadResult(
-        address: 'dir1',
-        storageCostAtto: '2000',
-        gasCostWei: '100',
-        chunksStored: 5,
-        paymentModeUsed: 'merkle',
-      ));
-
-Future<void> dirDownloadPublic(String address, String destPath) =>
-      _maybeThrow(null);
-
 Future<String> fileCost(
     String path, {
     bool isPublic = true,
@@ -193,21 +181,6 @@ void main() {
       final client = _FakeGrpcClient();
       await client.fileDownloadPublic('file1', '/tmp/out.txt');
       // No exception means success.
-    });
-
-    test('upload directory', () async {
-      final client = _FakeGrpcClient();
-      final result = await client.dirUploadPublic('/tmp/mydir');
-      expect(result.address, equals('dir1'));
-      expect(result.storageCostAtto, equals('2000'));
-      expect(result.gasCostWei, equals('100'));
-      expect(result.chunksStored, equals(5));
-      expect(result.paymentModeUsed, equals('merkle'));
-    });
-
-    test('download directory', () async {
-      final client = _FakeGrpcClient();
-      await client.dirDownloadPublic('dir1', '/tmp/outdir');
     });
 
     test('file cost', () async {

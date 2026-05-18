@@ -267,24 +267,6 @@ class AntdClient {
     });
   }
 
-  /// Uploads a local directory to the network.
-  Future<FileUploadResult> dirUploadPublic(String path, {String? paymentMode}) async {
-    final body = <String, dynamic>{
-      'path': path,
-    };
-    if (paymentMode != null) body['payment_mode'] = paymentMode;
-    final json = await _doJson('POST', '/v1/dirs/upload/public', body);
-    return FileUploadResult.fromJson(json!);
-  }
-
-  /// Downloads a directory from the network to a local path.
-  Future<void> dirDownloadPublic(String address, String destPath) async {
-    await _doJson('POST', '/v1/dirs/download/public', {
-      'address': address,
-      'dest_path': destPath,
-    });
-  }
-
   /// Pre-upload cost breakdown for the file at [path].
   Future<UploadCostEstimate> fileCost(
     String path, {
