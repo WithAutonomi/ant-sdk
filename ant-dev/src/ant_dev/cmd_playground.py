@@ -14,7 +14,7 @@ Pre-loaded objects:
   aclient    - AsyncAntdClient (async, {transport})
 
 All SDK types are imported:
-  HealthStatus, PutResult, GraphEntry, GraphDescendant
+  HealthStatus, PutResult
 
 All exceptions are imported:
   AntdError, NotFoundError, BadRequestError, PaymentError, ...
@@ -41,8 +41,6 @@ def run(args) -> None:
             # Models
             HealthStatus,
             PutResult,
-            GraphEntry,
-            GraphDescendant,
             # Exceptions
             AntdError,
             NotFoundError,
@@ -79,8 +77,6 @@ def run(args) -> None:
         # Models
         "HealthStatus": HealthStatus,
         "PutResult": PutResult,
-        "GraphEntry": GraphEntry,
-        "GraphDescendant": GraphDescendant,
         # Exceptions
         "AntdError": AntdError,
         "NotFoundError": NotFoundError,
