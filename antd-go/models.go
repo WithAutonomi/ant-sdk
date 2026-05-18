@@ -18,8 +18,8 @@ type PutResult struct {
 	Address string `json:"address"` // hex
 }
 
-// FileUploadResult is the result of a public file or directory upload.
-// Returned by FileUploadPublic and DirUploadPublic on both REST and gRPC clients.
+// FileUploadResult is the result of a public file upload.
+// Returned by FileUploadPublic on both REST and gRPC clients.
 type FileUploadResult struct {
 	Address         string `json:"address"`           // hex network address
 	StorageCostAtto string `json:"storage_cost_atto"` // total storage cost in atto, "0" if all chunks already existed

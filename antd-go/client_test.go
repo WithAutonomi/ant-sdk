@@ -74,16 +74,6 @@ func mockDaemon(t *testing.T) *httptest.Server {
 			})
 		case r.Method == "POST" && r.URL.Path == "/v1/files/download/public":
 			w.WriteHeader(200)
-		case r.Method == "POST" && r.URL.Path == "/v1/dirs/upload/public":
-			json.NewEncoder(w).Encode(map[string]any{
-				"address":           "dir1",
-				"storage_cost_atto": "2000",
-				"gas_cost_wei":      "100",
-				"chunks_stored":     float64(5),
-				"payment_mode_used": "merkle",
-			})
-		case r.Method == "POST" && r.URL.Path == "/v1/dirs/download/public":
-			w.WriteHeader(200)
 		case r.Method == "POST" && r.URL.Path == "/v1/files/cost":
 			json.NewEncoder(w).Encode(map[string]any{
 				"cost":                   "1000",
@@ -269,14 +259,6 @@ func TestFiles(t *testing.T) {
 	}
 	if put.Address != "file1" || put.StorageCostAtto != "1000" || put.GasCostWei != "42" || put.ChunksStored != 3 || put.PaymentModeUsed != "auto" {
 		t.Fatalf("unexpected file upload: %+v", put)
-	}
-
-	dirRes, err := c.DirUploadPublic(ctx, "/tmp/mydir")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if dirRes.Address != "dir1" || dirRes.StorageCostAtto != "2000" || dirRes.GasCostWei != "100" || dirRes.ChunksStored != 5 || dirRes.PaymentModeUsed != "merkle" {
-		t.Fatalf("unexpected dir upload: %+v", dirRes)
 	}
 
 	err = c.FileDownloadPublic(ctx, "file1", "/tmp/out.txt")
