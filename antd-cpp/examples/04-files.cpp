@@ -26,14 +26,9 @@ int main() {
     fs::create_directories(tmp);
 
     const std::string file_content = "Hello from a file on Autonomi!";
-    const std::string dir_file_content = "File inside an uploaded directory.";
 
     fs::path src_file = tmp / "hello.txt";
     write_file(src_file, file_content);
-
-    fs::path src_dir = tmp / "mydir";
-    fs::create_directories(src_dir);
-    write_file(src_dir / "file_in_dir.txt", dir_file_content);
 
     try {
         antd::Client client;
@@ -61,24 +56,7 @@ int main() {
             return 1;
         }
 
-        auto dir_result = client.dir_upload_public(src_dir.string());
-        std::cout << "Directory uploaded at: " << dir_result.address << "\n";
-        std::cout << "  storage: " << dir_result.storage_cost_atto << " atto, gas: "
-                  << dir_result.gas_cost_wei << " wei\n";
-        std::cout << "  chunks: " << dir_result.chunks_stored << ", mode: "
-                  << dir_result.payment_mode_used << "\n";
-
-        fs::path dst_dir = tmp / "mydir-downloaded";
-        client.dir_download_public(dir_result.address, dst_dir.string());
-        std::cout << "Directory downloaded to " << dst_dir << "\n";
-
-        std::string got_dir_file = read_file(dst_dir / "file_in_dir.txt");
-        if (got_dir_file != dir_file_content) {
-            std::cerr << "Directory round-trip mismatch on file_in_dir.txt\n";
-            return 1;
-        }
-
-        std::cout << "File and directory upload/download OK!\n";
+        std::cout << "File upload/download OK!\n";
     } catch (const antd::AntdError& e) {
         std::cerr << "Error: " << e.what() << "\n";
         fs::remove_all(tmp, ec);

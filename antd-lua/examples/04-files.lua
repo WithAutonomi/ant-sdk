@@ -27,14 +27,9 @@ run_cmd("rm -rf " .. tmp)
 assert(run_cmd("mkdir -p " .. tmp))
 
 local file_content = "Hello from a file on Autonomi!"
-local dir_file_content = "File inside an uploaded directory."
 
 local src_file = tmp .. "/hello.txt"
 write_file(src_file, file_content)
-
-local src_dir = tmp .. "/mydir"
-assert(run_cmd("mkdir -p " .. src_dir))
-write_file(src_dir .. "/file_in_dir.txt", dir_file_content)
 
 local cost, err5 = client:file_cost(src_file, true, false)
 if err5 then
@@ -68,28 +63,5 @@ if read_file(dst_file) ~= file_content then
     os.exit(1)
 end
 
-local dir_result, err3 = client:dir_upload_public(src_dir)
-if err3 then
-    print("Dir upload error: " .. err3.message)
-    os.exit(1)
-end
-
-print("Directory uploaded at: " .. dir_result.address)
-
-local dst_dir = tmp .. "/mydir_copy"
-local _, err4 = client:dir_download_public(dir_result.address, dst_dir)
-if err4 then
-    print("Dir download error: " .. err4.message)
-    os.exit(1)
-end
-
-print("Directory downloaded to " .. dst_dir)
-
-if read_file(dst_dir .. "/file_in_dir.txt") ~= dir_file_content then
-    run_cmd("rm -rf " .. tmp)
-    print("Directory round-trip mismatch on file_in_dir.txt")
-    os.exit(1)
-end
-
 run_cmd("rm -rf " .. tmp)
-print("File and directory upload/download OK!")
+print("File upload/download OK!")

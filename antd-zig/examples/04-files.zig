@@ -15,21 +15,12 @@ pub fn main() !void {
     defer std.fs.deleteTreeAbsolute(tmp) catch {};
 
     const file_content = "Hello from a file on Autonomi!";
-    const dir_file_content = "File inside an uploaded directory.";
 
     const src_file = tmp ++ "/hello.txt";
     {
         const f = try std.fs.createFileAbsolute(src_file, .{});
         defer f.close();
         try f.writeAll(file_content);
-    }
-
-    const src_dir = tmp ++ "/mydir";
-    try std.fs.makeDirAbsolute(src_dir);
-    {
-        const f = try std.fs.createFileAbsolute(src_dir ++ "/file_in_dir.txt", .{});
-        defer f.close();
-        try f.writeAll(dir_file_content);
     }
 
     const est = try client.fileCost(src_file, true);
@@ -59,25 +50,5 @@ pub fn main() !void {
         }
     }
 
-    const dir_result = try client.dirUploadPublic(src_dir, null);
-    defer dir_result.deinit(allocator);
-
-    std.debug.print("Directory uploaded at: {s}\n", .{dir_result.address});
-    std.debug.print("Storage cost: {s} atto, gas: {s} wei\n", .{ dir_result.storage_cost_atto, dir_result.gas_cost_wei });
-    std.debug.print("Chunks stored: {d}, payment mode: {s}\n", .{ dir_result.chunks_stored, dir_result.payment_mode_used });
-
-    const dst_dir = tmp ++ "/mydir_copy";
-    try client.dirDownloadPublic(dir_result.address, dst_dir);
-    std.debug.print("Directory downloaded to {s}\n", .{dst_dir});
-
-    {
-        const got = try std.fs.cwd().readFileAlloc(allocator, dst_dir ++ "/file_in_dir.txt", 1 << 20);
-        defer allocator.free(got);
-        if (!std.mem.eql(u8, got, dir_file_content)) {
-            std.debug.print("directory round-trip mismatch on file_in_dir.txt\n", .{});
-            return error.RoundTripMismatch;
-        }
-    }
-
-    std.debug.print("File and directory upload/download OK!\n", .{});
+    std.debug.print("File upload/download OK!\n", .{});
 }

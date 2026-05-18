@@ -30,19 +30,14 @@ rrmdir($tmp);
 mkdir($tmp, 0o700, true);
 
 $fileContent = "Hello from a file on Autonomi!";
-$dirFileContent = "File inside an uploaded directory.";
 
 $srcFile = $tmp . '/hello.txt';
 file_put_contents($srcFile, $fileContent);
 
-$srcDir = $tmp . '/mydir';
-mkdir($srcDir, 0o700, true);
-file_put_contents($srcDir . '/file_in_dir.txt', $dirFileContent);
-
 $client = new AntdClient();
 
 $cost = $client->fileCost($srcFile, true, false);
-echo "Estimated cost: {$cost} atto\n";
+echo "Estimated cost: {$cost->cost} atto ({$cost->chunkCount} chunks)\n";
 
 $result = $client->fileUploadPublic($srcFile);
 echo "File uploaded at: {$result->address}\n";
@@ -59,20 +54,5 @@ if (file_get_contents($dstFile) !== $fileContent) {
     exit(1);
 }
 
-$dirResult = $client->dirUploadPublic($srcDir);
-echo "Directory uploaded at: {$dirResult->address}\n";
-echo "  storage: {$dirResult->storageCostAtto} atto, gas: {$dirResult->gasCostWei} wei\n";
-echo "  chunks: {$dirResult->chunksStored}, mode: {$dirResult->paymentModeUsed}\n";
-
-$dstDir = $tmp . '/mydir_copy';
-$client->dirDownloadPublic($dirResult->address, $dstDir);
-echo "Directory downloaded to {$dstDir}\n";
-
-if (file_get_contents($dstDir . '/file_in_dir.txt') !== $dirFileContent) {
-    rrmdir($tmp);
-    fwrite(STDERR, "directory round-trip mismatch on file_in_dir.txt\n");
-    exit(1);
-}
-
 rrmdir($tmp);
-echo "File and directory upload/download OK!\n";
+echo "File upload/download OK!\n";
