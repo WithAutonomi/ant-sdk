@@ -109,14 +109,12 @@ All methods return `!T` (error union) using Zig's standard error handling.
 | `chunkPut` | `fn (self: *Client, data: []const u8) !PutResult` | Store a raw chunk |
 | `chunkGet` | `fn (self: *Client, address: []const u8) ![]const u8` | Retrieve a chunk |
 
-### Files & Directories
+### Files
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
 | `fileUploadPublic` | `fn (self: *Client, path: []const u8) !PutResult` | Upload a file |
 | `fileDownloadPublic` | `fn (self: *Client, address: []const u8, dest_path: []const u8) !void` | Download a file |
-| `dirUploadPublic` | `fn (self: *Client, path: []const u8) !PutResult` | Upload a directory |
-| `dirDownloadPublic` | `fn (self: *Client, address: []const u8, dest_path: []const u8) !void` | Download a directory |
 | `fileCost` | `fn (self: *Client, path: []const u8, is_public: bool) !UploadCostEstimate` | Estimate upload cost — returns size, chunks, gas, payment mode |
 
 ## Error Handling

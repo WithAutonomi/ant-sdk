@@ -146,14 +146,12 @@ All functions take a `%Antd.Client{}` as the first argument. Each returns `{:ok,
 | `chunk_put(client, data)` | Store a raw chunk |
 | `chunk_get(client, address)` | Retrieve a chunk |
 
-### Files & Directories
+### Files
 
 | Function | Description |
 |----------|-------------|
 | `file_upload_public(client, path)` | Upload a file |
 | `file_download_public(client, address, dest_path)` | Download a file |
-| `dir_upload_public(client, path)` | Upload a directory |
-| `dir_download_public(client, address, dest_path)` | Download a directory |
 | `file_cost(client, path, is_public)` | Estimate upload cost — returns `Antd.UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ## Error Handling

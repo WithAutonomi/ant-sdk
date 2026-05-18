@@ -95,12 +95,6 @@ IO.puts("File address: #{result.address}")
 # Download a file
 :ok = Antd.Client.file_download_public(client, result.address, "/path/to/output.txt")
 
-# Upload a directory
-{:ok, result} = Antd.Client.dir_upload_public(client, "/path/to/directory")
-
-# Download a directory
-:ok = Antd.Client.dir_download_public(client, result.address, "/path/to/output_dir")
-
 # Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
 {:ok, est} = Antd.Client.file_cost(client, "/path/to/file.txt")
 ```

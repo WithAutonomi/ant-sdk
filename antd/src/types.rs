@@ -284,19 +284,6 @@ pub struct FileDownloadRequest {
     pub dest_path: String,
 }
 
-#[derive(Serialize)]
-pub struct DirUploadPublicResponse {
-    pub address: String,
-    /// Total storage cost paid in token units (atto). "0" if all chunks already existed.
-    pub storage_cost_atto: String,
-    /// Total gas cost paid in wei, as a decimal string.
-    pub gas_cost_wei: String,
-    /// Number of chunks stored on the network.
-    pub chunks_stored: u64,
-    /// Which payment mode was actually used ("auto", "merkle", or "single").
-    pub payment_mode_used: String,
-}
-
 // ── Cost ──
 
 #[derive(Serialize)]

@@ -390,36 +390,6 @@ func (c *Client) FileDownloadPublic(ctx context.Context, address, destPath strin
 	return err
 }
 
-// DirUploadPublic uploads a local directory to the network.
-func (c *Client) DirUploadPublic(ctx context.Context, path string, paymentMode ...PaymentMode) (*FileUploadResult, error) {
-	body := map[string]any{
-		"path": path,
-	}
-	if len(paymentMode) > 0 && paymentMode[0] != "" {
-		body["payment_mode"] = string(paymentMode[0])
-	}
-	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/dirs/upload/public", body)
-	if err != nil {
-		return nil, err
-	}
-	return &FileUploadResult{
-		Address:         str(j, "address"),
-		StorageCostAtto: str(j, "storage_cost_atto"),
-		GasCostWei:      str(j, "gas_cost_wei"),
-		ChunksStored:    unum64(j, "chunks_stored"),
-		PaymentModeUsed: str(j, "payment_mode_used"),
-	}, nil
-}
-
-// DirDownloadPublic downloads a directory from the network to a local path.
-func (c *Client) DirDownloadPublic(ctx context.Context, address, destPath string) error {
-	_, _, err := c.doJSON(ctx, http.MethodPost, "/v1/dirs/download/public", map[string]any{
-		"address":   address,
-		"dest_path": destPath,
-	})
-	return err
-}
-
 // FileCost returns a pre-upload cost breakdown for the file at path.
 //
 // The server samples a small number of chunk addresses and extrapolates —

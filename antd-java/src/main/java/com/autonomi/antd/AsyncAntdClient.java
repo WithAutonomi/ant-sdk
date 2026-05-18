@@ -263,13 +263,6 @@ public class AsyncAntdClient implements AutoCloseable {
                 .thenApply(j -> null);
     }
 
-    /** Async variant of {@link AntdClient#dirUploadPublic(String)}. */
-    public CompletableFuture<FileUploadResult> dirUploadPublicAsync(String path) {
-        String body = Json.object("path", path);
-        return doJsonAsync("POST", "/v1/dirs/upload/public", body)
-                .thenApply(AsyncAntdClient::parseFileUploadResult);
-    }
-
     private static FileUploadResult parseFileUploadResult(Map<String, Object> j) {
         return new FileUploadResult(
                 str(j, "address"),
@@ -277,13 +270,6 @@ public class AsyncAntdClient implements AutoCloseable {
                 str(j, "gas_cost_wei"),
                 num(j, "chunks_stored"),
                 str(j, "payment_mode_used"));
-    }
-
-    /** Async variant of {@link AntdClient#dirDownloadPublic(String, String)}. */
-    public CompletableFuture<Void> dirDownloadPublicAsync(String address, String destPath) {
-        String body = Json.object("address", address, "dest_path", destPath);
-        return doJsonAsync("POST", "/v1/dirs/download/public", body)
-                .thenApply(j -> null);
     }
 
     /** Async variant of {@link AntdClient#fileCost(String, boolean)}. */

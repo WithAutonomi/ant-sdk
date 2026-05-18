@@ -199,20 +199,6 @@ class GrpcClient:
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
-    def dir_upload_public(self, path: str) -> FileUploadResult:
-        try:
-            resp = self._files.DirUploadPublic(files_pb2.UploadFileRequest(path=path))
-            return _file_upload_result_from_resp(resp)
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    def dir_download_public(self, address: str, dest_path: str) -> None:
-        try:
-            self._files.DirDownloadPublic(files_pb2.DownloadPublicRequest(
-                address=address, dest_path=dest_path))
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
     def file_cost(self, path: str, is_public: bool = True) -> UploadCostEstimate:
         """Pre-upload cost breakdown for the file at ``path``."""
         try:
@@ -356,20 +342,6 @@ class AsyncGrpcClient:
     async def file_download_public(self, address: str, dest_path: str) -> None:
         try:
             await self._files.DownloadPublic(files_pb2.DownloadPublicRequest(
-                address=address, dest_path=dest_path))
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    async def dir_upload_public(self, path: str) -> FileUploadResult:
-        try:
-            resp = await self._files.DirUploadPublic(files_pb2.UploadFileRequest(path=path))
-            return _file_upload_result_from_resp(resp)
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    async def dir_download_public(self, address: str, dest_path: str) -> None:
-        try:
-            await self._files.DirDownloadPublic(files_pb2.DownloadPublicRequest(
                 address=address, dest_path=dest_path))
         except grpc.RpcError as e:
             _handle_rpc_error(e)

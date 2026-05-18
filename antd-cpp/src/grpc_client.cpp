@@ -207,31 +207,6 @@ void GrpcClient::file_download_public(std::string_view address,
     check_status(impl_->file_stub->DownloadPublic(&ctx, req, &resp));
 }
 
-FileUploadResult GrpcClient::dir_upload_public(std::string_view path) {
-    grpc::ClientContext ctx;
-    antd::v1::UploadFileRequest req;
-    req.set_path(std::string(path));
-    antd::v1::UploadPublicResponse resp;
-    check_status(impl_->file_stub->DirUploadPublic(&ctx, req, &resp));
-    return FileUploadResult{
-        .address = resp.address(),
-        .storage_cost_atto = resp.storage_cost_atto(),
-        .gas_cost_wei = resp.gas_cost_wei(),
-        .chunks_stored = resp.chunks_stored(),
-        .payment_mode_used = resp.payment_mode_used(),
-    };
-}
-
-void GrpcClient::dir_download_public(std::string_view address,
-                                      std::string_view dest_path) {
-    grpc::ClientContext ctx;
-    antd::v1::DownloadPublicRequest req;
-    req.set_address(std::string(address));
-    req.set_dest_path(std::string(dest_path));
-    antd::v1::DownloadResponse resp;
-    check_status(impl_->file_stub->DirDownloadPublic(&ctx, req, &resp));
-}
-
 std::string GrpcClient::file_cost(std::string_view path, bool is_public) {
     grpc::ClientContext ctx;
     antd::v1::FileCostRequest req;

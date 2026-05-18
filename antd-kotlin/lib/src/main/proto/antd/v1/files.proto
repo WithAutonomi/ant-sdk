@@ -10,8 +10,6 @@ import "antd/v1/common.proto";
 service FileService {
   rpc UploadPublic(UploadFileRequest) returns (UploadPublicResponse);
   rpc DownloadPublic(DownloadPublicRequest) returns (DownloadResponse);
-  rpc DirUploadPublic(UploadFileRequest) returns (UploadPublicResponse);
-  rpc DirDownloadPublic(DownloadPublicRequest) returns (DownloadResponse);
   rpc GetFileCost(FileCostRequest) returns (Cost);
 }
 

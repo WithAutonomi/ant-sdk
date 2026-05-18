@@ -294,21 +294,6 @@ class RestClient:
         })
         _check(resp)
 
-    def dir_upload_public(self, path: str, payment_mode: str | None = None) -> FileUploadResult:
-        body: dict = {"path": path}
-        if payment_mode is not None:
-            body["payment_mode"] = payment_mode
-        resp = self._http.post("/v1/dirs/upload/public", json=body)
-        _check(resp)
-        return _parse_file_upload_result(resp.json())
-
-    def dir_download_public(self, address: str, dest_path: str) -> None:
-        resp = self._http.post("/v1/dirs/download/public", json={
-            "address": address,
-            "dest_path": dest_path,
-        })
-        _check(resp)
-
     def file_cost(self, path: str, is_public: bool = True) -> UploadCostEstimate:
         """Pre-upload cost breakdown for the file at ``path``.
 
@@ -538,21 +523,6 @@ class AsyncRestClient:
 
     async def file_download_public(self, address: str, dest_path: str) -> None:
         resp = await self._http.post("/v1/files/download/public", json={
-            "address": address,
-            "dest_path": dest_path,
-        })
-        _check(resp)
-
-    async def dir_upload_public(self, path: str, payment_mode: str | None = None) -> FileUploadResult:
-        body: dict = {"path": path}
-        if payment_mode is not None:
-            body["payment_mode"] = payment_mode
-        resp = await self._http.post("/v1/dirs/upload/public", json=body)
-        _check(resp)
-        return _parse_file_upload_result(resp.json())
-
-    async def dir_download_public(self, address: str, dest_path: str) -> None:
-        resp = await self._http.post("/v1/dirs/download/public", json={
             "address": address,
             "dest_path": dest_path,
         })

@@ -109,14 +109,12 @@ All methods throw `AntdException` (or a typed subclass) on failure.
 | `chunkPut(data)` | Store a raw chunk |
 | `chunkGet(address)` | Retrieve a chunk |
 
-### Files & Directories
+### Files
 
 | Method | Description |
 |--------|-------------|
 | `fileUploadPublic(path)` | Upload a file |
 | `fileDownloadPublic(address, destPath)` | Download a file |
-| `dirUploadPublic(path)` | Upload a directory |
-| `dirDownloadPublic(address, destPath)` | Download a directory |
 | `fileCost(path, isPublic)` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ## Async Usage

@@ -101,8 +101,7 @@ pub fn parsePutResult(allocator: Allocator, body: []const u8, address_key: []con
     return .{ .cost = cost, .address = address };
 }
 
-/// Parse a FileUploadResult from a JSON response body. Used for both
-/// file_upload_public and dir_upload_public responses.
+/// Parse a FileUploadResult from a JSON response body.
 pub fn parseFileUploadResult(allocator: Allocator, body: []const u8) !models.FileUploadResult {
     const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
         return error.JsonError;

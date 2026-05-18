@@ -320,21 +320,6 @@ public class GrpcAntdClient implements AutoCloseable {
         }
     }
 
-    /**
-     * Upload a directory to the network (public).
-     */
-    public FileUploadResult dirUploadPublic(String path) {
-        try {
-            UploadFileRequest req = UploadFileRequest.newBuilder()
-                    .setPath(path)
-                    .build();
-            UploadPublicResponse resp = fileStub.dirUploadPublic(req);
-            return toFileUploadResult(resp);
-        } catch (StatusRuntimeException e) {
-            throw mapException(e);
-        }
-    }
-
     private static FileUploadResult toFileUploadResult(UploadPublicResponse resp) {
         return new FileUploadResult(
                 resp.getAddress(),
@@ -342,21 +327,6 @@ public class GrpcAntdClient implements AutoCloseable {
                 resp.getGasCostWei(),
                 resp.getChunksStored(),
                 resp.getPaymentModeUsed());
-    }
-
-    /**
-     * Download a public directory to a local path.
-     */
-    public void dirDownloadPublic(String address, String destPath) {
-        try {
-            DownloadPublicRequest req = DownloadPublicRequest.newBuilder()
-                    .setAddress(address)
-                    .setDestPath(destPath)
-                    .build();
-            fileStub.dirDownloadPublic(req);
-        } catch (StatusRuntimeException e) {
-            throw mapException(e);
-        }
     }
 
     /**

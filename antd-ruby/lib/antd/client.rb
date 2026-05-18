@@ -170,25 +170,6 @@ module Antd
       nil
     end
 
-    # Upload a local directory to the network.
-    # @param path [String] local directory path
-    # @return [FileUploadResult]
-    def dir_upload_public(path, payment_mode: nil)
-      body = { path: path }
-      body[:payment_mode] = payment_mode if payment_mode
-      j = do_json(:post, "/v1/dirs/upload/public", body)
-      file_upload_result_from(j)
-    end
-
-    # Download a directory from the network to a local path.
-    # @param address [String]
-    # @param dest_path [String]
-    # @return [void]
-    def dir_download_public(address, dest_path)
-      do_json(:post, "/v1/dirs/download/public", { address: address, dest_path: dest_path })
-      nil
-    end
-
     # Pre-upload cost breakdown for the file at +path+.
     # @param path [String]
     # @param is_public [Boolean]

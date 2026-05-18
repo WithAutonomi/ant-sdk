@@ -78,13 +78,11 @@ $client = new AntdClient('http://localhost:8082', 300.0, $myGuzzleClient);
 | `chunkPut(string $data)` | Store a raw chunk |
 | `chunkGet(string $address)` | Retrieve a chunk |
 
-### Files & Directories
+### Files
 | Method | Description |
 |--------|-------------|
 | `fileUploadPublic(string $path)` | Upload a file |
 | `fileDownloadPublic(string $address, string $destPath)` | Download a file |
-| `dirUploadPublic(string $path)` | Upload a directory |
-| `dirDownloadPublic(string $address, string $destPath)` | Download a directory |
 | `fileCost(string $path, bool $isPublic)` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ## Async Usage

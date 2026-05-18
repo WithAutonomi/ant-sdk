@@ -177,25 +177,6 @@ public sealed class AntdGrpcClient : IAntdClient
         catch (RpcException ex) { throw Wrap(ex); }
     }
 
-    public async Task<FileUploadResult> DirUploadPublicAsync(string path, string? paymentMode = null)
-    {
-        try
-        {
-            var resp = await _files.DirUploadPublicAsync(new UploadFileRequest { Path = path });
-            return new FileUploadResult(resp.Address, resp.StorageCostAtto, resp.GasCostWei, resp.ChunksStored, resp.PaymentModeUsed);
-        }
-        catch (RpcException ex) { throw Wrap(ex); }
-    }
-
-    public async Task DirDownloadPublicAsync(string address, string destPath)
-    {
-        try
-        {
-            await _files.DirDownloadPublicAsync(new DownloadPublicRequest { Address = address, DestPath = destPath });
-        }
-        catch (RpcException ex) { throw Wrap(ex); }
-    }
-
     public async Task<UploadCostEstimate> FileCostAsync(string path, bool isPublic = true)
     {
         try

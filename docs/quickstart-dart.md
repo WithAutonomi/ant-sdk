@@ -86,12 +86,6 @@ print('File address: ${result.address}');
 // Download a file
 await client.fileDownloadPublic(result.address, '/path/to/output.txt');
 
-// Upload a directory
-final dirResult = await client.dirUploadPublic('/path/to/directory');
-
-// Download a directory
-await client.dirDownloadPublic(dirResult.address, '/path/to/output_dir');
-
 // Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
 final est = await client.fileCost('/path/to/file.txt');
 ```

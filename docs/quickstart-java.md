@@ -119,12 +119,6 @@ System.out.println("File address: " + result.address());
 // Download a file
 client.fileDownloadPublic(result.address(), "/path/to/output.txt");
 
-// Upload a directory
-var dirResult = client.dirUploadPublic("/path/to/directory");
-
-// Download a directory
-client.dirDownloadPublic(dirResult.address(), "/path/to/output_dir");
-
 // Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
 UploadCostEstimate est = client.fileCost("/path/to/file.txt");
 ```

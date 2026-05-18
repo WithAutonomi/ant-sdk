@@ -101,12 +101,6 @@ val result = client.fileUploadPublic("/path/to/file.txt")
 // Download a file
 client.fileDownloadPublic(result.address, "/path/to/output.txt")
 
-// Upload a directory
-val dirResult = client.dirUploadPublic("/path/to/directory")
-
-// Download a directory
-client.dirDownloadPublic(dirResult.address, "/path/to/output_dir")
-
 // Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
 val est = client.fileCost("/path/to/file.txt")
 ```

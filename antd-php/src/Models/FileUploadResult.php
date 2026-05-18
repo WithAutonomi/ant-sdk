@@ -5,15 +5,14 @@ declare(strict_types=1);
 namespace Autonomi\Antd\Models;
 
 /**
- * Result of a public file or directory upload.
+ * Result of a public file upload.
  *
- * Returned by AntdClient::fileUploadPublic() and AntdClient::dirUploadPublic()
- * (and their Async variants).
+ * Returned by AntdClient::fileUploadPublic() (and its Async variant).
  */
 readonly class FileUploadResult
 {
     public function __construct(
-        /** Hex-encoded network address of the uploaded file/directory. */
+        /** Hex-encoded network address of the uploaded file. */
         public string $address,
         /** Total storage cost paid in token units (atto). "0" if all chunks already existed. */
         public string $storageCostAtto,

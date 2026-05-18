@@ -80,12 +80,6 @@ echo "File address: {$result->address}\n";
 // Download a file
 $client->fileDownloadPublic($result->address, "/path/to/output.txt");
 
-// Upload a directory
-$result = $client->dirUploadPublic("/path/to/directory");
-
-// Download a directory
-$client->dirDownloadPublic($result->address, "/path/to/output_dir");
-
 // Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
 $est = $client->fileCost("/path/to/file.txt");
 ```

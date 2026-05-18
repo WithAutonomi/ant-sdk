@@ -25,8 +25,6 @@ public protocol AntdClientProtocol: Sendable {
     // Files
     func fileUploadPublic(path: String, paymentMode: String?) async throws -> FileUploadResult
     func fileDownloadPublic(address: String, destPath: String) async throws
-    func dirUploadPublic(path: String, paymentMode: String?) async throws -> FileUploadResult
-    func dirDownloadPublic(address: String, destPath: String) async throws
     func fileCost(path: String, isPublic: Bool) async throws -> UploadCostEstimate
 
     // Wallet

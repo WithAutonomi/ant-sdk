@@ -155,28 +155,6 @@ class TestClient < Minitest::Test
     assert_nil @client.file_download_public("file1", "/tmp/out.txt")
   end
 
-  def test_dir_upload_public
-    stub_request(:post, "#{BASE}/v1/dirs/upload/public")
-      .to_return(status: 200,
-                 body: '{"address":"dir1","storage_cost_atto":"2000","gas_cost_wei":"100","chunks_stored":5,"payment_mode_used":"merkle"}',
-                 headers: { "Content-Type" => "application/json" })
-
-    result = @client.dir_upload_public("/tmp/mydir")
-    assert_equal "dir1", result.address
-    assert_equal "2000", result.storage_cost_atto
-    assert_equal "100", result.gas_cost_wei
-    assert_equal 5, result.chunks_stored
-    assert_equal "merkle", result.payment_mode_used
-  end
-
-  def test_dir_download_public
-    stub_request(:post, "#{BASE}/v1/dirs/download/public")
-      .to_return(status: 200, body: "",
-                 headers: { "Content-Type" => "application/json" })
-
-    assert_nil @client.dir_download_public("dir1", "/tmp/outdir")
-  end
-
   def test_file_cost
     stub_request(:post, "#{BASE}/v1/files/cost")
       .to_return(status: 200,

@@ -153,14 +153,12 @@ async def retrieve_data(
 @mcp.tool()
 async def upload_file(
     path: str,
-    is_directory: bool = False,
     payment_mode: str = "auto",
 ) -> str:
-    """Upload a local file or directory to the Autonomi network (public).
+    """Upload a local file to the Autonomi network (public).
 
     Args:
-        path: Absolute path to the local file or directory.
-        is_directory: Set True if path is a directory.
+        path: Absolute path to the local file.
         payment_mode: Payment strategy — "auto" (default, uses merkle for 64+
             chunks), "merkle" (force batch payments, min 2 chunks), or "single"
             (per-chunk payments).
@@ -171,10 +169,7 @@ async def upload_file(
     """
     client, network = _get_ctx()
     try:
-        if is_directory:
-            result = await client.dir_upload_public(path, payment_mode=payment_mode)
-        else:
-            result = await client.file_upload_public(path, payment_mode=payment_mode)
+        result = await client.file_upload_public(path, payment_mode=payment_mode)
         return _ok({
             "address": result.address,
             "storage_cost_atto": result.storage_cost_atto,
@@ -197,24 +192,19 @@ async def upload_file(
 async def download_file(
     address: str,
     dest_path: str,
-    is_directory: bool = False,
 ) -> str:
-    """Download a file or directory from the Autonomi network to a local path.
+    """Download a file from the Autonomi network to a local path.
 
     Args:
-        address: The network address of the file/directory.
+        address: The network address of the file.
         dest_path: Local path to save to.
-        is_directory: Set True if the address points to a directory.
 
     Returns:
         JSON confirming success, or error details.
     """
     client, network = _get_ctx()
     try:
-        if is_directory:
-            await client.dir_download_public(address, dest_path)
-        else:
-            await client.file_download_public(address, dest_path)
+        await client.file_download_public(address, dest_path)
         return _ok({"status": "downloaded", "dest_path": dest_path}, network)
     except AntdError as exc:
         return _err_antd(exc, network)

@@ -337,44 +337,6 @@ impl Client {
         Ok(())
     }
 
-    /// Uploads a local directory to the network.
-    pub async fn dir_upload_public(&self, path: &str, payment_mode: Option<&str>) -> Result<FileUploadResult, AntdError> {
-        let mut body = json!({ "path": path });
-        if let Some(mode) = payment_mode {
-            body["payment_mode"] = json!(mode);
-        }
-        let (j, _) = self
-            .do_json(
-                reqwest::Method::POST,
-                "/v1/dirs/upload/public",
-                Some(body),
-            )
-            .await?;
-        let j = j.unwrap_or_default();
-        Ok(FileUploadResult {
-            address: Self::str_field(&j, "address"),
-            storage_cost_atto: Self::str_field(&j, "storage_cost_atto"),
-            gas_cost_wei: Self::str_field(&j, "gas_cost_wei"),
-            chunks_stored: Self::u64_field(&j, "chunks_stored"),
-            payment_mode_used: Self::str_field(&j, "payment_mode_used"),
-        })
-    }
-
-    /// Downloads a directory from the network to a local path.
-    pub async fn dir_download_public(
-        &self,
-        address: &str,
-        dest_path: &str,
-    ) -> Result<(), AntdError> {
-        self.do_json(
-            reqwest::Method::POST,
-            "/v1/dirs/download/public",
-            Some(json!({ "address": address, "dest_path": dest_path })),
-        )
-        .await?;
-        Ok(())
-    }
-
     /// Returns a pre-upload cost breakdown for the file at `path`.
     ///
     /// The server samples a small number of chunk addresses and extrapolates,

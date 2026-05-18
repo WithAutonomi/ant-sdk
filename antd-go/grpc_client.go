@@ -304,36 +304,6 @@ func (c *GrpcClient) FileDownloadPublic(ctx context.Context, address, destPath s
 	return errorFromGrpc(err)
 }
 
-// DirUploadPublic uploads a local directory to the network.
-func (c *GrpcClient) DirUploadPublic(ctx context.Context, path string) (*FileUploadResult, error) {
-	ctx, cancel := c.ctx(ctx)
-	defer cancel()
-
-	resp, err := c.file.DirUploadPublic(ctx, &pb.UploadFileRequest{Path: path})
-	if err != nil {
-		return nil, errorFromGrpc(err)
-	}
-	return &FileUploadResult{
-		Address:         resp.GetAddress(),
-		StorageCostAtto: resp.GetStorageCostAtto(),
-		GasCostWei:      resp.GetGasCostWei(),
-		ChunksStored:    resp.GetChunksStored(),
-		PaymentModeUsed: resp.GetPaymentModeUsed(),
-	}, nil
-}
-
-// DirDownloadPublic downloads a directory from the network to a local path.
-func (c *GrpcClient) DirDownloadPublic(ctx context.Context, address, destPath string) error {
-	ctx, cancel := c.ctx(ctx)
-	defer cancel()
-
-	_, err := c.file.DirDownloadPublic(ctx, &pb.DownloadPublicRequest{
-		Address:  address,
-		DestPath: destPath,
-	})
-	return errorFromGrpc(err)
-}
-
 // FileCost returns a pre-upload cost breakdown for the file at path.
 //
 // The server samples a small number of chunk addresses and extrapolates —

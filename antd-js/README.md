@@ -81,8 +81,6 @@ All methods are `async` and return Promises.
 |--------|---------|-------------|
 | `fileUploadPublic(path)` | `FileUploadResult` | Upload file |
 | `fileDownloadPublic(address, destPath)` | `void` | Download file |
-| `dirUploadPublic(path)` | `FileUploadResult` | Upload directory |
-| `dirDownloadPublic(address, destPath)` | `void` | Download directory |
 | `fileCost(path, isPublic?)` | `UploadCostEstimate` | Estimate upload cost — size, chunks, gas, payment mode |
 
 ## Models
