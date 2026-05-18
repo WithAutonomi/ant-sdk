@@ -52,8 +52,8 @@ The server will auto-discover the daemon via the port file. Add `"env": {"ANTD_B
 |---|------|-------------|
 | 1 | `store_data(text, private?, payment_mode?)` | Store text on the network (public or encrypted) |
 | 2 | `retrieve_data(address, private?)` | Retrieve text by address |
-| 3 | `upload_file(path, is_directory?, payment_mode?)` | Upload a local file or directory |
-| 4 | `download_file(address, dest_path, is_directory?)` | Download to local path |
+| 3 | `upload_file(path, payment_mode?)` | Upload a local file |
+| 4 | `download_file(address, dest_path)` | Download to local path |
 | 5 | `get_cost(text?, file_path?)` | Estimate storage cost — returns `cost`, `file_size`, `chunk_count`, `estimated_gas_cost_wei`, `payment_mode` |
 | 6 | `check_balance()` | Check daemon health and network status |
 
