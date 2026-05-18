@@ -399,8 +399,6 @@ Default target: `localhost:50051`. Package: `antd.v1`.
 ### FileService (files.proto)
 - `UploadPublic(UploadFileRequest{path}) → UploadPublicResponse{cost, address}`
 - `DownloadPublic(DownloadPublicRequest{address, dest_path}) → DownloadResponse{}`
-- `DirUploadPublic(UploadFileRequest{path}) → UploadPublicResponse{cost, address}`
-- `DirDownloadPublic(DownloadPublicRequest{address, dest_path}) → DownloadResponse{}`
 - `GetFileCost(FileCostRequest{path, is_public}) → Cost{atto_tokens, file_size, chunk_count, estimated_gas_cost_wei, payment_mode}`
 
 ### EventService (events.proto)
@@ -434,7 +432,7 @@ All data and file upload operations accept an optional `payment_mode` parameter 
 | `"merkle"` | Forces merkle batch payments regardless of chunk count (minimum 2 chunks). Saves gas on larger uploads. |
 | `"single"` | Forces per-chunk payments. Useful for small data or debugging. |
 
-This applies to all PUT endpoints (`data_put_public`, `data_put_private`, `file_upload_public`, `dir_upload_public`) across all SDKs. The parameter is always optional and defaults to `"auto"`.
+This applies to all PUT endpoints (`data_put_public`, `data_put_private`, `file_upload_public`) across all SDKs. The parameter is always optional and defaults to `"auto"`.
 
 **REST:** Include `"payment_mode": "merkle"` in the JSON request body.
 
@@ -482,8 +480,6 @@ client.chunkGet(address: string): Promise<Buffer>
 // Files
 client.fileUploadPublic(path: string): Promise<PutResult>
 client.fileDownloadPublic(address: string, destPath: string): Promise<void>
-client.dirUploadPublic(path: string): Promise<PutResult>
-client.dirDownloadPublic(address: string, destPath: string): Promise<void>
 client.fileCost(path: string, isPublic?: boolean): Promise<UploadCostEstimate>
 
 // Wallet
@@ -521,8 +517,6 @@ client.chunk_get(address: str) → bytes
 # Files
 client.file_upload_public(path: str) → PutResult
 client.file_download_public(address: str, dest_path: str) → None
-client.dir_upload_public(path: str) → PutResult
-client.dir_download_public(address: str, dest_path: str) → None
 client.file_cost(path: str, is_public: bool = True) → UploadCostEstimate
 
 # Wallet
@@ -560,8 +554,6 @@ Task<byte[]> ChunkGetAsync(string address);
 // Files
 Task<PutResult> FileUploadPublicAsync(string path);
 Task FileDownloadPublicAsync(string address, string destPath);
-Task<PutResult> DirUploadPublicAsync(string path);
-Task DirDownloadPublicAsync(string address, string destPath);
 Task<UploadCostEstimate> FileCostAsync(string path, bool isPublic = true);
 
 // Wallet
@@ -599,8 +591,6 @@ suspend fun chunkGet(address: String): ByteArray
 // Files
 suspend fun fileUploadPublic(path: String): PutResult
 suspend fun fileDownloadPublic(address: String, destPath: String)
-suspend fun dirUploadPublic(path: String): PutResult
-suspend fun dirDownloadPublic(address: String, destPath: String)
 suspend fun fileCost(path: String, isPublic: Boolean = true): UploadCostEstimate
 
 // Wallet
@@ -640,8 +630,6 @@ func chunkGet(address: String) async throws -> Data
 // Files
 func fileUploadPublic(path: String) async throws -> PutResult
 func fileDownloadPublic(address: String, destPath: String) async throws
-func dirUploadPublic(path: String) async throws -> PutResult
-func dirDownloadPublic(address: String, destPath: String) async throws
 func fileCost(path: String, isPublic: Bool) async throws -> UploadCostEstimate
 
 // Wallet
@@ -678,8 +666,6 @@ func (c *Client) ChunkGet(ctx context.Context, address string) ([]byte, error)
 // Files
 func (c *Client) FileUploadPublic(ctx context.Context, path string) (*PutResult, error)
 func (c *Client) FileDownloadPublic(ctx context.Context, address string, destPath string) error
-func (c *Client) DirUploadPublic(ctx context.Context, path string) (*PutResult, error)
-func (c *Client) DirDownloadPublic(ctx context.Context, address string, destPath string) error
 func (c *Client) FileCost(ctx context.Context, path string, isPublic bool) (*UploadCostEstimate, error)
 
 // Wallet
@@ -719,8 +705,6 @@ byte[] chunkGet(String address) throws AntdException
 // Files
 PutResult fileUploadPublic(String path) throws AntdException
 void fileDownloadPublic(String address, String destPath) throws AntdException
-PutResult dirUploadPublic(String path) throws AntdException
-void dirDownloadPublic(String address, String destPath) throws AntdException
 UploadCostEstimate fileCost(String path, boolean isPublic) throws AntdException
 
 // Wallet
@@ -760,8 +744,6 @@ async fn chunk_get(&self, address: &str) -> Result<Vec<u8>, AntdError>
 // Files
 async fn file_upload_public(&self, path: &str) -> Result<PutResult, AntdError>
 async fn file_download_public(&self, address: &str, dest_path: &str) -> Result<(), AntdError>
-async fn dir_upload_public(&self, path: &str) -> Result<PutResult, AntdError>
-async fn dir_download_public(&self, address: &str, dest_path: &str) -> Result<(), AntdError>
 async fn file_cost(&self, path: &str, is_public: bool) -> Result<UploadCostEstimate, AntdError>
 
 // Wallet
@@ -802,8 +784,6 @@ std::vector<uint8_t> chunkGet(const std::string& address)
 // Files
 antd::PutResult fileUploadPublic(const std::string& path)
 void fileDownloadPublic(const std::string& address, const std::string& destPath)
-antd::PutResult dirUploadPublic(const std::string& path)
-void dirDownloadPublic(const std::string& address, const std::string& destPath)
 UploadCostEstimate fileCost(const std::string& path, bool isPublic = true)
 
 // Wallet
@@ -844,8 +824,6 @@ client.chunk_get(address) → String
 # Files
 client.file_upload_public(path) → PutResult
 client.file_download_public(address, dest_path) → nil
-client.dir_upload_public(path) → PutResult
-client.dir_download_public(address, dest_path) → nil
 client.file_cost(path, is_public: true) → UploadCostEstimate
 
 # Wallet
@@ -883,8 +861,6 @@ $client->chunkGet(string $address): string
 // Files
 $client->fileUploadPublic(string $path): PutResult
 $client->fileDownloadPublic(string $address, string $destPath): void
-$client->dirUploadPublic(string $path): PutResult
-$client->dirDownloadPublic(string $address, string $destPath): void
 $client->fileCost(string $path, bool $isPublic = true): UploadCostEstimate
 
 // Wallet
@@ -922,8 +898,6 @@ Future<List<int>> chunkGet(String address)
 // Files
 Future<PutResult> fileUploadPublic(String path)
 Future<void> fileDownloadPublic(String address, String destPath)
-Future<PutResult> dirUploadPublic(String path)
-Future<void> dirDownloadPublic(String address, String destPath)
 Future<UploadCostEstimate> fileCost(String path, {bool isPublic = true})
 
 // Wallet
@@ -961,8 +935,6 @@ client:chunk_get(address) → string
 -- Files
 client:file_upload_public(path) → PutResult
 client:file_download_public(address, dest_path) → nil
-client:dir_upload_public(path) → PutResult
-client:dir_download_public(address, dest_path) → nil
 client:file_cost(path, is_public) → UploadCostEstimate (table)
 
 -- Wallet
@@ -998,8 +970,6 @@ Antd.Client.chunk_get(client, address) :: {:ok, binary()} | {:error, term()}
 # Files
 Antd.Client.file_upload_public(client, path) :: {:ok, PutResult.t()} | {:error, term()}
 Antd.Client.file_download_public(client, address, dest_path) :: :ok | {:error, term()}
-Antd.Client.dir_upload_public(client, path) :: {:ok, PutResult.t()} | {:error, term()}
-Antd.Client.dir_download_public(client, address, dest_path) :: :ok | {:error, term()}
 Antd.Client.file_cost(client, path, is_public \\ true) :: {:ok, Antd.UploadCostEstimate.t()} | {:error, term()}
 
 # Wallet
@@ -1038,8 +1008,6 @@ fn chunkGet(self: *Client, address: []const u8) ![]u8
 // Files
 fn fileUploadPublic(self: *Client, path: []const u8) !PutResult
 fn fileDownloadPublic(self: *Client, address: []const u8, dest_path: []const u8) !void
-fn dirUploadPublic(self: *Client, path: []const u8) !PutResult
-fn dirDownloadPublic(self: *Client, address: []const u8, dest_path: []const u8) !void
 fn fileCost(self: *Client, path: []const u8, is_public: bool) !UploadCostEstimate
 
 // Wallet
@@ -1056,8 +1024,8 @@ fn walletApprove(self: *Client) !bool
 |----------|-------------------|-------------|
 | `store_data` | `data_put_public` / `data_put_private` | Store text on network |
 | `retrieve_data` | `data_get_public` / `data_get_private` | Retrieve text from network |
-| `upload_file` | `file_upload_public` / `dir_upload_public` | Upload file or directory |
-| `download_file` | `file_download_public` / `dir_download_public` | Download file or directory |
+| `upload_file` | `file_upload_public` | Upload file |
+| `download_file` | `file_download_public` | Download file |
 | `chunk_put` | `chunk_put` | Store raw chunk |
 | `chunk_get` | `chunk_get` | Retrieve raw chunk |
 | `get_cost` | `data_cost` / `file_cost` | Estimate storage cost |

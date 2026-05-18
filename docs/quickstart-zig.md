@@ -125,13 +125,6 @@ std.debug.print("File address: {s}\n", .{result.address});
 // Download a file
 try client.fileDownloadPublic(result.address, "/path/to/output.txt");
 
-// Upload a directory
-const dir_result = try client.dirUploadPublic("/path/to/directory");
-defer dir_result.deinit(allocator);
-
-// Download a directory
-try client.dirDownloadPublic(dir_result.address, "/path/to/output_dir");
-
 // Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
 const est = try client.fileCost("/path/to/file.txt", true);
 defer est.deinit(allocator);
