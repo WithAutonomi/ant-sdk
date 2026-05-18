@@ -1,4 +1,4 @@
---- Example: Upload and download files and directories.
+--- Example: Upload and download files.
 
 local antd = require("antd")
 
@@ -23,15 +23,6 @@ if err2 then
 end
 
 print("File downloaded successfully")
-
--- Upload a directory
-local dir_result, err3 = client:dir_upload_public("/path/to/mydir")
-if err3 then
-    print("Dir upload error: " .. err3.message)
-    os.exit(1)
-end
-
-print("Directory uploaded at: " .. dir_result.address)
 
 -- Estimate file upload cost
 local cost, err5 = client:file_cost("/path/to/myfile.txt", true, false)
