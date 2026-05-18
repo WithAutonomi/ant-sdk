@@ -2,7 +2,13 @@
 #include <doctest/doctest.h>
 
 #include <nlohmann/json.hpp>
+#include <httplib.h>
 
+#include <atomic>
+#include <chrono>
+#include <thread>
+
+#include "antd/client.hpp"
 #include "antd/errors.hpp"
 #include "antd/models.hpp"
 #include "base64.hpp"
@@ -331,7 +337,230 @@ TEST_CASE("FinalizeUploadResult data_map field") {
 }
 
 // ---------------------------------------------------------------------------
+// Stub-server end-to-end tests (V2-249 PR4 / V2-274)
+//
+// Spin up an in-process httplib::Server on an ephemeral port and drive the
+// real antd::Client against it. This exercises both the request-body shape
+// (e.g. visibility forwarding) and the response-parsing path (e.g.
+// data_map_address surfacing, prepare_chunk_upload's two branches).
+// ---------------------------------------------------------------------------
+
+namespace {
+
+struct StubServer {
+    httplib::Server svr;
+    std::thread th;
+    int port{0};
+
+    // Captured request bodies, keyed by route.
+    json last_prepare_body = json::object();
+    json last_chunk_prepare_body = json::object();
+    json last_chunk_finalize_body = json::object();
+    json last_finalize_body = json::object();
+
+    StubServer() {
+        // /v1/upload/prepare — stash body so tests can assert visibility was
+        // forwarded; return a wave_batch with deterministic upload_id.
+        svr.Post("/v1/upload/prepare", [this](const httplib::Request& req, httplib::Response& res) {
+            try {
+                last_prepare_body = json::parse(req.body);
+            } catch (...) {
+                last_prepare_body = json::object();
+            }
+            json resp = {
+                {"upload_id", "up_wave_1"},
+                {"payment_type", "wave_batch"},
+                {"payments", json::array({{
+                    {"quote_hash", "qh1"},
+                    {"rewards_address", "0xR1"},
+                    {"amount", "100"},
+                }})},
+                {"total_amount", "100"},
+                {"payment_vault_address", "0xDP"},
+                {"payment_token_address", "0xTK"},
+                {"rpc_url", "http://rpc.local"},
+            };
+            res.set_content(resp.dump(), "application/json");
+        });
+
+        // /v1/upload/finalize — echo data_map_address only when the prior
+        // prepare was public, mirroring the daemon's behaviour.
+        svr.Post("/v1/upload/finalize", [this](const httplib::Request& req, httplib::Response& res) {
+            try {
+                last_finalize_body = json::parse(req.body);
+            } catch (...) {
+                last_finalize_body = json::object();
+            }
+            json resp = {
+                {"data_map", "deadbeef"},
+                {"address", "0xFINAL"},
+                {"chunks_stored", 42},
+            };
+            if (last_prepare_body.value("visibility", "") == "public") {
+                resp["data_map_address"] = "0xDMAP";
+            }
+            res.set_content(resp.dump(), "application/json");
+        });
+
+        // /v1/chunks/prepare — branch on the decoded payload prefix so a single
+        // handler exercises both already_stored and wave_batch shapes.
+        svr.Post("/v1/chunks/prepare", [this](const httplib::Request& req, httplib::Response& res) {
+            try {
+                last_chunk_prepare_body = json::parse(req.body);
+            } catch (...) {
+                last_chunk_prepare_body = json::object();
+            }
+            std::string data_b64 = last_chunk_prepare_body.value("data", "");
+            auto decoded = antd::detail::base64_decode(data_b64);
+            std::string decoded_str(decoded.begin(), decoded.end());
+
+            json resp;
+            if (decoded_str.rfind("already_", 0) == 0) {
+                resp = {
+                    {"address", "addr_already_stored"},
+                    {"already_stored", true},
+                };
+            } else {
+                resp = {
+                    {"address", "addr_chunk_new"},
+                    {"already_stored", false},
+                    {"upload_id", "chunk_up_1"},
+                    {"payment_type", "wave_batch"},
+                    {"payments", json::array({{
+                        {"quote_hash", "qhC"},
+                        {"rewards_address", "0xRC"},
+                        {"amount", "7"},
+                    }})},
+                    {"total_amount", "7"},
+                    {"payment_vault_address", "0xVC"},
+                    {"payment_token_address", "0xTC"},
+                    {"rpc_url", "http://rpc.local"},
+                };
+            }
+            res.set_content(resp.dump(), "application/json");
+        });
+
+        svr.Post("/v1/chunks/finalize", [this](const httplib::Request& req, httplib::Response& res) {
+            try {
+                last_chunk_finalize_body = json::parse(req.body);
+            } catch (...) {
+                last_chunk_finalize_body = json::object();
+            }
+            json resp = {{"address", "addr_chunk_new"}};
+            res.set_content(resp.dump(), "application/json");
+        });
+
+        port = svr.bind_to_any_port("127.0.0.1");
+        th = std::thread([this] { svr.listen_after_bind(); });
+
+        // Wait until the server is actually listening.
+        for (int i = 0; i < 100; ++i) {
+            if (svr.is_running()) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+
+    ~StubServer() {
+        svr.stop();
+        if (th.joinable()) th.join();
+    }
+
+    std::string base_url() const {
+        return "http://127.0.0.1:" + std::to_string(port);
+    }
+};
+
+}  // namespace
+
+TEST_CASE("prepare_upload_public forwards visibility=public and finalize surfaces data_map_address") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    auto prep = c.prepare_upload_public("/tmp/file.dat");
+    CHECK(prep.upload_id == "up_wave_1");
+    CHECK(stub.last_prepare_body.value("visibility", "") == "public");
+    CHECK(stub.last_prepare_body.value("path", "") == "/tmp/file.dat");
+
+    auto fin = c.finalize_upload("up_wave_1", {{"qh1", "tx1"}}, /*store_data_map=*/false);
+    CHECK(fin.data_map == "deadbeef");
+    CHECK(fin.address == "0xFINAL");
+    CHECK(fin.data_map_address == "0xDMAP");
+    CHECK(fin.chunks_stored == 42);
+}
+
+TEST_CASE("prepare_upload omits visibility when nullopt and finalize leaves data_map_address empty") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    c.prepare_upload("/tmp/file.dat");  // default: std::nullopt
+    CHECK(stub.last_prepare_body.contains("visibility") == false);
+
+    auto fin = c.finalize_upload("up_wave_1", {{"qh1", "tx1"}});
+    CHECK(fin.data_map_address.empty());
+}
+
+TEST_CASE("prepare_upload with explicit visibility=private forwards the field") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    c.prepare_upload("/tmp/file.dat", std::string("private"));
+    CHECK(stub.last_prepare_body.value("visibility", "") == "private");
+}
+
+TEST_CASE("prepare_chunk_upload already-stored branch omits payment fields") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    std::string payload = "already_chunk_data";
+    std::vector<uint8_t> data(payload.begin(), payload.end());
+    auto r = c.prepare_chunk_upload(data);
+
+    CHECK(r.address == "addr_already_stored");
+    CHECK(r.already_stored == true);
+    CHECK(r.upload_id.empty());
+    CHECK(r.payments.empty());
+    CHECK(r.total_amount.empty());
+    CHECK(r.payment_vault_address.empty());
+}
+
+TEST_CASE("prepare_chunk_upload wave_batch branch returns payment intent") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    std::string payload = "fresh_chunk_data";
+    std::vector<uint8_t> data(payload.begin(), payload.end());
+    auto r = c.prepare_chunk_upload(data);
+
+    CHECK(r.already_stored == false);
+    CHECK(r.address == "addr_chunk_new");
+    CHECK(r.upload_id == "chunk_up_1");
+    CHECK(r.payment_type == "wave_batch");
+    REQUIRE(r.payments.size() == 1);
+    CHECK(r.payments[0].quote_hash == "qhC");
+    CHECK(r.payments[0].rewards_address == "0xRC");
+    CHECK(r.payments[0].amount == "7");
+    CHECK(r.total_amount == "7");
+    CHECK(r.payment_vault_address == "0xVC");
+    CHECK(r.payment_token_address == "0xTC");
+    CHECK(r.rpc_url == "http://rpc.local");
+}
+
+TEST_CASE("finalize_chunk_upload forwards upload_id + tx_hashes and returns address") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    std::map<std::string, std::string> tx{{"qhC", "tx_C"}};
+    auto addr = c.finalize_chunk_upload("chunk_up_1", tx);
+
+    CHECK(addr == "addr_chunk_new");
+    CHECK(stub.last_chunk_finalize_body.value("upload_id", "") == "chunk_up_1");
+    REQUIRE(stub.last_chunk_finalize_body.contains("tx_hashes"));
+    CHECK(stub.last_chunk_finalize_body["tx_hashes"].value("qhC", "") == "tx_C");
+}
+
+// ---------------------------------------------------------------------------
 // NOTE: Full integration tests require a running antd daemon.
-// The tests above validate JSON parsing, base64, and error mapping
-// without network access.
+// The stub-server tests above exercise the actual Client request/response
+// path. The pure-parse tests earlier in this file are kept for fast feedback
+// when the network stack is unavailable.
 // ---------------------------------------------------------------------------

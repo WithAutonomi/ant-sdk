@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:antd/antd.dart';
@@ -332,4 +334,266 @@ void main() {
       client.close();
     });
   });
+
+  group('Public Prepare (V2-249 PR4)', () {
+    test('prepareUploadPublic forwards visibility=public on the wire', () async {
+      final harness = await _ExternalSignerMockServer.start();
+      addTearDown(harness.stop);
+
+      final client = AntdClient(baseUrl: harness.baseUrl);
+      addTearDown(client.close);
+
+      final res = await client.prepareUploadPublic('/tmp/test.txt');
+      expect(res.uploadId, equals('up-pub-1'));
+
+      // Body captured by the mock server must include visibility="public".
+      expect(harness.lastPrepareBody, isNotNull);
+      expect(harness.lastPrepareBody!['visibility'], equals('public'));
+      expect(harness.lastPrepareBody!['path'], equals('/tmp/test.txt'));
+    });
+
+    test('prepareUpload forwards explicit visibility argument', () async {
+      final harness = await _ExternalSignerMockServer.start();
+      addTearDown(harness.stop);
+
+      final client = AntdClient(baseUrl: harness.baseUrl);
+      addTearDown(client.close);
+
+      await client.prepareUpload('/tmp/test.txt', visibility: 'private');
+      expect(harness.lastPrepareBody!['visibility'], equals('private'));
+    });
+
+    test('prepareUpload without visibility omits the JSON field', () async {
+      final harness = await _ExternalSignerMockServer.start();
+      addTearDown(harness.stop);
+
+      final client = AntdClient(baseUrl: harness.baseUrl);
+      addTearDown(client.close);
+
+      await client.prepareUpload('/tmp/test.txt');
+      // No visibility key on the wire — preserves the pre-public daemon shape.
+      expect(harness.lastPrepareBody!.containsKey('visibility'), isFalse);
+    });
+
+    test('FinalizeUploadResult surfaces data_map and data_map_address', () async {
+      final harness = await _ExternalSignerMockServer.start();
+      addTearDown(harness.stop);
+
+      final client = AntdClient(baseUrl: harness.baseUrl);
+      addTearDown(client.close);
+
+      // Set the server to return data_map_address (simulates public flow).
+      harness.includeDataMapAddress = true;
+
+      final res = await client.finalizeUpload('up-pub-1', {'qh1': 'tx1'});
+      expect(res.dataMap, equals('deadbeef'));
+      expect(res.dataMapAddress, equals('cafebabe'));
+      expect(res.chunksStored, equals(4));
+      // Legacy address stays empty when daemon doesn't echo one.
+      expect(res.address, equals(''));
+    });
+
+    test('FinalizeUploadResult.dataMapAddress defaults to "" for old daemons', () {
+      // Pre-0.6.1 daemons don't return data_map_address — the field defaults
+      // cleanly to empty string instead of throwing.
+      final r = FinalizeUploadResult.fromJson({
+        'data_map': 'deadbeef',
+        'chunks_stored': 2,
+      });
+      expect(r.dataMapAddress, equals(''));
+      expect(r.dataMap, equals('deadbeef'));
+    });
+  });
+
+  group('Single-chunk external signer (V2-274)', () {
+    test('prepareChunkUpload base64-encodes data and parses wave-batch shape', () async {
+      final harness = await _ExternalSignerMockServer.start();
+      addTearDown(harness.stop);
+
+      final client = AntdClient(baseUrl: harness.baseUrl);
+      addTearDown(client.close);
+
+      final res = await client.prepareChunkUpload(
+        Uint8List.fromList(utf8.encode('hello')),
+      );
+
+      // Request: bytes must arrive base64-encoded under `data`.
+      expect(harness.lastChunkPrepareBody, isNotNull);
+      expect(harness.lastChunkPrepareBody!['data'], equals('aGVsbG8='));
+
+      expect(res.alreadyStored, isFalse);
+      expect(res.uploadId, equals('chunk-1'));
+      expect(res.paymentType, equals('wave_batch'));
+      expect(res.payments, hasLength(2));
+      expect(res.payments[0].quoteHash, equals('qh1'));
+      expect(res.payments[1].amount, equals('100'));
+      expect(res.totalAmount, equals('200'));
+      expect(res.paymentVaultAddress, equals('0xvault'));
+      expect(res.paymentTokenAddress, equals('0xtoken'));
+      expect(res.rpcUrl, equals('http://localhost:8545'));
+    });
+
+    test('prepareChunkUpload already_stored branch omits payment fields', () async {
+      final harness = await _ExternalSignerMockServer.start();
+      addTearDown(harness.stop);
+
+      final client = AntdClient(baseUrl: harness.baseUrl);
+      addTearDown(client.close);
+
+      // Tell the mock server to respond with already_stored=true.
+      harness.chunkAlreadyStored = true;
+
+      final res = await client.prepareChunkUpload(
+        Uint8List.fromList(utf8.encode('already-on-network')),
+      );
+
+      expect(res.alreadyStored, isTrue);
+      expect(res.address, isNotEmpty);
+      expect(res.uploadId, equals(''));
+      expect(res.payments, isEmpty);
+      expect(res.totalAmount, equals(''));
+      expect(res.paymentType, equals(''));
+    });
+
+    test('finalizeChunkUpload returns address and forwards body', () async {
+      final harness = await _ExternalSignerMockServer.start();
+      addTearDown(harness.stop);
+
+      final client = AntdClient(baseUrl: harness.baseUrl);
+      addTearDown(client.close);
+
+      final addr = await client.finalizeChunkUpload('chunk-1', {
+        'qh1': 'tx1',
+        'qh2': 'tx2',
+      });
+
+      expect(addr, isNotEmpty);
+      expect(addr.length, equals(64));
+
+      expect(harness.lastChunkFinalizeBody, isNotNull);
+      expect(harness.lastChunkFinalizeBody!['upload_id'], equals('chunk-1'));
+      final tx = harness.lastChunkFinalizeBody!['tx_hashes'] as Map<String, dynamic>;
+      expect(tx['qh1'], equals('tx1'));
+      expect(tx['qh2'], equals('tx2'));
+    });
+  });
+}
+
+/// Local HTTP server on an ephemeral port that mimics the antd daemon's
+/// external-signer endpoints. Mirrors the Python test rig
+/// (`HTTPServer` on `127.0.0.1:0`) so the dart suite exercises the real
+/// `http.Client` transport, not just a request callback.
+class _ExternalSignerMockServer {
+  final HttpServer _server;
+
+  /// Toggle to make `/v1/chunks/prepare` return the already-stored branch.
+  bool chunkAlreadyStored = false;
+
+  /// Toggle to make `/v1/upload/finalize` echo a `data_map_address` (set by
+  /// the public-visibility flow).
+  bool includeDataMapAddress = false;
+
+  Map<String, dynamic>? lastPrepareBody;
+  Map<String, dynamic>? lastChunkPrepareBody;
+  Map<String, dynamic>? lastChunkFinalizeBody;
+
+  _ExternalSignerMockServer._(this._server);
+
+  String get baseUrl => 'http://${_server.address.host}:${_server.port}';
+
+  static Future<_ExternalSignerMockServer> start() async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final harness = _ExternalSignerMockServer._(server);
+    server.listen(harness._handle);
+    return harness;
+  }
+
+  Future<void> stop() async {
+    await _server.close(force: true);
+  }
+
+  Future<void> _handle(HttpRequest req) async {
+    final raw = await utf8.decoder.bind(req).join();
+    Map<String, dynamic>? body;
+    if (raw.isNotEmpty) {
+      try {
+        body = jsonDecode(raw) as Map<String, dynamic>;
+      } catch (_) {
+        body = null;
+      }
+    }
+
+    final route = '${req.method} ${req.uri.path}';
+    switch (route) {
+      case 'POST /v1/upload/prepare':
+        lastPrepareBody = body;
+        _send(req, 200, {
+          'upload_id': 'up-pub-1',
+          'payment_type': 'wave_batch',
+          'payments': [
+            {'quote_hash': 'qh1', 'rewards_address': 'ra1', 'amount': '100'},
+          ],
+          'total_amount': '100',
+          'payment_vault_address': 'dp1',
+          'payment_token_address': 'pt1',
+          'rpc_url': 'http://localhost:8545',
+        });
+        break;
+
+      case 'POST /v1/upload/finalize':
+        final resp = <String, dynamic>{
+          'data_map': 'deadbeef',
+          'chunks_stored': 4,
+        };
+        if (includeDataMapAddress) {
+          resp['data_map_address'] = 'cafebabe';
+        }
+        _send(req, 200, resp);
+        break;
+
+      case 'POST /v1/chunks/prepare':
+        lastChunkPrepareBody = body;
+        if (chunkAlreadyStored) {
+          _send(req, 200, {
+            'address': 'bb' + ('11' * 31),
+            'already_stored': true,
+          });
+        } else {
+          _send(req, 200, {
+            'address': 'aa' + ('00' * 31),
+            'already_stored': false,
+            'upload_id': 'chunk-1',
+            'payment_type': 'wave_batch',
+            'payments': [
+              {'quote_hash': 'qh1', 'rewards_address': 'ra1', 'amount': '100'},
+              {'quote_hash': 'qh2', 'rewards_address': 'ra2', 'amount': '100'},
+            ],
+            'total_amount': '200',
+            'payment_vault_address': '0xvault',
+            'payment_token_address': '0xtoken',
+            'rpc_url': 'http://localhost:8545',
+          });
+        }
+        break;
+
+      case 'POST /v1/chunks/finalize':
+        lastChunkFinalizeBody = body;
+        _send(req, 200, {
+          'address': 'cc' + ('22' * 31),
+        });
+        break;
+
+      default:
+        _send(req, 404, {'error': 'unknown route: $route'});
+    }
+  }
+
+  void _send(HttpRequest req, int status, Map<String, dynamic> body) {
+    final payload = jsonEncode(body);
+    req.response.statusCode = status;
+    req.response.headers.contentType = ContentType.json;
+    req.response.contentLength = utf8.encode(payload).length;
+    req.response.write(payload);
+    req.response.close();
+  }
 }

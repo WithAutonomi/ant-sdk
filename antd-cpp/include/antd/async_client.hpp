@@ -6,6 +6,7 @@
 #include "client.hpp"
 
 #include <future>
+#include <map>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -64,6 +65,15 @@ public:
 
     /// Retrieve a chunk by address.
     std::future<std::vector<uint8_t>> chunk_get(std::string address);
+
+    /// Prepare a single chunk for external-signer publish.
+    /// See Client::prepare_chunk_upload.
+    std::future<PrepareChunkResult> prepare_chunk_upload(const std::vector<uint8_t>& data);
+
+    /// Submit a prepared chunk to the network after external payment.
+    /// See Client::finalize_chunk_upload.
+    std::future<std::string> finalize_chunk_upload(std::string upload_id,
+                                                   std::map<std::string, std::string> tx_hashes);
 
     // --- Files & Directories ---
 

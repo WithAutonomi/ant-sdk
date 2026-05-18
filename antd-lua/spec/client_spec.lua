@@ -8,14 +8,27 @@ local cjson = require("cjson")
 
 local mock_routes = {}
 local mock_status = 200
+-- Captured request bodies keyed by `METHOD PATH` so tests can assert on
+-- exactly what the client sent (e.g. visibility forwarding, base64-encoded
+-- chunk data, tx_hashes maps).
+local captured_bodies = {}
+-- Last prepare-upload request body, mirrors the antd-py mock's
+-- `_last_prepare_request` pattern. Used by visibility-forwarding tests.
+local last_prepare_body = nil
 
 local function reset_mock()
     mock_routes = {}
     mock_status = 200
+    captured_bodies = {}
+    last_prepare_body = nil
 end
 
 local function register_route(method, path, status, body)
     mock_routes[method .. " " .. path] = { status = status, body = body }
+end
+
+local function captured_body(method, path)
+    return captured_bodies[method .. " " .. path]
 end
 
 -- Find route with prefix matching for paths with query strings
@@ -36,6 +49,7 @@ end
 local original_http_request
 local function install_mock()
     local socket_http = require("socket.http")
+    local ltn12 = require("ltn12")
     original_http_request = socket_http.request
     socket_http.request = function(params)
         local url = params.url
@@ -44,6 +58,28 @@ local function install_mock()
         -- Extract path from URL
         local path = url:match("http://[^/]+(/.*)") or "/"
 
+        -- Drain the ltn12 source (if any) so tests can assert what the
+        -- client sent. Mirrors the antd-py / antd-go mock-daemon pattern
+        -- of stashing `_last_prepare_request` etc.
+        if params.source then
+            local body_parts = {}
+            local sink = ltn12.sink.table(body_parts)
+            ltn12.pump.all(params.source, sink)
+            local raw = table.concat(body_parts)
+            if raw ~= "" then
+                local ok, parsed = pcall(cjson.decode, raw)
+                local key = method .. " " .. path
+                if ok then
+                    captured_bodies[key] = parsed
+                    if path == "/v1/upload/prepare" or path == "/v1/data/prepare" then
+                        last_prepare_body = parsed
+                    end
+                else
+                    captured_bodies[key] = raw
+                end
+            end
+        end
+
         local route = find_route(method, path)
         if not route then
             route = { status = 404, body = cjson.encode({ error = "not found" }) }
@@ -51,7 +87,6 @@ local function install_mock()
 
         -- Write response body to sink
         if params.sink and route.body then
-            local ltn12 = require("ltn12")
             local source = ltn12.source.string(route.body)
             ltn12.pump.all(source, params.sink)
         end
@@ -383,6 +418,178 @@ describe("antd client", function()
 
             assert.are.equal(1, #result.payments)
             assert.are.equal("qh1", result.payments[1].quote_hash)
+        end)
+    end)
+
+    -- ── Public-prepare (visibility forwarding + data_map_address) ──
+
+    describe("prepare_upload visibility", function()
+        it("omits visibility from request body when nil", function()
+            register_route("POST", "/v1/upload/prepare", 200,
+                cjson.encode({
+                    upload_id = "up_no_vis_1",
+                    payment_type = "wave_batch",
+                    payments = {
+                        { quote_hash = "qh1", rewards_address = "0xR1", amount = "100" },
+                    },
+                    total_amount = "100",
+                    payment_vault_address = "0xDP",
+                    payment_token_address = "0xTK",
+                    rpc_url = "http://rpc.local",
+                }))
+
+            local result, err = client:prepare_upload("/tmp/no-vis/file.dat")
+            assert.is_nil(err)
+            assert.are.equal("up_no_vis_1", result.upload_id)
+            -- visibility key must NOT appear in the request body when nil
+            assert.is_nil(last_prepare_body.visibility)
+            assert.are.equal("/tmp/no-vis/file.dat", last_prepare_body.path)
+        end)
+
+        it("forwards visibility='private' verbatim when supplied", function()
+            register_route("POST", "/v1/upload/prepare", 200,
+                cjson.encode({
+                    upload_id = "up_priv_1",
+                    payment_type = "wave_batch",
+                    payments = {},
+                    total_amount = "0",
+                }))
+
+            local _, err = client:prepare_upload("/tmp/priv/file.dat", "private")
+            assert.is_nil(err)
+            assert.are.equal("private", last_prepare_body.visibility)
+        end)
+    end)
+
+    describe("prepare_upload_public", function()
+        it("forwards visibility='public' and parses the result", function()
+            register_route("POST", "/v1/upload/prepare", 200,
+                cjson.encode({
+                    upload_id = "up_pub_1",
+                    payment_type = "wave_batch",
+                    payments = {
+                        { quote_hash = "qh1", rewards_address = "0xR1", amount = "100" },
+                    },
+                    total_amount = "100",
+                    payment_vault_address = "0xDP",
+                    payment_token_address = "0xTK",
+                    rpc_url = "http://rpc.local",
+                }))
+
+            local result, err = client:prepare_upload_public("/tmp/pub/file.dat")
+            assert.is_nil(err)
+            assert.are.equal("up_pub_1", result.upload_id)
+            assert.are.equal("public", last_prepare_body.visibility)
+            assert.are.equal("/tmp/pub/file.dat", last_prepare_body.path)
+        end)
+    end)
+
+    describe("finalize_upload data_map_address", function()
+        it("surfaces data_map_address + data_map on wave-batch finalize", function()
+            register_route("POST", "/v1/upload/finalize", 200,
+                cjson.encode({
+                    address = "",
+                    data_map = "deadbeef",
+                    data_map_address = "0xDMAP",
+                    chunks_stored = 4,
+                }))
+
+            local result, err = client:finalize_upload("up_pub_1", { qh1 = "tx1" })
+            assert.is_nil(err)
+            assert.are.equal("deadbeef", result.data_map)
+            assert.are.equal("0xDMAP", result.data_map_address)
+            assert.are.equal(4, result.chunks_stored)
+            -- Sent body must contain the tx_hashes map
+            local body = captured_body("POST", "/v1/upload/finalize")
+            assert.are.equal("up_pub_1", body.upload_id)
+            assert.are.equal("tx1", body.tx_hashes.qh1)
+        end)
+
+        it("defaults data_map_address to '' when the daemon omits it", function()
+            register_route("POST", "/v1/upload/finalize", 200,
+                cjson.encode({
+                    address = "0xFIN",
+                    data_map = "deadbeef",
+                    chunks_stored = 2,
+                }))
+
+            local result, err = client:finalize_upload("up_priv_1", { qh1 = "tx1" })
+            assert.is_nil(err)
+            assert.are.equal("", result.data_map_address)
+            assert.are.equal("deadbeef", result.data_map)
+            assert.are.equal("0xFIN", result.address)
+        end)
+    end)
+
+    -- ── Single-chunk external-signer (antd >= 0.7.0) ──
+
+    describe("prepare_chunk_upload", function()
+        it("parses an already-stored response and omits payment fields", function()
+            register_route("POST", "/v1/chunks/prepare", 200,
+                cjson.encode({
+                    address = "addr_already_stored",
+                    already_stored = true,
+                }))
+
+            local result, err = client:prepare_chunk_upload("already-on-network")
+            assert.is_nil(err)
+            assert.are.equal("addr_already_stored", result.address)
+            assert.is_true(result.already_stored)
+            assert.are.equal("", result.upload_id)
+            assert.are.equal(0, #result.payments)
+            assert.are.equal("", result.total_amount)
+            assert.are.equal("", result.payment_type)
+            -- Body must arrive base64-encoded under `data`.
+            local body = captured_body("POST", "/v1/chunks/prepare")
+            assert.are.equal(base64.encode("already-on-network"), body.data)
+        end)
+
+        it("parses a wave-batch payment intent for a new chunk", function()
+            register_route("POST", "/v1/chunks/prepare", 200,
+                cjson.encode({
+                    address = "addr_chunk_new",
+                    already_stored = false,
+                    upload_id = "chunk_up_1",
+                    payment_type = "wave_batch",
+                    payments = {
+                        { quote_hash = "qhC", rewards_address = "0xRC", amount = "7" },
+                    },
+                    total_amount = "7",
+                    payment_vault_address = "0xVC",
+                    payment_token_address = "0xTC",
+                    rpc_url = "http://rpc.local",
+                }))
+
+            local result, err = client:prepare_chunk_upload("new-chunk-bytes")
+            assert.is_nil(err)
+            assert.is_false(result.already_stored)
+            assert.are.equal("addr_chunk_new", result.address)
+            assert.are.equal("chunk_up_1", result.upload_id)
+            assert.are.equal("wave_batch", result.payment_type)
+            assert.are.equal(1, #result.payments)
+            assert.are.equal("qhC", result.payments[1].quote_hash)
+            assert.are.equal("0xRC", result.payments[1].rewards_address)
+            assert.are.equal("7", result.payments[1].amount)
+            assert.are.equal("7", result.total_amount)
+            assert.are.equal("0xVC", result.payment_vault_address)
+            assert.are.equal("0xTC", result.payment_token_address)
+            assert.are.equal("http://rpc.local", result.rpc_url)
+        end)
+    end)
+
+    describe("finalize_chunk_upload", function()
+        it("returns the stored chunk address and forwards tx_hashes", function()
+            register_route("POST", "/v1/chunks/finalize", 200,
+                cjson.encode({ address = "addr_chunk_new" }))
+
+            local addr, err = client:finalize_chunk_upload("chunk_up_1", {
+                qhC = "tx_C",
+            })
+            assert.is_nil(err)
+            assert.are.equal("addr_chunk_new", addr)
+            local body = captured_body("POST", "/v1/chunks/finalize")
+            assert.are.equal("chunk_up_1", body.upload_id)
+            assert.are.equal("tx_C", body.tx_hashes.qhC)
         end)
     end)
 

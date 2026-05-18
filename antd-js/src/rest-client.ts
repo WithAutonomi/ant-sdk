@@ -7,6 +7,7 @@ import type {
   HealthStatus,
   PaymentInfo,
   PoolCommitmentEntry,
+  PrepareChunkResult,
   PrepareUploadResult,
   PutResult,
   UploadCostEstimate,
@@ -326,8 +327,22 @@ export class RestClient {
 
   // ---- External Signer (Two-Phase Upload) ----
 
-  /** Prepare a file upload for external signing. */
-  async prepareUpload(path: string): Promise<PrepareUploadResult> {
+  /**
+   * Prepare a file upload for external signing.
+   *
+   * @param path - Path to the file to upload.
+   * @param options - Optional settings.
+   * @param options.visibility - `"public"` bundles the DataMap chunk into the
+   *   same external-signer payment batch (the resulting `dataMapAddress` on
+   *   finalize is the shareable retrieval handle). `"private"` or omitted
+   *   keeps the existing private-only behaviour.
+   */
+  async prepareUpload(
+    path: string,
+    options?: { visibility?: "public" | "private" },
+  ): Promise<PrepareUploadResult> {
+    const body: Record<string, unknown> = { path };
+    if (options?.visibility !== undefined) body.visibility = options.visibility;
     const j = await this.postJson<{
       upload_id: string;
       payments: { quote_hash: string; rewards_address: string; amount: string }[];
@@ -339,7 +354,7 @@ export class RestClient {
       depth?: number;
       pool_commitments?: { pool_hash: string; candidates: { rewards_address: string; amount: string }[] }[];
       merkle_payment_timestamp?: number;
-    }>("/v1/upload/prepare", { path });
+    }>("/v1/upload/prepare", body);
     const result: PrepareUploadResult = {
       uploadId: j.upload_id,
       payments: (j.payments ?? []).map((p) => ({
@@ -365,6 +380,21 @@ export class RestClient {
     }
     if (j.merkle_payment_timestamp !== undefined) result.merklePaymentTimestamp = j.merkle_payment_timestamp;
     return result;
+  }
+
+  /**
+   * Convenience wrapper: prepare a *public* file upload for external signing.
+   *
+   * Equivalent to `prepareUpload(path, { visibility: "public" })`. In addition
+   * to the data chunks, the daemon bundles the serialized DataMap chunk into
+   * the same payment batch — so the external signer signs ONE EVM transaction
+   * covering chunks + DataMap. After `finalizeUpload`, the result's
+   * `dataMapAddress` is the shareable retrieval handle.
+   *
+   * Requires antd >= 0.6.1.
+   */
+  async prepareUploadPublic(path: string): Promise<PrepareUploadResult> {
+    return this.prepareUpload(path, { visibility: "public" });
   }
 
   /** Prepare a data upload for external signing. */
@@ -413,11 +443,18 @@ export class RestClient {
     uploadId: string,
     txHashes: Record<string, string>,
   ): Promise<FinalizeUploadResult> {
-    const j = await this.postJson<{ address: string; chunks_stored: number }>(
-      "/v1/upload/finalize",
-      { upload_id: uploadId, tx_hashes: txHashes },
-    );
-    return { address: j.address, chunksStored: j.chunks_stored };
+    const j = await this.postJson<{
+      address?: string;
+      chunks_stored: number;
+      data_map?: string;
+      data_map_address?: string;
+    }>("/v1/upload/finalize", { upload_id: uploadId, tx_hashes: txHashes });
+    return {
+      address: j.address ?? "",
+      chunksStored: j.chunks_stored,
+      dataMap: j.data_map ?? "",
+      dataMapAddress: j.data_map_address ?? "",
+    };
   }
 
   /** Finalize a merkle batch upload after selecting a winning pool. */
@@ -426,10 +463,93 @@ export class RestClient {
     winnerPoolHash: string,
     storeDataMap = false,
   ): Promise<FinalizeUploadResult> {
-    const j = await this.postJson<{ address: string; chunks_stored: number }>(
-      "/v1/upload/finalize",
-      { upload_id: uploadId, winner_pool_hash: winnerPoolHash, store_data_map: storeDataMap },
-    );
-    return { address: j.address, chunksStored: j.chunks_stored };
+    const j = await this.postJson<{
+      address?: string;
+      chunks_stored: number;
+      data_map?: string;
+      data_map_address?: string;
+    }>("/v1/upload/finalize", {
+      upload_id: uploadId,
+      winner_pool_hash: winnerPoolHash,
+      store_data_map: storeDataMap,
+    });
+    return {
+      address: j.address ?? "",
+      chunksStored: j.chunks_stored,
+      dataMap: j.data_map ?? "",
+      dataMapAddress: j.data_map_address ?? "",
+    };
+  }
+
+  // ---- Single-chunk external signer (antd >= 0.7.0) ----
+
+  /**
+   * Prepare a single chunk for external-signer publish via
+   * `POST /v1/chunks/prepare`.
+   *
+   * The daemon collects storage quotes from the close group, stashes the
+   * prepared state, and returns either:
+   *
+   *   - `alreadyStored: true` with `address` populated — the chunk is already
+   *     on-network. No payment or finalize call is needed.
+   *   - `alreadyStored: false` with `uploadId` + `payments` + `totalAmount`
+   *     populated. The caller signs and submits `payForQuotes()` externally,
+   *     then calls `finalizeChunkUpload` with the resulting tx hashes.
+   *
+   * Unlike `chunkPut`, this method does NOT require the daemon to have a
+   * wallet — all funds flow through the external signer.
+   *
+   * Requires antd >= 0.7.0.
+   */
+  async prepareChunkUpload(data: Uint8Array | Buffer): Promise<PrepareChunkResult> {
+    const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
+    const j = await this.postJson<{
+      address: string;
+      already_stored: boolean;
+      upload_id?: string;
+      payment_type?: string;
+      payments?: { quote_hash: string; rewards_address: string; amount: string }[];
+      total_amount?: string;
+      payment_vault_address?: string;
+      payment_token_address?: string;
+      rpc_url?: string;
+    }>("/v1/chunks/prepare", { data: RestClient.b64(buf) });
+    return {
+      address: j.address,
+      alreadyStored: Boolean(j.already_stored),
+      uploadId: j.upload_id ?? "",
+      paymentType: j.payment_type ?? "",
+      payments: (j.payments ?? []).map((p) => ({
+        quoteHash: p.quote_hash,
+        rewardsAddress: p.rewards_address,
+        amount: p.amount,
+      })),
+      totalAmount: j.total_amount ?? "",
+      paymentVaultAddress: j.payment_vault_address ?? "",
+      paymentTokenAddress: j.payment_token_address ?? "",
+      rpcUrl: j.rpc_url ?? "",
+    };
+  }
+
+  /**
+   * Submit a single chunk to the network after the external signer has paid
+   * via `POST /v1/chunks/finalize`.
+   *
+   * `txHashes` maps each non-zero `quoteHash` from `prepareChunkUpload`'s
+   * `payments` to the corresponding `tx_hash` returned by `payForQuotes()`.
+   * Returns the hex-encoded network address of the stored chunk (matches
+   * `PrepareChunkResult.address`).
+   *
+   * Requires antd >= 0.7.0.
+   */
+  async finalizeChunkUpload(
+    uploadId: string,
+    txHashes: Record<string, string>,
+  ): Promise<string> {
+    const j = await this.postJson<{ address: string }>("/v1/chunks/finalize", {
+      upload_id: uploadId,
+      tx_hashes: txHashes,
+    });
+    return j.address;
   }
 }

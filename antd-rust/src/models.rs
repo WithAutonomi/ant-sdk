@@ -126,12 +126,68 @@ pub struct PrepareUploadResult {
 }
 
 /// Result of finalizing an externally-signed upload.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FinalizeUploadResult {
     /// Hex address of the stored data.
+    #[serde(default)]
     pub address: String,
     /// Number of chunks stored.
+    #[serde(default)]
     pub chunks_stored: i64,
+    /// Hex-encoded serialized DataMap (always returned). Empty for legacy
+    /// daemons that pre-date the field.
+    #[serde(default)]
+    pub data_map: String,
+    /// On-network address of the DataMap chunk. Populated only when prepare
+    /// was called with `visibility="public"` — the DataMap chunk was bundled
+    /// into the same external-signer payment batch and stored on-network.
+    /// Empty otherwise.
+    #[serde(default)]
+    pub data_map_address: String,
+}
+
+/// Result of preparing a single-chunk publish for external signing via
+/// `POST /v1/chunks/prepare`.
+///
+/// When [`already_stored`](Self::already_stored) is `true`, the chunk is
+/// already on-network — only [`address`](Self::address) is populated and no
+/// finalize call is needed. Otherwise the wave-batch payment fields describe
+/// what the external signer must submit before calling
+/// [`crate::Client::finalize_chunk_upload`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PrepareChunkResult {
+    /// Content-addressed BLAKE3 of the chunk bytes (hex, 64 chars). Always set.
+    pub address: String,
+    /// `true` if the chunk is already stored on the network and no payment
+    /// is needed.
+    #[serde(default)]
+    pub already_stored: bool,
+
+    // Fields below are only populated when `already_stored == false`.
+
+    /// Opaque identifier to pass back to `finalize_chunk_upload`.
+    #[serde(default)]
+    pub upload_id: String,
+    /// Always `"wave_batch"` for single-chunk publishes (well below the
+    /// merkle threshold).
+    #[serde(default)]
+    pub payment_type: String,
+    /// Per-quote payment entries for `payForQuotes()`. Typically 5–7 (one
+    /// per peer in the close group).
+    #[serde(default)]
+    pub payments: Vec<PaymentInfo>,
+    /// Total amount to pay (atto tokens, decimal string).
+    #[serde(default)]
+    pub total_amount: String,
+    /// Payment vault contract address (hex with 0x prefix).
+    #[serde(default)]
+    pub payment_vault_address: String,
+    /// Payment token contract address (hex with 0x prefix).
+    #[serde(default)]
+    pub payment_token_address: String,
+    /// EVM RPC URL for submitting transactions.
+    #[serde(default)]
+    pub rpc_url: String,
 }
 
 /// Pre-upload cost breakdown returned by `estimate_data_cost` /

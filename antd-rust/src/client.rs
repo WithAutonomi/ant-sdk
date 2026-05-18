@@ -446,18 +446,9 @@ impl Client {
 
     // --- External Signer (Two-Phase Upload) ---
 
-    /// Prepares a file upload for external signing.
-    /// Returns payment details that an external signer must process before calling
-    /// [`finalize_upload`](Self::finalize_upload).
-    pub async fn prepare_upload(&self, path: &str) -> Result<PrepareUploadResult, AntdError> {
-        let (j, _) = self
-            .do_json(
-                reqwest::Method::POST,
-                "/v1/upload/prepare",
-                Some(json!({ "path": path })),
-            )
-            .await?;
-        let j = j.unwrap_or_default();
+    /// Parses a `/v1/upload/prepare` or `/v1/data/prepare` JSON response into
+    /// a [`PrepareUploadResult`].
+    fn parse_prepare_response(j: &Value) -> PrepareUploadResult {
         let payments = j
             .get("payments")
             .and_then(|v| v.as_array())
@@ -471,14 +462,14 @@ impl Client {
                     .collect()
             })
             .unwrap_or_default();
-        Ok(PrepareUploadResult {
-            upload_id: Self::str_field(&j, "upload_id"),
+        PrepareUploadResult {
+            upload_id: Self::str_field(j, "upload_id"),
             payments,
-            total_amount: Self::str_field(&j, "total_amount"),
-            payment_vault_address: Self::str_field(&j, "payment_vault_address"),
-            payment_token_address: Self::str_field(&j, "payment_token_address"),
-            rpc_url: Self::str_field(&j, "rpc_url"),
-            payment_type: Self::str_field(&j, "payment_type"),
+            total_amount: Self::str_field(j, "total_amount"),
+            payment_vault_address: Self::str_field(j, "payment_vault_address"),
+            payment_token_address: Self::str_field(j, "payment_token_address"),
+            rpc_url: Self::str_field(j, "rpc_url"),
+            payment_type: Self::str_field(j, "payment_type"),
             depth: j.get("depth").and_then(|v| v.as_u64()).map(|v| v as u8),
             pool_commitments: j.get("pool_commitments").and_then(|v| v.as_array()).map(|arr| {
                 arr.iter()
@@ -500,65 +491,95 @@ impl Client {
                     .collect()
             }),
             merkle_payment_timestamp: j.get("merkle_payment_timestamp").and_then(|v| v.as_u64()),
-        })
+        }
+    }
+
+    /// Prepares a file upload for external signing.
+    ///
+    /// `visibility` controls whether the DataMap chunk is bundled into the
+    /// same external-signer payment batch:
+    /// - `Some("public")` — daemon includes the serialized DataMap as an
+    ///   additional chunk in the payment intent, and `finalize_upload`
+    ///   returns the shareable on-network handle as
+    ///   [`FinalizeUploadResult::data_map_address`]. Requires antd >= 0.6.1.
+    /// - `Some("private")` / `None` — preserves the pre-public daemon wire
+    ///   shape: the JSON field is omitted when `None`.
+    ///
+    /// Returns payment details that an external signer must process before
+    /// calling [`finalize_upload`](Self::finalize_upload).
+    pub async fn prepare_upload(
+        &self,
+        path: &str,
+        visibility: Option<&str>,
+    ) -> Result<PrepareUploadResult, AntdError> {
+        let mut body = json!({ "path": path });
+        if let Some(v) = visibility {
+            body["visibility"] = json!(v);
+        }
+        let (j, _) = self
+            .do_json(reqwest::Method::POST, "/v1/upload/prepare", Some(body))
+            .await?;
+        let j = j.unwrap_or_default();
+        Ok(Self::parse_prepare_response(&j))
+    }
+
+    /// Convenience wrapper: prepares a *public* file upload for external
+    /// signing.
+    ///
+    /// Equivalent to [`prepare_upload`](Self::prepare_upload) with
+    /// `visibility=Some("public")` — the daemon bundles the DataMap chunk
+    /// into the same payment batch so the external signer signs ONE EVM
+    /// transaction covering chunks + DataMap. After `finalize_upload`, the
+    /// result's [`FinalizeUploadResult::data_map_address`] is the shareable
+    /// retrieval handle.
+    ///
+    /// Requires antd >= 0.6.1.
+    pub async fn prepare_upload_public(
+        &self,
+        path: &str,
+    ) -> Result<PrepareUploadResult, AntdError> {
+        self.prepare_upload(path, Some("public")).await
     }
 
     /// Prepares a data upload for external signing.
-    /// Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
-    /// Returns payment details that an external signer must process before calling
-    /// [`finalize_upload`](Self::finalize_upload).
-    pub async fn prepare_data_upload(&self, data: &[u8]) -> Result<PrepareUploadResult, AntdError> {
+    ///
+    /// Takes raw bytes, base64-encodes them, and POSTs to `/v1/data/prepare`.
+    /// Returns payment details that an external signer must process before
+    /// calling [`finalize_upload`](Self::finalize_upload).
+    ///
+    /// `visibility="public"` returns 501 from the daemon until upstream
+    /// ant-client exposes `data_prepare_upload_with_visibility`; use
+    /// [`prepare_upload_public`](Self::prepare_upload_public) with a file path
+    /// until then.
+    pub async fn prepare_data_upload(
+        &self,
+        data: &[u8],
+        visibility: Option<&str>,
+    ) -> Result<PrepareUploadResult, AntdError> {
+        let mut body = json!({ "data": Self::b64_encode(data) });
+        if let Some(v) = visibility {
+            body["visibility"] = json!(v);
+        }
         let (j, _) = self
-            .do_json(
-                reqwest::Method::POST,
-                "/v1/data/prepare",
-                Some(json!({ "data": Self::b64_encode(data) })),
-            )
+            .do_json(reqwest::Method::POST, "/v1/data/prepare", Some(body))
             .await?;
         let j = j.unwrap_or_default();
-        let payments = j
-            .get("payments")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .map(|p| PaymentInfo {
-                        quote_hash: Self::str_field(p, "quote_hash"),
-                        rewards_address: Self::str_field(p, "rewards_address"),
-                        amount: Self::str_field(p, "amount"),
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        Ok(PrepareUploadResult {
-            upload_id: Self::str_field(&j, "upload_id"),
-            payments,
-            total_amount: Self::str_field(&j, "total_amount"),
-            payment_vault_address: Self::str_field(&j, "payment_vault_address"),
-            payment_token_address: Self::str_field(&j, "payment_token_address"),
-            rpc_url: Self::str_field(&j, "rpc_url"),
-            payment_type: Self::str_field(&j, "payment_type"),
-            depth: j.get("depth").and_then(|v| v.as_u64()).map(|v| v as u8),
-            pool_commitments: j.get("pool_commitments").and_then(|v| v.as_array()).map(|arr| {
-                arr.iter()
-                    .map(|p| PoolCommitmentEntry {
-                        pool_hash: Self::str_field(p, "pool_hash"),
-                        candidates: p
-                            .get("candidates")
-                            .and_then(|c| c.as_array())
-                            .map(|ca| {
-                                ca.iter()
-                                    .map(|c| CandidateNodeEntry {
-                                        rewards_address: Self::str_field(c, "rewards_address"),
-                                        amount: Self::str_field(c, "amount"),
-                                    })
-                                    .collect()
-                            })
-                            .unwrap_or_default(),
-                    })
-                    .collect()
-            }),
-            merkle_payment_timestamp: j.get("merkle_payment_timestamp").and_then(|v| v.as_u64()),
-        })
+        Ok(Self::parse_prepare_response(&j))
+    }
+
+    /// Parses a `/v1/upload/finalize` JSON response into a
+    /// [`FinalizeUploadResult`].
+    ///
+    /// `data_map_address` is populated only when prepare was called with
+    /// `visibility="public"` — the DataMap chunk was bundled into the same
+    /// external-signer payment batch and stored on-network.
+    fn parse_finalize_response(j: &Value) -> FinalizeUploadResult {
+        FinalizeUploadResult {
+            address: Self::str_field(j, "address"),
+            chunks_stored: Self::i64_field(j, "chunks_stored"),
+            data_map: Self::str_field(j, "data_map"),
+            data_map_address: Self::str_field(j, "data_map_address"),
+        }
     }
 
     /// Finalizes an upload after an external signer has submitted payment transactions.
@@ -578,10 +599,7 @@ impl Client {
             )
             .await?;
         let j = j.unwrap_or_default();
-        Ok(FinalizeUploadResult {
-            address: Self::str_field(&j, "address"),
-            chunks_stored: Self::i64_field(&j, "chunks_stored"),
-        })
+        Ok(Self::parse_finalize_response(&j))
     }
 
     /// Finalizes a merkle batch upload after the winning pool has been determined.
@@ -603,9 +621,95 @@ impl Client {
             )
             .await?;
         let j = j.unwrap_or_default();
-        Ok(FinalizeUploadResult {
+        Ok(Self::parse_finalize_response(&j))
+    }
+
+    /// Prepares a single chunk for external-signer publish via
+    /// `POST /v1/chunks/prepare`.
+    ///
+    /// The daemon collects storage quotes from the close group, stashes the
+    /// prepared state, and returns either:
+    /// - [`PrepareChunkResult::already_stored`] `= true` with
+    ///   [`PrepareChunkResult::address`] set, if the chunk is already
+    ///   on-network. No payment or finalize call is needed.
+    /// - `already_stored = false` with `upload_id` + `payments` +
+    ///   `total_amount` populated, in which case the caller signs and
+    ///   submits `payForQuotes()` externally, then calls
+    ///   [`finalize_chunk_upload`](Self::finalize_chunk_upload) with the
+    ///   resulting tx hashes.
+    ///
+    /// Unlike [`chunk_put`](Self::chunk_put), this method does NOT require
+    /// the daemon to have a wallet — all funds flow through the external
+    /// signer.
+    ///
+    /// Requires antd >= 0.7.0.
+    pub async fn prepare_chunk_upload(
+        &self,
+        data: &[u8],
+    ) -> Result<PrepareChunkResult, AntdError> {
+        let (j, _) = self
+            .do_json(
+                reqwest::Method::POST,
+                "/v1/chunks/prepare",
+                Some(json!({ "data": Self::b64_encode(data) })),
+            )
+            .await?;
+        let j = j.unwrap_or_default();
+        let payments = j
+            .get("payments")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .map(|p| PaymentInfo {
+                        quote_hash: Self::str_field(p, "quote_hash"),
+                        rewards_address: Self::str_field(p, "rewards_address"),
+                        amount: Self::str_field(p, "amount"),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(PrepareChunkResult {
             address: Self::str_field(&j, "address"),
-            chunks_stored: Self::i64_field(&j, "chunks_stored"),
+            already_stored: j
+                .get("already_stored")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            upload_id: Self::str_field(&j, "upload_id"),
+            payment_type: Self::str_field(&j, "payment_type"),
+            payments,
+            total_amount: Self::str_field(&j, "total_amount"),
+            payment_vault_address: Self::str_field(&j, "payment_vault_address"),
+            payment_token_address: Self::str_field(&j, "payment_token_address"),
+            rpc_url: Self::str_field(&j, "rpc_url"),
         })
+    }
+
+    /// Submits a prepared chunk to the network after external payment via
+    /// `POST /v1/chunks/finalize`.
+    ///
+    /// `tx_hashes` maps each non-zero `quote_hash` from
+    /// [`prepare_chunk_upload`](Self::prepare_chunk_upload)'s payments to the
+    /// corresponding `tx_hash` returned by `payForQuotes()`. Returns the
+    /// hex-encoded network address of the stored chunk (matches
+    /// [`PrepareChunkResult::address`]).
+    ///
+    /// Requires antd >= 0.7.0.
+    pub async fn finalize_chunk_upload(
+        &self,
+        upload_id: &str,
+        tx_hashes: &std::collections::HashMap<String, String>,
+    ) -> Result<String, AntdError> {
+        let (j, _) = self
+            .do_json(
+                reqwest::Method::POST,
+                "/v1/chunks/finalize",
+                Some(json!({
+                    "upload_id": upload_id,
+                    "tx_hashes": tx_hashes,
+                })),
+            )
+            .await?;
+        let j = j.unwrap_or_default();
+        Ok(Self::str_field(&j, "address"))
     }
 }

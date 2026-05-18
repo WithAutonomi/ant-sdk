@@ -224,6 +224,64 @@ defmodule Antd.Client do
   @spec chunk_get!(t(), String.t()) :: binary()
   def chunk_get!(client, address), do: unwrap!(chunk_get(client, address))
 
+  @doc """
+  Prepares a single chunk for external-signer publish via
+  `POST /v1/chunks/prepare`.
+
+  The daemon quotes the close group, stashes the prepared state under a
+  fresh upload id, and returns either:
+
+    * `%Antd.PrepareChunkResult{already_stored: true, address: addr}` —
+      the chunk is already on-network; no payment or finalize is needed.
+    * `%Antd.PrepareChunkResult{already_stored: false, upload_id: ...,
+      payments: [...], ...}` — the wave-batch intent the external signer
+      must satisfy before calling `finalize_chunk_upload/3`.
+
+  Unlike `chunk_put/2`, this endpoint does NOT require the daemon to have
+  a wallet — all funds flow through the external signer. Requires antd
+  >= 0.7.0.
+  """
+  @spec prepare_chunk_upload(t(), binary()) ::
+          {:ok, Antd.PrepareChunkResult.t()} | {:error, Exception.t()}
+  def prepare_chunk_upload(%__MODULE__{} = client, data) when is_binary(data) do
+    case do_json(client, :post, "/v1/chunks/prepare", %{data: Base.encode64(data)}) do
+      {:ok, body} -> {:ok, parse_prepare_chunk_response(body)}
+      {:error, _} = err -> err
+    end
+  end
+
+  @doc "Like `prepare_chunk_upload/2` but raises on error."
+  @spec prepare_chunk_upload!(t(), binary()) :: Antd.PrepareChunkResult.t()
+  def prepare_chunk_upload!(client, data), do: unwrap!(prepare_chunk_upload(client, data))
+
+  @doc """
+  Submits a prepared chunk to the network after external payment via
+  `POST /v1/chunks/finalize`.
+
+  `tx_hashes` maps each non-zero `quote_hash` returned by
+  `prepare_chunk_upload/2` to the `tx_hash` of the corresponding
+  `payForQuotes()` transaction. Returns the hex-encoded network address of
+  the stored chunk (matches `:address` from the prepare result).
+
+  Requires antd >= 0.7.0.
+  """
+  @spec finalize_chunk_upload(t(), String.t(), map()) ::
+          {:ok, String.t()} | {:error, Exception.t()}
+  def finalize_chunk_upload(%__MODULE__{} = client, upload_id, tx_hashes)
+      when is_binary(upload_id) and is_map(tx_hashes) do
+    payload = %{upload_id: upload_id, tx_hashes: tx_hashes}
+
+    case do_json(client, :post, "/v1/chunks/finalize", payload) do
+      {:ok, body} -> {:ok, body["address"] || ""}
+      {:error, _} = err -> err
+    end
+  end
+
+  @doc "Like `finalize_chunk_upload/3` but raises on error."
+  @spec finalize_chunk_upload!(t(), String.t(), map()) :: String.t()
+  def finalize_chunk_upload!(client, upload_id, tx_hashes),
+    do: unwrap!(finalize_chunk_upload(client, upload_id, tx_hashes))
+
   # ---------------------------------------------------------------------------
   # Files & Directories
   # ---------------------------------------------------------------------------
@@ -394,31 +452,85 @@ defmodule Antd.Client do
   # External Signer (Two-Phase Upload)
   # ---------------------------------------------------------------------------
 
-  @doc "Prepares a file upload for external signing."
-  @spec prepare_upload(t(), String.t()) :: {:ok, Antd.PrepareUploadResult.t()} | {:error, Exception.t()}
-  def prepare_upload(%__MODULE__{} = client, path) do
-    case do_json(client, :post, "/v1/upload/prepare", %{path: path}) do
+  @doc """
+  Prepares a file upload for external signing.
+
+  ## Options
+
+    * `:visibility` — `"public"` bundles the DataMap chunk into the same
+      external-signer payment batch so a single EVM transaction covers
+      both the data chunks and the DataMap. After `finalize_upload/3`,
+      `data_map_address` on the result is the shareable retrieval handle.
+      `"private"` (or omitting the option) keeps the existing private-only
+      behaviour and the field is sent only when set.
+  """
+  @spec prepare_upload(t(), String.t(), keyword()) ::
+          {:ok, Antd.PrepareUploadResult.t()} | {:error, Exception.t()}
+  def prepare_upload(%__MODULE__{} = client, path, opts \\ []) do
+    payload = %{path: path}
+
+    payload =
+      case Keyword.get(opts, :visibility) do
+        nil -> payload
+        visibility -> Map.put(payload, :visibility, visibility)
+      end
+
+    case do_json(client, :post, "/v1/upload/prepare", payload) do
       {:ok, body} -> {:ok, parse_prepare_response(body)}
       {:error, _} = err -> err
     end
   end
 
-  @doc "Like `prepare_upload/2` but raises on error."
-  @spec prepare_upload!(t(), String.t()) :: Antd.PrepareUploadResult.t()
-  def prepare_upload!(client, path), do: unwrap!(prepare_upload(client, path))
+  @doc "Like `prepare_upload/3` but raises on error."
+  @spec prepare_upload!(t(), String.t(), keyword()) :: Antd.PrepareUploadResult.t()
+  def prepare_upload!(client, path, opts \\ []), do: unwrap!(prepare_upload(client, path, opts))
 
-  @doc "Prepares a data upload for external signing."
-  @spec prepare_data_upload(t(), binary()) :: {:ok, Antd.PrepareUploadResult.t()} | {:error, Exception.t()}
-  def prepare_data_upload(%__MODULE__{} = client, data) when is_binary(data) do
-    case do_json(client, :post, "/v1/data/prepare", %{data: Base.encode64(data)}) do
+  @doc """
+  Convenience wrapper: prepare a *public* file upload for external signing.
+
+  Equivalent to `prepare_upload(client, path, visibility: "public")`.
+  Requires antd >= 0.6.1.
+  """
+  @spec prepare_upload_public(t(), String.t()) ::
+          {:ok, Antd.PrepareUploadResult.t()} | {:error, Exception.t()}
+  def prepare_upload_public(%__MODULE__{} = client, path),
+    do: prepare_upload(client, path, visibility: "public")
+
+  @doc "Like `prepare_upload_public/2` but raises on error."
+  @spec prepare_upload_public!(t(), String.t()) :: Antd.PrepareUploadResult.t()
+  def prepare_upload_public!(client, path), do: unwrap!(prepare_upload_public(client, path))
+
+  @doc """
+  Prepares an in-memory data upload for external signing.
+
+  ## Options
+
+    * `:visibility` — see `prepare_upload/3`. Note that the daemon currently
+      returns 501 for `"public"` on `/v1/data/prepare`; use
+      `prepare_upload_public/2` with a file path until upstream ant-client
+      exposes `data_prepare_upload_with_visibility`.
+  """
+  @spec prepare_data_upload(t(), binary(), keyword()) ::
+          {:ok, Antd.PrepareUploadResult.t()} | {:error, Exception.t()}
+  def prepare_data_upload(%__MODULE__{} = client, data, opts \\ []) when is_binary(data) do
+    payload = %{data: Base.encode64(data)}
+
+    payload =
+      case Keyword.get(opts, :visibility) do
+        nil -> payload
+        visibility -> Map.put(payload, :visibility, visibility)
+      end
+
+    case do_json(client, :post, "/v1/data/prepare", payload) do
       {:ok, body} -> {:ok, parse_prepare_response(body)}
       {:error, _} = err -> err
     end
   end
 
-  @doc "Like `prepare_data_upload/2` but raises on error."
-  @spec prepare_data_upload!(t(), binary()) :: Antd.PrepareUploadResult.t()
-  def prepare_data_upload!(client, data), do: unwrap!(prepare_data_upload(client, data))
+  @doc "Like `prepare_data_upload/3` but raises on error."
+  @spec prepare_data_upload!(t(), binary(), keyword()) :: Antd.PrepareUploadResult.t()
+  def prepare_data_upload!(client, data, opts \\ []),
+    do: unwrap!(prepare_data_upload(client, data, opts))
 
   @doc "Finalizes an upload after an external signer has submitted payment transactions."
   @spec finalize_upload(t(), String.t(), map()) :: {:ok, Antd.FinalizeUploadResult.t()} | {:error, Exception.t()}
@@ -426,15 +538,8 @@ defmodule Antd.Client do
     payload = %{upload_id: upload_id, tx_hashes: tx_hashes}
 
     case do_json(client, :post, "/v1/upload/finalize", payload) do
-      {:ok, body} ->
-        {:ok,
-         %Antd.FinalizeUploadResult{
-           address: body["address"],
-           chunks_stored: body["chunks_stored"]
-         }}
-
-      {:error, _} = err ->
-        err
+      {:ok, body} -> {:ok, parse_finalize_response(body)}
+      {:error, _} = err -> err
     end
   end
 
@@ -457,15 +562,8 @@ defmodule Antd.Client do
       end
 
     case do_json(client, :post, "/v1/upload/finalize", payload) do
-      {:ok, body} ->
-        {:ok,
-         %Antd.FinalizeUploadResult{
-           address: body["address"],
-           chunks_stored: body["chunks_stored"]
-         }}
-
-      {:error, _} = err ->
-        err
+      {:ok, body} -> {:ok, parse_finalize_response(body)}
+      {:error, _} = err -> err
     end
   end
 
@@ -525,6 +623,39 @@ defmodule Antd.Client do
       depth: body["depth"] || 0,
       pool_commitments: pool_commitments,
       merkle_payment_timestamp: body["merkle_payment_timestamp"] || 0
+    }
+  end
+
+  defp parse_prepare_chunk_response(body) do
+    payments =
+      (body["payments"] || [])
+      |> Enum.map(fn p ->
+        %Antd.PaymentInfo{
+          quote_hash: p["quote_hash"],
+          rewards_address: p["rewards_address"],
+          amount: p["amount"]
+        }
+      end)
+
+    %Antd.PrepareChunkResult{
+      address: body["address"] || "",
+      already_stored: body["already_stored"] == true,
+      upload_id: body["upload_id"] || "",
+      payment_type: body["payment_type"] || "",
+      payments: payments,
+      total_amount: body["total_amount"] || "",
+      payment_vault_address: body["payment_vault_address"] || "",
+      payment_token_address: body["payment_token_address"] || "",
+      rpc_url: body["rpc_url"] || ""
+    }
+  end
+
+  defp parse_finalize_response(body) do
+    %Antd.FinalizeUploadResult{
+      address: body["address"] || "",
+      chunks_stored: body["chunks_stored"] || 0,
+      data_map: body["data_map"] || "",
+      data_map_address: body["data_map_address"] || ""
     }
   end
 

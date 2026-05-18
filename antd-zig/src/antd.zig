@@ -13,6 +13,9 @@ pub const FileUploadResult = models.FileUploadResult;
 pub const WalletAddress = models.WalletAddress;
 pub const WalletBalance = models.WalletBalance;
 pub const UploadCostEstimate = models.UploadCostEstimate;
+pub const PaymentInfo = models.PaymentInfo;
+pub const PrepareChunkResult = models.PrepareChunkResult;
+pub const FinalizeUploadResult = models.FinalizeUploadResult;
 pub const AntdError = errors.AntdError;
 pub const ErrorInfo = errors.ErrorInfo;
 pub const errorForStatus = errors.errorForStatus;
@@ -330,33 +333,111 @@ pub const Client = struct {
     // --- External Signer (Two-Phase Upload) ---
 
     /// Prepare a file upload for external signing.
-    /// Returns raw JSON response body that the caller must parse.
-    pub fn prepareUpload(self: *Client, path: []const u8) ![]const u8 {
-        const req_body = try json_helpers.buildJsonBody(self.allocator, &.{
-            .{ .key = "path", .value = .{ .string = path } },
-        });
+    ///
+    /// `visibility` is `"public"` to bundle the DataMap chunk into the same
+    /// external-signer payment batch (after finalize, the response's
+    /// `data_map_address` is the shareable retrieval handle). `"private"` or
+    /// `null` keeps the existing private-only behaviour. When `null`, the
+    /// `visibility` field is omitted from the request body — preserving the
+    /// pre-0.6.1 wire shape that older daemons expect.
+    ///
+    /// Returns the raw JSON response body that the caller must parse.
+    pub fn prepareUpload(self: *Client, path: []const u8, visibility: ?[]const u8) ![]const u8 {
+        const req_body = try json_helpers.buildPrepareUploadBody(self.allocator, path, visibility);
         defer self.allocator.free(req_body);
         const resp = try self.doRequest(.POST, "/v1/upload/prepare", req_body) orelse return error.JsonError;
         return resp;
     }
 
+    /// Convenience wrapper for a public file upload prepare.
+    /// Equivalent to `prepareUpload(path, "public")`.
+    pub fn prepareUploadPublic(self: *Client, path: []const u8) ![]const u8 {
+        return self.prepareUpload(path, "public");
+    }
+
     /// Prepare a data upload for external signing.
     /// Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
-    /// Returns raw JSON response body that the caller must parse.
-    pub fn prepareDataUpload(self: *Client, data: []const u8) ![]const u8 {
-        const req_body = try json_helpers.buildDataBody(self.allocator, data);
+    ///
+    /// `visibility` semantics match `prepareUpload`. Note: as of writing,
+    /// the daemon returns 501 for visibility="public" on this endpoint
+    /// until upstream ant-client exposes `data_prepare_upload_with_visibility`;
+    /// use `prepareUploadPublic` with a file path instead.
+    ///
+    /// Returns the raw JSON response body that the caller must parse.
+    pub fn prepareDataUpload(self: *Client, data: []const u8, visibility: ?[]const u8) ![]const u8 {
+        const req_body = try json_helpers.buildPrepareDataBody(self.allocator, data, visibility);
         defer self.allocator.free(req_body);
         const resp = try self.doRequest(.POST, "/v1/data/prepare", req_body) orelse return error.JsonError;
         return resp;
     }
 
     /// Finalize an upload after an external signer has submitted payment transactions.
-    /// Returns raw JSON response body that the caller must parse.
+    /// Returns raw JSON response body that the caller must parse (see
+    /// `json_helpers.parseFinalizeUploadResult`).
     pub fn finalizeUpload(self: *Client, upload_id: []const u8, tx_hashes_json: []const u8) ![]const u8 {
         // Caller must provide a pre-built JSON body with upload_id and tx_hashes
         const resp = try self.doRequest(.POST, "/v1/upload/finalize", tx_hashes_json) orelse return error.JsonError;
         _ = upload_id;
         return resp;
+    }
+
+    // --- External Signer (Single-Chunk, antd >= 0.7.0) ---
+
+    /// Prepare a single chunk for external-signer publish via
+    /// POST /v1/chunks/prepare.
+    ///
+    /// The daemon collects storage quotes from the close group, stashes the
+    /// prepared state, and returns either:
+    ///
+    ///   - `already_stored = true` with `address` set, if the chunk is already
+    ///     on-network. No payment or finalize call is needed.
+    ///   - `already_stored = false` with `upload_id` + `payments` +
+    ///     `total_amount` populated, in which case the caller signs and
+    ///     submits payForQuotes() externally, then calls `finalizeChunkUpload`
+    ///     with the resulting tx hashes.
+    ///
+    /// Unlike `chunkPut`, this method does NOT require the daemon to have a
+    /// wallet — all funds flow through the external signer.
+    ///
+    /// Caller owns the returned struct's memory (call `.deinit(allocator)`).
+    pub fn prepareChunkUpload(self: *Client, data: []const u8) !PrepareChunkResult {
+        const req_body = try json_helpers.buildDataBody(self.allocator, data);
+        defer self.allocator.free(req_body);
+        const resp = try self.doRequest(.POST, "/v1/chunks/prepare", req_body) orelse return error.JsonError;
+        defer self.allocator.free(resp);
+        return json_helpers.parsePrepareChunkResult(self.allocator, resp);
+    }
+
+    /// Submit a prepared chunk to the network after external payment via
+    /// POST /v1/chunks/finalize.
+    ///
+    /// `tx_hashes_json` is a pre-built JSON object literal mapping non-zero
+    /// `quote_hash` from `PrepareChunkResult.payments` to the `tx_hash`
+    /// returned by `payForQuotes()` — e.g. `"{\"0xqh1\":\"0xtx1\"}"`. Caller
+    /// formats this map by hand (matches the existing `finalizeUpload`
+    /// pattern).
+    ///
+    /// Returns the hex-encoded network address of the stored chunk (matches
+    /// `PrepareChunkResult.address`). Caller owns the returned bytes.
+    pub fn finalizeChunkUpload(self: *Client, upload_id: []const u8, tx_hashes_json: []const u8) ![]const u8 {
+        const req_body = try json_helpers.buildFinalizeChunkBody(self.allocator, upload_id, tx_hashes_json);
+        defer self.allocator.free(req_body);
+        const resp = try self.doRequest(.POST, "/v1/chunks/finalize", req_body) orelse return error.JsonError;
+        defer self.allocator.free(resp);
+
+        // Extract "address" string from response.
+        const parsed = std.json.parseFromSlice(std.json.Value, self.allocator, resp, .{}) catch
+            return error.JsonError;
+        defer parsed.deinit();
+        const obj = switch (parsed.value) {
+            .object => |o| o,
+            else => return error.JsonError,
+        };
+        const addr_val = obj.get("address") orelse return error.JsonError;
+        return switch (addr_val) {
+            .string => |s| try self.allocator.dupe(u8, s),
+            else => error.JsonError,
+        };
     }
 
     /// Pre-upload cost breakdown for the file at `path`.

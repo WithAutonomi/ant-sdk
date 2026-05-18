@@ -159,13 +159,28 @@ public struct PrepareUploadResult: Sendable, Equatable {
 }
 
 /// Result of finalizing an externally-signed upload.
+///
+/// `dataMap` is the hex-encoded msgpack DataMap (always returned by the
+/// daemon). `dataMapAddress` is populated only when prepare was called with
+/// ``visibility`` `"public"` — the DataMap chunk was bundled into the same
+/// external-signer payment batch and stored on-network, so this is the
+/// shareable retrieval handle. For private prepares it is `""`.
 public struct FinalizeUploadResult: Sendable, Equatable {
     public let address: String
     public let chunksStored: Int64
+    public let dataMap: String
+    public let dataMapAddress: String
 
-    public init(address: String, chunksStored: Int64) {
+    public init(
+        address: String,
+        chunksStored: Int64,
+        dataMap: String = "",
+        dataMapAddress: String = ""
+    ) {
         self.address = address
         self.chunksStored = chunksStored
+        self.dataMap = dataMap
+        self.dataMapAddress = dataMapAddress
     }
 }
 
@@ -173,10 +188,60 @@ public struct FinalizeUploadResult: Sendable, Equatable {
 public struct FinalizeMerkleUploadResult: Sendable, Equatable {
     public let address: String
     public let chunksStored: Int64
+    public let dataMap: String
+    public let dataMapAddress: String
 
-    public init(address: String, chunksStored: Int64) {
+    public init(
+        address: String,
+        chunksStored: Int64,
+        dataMap: String = "",
+        dataMapAddress: String = ""
+    ) {
         self.address = address
         self.chunksStored = chunksStored
+        self.dataMap = dataMap
+        self.dataMapAddress = dataMapAddress
+    }
+}
+
+/// Result of preparing a single-chunk external-signer publish via
+/// `POST /v1/chunks/prepare`.
+///
+/// When ``alreadyStored`` is `true` the chunk is already on-network and no
+/// payment or finalize step is needed — ``uploadId`` and the payment fields
+/// are empty. Otherwise the daemon returns a wave-batch payment intent the
+/// external signer must execute before calling `finalizeChunkUpload`.
+public struct PrepareChunkResult: Sendable, Equatable {
+    public let address: String
+    public let alreadyStored: Bool
+    public let uploadId: String
+    public let paymentType: String
+    public let payments: [PaymentInfo]
+    public let totalAmount: String
+    public let paymentVaultAddress: String
+    public let paymentTokenAddress: String
+    public let rpcUrl: String
+
+    public init(
+        address: String,
+        alreadyStored: Bool = false,
+        uploadId: String = "",
+        paymentType: String = "",
+        payments: [PaymentInfo] = [],
+        totalAmount: String = "",
+        paymentVaultAddress: String = "",
+        paymentTokenAddress: String = "",
+        rpcUrl: String = ""
+    ) {
+        self.address = address
+        self.alreadyStored = alreadyStored
+        self.uploadId = uploadId
+        self.paymentType = paymentType
+        self.payments = payments
+        self.totalAmount = totalAmount
+        self.paymentVaultAddress = paymentVaultAddress
+        self.paymentTokenAddress = paymentTokenAddress
+        self.rpcUrl = rpcUrl
     }
 }
 

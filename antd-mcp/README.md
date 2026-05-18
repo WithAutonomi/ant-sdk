@@ -1,6 +1,6 @@
 # antd-mcp — MCP Server for Autonomi
 
-An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that exposes the Autonomi network as 14 tools for AI agents. Works with Claude Desktop, Claude Code, and any MCP-compatible client.
+An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that exposes the Autonomi network as 18 tools for AI agents. Works with Claude Desktop, Claude Code, and any MCP-compatible client.
 
 ## Installation
 
@@ -76,9 +76,13 @@ The server will auto-discover the daemon via the port file. Add `"env": {"ANTD_B
 
 | # | Tool | Description |
 |---|------|-------------|
-| 12 | `prepare_upload(path, is_directory?)` | Prepare a file/directory upload for external signing |
-| 13 | `prepare_data_upload(text)` | Prepare a data upload for external signing |
-| 14 | `finalize_upload(upload_id, tx_hashes)` | Finalize an externally-signed upload |
+| 12 | `prepare_upload(path, visibility?)` | Prepare a file upload for external signing. Pass `visibility="public"` to bundle the DataMap chunk into the same payment batch (the `data_map_address` on finalize is the shareable retrieval handle). |
+| 13 | `prepare_upload_public(path)` | Convenience wrapper for `prepare_upload(path, visibility="public")`. |
+| 14 | `prepare_data_upload(text)` | Prepare a data upload for external signing |
+| 15 | `finalize_upload(upload_id, tx_hashes)` | Finalize a wave-batch upload. Returns `address`, `chunks_stored`, `data_map`, and (for public uploads) `data_map_address`. |
+| 16 | `finalize_merkle_upload(upload_id, winner_pool_hash)` | Finalize a merkle-batch upload. Returns the same fields as `finalize_upload`. |
+| 17 | `prepare_chunk_upload(data_base64)` | Prepare a single raw chunk for external-signer publish. Returns either `already_stored=True` (no payment needed) or a wave-batch payment intent. |
+| 18 | `finalize_chunk_upload(upload_id, tx_hashes)` | Submit a prepared chunk to the network after external payment. Returns `address`. |
 
 ### Payment Modes
 
@@ -120,7 +124,7 @@ antd-mcp/
 ├── pyproject.toml
 └── src/antd_mcp/
     ├── __init__.py
-    ├── server.py      # 14 MCP tool definitions
+    ├── server.py      # 18 MCP tool definitions
     ├── discover.py    # Daemon port-file discovery
     └── errors.py      # Error formatting
 ```

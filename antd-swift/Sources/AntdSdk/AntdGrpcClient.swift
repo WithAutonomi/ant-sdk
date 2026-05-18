@@ -32,6 +32,8 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
     public func dataCost(_ data: Data) async throws -> UploadCostEstimate { throw notImplemented() }
     public func chunkPut(_ data: Data) async throws -> PutResult { throw notImplemented() }
     public func chunkGet(address: String) async throws -> Data { throw notImplemented() }
+    public func prepareChunkUpload(_ data: Data) async throws -> PrepareChunkResult { throw notImplemented() }
+    public func finalizeChunkUpload(uploadId: String, txHashes: [String: String]) async throws -> String { throw notImplemented() }
     public func fileUploadPublic(path: String, paymentMode: String? = nil) async throws -> FileUploadResult { throw notImplemented() }
     public func fileDownloadPublic(address: String, destPath: String) async throws { throw notImplemented() }
     public func dirUploadPublic(path: String, paymentMode: String? = nil) async throws -> FileUploadResult { throw notImplemented() }
@@ -40,7 +42,8 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
     public func walletAddress() async throws -> WalletAddress { throw notImplemented() }
     public func walletBalance() async throws -> WalletBalance { throw notImplemented() }
     public func walletApprove() async throws -> Bool { throw notImplemented() }
-    public func prepareUpload(path: String) async throws -> PrepareUploadResult { throw notImplemented() }
+    public func prepareUpload(path: String, visibility: String? = nil) async throws -> PrepareUploadResult { throw notImplemented() }
+    public func prepareUploadPublic(path: String) async throws -> PrepareUploadResult { throw notImplemented() }
     public func prepareDataUpload(_ data: Data) async throws -> PrepareUploadResult { throw notImplemented() }
     public func finalizeUpload(uploadId: String, txHashes: [String: String]) async throws -> FinalizeUploadResult { throw notImplemented() }
     public func finalizeMerkleUpload(uploadId: String, winnerPoolHash: String) async throws -> FinalizeMerkleUploadResult { throw notImplemented() }

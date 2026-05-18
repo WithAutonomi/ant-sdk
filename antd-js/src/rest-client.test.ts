@@ -496,16 +496,26 @@ describe("RestClient", () => {
   });
 
   describe("finalizeUpload()", () => {
-    it("returns FinalizeUploadResult with address and chunksStored", async () => {
+    it("returns FinalizeUploadResult with address, chunksStored, dataMap, dataMapAddress", async () => {
       const result = await client.finalizeUpload("uid-1", { "0xq1": "0xtx1" });
-      expect(result).toEqual({ address: "0xfinal", chunksStored: 5 });
+      expect(result).toEqual({
+        address: "0xfinal",
+        chunksStored: 5,
+        dataMap: "",
+        dataMapAddress: "",
+      });
     });
   });
 
   describe("finalizeMerkleUpload()", () => {
-    it("returns FinalizeUploadResult with address and chunksStored", async () => {
+    it("returns FinalizeUploadResult with address, chunksStored, dataMap, dataMapAddress", async () => {
       const result = await client.finalizeMerkleUpload("uid-merkle", "0xpool1");
-      expect(result).toEqual({ address: "0xfinal", chunksStored: 5 });
+      expect(result).toEqual({
+        address: "0xfinal",
+        chunksStored: 5,
+        dataMap: "",
+        dataMapAddress: "",
+      });
     });
 
     it("sends correct request body with winner_pool_hash", async () => {
@@ -528,6 +538,223 @@ describe("RestClient", () => {
       const [, init] = fetchFn.mock.calls[0];
       const body = JSON.parse(init!.body as string);
       expect(body.store_data_map).toBe(true);
+    });
+  });
+
+  // ---- Public-prepare (V2-249 PR4) ----
+
+  describe("prepareUpload() visibility forwarding", () => {
+    it("forwards visibility:'public' to the daemon when provided", async () => {
+      await client.prepareUpload("/some/file.txt", { visibility: "public" });
+
+      const fetchFn = vi.mocked(fetch);
+      const [, init] = fetchFn.mock.calls[0];
+      const body = JSON.parse(init!.body as string);
+      expect(body).toEqual({ path: "/some/file.txt", visibility: "public" });
+    });
+
+    it("omits visibility entirely when not provided (private-only behaviour)", async () => {
+      await client.prepareUpload("/some/file.txt");
+
+      const fetchFn = vi.mocked(fetch);
+      const [, init] = fetchFn.mock.calls[0];
+      const body = JSON.parse(init!.body as string);
+      expect(body).toEqual({ path: "/some/file.txt" });
+      expect("visibility" in body).toBe(false);
+    });
+  });
+
+  describe("prepareUploadPublic()", () => {
+    it("sends visibility:'public' and path", async () => {
+      let capturedBody: Record<string, unknown> | undefined;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((_input: string | URL | Request, init?: RequestInit) => {
+          capturedBody = JSON.parse(init!.body as string);
+          return Promise.resolve(
+            jsonResponse(200, {
+              upload_id: "up-pub-1",
+              payments: [
+                { quote_hash: "0xq1", rewards_address: "0xr1", amount: "100" },
+              ],
+              total_amount: "100",
+              payment_vault_address: "0xdp",
+              payment_token_address: "0xpt",
+              rpc_url: "http://rpc.local",
+              payment_type: "wave_batch",
+            }),
+          );
+        }),
+      );
+
+      const result = await client.prepareUploadPublic("/tmp/file.txt");
+      expect(capturedBody).toEqual({ path: "/tmp/file.txt", visibility: "public" });
+      expect(result.uploadId).toBe("up-pub-1");
+      expect(result.paymentType).toBe("wave_batch");
+    });
+  });
+
+  describe("finalizeUpload() data_map_address surfacing", () => {
+    it("surfaces dataMapAddress when the daemon returns it (visibility=public path)", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+          Promise.resolve(
+            jsonResponse(200, {
+              data_map: "deadbeef",
+              data_map_address: "cafebabe",
+              chunks_stored: 4,
+            }),
+          ),
+        ),
+      );
+
+      const result = await client.finalizeUpload("up1", { "0xq1": "0xtx1" });
+      expect(result).toEqual({
+        address: "",
+        chunksStored: 4,
+        dataMap: "deadbeef",
+        dataMapAddress: "cafebabe",
+      });
+    });
+
+    it("defaults dataMapAddress to '' on older daemons that omit it", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+          Promise.resolve(
+            jsonResponse(200, {
+              data_map: "deadbeef",
+              chunks_stored: 2,
+            }),
+          ),
+        ),
+      );
+
+      const result = await client.finalizeUpload("up1", { "0xq1": "0xtx1" });
+      expect(result.dataMapAddress).toBe("");
+      expect(result.dataMap).toBe("deadbeef");
+      expect(result.chunksStored).toBe(2);
+    });
+  });
+
+  // ---- Single-chunk external signer (V2-274, antd >= 0.7.0) ----
+
+  describe("prepareChunkUpload()", () => {
+    it("base64-encodes the payload and parses the wave-batch response", async () => {
+      let capturedBody: Record<string, unknown> | undefined;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((_input: string | URL | Request, init?: RequestInit) => {
+          capturedBody = JSON.parse(init!.body as string);
+          return Promise.resolve(
+            jsonResponse(200, {
+              address: "aa" + "00".repeat(31),
+              already_stored: false,
+              upload_id: "chunk-1",
+              payment_type: "wave_batch",
+              payments: [
+                { quote_hash: "qh1", rewards_address: "ra1", amount: "100" },
+                { quote_hash: "qh2", rewards_address: "ra2", amount: "100" },
+              ],
+              total_amount: "200",
+              payment_vault_address: "0xvault",
+              payment_token_address: "0xtoken",
+              rpc_url: "http://localhost:8545",
+            }),
+          );
+        }),
+      );
+
+      const result = await client.prepareChunkUpload(Buffer.from("hello"));
+
+      expect(capturedBody!.data).toBe("aGVsbG8=");
+      expect(result.alreadyStored).toBe(false);
+      expect(result.uploadId).toBe("chunk-1");
+      expect(result.paymentType).toBe("wave_batch");
+      expect(result.payments).toHaveLength(2);
+      expect(result.payments[0]).toEqual({
+        quoteHash: "qh1",
+        rewardsAddress: "ra1",
+        amount: "100",
+      });
+      expect(result.totalAmount).toBe("200");
+      expect(result.paymentVaultAddress).toBe("0xvault");
+      expect(result.paymentTokenAddress).toBe("0xtoken");
+      expect(result.rpcUrl).toBe("http://localhost:8545");
+      expect(result.address).toBe("aa" + "00".repeat(31));
+    });
+
+    it("returns alreadyStored=true with empty payment fields when chunk already on-network", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+          Promise.resolve(
+            jsonResponse(200, {
+              address: "bb" + "11".repeat(31),
+              already_stored: true,
+              // no upload_id, no payments, no payment_type, etc.
+            }),
+          ),
+        ),
+      );
+
+      const result = await client.prepareChunkUpload(Buffer.from("already-on-network"));
+      expect(result.alreadyStored).toBe(true);
+      expect(result.address).toBe("bb" + "11".repeat(31));
+      expect(result.uploadId).toBe("");
+      expect(result.payments).toEqual([]);
+      expect(result.paymentType).toBe("");
+      expect(result.totalAmount).toBe("");
+      expect(result.paymentVaultAddress).toBe("");
+      expect(result.paymentTokenAddress).toBe("");
+      expect(result.rpcUrl).toBe("");
+    });
+
+    it("accepts a Uint8Array argument (browser-friendly)", async () => {
+      let capturedBody: Record<string, unknown> | undefined;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((_input: string | URL | Request, init?: RequestInit) => {
+          capturedBody = JSON.parse(init!.body as string);
+          return Promise.resolve(
+            jsonResponse(200, {
+              address: "cc" + "22".repeat(31),
+              already_stored: true,
+            }),
+          );
+        }),
+      );
+
+      const bytes = new Uint8Array([104, 105]); // "hi"
+      await client.prepareChunkUpload(bytes);
+      expect(capturedBody!.data).toBe("aGk=");
+    });
+  });
+
+  describe("finalizeChunkUpload()", () => {
+    it("sends upload_id + tx_hashes and returns the address string", async () => {
+      let capturedBody: Record<string, unknown> | undefined;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((_input: string | URL | Request, init?: RequestInit) => {
+          capturedBody = JSON.parse(init!.body as string);
+          return Promise.resolve(
+            jsonResponse(200, { address: "cc" + "22".repeat(31) }),
+          );
+        }),
+      );
+
+      const addr = await client.finalizeChunkUpload("chunk-1", {
+        qh1: "tx1",
+        qh2: "tx2",
+      });
+      expect(capturedBody).toEqual({
+        upload_id: "chunk-1",
+        tx_hashes: { qh1: "tx1", qh2: "tx2" },
+      });
+      expect(addr).toBe("cc" + "22".repeat(31));
+      expect(addr).toHaveLength(64);
     });
   });
 

@@ -278,6 +278,82 @@ public class AntdClient implements AutoCloseable {
         return b64Decode(str(j, "data"));
     }
 
+    /**
+     * Prepare a single chunk for external-signer publish via
+     * {@code POST /v1/chunks/prepare}.
+     *
+     * <p>The daemon collects storage quotes from the close group, stashes the
+     * prepared state, and returns either:
+     *
+     * <ul>
+     *   <li>{@code alreadyStored = true} with {@code address} set, if the chunk
+     *       is already on-network. No payment or finalize call is needed.</li>
+     *   <li>{@code alreadyStored = false} with {@code uploadId} + {@code payments}
+     *       + {@code totalAmount} populated, in which case the caller signs and
+     *       submits {@code payForQuotes()} externally, then calls
+     *       {@link #finalizeChunkUpload} with the resulting tx hashes.</li>
+     * </ul>
+     *
+     * <p>Unlike {@link #chunkPut}, this method does NOT require the daemon to
+     * have a wallet — all funds flow through the external signer.
+     *
+     * <p>Requires antd &gt;= 0.7.0.
+     *
+     * @param data chunk bytes (the daemon base64-encodes them on the wire)
+     * @return parsed {@link PrepareChunkResult}
+     */
+    public PrepareChunkResult prepareChunkUpload(byte[] data) {
+        String body = Json.object("data", b64Encode(data));
+        Map<String, Object> j = doJson("POST", "/v1/chunks/prepare", body);
+        return parsePrepareChunkResult(j);
+    }
+
+    /**
+     * Submit a single chunk to the network after the external signer has paid,
+     * via {@code POST /v1/chunks/finalize}.
+     *
+     * <p>{@code txHashes} maps each non-zero {@code quote_hash} from
+     * {@link #prepareChunkUpload}'s payments to the corresponding {@code tx_hash}
+     * returned by {@code payForQuotes()}. Returns the hex-encoded network
+     * address of the stored chunk (matches {@link PrepareChunkResult#address()}).
+     *
+     * <p>Requires antd &gt;= 0.7.0.
+     *
+     * @param uploadId the upload ID from {@link #prepareChunkUpload}
+     * @param txHashes map of quote_hash to tx_hash
+     * @return hex-encoded address of the stored chunk (64 chars)
+     */
+    public String finalizeChunkUpload(String uploadId, Map<String, String> txHashes) {
+        String body = Json.object("upload_id", uploadId, "tx_hashes", txHashes);
+        Map<String, Object> j = doJson("POST", "/v1/chunks/finalize", body);
+        return str(j, "address");
+    }
+
+    /** Parse a {@code /v1/chunks/prepare} JSON response. */
+    static PrepareChunkResult parsePrepareChunkResult(Map<String, Object> j) {
+        Object alreadyObj = j.get("already_stored");
+        boolean alreadyStored = alreadyObj instanceof Boolean b && b;
+
+        List<PaymentInfo> payments = new ArrayList<>();
+        for (Map<String, Object> pm : listOfMaps(j, "payments")) {
+            payments.add(new PaymentInfo(
+                    str(pm, "quote_hash"),
+                    str(pm, "rewards_address"),
+                    str(pm, "amount")));
+        }
+
+        return new PrepareChunkResult(
+                str(j, "address"),
+                alreadyStored,
+                str(j, "upload_id"),
+                str(j, "payment_type"),
+                Collections.unmodifiableList(payments),
+                str(j, "total_amount"),
+                str(j, "payment_vault_address"),
+                str(j, "payment_token_address"),
+                str(j, "rpc_url"));
+    }
+
     // ── Files & Directories ──
 
     public FileUploadResult fileUploadPublic(String path) {
@@ -416,17 +492,53 @@ public class AntdClient implements AutoCloseable {
     }
 
     /**
-     * Prepares a file upload for external signing.
-     * Returns payment details that an external signer must process before calling
-     * {@link #finalizeUpload} (wave_batch) or {@link #finalizeMerkleUpload} (merkle).
+     * Prepares a private file upload for external signing.
+     *
+     * <p>Equivalent to {@link #prepareUpload(String, String) prepareUpload(path, null)}.
      *
      * @param path local file path to upload
      * @return PrepareUploadResult with upload_id, payments, and contract details
      */
     public PrepareUploadResult prepareUpload(String path) {
-        String body = Json.object("path", path);
+        return prepareUpload(path, null);
+    }
+
+    /**
+     * Prepares a file upload for external signing with explicit visibility.
+     *
+     * <p>{@code visibility = "public"} bundles the DataMap chunk into the same
+     * external-signer payment batch — so the signer signs ONE EVM transaction
+     * covering chunks + DataMap. After {@link #finalizeUpload}, the result's
+     * {@link FinalizeUploadResult#dataMapAddress()} is the shareable retrieval
+     * handle.
+     *
+     * <p>{@code visibility = null} (or "private") preserves the historical
+     * private-only behaviour — the {@code visibility} key is omitted from the
+     * request body so older daemons keep working.
+     *
+     * <p>Requires antd &gt;= 0.6.1 for {@code "public"}.
+     *
+     * @param path       local file path to upload
+     * @param visibility {@code "public"}, {@code "private"}, or {@code null} to
+     *                   omit the field
+     * @return PrepareUploadResult with upload_id, payments, and contract details
+     */
+    public PrepareUploadResult prepareUpload(String path, String visibility) {
+        String body = visibility != null
+                ? Json.object("path", path, "visibility", visibility)
+                : Json.object("path", path);
         Map<String, Object> j = doJson("POST", "/v1/upload/prepare", body);
         return parsePrepareResponse(j);
+    }
+
+    /**
+     * Convenience wrapper: prepare a <em>public</em> file upload for external
+     * signing. Equivalent to {@code prepareUpload(path, "public")}.
+     *
+     * <p>Requires antd &gt;= 0.6.1.
+     */
+    public PrepareUploadResult prepareUploadPublic(String path) {
+        return prepareUpload(path, "public");
     }
 
     /**
@@ -444,17 +556,26 @@ public class AntdClient implements AutoCloseable {
         return parsePrepareResponse(j);
     }
 
+    /** Parse a {@code /v1/upload/finalize} JSON response. */
+    private static FinalizeUploadResult parseFinalizeUploadResult(Map<String, Object> j) {
+        return new FinalizeUploadResult(
+                str(j, "address"),
+                num(j, "chunks_stored"),
+                str(j, "data_map"),
+                str(j, "data_map_address"));
+    }
+
     /**
      * Finalizes a wave-batch upload after an external signer has submitted payment transactions.
      *
      * @param uploadId the upload ID returned by {@link #prepareUpload}
      * @param txHashes map of quote_hash to tx_hash for each payment
-     * @return FinalizeUploadResult with address and chunks_stored
+     * @return FinalizeUploadResult with address, chunks_stored, data_map and data_map_address
      */
     public FinalizeUploadResult finalizeUpload(String uploadId, Map<String, String> txHashes) {
         String body = Json.object("upload_id", uploadId, "tx_hashes", txHashes);
         Map<String, Object> j = doJson("POST", "/v1/upload/finalize", body);
-        return new FinalizeUploadResult(str(j, "address"), num(j, "chunks_stored"));
+        return parseFinalizeUploadResult(j);
     }
 
     /**
@@ -464,11 +585,11 @@ public class AntdClient implements AutoCloseable {
      *
      * @param uploadId       the upload ID returned by {@link #prepareUpload}
      * @param winnerPoolHash bytes32 pool hash from MerklePaymentMade event
-     * @return FinalizeUploadResult with address and chunks_stored
+     * @return FinalizeUploadResult with address, chunks_stored, data_map and data_map_address
      */
     public FinalizeUploadResult finalizeMerkleUpload(String uploadId, String winnerPoolHash) {
         String body = Json.object("upload_id", uploadId, "winner_pool_hash", winnerPoolHash);
         Map<String, Object> j = doJson("POST", "/v1/upload/finalize", body);
-        return new FinalizeUploadResult(str(j, "address"), num(j, "chunks_stored"));
+        return parseFinalizeUploadResult(j);
     }
 }

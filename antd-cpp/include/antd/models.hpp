@@ -93,8 +93,41 @@ struct PrepareUploadResult {
 /// Result of finalizing an externally-signed upload.
 struct FinalizeUploadResult {
     std::string data_map;        // hex-encoded serialized DataMap (always returned)
-    std::string address;         // network address (only when store_data_map=true)
+    std::string address;         // legacy: set when store_data_map=true was passed (paid by daemon wallet)
+    std::string data_map_address; // set when prepare was called with visibility="public"
+                                  // (paid in same external-signer batch); "" otherwise
     int64_t chunks_stored{0};
+};
+
+/// Result of preparing a single-chunk publish for external signing via
+/// POST /v1/chunks/prepare.
+///
+/// When `already_stored` is true, the chunk is already on-network — only
+/// `address` and `already_stored` are populated, and no finalize call is
+/// needed. Otherwise the wave-batch payment fields describe what the external
+/// signer must submit before calling `finalize_chunk_upload`.
+struct PrepareChunkResult {
+    // Content-addressed BLAKE3 of the chunk bytes (hex, 64 chars). Always set.
+    std::string address;
+    // True if the chunk is already stored on the network and no payment is needed.
+    bool already_stored{false};
+
+    // Fields below are only populated when already_stored == false.
+
+    // Opaque identifier to pass back to finalize_chunk_upload.
+    std::string upload_id;
+    // Always "wave_batch" for single-chunk publishes (well below the merkle threshold).
+    std::string payment_type;
+    // Per-quote payment entries for payForQuotes(). Typically 5-7 (one per peer in the close group).
+    std::vector<PaymentInfo> payments;
+    // Total amount to pay (atto tokens, decimal string).
+    std::string total_amount;
+    // Payment vault contract address (hex with 0x prefix).
+    std::string payment_vault_address;
+    // Payment token contract address (hex with 0x prefix).
+    std::string payment_token_address;
+    // EVM RPC URL for submitting transactions.
+    std::string rpc_url;
 };
 
 /// Pre-upload cost breakdown returned by data_cost and file_cost.

@@ -10,7 +10,11 @@ use GuzzleHttp\Promise\PromiseInterface;
 use Autonomi\Antd\Errors\AntdError;
 use Autonomi\Antd\Errors\ErrorFactory;
 use Autonomi\Antd\Models\FileUploadResult;
+use Autonomi\Antd\Models\FinalizeUploadResult;
 use Autonomi\Antd\Models\HealthStatus;
+use Autonomi\Antd\Models\PaymentInfo;
+use Autonomi\Antd\Models\PrepareChunkResult;
+use Autonomi\Antd\Models\PrepareUploadResult;
 use Autonomi\Antd\Models\PutResult;
 use Autonomi\Antd\Models\UploadCostEstimate;
 
@@ -664,79 +668,178 @@ class AntdClient
     // --- External Signer (Two-Phase Upload) ---
 
     /**
+     * Parse a /v1/upload/prepare or /v1/data/prepare JSON response into a
+     * typed PrepareUploadResult. Wave-batch shape only — the PHP client does
+     * not currently expose merkle prepares.
+     *
+     * @param array<string, mixed>|null $json
+     */
+    private static function parsePrepareUploadResult(?array $json): PrepareUploadResult
+    {
+        $json ??= [];
+        $payments = [];
+        foreach (($json['payments'] ?? []) as $p) {
+            if (!is_array($p)) {
+                continue;
+            }
+            $payments[] = new PaymentInfo(
+                quoteHash: (string)($p['quote_hash'] ?? ''),
+                rewardsAddress: (string)($p['rewards_address'] ?? ''),
+                amount: (string)($p['amount'] ?? ''),
+            );
+        }
+        return new PrepareUploadResult(
+            uploadId: (string)($json['upload_id'] ?? ''),
+            paymentType: (string)($json['payment_type'] ?? 'wave_batch'),
+            payments: $payments,
+            totalAmount: (string)($json['total_amount'] ?? ''),
+            paymentVaultAddress: (string)($json['payment_vault_address'] ?? ''),
+            paymentTokenAddress: (string)($json['payment_token_address'] ?? ''),
+            rpcUrl: (string)($json['rpc_url'] ?? ''),
+        );
+    }
+
+    /**
+     * Parse a /v1/chunks/prepare JSON response into a typed PrepareChunkResult.
+     *
+     * @param array<string, mixed>|null $json
+     */
+    private static function parsePrepareChunkResult(?array $json): PrepareChunkResult
+    {
+        $json ??= [];
+        $payments = [];
+        foreach (($json['payments'] ?? []) as $p) {
+            if (!is_array($p)) {
+                continue;
+            }
+            $payments[] = new PaymentInfo(
+                quoteHash: (string)($p['quote_hash'] ?? ''),
+                rewardsAddress: (string)($p['rewards_address'] ?? ''),
+                amount: (string)($p['amount'] ?? ''),
+            );
+        }
+        return new PrepareChunkResult(
+            address: (string)($json['address'] ?? ''),
+            alreadyStored: (bool)($json['already_stored'] ?? false),
+            uploadId: (string)($json['upload_id'] ?? ''),
+            paymentType: (string)($json['payment_type'] ?? ''),
+            payments: $payments,
+            totalAmount: (string)($json['total_amount'] ?? ''),
+            paymentVaultAddress: (string)($json['payment_vault_address'] ?? ''),
+            paymentTokenAddress: (string)($json['payment_token_address'] ?? ''),
+            rpcUrl: (string)($json['rpc_url'] ?? ''),
+        );
+    }
+
+    /**
+     * Parse a /v1/upload/finalize JSON response into a typed FinalizeUploadResult.
+     *
+     * @param array<string, mixed>|null $json
+     */
+    private static function parseFinalizeUploadResult(?array $json): FinalizeUploadResult
+    {
+        $json ??= [];
+        return new FinalizeUploadResult(
+            dataMap: (string)($json['data_map'] ?? ''),
+            address: (string)($json['address'] ?? ''),
+            dataMapAddress: (string)($json['data_map_address'] ?? ''),
+            chunksStored: (int)($json['chunks_stored'] ?? 0),
+        );
+    }
+
+    /**
      * Prepare a file upload for external signing.
      *
-     * @return array{upload_id: string, payments: array, total_amount: string, payment_vault_address: string, payment_token_address: string, rpc_url: string}
+     * @param string $path Filesystem path to the file the daemon should encrypt.
+     * @param string|null $visibility Pass "public" to bundle the DataMap chunk
+     *     into the same external-signer payment batch — the resulting
+     *     finalize response surfaces a `dataMapAddress` shareable handle.
+     *     Pass "private" (or omit) for the existing private-only behaviour.
+     *     The field is only forwarded when non-null, so older daemons remain
+     *     compatible.
      */
-    public function prepareUpload(string $path): array
+    public function prepareUpload(string $path, ?string $visibility = null): PrepareUploadResult
     {
-        $json = $this->doJson('POST', '/v1/upload/prepare', ['path' => $path]);
-        return [
-            'upload_id' => $json['upload_id'] ?? '',
-            'payments' => $json['payments'] ?? [],
-            'total_amount' => $json['total_amount'] ?? '',
-            'payment_vault_address' => $json['payment_vault_address'] ?? '',
-            'payment_token_address' => $json['payment_token_address'] ?? '',
-            'rpc_url' => $json['rpc_url'] ?? '',
-        ];
+        $body = ['path' => $path];
+        if ($visibility !== null) {
+            $body['visibility'] = $visibility;
+        }
+        $json = $this->doJson('POST', '/v1/upload/prepare', $body);
+        return self::parsePrepareUploadResult($json);
     }
 
     /**
      * Async: Prepare a file upload for external signing.
      *
-     * @return PromiseInterface<array>
+     * @return PromiseInterface<PrepareUploadResult>
      */
-    public function prepareUploadAsync(string $path): PromiseInterface
+    public function prepareUploadAsync(string $path, ?string $visibility = null): PromiseInterface
     {
-        return $this->doJsonAsync('POST', '/v1/upload/prepare', ['path' => $path])->then(
-            fn(?array $json) => [
-                'upload_id' => $json['upload_id'] ?? '',
-                'payments' => $json['payments'] ?? [],
-                'total_amount' => $json['total_amount'] ?? '',
-                'payment_vault_address' => $json['payment_vault_address'] ?? '',
-                'payment_token_address' => $json['payment_token_address'] ?? '',
-                'rpc_url' => $json['rpc_url'] ?? '',
-            ],
+        $body = ['path' => $path];
+        if ($visibility !== null) {
+            $body['visibility'] = $visibility;
+        }
+        return $this->doJsonAsync('POST', '/v1/upload/prepare', $body)->then(
+            fn(?array $json) => self::parsePrepareUploadResult($json),
         );
+    }
+
+    /**
+     * Convenience wrapper: prepare a *public* file upload for external signing.
+     *
+     * Equivalent to prepareUpload($path, 'public'). The finalize response's
+     * `dataMapAddress` is the shareable retrieval handle for the uploaded
+     * file. Requires antd >= 0.6.1.
+     */
+    public function prepareUploadPublic(string $path): PrepareUploadResult
+    {
+        return $this->prepareUpload($path, 'public');
+    }
+
+    /**
+     * Async: Convenience wrapper: prepare a *public* file upload for external signing.
+     *
+     * @return PromiseInterface<PrepareUploadResult>
+     */
+    public function prepareUploadPublicAsync(string $path): PromiseInterface
+    {
+        return $this->prepareUploadAsync($path, 'public');
     }
 
     /**
      * Prepare a data upload for external signing.
      * Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
      *
+     * Note: $visibility="public" returns 501 from the daemon until upstream
+     * ant-client exposes data_prepare_upload_with_visibility; use
+     * prepareUploadPublic() with a file path until then.
+     *
      * @param string $data Raw bytes to upload.
-     * @return array{upload_id: string, payments: array, total_amount: string, payment_vault_address: string, payment_token_address: string, rpc_url: string}
+     * @param string|null $visibility "public" / "private", or null to omit.
      */
-    public function prepareDataUpload(string $data): array
+    public function prepareDataUpload(string $data, ?string $visibility = null): PrepareUploadResult
     {
-        $json = $this->doJson('POST', '/v1/data/prepare', ['data' => $this->b64Encode($data)]);
-        return [
-            'upload_id' => $json['upload_id'] ?? '',
-            'payments' => $json['payments'] ?? [],
-            'total_amount' => $json['total_amount'] ?? '',
-            'payment_vault_address' => $json['payment_vault_address'] ?? '',
-            'payment_token_address' => $json['payment_token_address'] ?? '',
-            'rpc_url' => $json['rpc_url'] ?? '',
-        ];
+        $body = ['data' => $this->b64Encode($data)];
+        if ($visibility !== null) {
+            $body['visibility'] = $visibility;
+        }
+        $json = $this->doJson('POST', '/v1/data/prepare', $body);
+        return self::parsePrepareUploadResult($json);
     }
 
     /**
      * Async: Prepare a data upload for external signing.
      *
-     * @param string $data Raw bytes to upload.
-     * @return PromiseInterface<array>
+     * @return PromiseInterface<PrepareUploadResult>
      */
-    public function prepareDataUploadAsync(string $data): PromiseInterface
+    public function prepareDataUploadAsync(string $data, ?string $visibility = null): PromiseInterface
     {
-        return $this->doJsonAsync('POST', '/v1/data/prepare', ['data' => $this->b64Encode($data)])->then(
-            fn(?array $json) => [
-                'upload_id' => $json['upload_id'] ?? '',
-                'payments' => $json['payments'] ?? [],
-                'total_amount' => $json['total_amount'] ?? '',
-                'payment_vault_address' => $json['payment_vault_address'] ?? '',
-                'payment_token_address' => $json['payment_token_address'] ?? '',
-                'rpc_url' => $json['rpc_url'] ?? '',
-            ],
+        $body = ['data' => $this->b64Encode($data)];
+        if ($visibility !== null) {
+            $body['visibility'] = $visibility;
+        }
+        return $this->doJsonAsync('POST', '/v1/data/prepare', $body)->then(
+            fn(?array $json) => self::parsePrepareUploadResult($json),
         );
     }
 
@@ -745,18 +848,14 @@ class AntdClient
      *
      * @param string $uploadId The upload ID from prepareUpload.
      * @param array<string, string> $txHashes Map of quote_hash to tx_hash.
-     * @return array{address: string, chunks_stored: int}
      */
-    public function finalizeUpload(string $uploadId, array $txHashes): array
+    public function finalizeUpload(string $uploadId, array $txHashes): FinalizeUploadResult
     {
         $json = $this->doJson('POST', '/v1/upload/finalize', [
             'upload_id' => $uploadId,
             'tx_hashes' => $txHashes,
         ]);
-        return [
-            'address' => $json['address'] ?? '',
-            'chunks_stored' => (int) ($json['chunks_stored'] ?? 0),
-        ];
+        return self::parseFinalizeUploadResult($json);
     }
 
     /**
@@ -764,7 +863,7 @@ class AntdClient
      *
      * @param string $uploadId The upload ID from prepareUpload.
      * @param array<string, string> $txHashes Map of quote_hash to tx_hash.
-     * @return PromiseInterface<array{address: string, chunks_stored: int}>
+     * @return PromiseInterface<FinalizeUploadResult>
      */
     public function finalizeUploadAsync(string $uploadId, array $txHashes): PromiseInterface
     {
@@ -772,10 +871,76 @@ class AntdClient
             'upload_id' => $uploadId,
             'tx_hashes' => $txHashes,
         ])->then(
-            fn(?array $json) => [
-                'address' => $json['address'] ?? '',
-                'chunks_stored' => (int) ($json['chunks_stored'] ?? 0),
-            ],
+            fn(?array $json) => self::parseFinalizeUploadResult($json),
+        );
+    }
+
+    // --- Single-Chunk External Signer (antd >= 0.7.0) ---
+
+    /**
+     * Prepare a single chunk for external-signer publish via POST /v1/chunks/prepare.
+     *
+     * Returns either an already-stored sentinel (no payment / finalize needed)
+     * or a wave-batch payment intent. After the external signer pays, call
+     * finalizeChunkUpload() with the resulting tx hashes.
+     *
+     * Unlike chunkPut(), this method does NOT require the daemon to have a
+     * wallet — all funds flow through the external signer.
+     */
+    public function prepareChunkUpload(string $data): PrepareChunkResult
+    {
+        $json = $this->doJson('POST', '/v1/chunks/prepare', [
+            'data' => $this->b64Encode($data),
+        ]);
+        return self::parsePrepareChunkResult($json);
+    }
+
+    /**
+     * Async: Prepare a single chunk for external-signer publish.
+     *
+     * @return PromiseInterface<PrepareChunkResult>
+     */
+    public function prepareChunkUploadAsync(string $data): PromiseInterface
+    {
+        return $this->doJsonAsync('POST', '/v1/chunks/prepare', [
+            'data' => $this->b64Encode($data),
+        ])->then(
+            fn(?array $json) => self::parsePrepareChunkResult($json),
+        );
+    }
+
+    /**
+     * Submit a prepared chunk to the network after external payment via
+     * POST /v1/chunks/finalize.
+     *
+     * @param string $uploadId The upload ID from prepareChunkUpload().
+     * @param array<string, string> $txHashes Map of quote_hash to tx_hash.
+     * @return string The hex-encoded network address of the stored chunk
+     *     (matches PrepareChunkResult::$address).
+     */
+    public function finalizeChunkUpload(string $uploadId, array $txHashes): string
+    {
+        $json = $this->doJson('POST', '/v1/chunks/finalize', [
+            'upload_id' => $uploadId,
+            'tx_hashes' => $txHashes,
+        ]);
+        return (string)($json['address'] ?? '');
+    }
+
+    /**
+     * Async: Submit a prepared chunk to the network after external payment.
+     *
+     * @param string $uploadId The upload ID from prepareChunkUpload().
+     * @param array<string, string> $txHashes Map of quote_hash to tx_hash.
+     * @return PromiseInterface<string>
+     */
+    public function finalizeChunkUploadAsync(string $uploadId, array $txHashes): PromiseInterface
+    {
+        return $this->doJsonAsync('POST', '/v1/chunks/finalize', [
+            'upload_id' => $uploadId,
+            'tx_hashes' => $txHashes,
+        ])->then(
+            fn(?array $json) => (string)($json['address'] ?? ''),
         );
     }
 }

@@ -95,6 +95,27 @@ class FinalizeUploadResult:
     """Result of finalizing an externally-signed upload."""
     address: str         # hex address of stored data
     chunks_stored: int = 0
+    data_map: str = ""           # hex-encoded msgpack DataMap (always returned)
+    data_map_address: str = ""   # set when prepare used visibility="public" (the DataMap chunk was paid + stored in the same external-signer batch)
+
+
+@dataclass(frozen=True)
+class PrepareChunkResult:
+    """Result of preparing a single-chunk external-signer publish.
+
+    When `already_stored` is True the chunk is already on-network and no
+    payment / finalize step is needed — `upload_id` and the payment fields
+    are empty.
+    """
+    address: str
+    already_stored: bool = False
+    upload_id: str = ""
+    payment_type: str = ""            # "wave_batch" (only mode for single chunks)
+    payments: list[PaymentInfo] = field(default_factory=list)
+    total_amount: str = ""
+    payment_vault_address: str = ""
+    payment_token_address: str = ""
+    rpc_url: str = ""
 
 
 @dataclass(frozen=True)

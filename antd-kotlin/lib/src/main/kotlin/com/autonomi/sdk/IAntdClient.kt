@@ -23,6 +23,8 @@ interface IAntdClient : Closeable {
     // Chunks
     suspend fun chunkPut(data: ByteArray): PutResult
     suspend fun chunkGet(address: String): ByteArray
+    suspend fun prepareChunkUpload(data: ByteArray): PrepareChunkResult
+    suspend fun finalizeChunkUpload(uploadId: String, txHashes: Map<String, String>): String
 
     // Files
     suspend fun fileUploadPublic(path: String, paymentMode: String? = null): FileUploadResult
@@ -37,8 +39,9 @@ interface IAntdClient : Closeable {
     suspend fun walletApprove(): Boolean
 
     // External Signer (Two-Phase Upload)
-    suspend fun prepareUpload(path: String): PrepareUploadResult
-    suspend fun prepareDataUpload(data: ByteArray): PrepareUploadResult
+    suspend fun prepareUpload(path: String, visibility: String? = null): PrepareUploadResult
+    suspend fun prepareUploadPublic(path: String): PrepareUploadResult
+    suspend fun prepareDataUpload(data: ByteArray, visibility: String? = null): PrepareUploadResult
     suspend fun finalizeUpload(uploadId: String, txHashes: Map<String, String>): FinalizeUploadResult
     suspend fun finalizeMerkleUpload(uploadId: String, winnerPoolHash: String): FinalizeMerkleUploadResult
 }

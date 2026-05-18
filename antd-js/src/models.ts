@@ -78,8 +78,40 @@ export interface PrepareUploadResult {
 
 /** Result of finalizing an externally-signed upload. */
 export interface FinalizeUploadResult {
-  address: string; // hex address of stored data
+  address: string; // hex address of stored data (legacy: set when store_data_map=true was passed; "" otherwise)
   chunksStored: number;
+  dataMap: string; // hex-encoded serialized DataMap (always returned, "" on older daemons)
+  dataMapAddress: string; // set when prepare was called with visibility="public" (paid in same external-signer batch); "" otherwise
+}
+
+/**
+ * Result of preparing a single-chunk external-signer publish via
+ * `POST /v1/chunks/prepare`.
+ *
+ * When `alreadyStored` is true the chunk is already on-network — only
+ * `address` and `alreadyStored` are populated and no finalize call is needed.
+ * Otherwise the wave-batch payment fields describe what the external signer
+ * must submit before calling `finalizeChunkUpload`.
+ */
+export interface PrepareChunkResult {
+  /** Content-addressed BLAKE3 of the chunk bytes (hex, 64 chars). Always set. */
+  address: string;
+  /** True if the chunk is already stored on the network and no payment is needed. */
+  alreadyStored: boolean;
+  /** Opaque identifier to pass back to `finalizeChunkUpload`. "" when alreadyStored. */
+  uploadId: string;
+  /** Always "wave_batch" for single-chunk publishes; "" when alreadyStored. */
+  paymentType: string;
+  /** Per-quote payment entries for `payForQuotes()`. Empty when alreadyStored. */
+  payments: PaymentInfo[];
+  /** Total amount to pay (atto tokens, decimal string). "" when alreadyStored. */
+  totalAmount: string;
+  /** Payment vault contract address (hex with 0x prefix). "" when alreadyStored. */
+  paymentVaultAddress: string;
+  /** Payment token contract address (hex with 0x prefix). "" when alreadyStored. */
+  paymentTokenAddress: string;
+  /** EVM RPC URL for submitting transactions. "" when alreadyStored. */
+  rpcUrl: string;
 }
 
 /**

@@ -312,6 +312,192 @@ pub fn buildJsonBody(allocator: Allocator, fields: []const struct { key: []const
     return buf.toOwnedSlice();
 }
 
+/// Build a /v1/upload/prepare request body: `{"path":"...", "visibility":"..."}`.
+/// The `visibility` field is omitted entirely when null, preserving the pre-0.6.1
+/// wire shape that older daemons expect.
+pub fn buildPrepareUploadBody(allocator: Allocator, path: []const u8, visibility: ?[]const u8) ![]const u8 {
+    if (visibility) |v| {
+        return buildJsonBody(allocator, &.{
+            .{ .key = "path", .value = .{ .string = path } },
+            .{ .key = "visibility", .value = .{ .string = v } },
+        });
+    }
+    return buildJsonBody(allocator, &.{
+        .{ .key = "path", .value = .{ .string = path } },
+    });
+}
+
+/// Build a /v1/data/prepare request body: `{"data":"<base64>", "visibility":"..."}`.
+/// The `visibility` field is omitted entirely when null.
+pub fn buildPrepareDataBody(allocator: Allocator, data: []const u8, visibility: ?[]const u8) ![]const u8 {
+    const encoded_len = std.base64.standard.Encoder.calcSize(data.len);
+    const encoded = allocator.alloc(u8, encoded_len) catch return error.JsonError;
+    defer allocator.free(encoded);
+    _ = std.base64.standard.Encoder.encode(encoded, data);
+
+    if (visibility) |v| {
+        return buildJsonBody(allocator, &.{
+            .{ .key = "data", .value = .{ .string = encoded } },
+            .{ .key = "visibility", .value = .{ .string = v } },
+        });
+    }
+    return buildJsonBody(allocator, &.{
+        .{ .key = "data", .value = .{ .string = encoded } },
+    });
+}
+
+/// Build a /v1/chunks/finalize request body from a pre-built `tx_hashes` JSON
+/// object literal (e.g. `"{\"qh1\":\"tx1\"}"`).
+///
+/// Mirrors the `finalizeUpload` shape: callers assemble the inner map
+/// themselves because std.json's writeStream API is version-fragile, and
+/// quote_hash/tx_hash maps are small and easy to format by hand.
+pub fn buildFinalizeChunkBody(allocator: Allocator, upload_id: []const u8, tx_hashes_json: []const u8) ![]const u8 {
+    const escaped_id = jsonEscapeString(allocator, upload_id) catch return error.JsonError;
+    defer allocator.free(escaped_id);
+    return std.fmt.allocPrint(
+        allocator,
+        "{{\"upload_id\":{s},\"tx_hashes\":{s}}}",
+        .{ escaped_id, tx_hashes_json },
+    ) catch return error.JsonError;
+}
+
+/// Parse a /v1/chunks/prepare response body into a PrepareChunkResult.
+///
+/// The "already-stored" branch returns only `address` + `already_stored:true`;
+/// the wave-batch branch additionally populates `upload_id`, `payment_type`,
+/// `payments`, `total_amount`, and the EVM config (vault/token/rpc).
+pub fn parsePrepareChunkResult(allocator: Allocator, body: []const u8) !models.PrepareChunkResult {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
+        return error.JsonError;
+    defer parsed.deinit();
+
+    const obj = switch (parsed.value) {
+        .object => |o| o,
+        else => return error.JsonError,
+    };
+
+    const address = dupeString(allocator, obj.get("address") orelse .null) catch
+        return error.JsonError;
+    errdefer allocator.free(address);
+
+    const already_stored = switch (obj.get("already_stored") orelse .null) {
+        .bool => |b| b,
+        else => false,
+    };
+
+    const upload_id = dupeString(allocator, obj.get("upload_id") orelse .null) catch
+        return error.JsonError;
+    errdefer allocator.free(upload_id);
+
+    const payment_type = dupeString(allocator, obj.get("payment_type") orelse .null) catch
+        return error.JsonError;
+    errdefer allocator.free(payment_type);
+
+    const total_amount = dupeString(allocator, obj.get("total_amount") orelse .null) catch
+        return error.JsonError;
+    errdefer allocator.free(total_amount);
+
+    const payment_vault_address = dupeString(allocator, obj.get("payment_vault_address") orelse .null) catch
+        return error.JsonError;
+    errdefer allocator.free(payment_vault_address);
+
+    const payment_token_address = dupeString(allocator, obj.get("payment_token_address") orelse .null) catch
+        return error.JsonError;
+    errdefer allocator.free(payment_token_address);
+
+    const rpc_url = dupeString(allocator, obj.get("rpc_url") orelse .null) catch
+        return error.JsonError;
+    errdefer allocator.free(rpc_url);
+
+    // Parse payments array (may be missing/null on the already_stored branch).
+    var payments_list = std.ArrayList(models.PaymentInfo).init(allocator);
+    errdefer {
+        for (payments_list.items) |p| p.deinit(allocator);
+        payments_list.deinit();
+    }
+
+    if (obj.get("payments")) |pv| {
+        const items_opt: ?[]std.json.Value = switch (pv) {
+            .array => |a| a.items,
+            else => null,
+        };
+        if (items_opt) |items| {
+            for (items) |item| {
+                const item_obj = switch (item) {
+                    .object => |o| o,
+                    else => continue,
+                };
+                const qh = dupeString(allocator, item_obj.get("quote_hash") orelse .null) catch
+                    return error.JsonError;
+                errdefer allocator.free(qh);
+                const ra = dupeString(allocator, item_obj.get("rewards_address") orelse .null) catch
+                    return error.JsonError;
+                errdefer allocator.free(ra);
+                const am = dupeString(allocator, item_obj.get("amount") orelse .null) catch
+                    return error.JsonError;
+                errdefer allocator.free(am);
+                payments_list.append(.{
+                    .quote_hash = qh,
+                    .rewards_address = ra,
+                    .amount = am,
+                }) catch return error.JsonError;
+            }
+        }
+    }
+
+    const payments_slice = payments_list.toOwnedSlice() catch return error.JsonError;
+
+    return .{
+        .address = address,
+        .already_stored = already_stored,
+        .upload_id = upload_id,
+        .payment_type = payment_type,
+        .payments = payments_slice,
+        .total_amount = total_amount,
+        .payment_vault_address = payment_vault_address,
+        .payment_token_address = payment_token_address,
+        .rpc_url = rpc_url,
+    };
+}
+
+/// Parse a /v1/upload/finalize response body into a FinalizeUploadResult.
+///
+/// `data_map_address` is populated only when prepare was called with
+/// visibility="public" (antd >= 0.6.1). Older daemons omit the field, which
+/// parses cleanly to the empty default.
+pub fn parseFinalizeUploadResult(allocator: Allocator, body: []const u8) !models.FinalizeUploadResult {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
+        return error.JsonError;
+    defer parsed.deinit();
+
+    const obj = switch (parsed.value) {
+        .object => |o| o,
+        else => return error.JsonError,
+    };
+
+    const data_map = dupeString(allocator, obj.get("data_map") orelse .null) catch
+        return error.JsonError;
+    errdefer allocator.free(data_map);
+
+    const address = dupeString(allocator, obj.get("address") orelse .null) catch
+        return error.JsonError;
+    errdefer allocator.free(address);
+
+    const data_map_address = dupeString(allocator, obj.get("data_map_address") orelse .null) catch
+        return error.JsonError;
+    errdefer allocator.free(data_map_address);
+
+    const chunks_stored = dupeU64(obj.get("chunks_stored") orelse .null);
+
+    return .{
+        .data_map = data_map,
+        .address = address,
+        .data_map_address = data_map_address,
+        .chunks_stored = chunks_stored,
+    };
+}
+
 /// Parse a WalletAddress from a JSON response body.
 pub fn parseWalletAddress(allocator: Allocator, body: []const u8) !models.WalletAddress {
     const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch

@@ -304,24 +304,112 @@ class PrepareUploadResult {
 
 /// Result of finalizing an externally-signed upload.
 class FinalizeUploadResult {
+  /// Legacy: hex address set when `store_data_map=true` was passed (paid by
+  /// the daemon wallet). Empty when not requested.
   final String address;
+
+  /// Number of chunks stored on the network.
   final int chunksStored;
+
+  /// Hex-encoded msgpack DataMap (always returned by antd >= 0.6.1).
+  final String dataMap;
+
+  /// Hex network address of the DataMap chunk — populated when prepare was
+  /// called with `visibility="public"` (the DataMap was bundled into the same
+  /// external-signer payment batch). Empty for private uploads.
+  final String dataMapAddress;
 
   const FinalizeUploadResult({
     required this.address,
     required this.chunksStored,
+    this.dataMap = '',
+    this.dataMapAddress = '',
   });
 
   factory FinalizeUploadResult.fromJson(Map<String, dynamic> json) {
     return FinalizeUploadResult(
       address: json['address'] as String? ?? '',
       chunksStored: (json['chunks_stored'] as num?)?.toInt() ?? 0,
+      dataMap: json['data_map'] as String? ?? '',
+      dataMapAddress: json['data_map_address'] as String? ?? '',
     );
   }
 
   @override
   String toString() =>
-      'FinalizeUploadResult(address: $address, chunksStored: $chunksStored)';
+      'FinalizeUploadResult(address: $address, chunksStored: $chunksStored, dataMap: $dataMap, dataMapAddress: $dataMapAddress)';
+}
+
+/// Result of preparing a single-chunk external-signer publish via
+/// `POST /v1/chunks/prepare`.
+///
+/// When [alreadyStored] is true the chunk is already on-network — only
+/// [address] is meaningful and no finalize call is needed. Otherwise the
+/// wave-batch payment fields describe what the external signer must submit
+/// before calling `finalizeChunkUpload`.
+class PrepareChunkResult {
+  /// Content-addressed BLAKE3 of the chunk bytes (hex, 64 chars). Always set.
+  final String address;
+
+  /// True if the chunk is already stored on the network and no payment is
+  /// needed.
+  final bool alreadyStored;
+
+  /// Opaque identifier to pass back to `finalizeChunkUpload`. Empty when
+  /// [alreadyStored] is true.
+  final String uploadId;
+
+  /// Always "wave_batch" for single-chunk publishes.
+  final String paymentType;
+
+  /// Per-quote payment entries for `payForQuotes()`. Empty when
+  /// [alreadyStored] is true.
+  final List<PaymentInfo> payments;
+
+  /// Total amount to pay (atto tokens, decimal string).
+  final String totalAmount;
+
+  /// Payment vault contract address.
+  final String paymentVaultAddress;
+
+  /// Payment token contract address.
+  final String paymentTokenAddress;
+
+  /// EVM RPC URL for submitting transactions.
+  final String rpcUrl;
+
+  const PrepareChunkResult({
+    required this.address,
+    this.alreadyStored = false,
+    this.uploadId = '',
+    this.paymentType = '',
+    this.payments = const [],
+    this.totalAmount = '',
+    this.paymentVaultAddress = '',
+    this.paymentTokenAddress = '',
+    this.rpcUrl = '',
+  });
+
+  factory PrepareChunkResult.fromJson(Map<String, dynamic> json) {
+    return PrepareChunkResult(
+      address: json['address'] as String? ?? '',
+      alreadyStored: json['already_stored'] as bool? ?? false,
+      uploadId: json['upload_id'] as String? ?? '',
+      paymentType: json['payment_type'] as String? ?? '',
+      payments: (json['payments'] as List<dynamic>?)
+              ?.map((e) => PaymentInfo.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
+      totalAmount: json['total_amount'] as String? ?? '',
+      paymentVaultAddress: json['payment_vault_address'] as String? ?? '',
+      paymentTokenAddress: json['payment_token_address'] as String? ?? '',
+      rpcUrl: json['rpc_url'] as String? ?? '',
+    );
+  }
+
+  @override
+  String toString() =>
+      'PrepareChunkResult(address: $address, alreadyStored: $alreadyStored, uploadId: $uploadId, paymentType: $paymentType, totalAmount: $totalAmount)';
 }
 
 /// Pre-upload cost breakdown returned by `dataCost` and `fileCost`.
