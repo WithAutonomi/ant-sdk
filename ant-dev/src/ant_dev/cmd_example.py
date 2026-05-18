@@ -90,7 +90,8 @@ LANGUAGES: dict[str, Adapter] = {
         sdk_dir="antd-ruby",
         examples={
             "connect": "01_connect.rb", "data": "02_data.rb",
-            "chunks": "03_chunks.rb",
+            "chunks": "03_chunks.rb", "files": "04_files.rb",
+            "private": "06_private_data.rb",
         },
         prep=[lambda cwd: ["bundle", "install"]],
         run=lambda cwd, f: ["bundle", "exec", "ruby", f"examples/{f}"],
