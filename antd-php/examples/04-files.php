@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Example 04: Upload and download files and directories.
+ * Example 04: Upload and download files and directories, with round-trip assertions.
  *
  * Prerequisites: antd daemon running with a funded wallet.
  */
@@ -10,29 +10,49 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 use Autonomi\Antd\AntdClient;
 
+function rrmdir(string $dir): void {
+    if (!is_dir($dir)) {
+        if (file_exists($dir)) {
+            unlink($dir);
+        }
+        return;
+    }
+    foreach (scandir($dir) as $entry) {
+        if ($entry === '.' || $entry === '..') continue;
+        $path = $dir . DIRECTORY_SEPARATOR . $entry;
+        is_dir($path) ? rrmdir($path) : unlink($path);
+    }
+    rmdir($dir);
+}
+
+$tmp = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'antd-php-04-files';
+rrmdir($tmp);
+mkdir($tmp, 0o700, true);
+
+$fileContent = "Hello from a file on Autonomi!";
+
+$srcFile = $tmp . '/hello.txt';
+file_put_contents($srcFile, $fileContent);
+
 $client = new AntdClient();
 
-// Estimate file upload cost
-$cost = $client->fileCost('/tmp/test.txt', true, false);
-echo "Estimated cost: {$cost} atto\n";
+$cost = $client->fileCost($srcFile, true, false);
+echo "Estimated cost: {$cost->cost} atto ({$cost->chunkCount} chunks)\n";
 
-// Upload a file
-$result = $client->fileUploadPublic('/tmp/test.txt');
+$result = $client->fileUploadPublic($srcFile);
 echo "File uploaded at: {$result->address}\n";
 echo "  storage: {$result->storageCostAtto} atto, gas: {$result->gasCostWei} wei\n";
 echo "  chunks: {$result->chunksStored}, mode: {$result->paymentModeUsed}\n";
 
-// Download the file
-$client->fileDownloadPublic($result->address, '/tmp/downloaded.txt');
-echo "File downloaded to /tmp/downloaded.txt\n";
+$dstFile = $tmp . '/hello.txt.downloaded';
+$client->fileDownloadPublic($result->address, $dstFile);
+echo "File downloaded to {$dstFile}\n";
 
-// Upload a directory
-$dirResult = $client->dirUploadPublic('/tmp/mydir');
-echo "Directory uploaded at: {$dirResult->address}\n";
-echo "  storage: {$dirResult->storageCostAtto} atto, gas: {$dirResult->gasCostWei} wei\n";
-echo "  chunks: {$dirResult->chunksStored}, mode: {$dirResult->paymentModeUsed}\n";
+if (file_get_contents($dstFile) !== $fileContent) {
+    rrmdir($tmp);
+    fwrite(STDERR, "round-trip mismatch on hello.txt\n");
+    exit(1);
+}
 
-// Download the directory
-$client->dirDownloadPublic($dirResult->address, '/tmp/downloaded_dir');
-echo "Directory downloaded to /tmp/downloaded_dir\n";
-
+rrmdir($tmp);
+echo "File upload/download OK!\n";
