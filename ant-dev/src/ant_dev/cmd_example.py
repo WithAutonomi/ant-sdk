@@ -57,7 +57,7 @@ LANGUAGES: dict[str, Adapter] = {
         examples={
             "connect": "01_connect.py", "data": "02_data.py",
             "chunks": "03_chunks.py", "files": "04_files.py",
-            "graph": "05_graph.py", "private": "06_private_data.py",
+            "private": "06_private_data.py",
         },
         run=lambda cwd, f: [_venv_python(), f"examples/{f}"],
     ),
@@ -66,7 +66,7 @@ LANGUAGES: dict[str, Adapter] = {
         cwd_subdir="Examples",
         examples={
             "connect": "1", "data": "2", "chunks": "3",
-            "files": "4", "graph": "5", "private": "6", "all": "all",
+            "files": "4", "private": "6", "all": "all",
         },
         run=lambda cwd, n: ["dotnet", "run", "--", n],
     ),
@@ -100,7 +100,7 @@ LANGUAGES: dict[str, Adapter] = {
         examples={
             "connect": "01-connect.php", "data": "02-data.php",
             "chunks": "03-chunks.php", "files": "04-files.php",
-            "graph": "05-graph.php", "private": "06-private-data.php",
+            "private": "06-private-data.php",
         },
         prep=[lambda cwd: ["composer", "install", "--no-interaction", "--no-progress"]],
         run=lambda cwd, f: ["php", f"examples/{f}"],
@@ -111,7 +111,7 @@ LANGUAGES: dict[str, Adapter] = {
         examples={
             "connect": "01_connect.exs", "data": "02_data.exs",
             "chunks": "03_chunks.exs", "files": "04_files.exs",
-            "graph": "05_graph.exs", "private": "06_private_data.exs",
+            "private": "06_private_data.exs",
         },
         run=lambda cwd, f: ["elixir", f],
     ),
@@ -120,7 +120,7 @@ LANGUAGES: dict[str, Adapter] = {
         examples={
             "connect": "01-connect.lua", "data": "02-data.lua",
             "chunks": "03-chunks.lua", "files": "04-files.lua",
-            "graph": "05-graph.lua", "private": "06-private-data.lua",
+            "private": "06-private-data.lua",
         },
         prep=[lambda cwd: ["luarocks", "--local", "--lua-version=5.4", "make"]],
         # `luarocks --local make` installs into ~/.luarocks, which lua5.4
@@ -192,7 +192,7 @@ LANGUAGES: dict[str, Adapter] = {
         examples={
             "connect": "01-connect", "data": "02-data",
             "chunks": "03-chunks", "files": "04-files",
-            "graph": "05-graph", "private": "06-private-data",
+            "private": "06-private-data",
         },
         run=lambda cwd, name: ["zig", "build", f"run-{name}"],
     ),

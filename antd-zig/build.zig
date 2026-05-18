@@ -30,7 +30,6 @@ pub fn build(b: *std.Build) void {
         "02-data",
         "03-chunks",
         "04-files",
-        "05-graph",
         "06-private-data",
     };
 
