@@ -122,22 +122,6 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
         Unit
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
-    override suspend fun dirUploadPublic(path: String, paymentMode: String?): FileUploadResult = try {
-        val resp = fileStub.dirUploadPublic(uploadFileRequest { this.path = path })
-        FileUploadResult(
-            address = resp.address,
-            storageCostAtto = resp.storageCostAtto,
-            gasCostWei = resp.gasCostWei,
-            chunksStored = resp.chunksStored.toULong(),
-            paymentModeUsed = resp.paymentModeUsed,
-        )
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
-    override suspend fun dirDownloadPublic(address: String, destPath: String) = try {
-        fileStub.dirDownloadPublic(downloadPublicRequest { this.address = address; this.destPath = destPath })
-        Unit
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
-
     override suspend fun fileCost(path: String, isPublic: Boolean): UploadCostEstimate = try {
         val resp = fileStub.getFileCost(fileCostRequest {
             this.path = path; this.isPublic = isPublic
