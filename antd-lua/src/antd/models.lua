@@ -42,7 +42,7 @@ function M.new_put_result(cost, address)
 end
 
 --- Create a FileUploadResult table.
--- Returned by file_upload_public and dir_upload_public.
+-- Returned by file_upload_public.
 -- @param address string hex network address
 -- @param storage_cost_atto string storage cost in atto, "0" if all chunks already existed
 -- @param gas_cost_wei string gas cost in wei as decimal string

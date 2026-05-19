@@ -124,20 +124,6 @@ const routes: Route[] = [
       }),
   },
 
-  // Dir upload public
-  {
-    method: "POST",
-    match: (p) => p === "/v1/dirs/upload/public",
-    respond: () =>
-      jsonResponse(200, {
-        address: "0xdir",
-        storage_cost_atto: "2000",
-        gas_cost_wei: "100",
-        chunks_stored: 5,
-        payment_mode_used: "merkle",
-      }),
-  },
-
   // Wallet address
   {
     method: "GET",
@@ -371,19 +357,6 @@ describe("RestClient", () => {
         gasCostWei: "42",
         chunksStored: 3,
         paymentModeUsed: "auto",
-      });
-    });
-  });
-
-  describe("dirUploadPublic()", () => {
-    it("returns FileUploadResult with all five fields", async () => {
-      const result = await client.dirUploadPublic("/tmp/mydir");
-      expect(result).toEqual({
-        address: "0xdir",
-        storageCostAtto: "2000",
-        gasCostWei: "100",
-        chunksStored: 5,
-        paymentModeUsed: "merkle",
       });
     });
   });

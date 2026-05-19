@@ -191,23 +191,6 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         try await postJSONNoResult("/v1/files/download/public", body: ["address": address, "dest_path": destPath])
     }
 
-    public func dirUploadPublic(path: String, paymentMode: String? = nil) async throws -> FileUploadResult {
-        var body: [String: Any] = ["path": path]
-        if let mode = paymentMode { body["payment_mode"] = mode }
-        let resp: FileUploadPublicDTO = try await postJSON("/v1/dirs/upload/public", body: body)
-        return FileUploadResult(
-            address: resp.address,
-            storageCostAtto: resp.storageCostAtto,
-            gasCostWei: resp.gasCostWei,
-            chunksStored: resp.chunksStored,
-            paymentModeUsed: resp.paymentModeUsed
-        )
-    }
-
-    public func dirDownloadPublic(address: String, destPath: String) async throws {
-        try await postJSONNoResult("/v1/dirs/download/public", body: ["address": address, "dest_path": destPath])
-    }
-
     public func fileCost(path: String, isPublic: Bool = true) async throws -> UploadCostEstimate {
         let body: [String: Any] = ["path": path, "is_public": isPublic]
         let resp: CostDTO = try await postJSON("/v1/files/cost", body: body)

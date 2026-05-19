@@ -33,13 +33,12 @@ pub struct PutResult {
     pub address: String,
 }
 
-/// Result of a public file or directory upload.
+/// Result of a public file upload.
 ///
-/// Returned by [`crate::Client::file_upload_public`],
-/// [`crate::Client::dir_upload_public`], and the equivalent gRPC methods.
+/// Returned by [`crate::Client::file_upload_public`] and the equivalent gRPC method.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileUploadResult {
-    /// Hex-encoded network address of the uploaded file or directory.
+    /// Hex-encoded network address of the uploaded file.
     pub address: String,
     /// Total storage cost paid in token units (atto). `"0"` if all chunks already existed.
     pub storage_cost_atto: String,

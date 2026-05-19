@@ -282,56 +282,6 @@ paths:
         "502":
           $ref: "#/components/responses/NetworkError"
 
-  /v1/dirs/upload/public:
-    post:
-      tags: [files]
-      operationId: dirUploadPublic
-      summary: Upload directory
-      description: Upload a local directory to the network (public, recursive).
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/FileUploadRequest"
-      responses:
-        "200":
-          description: Directory uploaded
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DirUploadPublicResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "402":
-          $ref: "#/components/responses/PaymentError"
-        "500":
-          $ref: "#/components/responses/InternalError"
-        "502":
-          $ref: "#/components/responses/NetworkError"
-
-  /v1/dirs/download/public:
-    post:
-      tags: [files]
-      operationId: dirDownloadPublic
-      summary: Download directory
-      description: Download a directory from the network to a local path.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/FileDownloadRequest"
-      responses:
-        "200":
-          description: Directory downloaded
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "500":
-          $ref: "#/components/responses/InternalError"
-        "502":
-          $ref: "#/components/responses/NetworkError"
-
   /v1/files/cost:
     post:
       tags: [files]
@@ -690,26 +640,6 @@ components:
           type: string
           enum: [auto, merkle, single]
           description: Which payment mode was actually used.
-
-    DirUploadPublicResponse:
-      type: object
-      required:
-        [address, storage_cost_atto, gas_cost_wei, chunks_stored, payment_mode_used]
-      properties:
-        address:
-          type: string
-        storage_cost_atto:
-          type: string
-          description: Total storage cost paid in token units (atto).
-        gas_cost_wei:
-          type: string
-          description: Total gas cost in wei as a decimal string.
-        chunks_stored:
-          type: integer
-          format: uint64
-        payment_mode_used:
-          type: string
-          enum: [auto, merkle, single]
 
     FileDownloadRequest:
       type: object

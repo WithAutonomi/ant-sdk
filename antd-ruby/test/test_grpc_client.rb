@@ -27,8 +27,6 @@ rescue LoadError
       def chunk_get(a)       grpc_call { @chunk_stub.get(nil).data } end
       def file_upload_public(p) grpc_call { r = @file_stub.upload_public(nil); FileUploadResult.new(address: r.address, storage_cost_atto: r.storage_cost_atto, gas_cost_wei: r.gas_cost_wei, chunks_stored: r.chunks_stored, payment_mode_used: r.payment_mode_used) } end
       def file_download_public(a, d) grpc_call { @file_stub.download_public(nil); nil } end
-      def dir_upload_public(p) grpc_call { r = @file_stub.dir_upload_public(nil); FileUploadResult.new(address: r.address, storage_cost_atto: r.storage_cost_atto, gas_cost_wei: r.gas_cost_wei, chunks_stored: r.chunks_stored, payment_mode_used: r.payment_mode_used) } end
-      def dir_download_public(a, d) grpc_call { @file_stub.dir_download_public(nil); nil } end
       def file_cost(p, ip = true) grpc_call { @file_stub.get_file_cost(nil).atto_tokens } end
 
       private
@@ -141,20 +139,6 @@ module FakeGrpc
     end
 
     def download_public(_req)
-      OpenStruct.new
-    end
-
-    def dir_upload_public(_req)
-      OpenStruct.new(
-        address: "dir1",
-        storage_cost_atto: "2000",
-        gas_cost_wei: "100",
-        chunks_stored: 5,
-        payment_mode_used: "merkle",
-      )
-    end
-
-    def dir_download_public(_req)
       OpenStruct.new
     end
 
@@ -281,19 +265,6 @@ class TestGrpcClient < Minitest::Test
 
   def test_file_download_public
     assert_nil @client.file_download_public("file1", "/tmp/out.txt")
-  end
-
-  def test_dir_upload_public
-    result = @client.dir_upload_public("/tmp/mydir")
-    assert_equal "dir1", result.address
-    assert_equal "2000", result.storage_cost_atto
-    assert_equal "100", result.gas_cost_wei
-    assert_equal 5, result.chunks_stored
-    assert_equal "merkle", result.payment_mode_used
-  end
-
-  def test_dir_download_public
-    assert_nil @client.dir_download_public("dir1", "/tmp/outdir")
   end
 
   def test_file_cost

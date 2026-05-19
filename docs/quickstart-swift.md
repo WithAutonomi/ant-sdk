@@ -111,12 +111,6 @@ let result = try await client.fileUploadPublic(path: "/path/to/file.txt")
 // Download a file
 try await client.fileDownloadPublic(address: result.address, destPath: "/path/to/output.txt")
 
-// Upload a directory
-let dirResult = try await client.dirUploadPublic(path: "/path/to/directory")
-
-// Download a directory
-try await client.dirDownloadPublic(address: dirResult.address, destPath: "/path/to/output_dir")
-
 // Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
 let est = try await client.fileCost(path: "/path/to/file.txt")
 ```

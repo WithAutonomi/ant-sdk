@@ -218,27 +218,6 @@ class GrpcAntdClientTest {
         }
 
         @Override
-        public void dirUploadPublic(UploadFileRequest request,
-                                    StreamObserver<UploadPublicResponse> responseObserver) {
-            responseObserver.onNext(
-                    UploadPublicResponse.newBuilder()
-                            .setAddress("dir1")
-                            .setStorageCostAtto("2000")
-                            .setGasCostWei("100")
-                            .setChunksStored(5L)
-                            .setPaymentModeUsed("merkle")
-                            .build());
-            responseObserver.onCompleted();
-        }
-
-        @Override
-        public void dirDownloadPublic(DownloadPublicRequest request,
-                                      StreamObserver<DownloadResponse> responseObserver) {
-            responseObserver.onNext(DownloadResponse.getDefaultInstance());
-            responseObserver.onCompleted();
-        }
-
-        @Override
         public void getFileCost(FileCostRequest request,
                                 StreamObserver<Cost> responseObserver) {
             responseObserver.onNext(
@@ -340,21 +319,6 @@ class GrpcAntdClientTest {
     @Test
     void testFileDownloadPublic() {
         assertDoesNotThrow(() -> client.fileDownloadPublic("file1", "/tmp/out.txt"));
-    }
-
-    @Test
-    void testDirUploadPublic() {
-        FileUploadResult put = client.dirUploadPublic("/tmp/mydir");
-        assertEquals("dir1", put.address());
-        assertEquals("2000", put.storageCostAtto());
-        assertEquals("100", put.gasCostWei());
-        assertEquals(5L, put.chunksStored());
-        assertEquals("merkle", put.paymentModeUsed());
-    }
-
-    @Test
-    void testDirDownloadPublic() {
-        assertDoesNotThrow(() -> client.dirDownloadPublic("dir1", "/tmp/outdir"));
     }
 
     @Test

@@ -493,59 +493,6 @@ class AntdClient
         ])->then(fn() => null);
     }
 
-    /**
-     * Upload a local directory to the network.
-     */
-    public function dirUploadPublic(string $path, ?string $paymentMode = null): FileUploadResult
-    {
-        $body = ['path' => $path];
-        if ($paymentMode !== null) {
-            $body['payment_mode'] = $paymentMode;
-        }
-        $json = $this->doJson('POST', '/v1/dirs/upload/public', $body);
-        return self::parseFileUploadResult($json);
-    }
-
-    /**
-     * Async: Upload a local directory to the network.
-     *
-     * @return PromiseInterface<FileUploadResult>
-     */
-    public function dirUploadPublicAsync(string $path, ?string $paymentMode = null): PromiseInterface
-    {
-        $body = ['path' => $path];
-        if ($paymentMode !== null) {
-            $body['payment_mode'] = $paymentMode;
-        }
-        return $this->doJsonAsync('POST', '/v1/dirs/upload/public', $body)->then(
-            fn(?array $json) => self::parseFileUploadResult($json ?? []),
-        );
-    }
-
-    /**
-     * Download a directory from the network to a local path.
-     */
-    public function dirDownloadPublic(string $address, string $destPath): void
-    {
-        $this->doJson('POST', '/v1/dirs/download/public', [
-            'address' => $address,
-            'dest_path' => $destPath,
-        ]);
-    }
-
-    /**
-     * Async: Download a directory from the network to a local path.
-     *
-     * @return PromiseInterface<null>
-     */
-    public function dirDownloadPublicAsync(string $address, string $destPath): PromiseInterface
-    {
-        return $this->doJsonAsync('POST', '/v1/dirs/download/public', [
-            'address' => $address,
-            'dest_path' => $destPath,
-        ])->then(fn() => null);
-    }
-
     // --- Wallet ---
 
     /**

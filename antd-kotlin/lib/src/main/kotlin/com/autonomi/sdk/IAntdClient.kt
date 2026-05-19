@@ -29,8 +29,6 @@ interface IAntdClient : Closeable {
     // Files
     suspend fun fileUploadPublic(path: String, paymentMode: String? = null): FileUploadResult
     suspend fun fileDownloadPublic(address: String, destPath: String)
-    suspend fun dirUploadPublic(path: String, paymentMode: String? = null): FileUploadResult
-    suspend fun dirDownloadPublic(address: String, destPath: String)
     suspend fun fileCost(path: String, isPublic: Boolean = true): UploadCostEstimate
 
     // Wallet

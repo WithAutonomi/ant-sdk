@@ -261,43 +261,6 @@ impl GrpcClient {
         Ok(())
     }
 
-    /// Uploads a local directory to the network.
-    pub async fn dir_upload_public(&self, path: &str) -> Result<FileUploadResult, AntdError> {
-        let resp = self
-            .files
-            .clone()
-            .dir_upload_public(proto::antd::v1::UploadFileRequest {
-                path: path.to_string(),
-            })
-            .await?
-            .into_inner();
-
-        Ok(FileUploadResult {
-            address: resp.address,
-            storage_cost_atto: resp.storage_cost_atto,
-            gas_cost_wei: resp.gas_cost_wei,
-            chunks_stored: resp.chunks_stored,
-            payment_mode_used: resp.payment_mode_used,
-        })
-    }
-
-    /// Downloads a directory from the network to a local path.
-    pub async fn dir_download_public(
-        &self,
-        address: &str,
-        dest_path: &str,
-    ) -> Result<(), AntdError> {
-        self.files
-            .clone()
-            .dir_download_public(proto::antd::v1::DownloadPublicRequest {
-                address: address.to_string(),
-                dest_path: dest_path.to_string(),
-            })
-            .await?;
-
-        Ok(())
-    }
-
     /// Returns a pre-upload cost breakdown for the file at `path`.
     pub async fn file_cost(
         &self,

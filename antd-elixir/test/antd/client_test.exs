@@ -187,39 +187,6 @@ defmodule Antd.ClientTest do
     assert :ok = Antd.Client.file_download_public(client, "file1", "/tmp/out.txt")
   end
 
-  test "dir_upload_public/2 uploads a directory", %{bypass: bypass, client: client} do
-    Bypass.expect_once(bypass, "POST", "/v1/dirs/upload/public", fn conn ->
-      conn
-      |> Plug.Conn.put_resp_content_type("application/json")
-      |> Plug.Conn.resp(200, Jason.encode!(%{
-           address: "dir1",
-           storage_cost_atto: "2000",
-           gas_cost_wei: "100",
-           chunks_stored: 5,
-           payment_mode_used: "merkle"
-         }))
-    end)
-
-    assert {:ok,
-            %Antd.FileUploadResult{
-              address: "dir1",
-              storage_cost_atto: "2000",
-              gas_cost_wei: "100",
-              chunks_stored: 5,
-              payment_mode_used: "merkle"
-            }} = Antd.Client.dir_upload_public(client, "/tmp/mydir")
-  end
-
-  test "dir_download_public/3 downloads a directory", %{bypass: bypass, client: client} do
-    Bypass.expect_once(bypass, "POST", "/v1/dirs/download/public", fn conn ->
-      conn
-      |> Plug.Conn.put_resp_content_type("application/json")
-      |> Plug.Conn.resp(200, Jason.encode!(%{}))
-    end)
-
-    assert :ok = Antd.Client.dir_download_public(client, "dir1", "/tmp/outdir")
-  end
-
   test "file_cost/3 estimates file upload cost", %{bypass: bypass, client: client} do
     Bypass.expect_once(bypass, "POST", "/v1/files/cost", fn conn ->
       conn

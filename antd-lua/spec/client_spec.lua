@@ -169,15 +169,6 @@ local function setup_daemon()
             payment_mode_used = "auto",
         }))
     register_route("POST", "/v1/files/download/public", 200, "")
-    register_route("POST", "/v1/dirs/upload/public", 200,
-        cjson.encode({
-            address = "dir1",
-            storage_cost_atto = "2000",
-            gas_cost_wei = "100",
-            chunks_stored = 5,
-            payment_mode_used = "merkle",
-        }))
-    register_route("POST", "/v1/dirs/download/public", 200, "")
     register_route("POST", "/v1/files/cost", 200,
         cjson.encode({
             cost = "1000",
@@ -300,25 +291,6 @@ describe("antd client", function()
     describe("file_download_public", function()
         it("downloads a file", function()
             local _, err = client:file_download_public("file1", "/tmp/out.txt")
-            assert.is_nil(err)
-        end)
-    end)
-
-    describe("dir_upload_public", function()
-        it("uploads a directory", function()
-            local result, err = client:dir_upload_public("/tmp/mydir")
-            assert.is_nil(err)
-            assert.are.equal("dir1", result.address)
-            assert.are.equal("2000", result.storage_cost_atto)
-            assert.are.equal("100", result.gas_cost_wei)
-            assert.are.equal(5, result.chunks_stored)
-            assert.are.equal("merkle", result.payment_mode_used)
-        end)
-    end)
-
-    describe("dir_download_public", function()
-        it("downloads a directory", function()
-            local _, err = client:dir_download_public("dir1", "/tmp/outdir")
             assert.is_nil(err)
         end)
     end)

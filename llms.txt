@@ -68,7 +68,7 @@ data = client.data_get_public(result.address)
 | HealthService | Check | health.proto |
 | DataService | GetPublic, PutPublic, StreamPublic, GetPrivate, PutPrivate, GetCost | data.proto |
 | ChunkService | Get, Put | chunks.proto |
-| FileService | UploadPublic, DownloadPublic, DirUploadPublic, DirDownloadPublic, GetFileCost | files.proto |
+| FileService | UploadPublic, DownloadPublic, GetFileCost | files.proto |
 | EventService | Subscribe | events.proto |
 
 ## Error Codes
@@ -135,4 +135,4 @@ All data and file PUT/upload endpoints accept an optional `payment_mode` field i
 
 REST example: `POST /v1/data/public` with `{"data": "<base64>", "payment_mode": "merkle"}`
 
-All SDK `*_put_public`, `*_put_private`, `file_upload_public`, and `dir_upload_public` methods accept a `payment_mode` parameter (defaults to `"auto"`).
+All SDK `*_put_public`, `*_put_private`, and `file_upload_public` methods accept a `payment_mode` parameter (defaults to `"auto"`).

@@ -193,29 +193,6 @@ defmodule Antd.GrpcClientTest do
     assert result == :ok
   end
 
-  test "dir_upload_public returns FileUploadResult" do
-    {:ok, result} = simulate_grpc_call(:ok, fn ->
-      %Antd.FileUploadResult{
-        address: "dir1",
-        storage_cost_atto: "2000",
-        gas_cost_wei: "100",
-        chunks_stored: 5,
-        payment_mode_used: "merkle"
-      }
-    end)
-
-    assert result.address == "dir1"
-    assert result.storage_cost_atto == "2000"
-    assert result.gas_cost_wei == "100"
-    assert result.chunks_stored == 5
-    assert result.payment_mode_used == "merkle"
-  end
-
-  test "dir_download_public returns :ok" do
-    {:ok, result} = simulate_grpc_call(:ok, fn -> :ok end)
-    assert result == :ok
-  end
-
   test "file_cost returns cost string" do
     {:ok, cost} = simulate_grpc_call(:ok, fn -> "1000" end)
     assert cost == "1000"

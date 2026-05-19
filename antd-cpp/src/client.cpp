@@ -263,28 +263,6 @@ void Client::file_download_public(std::string_view address, std::string_view des
     });
 }
 
-FileUploadResult Client::dir_upload_public(std::string_view path, const std::string& payment_mode) {
-    json body = {{"path", std::string(path)}};
-    if (!payment_mode.empty()) {
-        body["payment_mode"] = payment_mode;
-    }
-    auto j = impl_->do_json("POST", "/v1/dirs/upload/public", body);
-    return FileUploadResult{
-        .address = j.value("address", ""),
-        .storage_cost_atto = j.value("storage_cost_atto", ""),
-        .gas_cost_wei = j.value("gas_cost_wei", ""),
-        .chunks_stored = j.value<uint64_t>("chunks_stored", 0),
-        .payment_mode_used = j.value("payment_mode_used", ""),
-    };
-}
-
-void Client::dir_download_public(std::string_view address, std::string_view dest_path) {
-    impl_->do_json("POST", "/v1/dirs/download/public", json{
-        {"address", std::string(address)},
-        {"dest_path", std::string(dest_path)},
-    });
-}
-
 UploadCostEstimate Client::file_cost(std::string_view path, bool is_public) {
     auto j = impl_->do_json("POST", "/v1/files/cost", json{
         {"path", std::string(path)},

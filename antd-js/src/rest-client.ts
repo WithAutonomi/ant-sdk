@@ -255,32 +255,6 @@ export class RestClient {
     });
   }
 
-  async dirUploadPublic(path: string, options?: { paymentMode?: string }): Promise<FileUploadResult> {
-    const body: Record<string, unknown> = { path };
-    if (options?.paymentMode) body.payment_mode = options.paymentMode;
-    const j = await this.postJson<{
-      address: string;
-      storage_cost_atto: string;
-      gas_cost_wei: string;
-      chunks_stored: number;
-      payment_mode_used: string;
-    }>("/v1/dirs/upload/public", body);
-    return {
-      address: j.address,
-      storageCostAtto: j.storage_cost_atto,
-      gasCostWei: j.gas_cost_wei,
-      chunksStored: j.chunks_stored,
-      paymentModeUsed: j.payment_mode_used,
-    };
-  }
-
-  async dirDownloadPublic(address: string, destPath: string): Promise<void> {
-    await this.postJsonNoResult("/v1/dirs/download/public", {
-      address,
-      dest_path: destPath,
-    });
-  }
-
   /**
    * Pre-upload cost breakdown for the file at `path`.
    *

@@ -97,12 +97,6 @@ println!("File address: {}", result.address);
 // Download a file
 client.file_download_public(&result.address, "/path/to/output.txt").await?;
 
-// Upload a directory
-let dir_result = client.dir_upload_public("/path/to/directory").await?;
-
-// Download a directory
-client.dir_download_public(&dir_result.address, "/path/to/output_dir").await?;
-
 // Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
 let est = client.file_cost("/path/to/file.txt").await?;
 ```

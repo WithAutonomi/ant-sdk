@@ -303,33 +303,6 @@ pub const Client = struct {
         _ = try self.doRequest(.POST, "/v1/files/download/public", req_body);
     }
 
-    /// Upload a local directory to the network.
-    pub fn dirUploadPublic(self: *Client, path: []const u8, payment_mode: ?[]const u8) !FileUploadResult {
-        const req_body = if (payment_mode) |mode|
-            try json_helpers.buildJsonBody(self.allocator, &.{
-                .{ .key = "path", .value = .{ .string = path } },
-                .{ .key = "payment_mode", .value = .{ .string = mode } },
-            })
-        else
-            try json_helpers.buildJsonBody(self.allocator, &.{
-                .{ .key = "path", .value = .{ .string = path } },
-            });
-        defer self.allocator.free(req_body);
-        const resp = try self.doRequest(.POST, "/v1/dirs/upload/public", req_body) orelse return error.JsonError;
-        defer self.allocator.free(resp);
-        return json_helpers.parseFileUploadResult(self.allocator, resp);
-    }
-
-    /// Download a directory from the network to a local path.
-    pub fn dirDownloadPublic(self: *Client, address: []const u8, dest_path: []const u8) !void {
-        const req_body = try json_helpers.buildJsonBody(self.allocator, &.{
-            .{ .key = "address", .value = .{ .string = address } },
-            .{ .key = "dest_path", .value = .{ .string = dest_path } },
-        });
-        defer self.allocator.free(req_body);
-        _ = try self.doRequest(.POST, "/v1/dirs/download/public", req_body);
-    }
-
     // --- External Signer (Two-Phase Upload) ---
 
     /// Prepare a file upload for external signing.

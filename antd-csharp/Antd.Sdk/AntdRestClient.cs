@@ -221,20 +221,6 @@ public sealed class AntdRestClient : IAntdClient
         await PostJsonNoResultAsync("/v1/files/download/public", new { address, dest_path = destPath });
     }
 
-    public async Task<FileUploadResult> DirUploadPublicAsync(string path, string? paymentMode = null)
-    {
-        object body = paymentMode != null
-            ? new { path, payment_mode = paymentMode }
-            : (object)new { path };
-        var resp = await PostJsonAsync<FileUploadPublicDto>("/v1/dirs/upload/public", body);
-        return new FileUploadResult(resp.Address, resp.StorageCostAtto, resp.GasCostWei, resp.ChunksStored, resp.PaymentModeUsed);
-    }
-
-    public async Task DirDownloadPublicAsync(string address, string destPath)
-    {
-        await PostJsonNoResultAsync("/v1/dirs/download/public", new { address, dest_path = destPath });
-    }
-
     public async Task<UploadCostEstimate> FileCostAsync(string path, bool isPublic = true)
     {
         var body = new { path, is_public = isPublic };
