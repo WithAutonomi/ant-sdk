@@ -108,6 +108,7 @@ LANGUAGES: dict[str, Adapter] = {
             "connect": "01-connect.php", "data": "02-data.php",
             "chunks": "03-chunks.php", "files": "04-files.php",
             "private": "06-private-data.php",
+            "external_signer": "07-external-signer.php",
         },
         prep=[lambda cwd: ["composer", "install", "--no-interaction", "--no-progress"]],
         run=lambda cwd, f: ["php", f"examples/{f}"],
