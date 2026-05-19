@@ -58,6 +58,7 @@ LANGUAGES: dict[str, Adapter] = {
             "connect": "01_connect.py", "data": "02_data.py",
             "chunks": "03_chunks.py", "files": "04_files.py",
             "private": "06_private_data.py",
+            "external_signer": "07_external_signer.py",
         },
         run=lambda cwd, f: [_venv_python(), f"examples/{f}"],
     ),
