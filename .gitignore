@@ -79,3 +79,7 @@ out/
 
 # Logs
 *.log
+
+# Sweep script output dirs (scripts/full-stack-sweep.sh, scripts/integration-sweep.sh)
+.full-stack-sweep-results/
+.integration-results/
