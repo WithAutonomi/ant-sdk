@@ -1,32 +1,36 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Example 04: File upload and download
+# Example 04: File upload and download, with round-trip assertions.
 
+require "fileutils"
+require "tmpdir"
 require_relative "../lib/antd"
 
 client = Antd::Client.new
 
-# Estimate upload cost
-cost = client.file_cost("/tmp/example.txt", true, false)
-puts "Estimated upload cost: #{cost} atto"
+Dir.mktmpdir("antd-ruby-04-files") do |tmp|
+  file_content = "Hello from a file on Autonomi!"
 
-# Upload a file
-result = client.file_upload_public("/tmp/example.txt")
-puts "File uploaded to #{result.address}"
-puts "  storage: #{result.storage_cost_atto} atto, gas: #{result.gas_cost_wei} wei"
-puts "  chunks: #{result.chunks_stored}, mode: #{result.payment_mode_used}"
+  src_file = File.join(tmp, "hello.txt")
+  File.write(src_file, file_content)
 
-# Download the file
-client.file_download_public(result.address, "/tmp/downloaded.txt")
-puts "File downloaded to /tmp/downloaded.txt"
+  cost = client.file_cost(src_file, true)
+  puts "Estimated upload cost: #{cost} atto"
 
-# Upload a directory
-dir_result = client.dir_upload_public("/tmp/mydir")
-puts "Directory uploaded to #{dir_result.address}"
-puts "  storage: #{dir_result.storage_cost_atto} atto, gas: #{dir_result.gas_cost_wei} wei"
-puts "  chunks: #{dir_result.chunks_stored}, mode: #{dir_result.payment_mode_used}"
+  result = client.file_upload_public(src_file)
+  puts "File uploaded to #{result.address}"
+  puts "  storage: #{result.storage_cost_atto} atto, gas: #{result.gas_cost_wei} wei"
+  puts "  chunks: #{result.chunks_stored}, mode: #{result.payment_mode_used}"
 
-# Download the directory
-client.dir_download_public(dir_result.address, "/tmp/mydir_copy")
-puts "Directory downloaded to /tmp/mydir_copy"
+  dst_file = File.join(tmp, "hello.txt.downloaded")
+  client.file_download_public(result.address, dst_file)
+  puts "File downloaded to #{dst_file}"
+
+  unless File.read(dst_file) == file_content
+    warn "round-trip mismatch on hello.txt"
+    exit 1
+  end
+
+  puts "File upload/download OK!"
+end
