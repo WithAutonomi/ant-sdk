@@ -170,7 +170,7 @@ LANGUAGES: dict[str, Adapter] = {
     "kotlin": Adapter(
         sdk_dir="antd-kotlin",
         examples={"connect": "1", "data": "2", "chunks": "3",
-                  "files": "4", "private": "6", "all": "all"},
+                  "files": "4", "private": "6", "external_signer": "7", "all": "all"},
         prep=[lambda cwd: ["bash", "gradlew", ":examples:build", "--no-daemon", "-q"]],
         run=lambda cwd, n: ["bash", "gradlew", ":examples:run",
                             f"--args={n}", "--no-daemon", "-q"],
