@@ -97,6 +97,7 @@ LANGUAGES: dict[str, Adapter] = {
             "connect": "01_connect.rb", "data": "02_data.rb",
             "chunks": "03_chunks.rb", "files": "04_files.rb",
             "private": "06_private_data.rb",
+            "external_signer": "07_external_signer.rb",
         },
         prep=[lambda cwd: ["bundle", "install"]],
         run=lambda cwd, f: ["bundle", "exec", "ruby", f"examples/{f}"],

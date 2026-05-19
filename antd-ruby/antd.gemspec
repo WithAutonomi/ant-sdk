@@ -25,4 +25,8 @@ Gem::Specification.new do |spec|
 
   spec.add_development_dependency "minitest", "~> 5.0"
   spec.add_development_dependency "webmock",  "~> 3.0"
+
+  # External-signer example (examples/07_external_signer.rb) only — Ruby
+  # EVM client + ABI encoder. Not a runtime dep of the antd SDK itself.
+  spec.add_development_dependency "eth",      "~> 0.5"
 end
