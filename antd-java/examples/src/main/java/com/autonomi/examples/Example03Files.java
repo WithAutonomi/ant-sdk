@@ -2,28 +2,51 @@ package com.autonomi.examples;
 
 import com.autonomi.antd.AntdClient;
 import com.autonomi.antd.models.FileUploadResult;
+import com.autonomi.antd.models.UploadCostEstimate;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Comparator;
+import java.util.stream.Stream;
 
 /**
- * Example 03 — Upload and download files.
+ * Example 03 — Upload and download a file with round-trip assertion.
  */
 public class Example03Files {
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
+        Path tmp = Files.createTempDirectory("antd-java-03-files-");
         try (var client = new AntdClient()) {
-            // Upload a file
-            FileUploadResult result = client.fileUploadPublic("/path/to/file.txt");
+            String fileContent = "Hello from a file on Autonomi!";
+            Path src = tmp.resolve("hello.txt");
+            Files.writeString(src, fileContent);
+
+            UploadCostEstimate cost = client.fileCost(src.toString(), true);
+            System.out.println("Estimated cost: " + cost.cost() + " atto (" + cost.chunkCount() + " chunks)");
+
+            FileUploadResult result = client.fileUploadPublic(src.toString());
             System.out.println("Uploaded to:  " + result.address());
             System.out.println("Storage cost: " + result.storageCostAtto() + " atto");
             System.out.println("Gas cost:     " + result.gasCostWei() + " wei");
             System.out.println("Chunks:       " + result.chunksStored());
             System.out.println("Mode:         " + result.paymentModeUsed());
 
-            // Download a file
-            client.fileDownloadPublic(result.address(), "/path/to/output.txt");
-            System.out.println("Downloaded successfully");
+            Path dst = tmp.resolve("hello.txt.downloaded");
+            client.fileDownloadPublic(result.address(), dst.toString());
+            System.out.println("Downloaded to: " + dst);
 
-            // Estimate cost before uploading
-            com.autonomi.antd.models.UploadCostEstimate cost = client.fileCost("/path/to/file.txt", true);
-            System.out.println("Estimated cost: " + cost.cost() + " atto (" + cost.chunkCount() + " chunks)");
+            String got = Files.readString(dst);
+            if (!got.equals(fileContent)) {
+                System.err.println("round-trip mismatch on hello.txt");
+                System.exit(1);
+            }
+
+            System.out.println("File upload/download OK!");
+        } finally {
+            try (Stream<Path> walk = Files.walk(tmp)) {
+                walk.sorted(Comparator.reverseOrder()).forEach(p -> {
+                    try { Files.deleteIfExists(p); } catch (Exception ignored) {}
+                });
+            }
         }
     }
 }
