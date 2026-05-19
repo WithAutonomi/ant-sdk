@@ -14,14 +14,16 @@ fun main(args: Array<String>) = runBlocking {
         "3" -> example03Chunks()
         "4" -> example04Files()
         "6" -> example06PrivateData()
+        "7" -> example07ExternalSigner()
         "all" -> {
             example01Connect()
             example02Data()
             example03Chunks()
             example04Files()
             example06PrivateData()
+            example07ExternalSigner()
         }
-        else -> println("Unknown example: $example. Use 1-6 or 'all'.")
+        else -> println("Unknown example: $example. Use 1-7 or 'all'.")
     }
 }
 
