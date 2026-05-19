@@ -187,6 +187,7 @@ LANGUAGES: dict[str, Adapter] = {
             "connect": "01-connect", "data": "02-data",
             "chunks": "03-chunks", "files": "04-files",
             "private": "06-private-data",
+            "external_signer": "07-external-signer",
         },
         run=lambda cwd, name: ["cargo", "run", "--release", "--quiet",
                                "--example", name],
