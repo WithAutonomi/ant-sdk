@@ -83,6 +83,7 @@ LANGUAGES: dict[str, Adapter] = {
             "connect": "01-connect.ts", "data": "02-data.ts",
             "chunks": "03-chunks.ts", "files": "04-files.ts",
             "private": "06-private-data.ts",
+            "external_signer": "07-external-signer.ts",
         },
         prep=[lambda cwd: ["npm", "install", "--no-audit", "--no-fund"]],
         run=lambda cwd, f: ["npx", "--yes", "tsx", f"examples/{f}"],
