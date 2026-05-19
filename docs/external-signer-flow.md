@@ -16,7 +16,7 @@ Anytime the wallet key cannot live in the antd daemon: mobile apps, browser wall
   │ (15 langs) │                                          │                 │
   └─────┬──────┘                                          └────────┬────────┘
         │                                                          │
-        │   POST /v1/files/prepare_upload_public { path }          │
+        │   POST /v1/upload/prepare { path }          │
         │ ────────────────────────────────────────────────────────▶│
         │                                                          │
         │   PrepareUploadResult {                                  │
@@ -35,7 +35,7 @@ Anytime the wallet key cannot live in the antd daemon: mobile apps, browser wall
         │   paymentVault.payForQuotes(payments)                    │
         │ ─────────────────────────▶ │  ──▶ tx_hash                │
         │                            │                             │
-        │   POST /v1/files/finalize_upload                         │
+        │   POST /v1/upload/finalize                         │
         │      { upload_id, tx_hashes: { <quote_hash>: <tx>, … } } │
         │ ────────────────────────────────────────────────────────▶│
         │                                                          │
@@ -104,7 +104,7 @@ Five steps, two on-chain transactions:
 ### 1. Prepare
 
 ```http
-POST /v1/files/prepare_upload_public
+POST /v1/upload/prepare
 Content-Type: application/json
 
 { "path": "/abs/path/to/small_file.bin" }
@@ -164,7 +164,7 @@ Confirmed by `evmlib::wallet::pay_for_quotes` (`src/wallet.rs:145`) returning `B
 ### 5. Finalize
 
 ```http
-POST /v1/files/finalize_upload
+POST /v1/upload/finalize
 Content-Type: application/json
 
 {
@@ -181,10 +181,10 @@ Same shape, different daemon endpoints:
 
 | Step | File upload | Single-chunk publish |
 | --- | --- | --- |
-| Prepare | `POST /v1/files/prepare_upload_public { path }` | `POST /v1/chunks/prepare_upload { data }` |
+| Prepare | `POST /v1/upload/prepare { path }` | `POST /v1/chunks/prepare_upload { data }` |
 | `already_stored` short-circuit | n/a | `PrepareChunkResult.already_stored=True` → skip on-chain, return early |
 | Approve + payForQuotes | identical | identical |
-| Finalize | `POST /v1/files/finalize_upload` | `POST /v1/chunks/finalize_upload` |
+| Finalize | `POST /v1/upload/finalize` | `POST /v1/chunks/finalize_upload` |
 | Result | `data_map_address` | `address` (the chunk's network address) |
 
 `prepare_chunk_upload` has the `already_stored` short-circuit because the network may already have the chunk (single chunks are deterministically addressed by content). When `already_stored=True`, `upload_id` and `payments` are empty — the SDK should just return the chunk address without any on-chain activity.
@@ -239,7 +239,7 @@ from web3 import Web3
 from eth_account import Account
 
 ANVIL_KEY  = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-ANTD       = os.environ.get("ANTD", "http://127.0.0.1:8000")
+ANTD       = os.environ.get("ANTD", "http://127.0.0.1:8082")
 ABI_PATH   = os.path.join(os.path.dirname(__file__), "abi", "IPaymentVault.json")
 ERC20_ABI  = [{"name":"approve","type":"function","stateMutability":"nonpayable",
                "inputs":[{"name":"spender","type":"address"},{"name":"value","type":"uint256"}],
@@ -252,8 +252,8 @@ def main():
         f.write(b"hello external signer\n" * 16)        # ~352 bytes, single wave
         src = f.name
     try:
-        prep = requests.post(f"{ANTD}/v1/files/prepare_upload_public",
-                             json={"path": src}).json()
+        prep = requests.post(f"{ANTD}/v1/upload/prepare",
+                             json={"path": src, "visibility": "public"}).json()
         assert prep["payment_type"] == "wave_batch", prep
 
         w3 = Web3(Web3.HTTPProvider(prep["rpc_url"]))
@@ -292,7 +292,7 @@ def main():
 
         # ---- 4. hand tx hashes back to the daemon -----------------------
         tx_hashes = {p["quote_hash"]: pay_tx for p in prep["payments"]}
-        fin = requests.post(f"{ANTD}/v1/files/finalize_upload",
+        fin = requests.post(f"{ANTD}/v1/upload/finalize",
                             json={"upload_id": prep["upload_id"],
                                   "tx_hashes": tx_hashes}).json()
         addr = fin["data_map_address"]
@@ -300,8 +300,8 @@ def main():
         # ---- 5. download to verify ---------------------------------------
         with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as out:
             dst = out.name
-        rsp = requests.post(f"{ANTD}/v1/files/download_public",
-                            json={"address": addr, "path": dst})
+        rsp = requests.post(f"{ANTD}/v1/files/download/public",
+                            json={"address": addr, "dest_path": dst})
         assert rsp.status_code == 200, rsp.text
         with open(src, "rb") as a, open(dst, "rb") as b:
             assert a.read() == b.read(), "round-trip mismatch"

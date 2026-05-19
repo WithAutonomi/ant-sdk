@@ -22,7 +22,7 @@ from eth_account import Account
 from web3 import Web3
 
 ANVIL_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-ANTD = os.environ.get("ANTD", "http://127.0.0.1:8000")
+ANTD = os.environ.get("ANTD", "http://127.0.0.1:8082")
 ABI_PATH = os.path.join(os.path.dirname(__file__), "abi", "IPaymentVault.json")
 ERC20_ABI = [
     {
@@ -46,7 +46,8 @@ def main() -> int:
     try:
         # ---- 1. ask the daemon for a payment intent ---------------------
         prep = requests.post(
-            f"{ANTD}/v1/files/prepare_upload_public", json={"path": src}
+            f"{ANTD}/v1/upload/prepare",
+            json={"path": src, "visibility": "public"},
         ).json()
         if prep.get("payment_type") != "wave_batch":
             print(f"unexpected payment_type: {prep!r}", file=sys.stderr)
@@ -106,7 +107,7 @@ def main() -> int:
         # in tx_hashes maps to the same tx hash.
         tx_hashes = {p["quote_hash"]: pay_tx for p in prep["payments"]}
         fin = requests.post(
-            f"{ANTD}/v1/files/finalize_upload",
+            f"{ANTD}/v1/upload/finalize",
             json={"upload_id": prep["upload_id"], "tx_hashes": tx_hashes},
         ).json()
         addr = fin["data_map_address"]
@@ -115,8 +116,8 @@ def main() -> int:
         with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as out:
             dst = out.name
         rsp = requests.post(
-            f"{ANTD}/v1/files/download_public",
-            json={"address": addr, "path": dst},
+            f"{ANTD}/v1/files/download/public",
+            json={"address": addr, "dest_path": dst},
         )
         if rsp.status_code != 200:
             print(f"download_public failed: {rsp.status_code} {rsp.text}", file=sys.stderr)
