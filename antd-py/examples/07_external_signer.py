@@ -52,7 +52,14 @@ def external_signer_pay(prep, acct):
     Returns the `quote_hash -> tx_hash` map the daemon's finalize_* methods
     expect. Every entry maps to the same `payForQuotes` tx because every
     quote in the wave is paid in one batched call.
+
+    No on-chain work needed when every quoted chunk is already on-network
+    (the daemon's prepare step elides zero-amount payments). Finalize
+    accepts an empty tx_hashes map in this case.
     """
+    if not prep.payments:
+        return {}
+
     w3 = Web3(Web3.HTTPProvider(prep.rpc_url))
     vault_addr = Web3.to_checksum_address(prep.payment_vault_address)
     token_addr = Web3.to_checksum_address(prep.payment_token_address)
