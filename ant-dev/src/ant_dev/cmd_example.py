@@ -181,6 +181,7 @@ LANGUAGES: dict[str, Adapter] = {
             "connect": "01_connect.dart", "data": "02_data.dart",
             "chunks": "03_chunks.dart", "files": "04_files.dart",
             "private": "06_private_data.dart",
+            "external_signer": "07_external_signer.dart",
         },
         prep=[lambda cwd: ["dart", "pub", "get"]],
         run=lambda cwd, f: ["dart", "run", f"example/{f}"],
