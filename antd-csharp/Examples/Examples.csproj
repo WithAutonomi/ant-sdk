@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Antd.Sdk\Antd.Sdk.csproj" />
+    <PackageReference Include="Nethereum.Web3" Version="5.0.0" />
   </ItemGroup>
 
 </Project>

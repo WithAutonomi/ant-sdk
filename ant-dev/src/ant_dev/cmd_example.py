@@ -67,7 +67,7 @@ LANGUAGES: dict[str, Adapter] = {
         cwd_subdir="Examples",
         examples={
             "connect": "1", "data": "2", "chunks": "3",
-            "files": "4", "private": "6", "all": "all",
+            "files": "4", "private": "6", "external_signer": "7", "all": "all",
         },
         run=lambda cwd, n: ["dotnet", "run", "--", n],
     ),
