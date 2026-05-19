@@ -161,6 +161,7 @@ LANGUAGES: dict[str, Adapter] = {
             "files": "com.autonomi.examples.Example03Files",
             "errors": "com.autonomi.examples.Example05ErrorHandling",
             "private": "com.autonomi.examples.Example06PrivateData",
+            "external_signer": "com.autonomi.examples.Example07ExternalSigner",
         },
         prep=[lambda cwd: ["bash", "gradlew", ":examples:build", "--no-daemon", "-q"]],
         run=lambda cwd, cls: ["bash", "gradlew", ":examples:run",

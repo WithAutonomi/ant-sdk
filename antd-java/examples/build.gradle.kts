@@ -9,6 +9,7 @@ repositories {
 
 dependencies {
     implementation(project(":"))
+    implementation("org.web3j:core:4.12.3")
 }
 
 java {
