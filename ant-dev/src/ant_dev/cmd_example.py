@@ -74,7 +74,10 @@ LANGUAGES: dict[str, Adapter] = {
     "go": Adapter(
         sdk_dir="antd-go",
         cwd_subdir="examples",
-        examples={"connect": "01-connect", "data": "02-data", "files": "03-files"},
+        examples={
+            "connect": "01-connect", "data": "02-data", "files": "03-files",
+            "external_signer": "07-external-signer",
+        },
         run=lambda cwd, subdir: ["go", "run", f"./{subdir}"],
     ),
     "js": Adapter(
