@@ -14,7 +14,7 @@ import time
 # Add src to path for development
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from antd import AntdClient, AlreadyExistsError
+from antd import AntdClient
 
 # --- Enable ANSI on Windows (same as C# TestRunner.EnableAnsi) ---
 
@@ -61,10 +61,6 @@ def test_skip(name: str, detail: str = ""):
     results.append((name, "SKIP"))
     print(f"  {YELLOW}SKIP{RESET}  {name}" + (f"  ({detail})" if detail else ""))
 
-
-# --- BLS keys ---
-
-KEY_GRAPH = "0000000000000000000000000000000000000000000000000000000000000003"
 
 PROPAGATION_DELAY = 3  # seconds to wait for DHT propagation
 
@@ -141,48 +137,7 @@ def main():
     else:
         test_skip("Chunk get", "no address from put")
 
-    # 5. Graph entry put/exists/get/cost
-    graph_addr = None
-    try:
-        content_hex = "ab" * 32  # 32 bytes as hex
-        result = client.graph_entry_put(KEY_GRAPH, [], content_hex, [])
-        graph_addr = result.address
-        test_pass("Graph entry put", f"addr={result.address[:16]}... cost={result.cost}")
-    except AlreadyExistsError:
-        test_pass("Graph entry put", "already exists (expected on re-run)")
-    except Exception as e:
-        test_fail("Graph entry put", str(e))
-
-    if graph_addr:
-        print(f"  ... waiting {PROPAGATION_DELAY}s for DHT propagation")
-        time.sleep(PROPAGATION_DELAY)
-
-        try:
-            exists = client.graph_entry_exists(graph_addr)
-            if exists:
-                test_pass("Graph entry exists (HEAD)")
-            else:
-                test_fail("Graph entry exists (HEAD)", "returned False")
-        except Exception as e:
-            test_fail("Graph entry exists (HEAD)", str(e))
-
-        try:
-            entry = client.graph_entry_get(graph_addr)
-            test_pass("Graph entry get", f"owner={entry.owner[:16]}... content={entry.content[:16]}...")
-        except Exception as e:
-            test_fail("Graph entry get", str(e))
-
-        try:
-            cost = client.graph_entry_cost(graph_addr)
-            test_pass("Graph entry cost", f"cost={cost}")
-        except Exception as e:
-            test_fail("Graph entry cost", str(e))
-    else:
-        test_skip("Graph entry exists", "no graph address")
-        test_skip("Graph entry get", "no graph address")
-        test_skip("Graph entry cost", "no graph address")
-
-    # 6. Large data round-trip (10 KB)
+    # 5. Large data round-trip (10 KB)
     try:
         large_data = os.urandom(10 * 1024)
         result = client.data_put_public(large_data)

@@ -24,8 +24,3 @@ message PublicKeyProto {
 message SecretKeyProto {
   string hex = 1;
 }
-
-message GraphDescendant {
-  string public_key = 1; // hex
-  string content = 2;    // hex, 32 bytes
-}
