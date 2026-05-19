@@ -94,8 +94,6 @@ await aclient.close()
 |--------|---------|-------------|
 | `file_upload_public(path: str)` | `FileUploadResult` | Upload a file |
 | `file_download_public(address: str, dest: str)` | `None` | Download a file |
-| `dir_upload_public(path: str)` | `FileUploadResult` | Upload a directory |
-| `dir_download_public(address: str, dest: str)` | `None` | Download a directory |
 | `file_cost(path: str, is_public: bool)` | `UploadCostEstimate` | Estimate file cost — size, chunks, gas, payment mode |
 
 ## Models

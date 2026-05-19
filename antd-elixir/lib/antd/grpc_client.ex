@@ -284,24 +284,6 @@ defmodule Antd.GrpcClient do
     unwrap!(file_download_public(client, address, dest_path))
   end
 
-  @doc "Uploads a local directory to the network."
-  @spec dir_upload_public(t(), String.t()) :: {:ok, Antd.FileUploadResult.t()} | {:error, Exception.t()}
-  def dir_upload_public(%__MODULE__{channel: channel}, path) do
-    req = Antd.V1.UploadFileRequest.new(path: path)
-
-    case Antd.V1.FileService.Stub.dir_upload_public(channel, req) do
-      {:ok, resp} ->
-        {:ok, file_upload_result_from_resp(resp)}
-
-      {:error, rpc_error} ->
-        {:error, translate_error(rpc_error)}
-    end
-  end
-
-  @doc "Like `dir_upload_public/2` but raises on error."
-  @spec dir_upload_public!(t(), String.t()) :: Antd.FileUploadResult.t()
-  def dir_upload_public!(client, path), do: unwrap!(dir_upload_public(client, path))
-
   defp file_upload_result_from_resp(resp) do
     %Antd.FileUploadResult{
       address: resp.address,
@@ -310,23 +292,6 @@ defmodule Antd.GrpcClient do
       chunks_stored: resp.chunks_stored,
       payment_mode_used: resp.payment_mode_used
     }
-  end
-
-  @doc "Downloads a directory from the network to a local path."
-  @spec dir_download_public(t(), String.t(), String.t()) :: :ok | {:error, Exception.t()}
-  def dir_download_public(%__MODULE__{channel: channel}, address, dest_path) do
-    req = Antd.V1.DownloadPublicRequest.new(address: address, dest_path: dest_path)
-
-    case Antd.V1.FileService.Stub.dir_download_public(channel, req) do
-      {:ok, _resp} -> :ok
-      {:error, rpc_error} -> {:error, translate_error(rpc_error)}
-    end
-  end
-
-  @doc "Like `dir_download_public/3` but raises on error."
-  @spec dir_download_public!(t(), String.t(), String.t()) :: :ok
-  def dir_download_public!(client, address, dest_path) do
-    unwrap!(dir_download_public(client, address, dest_path))
   end
 
   @doc "Pre-upload cost breakdown for the file at `path`."

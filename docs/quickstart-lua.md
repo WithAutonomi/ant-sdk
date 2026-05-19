@@ -97,14 +97,6 @@ print("File address: " .. result.address)
 local ok, err = client:file_download_public(result.address, "/path/to/output.txt")
 if err then error(err) end
 
--- Upload a directory
-local result, err = client:dir_upload_public("/path/to/directory")
-if err then error(err) end
-
--- Download a directory
-local ok, err = client:dir_download_public(result.address, "/path/to/output_dir")
-if err then error(err) end
-
 -- Cost estimation — returns a table with size, chunks, gas, payment mode
 local est, err = client:file_cost("/path/to/file.txt")
 if err then error(err) end

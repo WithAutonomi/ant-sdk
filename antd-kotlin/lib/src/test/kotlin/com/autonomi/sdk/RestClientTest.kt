@@ -91,12 +91,6 @@ class RestClientTest {
             if (method == "POST" && path == "/v1/files/download/public") {
                 return MockResponse().setResponseCode(200)
             }
-            if (method == "POST" && path == "/v1/dirs/upload/public") {
-                return json("""{"address":"dir1","storage_cost_atto":"2000","gas_cost_wei":"100","chunks_stored":5,"payment_mode_used":"merkle"}""")
-            }
-            if (method == "POST" && path == "/v1/dirs/download/public") {
-                return MockResponse().setResponseCode(200)
-            }
             if (method == "POST" && path == "/v1/files/cost") {
                 return json("""{"cost":"1000","file_size":4096,"chunk_count":3,"estimated_gas_cost_wei":"150000000000000","payment_mode":"auto"}""")
             }
@@ -249,21 +243,6 @@ class RestClientTest {
     @Test
     fun `fileDownloadPublic succeeds`() = runTest {
         client.fileDownloadPublic("file1", "/tmp/out.txt")
-    }
-
-    @Test
-    fun `dirUploadPublic returns FileUploadResult`() = runTest {
-        val result = client.dirUploadPublic("/tmp/mydir")
-        assertEquals("dir1", result.address)
-        assertEquals("2000", result.storageCostAtto)
-        assertEquals("100", result.gasCostWei)
-        assertEquals(5UL, result.chunksStored)
-        assertEquals("merkle", result.paymentModeUsed)
-    }
-
-    @Test
-    fun `dirDownloadPublic succeeds`() = runTest {
-        client.dirDownloadPublic("dir1", "/tmp/outdir")
     }
 
     @Test

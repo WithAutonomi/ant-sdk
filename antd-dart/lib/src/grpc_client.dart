@@ -311,35 +311,6 @@ class GrpcAntdClient {
     }
   }
 
-  /// Uploads a local directory to the network.
-  Future<FileUploadResult> dirUploadPublic(String path) async {
-    try {
-      final req = files_msg.UploadFileRequest()..path = path;
-      final resp = await _fileStub.dirUploadPublic(req);
-      return FileUploadResult(
-        address: resp.address,
-        storageCostAtto: resp.storageCostAtto,
-        gasCostWei: resp.gasCostWei,
-        chunksStored: resp.chunksStored.toInt(),
-        paymentModeUsed: resp.paymentModeUsed,
-      );
-    } on GrpcError catch (e) {
-      _handleError(e);
-    }
-  }
-
-  /// Downloads a directory from the network to a local path.
-  Future<void> dirDownloadPublic(String address, String destPath) async {
-    try {
-      final req = files_msg.DownloadPublicRequest()
-        ..address = address
-        ..destPath = destPath;
-      await _fileStub.dirDownloadPublic(req);
-    } on GrpcError catch (e) {
-      _handleError(e);
-    }
-  }
-
   /// Pre-upload cost breakdown for the file at [path].
   Future<UploadCostEstimate> fileCost(
     String path, {

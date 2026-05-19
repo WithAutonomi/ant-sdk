@@ -106,13 +106,11 @@ All methods take a `context.Context` as the first parameter for cancellation and
 | `ChunkPut(ctx, data)` | Store a raw chunk |
 | `ChunkGet(ctx, address)` | Retrieve a chunk |
 
-### Files & Directories
+### Files
 | Method | Description |
 |--------|-------------|
 | `FileUploadPublic(ctx, path)` | Upload a file |
 | `FileDownloadPublic(ctx, address, destPath)` | Download a file |
-| `DirUploadPublic(ctx, path)` | Upload a directory |
-| `DirDownloadPublic(ctx, address, destPath)` | Download a directory |
 | `FileCost(ctx, path, isPublic)` | Estimate upload cost — returns `*UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ## gRPC Transport

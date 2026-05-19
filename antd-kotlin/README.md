@@ -67,7 +67,7 @@ All methods are `suspend` functions for use with Kotlin coroutines.
 | **Health** | `health()` returns `HealthStatus` carrying antd version, EVM network, uptime, build commit, and payment contract addresses (antd ≥ 0.4.0) |
 | **Data** | `dataPutPublic`, `dataGetPublic`, `dataPutPrivate`, `dataGetPrivate`, `dataCost` |
 | **Chunks** | `chunkPut`, `chunkGet` |
-| **Files** | `fileUploadPublic`, `fileDownloadPublic`, `dirUploadPublic`, `dirDownloadPublic`, `fileCost` |
+| **Files** | `fileUploadPublic`, `fileDownloadPublic`, `fileCost` |
 
 ## Error Handling
 

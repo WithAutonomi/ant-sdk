@@ -44,10 +44,9 @@ end
 
 defmodule Antd.FileUploadResult do
   @moduledoc """
-  Result of a public file or directory upload.
+  Result of a public file upload.
 
-  Returned by `Antd.Client.file_upload_public/2`,
-  `Antd.Client.dir_upload_public/2`, and the equivalent gRPC client functions.
+  Returned by `Antd.Client.file_upload_public/2` and the equivalent gRPC client function.
   """
 
   @enforce_keys [:address, :storage_cost_atto, :gas_cost_wei, :chunks_stored, :payment_mode_used]

@@ -77,19 +77,13 @@ public:
     /// Retrieve a chunk by address.
     std::vector<uint8_t> chunk_get(std::string_view address);
 
-    // --- Files & Directories ---
+    // --- Files ---
 
     /// Upload a local file to the network.
     FileUploadResult file_upload_public(std::string_view path);
 
     /// Download a file from the network to a local path.
     void file_download_public(std::string_view address, std::string_view dest_path);
-
-    /// Upload a local directory to the network.
-    FileUploadResult dir_upload_public(std::string_view path);
-
-    /// Download a directory from the network to a local path.
-    void dir_download_public(std::string_view address, std::string_view dest_path);
 
     /// Estimate the cost of uploading a file.
     std::string file_cost(std::string_view path, bool is_public);

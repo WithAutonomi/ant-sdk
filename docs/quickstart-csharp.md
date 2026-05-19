@@ -102,12 +102,6 @@ var result = await client.FileUploadPublicAsync("/path/to/file.txt");
 // Download a file
 await client.FileDownloadPublicAsync(result.Address, "/path/to/output.txt");
 
-// Upload a directory
-var dirResult = await client.DirUploadPublicAsync("/path/to/directory");
-
-// Download a directory
-await client.DirDownloadPublicAsync(dirResult.Address, "/path/to/output_dir");
-
 // Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
 var est = await client.FileCostAsync("/path/to/file.txt");
 ```

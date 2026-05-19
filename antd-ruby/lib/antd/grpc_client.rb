@@ -157,25 +157,6 @@ module Antd
       nil
     end
 
-    # Upload a local directory to the network.
-    # @param path [String] local directory path
-    # @return [FileUploadResult]
-    def dir_upload_public(path)
-      req = Antd::V1::UploadFileRequest.new(path: path)
-      resp = grpc_call { @file_stub.dir_upload_public(req) }
-      file_upload_result_from_proto(resp)
-    end
-
-    # Download a directory from the network to a local path.
-    # @param address [String]
-    # @param dest_path [String]
-    # @return [void]
-    def dir_download_public(address, dest_path)
-      req = Antd::V1::DownloadPublicRequest.new(address: address, dest_path: dest_path)
-      grpc_call { @file_stub.dir_download_public(req) }
-      nil
-    end
-
     # Pre-upload cost breakdown for the file at +path+.
     # @param path [String]
     # @param is_public [Boolean]

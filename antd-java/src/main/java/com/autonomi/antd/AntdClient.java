@@ -354,7 +354,7 @@ public class AntdClient implements AutoCloseable {
                 str(j, "rpc_url"));
     }
 
-    // ── Files & Directories ──
+    // ── Files ──
 
     public FileUploadResult fileUploadPublic(String path) {
         return fileUploadPublic(path, null);
@@ -373,18 +373,6 @@ public class AntdClient implements AutoCloseable {
         doJson("POST", "/v1/files/download/public", body);
     }
 
-    public FileUploadResult dirUploadPublic(String path) {
-        return dirUploadPublic(path, null);
-    }
-
-    public FileUploadResult dirUploadPublic(String path, String paymentMode) {
-        String body = paymentMode != null
-                ? Json.object("path", path, "payment_mode", paymentMode)
-                : Json.object("path", path);
-        Map<String, Object> j = doJson("POST", "/v1/dirs/upload/public", body);
-        return parseFileUploadResult(j);
-    }
-
     private static FileUploadResult parseFileUploadResult(Map<String, Object> j) {
         return new FileUploadResult(
                 str(j, "address"),
@@ -392,11 +380,6 @@ public class AntdClient implements AutoCloseable {
                 str(j, "gas_cost_wei"),
                 num(j, "chunks_stored"),
                 str(j, "payment_mode_used"));
-    }
-
-    public void dirDownloadPublic(String address, String destPath) {
-        String body = Json.object("address", address, "dest_path", destPath);
-        doJson("POST", "/v1/dirs/download/public", body);
     }
 
     /**
