@@ -22,6 +22,8 @@ tonic-build = "0.12"
 [dev-dependencies]
 mockito = "1"
 tokio-stream = "0.1"
+alloy = { version = "1", features = ["full"] }
+hex = "0.4"
 
 [[example]]
 name = "01-connect"
@@ -42,3 +44,7 @@ path = "examples/04-files.rs"
 [[example]]
 name = "06-private-data"
 path = "examples/06-private-data.rs"
+
+[[example]]
+name = "07-external-signer"
+path = "examples/07-external-signer.rs"
