@@ -62,7 +62,10 @@ fn mock_data_put_private(server: &mut ServerGuard) -> Mock {
 fn mock_data_get_private(server: &mut ServerGuard) -> Mock {
     let encoded = BASE64.encode(b"secret");
     server
-        .mock("GET", Matcher::Regex(r"/v1/data/private\?data_map=.*".to_string()))
+        .mock(
+            "GET",
+            Matcher::Regex(r"/v1/data/private\?data_map=.*".to_string()),
+        )
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(format!(r#"{{"data":"{encoded}"}}"#))
@@ -129,7 +132,8 @@ fn mock_prepare_upload_merkle(server: &mut ServerGuard) -> Mock {
         .mock("POST", "/v1/upload/prepare")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{
+        .with_body(
+            r#"{
             "upload_id": "up123",
             "payments": [],
             "total_amount": "5000",
@@ -154,7 +158,8 @@ fn mock_prepare_upload_merkle(server: &mut ServerGuard) -> Mock {
                 }
             ],
             "merkle_payment_timestamp": 1700000000
-        }"#)
+        }"#,
+        )
         .create()
 }
 
@@ -162,7 +167,8 @@ fn mock_finalize_merkle_upload(server: &mut ServerGuard) -> Mock {
     server
         .mock("POST", "/v1/upload/finalize")
         .match_body(Matcher::JsonString(
-            r#"{"upload_id":"up123","winner_pool_hash":"0xpool1","store_data_map":true}"#.to_string(),
+            r#"{"upload_id":"up123","winner_pool_hash":"0xpool1","store_data_map":true}"#
+                .to_string(),
         ))
         .with_status(200)
         .with_header("content-type", "application/json")
@@ -175,14 +181,16 @@ fn mock_prepare_upload_legacy(server: &mut ServerGuard) -> Mock {
         .mock("POST", "/v1/upload/prepare")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{
+        .with_body(
+            r#"{
             "upload_id": "up_old",
             "payments": [{"quote_hash":"qh1","rewards_address":"0xr1","amount":"100"}],
             "total_amount": "100",
             "payment_vault_address": "0xDP",
             "payment_token_address": "0xPT",
             "rpc_url": "http://rpc.local"
-        }"#)
+        }"#,
+        )
         .create()
 }
 
@@ -286,7 +294,10 @@ async fn test_file_upload_public() {
     let _m = mock_file_upload_public(&mut server);
     let client = Client::new(&server.url());
 
-    let result = client.file_upload_public("/tmp/test.txt", None).await.unwrap();
+    let result = client
+        .file_upload_public("/tmp/test.txt", None)
+        .await
+        .unwrap();
     assert_eq!(result.address, "file1");
     assert_eq!(result.storage_cost_atto, "1000");
     assert_eq!(result.gas_cost_wei, "42");
@@ -312,10 +323,7 @@ async fn test_file_cost() {
     let _m = mock_file_cost(&mut server);
     let client = Client::new(&server.url());
 
-    let est = client
-        .file_cost("/tmp/test.txt", true)
-        .await
-        .unwrap();
+    let est = client.file_cost("/tmp/test.txt", true).await.unwrap();
     assert_eq!(est.cost, "1000");
     assert_eq!(est.file_size, 4096);
     assert_eq!(est.chunk_count, 3);
@@ -442,10 +450,7 @@ async fn test_error_mapping_already_exists() {
         .create();
     let client = Client::new(&server.url());
 
-    let err = client
-        .data_put_public(b"test", None)
-        .await
-        .unwrap_err();
+    let err = client.data_put_public(b"test", None).await.unwrap_err();
     match err {
         AntdError::AlreadyExists(msg) => assert_eq!(msg, "already exists"),
         other => panic!("expected AlreadyExists, got: {other:?}"),
@@ -524,7 +529,8 @@ fn mock_prepare_upload_public(server: &mut ServerGuard) -> Mock {
         })))
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{
+        .with_body(
+            r#"{
             "upload_id": "up_wave_1",
             "payment_type": "wave_batch",
             "payments": [{"quote_hash":"qh1","rewards_address":"0xR1","amount":"100"}],
@@ -532,7 +538,8 @@ fn mock_prepare_upload_public(server: &mut ServerGuard) -> Mock {
             "payment_vault_address": "0xDP",
             "payment_token_address": "0xPT",
             "rpc_url": "http://rpc.local"
-        }"#)
+        }"#,
+        )
         .create()
 }
 
@@ -542,7 +549,10 @@ async fn test_prepare_upload_public_forwards_visibility() {
     let _m = mock_prepare_upload_public(&mut server);
     let client = Client::new(&server.url());
 
-    let result = client.prepare_upload_public("/tmp/wave/file.dat").await.unwrap();
+    let result = client
+        .prepare_upload_public("/tmp/wave/file.dat")
+        .await
+        .unwrap();
     assert_eq!(result.upload_id, "up_wave_1");
     assert_eq!(result.payment_type, "wave_batch");
     // The PartialJsonString matcher on the mock verifies the daemon saw
@@ -558,7 +568,8 @@ async fn test_prepare_upload_without_visibility_omits_field() {
         .match_body(Matcher::Json(json!({"path": "/tmp/wave/file.dat"})))
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{
+        .with_body(
+            r#"{
             "upload_id": "up_priv",
             "payment_type": "wave_batch",
             "payments": [],
@@ -566,11 +577,15 @@ async fn test_prepare_upload_without_visibility_omits_field() {
             "payment_vault_address": "0xDP",
             "payment_token_address": "0xPT",
             "rpc_url": "http://rpc.local"
-        }"#)
+        }"#,
+        )
         .create();
     let client = Client::new(&server.url());
 
-    let result = client.prepare_upload("/tmp/wave/file.dat", None).await.unwrap();
+    let result = client
+        .prepare_upload("/tmp/wave/file.dat", None)
+        .await
+        .unwrap();
     assert_eq!(result.upload_id, "up_priv");
     // If `visibility: null` had been serialized, the strict Matcher::Json
     // above would reject the request and the test would fail with a 501.
@@ -583,18 +598,23 @@ async fn test_finalize_upload_parses_data_map_address_when_present() {
         .mock("POST", "/v1/upload/finalize")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{
+        .with_body(
+            r#"{
             "address": "0xFINAL",
             "chunks_stored": 42,
             "data_map": "deadbeef",
             "data_map_address": "0xDMAP"
-        }"#)
+        }"#,
+        )
         .create();
     let client = Client::new(&server.url());
 
     let mut tx_hashes = std::collections::HashMap::new();
     tx_hashes.insert("qh1".to_string(), "tx1".to_string());
-    let result = client.finalize_upload("up_wave_1", &tx_hashes).await.unwrap();
+    let result = client
+        .finalize_upload("up_wave_1", &tx_hashes)
+        .await
+        .unwrap();
     assert_eq!(result.address, "0xFINAL");
     assert_eq!(result.chunks_stored, 42);
     assert_eq!(result.data_map, "deadbeef");
@@ -610,11 +630,13 @@ async fn test_finalize_upload_data_map_address_empty_when_absent() {
         .mock("POST", "/v1/upload/finalize")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{
+        .with_body(
+            r#"{
             "address": "0xFINAL",
             "chunks_stored": 7,
             "data_map": "deadbeef"
-        }"#)
+        }"#,
+        )
         .create();
     let client = Client::new(&server.url());
 
@@ -632,10 +654,12 @@ async fn test_prepare_chunk_upload_already_stored() {
         .mock("POST", "/v1/chunks/prepare")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{
+        .with_body(
+            r#"{
             "address": "addr_already_stored",
             "already_stored": true
-        }"#)
+        }"#,
+        )
         .create();
     let client = Client::new(&server.url());
 
@@ -658,7 +682,8 @@ async fn test_prepare_chunk_upload_wave_batch() {
         .mock("POST", "/v1/chunks/prepare")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{
+        .with_body(
+            r#"{
             "address": "addr_chunk_new",
             "already_stored": false,
             "upload_id": "chunk_up_1",
@@ -670,7 +695,8 @@ async fn test_prepare_chunk_upload_wave_batch() {
             "payment_vault_address": "0xVC",
             "payment_token_address": "0xTC",
             "rpc_url": "http://rpc.local"
-        }"#)
+        }"#,
+        )
         .create();
     let client = Client::new(&server.url());
 

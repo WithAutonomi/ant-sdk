@@ -193,11 +193,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .finalize_chunk_upload(&chunk_prep.upload_id, &tx_hashes)
             .await?;
         if addr != chunk_prep.address {
-            return Err(format!(
-                "chunk address mismatch: {} != {}",
-                addr, chunk_prep.address
-            )
-            .into());
+            return Err(
+                format!("chunk address mismatch: {} != {}", addr, chunk_prep.address).into(),
+            );
         }
         println!("Chunk finalize: address={addr}");
     }

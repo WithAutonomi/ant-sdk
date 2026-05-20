@@ -163,7 +163,6 @@ pub struct PrepareChunkResult {
     pub already_stored: bool,
 
     // Fields below are only populated when `already_stored == false`.
-
     /// Opaque identifier to pass back to `finalize_chunk_upload`.
     #[serde(default)]
     pub upload_id: String,

@@ -47,16 +47,14 @@ impl Client {
     /// Creates a client by auto-discovering the daemon port file, falling back
     /// to [`DEFAULT_BASE_URL`] if discovery fails.
     pub fn auto_discover() -> Self {
-        let url = discover_daemon_url()
-            .unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
+        let url = discover_daemon_url().unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
         Self::new(&url)
     }
 
     /// Like [`auto_discover`](Self::auto_discover) but with a custom request
     /// timeout.
     pub fn auto_discover_with_timeout(timeout: Duration) -> Self {
-        let url = discover_daemon_url()
-            .unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
+        let url = discover_daemon_url().unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
         Self::with_timeout(&url, timeout)
     }
 
@@ -115,11 +113,7 @@ impl Client {
     }
 
     async fn do_head(&self, path: &str) -> Result<u16, AntdError> {
-        let resp = self
-            .http
-            .head(self.url(path))
-            .send()
-            .await?;
+        let resp = self.http.head(self.url(path)).send().await?;
         Ok(resp.status().as_u16())
     }
 
@@ -148,9 +142,7 @@ impl Client {
     }
 
     fn u64_field(v: &Value, key: &str) -> u64 {
-        v.get(key)
-            .and_then(|v| v.as_u64())
-            .unwrap_or_default()
+        v.get(key).and_then(|v| v.as_u64()).unwrap_or_default()
     }
 
     // --- Health ---
@@ -177,17 +169,17 @@ impl Client {
     // --- Data ---
 
     /// Stores public immutable data on the network.
-    pub async fn data_put_public(&self, data: &[u8], payment_mode: Option<&str>) -> Result<PutResult, AntdError> {
+    pub async fn data_put_public(
+        &self,
+        data: &[u8],
+        payment_mode: Option<&str>,
+    ) -> Result<PutResult, AntdError> {
         let mut body = json!({ "data": Self::b64_encode(data) });
         if let Some(mode) = payment_mode {
             body["payment_mode"] = json!(mode);
         }
         let (j, _) = self
-            .do_json(
-                reqwest::Method::POST,
-                "/v1/data/public",
-                Some(body),
-            )
+            .do_json(reqwest::Method::POST, "/v1/data/public", Some(body))
             .await?;
         let j = j.unwrap_or_default();
         Ok(PutResult {
@@ -210,17 +202,17 @@ impl Client {
     }
 
     /// Stores private encrypted data on the network.
-    pub async fn data_put_private(&self, data: &[u8], payment_mode: Option<&str>) -> Result<PutResult, AntdError> {
+    pub async fn data_put_private(
+        &self,
+        data: &[u8],
+        payment_mode: Option<&str>,
+    ) -> Result<PutResult, AntdError> {
         let mut body = json!({ "data": Self::b64_encode(data) });
         if let Some(mode) = payment_mode {
             body["payment_mode"] = json!(mode);
         }
         let (j, _) = self
-            .do_json(
-                reqwest::Method::POST,
-                "/v1/data/private",
-                Some(body),
-            )
+            .do_json(reqwest::Method::POST, "/v1/data/private", Some(body))
             .await?;
         let j = j.unwrap_or_default();
         Ok(PutResult {
@@ -287,11 +279,7 @@ impl Client {
     /// Retrieves a chunk by address.
     pub async fn chunk_get(&self, address: &str) -> Result<Vec<u8>, AntdError> {
         let (j, _) = self
-            .do_json(
-                reqwest::Method::GET,
-                &format!("/v1/chunks/{address}"),
-                None,
-            )
+            .do_json(reqwest::Method::GET, &format!("/v1/chunks/{address}"), None)
             .await?;
         let j = j.unwrap_or_default();
         Self::b64_decode(&Self::str_field(&j, "data"))
@@ -300,17 +288,17 @@ impl Client {
     // --- Files ---
 
     /// Uploads a local file to the network.
-    pub async fn file_upload_public(&self, path: &str, payment_mode: Option<&str>) -> Result<FileUploadResult, AntdError> {
+    pub async fn file_upload_public(
+        &self,
+        path: &str,
+        payment_mode: Option<&str>,
+    ) -> Result<FileUploadResult, AntdError> {
         let mut body = json!({ "path": path });
         if let Some(mode) = payment_mode {
             body["payment_mode"] = json!(mode);
         }
         let (j, _) = self
-            .do_json(
-                reqwest::Method::POST,
-                "/v1/files/upload/public",
-                Some(body),
-            )
+            .do_json(reqwest::Method::POST, "/v1/files/upload/public", Some(body))
             .await?;
         let j = j.unwrap_or_default();
         Ok(FileUploadResult {
@@ -396,11 +384,7 @@ impl Client {
     /// This is a one-time operation required before any storage operations.
     pub async fn wallet_approve(&self) -> Result<bool, AntdError> {
         let (j, _) = self
-            .do_json(
-                reqwest::Method::POST,
-                "/v1/wallet/approve",
-                Some(json!({})),
-            )
+            .do_json(reqwest::Method::POST, "/v1/wallet/approve", Some(json!({})))
             .await?;
         let j = j.unwrap_or_default();
         Ok(j.get("approved").and_then(|v| v.as_bool()).unwrap_or(false))
@@ -433,25 +417,28 @@ impl Client {
             rpc_url: Self::str_field(j, "rpc_url"),
             payment_type: Self::str_field(j, "payment_type"),
             depth: j.get("depth").and_then(|v| v.as_u64()).map(|v| v as u8),
-            pool_commitments: j.get("pool_commitments").and_then(|v| v.as_array()).map(|arr| {
-                arr.iter()
-                    .map(|p| PoolCommitmentEntry {
-                        pool_hash: Self::str_field(p, "pool_hash"),
-                        candidates: p
-                            .get("candidates")
-                            .and_then(|c| c.as_array())
-                            .map(|ca| {
-                                ca.iter()
-                                    .map(|c| CandidateNodeEntry {
-                                        rewards_address: Self::str_field(c, "rewards_address"),
-                                        amount: Self::str_field(c, "amount"),
-                                    })
-                                    .collect()
-                            })
-                            .unwrap_or_default(),
-                    })
-                    .collect()
-            }),
+            pool_commitments: j
+                .get("pool_commitments")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .map(|p| PoolCommitmentEntry {
+                            pool_hash: Self::str_field(p, "pool_hash"),
+                            candidates: p
+                                .get("candidates")
+                                .and_then(|c| c.as_array())
+                                .map(|ca| {
+                                    ca.iter()
+                                        .map(|c| CandidateNodeEntry {
+                                            rewards_address: Self::str_field(c, "rewards_address"),
+                                            amount: Self::str_field(c, "amount"),
+                                        })
+                                        .collect()
+                                })
+                                .unwrap_or_default(),
+                        })
+                        .collect()
+                }),
             merkle_payment_timestamp: j.get("merkle_payment_timestamp").and_then(|v| v.as_u64()),
         }
     }
@@ -605,10 +592,7 @@ impl Client {
     /// signer.
     ///
     /// Requires antd >= 0.7.0.
-    pub async fn prepare_chunk_upload(
-        &self,
-        data: &[u8],
-    ) -> Result<PrepareChunkResult, AntdError> {
+    pub async fn prepare_chunk_upload(&self, data: &[u8]) -> Result<PrepareChunkResult, AntdError> {
         let (j, _) = self
             .do_json(
                 reqwest::Method::POST,
