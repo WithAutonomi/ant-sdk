@@ -26,6 +26,10 @@ pub struct DataGetResponse {
 #[derive(Deserialize)]
 pub struct DataCostRequest {
     pub data: String, // base64
+    /// Payment mode the estimate should reflect: "auto" (default), "merkle",
+    /// or "single".
+    #[serde(default)]
+    pub payment_mode: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -307,6 +311,10 @@ pub struct FileCostRequest {
     pub path: String,
     #[serde(default = "default_true")]
     pub is_public: bool,
+    /// Payment mode the estimate should reflect: "auto" (default), "merkle",
+    /// or "single".
+    #[serde(default)]
+    pub payment_mode: Option<String>,
 }
 
 fn default_true() -> bool {

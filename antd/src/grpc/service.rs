@@ -6,7 +6,7 @@ use tonic::{Request, Response, Status};
 
 use crate::error::AntdError;
 use crate::state::AppState;
-use crate::types::{adjust_for_public_upload, format_payment_mode};
+use crate::types::{adjust_for_public_upload, format_payment_mode, parse_payment_mode};
 
 // Generated protobuf modules
 #[allow(dead_code)]
@@ -16,6 +16,16 @@ pub mod pb {
 
 fn not_implemented(op: &str) -> Status {
     Status::unimplemented(format!("{op} not yet implemented"))
+}
+
+/// Parse a gRPC `string payment_mode` field, treating proto3's empty-string
+/// default as "no preference" (Auto). Keeps REST's strict parse_payment_mode
+/// unchanged — only the gRPC boundary needs to absorb the empty default that
+/// old clients omitting the field will send. Returns `String` error so callers
+/// convert to the (large) `Status` at the boundary.
+fn parse_grpc_payment_mode(s: &str) -> Result<ant_core::data::PaymentMode, String> {
+    let opt = if s.is_empty() { None } else { Some(s) };
+    parse_payment_mode(opt)
 }
 
 // ── HealthService ──
@@ -97,12 +107,14 @@ impl pb::data_service_server::DataService for DataServiceImpl {
             ));
         }
 
-        let data = request.into_inner().data;
+        let req = request.into_inner();
+        let mode = parse_grpc_payment_mode(&req.payment_mode).map_err(Status::invalid_argument)?;
+        let data = req.data;
 
         let client = self.state.client.clone();
         let address = tokio::spawn(async move {
             let result = client
-                .data_upload_with_mode(Bytes::from(data), ant_core::data::PaymentMode::Auto)
+                .data_upload_with_mode(Bytes::from(data), mode)
                 .await
                 .map_err(AntdError::from_core)?;
             let address = client
@@ -116,6 +128,9 @@ impl pb::data_service_server::DataService for DataServiceImpl {
         .map_err(tonic::Status::from)?;
 
         Ok(Response::new(pb::PutPublicDataResponse {
+            // ant-core's DataUploadResult does not expose per-upload storage
+            // cost — REST mirrors this by omitting the field from its response
+            // shape. Left empty for symmetry.
             cost: Some(pb::Cost {
                 atto_tokens: String::new(),
                 ..Default::default()
@@ -179,12 +194,14 @@ impl pb::data_service_server::DataService for DataServiceImpl {
             ));
         }
 
-        let data = request.into_inner().data;
+        let req = request.into_inner();
+        let mode = parse_grpc_payment_mode(&req.payment_mode).map_err(Status::invalid_argument)?;
+        let data = req.data;
 
         let client = self.state.client.clone();
         let data_map_hex = tokio::spawn(async move {
             let result = client
-                .data_upload_with_mode(Bytes::from(data), ant_core::data::PaymentMode::Auto)
+                .data_upload_with_mode(Bytes::from(data), mode)
                 .await
                 .map_err(AntdError::from_core)?;
             let data_map_bytes = rmp_serde::to_vec(&result.data_map)
@@ -196,6 +213,9 @@ impl pb::data_service_server::DataService for DataServiceImpl {
         .map_err(tonic::Status::from)?;
 
         Ok(Response::new(pb::PutPrivateDataResponse {
+            // ant-core's DataUploadResult does not expose per-upload storage
+            // cost — REST mirrors this by omitting the field from its response
+            // shape. Left empty for symmetry.
             cost: Some(pb::Cost {
                 atto_tokens: String::new(),
                 ..Default::default()
@@ -208,7 +228,9 @@ impl pb::data_service_server::DataService for DataServiceImpl {
         &self,
         request: Request<pb::DataCostRequest>,
     ) -> Result<Response<pb::Cost>, Status> {
-        let data = request.into_inner().data;
+        let req = request.into_inner();
+        let mode = parse_grpc_payment_mode(&req.payment_mode).map_err(Status::invalid_argument)?;
+        let data = req.data;
 
         // estimate_upload_cost takes a path; stage the bytes in a temp file.
         let tmp = std::env::temp_dir().join(format!(
@@ -226,9 +248,7 @@ impl pb::data_service_server::DataService for DataServiceImpl {
         let client = self.state.client.clone();
         let tmp_for_task = tmp.clone();
         let estimate = tokio::spawn(async move {
-            client
-                .estimate_upload_cost(&tmp_for_task, ant_core::data::PaymentMode::Auto, None)
-                .await
+            client.estimate_upload_cost(&tmp_for_task, mode, None).await
         })
         .await
         .map_err(|e| Status::internal(format!("task failed: {e}")))?;
@@ -331,6 +351,7 @@ impl pb::file_service_server::FileService for FileServiceImpl {
         }
 
         let req = request.into_inner();
+        let mode = parse_grpc_payment_mode(&req.payment_mode).map_err(Status::invalid_argument)?;
         let path = PathBuf::from(&req.path).canonicalize().map_err(|e| {
             tracing::warn!(path = %req.path, error = %e, "invalid upload path");
             Status::invalid_argument("invalid path")
@@ -339,7 +360,7 @@ impl pb::file_service_server::FileService for FileServiceImpl {
         let client = self.state.client.clone();
         let (result, address) = tokio::spawn(async move {
             let result = client
-                .file_upload_with_mode(&path, ant_core::data::PaymentMode::Auto)
+                .file_upload_with_mode(&path, mode)
                 .await
                 .map_err(AntdError::from_core)?;
             let address = client
@@ -421,6 +442,7 @@ impl pb::file_service_server::FileService for FileServiceImpl {
         request: Request<pb::FileCostRequest>,
     ) -> Result<Response<pb::Cost>, Status> {
         let req = request.into_inner();
+        let mode = parse_grpc_payment_mode(&req.payment_mode).map_err(Status::invalid_argument)?;
         let path = PathBuf::from(&req.path).canonicalize().map_err(|e| {
             tracing::warn!(path = %req.path, error = %e, "invalid file cost path");
             Status::invalid_argument("invalid path")
@@ -428,9 +450,7 @@ impl pb::file_service_server::FileService for FileServiceImpl {
 
         let client = self.state.client.clone();
         let estimate = tokio::spawn(async move {
-            client
-                .estimate_upload_cost(&path, ant_core::data::PaymentMode::Auto, None)
-                .await
+            client.estimate_upload_cost(&path, mode, None).await
         })
         .await
         .map_err(|e| Status::internal(format!("task failed: {e}")))?
