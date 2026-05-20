@@ -465,6 +465,10 @@ ant dev playground [--transport rest|grpc]             # Interactive Python REPL
 | C++ | [docs/quickstart-cpp.md](docs/quickstart-cpp.md) |
 | Java | [docs/quickstart-java.md](docs/quickstart-java.md) |
 
+## Security
+
+See [SECURITY.md](SECURITY.md) for the project's threat model, in-scope security reports, and how to disclose vulnerabilities. Preferred channel is GitHub Private Vulnerability Reporting; the disclosure window defaults to 90 days.
+
 ## License
 
 See individual component directories for license information.
