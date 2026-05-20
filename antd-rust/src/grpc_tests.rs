@@ -4,7 +4,6 @@ use tonic::{Request, Response, Status};
 use crate::errors::AntdError;
 use crate::grpc_client::proto::antd::v1;
 use crate::grpc_client::GrpcClient;
-use crate::models::*;
 
 // --- Mock service implementations ---
 
@@ -343,10 +342,7 @@ async fn test_grpc_file_download_public() {
 #[tokio::test]
 async fn test_grpc_file_cost() {
     let client = start_mock_server().await;
-    let est = client
-        .file_cost("/tmp/test.txt", true)
-        .await
-        .unwrap();
+    let est = client.file_cost("/tmp/test.txt", true).await.unwrap();
     assert_eq!(est.cost, "1000");
     assert_eq!(est.file_size, 4096);
     assert_eq!(est.chunk_count, 3);
@@ -384,8 +380,7 @@ async fn test_grpc_error_invalid_argument() {
 
 #[tokio::test]
 async fn test_grpc_error_failed_precondition() {
-    let client =
-        start_error_server(tonic::Code::FailedPrecondition, "insufficient funds").await;
+    let client = start_error_server(tonic::Code::FailedPrecondition, "insufficient funds").await;
     let err = client.health().await.unwrap_err();
     match err {
         AntdError::Grpc(status) => {
@@ -411,8 +406,7 @@ async fn test_grpc_error_already_exists() {
 
 #[tokio::test]
 async fn test_grpc_error_resource_exhausted() {
-    let client =
-        start_error_server(tonic::Code::ResourceExhausted, "payload too large").await;
+    let client = start_error_server(tonic::Code::ResourceExhausted, "payload too large").await;
     let err = client.health().await.unwrap_err();
     match err {
         AntdError::Grpc(status) => {

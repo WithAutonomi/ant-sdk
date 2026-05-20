@@ -6,7 +6,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Store a raw chunk
     let result = client.chunk_put(b"raw chunk data").await?;
-    println!("Chunk stored at: {} (cost: {} atto)", result.address, result.cost);
+    println!(
+        "Chunk stored at: {} (cost: {} atto)",
+        result.address, result.cost
+    );
 
     // Retrieve the chunk
     let data = client.chunk_get(&result.address).await?;

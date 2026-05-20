@@ -14,10 +14,8 @@ pub mod proto {
 }
 
 use proto::antd::v1::{
-    chunk_service_client::ChunkServiceClient,
-    data_service_client::DataServiceClient,
-    file_service_client::FileServiceClient,
-    health_service_client::HealthServiceClient,
+    chunk_service_client::ChunkServiceClient, data_service_client::DataServiceClient,
+    file_service_client::FileServiceClient, health_service_client::HealthServiceClient,
 };
 
 /// Default gRPC endpoint of the antd daemon.
@@ -46,8 +44,7 @@ impl GrpcClient {
     /// Creates a gRPC client by auto-discovering the daemon port file,
     /// falling back to [`DEFAULT_GRPC_ENDPOINT`] if discovery fails.
     pub async fn auto_discover() -> Result<Self, AntdError> {
-        let endpoint = discover_grpc_target()
-            .unwrap_or_else(|| DEFAULT_GRPC_ENDPOINT.to_string());
+        let endpoint = discover_grpc_target().unwrap_or_else(|| DEFAULT_GRPC_ENDPOINT.to_string());
         Self::connect(&endpoint).await
     }
 
@@ -103,10 +100,7 @@ impl GrpcClient {
             .await?
             .into_inner();
 
-        let cost = resp
-            .cost
-            .map(|c| c.atto_tokens)
-            .unwrap_or_default();
+        let cost = resp.cost.map(|c| c.atto_tokens).unwrap_or_default();
 
         Ok(PutResult {
             cost,
@@ -139,10 +133,7 @@ impl GrpcClient {
             .await?
             .into_inner();
 
-        let cost = resp
-            .cost
-            .map(|c| c.atto_tokens)
-            .unwrap_or_default();
+        let cost = resp.cost.map(|c| c.atto_tokens).unwrap_or_default();
 
         Ok(PutResult {
             cost,
@@ -197,10 +188,7 @@ impl GrpcClient {
             .await?
             .into_inner();
 
-        let cost = resp
-            .cost
-            .map(|c| c.atto_tokens)
-            .unwrap_or_default();
+        let cost = resp.cost.map(|c| c.atto_tokens).unwrap_or_default();
 
         Ok(PutResult {
             cost,

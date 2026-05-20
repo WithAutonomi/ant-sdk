@@ -48,8 +48,17 @@ pub enum AntdError {
     Json(#[from] serde_json::Error),
 
     /// gRPC transport or status error.
+    ///
+    /// Boxed because `tonic::Status` is ~176 bytes — keeping it inline would
+    /// blow up every `Result<T, AntdError>` return site (clippy::result_large_err).
     #[error("grpc error: {0}")]
-    Grpc(#[from] tonic::Status),
+    Grpc(Box<tonic::Status>),
+}
+
+impl From<tonic::Status> for AntdError {
+    fn from(status: tonic::Status) -> Self {
+        AntdError::Grpc(Box::new(status))
+    }
 }
 
 /// Maps an HTTP status code and message to the appropriate [`AntdError`] variant.

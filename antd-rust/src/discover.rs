@@ -101,13 +101,23 @@ fn data_dir() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
         let appdata = env::var("APPDATA").ok()?;
-        Some(PathBuf::from(appdata).join(DATA_DIR_NAME).join(SDK_SUBDIR_NAME))
+        Some(
+            PathBuf::from(appdata)
+                .join(DATA_DIR_NAME)
+                .join(SDK_SUBDIR_NAME),
+        )
     }
 
     #[cfg(target_os = "macos")]
     {
         let home = env::var("HOME").ok()?;
-        Some(PathBuf::from(home).join("Library").join("Application Support").join(DATA_DIR_NAME).join(SDK_SUBDIR_NAME))
+        Some(
+            PathBuf::from(home)
+                .join("Library")
+                .join("Application Support")
+                .join(DATA_DIR_NAME)
+                .join(SDK_SUBDIR_NAME),
+        )
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
@@ -116,7 +126,13 @@ fn data_dir() -> Option<PathBuf> {
             return Some(PathBuf::from(xdg).join(DATA_DIR_NAME).join(SDK_SUBDIR_NAME));
         }
         let home = env::var("HOME").ok()?;
-        Some(PathBuf::from(home).join(".local").join("share").join(DATA_DIR_NAME).join(SDK_SUBDIR_NAME))
+        Some(
+            PathBuf::from(home)
+                .join(".local")
+                .join("share")
+                .join(DATA_DIR_NAME)
+                .join(SDK_SUBDIR_NAME),
+        )
     }
 }
 
