@@ -3,13 +3,19 @@ name: Go CI
 on:
   push:
     branches: [main]
+    # The `!**/*.md` negation skips CI when the only thing changed is a
+    # .md file anywhere in the repo. GitHub Actions only allows EITHER
+    # `paths` OR `paths-ignore`, not both, so the negation lives inside
+    # `paths`.
     paths:
       - "antd-go/**"
       - ".github/workflows/go-ci.yml"
+      - "!**/*.md"
   pull_request:
     paths:
       - "antd-go/**"
       - ".github/workflows/go-ci.yml"
+      - "!**/*.md"
 
 permissions:
   contents: read
