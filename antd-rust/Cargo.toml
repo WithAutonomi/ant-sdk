@@ -48,3 +48,7 @@ path = "examples/06-private-data.rs"
 [[example]]
 name = "07-external-signer"
 path = "examples/07-external-signer.rs"
+
+[[example]]
+name = "08-grpc"
+path = "examples/08-grpc.rs"

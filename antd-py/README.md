@@ -146,6 +146,7 @@ python examples/02_data.py         # Store/retrieve data
 python examples/03_chunks.py       # Raw chunks
 python examples/04_files.py        # File upload/download
 python examples/06_private_data.py # Private data with data maps
+python examples/08_grpc.py         # gRPC transport (instead of REST)
 ```
 
 Or use the dev CLI:

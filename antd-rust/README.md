@@ -165,6 +165,7 @@ See the [examples/](examples/) directory:
 - `03-chunks` — Raw chunk operations
 - `04-files` — File and directory upload/download
 - `06-private-data` — Private encrypted data storage
+- `08-grpc` — gRPC transport (instead of REST)
 
 Run an example:
 
