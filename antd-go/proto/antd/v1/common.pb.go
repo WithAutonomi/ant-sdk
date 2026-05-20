@@ -229,58 +229,6 @@ func (x *SecretKeyProto) GetHex() string {
 	return ""
 }
 
-type GraphDescendant struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	PublicKey     string                 `protobuf:"bytes,1,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"` // hex
-	Content       string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`                      // hex, 32 bytes
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *GraphDescendant) Reset() {
-	*x = GraphDescendant{}
-	mi := &file_antd_v1_common_proto_msgTypes[4]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *GraphDescendant) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*GraphDescendant) ProtoMessage() {}
-
-func (x *GraphDescendant) ProtoReflect() protoreflect.Message {
-	mi := &file_antd_v1_common_proto_msgTypes[4]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use GraphDescendant.ProtoReflect.Descriptor instead.
-func (*GraphDescendant) Descriptor() ([]byte, []int) {
-	return file_antd_v1_common_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *GraphDescendant) GetPublicKey() string {
-	if x != nil {
-		return x.PublicKey
-	}
-	return ""
-}
-
-func (x *GraphDescendant) GetContent() string {
-	if x != nil {
-		return x.Content
-	}
-	return ""
-}
-
 var File_antd_v1_common_proto protoreflect.FileDescriptor
 
 const file_antd_v1_common_proto_rawDesc = "" +
@@ -299,11 +247,7 @@ const file_antd_v1_common_proto_rawDesc = "" +
 	"\x0ePublicKeyProto\x12\x10\n" +
 	"\x03hex\x18\x01 \x01(\tR\x03hex\"\"\n" +
 	"\x0eSecretKeyProto\x12\x10\n" +
-	"\x03hex\x18\x01 \x01(\tR\x03hex\"J\n" +
-	"\x0fGraphDescendant\x12\x1d\n" +
-	"\n" +
-	"public_key\x18\x01 \x01(\tR\tpublicKey\x12\x18\n" +
-	"\acontent\x18\x02 \x01(\tR\acontentBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\aAntd.V1b\x06proto3"
+	"\x03hex\x18\x01 \x01(\tR\x03hexBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\aAntd.V1b\x06proto3"
 
 var (
 	file_antd_v1_common_proto_rawDescOnce sync.Once
@@ -317,13 +261,12 @@ func file_antd_v1_common_proto_rawDescGZIP() []byte {
 	return file_antd_v1_common_proto_rawDescData
 }
 
-var file_antd_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_antd_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_antd_v1_common_proto_goTypes = []any{
-	(*Cost)(nil),            // 0: antd.v1.Cost
-	(*Address)(nil),         // 1: antd.v1.Address
-	(*PublicKeyProto)(nil),  // 2: antd.v1.PublicKeyProto
-	(*SecretKeyProto)(nil),  // 3: antd.v1.SecretKeyProto
-	(*GraphDescendant)(nil), // 4: antd.v1.GraphDescendant
+	(*Cost)(nil),           // 0: antd.v1.Cost
+	(*Address)(nil),        // 1: antd.v1.Address
+	(*PublicKeyProto)(nil), // 2: antd.v1.PublicKeyProto
+	(*SecretKeyProto)(nil), // 3: antd.v1.SecretKeyProto
 }
 var file_antd_v1_common_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
@@ -344,7 +287,7 @@ func file_antd_v1_common_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_antd_v1_common_proto_rawDesc), len(file_antd_v1_common_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

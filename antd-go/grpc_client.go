@@ -168,17 +168,50 @@ func (c *GrpcClient) Health(ctx context.Context) (*HealthStatus, error) {
 
 // --- Data (5 methods) ---
 
-// DataPutPublic stores public immutable data on the network.
-func (c *GrpcClient) DataPutPublic(ctx context.Context, data []byte) (*PutResult, error) {
+// DataPut stores private encrypted data on the network and returns the
+// caller-held DataMap (hex).
+func (c *GrpcClient) DataPut(ctx context.Context, data []byte, paymentMode PaymentMode) (*DataPutResult, error) {
 	ctx, cancel := c.ctx(ctx)
 	defer cancel()
 
-	resp, err := c.data.PutPublic(ctx, &pb.PutPublicDataRequest{Data: data})
+	resp, err := c.data.Put(ctx, &pb.PutDataRequest{
+		Data:        data,
+		PaymentMode: string(paymentMode),
+	})
 	if err != nil {
 		return nil, errorFromGrpc(err)
 	}
-	return &PutResult{
-		Cost:    resp.GetCost().GetAttoTokens(),
+	return &DataPutResult{
+		DataMap: resp.GetDataMap(),
+	}, nil
+}
+
+// DataGet retrieves private data from a caller-held DataMap (hex).
+func (c *GrpcClient) DataGet(ctx context.Context, dataMap string) ([]byte, error) {
+	ctx, cancel := c.ctx(ctx)
+	defer cancel()
+
+	resp, err := c.data.Get(ctx, &pb.GetDataRequest{DataMap: dataMap})
+	if err != nil {
+		return nil, errorFromGrpc(err)
+	}
+	return resp.GetData(), nil
+}
+
+// DataPutPublic stores public immutable data on the network and returns the
+// on-network DataMap address.
+func (c *GrpcClient) DataPutPublic(ctx context.Context, data []byte, paymentMode PaymentMode) (*DataPutPublicResult, error) {
+	ctx, cancel := c.ctx(ctx)
+	defer cancel()
+
+	resp, err := c.data.PutPublic(ctx, &pb.PutPublicDataRequest{
+		Data:        data,
+		PaymentMode: string(paymentMode),
+	})
+	if err != nil {
+		return nil, errorFromGrpc(err)
+	}
+	return &DataPutPublicResult{
 		Address: resp.GetAddress(),
 	}, nil
 }
@@ -195,42 +228,18 @@ func (c *GrpcClient) DataGetPublic(ctx context.Context, address string) ([]byte,
 	return resp.GetData(), nil
 }
 
-// DataPutPrivate stores private encrypted data on the network.
-func (c *GrpcClient) DataPutPrivate(ctx context.Context, data []byte) (*PutResult, error) {
-	ctx, cancel := c.ctx(ctx)
-	defer cancel()
-
-	resp, err := c.data.PutPrivate(ctx, &pb.PutPrivateDataRequest{Data: data})
-	if err != nil {
-		return nil, errorFromGrpc(err)
-	}
-	return &PutResult{
-		Cost:    resp.GetCost().GetAttoTokens(),
-		Address: resp.GetDataMap(),
-	}, nil
-}
-
-// DataGetPrivate retrieves private data using a data map.
-func (c *GrpcClient) DataGetPrivate(ctx context.Context, dataMap string) ([]byte, error) {
-	ctx, cancel := c.ctx(ctx)
-	defer cancel()
-
-	resp, err := c.data.GetPrivate(ctx, &pb.GetPrivateDataRequest{DataMap: dataMap})
-	if err != nil {
-		return nil, errorFromGrpc(err)
-	}
-	return resp.GetData(), nil
-}
-
 // DataCost returns a pre-upload cost breakdown for the given bytes.
 //
 // The server samples a small number of chunk addresses and extrapolates —
 // much faster than quoting every chunk on slow networks. Gas is advisory.
-func (c *GrpcClient) DataCost(ctx context.Context, data []byte) (*UploadCostEstimate, error) {
+func (c *GrpcClient) DataCost(ctx context.Context, data []byte, paymentMode PaymentMode) (*UploadCostEstimate, error) {
 	ctx, cancel := c.ctx(ctx)
 	defer cancel()
 
-	resp, err := c.data.GetCost(ctx, &pb.DataCostRequest{Data: data})
+	resp, err := c.data.Cost(ctx, &pb.DataCostRequest{
+		Data:        data,
+		PaymentMode: string(paymentMode),
+	})
 	if err != nil {
 		return nil, errorFromGrpc(err)
 	}
@@ -274,16 +283,55 @@ func (c *GrpcClient) ChunkGet(ctx context.Context, address string) ([]byte, erro
 
 // --- Files (5 methods) ---
 
-// FileUploadPublic uploads a local file to the network.
-func (c *GrpcClient) FileUploadPublic(ctx context.Context, path string) (*FileUploadResult, error) {
+// FilePut uploads a local file as a private upload and returns the caller-held
+// DataMap (hex).
+func (c *GrpcClient) FilePut(ctx context.Context, path string, paymentMode PaymentMode) (*FilePutResult, error) {
 	ctx, cancel := c.ctx(ctx)
 	defer cancel()
 
-	resp, err := c.file.UploadPublic(ctx, &pb.UploadFileRequest{Path: path})
+	resp, err := c.file.Put(ctx, &pb.PutFileRequest{
+		Path:        path,
+		PaymentMode: string(paymentMode),
+	})
 	if err != nil {
 		return nil, errorFromGrpc(err)
 	}
-	return &FileUploadResult{
+	return &FilePutResult{
+		DataMap:         resp.GetDataMap(),
+		StorageCostAtto: resp.GetStorageCostAtto(),
+		GasCostWei:      resp.GetGasCostWei(),
+		ChunksStored:    resp.GetChunksStored(),
+		PaymentModeUsed: resp.GetPaymentModeUsed(),
+	}, nil
+}
+
+// FileGet downloads a private file from a caller-held DataMap into destPath.
+func (c *GrpcClient) FileGet(ctx context.Context, dataMap, destPath string) error {
+	ctx, cancel := c.ctx(ctx)
+	defer cancel()
+
+	_, err := c.file.Get(ctx, &pb.GetFileRequest{
+		DataMap:  dataMap,
+		DestPath: destPath,
+	})
+	return errorFromGrpc(err)
+}
+
+// FilePutPublic uploads a local file as a public upload. The DataMap is
+// stored on-network as an extra chunk; the returned address is the shareable
+// retrieval handle.
+func (c *GrpcClient) FilePutPublic(ctx context.Context, path string, paymentMode PaymentMode) (*FilePutPublicResult, error) {
+	ctx, cancel := c.ctx(ctx)
+	defer cancel()
+
+	resp, err := c.file.PutPublic(ctx, &pb.PutFileRequest{
+		Path:        path,
+		PaymentMode: string(paymentMode),
+	})
+	if err != nil {
+		return nil, errorFromGrpc(err)
+	}
+	return &FilePutPublicResult{
 		Address:         resp.GetAddress(),
 		StorageCostAtto: resp.GetStorageCostAtto(),
 		GasCostWei:      resp.GetGasCostWei(),
@@ -292,12 +340,12 @@ func (c *GrpcClient) FileUploadPublic(ctx context.Context, path string) (*FileUp
 	}, nil
 }
 
-// FileDownloadPublic downloads a file from the network to a local path.
-func (c *GrpcClient) FileDownloadPublic(ctx context.Context, address, destPath string) error {
+// FileGetPublic downloads a public file from an on-network DataMap address into destPath.
+func (c *GrpcClient) FileGetPublic(ctx context.Context, address, destPath string) error {
 	ctx, cancel := c.ctx(ctx)
 	defer cancel()
 
-	_, err := c.file.DownloadPublic(ctx, &pb.DownloadPublicRequest{
+	_, err := c.file.GetPublic(ctx, &pb.GetFilePublicRequest{
 		Address:  address,
 		DestPath: destPath,
 	})
@@ -308,13 +356,14 @@ func (c *GrpcClient) FileDownloadPublic(ctx context.Context, address, destPath s
 //
 // The server samples a small number of chunk addresses and extrapolates —
 // much faster than quoting every chunk on slow networks. Gas is advisory.
-func (c *GrpcClient) FileCost(ctx context.Context, path string, isPublic bool) (*UploadCostEstimate, error) {
+func (c *GrpcClient) FileCost(ctx context.Context, path string, isPublic bool, paymentMode PaymentMode) (*UploadCostEstimate, error) {
 	ctx, cancel := c.ctx(ctx)
 	defer cancel()
 
-	resp, err := c.file.GetFileCost(ctx, &pb.FileCostRequest{
-		Path:     path,
-		IsPublic: isPublic,
+	resp, err := c.file.Cost(ctx, &pb.FileCostRequest{
+		Path:        path,
+		IsPublic:    isPublic,
+		PaymentMode: string(paymentMode),
 	})
 	if err != nil {
 		return nil, errorFromGrpc(err)

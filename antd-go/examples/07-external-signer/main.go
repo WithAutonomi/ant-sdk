@@ -187,7 +187,7 @@ func main() {
 		fileFin.DataMapAddress, fileFin.ChunksStored)
 
 	dstPath := srcPath + ".downloaded"
-	if err := client.FileDownloadPublic(ctx, fileFin.DataMapAddress, dstPath); err != nil {
+	if err := client.FileGetPublic(ctx, fileFin.DataMapAddress, dstPath); err != nil {
 		log.Fatalf("file download: %v", err)
 	}
 	got, err := os.ReadFile(dstPath)

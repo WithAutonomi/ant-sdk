@@ -41,18 +41,18 @@ func mockDaemon(t *testing.T) *httptest.Server {
 
 		// Data put public
 		case r.Method == "POST" && r.URL.Path == "/v1/data/public":
-			writeJSON(w, map[string]any{"cost": "100", "address": "abc123"})
+			writeJSON(w, map[string]any{"address": "abc123", "chunks_stored": float64(3), "payment_mode_used": "auto"})
 
 		// Data get public
 		case r.Method == "GET" && r.URL.Path == "/v1/data/public/abc123":
 			writeJSON(w, map[string]any{"data": base64.StdEncoding.EncodeToString([]byte("hello"))})
 
-		// Data put private
-		case r.Method == "POST" && r.URL.Path == "/v1/data/private":
-			writeJSON(w, map[string]any{"cost": "200", "data_map": "dm123"})
+		// Data put private (POST /v1/data)
+		case r.Method == "POST" && r.URL.Path == "/v1/data":
+			writeJSON(w, map[string]any{"data_map": "dm123", "chunks_stored": float64(2), "payment_mode_used": "merkle"})
 
-		// Data get private
-		case r.Method == "GET" && r.URL.Path == "/v1/data/private":
+		// Data get private (POST /v1/data/get)
+		case r.Method == "POST" && r.URL.Path == "/v1/data/get":
 			writeJSON(w, map[string]any{"data": base64.StdEncoding.EncodeToString([]byte("secret"))})
 
 		// Data cost
@@ -72,7 +72,17 @@ func mockDaemon(t *testing.T) *httptest.Server {
 			writeJSON(w, map[string]any{"data": base64.StdEncoding.EncodeToString([]byte("chunkdata"))})
 
 		// Files
-		case r.Method == "POST" && r.URL.Path == "/v1/files/upload/public":
+		case r.Method == "POST" && r.URL.Path == "/v1/files":
+			writeJSON(w, map[string]any{
+				"data_map":          "filedm1",
+				"storage_cost_atto": "500",
+				"gas_cost_wei":      "21",
+				"chunks_stored":     float64(2),
+				"payment_mode_used": "single",
+			})
+		case r.Method == "POST" && r.URL.Path == "/v1/files/get":
+			w.WriteHeader(200)
+		case r.Method == "POST" && r.URL.Path == "/v1/files/public":
 			writeJSON(w, map[string]any{
 				"address":           "file1",
 				"storage_cost_atto": "1000",
@@ -80,7 +90,7 @@ func mockDaemon(t *testing.T) *httptest.Server {
 				"chunks_stored":     float64(3),
 				"payment_mode_used": "auto",
 			})
-		case r.Method == "POST" && r.URL.Path == "/v1/files/download/public":
+		case r.Method == "POST" && r.URL.Path == "/v1/files/public/get":
 			w.WriteHeader(200)
 		case r.Method == "POST" && r.URL.Path == "/v1/files/cost":
 			writeJSON(w, map[string]any{
@@ -164,11 +174,11 @@ func TestDataPublic(t *testing.T) {
 	c := NewClient(srv.URL)
 	ctx := context.Background()
 
-	put, err := c.DataPutPublic(ctx, []byte("hello"))
+	put, err := c.DataPutPublic(ctx, []byte("hello"), PaymentModeAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if put.Address != "abc123" || put.Cost != "100" {
+	if put.Address != "abc123" || put.ChunksStored != 3 || put.PaymentModeUsed != "auto" {
 		t.Fatalf("unexpected put: %+v", put)
 	}
 
@@ -187,15 +197,15 @@ func TestDataPrivate(t *testing.T) {
 	c := NewClient(srv.URL)
 	ctx := context.Background()
 
-	put, err := c.DataPutPrivate(ctx, []byte("secret"))
+	put, err := c.DataPut(ctx, []byte("secret"), PaymentModeMerkle)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if put.Address != "dm123" || put.Cost != "200" {
+	if put.DataMap != "dm123" || put.ChunksStored != 2 || put.PaymentModeUsed != "merkle" {
 		t.Fatalf("unexpected put: %+v", put)
 	}
 
-	data, err := c.DataGetPrivate(ctx, "dm123")
+	data, err := c.DataGet(ctx, "dm123")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +218,7 @@ func TestDataCost(t *testing.T) {
 	srv := mockDaemon(t)
 	defer srv.Close()
 	c := NewClient(srv.URL)
-	est, err := c.DataCost(context.Background(), []byte("test"))
+	est, err := c.DataCost(context.Background(), []byte("test"), PaymentModeSingle)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +232,7 @@ func TestFileCost(t *testing.T) {
 	srv := mockDaemon(t)
 	defer srv.Close()
 	c := NewClient(srv.URL)
-	est, err := c.FileCost(context.Background(), "/tmp/file.bin", true)
+	est, err := c.FileCost(context.Background(), "/tmp/file.bin", true, PaymentModeAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +271,7 @@ func TestFiles(t *testing.T) {
 	c := NewClient(srv.URL)
 	ctx := context.Background()
 
-	put, err := c.FileUploadPublic(ctx, "/tmp/test.txt")
+	put, err := c.FilePutPublic(ctx, "/tmp/test.txt", PaymentModeAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,12 +279,24 @@ func TestFiles(t *testing.T) {
 		t.Fatalf("unexpected file upload: %+v", put)
 	}
 
-	err = c.FileDownloadPublic(ctx, "file1", "/tmp/out.txt")
+	err = c.FileGetPublic(ctx, "file1", "/tmp/out.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	est, err := c.FileCost(ctx, "/tmp/test.txt", true)
+	privPut, err := c.FilePut(ctx, "/tmp/test.txt", PaymentModeSingle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if privPut.DataMap != "filedm1" || privPut.StorageCostAtto != "500" || privPut.ChunksStored != 2 || privPut.PaymentModeUsed != "single" {
+		t.Fatalf("unexpected private file upload: %+v", privPut)
+	}
+
+	if err := c.FileGet(ctx, "filedm1", "/tmp/out.txt"); err != nil {
+		t.Fatal(err)
+	}
+
+	est, err := c.FileCost(ctx, "/tmp/test.txt", true, PaymentModeAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -392,6 +414,74 @@ func TestFinalizeUpload(t *testing.T) {
 	}
 	if res.ChunksStored != 3 {
 		t.Fatalf("unexpected chunks_stored: %d", res.ChunksStored)
+	}
+}
+
+// TestPaymentModeWiresIntoRequestBody verifies the PaymentMode argument
+// reaches the REST `payment_mode` field on every put/cost endpoint. Captures
+// the body of each request and asserts the serialized value.
+func TestPaymentModeWiresIntoRequestBody(t *testing.T) {
+	captured := map[string]string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if pm, ok := body["payment_mode"].(string); ok {
+			captured[r.URL.Path] = pm
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/data":
+			writeJSON(w, map[string]any{"data_map": "dm"})
+		case "/v1/data/public":
+			writeJSON(w, map[string]any{"address": "addr"})
+		case "/v1/data/cost":
+			writeJSON(w, map[string]any{})
+		case "/v1/files":
+			writeJSON(w, map[string]any{"data_map": "fdm"})
+		case "/v1/files/public":
+			writeJSON(w, map[string]any{"address": "faddr"})
+		case "/v1/files/cost":
+			writeJSON(w, map[string]any{})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	ctx := context.Background()
+
+	if _, err := c.DataPut(ctx, []byte("x"), PaymentModeMerkle); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.DataPutPublic(ctx, []byte("x"), PaymentModeSingle); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.DataCost(ctx, []byte("x"), PaymentModeAuto); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.FilePut(ctx, "/tmp/x", PaymentModeMerkle); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.FilePutPublic(ctx, "/tmp/x", PaymentModeSingle); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.FileCost(ctx, "/tmp/x", false, PaymentModeAuto); err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]string{
+		"/v1/data":         "merkle",
+		"/v1/data/public":  "single",
+		"/v1/data/cost":    "auto",
+		"/v1/files":        "merkle",
+		"/v1/files/public": "single",
+		"/v1/files/cost":   "auto",
+	}
+	for path, expected := range want {
+		if got := captured[path]; got != expected {
+			t.Errorf("%s: payment_mode = %q, want %q", path, got, expected)
+		}
 	}
 }
 

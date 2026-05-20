@@ -19,22 +19,25 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	FileService_UploadPublic_FullMethodName      = "/antd.v1.FileService/UploadPublic"
-	FileService_DownloadPublic_FullMethodName    = "/antd.v1.FileService/DownloadPublic"
-	FileService_DirUploadPublic_FullMethodName   = "/antd.v1.FileService/DirUploadPublic"
-	FileService_DirDownloadPublic_FullMethodName = "/antd.v1.FileService/DirDownloadPublic"
-	FileService_GetFileCost_FullMethodName       = "/antd.v1.FileService/GetFileCost"
+	FileService_Put_FullMethodName       = "/antd.v1.FileService/Put"
+	FileService_PutPublic_FullMethodName = "/antd.v1.FileService/PutPublic"
+	FileService_Get_FullMethodName       = "/antd.v1.FileService/Get"
+	FileService_GetPublic_FullMethodName = "/antd.v1.FileService/GetPublic"
+	FileService_Cost_FullMethodName      = "/antd.v1.FileService/Cost"
 )
 
 // FileServiceClient is the client API for FileService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type FileServiceClient interface {
-	UploadPublic(ctx context.Context, in *UploadFileRequest, opts ...grpc.CallOption) (*UploadPublicResponse, error)
-	DownloadPublic(ctx context.Context, in *DownloadPublicRequest, opts ...grpc.CallOption) (*DownloadResponse, error)
-	DirUploadPublic(ctx context.Context, in *UploadFileRequest, opts ...grpc.CallOption) (*UploadPublicResponse, error)
-	DirDownloadPublic(ctx context.Context, in *DownloadPublicRequest, opts ...grpc.CallOption) (*DownloadResponse, error)
-	GetFileCost(ctx context.Context, in *FileCostRequest, opts ...grpc.CallOption) (*Cost, error)
+	// Private = unqualified verb (the DataMap is returned to the caller; it is
+	// NOT stored on the network). Public = `_public` suffix (the DataMap is
+	// additionally stored on-network and the call returns the resulting address).
+	Put(ctx context.Context, in *PutFileRequest, opts ...grpc.CallOption) (*PutFileResponse, error)
+	PutPublic(ctx context.Context, in *PutFileRequest, opts ...grpc.CallOption) (*PutFilePublicResponse, error)
+	Get(ctx context.Context, in *GetFileRequest, opts ...grpc.CallOption) (*GetFileResponse, error)
+	GetPublic(ctx context.Context, in *GetFilePublicRequest, opts ...grpc.CallOption) (*GetFileResponse, error)
+	Cost(ctx context.Context, in *FileCostRequest, opts ...grpc.CallOption) (*Cost, error)
 }
 
 type fileServiceClient struct {
@@ -45,50 +48,50 @@ func NewFileServiceClient(cc grpc.ClientConnInterface) FileServiceClient {
 	return &fileServiceClient{cc}
 }
 
-func (c *fileServiceClient) UploadPublic(ctx context.Context, in *UploadFileRequest, opts ...grpc.CallOption) (*UploadPublicResponse, error) {
+func (c *fileServiceClient) Put(ctx context.Context, in *PutFileRequest, opts ...grpc.CallOption) (*PutFileResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(UploadPublicResponse)
-	err := c.cc.Invoke(ctx, FileService_UploadPublic_FullMethodName, in, out, cOpts...)
+	out := new(PutFileResponse)
+	err := c.cc.Invoke(ctx, FileService_Put_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *fileServiceClient) DownloadPublic(ctx context.Context, in *DownloadPublicRequest, opts ...grpc.CallOption) (*DownloadResponse, error) {
+func (c *fileServiceClient) PutPublic(ctx context.Context, in *PutFileRequest, opts ...grpc.CallOption) (*PutFilePublicResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(DownloadResponse)
-	err := c.cc.Invoke(ctx, FileService_DownloadPublic_FullMethodName, in, out, cOpts...)
+	out := new(PutFilePublicResponse)
+	err := c.cc.Invoke(ctx, FileService_PutPublic_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *fileServiceClient) DirUploadPublic(ctx context.Context, in *UploadFileRequest, opts ...grpc.CallOption) (*UploadPublicResponse, error) {
+func (c *fileServiceClient) Get(ctx context.Context, in *GetFileRequest, opts ...grpc.CallOption) (*GetFileResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(UploadPublicResponse)
-	err := c.cc.Invoke(ctx, FileService_DirUploadPublic_FullMethodName, in, out, cOpts...)
+	out := new(GetFileResponse)
+	err := c.cc.Invoke(ctx, FileService_Get_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *fileServiceClient) DirDownloadPublic(ctx context.Context, in *DownloadPublicRequest, opts ...grpc.CallOption) (*DownloadResponse, error) {
+func (c *fileServiceClient) GetPublic(ctx context.Context, in *GetFilePublicRequest, opts ...grpc.CallOption) (*GetFileResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(DownloadResponse)
-	err := c.cc.Invoke(ctx, FileService_DirDownloadPublic_FullMethodName, in, out, cOpts...)
+	out := new(GetFileResponse)
+	err := c.cc.Invoke(ctx, FileService_GetPublic_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *fileServiceClient) GetFileCost(ctx context.Context, in *FileCostRequest, opts ...grpc.CallOption) (*Cost, error) {
+func (c *fileServiceClient) Cost(ctx context.Context, in *FileCostRequest, opts ...grpc.CallOption) (*Cost, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Cost)
-	err := c.cc.Invoke(ctx, FileService_GetFileCost_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, FileService_Cost_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -99,11 +102,14 @@ func (c *fileServiceClient) GetFileCost(ctx context.Context, in *FileCostRequest
 // All implementations must embed UnimplementedFileServiceServer
 // for forward compatibility.
 type FileServiceServer interface {
-	UploadPublic(context.Context, *UploadFileRequest) (*UploadPublicResponse, error)
-	DownloadPublic(context.Context, *DownloadPublicRequest) (*DownloadResponse, error)
-	DirUploadPublic(context.Context, *UploadFileRequest) (*UploadPublicResponse, error)
-	DirDownloadPublic(context.Context, *DownloadPublicRequest) (*DownloadResponse, error)
-	GetFileCost(context.Context, *FileCostRequest) (*Cost, error)
+	// Private = unqualified verb (the DataMap is returned to the caller; it is
+	// NOT stored on the network). Public = `_public` suffix (the DataMap is
+	// additionally stored on-network and the call returns the resulting address).
+	Put(context.Context, *PutFileRequest) (*PutFileResponse, error)
+	PutPublic(context.Context, *PutFileRequest) (*PutFilePublicResponse, error)
+	Get(context.Context, *GetFileRequest) (*GetFileResponse, error)
+	GetPublic(context.Context, *GetFilePublicRequest) (*GetFileResponse, error)
+	Cost(context.Context, *FileCostRequest) (*Cost, error)
 	mustEmbedUnimplementedFileServiceServer()
 }
 
@@ -114,20 +120,20 @@ type FileServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedFileServiceServer struct{}
 
-func (UnimplementedFileServiceServer) UploadPublic(context.Context, *UploadFileRequest) (*UploadPublicResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method UploadPublic not implemented")
+func (UnimplementedFileServiceServer) Put(context.Context, *PutFileRequest) (*PutFileResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Put not implemented")
 }
-func (UnimplementedFileServiceServer) DownloadPublic(context.Context, *DownloadPublicRequest) (*DownloadResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method DownloadPublic not implemented")
+func (UnimplementedFileServiceServer) PutPublic(context.Context, *PutFileRequest) (*PutFilePublicResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PutPublic not implemented")
 }
-func (UnimplementedFileServiceServer) DirUploadPublic(context.Context, *UploadFileRequest) (*UploadPublicResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method DirUploadPublic not implemented")
+func (UnimplementedFileServiceServer) Get(context.Context, *GetFileRequest) (*GetFileResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Get not implemented")
 }
-func (UnimplementedFileServiceServer) DirDownloadPublic(context.Context, *DownloadPublicRequest) (*DownloadResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method DirDownloadPublic not implemented")
+func (UnimplementedFileServiceServer) GetPublic(context.Context, *GetFilePublicRequest) (*GetFileResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetPublic not implemented")
 }
-func (UnimplementedFileServiceServer) GetFileCost(context.Context, *FileCostRequest) (*Cost, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetFileCost not implemented")
+func (UnimplementedFileServiceServer) Cost(context.Context, *FileCostRequest) (*Cost, error) {
+	return nil, status.Error(codes.Unimplemented, "method Cost not implemented")
 }
 func (UnimplementedFileServiceServer) mustEmbedUnimplementedFileServiceServer() {}
 func (UnimplementedFileServiceServer) testEmbeddedByValue()                     {}
@@ -150,92 +156,92 @@ func RegisterFileServiceServer(s grpc.ServiceRegistrar, srv FileServiceServer) {
 	s.RegisterService(&FileService_ServiceDesc, srv)
 }
 
-func _FileService_UploadPublic_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(UploadFileRequest)
+func _FileService_Put_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PutFileRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(FileServiceServer).UploadPublic(ctx, in)
+		return srv.(FileServiceServer).Put(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: FileService_UploadPublic_FullMethodName,
+		FullMethod: FileService_Put_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileServiceServer).UploadPublic(ctx, req.(*UploadFileRequest))
+		return srv.(FileServiceServer).Put(ctx, req.(*PutFileRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _FileService_DownloadPublic_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DownloadPublicRequest)
+func _FileService_PutPublic_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PutFileRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(FileServiceServer).DownloadPublic(ctx, in)
+		return srv.(FileServiceServer).PutPublic(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: FileService_DownloadPublic_FullMethodName,
+		FullMethod: FileService_PutPublic_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileServiceServer).DownloadPublic(ctx, req.(*DownloadPublicRequest))
+		return srv.(FileServiceServer).PutPublic(ctx, req.(*PutFileRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _FileService_DirUploadPublic_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(UploadFileRequest)
+func _FileService_Get_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetFileRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(FileServiceServer).DirUploadPublic(ctx, in)
+		return srv.(FileServiceServer).Get(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: FileService_DirUploadPublic_FullMethodName,
+		FullMethod: FileService_Get_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileServiceServer).DirUploadPublic(ctx, req.(*UploadFileRequest))
+		return srv.(FileServiceServer).Get(ctx, req.(*GetFileRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _FileService_DirDownloadPublic_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DownloadPublicRequest)
+func _FileService_GetPublic_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetFilePublicRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(FileServiceServer).DirDownloadPublic(ctx, in)
+		return srv.(FileServiceServer).GetPublic(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: FileService_DirDownloadPublic_FullMethodName,
+		FullMethod: FileService_GetPublic_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileServiceServer).DirDownloadPublic(ctx, req.(*DownloadPublicRequest))
+		return srv.(FileServiceServer).GetPublic(ctx, req.(*GetFilePublicRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _FileService_GetFileCost_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _FileService_Cost_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(FileCostRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(FileServiceServer).GetFileCost(ctx, in)
+		return srv.(FileServiceServer).Cost(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: FileService_GetFileCost_FullMethodName,
+		FullMethod: FileService_Cost_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FileServiceServer).GetFileCost(ctx, req.(*FileCostRequest))
+		return srv.(FileServiceServer).Cost(ctx, req.(*FileCostRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -248,24 +254,24 @@ var FileService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*FileServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "UploadPublic",
-			Handler:    _FileService_UploadPublic_Handler,
+			MethodName: "Put",
+			Handler:    _FileService_Put_Handler,
 		},
 		{
-			MethodName: "DownloadPublic",
-			Handler:    _FileService_DownloadPublic_Handler,
+			MethodName: "PutPublic",
+			Handler:    _FileService_PutPublic_Handler,
 		},
 		{
-			MethodName: "DirUploadPublic",
-			Handler:    _FileService_DirUploadPublic_Handler,
+			MethodName: "Get",
+			Handler:    _FileService_Get_Handler,
 		},
 		{
-			MethodName: "DirDownloadPublic",
-			Handler:    _FileService_DirDownloadPublic_Handler,
+			MethodName: "GetPublic",
+			Handler:    _FileService_GetPublic_Handler,
 		},
 		{
-			MethodName: "GetFileCost",
-			Handler:    _FileService_GetFileCost_Handler,
+			MethodName: "Cost",
+			Handler:    _FileService_Cost_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

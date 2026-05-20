@@ -110,8 +110,12 @@ func (x *GetPublicDataResponse) GetData() []byte {
 }
 
 type PutPublicDataRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Data  []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	// Optional payment mode: "auto" (default), "merkle", or "single". Empty
+	// string is treated as "auto" so old clients omitting the field stay
+	// wire-compatible.
+	PaymentMode   string `protobuf:"bytes,2,opt,name=payment_mode,json=paymentMode,proto3" json:"payment_mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -151,6 +155,13 @@ func (x *PutPublicDataRequest) GetData() []byte {
 		return x.Data
 	}
 	return nil
+}
+
+func (x *PutPublicDataRequest) GetPaymentMode() string {
+	if x != nil {
+		return x.PaymentMode
+	}
+	return ""
 }
 
 type PutPublicDataResponse struct {
@@ -293,27 +304,27 @@ func (x *DataChunk) GetData() []byte {
 	return nil
 }
 
-type GetPrivateDataRequest struct {
+type GetDataRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	DataMap       string                 `protobuf:"bytes,1,opt,name=data_map,json=dataMap,proto3" json:"data_map,omitempty"` // hex
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *GetPrivateDataRequest) Reset() {
-	*x = GetPrivateDataRequest{}
+func (x *GetDataRequest) Reset() {
+	*x = GetDataRequest{}
 	mi := &file_antd_v1_data_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GetPrivateDataRequest) String() string {
+func (x *GetDataRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetPrivateDataRequest) ProtoMessage() {}
+func (*GetDataRequest) ProtoMessage() {}
 
-func (x *GetPrivateDataRequest) ProtoReflect() protoreflect.Message {
+func (x *GetDataRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_antd_v1_data_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -325,39 +336,39 @@ func (x *GetPrivateDataRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetPrivateDataRequest.ProtoReflect.Descriptor instead.
-func (*GetPrivateDataRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use GetDataRequest.ProtoReflect.Descriptor instead.
+func (*GetDataRequest) Descriptor() ([]byte, []int) {
 	return file_antd_v1_data_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *GetPrivateDataRequest) GetDataMap() string {
+func (x *GetDataRequest) GetDataMap() string {
 	if x != nil {
 		return x.DataMap
 	}
 	return ""
 }
 
-type GetPrivateDataResponse struct {
+type GetDataResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *GetPrivateDataResponse) Reset() {
-	*x = GetPrivateDataResponse{}
+func (x *GetDataResponse) Reset() {
+	*x = GetDataResponse{}
 	mi := &file_antd_v1_data_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GetPrivateDataResponse) String() string {
+func (x *GetDataResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetPrivateDataResponse) ProtoMessage() {}
+func (*GetDataResponse) ProtoMessage() {}
 
-func (x *GetPrivateDataResponse) ProtoReflect() protoreflect.Message {
+func (x *GetDataResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_antd_v1_data_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -369,39 +380,43 @@ func (x *GetPrivateDataResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetPrivateDataResponse.ProtoReflect.Descriptor instead.
-func (*GetPrivateDataResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use GetDataResponse.ProtoReflect.Descriptor instead.
+func (*GetDataResponse) Descriptor() ([]byte, []int) {
 	return file_antd_v1_data_proto_rawDescGZIP(), []int{7}
 }
 
-func (x *GetPrivateDataResponse) GetData() []byte {
+func (x *GetDataResponse) GetData() []byte {
 	if x != nil {
 		return x.Data
 	}
 	return nil
 }
 
-type PutPrivateDataRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+type PutDataRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Data  []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	// Optional payment mode: "auto" (default), "merkle", or "single". Empty
+	// string is treated as "auto" so old clients omitting the field stay
+	// wire-compatible.
+	PaymentMode   string `protobuf:"bytes,2,opt,name=payment_mode,json=paymentMode,proto3" json:"payment_mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *PutPrivateDataRequest) Reset() {
-	*x = PutPrivateDataRequest{}
+func (x *PutDataRequest) Reset() {
+	*x = PutDataRequest{}
 	mi := &file_antd_v1_data_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *PutPrivateDataRequest) String() string {
+func (x *PutDataRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*PutPrivateDataRequest) ProtoMessage() {}
+func (*PutDataRequest) ProtoMessage() {}
 
-func (x *PutPrivateDataRequest) ProtoReflect() protoreflect.Message {
+func (x *PutDataRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_antd_v1_data_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -413,19 +428,26 @@ func (x *PutPrivateDataRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use PutPrivateDataRequest.ProtoReflect.Descriptor instead.
-func (*PutPrivateDataRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use PutDataRequest.ProtoReflect.Descriptor instead.
+func (*PutDataRequest) Descriptor() ([]byte, []int) {
 	return file_antd_v1_data_proto_rawDescGZIP(), []int{8}
 }
 
-func (x *PutPrivateDataRequest) GetData() []byte {
+func (x *PutDataRequest) GetData() []byte {
 	if x != nil {
 		return x.Data
 	}
 	return nil
 }
 
-type PutPrivateDataResponse struct {
+func (x *PutDataRequest) GetPaymentMode() string {
+	if x != nil {
+		return x.PaymentMode
+	}
+	return ""
+}
+
+type PutDataResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Cost          *Cost                  `protobuf:"bytes,1,opt,name=cost,proto3" json:"cost,omitempty"`
 	DataMap       string                 `protobuf:"bytes,2,opt,name=data_map,json=dataMap,proto3" json:"data_map,omitempty"` // hex
@@ -433,20 +455,20 @@ type PutPrivateDataResponse struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *PutPrivateDataResponse) Reset() {
-	*x = PutPrivateDataResponse{}
+func (x *PutDataResponse) Reset() {
+	*x = PutDataResponse{}
 	mi := &file_antd_v1_data_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *PutPrivateDataResponse) String() string {
+func (x *PutDataResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*PutPrivateDataResponse) ProtoMessage() {}
+func (*PutDataResponse) ProtoMessage() {}
 
-func (x *PutPrivateDataResponse) ProtoReflect() protoreflect.Message {
+func (x *PutDataResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_antd_v1_data_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -458,19 +480,19 @@ func (x *PutPrivateDataResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use PutPrivateDataResponse.ProtoReflect.Descriptor instead.
-func (*PutPrivateDataResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use PutDataResponse.ProtoReflect.Descriptor instead.
+func (*PutDataResponse) Descriptor() ([]byte, []int) {
 	return file_antd_v1_data_proto_rawDescGZIP(), []int{9}
 }
 
-func (x *PutPrivateDataResponse) GetCost() *Cost {
+func (x *PutDataResponse) GetCost() *Cost {
 	if x != nil {
 		return x.Cost
 	}
 	return nil
 }
 
-func (x *PutPrivateDataResponse) GetDataMap() string {
+func (x *PutDataResponse) GetDataMap() string {
 	if x != nil {
 		return x.DataMap
 	}
@@ -478,8 +500,11 @@ func (x *PutPrivateDataResponse) GetDataMap() string {
 }
 
 type DataCostRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Data  []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	// Optional payment mode the estimate should reflect: "auto" (default),
+	// "merkle", or "single". Empty string is treated as "auto".
+	PaymentMode   string `protobuf:"bytes,2,opt,name=payment_mode,json=paymentMode,proto3" json:"payment_mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -521,6 +546,13 @@ func (x *DataCostRequest) GetData() []byte {
 	return nil
 }
 
+func (x *DataCostRequest) GetPaymentMode() string {
+	if x != nil {
+		return x.PaymentMode
+	}
+	return ""
+}
+
 var File_antd_v1_data_proto protoreflect.FileDescriptor
 
 const file_antd_v1_data_proto_rawDesc = "" +
@@ -529,36 +561,37 @@ const file_antd_v1_data_proto_rawDesc = "" +
 	"\x14GetPublicDataRequest\x12\x18\n" +
 	"\aaddress\x18\x01 \x01(\tR\aaddress\"+\n" +
 	"\x15GetPublicDataResponse\x12\x12\n" +
-	"\x04data\x18\x01 \x01(\fR\x04data\"*\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\"M\n" +
 	"\x14PutPublicDataRequest\x12\x12\n" +
-	"\x04data\x18\x01 \x01(\fR\x04data\"T\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\x12!\n" +
+	"\fpayment_mode\x18\x02 \x01(\tR\vpaymentMode\"T\n" +
 	"\x15PutPublicDataResponse\x12!\n" +
 	"\x04cost\x18\x01 \x01(\v2\r.antd.v1.CostR\x04cost\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\"3\n" +
 	"\x17StreamPublicDataRequest\x12\x18\n" +
 	"\aaddress\x18\x01 \x01(\tR\aaddress\"\x1f\n" +
 	"\tDataChunk\x12\x12\n" +
-	"\x04data\x18\x01 \x01(\fR\x04data\"2\n" +
-	"\x15GetPrivateDataRequest\x12\x19\n" +
-	"\bdata_map\x18\x01 \x01(\tR\adataMap\",\n" +
-	"\x16GetPrivateDataResponse\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\"+\n" +
-	"\x15PutPrivateDataRequest\x12\x12\n" +
-	"\x04data\x18\x01 \x01(\fR\x04data\"V\n" +
-	"\x16PutPrivateDataResponse\x12!\n" +
+	"\x0eGetDataRequest\x12\x19\n" +
+	"\bdata_map\x18\x01 \x01(\tR\adataMap\"%\n" +
+	"\x0fGetDataResponse\x12\x12\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\"G\n" +
+	"\x0ePutDataRequest\x12\x12\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\x12!\n" +
+	"\fpayment_mode\x18\x02 \x01(\tR\vpaymentMode\"O\n" +
+	"\x0fPutDataResponse\x12!\n" +
 	"\x04cost\x18\x01 \x01(\v2\r.antd.v1.CostR\x04cost\x12\x19\n" +
-	"\bdata_map\x18\x02 \x01(\tR\adataMap\"%\n" +
+	"\bdata_map\x18\x02 \x01(\tR\adataMap\"H\n" +
 	"\x0fDataCostRequest\x12\x12\n" +
-	"\x04data\x18\x01 \x01(\fR\x04data2\xbf\x03\n" +
-	"\vDataService\x12J\n" +
-	"\tGetPublic\x12\x1d.antd.v1.GetPublicDataRequest\x1a\x1e.antd.v1.GetPublicDataResponse\x12J\n" +
-	"\tPutPublic\x12\x1d.antd.v1.PutPublicDataRequest\x1a\x1e.antd.v1.PutPublicDataResponse\x12F\n" +
-	"\fStreamPublic\x12 .antd.v1.StreamPublicDataRequest\x1a\x12.antd.v1.DataChunk0\x01\x12M\n" +
-	"\n" +
-	"GetPrivate\x12\x1e.antd.v1.GetPrivateDataRequest\x1a\x1f.antd.v1.GetPrivateDataResponse\x12M\n" +
-	"\n" +
-	"PutPrivate\x12\x1e.antd.v1.PutPrivateDataRequest\x1a\x1f.antd.v1.PutPrivateDataResponse\x122\n" +
-	"\aGetCost\x12\x18.antd.v1.DataCostRequest\x1a\r.antd.v1.CostBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\aAntd.V1b\x06proto3"
+	"\x04data\x18\x01 \x01(\fR\x04data\x12!\n" +
+	"\fpayment_mode\x18\x02 \x01(\tR\vpaymentMode2\x92\x03\n" +
+	"\vDataService\x128\n" +
+	"\x03Put\x12\x17.antd.v1.PutDataRequest\x1a\x18.antd.v1.PutDataResponse\x12J\n" +
+	"\tPutPublic\x12\x1d.antd.v1.PutPublicDataRequest\x1a\x1e.antd.v1.PutPublicDataResponse\x128\n" +
+	"\x03Get\x12\x17.antd.v1.GetDataRequest\x1a\x18.antd.v1.GetDataResponse\x12J\n" +
+	"\tGetPublic\x12\x1d.antd.v1.GetPublicDataRequest\x1a\x1e.antd.v1.GetPublicDataResponse\x12F\n" +
+	"\fStreamPublic\x12 .antd.v1.StreamPublicDataRequest\x1a\x12.antd.v1.DataChunk0\x01\x12/\n" +
+	"\x04Cost\x12\x18.antd.v1.DataCostRequest\x1a\r.antd.v1.CostBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\aAntd.V1b\x06proto3"
 
 var (
 	file_antd_v1_data_proto_rawDescOnce sync.Once
@@ -580,28 +613,28 @@ var file_antd_v1_data_proto_goTypes = []any{
 	(*PutPublicDataResponse)(nil),   // 3: antd.v1.PutPublicDataResponse
 	(*StreamPublicDataRequest)(nil), // 4: antd.v1.StreamPublicDataRequest
 	(*DataChunk)(nil),               // 5: antd.v1.DataChunk
-	(*GetPrivateDataRequest)(nil),   // 6: antd.v1.GetPrivateDataRequest
-	(*GetPrivateDataResponse)(nil),  // 7: antd.v1.GetPrivateDataResponse
-	(*PutPrivateDataRequest)(nil),   // 8: antd.v1.PutPrivateDataRequest
-	(*PutPrivateDataResponse)(nil),  // 9: antd.v1.PutPrivateDataResponse
+	(*GetDataRequest)(nil),          // 6: antd.v1.GetDataRequest
+	(*GetDataResponse)(nil),         // 7: antd.v1.GetDataResponse
+	(*PutDataRequest)(nil),          // 8: antd.v1.PutDataRequest
+	(*PutDataResponse)(nil),         // 9: antd.v1.PutDataResponse
 	(*DataCostRequest)(nil),         // 10: antd.v1.DataCostRequest
 	(*Cost)(nil),                    // 11: antd.v1.Cost
 }
 var file_antd_v1_data_proto_depIdxs = []int32{
 	11, // 0: antd.v1.PutPublicDataResponse.cost:type_name -> antd.v1.Cost
-	11, // 1: antd.v1.PutPrivateDataResponse.cost:type_name -> antd.v1.Cost
-	0,  // 2: antd.v1.DataService.GetPublic:input_type -> antd.v1.GetPublicDataRequest
+	11, // 1: antd.v1.PutDataResponse.cost:type_name -> antd.v1.Cost
+	8,  // 2: antd.v1.DataService.Put:input_type -> antd.v1.PutDataRequest
 	2,  // 3: antd.v1.DataService.PutPublic:input_type -> antd.v1.PutPublicDataRequest
-	4,  // 4: antd.v1.DataService.StreamPublic:input_type -> antd.v1.StreamPublicDataRequest
-	6,  // 5: antd.v1.DataService.GetPrivate:input_type -> antd.v1.GetPrivateDataRequest
-	8,  // 6: antd.v1.DataService.PutPrivate:input_type -> antd.v1.PutPrivateDataRequest
-	10, // 7: antd.v1.DataService.GetCost:input_type -> antd.v1.DataCostRequest
-	1,  // 8: antd.v1.DataService.GetPublic:output_type -> antd.v1.GetPublicDataResponse
+	6,  // 4: antd.v1.DataService.Get:input_type -> antd.v1.GetDataRequest
+	0,  // 5: antd.v1.DataService.GetPublic:input_type -> antd.v1.GetPublicDataRequest
+	4,  // 6: antd.v1.DataService.StreamPublic:input_type -> antd.v1.StreamPublicDataRequest
+	10, // 7: antd.v1.DataService.Cost:input_type -> antd.v1.DataCostRequest
+	9,  // 8: antd.v1.DataService.Put:output_type -> antd.v1.PutDataResponse
 	3,  // 9: antd.v1.DataService.PutPublic:output_type -> antd.v1.PutPublicDataResponse
-	5,  // 10: antd.v1.DataService.StreamPublic:output_type -> antd.v1.DataChunk
-	7,  // 11: antd.v1.DataService.GetPrivate:output_type -> antd.v1.GetPrivateDataResponse
-	9,  // 12: antd.v1.DataService.PutPrivate:output_type -> antd.v1.PutPrivateDataResponse
-	11, // 13: antd.v1.DataService.GetCost:output_type -> antd.v1.Cost
+	7,  // 10: antd.v1.DataService.Get:output_type -> antd.v1.GetDataResponse
+	1,  // 11: antd.v1.DataService.GetPublic:output_type -> antd.v1.GetPublicDataResponse
+	5,  // 12: antd.v1.DataService.StreamPublic:output_type -> antd.v1.DataChunk
+	11, // 13: antd.v1.DataService.Cost:output_type -> antd.v1.Cost
 	8,  // [8:14] is the sub-list for method output_type
 	2,  // [2:8] is the sub-list for method input_type
 	2,  // [2:2] is the sub-list for extension type_name

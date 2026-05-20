@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 )
@@ -199,19 +198,51 @@ const (
 
 // --- Data ---
 
-// DataPutPublic stores public immutable data on the network.
-func (c *Client) DataPutPublic(ctx context.Context, data []byte, paymentMode ...PaymentMode) (*PutResult, error) {
-	body := map[string]any{
-		"data": b64Encode(data),
-	}
-	if len(paymentMode) > 0 && paymentMode[0] != "" {
-		body["payment_mode"] = string(paymentMode[0])
-	}
-	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/data/public", body)
+// DataPut stores private encrypted data on the network and returns the
+// caller-held DataMap (hex). The DataMap is NOT stored on-network — the caller
+// keeps it as the only retrieval handle.
+func (c *Client) DataPut(ctx context.Context, data []byte, paymentMode PaymentMode) (*DataPutResult, error) {
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/data", map[string]any{
+		"data":         b64Encode(data),
+		"payment_mode": string(paymentMode),
+	})
 	if err != nil {
 		return nil, err
 	}
-	return &PutResult{Cost: str(j, "cost"), Address: str(j, "address")}, nil
+	return &DataPutResult{
+		DataMap:         str(j, "data_map"),
+		ChunksStored:    unum64(j, "chunks_stored"),
+		PaymentModeUsed: str(j, "payment_mode_used"),
+	}, nil
+}
+
+// DataGet retrieves private data from a caller-held DataMap (hex).
+func (c *Client) DataGet(ctx context.Context, dataMap string) ([]byte, error) {
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/data/get", map[string]any{
+		"data_map": dataMap,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return b64Decode(str(j, "data"))
+}
+
+// DataPutPublic stores public immutable data on the network. The DataMap is
+// stored on-network as an extra chunk; the returned address is the shareable
+// retrieval handle.
+func (c *Client) DataPutPublic(ctx context.Context, data []byte, paymentMode PaymentMode) (*DataPutPublicResult, error) {
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/data/public", map[string]any{
+		"data":         b64Encode(data),
+		"payment_mode": string(paymentMode),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &DataPutPublicResult{
+		Address:         str(j, "address"),
+		ChunksStored:    unum64(j, "chunks_stored"),
+		PaymentModeUsed: str(j, "payment_mode_used"),
+	}, nil
 }
 
 // DataGetPublic retrieves public data by address.
@@ -223,37 +254,14 @@ func (c *Client) DataGetPublic(ctx context.Context, address string) ([]byte, err
 	return b64Decode(str(j, "data"))
 }
 
-// DataPutPrivate stores private encrypted data on the network.
-func (c *Client) DataPutPrivate(ctx context.Context, data []byte, paymentMode ...PaymentMode) (*PutResult, error) {
-	body := map[string]any{
-		"data": b64Encode(data),
-	}
-	if len(paymentMode) > 0 && paymentMode[0] != "" {
-		body["payment_mode"] = string(paymentMode[0])
-	}
-	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/data/private", body)
-	if err != nil {
-		return nil, err
-	}
-	return &PutResult{Cost: str(j, "cost"), Address: str(j, "data_map")}, nil
-}
-
-// DataGetPrivate retrieves private data using a data map.
-func (c *Client) DataGetPrivate(ctx context.Context, dataMap string) ([]byte, error) {
-	j, _, err := c.doJSON(ctx, http.MethodGet, "/v1/data/private?data_map="+url.QueryEscape(dataMap), nil)
-	if err != nil {
-		return nil, err
-	}
-	return b64Decode(str(j, "data"))
-}
-
 // DataCost returns a pre-upload cost breakdown for the given bytes.
 //
 // The server samples a small number of chunk addresses and extrapolates —
 // much faster than quoting every chunk on slow networks. Gas is advisory.
-func (c *Client) DataCost(ctx context.Context, data []byte) (*UploadCostEstimate, error) {
+func (c *Client) DataCost(ctx context.Context, data []byte, paymentMode PaymentMode) (*UploadCostEstimate, error) {
 	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/data/cost", map[string]any{
-		"data": b64Encode(data),
+		"data":         b64Encode(data),
+		"payment_mode": string(paymentMode),
 	})
 	if err != nil {
 		return nil, err
@@ -360,19 +368,45 @@ func (c *Client) FinalizeChunkUpload(ctx context.Context, uploadID string, txHas
 
 // --- Files ---
 
-// FileUploadPublic uploads a local file to the network.
-func (c *Client) FileUploadPublic(ctx context.Context, path string, paymentMode ...PaymentMode) (*FileUploadResult, error) {
-	body := map[string]any{
-		"path": path,
-	}
-	if len(paymentMode) > 0 && paymentMode[0] != "" {
-		body["payment_mode"] = string(paymentMode[0])
-	}
-	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/files/upload/public", body)
+// FilePut uploads a local file as a private upload and returns the caller-held
+// DataMap (hex). The DataMap is NOT stored on-network.
+func (c *Client) FilePut(ctx context.Context, path string, paymentMode PaymentMode) (*FilePutResult, error) {
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/files", map[string]any{
+		"path":         path,
+		"payment_mode": string(paymentMode),
+	})
 	if err != nil {
 		return nil, err
 	}
-	return &FileUploadResult{
+	return &FilePutResult{
+		DataMap:         str(j, "data_map"),
+		StorageCostAtto: str(j, "storage_cost_atto"),
+		GasCostWei:      str(j, "gas_cost_wei"),
+		ChunksStored:    unum64(j, "chunks_stored"),
+		PaymentModeUsed: str(j, "payment_mode_used"),
+	}, nil
+}
+
+// FileGet downloads a private file from a caller-held DataMap (hex) into destPath.
+func (c *Client) FileGet(ctx context.Context, dataMap, destPath string) error {
+	_, _, err := c.doJSON(ctx, http.MethodPost, "/v1/files/get", map[string]any{
+		"data_map":  dataMap,
+		"dest_path": destPath,
+	})
+	return err
+}
+
+// FilePutPublic uploads a local file as a public upload. The DataMap is stored
+// on-network as an extra chunk; the returned address is the shareable handle.
+func (c *Client) FilePutPublic(ctx context.Context, path string, paymentMode PaymentMode) (*FilePutPublicResult, error) {
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/files/public", map[string]any{
+		"path":         path,
+		"payment_mode": string(paymentMode),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &FilePutPublicResult{
 		Address:         str(j, "address"),
 		StorageCostAtto: str(j, "storage_cost_atto"),
 		GasCostWei:      str(j, "gas_cost_wei"),
@@ -381,9 +415,9 @@ func (c *Client) FileUploadPublic(ctx context.Context, path string, paymentMode 
 	}, nil
 }
 
-// FileDownloadPublic downloads a file from the network to a local path.
-func (c *Client) FileDownloadPublic(ctx context.Context, address, destPath string) error {
-	_, _, err := c.doJSON(ctx, http.MethodPost, "/v1/files/download/public", map[string]any{
+// FileGetPublic downloads a public file from an on-network DataMap address into destPath.
+func (c *Client) FileGetPublic(ctx context.Context, address, destPath string) error {
+	_, _, err := c.doJSON(ctx, http.MethodPost, "/v1/files/public/get", map[string]any{
 		"address":   address,
 		"dest_path": destPath,
 	})
@@ -394,10 +428,11 @@ func (c *Client) FileDownloadPublic(ctx context.Context, address, destPath strin
 //
 // The server samples a small number of chunk addresses and extrapolates —
 // much faster than quoting every chunk on slow networks. Gas is advisory.
-func (c *Client) FileCost(ctx context.Context, path string, isPublic bool) (*UploadCostEstimate, error) {
+func (c *Client) FileCost(ctx context.Context, path string, isPublic bool, paymentMode PaymentMode) (*UploadCostEstimate, error) {
 	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/files/cost", map[string]any{
-		"path":      path,
-		"is_public": isPublic,
+		"path":         path,
+		"is_public":    isPublic,
+		"payment_mode": string(paymentMode),
 	})
 	if err != nil {
 		return nil, err

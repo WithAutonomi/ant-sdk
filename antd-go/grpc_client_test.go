@@ -42,9 +42,15 @@ type mockDataService struct {
 	pb.UnimplementedDataServiceServer
 }
 
-func (m *mockDataService) PutPublic(_ context.Context, _ *pb.PutPublicDataRequest) (*pb.PutPublicDataResponse, error) {
+// lastPaymentMode captures the payment_mode value seen by the most recent
+// data/file request, so tests can assert that the enum wires through to the
+// proto field at the boundary. Reset per-call by callers.
+var lastPaymentMode string
+
+func (m *mockDataService) PutPublic(_ context.Context, req *pb.PutPublicDataRequest) (*pb.PutPublicDataResponse, error) {
+	lastPaymentMode = req.GetPaymentMode()
 	return &pb.PutPublicDataResponse{
-		Cost:    &pb.Cost{AttoTokens: "100"},
+		Cost:    &pb.Cost{AttoTokens: ""},
 		Address: "abc123",
 	}, nil
 }
@@ -53,18 +59,20 @@ func (m *mockDataService) GetPublic(_ context.Context, _ *pb.GetPublicDataReques
 	return &pb.GetPublicDataResponse{Data: []byte("hello")}, nil
 }
 
-func (m *mockDataService) PutPrivate(_ context.Context, _ *pb.PutPrivateDataRequest) (*pb.PutPrivateDataResponse, error) {
-	return &pb.PutPrivateDataResponse{
-		Cost:    &pb.Cost{AttoTokens: "200"},
+func (m *mockDataService) Put(_ context.Context, req *pb.PutDataRequest) (*pb.PutDataResponse, error) {
+	lastPaymentMode = req.GetPaymentMode()
+	return &pb.PutDataResponse{
+		Cost:    &pb.Cost{AttoTokens: ""},
 		DataMap: "dm123",
 	}, nil
 }
 
-func (m *mockDataService) GetPrivate(_ context.Context, _ *pb.GetPrivateDataRequest) (*pb.GetPrivateDataResponse, error) {
-	return &pb.GetPrivateDataResponse{Data: []byte("secret")}, nil
+func (m *mockDataService) Get(_ context.Context, _ *pb.GetDataRequest) (*pb.GetDataResponse, error) {
+	return &pb.GetDataResponse{Data: []byte("secret")}, nil
 }
 
-func (m *mockDataService) GetCost(_ context.Context, _ *pb.DataCostRequest) (*pb.Cost, error) {
+func (m *mockDataService) Cost(_ context.Context, req *pb.DataCostRequest) (*pb.Cost, error) {
+	lastPaymentMode = req.GetPaymentMode()
 	return &pb.Cost{
 		AttoTokens:          "50",
 		FileSize:            4,
@@ -95,8 +103,24 @@ type mockFileService struct {
 	pb.UnimplementedFileServiceServer
 }
 
-func (m *mockFileService) UploadPublic(_ context.Context, _ *pb.UploadFileRequest) (*pb.UploadPublicResponse, error) {
-	return &pb.UploadPublicResponse{
+func (m *mockFileService) Put(_ context.Context, req *pb.PutFileRequest) (*pb.PutFileResponse, error) {
+	lastPaymentMode = req.GetPaymentMode()
+	return &pb.PutFileResponse{
+		DataMap:         "filedm1",
+		StorageCostAtto: "500",
+		GasCostWei:      "21",
+		ChunksStored:    2,
+		PaymentModeUsed: "single",
+	}, nil
+}
+
+func (m *mockFileService) Get(_ context.Context, _ *pb.GetFileRequest) (*pb.GetFileResponse, error) {
+	return &pb.GetFileResponse{}, nil
+}
+
+func (m *mockFileService) PutPublic(_ context.Context, req *pb.PutFileRequest) (*pb.PutFilePublicResponse, error) {
+	lastPaymentMode = req.GetPaymentMode()
+	return &pb.PutFilePublicResponse{
 		Address:         "file1",
 		StorageCostAtto: "1000",
 		GasCostWei:      "42",
@@ -105,11 +129,12 @@ func (m *mockFileService) UploadPublic(_ context.Context, _ *pb.UploadFileReques
 	}, nil
 }
 
-func (m *mockFileService) DownloadPublic(_ context.Context, _ *pb.DownloadPublicRequest) (*pb.DownloadResponse, error) {
-	return &pb.DownloadResponse{}, nil
+func (m *mockFileService) GetPublic(_ context.Context, _ *pb.GetFilePublicRequest) (*pb.GetFileResponse, error) {
+	return &pb.GetFileResponse{}, nil
 }
 
-func (m *mockFileService) GetFileCost(_ context.Context, _ *pb.FileCostRequest) (*pb.Cost, error) {
+func (m *mockFileService) Cost(_ context.Context, req *pb.FileCostRequest) (*pb.Cost, error) {
+	lastPaymentMode = req.GetPaymentMode()
 	return &pb.Cost{
 		AttoTokens:          "1000",
 		FileSize:            4096,
@@ -222,12 +247,16 @@ func TestGrpcHealth(t *testing.T) {
 
 func TestGrpcDataPutPublic(t *testing.T) {
 	c := startMockServer(t)
-	put, err := c.DataPutPublic(context.Background(), []byte("hello"))
+	lastPaymentMode = ""
+	put, err := c.DataPutPublic(context.Background(), []byte("hello"), PaymentModeMerkle)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if put.Address != "abc123" || put.Cost != "100" {
+	if put.Address != "abc123" {
 		t.Fatalf("unexpected put: %+v", put)
+	}
+	if lastPaymentMode != "merkle" {
+		t.Fatalf("payment_mode did not wire through: got %q, want %q", lastPaymentMode, "merkle")
 	}
 }
 
@@ -242,20 +271,24 @@ func TestGrpcDataGetPublic(t *testing.T) {
 	}
 }
 
-func TestGrpcDataPutPrivate(t *testing.T) {
+func TestGrpcDataPut(t *testing.T) {
 	c := startMockServer(t)
-	put, err := c.DataPutPrivate(context.Background(), []byte("secret"))
+	lastPaymentMode = ""
+	put, err := c.DataPut(context.Background(), []byte("secret"), PaymentModeSingle)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if put.Address != "dm123" || put.Cost != "200" {
+	if put.DataMap != "dm123" {
 		t.Fatalf("unexpected put: %+v", put)
+	}
+	if lastPaymentMode != "single" {
+		t.Fatalf("payment_mode did not wire through: got %q, want %q", lastPaymentMode, "single")
 	}
 }
 
-func TestGrpcDataGetPrivate(t *testing.T) {
+func TestGrpcDataGet(t *testing.T) {
 	c := startMockServer(t)
-	data, err := c.DataGetPrivate(context.Background(), "dm123")
+	data, err := c.DataGet(context.Background(), "dm123")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,13 +299,17 @@ func TestGrpcDataGetPrivate(t *testing.T) {
 
 func TestGrpcDataCost(t *testing.T) {
 	c := startMockServer(t)
-	est, err := c.DataCost(context.Background(), []byte("test"))
+	lastPaymentMode = ""
+	est, err := c.DataCost(context.Background(), []byte("test"), PaymentModeAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if est.Cost != "50" || est.FileSize != 4 || est.ChunkCount != 3 ||
 		est.EstimatedGasCostWei != "150000000000000" || est.PaymentMode != "single" {
 		t.Fatalf("unexpected estimate: %+v", est)
+	}
+	if lastPaymentMode != "auto" {
+		t.Fatalf("payment_mode did not wire through: got %q, want %q", lastPaymentMode, "auto")
 	}
 }
 
@@ -298,34 +335,64 @@ func TestGrpcChunkGet(t *testing.T) {
 	}
 }
 
-func TestGrpcFileUploadPublic(t *testing.T) {
+func TestGrpcFilePutPublic(t *testing.T) {
 	c := startMockServer(t)
-	put, err := c.FileUploadPublic(context.Background(), "/tmp/test.txt")
+	lastPaymentMode = ""
+	put, err := c.FilePutPublic(context.Background(), "/tmp/test.txt", PaymentModeAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if put.Address != "file1" || put.StorageCostAtto != "1000" || put.GasCostWei != "42" || put.ChunksStored != 3 || put.PaymentModeUsed != "auto" {
 		t.Fatalf("unexpected file upload: %+v", put)
 	}
+	if lastPaymentMode != "auto" {
+		t.Fatalf("payment_mode did not wire through: got %q, want %q", lastPaymentMode, "auto")
+	}
 }
 
-func TestGrpcFileDownloadPublic(t *testing.T) {
+func TestGrpcFileGetPublic(t *testing.T) {
 	c := startMockServer(t)
-	err := c.FileDownloadPublic(context.Background(), "file1", "/tmp/out.txt")
+	err := c.FileGetPublic(context.Background(), "file1", "/tmp/out.txt")
 	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGrpcFilePut(t *testing.T) {
+	c := startMockServer(t)
+	lastPaymentMode = ""
+	put, err := c.FilePut(context.Background(), "/tmp/test.txt", PaymentModeMerkle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if put.DataMap != "filedm1" || put.StorageCostAtto != "500" || put.GasCostWei != "21" || put.ChunksStored != 2 || put.PaymentModeUsed != "single" {
+		t.Fatalf("unexpected file put: %+v", put)
+	}
+	if lastPaymentMode != "merkle" {
+		t.Fatalf("payment_mode did not wire through: got %q, want %q", lastPaymentMode, "merkle")
+	}
+}
+
+func TestGrpcFileGet(t *testing.T) {
+	c := startMockServer(t)
+	if err := c.FileGet(context.Background(), "filedm1", "/tmp/out.txt"); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestGrpcFileCost(t *testing.T) {
 	c := startMockServer(t)
-	est, err := c.FileCost(context.Background(), "/tmp/test.txt", true)
+	lastPaymentMode = ""
+	est, err := c.FileCost(context.Background(), "/tmp/test.txt", true, PaymentModeSingle)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if est.Cost != "1000" || est.FileSize != 4096 || est.ChunkCount != 3 ||
 		est.EstimatedGasCostWei != "150000000000000" || est.PaymentMode != "auto" {
 		t.Fatalf("unexpected estimate: %+v", est)
+	}
+	if lastPaymentMode != "single" {
+		t.Fatalf("payment_mode did not wire through: got %q, want %q", lastPaymentMode, "single")
 	}
 }
 

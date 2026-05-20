@@ -21,27 +21,31 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type UploadFileRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"` // local filesystem path
+type PutFileRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Path  string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"` // local filesystem path
+	// Optional payment mode: "auto" (default), "merkle", or "single". Empty
+	// string is treated as "auto" so old clients omitting the field stay
+	// wire-compatible.
+	PaymentMode   string `protobuf:"bytes,2,opt,name=payment_mode,json=paymentMode,proto3" json:"payment_mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *UploadFileRequest) Reset() {
-	*x = UploadFileRequest{}
+func (x *PutFileRequest) Reset() {
+	*x = PutFileRequest{}
 	mi := &file_antd_v1_files_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *UploadFileRequest) String() string {
+func (x *PutFileRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*UploadFileRequest) ProtoMessage() {}
+func (*PutFileRequest) ProtoMessage() {}
 
-func (x *UploadFileRequest) ProtoReflect() protoreflect.Message {
+func (x *PutFileRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_antd_v1_files_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -53,21 +57,28 @@ func (x *UploadFileRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use UploadFileRequest.ProtoReflect.Descriptor instead.
-func (*UploadFileRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use PutFileRequest.ProtoReflect.Descriptor instead.
+func (*PutFileRequest) Descriptor() ([]byte, []int) {
 	return file_antd_v1_files_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *UploadFileRequest) GetPath() string {
+func (x *PutFileRequest) GetPath() string {
 	if x != nil {
 		return x.Path
 	}
 	return ""
 }
 
-type UploadPublicResponse struct {
+func (x *PutFileRequest) GetPaymentMode() string {
+	if x != nil {
+		return x.PaymentMode
+	}
+	return ""
+}
+
+type PutFilePublicResponse struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
-	Address string                 `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"` // hex
+	Address string                 `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"` // hex — the DataMap's chunk address on the network
 	// Total storage cost paid in token units (atto). "0" if all chunks already existed.
 	StorageCostAtto string `protobuf:"bytes,3,opt,name=storage_cost_atto,json=storageCostAtto,proto3" json:"storage_cost_atto,omitempty"`
 	// Total gas cost paid in wei, as a decimal string (u128 exceeds JSON safe-integer range).
@@ -80,20 +91,20 @@ type UploadPublicResponse struct {
 	sizeCache       protoimpl.SizeCache
 }
 
-func (x *UploadPublicResponse) Reset() {
-	*x = UploadPublicResponse{}
+func (x *PutFilePublicResponse) Reset() {
+	*x = PutFilePublicResponse{}
 	mi := &file_antd_v1_files_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *UploadPublicResponse) String() string {
+func (x *PutFilePublicResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*UploadPublicResponse) ProtoMessage() {}
+func (*PutFilePublicResponse) ProtoMessage() {}
 
-func (x *UploadPublicResponse) ProtoReflect() protoreflect.Message {
+func (x *PutFilePublicResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_antd_v1_files_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -105,68 +116,77 @@ func (x *UploadPublicResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use UploadPublicResponse.ProtoReflect.Descriptor instead.
-func (*UploadPublicResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use PutFilePublicResponse.ProtoReflect.Descriptor instead.
+func (*PutFilePublicResponse) Descriptor() ([]byte, []int) {
 	return file_antd_v1_files_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *UploadPublicResponse) GetAddress() string {
+func (x *PutFilePublicResponse) GetAddress() string {
 	if x != nil {
 		return x.Address
 	}
 	return ""
 }
 
-func (x *UploadPublicResponse) GetStorageCostAtto() string {
+func (x *PutFilePublicResponse) GetStorageCostAtto() string {
 	if x != nil {
 		return x.StorageCostAtto
 	}
 	return ""
 }
 
-func (x *UploadPublicResponse) GetGasCostWei() string {
+func (x *PutFilePublicResponse) GetGasCostWei() string {
 	if x != nil {
 		return x.GasCostWei
 	}
 	return ""
 }
 
-func (x *UploadPublicResponse) GetChunksStored() uint64 {
+func (x *PutFilePublicResponse) GetChunksStored() uint64 {
 	if x != nil {
 		return x.ChunksStored
 	}
 	return 0
 }
 
-func (x *UploadPublicResponse) GetPaymentModeUsed() string {
+func (x *PutFilePublicResponse) GetPaymentModeUsed() string {
 	if x != nil {
 		return x.PaymentModeUsed
 	}
 	return ""
 }
 
-type DownloadPublicRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Address       string                 `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`                   // hex
-	DestPath      string                 `protobuf:"bytes,2,opt,name=dest_path,json=destPath,proto3" json:"dest_path,omitempty"` // local filesystem path
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+type PutFileResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Hex-encoded rmp_serde-serialized DataMap. The caller keeps this; it is
+	// NOT stored on the network. Same shape as `PutDataResponse.data_map`.
+	DataMap string `protobuf:"bytes,1,opt,name=data_map,json=dataMap,proto3" json:"data_map,omitempty"`
+	// Total storage cost paid in token units (atto). "0" if all chunks already existed.
+	StorageCostAtto string `protobuf:"bytes,2,opt,name=storage_cost_atto,json=storageCostAtto,proto3" json:"storage_cost_atto,omitempty"`
+	// Total gas cost paid in wei, as a decimal string (u128 exceeds JSON safe-integer range).
+	GasCostWei string `protobuf:"bytes,3,opt,name=gas_cost_wei,json=gasCostWei,proto3" json:"gas_cost_wei,omitempty"`
+	// Number of chunks stored on the network.
+	ChunksStored uint64 `protobuf:"varint,4,opt,name=chunks_stored,json=chunksStored,proto3" json:"chunks_stored,omitempty"`
+	// Which payment mode was actually used ("auto", "merkle", or "single").
+	PaymentModeUsed string `protobuf:"bytes,5,opt,name=payment_mode_used,json=paymentModeUsed,proto3" json:"payment_mode_used,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
-func (x *DownloadPublicRequest) Reset() {
-	*x = DownloadPublicRequest{}
+func (x *PutFileResponse) Reset() {
+	*x = PutFileResponse{}
 	mi := &file_antd_v1_files_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *DownloadPublicRequest) String() string {
+func (x *PutFileResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*DownloadPublicRequest) ProtoMessage() {}
+func (*PutFileResponse) ProtoMessage() {}
 
-func (x *DownloadPublicRequest) ProtoReflect() protoreflect.Message {
+func (x *PutFileResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_antd_v1_files_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -178,46 +198,121 @@ func (x *DownloadPublicRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use DownloadPublicRequest.ProtoReflect.Descriptor instead.
-func (*DownloadPublicRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use PutFileResponse.ProtoReflect.Descriptor instead.
+func (*PutFileResponse) Descriptor() ([]byte, []int) {
 	return file_antd_v1_files_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *DownloadPublicRequest) GetAddress() string {
+func (x *PutFileResponse) GetDataMap() string {
+	if x != nil {
+		return x.DataMap
+	}
+	return ""
+}
+
+func (x *PutFileResponse) GetStorageCostAtto() string {
+	if x != nil {
+		return x.StorageCostAtto
+	}
+	return ""
+}
+
+func (x *PutFileResponse) GetGasCostWei() string {
+	if x != nil {
+		return x.GasCostWei
+	}
+	return ""
+}
+
+func (x *PutFileResponse) GetChunksStored() uint64 {
+	if x != nil {
+		return x.ChunksStored
+	}
+	return 0
+}
+
+func (x *PutFileResponse) GetPaymentModeUsed() string {
+	if x != nil {
+		return x.PaymentModeUsed
+	}
+	return ""
+}
+
+type GetFilePublicRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Address       string                 `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`                   // hex — DataMap chunk address
+	DestPath      string                 `protobuf:"bytes,2,opt,name=dest_path,json=destPath,proto3" json:"dest_path,omitempty"` // local filesystem path
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetFilePublicRequest) Reset() {
+	*x = GetFilePublicRequest{}
+	mi := &file_antd_v1_files_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetFilePublicRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetFilePublicRequest) ProtoMessage() {}
+
+func (x *GetFilePublicRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_antd_v1_files_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetFilePublicRequest.ProtoReflect.Descriptor instead.
+func (*GetFilePublicRequest) Descriptor() ([]byte, []int) {
+	return file_antd_v1_files_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *GetFilePublicRequest) GetAddress() string {
 	if x != nil {
 		return x.Address
 	}
 	return ""
 }
 
-func (x *DownloadPublicRequest) GetDestPath() string {
+func (x *GetFilePublicRequest) GetDestPath() string {
 	if x != nil {
 		return x.DestPath
 	}
 	return ""
 }
 
-type DownloadResponse struct {
+type GetFileRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	DataMap       string                 `protobuf:"bytes,1,opt,name=data_map,json=dataMap,proto3" json:"data_map,omitempty"`    // hex — rmp_serde-serialized DataMap
+	DestPath      string                 `protobuf:"bytes,2,opt,name=dest_path,json=destPath,proto3" json:"dest_path,omitempty"` // local filesystem path
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *DownloadResponse) Reset() {
-	*x = DownloadResponse{}
-	mi := &file_antd_v1_files_proto_msgTypes[3]
+func (x *GetFileRequest) Reset() {
+	*x = GetFileRequest{}
+	mi := &file_antd_v1_files_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *DownloadResponse) String() string {
+func (x *GetFileRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*DownloadResponse) ProtoMessage() {}
+func (*GetFileRequest) ProtoMessage() {}
 
-func (x *DownloadResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_antd_v1_files_proto_msgTypes[3]
+func (x *GetFileRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_antd_v1_files_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -228,22 +323,77 @@ func (x *DownloadResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use DownloadResponse.ProtoReflect.Descriptor instead.
-func (*DownloadResponse) Descriptor() ([]byte, []int) {
-	return file_antd_v1_files_proto_rawDescGZIP(), []int{3}
+// Deprecated: Use GetFileRequest.ProtoReflect.Descriptor instead.
+func (*GetFileRequest) Descriptor() ([]byte, []int) {
+	return file_antd_v1_files_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *GetFileRequest) GetDataMap() string {
+	if x != nil {
+		return x.DataMap
+	}
+	return ""
+}
+
+func (x *GetFileRequest) GetDestPath() string {
+	if x != nil {
+		return x.DestPath
+	}
+	return ""
+}
+
+// Shared by GetPublic and Get — the file is written to dest_path, the response
+// itself is empty (success = file written, failure = RPC error).
+type GetFileResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetFileResponse) Reset() {
+	*x = GetFileResponse{}
+	mi := &file_antd_v1_files_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetFileResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetFileResponse) ProtoMessage() {}
+
+func (x *GetFileResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_antd_v1_files_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetFileResponse.ProtoReflect.Descriptor instead.
+func (*GetFileResponse) Descriptor() ([]byte, []int) {
+	return file_antd_v1_files_proto_rawDescGZIP(), []int{5}
 }
 
 type FileCostRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
-	IsPublic      bool                   `protobuf:"varint,2,opt,name=is_public,json=isPublic,proto3" json:"is_public,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Path     string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	IsPublic bool                   `protobuf:"varint,2,opt,name=is_public,json=isPublic,proto3" json:"is_public,omitempty"`
+	// Optional payment mode the estimate should reflect: "auto" (default),
+	// "merkle", or "single". Empty string is treated as "auto".
+	PaymentMode   string `protobuf:"bytes,3,opt,name=payment_mode,json=paymentMode,proto3" json:"payment_mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FileCostRequest) Reset() {
 	*x = FileCostRequest{}
-	mi := &file_antd_v1_files_proto_msgTypes[4]
+	mi := &file_antd_v1_files_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -255,7 +405,7 @@ func (x *FileCostRequest) String() string {
 func (*FileCostRequest) ProtoMessage() {}
 
 func (x *FileCostRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_antd_v1_files_proto_msgTypes[4]
+	mi := &file_antd_v1_files_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -268,7 +418,7 @@ func (x *FileCostRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileCostRequest.ProtoReflect.Descriptor instead.
 func (*FileCostRequest) Descriptor() ([]byte, []int) {
-	return file_antd_v1_files_proto_rawDescGZIP(), []int{4}
+	return file_antd_v1_files_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *FileCostRequest) GetPath() string {
@@ -285,33 +435,52 @@ func (x *FileCostRequest) GetIsPublic() bool {
 	return false
 }
 
+func (x *FileCostRequest) GetPaymentMode() string {
+	if x != nil {
+		return x.PaymentMode
+	}
+	return ""
+}
+
 var File_antd_v1_files_proto protoreflect.FileDescriptor
 
 const file_antd_v1_files_proto_rawDesc = "" +
 	"\n" +
-	"\x13antd/v1/files.proto\x12\aantd.v1\x1a\x14antd/v1/common.proto\"'\n" +
-	"\x11UploadFileRequest\x12\x12\n" +
-	"\x04path\x18\x01 \x01(\tR\x04path\"\xdb\x01\n" +
-	"\x14UploadPublicResponse\x12\x18\n" +
+	"\x13antd/v1/files.proto\x12\aantd.v1\x1a\x14antd/v1/common.proto\"G\n" +
+	"\x0ePutFileRequest\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12!\n" +
+	"\fpayment_mode\x18\x02 \x01(\tR\vpaymentMode\"\xdc\x01\n" +
+	"\x15PutFilePublicResponse\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12*\n" +
 	"\x11storage_cost_atto\x18\x03 \x01(\tR\x0fstorageCostAtto\x12 \n" +
 	"\fgas_cost_wei\x18\x04 \x01(\tR\n" +
 	"gasCostWei\x12#\n" +
 	"\rchunks_stored\x18\x05 \x01(\x04R\fchunksStored\x12*\n" +
-	"\x11payment_mode_used\x18\x06 \x01(\tR\x0fpaymentModeUsedJ\x04\b\x01\x10\x02R\x04cost\"N\n" +
-	"\x15DownloadPublicRequest\x12\x18\n" +
+	"\x11payment_mode_used\x18\x06 \x01(\tR\x0fpaymentModeUsedJ\x04\b\x01\x10\x02R\x04cost\"\xcb\x01\n" +
+	"\x0fPutFileResponse\x12\x19\n" +
+	"\bdata_map\x18\x01 \x01(\tR\adataMap\x12*\n" +
+	"\x11storage_cost_atto\x18\x02 \x01(\tR\x0fstorageCostAtto\x12 \n" +
+	"\fgas_cost_wei\x18\x03 \x01(\tR\n" +
+	"gasCostWei\x12#\n" +
+	"\rchunks_stored\x18\x04 \x01(\x04R\fchunksStored\x12*\n" +
+	"\x11payment_mode_used\x18\x05 \x01(\tR\x0fpaymentModeUsed\"M\n" +
+	"\x14GetFilePublicRequest\x12\x18\n" +
 	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x1b\n" +
-	"\tdest_path\x18\x02 \x01(\tR\bdestPath\"\x12\n" +
-	"\x10DownloadResponse\"B\n" +
+	"\tdest_path\x18\x02 \x01(\tR\bdestPath\"H\n" +
+	"\x0eGetFileRequest\x12\x19\n" +
+	"\bdata_map\x18\x01 \x01(\tR\adataMap\x12\x1b\n" +
+	"\tdest_path\x18\x02 \x01(\tR\bdestPath\"\x11\n" +
+	"\x0fGetFileResponse\"e\n" +
 	"\x0fFileCostRequest\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x1b\n" +
-	"\tis_public\x18\x02 \x01(\bR\bisPublic2\xfb\x02\n" +
-	"\vFileService\x12I\n" +
-	"\fUploadPublic\x12\x1a.antd.v1.UploadFileRequest\x1a\x1d.antd.v1.UploadPublicResponse\x12K\n" +
-	"\x0eDownloadPublic\x12\x1e.antd.v1.DownloadPublicRequest\x1a\x19.antd.v1.DownloadResponse\x12L\n" +
-	"\x0fDirUploadPublic\x12\x1a.antd.v1.UploadFileRequest\x1a\x1d.antd.v1.UploadPublicResponse\x12N\n" +
-	"\x11DirDownloadPublic\x12\x1e.antd.v1.DownloadPublicRequest\x1a\x19.antd.v1.DownloadResponse\x126\n" +
-	"\vGetFileCost\x12\x18.antd.v1.FileCostRequest\x1a\r.antd.v1.CostBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\aAntd.V1b\x06proto3"
+	"\tis_public\x18\x02 \x01(\bR\bisPublic\x12!\n" +
+	"\fpayment_mode\x18\x03 \x01(\tR\vpaymentMode2\xbe\x02\n" +
+	"\vFileService\x128\n" +
+	"\x03Put\x12\x17.antd.v1.PutFileRequest\x1a\x18.antd.v1.PutFileResponse\x12D\n" +
+	"\tPutPublic\x12\x17.antd.v1.PutFileRequest\x1a\x1e.antd.v1.PutFilePublicResponse\x128\n" +
+	"\x03Get\x12\x17.antd.v1.GetFileRequest\x1a\x18.antd.v1.GetFileResponse\x12D\n" +
+	"\tGetPublic\x12\x1d.antd.v1.GetFilePublicRequest\x1a\x18.antd.v1.GetFileResponse\x12/\n" +
+	"\x04Cost\x12\x18.antd.v1.FileCostRequest\x1a\r.antd.v1.CostBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\aAntd.V1b\x06proto3"
 
 var (
 	file_antd_v1_files_proto_rawDescOnce sync.Once
@@ -325,26 +494,28 @@ func file_antd_v1_files_proto_rawDescGZIP() []byte {
 	return file_antd_v1_files_proto_rawDescData
 }
 
-var file_antd_v1_files_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_antd_v1_files_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_antd_v1_files_proto_goTypes = []any{
-	(*UploadFileRequest)(nil),     // 0: antd.v1.UploadFileRequest
-	(*UploadPublicResponse)(nil),  // 1: antd.v1.UploadPublicResponse
-	(*DownloadPublicRequest)(nil), // 2: antd.v1.DownloadPublicRequest
-	(*DownloadResponse)(nil),      // 3: antd.v1.DownloadResponse
-	(*FileCostRequest)(nil),       // 4: antd.v1.FileCostRequest
-	(*Cost)(nil),                  // 5: antd.v1.Cost
+	(*PutFileRequest)(nil),        // 0: antd.v1.PutFileRequest
+	(*PutFilePublicResponse)(nil), // 1: antd.v1.PutFilePublicResponse
+	(*PutFileResponse)(nil),       // 2: antd.v1.PutFileResponse
+	(*GetFilePublicRequest)(nil),  // 3: antd.v1.GetFilePublicRequest
+	(*GetFileRequest)(nil),        // 4: antd.v1.GetFileRequest
+	(*GetFileResponse)(nil),       // 5: antd.v1.GetFileResponse
+	(*FileCostRequest)(nil),       // 6: antd.v1.FileCostRequest
+	(*Cost)(nil),                  // 7: antd.v1.Cost
 }
 var file_antd_v1_files_proto_depIdxs = []int32{
-	0, // 0: antd.v1.FileService.UploadPublic:input_type -> antd.v1.UploadFileRequest
-	2, // 1: antd.v1.FileService.DownloadPublic:input_type -> antd.v1.DownloadPublicRequest
-	0, // 2: antd.v1.FileService.DirUploadPublic:input_type -> antd.v1.UploadFileRequest
-	2, // 3: antd.v1.FileService.DirDownloadPublic:input_type -> antd.v1.DownloadPublicRequest
-	4, // 4: antd.v1.FileService.GetFileCost:input_type -> antd.v1.FileCostRequest
-	1, // 5: antd.v1.FileService.UploadPublic:output_type -> antd.v1.UploadPublicResponse
-	3, // 6: antd.v1.FileService.DownloadPublic:output_type -> antd.v1.DownloadResponse
-	1, // 7: antd.v1.FileService.DirUploadPublic:output_type -> antd.v1.UploadPublicResponse
-	3, // 8: antd.v1.FileService.DirDownloadPublic:output_type -> antd.v1.DownloadResponse
-	5, // 9: antd.v1.FileService.GetFileCost:output_type -> antd.v1.Cost
+	0, // 0: antd.v1.FileService.Put:input_type -> antd.v1.PutFileRequest
+	0, // 1: antd.v1.FileService.PutPublic:input_type -> antd.v1.PutFileRequest
+	4, // 2: antd.v1.FileService.Get:input_type -> antd.v1.GetFileRequest
+	3, // 3: antd.v1.FileService.GetPublic:input_type -> antd.v1.GetFilePublicRequest
+	6, // 4: antd.v1.FileService.Cost:input_type -> antd.v1.FileCostRequest
+	2, // 5: antd.v1.FileService.Put:output_type -> antd.v1.PutFileResponse
+	1, // 6: antd.v1.FileService.PutPublic:output_type -> antd.v1.PutFilePublicResponse
+	5, // 7: antd.v1.FileService.Get:output_type -> antd.v1.GetFileResponse
+	5, // 8: antd.v1.FileService.GetPublic:output_type -> antd.v1.GetFileResponse
+	7, // 9: antd.v1.FileService.Cost:output_type -> antd.v1.Cost
 	5, // [5:10] is the sub-list for method output_type
 	0, // [0:5] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
@@ -364,7 +535,7 @@ func file_antd_v1_files_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_antd_v1_files_proto_rawDesc), len(file_antd_v1_files_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
