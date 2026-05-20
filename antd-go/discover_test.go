@@ -34,9 +34,13 @@ func withTempPortFile(t *testing.T, content string) (cleanup func()) {
 		os.Setenv("HOME", dir)
 		// On macOS dataDir uses ~/Library/Application Support/ant/sdk, so adjust
 		macDir := filepath.Join(dir, "Library", "Application Support", dataDirName, sdkSubDirName)
-		os.MkdirAll(macDir, 0o755)
+		if err := os.MkdirAll(macDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
 		if content != "" {
-			os.WriteFile(filepath.Join(macDir, portFileName), []byte(content), 0o644)
+			if err := os.WriteFile(filepath.Join(macDir, portFileName), []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
 		}
 		return func() { os.Setenv("HOME", old) }
 	default:

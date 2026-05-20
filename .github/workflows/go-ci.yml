@@ -1,0 +1,113 @@
+name: Go CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "antd-go/**"
+      - ".github/workflows/go-ci.yml"
+  pull_request:
+    paths:
+      - "antd-go/**"
+      - ".github/workflows/go-ci.yml"
+
+permissions:
+  contents: read
+
+# Cancel in-flight PR runs when a new push lands on the same PR. Main pushes
+# never cancel — each commit needs full coverage for the post-merge race and
+# security signals.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: Lint (antd-go)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: antd-go
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: antd-go/go.mod
+          cache-dependency-path: antd-go/go.sum
+
+      - name: Go vet
+        run: go vet ./...
+
+      - name: Verify module checksums
+        run: go mod verify
+
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
+
+      - name: golangci-lint
+        run: golangci-lint run ./...
+
+  test:
+    name: Test (antd-go)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: antd-go
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: antd-go/go.mod
+          cache-dependency-path: antd-go/go.sum
+
+      - name: Run tests
+        run: go test -count=1 -timeout 5m ./...
+
+  # Race detection is main-only — it roughly doubles test runtime and the
+  # cost is more useful as a post-merge canary than a per-PR gate. PR-level
+  # signal comes from the lint + test jobs above.
+  race:
+    name: Race detection (antd-go)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    defaults:
+      run:
+        working-directory: antd-go
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: antd-go/go.mod
+          cache-dependency-path: antd-go/go.sum
+
+      - name: Run tests with race detector
+        run: go test -count=1 -race -timeout 5m ./...
+
+  # Security scanning is main-only and advisory — govulncheck results don't
+  # change PR-by-PR, hit external registries (bandwidth/rate-limit hazard),
+  # and surface Go stdlib advisories that require toolchain upgrades, not
+  # code changes. Pattern lifted from the sibling indelible repo.
+  security:
+    name: Security Scanning (antd-go)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: antd-go
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: antd-go/go.mod
+          cache-dependency-path: antd-go/go.sum
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Go vulnerability scan
+        run: govulncheck ./...

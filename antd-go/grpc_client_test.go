@@ -147,9 +147,8 @@ func startMockServer(t *testing.T) *GrpcClient {
 	pb.RegisterFileServiceServer(s, &mockFileService{})
 
 	go func() {
-		if err := s.Serve(lis); err != nil {
-			// Server stopped, expected during test cleanup.
-		}
+		// Server stop on test cleanup is expected, swallow the error.
+		_ = s.Serve(lis)
 	}()
 	t.Cleanup(func() { s.Stop() })
 
@@ -180,9 +179,8 @@ func startErrorServer(t *testing.T, code codes.Code, msg string) *GrpcClient {
 	pb.RegisterHealthServiceServer(s, &errorHealthService{code: code, msg: msg})
 
 	go func() {
-		if err := s.Serve(lis); err != nil {
-			// Server stopped.
-		}
+		// Server stop on test cleanup is expected, swallow the error.
+		_ = s.Serve(lis)
 	}()
 	t.Cleanup(func() { s.Stop() })
 

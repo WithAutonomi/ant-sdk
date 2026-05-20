@@ -13,6 +13,6 @@ func processAlive(pid int) bool {
 	if err != nil {
 		return false
 	}
-	proc.Release()
+	_ = proc.Release()
 	return true
 }
