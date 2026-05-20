@@ -3,15 +3,22 @@ name: CI
 on:
   push:
     branches: [main]
+    # The `!**/*.md` negation skips CI when the only thing changed is
+    # documentation — a spelling fix in any README/CHANGELOG/SECURITY.md
+    # doesn't need a 5-minute Rust compile cycle to verify itself.
+    # GitHub Actions only allows EITHER `paths` OR `paths-ignore`, not both,
+    # so the negation lives inside `paths`.
     paths:
       - "antd/**"
       - "antd-rust/**"
       - ".github/workflows/ci.yml"
+      - "!**/*.md"
   pull_request:
     paths:
       - "antd/**"
       - "antd-rust/**"
       - ".github/workflows/ci.yml"
+      - "!**/*.md"
 
 env:
   CARGO_TERM_COLOR: always
