@@ -3,12 +3,15 @@ use clap::Parser;
 #[derive(Parser, Debug, Clone)]
 #[command(name = "antd", about = "REST + gRPC gateway for Autonomi network")]
 pub struct Config {
-    /// REST API listen address
-    #[arg(long, default_value = "0.0.0.0:8082", env = "ANTD_REST_ADDR")]
+    /// REST API listen address. Defaults to loopback only — pass
+    /// `0.0.0.0:8082` (or a specific interface) to expose on the network.
+    /// antd has no built-in auth, so opt in to external binding deliberately.
+    #[arg(long, default_value = "127.0.0.1:8082", env = "ANTD_REST_ADDR")]
     pub rest_addr: String,
 
-    /// gRPC listen address
-    #[arg(long, default_value = "0.0.0.0:50051", env = "ANTD_GRPC_ADDR")]
+    /// gRPC listen address. Defaults to loopback only — pass
+    /// `0.0.0.0:50051` (or a specific interface) to expose on the network.
+    #[arg(long, default_value = "127.0.0.1:50051", env = "ANTD_GRPC_ADDR")]
     pub grpc_addr: String,
 
     /// REST API port (overrides --rest-addr port; use 0 for OS-assigned)
