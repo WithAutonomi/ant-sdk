@@ -45,8 +45,8 @@ All options can be set via CLI flags or environment variables:
 
 | Flag | Env Var | Default | Description |
 |------|---------|---------|-------------|
-| `--rest-addr` | `ANTD_REST_ADDR` | `0.0.0.0:8082` | REST API listen address |
-| `--grpc-addr` | `ANTD_GRPC_ADDR` | `0.0.0.0:50051` | gRPC listen address |
+| `--rest-addr` | `ANTD_REST_ADDR` | `127.0.0.1:8082` | REST API listen address (loopback only by default — see [Security](#security-defaults)) |
+| `--grpc-addr` | `ANTD_GRPC_ADDR` | `127.0.0.1:50051` | gRPC listen address (loopback only by default — see [Security](#security-defaults)) |
 | `--rest-port` | `ANTD_REST_PORT` | *(from addr)* | Override REST port (use 0 for OS-assigned) |
 | `--grpc-port` | `ANTD_GRPC_PORT` | *(from addr)* | Override gRPC port (use 0 for OS-assigned) |
 | `--network` | `ANTD_NETWORK` | `default` | Network mode: `default`, `local` |
@@ -65,6 +65,20 @@ All options can be set via CLI flags or environment variables:
 antd supports two wallet modes:
 - **Direct wallet**: Set `AUTONOMI_WALLET_KEY` — antd signs payment transactions internally
 - **External signer**: Set only `EVM_RPC_URL` (no private key) — use the two-phase upload API (`/v1/upload/prepare` + `/v1/upload/finalize`) to sign transactions externally
+
+## Security defaults
+
+antd binds to `127.0.0.1` only by default on both REST and gRPC. It does not implement authentication on either transport — the security model assumes the host running antd is trusted and that network exposure is opt-in.
+
+To expose antd on the network (e.g. a LAN service, a container with port mapping), pass an explicit bind address:
+
+```bash
+antd --rest-addr 0.0.0.0:8082 --grpc-addr 0.0.0.0:50051
+# or
+ANTD_REST_ADDR=0.0.0.0:8082 ANTD_GRPC_ADDR=0.0.0.0:50051 antd
+```
+
+When binding to a non-loopback address you are responsible for firewalling the ports — anything reachable on those ports can read your wallet balance, trigger `wallet/approve` transactions, and upload through your paid account. Most users should leave the defaults alone.
 
 ## Port Discovery
 
