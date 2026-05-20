@@ -109,33 +109,14 @@ paths:
         "502":
           $ref: "#/components/responses/NetworkError"
 
-  /v1/data/private:
-    get:
-      tags: [data]
-      operationId: dataGetPrivate
-      summary: Get private data
-      description: Retrieve private (encrypted) data using a data map.
-      parameters:
-        - name: data_map
-          in: query
-          required: true
-          schema:
-            type: string
-          description: Hex-encoded data map
-      responses:
-        "200":
-          description: Data retrieved
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DataGetResponse"
-        "404":
-          $ref: "#/components/responses/NotFound"
+  /v1/data:
     post:
       tags: [data]
-      operationId: dataPutPrivate
+      operationId: dataPut
       summary: Store private data
-      description: Store private (encrypted) data on the network. Returns a data map.
+      description: >-
+        Store private (encrypted) data on the network. Returns the serialized
+        DataMap to the caller; the DataMap is NOT stored on the network.
       requestBody:
         required: true
         content:
@@ -148,7 +129,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DataPutPrivateResponse"
+                $ref: "#/components/schemas/DataPutResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "402":
@@ -157,6 +138,31 @@ paths:
           $ref: "#/components/responses/InternalError"
         "502":
           $ref: "#/components/responses/NetworkError"
+
+  /v1/data/get:
+    post:
+      tags: [data]
+      operationId: dataGet
+      summary: Get private data
+      description: >-
+        Retrieve private data using a caller-held DataMap. Uses POST so the
+        hex-encoded DataMap (which can be many KB) goes in the request body
+        rather than a URL query string.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DataGetRequest"
+      responses:
+        "200":
+          description: Data retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataGetResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /v1/data/cost:
     post:
@@ -232,25 +238,27 @@ paths:
         "502":
           $ref: "#/components/responses/NetworkError"
 
-  /v1/files/upload/public:
+  /v1/files:
     post:
       tags: [files]
-      operationId: fileUploadPublic
-      summary: Upload file
-      description: Upload a local file to the network (public).
+      operationId: filePut
+      summary: Upload file (private)
+      description: >-
+        Upload a local file privately. Returns the serialized DataMap to the
+        caller; the DataMap is NOT stored on the network.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/FileUploadRequest"
+              $ref: "#/components/schemas/FilePutRequest"
       responses:
         "200":
           description: File uploaded
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/FileUploadPublicResponse"
+                $ref: "#/components/schemas/FilePutResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "402":
@@ -260,18 +268,70 @@ paths:
         "502":
           $ref: "#/components/responses/NetworkError"
 
-  /v1/files/download/public:
+  /v1/files/get:
     post:
       tags: [files]
-      operationId: fileDownloadPublic
-      summary: Download file
-      description: Download a file from the network to a local path.
+      operationId: fileGet
+      summary: Download private file
+      description: Download a file using a caller-held DataMap (no address lookup).
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/FileDownloadRequest"
+              $ref: "#/components/schemas/FileGetRequest"
+      responses:
+        "200":
+          description: File downloaded
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+  /v1/files/public:
+    post:
+      tags: [files]
+      operationId: filePutPublic
+      summary: Upload file (public)
+      description: >-
+        Upload a local file publicly. Also stores the DataMap on-network as an
+        additional chunk (extra payment) and returns its chunk address.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FilePutRequest"
+      responses:
+        "200":
+          description: File uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FilePutPublicResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "402":
+          $ref: "#/components/responses/PaymentError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/NetworkError"
+
+  /v1/files/public/get:
+    post:
+      tags: [files]
+      operationId: fileGetPublic
+      summary: Download public file by address
+      description: Download a public file from the network using its on-network DataMap address.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FileGetPublicRequest"
       responses:
         "200":
           description: File downloaded
@@ -546,7 +606,7 @@ components:
           enum: [auto, merkle, single]
           description: Payment mode that was used
 
-    DataPutPrivateResponse:
+    DataPutResponse:
       type: object
       required: [data_map, chunks_stored, payment_mode_used]
       properties:
@@ -560,6 +620,14 @@ components:
           type: string
           enum: [auto, merkle, single]
           description: Payment mode that was used
+
+    DataGetRequest:
+      type: object
+      required: [data_map]
+      properties:
+        data_map:
+          type: string
+          description: Hex-encoded data map for retrieval
 
     DataGetResponse:
       type: object
@@ -576,6 +644,11 @@ components:
         data:
           type: string
           description: Base64-encoded data to estimate cost for
+        payment_mode:
+          type: string
+          enum: [auto, merkle, single]
+          default: auto
+          description: "Payment mode the estimate should reflect: auto (default), merkle, or single"
 
     # -- Chunks --
     ChunkPutRequest:
@@ -606,7 +679,7 @@ components:
           description: Base64-encoded chunk data
 
     # -- Files --
-    FileUploadRequest:
+    FilePutRequest:
       type: object
       required: [path]
       properties:
@@ -619,7 +692,7 @@ components:
           default: auto
           description: "Payment mode: auto (default), merkle, or single"
 
-    FileUploadPublicResponse:
+    FilePutPublicResponse:
       type: object
       required:
         [address, storage_cost_atto, gas_cost_wei, chunks_stored, payment_mode_used]
@@ -641,13 +714,49 @@ components:
           enum: [auto, merkle, single]
           description: Which payment mode was actually used.
 
-    FileDownloadRequest:
+    FilePutResponse:
+      type: object
+      required:
+        [data_map, storage_cost_atto, gas_cost_wei, chunks_stored, payment_mode_used]
+      properties:
+        data_map:
+          type: string
+          description: >-
+            Hex-encoded rmp_serde-serialized DataMap. The caller keeps this; it
+            is NOT stored on the network.
+        storage_cost_atto:
+          type: string
+          description: Total storage cost paid in token units (atto). "0" if all chunks already existed.
+        gas_cost_wei:
+          type: string
+          description: Total gas cost in wei as a decimal string. "0" if no on-chain transactions were made.
+        chunks_stored:
+          type: integer
+          format: uint64
+          description: Number of chunks stored on the network.
+        payment_mode_used:
+          type: string
+          enum: [auto, merkle, single]
+          description: Which payment mode was actually used.
+
+    FileGetPublicRequest:
       type: object
       required: [address, dest_path]
       properties:
         address:
           type: string
-          description: Hex address of the file/directory
+          description: Hex address of the on-network DataMap chunk
+        dest_path:
+          type: string
+          description: Absolute local path to save to
+
+    FileGetRequest:
+      type: object
+      required: [data_map, dest_path]
+      properties:
+        data_map:
+          type: string
+          description: Hex-encoded rmp_serde-serialized DataMap (caller-held)
         dest_path:
           type: string
           description: Absolute local path to save to
@@ -662,6 +771,11 @@ components:
         is_public:
           type: boolean
           default: true
+        payment_mode:
+          type: string
+          enum: [auto, merkle, single]
+          default: auto
+          description: "Payment mode the estimate should reflect: auto (default), merkle, or single"
     # -- Wallet --
     WalletAddressResponse:
       type: object

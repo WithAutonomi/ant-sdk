@@ -56,11 +56,11 @@ impl v1::data_service_server::DataService for MockDataService {
         }))
     }
 
-    async fn put_private(
+    async fn put(
         &self,
-        _request: Request<v1::PutPrivateDataRequest>,
-    ) -> Result<Response<v1::PutPrivateDataResponse>, Status> {
-        Ok(Response::new(v1::PutPrivateDataResponse {
+        _request: Request<v1::PutDataRequest>,
+    ) -> Result<Response<v1::PutDataResponse>, Status> {
+        Ok(Response::new(v1::PutDataResponse {
             cost: Some(v1::Cost {
                 atto_tokens: "200".to_string(),
                 ..Default::default()
@@ -69,16 +69,16 @@ impl v1::data_service_server::DataService for MockDataService {
         }))
     }
 
-    async fn get_private(
+    async fn get(
         &self,
-        _request: Request<v1::GetPrivateDataRequest>,
-    ) -> Result<Response<v1::GetPrivateDataResponse>, Status> {
-        Ok(Response::new(v1::GetPrivateDataResponse {
+        _request: Request<v1::GetDataRequest>,
+    ) -> Result<Response<v1::GetDataResponse>, Status> {
+        Ok(Response::new(v1::GetDataResponse {
             data: b"secret".to_vec(),
         }))
     }
 
-    async fn get_cost(
+    async fn cost(
         &self,
         _request: Request<v1::DataCostRequest>,
     ) -> Result<Response<v1::Cost>, Status> {
@@ -137,11 +137,24 @@ struct MockFileService;
 
 #[tonic::async_trait]
 impl v1::file_service_server::FileService for MockFileService {
-    async fn upload_public(
+    async fn put(
         &self,
-        _request: Request<v1::UploadFileRequest>,
-    ) -> Result<Response<v1::UploadPublicResponse>, Status> {
-        Ok(Response::new(v1::UploadPublicResponse {
+        _request: Request<v1::PutFileRequest>,
+    ) -> Result<Response<v1::PutFileResponse>, Status> {
+        Ok(Response::new(v1::PutFileResponse {
+            data_map: "dmfile1".to_string(),
+            storage_cost_atto: "900".to_string(),
+            gas_cost_wei: "41".to_string(),
+            chunks_stored: 3,
+            payment_mode_used: "auto".to_string(),
+        }))
+    }
+
+    async fn put_public(
+        &self,
+        _request: Request<v1::PutFileRequest>,
+    ) -> Result<Response<v1::PutFilePublicResponse>, Status> {
+        Ok(Response::new(v1::PutFilePublicResponse {
             address: "file1".to_string(),
             storage_cost_atto: "1000".to_string(),
             gas_cost_wei: "42".to_string(),
@@ -150,14 +163,21 @@ impl v1::file_service_server::FileService for MockFileService {
         }))
     }
 
-    async fn download_public(
+    async fn get(
         &self,
-        _request: Request<v1::DownloadPublicRequest>,
-    ) -> Result<Response<v1::DownloadResponse>, Status> {
-        Ok(Response::new(v1::DownloadResponse {}))
+        _request: Request<v1::GetFileRequest>,
+    ) -> Result<Response<v1::GetFileResponse>, Status> {
+        Ok(Response::new(v1::GetFileResponse {}))
     }
 
-    async fn get_file_cost(
+    async fn get_public(
+        &self,
+        _request: Request<v1::GetFilePublicRequest>,
+    ) -> Result<Response<v1::GetFileResponse>, Status> {
+        Ok(Response::new(v1::GetFileResponse {}))
+    }
+
+    async fn cost(
         &self,
         _request: Request<v1::FileCostRequest>,
     ) -> Result<Response<v1::Cost>, Status> {

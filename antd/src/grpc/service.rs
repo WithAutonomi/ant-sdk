@@ -147,10 +147,10 @@ impl pb::data_service_server::DataService for DataServiceImpl {
         Err(not_implemented("data stream public"))
     }
 
-    async fn get_private(
+    async fn get(
         &self,
-        request: Request<pb::GetPrivateDataRequest>,
-    ) -> Result<Response<pb::GetPrivateDataResponse>, Status> {
+        request: Request<pb::GetDataRequest>,
+    ) -> Result<Response<pb::GetDataResponse>, Status> {
         let data_map_hex = request.into_inner().data_map;
         let data_map_bytes = hex::decode(&data_map_hex)
             .map_err(|e| Status::invalid_argument(format!("invalid hex data_map: {e}")))?;
@@ -179,15 +179,15 @@ impl pb::data_service_server::DataService for DataServiceImpl {
         .map_err(|e| Status::internal(format!("task failed: {e}")))?
         .map_err(tonic::Status::from)?;
 
-        Ok(Response::new(pb::GetPrivateDataResponse {
+        Ok(Response::new(pb::GetDataResponse {
             data: content.to_vec(),
         }))
     }
 
-    async fn put_private(
+    async fn put(
         &self,
-        request: Request<pb::PutPrivateDataRequest>,
-    ) -> Result<Response<pb::PutPrivateDataResponse>, Status> {
+        request: Request<pb::PutDataRequest>,
+    ) -> Result<Response<pb::PutDataResponse>, Status> {
         if self.state.client.wallet().is_none() {
             return Err(Status::unavailable(
                 "wallet not configured — set AUTONOMI_WALLET_KEY",
@@ -212,7 +212,7 @@ impl pb::data_service_server::DataService for DataServiceImpl {
         .map_err(|e| Status::internal(format!("task failed: {e}")))?
         .map_err(tonic::Status::from)?;
 
-        Ok(Response::new(pb::PutPrivateDataResponse {
+        Ok(Response::new(pb::PutDataResponse {
             // ant-core's DataUploadResult does not expose per-upload storage
             // cost — REST mirrors this by omitting the field from its response
             // shape. Left empty for symmetry.
@@ -224,7 +224,7 @@ impl pb::data_service_server::DataService for DataServiceImpl {
         }))
     }
 
-    async fn get_cost(
+    async fn cost(
         &self,
         request: Request<pb::DataCostRequest>,
     ) -> Result<Response<pb::Cost>, Status> {
@@ -341,10 +341,50 @@ pub struct FileServiceImpl {
 
 #[tonic::async_trait]
 impl pb::file_service_server::FileService for FileServiceImpl {
-    async fn upload_public(
+    async fn put(
         &self,
-        request: Request<pb::UploadFileRequest>,
-    ) -> Result<Response<pb::UploadPublicResponse>, Status> {
+        request: Request<pb::PutFileRequest>,
+    ) -> Result<Response<pb::PutFileResponse>, Status> {
+        if self.state.client.wallet().is_none() {
+            return Err(Status::unavailable(
+                "wallet not configured — set AUTONOMI_WALLET_KEY",
+            ));
+        }
+
+        let req = request.into_inner();
+        let mode = parse_grpc_payment_mode(&req.payment_mode).map_err(Status::invalid_argument)?;
+        let path = PathBuf::from(&req.path).canonicalize().map_err(|e| {
+            tracing::warn!(path = %req.path, error = %e, "invalid upload path");
+            Status::invalid_argument("invalid path")
+        })?;
+
+        let client = self.state.client.clone();
+        let (result, data_map_hex) = tokio::spawn(async move {
+            let result = client
+                .file_upload_with_mode(&path, mode)
+                .await
+                .map_err(AntdError::from_core)?;
+            let data_map_bytes = rmp_serde::to_vec(&result.data_map)
+                .map_err(|e| AntdError::Internal(format!("failed to serialize data map: {e}")))?;
+            Ok::<_, AntdError>((result, hex::encode(data_map_bytes)))
+        })
+        .await
+        .map_err(|e| Status::internal(format!("task failed: {e}")))?
+        .map_err(tonic::Status::from)?;
+
+        Ok(Response::new(pb::PutFileResponse {
+            data_map: data_map_hex,
+            storage_cost_atto: result.storage_cost_atto,
+            gas_cost_wei: result.gas_cost_wei.to_string(),
+            chunks_stored: result.chunks_stored as u64,
+            payment_mode_used: format_payment_mode(result.payment_mode_used),
+        }))
+    }
+
+    async fn put_public(
+        &self,
+        request: Request<pb::PutFileRequest>,
+    ) -> Result<Response<pb::PutFilePublicResponse>, Status> {
         if self.state.client.wallet().is_none() {
             return Err(Status::unavailable(
                 "wallet not configured — set AUTONOMI_WALLET_KEY",
@@ -374,19 +414,71 @@ impl pb::file_service_server::FileService for FileServiceImpl {
         .map_err(|e| Status::internal(format!("task failed: {e}")))?
         .map_err(tonic::Status::from)?;
 
-        Ok(Response::new(pb::UploadPublicResponse {
+        Ok(Response::new(pb::PutFilePublicResponse {
             address: hex::encode(address),
             storage_cost_atto: result.storage_cost_atto,
             gas_cost_wei: result.gas_cost_wei.to_string(),
             chunks_stored: result.chunks_stored as u64,
-            payment_mode_used: crate::types::format_payment_mode(result.payment_mode_used),
+            payment_mode_used: format_payment_mode(result.payment_mode_used),
         }))
     }
 
-    async fn download_public(
+    async fn get(
         &self,
-        request: Request<pb::DownloadPublicRequest>,
-    ) -> Result<Response<pb::DownloadResponse>, Status> {
+        request: Request<pb::GetFileRequest>,
+    ) -> Result<Response<pb::GetFileResponse>, Status> {
+        let req = request.into_inner();
+
+        let data_map_bytes = hex::decode(&req.data_map)
+            .map_err(|e| Status::invalid_argument(format!("invalid hex data_map: {e}")))?;
+        const MAX_DATA_MAP_SIZE: usize = 10 * 1024 * 1024;
+        if data_map_bytes.len() > MAX_DATA_MAP_SIZE {
+            return Err(Status::invalid_argument(format!(
+                "data map too large: {} bytes exceeds {} byte limit",
+                data_map_bytes.len(),
+                MAX_DATA_MAP_SIZE,
+            )));
+        }
+        let data_map: ant_core::data::DataMap = rmp_serde::from_slice(&data_map_bytes)
+            .map_err(|e| Status::invalid_argument(format!("invalid data map: {e}")))?;
+
+        let dest = PathBuf::from(&req.dest_path);
+        let canonical_parent = dest
+            .parent()
+            .ok_or_else(|| Status::invalid_argument("dest_path has no parent directory"))?
+            .canonicalize()
+            .map_err(|e| {
+                tracing::warn!(dest_path = %req.dest_path, error = %e, "invalid dest_path");
+                Status::invalid_argument("invalid destination path")
+            })?;
+        let dest = canonical_parent.join(
+            dest.file_name()
+                .ok_or_else(|| Status::invalid_argument("dest_path has no filename"))?,
+        );
+        if !dest.starts_with(&canonical_parent) {
+            return Err(Status::invalid_argument(
+                "destination path escapes allowed directory",
+            ));
+        }
+
+        let client = self.state.client.clone();
+        tokio::spawn(async move {
+            client
+                .file_download(&data_map, &dest)
+                .await
+                .map_err(AntdError::from_core)
+        })
+        .await
+        .map_err(|e| Status::internal(format!("task failed: {e}")))?
+        .map_err(tonic::Status::from)?;
+
+        Ok(Response::new(pb::GetFileResponse {}))
+    }
+
+    async fn get_public(
+        &self,
+        request: Request<pb::GetFilePublicRequest>,
+    ) -> Result<Response<pb::GetFileResponse>, Status> {
         let req = request.into_inner();
 
         if req.address.len() != 64 {
@@ -435,10 +527,10 @@ impl pb::file_service_server::FileService for FileServiceImpl {
         .map_err(|e| Status::internal(format!("task failed: {e}")))?
         .map_err(tonic::Status::from)?;
 
-        Ok(Response::new(pb::DownloadResponse {}))
+        Ok(Response::new(pb::GetFileResponse {}))
     }
 
-    async fn get_file_cost(
+    async fn cost(
         &self,
         request: Request<pb::FileCostRequest>,
     ) -> Result<Response<pb::Cost>, Status> {

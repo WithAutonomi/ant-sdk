@@ -8,13 +8,18 @@ option go_package = "github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1";
 import "antd/v1/common.proto";
 
 service DataService {
-  rpc GetPublic(GetPublicDataRequest) returns (GetPublicDataResponse);
+  // Private = unqualified verb (the DataMap is returned to the caller; it is
+  // NOT stored on the network). Public = `_public` suffix (the DataMap is
+  // additionally stored on-network and the call returns the resulting address).
+  rpc Put(PutDataRequest) returns (PutDataResponse);
   rpc PutPublic(PutPublicDataRequest) returns (PutPublicDataResponse);
+  rpc Get(GetDataRequest) returns (GetDataResponse);
+  rpc GetPublic(GetPublicDataRequest) returns (GetPublicDataResponse);
   rpc StreamPublic(StreamPublicDataRequest) returns (stream DataChunk);
-  rpc GetPrivate(GetPrivateDataRequest) returns (GetPrivateDataResponse);
-  rpc PutPrivate(PutPrivateDataRequest) returns (PutPrivateDataResponse);
-  rpc GetCost(DataCostRequest) returns (Cost);
+  rpc Cost(DataCostRequest) returns (antd.v1.Cost);
 }
+
+// --- Public ---
 
 message GetPublicDataRequest {
   string address = 1; // hex
@@ -45,15 +50,17 @@ message DataChunk {
   bytes data = 1;
 }
 
-message GetPrivateDataRequest {
+// --- Private ---
+
+message GetDataRequest {
   string data_map = 1; // hex
 }
 
-message GetPrivateDataResponse {
+message GetDataResponse {
   bytes data = 1;
 }
 
-message PutPrivateDataRequest {
+message PutDataRequest {
   bytes data = 1;
   // Optional payment mode: "auto" (default), "merkle", or "single". Empty
   // string is treated as "auto" so old clients omitting the field stay
@@ -61,10 +68,12 @@ message PutPrivateDataRequest {
   string payment_mode = 2;
 }
 
-message PutPrivateDataResponse {
+message PutDataResponse {
   Cost cost = 1;
   string data_map = 2; // hex
 }
+
+// --- Cost ---
 
 message DataCostRequest {
   bytes data = 1;

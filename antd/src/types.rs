@@ -33,14 +33,17 @@ pub struct DataCostRequest {
 }
 
 #[derive(Serialize)]
-pub struct DataPutPrivateResponse {
+pub struct DataPutResponse {
     pub data_map: String, // hex-encoded serialized data map
     pub chunks_stored: usize,
     pub payment_mode_used: String,
 }
 
+/// Body for `POST /v1/data/get` — private fetch by caller-held DataMap. POST
+/// rather than GET because the hex-encoded `data_map` can be many KB and is
+/// awkward to place in a URL query string.
 #[derive(Deserialize)]
-pub struct DataGetPrivateQuery {
+pub struct DataGetRequest {
     pub data_map: String, // hex
 }
 
@@ -260,8 +263,9 @@ pub struct FinalizeUploadResponse {
 
 // ── Files ──
 
+/// Body for `POST /v1/files` (private put) and `POST /v1/files/public` (public put).
 #[derive(Deserialize)]
-pub struct FileUploadRequest {
+pub struct FilePutRequest {
     pub path: String,
     /// Payment mode: "auto" (default), "merkle", or "single".
     #[serde(default)]
@@ -269,7 +273,7 @@ pub struct FileUploadRequest {
 }
 
 #[derive(Serialize)]
-pub struct FileUploadPublicResponse {
+pub struct FilePutPublicResponse {
     pub address: String,
     /// Total storage cost paid in token units (atto). "0" if all chunks already existed.
     pub storage_cost_atto: String,
@@ -282,9 +286,33 @@ pub struct FileUploadPublicResponse {
     pub payment_mode_used: String,
 }
 
+#[derive(Serialize)]
+pub struct FilePutResponse {
+    /// Hex-encoded rmp_serde-serialized DataMap. The caller keeps this; it is
+    /// NOT stored on the network. Same shape as `DataPutResponse.data_map`.
+    pub data_map: String,
+    /// Total storage cost paid in token units (atto). "0" if all chunks already existed.
+    pub storage_cost_atto: String,
+    /// Total gas cost paid in wei, as a decimal string (u128 exceeds JSON safe-integer range).
+    /// "0" if no on-chain transactions were made.
+    pub gas_cost_wei: String,
+    /// Number of chunks stored on the network.
+    pub chunks_stored: u64,
+    /// Which payment mode was actually used ("auto", "merkle", or "single").
+    pub payment_mode_used: String,
+}
+
+/// Body for `POST /v1/files/public/get` — public download by on-network DataMap address.
 #[derive(Deserialize)]
-pub struct FileDownloadRequest {
+pub struct FileGetPublicRequest {
     pub address: String,
+    pub dest_path: String,
+}
+
+/// Body for `POST /v1/files/get` — private download from caller-provided DataMap.
+#[derive(Deserialize)]
+pub struct FileGetRequest {
+    pub data_map: String, // hex — rmp_serde-serialized DataMap
     pub dest_path: String,
 }
 

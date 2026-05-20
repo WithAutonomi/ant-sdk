@@ -51,7 +51,7 @@ fn mock_data_get_public(server: &mut ServerGuard) -> Mock {
 
 fn mock_data_put_private(server: &mut ServerGuard) -> Mock {
     server
-        .mock("POST", "/v1/data/private")
+        .mock("POST", "/v1/data")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"cost":"200","data_map":"dm123"}"#)
@@ -61,10 +61,7 @@ fn mock_data_put_private(server: &mut ServerGuard) -> Mock {
 fn mock_data_get_private(server: &mut ServerGuard) -> Mock {
     let encoded = BASE64.encode(b"secret");
     server
-        .mock(
-            "GET",
-            Matcher::Regex(r"/v1/data/private\?data_map=.*".to_string()),
-        )
+        .mock("POST", "/v1/data/get")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(format!(r#"{{"data":"{encoded}"}}"#))
@@ -101,7 +98,7 @@ fn mock_chunk_get(server: &mut ServerGuard) -> Mock {
 
 fn mock_file_upload_public(server: &mut ServerGuard) -> Mock {
     server
-        .mock("POST", "/v1/files/upload/public")
+        .mock("POST", "/v1/files/public")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"address":"file1","storage_cost_atto":"1000","gas_cost_wei":"42","chunks_stored":3,"payment_mode_used":"auto"}"#)
@@ -110,7 +107,7 @@ fn mock_file_upload_public(server: &mut ServerGuard) -> Mock {
 
 fn mock_file_download_public(server: &mut ServerGuard) -> Mock {
     server
-        .mock("POST", "/v1/files/download/public")
+        .mock("POST", "/v1/files/public/get")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body("")

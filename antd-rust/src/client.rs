@@ -9,22 +9,6 @@ use crate::discover::discover_daemon_url;
 use crate::errors::{error_for_status, AntdError};
 use crate::models::*;
 
-/// Percent-encode a string for use in a URL query parameter.
-fn url_encode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char);
-            }
-            _ => {
-                out.push_str(&format!("%{:02X}", b));
-            }
-        }
-    }
-    out
-}
-
 /// Default base URL of the antd daemon.
 pub const DEFAULT_BASE_URL: &str = "http://localhost:8082";
 
@@ -207,7 +191,7 @@ impl Client {
             body["payment_mode"] = json!(mode);
         }
         let (j, _) = self
-            .do_json(reqwest::Method::POST, "/v1/data/private", Some(body))
+            .do_json(reqwest::Method::POST, "/v1/data", Some(body))
             .await?;
         let j = j.unwrap_or_default();
         Ok(PutResult {
@@ -218,12 +202,11 @@ impl Client {
 
     /// Retrieves private data using a data map.
     pub async fn data_get_private(&self, data_map: &str) -> Result<Vec<u8>, AntdError> {
-        let encoded = url_encode(data_map);
         let (j, _) = self
             .do_json(
-                reqwest::Method::GET,
-                &format!("/v1/data/private?data_map={encoded}"),
-                None,
+                reqwest::Method::POST,
+                "/v1/data/get",
+                Some(json!({ "data_map": data_map })),
             )
             .await?;
         let j = j.unwrap_or_default();
@@ -293,7 +276,7 @@ impl Client {
             body["payment_mode"] = json!(mode);
         }
         let (j, _) = self
-            .do_json(reqwest::Method::POST, "/v1/files/upload/public", Some(body))
+            .do_json(reqwest::Method::POST, "/v1/files/public", Some(body))
             .await?;
         let j = j.unwrap_or_default();
         Ok(FileUploadResult {
@@ -313,7 +296,7 @@ impl Client {
     ) -> Result<(), AntdError> {
         self.do_json(
             reqwest::Method::POST,
-            "/v1/files/download/public",
+            "/v1/files/public/get",
             Some(json!({ "address": address, "dest_path": dest_path })),
         )
         .await?;
