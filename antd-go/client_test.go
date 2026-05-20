@@ -11,6 +11,14 @@ import (
 	"testing"
 )
 
+// writeJSON serializes v as JSON to the test response writer. Errors are
+// ignored because the only realistic failure mode is the client side dropping
+// the connection mid-response, which surfaces as the test failing on the
+// reading side rather than the writing side.
+func writeJSON(w http.ResponseWriter, v any) {
+	_ = json.NewEncoder(w).Encode(v)
+}
+
 // mockDaemon creates a test server that mimics antd REST responses.
 func mockDaemon(t *testing.T) *httptest.Server {
 	t.Helper()
@@ -20,7 +28,7 @@ func mockDaemon(t *testing.T) *httptest.Server {
 		switch {
 		// Health
 		case r.Method == "GET" && r.URL.Path == "/health":
-			json.NewEncoder(w).Encode(map[string]any{
+			writeJSON(w, map[string]any{
 				"status":                "ok",
 				"network":               "local",
 				"version":               "0.4.0",
@@ -33,23 +41,23 @@ func mockDaemon(t *testing.T) *httptest.Server {
 
 		// Data put public
 		case r.Method == "POST" && r.URL.Path == "/v1/data/public":
-			json.NewEncoder(w).Encode(map[string]any{"cost": "100", "address": "abc123"})
+			writeJSON(w, map[string]any{"cost": "100", "address": "abc123"})
 
 		// Data get public
 		case r.Method == "GET" && r.URL.Path == "/v1/data/public/abc123":
-			json.NewEncoder(w).Encode(map[string]any{"data": base64.StdEncoding.EncodeToString([]byte("hello"))})
+			writeJSON(w, map[string]any{"data": base64.StdEncoding.EncodeToString([]byte("hello"))})
 
 		// Data put private
 		case r.Method == "POST" && r.URL.Path == "/v1/data/private":
-			json.NewEncoder(w).Encode(map[string]any{"cost": "200", "data_map": "dm123"})
+			writeJSON(w, map[string]any{"cost": "200", "data_map": "dm123"})
 
 		// Data get private
 		case r.Method == "GET" && r.URL.Path == "/v1/data/private":
-			json.NewEncoder(w).Encode(map[string]any{"data": base64.StdEncoding.EncodeToString([]byte("secret"))})
+			writeJSON(w, map[string]any{"data": base64.StdEncoding.EncodeToString([]byte("secret"))})
 
 		// Data cost
 		case r.Method == "POST" && r.URL.Path == "/v1/data/cost":
-			json.NewEncoder(w).Encode(map[string]any{
+			writeJSON(w, map[string]any{
 				"cost":                   "50",
 				"file_size":              float64(4),
 				"chunk_count":            float64(3),
@@ -59,13 +67,13 @@ func mockDaemon(t *testing.T) *httptest.Server {
 
 		// Chunks
 		case r.Method == "POST" && r.URL.Path == "/v1/chunks":
-			json.NewEncoder(w).Encode(map[string]any{"cost": "10", "address": "chunk1"})
+			writeJSON(w, map[string]any{"cost": "10", "address": "chunk1"})
 		case r.Method == "GET" && r.URL.Path == "/v1/chunks/chunk1":
-			json.NewEncoder(w).Encode(map[string]any{"data": base64.StdEncoding.EncodeToString([]byte("chunkdata"))})
+			writeJSON(w, map[string]any{"data": base64.StdEncoding.EncodeToString([]byte("chunkdata"))})
 
 		// Files
 		case r.Method == "POST" && r.URL.Path == "/v1/files/upload/public":
-			json.NewEncoder(w).Encode(map[string]any{
+			writeJSON(w, map[string]any{
 				"address":           "file1",
 				"storage_cost_atto": "1000",
 				"gas_cost_wei":      "42",
@@ -75,7 +83,7 @@ func mockDaemon(t *testing.T) *httptest.Server {
 		case r.Method == "POST" && r.URL.Path == "/v1/files/download/public":
 			w.WriteHeader(200)
 		case r.Method == "POST" && r.URL.Path == "/v1/files/cost":
-			json.NewEncoder(w).Encode(map[string]any{
+			writeJSON(w, map[string]any{
 				"cost":                   "1000",
 				"file_size":              float64(4096),
 				"chunk_count":            float64(3),
@@ -85,48 +93,48 @@ func mockDaemon(t *testing.T) *httptest.Server {
 
 		// Wallet address
 		case r.Method == "GET" && r.URL.Path == "/v1/wallet/address":
-			json.NewEncoder(w).Encode(map[string]any{"address": "0xabc123"})
+			writeJSON(w, map[string]any{"address": "0xabc123"})
 
 		// Wallet balance
 		case r.Method == "GET" && r.URL.Path == "/v1/wallet/balance":
-			json.NewEncoder(w).Encode(map[string]any{"balance": "1000", "gas_balance": "500"})
+			writeJSON(w, map[string]any{"balance": "1000", "gas_balance": "500"})
 
 		// Wallet approve
 		case r.Method == "POST" && r.URL.Path == "/v1/wallet/approve":
-			json.NewEncoder(w).Encode(map[string]any{"approved": true})
+			writeJSON(w, map[string]any{"approved": true})
 
 		// Prepare upload (file) — wave_batch
 		case r.Method == "POST" && r.URL.Path == "/v1/upload/prepare":
-			json.NewEncoder(w).Encode(map[string]any{
-				"upload_id":              "up1",
+			writeJSON(w, map[string]any{
+				"upload_id":             "up1",
 				"payment_type":          "wave_batch",
 				"payments":              []any{map[string]any{"quote_hash": "qh1", "rewards_address": "ra1", "amount": "100"}},
 				"total_amount":          "100",
 				"payment_vault_address": "dp1",
 				"payment_token_address": "pt1",
-				"rpc_url":              "http://localhost:8545",
+				"rpc_url":               "http://localhost:8545",
 			})
 
 		// Prepare data upload — wave_batch
 		case r.Method == "POST" && r.URL.Path == "/v1/data/prepare":
-			json.NewEncoder(w).Encode(map[string]any{
-				"upload_id":              "up2",
+			writeJSON(w, map[string]any{
+				"upload_id":             "up2",
 				"payment_type":          "wave_batch",
 				"payments":              []any{map[string]any{"quote_hash": "qh1", "rewards_address": "ra1", "amount": "100"}},
 				"total_amount":          "100",
 				"payment_vault_address": "dp1",
 				"payment_token_address": "pt1",
-				"rpc_url":              "http://localhost:8545",
+				"rpc_url":               "http://localhost:8545",
 			})
 
 		// Finalize upload
 		case r.Method == "POST" && r.URL.Path == "/v1/upload/finalize":
-			json.NewEncoder(w).Encode(map[string]any{"address": "fin1", "chunks_stored": float64(3)})
+			writeJSON(w, map[string]any{"address": "fin1", "chunks_stored": float64(3)})
 
 		// 404 for anything else
 		default:
 			w.WriteHeader(404)
-			json.NewEncoder(w).Encode(map[string]any{"error": "not found"})
+			writeJSON(w, map[string]any{"error": "not found"})
 		}
 	}))
 }
@@ -391,7 +399,7 @@ func TestErrorMapping(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(404)
-		json.NewEncoder(w).Encode(map[string]any{"error": "not found"})
+		writeJSON(w, map[string]any{"error": "not found"})
 	}))
 	defer srv.Close()
 
@@ -419,7 +427,7 @@ func mockMerkleDaemon(t *testing.T) *httptest.Server {
 
 		switch {
 		case r.Method == "POST" && r.URL.Path == "/v1/upload/prepare":
-			json.NewEncoder(w).Encode(map[string]any{
+			writeJSON(w, map[string]any{
 				"upload_id":    "mup1",
 				"payment_type": "merkle",
 				"depth":        float64(5),
@@ -440,7 +448,7 @@ func mockMerkleDaemon(t *testing.T) *httptest.Server {
 			})
 
 		case r.Method == "POST" && r.URL.Path == "/v1/data/prepare":
-			json.NewEncoder(w).Encode(map[string]any{
+			writeJSON(w, map[string]any{
 				"upload_id":    "mup2",
 				"payment_type": "merkle",
 				"depth":        float64(3),
@@ -458,7 +466,7 @@ func mockMerkleDaemon(t *testing.T) *httptest.Server {
 			})
 
 		case r.Method == "POST" && r.URL.Path == "/v1/upload/finalize":
-			json.NewEncoder(w).Encode(map[string]any{
+			writeJSON(w, map[string]any{
 				"data_map":      "dm_merkle",
 				"address":       "addr_merkle",
 				"chunks_stored": float64(100),
@@ -466,7 +474,7 @@ func mockMerkleDaemon(t *testing.T) *httptest.Server {
 
 		default:
 			w.WriteHeader(404)
-			json.NewEncoder(w).Encode(map[string]any{"error": "not found"})
+			writeJSON(w, map[string]any{"error": "not found"})
 		}
 	}))
 }
@@ -558,13 +566,13 @@ func TestPrepareUploadBackwardCompat(t *testing.T) {
 	// Simulate an older daemon that doesn't send payment_type
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
-			"upload_id":              "old1",
+		writeJSON(w, map[string]any{
+			"upload_id":             "old1",
 			"payments":              []any{map[string]any{"quote_hash": "qh1", "rewards_address": "ra1", "amount": "50"}},
 			"total_amount":          "50",
 			"payment_vault_address": "dp_old",
 			"payment_token_address": "pt_old",
-			"rpc_url":              "http://localhost:8545",
+			"rpc_url":               "http://localhost:8545",
 		})
 	}))
 	defer srv.Close()
@@ -592,7 +600,7 @@ func TestPrepareUploadPublicSendsVisibility(t *testing.T) {
 		if r.Method == http.MethodPost && r.URL.Path == "/v1/upload/prepare" {
 			_ = json.NewDecoder(r.Body).Decode(&capturedBody)
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{
+			writeJSON(w, map[string]any{
 				"upload_id":             "up-pub-1",
 				"payment_type":          "wave_batch",
 				"payments":              []any{map[string]any{"quote_hash": "qh1", "rewards_address": "ra1", "amount": "100"}},
@@ -627,7 +635,7 @@ func TestFinalizeUploadSurfacesDataMapAddress(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/v1/upload/finalize" {
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{
+			writeJSON(w, map[string]any{
 				"data_map":         "deadbeef",
 				"data_map_address": "cafebabe",
 				"chunks_stored":    float64(4),
@@ -662,7 +670,7 @@ func TestFinalizeUploadOmitsDataMapAddressForPrivate(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/v1/upload/finalize" {
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{
+			writeJSON(w, map[string]any{
 				"data_map":      "deadbeef",
 				"chunks_stored": float64(2),
 			})
@@ -693,7 +701,7 @@ func TestPrepareChunkUploadEncodesPayloadAndParsesResponse(t *testing.T) {
 		if r.Method == http.MethodPost && r.URL.Path == "/v1/chunks/prepare" {
 			_ = json.NewDecoder(r.Body).Decode(&capturedBody)
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{
+			writeJSON(w, map[string]any{
 				"address":        "aa" + strings.Repeat("00", 31),
 				"already_stored": false,
 				"upload_id":      "chunk-1",
@@ -751,7 +759,7 @@ func TestPrepareChunkUploadAlreadyStoredOmitsPaymentFields(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/v1/chunks/prepare" {
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{
+			writeJSON(w, map[string]any{
 				"address":        "bb" + strings.Repeat("11", 31),
 				"already_stored": true,
 				// no upload_id, no payments, no payment_type, etc.
@@ -790,7 +798,7 @@ func TestFinalizeChunkUploadReturnsAddress(t *testing.T) {
 		if r.Method == http.MethodPost && r.URL.Path == "/v1/chunks/finalize" {
 			_ = json.NewDecoder(r.Body).Decode(&capturedBody)
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{
+			writeJSON(w, map[string]any{
 				"address": "cc" + strings.Repeat("22", 31),
 			})
 			return
