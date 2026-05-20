@@ -5,7 +5,7 @@
 require 'google/protobuf'
 
 
-descriptor_data = "\n\x14\x61ntd/v1/common.proto\x12\x07\x61ntd.v1\"y\n\x04\x43ost\x12\x13\n\x0b\x61tto_tokens\x18\x01 \x01(\t\x12\x11\n\tfile_size\x18\x02 \x01(\x04\x12\x13\n\x0b\x63hunk_count\x18\x03 \x01(\r\x12\x1e\n\x16\x65stimated_gas_cost_wei\x18\x04 \x01(\t\x12\x14\n\x0cpayment_mode\x18\x05 \x01(\t\"\x16\n\x07\x41\x64\x64ress\x12\x0b\n\x03hex\x18\x01 \x01(\t\"\x1d\n\x0ePublicKeyProto\x12\x0b\n\x03hex\x18\x01 \x01(\t\"\x1d\n\x0eSecretKeyProto\x12\x0b\n\x03hex\x18\x01 \x01(\t\"6\n\x0fGraphDescendant\x12\x12\n\npublic_key\x18\x01 \x01(\t\x12\x0f\n\x07\x63ontent\x18\x02 \x01(\tBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\x07\x41ntd.V1b\x06proto3"
+descriptor_data = "\n\x14\x61ntd/v1/common.proto\x12\x07\x61ntd.v1\"y\n\x04\x43ost\x12\x13\n\x0b\x61tto_tokens\x18\x01 \x01(\t\x12\x11\n\tfile_size\x18\x02 \x01(\x04\x12\x13\n\x0b\x63hunk_count\x18\x03 \x01(\r\x12\x1e\n\x16\x65stimated_gas_cost_wei\x18\x04 \x01(\t\x12\x14\n\x0cpayment_mode\x18\x05 \x01(\t\"\x16\n\x07\x41\x64\x64ress\x12\x0b\n\x03hex\x18\x01 \x01(\t\"\x1d\n\x0ePublicKeyProto\x12\x0b\n\x03hex\x18\x01 \x01(\t\"\x1d\n\x0eSecretKeyProto\x12\x0b\n\x03hex\x18\x01 \x01(\tBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\x07\x41ntd.V1b\x06proto3"
 
 pool = ::Google::Protobuf::DescriptorPool.generated_pool
 pool.add_serialized_file(descriptor_data)
@@ -16,6 +16,5 @@ module Antd
     Address = ::Google::Protobuf::DescriptorPool.generated_pool.lookup("antd.v1.Address").msgclass
     PublicKeyProto = ::Google::Protobuf::DescriptorPool.generated_pool.lookup("antd.v1.PublicKeyProto").msgclass
     SecretKeyProto = ::Google::Protobuf::DescriptorPool.generated_pool.lookup("antd.v1.SecretKeyProto").msgclass
-    GraphDescendant = ::Google::Protobuf::DescriptorPool.generated_pool.lookup("antd.v1.GraphDescendant").msgclass
   end
 end

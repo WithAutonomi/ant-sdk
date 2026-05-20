@@ -19,10 +19,12 @@ class GetPublicDataResponse(_message.Message):
     def __init__(self, data: _Optional[bytes] = ...) -> None: ...
 
 class PutPublicDataRequest(_message.Message):
-    __slots__ = ("data",)
+    __slots__ = ("data", "payment_mode")
     DATA_FIELD_NUMBER: _ClassVar[int]
+    PAYMENT_MODE_FIELD_NUMBER: _ClassVar[int]
     data: bytes
-    def __init__(self, data: _Optional[bytes] = ...) -> None: ...
+    payment_mode: str
+    def __init__(self, data: _Optional[bytes] = ..., payment_mode: _Optional[str] = ...) -> None: ...
 
 class PutPublicDataResponse(_message.Message):
     __slots__ = ("cost", "address")
@@ -44,25 +46,27 @@ class DataChunk(_message.Message):
     data: bytes
     def __init__(self, data: _Optional[bytes] = ...) -> None: ...
 
-class GetPrivateDataRequest(_message.Message):
+class GetDataRequest(_message.Message):
     __slots__ = ("data_map",)
     DATA_MAP_FIELD_NUMBER: _ClassVar[int]
     data_map: str
     def __init__(self, data_map: _Optional[str] = ...) -> None: ...
 
-class GetPrivateDataResponse(_message.Message):
+class GetDataResponse(_message.Message):
     __slots__ = ("data",)
     DATA_FIELD_NUMBER: _ClassVar[int]
     data: bytes
     def __init__(self, data: _Optional[bytes] = ...) -> None: ...
 
-class PutPrivateDataRequest(_message.Message):
-    __slots__ = ("data",)
+class PutDataRequest(_message.Message):
+    __slots__ = ("data", "payment_mode")
     DATA_FIELD_NUMBER: _ClassVar[int]
+    PAYMENT_MODE_FIELD_NUMBER: _ClassVar[int]
     data: bytes
-    def __init__(self, data: _Optional[bytes] = ...) -> None: ...
+    payment_mode: str
+    def __init__(self, data: _Optional[bytes] = ..., payment_mode: _Optional[str] = ...) -> None: ...
 
-class PutPrivateDataResponse(_message.Message):
+class PutDataResponse(_message.Message):
     __slots__ = ("cost", "data_map")
     COST_FIELD_NUMBER: _ClassVar[int]
     DATA_MAP_FIELD_NUMBER: _ClassVar[int]
@@ -71,7 +75,9 @@ class PutPrivateDataResponse(_message.Message):
     def __init__(self, cost: _Optional[_Union[_common_pb2.Cost, _Mapping]] = ..., data_map: _Optional[str] = ...) -> None: ...
 
 class DataCostRequest(_message.Message):
-    __slots__ = ("data",)
+    __slots__ = ("data", "payment_mode")
     DATA_FIELD_NUMBER: _ClassVar[int]
+    PAYMENT_MODE_FIELD_NUMBER: _ClassVar[int]
     data: bytes
-    def __init__(self, data: _Optional[bytes] = ...) -> None: ...
+    payment_mode: str
+    def __init__(self, data: _Optional[bytes] = ..., payment_mode: _Optional[str] = ...) -> None: ...

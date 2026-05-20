@@ -8,10 +8,10 @@ require_relative "../lib/antd"
 client = Antd::Client.new
 
 # Store private (encrypted) data
-result = client.data_put_private("sensitive information")
-puts "Private data stored (cost: #{result.cost} atto)"
-puts "Data map: #{result.address}"
+result = client.data_put("sensitive information")
+puts "Private data stored (chunks: #{result.chunks_stored}, mode: #{result.payment_mode_used})"
+puts "Data map: #{result.data_map}"
 
 # Retrieve private data using the data map
-data = client.data_get_private(result.address)
+data = client.data_get(result.data_map)
 puts "Retrieved: #{data}"

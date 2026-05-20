@@ -121,11 +121,13 @@ client = Antd::Client.new(base_url: "http://custom-host:9090", timeout: 30)
 ### Data (Immutable)
 | Method | Description |
 |--------|-------------|
-| `data_put_public(data)` | Store public data |
-| `data_get_public(address)` | Retrieve public data |
-| `data_put_private(data)` | Store encrypted private data |
-| `data_get_private(data_map)` | Retrieve private data |
-| `data_cost(data)` | Estimate storage cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
+| `data_put(data, payment_mode: PaymentMode::AUTO)` | Store encrypted private data; returns caller-held DataMap |
+| `data_get(data_map)` | Retrieve private data from a caller-held DataMap |
+| `data_put_public(data, payment_mode: PaymentMode::AUTO)` | Store public data; returns on-network DataMap address |
+| `data_get_public(address)` | Retrieve public data by address |
+| `data_cost(data, payment_mode: PaymentMode::AUTO)` | Estimate storage cost — returns `UploadCostEstimate` |
+
+`Antd::PaymentMode` exposes `AUTO`, `MERKLE`, `SINGLE` string constants. Private uploads use the unqualified verb (`data_put` / `data_get`); the `_public` suffix marks the public variant.
 
 ### Chunks
 | Method | Description |
@@ -136,9 +138,11 @@ client = Antd::Client.new(base_url: "http://custom-host:9090", timeout: 30)
 ### Files
 | Method | Description |
 |--------|-------------|
-| `file_upload_public(path)` | Upload a file |
-| `file_download_public(address, dest_path)` | Download a file |
-| `file_cost(path, is_public)` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
+| `file_put(path, payment_mode: PaymentMode::AUTO)` | Upload a file privately; returns caller-held DataMap |
+| `file_get(data_map, dest_path)` | Download a private file from a caller-held DataMap |
+| `file_put_public(path, payment_mode: PaymentMode::AUTO)` | Upload a file publicly; returns on-network DataMap address |
+| `file_get_public(address, dest_path)` | Download a public file by address |
+| `file_cost(path, is_public, payment_mode: PaymentMode::AUTO)` | Estimate upload cost — returns `UploadCostEstimate` |
 
 ## Error Handling
 

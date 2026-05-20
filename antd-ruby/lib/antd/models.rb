@@ -21,16 +21,57 @@ module Antd
     end
   end
 
-  # Result of a put/create operation.
+  # Payment-batching strategy for uploads.
+  #
+  # +AUTO+    -- server picks (merkle for 64+ chunks, single otherwise).
+  # +MERKLE+  -- force merkle-batch (saves gas, min 2 chunks).
+  # +SINGLE+  -- force per-chunk payments.
+  module PaymentMode
+    AUTO   = "auto"
+    MERKLE = "merkle"
+    SINGLE = "single"
+  end
+
+  # Result of a single-chunk put (used by +chunk_put+). Data and file puts
+  # return richer types (+DataPutResult+ / +DataPutPublicResult+ /
+  # +FilePutResult+ / +FilePutPublicResult+).
   PutResult = Struct.new(:cost, :address, keyword_init: true)
 
-  # Result of a public file or directory upload.
-  FileUploadResult = Struct.new(
-    :address,            # hex network address
-    :storage_cost_atto,  # storage cost in atto, "0" if all chunks already existed
-    :gas_cost_wei,       # gas cost in wei as decimal string
-    :chunks_stored,      # number of chunks stored on the network (uint64)
+  # Result of a private data put. The DataMap is returned to the caller;
+  # it is NOT stored on-network.
+  DataPutResult = Struct.new(:data_map, :chunks_stored, :payment_mode_used, keyword_init: true) do
+    def initialize(data_map: "", chunks_stored: 0, payment_mode_used: "")
+      super
+    end
+  end
+
+  # Result of a public data put. The DataMap is stored on-network as an extra
+  # chunk; +address+ is the shareable retrieval handle.
+  DataPutPublicResult = Struct.new(:address, :chunks_stored, :payment_mode_used, keyword_init: true) do
+    def initialize(address: "", chunks_stored: 0, payment_mode_used: "")
+      super
+    end
+  end
+
+  # Result of a private file upload. The DataMap is returned to the caller;
+  # it is NOT stored on-network.
+  FilePutResult = Struct.new(
+    :data_map,           # hex-encoded msgpack DataMap
+    :storage_cost_atto,  # "0" if all chunks already existed
+    :gas_cost_wei,       # decimal string
+    :chunks_stored,      # uint64
     :payment_mode_used,  # "auto", "merkle", or "single"
+    keyword_init: true
+  )
+
+  # Result of a public file upload. The DataMap is stored on-network as an
+  # extra chunk; +address+ is the shareable retrieval handle.
+  FilePutPublicResult = Struct.new(
+    :address,            # hex network address of the stored DataMap
+    :storage_cost_atto,
+    :gas_cost_wei,
+    :chunks_stored,
+    :payment_mode_used,
     keyword_init: true
   )
 

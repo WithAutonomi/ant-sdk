@@ -51,14 +51,40 @@ module Antd
 
     # --- Data ---
 
-    # Store public immutable data on the network.
+    # Store private encrypted data on the network. Returns the caller-held
+    # DataMap (hex). The DataMap is NOT stored on-network.
     # @param data [String] raw bytes
-    # @return [PutResult]
-    def data_put_public(data, payment_mode: nil)
-      body = { data: b64_encode(data) }
-      body[:payment_mode] = payment_mode if payment_mode
-      j = do_json(:post, "/v1/data/public", body)
-      PutResult.new(cost: j["cost"], address: j["address"])
+    # @param payment_mode [String] PaymentMode::AUTO | MERKLE | SINGLE
+    # @return [DataPutResult]
+    def data_put(data, payment_mode: PaymentMode::AUTO)
+      j = do_json(:post, "/v1/data", { data: b64_encode(data), payment_mode: payment_mode })
+      DataPutResult.new(
+        data_map: j["data_map"] || "",
+        chunks_stored: (j["chunks_stored"] || 0).to_i,
+        payment_mode_used: j["payment_mode_used"] || ""
+      )
+    end
+
+    # Retrieve private data from a caller-held DataMap (hex).
+    # @param data_map [String]
+    # @return [String] raw bytes
+    def data_get(data_map)
+      j = do_json(:post, "/v1/data/get", { data_map: data_map })
+      b64_decode(j["data"])
+    end
+
+    # Store public data. The DataMap is stored on-network as an extra chunk;
+    # the returned address is the shareable retrieval handle.
+    # @param data [String] raw bytes
+    # @param payment_mode [String] PaymentMode::AUTO | MERKLE | SINGLE
+    # @return [DataPutPublicResult]
+    def data_put_public(data, payment_mode: PaymentMode::AUTO)
+      j = do_json(:post, "/v1/data/public", { data: b64_encode(data), payment_mode: payment_mode })
+      DataPutPublicResult.new(
+        address: j["address"] || "",
+        chunks_stored: (j["chunks_stored"] || 0).to_i,
+        payment_mode_used: j["payment_mode_used"] || ""
+      )
     end
 
     # Retrieve public data by address.
@@ -69,29 +95,12 @@ module Antd
       b64_decode(j["data"])
     end
 
-    # Store private encrypted data on the network.
-    # @param data [String] raw bytes
-    # @return [PutResult]
-    def data_put_private(data, payment_mode: nil)
-      body = { data: b64_encode(data) }
-      body[:payment_mode] = payment_mode if payment_mode
-      j = do_json(:post, "/v1/data/private", body)
-      PutResult.new(cost: j["cost"], address: j["data_map"])
-    end
-
-    # Retrieve private data using a data map.
-    # @param data_map [String]
-    # @return [String] raw bytes
-    def data_get_private(data_map)
-      j = do_json(:get, "/v1/data/private?data_map=#{URI.encode_www_form_component(data_map)}")
-      b64_decode(j["data"])
-    end
-
     # Pre-upload cost breakdown for the given bytes.
     # @param data [String] raw bytes
+    # @param payment_mode [String] PaymentMode::AUTO | MERKLE | SINGLE
     # @return [UploadCostEstimate]
-    def data_cost(data)
-      j = do_json(:post, "/v1/data/cost", { data: b64_encode(data) })
+    def data_cost(data, payment_mode: PaymentMode::AUTO)
+      j = do_json(:post, "/v1/data/cost", { data: b64_encode(data), payment_mode: payment_mode })
       UploadCostEstimate.new(
         cost: j["cost"] || "",
         file_size: j["file_size"] || 0,
@@ -151,33 +160,65 @@ module Antd
 
     # --- Files ---
 
-    # Upload a local file to the network.
+    # Upload a file privately. Returns the caller-held DataMap (hex).
     # @param path [String] local file path
-    # @return [FileUploadResult]
-    def file_upload_public(path, payment_mode: nil)
-      body = { path: path }
-      body[:payment_mode] = payment_mode if payment_mode
-      j = do_json(:post, "/v1/files/upload/public", body)
-      file_upload_result_from(j)
+    # @param payment_mode [String] PaymentMode::AUTO | MERKLE | SINGLE
+    # @return [FilePutResult]
+    def file_put(path, payment_mode: PaymentMode::AUTO)
+      j = do_json(:post, "/v1/files", { path: path, payment_mode: payment_mode })
+      FilePutResult.new(
+        data_map: j["data_map"] || "",
+        storage_cost_atto: j["storage_cost_atto"] || "",
+        gas_cost_wei: j["gas_cost_wei"] || "",
+        chunks_stored: (j["chunks_stored"] || 0).to_i,
+        payment_mode_used: j["payment_mode_used"] || ""
+      )
     end
 
-    # Download a file from the network to a local path.
+    # Download a private file from a caller-held DataMap into +dest_path+.
+    # @param data_map [String]
+    # @param dest_path [String]
+    # @return [void]
+    def file_get(data_map, dest_path)
+      do_json(:post, "/v1/files/get", { data_map: data_map, dest_path: dest_path })
+      nil
+    end
+
+    # Upload a file publicly. The DataMap is stored on-network as an extra
+    # chunk; the returned address is the shareable retrieval handle.
+    # @param path [String] local file path
+    # @param payment_mode [String] PaymentMode::AUTO | MERKLE | SINGLE
+    # @return [FilePutPublicResult]
+    def file_put_public(path, payment_mode: PaymentMode::AUTO)
+      j = do_json(:post, "/v1/files/public", { path: path, payment_mode: payment_mode })
+      FilePutPublicResult.new(
+        address: j["address"] || "",
+        storage_cost_atto: j["storage_cost_atto"] || "",
+        gas_cost_wei: j["gas_cost_wei"] || "",
+        chunks_stored: (j["chunks_stored"] || 0).to_i,
+        payment_mode_used: j["payment_mode_used"] || ""
+      )
+    end
+
+    # Download a public file from an on-network DataMap address.
     # @param address [String]
     # @param dest_path [String]
     # @return [void]
-    def file_download_public(address, dest_path)
-      do_json(:post, "/v1/files/download/public", { address: address, dest_path: dest_path })
+    def file_get_public(address, dest_path)
+      do_json(:post, "/v1/files/public/get", { address: address, dest_path: dest_path })
       nil
     end
 
     # Pre-upload cost breakdown for the file at +path+.
     # @param path [String]
     # @param is_public [Boolean]
+    # @param payment_mode [String] PaymentMode::AUTO | MERKLE | SINGLE
     # @return [UploadCostEstimate]
-    def file_cost(path, is_public)
+    def file_cost(path, is_public, payment_mode: PaymentMode::AUTO)
       j = do_json(:post, "/v1/files/cost", {
         path: path,
-        is_public: is_public
+        is_public: is_public,
+        payment_mode: payment_mode
       })
       UploadCostEstimate.new(
         cost: j["cost"] || "",
@@ -280,17 +321,6 @@ module Antd
     end
 
     private
-
-    # Build a FileUploadResult from the JSON returned by file/dir upload public.
-    def file_upload_result_from(j)
-      FileUploadResult.new(
-        address: j["address"] || "",
-        storage_cost_atto: j["storage_cost_atto"] || "",
-        gas_cost_wei: j["gas_cost_wei"] || "",
-        chunks_stored: (j["chunks_stored"] || 0).to_i,
-        payment_mode_used: j["payment_mode_used"] || ""
-      )
-    end
 
     # Parse a /v1/upload/finalize JSON response into a FinalizeUploadResult.
     #

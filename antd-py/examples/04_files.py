@@ -25,14 +25,14 @@ try:
     )
 
     # Upload file
-    result = client.file_upload_public(src_path)
+    result = client.file_put_public(src_path)
     print(f"File uploaded to: {result.address}")
     print(f"Storage cost: {result.storage_cost_atto} atto, gas: {result.gas_cost_wei} wei")
     print(f"Chunks stored: {result.chunks_stored}, payment mode: {result.payment_mode_used}")
 
     # Download to new location
     dest_path = src_path + ".downloaded"
-    client.file_download_public(result.address, dest_path)
+    client.file_get_public(result.address, dest_path)
     print(f"Downloaded to: {dest_path}")
 
     with open(dest_path) as f:

@@ -65,13 +65,33 @@ module Antd
 
     # --- Data ---
 
-    # Store public immutable data on the network.
+    # Store private encrypted data. Returns the caller-held DataMap (hex).
     # @param data [String] raw bytes
-    # @return [PutResult]
-    def data_put_public(data)
-      req = Antd::V1::PutPublicDataRequest.new(data: data.b)
+    # @param payment_mode [String] PaymentMode::AUTO | MERKLE | SINGLE
+    # @return [DataPutResult]
+    def data_put(data, payment_mode: PaymentMode::AUTO)
+      req = Antd::V1::PutDataRequest.new(data: data.b, payment_mode: payment_mode)
+      resp = grpc_call { @data_stub.put(req) }
+      DataPutResult.new(data_map: resp.data_map)
+    end
+
+    # Retrieve private data from a caller-held DataMap (hex).
+    # @param data_map [String]
+    # @return [String] raw bytes
+    def data_get(data_map)
+      req = Antd::V1::GetDataRequest.new(data_map: data_map)
+      resp = grpc_call { @data_stub.get(req) }
+      resp.data
+    end
+
+    # Store public data. Returns the on-network DataMap address.
+    # @param data [String] raw bytes
+    # @param payment_mode [String] PaymentMode::AUTO | MERKLE | SINGLE
+    # @return [DataPutPublicResult]
+    def data_put_public(data, payment_mode: PaymentMode::AUTO)
+      req = Antd::V1::PutPublicDataRequest.new(data: data.b, payment_mode: payment_mode)
       resp = grpc_call { @data_stub.put_public(req) }
-      PutResult.new(cost: resp.cost.atto_tokens, address: resp.address)
+      DataPutPublicResult.new(address: resp.address)
     end
 
     # Retrieve public data by address.
@@ -83,30 +103,13 @@ module Antd
       resp.data
     end
 
-    # Store private encrypted data on the network.
-    # @param data [String] raw bytes
-    # @return [PutResult]
-    def data_put_private(data)
-      req = Antd::V1::PutPrivateDataRequest.new(data: data.b)
-      resp = grpc_call { @data_stub.put_private(req) }
-      PutResult.new(cost: resp.cost.atto_tokens, address: resp.data_map)
-    end
-
-    # Retrieve private data using a data map.
-    # @param data_map [String]
-    # @return [String] raw bytes
-    def data_get_private(data_map)
-      req = Antd::V1::GetPrivateDataRequest.new(data_map: data_map)
-      resp = grpc_call { @data_stub.get_private(req) }
-      resp.data
-    end
-
     # Pre-upload cost breakdown for the given bytes.
     # @param data [String] raw bytes
+    # @param payment_mode [String] PaymentMode::AUTO | MERKLE | SINGLE
     # @return [UploadCostEstimate]
-    def data_cost(data)
-      req = Antd::V1::DataCostRequest.new(data: data.b)
-      resp = grpc_call { @data_stub.get_cost(req) }
+    def data_cost(data, payment_mode: PaymentMode::AUTO)
+      req = Antd::V1::DataCostRequest.new(data: data.b, payment_mode: payment_mode)
+      resp = grpc_call { @data_stub.cost(req) }
       UploadCostEstimate.new(
         cost: resp.atto_tokens,
         file_size: resp.file_size,
@@ -138,35 +141,70 @@ module Antd
 
     # --- Files ---
 
-    # Upload a local file to the network.
+    # Upload a file privately. Returns the caller-held DataMap (hex).
     # @param path [String] local file path
-    # @return [FileUploadResult]
-    def file_upload_public(path)
-      req = Antd::V1::UploadFileRequest.new(path: path)
-      resp = grpc_call { @file_stub.upload_public(req) }
-      file_upload_result_from_proto(resp)
+    # @param payment_mode [String] PaymentMode::AUTO | MERKLE | SINGLE
+    # @return [FilePutResult]
+    def file_put(path, payment_mode: PaymentMode::AUTO)
+      req = Antd::V1::PutFileRequest.new(path: path, payment_mode: payment_mode)
+      resp = grpc_call { @file_stub.put(req) }
+      FilePutResult.new(
+        data_map: resp.data_map,
+        storage_cost_atto: resp.storage_cost_atto,
+        gas_cost_wei: resp.gas_cost_wei,
+        chunks_stored: resp.chunks_stored,
+        payment_mode_used: resp.payment_mode_used
+      )
     end
 
-    # Download a file from the network to a local path.
+    # Download a private file from a caller-held DataMap.
+    # @param data_map [String]
+    # @param dest_path [String]
+    # @return [void]
+    def file_get(data_map, dest_path)
+      req = Antd::V1::GetFileRequest.new(data_map: data_map, dest_path: dest_path)
+      grpc_call { @file_stub.get(req) }
+      nil
+    end
+
+    # Upload a file publicly. Returns the on-network DataMap address.
+    # @param path [String] local file path
+    # @param payment_mode [String] PaymentMode::AUTO | MERKLE | SINGLE
+    # @return [FilePutPublicResult]
+    def file_put_public(path, payment_mode: PaymentMode::AUTO)
+      req = Antd::V1::PutFileRequest.new(path: path, payment_mode: payment_mode)
+      resp = grpc_call { @file_stub.put_public(req) }
+      FilePutPublicResult.new(
+        address: resp.address,
+        storage_cost_atto: resp.storage_cost_atto,
+        gas_cost_wei: resp.gas_cost_wei,
+        chunks_stored: resp.chunks_stored,
+        payment_mode_used: resp.payment_mode_used
+      )
+    end
+
+    # Download a public file from an on-network DataMap address.
     # @param address [String]
     # @param dest_path [String]
     # @return [void]
-    def file_download_public(address, dest_path)
-      req = Antd::V1::DownloadPublicRequest.new(address: address, dest_path: dest_path)
-      grpc_call { @file_stub.download_public(req) }
+    def file_get_public(address, dest_path)
+      req = Antd::V1::GetFilePublicRequest.new(address: address, dest_path: dest_path)
+      grpc_call { @file_stub.get_public(req) }
       nil
     end
 
     # Pre-upload cost breakdown for the file at +path+.
     # @param path [String]
     # @param is_public [Boolean]
+    # @param payment_mode [String] PaymentMode::AUTO | MERKLE | SINGLE
     # @return [UploadCostEstimate]
-    def file_cost(path, is_public)
+    def file_cost(path, is_public, payment_mode: PaymentMode::AUTO)
       req = Antd::V1::FileCostRequest.new(
         path: path,
-        is_public: is_public
+        is_public: is_public,
+        payment_mode: payment_mode
       )
-      resp = grpc_call { @file_stub.get_file_cost(req) }
+      resp = grpc_call { @file_stub.cost(req) }
       UploadCostEstimate.new(
         cost: resp.atto_tokens,
         file_size: resp.file_size,
@@ -177,17 +215,6 @@ module Antd
     end
 
     private
-
-    # Build a FileUploadResult from an UploadPublicResponse proto.
-    def file_upload_result_from_proto(resp)
-      FileUploadResult.new(
-        address: resp.address,
-        storage_cost_atto: resp.storage_cost_atto,
-        gas_cost_wei: resp.gas_cost_wei,
-        chunks_stored: resp.chunks_stored,
-        payment_mode_used: resp.payment_mode_used
-      )
-    end
 
     # Executes a gRPC call and translates errors to Antd error types.
     def grpc_call

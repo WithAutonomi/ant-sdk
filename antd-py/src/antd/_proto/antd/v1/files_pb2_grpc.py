@@ -35,28 +35,28 @@ class FileServiceStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.UploadPublic = channel.unary_unary(
-                '/antd.v1.FileService/UploadPublic',
-                request_serializer=antd_dot_v1_dot_files__pb2.UploadFileRequest.SerializeToString,
-                response_deserializer=antd_dot_v1_dot_files__pb2.UploadPublicResponse.FromString,
+        self.Put = channel.unary_unary(
+                '/antd.v1.FileService/Put',
+                request_serializer=antd_dot_v1_dot_files__pb2.PutFileRequest.SerializeToString,
+                response_deserializer=antd_dot_v1_dot_files__pb2.PutFileResponse.FromString,
                 _registered_method=True)
-        self.DownloadPublic = channel.unary_unary(
-                '/antd.v1.FileService/DownloadPublic',
-                request_serializer=antd_dot_v1_dot_files__pb2.DownloadPublicRequest.SerializeToString,
-                response_deserializer=antd_dot_v1_dot_files__pb2.DownloadResponse.FromString,
+        self.PutPublic = channel.unary_unary(
+                '/antd.v1.FileService/PutPublic',
+                request_serializer=antd_dot_v1_dot_files__pb2.PutFileRequest.SerializeToString,
+                response_deserializer=antd_dot_v1_dot_files__pb2.PutFilePublicResponse.FromString,
                 _registered_method=True)
-        self.DirUploadPublic = channel.unary_unary(
-                '/antd.v1.FileService/DirUploadPublic',
-                request_serializer=antd_dot_v1_dot_files__pb2.UploadFileRequest.SerializeToString,
-                response_deserializer=antd_dot_v1_dot_files__pb2.UploadPublicResponse.FromString,
+        self.Get = channel.unary_unary(
+                '/antd.v1.FileService/Get',
+                request_serializer=antd_dot_v1_dot_files__pb2.GetFileRequest.SerializeToString,
+                response_deserializer=antd_dot_v1_dot_files__pb2.GetFileResponse.FromString,
                 _registered_method=True)
-        self.DirDownloadPublic = channel.unary_unary(
-                '/antd.v1.FileService/DirDownloadPublic',
-                request_serializer=antd_dot_v1_dot_files__pb2.DownloadPublicRequest.SerializeToString,
-                response_deserializer=antd_dot_v1_dot_files__pb2.DownloadResponse.FromString,
+        self.GetPublic = channel.unary_unary(
+                '/antd.v1.FileService/GetPublic',
+                request_serializer=antd_dot_v1_dot_files__pb2.GetFilePublicRequest.SerializeToString,
+                response_deserializer=antd_dot_v1_dot_files__pb2.GetFileResponse.FromString,
                 _registered_method=True)
-        self.GetFileCost = channel.unary_unary(
-                '/antd.v1.FileService/GetFileCost',
+        self.Cost = channel.unary_unary(
+                '/antd.v1.FileService/Cost',
                 request_serializer=antd_dot_v1_dot_files__pb2.FileCostRequest.SerializeToString,
                 response_deserializer=antd_dot_v1_dot_common__pb2.Cost.FromString,
                 _registered_method=True)
@@ -65,31 +65,34 @@ class FileServiceStub(object):
 class FileServiceServicer(object):
     """Missing associated documentation comment in .proto file."""
 
-    def UploadPublic(self, request, context):
+    def Put(self, request, context):
+        """Private = unqualified verb (the DataMap is returned to the caller; it is
+        NOT stored on the network). Public = `_public` suffix (the DataMap is
+        additionally stored on-network and the call returns the resulting address).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def PutPublic(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def DownloadPublic(self, request, context):
+    def Get(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def DirUploadPublic(self, request, context):
+    def GetPublic(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def DirDownloadPublic(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def GetFileCost(self, request, context):
+    def Cost(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -98,28 +101,28 @@ class FileServiceServicer(object):
 
 def add_FileServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'UploadPublic': grpc.unary_unary_rpc_method_handler(
-                    servicer.UploadPublic,
-                    request_deserializer=antd_dot_v1_dot_files__pb2.UploadFileRequest.FromString,
-                    response_serializer=antd_dot_v1_dot_files__pb2.UploadPublicResponse.SerializeToString,
+            'Put': grpc.unary_unary_rpc_method_handler(
+                    servicer.Put,
+                    request_deserializer=antd_dot_v1_dot_files__pb2.PutFileRequest.FromString,
+                    response_serializer=antd_dot_v1_dot_files__pb2.PutFileResponse.SerializeToString,
             ),
-            'DownloadPublic': grpc.unary_unary_rpc_method_handler(
-                    servicer.DownloadPublic,
-                    request_deserializer=antd_dot_v1_dot_files__pb2.DownloadPublicRequest.FromString,
-                    response_serializer=antd_dot_v1_dot_files__pb2.DownloadResponse.SerializeToString,
+            'PutPublic': grpc.unary_unary_rpc_method_handler(
+                    servicer.PutPublic,
+                    request_deserializer=antd_dot_v1_dot_files__pb2.PutFileRequest.FromString,
+                    response_serializer=antd_dot_v1_dot_files__pb2.PutFilePublicResponse.SerializeToString,
             ),
-            'DirUploadPublic': grpc.unary_unary_rpc_method_handler(
-                    servicer.DirUploadPublic,
-                    request_deserializer=antd_dot_v1_dot_files__pb2.UploadFileRequest.FromString,
-                    response_serializer=antd_dot_v1_dot_files__pb2.UploadPublicResponse.SerializeToString,
+            'Get': grpc.unary_unary_rpc_method_handler(
+                    servicer.Get,
+                    request_deserializer=antd_dot_v1_dot_files__pb2.GetFileRequest.FromString,
+                    response_serializer=antd_dot_v1_dot_files__pb2.GetFileResponse.SerializeToString,
             ),
-            'DirDownloadPublic': grpc.unary_unary_rpc_method_handler(
-                    servicer.DirDownloadPublic,
-                    request_deserializer=antd_dot_v1_dot_files__pb2.DownloadPublicRequest.FromString,
-                    response_serializer=antd_dot_v1_dot_files__pb2.DownloadResponse.SerializeToString,
+            'GetPublic': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetPublic,
+                    request_deserializer=antd_dot_v1_dot_files__pb2.GetFilePublicRequest.FromString,
+                    response_serializer=antd_dot_v1_dot_files__pb2.GetFileResponse.SerializeToString,
             ),
-            'GetFileCost': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetFileCost,
+            'Cost': grpc.unary_unary_rpc_method_handler(
+                    servicer.Cost,
                     request_deserializer=antd_dot_v1_dot_files__pb2.FileCostRequest.FromString,
                     response_serializer=antd_dot_v1_dot_common__pb2.Cost.SerializeToString,
             ),
@@ -135,7 +138,7 @@ class FileService(object):
     """Missing associated documentation comment in .proto file."""
 
     @staticmethod
-    def UploadPublic(request,
+    def Put(request,
             target,
             options=(),
             channel_credentials=None,
@@ -148,9 +151,9 @@ class FileService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/antd.v1.FileService/UploadPublic',
-            antd_dot_v1_dot_files__pb2.UploadFileRequest.SerializeToString,
-            antd_dot_v1_dot_files__pb2.UploadPublicResponse.FromString,
+            '/antd.v1.FileService/Put',
+            antd_dot_v1_dot_files__pb2.PutFileRequest.SerializeToString,
+            antd_dot_v1_dot_files__pb2.PutFileResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -162,7 +165,7 @@ class FileService(object):
             _registered_method=True)
 
     @staticmethod
-    def DownloadPublic(request,
+    def PutPublic(request,
             target,
             options=(),
             channel_credentials=None,
@@ -175,9 +178,9 @@ class FileService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/antd.v1.FileService/DownloadPublic',
-            antd_dot_v1_dot_files__pb2.DownloadPublicRequest.SerializeToString,
-            antd_dot_v1_dot_files__pb2.DownloadResponse.FromString,
+            '/antd.v1.FileService/PutPublic',
+            antd_dot_v1_dot_files__pb2.PutFileRequest.SerializeToString,
+            antd_dot_v1_dot_files__pb2.PutFilePublicResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -189,7 +192,7 @@ class FileService(object):
             _registered_method=True)
 
     @staticmethod
-    def DirUploadPublic(request,
+    def Get(request,
             target,
             options=(),
             channel_credentials=None,
@@ -202,9 +205,9 @@ class FileService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/antd.v1.FileService/DirUploadPublic',
-            antd_dot_v1_dot_files__pb2.UploadFileRequest.SerializeToString,
-            antd_dot_v1_dot_files__pb2.UploadPublicResponse.FromString,
+            '/antd.v1.FileService/Get',
+            antd_dot_v1_dot_files__pb2.GetFileRequest.SerializeToString,
+            antd_dot_v1_dot_files__pb2.GetFileResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -216,7 +219,7 @@ class FileService(object):
             _registered_method=True)
 
     @staticmethod
-    def DirDownloadPublic(request,
+    def GetPublic(request,
             target,
             options=(),
             channel_credentials=None,
@@ -229,9 +232,9 @@ class FileService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/antd.v1.FileService/DirDownloadPublic',
-            antd_dot_v1_dot_files__pb2.DownloadPublicRequest.SerializeToString,
-            antd_dot_v1_dot_files__pb2.DownloadResponse.FromString,
+            '/antd.v1.FileService/GetPublic',
+            antd_dot_v1_dot_files__pb2.GetFilePublicRequest.SerializeToString,
+            antd_dot_v1_dot_files__pb2.GetFileResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -243,7 +246,7 @@ class FileService(object):
             _registered_method=True)
 
     @staticmethod
-    def GetFileCost(request,
+    def Cost(request,
             target,
             options=(),
             channel_credentials=None,
@@ -256,7 +259,7 @@ class FileService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/antd.v1.FileService/GetFileCost',
+            '/antd.v1.FileService/Cost',
             antd_dot_v1_dot_files__pb2.FileCostRequest.SerializeToString,
             antd_dot_v1_dot_common__pb2.Cost.FromString,
             options,

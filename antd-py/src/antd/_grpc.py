@@ -17,8 +17,12 @@ from .exceptions import (
     TooLargeError,
 )
 from .models import (
-    FileUploadResult,
+    DataPutPublicResult,
+    DataPutResult,
+    FilePutPublicResult,
+    FilePutResult,
     HealthStatus,
+    PaymentMode,
     PutResult,
     UploadCostEstimate,
 )
@@ -38,8 +42,18 @@ def _health_status_from_resp(resp) -> HealthStatus:
     )
 
 
-def _file_upload_result_from_resp(resp) -> FileUploadResult:
-    return FileUploadResult(
+def _file_put_result_from_resp(resp) -> FilePutResult:
+    return FilePutResult(
+        data_map=resp.data_map,
+        storage_cost_atto=resp.storage_cost_atto,
+        gas_cost_wei=resp.gas_cost_wei,
+        chunks_stored=resp.chunks_stored,
+        payment_mode_used=resp.payment_mode_used,
+    )
+
+
+def _file_put_public_result_from_resp(resp) -> FilePutPublicResult:
+    return FilePutPublicResult(
         address=resp.address,
         storage_cost_atto=resp.storage_cost_atto,
         gas_cost_wei=resp.gas_cost_wei,
@@ -131,10 +145,27 @@ class GrpcClient:
 
     # --- Data ---
 
-    def data_put_public(self, data: bytes) -> PutResult:
+    def data_put(self, data: bytes, payment_mode: PaymentMode = PaymentMode.AUTO) -> DataPutResult:
+        """Store private encrypted data. Returns the caller-held DataMap (hex)."""
         try:
-            resp = self._data.PutPublic(data_pb2.PutPublicDataRequest(data=data))
-            return PutResult(cost=resp.cost.atto_tokens, address=resp.address)
+            resp = self._data.Put(data_pb2.PutDataRequest(data=data, payment_mode=payment_mode.value))
+            return DataPutResult(data_map=resp.data_map)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    def data_get(self, data_map: str) -> bytes:
+        """Retrieve private data from a caller-held DataMap (hex)."""
+        try:
+            resp = self._data.Get(data_pb2.GetDataRequest(data_map=data_map))
+            return resp.data
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    def data_put_public(self, data: bytes, payment_mode: PaymentMode = PaymentMode.AUTO) -> DataPutPublicResult:
+        """Store public data. Returns the on-network DataMap address."""
+        try:
+            resp = self._data.PutPublic(data_pb2.PutPublicDataRequest(data=data, payment_mode=payment_mode.value))
+            return DataPutPublicResult(address=resp.address)
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
@@ -145,24 +176,10 @@ class GrpcClient:
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
-    def data_put_private(self, data: bytes) -> PutResult:
-        try:
-            resp = self._data.PutPrivate(data_pb2.PutPrivateDataRequest(data=data))
-            return PutResult(cost=resp.cost.atto_tokens, address=resp.data_map)
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    def data_get_private(self, data_map: str) -> bytes:
-        try:
-            resp = self._data.GetPrivate(data_pb2.GetPrivateDataRequest(data_map=data_map))
-            return resp.data
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    def data_cost(self, data: bytes) -> UploadCostEstimate:
+    def data_cost(self, data: bytes, payment_mode: PaymentMode = PaymentMode.AUTO) -> UploadCostEstimate:
         """Pre-upload cost breakdown for the given bytes."""
         try:
-            resp = self._data.GetCost(data_pb2.DataCostRequest(data=data))
+            resp = self._data.Cost(data_pb2.DataCostRequest(data=data, payment_mode=payment_mode.value))
             return _estimate_from_cost(resp)
         except grpc.RpcError as e:
             _handle_rpc_error(e)
@@ -185,25 +202,41 @@ class GrpcClient:
 
     # --- Files ---
 
-    def file_upload_public(self, path: str) -> FileUploadResult:
+    def file_put(self, path: str, payment_mode: PaymentMode = PaymentMode.AUTO) -> FilePutResult:
+        """Upload a file privately. Returns the caller-held DataMap (hex)."""
         try:
-            resp = self._files.UploadPublic(files_pb2.UploadFileRequest(path=path))
-            return _file_upload_result_from_resp(resp)
+            resp = self._files.Put(files_pb2.PutFileRequest(path=path, payment_mode=payment_mode.value))
+            return _file_put_result_from_resp(resp)
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
-    def file_download_public(self, address: str, dest_path: str) -> None:
+    def file_get(self, data_map: str, dest_path: str) -> None:
+        """Download a private file from a caller-held DataMap."""
         try:
-            self._files.DownloadPublic(files_pb2.DownloadPublicRequest(
-                address=address, dest_path=dest_path))
+            self._files.Get(files_pb2.GetFileRequest(data_map=data_map, dest_path=dest_path))
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
-    def file_cost(self, path: str, is_public: bool = True) -> UploadCostEstimate:
+    def file_put_public(self, path: str, payment_mode: PaymentMode = PaymentMode.AUTO) -> FilePutPublicResult:
+        """Upload a file publicly. Returns the on-network DataMap address."""
+        try:
+            resp = self._files.PutPublic(files_pb2.PutFileRequest(path=path, payment_mode=payment_mode.value))
+            return _file_put_public_result_from_resp(resp)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    def file_get_public(self, address: str, dest_path: str) -> None:
+        """Download a public file from an on-network DataMap address."""
+        try:
+            self._files.GetPublic(files_pb2.GetFilePublicRequest(address=address, dest_path=dest_path))
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    def file_cost(self, path: str, is_public: bool = True, payment_mode: PaymentMode = PaymentMode.AUTO) -> UploadCostEstimate:
         """Pre-upload cost breakdown for the file at ``path``."""
         try:
-            resp = self._files.GetFileCost(files_pb2.FileCostRequest(
-                path=path, is_public=is_public))
+            resp = self._files.Cost(files_pb2.FileCostRequest(
+                path=path, is_public=is_public, payment_mode=payment_mode.value))
             return _estimate_from_cost(resp)
         except grpc.RpcError as e:
             _handle_rpc_error(e)
@@ -278,10 +311,27 @@ class AsyncGrpcClient:
 
     # --- Data ---
 
-    async def data_put_public(self, data: bytes) -> PutResult:
+    async def data_put(self, data: bytes, payment_mode: PaymentMode = PaymentMode.AUTO) -> DataPutResult:
+        """Store private encrypted data. Returns the caller-held DataMap (hex)."""
         try:
-            resp = await self._data.PutPublic(data_pb2.PutPublicDataRequest(data=data))
-            return PutResult(cost=resp.cost.atto_tokens, address=resp.address)
+            resp = await self._data.Put(data_pb2.PutDataRequest(data=data, payment_mode=payment_mode.value))
+            return DataPutResult(data_map=resp.data_map)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    async def data_get(self, data_map: str) -> bytes:
+        """Retrieve private data from a caller-held DataMap (hex)."""
+        try:
+            resp = await self._data.Get(data_pb2.GetDataRequest(data_map=data_map))
+            return resp.data
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    async def data_put_public(self, data: bytes, payment_mode: PaymentMode = PaymentMode.AUTO) -> DataPutPublicResult:
+        """Store public data. Returns the on-network DataMap address."""
+        try:
+            resp = await self._data.PutPublic(data_pb2.PutPublicDataRequest(data=data, payment_mode=payment_mode.value))
+            return DataPutPublicResult(address=resp.address)
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
@@ -292,24 +342,10 @@ class AsyncGrpcClient:
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
-    async def data_put_private(self, data: bytes) -> PutResult:
-        try:
-            resp = await self._data.PutPrivate(data_pb2.PutPrivateDataRequest(data=data))
-            return PutResult(cost=resp.cost.atto_tokens, address=resp.data_map)
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    async def data_get_private(self, data_map: str) -> bytes:
-        try:
-            resp = await self._data.GetPrivate(data_pb2.GetPrivateDataRequest(data_map=data_map))
-            return resp.data
-        except grpc.RpcError as e:
-            _handle_rpc_error(e)
-
-    async def data_cost(self, data: bytes) -> UploadCostEstimate:
+    async def data_cost(self, data: bytes, payment_mode: PaymentMode = PaymentMode.AUTO) -> UploadCostEstimate:
         """Pre-upload cost breakdown for the given bytes."""
         try:
-            resp = await self._data.GetCost(data_pb2.DataCostRequest(data=data))
+            resp = await self._data.Cost(data_pb2.DataCostRequest(data=data, payment_mode=payment_mode.value))
             return _estimate_from_cost(resp)
         except grpc.RpcError as e:
             _handle_rpc_error(e)
@@ -332,25 +368,41 @@ class AsyncGrpcClient:
 
     # --- Files ---
 
-    async def file_upload_public(self, path: str) -> FileUploadResult:
+    async def file_put(self, path: str, payment_mode: PaymentMode = PaymentMode.AUTO) -> FilePutResult:
+        """Upload a file privately. Returns the caller-held DataMap (hex)."""
         try:
-            resp = await self._files.UploadPublic(files_pb2.UploadFileRequest(path=path))
-            return _file_upload_result_from_resp(resp)
+            resp = await self._files.Put(files_pb2.PutFileRequest(path=path, payment_mode=payment_mode.value))
+            return _file_put_result_from_resp(resp)
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
-    async def file_download_public(self, address: str, dest_path: str) -> None:
+    async def file_get(self, data_map: str, dest_path: str) -> None:
+        """Download a private file from a caller-held DataMap."""
         try:
-            await self._files.DownloadPublic(files_pb2.DownloadPublicRequest(
-                address=address, dest_path=dest_path))
+            await self._files.Get(files_pb2.GetFileRequest(data_map=data_map, dest_path=dest_path))
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
-    async def file_cost(self, path: str, is_public: bool = True) -> UploadCostEstimate:
+    async def file_put_public(self, path: str, payment_mode: PaymentMode = PaymentMode.AUTO) -> FilePutPublicResult:
+        """Upload a file publicly. Returns the on-network DataMap address."""
+        try:
+            resp = await self._files.PutPublic(files_pb2.PutFileRequest(path=path, payment_mode=payment_mode.value))
+            return _file_put_public_result_from_resp(resp)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    async def file_get_public(self, address: str, dest_path: str) -> None:
+        """Download a public file from an on-network DataMap address."""
+        try:
+            await self._files.GetPublic(files_pb2.GetFilePublicRequest(address=address, dest_path=dest_path))
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    async def file_cost(self, path: str, is_public: bool = True, payment_mode: PaymentMode = PaymentMode.AUTO) -> UploadCostEstimate:
         """Pre-upload cost breakdown for the file at ``path``."""
         try:
-            resp = await self._files.GetFileCost(files_pb2.FileCostRequest(
-                path=path, is_public=is_public))
+            resp = await self._files.Cost(files_pb2.FileCostRequest(
+                path=path, is_public=is_public, payment_mode=payment_mode.value))
             return _estimate_from_cost(resp)
         except grpc.RpcError as e:
             _handle_rpc_error(e)

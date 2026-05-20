@@ -18,13 +18,13 @@ Dir.mktmpdir("antd-ruby-04-files") do |tmp|
   cost = client.file_cost(src_file, true)
   puts "Estimated upload cost: #{cost} atto"
 
-  result = client.file_upload_public(src_file)
+  result = client.file_put_public(src_file)
   puts "File uploaded to #{result.address}"
   puts "  storage: #{result.storage_cost_atto} atto, gas: #{result.gas_cost_wei} wei"
   puts "  chunks: #{result.chunks_stored}, mode: #{result.payment_mode_used}"
 
   dst_file = File.join(tmp, "hello.txt.downloaded")
-  client.file_download_public(result.address, dst_file)
+  client.file_get_public(result.address, dst_file)
   puts "File downloaded to #{dst_file}"
 
   unless File.read(dst_file) == file_content

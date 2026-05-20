@@ -25,7 +25,7 @@ _sym_db = _symbol_database.Default()
 from antd._proto.antd.v1 import common_pb2 as antd_dot_v1_dot_common__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x13\x61ntd/v1/files.proto\x12\x07\x61ntd.v1\x1a\x14\x61ntd/v1/common.proto\"!\n\x11UploadFileRequest\x12\x0c\n\x04path\x18\x01 \x01(\t\"\x96\x01\n\x14UploadPublicResponse\x12\x0f\n\x07\x61\x64\x64ress\x18\x02 \x01(\t\x12\x19\n\x11storage_cost_atto\x18\x03 \x01(\t\x12\x14\n\x0cgas_cost_wei\x18\x04 \x01(\t\x12\x15\n\rchunks_stored\x18\x05 \x01(\x04\x12\x19\n\x11payment_mode_used\x18\x06 \x01(\tJ\x04\x08\x01\x10\x02R\x04\x63ost\";\n\x15\x44ownloadPublicRequest\x12\x0f\n\x07\x61\x64\x64ress\x18\x01 \x01(\t\x12\x11\n\tdest_path\x18\x02 \x01(\t\"\x12\n\x10\x44ownloadResponse\"2\n\x0f\x46ileCostRequest\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\x11\n\tis_public\x18\x02 \x01(\x08\x32\xfb\x02\n\x0b\x46ileService\x12I\n\x0cUploadPublic\x12\x1a.antd.v1.UploadFileRequest\x1a\x1d.antd.v1.UploadPublicResponse\x12K\n\x0e\x44ownloadPublic\x12\x1e.antd.v1.DownloadPublicRequest\x1a\x19.antd.v1.DownloadResponse\x12L\n\x0f\x44irUploadPublic\x12\x1a.antd.v1.UploadFileRequest\x1a\x1d.antd.v1.UploadPublicResponse\x12N\n\x11\x44irDownloadPublic\x12\x1e.antd.v1.DownloadPublicRequest\x1a\x19.antd.v1.DownloadResponse\x12\x36\n\x0bGetFileCost\x12\x18.antd.v1.FileCostRequest\x1a\r.antd.v1.CostBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\x07\x41ntd.V1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x13\x61ntd/v1/files.proto\x12\x07\x61ntd.v1\x1a\x14\x61ntd/v1/common.proto\"4\n\x0ePutFileRequest\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\x14\n\x0cpayment_mode\x18\x02 \x01(\t\"\x97\x01\n\x15PutFilePublicResponse\x12\x0f\n\x07\x61\x64\x64ress\x18\x02 \x01(\t\x12\x19\n\x11storage_cost_atto\x18\x03 \x01(\t\x12\x14\n\x0cgas_cost_wei\x18\x04 \x01(\t\x12\x15\n\rchunks_stored\x18\x05 \x01(\x04\x12\x19\n\x11payment_mode_used\x18\x06 \x01(\tJ\x04\x08\x01\x10\x02R\x04\x63ost\"\x86\x01\n\x0fPutFileResponse\x12\x10\n\x08\x64\x61ta_map\x18\x01 \x01(\t\x12\x19\n\x11storage_cost_atto\x18\x02 \x01(\t\x12\x14\n\x0cgas_cost_wei\x18\x03 \x01(\t\x12\x15\n\rchunks_stored\x18\x04 \x01(\x04\x12\x19\n\x11payment_mode_used\x18\x05 \x01(\t\":\n\x14GetFilePublicRequest\x12\x0f\n\x07\x61\x64\x64ress\x18\x01 \x01(\t\x12\x11\n\tdest_path\x18\x02 \x01(\t\"5\n\x0eGetFileRequest\x12\x10\n\x08\x64\x61ta_map\x18\x01 \x01(\t\x12\x11\n\tdest_path\x18\x02 \x01(\t\"\x11\n\x0fGetFileResponse\"H\n\x0f\x46ileCostRequest\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\x11\n\tis_public\x18\x02 \x01(\x08\x12\x14\n\x0cpayment_mode\x18\x03 \x01(\t2\xbe\x02\n\x0b\x46ileService\x12\x38\n\x03Put\x12\x17.antd.v1.PutFileRequest\x1a\x18.antd.v1.PutFileResponse\x12\x44\n\tPutPublic\x12\x17.antd.v1.PutFileRequest\x1a\x1e.antd.v1.PutFilePublicResponse\x12\x38\n\x03Get\x12\x17.antd.v1.GetFileRequest\x1a\x18.antd.v1.GetFileResponse\x12\x44\n\tGetPublic\x12\x1d.antd.v1.GetFilePublicRequest\x1a\x18.antd.v1.GetFileResponse\x12/\n\x04\x43ost\x12\x18.antd.v1.FileCostRequest\x1a\r.antd.v1.CostBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\x07\x41ntd.V1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -33,16 +33,20 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'antd._proto.antd.v1.files_p
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'Z8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\252\002\007Antd.V1'
-  _globals['_UPLOADFILEREQUEST']._serialized_start=54
-  _globals['_UPLOADFILEREQUEST']._serialized_end=87
-  _globals['_UPLOADPUBLICRESPONSE']._serialized_start=90
-  _globals['_UPLOADPUBLICRESPONSE']._serialized_end=240
-  _globals['_DOWNLOADPUBLICREQUEST']._serialized_start=242
-  _globals['_DOWNLOADPUBLICREQUEST']._serialized_end=301
-  _globals['_DOWNLOADRESPONSE']._serialized_start=303
-  _globals['_DOWNLOADRESPONSE']._serialized_end=321
-  _globals['_FILECOSTREQUEST']._serialized_start=323
-  _globals['_FILECOSTREQUEST']._serialized_end=373
-  _globals['_FILESERVICE']._serialized_start=376
-  _globals['_FILESERVICE']._serialized_end=755
+  _globals['_PUTFILEREQUEST']._serialized_start=54
+  _globals['_PUTFILEREQUEST']._serialized_end=106
+  _globals['_PUTFILEPUBLICRESPONSE']._serialized_start=109
+  _globals['_PUTFILEPUBLICRESPONSE']._serialized_end=260
+  _globals['_PUTFILERESPONSE']._serialized_start=263
+  _globals['_PUTFILERESPONSE']._serialized_end=397
+  _globals['_GETFILEPUBLICREQUEST']._serialized_start=399
+  _globals['_GETFILEPUBLICREQUEST']._serialized_end=457
+  _globals['_GETFILEREQUEST']._serialized_start=459
+  _globals['_GETFILEREQUEST']._serialized_end=512
+  _globals['_GETFILERESPONSE']._serialized_start=514
+  _globals['_GETFILERESPONSE']._serialized_end=531
+  _globals['_FILECOSTREQUEST']._serialized_start=533
+  _globals['_FILECOSTREQUEST']._serialized_end=605
+  _globals['_FILESERVICE']._serialized_start=608
+  _globals['_FILESERVICE']._serialized_end=926
 # @@protoc_insertion_point(module_scope)
