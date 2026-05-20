@@ -79,14 +79,14 @@ defmodule Antd.GrpcClientTest do
   # Re-implement translate_error to test its logic (mirrors GrpcClient).
   defp do_translate_error(%GRPC.RPCError{status: status, message: message}) do
     case status do
-      3  -> %Antd.BadRequestError{message: message, status_code: 400}
-      5  -> %Antd.NotFoundError{message: message, status_code: 404}
-      6  -> %Antd.AlreadyExistsError{message: message, status_code: 409}
-      8  -> %Antd.TooLargeError{message: message, status_code: 413}
+      3 -> %Antd.BadRequestError{message: message, status_code: 400}
+      5 -> %Antd.NotFoundError{message: message, status_code: 404}
+      6 -> %Antd.AlreadyExistsError{message: message, status_code: 409}
+      8 -> %Antd.TooLargeError{message: message, status_code: 413}
       13 -> %Antd.InternalError{message: message, status_code: 500}
       14 -> %Antd.NetworkError{message: message, status_code: 502}
-      9  -> %Antd.PaymentError{message: message, status_code: 402}
-      _  -> %Antd.AntdError{message: message, status_code: status}
+      9 -> %Antd.PaymentError{message: message, status_code: 402}
+      _ -> %Antd.AntdError{message: message, status_code: status}
     end
   end
 
@@ -95,9 +95,10 @@ defmodule Antd.GrpcClientTest do
   # ---------------------------------------------------------------------------
 
   test "health returns HealthStatus" do
-    {:ok, result} = simulate_grpc_call(:ok, fn ->
-      %Antd.HealthStatus{ok: true, network: "local"}
-    end)
+    {:ok, result} =
+      simulate_grpc_call(:ok, fn ->
+        %Antd.HealthStatus{ok: true, network: "local"}
+      end)
 
     assert result.ok == true
     assert result.network == "local"
@@ -107,12 +108,12 @@ defmodule Antd.GrpcClientTest do
   # Data Public
   # ---------------------------------------------------------------------------
 
-  test "data_put_public returns PutResult" do
-    {:ok, result} = simulate_grpc_call(:ok, fn ->
-      %Antd.PutResult{cost: "100", address: "abc123"}
-    end)
+  test "data_put_public returns DataPutPublicResult" do
+    {:ok, result} =
+      simulate_grpc_call(:ok, fn ->
+        %Antd.DataPutPublicResult{address: "abc123"}
+      end)
 
-    assert result.cost == "100"
     assert result.address == "abc123"
   end
 
@@ -125,18 +126,29 @@ defmodule Antd.GrpcClientTest do
   # Data Private
   # ---------------------------------------------------------------------------
 
-  test "data_put_private returns PutResult" do
-    {:ok, result} = simulate_grpc_call(:ok, fn ->
-      %Antd.PutResult{cost: "200", address: "dm123"}
-    end)
+  test "data_put returns DataPutResult" do
+    {:ok, result} =
+      simulate_grpc_call(:ok, fn ->
+        %Antd.DataPutResult{data_map: "dm123"}
+      end)
 
-    assert result.cost == "200"
-    assert result.address == "dm123"
+    assert result.data_map == "dm123"
   end
 
-  test "data_get_private returns binary data" do
+  test "data_get returns binary data" do
     {:ok, data} = simulate_grpc_call(:ok, fn -> "secret" end)
     assert data == "secret"
+  end
+
+  # ---------------------------------------------------------------------------
+  # PaymentMode serialization (atom -> wire string)
+  # ---------------------------------------------------------------------------
+
+  test "PaymentMode.to_wire/1 serializes atoms to wire strings" do
+    assert Antd.PaymentMode.to_wire(:auto) == "auto"
+    assert Antd.PaymentMode.to_wire(:merkle) == "merkle"
+    assert Antd.PaymentMode.to_wire(:single) == "single"
+    assert Antd.PaymentMode.to_wire(nil) == "auto"
   end
 
   # ---------------------------------------------------------------------------
@@ -153,9 +165,10 @@ defmodule Antd.GrpcClientTest do
   # ---------------------------------------------------------------------------
 
   test "chunk_put returns PutResult" do
-    {:ok, result} = simulate_grpc_call(:ok, fn ->
-      %Antd.PutResult{cost: "10", address: "chunk1"}
-    end)
+    {:ok, result} =
+      simulate_grpc_call(:ok, fn ->
+        %Antd.PutResult{cost: "10", address: "chunk1"}
+      end)
 
     assert result.cost == "10"
     assert result.address == "chunk1"
@@ -170,16 +183,17 @@ defmodule Antd.GrpcClientTest do
   # Files & Directories
   # ---------------------------------------------------------------------------
 
-  test "file_upload_public returns FileUploadResult" do
-    {:ok, result} = simulate_grpc_call(:ok, fn ->
-      %Antd.FileUploadResult{
-        address: "file1",
-        storage_cost_atto: "1000",
-        gas_cost_wei: "42",
-        chunks_stored: 3,
-        payment_mode_used: "auto"
-      }
-    end)
+  test "file_put_public returns FilePutPublicResult" do
+    {:ok, result} =
+      simulate_grpc_call(:ok, fn ->
+        %Antd.FilePutPublicResult{
+          address: "file1",
+          storage_cost_atto: "1000",
+          gas_cost_wei: "42",
+          chunks_stored: 3,
+          payment_mode_used: "auto"
+        }
+      end)
 
     assert result.address == "file1"
     assert result.storage_cost_atto == "1000"
@@ -188,7 +202,31 @@ defmodule Antd.GrpcClientTest do
     assert result.payment_mode_used == "auto"
   end
 
-  test "file_download_public returns :ok" do
+  test "file_put returns FilePutResult" do
+    {:ok, result} =
+      simulate_grpc_call(:ok, fn ->
+        %Antd.FilePutResult{
+          data_map: "dm_file_1",
+          storage_cost_atto: "500",
+          gas_cost_wei: "21",
+          chunks_stored: 2,
+          payment_mode_used: "single"
+        }
+      end)
+
+    assert result.data_map == "dm_file_1"
+    assert result.storage_cost_atto == "500"
+    assert result.gas_cost_wei == "21"
+    assert result.chunks_stored == 2
+    assert result.payment_mode_used == "single"
+  end
+
+  test "file_get_public returns :ok" do
+    {:ok, result} = simulate_grpc_call(:ok, fn -> :ok end)
+    assert result == :ok
+  end
+
+  test "file_get returns :ok" do
     {:ok, result} = simulate_grpc_call(:ok, fn -> :ok end)
     assert result == :ok
   end
@@ -305,6 +343,4 @@ defmodule Antd.GrpcClientTest do
     assert result.cost == "100"
     assert result.address == "abc"
   end
-
-
 end
