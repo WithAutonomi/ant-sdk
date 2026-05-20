@@ -86,7 +86,7 @@ data = client.data_get_public(result.address)
 
 ## Examples
 
-- [Go examples](antd-go/examples/) — 5 runnable examples (01-connect through 05-files)
+- [Go examples](antd-go/examples/) — 4 runnable examples (01-connect, 02-data, 03-files, 07-external-signer)
 - [JS/TS examples](antd-js/examples/) — 10 runnable scripts (01-connect.ts through 10-private-data.ts)
 - [Python examples](antd-py/examples/) — 10 runnable scripts (01_connect.py through 10_private_data.py)
 - [C# examples](antd-csharp/Examples/) — 10 examples in a single console app
