@@ -91,7 +91,7 @@ impl Client {
         let status = resp.status().as_u16();
         let bytes = resp.bytes().await?;
 
-        if status < 200 || status >= 300 {
+        if !(200..300).contains(&status) {
             let msg = if let Ok(parsed) = serde_json::from_slice::<Value>(&bytes) {
                 parsed
                     .get("error")
@@ -110,11 +110,6 @@ impl Client {
 
         let result: Value = serde_json::from_slice(&bytes)?;
         Ok((Some(result), status))
-    }
-
-    async fn do_head(&self, path: &str) -> Result<u16, AntdError> {
-        let resp = self.http.head(self.url(path)).send().await?;
-        Ok(resp.status().as_u16())
     }
 
     fn b64_encode(data: &[u8]) -> String {

@@ -4,7 +4,6 @@ use mockito::{Matcher, Mock, ServerGuard};
 use serde_json::json;
 
 use crate::errors::AntdError;
-use crate::models::*;
 use crate::Client;
 
 async fn mock_server() -> ServerGuard {
