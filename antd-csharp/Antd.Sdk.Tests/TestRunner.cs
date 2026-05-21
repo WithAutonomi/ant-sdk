@@ -122,7 +122,7 @@ public class TestRunner
             var testData = System.Text.Encoding.UTF8.GetBytes("hello from C# SDK!");
             var result = await _client.DataPutPublicAsync(testData);
             dataAddr = result.Address;
-            Pass("Data put public", $"addr={result.Address[..16]}... cost={result.Cost}");
+            Pass("Data put public", $"addr={result.Address[..16]}... chunks={result.ChunksStored} mode={result.PaymentModeUsed}");
         }
         catch (Exception ex)
         {

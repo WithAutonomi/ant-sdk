@@ -22,10 +22,6 @@ public sealed class AntdGrpcClient : IAntdClient
         _files = new FileService.FileServiceClient(_channel);
     }
 
-    /// <summary>
-    /// Creates an AntdGrpcClient by reading the daemon.port file written by antd.
-    /// Falls back to the default target if the port file is not found.
-    /// </summary>
     public static AntdGrpcClient AutoDiscover()
     {
         var target = DaemonDiscovery.DiscoverGrpcTarget();
@@ -34,9 +30,15 @@ public sealed class AntdGrpcClient : IAntdClient
 
     public void Dispose() => _channel.Dispose();
 
+    public ValueTask DisposeAsync()
+    {
+        _channel.Dispose();
+        return ValueTask.CompletedTask;
+    }
+
     private static AntdException Wrap(RpcException ex) => ExceptionMapping.FromGrpcStatus(ex);
 
-    // ── Health ──
+    // Health
 
     public async Task<HealthStatus> HealthAsync()
     {
@@ -51,7 +53,7 @@ public sealed class AntdGrpcClient : IAntdClient
         }
         catch (RpcException)
         {
-            return new HealthStatus(true, "unknown"); // server responded — it's reachable
+            return new HealthStatus(true, "unknown");
         }
         catch
         {
@@ -59,10 +61,6 @@ public sealed class AntdGrpcClient : IAntdClient
         }
     }
 
-    /// <summary>
-    /// Convert a gRPC <see cref="HealthCheckResponse"/> into a typed
-    /// <see cref="HealthStatus"/>.
-    /// </summary>
     internal static HealthStatus HealthStatusFromResp(HealthCheckResponse resp) =>
         new(
             resp.Status == "ok",
@@ -74,14 +72,42 @@ public sealed class AntdGrpcClient : IAntdClient
             resp.PaymentTokenAddress ?? "",
             resp.PaymentVaultAddress ?? "");
 
-    // ── Data ──
+    // Data
 
-    public async Task<PutResult> DataPutPublicAsync(byte[] data, string? paymentMode = null)
+    public async Task<DataPutResult> DataPutAsync(byte[] data, PaymentMode paymentMode = PaymentMode.Auto)
     {
         try
         {
-            var resp = await _data.PutPublicAsync(new PutPublicDataRequest { Data = ByteString.CopyFrom(data) });
-            return new PutResult(resp.Cost.AttoTokens, resp.Address);
+            var resp = await _data.PutAsync(new PutDataRequest
+            {
+                Data = ByteString.CopyFrom(data),
+                PaymentMode = paymentMode.ToWire(),
+            });
+            return new DataPutResult(resp.DataMap);
+        }
+        catch (RpcException ex) { throw Wrap(ex); }
+    }
+
+    public async Task<byte[]> DataGetAsync(string dataMap)
+    {
+        try
+        {
+            var resp = await _data.GetAsync(new GetDataRequest { DataMap = dataMap });
+            return resp.Data.ToByteArray();
+        }
+        catch (RpcException ex) { throw Wrap(ex); }
+    }
+
+    public async Task<DataPutPublicResult> DataPutPublicAsync(byte[] data, PaymentMode paymentMode = PaymentMode.Auto)
+    {
+        try
+        {
+            var resp = await _data.PutPublicAsync(new PutPublicDataRequest
+            {
+                Data = ByteString.CopyFrom(data),
+                PaymentMode = paymentMode.ToWire(),
+            });
+            return new DataPutPublicResult(resp.Address);
         }
         catch (RpcException ex) { throw Wrap(ex); }
     }
@@ -96,31 +122,15 @@ public sealed class AntdGrpcClient : IAntdClient
         catch (RpcException ex) { throw Wrap(ex); }
     }
 
-    public async Task<PutResult> DataPutPrivateAsync(byte[] data, string? paymentMode = null)
+    public async Task<UploadCostEstimate> DataCostAsync(byte[] data, PaymentMode paymentMode = PaymentMode.Auto)
     {
         try
         {
-            var resp = await _data.PutPrivateAsync(new PutPrivateDataRequest { Data = ByteString.CopyFrom(data) });
-            return new PutResult(resp.Cost.AttoTokens, resp.DataMap);
-        }
-        catch (RpcException ex) { throw Wrap(ex); }
-    }
-
-    public async Task<byte[]> DataGetPrivateAsync(string dataMap)
-    {
-        try
-        {
-            var resp = await _data.GetPrivateAsync(new GetPrivateDataRequest { DataMap = dataMap });
-            return resp.Data.ToByteArray();
-        }
-        catch (RpcException ex) { throw Wrap(ex); }
-    }
-
-    public async Task<UploadCostEstimate> DataCostAsync(byte[] data)
-    {
-        try
-        {
-            var resp = await _data.GetCostAsync(new DataCostRequest { Data = ByteString.CopyFrom(data) });
+            var resp = await _data.CostAsync(new DataCostRequest
+            {
+                Data = ByteString.CopyFrom(data),
+                PaymentMode = paymentMode.ToWire(),
+            });
             return new UploadCostEstimate(
                 resp.AttoTokens, resp.FileSize, resp.ChunkCount,
                 resp.EstimatedGasCostWei, resp.PaymentMode);
@@ -128,7 +138,7 @@ public sealed class AntdGrpcClient : IAntdClient
         catch (RpcException ex) { throw Wrap(ex); }
     }
 
-    // ── Chunks ──
+    // Chunks
 
     public async Task<PutResult> ChunkPutAsync(byte[] data)
     {
@@ -156,35 +166,67 @@ public sealed class AntdGrpcClient : IAntdClient
     public Task<string> FinalizeChunkUploadAsync(string uploadId, IDictionary<string, string> txHashes)
         => throw new NotSupportedException("FinalizeChunkUpload is not yet supported via gRPC");
 
-    // ── Files ──
+    // Files
 
-    public async Task<FileUploadResult> FileUploadPublicAsync(string path, string? paymentMode = null)
+    public async Task<FilePutResult> FilePutAsync(string path, PaymentMode paymentMode = PaymentMode.Auto)
     {
         try
         {
-            var resp = await _files.UploadPublicAsync(new UploadFileRequest { Path = path });
-            return new FileUploadResult(resp.Address, resp.StorageCostAtto, resp.GasCostWei, resp.ChunksStored, resp.PaymentModeUsed);
+            var resp = await _files.PutAsync(new PutFileRequest
+            {
+                Path = path,
+                PaymentMode = paymentMode.ToWire(),
+            });
+            return new FilePutResult(
+                resp.DataMap, resp.StorageCostAtto, resp.GasCostWei,
+                resp.ChunksStored, resp.PaymentModeUsed);
         }
         catch (RpcException ex) { throw Wrap(ex); }
     }
 
-    public async Task FileDownloadPublicAsync(string address, string destPath)
+    public async Task FileGetAsync(string dataMap, string destPath)
     {
         try
         {
-            await _files.DownloadPublicAsync(new DownloadPublicRequest { Address = address, DestPath = destPath });
+            await _files.GetAsync(new GetFileRequest { DataMap = dataMap, DestPath = destPath });
         }
         catch (RpcException ex) { throw Wrap(ex); }
     }
 
-    public async Task<UploadCostEstimate> FileCostAsync(string path, bool isPublic = true)
+    public async Task<FilePutPublicResult> FilePutPublicAsync(string path, PaymentMode paymentMode = PaymentMode.Auto)
     {
         try
         {
-            var resp = await _files.GetFileCostAsync(new Antd.V1.FileCostRequest
+            var resp = await _files.PutPublicAsync(new PutFileRequest
+            {
+                Path = path,
+                PaymentMode = paymentMode.ToWire(),
+            });
+            return new FilePutPublicResult(
+                resp.Address, resp.StorageCostAtto, resp.GasCostWei,
+                resp.ChunksStored, resp.PaymentModeUsed);
+        }
+        catch (RpcException ex) { throw Wrap(ex); }
+    }
+
+    public async Task FileGetPublicAsync(string address, string destPath)
+    {
+        try
+        {
+            await _files.GetPublicAsync(new GetFilePublicRequest { Address = address, DestPath = destPath });
+        }
+        catch (RpcException ex) { throw Wrap(ex); }
+    }
+
+    public async Task<UploadCostEstimate> FileCostAsync(string path, bool isPublic = true, PaymentMode paymentMode = PaymentMode.Auto)
+    {
+        try
+        {
+            var resp = await _files.CostAsync(new Antd.V1.FileCostRequest
             {
                 Path = path,
                 IsPublic = isPublic,
+                PaymentMode = paymentMode.ToWire(),
             });
             return new UploadCostEstimate(
                 resp.AttoTokens, resp.FileSize, resp.ChunkCount,
@@ -193,7 +235,7 @@ public sealed class AntdGrpcClient : IAntdClient
         catch (RpcException ex) { throw Wrap(ex); }
     }
 
-    // ── Wallet (not yet available via gRPC) ──
+    // Wallet (not yet available via gRPC)
 
     public Task<WalletAddress> WalletAddressAsync()
         => throw new NotSupportedException("WalletAddress is not yet supported via gRPC");
@@ -204,7 +246,8 @@ public sealed class AntdGrpcClient : IAntdClient
     public Task<bool> WalletApproveAsync()
         => throw new NotSupportedException("WalletApprove is not yet supported via gRPC");
 
-    // ── External Signer (not yet available via gRPC) ──
+
+    // External Signer (Two-Phase Upload) — not yet available via gRPC
 
     public Task<PrepareUploadResult> PrepareUploadAsync(string path, string? visibility = null)
         => throw new NotSupportedException("PrepareUpload is not yet supported via gRPC");
