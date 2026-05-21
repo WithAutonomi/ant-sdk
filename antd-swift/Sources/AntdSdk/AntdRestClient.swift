@@ -86,11 +86,36 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
 
     // MARK: - Data
 
-    public func dataPutPublic(_ data: Data, paymentMode: String? = nil) async throws -> PutResult {
-        var body: [String: Any] = ["data": data.base64EncodedString()]
-        if let mode = paymentMode { body["payment_mode"] = mode }
-        let resp: CostAddressDTO = try await postJSON("/v1/data/public", body: body)
-        return PutResult(cost: resp.cost ?? "", address: resp.address)
+    public func dataPut(_ data: Data, paymentMode: PaymentMode = .auto) async throws -> DataPutResult {
+        let body: [String: Any] = [
+            "data": data.base64EncodedString(),
+            "payment_mode": paymentMode.rawValue,
+        ]
+        let resp: DataPutDTO = try await postJSON("/v1/data", body: body)
+        return DataPutResult(
+            dataMap: resp.dataMap,
+            chunksStored: resp.chunksStored ?? 0,
+            paymentModeUsed: resp.paymentModeUsed ?? ""
+        )
+    }
+
+    public func dataGet(dataMap: String) async throws -> Data {
+        let resp: DataDTO = try await postJSON("/v1/data/get", body: ["data_map": dataMap])
+        guard let decoded = Data(base64Encoded: resp.data) else { throw BadRequestError("Invalid base64 data") }
+        return decoded
+    }
+
+    public func dataPutPublic(_ data: Data, paymentMode: PaymentMode = .auto) async throws -> DataPutPublicResult {
+        let body: [String: Any] = [
+            "data": data.base64EncodedString(),
+            "payment_mode": paymentMode.rawValue,
+        ]
+        let resp: DataPutPublicDTO = try await postJSON("/v1/data/public", body: body)
+        return DataPutPublicResult(
+            address: resp.address,
+            chunksStored: resp.chunksStored ?? 0,
+            paymentModeUsed: resp.paymentModeUsed ?? ""
+        )
     }
 
     public func dataGetPublic(address: String) async throws -> Data {
@@ -99,22 +124,12 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         return decoded
     }
 
-    public func dataPutPrivate(_ data: Data, paymentMode: String? = nil) async throws -> PutResult {
-        var body: [String: Any] = ["data": data.base64EncodedString()]
-        if let mode = paymentMode { body["payment_mode"] = mode }
-        let resp: CostDataMapDTO = try await postJSON("/v1/data/private", body: body)
-        return PutResult(cost: resp.cost ?? "", address: resp.dataMap)
-    }
-
-    public func dataGetPrivate(dataMap: String) async throws -> Data {
-        let encodedMap = dataMap.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? dataMap
-        let resp: DataDTO = try await getJSON("/v1/data/private?data_map=\(encodedMap)")
-        guard let decoded = Data(base64Encoded: resp.data) else { throw BadRequestError("Invalid base64 data") }
-        return decoded
-    }
-
-    public func dataCost(_ data: Data) async throws -> UploadCostEstimate {
-        let resp: CostDTO = try await postJSON("/v1/data/cost", body: ["data": data.base64EncodedString()])
+    public func dataCost(_ data: Data, paymentMode: PaymentMode = .auto) async throws -> UploadCostEstimate {
+        let body: [String: Any] = [
+            "data": data.base64EncodedString(),
+            "payment_mode": paymentMode.rawValue,
+        ]
+        let resp: CostDTO = try await postJSON("/v1/data/cost", body: body)
         return UploadCostEstimate(
             cost: resp.cost,
             fileSize: resp.fileSize ?? 0,
@@ -174,11 +189,32 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
 
     // MARK: - Files
 
-    public func fileUploadPublic(path: String, paymentMode: String? = nil) async throws -> FileUploadResult {
-        var body: [String: Any] = ["path": path]
-        if let mode = paymentMode { body["payment_mode"] = mode }
-        let resp: FileUploadPublicDTO = try await postJSON("/v1/files/upload/public", body: body)
-        return FileUploadResult(
+    public func filePut(path: String, paymentMode: PaymentMode = .auto) async throws -> FilePutResult {
+        let body: [String: Any] = [
+            "path": path,
+            "payment_mode": paymentMode.rawValue,
+        ]
+        let resp: FilePutDTO = try await postJSON("/v1/files", body: body)
+        return FilePutResult(
+            dataMap: resp.dataMap,
+            storageCostAtto: resp.storageCostAtto,
+            gasCostWei: resp.gasCostWei,
+            chunksStored: resp.chunksStored,
+            paymentModeUsed: resp.paymentModeUsed
+        )
+    }
+
+    public func fileGet(dataMap: String, destPath: String) async throws {
+        try await postJSONNoResult("/v1/files/get", body: ["data_map": dataMap, "dest_path": destPath])
+    }
+
+    public func filePutPublic(path: String, paymentMode: PaymentMode = .auto) async throws -> FilePutPublicResult {
+        let body: [String: Any] = [
+            "path": path,
+            "payment_mode": paymentMode.rawValue,
+        ]
+        let resp: FilePutPublicDTO = try await postJSON("/v1/files/public", body: body)
+        return FilePutPublicResult(
             address: resp.address,
             storageCostAtto: resp.storageCostAtto,
             gasCostWei: resp.gasCostWei,
@@ -187,12 +223,16 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         )
     }
 
-    public func fileDownloadPublic(address: String, destPath: String) async throws {
-        try await postJSONNoResult("/v1/files/download/public", body: ["address": address, "dest_path": destPath])
+    public func fileGetPublic(address: String, destPath: String) async throws {
+        try await postJSONNoResult("/v1/files/public/get", body: ["address": address, "dest_path": destPath])
     }
 
-    public func fileCost(path: String, isPublic: Bool = true) async throws -> UploadCostEstimate {
-        let body: [String: Any] = ["path": path, "is_public": isPublic]
+    public func fileCost(path: String, isPublic: Bool = true, paymentMode: PaymentMode = .auto) async throws -> UploadCostEstimate {
+        let body: [String: Any] = [
+            "path": path,
+            "is_public": isPublic,
+            "payment_mode": paymentMode.rawValue,
+        ]
         let resp: CostDTO = try await postJSON("/v1/files/cost", body: body)
         return UploadCostEstimate(
             cost: resp.cost,
@@ -336,25 +376,37 @@ private struct CostAddressDTO: Decodable {
     let address: String
 }
 
-private struct FileUploadPublicDTO: Decodable {
+// Wire fields are snake_case; the shared JSONDecoder uses .convertFromSnakeCase,
+// so property names are camelCase here. Adding explicit CodingKeys would
+// suppress that strategy (the decoder skips the conversion when CodingKeys are
+// present and matches against the raw values verbatim) and silently nil out
+// every snake_case-named field.
+private struct DataPutDTO: Decodable {
+    let dataMap: String
+    let chunksStored: UInt64?
+    let paymentModeUsed: String?
+}
+
+private struct DataPutPublicDTO: Decodable {
+    let address: String
+    let chunksStored: UInt64?
+    let paymentModeUsed: String?
+}
+
+private struct FilePutDTO: Decodable {
+    let dataMap: String
+    let storageCostAtto: String
+    let gasCostWei: String
+    let chunksStored: UInt64
+    let paymentModeUsed: String
+}
+
+private struct FilePutPublicDTO: Decodable {
     let address: String
     let storageCostAtto: String
     let gasCostWei: String
     let chunksStored: UInt64
     let paymentModeUsed: String
-
-    enum CodingKeys: String, CodingKey {
-        case address
-        case storageCostAtto = "storage_cost_atto"
-        case gasCostWei = "gas_cost_wei"
-        case chunksStored = "chunks_stored"
-        case paymentModeUsed = "payment_mode_used"
-    }
-}
-
-private struct CostDataMapDTO: Decodable {
-    let cost: String?
-    let dataMap: String
 }
 
 private struct DataDTO: Decodable {

@@ -1,5 +1,20 @@
 import Foundation
 
+/// Payment mode for upload operations.
+///
+/// Controls how on-chain payments for stored chunks are bundled. ``auto`` is
+/// the recommended default — the daemon picks ``merkle`` for large uploads
+/// and ``single`` for small ones based on chunk count. Library consumers
+/// only need to override when they specifically want one transaction shape.
+public enum PaymentMode: String, Sendable, Equatable {
+    /// Let the daemon pick — merkle batch for large uploads, single for small.
+    case auto = "auto"
+    /// One on-chain transaction with a merkle proof covering all chunks. Requires ≥2 chunks.
+    case merkle = "merkle"
+    /// N transactions, one per chunk. Works for any chunk count, including 1.
+    case single = "single"
+}
+
 /// Health check result from the antd daemon.
 ///
 /// The diagnostic fields (`version`, `evmNetwork`, `uptimeSeconds`,
@@ -37,7 +52,7 @@ public struct HealthStatus: Sendable, Equatable {
     }
 }
 
-/// Result of a put/create operation that stores data on the network.
+/// Result of a single-chunk put (``AntdClientProtocol/chunkPut(_:)``).
 public struct PutResult: Sendable, Equatable {
     public let cost: String
     public let address: String
@@ -48,8 +63,62 @@ public struct PutResult: Sendable, Equatable {
     }
 }
 
-/// Result of a public file or directory upload.
-public struct FileUploadResult: Sendable, Equatable {
+/// Result of a private data put (``AntdClientProtocol/dataPut(_:paymentMode:)``).
+///
+/// The DataMap is returned to the caller; it is NOT stored on-network — the
+/// caller keeps it as the only retrieval handle.
+public struct DataPutResult: Sendable, Equatable {
+    public let dataMap: String
+    public let chunksStored: UInt64
+    public let paymentModeUsed: String
+
+    public init(dataMap: String, chunksStored: UInt64 = 0, paymentModeUsed: String = "") {
+        self.dataMap = dataMap
+        self.chunksStored = chunksStored
+        self.paymentModeUsed = paymentModeUsed
+    }
+}
+
+/// Result of a public data put (``AntdClientProtocol/dataPutPublic(_:paymentMode:)``).
+///
+/// The DataMap is stored on-network as an additional chunk; ``address`` is the
+/// shareable retrieval handle.
+public struct DataPutPublicResult: Sendable, Equatable {
+    public let address: String
+    public let chunksStored: UInt64
+    public let paymentModeUsed: String
+
+    public init(address: String, chunksStored: UInt64 = 0, paymentModeUsed: String = "") {
+        self.address = address
+        self.chunksStored = chunksStored
+        self.paymentModeUsed = paymentModeUsed
+    }
+}
+
+/// Result of a private file upload (``AntdClientProtocol/filePut(path:paymentMode:)``).
+///
+/// The DataMap is returned to the caller; it is NOT stored on-network.
+public struct FilePutResult: Sendable, Equatable {
+    public let dataMap: String
+    public let storageCostAtto: String
+    public let gasCostWei: String
+    public let chunksStored: UInt64
+    public let paymentModeUsed: String
+
+    public init(dataMap: String, storageCostAtto: String, gasCostWei: String, chunksStored: UInt64, paymentModeUsed: String) {
+        self.dataMap = dataMap
+        self.storageCostAtto = storageCostAtto
+        self.gasCostWei = gasCostWei
+        self.chunksStored = chunksStored
+        self.paymentModeUsed = paymentModeUsed
+    }
+}
+
+/// Result of a public file upload (``AntdClientProtocol/filePutPublic(path:paymentMode:)``).
+///
+/// The DataMap is stored on-network as an additional chunk; ``address`` is the
+/// shareable retrieval handle.
+public struct FilePutPublicResult: Sendable, Equatable {
     public let address: String
     public let storageCostAtto: String
     public let gasCostWei: String
@@ -245,7 +314,8 @@ public struct PrepareChunkResult: Sendable, Equatable {
     }
 }
 
-/// Pre-upload cost breakdown returned by `dataCost` and `fileCost`.
+/// Pre-upload cost breakdown returned by ``AntdClientProtocol/dataCost(_:paymentMode:)``
+/// and ``AntdClientProtocol/fileCost(path:isPublic:paymentMode:)``.
 ///
 /// The server samples up to 5 chunk addresses and extrapolates the storage
 /// cost. Gas is an advisory heuristic, not a live gas-oracle query.

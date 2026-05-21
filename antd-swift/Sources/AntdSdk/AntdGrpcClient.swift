@@ -25,18 +25,20 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
     }
 
     public func health() async throws -> HealthStatus { throw notImplemented() }
-    public func dataPutPublic(_ data: Data, paymentMode: String? = nil) async throws -> PutResult { throw notImplemented() }
+    public func dataPut(_ data: Data, paymentMode: PaymentMode = .auto) async throws -> DataPutResult { throw notImplemented() }
+    public func dataGet(dataMap: String) async throws -> Data { throw notImplemented() }
+    public func dataPutPublic(_ data: Data, paymentMode: PaymentMode = .auto) async throws -> DataPutPublicResult { throw notImplemented() }
     public func dataGetPublic(address: String) async throws -> Data { throw notImplemented() }
-    public func dataPutPrivate(_ data: Data, paymentMode: String? = nil) async throws -> PutResult { throw notImplemented() }
-    public func dataGetPrivate(dataMap: String) async throws -> Data { throw notImplemented() }
-    public func dataCost(_ data: Data) async throws -> UploadCostEstimate { throw notImplemented() }
+    public func dataCost(_ data: Data, paymentMode: PaymentMode = .auto) async throws -> UploadCostEstimate { throw notImplemented() }
     public func chunkPut(_ data: Data) async throws -> PutResult { throw notImplemented() }
     public func chunkGet(address: String) async throws -> Data { throw notImplemented() }
     public func prepareChunkUpload(_ data: Data) async throws -> PrepareChunkResult { throw notImplemented() }
     public func finalizeChunkUpload(uploadId: String, txHashes: [String: String]) async throws -> String { throw notImplemented() }
-    public func fileUploadPublic(path: String, paymentMode: String? = nil) async throws -> FileUploadResult { throw notImplemented() }
-    public func fileDownloadPublic(address: String, destPath: String) async throws { throw notImplemented() }
-    public func fileCost(path: String, isPublic: Bool = true) async throws -> UploadCostEstimate { throw notImplemented() }
+    public func filePut(path: String, paymentMode: PaymentMode = .auto) async throws -> FilePutResult { throw notImplemented() }
+    public func fileGet(dataMap: String, destPath: String) async throws { throw notImplemented() }
+    public func filePutPublic(path: String, paymentMode: PaymentMode = .auto) async throws -> FilePutPublicResult { throw notImplemented() }
+    public func fileGetPublic(address: String, destPath: String) async throws { throw notImplemented() }
+    public func fileCost(path: String, isPublic: Bool = true, paymentMode: PaymentMode = .auto) async throws -> UploadCostEstimate { throw notImplemented() }
     public func walletAddress() async throws -> WalletAddress { throw notImplemented() }
     public func walletBalance() async throws -> WalletBalance { throw notImplemented() }
     public func walletApprove() async throws -> Bool { throw notImplemented() }
