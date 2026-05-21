@@ -18,7 +18,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Chunk stored at: {}", put.address);
 
     let retrieved = client.chunk_get(&put.address).await?;
-    assert_eq!(retrieved.as_slice(), payload, "chunk round-trip mismatch over gRPC");
+    assert_eq!(
+        retrieved.as_slice(),
+        payload,
+        "chunk round-trip mismatch over gRPC"
+    );
     println!("Retrieved {} bytes — gRPC round-trip OK!", retrieved.len());
 
     Ok(())
