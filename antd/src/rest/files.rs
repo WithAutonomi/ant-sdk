@@ -114,12 +114,11 @@ pub async fn file_cost(
     let mode = parse_payment_mode(req.payment_mode.as_deref()).map_err(AntdError::BadRequest)?;
 
     let client = state.client.clone();
-    let estimate = tokio::spawn(async move {
-        client.estimate_upload_cost(&path, mode, None).await
-    })
-    .await
-    .map_err(|e| AntdError::Internal(format!("task failed: {e}")))?
-    .map_err(AntdError::from_core)?;
+    let estimate =
+        tokio::spawn(async move { client.estimate_upload_cost(&path, mode, None).await })
+            .await
+            .map_err(|e| AntdError::Internal(format!("task failed: {e}")))?
+            .map_err(AntdError::from_core)?;
 
     let (chunk_count, cost) = if req.is_public {
         adjust_for_public_upload(estimate.chunk_count, &estimate.storage_cost_atto)

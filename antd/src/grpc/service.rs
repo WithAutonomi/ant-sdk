@@ -247,11 +247,12 @@ impl pb::data_service_server::DataService for DataServiceImpl {
 
         let client = self.state.client.clone();
         let tmp_for_task = tmp.clone();
-        let estimate = tokio::spawn(async move {
-            client.estimate_upload_cost(&tmp_for_task, mode, None).await
-        })
-        .await
-        .map_err(|e| Status::internal(format!("task failed: {e}")))?;
+        let estimate =
+            tokio::spawn(
+                async move { client.estimate_upload_cost(&tmp_for_task, mode, None).await },
+            )
+            .await
+            .map_err(|e| Status::internal(format!("task failed: {e}")))?;
 
         let _ = tokio::fs::remove_file(&tmp).await;
         let estimate = estimate
@@ -449,13 +450,12 @@ impl pb::file_service_server::FileService for FileServiceImpl {
         })?;
 
         let client = self.state.client.clone();
-        let estimate = tokio::spawn(async move {
-            client.estimate_upload_cost(&path, mode, None).await
-        })
-        .await
-        .map_err(|e| Status::internal(format!("task failed: {e}")))?
-        .map_err(AntdError::from_core)
-        .map_err(tonic::Status::from)?;
+        let estimate =
+            tokio::spawn(async move { client.estimate_upload_cost(&path, mode, None).await })
+                .await
+                .map_err(|e| Status::internal(format!("task failed: {e}")))?
+                .map_err(AntdError::from_core)
+                .map_err(tonic::Status::from)?;
 
         let (chunk_count, atto_tokens) = if req.is_public {
             adjust_for_public_upload(estimate.chunk_count, &estimate.storage_cost_atto)

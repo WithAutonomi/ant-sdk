@@ -185,11 +185,10 @@ pub async fn data_cost(
 
     let client = state.client.clone();
     let tmp_for_task = tmp.clone();
-    let estimate = tokio::spawn(async move {
-        client.estimate_upload_cost(&tmp_for_task, mode, None).await
-    })
-    .await
-    .map_err(|e| AntdError::Internal(format!("task failed: {e}")))?;
+    let estimate =
+        tokio::spawn(async move { client.estimate_upload_cost(&tmp_for_task, mode, None).await })
+            .await
+            .map_err(|e| AntdError::Internal(format!("task failed: {e}")))?;
 
     let _ = tokio::fs::remove_file(&tmp).await;
     let estimate = estimate.map_err(AntdError::from_core)?;
