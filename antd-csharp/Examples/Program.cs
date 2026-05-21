@@ -65,7 +65,7 @@ class Program
         // Store public data
         var result = await client.DataPutPublicAsync(payload);
         Console.WriteLine($"Stored at address: {result.Address}");
-        Console.WriteLine($"Actual cost: {result.Cost} atto tokens");
+        Console.WriteLine($"Chunks: {result.ChunksStored}, mode: {result.PaymentModeUsed}");
 
         // Retrieve
         var data = await client.DataGetPublicAsync(result.Address);
@@ -116,14 +116,14 @@ class Program
             Console.WriteLine($"File upload cost estimate: {cost} atto tokens");
 
             // Upload
-            var result = await client.FileUploadPublicAsync(srcPath);
+            var result = await client.FilePutPublicAsync(srcPath);
             Console.WriteLine($"File uploaded to: {result.Address}");
             Console.WriteLine($"Storage cost: {result.StorageCostAtto} atto, gas: {result.GasCostWei} wei");
             Console.WriteLine($"Chunks stored: {result.ChunksStored}, payment mode: {result.PaymentModeUsed}");
 
             // Download to new location
             var destPath = srcPath + ".downloaded";
-            await client.FileDownloadPublicAsync(result.Address, destPath);
+            await client.FileGetPublicAsync(result.Address, destPath);
             Console.WriteLine($"Downloaded to: {destPath}");
 
             var content = await File.ReadAllTextAsync(destPath);
@@ -147,13 +147,13 @@ class Program
         var secretMessage = Encoding.UTF8.GetBytes("This message is encrypted on the network");
 
         // Store private data
-        var result = await client.DataPutPrivateAsync(secretMessage);
-        var dataMap = result.Address; // for private data, address holds the data map
+        var result = await client.DataPutAsync(secretMessage);
+        var dataMap = result.DataMap;
         Console.WriteLine($"Data map: {dataMap}");
-        Console.WriteLine($"Cost: {result.Cost} atto tokens");
+        Console.WriteLine($"Chunks: {result.ChunksStored}, mode: {result.PaymentModeUsed}");
 
         // Retrieve and decrypt
-        var retrieved = await client.DataGetPrivateAsync(dataMap);
+        var retrieved = await client.DataGetAsync(dataMap);
         Console.WriteLine($"Decrypted: {Encoding.UTF8.GetString(retrieved)}");
 
         if (!retrieved.SequenceEqual(secretMessage))
@@ -203,7 +203,7 @@ class Program
                 $"chunks_stored={fileFin.ChunksStored}");
 
             var dstPath = srcPath + ".downloaded";
-            await client.FileDownloadPublicAsync(fileFin.DataMapAddress, dstPath);
+            await client.FileGetPublicAsync(fileFin.DataMapAddress, dstPath);
             var downloaded = await File.ReadAllBytesAsync(dstPath);
             if (!downloaded.SequenceEqual(fileContent))
                 throw new Exception("file round-trip mismatch");

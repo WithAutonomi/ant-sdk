@@ -1,16 +1,20 @@
 namespace Antd.Sdk;
 
-public interface IAntdClient : IDisposable
+/// <summary>
+/// Common interface for both REST (<see cref="AntdRestClient"/>) and gRPC
+/// (<see cref="AntdGrpcClient"/>) antd clients.
+/// </summary>
+public interface IAntdClient : IDisposable, IAsyncDisposable
 {
     // Health
     Task<HealthStatus> HealthAsync();
 
     // Data
-    Task<PutResult> DataPutPublicAsync(byte[] data, string? paymentMode = null);
+    Task<DataPutPublicResult> DataPutPublicAsync(byte[] data, PaymentMode paymentMode = PaymentMode.Auto);
     Task<byte[]> DataGetPublicAsync(string address);
-    Task<PutResult> DataPutPrivateAsync(byte[] data, string? paymentMode = null);
-    Task<byte[]> DataGetPrivateAsync(string dataMap);
-    Task<UploadCostEstimate> DataCostAsync(byte[] data);
+    Task<DataPutResult> DataPutAsync(byte[] data, PaymentMode paymentMode = PaymentMode.Auto);
+    Task<byte[]> DataGetAsync(string dataMap);
+    Task<UploadCostEstimate> DataCostAsync(byte[] data, PaymentMode paymentMode = PaymentMode.Auto);
 
     // Chunks
     Task<PutResult> ChunkPutAsync(byte[] data);
@@ -19,9 +23,11 @@ public interface IAntdClient : IDisposable
     Task<string> FinalizeChunkUploadAsync(string uploadId, IDictionary<string, string> txHashes);
 
     // Files
-    Task<FileUploadResult> FileUploadPublicAsync(string path, string? paymentMode = null);
-    Task FileDownloadPublicAsync(string address, string destPath);
-    Task<UploadCostEstimate> FileCostAsync(string path, bool isPublic = true);
+    Task<FilePutResult> FilePutAsync(string path, PaymentMode paymentMode = PaymentMode.Auto);
+    Task FileGetAsync(string dataMap, string destPath);
+    Task<FilePutPublicResult> FilePutPublicAsync(string path, PaymentMode paymentMode = PaymentMode.Auto);
+    Task FileGetPublicAsync(string address, string destPath);
+    Task<UploadCostEstimate> FileCostAsync(string path, bool isPublic = true, PaymentMode paymentMode = PaymentMode.Auto);
 
     // Wallet
     Task<WalletAddress> WalletAddressAsync();

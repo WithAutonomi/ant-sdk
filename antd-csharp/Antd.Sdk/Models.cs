@@ -1,6 +1,32 @@
 namespace Antd.Sdk;
 
 /// <summary>
+/// Payment-batching strategy for uploads.
+///
+/// - <see cref="Auto"/>   — server picks (merkle for 64+ chunks, single otherwise).
+/// - <see cref="Merkle"/> — force merkle-batch (saves gas, min 2 chunks).
+/// - <see cref="Single"/> — force per-chunk payments.
+/// </summary>
+public enum PaymentMode
+{
+    Auto,
+    Merkle,
+    Single,
+}
+
+public static class PaymentModeExtensions
+{
+    /// <summary>Serialize a <see cref="PaymentMode"/> to the wire string the daemon expects.</summary>
+    public static string ToWire(this PaymentMode mode) => mode switch
+    {
+        PaymentMode.Auto => "auto",
+        PaymentMode.Merkle => "merkle",
+        PaymentMode.Single => "single",
+        _ => "auto",
+    };
+}
+
+/// <summary>
 /// Health check result from the antd daemon.
 ///
 /// The diagnostic fields (<see cref="Version"/>, <see cref="EvmNetwork"/>,
@@ -19,11 +45,44 @@ public sealed record HealthStatus(
     string PaymentTokenAddress = "",
     string PaymentVaultAddress = "");
 
-/// <summary>Result of a put/create operation that stores data on the network.</summary>
+/// <summary>Result of a single-chunk put (used by <c>ChunkPutAsync</c>).</summary>
 public sealed record PutResult(string Cost, string Address);
 
-/// <summary>Result of a public file or directory upload.</summary>
-public sealed record FileUploadResult(
+/// <summary>
+/// Result of a private data put. The DataMap is returned to the caller;
+/// it is NOT stored on-network. REST populates ChunksStored and PaymentModeUsed;
+/// the gRPC transport currently leaves them empty.
+/// </summary>
+public sealed record DataPutResult(
+    string DataMap,
+    ulong ChunksStored = 0,
+    string PaymentModeUsed = "");
+
+/// <summary>
+/// Result of a public data put. The DataMap is stored on-network as an extra
+/// chunk; Address is the shareable retrieval handle.
+/// </summary>
+public sealed record DataPutPublicResult(
+    string Address,
+    ulong ChunksStored = 0,
+    string PaymentModeUsed = "");
+
+/// <summary>
+/// Result of a private file upload. The DataMap is returned to the caller;
+/// it is NOT stored on-network.
+/// </summary>
+public sealed record FilePutResult(
+    string DataMap,
+    string StorageCostAtto,
+    string GasCostWei,
+    ulong ChunksStored,
+    string PaymentModeUsed);
+
+/// <summary>
+/// Result of a public file upload. The DataMap is stored on-network as an
+/// extra chunk; Address is the shareable retrieval handle.
+/// </summary>
+public sealed record FilePutPublicResult(
     string Address,
     string StorageCostAtto,
     string GasCostWei,
@@ -58,44 +117,21 @@ public sealed record PrepareUploadResult(
     List<PoolCommitmentEntry>? PoolCommitments = null,
     long? MerklePaymentTimestamp = null);
 
-/// <summary>
-/// Result of finalizing an externally-signed wave-batch upload.
-///
-/// <see cref="DataMap"/> is the hex-encoded serialized DataMap and is always
-/// populated. <see cref="DataMapAddress"/> is set only when prepare was called
-/// with <c>visibility="public"</c> — the DataMap chunk was bundled into the
-/// same external-signer payment batch and stored on-network, and the address
-/// is the shareable retrieval handle. Pre-0.6.1 daemons that don't emit this
-/// field leave it as <c>""</c>.
-/// </summary>
+/// <summary>Result of finalizing an externally-signed wave-batch upload.</summary>
 public sealed record FinalizeUploadResult(
     string Address,
     long ChunksStored,
     string DataMap = "",
     string DataMapAddress = "");
 
-/// <summary>
-/// Result of finalizing a merkle batch upload.
-///
-/// See <see cref="FinalizeUploadResult"/> for the meaning of <see cref="DataMap"/>
-/// and <see cref="DataMapAddress"/>.
-/// </summary>
+/// <summary>Result of finalizing a merkle batch upload.</summary>
 public sealed record FinalizeMerkleUploadResult(
     string Address,
     long ChunksStored,
     string DataMap = "",
     string DataMapAddress = "");
 
-/// <summary>
-/// Result of preparing a single-chunk external-signer publish via
-/// <c>POST /v1/chunks/prepare</c>.
-///
-/// When <see cref="AlreadyStored"/> is <c>true</c> the chunk is already on
-/// the network — only <see cref="Address"/> and <see cref="AlreadyStored"/>
-/// are meaningful, and no finalize call is needed. Otherwise the wave-batch
-/// payment fields describe what the external signer must submit before
-/// calling <c>FinalizeChunkUploadAsync</c>.
-/// </summary>
+/// <summary>Result of preparing a single-chunk external-signer publish.</summary>
 public sealed record PrepareChunkResult(
     string Address,
     bool AlreadyStored = false,
@@ -107,12 +143,7 @@ public sealed record PrepareChunkResult(
     string PaymentTokenAddress = "",
     string RpcUrl = "");
 
-/// <summary>
-/// Pre-upload cost breakdown returned by <c>DataCostAsync</c> and <c>FileCostAsync</c>.
-///
-/// The server samples up to 5 chunk addresses and extrapolates the storage cost.
-/// Gas is an advisory heuristic, not a live gas-oracle query.
-/// </summary>
+/// <summary>Pre-upload cost breakdown returned by <c>DataCostAsync</c> and <c>FileCostAsync</c>.</summary>
 public sealed record UploadCostEstimate(
     string Cost,
     ulong FileSize,

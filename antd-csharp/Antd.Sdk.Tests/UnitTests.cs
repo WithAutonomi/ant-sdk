@@ -230,7 +230,6 @@ public sealed class AntdRestClientTests : IDisposable
 
         var result = await _client.DataPutPublicAsync(Encoding.UTF8.GetBytes("hello"));
 
-        Assert.Equal("42", result.Cost);
         Assert.Equal("abc123def456", result.Address);
     }
 
@@ -254,30 +253,29 @@ public sealed class AntdRestClientTests : IDisposable
     [Fact]
     public async Task DataPutPrivateAsync_ReturnsCostAndDataMap()
     {
-        _server.RouteOk("POST", "/v1/data/private", new
+        _server.RouteOk("POST", "/v1/data", new
         {
             cost = "99",
             data_map = "map_abc123"
         });
         _server.Start();
 
-        var result = await _client.DataPutPrivateAsync(Encoding.UTF8.GetBytes("secret"));
+        var result = await _client.DataPutAsync(Encoding.UTF8.GetBytes("secret"));
 
-        Assert.Equal("99", result.Cost);
-        Assert.Equal("map_abc123", result.Address);
+        Assert.Equal("map_abc123", result.DataMap);
     }
 
     [Fact]
     public async Task DataGetPrivateAsync_ReturnsDecodedBytes()
     {
         var original = Encoding.UTF8.GetBytes("private data content");
-        _server.RouteOk("GET", "/v1/data/private", new
+        _server.RouteOk("POST", "/v1/data/get", new
         {
             data = Convert.ToBase64String(original)
         });
         _server.Start();
 
-        var result = await _client.DataGetPrivateAsync("some_data_map");
+        var result = await _client.DataGetAsync("some_data_map");
 
         Assert.Equal(original, result);
     }
@@ -461,9 +459,9 @@ public sealed class AntdRestClientTests : IDisposable
     // ── Files ──
 
     [Fact]
-    public async Task FileUploadPublicAsync_ReturnsFileUploadResult()
+    public async Task FileUploadPublicAsync_ReturnsFilePutPublicResult()
     {
-        _server.RouteOk("POST", "/v1/files/upload/public", new
+        _server.RouteOk("POST", "/v1/files/public", new
         {
             address = "file_addr_001",
             storage_cost_atto = "1000",
@@ -473,7 +471,7 @@ public sealed class AntdRestClientTests : IDisposable
         });
         _server.Start();
 
-        var result = await _client.FileUploadPublicAsync("/tmp/test.txt");
+        var result = await _client.FilePutPublicAsync("/tmp/test.txt");
 
         Assert.Equal("file_addr_001", result.Address);
         Assert.Equal("1000", result.StorageCostAtto);
