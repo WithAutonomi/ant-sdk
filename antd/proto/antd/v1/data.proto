@@ -26,6 +26,10 @@ message GetPublicDataResponse {
 
 message PutPublicDataRequest {
   bytes data = 1;
+  // Optional payment mode: "auto" (default), "merkle", or "single". Empty
+  // string is treated as "auto" so old clients omitting the field stay
+  // wire-compatible.
+  string payment_mode = 2;
 }
 
 message PutPublicDataResponse {
@@ -51,6 +55,10 @@ message GetPrivateDataResponse {
 
 message PutPrivateDataRequest {
   bytes data = 1;
+  // Optional payment mode: "auto" (default), "merkle", or "single". Empty
+  // string is treated as "auto" so old clients omitting the field stay
+  // wire-compatible.
+  string payment_mode = 2;
 }
 
 message PutPrivateDataResponse {
@@ -60,4 +68,7 @@ message PutPrivateDataResponse {
 
 message DataCostRequest {
   bytes data = 1;
+  // Optional payment mode the estimate should reflect: "auto" (default),
+  // "merkle", or "single". Empty string is treated as "auto".
+  string payment_mode = 2;
 }

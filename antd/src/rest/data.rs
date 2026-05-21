@@ -166,6 +166,8 @@ pub async fn data_cost(
         .decode(&req.data)
         .map_err(|e| AntdError::BadRequest(format!("invalid base64: {e}")))?;
 
+    let mode = parse_payment_mode(req.payment_mode.as_deref()).map_err(AntdError::BadRequest)?;
+
     // estimate_upload_cost takes a path; stage the bytes in a temp file.
     // Samples up to 5 chunk addresses instead of quoting every chunk — see
     // ant-client PR #44.
@@ -183,13 +185,10 @@ pub async fn data_cost(
 
     let client = state.client.clone();
     let tmp_for_task = tmp.clone();
-    let estimate = tokio::spawn(async move {
-        client
-            .estimate_upload_cost(&tmp_for_task, ant_core::data::PaymentMode::Auto, None)
+    let estimate =
+        tokio::spawn(async move { client.estimate_upload_cost(&tmp_for_task, mode, None).await })
             .await
-    })
-    .await
-    .map_err(|e| AntdError::Internal(format!("task failed: {e}")))?;
+            .map_err(|e| AntdError::Internal(format!("task failed: {e}")))?;
 
     let _ = tokio::fs::remove_file(&tmp).await;
     let estimate = estimate.map_err(AntdError::from_core)?;

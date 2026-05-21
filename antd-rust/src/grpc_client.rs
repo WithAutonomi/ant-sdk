@@ -96,6 +96,7 @@ impl GrpcClient {
             .clone()
             .put_public(proto::antd::v1::PutPublicDataRequest {
                 data: data.to_vec(),
+                payment_mode: String::new(),
             })
             .await?
             .into_inner();
@@ -129,6 +130,7 @@ impl GrpcClient {
             .clone()
             .put_private(proto::antd::v1::PutPrivateDataRequest {
                 data: data.to_vec(),
+                payment_mode: String::new(),
             })
             .await?
             .into_inner();
@@ -162,6 +164,7 @@ impl GrpcClient {
             .clone()
             .get_cost(proto::antd::v1::DataCostRequest {
                 data: data.to_vec(),
+                payment_mode: String::new(),
             })
             .await?
             .into_inner();
@@ -219,6 +222,7 @@ impl GrpcClient {
             .clone()
             .upload_public(proto::antd::v1::UploadFileRequest {
                 path: path.to_string(),
+                payment_mode: String::new(),
             })
             .await?
             .into_inner();
@@ -261,6 +265,7 @@ impl GrpcClient {
             .get_file_cost(proto::antd::v1::FileCostRequest {
                 path: path.to_string(),
                 is_public,
+                payment_mode: String::new(),
             })
             .await?
             .into_inner();
