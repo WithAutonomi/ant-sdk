@@ -1,4 +1,4 @@
---- Example: Upload and download files and directories, with round-trip assertions.
+--- Example: Upload and download files publicly, with round-trip assertions.
 
 local antd = require("antd")
 
@@ -31,14 +31,14 @@ local file_content = "Hello from a file on Autonomi!"
 local src_file = tmp .. "/hello.txt"
 write_file(src_file, file_content)
 
-local cost, err5 = client:file_cost(src_file, true, false)
+local cost, err5 = client:file_cost(src_file, true)
 if err5 then
     print("Cost error: " .. err5.message)
     os.exit(1)
 end
 print(string.format("Estimated upload cost: %s atto (%d chunks)", cost.cost, cost.chunk_count))
 
-local result, err = client:file_upload_public(src_file)
+local result, err = client:file_put_public(src_file)
 if err then
     print("Upload error: " .. err.message)
     os.exit(1)
@@ -49,7 +49,7 @@ print("Storage cost: " .. result.storage_cost_atto .. " atto, gas: " .. result.g
 print("Chunks stored: " .. result.chunks_stored .. ", payment mode: " .. result.payment_mode_used)
 
 local dst_file = tmp .. "/hello.txt.downloaded"
-local _, err2 = client:file_download_public(result.address, dst_file)
+local _, err2 = client:file_get_public(result.address, dst_file)
 if err2 then
     print("Download error: " .. err2.message)
     os.exit(1)

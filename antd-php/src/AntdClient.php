@@ -9,10 +9,14 @@ use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Promise\PromiseInterface;
 use Autonomi\Antd\Errors\AntdError;
 use Autonomi\Antd\Errors\ErrorFactory;
-use Autonomi\Antd\Models\FileUploadResult;
+use Autonomi\Antd\Models\DataPutPublicResult;
+use Autonomi\Antd\Models\DataPutResult;
+use Autonomi\Antd\Models\FilePutPublicResult;
+use Autonomi\Antd\Models\FilePutResult;
 use Autonomi\Antd\Models\FinalizeUploadResult;
 use Autonomi\Antd\Models\HealthStatus;
 use Autonomi\Antd\Models\PaymentInfo;
+use Autonomi\Antd\Models\PaymentMode;
 use Autonomi\Antd\Models\PrepareChunkResult;
 use Autonomi\Antd\Models\PrepareUploadResult;
 use Autonomi\Antd\Models\PutResult;
@@ -20,6 +24,12 @@ use Autonomi\Antd\Models\UploadCostEstimate;
 
 /**
  * REST client for the antd daemon.
+ *
+ * Naming convention (post v1.0):
+ *   - Unqualified verb (`dataPut`, `dataGet`, `filePut`, `fileGet`) = private —
+ *     the DataMap is returned to the caller and NOT stored on-network.
+ *   - `_public` suffix = public — the DataMap is stored on-network as an
+ *     extra chunk; the call returns the shareable address.
  */
 class AntdClient
 {
@@ -227,34 +237,30 @@ class AntdClient
     /**
      * Store public immutable data on the network.
      */
-    public function dataPutPublic(string $data, ?string $paymentMode = null): PutResult
+    public function dataPutPublic(string $data, PaymentMode $paymentMode = PaymentMode::Auto): DataPutPublicResult
     {
-        $body = ['data' => $this->b64Encode($data)];
-        if ($paymentMode !== null) {
-            $body['payment_mode'] = $paymentMode;
-        }
+        $body = ['data' => $this->b64Encode($data), 'payment_mode' => $paymentMode->value];
         $json = $this->doJson('POST', '/v1/data/public', $body);
-        return new PutResult(
-            cost: $json['cost'] ?? '',
-            address: $json['address'] ?? '',
+        return new DataPutPublicResult(
+            address: (string)($json['address'] ?? ''),
+            chunksStored: (int)($json['chunks_stored'] ?? 0),
+            paymentModeUsed: (string)($json['payment_mode_used'] ?? ''),
         );
     }
 
     /**
      * Async: Store public immutable data on the network.
      *
-     * @return PromiseInterface<PutResult>
+     * @return PromiseInterface<DataPutPublicResult>
      */
-    public function dataPutPublicAsync(string $data, ?string $paymentMode = null): PromiseInterface
+    public function dataPutPublicAsync(string $data, PaymentMode $paymentMode = PaymentMode::Auto): PromiseInterface
     {
-        $body = ['data' => $this->b64Encode($data)];
-        if ($paymentMode !== null) {
-            $body['payment_mode'] = $paymentMode;
-        }
+        $body = ['data' => $this->b64Encode($data), 'payment_mode' => $paymentMode->value];
         return $this->doJsonAsync('POST', '/v1/data/public', $body)->then(
-            fn(?array $json) => new PutResult(
-                cost: $json['cost'] ?? '',
-                address: $json['address'] ?? '',
+            fn(?array $json) => new DataPutPublicResult(
+                address: (string)($json['address'] ?? ''),
+                chunksStored: (int)($json['chunks_stored'] ?? 0),
+                paymentModeUsed: (string)($json['payment_mode_used'] ?? ''),
             ),
         );
     }
@@ -281,57 +287,54 @@ class AntdClient
     }
 
     /**
-     * Store private encrypted data on the network.
+     * Store private encrypted data on the network. The returned DataMap is
+     * the caller's key to retrieve the data later via {@link dataGet()}.
      */
-    public function dataPutPrivate(string $data, ?string $paymentMode = null): PutResult
+    public function dataPut(string $data, PaymentMode $paymentMode = PaymentMode::Auto): DataPutResult
     {
-        $body = ['data' => $this->b64Encode($data)];
-        if ($paymentMode !== null) {
-            $body['payment_mode'] = $paymentMode;
-        }
-        $json = $this->doJson('POST', '/v1/data/private', $body);
-        return new PutResult(
-            cost: $json['cost'] ?? '',
-            address: $json['data_map'] ?? '',
+        $body = ['data' => $this->b64Encode($data), 'payment_mode' => $paymentMode->value];
+        $json = $this->doJson('POST', '/v1/data', $body);
+        return new DataPutResult(
+            dataMap: (string)($json['data_map'] ?? ''),
+            chunksStored: (int)($json['chunks_stored'] ?? 0),
+            paymentModeUsed: (string)($json['payment_mode_used'] ?? ''),
         );
     }
 
     /**
      * Async: Store private encrypted data on the network.
      *
-     * @return PromiseInterface<PutResult>
+     * @return PromiseInterface<DataPutResult>
      */
-    public function dataPutPrivateAsync(string $data, ?string $paymentMode = null): PromiseInterface
+    public function dataPutAsync(string $data, PaymentMode $paymentMode = PaymentMode::Auto): PromiseInterface
     {
-        $body = ['data' => $this->b64Encode($data)];
-        if ($paymentMode !== null) {
-            $body['payment_mode'] = $paymentMode;
-        }
-        return $this->doJsonAsync('POST', '/v1/data/private', $body)->then(
-            fn(?array $json) => new PutResult(
-                cost: $json['cost'] ?? '',
-                address: $json['data_map'] ?? '',
+        $body = ['data' => $this->b64Encode($data), 'payment_mode' => $paymentMode->value];
+        return $this->doJsonAsync('POST', '/v1/data', $body)->then(
+            fn(?array $json) => new DataPutResult(
+                dataMap: (string)($json['data_map'] ?? ''),
+                chunksStored: (int)($json['chunks_stored'] ?? 0),
+                paymentModeUsed: (string)($json['payment_mode_used'] ?? ''),
             ),
         );
     }
 
     /**
-     * Retrieve private data using a data map.
+     * Retrieve private data using a caller-held DataMap.
      */
-    public function dataGetPrivate(string $dataMap): string
+    public function dataGet(string $dataMap): string
     {
-        $json = $this->doJson('GET', '/v1/data/private?data_map=' . urlencode($dataMap));
+        $json = $this->doJson('POST', '/v1/data/get', ['data_map' => $dataMap]);
         return $this->b64Decode($json['data'] ?? '');
     }
 
     /**
-     * Async: Retrieve private data using a data map.
+     * Async: Retrieve private data using a caller-held DataMap.
      *
      * @return PromiseInterface<string>
      */
-    public function dataGetPrivateAsync(string $dataMap): PromiseInterface
+    public function dataGetAsync(string $dataMap): PromiseInterface
     {
-        return $this->doJsonAsync('GET', '/v1/data/private?data_map=' . urlencode($dataMap))->then(
+        return $this->doJsonAsync('POST', '/v1/data/get', ['data_map' => $dataMap])->then(
             fn(?array $json) => $this->b64Decode($json['data'] ?? ''),
         );
     }
@@ -339,10 +342,11 @@ class AntdClient
     /**
      * Pre-upload cost breakdown for the given bytes.
      */
-    public function dataCost(string $data): UploadCostEstimate
+    public function dataCost(string $data, PaymentMode $paymentMode = PaymentMode::Auto): UploadCostEstimate
     {
         $json = $this->doJson('POST', '/v1/data/cost', [
             'data' => $this->b64Encode($data),
+            'payment_mode' => $paymentMode->value,
         ]);
         return new UploadCostEstimate(
             cost: $json['cost'] ?? '',
@@ -358,10 +362,11 @@ class AntdClient
      *
      * @return PromiseInterface<UploadCostEstimate>
      */
-    public function dataCostAsync(string $data): PromiseInterface
+    public function dataCostAsync(string $data, PaymentMode $paymentMode = PaymentMode::Auto): PromiseInterface
     {
         return $this->doJsonAsync('POST', '/v1/data/cost', [
             'data' => $this->b64Encode($data),
+            'payment_mode' => $paymentMode->value,
         ])->then(
             fn(?array $json) => new UploadCostEstimate(
                 cost: $json['cost'] ?? '',
@@ -430,37 +435,32 @@ class AntdClient
     // --- Files ---
 
     /**
-     * Upload a local file to the network.
+     * Upload a local file to the network *publicly*. The DataMap is stored
+     * on-network; the returned address is the shareable retrieval handle.
      */
-    public function fileUploadPublic(string $path, ?string $paymentMode = null): FileUploadResult
+    public function filePutPublic(string $path, PaymentMode $paymentMode = PaymentMode::Auto): FilePutPublicResult
     {
-        $body = ['path' => $path];
-        if ($paymentMode !== null) {
-            $body['payment_mode'] = $paymentMode;
-        }
-        $json = $this->doJson('POST', '/v1/files/upload/public', $body);
-        return self::parseFileUploadResult($json);
+        $body = ['path' => $path, 'payment_mode' => $paymentMode->value];
+        $json = $this->doJson('POST', '/v1/files/public', $body);
+        return self::parseFilePutPublicResult($json ?? []);
     }
 
     /**
-     * Async: Upload a local file to the network.
+     * Async: Upload a local file to the network publicly.
      *
-     * @return PromiseInterface<FileUploadResult>
+     * @return PromiseInterface<FilePutPublicResult>
      */
-    public function fileUploadPublicAsync(string $path, ?string $paymentMode = null): PromiseInterface
+    public function filePutPublicAsync(string $path, PaymentMode $paymentMode = PaymentMode::Auto): PromiseInterface
     {
-        $body = ['path' => $path];
-        if ($paymentMode !== null) {
-            $body['payment_mode'] = $paymentMode;
-        }
-        return $this->doJsonAsync('POST', '/v1/files/upload/public', $body)->then(
-            fn(?array $json) => self::parseFileUploadResult($json ?? []),
+        $body = ['path' => $path, 'payment_mode' => $paymentMode->value];
+        return $this->doJsonAsync('POST', '/v1/files/public', $body)->then(
+            fn(?array $json) => self::parseFilePutPublicResult($json ?? []),
         );
     }
 
-    private static function parseFileUploadResult(array $json): FileUploadResult
+    private static function parseFilePutPublicResult(array $json): FilePutPublicResult
     {
-        return new FileUploadResult(
+        return new FilePutPublicResult(
             address: (string)($json['address'] ?? ''),
             storageCostAtto: (string)($json['storage_cost_atto'] ?? ''),
             gasCostWei: (string)($json['gas_cost_wei'] ?? ''),
@@ -470,25 +470,85 @@ class AntdClient
     }
 
     /**
-     * Download a file from the network to a local path.
+     * Download a public file from an on-network DataMap address.
      */
-    public function fileDownloadPublic(string $address, string $destPath): void
+    public function fileGetPublic(string $address, string $destPath): void
     {
-        $this->doJson('POST', '/v1/files/download/public', [
+        $this->doJson('POST', '/v1/files/public/get', [
             'address' => $address,
             'dest_path' => $destPath,
         ]);
     }
 
     /**
-     * Async: Download a file from the network to a local path.
+     * Async: Download a public file from an on-network DataMap address.
      *
      * @return PromiseInterface<null>
      */
-    public function fileDownloadPublicAsync(string $address, string $destPath): PromiseInterface
+    public function fileGetPublicAsync(string $address, string $destPath): PromiseInterface
     {
-        return $this->doJsonAsync('POST', '/v1/files/download/public', [
+        return $this->doJsonAsync('POST', '/v1/files/public/get', [
             'address' => $address,
+            'dest_path' => $destPath,
+        ])->then(fn() => null);
+    }
+
+    /**
+     * Upload a local file to the network *privately*. The returned DataMap is
+     * the caller's key to retrieve the file later via {@link fileGet()}. The
+     * DataMap itself is NOT stored on-network.
+     */
+    public function filePut(string $path, PaymentMode $paymentMode = PaymentMode::Auto): FilePutResult
+    {
+        $body = ['path' => $path, 'payment_mode' => $paymentMode->value];
+        $json = $this->doJson('POST', '/v1/files', $body);
+        return self::parseFilePutResult($json ?? []);
+    }
+
+    /**
+     * Async: Upload a local file to the network privately.
+     *
+     * @return PromiseInterface<FilePutResult>
+     */
+    public function filePutAsync(string $path, PaymentMode $paymentMode = PaymentMode::Auto): PromiseInterface
+    {
+        $body = ['path' => $path, 'payment_mode' => $paymentMode->value];
+        return $this->doJsonAsync('POST', '/v1/files', $body)->then(
+            fn(?array $json) => self::parseFilePutResult($json ?? []),
+        );
+    }
+
+    private static function parseFilePutResult(array $json): FilePutResult
+    {
+        return new FilePutResult(
+            dataMap: (string)($json['data_map'] ?? ''),
+            storageCostAtto: (string)($json['storage_cost_atto'] ?? ''),
+            gasCostWei: (string)($json['gas_cost_wei'] ?? ''),
+            chunksStored: (int)($json['chunks_stored'] ?? 0),
+            paymentModeUsed: (string)($json['payment_mode_used'] ?? ''),
+        );
+    }
+
+    /**
+     * Download a private file from a caller-held DataMap into `$destPath`.
+     */
+    public function fileGet(string $dataMap, string $destPath): void
+    {
+        $this->doJson('POST', '/v1/files/get', [
+            'data_map' => $dataMap,
+            'dest_path' => $destPath,
+        ]);
+    }
+
+    /**
+     * Async: Download a private file from a caller-held DataMap.
+     *
+     * @return PromiseInterface<null>
+     */
+    public function fileGetAsync(string $dataMap, string $destPath): PromiseInterface
+    {
+        return $this->doJsonAsync('POST', '/v1/files/get', [
+            'data_map' => $dataMap,
             'dest_path' => $destPath,
         ])->then(fn() => null);
     }
@@ -562,7 +622,7 @@ class AntdClient
     }
 
     /**
-     * Async: Approve the wallet to spend tokens on payment contracts (one-time operation).
+     * Async: Approve the wallet to spend tokens on payment contracts.
      *
      * @return PromiseInterface<bool>
      */
@@ -574,13 +634,14 @@ class AntdClient
     }
 
     /**
-     * Estimate the cost of uploading a file.
+     * Pre-upload cost breakdown for the file at `$path`.
      */
-    public function fileCost(string $path, bool $isPublic): UploadCostEstimate
+    public function fileCost(string $path, bool $isPublic, PaymentMode $paymentMode = PaymentMode::Auto): UploadCostEstimate
     {
         $json = $this->doJson('POST', '/v1/files/cost', [
             'path' => $path,
             'is_public' => $isPublic,
+            'payment_mode' => $paymentMode->value,
         ]);
         return new UploadCostEstimate(
             cost: $json['cost'] ?? '',
@@ -592,15 +653,16 @@ class AntdClient
     }
 
     /**
-     * Async: Estimate the cost of uploading a file.
+     * Async: Pre-upload cost breakdown for the file at `$path`.
      *
-     * @return PromiseInterface<string>
+     * @return PromiseInterface<UploadCostEstimate>
      */
-    public function fileCostAsync(string $path, bool $isPublic): PromiseInterface
+    public function fileCostAsync(string $path, bool $isPublic, PaymentMode $paymentMode = PaymentMode::Auto): PromiseInterface
     {
         return $this->doJsonAsync('POST', '/v1/files/cost', [
             'path' => $path,
             'is_public' => $isPublic,
+            'payment_mode' => $paymentMode->value,
         ])->then(
             fn(?array $json) => new UploadCostEstimate(
                 cost: $json['cost'] ?? '',
@@ -615,10 +677,6 @@ class AntdClient
     // --- External Signer (Two-Phase Upload) ---
 
     /**
-     * Parse a /v1/upload/prepare or /v1/data/prepare JSON response into a
-     * typed PrepareUploadResult. Wave-batch shape only — the PHP client does
-     * not currently expose merkle prepares.
-     *
      * @param array<string, mixed>|null $json
      */
     private static function parsePrepareUploadResult(?array $json): PrepareUploadResult
@@ -647,8 +705,6 @@ class AntdClient
     }
 
     /**
-     * Parse a /v1/chunks/prepare JSON response into a typed PrepareChunkResult.
-     *
      * @param array<string, mixed>|null $json
      */
     private static function parsePrepareChunkResult(?array $json): PrepareChunkResult
@@ -679,8 +735,6 @@ class AntdClient
     }
 
     /**
-     * Parse a /v1/upload/finalize JSON response into a typed FinalizeUploadResult.
-     *
      * @param array<string, mixed>|null $json
      */
     private static function parseFinalizeUploadResult(?array $json): FinalizeUploadResult
@@ -699,11 +753,8 @@ class AntdClient
      *
      * @param string $path Filesystem path to the file the daemon should encrypt.
      * @param string|null $visibility Pass "public" to bundle the DataMap chunk
-     *     into the same external-signer payment batch — the resulting
-     *     finalize response surfaces a `dataMapAddress` shareable handle.
-     *     Pass "private" (or omit) for the existing private-only behaviour.
-     *     The field is only forwarded when non-null, so older daemons remain
-     *     compatible.
+     *     into the same external-signer payment batch; "private" or omit for
+     *     the existing private-only behaviour.
      */
     public function prepareUpload(string $path, ?string $visibility = null): PrepareUploadResult
     {
@@ -733,10 +784,7 @@ class AntdClient
 
     /**
      * Convenience wrapper: prepare a *public* file upload for external signing.
-     *
-     * Equivalent to prepareUpload($path, 'public'). The finalize response's
-     * `dataMapAddress` is the shareable retrieval handle for the uploaded
-     * file. Requires antd >= 0.6.1.
+     * Equivalent to prepareUpload($path, 'public'). Requires antd >= 0.6.1.
      */
     public function prepareUploadPublic(string $path): PrepareUploadResult
     {
@@ -756,13 +804,6 @@ class AntdClient
     /**
      * Prepare a data upload for external signing.
      * Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
-     *
-     * Note: $visibility="public" returns 501 from the daemon until upstream
-     * ant-client exposes data_prepare_upload_with_visibility; use
-     * prepareUploadPublic() with a file path until then.
-     *
-     * @param string $data Raw bytes to upload.
-     * @param string|null $visibility "public" / "private", or null to omit.
      */
     public function prepareDataUpload(string $data, ?string $visibility = null): PrepareUploadResult
     {
@@ -826,13 +867,6 @@ class AntdClient
 
     /**
      * Prepare a single chunk for external-signer publish via POST /v1/chunks/prepare.
-     *
-     * Returns either an already-stored sentinel (no payment / finalize needed)
-     * or a wave-batch payment intent. After the external signer pays, call
-     * finalizeChunkUpload() with the resulting tx hashes.
-     *
-     * Unlike chunkPut(), this method does NOT require the daemon to have a
-     * wallet — all funds flow through the external signer.
      */
     public function prepareChunkUpload(string $data): PrepareChunkResult
     {
@@ -862,8 +896,6 @@ class AntdClient
      *
      * @param string $uploadId The upload ID from prepareChunkUpload().
      * @param array<string, string> $txHashes Map of quote_hash to tx_hash.
-     * @return string The hex-encoded network address of the stored chunk
-     *     (matches PrepareChunkResult::$address).
      */
     public function finalizeChunkUpload(string $uploadId, array $txHashes): string
     {

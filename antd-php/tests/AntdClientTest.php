@@ -12,6 +12,7 @@ use Autonomi\Antd\Errors\InternalError;
 use Autonomi\Antd\Errors\NetworkError;
 use Autonomi\Antd\Errors\TooLargeError;
 use Autonomi\Antd\Errors\AlreadyExistsError;
+use Autonomi\Antd\Models\PaymentMode;
 use GuzzleHttp\Client;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
@@ -31,8 +32,8 @@ class AntdClientTest extends TestCase
 
     /**
      * Build a client that also records every outgoing Guzzle request into
-     * $history. Used by the external-signer tests to assert on the JSON body
-     * the SDK actually sends.
+     * $history. Used by the external-signer tests and the payment-mode
+     * forwarding tests to assert on the JSON body the SDK actually sends.
      *
      * @param list<array{request: Request, response: Response, error: \Throwable|null, options: array}> $history
      */
@@ -79,8 +80,6 @@ class AntdClientTest extends TestCase
 
     public function testHealthPreV0_4_0Daemon(): void
     {
-        // Older daemons reply with just status + network; the empty defaults
-        // populate the diagnostic fields rather than throwing.
         $mock = new MockHandler([
             $this->jsonResponse(200, ['status' => 'ok', 'network' => 'default']),
         ]);
@@ -93,17 +92,52 @@ class AntdClientTest extends TestCase
         $this->assertSame(0, $health->uptimeSeconds);
     }
 
+    // --- PaymentMode ---
+
+    public function testPaymentModeWireValues(): void
+    {
+        $this->assertSame('auto', PaymentMode::Auto->value);
+        $this->assertSame('merkle', PaymentMode::Merkle->value);
+        $this->assertSame('single', PaymentMode::Single->value);
+    }
+
     // --- Data Public ---
 
     public function testDataPutPublic(): void
     {
         $mock = new MockHandler([
-            $this->jsonResponse(200, ['cost' => '100', 'address' => 'abc123']),
+            $this->jsonResponse(200, [
+                'address' => 'abc123',
+                'chunks_stored' => 3,
+                'payment_mode_used' => 'single',
+            ]),
         ]);
-        $client = $this->createClient($mock);
+        $history = [];
+        $client = $this->createRecordingClient($mock, $history);
         $result = $client->dataPutPublic('hello');
         $this->assertSame('abc123', $result->address);
-        $this->assertSame('100', $result->cost);
+        $this->assertSame(3, $result->chunksStored);
+        $this->assertSame('single', $result->paymentModeUsed);
+
+        $body = json_decode((string) $history[0]['request']->getBody(), true);
+        $this->assertSame('auto', $body['payment_mode']);
+    }
+
+    public function testDataPutPublicForwardsPaymentMode(): void
+    {
+        $mock = new MockHandler([
+            $this->jsonResponse(200, [
+                'address' => 'abc',
+                'chunks_stored' => 1,
+                'payment_mode_used' => 'merkle',
+            ]),
+        ]);
+        $history = [];
+        $client = $this->createRecordingClient($mock, $history);
+        $client->dataPutPublic('hello', PaymentMode::Merkle);
+
+        $body = json_decode((string) $history[0]['request']->getBody(), true);
+        $this->assertSame('merkle', $body['payment_mode']);
     }
 
     public function testDataGetPublic(): void
@@ -118,25 +152,44 @@ class AntdClientTest extends TestCase
 
     // --- Data Private ---
 
-    public function testDataPutPrivate(): void
+    public function testDataPut(): void
     {
         $mock = new MockHandler([
-            $this->jsonResponse(200, ['cost' => '200', 'data_map' => 'dm123']),
+            $this->jsonResponse(200, [
+                'data_map' => 'dm123',
+                'chunks_stored' => 2,
+                'payment_mode_used' => 'merkle',
+            ]),
         ]);
-        $client = $this->createClient($mock);
-        $result = $client->dataPutPrivate('secret');
-        $this->assertSame('dm123', $result->address);
-        $this->assertSame('200', $result->cost);
+        $history = [];
+        $client = $this->createRecordingClient($mock, $history);
+        $result = $client->dataPut('secret', PaymentMode::Merkle);
+        $this->assertSame('dm123', $result->dataMap);
+        $this->assertSame(2, $result->chunksStored);
+        $this->assertSame('merkle', $result->paymentModeUsed);
+
+        $request = $history[0]['request'];
+        $this->assertSame('POST', $request->getMethod());
+        $this->assertStringEndsWith('/v1/data', (string) $request->getUri());
+        $body = json_decode((string) $request->getBody(), true);
+        $this->assertSame('merkle', $body['payment_mode']);
     }
 
-    public function testDataGetPrivate(): void
+    public function testDataGet(): void
     {
         $mock = new MockHandler([
             $this->jsonResponse(200, ['data' => base64_encode('secret')]),
         ]);
-        $client = $this->createClient($mock);
-        $data = $client->dataGetPrivate('dm123');
+        $history = [];
+        $client = $this->createRecordingClient($mock, $history);
+        $data = $client->dataGet('dm123');
         $this->assertSame('secret', $data);
+
+        $request = $history[0]['request'];
+        $this->assertSame('POST', $request->getMethod());
+        $this->assertStringEndsWith('/v1/data/get', (string) $request->getUri());
+        $body = json_decode((string) $request->getBody(), true);
+        $this->assertSame('dm123', $body['data_map']);
     }
 
     // --- Data Cost ---
@@ -152,13 +205,17 @@ class AntdClientTest extends TestCase
                 'payment_mode' => 'single',
             ]),
         ]);
-        $client = $this->createClient($mock);
-        $est = $client->dataCost('test');
+        $history = [];
+        $client = $this->createRecordingClient($mock, $history);
+        $est = $client->dataCost('test', PaymentMode::Single);
         $this->assertSame('50', $est->cost);
         $this->assertSame(4, $est->fileSize);
         $this->assertSame(3, $est->chunkCount);
         $this->assertSame('150000000000000', $est->estimatedGasCostWei);
         $this->assertSame('single', $est->paymentMode);
+
+        $body = json_decode((string) $history[0]['request']->getBody(), true);
+        $this->assertSame('single', $body['payment_mode']);
     }
 
     // --- Chunks ---
@@ -184,9 +241,9 @@ class AntdClientTest extends TestCase
         $this->assertSame('chunkdata', $data);
     }
 
-    // --- Files ---
+    // --- Files public ---
 
-    public function testFileUploadPublic(): void
+    public function testFilePutPublic(): void
     {
         $mock = new MockHandler([
             $this->jsonResponse(200, [
@@ -197,25 +254,84 @@ class AntdClientTest extends TestCase
                 'payment_mode_used' => 'auto',
             ]),
         ]);
-        $client = $this->createClient($mock);
-        $result = $client->fileUploadPublic('/tmp/test.txt');
+        $history = [];
+        $client = $this->createRecordingClient($mock, $history);
+        $result = $client->filePutPublic('/tmp/test.txt');
         $this->assertSame('file1', $result->address);
         $this->assertSame('1000', $result->storageCostAtto);
         $this->assertSame('42', $result->gasCostWei);
         $this->assertSame(3, $result->chunksStored);
         $this->assertSame('auto', $result->paymentModeUsed);
+
+        $request = $history[0]['request'];
+        $this->assertStringEndsWith('/v1/files/public', (string) $request->getUri());
+        $body = json_decode((string) $request->getBody(), true);
+        $this->assertSame('auto', $body['payment_mode']);
     }
 
-    public function testFileDownloadPublic(): void
+    public function testFileGetPublic(): void
     {
         $mock = new MockHandler([
             new Response(200),
         ]);
-        $client = $this->createClient($mock);
-        $client->fileDownloadPublic('file1', '/tmp/out.txt');
-        // No exception means success
-        $this->assertTrue(true);
+        $history = [];
+        $client = $this->createRecordingClient($mock, $history);
+        $client->fileGetPublic('file1', '/tmp/out.txt');
+
+        $request = $history[0]['request'];
+        $this->assertSame('POST', $request->getMethod());
+        $this->assertStringEndsWith('/v1/files/public/get', (string) $request->getUri());
+        $body = json_decode((string) $request->getBody(), true);
+        $this->assertSame('file1', $body['address']);
+        $this->assertSame('/tmp/out.txt', $body['dest_path']);
     }
+
+    // --- Files private ---
+
+    public function testFilePut(): void
+    {
+        $mock = new MockHandler([
+            $this->jsonResponse(200, [
+                'data_map' => 'fdm1',
+                'storage_cost_atto' => '900',
+                'gas_cost_wei' => '42',
+                'chunks_stored' => 2,
+                'payment_mode_used' => 'merkle',
+            ]),
+        ]);
+        $history = [];
+        $client = $this->createRecordingClient($mock, $history);
+        $result = $client->filePut('/tmp/secret.txt', PaymentMode::Merkle);
+        $this->assertSame('fdm1', $result->dataMap);
+        $this->assertSame('900', $result->storageCostAtto);
+        $this->assertSame(2, $result->chunksStored);
+        $this->assertSame('merkle', $result->paymentModeUsed);
+
+        $request = $history[0]['request'];
+        $this->assertSame('POST', $request->getMethod());
+        $this->assertStringEndsWith('/v1/files', (string) $request->getUri());
+        $body = json_decode((string) $request->getBody(), true);
+        $this->assertSame('merkle', $body['payment_mode']);
+    }
+
+    public function testFileGet(): void
+    {
+        $mock = new MockHandler([
+            new Response(200),
+        ]);
+        $history = [];
+        $client = $this->createRecordingClient($mock, $history);
+        $client->fileGet('fdm1', '/tmp/priv-out.txt');
+
+        $request = $history[0]['request'];
+        $this->assertSame('POST', $request->getMethod());
+        $this->assertStringEndsWith('/v1/files/get', (string) $request->getUri());
+        $body = json_decode((string) $request->getBody(), true);
+        $this->assertSame('fdm1', $body['data_map']);
+        $this->assertSame('/tmp/priv-out.txt', $body['dest_path']);
+    }
+
+    // --- File cost ---
 
     public function testFileCost(): void
     {
@@ -228,13 +344,15 @@ class AntdClientTest extends TestCase
                 'payment_mode' => 'auto',
             ]),
         ]);
-        $client = $this->createClient($mock);
-        $est = $client->fileCost('/tmp/test.txt', true);
+        $history = [];
+        $client = $this->createRecordingClient($mock, $history);
+        $est = $client->fileCost('/tmp/test.txt', true, PaymentMode::Single);
         $this->assertSame('1000', $est->cost);
         $this->assertSame(4096, $est->fileSize);
-        $this->assertSame(3, $est->chunkCount);
-        $this->assertSame('150000000000000', $est->estimatedGasCostWei);
-        $this->assertSame('auto', $est->paymentMode);
+
+        $body = json_decode((string) $history[0]['request']->getBody(), true);
+        $this->assertSame('single', $body['payment_mode']);
+        $this->assertTrue($body['is_public']);
     }
 
     // --- Error Mapping ---
@@ -404,7 +522,6 @@ class AntdClientTest extends TestCase
 
     public function testFinalizeUploadDefaultsDataMapAddressForOldDaemon(): void
     {
-        // Pre-0.6.1 daemons don't return data_map_address; field defaults to "".
         $mock = new MockHandler([
             $this->jsonResponse(200, [
                 'data_map' => 'deadbeef',
@@ -443,7 +560,6 @@ class AntdClientTest extends TestCase
 
         $result = $client->prepareChunkUpload('hello');
 
-        // Request: bytes must arrive base64-encoded under `data`.
         $body = json_decode((string) $history[0]['request']->getBody(), true);
         $this->assertSame(base64_encode('hello'), $body['data']);
 
@@ -464,7 +580,6 @@ class AntdClientTest extends TestCase
             $this->jsonResponse(200, [
                 'address' => 'bb' . str_repeat('11', 31),
                 'already_stored' => true,
-                // no upload_id, no payments, no payment_type, etc.
             ]),
         ]);
         $client = $this->createClient($mock);

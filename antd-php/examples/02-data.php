@@ -23,7 +23,7 @@ echo "Estimate: {$est->fileSize} bytes in {$est->chunkCount} chunks, "
 // Store public data
 $result = $client->dataPutPublic($payload);
 echo "Stored at address: {$result->address}\n";
-echo "Actual cost: {$result->cost} atto tokens\n";
+echo "Chunks stored: {$result->chunksStored}, payment mode: {$result->paymentModeUsed}\n";
 
 // Retrieve it back
 $data = $client->dataGetPublic($result->address);

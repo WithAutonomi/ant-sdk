@@ -109,11 +109,11 @@ test "parsePutResult parses data_map key" {
     try testing.expectEqualStrings("dm123", result.address);
 }
 
-test "parseFileUploadResult parses all fields" {
+test "parseFilePutPublicResult parses all fields" {
     const body =
         \\{"address":"file1","storage_cost_atto":"1000","gas_cost_wei":"42","chunks_stored":3,"payment_mode_used":"auto"}
     ;
-    const result = try json_helpers.parseFileUploadResult(testing.allocator, body);
+    const result = try json_helpers.parseFilePutPublicResult(testing.allocator, body);
     defer result.deinit(testing.allocator);
 
     try testing.expectEqualStrings("file1", result.address);

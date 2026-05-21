@@ -5,15 +5,14 @@ declare(strict_types=1);
 namespace Autonomi\Antd\Models;
 
 /**
- * Result of a public file upload.
- *
- * Returned by AntdClient::fileUploadPublic() (and its Async variant).
+ * Result of a private file upload. The DataMap is returned to the caller;
+ * it is NOT stored on-network.
  */
-readonly class FileUploadResult
+readonly class FilePutResult
 {
     public function __construct(
-        /** Hex-encoded network address of the uploaded file. */
-        public string $address,
+        /** Hex-encoded caller-held DataMap. */
+        public string $dataMap,
         /** Total storage cost paid in token units (atto). "0" if all chunks already existed. */
         public string $storageCostAtto,
         /** Total gas cost paid in wei as a decimal string. */

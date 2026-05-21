@@ -8,8 +8,12 @@ pub const json_helpers = @import("json_helpers.zig");
 pub const discover = @import("discover.zig");
 
 pub const HealthStatus = models.HealthStatus;
+pub const PaymentMode = models.PaymentMode;
 pub const PutResult = models.PutResult;
-pub const FileUploadResult = models.FileUploadResult;
+pub const DataPutResult = models.DataPutResult;
+pub const DataPutPublicResult = models.DataPutPublicResult;
+pub const FilePutResult = models.FilePutResult;
+pub const FilePutPublicResult = models.FilePutPublicResult;
 pub const WalletAddress = models.WalletAddress;
 pub const WalletBalance = models.WalletBalance;
 pub const UploadCostEstimate = models.UploadCostEstimate;
@@ -27,6 +31,12 @@ pub const discoverGrpcTarget = discover.discoverGrpcTarget;
 pub const default_base_url = "http://localhost:8082";
 
 /// REST client for the antd daemon.
+///
+/// Naming convention (post v1.0):
+///   - Unqualified verb (`dataPut`, `dataGet`, `filePut`, `fileGet`) = private —
+///     the DataMap is returned to the caller and NOT stored on-network.
+///   - `_public` suffix = public — the DataMap is stored on-network as an
+///     extra chunk; the call returns the shareable address.
 pub const Client = struct {
     allocator: Allocator,
     base_url: []const u8,
@@ -181,15 +191,12 @@ pub const Client = struct {
     // --- Data ---
 
     /// Store public immutable data on the network.
-    pub fn dataPutPublic(self: *Client, data: []const u8, payment_mode: ?[]const u8) !PutResult {
-        const req_body = if (payment_mode) |mode|
-            try json_helpers.buildDataBodyWithPaymentMode(self.allocator, data, mode)
-        else
-            try json_helpers.buildDataBody(self.allocator, data);
+    pub fn dataPutPublic(self: *Client, data: []const u8, payment_mode: PaymentMode) !DataPutPublicResult {
+        const req_body = try json_helpers.buildDataBodyWithPaymentMode(self.allocator, data, payment_mode.wire());
         defer self.allocator.free(req_body);
         const resp = try self.doRequest(.POST, "/v1/data/public", req_body) orelse return error.JsonError;
         defer self.allocator.free(resp);
-        return json_helpers.parsePutResult(self.allocator, resp, "address");
+        return json_helpers.parseDataPutPublicResult(self.allocator, resp);
     }
 
     /// Retrieve public data by address.
@@ -201,30 +208,28 @@ pub const Client = struct {
         return json_helpers.parseBase64Data(self.allocator, resp);
     }
 
-    /// Store private encrypted data on the network.
-    pub fn dataPutPrivate(self: *Client, data: []const u8, payment_mode: ?[]const u8) !PutResult {
-        const req_body = if (payment_mode) |mode|
-            try json_helpers.buildDataBodyWithPaymentMode(self.allocator, data, mode)
-        else
-            try json_helpers.buildDataBody(self.allocator, data);
+    /// Store private encrypted data on the network. The returned DataMap is
+    /// the caller's key to retrieve the data later via `dataGet`.
+    pub fn dataPut(self: *Client, data: []const u8, payment_mode: PaymentMode) !DataPutResult {
+        const req_body = try json_helpers.buildDataBodyWithPaymentMode(self.allocator, data, payment_mode.wire());
         defer self.allocator.free(req_body);
-        const resp = try self.doRequest(.POST, "/v1/data/private", req_body) orelse return error.JsonError;
+        const resp = try self.doRequest(.POST, "/v1/data", req_body) orelse return error.JsonError;
         defer self.allocator.free(resp);
-        return json_helpers.parsePutResult(self.allocator, resp, "data_map");
+        return json_helpers.parseDataPutResult(self.allocator, resp);
     }
 
-    /// Retrieve private data using a data map.
-    pub fn dataGetPrivate(self: *Client, data_map: []const u8) ![]const u8 {
-        const path = try std.fmt.allocPrint(self.allocator, "/v1/data/private?data_map={s}", .{data_map});
-        defer self.allocator.free(path);
-        const resp = try self.doRequest(.GET, path, null) orelse return error.JsonError;
+    /// Retrieve private data using a caller-held DataMap.
+    pub fn dataGet(self: *Client, data_map: []const u8) ![]const u8 {
+        const req_body = try json_helpers.buildDataMapBody(self.allocator, data_map);
+        defer self.allocator.free(req_body);
+        const resp = try self.doRequest(.POST, "/v1/data/get", req_body) orelse return error.JsonError;
         defer self.allocator.free(resp);
         return json_helpers.parseBase64Data(self.allocator, resp);
     }
 
     /// Pre-upload cost breakdown for the given bytes.
-    pub fn dataCost(self: *Client, data: []const u8) !models.UploadCostEstimate {
-        const req_body = try json_helpers.buildDataBody(self.allocator, data);
+    pub fn dataCost(self: *Client, data: []const u8, payment_mode: PaymentMode) !models.UploadCostEstimate {
+        const req_body = try json_helpers.buildDataBodyWithPaymentMode(self.allocator, data, payment_mode.wire());
         defer self.allocator.free(req_body);
         const resp = try self.doRequest(.POST, "/v1/data/cost", req_body) orelse return error.JsonError;
         defer self.allocator.free(resp);
@@ -276,45 +281,54 @@ pub const Client = struct {
 
     // --- Files ---
 
-    /// Upload a local file to the network.
-    pub fn fileUploadPublic(self: *Client, path: []const u8, payment_mode: ?[]const u8) !FileUploadResult {
-        const req_body = if (payment_mode) |mode|
-            try json_helpers.buildJsonBody(self.allocator, &.{
-                .{ .key = "path", .value = .{ .string = path } },
-                .{ .key = "payment_mode", .value = .{ .string = mode } },
-            })
-        else
-            try json_helpers.buildJsonBody(self.allocator, &.{
-                .{ .key = "path", .value = .{ .string = path } },
-            });
+    /// Upload a local file to the network *publicly*.
+    pub fn filePutPublic(self: *Client, path: []const u8, payment_mode: PaymentMode) !FilePutPublicResult {
+        const req_body = try json_helpers.buildJsonBody(self.allocator, &.{
+            .{ .key = "path", .value = .{ .string = path } },
+            .{ .key = "payment_mode", .value = .{ .string = payment_mode.wire() } },
+        });
         defer self.allocator.free(req_body);
-        const resp = try self.doRequest(.POST, "/v1/files/upload/public", req_body) orelse return error.JsonError;
+        const resp = try self.doRequest(.POST, "/v1/files/public", req_body) orelse return error.JsonError;
         defer self.allocator.free(resp);
-        return json_helpers.parseFileUploadResult(self.allocator, resp);
+        return json_helpers.parseFilePutPublicResult(self.allocator, resp);
     }
 
-    /// Download a file from the network to a local path.
-    pub fn fileDownloadPublic(self: *Client, address: []const u8, dest_path: []const u8) !void {
+    /// Download a public file from an on-network DataMap address.
+    pub fn fileGetPublic(self: *Client, address: []const u8, dest_path: []const u8) !void {
         const req_body = try json_helpers.buildJsonBody(self.allocator, &.{
             .{ .key = "address", .value = .{ .string = address } },
             .{ .key = "dest_path", .value = .{ .string = dest_path } },
         });
         defer self.allocator.free(req_body);
-        _ = try self.doRequest(.POST, "/v1/files/download/public", req_body);
+        _ = try self.doRequest(.POST, "/v1/files/public/get", req_body);
+    }
+
+    /// Upload a local file to the network *privately*. The returned DataMap is
+    /// the caller's key to retrieve the file later via `fileGet`.
+    pub fn filePut(self: *Client, path: []const u8, payment_mode: PaymentMode) !FilePutResult {
+        const req_body = try json_helpers.buildJsonBody(self.allocator, &.{
+            .{ .key = "path", .value = .{ .string = path } },
+            .{ .key = "payment_mode", .value = .{ .string = payment_mode.wire() } },
+        });
+        defer self.allocator.free(req_body);
+        const resp = try self.doRequest(.POST, "/v1/files", req_body) orelse return error.JsonError;
+        defer self.allocator.free(resp);
+        return json_helpers.parseFilePutResult(self.allocator, resp);
+    }
+
+    /// Download a private file from a caller-held DataMap into `dest_path`.
+    pub fn fileGet(self: *Client, data_map: []const u8, dest_path: []const u8) !void {
+        const req_body = try json_helpers.buildJsonBody(self.allocator, &.{
+            .{ .key = "data_map", .value = .{ .string = data_map } },
+            .{ .key = "dest_path", .value = .{ .string = dest_path } },
+        });
+        defer self.allocator.free(req_body);
+        _ = try self.doRequest(.POST, "/v1/files/get", req_body);
     }
 
     // --- External Signer (Two-Phase Upload) ---
 
     /// Prepare a file upload for external signing.
-    ///
-    /// `visibility` is `"public"` to bundle the DataMap chunk into the same
-    /// external-signer payment batch (after finalize, the response's
-    /// `data_map_address` is the shareable retrieval handle). `"private"` or
-    /// `null` keeps the existing private-only behaviour. When `null`, the
-    /// `visibility` field is omitted from the request body — preserving the
-    /// pre-0.6.1 wire shape that older daemons expect.
-    ///
-    /// Returns the raw JSON response body that the caller must parse.
     pub fn prepareUpload(self: *Client, path: []const u8, visibility: ?[]const u8) ![]const u8 {
         const req_body = try json_helpers.buildPrepareUploadBody(self.allocator, path, visibility);
         defer self.allocator.free(req_body);
@@ -323,20 +337,11 @@ pub const Client = struct {
     }
 
     /// Convenience wrapper for a public file upload prepare.
-    /// Equivalent to `prepareUpload(path, "public")`.
     pub fn prepareUploadPublic(self: *Client, path: []const u8) ![]const u8 {
         return self.prepareUpload(path, "public");
     }
 
     /// Prepare a data upload for external signing.
-    /// Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
-    ///
-    /// `visibility` semantics match `prepareUpload`. Note: as of writing,
-    /// the daemon returns 501 for visibility="public" on this endpoint
-    /// until upstream ant-client exposes `data_prepare_upload_with_visibility`;
-    /// use `prepareUploadPublic` with a file path instead.
-    ///
-    /// Returns the raw JSON response body that the caller must parse.
     pub fn prepareDataUpload(self: *Client, data: []const u8, visibility: ?[]const u8) ![]const u8 {
         const req_body = try json_helpers.buildPrepareDataBody(self.allocator, data, visibility);
         defer self.allocator.free(req_body);
@@ -345,10 +350,7 @@ pub const Client = struct {
     }
 
     /// Finalize an upload after an external signer has submitted payment transactions.
-    /// Returns raw JSON response body that the caller must parse (see
-    /// `json_helpers.parseFinalizeUploadResult`).
     pub fn finalizeUpload(self: *Client, upload_id: []const u8, tx_hashes_json: []const u8) ![]const u8 {
-        // Caller must provide a pre-built JSON body with upload_id and tx_hashes
         const resp = try self.doRequest(.POST, "/v1/upload/finalize", tx_hashes_json) orelse return error.JsonError;
         _ = upload_id;
         return resp;
@@ -358,21 +360,6 @@ pub const Client = struct {
 
     /// Prepare a single chunk for external-signer publish via
     /// POST /v1/chunks/prepare.
-    ///
-    /// The daemon collects storage quotes from the close group, stashes the
-    /// prepared state, and returns either:
-    ///
-    ///   - `already_stored = true` with `address` set, if the chunk is already
-    ///     on-network. No payment or finalize call is needed.
-    ///   - `already_stored = false` with `upload_id` + `payments` +
-    ///     `total_amount` populated, in which case the caller signs and
-    ///     submits payForQuotes() externally, then calls `finalizeChunkUpload`
-    ///     with the resulting tx hashes.
-    ///
-    /// Unlike `chunkPut`, this method does NOT require the daemon to have a
-    /// wallet — all funds flow through the external signer.
-    ///
-    /// Caller owns the returned struct's memory (call `.deinit(allocator)`).
     pub fn prepareChunkUpload(self: *Client, data: []const u8) !PrepareChunkResult {
         const req_body = try json_helpers.buildDataBody(self.allocator, data);
         defer self.allocator.free(req_body);
@@ -383,15 +370,6 @@ pub const Client = struct {
 
     /// Submit a prepared chunk to the network after external payment via
     /// POST /v1/chunks/finalize.
-    ///
-    /// `tx_hashes_json` is a pre-built JSON object literal mapping non-zero
-    /// `quote_hash` from `PrepareChunkResult.payments` to the `tx_hash`
-    /// returned by `payForQuotes()` — e.g. `"{\"0xqh1\":\"0xtx1\"}"`. Caller
-    /// formats this map by hand (matches the existing `finalizeUpload`
-    /// pattern).
-    ///
-    /// Returns the hex-encoded network address of the stored chunk (matches
-    /// `PrepareChunkResult.address`). Caller owns the returned bytes.
     pub fn finalizeChunkUpload(self: *Client, upload_id: []const u8, tx_hashes_json: []const u8) ![]const u8 {
         const req_body = try json_helpers.buildFinalizeChunkBody(self.allocator, upload_id, tx_hashes_json);
         defer self.allocator.free(req_body);
@@ -414,10 +392,11 @@ pub const Client = struct {
     }
 
     /// Pre-upload cost breakdown for the file at `path`.
-    pub fn fileCost(self: *Client, path: []const u8, is_public: bool) !models.UploadCostEstimate {
+    pub fn fileCost(self: *Client, path: []const u8, is_public: bool, payment_mode: PaymentMode) !models.UploadCostEstimate {
         const req_body = try json_helpers.buildJsonBody(self.allocator, &.{
             .{ .key = "path", .value = .{ .string = path } },
             .{ .key = "is_public", .value = .{ .boolean = is_public } },
+            .{ .key = "payment_mode", .value = .{ .string = payment_mode.wire() } },
         });
         defer self.allocator.free(req_body);
         const resp = try self.doRequest(.POST, "/v1/files/cost", req_body) orelse return error.JsonError;

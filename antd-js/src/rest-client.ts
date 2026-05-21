@@ -1,12 +1,13 @@
 import { discoverDaemonUrl } from "./discover.js";
 import { fromHttpStatus, NetworkError } from "./errors.js";
+import { PaymentMode } from "./models.js";
 import type {
-  CandidateNodeEntry,
-  FileUploadResult,
+  DataPutPublicResult,
+  DataPutResult,
+  FilePutPublicResult,
+  FilePutResult,
   FinalizeUploadResult,
   HealthStatus,
-  PaymentInfo,
-  PoolCommitmentEntry,
   PrepareChunkResult,
   PrepareUploadResult,
   PutResult,
@@ -51,7 +52,15 @@ export interface RestClientOptions {
   timeout?: number;
 }
 
-/** REST client for the antd daemon. */
+/**
+ * REST client for the antd daemon.
+ *
+ * Naming convention (post v1.0):
+ *   - Unqualified verb (`dataPut`, `dataGet`, `filePut`, `fileGet`) = private —
+ *     the DataMap is returned to the caller and NOT stored on-network.
+ *   - `_public` suffix = public — the DataMap is stored on-network as an
+ *     extra chunk; the call returns the shareable address.
+ */
 export class RestClient {
   private readonly baseUrl: string;
   private readonly timeout: number;
@@ -60,9 +69,6 @@ export class RestClient {
    * Creates a REST client by auto-discovering the daemon port from the
    * daemon.port file written by antd on startup. Falls back to the default
    * base URL if the port file is not found.
-   *
-   * @returns An object with the created `client` and the discovered `url`
-   *          (empty string if discovery failed and default was used).
    */
   static autoDiscover(options?: RestClientOptions): { client: RestClient; url: string } {
     const discovered = discoverDaemonUrl();
@@ -142,13 +148,6 @@ export class RestClient {
     await this.check(resp);
   }
 
-  private async headExists(path: string): Promise<boolean> {
-    const resp = await this.request("HEAD", path);
-    if (resp.status === 404) return false;
-    await this.check(resp);
-    return true;
-  }
-
   private static b64(data: Buffer): string {
     return data.toString("base64");
   }
@@ -166,11 +165,24 @@ export class RestClient {
 
   // ---- Data ----
 
-  async dataPutPublic(data: Buffer, options?: { paymentMode?: string }): Promise<PutResult> {
-    const body: Record<string, unknown> = { data: RestClient.b64(data) };
-    if (options?.paymentMode) body.payment_mode = options.paymentMode;
-    const j = await this.postJson<{ cost: string; address: string }>("/v1/data/public", body);
-    return { cost: j.cost, address: j.address };
+  async dataPutPublic(
+    data: Buffer,
+    options?: { paymentMode?: PaymentMode },
+  ): Promise<DataPutPublicResult> {
+    const body = {
+      data: RestClient.b64(data),
+      payment_mode: options?.paymentMode ?? PaymentMode.Auto,
+    };
+    const j = await this.postJson<{
+      address: string;
+      chunks_stored?: number;
+      payment_mode_used?: string;
+    }>("/v1/data/public", body);
+    return {
+      address: j.address,
+      chunksStored: j.chunks_stored ?? 0,
+      paymentModeUsed: j.payment_mode_used ?? "",
+    };
   }
 
   async dataGetPublic(address: string): Promise<Buffer> {
@@ -178,15 +190,28 @@ export class RestClient {
     return RestClient.unb64(j.data);
   }
 
-  async dataPutPrivate(data: Buffer, options?: { paymentMode?: string }): Promise<PutResult> {
-    const body: Record<string, unknown> = { data: RestClient.b64(data) };
-    if (options?.paymentMode) body.payment_mode = options.paymentMode;
-    const j = await this.postJson<{ cost: string; data_map: string }>("/v1/data/private", body);
-    return { cost: j.cost, address: j.data_map };
+  async dataPut(
+    data: Buffer,
+    options?: { paymentMode?: PaymentMode },
+  ): Promise<DataPutResult> {
+    const body = {
+      data: RestClient.b64(data),
+      payment_mode: options?.paymentMode ?? PaymentMode.Auto,
+    };
+    const j = await this.postJson<{
+      data_map: string;
+      chunks_stored?: number;
+      payment_mode_used?: string;
+    }>("/v1/data", body);
+    return {
+      dataMap: j.data_map,
+      chunksStored: j.chunks_stored ?? 0,
+      paymentModeUsed: j.payment_mode_used ?? "",
+    };
   }
 
-  async dataGetPrivate(dataMap: string): Promise<Buffer> {
-    const j = await this.getJson<{ data: string }>("/v1/data/private", { data_map: dataMap });
+  async dataGet(dataMap: string): Promise<Buffer> {
+    const j = await this.postJson<{ data: string }>("/v1/data/get", { data_map: dataMap });
     return RestClient.unb64(j.data);
   }
 
@@ -196,14 +221,20 @@ export class RestClient {
    * The server samples a small number of chunk addresses and extrapolates,
    * much faster than quoting every chunk on slow networks. Gas is advisory.
    */
-  async dataCost(data: Buffer): Promise<UploadCostEstimate> {
+  async dataCost(
+    data: Buffer,
+    options?: { paymentMode?: PaymentMode },
+  ): Promise<UploadCostEstimate> {
     const j = await this.postJson<{
       cost: string;
       file_size: number;
       chunk_count: number;
       estimated_gas_cost_wei: string;
       payment_mode: string;
-    }>("/v1/data/cost", { data: RestClient.b64(data) });
+    }>("/v1/data/cost", {
+      data: RestClient.b64(data),
+      payment_mode: options?.paymentMode ?? PaymentMode.Auto,
+    });
     return {
       cost: j.cost,
       fileSize: j.file_size,
@@ -229,16 +260,21 @@ export class RestClient {
 
   // ---- Files ----
 
-  async fileUploadPublic(path: string, options?: { paymentMode?: string }): Promise<FileUploadResult> {
-    const body: Record<string, unknown> = { path };
-    if (options?.paymentMode) body.payment_mode = options.paymentMode;
+  async filePutPublic(
+    path: string,
+    options?: { paymentMode?: PaymentMode },
+  ): Promise<FilePutPublicResult> {
+    const body = {
+      path,
+      payment_mode: options?.paymentMode ?? PaymentMode.Auto,
+    };
     const j = await this.postJson<{
       address: string;
       storage_cost_atto: string;
       gas_cost_wei: string;
       chunks_stored: number;
       payment_mode_used: string;
-    }>("/v1/files/upload/public", body);
+    }>("/v1/files/public", body);
     return {
       address: j.address,
       storageCostAtto: j.storage_cost_atto,
@@ -248,9 +284,40 @@ export class RestClient {
     };
   }
 
-  async fileDownloadPublic(address: string, destPath: string): Promise<void> {
-    await this.postJsonNoResult("/v1/files/download/public", {
+  async fileGetPublic(address: string, destPath: string): Promise<void> {
+    await this.postJsonNoResult("/v1/files/public/get", {
       address,
+      dest_path: destPath,
+    });
+  }
+
+  async filePut(
+    path: string,
+    options?: { paymentMode?: PaymentMode },
+  ): Promise<FilePutResult> {
+    const body = {
+      path,
+      payment_mode: options?.paymentMode ?? PaymentMode.Auto,
+    };
+    const j = await this.postJson<{
+      data_map: string;
+      storage_cost_atto: string;
+      gas_cost_wei: string;
+      chunks_stored: number;
+      payment_mode_used: string;
+    }>("/v1/files", body);
+    return {
+      dataMap: j.data_map,
+      storageCostAtto: j.storage_cost_atto,
+      gasCostWei: j.gas_cost_wei,
+      chunksStored: j.chunks_stored,
+      paymentModeUsed: j.payment_mode_used,
+    };
+  }
+
+  async fileGet(dataMap: string, destPath: string): Promise<void> {
+    await this.postJsonNoResult("/v1/files/get", {
+      data_map: dataMap,
       dest_path: destPath,
     });
   }
@@ -264,6 +331,7 @@ export class RestClient {
   async fileCost(
     path: string,
     isPublic: boolean = true,
+    options?: { paymentMode?: PaymentMode },
   ): Promise<UploadCostEstimate> {
     const j = await this.postJson<{
       cost: string;
@@ -271,7 +339,11 @@ export class RestClient {
       chunk_count: number;
       estimated_gas_cost_wei: string;
       payment_mode: string;
-    }>("/v1/files/cost", { path, is_public: isPublic });
+    }>("/v1/files/cost", {
+      path,
+      is_public: isPublic,
+      payment_mode: options?.paymentMode ?? PaymentMode.Auto,
+    });
     return {
       cost: j.cost,
       fileSize: j.file_size,
@@ -508,11 +580,6 @@ export class RestClient {
   /**
    * Submit a single chunk to the network after the external signer has paid
    * via `POST /v1/chunks/finalize`.
-   *
-   * `txHashes` maps each non-zero `quoteHash` from `prepareChunkUpload`'s
-   * `payments` to the corresponding `tx_hash` returned by `payForQuotes()`.
-   * Returns the hex-encoded network address of the stored chunk (matches
-   * `PrepareChunkResult.address`).
    *
    * Requires antd >= 0.7.0.
    */
