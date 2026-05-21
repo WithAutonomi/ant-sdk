@@ -1,0 +1,69 @@
+name: Auto-tag Go submodules
+
+# Go's module proxy expects path-prefixed tags for submodules in a multi-module
+# repo (e.g. `antd-go/v0.8.0`, not just `v0.8.0`). When we push an umbrella
+# release tag (`v0.8.0`), this workflow walks the repo, finds every `go.mod`,
+# and creates a matching `<dir>/<version>` tag pointing at the same SHA.
+#
+# Surfaced 2026-05-21 when v0.8.0 shipped without `antd-go/v0.8.0` and Go's
+# proxy couldn't resolve `github.com/WithAutonomi/ant-sdk/antd-go@v0.8.0`.
+# The tag had to be added manually after the fact.
+#
+# Pattern: any future Go submodule (antd-go-grpc, etc.) auto-tags too. If
+# antd-py / antd-js / antd-cpp ever need similar path-prefixed registry
+# tagging, add a sibling workflow rather than overloading this one.
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"      # umbrella stable release
+      - "v[0-9]+.[0-9]+.[0-9]+-*"    # umbrella pre-release (e.g. v1.0.0-rc.1)
+
+permissions:
+  contents: write
+
+jobs:
+  tag-go-modules:
+    name: Tag Go submodules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need full history so we can create tags at the right SHA.
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Tag every go.mod directory
+        env:
+          VERSION: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          echo "Umbrella tag: $VERSION at $SHA"
+          tagged=0
+          skipped=0
+          # Find every go.mod under a subdirectory (skip root go.mod if any —
+          # that's the umbrella module and is already covered by $VERSION).
+          while IFS= read -r modfile; do
+            dir="${modfile%/go.mod}"
+            dir="${dir#./}"
+            tag="${dir}/${VERSION}"
+            if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+              echo "skip ${tag} (already exists)"
+              skipped=$((skipped + 1))
+            else
+              git tag "${tag}" "${SHA}"
+              echo "tag  ${tag} -> ${SHA}"
+              tagged=$((tagged + 1))
+            fi
+          done < <(find . -mindepth 2 -name go.mod -not -path './vendor/*' -not -path './node_modules/*')
+          echo "---"
+          echo "Tagged: $tagged, skipped: $skipped"
+
+      - name: Push new tags
+        run: git push origin --tags
