@@ -18,10 +18,10 @@ import antd.v1.Data.GetPublicDataRequest;
 import antd.v1.Data.GetPublicDataResponse;
 import antd.v1.Data.PutPublicDataRequest;
 import antd.v1.Data.PutPublicDataResponse;
-import antd.v1.Data.GetPrivateDataRequest;
-import antd.v1.Data.GetPrivateDataResponse;
-import antd.v1.Data.PutPrivateDataRequest;
-import antd.v1.Data.PutPrivateDataResponse;
+import antd.v1.Data.GetDataRequest;
+import antd.v1.Data.GetDataResponse;
+import antd.v1.Data.PutDataRequest;
+import antd.v1.Data.PutDataResponse;
 import antd.v1.Data.DataCostRequest;
 
 import antd.v1.ChunkServiceGrpc;
@@ -31,10 +31,10 @@ import antd.v1.Chunks.PutChunkRequest;
 import antd.v1.Chunks.PutChunkResponse;
 
 import antd.v1.FileServiceGrpc;
-import antd.v1.Files.UploadFileRequest;
-import antd.v1.Files.UploadPublicResponse;
-import antd.v1.Files.DownloadPublicRequest;
-import antd.v1.Files.DownloadResponse;
+import antd.v1.Files.PutFileRequest;
+import antd.v1.Files.PutFilePublicResponse;
+import antd.v1.Files.GetFilePublicRequest;
+import antd.v1.Files.GetFileResponse;
 import antd.v1.Files.FileCostRequest;
 
 import antd.v1.Common.Cost;
@@ -137,10 +137,10 @@ class GrpcAntdClientTest {
         }
 
         @Override
-        public void putPrivate(PutPrivateDataRequest request,
-                               StreamObserver<PutPrivateDataResponse> responseObserver) {
+        public void put(PutDataRequest request,
+                               StreamObserver<PutDataResponse> responseObserver) {
             responseObserver.onNext(
-                    PutPrivateDataResponse.newBuilder()
+                    PutDataResponse.newBuilder()
                             .setCost(Cost.newBuilder().setAttoTokens("200").build())
                             .setDataMap("dm123")
                             .build());
@@ -148,17 +148,17 @@ class GrpcAntdClientTest {
         }
 
         @Override
-        public void getPrivate(GetPrivateDataRequest request,
-                               StreamObserver<GetPrivateDataResponse> responseObserver) {
+        public void get(GetDataRequest request,
+                               StreamObserver<GetDataResponse> responseObserver) {
             responseObserver.onNext(
-                    GetPrivateDataResponse.newBuilder()
+                    GetDataResponse.newBuilder()
                             .setData(ByteString.copyFromUtf8("secret"))
                             .build());
             responseObserver.onCompleted();
         }
 
         @Override
-        public void getCost(DataCostRequest request,
+        public void cost(DataCostRequest request,
                             StreamObserver<Cost> responseObserver) {
             responseObserver.onNext(
                     Cost.newBuilder()
@@ -197,10 +197,10 @@ class GrpcAntdClientTest {
 
     static class MockFileService extends FileServiceGrpc.FileServiceImplBase {
         @Override
-        public void uploadPublic(UploadFileRequest request,
-                                 StreamObserver<UploadPublicResponse> responseObserver) {
+        public void putPublic(PutFileRequest request,
+                                 StreamObserver<PutFilePublicResponse> responseObserver) {
             responseObserver.onNext(
-                    UploadPublicResponse.newBuilder()
+                    PutFilePublicResponse.newBuilder()
                             .setAddress("file1")
                             .setStorageCostAtto("1000")
                             .setGasCostWei("42")
@@ -211,14 +211,14 @@ class GrpcAntdClientTest {
         }
 
         @Override
-        public void downloadPublic(DownloadPublicRequest request,
-                                   StreamObserver<DownloadResponse> responseObserver) {
-            responseObserver.onNext(DownloadResponse.getDefaultInstance());
+        public void getPublic(GetFilePublicRequest request,
+                                   StreamObserver<GetFileResponse> responseObserver) {
+            responseObserver.onNext(GetFileResponse.getDefaultInstance());
             responseObserver.onCompleted();
         }
 
         @Override
-        public void getFileCost(FileCostRequest request,
+        public void cost(FileCostRequest request,
                                 StreamObserver<Cost> responseObserver) {
             responseObserver.onNext(
                     Cost.newBuilder()
@@ -255,9 +255,8 @@ class GrpcAntdClientTest {
 
     @Test
     void testDataPutPublic() {
-        PutResult put = client.dataPutPublic("hello".getBytes());
+        DataPutPublicResult put = client.dataPutPublic("hello".getBytes());
         assertEquals("abc123", put.address());
-        assertEquals("100", put.cost());
     }
 
     @Test
@@ -268,14 +267,13 @@ class GrpcAntdClientTest {
 
     @Test
     void testDataPutPrivate() {
-        PutResult put = client.dataPutPrivate("secret".getBytes());
-        assertEquals("dm123", put.address());
-        assertEquals("200", put.cost());
+        DataPutResult put = client.dataPut("secret".getBytes());
+        assertEquals("dm123", put.dataMap());
     }
 
     @Test
     void testDataGetPrivate() {
-        byte[] data = client.dataGetPrivate("dm123");
+        byte[] data = client.dataGet("dm123");
         assertEquals("secret", new String(data));
     }
 
@@ -308,7 +306,7 @@ class GrpcAntdClientTest {
 
     @Test
     void testFileUploadPublic() {
-        FileUploadResult put = client.fileUploadPublic("/tmp/test.txt");
+        FilePutPublicResult put = client.filePutPublic("/tmp/test.txt");
         assertEquals("file1", put.address());
         assertEquals("1000", put.storageCostAtto());
         assertEquals("42", put.gasCostWei());
@@ -318,7 +316,7 @@ class GrpcAntdClientTest {
 
     @Test
     void testFileDownloadPublic() {
-        assertDoesNotThrow(() -> client.fileDownloadPublic("file1", "/tmp/out.txt"));
+        assertDoesNotThrow(() -> client.fileGetPublic("file1", "/tmp/out.txt"));
     }
 
     @Test

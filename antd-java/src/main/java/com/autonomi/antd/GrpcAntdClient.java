@@ -16,10 +16,10 @@ import antd.v1.Data.GetPublicDataRequest;
 import antd.v1.Data.GetPublicDataResponse;
 import antd.v1.Data.PutPublicDataRequest;
 import antd.v1.Data.PutPublicDataResponse;
-import antd.v1.Data.GetPrivateDataRequest;
-import antd.v1.Data.GetPrivateDataResponse;
-import antd.v1.Data.PutPrivateDataRequest;
-import antd.v1.Data.PutPrivateDataResponse;
+import antd.v1.Data.GetDataRequest;
+import antd.v1.Data.GetDataResponse;
+import antd.v1.Data.PutDataRequest;
+import antd.v1.Data.PutDataResponse;
 import antd.v1.Data.DataCostRequest;
 
 import antd.v1.ChunkServiceGrpc;
@@ -29,9 +29,12 @@ import antd.v1.Chunks.PutChunkRequest;
 import antd.v1.Chunks.PutChunkResponse;
 
 import antd.v1.FileServiceGrpc;
-import antd.v1.Files.UploadFileRequest;
-import antd.v1.Files.UploadPublicResponse;
-import antd.v1.Files.DownloadPublicRequest;
+import antd.v1.Files.PutFileRequest;
+import antd.v1.Files.PutFileResponse;
+import antd.v1.Files.PutFilePublicResponse;
+import antd.v1.Files.GetFileRequest;
+import antd.v1.Files.GetFileResponse;
+import antd.v1.Files.GetFilePublicRequest;
 import antd.v1.Files.FileCostRequest;
 
 import antd.v1.Common.Cost;
@@ -41,26 +44,11 @@ import com.google.protobuf.ByteString;
 import java.util.concurrent.TimeUnit;
 
 /**
- * gRPC client for the antd daemon — the gateway to the Autonomi decentralized network.
- *
- * <p>Uses {@code io.grpc} blocking stubs for synchronous calls. Implements the same
- * methods as {@link AntdClient} but communicates over gRPC instead of REST.
- *
- * <p>Implements {@link AutoCloseable} so it can be used in try-with-resources blocks.
- *
- * <pre>{@code
- * try (var client = new GrpcAntdClient()) {
- *     HealthStatus health = client.health();
- *     System.out.println(health.network());
- * }
- * }</pre>
+ * gRPC client for the antd daemon.
  */
 public class GrpcAntdClient implements AutoCloseable {
 
-    /** Default gRPC target address. */
     public static final String DEFAULT_TARGET = "localhost:50051";
-
-    /** Default shutdown timeout. */
     private static final long SHUTDOWN_TIMEOUT_SECONDS = 5;
 
     private final ManagedChannel channel;
@@ -69,12 +57,6 @@ public class GrpcAntdClient implements AutoCloseable {
     private final ChunkServiceGrpc.ChunkServiceBlockingStub chunkStub;
     private final FileServiceGrpc.FileServiceBlockingStub fileStub;
 
-    /**
-     * Creates a client that auto-discovers the daemon via the {@code daemon.port} file.
-     * Falls back to {@link #DEFAULT_TARGET} if discovery fails.
-     *
-     * @return a new GrpcAntdClient connected to the discovered or default target
-     */
     public static GrpcAntdClient autoDiscover() {
         String target = DaemonDiscovery.discoverGrpcTarget();
         if (target.isEmpty()) {
@@ -83,28 +65,14 @@ public class GrpcAntdClient implements AutoCloseable {
         return new GrpcAntdClient(target);
     }
 
-    /**
-     * Creates a client connected to {@code localhost:50051} with plaintext (no TLS).
-     */
     public GrpcAntdClient() {
         this(DEFAULT_TARGET);
     }
 
-    /**
-     * Creates a client connected to the given target (e.g. {@code "myhost:50051"}).
-     *
-     * @param target the gRPC target string (host:port)
-     */
     public GrpcAntdClient(String target) {
         this(ManagedChannelBuilder.forTarget(target).usePlaintext().build());
     }
 
-    /**
-     * Creates a client using a pre-built {@link ManagedChannel}. The client takes
-     * ownership and will shut down the channel on {@link #close()}.
-     *
-     * @param channel the managed channel to use
-     */
     public GrpcAntdClient(ManagedChannel channel) {
         this.channel = channel;
         this.healthStub = HealthServiceGrpc.newBlockingStub(channel);
@@ -126,11 +94,8 @@ public class GrpcAntdClient implements AutoCloseable {
         }
     }
 
-    // ── Error mapping ──
+    // Error mapping
 
-    /**
-     * Maps gRPC status codes to the {@link AntdException} hierarchy.
-     */
     private static AntdException mapException(StatusRuntimeException e) {
         String msg = e.getStatus().getDescription();
         if (msg == null) msg = e.getMessage();
@@ -147,11 +112,8 @@ public class GrpcAntdClient implements AutoCloseable {
         };
     }
 
-    // ── Health ──
+    // Health
 
-    /**
-     * Check daemon health status.
-     */
     public HealthStatus health() {
         try {
             HealthCheckResponse resp = healthStub.check(HealthCheckRequest.getDefaultInstance());
@@ -161,7 +123,6 @@ public class GrpcAntdClient implements AutoCloseable {
         }
     }
 
-    /** Convert a gRPC HealthCheckResponse into a typed HealthStatus. */
     static HealthStatus healthStatusFromGrpc(HealthCheckResponse resp) {
         return new HealthStatus(
                 "ok".equals(resp.getStatus()),
@@ -174,31 +135,55 @@ public class GrpcAntdClient implements AutoCloseable {
                 resp.getPaymentVaultAddress());
     }
 
-    // ── Data (Immutable) ──
+    // Data
 
-    /**
-     * Store public data on the network.
-     */
-    public PutResult dataPutPublic(byte[] data) {
+    public DataPutResult dataPut(byte[] data, PaymentMode paymentMode) {
         try {
-            PutPublicDataRequest req = PutPublicDataRequest.newBuilder()
+            PutDataRequest req = PutDataRequest.newBuilder()
                     .setData(ByteString.copyFrom(data))
+                    .setPaymentMode(paymentMode.wireValue())
                     .build();
-            PutPublicDataResponse resp = dataStub.putPublic(req);
-            return new PutResult(resp.getCost().getAttoTokens(), resp.getAddress());
+            PutDataResponse resp = dataStub.put(req);
+            return new DataPutResult(resp.getDataMap());
         } catch (StatusRuntimeException e) {
             throw mapException(e);
         }
     }
 
-    /**
-     * Retrieve public data by address.
-     */
+    public DataPutResult dataPut(byte[] data) {
+        return dataPut(data, PaymentMode.AUTO);
+    }
+
+    public byte[] dataGet(String dataMap) {
+        try {
+            GetDataRequest req = GetDataRequest.newBuilder().setDataMap(dataMap).build();
+            GetDataResponse resp = dataStub.get(req);
+            return resp.getData().toByteArray();
+        } catch (StatusRuntimeException e) {
+            throw mapException(e);
+        }
+    }
+
+    public DataPutPublicResult dataPutPublic(byte[] data, PaymentMode paymentMode) {
+        try {
+            PutPublicDataRequest req = PutPublicDataRequest.newBuilder()
+                    .setData(ByteString.copyFrom(data))
+                    .setPaymentMode(paymentMode.wireValue())
+                    .build();
+            PutPublicDataResponse resp = dataStub.putPublic(req);
+            return new DataPutPublicResult(resp.getAddress());
+        } catch (StatusRuntimeException e) {
+            throw mapException(e);
+        }
+    }
+
+    public DataPutPublicResult dataPutPublic(byte[] data) {
+        return dataPutPublic(data, PaymentMode.AUTO);
+    }
+
     public byte[] dataGetPublic(String address) {
         try {
-            GetPublicDataRequest req = GetPublicDataRequest.newBuilder()
-                    .setAddress(address)
-                    .build();
+            GetPublicDataRequest req = GetPublicDataRequest.newBuilder().setAddress(address).build();
             GetPublicDataResponse resp = dataStub.getPublic(req);
             return resp.getData().toByteArray();
         } catch (StatusRuntimeException e) {
@@ -206,45 +191,13 @@ public class GrpcAntdClient implements AutoCloseable {
         }
     }
 
-    /**
-     * Store encrypted private data on the network.
-     */
-    public PutResult dataPutPrivate(byte[] data) {
-        try {
-            PutPrivateDataRequest req = PutPrivateDataRequest.newBuilder()
-                    .setData(ByteString.copyFrom(data))
-                    .build();
-            PutPrivateDataResponse resp = dataStub.putPrivate(req);
-            return new PutResult(resp.getCost().getAttoTokens(), resp.getDataMap());
-        } catch (StatusRuntimeException e) {
-            throw mapException(e);
-        }
-    }
-
-    /**
-     * Retrieve private data by data map.
-     */
-    public byte[] dataGetPrivate(String dataMap) {
-        try {
-            GetPrivateDataRequest req = GetPrivateDataRequest.newBuilder()
-                    .setDataMap(dataMap)
-                    .build();
-            GetPrivateDataResponse resp = dataStub.getPrivate(req);
-            return resp.getData().toByteArray();
-        } catch (StatusRuntimeException e) {
-            throw mapException(e);
-        }
-    }
-
-    /**
-     * Pre-upload cost breakdown for the given bytes.
-     */
-    public UploadCostEstimate dataCost(byte[] data) {
+    public UploadCostEstimate dataCost(byte[] data, PaymentMode paymentMode) {
         try {
             DataCostRequest req = DataCostRequest.newBuilder()
                     .setData(ByteString.copyFrom(data))
+                    .setPaymentMode(paymentMode.wireValue())
                     .build();
-            Cost resp = dataStub.getCost(req);
+            Cost resp = dataStub.cost(req);
             return new UploadCostEstimate(
                     resp.getAttoTokens(),
                     resp.getFileSize(),
@@ -256,16 +209,15 @@ public class GrpcAntdClient implements AutoCloseable {
         }
     }
 
-    // ── Chunks ──
+    public UploadCostEstimate dataCost(byte[] data) {
+        return dataCost(data, PaymentMode.AUTO);
+    }
 
-    /**
-     * Store a raw chunk on the network.
-     */
+    // Chunks
+
     public PutResult chunkPut(byte[] data) {
         try {
-            PutChunkRequest req = PutChunkRequest.newBuilder()
-                    .setData(ByteString.copyFrom(data))
-                    .build();
+            PutChunkRequest req = PutChunkRequest.newBuilder().setData(ByteString.copyFrom(data)).build();
             PutChunkResponse resp = chunkStub.put(req);
             return new PutResult(resp.getCost().getAttoTokens(), resp.getAddress());
         } catch (StatusRuntimeException e) {
@@ -273,14 +225,9 @@ public class GrpcAntdClient implements AutoCloseable {
         }
     }
 
-    /**
-     * Retrieve a raw chunk by address.
-     */
     public byte[] chunkGet(String address) {
         try {
-            GetChunkRequest req = GetChunkRequest.newBuilder()
-                    .setAddress(address)
-                    .build();
+            GetChunkRequest req = GetChunkRequest.newBuilder().setAddress(address).build();
             GetChunkResponse resp = chunkStub.get(req);
             return resp.getData().toByteArray();
         } catch (StatusRuntimeException e) {
@@ -288,57 +235,84 @@ public class GrpcAntdClient implements AutoCloseable {
         }
     }
 
-    // ── Files & Directories ──
+    // Files
 
-    /**
-     * Upload a file to the network (public).
-     */
-    public FileUploadResult fileUploadPublic(String path) {
+    public FilePutResult filePut(String path, PaymentMode paymentMode) {
         try {
-            UploadFileRequest req = UploadFileRequest.newBuilder()
+            PutFileRequest req = PutFileRequest.newBuilder()
                     .setPath(path)
+                    .setPaymentMode(paymentMode.wireValue())
                     .build();
-            UploadPublicResponse resp = fileStub.uploadPublic(req);
-            return toFileUploadResult(resp);
+            PutFileResponse resp = fileStub.put(req);
+            return new FilePutResult(
+                    resp.getDataMap(),
+                    resp.getStorageCostAtto(),
+                    resp.getGasCostWei(),
+                    resp.getChunksStored(),
+                    resp.getPaymentModeUsed());
         } catch (StatusRuntimeException e) {
             throw mapException(e);
         }
     }
 
-    /**
-     * Download a public file to a local path.
-     */
-    public void fileDownloadPublic(String address, String destPath) {
+    public FilePutResult filePut(String path) {
+        return filePut(path, PaymentMode.AUTO);
+    }
+
+    public void fileGet(String dataMap, String destPath) {
         try {
-            DownloadPublicRequest req = DownloadPublicRequest.newBuilder()
+            GetFileRequest req = GetFileRequest.newBuilder()
+                    .setDataMap(dataMap)
+                    .setDestPath(destPath)
+                    .build();
+            fileStub.get(req);
+        } catch (StatusRuntimeException e) {
+            throw mapException(e);
+        }
+    }
+
+    public FilePutPublicResult filePutPublic(String path, PaymentMode paymentMode) {
+        try {
+            PutFileRequest req = PutFileRequest.newBuilder()
+                    .setPath(path)
+                    .setPaymentMode(paymentMode.wireValue())
+                    .build();
+            PutFilePublicResponse resp = fileStub.putPublic(req);
+            return new FilePutPublicResult(
+                    resp.getAddress(),
+                    resp.getStorageCostAtto(),
+                    resp.getGasCostWei(),
+                    resp.getChunksStored(),
+                    resp.getPaymentModeUsed());
+        } catch (StatusRuntimeException e) {
+            throw mapException(e);
+        }
+    }
+
+    public FilePutPublicResult filePutPublic(String path) {
+        return filePutPublic(path, PaymentMode.AUTO);
+    }
+
+    public void fileGetPublic(String address, String destPath) {
+        try {
+            GetFilePublicRequest req = GetFilePublicRequest.newBuilder()
                     .setAddress(address)
                     .setDestPath(destPath)
                     .build();
-            fileStub.downloadPublic(req);
+            fileStub.getPublic(req);
         } catch (StatusRuntimeException e) {
             throw mapException(e);
         }
     }
 
-    private static FileUploadResult toFileUploadResult(UploadPublicResponse resp) {
-        return new FileUploadResult(
-                resp.getAddress(),
-                resp.getStorageCostAtto(),
-                resp.getGasCostWei(),
-                resp.getChunksStored(),
-                resp.getPaymentModeUsed());
-    }
-
-    /**
-     * Pre-upload cost breakdown for the file at {@code path}.
-     */
-    public UploadCostEstimate fileCost(String path, boolean isPublic) {
+    public UploadCostEstimate fileCost(String path, boolean isPublic, PaymentMode paymentMode) {
         try {
             FileCostRequest req = FileCostRequest.newBuilder()
                     .setPath(path)
                     .setIsPublic(isPublic)
+                    .setPaymentMode(paymentMode.wireValue())
                     .build();
-            Cost resp = fileStub.getFileCost(req);
+            Cost resp = fileStub.cost(req);
             return new UploadCostEstimate(
                     resp.getAttoTokens(),
                     resp.getFileSize(),
@@ -348,5 +322,9 @@ public class GrpcAntdClient implements AutoCloseable {
         } catch (StatusRuntimeException e) {
             throw mapException(e);
         }
+    }
+
+    public UploadCostEstimate fileCost(String path, boolean isPublic) {
+        return fileCost(path, isPublic, PaymentMode.AUTO);
     }
 }

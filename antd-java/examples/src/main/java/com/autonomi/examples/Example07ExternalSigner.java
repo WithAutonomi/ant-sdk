@@ -98,7 +98,7 @@ public class Example07ExternalSigner {
                     fileFin.dataMapAddress(), fileFin.chunksStored());
 
             Path dst = src.resolveSibling("file.bin.downloaded");
-            client.fileDownloadPublic(fileFin.dataMapAddress(), dst.toString());
+            client.fileGetPublic(fileFin.dataMapAddress(), dst.toString());
             byte[] downloaded = Files.readAllBytes(dst);
             if (!Arrays.equals(downloaded, fileContent)) {
                 throw new RuntimeException("file round-trip mismatch");

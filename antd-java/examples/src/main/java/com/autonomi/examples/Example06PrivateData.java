@@ -1,7 +1,7 @@
 package com.autonomi.examples;
 
 import com.autonomi.antd.AntdClient;
-import com.autonomi.antd.models.PutResult;
+import com.autonomi.antd.models.DataPutResult;
 
 /**
  * Example 06 — Store and retrieve private (encrypted) data.
@@ -11,12 +11,12 @@ public class Example06PrivateData {
         try (var client = new AntdClient()) {
             // Store private data (encrypted by the daemon)
             byte[] secret = "sensitive enterprise data".getBytes();
-            PutResult result = client.dataPutPrivate(secret);
-            System.out.println("Data map: " + result.address());
-            System.out.println("Cost:     " + result.cost() + " atto");
+            DataPutResult result = client.dataPut(secret);
+            System.out.println("Data map: " + result.dataMap());
+            System.out.println("Chunks:   " + result.chunksStored() + ", mode: " + result.paymentModeUsed());
 
             // Retrieve private data (decrypted by the daemon)
-            byte[] retrieved = client.dataGetPrivate(result.address());
+            byte[] retrieved = client.dataGet(result.dataMap());
             System.out.println("Retrieved: " + new String(retrieved));
 
             // Estimate cost

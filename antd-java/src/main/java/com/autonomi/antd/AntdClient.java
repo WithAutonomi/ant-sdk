@@ -6,11 +6,9 @@ import com.autonomi.antd.models.*;
 
 import java.io.IOException;
 import java.net.URI;
-import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.*;
 
@@ -43,8 +41,6 @@ public class AntdClient implements AutoCloseable {
     /**
      * Creates a client that auto-discovers the daemon via the {@code daemon.port} file.
      * Falls back to {@link #DEFAULT_BASE_URL} if discovery fails.
-     *
-     * @return a new AntdClient connected to the discovered or default URL
      */
     public static AntdClient autoDiscover() {
         String url = DaemonDiscovery.discoverDaemonUrl();
@@ -77,7 +73,7 @@ public class AntdClient implements AutoCloseable {
         // HttpClient does not require explicit close in Java 17.
     }
 
-    // ── Internal helpers ──
+    // Internal helpers
 
     private static String b64Encode(byte[] data) {
         return Base64.getEncoder().encodeToString(data);
@@ -132,21 +128,6 @@ public class AntdClient implements AutoCloseable {
         }
     }
 
-    private int doHead(String path) {
-        try {
-            HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create(url(path)))
-                    .timeout(timeout)
-                    .method("HEAD", HttpRequest.BodyPublishers.noBody())
-                    .build();
-            HttpResponse<Void> resp = httpClient.send(req, HttpResponse.BodyHandlers.discarding());
-            return resp.statusCode();
-        } catch (IOException | InterruptedException e) {
-            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
-            throw new AntdException(0, "HTTP request failed: " + e.getMessage());
-        }
-    }
-
     private static String str(Map<String, Object> m, String key) {
         Object v = m.get(key);
         return v != null ? v.toString() : "";
@@ -156,23 +137,6 @@ public class AntdClient implements AutoCloseable {
         Object v = m.get(key);
         if (v instanceof Number n) return n.longValue();
         return 0L;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static List<String> strList(Map<String, Object> m, String key) {
-        Object v = m.get(key);
-        if (v instanceof List<?> list) {
-            List<String> result = new ArrayList<>(list.size());
-            for (Object item : list) result.add(item.toString());
-            return Collections.unmodifiableList(result);
-        }
-        return Collections.emptyList();
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Map<String, Object> mapAt(Map<String, Object> m, String key) {
-        Object v = m.get(key);
-        return v instanceof Map<?, ?> map ? (Map<String, Object>) map : null;
     }
 
     @SuppressWarnings("unchecked")
@@ -188,17 +152,12 @@ public class AntdClient implements AutoCloseable {
         return Collections.emptyList();
     }
 
-    // ── Health ──
+    // Health
 
     public HealthStatus health() {
         return parseHealthStatus(doJson("GET", "/health", null));
     }
 
-    /**
-     * Convert a /health JSON response to a typed HealthStatus. Diagnostic
-     * fields default to empty / 0 when talking to a pre-0.4.0 daemon. Package-
-     * private so AsyncAntdClient can share the parser.
-     */
     static HealthStatus parseHealthStatus(Map<String, Object> j) {
         return new HealthStatus(
                 "ok".equals(str(j, "status")),
@@ -211,61 +170,66 @@ public class AntdClient implements AutoCloseable {
                 str(j, "payment_vault_address"));
     }
 
-    // ── Data (Immutable) ──
+    // Data
 
-    public PutResult dataPutPublic(byte[] data) {
-        return dataPutPublic(data, null);
+    /** Stores private encrypted data. Returns the caller-held DataMap (hex). */
+    public DataPutResult dataPut(byte[] data, PaymentMode paymentMode) {
+        String body = Json.object("data", b64Encode(data), "payment_mode", paymentMode.wireValue());
+        Map<String, Object> j = doJson("POST", "/v1/data", body);
+        return new DataPutResult(
+                str(j, "data_map"),
+                num(j, "chunks_stored"),
+                str(j, "payment_mode_used"));
     }
 
-    public PutResult dataPutPublic(byte[] data, String paymentMode) {
-        String body = paymentMode != null
-                ? Json.object("data", b64Encode(data), "payment_mode", paymentMode)
-                : Json.object("data", b64Encode(data));
+    public DataPutResult dataPut(byte[] data) {
+        return dataPut(data, PaymentMode.AUTO);
+    }
+
+    /** Retrieves private data from a caller-held DataMap (hex). */
+    public byte[] dataGet(String dataMap) {
+        String body = Json.object("data_map", dataMap);
+        Map<String, Object> j = doJson("POST", "/v1/data/get", body);
+        return b64Decode(str(j, "data"));
+    }
+
+    /** Stores public data. Returns the on-network DataMap address. */
+    public DataPutPublicResult dataPutPublic(byte[] data, PaymentMode paymentMode) {
+        String body = Json.object("data", b64Encode(data), "payment_mode", paymentMode.wireValue());
         Map<String, Object> j = doJson("POST", "/v1/data/public", body);
-        return new PutResult(str(j, "cost"), str(j, "address"));
+        return new DataPutPublicResult(
+                str(j, "address"),
+                num(j, "chunks_stored"),
+                str(j, "payment_mode_used"));
     }
 
+    public DataPutPublicResult dataPutPublic(byte[] data) {
+        return dataPutPublic(data, PaymentMode.AUTO);
+    }
+
+    /** Retrieves public data by address. */
     public byte[] dataGetPublic(String address) {
         Map<String, Object> j = doJson("GET", "/v1/data/public/" + address, null);
         return b64Decode(str(j, "data"));
     }
 
-    public PutResult dataPutPrivate(byte[] data) {
-        return dataPutPrivate(data, null);
-    }
-
-    public PutResult dataPutPrivate(byte[] data, String paymentMode) {
-        String body = paymentMode != null
-                ? Json.object("data", b64Encode(data), "payment_mode", paymentMode)
-                : Json.object("data", b64Encode(data));
-        Map<String, Object> j = doJson("POST", "/v1/data/private", body);
-        return new PutResult(str(j, "cost"), str(j, "data_map"));
-    }
-
-    public byte[] dataGetPrivate(String dataMap) {
-        String encoded = URLEncoder.encode(dataMap, StandardCharsets.UTF_8);
-        Map<String, Object> j = doJson("GET", "/v1/data/private?data_map=" + encoded, null);
-        return b64Decode(str(j, "data"));
-    }
-
-    /**
-     * Pre-upload cost breakdown for the given bytes.
-     *
-     * <p>The server samples a small number of chunk addresses and extrapolates,
-     * much faster than quoting every chunk on slow networks. Gas is advisory.
-     */
-    public UploadCostEstimate dataCost(byte[] data) {
-        String body = Json.object("data", b64Encode(data));
+    /** Pre-upload cost breakdown for the given bytes. */
+    public UploadCostEstimate dataCost(byte[] data, PaymentMode paymentMode) {
+        String body = Json.object("data", b64Encode(data), "payment_mode", paymentMode.wireValue());
         Map<String, Object> j = doJson("POST", "/v1/data/cost", body);
         return new UploadCostEstimate(
-            str(j, "cost"),
-            num(j, "file_size"),
-            (int) num(j, "chunk_count"),
-            str(j, "estimated_gas_cost_wei"),
-            str(j, "payment_mode"));
+                str(j, "cost"),
+                num(j, "file_size"),
+                (int) num(j, "chunk_count"),
+                str(j, "estimated_gas_cost_wei"),
+                str(j, "payment_mode"));
     }
 
-    // ── Chunks ──
+    public UploadCostEstimate dataCost(byte[] data) {
+        return dataCost(data, PaymentMode.AUTO);
+    }
+
+    // Chunks
 
     public PutResult chunkPut(byte[] data) {
         String body = Json.object("data", b64Encode(data));
@@ -279,28 +243,8 @@ public class AntdClient implements AutoCloseable {
     }
 
     /**
-     * Prepare a single chunk for external-signer publish via
-     * {@code POST /v1/chunks/prepare}.
-     *
-     * <p>The daemon collects storage quotes from the close group, stashes the
-     * prepared state, and returns either:
-     *
-     * <ul>
-     *   <li>{@code alreadyStored = true} with {@code address} set, if the chunk
-     *       is already on-network. No payment or finalize call is needed.</li>
-     *   <li>{@code alreadyStored = false} with {@code uploadId} + {@code payments}
-     *       + {@code totalAmount} populated, in which case the caller signs and
-     *       submits {@code payForQuotes()} externally, then calls
-     *       {@link #finalizeChunkUpload} with the resulting tx hashes.</li>
-     * </ul>
-     *
-     * <p>Unlike {@link #chunkPut}, this method does NOT require the daemon to
-     * have a wallet — all funds flow through the external signer.
-     *
-     * <p>Requires antd &gt;= 0.7.0.
-     *
-     * @param data chunk bytes (the daemon base64-encodes them on the wire)
-     * @return parsed {@link PrepareChunkResult}
+     * Prepare a single chunk for external-signer publish.
+     * Requires antd &gt;= 0.7.0.
      */
     public PrepareChunkResult prepareChunkUpload(byte[] data) {
         String body = Json.object("data", b64Encode(data));
@@ -309,19 +253,8 @@ public class AntdClient implements AutoCloseable {
     }
 
     /**
-     * Submit a single chunk to the network after the external signer has paid,
-     * via {@code POST /v1/chunks/finalize}.
-     *
-     * <p>{@code txHashes} maps each non-zero {@code quote_hash} from
-     * {@link #prepareChunkUpload}'s payments to the corresponding {@code tx_hash}
-     * returned by {@code payForQuotes()}. Returns the hex-encoded network
-     * address of the stored chunk (matches {@link PrepareChunkResult#address()}).
-     *
-     * <p>Requires antd &gt;= 0.7.0.
-     *
-     * @param uploadId the upload ID from {@link #prepareChunkUpload}
-     * @param txHashes map of quote_hash to tx_hash
-     * @return hex-encoded address of the stored chunk (64 chars)
+     * Submit a single chunk after external payment.
+     * Requires antd &gt;= 0.7.0.
      */
     public String finalizeChunkUpload(String uploadId, Map<String, String> txHashes) {
         String body = Json.object("upload_id", uploadId, "tx_hashes", txHashes);
@@ -329,7 +262,6 @@ public class AntdClient implements AutoCloseable {
         return str(j, "address");
     }
 
-    /** Parse a {@code /v1/chunks/prepare} JSON response. */
     static PrepareChunkResult parsePrepareChunkResult(Map<String, Object> j) {
         Object alreadyObj = j.get("already_stored");
         boolean alreadyStored = alreadyObj instanceof Boolean b && b;
@@ -354,27 +286,53 @@ public class AntdClient implements AutoCloseable {
                 str(j, "rpc_url"));
     }
 
-    // ── Files ──
+    // Files
 
-    public FileUploadResult fileUploadPublic(String path) {
-        return fileUploadPublic(path, null);
+    /** Uploads a file privately. Returns the caller-held DataMap (hex). */
+    public FilePutResult filePut(String path, PaymentMode paymentMode) {
+        String body = Json.object("path", path, "payment_mode", paymentMode.wireValue());
+        Map<String, Object> j = doJson("POST", "/v1/files", body);
+        return parseFilePutResult(j);
     }
 
-    public FileUploadResult fileUploadPublic(String path, String paymentMode) {
-        String body = paymentMode != null
-                ? Json.object("path", path, "payment_mode", paymentMode)
-                : Json.object("path", path);
-        Map<String, Object> j = doJson("POST", "/v1/files/upload/public", body);
-        return parseFileUploadResult(j);
+    public FilePutResult filePut(String path) {
+        return filePut(path, PaymentMode.AUTO);
     }
 
-    public void fileDownloadPublic(String address, String destPath) {
+    /** Downloads a private file from a caller-held DataMap into {@code destPath}. */
+    public void fileGet(String dataMap, String destPath) {
+        String body = Json.object("data_map", dataMap, "dest_path", destPath);
+        doJson("POST", "/v1/files/get", body);
+    }
+
+    /** Uploads a file publicly. Returns the on-network DataMap address. */
+    public FilePutPublicResult filePutPublic(String path, PaymentMode paymentMode) {
+        String body = Json.object("path", path, "payment_mode", paymentMode.wireValue());
+        Map<String, Object> j = doJson("POST", "/v1/files/public", body);
+        return parseFilePutPublicResult(j);
+    }
+
+    public FilePutPublicResult filePutPublic(String path) {
+        return filePutPublic(path, PaymentMode.AUTO);
+    }
+
+    /** Downloads a public file from an on-network DataMap address. */
+    public void fileGetPublic(String address, String destPath) {
         String body = Json.object("address", address, "dest_path", destPath);
-        doJson("POST", "/v1/files/download/public", body);
+        doJson("POST", "/v1/files/public/get", body);
     }
 
-    private static FileUploadResult parseFileUploadResult(Map<String, Object> j) {
-        return new FileUploadResult(
+    private static FilePutResult parseFilePutResult(Map<String, Object> j) {
+        return new FilePutResult(
+                str(j, "data_map"),
+                str(j, "storage_cost_atto"),
+                str(j, "gas_cost_wei"),
+                num(j, "chunks_stored"),
+                str(j, "payment_mode_used"));
+    }
+
+    private static FilePutPublicResult parseFilePutPublicResult(Map<String, Object> j) {
+        return new FilePutPublicResult(
                 str(j, "address"),
                 str(j, "storage_cost_atto"),
                 str(j, "gas_cost_wei"),
@@ -382,21 +340,23 @@ public class AntdClient implements AutoCloseable {
                 str(j, "payment_mode_used"));
     }
 
-    /**
-     * Pre-upload cost breakdown for the file at {@code path}.
-     */
-    public UploadCostEstimate fileCost(String path, boolean isPublic) {
-        String body = Json.object("path", path, "is_public", isPublic);
+    /** Pre-upload cost breakdown for the file at {@code path}. */
+    public UploadCostEstimate fileCost(String path, boolean isPublic, PaymentMode paymentMode) {
+        String body = Json.object("path", path, "is_public", isPublic, "payment_mode", paymentMode.wireValue());
         Map<String, Object> j = doJson("POST", "/v1/files/cost", body);
         return new UploadCostEstimate(
-            str(j, "cost"),
-            num(j, "file_size"),
-            (int) num(j, "chunk_count"),
-            str(j, "estimated_gas_cost_wei"),
-            str(j, "payment_mode"));
+                str(j, "cost"),
+                num(j, "file_size"),
+                (int) num(j, "chunk_count"),
+                str(j, "estimated_gas_cost_wei"),
+                str(j, "payment_mode"));
     }
 
-    // ── Wallet ──
+    public UploadCostEstimate fileCost(String path, boolean isPublic) {
+        return fileCost(path, isPublic, PaymentMode.AUTO);
+    }
+
+    // Wallet
 
     public WalletAddress walletAddress() {
         Map<String, Object> j = doJson("GET", "/v1/wallet/address", null);
@@ -408,45 +368,31 @@ public class AntdClient implements AutoCloseable {
         return new WalletBalance(str(j, "balance"), str(j, "gas_balance"));
     }
 
-    /**
-     * Approves the wallet to spend tokens on payment contracts.
-     * This is a one-time operation required before any storage operations.
-     *
-     * @return true if the wallet was approved
-     * @throws AntdException if no wallet is configured (HTTP 400) or on other errors
-     */
     public boolean walletApprove() {
         Map<String, Object> j = doJson("POST", "/v1/wallet/approve", "{}");
         Object approved = j.get("approved");
         return approved instanceof Boolean b && b;
     }
 
-    // ── External Signer (Two-Phase Upload) ──
+    // External Signer (Two-Phase Upload)
 
-    /**
-     * Parses a prepare-upload JSON response into a PrepareUploadResult.
-     * Handles both wave_batch and merkle payment types.
-     */
     private static PrepareUploadResult parsePrepareResponse(Map<String, Object> j) {
         String paymentType = str(j, "payment_type");
         if (paymentType.isEmpty()) {
             paymentType = "wave_batch";
         }
 
-        // Parse wave-batch payments
         List<PaymentInfo> payments = new ArrayList<>();
         for (Map<String, Object> pm : listOfMaps(j, "payments")) {
             payments.add(new PaymentInfo(str(pm, "quote_hash"), str(pm, "rewards_address"), str(pm, "amount")));
         }
 
-        // Parse merkle fields
         Integer depth = null;
         List<PoolCommitmentEntry> poolCommitments = null;
         Long merklePaymentTimestamp = null;
 
         if ("merkle".equals(paymentType)) {
-            long depthVal = num(j, "depth");
-            depth = (int) depthVal;
+            depth = (int) num(j, "depth");
             merklePaymentTimestamp = num(j, "merkle_payment_timestamp");
 
             poolCommitments = new ArrayList<>();
@@ -474,38 +420,10 @@ public class AntdClient implements AutoCloseable {
         );
     }
 
-    /**
-     * Prepares a private file upload for external signing.
-     *
-     * <p>Equivalent to {@link #prepareUpload(String, String) prepareUpload(path, null)}.
-     *
-     * @param path local file path to upload
-     * @return PrepareUploadResult with upload_id, payments, and contract details
-     */
     public PrepareUploadResult prepareUpload(String path) {
         return prepareUpload(path, null);
     }
 
-    /**
-     * Prepares a file upload for external signing with explicit visibility.
-     *
-     * <p>{@code visibility = "public"} bundles the DataMap chunk into the same
-     * external-signer payment batch — so the signer signs ONE EVM transaction
-     * covering chunks + DataMap. After {@link #finalizeUpload}, the result's
-     * {@link FinalizeUploadResult#dataMapAddress()} is the shareable retrieval
-     * handle.
-     *
-     * <p>{@code visibility = null} (or "private") preserves the historical
-     * private-only behaviour — the {@code visibility} key is omitted from the
-     * request body so older daemons keep working.
-     *
-     * <p>Requires antd &gt;= 0.6.1 for {@code "public"}.
-     *
-     * @param path       local file path to upload
-     * @param visibility {@code "public"}, {@code "private"}, or {@code null} to
-     *                   omit the field
-     * @return PrepareUploadResult with upload_id, payments, and contract details
-     */
     public PrepareUploadResult prepareUpload(String path, String visibility) {
         String body = visibility != null
                 ? Json.object("path", path, "visibility", visibility)
@@ -514,32 +432,16 @@ public class AntdClient implements AutoCloseable {
         return parsePrepareResponse(j);
     }
 
-    /**
-     * Convenience wrapper: prepare a <em>public</em> file upload for external
-     * signing. Equivalent to {@code prepareUpload(path, "public")}.
-     *
-     * <p>Requires antd &gt;= 0.6.1.
-     */
     public PrepareUploadResult prepareUploadPublic(String path) {
         return prepareUpload(path, "public");
     }
 
-    /**
-     * Prepares a data upload for external signing.
-     * Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
-     * Returns payment details that an external signer must process before calling
-     * {@link #finalizeUpload} (wave_batch) or {@link #finalizeMerkleUpload} (merkle).
-     *
-     * @param data raw bytes to upload
-     * @return PrepareUploadResult with upload_id, payments, and contract details
-     */
     public PrepareUploadResult prepareDataUpload(byte[] data) {
         String body = Json.object("data", b64Encode(data));
         Map<String, Object> j = doJson("POST", "/v1/data/prepare", body);
         return parsePrepareResponse(j);
     }
 
-    /** Parse a {@code /v1/upload/finalize} JSON response. */
     private static FinalizeUploadResult parseFinalizeUploadResult(Map<String, Object> j) {
         return new FinalizeUploadResult(
                 str(j, "address"),
@@ -548,28 +450,12 @@ public class AntdClient implements AutoCloseable {
                 str(j, "data_map_address"));
     }
 
-    /**
-     * Finalizes a wave-batch upload after an external signer has submitted payment transactions.
-     *
-     * @param uploadId the upload ID returned by {@link #prepareUpload}
-     * @param txHashes map of quote_hash to tx_hash for each payment
-     * @return FinalizeUploadResult with address, chunks_stored, data_map and data_map_address
-     */
     public FinalizeUploadResult finalizeUpload(String uploadId, Map<String, String> txHashes) {
         String body = Json.object("upload_id", uploadId, "tx_hashes", txHashes);
         Map<String, Object> j = doJson("POST", "/v1/upload/finalize", body);
         return parseFinalizeUploadResult(j);
     }
 
-    /**
-     * Finalizes a merkle upload after the external signer has submitted the
-     * payForMerkleTree transaction. The winnerPoolHash is the bytes32 value from
-     * the MerklePaymentMade event (hex with 0x prefix).
-     *
-     * @param uploadId       the upload ID returned by {@link #prepareUpload}
-     * @param winnerPoolHash bytes32 pool hash from MerklePaymentMade event
-     * @return FinalizeUploadResult with address, chunks_stored, data_map and data_map_address
-     */
     public FinalizeUploadResult finalizeMerkleUpload(String uploadId, String winnerPoolHash) {
         String body = Json.object("upload_id", uploadId, "winner_pool_hash", winnerPoolHash);
         Map<String, Object> j = doJson("POST", "/v1/upload/finalize", body);

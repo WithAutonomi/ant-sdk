@@ -1,7 +1,7 @@
 package com.autonomi.examples;
 
 import com.autonomi.antd.AntdClient;
-import com.autonomi.antd.models.FileUploadResult;
+import com.autonomi.antd.models.FilePutPublicResult;
 import com.autonomi.antd.models.UploadCostEstimate;
 
 import java.nio.file.Files;
@@ -23,7 +23,7 @@ public class Example03Files {
             UploadCostEstimate cost = client.fileCost(src.toString(), true);
             System.out.println("Estimated cost: " + cost.cost() + " atto (" + cost.chunkCount() + " chunks)");
 
-            FileUploadResult result = client.fileUploadPublic(src.toString());
+            FilePutPublicResult result = client.filePutPublic(src.toString());
             System.out.println("Uploaded to:  " + result.address());
             System.out.println("Storage cost: " + result.storageCostAtto() + " atto");
             System.out.println("Gas cost:     " + result.gasCostWei() + " wei");
@@ -31,7 +31,7 @@ public class Example03Files {
             System.out.println("Mode:         " + result.paymentModeUsed());
 
             Path dst = tmp.resolve("hello.txt.downloaded");
-            client.fileDownloadPublic(result.address(), dst.toString());
+            client.fileGetPublic(result.address(), dst.toString());
             System.out.println("Downloaded to: " + dst);
 
             String got = Files.readString(dst);
