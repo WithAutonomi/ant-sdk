@@ -1,14 +1,14 @@
-// This is a generated file - do not edit.
 //
-// Generated from antd/v1/chunks.proto.
-
+//  Generated code. Do not modify.
+//  source: antd/v1/chunks.proto
+//
 // @dart = 3.3
 
 // ignore_for_file: annotate_overrides, camel_case_types, comment_references
 // ignore_for_file: constant_identifier_names
 // ignore_for_file: curly_braces_in_flow_control_structures
 // ignore_for_file: deprecated_member_use_from_same_package, library_prefixes
-// ignore_for_file: non_constant_identifier_names, prefer_relative_imports
+// ignore_for_file: non_constant_identifier_names
 
 import 'dart:async' as $async;
 import 'dart:core' as $core;
@@ -30,34 +30,24 @@ class ChunkServiceClient extends $grpc.Client {
     '',
   ];
 
+  static final _$get = $grpc.ClientMethod<$0.GetChunkRequest, $0.GetChunkResponse>(
+      '/antd.v1.ChunkService/Get',
+      ($0.GetChunkRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $0.GetChunkResponse.fromBuffer(value));
+  static final _$put = $grpc.ClientMethod<$0.PutChunkRequest, $0.PutChunkResponse>(
+      '/antd.v1.ChunkService/Put',
+      ($0.PutChunkRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $0.PutChunkResponse.fromBuffer(value));
+
   ChunkServiceClient(super.channel, {super.options, super.interceptors});
 
-  $grpc.ResponseFuture<$0.GetChunkResponse> get(
-    $0.GetChunkRequest request, {
-    $grpc.CallOptions? options,
-  }) {
+  $grpc.ResponseFuture<$0.GetChunkResponse> get($0.GetChunkRequest request, {$grpc.CallOptions? options}) {
     return $createUnaryCall(_$get, request, options: options);
   }
 
-  $grpc.ResponseFuture<$0.PutChunkResponse> put(
-    $0.PutChunkRequest request, {
-    $grpc.CallOptions? options,
-  }) {
+  $grpc.ResponseFuture<$0.PutChunkResponse> put($0.PutChunkRequest request, {$grpc.CallOptions? options}) {
     return $createUnaryCall(_$put, request, options: options);
   }
-
-  // method descriptors
-
-  static final _$get =
-      $grpc.ClientMethod<$0.GetChunkRequest, $0.GetChunkResponse>(
-          '/antd.v1.ChunkService/Get',
-          ($0.GetChunkRequest value) => value.writeToBuffer(),
-          $0.GetChunkResponse.fromBuffer);
-  static final _$put =
-      $grpc.ClientMethod<$0.PutChunkRequest, $0.PutChunkResponse>(
-          '/antd.v1.ChunkService/Put',
-          ($0.PutChunkRequest value) => value.writeToBuffer(),
-          $0.PutChunkResponse.fromBuffer);
 }
 
 @$pb.GrpcServiceName('antd.v1.ChunkService')
@@ -81,19 +71,14 @@ abstract class ChunkServiceBase extends $grpc.Service {
         ($0.PutChunkResponse value) => value.writeToBuffer()));
   }
 
-  $async.Future<$0.GetChunkResponse> get_Pre($grpc.ServiceCall $call,
-      $async.Future<$0.GetChunkRequest> $request) async {
+  $async.Future<$0.GetChunkResponse> get_Pre($grpc.ServiceCall $call, $async.Future<$0.GetChunkRequest> $request) async {
     return get($call, await $request);
   }
 
-  $async.Future<$0.GetChunkResponse> get(
-      $grpc.ServiceCall call, $0.GetChunkRequest request);
-
-  $async.Future<$0.PutChunkResponse> put_Pre($grpc.ServiceCall $call,
-      $async.Future<$0.PutChunkRequest> $request) async {
+  $async.Future<$0.PutChunkResponse> put_Pre($grpc.ServiceCall $call, $async.Future<$0.PutChunkRequest> $request) async {
     return put($call, await $request);
   }
 
-  $async.Future<$0.PutChunkResponse> put(
-      $grpc.ServiceCall call, $0.PutChunkRequest request);
+  $async.Future<$0.GetChunkResponse> get($grpc.ServiceCall call, $0.GetChunkRequest request);
+  $async.Future<$0.PutChunkResponse> put($grpc.ServiceCall call, $0.PutChunkRequest request);
 }

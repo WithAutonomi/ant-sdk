@@ -1,14 +1,14 @@
-// This is a generated file - do not edit.
 //
-// Generated from antd/v1/events.proto.
-
+//  Generated code. Do not modify.
+//  source: antd/v1/events.proto
+//
 // @dart = 3.3
 
 // ignore_for_file: annotate_overrides, camel_case_types, comment_references
 // ignore_for_file: constant_identifier_names
 // ignore_for_file: curly_braces_in_flow_control_structures
 // ignore_for_file: deprecated_member_use_from_same_package, library_prefixes
-// ignore_for_file: non_constant_identifier_names, prefer_relative_imports
+// ignore_for_file: non_constant_identifier_names
 
 import 'dart:core' as $core;
 
@@ -22,25 +22,17 @@ class SubscribeRequest extends $pb.GeneratedMessage {
 
   SubscribeRequest._();
 
-  factory SubscribeRequest.fromBuffer($core.List<$core.int> data,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromBuffer(data, registry);
-  factory SubscribeRequest.fromJson($core.String json,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromJson(json, registry);
+  factory SubscribeRequest.fromBuffer($core.List<$core.int> data, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(data, registry);
+  factory SubscribeRequest.fromJson($core.String json, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(json, registry);
 
-  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
-      _omitMessageNames ? '' : 'SubscribeRequest',
-      package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'),
-      createEmptyInstance: create)
-    ..hasRequiredFields = false;
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'SubscribeRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
+    ..hasRequiredFields = false
+  ;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  SubscribeRequest clone() => deepCopy();
+  SubscribeRequest clone() => SubscribeRequest()..mergeFromMessage(this);
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  SubscribeRequest copyWith(void Function(SubscribeRequest) updates) =>
-      super.copyWith((message) => updates(message as SubscribeRequest))
-          as SubscribeRequest;
+  SubscribeRequest copyWith(void Function(SubscribeRequest) updates) => super.copyWith((message) => updates(message as SubscribeRequest)) as SubscribeRequest;
 
   @$core.override
   $pb.BuilderInfo get info_ => _i;
@@ -49,9 +41,9 @@ class SubscribeRequest extends $pb.GeneratedMessage {
   static SubscribeRequest create() => SubscribeRequest._();
   @$core.override
   SubscribeRequest createEmptyInstance() => create();
+  static $pb.PbList<SubscribeRequest> createRepeated() => $pb.PbList<SubscribeRequest>();
   @$core.pragma('dart2js:noInline')
-  static SubscribeRequest getDefault() => _defaultInstance ??=
-      $pb.GeneratedMessage.$_defaultFor<SubscribeRequest>(create);
+  static SubscribeRequest getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<SubscribeRequest>(create);
   static SubscribeRequest? _defaultInstance;
 }
 
@@ -65,41 +57,28 @@ class ClientEventProto extends $pb.GeneratedMessage {
     final result = create();
     if (kind != null) result.kind = kind;
     if (recordsPaid != null) result.recordsPaid = recordsPaid;
-    if (recordsAlreadyPaid != null)
-      result.recordsAlreadyPaid = recordsAlreadyPaid;
+    if (recordsAlreadyPaid != null) result.recordsAlreadyPaid = recordsAlreadyPaid;
     if (tokensSpent != null) result.tokensSpent = tokensSpent;
     return result;
   }
 
   ClientEventProto._();
 
-  factory ClientEventProto.fromBuffer($core.List<$core.int> data,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromBuffer(data, registry);
-  factory ClientEventProto.fromJson($core.String json,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromJson(json, registry);
+  factory ClientEventProto.fromBuffer($core.List<$core.int> data, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(data, registry);
+  factory ClientEventProto.fromJson($core.String json, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(json, registry);
 
-  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
-      _omitMessageNames ? '' : 'ClientEventProto',
-      package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'),
-      createEmptyInstance: create)
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'ClientEventProto', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'kind')
-    ..a<$fixnum.Int64>(
-        2, _omitFieldNames ? '' : 'recordsPaid', $pb.PbFieldType.OU6,
-        defaultOrMaker: $fixnum.Int64.ZERO)
-    ..a<$fixnum.Int64>(
-        3, _omitFieldNames ? '' : 'recordsAlreadyPaid', $pb.PbFieldType.OU6,
-        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..a<$fixnum.Int64>(2, _omitFieldNames ? '' : 'recordsPaid', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
+    ..a<$fixnum.Int64>(3, _omitFieldNames ? '' : 'recordsAlreadyPaid', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
     ..aOS(4, _omitFieldNames ? '' : 'tokensSpent')
-    ..hasRequiredFields = false;
+    ..hasRequiredFields = false
+  ;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  ClientEventProto clone() => deepCopy();
+  ClientEventProto clone() => ClientEventProto()..mergeFromMessage(this);
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  ClientEventProto copyWith(void Function(ClientEventProto) updates) =>
-      super.copyWith((message) => updates(message as ClientEventProto))
-          as ClientEventProto;
+  ClientEventProto copyWith(void Function(ClientEventProto) updates) => super.copyWith((message) => updates(message as ClientEventProto)) as ClientEventProto;
 
   @$core.override
   $pb.BuilderInfo get info_ => _i;
@@ -108,9 +87,9 @@ class ClientEventProto extends $pb.GeneratedMessage {
   static ClientEventProto create() => ClientEventProto._();
   @$core.override
   ClientEventProto createEmptyInstance() => create();
+  static $pb.PbList<ClientEventProto> createRepeated() => $pb.PbList<ClientEventProto>();
   @$core.pragma('dart2js:noInline')
-  static ClientEventProto getDefault() => _defaultInstance ??=
-      $pb.GeneratedMessage.$_defaultFor<ClientEventProto>(create);
+  static ClientEventProto getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<ClientEventProto>(create);
   static ClientEventProto? _defaultInstance;
 
   @$pb.TagNumber(1)
@@ -150,7 +129,6 @@ class ClientEventProto extends $pb.GeneratedMessage {
   void clearTokensSpent() => $_clearField(4);
 }
 
-const $core.bool _omitFieldNames =
-    $core.bool.fromEnvironment('protobuf.omit_field_names');
-const $core.bool _omitMessageNames =
-    $core.bool.fromEnvironment('protobuf.omit_message_names');
+
+const $core.bool _omitFieldNames = $core.bool.fromEnvironment('protobuf.omit_field_names');
+const $core.bool _omitMessageNames = $core.bool.fromEnvironment('protobuf.omit_message_names');

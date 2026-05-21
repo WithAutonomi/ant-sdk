@@ -1,14 +1,14 @@
-// This is a generated file - do not edit.
 //
-// Generated from antd/v1/health.proto.
-
+//  Generated code. Do not modify.
+//  source: antd/v1/health.proto
+//
 // @dart = 3.3
 
 // ignore_for_file: annotate_overrides, camel_case_types, comment_references
 // ignore_for_file: constant_identifier_names
 // ignore_for_file: curly_braces_in_flow_control_structures
 // ignore_for_file: deprecated_member_use_from_same_package, library_prefixes
-// ignore_for_file: non_constant_identifier_names, prefer_relative_imports
+// ignore_for_file: non_constant_identifier_names
 
 import 'dart:core' as $core;
 
@@ -22,25 +22,17 @@ class HealthCheckRequest extends $pb.GeneratedMessage {
 
   HealthCheckRequest._();
 
-  factory HealthCheckRequest.fromBuffer($core.List<$core.int> data,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromBuffer(data, registry);
-  factory HealthCheckRequest.fromJson($core.String json,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromJson(json, registry);
+  factory HealthCheckRequest.fromBuffer($core.List<$core.int> data, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(data, registry);
+  factory HealthCheckRequest.fromJson($core.String json, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(json, registry);
 
-  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
-      _omitMessageNames ? '' : 'HealthCheckRequest',
-      package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'),
-      createEmptyInstance: create)
-    ..hasRequiredFields = false;
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'HealthCheckRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
+    ..hasRequiredFields = false
+  ;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  HealthCheckRequest clone() => deepCopy();
+  HealthCheckRequest clone() => HealthCheckRequest()..mergeFromMessage(this);
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  HealthCheckRequest copyWith(void Function(HealthCheckRequest) updates) =>
-      super.copyWith((message) => updates(message as HealthCheckRequest))
-          as HealthCheckRequest;
+  HealthCheckRequest copyWith(void Function(HealthCheckRequest) updates) => super.copyWith((message) => updates(message as HealthCheckRequest)) as HealthCheckRequest;
 
   @$core.override
   $pb.BuilderInfo get info_ => _i;
@@ -49,9 +41,9 @@ class HealthCheckRequest extends $pb.GeneratedMessage {
   static HealthCheckRequest create() => HealthCheckRequest._();
   @$core.override
   HealthCheckRequest createEmptyInstance() => create();
+  static $pb.PbList<HealthCheckRequest> createRepeated() => $pb.PbList<HealthCheckRequest>();
   @$core.pragma('dart2js:noInline')
-  static HealthCheckRequest getDefault() => _defaultInstance ??=
-      $pb.GeneratedMessage.$_defaultFor<HealthCheckRequest>(create);
+  static HealthCheckRequest getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<HealthCheckRequest>(create);
   static HealthCheckRequest? _defaultInstance;
 }
 
@@ -73,44 +65,32 @@ class HealthCheckResponse extends $pb.GeneratedMessage {
     if (evmNetwork != null) result.evmNetwork = evmNetwork;
     if (uptimeSeconds != null) result.uptimeSeconds = uptimeSeconds;
     if (buildCommit != null) result.buildCommit = buildCommit;
-    if (paymentTokenAddress != null)
-      result.paymentTokenAddress = paymentTokenAddress;
-    if (paymentVaultAddress != null)
-      result.paymentVaultAddress = paymentVaultAddress;
+    if (paymentTokenAddress != null) result.paymentTokenAddress = paymentTokenAddress;
+    if (paymentVaultAddress != null) result.paymentVaultAddress = paymentVaultAddress;
     return result;
   }
 
   HealthCheckResponse._();
 
-  factory HealthCheckResponse.fromBuffer($core.List<$core.int> data,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromBuffer(data, registry);
-  factory HealthCheckResponse.fromJson($core.String json,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromJson(json, registry);
+  factory HealthCheckResponse.fromBuffer($core.List<$core.int> data, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(data, registry);
+  factory HealthCheckResponse.fromJson($core.String json, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(json, registry);
 
-  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
-      _omitMessageNames ? '' : 'HealthCheckResponse',
-      package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'),
-      createEmptyInstance: create)
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'HealthCheckResponse', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'status')
     ..aOS(2, _omitFieldNames ? '' : 'network')
     ..aOS(3, _omitFieldNames ? '' : 'version')
     ..aOS(4, _omitFieldNames ? '' : 'evmNetwork')
-    ..a<$fixnum.Int64>(
-        5, _omitFieldNames ? '' : 'uptimeSeconds', $pb.PbFieldType.OU6,
-        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..a<$fixnum.Int64>(5, _omitFieldNames ? '' : 'uptimeSeconds', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
     ..aOS(6, _omitFieldNames ? '' : 'buildCommit')
     ..aOS(7, _omitFieldNames ? '' : 'paymentTokenAddress')
     ..aOS(8, _omitFieldNames ? '' : 'paymentVaultAddress')
-    ..hasRequiredFields = false;
+    ..hasRequiredFields = false
+  ;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  HealthCheckResponse clone() => deepCopy();
+  HealthCheckResponse clone() => HealthCheckResponse()..mergeFromMessage(this);
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  HealthCheckResponse copyWith(void Function(HealthCheckResponse) updates) =>
-      super.copyWith((message) => updates(message as HealthCheckResponse))
-          as HealthCheckResponse;
+  HealthCheckResponse copyWith(void Function(HealthCheckResponse) updates) => super.copyWith((message) => updates(message as HealthCheckResponse)) as HealthCheckResponse;
 
   @$core.override
   $pb.BuilderInfo get info_ => _i;
@@ -119,9 +99,9 @@ class HealthCheckResponse extends $pb.GeneratedMessage {
   static HealthCheckResponse create() => HealthCheckResponse._();
   @$core.override
   HealthCheckResponse createEmptyInstance() => create();
+  static $pb.PbList<HealthCheckResponse> createRepeated() => $pb.PbList<HealthCheckResponse>();
   @$core.pragma('dart2js:noInline')
-  static HealthCheckResponse getDefault() => _defaultInstance ??=
-      $pb.GeneratedMessage.$_defaultFor<HealthCheckResponse>(create);
+  static HealthCheckResponse getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<HealthCheckResponse>(create);
   static HealthCheckResponse? _defaultInstance;
 
   @$pb.TagNumber(1)
@@ -197,7 +177,6 @@ class HealthCheckResponse extends $pb.GeneratedMessage {
   void clearPaymentVaultAddress() => $_clearField(8);
 }
 
-const $core.bool _omitFieldNames =
-    $core.bool.fromEnvironment('protobuf.omit_field_names');
-const $core.bool _omitMessageNames =
-    $core.bool.fromEnvironment('protobuf.omit_message_names');
+
+const $core.bool _omitFieldNames = $core.bool.fromEnvironment('protobuf.omit_field_names');
+const $core.bool _omitMessageNames = $core.bool.fromEnvironment('protobuf.omit_message_names');

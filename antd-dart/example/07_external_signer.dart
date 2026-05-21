@@ -89,7 +89,7 @@ Future<void> main() async {
         'chunks_stored=${fileFin.chunksStored}');
 
     final dst = File('${tmp.path}/file.bin.downloaded');
-    await client.fileDownloadPublic(fileFin.dataMapAddress, dst.path);
+    await client.fileGetPublic(fileFin.dataMapAddress, dst.path);
     final got = await dst.readAsBytes();
     if (!_bytesEqual(got, fileContent)) {
       throw 'file round-trip mismatch';

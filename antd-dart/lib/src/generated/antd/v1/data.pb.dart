@@ -1,20 +1,20 @@
-// This is a generated file - do not edit.
 //
-// Generated from antd/v1/data.proto.
-
+//  Generated code. Do not modify.
+//  source: antd/v1/data.proto
+//
 // @dart = 3.3
 
 // ignore_for_file: annotate_overrides, camel_case_types, comment_references
 // ignore_for_file: constant_identifier_names
 // ignore_for_file: curly_braces_in_flow_control_structures
 // ignore_for_file: deprecated_member_use_from_same_package, library_prefixes
-// ignore_for_file: non_constant_identifier_names, prefer_relative_imports
+// ignore_for_file: non_constant_identifier_names
 
 import 'dart:core' as $core;
 
 import 'package:protobuf/protobuf.dart' as $pb;
 
-import 'common.pb.dart' as $1;
+import 'common.pb.dart' as $2;
 
 export 'package:protobuf/protobuf.dart' show GeneratedMessageGenericExtensions;
 
@@ -29,26 +29,18 @@ class GetPublicDataRequest extends $pb.GeneratedMessage {
 
   GetPublicDataRequest._();
 
-  factory GetPublicDataRequest.fromBuffer($core.List<$core.int> data,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromBuffer(data, registry);
-  factory GetPublicDataRequest.fromJson($core.String json,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromJson(json, registry);
+  factory GetPublicDataRequest.fromBuffer($core.List<$core.int> data, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(data, registry);
+  factory GetPublicDataRequest.fromJson($core.String json, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(json, registry);
 
-  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
-      _omitMessageNames ? '' : 'GetPublicDataRequest',
-      package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'),
-      createEmptyInstance: create)
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'GetPublicDataRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'address')
-    ..hasRequiredFields = false;
+    ..hasRequiredFields = false
+  ;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  GetPublicDataRequest clone() => deepCopy();
+  GetPublicDataRequest clone() => GetPublicDataRequest()..mergeFromMessage(this);
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  GetPublicDataRequest copyWith(void Function(GetPublicDataRequest) updates) =>
-      super.copyWith((message) => updates(message as GetPublicDataRequest))
-          as GetPublicDataRequest;
+  GetPublicDataRequest copyWith(void Function(GetPublicDataRequest) updates) => super.copyWith((message) => updates(message as GetPublicDataRequest)) as GetPublicDataRequest;
 
   @$core.override
   $pb.BuilderInfo get info_ => _i;
@@ -57,9 +49,9 @@ class GetPublicDataRequest extends $pb.GeneratedMessage {
   static GetPublicDataRequest create() => GetPublicDataRequest._();
   @$core.override
   GetPublicDataRequest createEmptyInstance() => create();
+  static $pb.PbList<GetPublicDataRequest> createRepeated() => $pb.PbList<GetPublicDataRequest>();
   @$core.pragma('dart2js:noInline')
-  static GetPublicDataRequest getDefault() => _defaultInstance ??=
-      $pb.GeneratedMessage.$_defaultFor<GetPublicDataRequest>(create);
+  static GetPublicDataRequest getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<GetPublicDataRequest>(create);
   static GetPublicDataRequest? _defaultInstance;
 
   @$pb.TagNumber(1)
@@ -83,28 +75,18 @@ class GetPublicDataResponse extends $pb.GeneratedMessage {
 
   GetPublicDataResponse._();
 
-  factory GetPublicDataResponse.fromBuffer($core.List<$core.int> data,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromBuffer(data, registry);
-  factory GetPublicDataResponse.fromJson($core.String json,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromJson(json, registry);
+  factory GetPublicDataResponse.fromBuffer($core.List<$core.int> data, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(data, registry);
+  factory GetPublicDataResponse.fromJson($core.String json, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(json, registry);
 
-  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
-      _omitMessageNames ? '' : 'GetPublicDataResponse',
-      package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'),
-      createEmptyInstance: create)
-    ..a<$core.List<$core.int>>(
-        1, _omitFieldNames ? '' : 'data', $pb.PbFieldType.OY)
-    ..hasRequiredFields = false;
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'GetPublicDataResponse', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
+    ..a<$core.List<$core.int>>(1, _omitFieldNames ? '' : 'data', $pb.PbFieldType.OY)
+    ..hasRequiredFields = false
+  ;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  GetPublicDataResponse clone() => deepCopy();
+  GetPublicDataResponse clone() => GetPublicDataResponse()..mergeFromMessage(this);
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  GetPublicDataResponse copyWith(
-          void Function(GetPublicDataResponse) updates) =>
-      super.copyWith((message) => updates(message as GetPublicDataResponse))
-          as GetPublicDataResponse;
+  GetPublicDataResponse copyWith(void Function(GetPublicDataResponse) updates) => super.copyWith((message) => updates(message as GetPublicDataResponse)) as GetPublicDataResponse;
 
   @$core.override
   $pb.BuilderInfo get info_ => _i;
@@ -113,9 +95,9 @@ class GetPublicDataResponse extends $pb.GeneratedMessage {
   static GetPublicDataResponse create() => GetPublicDataResponse._();
   @$core.override
   GetPublicDataResponse createEmptyInstance() => create();
+  static $pb.PbList<GetPublicDataResponse> createRepeated() => $pb.PbList<GetPublicDataResponse>();
   @$core.pragma('dart2js:noInline')
-  static GetPublicDataResponse getDefault() => _defaultInstance ??=
-      $pb.GeneratedMessage.$_defaultFor<GetPublicDataResponse>(create);
+  static GetPublicDataResponse getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<GetPublicDataResponse>(create);
   static GetPublicDataResponse? _defaultInstance;
 
   @$pb.TagNumber(1)
@@ -131,35 +113,29 @@ class GetPublicDataResponse extends $pb.GeneratedMessage {
 class PutPublicDataRequest extends $pb.GeneratedMessage {
   factory PutPublicDataRequest({
     $core.List<$core.int>? data,
+    $core.String? paymentMode,
   }) {
     final result = create();
     if (data != null) result.data = data;
+    if (paymentMode != null) result.paymentMode = paymentMode;
     return result;
   }
 
   PutPublicDataRequest._();
 
-  factory PutPublicDataRequest.fromBuffer($core.List<$core.int> data,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromBuffer(data, registry);
-  factory PutPublicDataRequest.fromJson($core.String json,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromJson(json, registry);
+  factory PutPublicDataRequest.fromBuffer($core.List<$core.int> data, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(data, registry);
+  factory PutPublicDataRequest.fromJson($core.String json, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(json, registry);
 
-  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
-      _omitMessageNames ? '' : 'PutPublicDataRequest',
-      package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'),
-      createEmptyInstance: create)
-    ..a<$core.List<$core.int>>(
-        1, _omitFieldNames ? '' : 'data', $pb.PbFieldType.OY)
-    ..hasRequiredFields = false;
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'PutPublicDataRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
+    ..a<$core.List<$core.int>>(1, _omitFieldNames ? '' : 'data', $pb.PbFieldType.OY)
+    ..aOS(2, _omitFieldNames ? '' : 'paymentMode')
+    ..hasRequiredFields = false
+  ;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  PutPublicDataRequest clone() => deepCopy();
+  PutPublicDataRequest clone() => PutPublicDataRequest()..mergeFromMessage(this);
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  PutPublicDataRequest copyWith(void Function(PutPublicDataRequest) updates) =>
-      super.copyWith((message) => updates(message as PutPublicDataRequest))
-          as PutPublicDataRequest;
+  PutPublicDataRequest copyWith(void Function(PutPublicDataRequest) updates) => super.copyWith((message) => updates(message as PutPublicDataRequest)) as PutPublicDataRequest;
 
   @$core.override
   $pb.BuilderInfo get info_ => _i;
@@ -168,9 +144,9 @@ class PutPublicDataRequest extends $pb.GeneratedMessage {
   static PutPublicDataRequest create() => PutPublicDataRequest._();
   @$core.override
   PutPublicDataRequest createEmptyInstance() => create();
+  static $pb.PbList<PutPublicDataRequest> createRepeated() => $pb.PbList<PutPublicDataRequest>();
   @$core.pragma('dart2js:noInline')
-  static PutPublicDataRequest getDefault() => _defaultInstance ??=
-      $pb.GeneratedMessage.$_defaultFor<PutPublicDataRequest>(create);
+  static PutPublicDataRequest getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<PutPublicDataRequest>(create);
   static PutPublicDataRequest? _defaultInstance;
 
   @$pb.TagNumber(1)
@@ -181,11 +157,23 @@ class PutPublicDataRequest extends $pb.GeneratedMessage {
   $core.bool hasData() => $_has(0);
   @$pb.TagNumber(1)
   void clearData() => $_clearField(1);
+
+  /// Optional payment mode: "auto" (default), "merkle", or "single". Empty
+  /// string is treated as "auto" so old clients omitting the field stay
+  /// wire-compatible.
+  @$pb.TagNumber(2)
+  $core.String get paymentMode => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set paymentMode($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPaymentMode() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPaymentMode() => $_clearField(2);
 }
 
 class PutPublicDataResponse extends $pb.GeneratedMessage {
   factory PutPublicDataResponse({
-    $1.Cost? cost,
+    $2.Cost? cost,
     $core.String? address,
   }) {
     final result = create();
@@ -196,28 +184,19 @@ class PutPublicDataResponse extends $pb.GeneratedMessage {
 
   PutPublicDataResponse._();
 
-  factory PutPublicDataResponse.fromBuffer($core.List<$core.int> data,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromBuffer(data, registry);
-  factory PutPublicDataResponse.fromJson($core.String json,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromJson(json, registry);
+  factory PutPublicDataResponse.fromBuffer($core.List<$core.int> data, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(data, registry);
+  factory PutPublicDataResponse.fromJson($core.String json, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(json, registry);
 
-  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
-      _omitMessageNames ? '' : 'PutPublicDataResponse',
-      package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'),
-      createEmptyInstance: create)
-    ..aOM<$1.Cost>(1, _omitFieldNames ? '' : 'cost', subBuilder: $1.Cost.create)
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'PutPublicDataResponse', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
+    ..aOM<$2.Cost>(1, _omitFieldNames ? '' : 'cost', subBuilder: $2.Cost.create)
     ..aOS(2, _omitFieldNames ? '' : 'address')
-    ..hasRequiredFields = false;
+    ..hasRequiredFields = false
+  ;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  PutPublicDataResponse clone() => deepCopy();
+  PutPublicDataResponse clone() => PutPublicDataResponse()..mergeFromMessage(this);
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  PutPublicDataResponse copyWith(
-          void Function(PutPublicDataResponse) updates) =>
-      super.copyWith((message) => updates(message as PutPublicDataResponse))
-          as PutPublicDataResponse;
+  PutPublicDataResponse copyWith(void Function(PutPublicDataResponse) updates) => super.copyWith((message) => updates(message as PutPublicDataResponse)) as PutPublicDataResponse;
 
   @$core.override
   $pb.BuilderInfo get info_ => _i;
@@ -226,21 +205,21 @@ class PutPublicDataResponse extends $pb.GeneratedMessage {
   static PutPublicDataResponse create() => PutPublicDataResponse._();
   @$core.override
   PutPublicDataResponse createEmptyInstance() => create();
+  static $pb.PbList<PutPublicDataResponse> createRepeated() => $pb.PbList<PutPublicDataResponse>();
   @$core.pragma('dart2js:noInline')
-  static PutPublicDataResponse getDefault() => _defaultInstance ??=
-      $pb.GeneratedMessage.$_defaultFor<PutPublicDataResponse>(create);
+  static PutPublicDataResponse getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<PutPublicDataResponse>(create);
   static PutPublicDataResponse? _defaultInstance;
 
   @$pb.TagNumber(1)
-  $1.Cost get cost => $_getN(0);
+  $2.Cost get cost => $_getN(0);
   @$pb.TagNumber(1)
-  set cost($1.Cost value) => $_setField(1, value);
+  set cost($2.Cost value) => $_setField(1, value);
   @$pb.TagNumber(1)
   $core.bool hasCost() => $_has(0);
   @$pb.TagNumber(1)
   void clearCost() => $_clearField(1);
   @$pb.TagNumber(1)
-  $1.Cost ensureCost() => $_ensure(0);
+  $2.Cost ensureCost() => $_ensure(0);
 
   @$pb.TagNumber(2)
   $core.String get address => $_getSZ(1);
@@ -263,27 +242,18 @@ class StreamPublicDataRequest extends $pb.GeneratedMessage {
 
   StreamPublicDataRequest._();
 
-  factory StreamPublicDataRequest.fromBuffer($core.List<$core.int> data,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromBuffer(data, registry);
-  factory StreamPublicDataRequest.fromJson($core.String json,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromJson(json, registry);
+  factory StreamPublicDataRequest.fromBuffer($core.List<$core.int> data, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(data, registry);
+  factory StreamPublicDataRequest.fromJson($core.String json, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(json, registry);
 
-  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
-      _omitMessageNames ? '' : 'StreamPublicDataRequest',
-      package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'),
-      createEmptyInstance: create)
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'StreamPublicDataRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'address')
-    ..hasRequiredFields = false;
+    ..hasRequiredFields = false
+  ;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  StreamPublicDataRequest clone() => deepCopy();
+  StreamPublicDataRequest clone() => StreamPublicDataRequest()..mergeFromMessage(this);
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  StreamPublicDataRequest copyWith(
-          void Function(StreamPublicDataRequest) updates) =>
-      super.copyWith((message) => updates(message as StreamPublicDataRequest))
-          as StreamPublicDataRequest;
+  StreamPublicDataRequest copyWith(void Function(StreamPublicDataRequest) updates) => super.copyWith((message) => updates(message as StreamPublicDataRequest)) as StreamPublicDataRequest;
 
   @$core.override
   $pb.BuilderInfo get info_ => _i;
@@ -292,9 +262,9 @@ class StreamPublicDataRequest extends $pb.GeneratedMessage {
   static StreamPublicDataRequest create() => StreamPublicDataRequest._();
   @$core.override
   StreamPublicDataRequest createEmptyInstance() => create();
+  static $pb.PbList<StreamPublicDataRequest> createRepeated() => $pb.PbList<StreamPublicDataRequest>();
   @$core.pragma('dart2js:noInline')
-  static StreamPublicDataRequest getDefault() => _defaultInstance ??=
-      $pb.GeneratedMessage.$_defaultFor<StreamPublicDataRequest>(create);
+  static StreamPublicDataRequest getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<StreamPublicDataRequest>(create);
   static StreamPublicDataRequest? _defaultInstance;
 
   @$pb.TagNumber(1)
@@ -318,26 +288,18 @@ class DataChunk extends $pb.GeneratedMessage {
 
   DataChunk._();
 
-  factory DataChunk.fromBuffer($core.List<$core.int> data,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromBuffer(data, registry);
-  factory DataChunk.fromJson($core.String json,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromJson(json, registry);
+  factory DataChunk.fromBuffer($core.List<$core.int> data, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(data, registry);
+  factory DataChunk.fromJson($core.String json, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(json, registry);
 
-  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
-      _omitMessageNames ? '' : 'DataChunk',
-      package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'),
-      createEmptyInstance: create)
-    ..a<$core.List<$core.int>>(
-        1, _omitFieldNames ? '' : 'data', $pb.PbFieldType.OY)
-    ..hasRequiredFields = false;
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'DataChunk', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
+    ..a<$core.List<$core.int>>(1, _omitFieldNames ? '' : 'data', $pb.PbFieldType.OY)
+    ..hasRequiredFields = false
+  ;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  DataChunk clone() => deepCopy();
+  DataChunk clone() => DataChunk()..mergeFromMessage(this);
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  DataChunk copyWith(void Function(DataChunk) updates) =>
-      super.copyWith((message) => updates(message as DataChunk)) as DataChunk;
+  DataChunk copyWith(void Function(DataChunk) updates) => super.copyWith((message) => updates(message as DataChunk)) as DataChunk;
 
   @$core.override
   $pb.BuilderInfo get info_ => _i;
@@ -346,9 +308,9 @@ class DataChunk extends $pb.GeneratedMessage {
   static DataChunk create() => DataChunk._();
   @$core.override
   DataChunk createEmptyInstance() => create();
+  static $pb.PbList<DataChunk> createRepeated() => $pb.PbList<DataChunk>();
   @$core.pragma('dart2js:noInline')
-  static DataChunk getDefault() =>
-      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<DataChunk>(create);
+  static DataChunk getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<DataChunk>(create);
   static DataChunk? _defaultInstance;
 
   @$pb.TagNumber(1)
@@ -361,8 +323,8 @@ class DataChunk extends $pb.GeneratedMessage {
   void clearData() => $_clearField(1);
 }
 
-class GetPrivateDataRequest extends $pb.GeneratedMessage {
-  factory GetPrivateDataRequest({
+class GetDataRequest extends $pb.GeneratedMessage {
+  factory GetDataRequest({
     $core.String? dataMap,
   }) {
     final result = create();
@@ -370,41 +332,32 @@ class GetPrivateDataRequest extends $pb.GeneratedMessage {
     return result;
   }
 
-  GetPrivateDataRequest._();
+  GetDataRequest._();
 
-  factory GetPrivateDataRequest.fromBuffer($core.List<$core.int> data,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromBuffer(data, registry);
-  factory GetPrivateDataRequest.fromJson($core.String json,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromJson(json, registry);
+  factory GetDataRequest.fromBuffer($core.List<$core.int> data, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(data, registry);
+  factory GetDataRequest.fromJson($core.String json, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(json, registry);
 
-  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
-      _omitMessageNames ? '' : 'GetPrivateDataRequest',
-      package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'),
-      createEmptyInstance: create)
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'GetDataRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'dataMap')
-    ..hasRequiredFields = false;
+    ..hasRequiredFields = false
+  ;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  GetPrivateDataRequest clone() => deepCopy();
+  GetDataRequest clone() => GetDataRequest()..mergeFromMessage(this);
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  GetPrivateDataRequest copyWith(
-          void Function(GetPrivateDataRequest) updates) =>
-      super.copyWith((message) => updates(message as GetPrivateDataRequest))
-          as GetPrivateDataRequest;
+  GetDataRequest copyWith(void Function(GetDataRequest) updates) => super.copyWith((message) => updates(message as GetDataRequest)) as GetDataRequest;
 
   @$core.override
   $pb.BuilderInfo get info_ => _i;
 
   @$core.pragma('dart2js:noInline')
-  static GetPrivateDataRequest create() => GetPrivateDataRequest._();
+  static GetDataRequest create() => GetDataRequest._();
   @$core.override
-  GetPrivateDataRequest createEmptyInstance() => create();
+  GetDataRequest createEmptyInstance() => create();
+  static $pb.PbList<GetDataRequest> createRepeated() => $pb.PbList<GetDataRequest>();
   @$core.pragma('dart2js:noInline')
-  static GetPrivateDataRequest getDefault() => _defaultInstance ??=
-      $pb.GeneratedMessage.$_defaultFor<GetPrivateDataRequest>(create);
-  static GetPrivateDataRequest? _defaultInstance;
+  static GetDataRequest getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<GetDataRequest>(create);
+  static GetDataRequest? _defaultInstance;
 
   @$pb.TagNumber(1)
   $core.String get dataMap => $_getSZ(0);
@@ -416,8 +369,8 @@ class GetPrivateDataRequest extends $pb.GeneratedMessage {
   void clearDataMap() => $_clearField(1);
 }
 
-class GetPrivateDataResponse extends $pb.GeneratedMessage {
-  factory GetPrivateDataResponse({
+class GetDataResponse extends $pb.GeneratedMessage {
+  factory GetDataResponse({
     $core.List<$core.int>? data,
   }) {
     final result = create();
@@ -425,42 +378,32 @@ class GetPrivateDataResponse extends $pb.GeneratedMessage {
     return result;
   }
 
-  GetPrivateDataResponse._();
+  GetDataResponse._();
 
-  factory GetPrivateDataResponse.fromBuffer($core.List<$core.int> data,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromBuffer(data, registry);
-  factory GetPrivateDataResponse.fromJson($core.String json,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromJson(json, registry);
+  factory GetDataResponse.fromBuffer($core.List<$core.int> data, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(data, registry);
+  factory GetDataResponse.fromJson($core.String json, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(json, registry);
 
-  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
-      _omitMessageNames ? '' : 'GetPrivateDataResponse',
-      package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'),
-      createEmptyInstance: create)
-    ..a<$core.List<$core.int>>(
-        1, _omitFieldNames ? '' : 'data', $pb.PbFieldType.OY)
-    ..hasRequiredFields = false;
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'GetDataResponse', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
+    ..a<$core.List<$core.int>>(1, _omitFieldNames ? '' : 'data', $pb.PbFieldType.OY)
+    ..hasRequiredFields = false
+  ;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  GetPrivateDataResponse clone() => deepCopy();
+  GetDataResponse clone() => GetDataResponse()..mergeFromMessage(this);
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  GetPrivateDataResponse copyWith(
-          void Function(GetPrivateDataResponse) updates) =>
-      super.copyWith((message) => updates(message as GetPrivateDataResponse))
-          as GetPrivateDataResponse;
+  GetDataResponse copyWith(void Function(GetDataResponse) updates) => super.copyWith((message) => updates(message as GetDataResponse)) as GetDataResponse;
 
   @$core.override
   $pb.BuilderInfo get info_ => _i;
 
   @$core.pragma('dart2js:noInline')
-  static GetPrivateDataResponse create() => GetPrivateDataResponse._();
+  static GetDataResponse create() => GetDataResponse._();
   @$core.override
-  GetPrivateDataResponse createEmptyInstance() => create();
+  GetDataResponse createEmptyInstance() => create();
+  static $pb.PbList<GetDataResponse> createRepeated() => $pb.PbList<GetDataResponse>();
   @$core.pragma('dart2js:noInline')
-  static GetPrivateDataResponse getDefault() => _defaultInstance ??=
-      $pb.GeneratedMessage.$_defaultFor<GetPrivateDataResponse>(create);
-  static GetPrivateDataResponse? _defaultInstance;
+  static GetDataResponse getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<GetDataResponse>(create);
+  static GetDataResponse? _defaultInstance;
 
   @$pb.TagNumber(1)
   $core.List<$core.int> get data => $_getN(0);
@@ -472,51 +415,44 @@ class GetPrivateDataResponse extends $pb.GeneratedMessage {
   void clearData() => $_clearField(1);
 }
 
-class PutPrivateDataRequest extends $pb.GeneratedMessage {
-  factory PutPrivateDataRequest({
+class PutDataRequest extends $pb.GeneratedMessage {
+  factory PutDataRequest({
     $core.List<$core.int>? data,
+    $core.String? paymentMode,
   }) {
     final result = create();
     if (data != null) result.data = data;
+    if (paymentMode != null) result.paymentMode = paymentMode;
     return result;
   }
 
-  PutPrivateDataRequest._();
+  PutDataRequest._();
 
-  factory PutPrivateDataRequest.fromBuffer($core.List<$core.int> data,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromBuffer(data, registry);
-  factory PutPrivateDataRequest.fromJson($core.String json,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromJson(json, registry);
+  factory PutDataRequest.fromBuffer($core.List<$core.int> data, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(data, registry);
+  factory PutDataRequest.fromJson($core.String json, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(json, registry);
 
-  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
-      _omitMessageNames ? '' : 'PutPrivateDataRequest',
-      package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'),
-      createEmptyInstance: create)
-    ..a<$core.List<$core.int>>(
-        1, _omitFieldNames ? '' : 'data', $pb.PbFieldType.OY)
-    ..hasRequiredFields = false;
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'PutDataRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
+    ..a<$core.List<$core.int>>(1, _omitFieldNames ? '' : 'data', $pb.PbFieldType.OY)
+    ..aOS(2, _omitFieldNames ? '' : 'paymentMode')
+    ..hasRequiredFields = false
+  ;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  PutPrivateDataRequest clone() => deepCopy();
+  PutDataRequest clone() => PutDataRequest()..mergeFromMessage(this);
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  PutPrivateDataRequest copyWith(
-          void Function(PutPrivateDataRequest) updates) =>
-      super.copyWith((message) => updates(message as PutPrivateDataRequest))
-          as PutPrivateDataRequest;
+  PutDataRequest copyWith(void Function(PutDataRequest) updates) => super.copyWith((message) => updates(message as PutDataRequest)) as PutDataRequest;
 
   @$core.override
   $pb.BuilderInfo get info_ => _i;
 
   @$core.pragma('dart2js:noInline')
-  static PutPrivateDataRequest create() => PutPrivateDataRequest._();
+  static PutDataRequest create() => PutDataRequest._();
   @$core.override
-  PutPrivateDataRequest createEmptyInstance() => create();
+  PutDataRequest createEmptyInstance() => create();
+  static $pb.PbList<PutDataRequest> createRepeated() => $pb.PbList<PutDataRequest>();
   @$core.pragma('dart2js:noInline')
-  static PutPrivateDataRequest getDefault() => _defaultInstance ??=
-      $pb.GeneratedMessage.$_defaultFor<PutPrivateDataRequest>(create);
-  static PutPrivateDataRequest? _defaultInstance;
+  static PutDataRequest getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<PutDataRequest>(create);
+  static PutDataRequest? _defaultInstance;
 
   @$pb.TagNumber(1)
   $core.List<$core.int> get data => $_getN(0);
@@ -526,11 +462,23 @@ class PutPrivateDataRequest extends $pb.GeneratedMessage {
   $core.bool hasData() => $_has(0);
   @$pb.TagNumber(1)
   void clearData() => $_clearField(1);
+
+  /// Optional payment mode: "auto" (default), "merkle", or "single". Empty
+  /// string is treated as "auto" so old clients omitting the field stay
+  /// wire-compatible.
+  @$pb.TagNumber(2)
+  $core.String get paymentMode => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set paymentMode($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPaymentMode() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPaymentMode() => $_clearField(2);
 }
 
-class PutPrivateDataResponse extends $pb.GeneratedMessage {
-  factory PutPrivateDataResponse({
-    $1.Cost? cost,
+class PutDataResponse extends $pb.GeneratedMessage {
+  factory PutDataResponse({
+    $2.Cost? cost,
     $core.String? dataMap,
   }) {
     final result = create();
@@ -539,53 +487,44 @@ class PutPrivateDataResponse extends $pb.GeneratedMessage {
     return result;
   }
 
-  PutPrivateDataResponse._();
+  PutDataResponse._();
 
-  factory PutPrivateDataResponse.fromBuffer($core.List<$core.int> data,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromBuffer(data, registry);
-  factory PutPrivateDataResponse.fromJson($core.String json,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromJson(json, registry);
+  factory PutDataResponse.fromBuffer($core.List<$core.int> data, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(data, registry);
+  factory PutDataResponse.fromJson($core.String json, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(json, registry);
 
-  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
-      _omitMessageNames ? '' : 'PutPrivateDataResponse',
-      package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'),
-      createEmptyInstance: create)
-    ..aOM<$1.Cost>(1, _omitFieldNames ? '' : 'cost', subBuilder: $1.Cost.create)
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'PutDataResponse', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
+    ..aOM<$2.Cost>(1, _omitFieldNames ? '' : 'cost', subBuilder: $2.Cost.create)
     ..aOS(2, _omitFieldNames ? '' : 'dataMap')
-    ..hasRequiredFields = false;
+    ..hasRequiredFields = false
+  ;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  PutPrivateDataResponse clone() => deepCopy();
+  PutDataResponse clone() => PutDataResponse()..mergeFromMessage(this);
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  PutPrivateDataResponse copyWith(
-          void Function(PutPrivateDataResponse) updates) =>
-      super.copyWith((message) => updates(message as PutPrivateDataResponse))
-          as PutPrivateDataResponse;
+  PutDataResponse copyWith(void Function(PutDataResponse) updates) => super.copyWith((message) => updates(message as PutDataResponse)) as PutDataResponse;
 
   @$core.override
   $pb.BuilderInfo get info_ => _i;
 
   @$core.pragma('dart2js:noInline')
-  static PutPrivateDataResponse create() => PutPrivateDataResponse._();
+  static PutDataResponse create() => PutDataResponse._();
   @$core.override
-  PutPrivateDataResponse createEmptyInstance() => create();
+  PutDataResponse createEmptyInstance() => create();
+  static $pb.PbList<PutDataResponse> createRepeated() => $pb.PbList<PutDataResponse>();
   @$core.pragma('dart2js:noInline')
-  static PutPrivateDataResponse getDefault() => _defaultInstance ??=
-      $pb.GeneratedMessage.$_defaultFor<PutPrivateDataResponse>(create);
-  static PutPrivateDataResponse? _defaultInstance;
+  static PutDataResponse getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<PutDataResponse>(create);
+  static PutDataResponse? _defaultInstance;
 
   @$pb.TagNumber(1)
-  $1.Cost get cost => $_getN(0);
+  $2.Cost get cost => $_getN(0);
   @$pb.TagNumber(1)
-  set cost($1.Cost value) => $_setField(1, value);
+  set cost($2.Cost value) => $_setField(1, value);
   @$pb.TagNumber(1)
   $core.bool hasCost() => $_has(0);
   @$pb.TagNumber(1)
   void clearCost() => $_clearField(1);
   @$pb.TagNumber(1)
-  $1.Cost ensureCost() => $_ensure(0);
+  $2.Cost ensureCost() => $_ensure(0);
 
   @$pb.TagNumber(2)
   $core.String get dataMap => $_getSZ(1);
@@ -600,35 +539,29 @@ class PutPrivateDataResponse extends $pb.GeneratedMessage {
 class DataCostRequest extends $pb.GeneratedMessage {
   factory DataCostRequest({
     $core.List<$core.int>? data,
+    $core.String? paymentMode,
   }) {
     final result = create();
     if (data != null) result.data = data;
+    if (paymentMode != null) result.paymentMode = paymentMode;
     return result;
   }
 
   DataCostRequest._();
 
-  factory DataCostRequest.fromBuffer($core.List<$core.int> data,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromBuffer(data, registry);
-  factory DataCostRequest.fromJson($core.String json,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      create()..mergeFromJson(json, registry);
+  factory DataCostRequest.fromBuffer($core.List<$core.int> data, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(data, registry);
+  factory DataCostRequest.fromJson($core.String json, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(json, registry);
 
-  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
-      _omitMessageNames ? '' : 'DataCostRequest',
-      package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'),
-      createEmptyInstance: create)
-    ..a<$core.List<$core.int>>(
-        1, _omitFieldNames ? '' : 'data', $pb.PbFieldType.OY)
-    ..hasRequiredFields = false;
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'DataCostRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
+    ..a<$core.List<$core.int>>(1, _omitFieldNames ? '' : 'data', $pb.PbFieldType.OY)
+    ..aOS(2, _omitFieldNames ? '' : 'paymentMode')
+    ..hasRequiredFields = false
+  ;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  DataCostRequest clone() => deepCopy();
+  DataCostRequest clone() => DataCostRequest()..mergeFromMessage(this);
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  DataCostRequest copyWith(void Function(DataCostRequest) updates) =>
-      super.copyWith((message) => updates(message as DataCostRequest))
-          as DataCostRequest;
+  DataCostRequest copyWith(void Function(DataCostRequest) updates) => super.copyWith((message) => updates(message as DataCostRequest)) as DataCostRequest;
 
   @$core.override
   $pb.BuilderInfo get info_ => _i;
@@ -637,9 +570,9 @@ class DataCostRequest extends $pb.GeneratedMessage {
   static DataCostRequest create() => DataCostRequest._();
   @$core.override
   DataCostRequest createEmptyInstance() => create();
+  static $pb.PbList<DataCostRequest> createRepeated() => $pb.PbList<DataCostRequest>();
   @$core.pragma('dart2js:noInline')
-  static DataCostRequest getDefault() => _defaultInstance ??=
-      $pb.GeneratedMessage.$_defaultFor<DataCostRequest>(create);
+  static DataCostRequest getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<DataCostRequest>(create);
   static DataCostRequest? _defaultInstance;
 
   @$pb.TagNumber(1)
@@ -650,9 +583,19 @@ class DataCostRequest extends $pb.GeneratedMessage {
   $core.bool hasData() => $_has(0);
   @$pb.TagNumber(1)
   void clearData() => $_clearField(1);
+
+  /// Optional payment mode the estimate should reflect: "auto" (default),
+  /// "merkle", or "single". Empty string is treated as "auto".
+  @$pb.TagNumber(2)
+  $core.String get paymentMode => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set paymentMode($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPaymentMode() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPaymentMode() => $_clearField(2);
 }
 
-const $core.bool _omitFieldNames =
-    $core.bool.fromEnvironment('protobuf.omit_field_names');
-const $core.bool _omitMessageNames =
-    $core.bool.fromEnvironment('protobuf.omit_message_names');
+
+const $core.bool _omitFieldNames = $core.bool.fromEnvironment('protobuf.omit_field_names');
+const $core.bool _omitMessageNames = $core.bool.fromEnvironment('protobuf.omit_message_names');

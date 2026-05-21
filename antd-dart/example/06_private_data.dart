@@ -8,14 +8,15 @@ void main() async {
   final client = AntdClient();
 
   try {
-    // Store private data
+    // Store private data — daemon returns the DataMap; caller keeps it.
     final data = Uint8List.fromList(utf8.encode('my secret data'));
-    final result = await client.dataPutPrivate(data);
-    print('Private data stored (cost: ${result.cost} atto)');
-    print('Data map: ${result.address}');
+    final result = await client.dataPut(data);
+    print('Private data stored');
+    print('  chunks: ${result.chunksStored}, mode: ${result.paymentModeUsed}');
+    print('  data map: ${result.dataMap}');
 
     // Retrieve private data using the data map
-    final retrieved = await client.dataGetPrivate(result.address);
+    final retrieved = await client.dataGet(result.dataMap);
     print('Retrieved: ${utf8.decode(retrieved)}');
   } on AntdError catch (e) {
     print('Error: $e');

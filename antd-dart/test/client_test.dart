@@ -8,12 +8,29 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:test/test.dart';
 
+/// Last captured request body, populated by [mockDaemon] for any POST path.
+/// Tests inspect this to assert that fields like `payment_mode` reach the wire.
+Map<String, Map<String, dynamic>?> lastRequestBodies = {};
+
+void _captureBody(http.Request request) {
+  if (request.body.isEmpty) {
+    lastRequestBodies[request.url.path] = null;
+    return;
+  }
+  try {
+    lastRequestBodies[request.url.path] =
+        jsonDecode(request.body) as Map<String, dynamic>;
+  } catch (_) {
+    lastRequestBodies[request.url.path] = null;
+  }
+}
+
 /// Creates a MockClient that mimics antd REST responses.
 MockClient mockDaemon() {
   return MockClient((request) async {
+    _captureBody(request);
     final method = request.method;
     final path = request.url.path;
-    final query = request.url.query;
 
     Map<String, dynamic>? body;
     int statusCode = 200;
@@ -33,29 +50,27 @@ MockClient mockDaemon() {
         };
         break;
 
-      // Data put public
+      // Data
       case 'POST /v1/data/public':
-        body = {'cost': '100', 'address': 'abc123'};
+        body = {
+          'address': 'abc123',
+          'chunks_stored': 3,
+          'payment_mode_used': 'single',
+        };
         break;
-
-      // Data get public
       case 'GET /v1/data/public/abc123':
         body = {'data': base64.encode(utf8.encode('hello'))};
         break;
-
-      // Data put private
-      case 'POST /v1/data/private':
-        body = {'cost': '200', 'data_map': 'dm123'};
+      case 'POST /v1/data':
+        body = {
+          'data_map': 'dm123',
+          'chunks_stored': 5,
+          'payment_mode_used': 'merkle',
+        };
         break;
-
-      // Data get private
-      case 'GET /v1/data/private':
-        if (query.contains('data_map')) {
-          body = {'data': base64.encode(utf8.encode('secret'))};
-        }
+      case 'POST /v1/data/get':
+        body = {'data': base64.encode(utf8.encode('secret'))};
         break;
-
-      // Data cost
       case 'POST /v1/data/cost':
         body = {
           'cost': '50',
@@ -75,7 +90,18 @@ MockClient mockDaemon() {
         break;
 
       // Files
-      case 'POST /v1/files/upload/public':
+      case 'POST /v1/files':
+        body = {
+          'data_map': 'private_dm',
+          'storage_cost_atto': '500',
+          'gas_cost_wei': '21',
+          'chunks_stored': 2,
+          'payment_mode_used': 'single',
+        };
+        break;
+      case 'POST /v1/files/get':
+        return http.Response('{}', 200);
+      case 'POST /v1/files/public':
         body = {
           'address': 'file1',
           'storage_cost_atto': '1000',
@@ -84,8 +110,8 @@ MockClient mockDaemon() {
           'payment_mode_used': 'auto',
         };
         break;
-      case 'POST /v1/files/download/public':
-        return http.Response('', 200);
+      case 'POST /v1/files/public/get':
+        return http.Response('{}', 200);
       case 'POST /v1/files/cost':
         body = {
           'cost': '1000',
@@ -122,6 +148,18 @@ MockClient errorDaemon(int statusCode, String errorMessage) {
 }
 
 void main() {
+  setUp(() {
+    lastRequestBodies = {};
+  });
+
+  group('PaymentMode enum', () {
+    test('wire values match daemon strings', () {
+      expect(PaymentMode.auto.wire, equals('auto'));
+      expect(PaymentMode.merkle.wire, equals('merkle'));
+      expect(PaymentMode.single.wire, equals('single'));
+    });
+  });
+
   group('Health', () {
     test('returns health status with all diagnostic fields', () async {
       final client = AntdClient(httpClient: mockDaemon());
@@ -138,8 +176,6 @@ void main() {
     });
 
     test('HealthStatus.fromJson defaults diagnostics for pre-0.4.0 daemon', () {
-      // Older daemons reply with just status + network; the factory defaults
-      // populate the diagnostic fields with empty / 0.
       final h = HealthStatus.fromJson({'status': 'ok', 'network': 'default'});
       expect(h.ok, isTrue);
       expect(h.network, equals('default'));
@@ -154,9 +190,20 @@ void main() {
     test('put and get public data', () async {
       final client = AntdClient(httpClient: mockDaemon());
 
-      final put = await client.dataPutPublic(Uint8List.fromList(utf8.encode('hello')));
+      final put = await client.dataPutPublic(
+        Uint8List.fromList(utf8.encode('hello')),
+        paymentMode: PaymentMode.single,
+      );
       expect(put.address, equals('abc123'));
-      expect(put.cost, equals('100'));
+      expect(put.chunksStored, equals(3));
+      expect(put.paymentModeUsed, equals('single'));
+
+      // payment_mode wires through.
+      expect(lastRequestBodies['/v1/data/public'], isNotNull);
+      expect(
+        lastRequestBodies['/v1/data/public']!['payment_mode'],
+        equals('single'),
+      );
 
       final data = await client.dataGetPublic('abc123');
       expect(utf8.decode(data), equals('hello'));
@@ -166,29 +213,64 @@ void main() {
   });
 
   group('Data Private', () {
-    test('put and get private data', () async {
+    test('put and get private data (POST /v1/data + /v1/data/get)', () async {
       final client = AntdClient(httpClient: mockDaemon());
 
-      final put = await client.dataPutPrivate(Uint8List.fromList(utf8.encode('secret')));
-      expect(put.address, equals('dm123'));
-      expect(put.cost, equals('200'));
+      final put = await client.dataPut(
+        Uint8List.fromList(utf8.encode('secret')),
+        paymentMode: PaymentMode.merkle,
+      );
+      expect(put.dataMap, equals('dm123'));
+      expect(put.chunksStored, equals(5));
+      expect(put.paymentModeUsed, equals('merkle'));
 
-      final data = await client.dataGetPrivate('dm123');
+      // payment_mode wires through.
+      expect(
+        lastRequestBodies['/v1/data']!['payment_mode'],
+        equals('merkle'),
+      );
+
+      final data = await client.dataGet(put.dataMap);
       expect(utf8.decode(data), equals('secret'));
 
+      // dataGet forwards data_map in the JSON body.
+      expect(
+        lastRequestBodies['/v1/data/get']!['data_map'],
+        equals('dm123'),
+      );
+
+      client.close();
+    });
+
+    test('dataPut defaults to PaymentMode.auto', () async {
+      final client = AntdClient(httpClient: mockDaemon());
+      await client.dataPut(Uint8List.fromList(utf8.encode('x')));
+      expect(
+        lastRequestBodies['/v1/data']!['payment_mode'],
+        equals('auto'),
+      );
       client.close();
     });
   });
 
   group('Data Cost', () {
-    test('returns full breakdown', () async {
+    test('returns full breakdown and forwards payment_mode', () async {
       final client = AntdClient(httpClient: mockDaemon());
-      final est = await client.dataCost(Uint8List.fromList(utf8.encode('test')));
+      final est = await client.dataCost(
+        Uint8List.fromList(utf8.encode('test')),
+        paymentMode: PaymentMode.single,
+      );
       expect(est.cost, equals('50'));
       expect(est.fileSize, equals(4));
       expect(est.chunkCount, equals(3));
       expect(est.estimatedGasCostWei, equals('150000000000000'));
       expect(est.paymentMode, equals('single'));
+
+      expect(
+        lastRequestBodies['/v1/data/cost']!['payment_mode'],
+        equals('single'),
+      );
+
       client.close();
     });
   });
@@ -207,30 +289,94 @@ void main() {
     });
   });
 
-  group('Files', () {
-    test('upload and download files', () async {
+  group('Files Public', () {
+    test('put and get public files', () async {
       final client = AntdClient(httpClient: mockDaemon());
 
-      final put = await client.fileUploadPublic('/tmp/test.txt');
+      final put = await client.filePutPublic(
+        '/tmp/test.txt',
+        paymentMode: PaymentMode.auto,
+      );
       expect(put.address, equals('file1'));
       expect(put.storageCostAtto, equals('1000'));
       expect(put.gasCostWei, equals('42'));
       expect(put.chunksStored, equals(3));
       expect(put.paymentModeUsed, equals('auto'));
 
-      await client.fileDownloadPublic('file1', '/tmp/out.txt');
+      expect(
+        lastRequestBodies['/v1/files/public']!['payment_mode'],
+        equals('auto'),
+      );
+
+      await client.fileGetPublic('file1', '/tmp/out.txt');
+      expect(
+        lastRequestBodies['/v1/files/public/get']!['address'],
+        equals('file1'),
+      );
+      expect(
+        lastRequestBodies['/v1/files/public/get']!['dest_path'],
+        equals('/tmp/out.txt'),
+      );
 
       client.close();
     });
 
-    test('returns full breakdown', () async {
+    test('fileCost returns full breakdown and forwards payment_mode', () async {
       final client = AntdClient(httpClient: mockDaemon());
-      final est = await client.fileCost('/tmp/test.txt', isPublic: true);
+      final est = await client.fileCost(
+        '/tmp/test.txt',
+        isPublic: true,
+        paymentMode: PaymentMode.merkle,
+      );
       expect(est.cost, equals('1000'));
       expect(est.fileSize, equals(4096));
       expect(est.chunkCount, equals(3));
       expect(est.estimatedGasCostWei, equals('150000000000000'));
       expect(est.paymentMode, equals('auto'));
+
+      expect(
+        lastRequestBodies['/v1/files/cost']!['payment_mode'],
+        equals('merkle'),
+      );
+      expect(
+        lastRequestBodies['/v1/files/cost']!['is_public'],
+        equals(true),
+      );
+
+      client.close();
+    });
+  });
+
+  group('Files Private', () {
+    test('put and get private files (POST /v1/files + /v1/files/get)',
+        () async {
+      final client = AntdClient(httpClient: mockDaemon());
+
+      final put = await client.filePut(
+        '/tmp/test.txt',
+        paymentMode: PaymentMode.single,
+      );
+      expect(put.dataMap, equals('private_dm'));
+      expect(put.storageCostAtto, equals('500'));
+      expect(put.gasCostWei, equals('21'));
+      expect(put.chunksStored, equals(2));
+      expect(put.paymentModeUsed, equals('single'));
+
+      expect(
+        lastRequestBodies['/v1/files']!['payment_mode'],
+        equals('single'),
+      );
+
+      await client.fileGet(put.dataMap, '/tmp/out.txt');
+      expect(
+        lastRequestBodies['/v1/files/get']!['data_map'],
+        equals('private_dm'),
+      );
+      expect(
+        lastRequestBodies['/v1/files/get']!['dest_path'],
+        equals('/tmp/out.txt'),
+      );
+
       client.close();
     });
   });
@@ -414,7 +560,6 @@ void main() {
       final client = AntdClient(baseUrl: harness.baseUrl);
       addTearDown(client.close);
 
-      // Tell the mock server to respond with already_stored=true.
       harness.chunkAlreadyStored = true;
 
       final res = await client.prepareChunkUpload(
