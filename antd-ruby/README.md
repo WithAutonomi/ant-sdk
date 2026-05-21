@@ -29,7 +29,7 @@ puts "OK: #{health.ok}, Network: #{health.network}"
 
 # Store data
 result = client.data_put_public("Hello, Autonomi!")
-puts "Stored at #{result.address} (cost: #{result.cost} atto)"
+puts "Stored at #{result.address} (chunks: #{result.chunks_stored})"
 
 # Retrieve data
 data = client.data_get_public(result.address)
@@ -121,13 +121,11 @@ client = Antd::Client.new(base_url: "http://custom-host:9090", timeout: 30)
 ### Data (Immutable)
 | Method | Description |
 |--------|-------------|
-| `data_put(data, payment_mode: PaymentMode::AUTO)` | Store encrypted private data; returns caller-held DataMap |
-| `data_get(data_map)` | Retrieve private data from a caller-held DataMap |
-| `data_put_public(data, payment_mode: PaymentMode::AUTO)` | Store public data; returns on-network DataMap address |
+| `data_put_public(data, payment_mode: :auto)` | Store public data — returns `DataPutPublicResult` (DataMap stored on-network) |
 | `data_get_public(address)` | Retrieve public data by address |
-| `data_cost(data, payment_mode: PaymentMode::AUTO)` | Estimate storage cost — returns `UploadCostEstimate` |
-
-`Antd::PaymentMode` exposes `AUTO`, `MERKLE`, `SINGLE` string constants. Private uploads use the unqualified verb (`data_put` / `data_get`); the `_public` suffix marks the public variant.
+| `data_put(data, payment_mode: :auto)` | Store encrypted private data — returns `DataPutResult` (DataMap returned to caller) |
+| `data_get(data_map)` | Retrieve private data using a caller-held DataMap |
+| `data_cost(data, payment_mode: :auto)` | Estimate storage cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ### Chunks
 | Method | Description |
@@ -138,11 +136,11 @@ client = Antd::Client.new(base_url: "http://custom-host:9090", timeout: 30)
 ### Files
 | Method | Description |
 |--------|-------------|
-| `file_put(path, payment_mode: PaymentMode::AUTO)` | Upload a file privately; returns caller-held DataMap |
-| `file_get(data_map, dest_path)` | Download a private file from a caller-held DataMap |
-| `file_put_public(path, payment_mode: PaymentMode::AUTO)` | Upload a file publicly; returns on-network DataMap address |
+| `file_put(path, payment_mode: :auto)` | Upload a file privately — returns `FilePutResult` (DataMap returned to caller) |
+| `file_get(data_map, dest_path)` | Download a private file using a caller-held DataMap |
+| `file_put_public(path, payment_mode: :auto)` | Upload a file publicly — returns `FilePutPublicResult` (DataMap stored on-network) |
 | `file_get_public(address, dest_path)` | Download a public file by address |
-| `file_cost(path, is_public, payment_mode: PaymentMode::AUTO)` | Estimate upload cost — returns `UploadCostEstimate` |
+| `file_cost(path, is_public, payment_mode: :auto)` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ## Error Handling
 

@@ -35,7 +35,7 @@ fun main() = runBlocking {
     // Store data
     val result = client.dataPutPublic("Hello, Autonomi!".toByteArray())
     println("Address: ${result.address}")
-    println("Cost: ${result.cost} atto tokens")
+    println("Chunks stored: ${result.chunksStored}")
 
     // Retrieve data
     val data = client.dataGetPublic(result.address)
@@ -65,9 +65,9 @@ All methods are `suspend` functions for use with Kotlin coroutines.
 | Domain | Methods |
 |---|---|
 | **Health** | `health()` returns `HealthStatus` carrying antd version, EVM network, uptime, build commit, and payment contract addresses (antd ≥ 0.4.0) |
-| **Data** | `dataPutPublic`, `dataGetPublic`, `dataPutPrivate`, `dataGetPrivate`, `dataCost` |
+| **Data** | `dataPutPublic`, `dataGetPublic`, `dataPut`, `dataGet`, `dataCost`. Private `dataPut` returns a caller-held DataMap (NOT stored on-network); public `dataPutPublic` stores the DataMap on-network at the returned address. All puts and `dataCost` accept a `PaymentMode` parameter. |
 | **Chunks** | `chunkPut`, `chunkGet` |
-| **Files** | `fileUploadPublic`, `fileDownloadPublic`, `fileCost` |
+| **Files** | `filePut`, `fileGet`, `filePutPublic`, `fileGetPublic`, `fileCost`. Private variants return a caller-held DataMap (NOT stored on-network); public variants store the DataMap on-network at the returned address. All puts and `fileCost` accept a `PaymentMode` parameter. |
 
 ## Error Handling
 

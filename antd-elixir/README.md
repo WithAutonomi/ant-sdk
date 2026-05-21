@@ -26,7 +26,7 @@ IO.puts("OK: #{health.ok}, Network: #{health.network}")
 
 # Store public data (public methods keep the `_public` suffix)
 {:ok, result} = Antd.Client.data_put_public(client, "Hello, Autonomi!")
-IO.puts("Stored at #{result.address}")
+IO.puts("Stored at #{result.address} (chunks: #{result.chunks_stored})")
 
 # Retrieve data
 {:ok, data} = Antd.Client.data_get_public(client, result.address)
@@ -169,13 +169,11 @@ All functions take a `%Antd.Client{}` as the first argument. Each returns `{:ok,
 
 | Function | Description |
 |----------|-------------|
-| `data_put(client, data, opts)` | Store private encrypted data — returns `Antd.DataPutResult` with the caller-held DataMap |
+| `data_put_public(client, data, opts \\ [])` | Store public data — returns `Antd.DataPutPublicResult` (DataMap stored on-network). `opts`: `payment_mode: :auto | :merkle | :single`. |
+| `data_get_public(client, address)` | Retrieve public data by address |
+| `data_put(client, data, opts \\ [])` | Store encrypted private data — returns `Antd.DataPutResult` (DataMap returned to caller). `opts`: `payment_mode:`. |
 | `data_get(client, data_map)` | Retrieve private data using a caller-held DataMap |
-| `data_put_public(client, data, opts)` | Store public data — returns `Antd.DataPutPublicResult` with the shareable address |
-| `data_get_public(client, address)` | Retrieve public data |
-| `data_cost(client, data, opts)` | Estimate storage cost — returns `Antd.UploadCostEstimate` with size, chunks, gas, payment mode |
-
-`opts` accepts `:payment_mode` (`:auto` / `:merkle` / `:single`; default `:auto`) on put and cost methods.
+| `data_cost(client, data, opts \\ [])` | Estimate storage cost — returns `Antd.UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ### Chunks
 
@@ -188,31 +186,11 @@ All functions take a `%Antd.Client{}` as the first argument. Each returns `{:ok,
 
 | Function | Description |
 |----------|-------------|
-| `file_put(client, path, opts)` | Upload a file privately — returns `Antd.FilePutResult` with the caller-held DataMap |
+| `file_put(client, path, opts \\ [])` | Upload a file privately — returns `Antd.FilePutResult` (DataMap returned to caller). `opts`: `payment_mode:`. |
 | `file_get(client, data_map, dest_path)` | Download a private file using a caller-held DataMap |
-| `file_put_public(client, path, opts)` | Upload a file publicly — returns `Antd.FilePutPublicResult` with the shareable address |
-| `file_get_public(client, address, dest_path)` | Download a public file |
-| `file_cost(client, path, is_public, opts)` | Estimate upload cost |
-
-### Wallet
-
-| Function | Description |
-|----------|-------------|
-| `wallet_address(client)` | Get the wallet address |
-| `wallet_balance(client)` | Get token + gas balances |
-| `wallet_approve(client)` | One-time token-spending approval for payment contracts |
-
-### External Signer (Two-Phase Upload)
-
-| Function | Description |
-|----------|-------------|
-| `prepare_upload(client, path, opts)` | Prepare a file upload (supports `:visibility`) |
-| `prepare_upload_public(client, path)` | Convenience: `prepare_upload(..., visibility: "public")` |
-| `prepare_data_upload(client, data, opts)` | Prepare an in-memory data upload |
-| `finalize_upload(client, upload_id, tx_hashes)` | Finalize after external signing |
-| `finalize_merkle_upload(client, upload_id, winner_pool_hash, opts)` | Finalize a merkle-batch upload |
-| `prepare_chunk_upload(client, data)` | Prepare a single chunk for external-signer publish |
-| `finalize_chunk_upload(client, upload_id, tx_hashes)` | Submit a prepared chunk after external payment |
+| `file_put_public(client, path, opts \\ [])` | Upload a file publicly — returns `Antd.FilePutPublicResult` (DataMap stored on-network). `opts`: `payment_mode:`. |
+| `file_get_public(client, address, dest_path)` | Download a public file by address |
+| `file_cost(client, path, is_public, opts \\ [])` | Estimate upload cost — returns `Antd.UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ## Error Handling
 

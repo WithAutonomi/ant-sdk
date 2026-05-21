@@ -25,7 +25,7 @@ echo "OK: " . ($health->ok ? 'true' : 'false') . ", Network: {$health->network}\
 
 // Store data
 $result = $client->dataPutPublic('Hello, Autonomi!');
-echo "Stored at {$result->address} (cost: {$result->cost} atto)\n";
+echo "Stored at {$result->address} (chunks: {$result->chunksStored})\n";
 
 // Retrieve data
 $data = $client->dataGetPublic($result->address);
@@ -66,11 +66,11 @@ $client = new AntdClient('http://localhost:8082', 300.0, $myGuzzleClient);
 ### Data (Immutable)
 | Method | Description |
 |--------|-------------|
-| `dataPutPublic(string $data)` | Store public data |
-| `dataGetPublic(string $address)` | Retrieve public data |
-| `dataPutPrivate(string $data)` | Store encrypted private data |
-| `dataGetPrivate(string $dataMap)` | Retrieve private data |
-| `dataCost(string $data)` | Estimate storage cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
+| `dataPutPublic(string $data, string $paymentMode = 'auto')` | Store public data — returns `DataPutPublicResult` (DataMap stored on-network) |
+| `dataGetPublic(string $address)` | Retrieve public data by address |
+| `dataPut(string $data, string $paymentMode = 'auto')` | Store encrypted private data — returns `DataPutResult` (DataMap returned to caller) |
+| `dataGet(string $dataMap)` | Retrieve private data using a caller-held DataMap |
+| `dataCost(string $data, string $paymentMode = 'auto')` | Estimate storage cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ### Chunks
 | Method | Description |
@@ -81,9 +81,11 @@ $client = new AntdClient('http://localhost:8082', 300.0, $myGuzzleClient);
 ### Files
 | Method | Description |
 |--------|-------------|
-| `fileUploadPublic(string $path)` | Upload a file |
-| `fileDownloadPublic(string $address, string $destPath)` | Download a file |
-| `fileCost(string $path, bool $isPublic)` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
+| `filePut(string $path, string $paymentMode = 'auto')` | Upload a file privately — returns `FilePutResult` (DataMap returned to caller) |
+| `fileGet(string $dataMap, string $destPath)` | Download a private file using a caller-held DataMap |
+| `filePutPublic(string $path, string $paymentMode = 'auto')` | Upload a file publicly — returns `FilePutPublicResult` (DataMap stored on-network) |
+| `fileGetPublic(string $address, string $destPath)` | Download a public file by address |
+| `fileCost(string $path, bool $isPublic, string $paymentMode = 'auto')` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ## Async Usage
 

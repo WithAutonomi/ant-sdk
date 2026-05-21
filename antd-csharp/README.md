@@ -35,7 +35,7 @@ Console.WriteLine($"{status.Network} — healthy: {status.Ok}");
 var result = await client.DataPutPublicAsync(
     Encoding.UTF8.GetBytes("Hello, Autonomi!")
 );
-Console.WriteLine($"Address: {result.Address}, Cost: {result.Cost}");
+Console.WriteLine($"Address: {result.Address}, chunks: {result.ChunksStored}");
 
 var data = await client.DataGetPublicAsync(result.Address);
 Console.WriteLine(Encoding.UTF8.GetString(data));
@@ -75,11 +75,11 @@ All methods are async and return `Task<T>`. The client implements `IDisposable`.
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `DataPutPublicAsync(byte[] data)` | `PutResult` | Store public data |
-| `DataGetPublicAsync(string address)` | `byte[]` | Retrieve public data |
-| `DataPutPrivateAsync(byte[] data)` | `PutResult` | Store private data |
-| `DataGetPrivateAsync(string dataMap)` | `byte[]` | Retrieve private data |
-| `DataCostAsync(byte[] data)` | `UploadCostEstimate` | Estimate storage cost — size, chunks, gas, payment mode |
+| `DataPutPublicAsync(byte[] data, PaymentMode mode = Auto)` | `DataPutPublicResult` | Store public data — DataMap stored on-network |
+| `DataGetPublicAsync(string address)` | `byte[]` | Retrieve public data by address |
+| `DataPutAsync(byte[] data, PaymentMode mode = Auto)` | `DataPutResult` | Store private (encrypted) data — DataMap returned to caller |
+| `DataGetAsync(string dataMap)` | `byte[]` | Retrieve private data using a caller-held DataMap |
+| `DataCostAsync(byte[] data, PaymentMode mode = Auto)` | `UploadCostEstimate` | Estimate storage cost — size, chunks, gas, payment mode |
 
 ### Chunks
 
@@ -92,9 +92,11 @@ All methods are async and return `Task<T>`. The client implements `IDisposable`.
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `FileUploadPublicAsync(string path)` | `FileUploadResult` | Upload file |
-| `FileDownloadPublicAsync(string address, string dest)` | — | Download file |
-| `FileCostAsync(string path, bool isPublic)` | `UploadCostEstimate` | Estimate cost — size, chunks, gas, payment mode |
+| `FilePutAsync(string path, PaymentMode mode = Auto)` | `FilePutResult` | Upload a file privately — DataMap returned to caller |
+| `FileGetAsync(string dataMap, string destPath)` | — | Download a private file using a caller-held DataMap |
+| `FilePutPublicAsync(string path, PaymentMode mode = Auto)` | `FilePutPublicResult` | Upload a file publicly — DataMap stored on-network |
+| `FileGetPublicAsync(string address, string destPath)` | — | Download a public file by address |
+| `FileCostAsync(string path, bool isPublic, PaymentMode mode = Auto)` | `UploadCostEstimate` | Estimate cost — size, chunks, gas, payment mode |
 
 ## Models
 
@@ -103,8 +105,12 @@ All models are sealed records (immutable).
 | Model | Fields | Description |
 |-------|--------|-------------|
 | `HealthStatus` | `Ok`, `Network`, `Version`, `EvmNetwork`, `UptimeSeconds`, `BuildCommit`, `PaymentTokenAddress`, `PaymentVaultAddress` | Health check result (diagnostic fields require antd ≥ 0.4.0) |
-| `PutResult` | `Cost`, `Address` | Write operation result |
-| `FileUploadResult` | `Address`, `StorageCostAtto`, `GasCostWei`, `ChunksStored`, `PaymentModeUsed` | File/dir upload result |
+| `PutResult` | `Cost`, `Address` | Result of `ChunkPutAsync` only |
+| `DataPutResult` | `DataMap`, `ChunksStored`, `PaymentModeUsed` | Private data put — DataMap returned to caller |
+| `DataPutPublicResult` | `Address`, `ChunksStored`, `PaymentModeUsed` | Public data put — DataMap stored on-network |
+| `FilePutResult` | `DataMap`, `StorageCostAtto`, `GasCostWei`, `ChunksStored`, `PaymentModeUsed` | Private file put — DataMap returned to caller |
+| `FilePutPublicResult` | `Address`, `StorageCostAtto`, `GasCostWei`, `ChunksStored`, `PaymentModeUsed` | Public file put — DataMap stored on-network |
+| `UploadCostEstimate` | `Cost`, `FileSize`, `ChunkCount`, `EstimatedGasCostWei`, `PaymentMode` | Pre-upload cost breakdown |
 
 ## Error Handling
 

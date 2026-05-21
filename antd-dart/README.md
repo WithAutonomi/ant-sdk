@@ -33,11 +33,11 @@ void main() async {
     final health = await client.health();
     print('OK: ${health.ok}, Network: ${health.network}');
 
-    // Store data publicly (shareable address)
-    final payload = Uint8List.fromList(utf8.encode('Hello, Autonomi!'));
-    final result = await client.dataPutPublic(payload, paymentMode: PaymentMode.auto);
-    print('Stored at ${result.address}');
-    print('  chunks: ${result.chunksStored}, mode: ${result.paymentModeUsed}');
+    // Store data
+    final result = await client.dataPutPublic(
+      Uint8List.fromList(utf8.encode('Hello, Autonomi!')),
+    );
+    print('Stored at ${result.address} (chunks: ${result.chunksStored})');
 
     // Retrieve data
     final data = await client.dataGetPublic(result.address);
@@ -170,11 +170,11 @@ a shareable address.
 ### Data
 | Method | Description |
 |--------|-------------|
-| `dataPut(data, {paymentMode})` | Store encrypted private data — returns `DataPutResult { dataMap, chunksStored, paymentModeUsed }` |
-| `dataGet(dataMap)` | Retrieve private data |
-| `dataPutPublic(data, {paymentMode})` | Store public data — returns `DataPutPublicResult { address, chunksStored, paymentModeUsed }` |
-| `dataGetPublic(address)` | Retrieve public data |
-| `dataCost(data, {paymentMode})` | Estimate storage cost |
+| `dataPutPublic(data, {paymentMode})` | Store public data — returns `DataPutPublicResult` (DataMap stored on-network) |
+| `dataGetPublic(address)` | Retrieve public data by address |
+| `dataPut(data, {paymentMode})` | Store encrypted private data — returns `DataPutResult` (DataMap returned to caller) |
+| `dataGet(dataMap)` | Retrieve private data using a caller-held DataMap |
+| `dataCost(data, {paymentMode})` | Estimate storage cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ### Chunks
 | Method | Description |
@@ -187,27 +187,11 @@ a shareable address.
 ### Files
 | Method | Description |
 |--------|-------------|
-| `filePut(path, {paymentMode})` | Upload a private file — returns `FilePutResult { dataMap, ... }` |
-| `fileGet(dataMap, destPath)` | Download a private file |
-| `filePutPublic(path, {paymentMode})` | Upload a public file — returns `FilePutPublicResult { address, ... }` |
-| `fileGetPublic(address, destPath)` | Download a public file |
-| `fileCost(path, {isPublic, paymentMode})` | Estimate upload cost |
-
-### Wallet
-| Method | Description |
-|--------|-------------|
-| `walletAddress()` | Wallet address |
-| `walletBalance()` | Token + gas balance |
-| `walletApprove()` | One-time token approval |
-
-### External Signer (Two-Phase Upload)
-| Method | Description |
-|--------|-------------|
-| `prepareUpload(path, {visibility})` | Prepare file upload for external signer |
-| `prepareUploadPublic(path)` | Convenience for public prepare |
-| `prepareDataUpload(data, {visibility})` | Prepare data upload |
-| `finalizeUpload(uploadId, txHashes)` | Wave-batch finalize |
-| `finalizeMerkleUpload(uploadId, winnerPoolHash)` | Merkle finalize |
+| `filePut(path, {paymentMode})` | Upload a file privately — returns `FilePutResult` (DataMap returned to caller) |
+| `fileGet(dataMap, destPath)` | Download a private file using a caller-held DataMap |
+| `filePutPublic(path, {paymentMode})` | Upload a file publicly — returns `FilePutPublicResult` (DataMap stored on-network) |
+| `fileGetPublic(address, destPath)` | Download a public file by address |
+| `fileCost(path, {isPublic, paymentMode})` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ## Error Handling
 

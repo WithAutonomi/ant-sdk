@@ -37,7 +37,7 @@ print("Network: \(status.network)")
 let payload = "Hello, Autonomi!".data(using: .utf8)!
 let result = try await client.dataPutPublic(payload, paymentMode: .auto)
 print("Address: \(result.address)")
-print("Chunks stored: \(result.chunksStored), mode: \(result.paymentModeUsed)")
+print("Chunks stored: \(result.chunksStored)")
 
 // Retrieve data
 let data = try await client.dataGetPublic(address: result.address)
@@ -78,13 +78,9 @@ All methods are `async throws` for use with Swift concurrency.
 | Domain | Methods |
 |---|---|
 | **Health** | `health()` |
-| **Data** | `dataPut`, `dataGet`, `dataPutPublic`, `dataGetPublic`, `dataCost` |
-| **Chunks** | `chunkPut`, `chunkGet`, `prepareChunkUpload`, `finalizeChunkUpload` |
-| **Files** | `filePut`, `fileGet`, `filePutPublic`, `fileGetPublic`, `fileCost` |
-| **Wallet** | `walletAddress`, `walletBalance`, `walletApprove` |
-| **External Signer** | `prepareUpload`, `prepareUploadPublic`, `prepareDataUpload`, `finalizeUpload`, `finalizeMerkleUpload` |
-
-The unqualified verb (`dataPut`, `filePut`, `dataGet`, `fileGet`) is the **private** variant — DataMaps are returned to the caller and not stored on-network. The `*Public` variants store the DataMap on-network and return a shareable address.
+| **Data** | `dataPutPublic`, `dataGetPublic`, `dataPut`, `dataGet`, `dataCost`. Private `dataPut` returns a caller-held DataMap (NOT stored on-network); public `dataPutPublic` stores the DataMap on-network at the returned address. All puts and `dataCost` accept a `PaymentMode` parameter. |
+| **Chunks** | `chunkPut`, `chunkGet` |
+| **Files** | `filePut`, `fileGet`, `filePutPublic`, `fileGetPublic`, `fileCost`. Private variants return a caller-held DataMap (NOT stored on-network); public variants store the DataMap on-network at the returned address. All puts and `fileCost` accept a `PaymentMode` parameter. |
 
 ## Error Handling
 

@@ -31,7 +31,7 @@ print(f"{status.network} -- healthy: {status.ok}")
 
 # Store and retrieve data
 result = client.data_put_public(b"Hello, Autonomi!")
-print(f"Address: {result.address}, Cost: {result.cost}")
+print(f"Address: {result.address}, chunks: {result.chunks_stored}")
 
 data = client.data_get_public(result.address)
 print(data.decode())  # "Hello, Autonomi!"
@@ -75,13 +75,11 @@ await aclient.close()
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `data_put(data: bytes, payment_mode=PaymentMode.AUTO)` | `DataPutResult` | Store private (encrypted) data; returns caller-held DataMap |
-| `data_get(data_map: str)` | `bytes` | Retrieve private data from a caller-held DataMap |
-| `data_put_public(data: bytes, payment_mode=PaymentMode.AUTO)` | `DataPutPublicResult` | Store public data; returns on-network DataMap address |
+| `data_put_public(data, payment_mode=...)` | `DataPutPublicResult` | Store public data — DataMap is stored on-network |
 | `data_get_public(address: str)` | `bytes` | Retrieve public data by address |
-| `data_cost(data: bytes, payment_mode=PaymentMode.AUTO)` | `UploadCostEstimate` | Estimate storage cost — size, chunks, gas, payment mode |
-
-`PaymentMode` is a typed enum (`PaymentMode.AUTO`, `PaymentMode.MERKLE`, `PaymentMode.SINGLE`). Private uploads use the unqualified verb (`data_put` / `data_get`); the `_public` suffix marks the public variant.
+| `data_put(data, payment_mode=...)` | `DataPutResult` | Store private (encrypted) data — DataMap returned to caller (NOT stored on-network) |
+| `data_get(data_map: str)` | `bytes` | Retrieve private data using a caller-held DataMap |
+| `data_cost(data, payment_mode=...)` | `UploadCostEstimate` | Estimate storage cost — size, chunks, gas, payment mode |
 
 #### Chunks
 
@@ -94,11 +92,11 @@ await aclient.close()
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `file_put(path: str, payment_mode=PaymentMode.AUTO)` | `FilePutResult` | Upload a file privately; returns caller-held DataMap |
-| `file_get(data_map: str, dest: str)` | `None` | Download a private file from a caller-held DataMap |
-| `file_put_public(path: str, payment_mode=PaymentMode.AUTO)` | `FilePutPublicResult` | Upload a file publicly; returns on-network DataMap address |
-| `file_get_public(address: str, dest: str)` | `None` | Download a public file by address |
-| `file_cost(path: str, is_public: bool, payment_mode=PaymentMode.AUTO)` | `UploadCostEstimate` | Estimate file cost — size, chunks, gas, payment mode |
+| `file_put(path, payment_mode=...)` | `FilePutResult` | Upload a file privately — DataMap returned to caller (NOT stored on-network) |
+| `file_get(data_map, dest_path)` | `None` | Download a private file using a caller-held DataMap |
+| `file_put_public(path, payment_mode=...)` | `FilePutPublicResult` | Upload a file publicly — DataMap is stored on-network |
+| `file_get_public(address, dest_path)` | `None` | Download a public file by address |
+| `file_cost(path, is_public, payment_mode=...)` | `UploadCostEstimate` | Estimate file cost — size, chunks, gas, payment mode |
 
 ## Models
 
@@ -106,8 +104,13 @@ All models are frozen dataclasses (immutable).
 
 | Model | Fields | Description |
 |-------|--------|-------------|
-| `HealthStatus` | `ok: bool`, `network: str` | Health check result |
-| `PutResult` | `cost: str`, `address: str` | Write operation result |
+| `HealthStatus` | `ok`, `network`, `version`, `evm_network`, `uptime_seconds`, `build_commit`, `payment_token_address`, `payment_vault_address` | Health check result (diagnostic fields require antd ≥ 0.4.0) |
+| `PutResult` | `cost`, `address` | Result of `chunk_put` only |
+| `DataPutResult` | `data_map`, `chunks_stored`, `payment_mode_used` | Private data put — DataMap returned to caller |
+| `DataPutPublicResult` | `address`, `chunks_stored`, `payment_mode_used` | Public data put — DataMap stored on-network |
+| `FilePutResult` | `data_map`, `storage_cost_atto`, `gas_cost_wei`, `chunks_stored`, `payment_mode_used` | Private file put — DataMap returned to caller |
+| `FilePutPublicResult` | `address`, `storage_cost_atto`, `gas_cost_wei`, `chunks_stored`, `payment_mode_used` | Public file put — DataMap stored on-network |
+| `UploadCostEstimate` | `cost`, `file_size`, `chunk_count`, `estimated_gas_cost_wei`, `payment_mode` | Pre-upload cost breakdown |
 
 ## Error Handling
 

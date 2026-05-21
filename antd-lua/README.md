@@ -60,7 +60,7 @@ if err then
     print("Error: " .. err.message)
     os.exit(1)
 end
-print("Stored at " .. result.address .. " (cost: " .. result.cost .. " atto)")
+print("Stored at " .. result.address .. " (chunks: " .. result.chunks_stored .. ")")
 
 -- Retrieve data
 local data, err = client:data_get_public(result.address)
@@ -108,11 +108,11 @@ All methods return `value, err` following Lua convention. On success `err` is `n
 
 | Method | Description |
 |--------|-------------|
-| `client:data_put_public(data)` | Store public data |
-| `client:data_get_public(address)` | Retrieve public data |
-| `client:data_put_private(data)` | Store encrypted private data |
-| `client:data_get_private(data_map)` | Retrieve private data |
-| `client:data_cost(data)` | Estimate storage cost — returns a table with `cost`, `file_size`, `chunk_count`, `estimated_gas_cost_wei`, `payment_mode` |
+| `client:data_put_public(data, payment_mode)` | Store public data — returns a `DataPutPublicResult` table (DataMap stored on-network) |
+| `client:data_get_public(address)` | Retrieve public data by address |
+| `client:data_put(data, payment_mode)` | Store encrypted private data — returns a `DataPutResult` table (DataMap returned to caller) |
+| `client:data_get(data_map)` | Retrieve private data using a caller-held DataMap |
+| `client:data_cost(data, payment_mode)` | Estimate storage cost — returns a table with `cost`, `file_size`, `chunk_count`, `estimated_gas_cost_wei`, `payment_mode` |
 
 ### Chunks
 
@@ -125,9 +125,11 @@ All methods return `value, err` following Lua convention. On success `err` is `n
 
 | Method | Description |
 |--------|-------------|
-| `client:file_upload_public(path)` | Upload a file |
-| `client:file_download_public(address, dest_path)` | Download a file |
-| `client:file_cost(path, is_public)` | Estimate upload cost — returns a table with `cost`, `file_size`, `chunk_count`, `estimated_gas_cost_wei`, `payment_mode` |
+| `client:file_put(path, payment_mode)` | Upload a file privately — returns a `FilePutResult` table (DataMap returned to caller) |
+| `client:file_get(data_map, dest_path)` | Download a private file using a caller-held DataMap |
+| `client:file_put_public(path, payment_mode)` | Upload a file publicly — returns a `FilePutPublicResult` table (DataMap stored on-network) |
+| `client:file_get_public(address, dest_path)` | Download a public file by address |
+| `client:file_cost(path, is_public, payment_mode)` | Estimate upload cost — returns a table with `cost`, `file_size`, `chunk_count`, `estimated_gas_cost_wei`, `payment_mode` |
 
 ## Error Handling
 
