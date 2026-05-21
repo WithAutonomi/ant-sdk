@@ -650,23 +650,26 @@ client := antd.NewClient(antd.DefaultBaseURL)        // localhost:8082
 // Health
 func (c *Client) Health(ctx context.Context) (*HealthStatus, error)
 
-// Data
-func (c *Client) DataPutPublic(ctx context.Context, data []byte) (*PutResult, error)
-func (c *Client) DataGetPublic(ctx context.Context, address string) ([]byte, error)
-func (c *Client) DataPutPrivate(ctx context.Context, data []byte) (*PutResult, error)
-func (c *Client) DataGetPrivate(ctx context.Context, dataMap string) ([]byte, error)
-func (c *Client) DataCost(ctx context.Context, data []byte) (*UploadCostEstimate, error)
+// PaymentMode is a typed enum passed to every put/cost method.
+// antd.PaymentModeAuto | antd.PaymentModeMerkle | antd.PaymentModeSingle
 
-// Chunks
+// Data — private = unqualified verb, public = _public suffix.
+func (c *Client) DataPut(ctx context.Context, data []byte, paymentMode PaymentMode) (*DataPutResult, error)
+func (c *Client) DataGet(ctx context.Context, dataMap string) ([]byte, error)
+func (c *Client) DataPutPublic(ctx context.Context, data []byte, paymentMode PaymentMode) (*DataPutPublicResult, error)
+func (c *Client) DataGetPublic(ctx context.Context, address string) ([]byte, error)
+func (c *Client) DataCost(ctx context.Context, data []byte, paymentMode PaymentMode) (*UploadCostEstimate, error)
+
+// Chunks (no payment_mode — single-chunk primitive, no batch to optimize)
 func (c *Client) ChunkPut(ctx context.Context, data []byte) (*PutResult, error)
 func (c *Client) ChunkGet(ctx context.Context, address string) ([]byte, error)
 
-
-
 // Files
-func (c *Client) FileUploadPublic(ctx context.Context, path string) (*PutResult, error)
-func (c *Client) FileDownloadPublic(ctx context.Context, address string, destPath string) error
-func (c *Client) FileCost(ctx context.Context, path string, isPublic bool) (*UploadCostEstimate, error)
+func (c *Client) FilePut(ctx context.Context, path string, paymentMode PaymentMode) (*FilePutResult, error)
+func (c *Client) FileGet(ctx context.Context, dataMap string, destPath string) error
+func (c *Client) FilePutPublic(ctx context.Context, path string, paymentMode PaymentMode) (*FilePutPublicResult, error)
+func (c *Client) FileGetPublic(ctx context.Context, address string, destPath string) error
+func (c *Client) FileCost(ctx context.Context, path string, isPublic bool, paymentMode PaymentMode) (*UploadCostEstimate, error)
 
 // Wallet
 func (c *Client) WalletAddress(ctx context.Context) (*WalletAddress, error)

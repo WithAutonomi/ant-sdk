@@ -12,16 +12,47 @@ type HealthStatus struct {
 	PaymentVaultAddress string `json:"payment_vault_address"`
 }
 
-// PutResult is the result of a put/create operation.
+// PutResult is the result of a single-chunk put (ChunkPut).
 type PutResult struct {
 	Cost    string `json:"cost"`    // atto tokens as string
 	Address string `json:"address"` // hex
 }
 
-// FileUploadResult is the result of a public file upload.
-// Returned by FileUploadPublic on both REST and gRPC clients.
-type FileUploadResult struct {
-	Address         string `json:"address"`           // hex network address
+// DataPutResult is the result of a private data put. The DataMap is returned
+// to the caller; it is NOT stored on-network. ChunksStored and PaymentModeUsed
+// are populated by the REST transport; the gRPC transport currently leaves
+// them empty (proto PutDataResponse only carries data_map).
+type DataPutResult struct {
+	DataMap         string `json:"data_map"`          // hex
+	ChunksStored    uint64 `json:"chunks_stored"`     // number of chunks stored on the network
+	PaymentModeUsed string `json:"payment_mode_used"` // "auto", "merkle", or "single"
+}
+
+// DataPutPublicResult is the result of a public data put. The DataMap is
+// stored on-network as an additional chunk; the returned address is the
+// shareable retrieval handle. ChunksStored and PaymentModeUsed are populated
+// by REST; the gRPC transport currently leaves them empty.
+type DataPutPublicResult struct {
+	Address         string `json:"address"`           // hex
+	ChunksStored    uint64 `json:"chunks_stored"`     // number of chunks stored on the network
+	PaymentModeUsed string `json:"payment_mode_used"` // "auto", "merkle", or "single"
+}
+
+// FilePutResult is the result of a private file upload. The DataMap is
+// returned to the caller; it is NOT stored on-network.
+type FilePutResult struct {
+	DataMap         string `json:"data_map"`          // hex-encoded rmp_serde-serialized DataMap
+	StorageCostAtto string `json:"storage_cost_atto"` // total storage cost in atto, "0" if all chunks already existed
+	GasCostWei      string `json:"gas_cost_wei"`      // total gas cost in wei as decimal string
+	ChunksStored    uint64 `json:"chunks_stored"`     // number of chunks stored on the network
+	PaymentModeUsed string `json:"payment_mode_used"` // "auto", "merkle", or "single"
+}
+
+// FilePutPublicResult is the result of a public file upload. The DataMap is
+// stored on-network as an additional chunk; the returned address is the
+// shareable retrieval handle.
+type FilePutPublicResult struct {
+	Address         string `json:"address"`           // hex network address of the stored DataMap
 	StorageCostAtto string `json:"storage_cost_atto"` // total storage cost in atto, "0" if all chunks already existed
 	GasCostWei      string `json:"gas_cost_wei"`      // total gas cost in wei as decimal string
 	ChunksStored    uint64 `json:"chunks_stored"`     // number of chunks stored on the network

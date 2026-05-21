@@ -34,11 +34,11 @@ func main() {
         health.OK, health.Network, health.Version, health.EvmNetwork)
 
     // Store data
-    result, err := client.DataPutPublic(ctx, []byte("Hello, Autonomi!"))
+    result, err := client.DataPutPublic(ctx, []byte("Hello, Autonomi!"), antd.PaymentModeAuto)
     if err != nil {
         log.Fatal(err)
     }
-    fmt.Printf("Stored at %s (cost: %s atto)\n", result.Address, result.Cost)
+    fmt.Printf("Stored at %s (chunks: %d, mode: %s)\n", result.Address, result.ChunksStored, result.PaymentModeUsed)
 
     // Retrieve data
     data, err := client.DataGetPublic(ctx, result.Address)
@@ -75,12 +75,22 @@ client := antd.NewClient(antd.DefaultBaseURL, antd.WithTimeout(30 * time.Second)
 // Custom HTTP client
 client := antd.NewClient(antd.DefaultBaseURL, antd.WithHTTPClient(myHTTPClient))
 
-// Payment mode for uploads (defaults to "auto")
-result, _ := client.DataPutPublic(ctx, data, antd.WithPaymentMode("merkle"))
-// "auto" = merkle for 64+ chunks, single otherwise
-// "merkle" = force batch payments (saves gas, min 2 chunks)
-// "single" = per-chunk payments
+// Payment mode is a typed enum passed positionally to put/cost methods.
+result, _ := client.DataPutPublic(ctx, data, antd.PaymentModeMerkle)
+// antd.PaymentModeAuto   — server picks merkle for 64+ chunks, single otherwise
+// antd.PaymentModeMerkle — force batch payments (saves gas, min 2 chunks)
+// antd.PaymentModeSingle — per-chunk payments
 ```
+
+### Put/Get naming convention
+
+Methods follow a "private by default" convention: the unqualified verb is the
+private variant; the `_public` suffix marks the public variant.
+
+- `DataPut` / `DataGet` — private. Returns/consumes a caller-held DataMap.
+- `DataPutPublic` / `DataGetPublic` — public. Stores/fetches the DataMap on-network.
+- `FilePut` / `FileGet` — private file upload/download.
+- `FilePutPublic` / `FileGetPublic` — public file upload/download.
 
 ## API Reference
 
@@ -94,11 +104,11 @@ All methods take a `context.Context` as the first parameter for cancellation and
 ### Data (Immutable)
 | Method | Description |
 |--------|-------------|
-| `DataPutPublic(ctx, data)` | Store public data |
-| `DataGetPublic(ctx, address)` | Retrieve public data |
-| `DataPutPrivate(ctx, data)` | Store encrypted private data |
-| `DataGetPrivate(ctx, dataMap)` | Retrieve private data |
-| `DataCost(ctx, data)` | Estimate storage cost — returns `*UploadCostEstimate` with size, chunks, gas, payment mode |
+| `DataPut(ctx, data, paymentMode)` | Store encrypted private data; returns the caller-held DataMap |
+| `DataGet(ctx, dataMap)` | Retrieve private data from a caller-held DataMap |
+| `DataPutPublic(ctx, data, paymentMode)` | Store public data; returns the on-network DataMap address |
+| `DataGetPublic(ctx, address)` | Retrieve public data by address |
+| `DataCost(ctx, data, paymentMode)` | Estimate storage cost — returns `*UploadCostEstimate` |
 
 ### Chunks
 | Method | Description |
@@ -109,9 +119,11 @@ All methods take a `context.Context` as the first parameter for cancellation and
 ### Files
 | Method | Description |
 |--------|-------------|
-| `FileUploadPublic(ctx, path)` | Upload a file |
-| `FileDownloadPublic(ctx, address, destPath)` | Download a file |
-| `FileCost(ctx, path, isPublic)` | Estimate upload cost — returns `*UploadCostEstimate` with size, chunks, gas, payment mode |
+| `FilePut(ctx, path, paymentMode)` | Upload a file privately; returns the caller-held DataMap |
+| `FileGet(ctx, dataMap, destPath)` | Download a private file from a caller-held DataMap |
+| `FilePutPublic(ctx, path, paymentMode)` | Upload a file publicly; returns the on-network DataMap address |
+| `FileGetPublic(ctx, address, destPath)` | Download a public file by address |
+| `FileCost(ctx, path, isPublic, paymentMode)` | Estimate upload cost — returns `*UploadCostEstimate` |
 
 ## gRPC Transport
 

@@ -19,24 +19,27 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	DataService_GetPublic_FullMethodName    = "/antd.v1.DataService/GetPublic"
+	DataService_Put_FullMethodName          = "/antd.v1.DataService/Put"
 	DataService_PutPublic_FullMethodName    = "/antd.v1.DataService/PutPublic"
+	DataService_Get_FullMethodName          = "/antd.v1.DataService/Get"
+	DataService_GetPublic_FullMethodName    = "/antd.v1.DataService/GetPublic"
 	DataService_StreamPublic_FullMethodName = "/antd.v1.DataService/StreamPublic"
-	DataService_GetPrivate_FullMethodName   = "/antd.v1.DataService/GetPrivate"
-	DataService_PutPrivate_FullMethodName   = "/antd.v1.DataService/PutPrivate"
-	DataService_GetCost_FullMethodName      = "/antd.v1.DataService/GetCost"
+	DataService_Cost_FullMethodName         = "/antd.v1.DataService/Cost"
 )
 
 // DataServiceClient is the client API for DataService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type DataServiceClient interface {
-	GetPublic(ctx context.Context, in *GetPublicDataRequest, opts ...grpc.CallOption) (*GetPublicDataResponse, error)
+	// Private = unqualified verb (the DataMap is returned to the caller; it is
+	// NOT stored on the network). Public = `_public` suffix (the DataMap is
+	// additionally stored on-network and the call returns the resulting address).
+	Put(ctx context.Context, in *PutDataRequest, opts ...grpc.CallOption) (*PutDataResponse, error)
 	PutPublic(ctx context.Context, in *PutPublicDataRequest, opts ...grpc.CallOption) (*PutPublicDataResponse, error)
+	Get(ctx context.Context, in *GetDataRequest, opts ...grpc.CallOption) (*GetDataResponse, error)
+	GetPublic(ctx context.Context, in *GetPublicDataRequest, opts ...grpc.CallOption) (*GetPublicDataResponse, error)
 	StreamPublic(ctx context.Context, in *StreamPublicDataRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DataChunk], error)
-	GetPrivate(ctx context.Context, in *GetPrivateDataRequest, opts ...grpc.CallOption) (*GetPrivateDataResponse, error)
-	PutPrivate(ctx context.Context, in *PutPrivateDataRequest, opts ...grpc.CallOption) (*PutPrivateDataResponse, error)
-	GetCost(ctx context.Context, in *DataCostRequest, opts ...grpc.CallOption) (*Cost, error)
+	Cost(ctx context.Context, in *DataCostRequest, opts ...grpc.CallOption) (*Cost, error)
 }
 
 type dataServiceClient struct {
@@ -47,10 +50,10 @@ func NewDataServiceClient(cc grpc.ClientConnInterface) DataServiceClient {
 	return &dataServiceClient{cc}
 }
 
-func (c *dataServiceClient) GetPublic(ctx context.Context, in *GetPublicDataRequest, opts ...grpc.CallOption) (*GetPublicDataResponse, error) {
+func (c *dataServiceClient) Put(ctx context.Context, in *PutDataRequest, opts ...grpc.CallOption) (*PutDataResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetPublicDataResponse)
-	err := c.cc.Invoke(ctx, DataService_GetPublic_FullMethodName, in, out, cOpts...)
+	out := new(PutDataResponse)
+	err := c.cc.Invoke(ctx, DataService_Put_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -61,6 +64,26 @@ func (c *dataServiceClient) PutPublic(ctx context.Context, in *PutPublicDataRequ
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PutPublicDataResponse)
 	err := c.cc.Invoke(ctx, DataService_PutPublic_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *dataServiceClient) Get(ctx context.Context, in *GetDataRequest, opts ...grpc.CallOption) (*GetDataResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetDataResponse)
+	err := c.cc.Invoke(ctx, DataService_Get_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *dataServiceClient) GetPublic(ctx context.Context, in *GetPublicDataRequest, opts ...grpc.CallOption) (*GetPublicDataResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetPublicDataResponse)
+	err := c.cc.Invoke(ctx, DataService_GetPublic_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -86,30 +109,10 @@ func (c *dataServiceClient) StreamPublic(ctx context.Context, in *StreamPublicDa
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type DataService_StreamPublicClient = grpc.ServerStreamingClient[DataChunk]
 
-func (c *dataServiceClient) GetPrivate(ctx context.Context, in *GetPrivateDataRequest, opts ...grpc.CallOption) (*GetPrivateDataResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetPrivateDataResponse)
-	err := c.cc.Invoke(ctx, DataService_GetPrivate_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *dataServiceClient) PutPrivate(ctx context.Context, in *PutPrivateDataRequest, opts ...grpc.CallOption) (*PutPrivateDataResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(PutPrivateDataResponse)
-	err := c.cc.Invoke(ctx, DataService_PutPrivate_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *dataServiceClient) GetCost(ctx context.Context, in *DataCostRequest, opts ...grpc.CallOption) (*Cost, error) {
+func (c *dataServiceClient) Cost(ctx context.Context, in *DataCostRequest, opts ...grpc.CallOption) (*Cost, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Cost)
-	err := c.cc.Invoke(ctx, DataService_GetCost_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, DataService_Cost_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -120,12 +123,15 @@ func (c *dataServiceClient) GetCost(ctx context.Context, in *DataCostRequest, op
 // All implementations must embed UnimplementedDataServiceServer
 // for forward compatibility.
 type DataServiceServer interface {
-	GetPublic(context.Context, *GetPublicDataRequest) (*GetPublicDataResponse, error)
+	// Private = unqualified verb (the DataMap is returned to the caller; it is
+	// NOT stored on the network). Public = `_public` suffix (the DataMap is
+	// additionally stored on-network and the call returns the resulting address).
+	Put(context.Context, *PutDataRequest) (*PutDataResponse, error)
 	PutPublic(context.Context, *PutPublicDataRequest) (*PutPublicDataResponse, error)
+	Get(context.Context, *GetDataRequest) (*GetDataResponse, error)
+	GetPublic(context.Context, *GetPublicDataRequest) (*GetPublicDataResponse, error)
 	StreamPublic(*StreamPublicDataRequest, grpc.ServerStreamingServer[DataChunk]) error
-	GetPrivate(context.Context, *GetPrivateDataRequest) (*GetPrivateDataResponse, error)
-	PutPrivate(context.Context, *PutPrivateDataRequest) (*PutPrivateDataResponse, error)
-	GetCost(context.Context, *DataCostRequest) (*Cost, error)
+	Cost(context.Context, *DataCostRequest) (*Cost, error)
 	mustEmbedUnimplementedDataServiceServer()
 }
 
@@ -136,23 +142,23 @@ type DataServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedDataServiceServer struct{}
 
-func (UnimplementedDataServiceServer) GetPublic(context.Context, *GetPublicDataRequest) (*GetPublicDataResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetPublic not implemented")
+func (UnimplementedDataServiceServer) Put(context.Context, *PutDataRequest) (*PutDataResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Put not implemented")
 }
 func (UnimplementedDataServiceServer) PutPublic(context.Context, *PutPublicDataRequest) (*PutPublicDataResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PutPublic not implemented")
 }
+func (UnimplementedDataServiceServer) Get(context.Context, *GetDataRequest) (*GetDataResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Get not implemented")
+}
+func (UnimplementedDataServiceServer) GetPublic(context.Context, *GetPublicDataRequest) (*GetPublicDataResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetPublic not implemented")
+}
 func (UnimplementedDataServiceServer) StreamPublic(*StreamPublicDataRequest, grpc.ServerStreamingServer[DataChunk]) error {
 	return status.Error(codes.Unimplemented, "method StreamPublic not implemented")
 }
-func (UnimplementedDataServiceServer) GetPrivate(context.Context, *GetPrivateDataRequest) (*GetPrivateDataResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetPrivate not implemented")
-}
-func (UnimplementedDataServiceServer) PutPrivate(context.Context, *PutPrivateDataRequest) (*PutPrivateDataResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method PutPrivate not implemented")
-}
-func (UnimplementedDataServiceServer) GetCost(context.Context, *DataCostRequest) (*Cost, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetCost not implemented")
+func (UnimplementedDataServiceServer) Cost(context.Context, *DataCostRequest) (*Cost, error) {
+	return nil, status.Error(codes.Unimplemented, "method Cost not implemented")
 }
 func (UnimplementedDataServiceServer) mustEmbedUnimplementedDataServiceServer() {}
 func (UnimplementedDataServiceServer) testEmbeddedByValue()                     {}
@@ -175,20 +181,20 @@ func RegisterDataServiceServer(s grpc.ServiceRegistrar, srv DataServiceServer) {
 	s.RegisterService(&DataService_ServiceDesc, srv)
 }
 
-func _DataService_GetPublic_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetPublicDataRequest)
+func _DataService_Put_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PutDataRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(DataServiceServer).GetPublic(ctx, in)
+		return srv.(DataServiceServer).Put(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: DataService_GetPublic_FullMethodName,
+		FullMethod: DataService_Put_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DataServiceServer).GetPublic(ctx, req.(*GetPublicDataRequest))
+		return srv.(DataServiceServer).Put(ctx, req.(*PutDataRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -211,6 +217,42 @@ func _DataService_PutPublic_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DataService_Get_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetDataRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DataServiceServer).Get(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DataService_Get_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DataServiceServer).Get(ctx, req.(*GetDataRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DataService_GetPublic_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetPublicDataRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DataServiceServer).GetPublic(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DataService_GetPublic_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DataServiceServer).GetPublic(ctx, req.(*GetPublicDataRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DataService_StreamPublic_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(StreamPublicDataRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -222,56 +264,20 @@ func _DataService_StreamPublic_Handler(srv interface{}, stream grpc.ServerStream
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type DataService_StreamPublicServer = grpc.ServerStreamingServer[DataChunk]
 
-func _DataService_GetPrivate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetPrivateDataRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DataServiceServer).GetPrivate(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: DataService_GetPrivate_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DataServiceServer).GetPrivate(ctx, req.(*GetPrivateDataRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _DataService_PutPrivate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PutPrivateDataRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DataServiceServer).PutPrivate(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: DataService_PutPrivate_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DataServiceServer).PutPrivate(ctx, req.(*PutPrivateDataRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _DataService_GetCost_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _DataService_Cost_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DataCostRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(DataServiceServer).GetCost(ctx, in)
+		return srv.(DataServiceServer).Cost(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: DataService_GetCost_FullMethodName,
+		FullMethod: DataService_Cost_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DataServiceServer).GetCost(ctx, req.(*DataCostRequest))
+		return srv.(DataServiceServer).Cost(ctx, req.(*DataCostRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -284,24 +290,24 @@ var DataService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*DataServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "GetPublic",
-			Handler:    _DataService_GetPublic_Handler,
+			MethodName: "Put",
+			Handler:    _DataService_Put_Handler,
 		},
 		{
 			MethodName: "PutPublic",
 			Handler:    _DataService_PutPublic_Handler,
 		},
 		{
-			MethodName: "GetPrivate",
-			Handler:    _DataService_GetPrivate_Handler,
+			MethodName: "Get",
+			Handler:    _DataService_Get_Handler,
 		},
 		{
-			MethodName: "PutPrivate",
-			Handler:    _DataService_PutPrivate_Handler,
+			MethodName: "GetPublic",
+			Handler:    _DataService_GetPublic_Handler,
 		},
 		{
-			MethodName: "GetCost",
-			Handler:    _DataService_GetCost_Handler,
+			MethodName: "Cost",
+			Handler:    _DataService_Cost_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

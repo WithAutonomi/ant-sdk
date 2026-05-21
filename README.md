@@ -276,7 +276,7 @@ func main() {
     if err != nil { log.Fatal(err) }
     fmt.Printf("Network: %s\n", health.Network)
 
-    result, err := client.DataPutPublic(ctx, []byte("Hello, Autonomi!"))
+    result, err := client.DataPutPublic(ctx, []byte("Hello, Autonomi!"), antd.PaymentModeAuto)
     if err != nil { log.Fatal(err) }
     fmt.Printf("Address: %s\n", result.Address)
 

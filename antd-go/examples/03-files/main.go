@@ -27,14 +27,14 @@ func main() {
 		log.Fatalf("write source: %v", err)
 	}
 
-	est, err := client.FileCost(ctx, srcPath, true)
+	est, err := client.FileCost(ctx, srcPath, true, antd.PaymentModeAuto)
 	if err != nil {
 		log.Fatalf("file cost: %v", err)
 	}
 	fmt.Printf("Estimate: %d bytes in %d chunks, storage %s atto, gas %s wei, mode %s\n",
 		est.FileSize, est.ChunkCount, est.Cost, est.EstimatedGasCostWei, est.PaymentMode)
 
-	result, err := client.FileUploadPublic(ctx, srcPath)
+	result, err := client.FilePutPublic(ctx, srcPath, antd.PaymentModeAuto)
 	if err != nil {
 		log.Fatalf("file upload: %v", err)
 	}
@@ -42,7 +42,7 @@ func main() {
 		result.Address, result.StorageCostAtto, result.GasCostWei, result.ChunksStored, result.PaymentModeUsed)
 
 	dstPath := srcPath + ".downloaded"
-	if err := client.FileDownloadPublic(ctx, result.Address, dstPath); err != nil {
+	if err := client.FileGetPublic(ctx, result.Address, dstPath); err != nil {
 		log.Fatalf("file download: %v", err)
 	}
 	fmt.Printf("Downloaded to: %s\n", dstPath)

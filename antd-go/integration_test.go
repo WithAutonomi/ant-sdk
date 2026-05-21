@@ -46,7 +46,7 @@ func TestIntegration_Health(t *testing.T) {
 
 func TestIntegration_DataPutPublic_NoWallet(t *testing.T) {
 	c := integrationClient(t)
-	_, err := c.DataPutPublic(context.Background(), []byte("hello"))
+	_, err := c.DataPutPublic(context.Background(), []byte("hello"), PaymentModeAuto)
 	if err == nil {
 		t.Fatal("expected error from DataPutPublic without wallet")
 	}
@@ -125,7 +125,7 @@ func TestIntegration_FinalizeUpload_InvalidID(t *testing.T) {
 
 func TestIntegration_DataCost_NoPeers(t *testing.T) {
 	c := integrationClient(t)
-	_, err := c.DataCost(context.Background(), []byte("test data"))
+	_, err := c.DataCost(context.Background(), []byte("test data"), PaymentModeAuto)
 	if err == nil {
 		t.Fatal("expected error from DataCost without peers")
 	}
