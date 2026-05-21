@@ -280,16 +280,16 @@ Download a file to a local path.
 
 Request: `{"address": "<hex>", "dest_path": "/absolute/path"}`
 
-#### `POST /v1/dirs/upload/public`
-Upload a local directory (recursively).
+#### `POST /v1/files`
+Upload a local file *privately*. Returns a caller-held DataMap; the DataMap is NOT stored on-network.
 
-Request: `{"path": "/absolute/path/to/dir", "payment_mode": "auto"}` (payment_mode is optional, defaults to "auto")
-Response: `{"address": "<hex>", "storage_cost_atto": "<atto>", "gas_cost_wei": "<wei>", "chunks_stored": <uint>, "payment_mode_used": "auto|merkle|single"}`
+Request: `{"path": "/absolute/path/to/file", "payment_mode": "auto"}` (payment_mode is optional, defaults to "auto")
+Response: `{"data_map": "<hex>", "storage_cost_atto": "<atto>", "gas_cost_wei": "<wei>", "chunks_stored": <uint>, "payment_mode_used": "auto|merkle|single"}`
 
-#### `POST /v1/dirs/download/public`
-Download a directory to a local path.
+#### `POST /v1/files/get`
+Download a private file from a caller-held DataMap into a local path.
 
-Request: `{"address": "<hex>", "dest_path": "/absolute/path"}`
+Request: `{"data_map": "<hex>", "dest_path": "/absolute/path"}`
 
 #### `POST /v1/files/cost`
 Estimate file upload cost. Samples up to 5 chunk addresses for the on-chain
@@ -374,6 +374,43 @@ Provide either `tx_hashes` (wave_batch) or `winner_pool_hash` (merkle).
 Wave-batch request: `{"upload_id": "hex", "tx_hashes": {"0xquotehash": "0xtxhash", ...}}`
 Merkle request: `{"upload_id": "hex", "winner_pool_hash": "0x..."}`
 Response: `{"data_map": "hex", "address": "hex", "chunks_stored": 5}`
+
+#### `POST /v1/chunks/prepare`
+Prepare a single-chunk upload for external signing. The bytes are stored
+verbatim as one chunk at their BLAKE3 address — no self-encryption. Unlike
+`POST /v1/chunks`, this handler does NOT require the daemon to have a wallet;
+all funds flow through the external signer.
+
+Request: `{"data": "<base64>"}`
+
+When the chunk is already on-network (no payment needed, no finalize call):
+```json
+{ "address": "<hex>", "already_stored": true }
+```
+
+When payment is needed (wave_batch shape — `payForQuotes()` then call `/v1/chunks/finalize` with the resulting `tx_hashes`):
+```json
+{
+  "address": "<hex>",
+  "already_stored": false,
+  "upload_id": "<hex>",
+  "payment_type": "wave_batch",
+  "payments": [
+    { "quote_hash": "0x...", "rewards_address": "0x...", "amount": "123" }
+  ],
+  "total_amount": "456",
+  "payment_vault_address": "0x...",
+  "payment_token_address": "0x...",
+  "rpc_url": "http://..."
+}
+```
+
+#### `POST /v1/chunks/finalize`
+Finalize a single-chunk upload after the external signer has paid the quotes
+returned by `/v1/chunks/prepare`.
+
+Request: `{"upload_id": "<hex>", "tx_hashes": {"0xquotehash": "0xtxhash", ...}}`
+Response: `{"address": "<hex>"}`
 
 ---
 
@@ -1025,17 +1062,48 @@ fn walletApprove(self: *Client) !bool
 
 ---
 
+## External Signer SDK Methods
+
+Every SDK exposes a two-phase external-signer flow that lets the caller pay on-chain themselves (via wallet, hardware key, or custodial signer) instead of antd paying from its built-in wallet. The flow is always `prepare → external sign+pay → finalize`.
+
+| SDK method | Prepares for | REST route | Wave-batch finalize | Merkle finalize |
+|------------|--------------|------------|---------------------|-----------------|
+| `prepare_data_upload(data, visibility?)` | private/public data put | `POST /v1/data/prepare` | `finalize_upload(id, tx_hashes)` | `finalize_merkle_upload(id, winner_pool_hash)` |
+| `prepare_upload(path, visibility?)` | private file put | `POST /v1/upload/prepare` | `finalize_upload` | `finalize_merkle_upload` |
+| `prepare_upload_public(path)` | public file put (DataMap stored on-network at finalize) | `POST /v1/upload/prepare` (visibility = "public") | `finalize_upload` | `finalize_merkle_upload` |
+| `prepare_chunk_upload(data)` | single-chunk publish (no self-encryption) | `POST /v1/chunks/prepare` | `finalize_chunk_upload(id, tx_hashes)` | n/a — single chunks never trigger merkle |
+
+Reference signatures (Python; same method names exist on every SDK with idiomatic casing — `prepareUpload` / `PrepareUpload` etc.):
+
+```python
+client.prepare_data_upload(data: bytes, visibility: str | None = None) → PrepareUploadResult
+client.prepare_upload(path: str, visibility: str | None = None) → PrepareUploadResult
+client.prepare_upload_public(path: str) → PrepareUploadResult
+client.prepare_chunk_upload(data: bytes) → PrepareChunkResult
+client.finalize_upload(upload_id: str, tx_hashes: dict[str, str]) → FinalizeUploadResult
+client.finalize_merkle_upload(upload_id: str, winner_pool_hash: str, store_data_map: bool = False) → FinalizeUploadResult
+client.finalize_chunk_upload(upload_id: str, tx_hashes: dict[str, str]) → str  # returns the chunk address
+```
+
+`PrepareUploadResult` and `PrepareChunkResult` both carry the `payment_type` discriminator the REST endpoints emit (`"wave_batch"` or `"merkle"`); SDKs surface it directly so the caller can branch on which finalize to call. For full payment-shape detail see the `/v1/data/prepare`, `/v1/upload/prepare`, and `/v1/chunks/prepare` REST entries above. `PrepareChunkResult` additionally exposes `already_stored: bool` for the no-payment-needed path.
+
+All 15 SDKs expose these methods (REST-only SDKs included — they call the same endpoints).
+
+---
+
 ## MCP Tool → SDK Method Mapping
+
+Every tool with a `private` flag (`store_data`, `retrieve_data`, `upload_file`, `download_file`) picks the public method by default and switches to the private variant when `private=True`. The returned `address` carries either the on-network address (public) or the caller-held DataMap (private) — same field, different shape, so agents can round-trip the value back through the matching retrieve/download tool without renaming fields.
 
 | MCP Tool | Python SDK Method | Description |
 |----------|-------------------|-------------|
-| `store_data` | `data_put_public` / `data_put_private` | Store text on network |
-| `retrieve_data` | `data_get_public` / `data_get_private` | Retrieve text from network |
-| `upload_file` | `file_upload_public` | Upload file |
-| `download_file` | `file_download_public` | Download file |
+| `store_data(text, private?, payment_mode?)` | `data_put_public` / `data_put` | Store text on the network. Private store returns the caller-held DataMap in `address`. |
+| `retrieve_data(address, private?)` | `data_get_public` / `data_get` | Retrieve text. Pass `private=True` if `address` is a caller-held DataMap from a private store. |
+| `upload_file(path, private?, payment_mode?)` | `file_put_public` / `file_put` | Upload a local file. Private upload returns the caller-held DataMap in `address`. |
+| `download_file(address, dest_path, private?)` | `file_get_public` / `file_get` | Download a file. Pass `private=True` if `address` is a caller-held DataMap from a private upload. |
 | `chunk_put` | `chunk_put` | Store raw chunk |
 | `chunk_get` | `chunk_get` | Retrieve raw chunk |
-| `get_cost` | `data_cost` / `file_cost` | Estimate storage cost |
+| `get_cost(text?, file_path?, payment_mode?)` | `data_cost` / `file_cost` | Estimate storage cost. `payment_mode` flows through so the quote matches the eventual put. |
 | `check_balance` | `health` | Check daemon health |
 | `wallet_address` | `wallet_address` | Get wallet public address |
 | `wallet_balance` | `wallet_balance` | Get wallet balances |
