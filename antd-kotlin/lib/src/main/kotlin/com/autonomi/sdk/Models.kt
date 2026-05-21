@@ -22,11 +22,66 @@ data class HealthStatus(
     val paymentVaultAddress: String = "",
 )
 
-/** Result of a put/create operation that stores data on the network. */
+/**
+ * Payment-batching strategy for uploads.
+ *
+ * - [AUTO]   — server picks (merkle for 64+ chunks, single otherwise).
+ * - [MERKLE] — force merkle-batch (saves gas, min 2 chunks).
+ * - [SINGLE] — force per-chunk payments (works for any chunk count).
+ *
+ * Pass as a typed parameter to put/cost methods. The client serializes the
+ * enum to the wire string at the request boundary.
+ */
+enum class PaymentMode(val wire: String) {
+    AUTO("auto"),
+    MERKLE("merkle"),
+    SINGLE("single"),
+}
+
+/** Result of a `chunkPut` operation. The DataMap concept doesn't apply at chunk level. */
 data class PutResult(val cost: String, val address: String)
 
-/** Result of a public file or directory upload. */
-data class FileUploadResult(
+/**
+ * Result of a private data put. The DataMap is returned to the caller; it is
+ * NOT stored on-network. REST populates [chunksStored] / [paymentModeUsed];
+ * gRPC currently leaves them at their defaults (proto `PutDataResponse`
+ * only carries `data_map`).
+ */
+data class DataPutResult(
+    val dataMap: String,
+    val chunksStored: ULong = 0u,
+    val paymentModeUsed: String = "",
+)
+
+/**
+ * Result of a public data put. The DataMap is stored on-network as an extra
+ * chunk; [address] is the shareable retrieval handle. REST populates
+ * [chunksStored] / [paymentModeUsed]; gRPC currently leaves them at their
+ * defaults.
+ */
+data class DataPutPublicResult(
+    val address: String,
+    val chunksStored: ULong = 0u,
+    val paymentModeUsed: String = "",
+)
+
+/**
+ * Result of a private file upload. The DataMap is returned to the caller;
+ * it is NOT stored on-network.
+ */
+data class FilePutResult(
+    val dataMap: String,
+    val storageCostAtto: String,
+    val gasCostWei: String,
+    val chunksStored: ULong,
+    val paymentModeUsed: String,
+)
+
+/**
+ * Result of a public file upload. The DataMap is stored on-network as an
+ * extra chunk; [address] is the shareable retrieval handle.
+ */
+data class FilePutPublicResult(
     val address: String,
     val storageCostAtto: String,
     val gasCostWei: String,
@@ -157,12 +212,20 @@ internal fun HealthResponseDto.toHealthStatus(): HealthStatus = HealthStatus(
 
 @Serializable
 internal data class DataPutPublicDto(
-    val cost: String = "",
     val address: String,
+    @SerialName("chunks_stored") val chunksStored: ULong = 0u,
+    @SerialName("payment_mode_used") val paymentModeUsed: String = "",
 )
 
 @Serializable
-internal data class FileUploadPublicDto(
+internal data class DataPutDto(
+    @SerialName("data_map") val dataMap: String,
+    @SerialName("chunks_stored") val chunksStored: ULong = 0u,
+    @SerialName("payment_mode_used") val paymentModeUsed: String = "",
+)
+
+@Serializable
+internal data class FilePutPublicDto(
     val address: String,
     @SerialName("storage_cost_atto") val storageCostAtto: String,
     @SerialName("gas_cost_wei") val gasCostWei: String,
@@ -171,9 +234,18 @@ internal data class FileUploadPublicDto(
 )
 
 @Serializable
-internal data class DataPutPrivateDto(
-    val cost: String = "",
+internal data class FilePutDto(
     @SerialName("data_map") val dataMap: String,
+    @SerialName("storage_cost_atto") val storageCostAtto: String,
+    @SerialName("gas_cost_wei") val gasCostWei: String,
+    @SerialName("chunks_stored") val chunksStored: ULong,
+    @SerialName("payment_mode_used") val paymentModeUsed: String,
+)
+
+@Serializable
+internal data class ChunkPutDto(
+    val cost: String = "",
+    val address: String,
 )
 
 @Serializable

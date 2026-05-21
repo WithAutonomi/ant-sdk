@@ -34,15 +34,18 @@ class RestClientTest {
     // -------------------------------------------------------------------------
 
     class MockDaemon : Dispatcher() {
-        // Tracks the most recent /v1/upload/prepare request body so tests can
-        // assert that `visibility` is forwarded correctly. Set to "public"
-        // when the prior prepare carried visibility:"public", so the
-        // /v1/upload/finalize stub can echo a data_map_address back.
+        // Captured request bodies for paymentMode / visibility assertions.
         var lastPrepareBody: String = ""
         var lastVisibility: String? = null
-        // Tracks the most recent /v1/chunks/finalize body for tx_hashes
-        // shape assertions.
         var lastChunkFinalizeBody: String = ""
+        var lastDataPutBody: String = ""
+        var lastDataPutPublicBody: String = ""
+        var lastDataCostBody: String = ""
+        var lastFilePutBody: String = ""
+        var lastFilePutPublicBody: String = ""
+        var lastFileCostBody: String = ""
+        var lastDataGetBody: String = ""
+        var lastFileGetBody: String = ""
 
         override fun dispatch(request: RecordedRequest): MockResponse {
             val path = request.path ?: ""
@@ -53,26 +56,30 @@ class RestClientTest {
                 return json("""{"status":"ok","network":"local","version":"0.4.0","evm_network":"local","uptime_seconds":42,"build_commit":"abcdef123456","payment_token_address":"0xtoken","payment_vault_address":"0xvault"}""")
             }
 
-            // Data put public
+            // Data public put
             if (method == "POST" && path == "/v1/data/public") {
-                return json("""{"cost":"100","address":"abc123"}""")
+                lastDataPutPublicBody = request.body.readUtf8()
+                return json("""{"address":"abc123","chunks_stored":3,"payment_mode_used":"single"}""")
             }
-            // Data get public
+            // Data public get
             if (method == "GET" && path == "/v1/data/public/abc123") {
                 return json("""{"data":"${b64("hello")}"}""")
             }
 
-            // Data put private
-            if (method == "POST" && path == "/v1/data/private") {
-                return json("""{"cost":"200","data_map":"dm123"}""")
+            // Data private put
+            if (method == "POST" && path == "/v1/data") {
+                lastDataPutBody = request.body.readUtf8()
+                return json("""{"data_map":"dm123","chunks_stored":2,"payment_mode_used":"merkle"}""")
             }
-            // Data get private
-            if (method == "GET" && path.startsWith("/v1/data/private")) {
+            // Data private get
+            if (method == "POST" && path == "/v1/data/get") {
+                lastDataGetBody = request.body.readUtf8()
                 return json("""{"data":"${b64("secret")}"}""")
             }
 
             // Data cost
             if (method == "POST" && path == "/v1/data/cost") {
+                lastDataCostBody = request.body.readUtf8()
                 return json("""{"cost":"50","file_size":4,"chunk_count":3,"estimated_gas_cost_wei":"150000000000000","payment_mode":"single"}""")
             }
 
@@ -85,13 +92,23 @@ class RestClientTest {
             }
 
             // Files
-            if (method == "POST" && path == "/v1/files/upload/public") {
+            if (method == "POST" && path == "/v1/files/public") {
+                lastFilePutPublicBody = request.body.readUtf8()
                 return json("""{"address":"file1","storage_cost_atto":"1000","gas_cost_wei":"42","chunks_stored":3,"payment_mode_used":"auto"}""")
             }
-            if (method == "POST" && path == "/v1/files/download/public") {
+            if (method == "POST" && path == "/v1/files/public/get") {
+                return MockResponse().setResponseCode(200)
+            }
+            if (method == "POST" && path == "/v1/files") {
+                lastFilePutBody = request.body.readUtf8()
+                return json("""{"data_map":"fdm1","storage_cost_atto":"900","gas_cost_wei":"42","chunks_stored":2,"payment_mode_used":"merkle"}""")
+            }
+            if (method == "POST" && path == "/v1/files/get") {
+                lastFileGetBody = request.body.readUtf8()
                 return MockResponse().setResponseCode(200)
             }
             if (method == "POST" && path == "/v1/files/cost") {
+                lastFileCostBody = request.body.readUtf8()
                 return json("""{"cost":"1000","file_size":4096,"chunk_count":3,"estimated_gas_cost_wei":"150000000000000","payment_mode":"auto"}""")
             }
 
@@ -182,10 +199,24 @@ class RestClientTest {
     }
 
     @Test
-    fun `dataPutPublic returns PutResult`() = runTest {
+    fun `dataPutPublic returns DataPutPublicResult and forwards default paymentMode`() = runTest {
         val result = client.dataPutPublic("hello".toByteArray())
         assertEquals("abc123", result.address)
-        assertEquals("100", result.cost)
+        assertEquals(3UL, result.chunksStored)
+        assertEquals("single", result.paymentModeUsed)
+        assertTrue(
+            daemon.lastDataPutPublicBody.contains("\"payment_mode\":\"auto\""),
+            "default paymentMode must reach the wire as \"auto\"; got ${daemon.lastDataPutPublicBody}",
+        )
+    }
+
+    @Test
+    fun `dataPutPublic forwards explicit paymentMode`() = runTest {
+        client.dataPutPublic("hello".toByteArray(), PaymentMode.MERKLE)
+        assertTrue(
+            daemon.lastDataPutPublicBody.contains("\"payment_mode\":\"merkle\""),
+            "explicit paymentMode must reach the wire; got ${daemon.lastDataPutPublicBody}",
+        )
     }
 
     @Test
@@ -195,26 +226,39 @@ class RestClientTest {
     }
 
     @Test
-    fun `dataPutPrivate returns PutResult`() = runTest {
-        val result = client.dataPutPrivate("secret".toByteArray())
-        assertEquals("dm123", result.address)
-        assertEquals("200", result.cost)
+    fun `dataPut returns DataPutResult and forwards paymentMode`() = runTest {
+        val result = client.dataPut("secret".toByteArray(), PaymentMode.MERKLE)
+        assertEquals("dm123", result.dataMap)
+        assertEquals(2UL, result.chunksStored)
+        assertEquals("merkle", result.paymentModeUsed)
+        assertTrue(
+            daemon.lastDataPutBody.contains("\"payment_mode\":\"merkle\""),
+            "explicit paymentMode must reach the wire; got ${daemon.lastDataPutBody}",
+        )
     }
 
     @Test
-    fun `dataGetPrivate returns bytes`() = runTest {
-        val data = client.dataGetPrivate("dm123")
+    fun `dataGet posts data_map and returns bytes`() = runTest {
+        val data = client.dataGet("dm123")
         assertEquals("secret", String(data))
+        assertTrue(
+            daemon.lastDataGetBody.contains("\"data_map\":\"dm123\""),
+            "data_map must reach the wire; got ${daemon.lastDataGetBody}",
+        )
     }
 
     @Test
-    fun `dataCost returns full breakdown`() = runTest {
-        val est = client.dataCost("test".toByteArray())
+    fun `dataCost returns full breakdown and forwards paymentMode`() = runTest {
+        val est = client.dataCost("test".toByteArray(), PaymentMode.SINGLE)
         assertEquals("50", est.cost)
         assertEquals(4uL, est.fileSize)
         assertEquals(3u, est.chunkCount)
         assertEquals("150000000000000", est.estimatedGasCostWei)
         assertEquals("single", est.paymentMode)
+        assertTrue(
+            daemon.lastDataCostBody.contains("\"payment_mode\":\"single\""),
+            "explicit paymentMode must reach the wire; got ${daemon.lastDataCostBody}",
+        )
     }
 
     @Test
@@ -231,28 +275,63 @@ class RestClientTest {
     }
 
     @Test
-    fun `fileUploadPublic returns FileUploadResult`() = runTest {
-        val result = client.fileUploadPublic("/tmp/test.txt")
+    fun `filePutPublic returns FilePutPublicResult and forwards paymentMode`() = runTest {
+        val result = client.filePutPublic("/tmp/test.txt")
         assertEquals("file1", result.address)
         assertEquals("1000", result.storageCostAtto)
         assertEquals("42", result.gasCostWei)
         assertEquals(3UL, result.chunksStored)
         assertEquals("auto", result.paymentModeUsed)
+        assertTrue(
+            daemon.lastFilePutPublicBody.contains("\"payment_mode\":\"auto\""),
+            "default paymentMode must reach the wire; got ${daemon.lastFilePutPublicBody}",
+        )
     }
 
     @Test
-    fun `fileDownloadPublic succeeds`() = runTest {
-        client.fileDownloadPublic("file1", "/tmp/out.txt")
+    fun `fileGetPublic succeeds`() = runTest {
+        client.fileGetPublic("file1", "/tmp/out.txt")
     }
 
     @Test
-    fun `fileCost returns full breakdown`() = runTest {
-        val est = client.fileCost("/tmp/test.txt", true)
+    fun `filePut returns FilePutResult and forwards paymentMode`() = runTest {
+        val result = client.filePut("/tmp/test.txt", PaymentMode.MERKLE)
+        assertEquals("fdm1", result.dataMap)
+        assertEquals("900", result.storageCostAtto)
+        assertEquals("42", result.gasCostWei)
+        assertEquals(2UL, result.chunksStored)
+        assertEquals("merkle", result.paymentModeUsed)
+        assertTrue(
+            daemon.lastFilePutBody.contains("\"payment_mode\":\"merkle\""),
+            "explicit paymentMode must reach the wire; got ${daemon.lastFilePutBody}",
+        )
+    }
+
+    @Test
+    fun `fileGet posts data_map and dest_path`() = runTest {
+        client.fileGet("fdm1", "/tmp/out.txt")
+        assertTrue(
+            daemon.lastFileGetBody.contains("\"data_map\":\"fdm1\""),
+            "data_map must reach the wire; got ${daemon.lastFileGetBody}",
+        )
+        assertTrue(
+            daemon.lastFileGetBody.contains("\"dest_path\":\"/tmp/out.txt\""),
+            "dest_path must reach the wire; got ${daemon.lastFileGetBody}",
+        )
+    }
+
+    @Test
+    fun `fileCost returns full breakdown and forwards paymentMode`() = runTest {
+        val est = client.fileCost("/tmp/test.txt", true, PaymentMode.SINGLE)
         assertEquals("1000", est.cost)
         assertEquals(4096uL, est.fileSize)
         assertEquals(3u, est.chunkCount)
         assertEquals("150000000000000", est.estimatedGasCostWei)
         assertEquals("auto", est.paymentMode)
+        assertTrue(
+            daemon.lastFileCostBody.contains("\"payment_mode\":\"single\""),
+            "explicit paymentMode must reach the wire; got ${daemon.lastFileCostBody}",
+        )
     }
 
     // -------------------------------------------------------------------------

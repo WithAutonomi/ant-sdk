@@ -2,7 +2,6 @@ package com.autonomi.sdk
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -72,14 +71,6 @@ class AntdRestClient(
         ensureSuccess(response)
     }
 
-    private suspend fun headExists(path: String): Boolean = withContext(Dispatchers.IO) {
-        val request = Request.Builder().url("$baseUrl$path").head().build()
-        val response = http.newCall(request).execute()
-        if (response.code == 404) return@withContext false
-        ensureSuccess(response)
-        true
-    }
-
     private fun ensureSuccess(response: Response) {
         if (response.isSuccessful) return
         val body = response.body?.string() ?: ""
@@ -99,13 +90,13 @@ class AntdRestClient(
 
     // ── Data ──
 
-    override suspend fun dataPutPublic(data: ByteArray, paymentMode: String?): PutResult {
+    override suspend fun dataPutPublic(data: ByteArray, paymentMode: PaymentMode): DataPutPublicResult {
         val body = buildJsonObject {
             put("data", b64(data))
-            if (paymentMode != null) put("payment_mode", paymentMode)
+            put("payment_mode", paymentMode.wire)
         }.toString()
         val resp = postJson<DataPutPublicDto>("/v1/data/public", body)
-        return PutResult(resp.cost, resp.address)
+        return DataPutPublicResult(resp.address, resp.chunksStored, resp.paymentModeUsed)
     }
 
     override suspend fun dataGetPublic(address: String): ByteArray {
@@ -113,23 +104,26 @@ class AntdRestClient(
         return fromB64(resp.data)
     }
 
-    override suspend fun dataPutPrivate(data: ByteArray, paymentMode: String?): PutResult {
+    override suspend fun dataPut(data: ByteArray, paymentMode: PaymentMode): DataPutResult {
         val body = buildJsonObject {
             put("data", b64(data))
-            if (paymentMode != null) put("payment_mode", paymentMode)
+            put("payment_mode", paymentMode.wire)
         }.toString()
-        val resp = postJson<DataPutPrivateDto>("/v1/data/private", body)
-        return PutResult(resp.cost, resp.dataMap)
+        val resp = postJson<DataPutDto>("/v1/data", body)
+        return DataPutResult(resp.dataMap, resp.chunksStored, resp.paymentModeUsed)
     }
 
-    override suspend fun dataGetPrivate(dataMap: String): ByteArray {
-        val encoded = java.net.URLEncoder.encode(dataMap, "UTF-8")
-        val resp = getJson<DataGetDto>("/v1/data/private?data_map=$encoded")
+    override suspend fun dataGet(dataMap: String): ByteArray {
+        val body = buildJsonObject { put("data_map", dataMap) }.toString()
+        val resp = postJson<DataGetDto>("/v1/data/get", body)
         return fromB64(resp.data)
     }
 
-    override suspend fun dataCost(data: ByteArray): UploadCostEstimate {
-        val body = buildJsonObject { put("data", b64(data)) }.toString()
+    override suspend fun dataCost(data: ByteArray, paymentMode: PaymentMode): UploadCostEstimate {
+        val body = buildJsonObject {
+            put("data", b64(data))
+            put("payment_mode", paymentMode.wire)
+        }.toString()
         val resp = postJson<CostDto>("/v1/data/cost", body)
         return UploadCostEstimate(resp.cost, resp.fileSize, resp.chunkCount, resp.estimatedGasCostWei, resp.paymentMode)
     }
@@ -138,7 +132,7 @@ class AntdRestClient(
 
     override suspend fun chunkPut(data: ByteArray): PutResult {
         val body = buildJsonObject { put("data", b64(data)) }.toString()
-        val resp = postJson<DataPutPublicDto>("/v1/chunks", body)
+        val resp = postJson<ChunkPutDto>("/v1/chunks", body)
         return PutResult(resp.cost, resp.address)
     }
 
@@ -199,13 +193,13 @@ class AntdRestClient(
 
     // ── Files ──
 
-    override suspend fun fileUploadPublic(path: String, paymentMode: String?): FileUploadResult {
+    override suspend fun filePutPublic(path: String, paymentMode: PaymentMode): FilePutPublicResult {
         val body = buildJsonObject {
             put("path", path)
-            if (paymentMode != null) put("payment_mode", paymentMode)
+            put("payment_mode", paymentMode.wire)
         }.toString()
-        val resp = postJson<FileUploadPublicDto>("/v1/files/upload/public", body)
-        return FileUploadResult(
+        val resp = postJson<FilePutPublicDto>("/v1/files/public", body)
+        return FilePutPublicResult(
             address = resp.address,
             storageCostAtto = resp.storageCostAtto,
             gasCostWei = resp.gasCostWei,
@@ -214,18 +208,42 @@ class AntdRestClient(
         )
     }
 
-    override suspend fun fileDownloadPublic(address: String, destPath: String) {
+    override suspend fun fileGetPublic(address: String, destPath: String) {
         val body = buildJsonObject {
             put("address", address)
             put("dest_path", destPath)
         }.toString()
-        postJsonNoResult("/v1/files/download/public", body)
+        postJsonNoResult("/v1/files/public/get", body)
     }
 
-    override suspend fun fileCost(path: String, isPublic: Boolean): UploadCostEstimate {
+    override suspend fun filePut(path: String, paymentMode: PaymentMode): FilePutResult {
+        val body = buildJsonObject {
+            put("path", path)
+            put("payment_mode", paymentMode.wire)
+        }.toString()
+        val resp = postJson<FilePutDto>("/v1/files", body)
+        return FilePutResult(
+            dataMap = resp.dataMap,
+            storageCostAtto = resp.storageCostAtto,
+            gasCostWei = resp.gasCostWei,
+            chunksStored = resp.chunksStored,
+            paymentModeUsed = resp.paymentModeUsed,
+        )
+    }
+
+    override suspend fun fileGet(dataMap: String, destPath: String) {
+        val body = buildJsonObject {
+            put("data_map", dataMap)
+            put("dest_path", destPath)
+        }.toString()
+        postJsonNoResult("/v1/files/get", body)
+    }
+
+    override suspend fun fileCost(path: String, isPublic: Boolean, paymentMode: PaymentMode): UploadCostEstimate {
         val body = buildJsonObject {
             put("path", path)
             put("is_public", isPublic)
+            put("payment_mode", paymentMode.wire)
         }.toString()
         val resp = postJson<CostDto>("/v1/files/cost", body)
         return UploadCostEstimate(resp.cost, resp.fileSize, resp.chunkCount, resp.estimatedGasCostWei, resp.paymentMode)

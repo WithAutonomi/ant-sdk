@@ -62,7 +62,7 @@ suspend fun example02Data() {
     // Store public data
     val result = client.dataPutPublic(payload)
     println("Stored at address: ${result.address}")
-    println("Actual cost: ${result.cost} atto tokens")
+    println("Chunks stored: ${result.chunksStored}, payment mode: ${result.paymentModeUsed}")
 
     // Retrieve
     val data = client.dataGetPublic(result.address)
@@ -108,15 +108,15 @@ suspend fun example04Files() {
         val est = client.fileCost(srcFile.absolutePath)
         println("Estimate: ${est.fileSize} bytes in ${est.chunkCount} chunks, storage ${est.cost} atto, gas ${est.estimatedGasCostWei} wei, mode ${est.paymentMode}")
 
-        // Upload
-        val result = client.fileUploadPublic(srcFile.absolutePath)
+        // Upload publicly
+        val result = client.filePutPublic(srcFile.absolutePath)
         println("File uploaded to: ${result.address}")
         println("Storage cost: ${result.storageCostAtto} atto, gas: ${result.gasCostWei} wei")
         println("Chunks stored: ${result.chunksStored}, payment mode: ${result.paymentModeUsed}")
 
         // Download to new location
         val destPath = srcFile.absolutePath + ".downloaded"
-        client.fileDownloadPublic(result.address, destPath)
+        client.fileGetPublic(result.address, destPath)
         println("Downloaded to: $destPath")
 
         val content = File(destPath).readText()
@@ -137,14 +137,13 @@ suspend fun example06PrivateData() {
 
     val secretMessage = "This message is encrypted on the network".toByteArray()
 
-    // Store private data
-    val result = client.dataPutPrivate(secretMessage)
-    val dataMap = result.address
-    println("Data map: $dataMap")
-    println("Cost: ${result.cost} atto tokens")
+    // Store private data — DataMap is returned to the caller; NOT stored on-network.
+    val result = client.dataPut(secretMessage)
+    println("Data map: ${result.dataMap}")
+    println("Chunks stored: ${result.chunksStored}, payment mode: ${result.paymentModeUsed}")
 
     // Retrieve and decrypt
-    val retrieved = client.dataGetPrivate(dataMap)
+    val retrieved = client.dataGet(result.dataMap)
     println("Decrypted: ${String(retrieved)}")
 
     check(retrieved.contentEquals(secretMessage)) { "Private data round-trip mismatch!" }

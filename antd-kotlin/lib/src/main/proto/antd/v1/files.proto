@@ -8,22 +8,35 @@ option go_package = "github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1";
 import "antd/v1/common.proto";
 
 service FileService {
-  rpc UploadPublic(UploadFileRequest) returns (UploadPublicResponse);
-  rpc DownloadPublic(DownloadPublicRequest) returns (DownloadResponse);
-  rpc GetFileCost(FileCostRequest) returns (Cost);
+  // Private = unqualified verb (the DataMap is returned to the caller; it is
+  // NOT stored on the network). Public = `_public` suffix (the DataMap is
+  // additionally stored on-network and the call returns the resulting address).
+  rpc Put(PutFileRequest) returns (PutFileResponse);
+  rpc PutPublic(PutFileRequest) returns (PutFilePublicResponse);
+  rpc Get(GetFileRequest) returns (GetFileResponse);
+  rpc GetPublic(GetFilePublicRequest) returns (GetFileResponse);
+  rpc Cost(FileCostRequest) returns (antd.v1.Cost);
 }
 
-message UploadFileRequest {
+// --- Common request: shared by Put and PutPublic ---
+
+message PutFileRequest {
   string path = 1; // local filesystem path
+  // Optional payment mode: "auto" (default), "merkle", or "single". Empty
+  // string is treated as "auto" so old clients omitting the field stay
+  // wire-compatible.
+  string payment_mode = 2;
 }
 
-message UploadPublicResponse {
+// --- Public PUT (uploads chunks AND stores DataMap on-network) ---
+
+message PutFilePublicResponse {
   // Field 1 reserved: previously an empty `Cost cost` alias, removed pre-GA
   // because no client read it. Do not reuse this field number to avoid wire
   // collisions with any cached generated stubs.
   reserved 1;
   reserved "cost";
-  string address = 2; // hex
+  string address = 2; // hex — the DataMap's chunk address on the network
   // Total storage cost paid in token units (atto). "0" if all chunks already existed.
   string storage_cost_atto = 3;
   // Total gas cost paid in wei, as a decimal string (u128 exceeds JSON safe-integer range).
@@ -34,14 +47,46 @@ message UploadPublicResponse {
   string payment_mode_used = 6;
 }
 
-message DownloadPublicRequest {
-  string address = 1;   // hex
+// --- Private PUT (uploads chunks only; DataMap returned to caller) ---
+
+message PutFileResponse {
+  // Hex-encoded rmp_serde-serialized DataMap. The caller keeps this; it is
+  // NOT stored on the network. Same shape as `PutDataResponse.data_map`.
+  string data_map = 1;
+  // Total storage cost paid in token units (atto). "0" if all chunks already existed.
+  string storage_cost_atto = 2;
+  // Total gas cost paid in wei, as a decimal string (u128 exceeds JSON safe-integer range).
+  string gas_cost_wei = 3;
+  // Number of chunks stored on the network.
+  uint64 chunks_stored = 4;
+  // Which payment mode was actually used ("auto", "merkle", or "single").
+  string payment_mode_used = 5;
+}
+
+// --- Public GET (download by on-network DataMap address) ---
+
+message GetFilePublicRequest {
+  string address = 1;   // hex — DataMap chunk address
   string dest_path = 2; // local filesystem path
 }
 
-message DownloadResponse {}
+// --- Private GET (download from caller-provided DataMap) ---
+
+message GetFileRequest {
+  string data_map = 1;  // hex — rmp_serde-serialized DataMap
+  string dest_path = 2; // local filesystem path
+}
+
+// Shared by GetPublic and Get — the file is written to dest_path, the response
+// itself is empty (success = file written, failure = RPC error).
+message GetFileResponse {}
+
+// --- Cost ---
 
 message FileCostRequest {
   string path = 1;
   bool is_public = 2;
+  // Optional payment mode the estimate should reflect: "auto" (default),
+  // "merkle", or "single". Empty string is treated as "auto".
+  string payment_mode = 3;
 }
