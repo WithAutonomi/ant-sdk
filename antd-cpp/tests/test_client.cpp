@@ -50,6 +50,16 @@ TEST_CASE("base64 round-trip various lengths") {
 }
 
 // ---------------------------------------------------------------------------
+// PaymentMode wire serialization
+// ---------------------------------------------------------------------------
+
+TEST_CASE("payment_mode_wire serializes enum values") {
+    CHECK(antd::payment_mode_wire(antd::PaymentMode::Auto) == "auto");
+    CHECK(antd::payment_mode_wire(antd::PaymentMode::Merkle) == "merkle");
+    CHECK(antd::payment_mode_wire(antd::PaymentMode::Single) == "single");
+}
+
+// ---------------------------------------------------------------------------
 // Error mapping
 // ---------------------------------------------------------------------------
 
@@ -337,12 +347,13 @@ TEST_CASE("FinalizeUploadResult data_map field") {
 }
 
 // ---------------------------------------------------------------------------
-// Stub-server end-to-end tests (V2-249 PR4 / V2-274)
+// Stub-server end-to-end tests
 //
 // Spin up an in-process httplib::Server on an ephemeral port and drive the
 // real antd::Client against it. This exercises both the request-body shape
-// (e.g. visibility forwarding) and the response-parsing path (e.g.
-// data_map_address surfacing, prepare_chunk_upload's two branches).
+// (e.g. visibility forwarding, payment_mode propagation) and the
+// response-parsing path (e.g. data_map_address surfacing,
+// prepare_chunk_upload's two branches).
 // ---------------------------------------------------------------------------
 
 namespace {
@@ -357,8 +368,119 @@ struct StubServer {
     json last_chunk_prepare_body = json::object();
     json last_chunk_finalize_body = json::object();
     json last_finalize_body = json::object();
+    json last_data_put_body = json::object();
+    json last_data_put_public_body = json::object();
+    json last_data_get_body = json::object();
+    json last_data_cost_body = json::object();
+    json last_file_put_body = json::object();
+    json last_file_put_public_body = json::object();
+    json last_file_get_body = json::object();
+    json last_file_get_public_body = json::object();
+    json last_file_cost_body = json::object();
 
     StubServer() {
+        // Data put public
+        svr.Post("/v1/data/public", [this](const httplib::Request& req, httplib::Response& res) {
+            try { last_data_put_public_body = json::parse(req.body); } catch (...) {}
+            json resp = {
+                {"address", "addr_pub_abc"},
+                {"chunks_stored", 3},
+                {"payment_mode_used", "single"},
+            };
+            res.set_content(resp.dump(), "application/json");
+        });
+
+        // Data get public
+        svr.Get("/v1/data/public/addr_pub_abc",
+            [](const httplib::Request&, httplib::Response& res) {
+                json resp = {{"data", "aGVsbG8="}}; // base64("hello")
+                res.set_content(resp.dump(), "application/json");
+            });
+
+        // Data put private
+        svr.Post("/v1/data", [this](const httplib::Request& req, httplib::Response& res) {
+            try { last_data_put_body = json::parse(req.body); } catch (...) {}
+            json resp = {
+                {"data_map", "dm_priv_xyz"},
+                {"chunks_stored", 2},
+                {"payment_mode_used", "merkle"},
+            };
+            res.set_content(resp.dump(), "application/json");
+        });
+
+        // Data get private
+        svr.Post("/v1/data/get", [this](const httplib::Request& req, httplib::Response& res) {
+            try { last_data_get_body = json::parse(req.body); } catch (...) {}
+            json resp = {{"data", "c2VjcmV0"}}; // base64("secret")
+            res.set_content(resp.dump(), "application/json");
+        });
+
+        // Data cost
+        svr.Post("/v1/data/cost", [this](const httplib::Request& req, httplib::Response& res) {
+            try { last_data_cost_body = json::parse(req.body); } catch (...) {}
+            json resp = {
+                {"cost", "50"},
+                {"file_size", 4},
+                {"chunk_count", 3},
+                {"estimated_gas_cost_wei", "150"},
+                {"payment_mode", "single"},
+            };
+            res.set_content(resp.dump(), "application/json");
+        });
+
+        // File put public
+        svr.Post("/v1/files/public", [this](const httplib::Request& req, httplib::Response& res) {
+            try { last_file_put_public_body = json::parse(req.body); } catch (...) {}
+            json resp = {
+                {"address", "file_pub_addr"},
+                {"storage_cost_atto", "1000"},
+                {"gas_cost_wei", "42"},
+                {"chunks_stored", 5},
+                {"payment_mode_used", "auto"},
+            };
+            res.set_content(resp.dump(), "application/json");
+        });
+
+        // File get public
+        svr.Post("/v1/files/public/get",
+            [this](const httplib::Request& req, httplib::Response& res) {
+                try { last_file_get_public_body = json::parse(req.body); } catch (...) {}
+                res.set_content("{}", "application/json");
+            });
+
+        // File put private
+        svr.Post("/v1/files", [this](const httplib::Request& req, httplib::Response& res) {
+            try { last_file_put_body = json::parse(req.body); } catch (...) {}
+            json resp = {
+                {"data_map", "fdm_xyz"},
+                {"storage_cost_atto", "900"},
+                {"gas_cost_wei", "42"},
+                {"chunks_stored", 4},
+                {"payment_mode_used", "merkle"},
+            };
+            res.set_content(resp.dump(), "application/json");
+        });
+
+        // File get private
+        svr.Post("/v1/files/get",
+            [this](const httplib::Request& req, httplib::Response& res) {
+                try { last_file_get_body = json::parse(req.body); } catch (...) {}
+                res.set_content("{}", "application/json");
+            });
+
+        // File cost
+        svr.Post("/v1/files/cost", [this](const httplib::Request& req, httplib::Response& res) {
+            try { last_file_cost_body = json::parse(req.body); } catch (...) {}
+            json resp = {
+                {"cost", "1000"},
+                {"file_size", 4096},
+                {"chunk_count", 3},
+                {"estimated_gas_cost_wei", "150"},
+                {"payment_mode", "auto"},
+            };
+            res.set_content(resp.dump(), "application/json");
+        });
+
         // /v1/upload/prepare — stash body so tests can assert visibility was
         // forwarded; return a wave_batch with deterministic upload_id.
         svr.Post("/v1/upload/prepare", [this](const httplib::Request& req, httplib::Response& res) {
@@ -471,6 +593,119 @@ struct StubServer {
 };
 
 }  // namespace
+
+TEST_CASE("data_put_public surfaces new result fields and forwards payment_mode") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    std::vector<uint8_t> data{'h','e','l','l','o'};
+    auto r = c.data_put_public(data, antd::PaymentMode::Merkle);
+
+    CHECK(r.address == "addr_pub_abc");
+    CHECK(r.chunks_stored == 3);
+    CHECK(r.payment_mode_used == "single");
+    CHECK(stub.last_data_put_public_body.value("payment_mode", "") == "merkle");
+}
+
+TEST_CASE("data_put_public defaults to auto payment_mode") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    std::vector<uint8_t> data{'x'};
+    c.data_put_public(data);
+    CHECK(stub.last_data_put_public_body.value("payment_mode", "") == "auto");
+}
+
+TEST_CASE("data_put returns DataPutResult and forwards payment_mode") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    std::vector<uint8_t> data{'s','e','c','r','e','t'};
+    auto r = c.data_put(data, antd::PaymentMode::Merkle);
+
+    CHECK(r.data_map == "dm_priv_xyz");
+    CHECK(r.chunks_stored == 2);
+    CHECK(r.payment_mode_used == "merkle");
+    CHECK(stub.last_data_put_body.value("payment_mode", "") == "merkle");
+}
+
+TEST_CASE("data_get POSTs data_map and returns bytes") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    auto bytes = c.data_get("dm_priv_xyz");
+    std::string text(bytes.begin(), bytes.end());
+
+    CHECK(text == "secret");
+    CHECK(stub.last_data_get_body.value("data_map", "") == "dm_priv_xyz");
+}
+
+TEST_CASE("data_cost forwards payment_mode") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    std::vector<uint8_t> data{'t','e','s','t'};
+    auto est = c.data_cost(data, antd::PaymentMode::Single);
+
+    CHECK(est.cost == "50");
+    CHECK(est.chunk_count == 3);
+    CHECK(est.payment_mode == "single");
+    CHECK(stub.last_data_cost_body.value("payment_mode", "") == "single");
+}
+
+TEST_CASE("file_put_public surfaces new fields and forwards payment_mode") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    auto r = c.file_put_public("/tmp/x.dat");
+
+    CHECK(r.address == "file_pub_addr");
+    CHECK(r.storage_cost_atto == "1000");
+    CHECK(r.chunks_stored == 5);
+    CHECK(r.payment_mode_used == "auto");
+    CHECK(stub.last_file_put_public_body.value("payment_mode", "") == "auto");
+}
+
+TEST_CASE("file_get_public POSTs to /v1/files/public/get") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    c.file_get_public("file_pub_addr", "/tmp/out.dat");
+    CHECK(stub.last_file_get_public_body.value("address", "") == "file_pub_addr");
+    CHECK(stub.last_file_get_public_body.value("dest_path", "") == "/tmp/out.dat");
+}
+
+TEST_CASE("file_put POSTs to /v1/files and returns FilePutResult") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    auto r = c.file_put("/tmp/y.dat", antd::PaymentMode::Merkle);
+
+    CHECK(r.data_map == "fdm_xyz");
+    CHECK(r.storage_cost_atto == "900");
+    CHECK(r.chunks_stored == 4);
+    CHECK(r.payment_mode_used == "merkle");
+    CHECK(stub.last_file_put_body.value("payment_mode", "") == "merkle");
+}
+
+TEST_CASE("file_get POSTs data_map and dest_path") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    c.file_get("fdm_xyz", "/tmp/private-out.dat");
+    CHECK(stub.last_file_get_body.value("data_map", "") == "fdm_xyz");
+    CHECK(stub.last_file_get_body.value("dest_path", "") == "/tmp/private-out.dat");
+}
+
+TEST_CASE("file_cost forwards payment_mode and is_public") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    auto est = c.file_cost("/tmp/z.dat", true, antd::PaymentMode::Single);
+    CHECK(est.cost == "1000");
+    CHECK(stub.last_file_cost_body.value("payment_mode", "") == "single");
+    CHECK(stub.last_file_cost_body.value("is_public", false) == true);
+}
 
 TEST_CASE("prepare_upload_public forwards visibility=public and finalize surfaces data_map_address") {
     StubServer stub;

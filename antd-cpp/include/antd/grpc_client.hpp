@@ -55,19 +55,22 @@ public:
     // --- Data (Immutable) ---
 
     /// Store public immutable data on the network.
-    PutResult data_put_public(const std::vector<uint8_t>& data);
+    DataPutPublicResult data_put_public(const std::vector<uint8_t>& data,
+                                        PaymentMode payment_mode = PaymentMode::Auto);
 
     /// Retrieve public data by address.
     std::vector<uint8_t> data_get_public(std::string_view address);
 
     /// Store private encrypted data on the network.
-    PutResult data_put_private(const std::vector<uint8_t>& data);
+    DataPutResult data_put(const std::vector<uint8_t>& data,
+                           PaymentMode payment_mode = PaymentMode::Auto);
 
-    /// Retrieve private data using a data map.
-    std::vector<uint8_t> data_get_private(std::string_view data_map);
+    /// Retrieve private data using a caller-held DataMap.
+    std::vector<uint8_t> data_get(std::string_view data_map);
 
-    /// Estimate the cost of storing data.
-    std::string data_cost(const std::vector<uint8_t>& data);
+    /// Pre-upload cost breakdown for the given bytes.
+    UploadCostEstimate data_cost(const std::vector<uint8_t>& data,
+                                 PaymentMode payment_mode = PaymentMode::Auto);
 
     // --- Chunks ---
 
@@ -79,14 +82,24 @@ public:
 
     // --- Files ---
 
-    /// Upload a local file to the network.
-    FileUploadResult file_upload_public(std::string_view path);
+    /// Upload a local file *privately*.
+    FilePutResult file_put(std::string_view path,
+                           PaymentMode payment_mode = PaymentMode::Auto);
 
-    /// Download a file from the network to a local path.
-    void file_download_public(std::string_view address, std::string_view dest_path);
+    /// Download a file from a caller-held DataMap into `dest_path`.
+    void file_get(std::string_view data_map, std::string_view dest_path);
 
-    /// Estimate the cost of uploading a file.
-    std::string file_cost(std::string_view path, bool is_public);
+    /// Upload a local file *publicly*.
+    FilePutPublicResult file_put_public(std::string_view path,
+                                        PaymentMode payment_mode = PaymentMode::Auto);
+
+    /// Download a public file by on-network DataMap address.
+    void file_get_public(std::string_view address, std::string_view dest_path);
+
+    /// Pre-upload cost breakdown for the file at `path`.
+    UploadCostEstimate file_cost(std::string_view path,
+                                 bool is_public,
+                                 PaymentMode payment_mode = PaymentMode::Auto);
 
 private:
     struct Impl;

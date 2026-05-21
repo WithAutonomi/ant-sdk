@@ -28,9 +28,10 @@ std::future<HealthStatus> AsyncClient::health() {
 // Data (Immutable)
 // ---------------------------------------------------------------------------
 
-std::future<PutResult> AsyncClient::data_put_public(const std::vector<uint8_t>& data) {
-    return std::async(std::launch::async, [this, data] {
-        return client_.data_put_public(data);
+std::future<DataPutPublicResult> AsyncClient::data_put_public(
+    const std::vector<uint8_t>& data, PaymentMode payment_mode) {
+    return std::async(std::launch::async, [this, data, payment_mode] {
+        return client_.data_put_public(data, payment_mode);
     });
 }
 
@@ -40,21 +41,23 @@ std::future<std::vector<uint8_t>> AsyncClient::data_get_public(std::string addre
     });
 }
 
-std::future<PutResult> AsyncClient::data_put_private(const std::vector<uint8_t>& data) {
-    return std::async(std::launch::async, [this, data] {
-        return client_.data_put_private(data);
+std::future<DataPutResult> AsyncClient::data_put(
+    const std::vector<uint8_t>& data, PaymentMode payment_mode) {
+    return std::async(std::launch::async, [this, data, payment_mode] {
+        return client_.data_put(data, payment_mode);
     });
 }
 
-std::future<std::vector<uint8_t>> AsyncClient::data_get_private(std::string data_map) {
+std::future<std::vector<uint8_t>> AsyncClient::data_get(std::string data_map) {
     return std::async(std::launch::async, [this, dm = std::move(data_map)] {
-        return client_.data_get_private(dm);
+        return client_.data_get(dm);
     });
 }
 
-std::future<UploadCostEstimate> AsyncClient::data_cost(const std::vector<uint8_t>& data) {
-    return std::async(std::launch::async, [this, data] {
-        return client_.data_cost(data);
+std::future<UploadCostEstimate> AsyncClient::data_cost(
+    const std::vector<uint8_t>& data, PaymentMode payment_mode) {
+    return std::async(std::launch::async, [this, data, payment_mode] {
+        return client_.data_cost(data, payment_mode);
     });
 }
 
@@ -93,23 +96,36 @@ std::future<std::string> AsyncClient::finalize_chunk_upload(
 // Files & Directories
 // ---------------------------------------------------------------------------
 
-std::future<FileUploadResult> AsyncClient::file_upload_public(std::string path) {
-    return std::async(std::launch::async, [this, p = std::move(path)] {
-        return client_.file_upload_public(p);
+std::future<FilePutResult> AsyncClient::file_put(std::string path, PaymentMode payment_mode) {
+    return std::async(std::launch::async, [this, p = std::move(path), payment_mode] {
+        return client_.file_put(p, payment_mode);
     });
 }
 
-std::future<void> AsyncClient::file_download_public(std::string address, std::string dest_path) {
+std::future<void> AsyncClient::file_get(std::string data_map, std::string dest_path) {
     return std::async(std::launch::async,
-        [this, addr = std::move(address), dest = std::move(dest_path)] {
-            client_.file_download_public(addr, dest);
+        [this, dm = std::move(data_map), dest = std::move(dest_path)] {
+            client_.file_get(dm, dest);
         });
 }
 
-std::future<UploadCostEstimate> AsyncClient::file_cost(std::string path, bool is_public) {
+std::future<FilePutPublicResult> AsyncClient::file_put_public(std::string path, PaymentMode payment_mode) {
+    return std::async(std::launch::async, [this, p = std::move(path), payment_mode] {
+        return client_.file_put_public(p, payment_mode);
+    });
+}
+
+std::future<void> AsyncClient::file_get_public(std::string address, std::string dest_path) {
     return std::async(std::launch::async,
-        [this, p = std::move(path), is_public] {
-            return client_.file_cost(p, is_public);
+        [this, addr = std::move(address), dest = std::move(dest_path)] {
+            client_.file_get_public(addr, dest);
+        });
+}
+
+std::future<UploadCostEstimate> AsyncClient::file_cost(std::string path, bool is_public, PaymentMode payment_mode) {
+    return std::async(std::launch::async,
+        [this, p = std::move(path), is_public, payment_mode] {
+            return client_.file_cost(p, is_public, payment_mode);
         });
 }
 
