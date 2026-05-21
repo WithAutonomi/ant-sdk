@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::Json;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -83,10 +83,10 @@ pub async fn data_get_public(
     }))
 }
 
-pub async fn data_put_private(
+pub async fn data_put(
     State(state): State<Arc<AppState>>,
     Json(req): Json<DataPutRequest>,
-) -> Result<Json<DataPutPrivateResponse>, AntdError> {
+) -> Result<Json<DataPutResponse>, AntdError> {
     if state.client.wallet().is_none() {
         return Err(AntdError::ServiceUnavailable(
             "wallet not configured — set AUTONOMI_WALLET_KEY".into(),
@@ -116,18 +116,18 @@ pub async fn data_put_private(
     .await
     .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
 
-    Ok(Json(DataPutPrivateResponse {
+    Ok(Json(DataPutResponse {
         data_map: data_map_hex,
         chunks_stored,
         payment_mode_used: format_payment_mode(payment_mode_used),
     }))
 }
 
-pub async fn data_get_private(
+pub async fn data_get(
     State(state): State<Arc<AppState>>,
-    Query(query): Query<DataGetPrivateQuery>,
+    Json(req): Json<DataGetRequest>,
 ) -> Result<Json<DataGetResponse>, AntdError> {
-    let data_map_bytes = hex::decode(&query.data_map)
+    let data_map_bytes = hex::decode(&req.data_map)
         .map_err(|e| AntdError::BadRequest(format!("invalid hex data_map: {e}")))?;
 
     // Reject oversized data maps before deserialization (10 MB limit)

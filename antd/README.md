@@ -92,19 +92,21 @@ On startup, antd writes a `daemon.port` file containing the actual REST port, gR
 |--------|----------|-------------|
 | **Health** | | |
 | `GET` | `/health` | Health check and network status |
-| **Data** | | |
-| `POST` | `/v1/data/public` | Store public data (accepts `payment_mode`) |
-| `GET` | `/v1/data/public/{address}` | Retrieve public data |
-| `POST` | `/v1/data/private` | Store private (encrypted) data |
-| `GET` | `/v1/data/private` | Retrieve private data by data map |
-| `POST` | `/v1/data/cost` | Estimate data storage cost — returns `{cost, file_size, chunk_count, estimated_gas_cost_wei, payment_mode}` |
+| **Data** | (private = unqualified verb; `_public` is the suffix) | |
+| `POST` | `/v1/data` | Store private (encrypted) data (accepts `payment_mode`); returns the DataMap to the caller |
+| `POST` | `/v1/data/get` | Retrieve private data by DataMap (body: `{data_map}`) |
+| `POST` | `/v1/data/public` | Store public data (accepts `payment_mode`); also stores the DataMap on-network and returns its address |
+| `GET` | `/v1/data/public/{address}` | Retrieve public data by address |
+| `POST` | `/v1/data/cost` | Estimate data storage cost (accepts `payment_mode`) |
 | **Chunks** | | |
 | `POST` | `/v1/chunks` | Store a raw chunk |
 | `GET` | `/v1/chunks/{address}` | Retrieve a chunk |
-| **Files** | | |
-| `POST` | `/v1/files/upload/public` | Upload a file (accepts `payment_mode`) |
-| `POST` | `/v1/files/download/public` | Download a file |
-| `POST` | `/v1/files/cost` | Estimate file upload cost — returns `{cost, file_size, chunk_count, estimated_gas_cost_wei, payment_mode}` |
+| **Files** | (same convention as data) | |
+| `POST` | `/v1/files` | Upload a file privately (accepts `payment_mode`); returns the DataMap |
+| `POST` | `/v1/files/get` | Download a file from a DataMap (body: `{data_map, dest_path}`) |
+| `POST` | `/v1/files/public` | Upload a file publicly (accepts `payment_mode`); stores the DataMap on-network and returns its address |
+| `POST` | `/v1/files/public/get` | Download a public file by address (body: `{address, dest_path}`) |
+| `POST` | `/v1/files/cost` | Estimate file upload cost (accepts `payment_mode`) |
 | **External Signer** | | |
 | `POST` | `/v1/data/prepare` | Prepare data upload for external signing |
 | `POST` | `/v1/upload/prepare` | Prepare file upload for external signing |

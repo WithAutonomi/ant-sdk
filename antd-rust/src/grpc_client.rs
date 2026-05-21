@@ -128,7 +128,7 @@ impl GrpcClient {
         let resp = self
             .data
             .clone()
-            .put_private(proto::antd::v1::PutPrivateDataRequest {
+            .put(proto::antd::v1::PutDataRequest {
                 data: data.to_vec(),
                 payment_mode: String::new(),
             })
@@ -148,7 +148,7 @@ impl GrpcClient {
         let resp = self
             .data
             .clone()
-            .get_private(proto::antd::v1::GetPrivateDataRequest {
+            .get(proto::antd::v1::GetDataRequest {
                 data_map: data_map.to_string(),
             })
             .await?
@@ -162,7 +162,7 @@ impl GrpcClient {
         let resp = self
             .data
             .clone()
-            .get_cost(proto::antd::v1::DataCostRequest {
+            .cost(proto::antd::v1::DataCostRequest {
                 data: data.to_vec(),
                 payment_mode: String::new(),
             })
@@ -220,7 +220,7 @@ impl GrpcClient {
         let resp = self
             .files
             .clone()
-            .upload_public(proto::antd::v1::UploadFileRequest {
+            .put_public(proto::antd::v1::PutFileRequest {
                 path: path.to_string(),
                 payment_mode: String::new(),
             })
@@ -244,7 +244,7 @@ impl GrpcClient {
     ) -> Result<(), AntdError> {
         self.files
             .clone()
-            .download_public(proto::antd::v1::DownloadPublicRequest {
+            .get_public(proto::antd::v1::GetFilePublicRequest {
                 address: address.to_string(),
                 dest_path: dest_path.to_string(),
             })
@@ -262,7 +262,7 @@ impl GrpcClient {
         let resp = self
             .files
             .clone()
-            .get_file_cost(proto::antd::v1::FileCostRequest {
+            .cost(proto::antd::v1::FileCostRequest {
                 path: path.to_string(),
                 is_public,
                 payment_mode: String::new(),

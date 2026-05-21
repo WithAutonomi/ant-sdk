@@ -65,28 +65,26 @@ pub fn router(state: Arc<AppState>, enable_cors: bool, rest_port: u16) -> Router
     let app = Router::new()
         // Health
         .route("/health", get(health))
-        // Data
+        // Data — convention: unqualified verb = private, `_public` suffix = public.
+        .route("/v1/data", post(data::data_put))
+        .route("/v1/data/get", post(data::data_get))
+        .route("/v1/data/public", post(data::data_put_public))
         .route("/v1/data/public/{addr}", get(data::data_get_public))
         .route(
             "/v1/data/public/{addr}/stream",
             get(data::data_stream_public),
         )
-        .route("/v1/data/public", post(data::data_put_public))
-        .route("/v1/data/private", get(data::data_get_private))
-        .route("/v1/data/private", post(data::data_put_private))
         .route("/v1/data/cost", post(data::data_cost))
         // Chunks
         .route("/v1/chunks/{addr}", get(chunks::chunk_get))
         .route("/v1/chunks", post(chunks::chunk_put))
         .route("/v1/chunks/prepare", post(chunks::chunk_prepare))
         .route("/v1/chunks/finalize", post(chunks::chunk_finalize))
-        // Files
-        .route("/v1/files/upload/public", post(files::file_upload_public))
-        .route(
-            "/v1/files/download/public",
-            post(files::file_download_public),
-        )
-        // Cost
+        // Files — same convention.
+        .route("/v1/files", post(files::file_put))
+        .route("/v1/files/get", post(files::file_get))
+        .route("/v1/files/public", post(files::file_put_public))
+        .route("/v1/files/public/get", post(files::file_get_public))
         .route("/v1/files/cost", post(files::file_cost))
         // External signer (two-phase upload)
         .route("/v1/upload/prepare", post(upload::prepare_upload))
