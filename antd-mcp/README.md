@@ -50,11 +50,11 @@ The server will auto-discover the daemon via the port file. Add `"env": {"ANTD_B
 
 | # | Tool | Description |
 |---|------|-------------|
-| 1 | `store_data(text, private?, payment_mode?)` | Store text on the network (public or encrypted) |
-| 2 | `retrieve_data(address, private?)` | Retrieve text by address |
-| 3 | `upload_file(path, payment_mode?)` | Upload a local file |
-| 4 | `download_file(address, dest_path)` | Download to local path |
-| 5 | `get_cost(text?, file_path?)` | Estimate storage cost — returns `cost`, `file_size`, `chunk_count`, `estimated_gas_cost_wei`, `payment_mode` |
+| 1 | `store_data(text, private?, payment_mode?)` | Store text on the network. With `private=True`, the returned `address` is the caller-held DataMap (not stored on-network — keep it safe). |
+| 2 | `retrieve_data(address, private?)` | Retrieve text by address. Pass `private=True` if `address` is a caller-held DataMap from a private store. |
+| 3 | `upload_file(path, private?, payment_mode?)` | Upload a local file. With `private=True`, the returned `address` is the caller-held DataMap. |
+| 4 | `download_file(address, dest_path, private?)` | Download to local path. Pass `private=True` if `address` is a caller-held DataMap from a private upload. |
+| 5 | `get_cost(text?, file_path?, payment_mode?)` | Estimate storage cost — returns `cost`, `file_size`, `chunk_count`, `estimated_gas_cost_wei`, `payment_mode` |
 | 6 | `check_balance()` | Check daemon health and network status |
 
 ### Wallet Operations
@@ -86,7 +86,7 @@ The server will auto-discover the daemon via the port file. Add `"env": {"ANTD_B
 
 ### Payment Modes
 
-The `store_data` and `upload_file` tools accept an optional `payment_mode` parameter:
+The `store_data`, `upload_file`, and `get_cost` tools accept an optional `payment_mode` parameter:
 
 | Mode | Behavior |
 |------|----------|
