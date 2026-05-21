@@ -147,7 +147,6 @@ TEST_CASE("all grpc error types are catchable as AntdError") {
 // ---------------------------------------------------------------------------
 
 TEST_CASE("HealthStatus construction from gRPC response fields") {
-    // Simulates: resp.status() == "ok", resp.network() == "local"
     antd::HealthStatus h;
     h.ok = (std::string("ok") == "ok");
     h.network = "local";
@@ -156,22 +155,24 @@ TEST_CASE("HealthStatus construction from gRPC response fields") {
     CHECK(h.network == "local");
 }
 
-TEST_CASE("PutResult from gRPC data put public response") {
-    antd::PutResult r;
-    r.cost = "100";
+TEST_CASE("DataPutPublicResult from gRPC data put public response") {
+    antd::DataPutPublicResult r;
     r.address = "abc123";
 
-    CHECK(r.cost == "100");
     CHECK(r.address == "abc123");
+    // gRPC currently leaves chunks_stored / payment_mode_used unset; the
+    // wire shape `PutPublicDataResponse` only carries address + cost.
+    CHECK(r.chunks_stored == 0);
+    CHECK(r.payment_mode_used.empty());
 }
 
-TEST_CASE("PutResult from gRPC data put private response (data_map as address)") {
-    antd::PutResult r;
-    r.cost = "200";
-    r.address = "dm123";
+TEST_CASE("DataPutResult from gRPC data put private response (data_map as primary)") {
+    antd::DataPutResult r;
+    r.data_map = "dm123";
 
-    CHECK(r.cost == "200");
-    CHECK(r.address == "dm123");
+    CHECK(r.data_map == "dm123");
+    CHECK(r.chunks_stored == 0);
+    CHECK(r.payment_mode_used.empty());
 }
 
 TEST_CASE("PutResult from gRPC chunk put response") {
@@ -183,47 +184,55 @@ TEST_CASE("PutResult from gRPC chunk put response") {
     CHECK(r.address == "chunk1");
 }
 
-TEST_CASE("PutResult from gRPC graph entry put response") {
-    antd::PutResult r;
-    r.cost = "500";
-    r.address = "ge1";
-
-    CHECK(r.cost == "500");
-    CHECK(r.address == "ge1");
-}
-
-TEST_CASE("PutResult from gRPC file upload public response") {
-    antd::PutResult r;
-    r.cost = "1000";
+TEST_CASE("FilePutPublicResult from gRPC file put public response") {
+    antd::FilePutPublicResult r;
     r.address = "file1";
+    r.storage_cost_atto = "1000";
+    r.gas_cost_wei = "42";
+    r.chunks_stored = 5;
+    r.payment_mode_used = "auto";
 
-    CHECK(r.cost == "1000");
     CHECK(r.address == "file1");
+    CHECK(r.storage_cost_atto == "1000");
+    CHECK(r.chunks_stored == 5);
+    CHECK(r.payment_mode_used == "auto");
 }
 
-TEST_CASE("PutResult from gRPC dir upload public response") {
-    antd::PutResult r;
-    r.cost = "2000";
-    r.address = "dir1";
+TEST_CASE("FilePutResult from gRPC file put private response") {
+    antd::FilePutResult r;
+    r.data_map = "fdm1";
+    r.storage_cost_atto = "900";
+    r.gas_cost_wei = "42";
+    r.chunks_stored = 4;
+    r.payment_mode_used = "merkle";
 
-    CHECK(r.cost == "2000");
-    CHECK(r.address == "dir1");
+    CHECK(r.data_map == "fdm1");
+    CHECK(r.storage_cost_atto == "900");
+    CHECK(r.chunks_stored == 4);
+    CHECK(r.payment_mode_used == "merkle");
 }
 
-TEST_CASE("Cost string from gRPC data cost response") {
-    // Simulates: resp.atto_tokens() returns "50"
-    std::string cost = "50";
-    CHECK(cost == "50");
+TEST_CASE("UploadCostEstimate from gRPC cost response") {
+    antd::UploadCostEstimate est;
+    est.cost = "50";
+    est.file_size = 4;
+    est.chunk_count = 3;
+    est.estimated_gas_cost_wei = "150";
+    est.payment_mode = "single";
+
+    CHECK(est.cost == "50");
+    CHECK(est.payment_mode == "single");
 }
 
-TEST_CASE("Cost string from gRPC graph entry cost response") {
-    std::string cost = "500";
-    CHECK(cost == "500");
-}
+// ---------------------------------------------------------------------------
+// PaymentMode wire serialization — same source-of-truth helper used by both
+// transports.
+// ---------------------------------------------------------------------------
 
-TEST_CASE("Cost string from gRPC file cost response") {
-    std::string cost = "1000";
-    CHECK(cost == "1000");
+TEST_CASE("payment_mode_wire matches the daemon's accepted strings") {
+    CHECK(antd::payment_mode_wire(antd::PaymentMode::Auto) == "auto");
+    CHECK(antd::payment_mode_wire(antd::PaymentMode::Merkle) == "merkle");
+    CHECK(antd::payment_mode_wire(antd::PaymentMode::Single) == "single");
 }
 
 // ---------------------------------------------------------------------------
@@ -232,8 +241,6 @@ TEST_CASE("Cost string from gRPC file cost response") {
 // ---------------------------------------------------------------------------
 
 TEST_CASE("byte data round-trip simulating gRPC bytes field") {
-    // GrpcClient does: const auto& d = resp.data();
-    //                  return std::vector<uint8_t>(d.begin(), d.end());
     std::string proto_bytes = "hello";
     std::vector<uint8_t> result(proto_bytes.begin(), proto_bytes.end());
     CHECK(result.size() == 5);

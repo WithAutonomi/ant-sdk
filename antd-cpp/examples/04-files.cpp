@@ -38,7 +38,7 @@ int main() {
                   << " chunks, storage " << est.cost << " atto, gas "
                   << est.estimated_gas_cost_wei << " wei, mode " << est.payment_mode << "\n";
 
-        auto result = client.file_upload_public(src_file.string());
+        auto result = client.file_put_public(src_file.string());
         std::cout << "File uploaded at: " << result.address << "\n";
         std::cout << "  storage: " << result.storage_cost_atto << " atto, gas: "
                   << result.gas_cost_wei << " wei\n";
@@ -46,7 +46,7 @@ int main() {
                   << result.payment_mode_used << "\n";
 
         fs::path dst_file = tmp / "hello.txt.downloaded";
-        client.file_download_public(result.address, dst_file.string());
+        client.file_get_public(result.address, dst_file.string());
         std::cout << "File downloaded to " << dst_file << "\n";
 
         std::string got = read_file(dst_file);

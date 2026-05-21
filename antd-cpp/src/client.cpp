@@ -113,15 +113,17 @@ HealthStatus Client::health() {
 // Data (Immutable)
 // ---------------------------------------------------------------------------
 
-PutResult Client::data_put_public(const std::vector<uint8_t>& data, const std::string& payment_mode) {
-    json body = {{"data", detail::base64_encode(data)}};
-    if (!payment_mode.empty()) {
-        body["payment_mode"] = payment_mode;
-    }
+DataPutPublicResult Client::data_put_public(const std::vector<uint8_t>& data,
+                                            PaymentMode payment_mode) {
+    json body = {
+        {"data", detail::base64_encode(data)},
+        {"payment_mode", payment_mode_wire(payment_mode)},
+    };
     auto j = impl_->do_json("POST", "/v1/data/public", body);
-    return PutResult{
-        .cost = j.value("cost", ""),
+    return DataPutPublicResult{
         .address = j.value("address", ""),
+        .chunks_stored = j.value<std::uint64_t>("chunks_stored", 0),
+        .payment_mode_used = j.value("payment_mode_used", ""),
     };
 }
 
@@ -130,42 +132,32 @@ std::vector<uint8_t> Client::data_get_public(std::string_view address) {
     return detail::base64_decode(j.value("data", ""));
 }
 
-PutResult Client::data_put_private(const std::vector<uint8_t>& data, const std::string& payment_mode) {
-    json body = {{"data", detail::base64_encode(data)}};
-    if (!payment_mode.empty()) {
-        body["payment_mode"] = payment_mode;
-    }
-    auto j = impl_->do_json("POST", "/v1/data/private", body);
-    return PutResult{
-        .cost = j.value("cost", ""),
-        .address = j.value("data_map", ""),
+DataPutResult Client::data_put(const std::vector<uint8_t>& data,
+                               PaymentMode payment_mode) {
+    json body = {
+        {"data", detail::base64_encode(data)},
+        {"payment_mode", payment_mode_wire(payment_mode)},
+    };
+    auto j = impl_->do_json("POST", "/v1/data", body);
+    return DataPutResult{
+        .data_map = j.value("data_map", ""),
+        .chunks_stored = j.value<std::uint64_t>("chunks_stored", 0),
+        .payment_mode_used = j.value("payment_mode_used", ""),
     };
 }
 
-static std::string url_encode(std::string_view value) {
-    std::string encoded;
-    encoded.reserve(value.size());
-    for (unsigned char c : value) {
-        if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
-            encoded += static_cast<char>(c);
-        } else {
-            char buf[4];
-            std::snprintf(buf, sizeof(buf), "%%%02X", c);
-            encoded += buf;
-        }
-    }
-    return encoded;
-}
-
-std::vector<uint8_t> Client::data_get_private(std::string_view data_map) {
-    auto j = impl_->do_json("GET",
-        "/v1/data/private?data_map=" + url_encode(data_map));
+std::vector<uint8_t> Client::data_get(std::string_view data_map) {
+    auto j = impl_->do_json("POST", "/v1/data/get", json{
+        {"data_map", std::string(data_map)},
+    });
     return detail::base64_decode(j.value("data", ""));
 }
 
-UploadCostEstimate Client::data_cost(const std::vector<uint8_t>& data) {
+UploadCostEstimate Client::data_cost(const std::vector<uint8_t>& data,
+                                     PaymentMode payment_mode) {
     auto j = impl_->do_json("POST", "/v1/data/cost", json{
         {"data", detail::base64_encode(data)},
+        {"payment_mode", payment_mode_wire(payment_mode)},
     });
     return UploadCostEstimate{
         j.value("cost", std::string{}),
@@ -241,32 +233,58 @@ std::string Client::finalize_chunk_upload(std::string_view upload_id,
 // Files & Directories
 // ---------------------------------------------------------------------------
 
-FileUploadResult Client::file_upload_public(std::string_view path, const std::string& payment_mode) {
-    json body = {{"path", std::string(path)}};
-    if (!payment_mode.empty()) {
-        body["payment_mode"] = payment_mode;
-    }
-    auto j = impl_->do_json("POST", "/v1/files/upload/public", body);
-    return FileUploadResult{
-        .address = j.value("address", ""),
+FilePutResult Client::file_put(std::string_view path, PaymentMode payment_mode) {
+    json body = {
+        {"path", std::string(path)},
+        {"payment_mode", payment_mode_wire(payment_mode)},
+    };
+    auto j = impl_->do_json("POST", "/v1/files", body);
+    return FilePutResult{
+        .data_map = j.value("data_map", ""),
         .storage_cost_atto = j.value("storage_cost_atto", ""),
         .gas_cost_wei = j.value("gas_cost_wei", ""),
-        .chunks_stored = j.value<uint64_t>("chunks_stored", 0),
+        .chunks_stored = j.value<std::uint64_t>("chunks_stored", 0),
         .payment_mode_used = j.value("payment_mode_used", ""),
     };
 }
 
-void Client::file_download_public(std::string_view address, std::string_view dest_path) {
-    impl_->do_json("POST", "/v1/files/download/public", json{
+void Client::file_get(std::string_view data_map, std::string_view dest_path) {
+    impl_->do_json("POST", "/v1/files/get", json{
+        {"data_map", std::string(data_map)},
+        {"dest_path", std::string(dest_path)},
+    });
+}
+
+FilePutPublicResult Client::file_put_public(std::string_view path,
+                                            PaymentMode payment_mode) {
+    json body = {
+        {"path", std::string(path)},
+        {"payment_mode", payment_mode_wire(payment_mode)},
+    };
+    auto j = impl_->do_json("POST", "/v1/files/public", body);
+    return FilePutPublicResult{
+        .address = j.value("address", ""),
+        .storage_cost_atto = j.value("storage_cost_atto", ""),
+        .gas_cost_wei = j.value("gas_cost_wei", ""),
+        .chunks_stored = j.value<std::uint64_t>("chunks_stored", 0),
+        .payment_mode_used = j.value("payment_mode_used", ""),
+    };
+}
+
+void Client::file_get_public(std::string_view address, std::string_view dest_path) {
+    impl_->do_json("POST", "/v1/files/public/get", json{
         {"address", std::string(address)},
         {"dest_path", std::string(dest_path)},
     });
 }
 
-UploadCostEstimate Client::file_cost(std::string_view path, bool is_public) {
+UploadCostEstimate Client::file_cost(std::string_view path,
+                                     bool is_public,
+                                     PaymentMode payment_mode) {
     auto j = impl_->do_json("POST", "/v1/files/cost", json{
         {"path", std::string(path)},
         {"is_public", is_public},
+        {"payment_mode", payment_mode_wire(payment_mode)},
     });
     return UploadCostEstimate{
         j.value("cost", std::string{}),

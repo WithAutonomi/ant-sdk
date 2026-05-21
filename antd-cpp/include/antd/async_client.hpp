@@ -44,19 +44,22 @@ public:
     // --- Data (Immutable) ---
 
     /// Store public immutable data on the network.
-    std::future<PutResult> data_put_public(const std::vector<uint8_t>& data);
+    std::future<DataPutPublicResult> data_put_public(const std::vector<uint8_t>& data,
+                                                     PaymentMode payment_mode = PaymentMode::Auto);
 
     /// Retrieve public data by address.
     std::future<std::vector<uint8_t>> data_get_public(std::string address);
 
     /// Store private encrypted data on the network.
-    std::future<PutResult> data_put_private(const std::vector<uint8_t>& data);
+    std::future<DataPutResult> data_put(const std::vector<uint8_t>& data,
+                                        PaymentMode payment_mode = PaymentMode::Auto);
 
-    /// Retrieve private data using a data map.
-    std::future<std::vector<uint8_t>> data_get_private(std::string data_map);
+    /// Retrieve private data using a caller-held DataMap.
+    std::future<std::vector<uint8_t>> data_get(std::string data_map);
 
     /// Pre-upload cost breakdown for the given bytes.
-    std::future<UploadCostEstimate> data_cost(const std::vector<uint8_t>& data);
+    std::future<UploadCostEstimate> data_cost(const std::vector<uint8_t>& data,
+                                              PaymentMode payment_mode = PaymentMode::Auto);
 
     // --- Chunks ---
 
@@ -77,14 +80,24 @@ public:
 
     // --- Files ---
 
-    /// Upload a local file to the network.
-    std::future<FileUploadResult> file_upload_public(std::string path);
+    /// Upload a local file *privately*.
+    std::future<FilePutResult> file_put(std::string path,
+                                        PaymentMode payment_mode = PaymentMode::Auto);
 
-    /// Download a file from the network to a local path.
-    std::future<void> file_download_public(std::string address, std::string dest_path);
+    /// Download a file from a caller-held DataMap into `dest_path`.
+    std::future<void> file_get(std::string data_map, std::string dest_path);
+
+    /// Upload a local file *publicly*.
+    std::future<FilePutPublicResult> file_put_public(std::string path,
+                                                    PaymentMode payment_mode = PaymentMode::Auto);
+
+    /// Download a public file from an on-network DataMap address.
+    std::future<void> file_get_public(std::string address, std::string dest_path);
 
     /// Pre-upload cost breakdown for the file at `path`.
-    std::future<UploadCostEstimate> file_cost(std::string path, bool is_public);
+    std::future<UploadCostEstimate> file_cost(std::string path,
+                                              bool is_public,
+                                              PaymentMode payment_mode = PaymentMode::Auto);
 
 private:
     Client client_;

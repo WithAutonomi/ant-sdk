@@ -13,7 +13,8 @@ int main() {
 
         auto result = client.data_put_public(data);
         std::cout << "Stored at: " << result.address << "\n";
-        std::cout << "Cost: " << result.cost << " atto\n";
+        std::cout << "Chunks: " << result.chunks_stored
+                  << ", mode: " << result.payment_mode_used << "\n";
 
         // Retrieve it
         auto retrieved = client.data_get_public(result.address);

@@ -23,19 +23,75 @@ struct HealthStatus {
     std::string payment_vault_address;  ///< "" if unconfigured
 };
 
-/// Result of a put/create operation.
+/// Payment-batching strategy for uploads.
+///
+/// * `Auto`   — server picks (merkle for 64+ chunks, single otherwise).
+/// * `Merkle` — force merkle-batch (saves gas, min 2 chunks).
+/// * `Single` — force per-chunk payments (works for any chunk count).
+///
+/// Pass as a typed argument to the put/cost methods; the client serializes the
+/// enum to the wire string at the request boundary.
+enum class PaymentMode {
+    Auto,
+    Merkle,
+    Single,
+};
+
+/// Serialize a PaymentMode to the wire string the daemon expects.
+inline std::string payment_mode_wire(PaymentMode m) {
+    switch (m) {
+        case PaymentMode::Auto:   return "auto";
+        case PaymentMode::Merkle: return "merkle";
+        case PaymentMode::Single: return "single";
+    }
+    return "auto";
+}
+
+/// Result of a `chunk_put` operation. The DataMap concept doesn't apply at
+/// chunk level.
 struct PutResult {
     std::string cost;     // atto tokens as string
     std::string address;  // hex
 };
 
-/// Result of a public file or directory upload.
-struct FileUploadResult {
-    std::string address;            // hex network address
-    std::string storage_cost_atto;  // storage cost in atto, "0" if all chunks already existed
-    std::string gas_cost_wei;       // gas cost in wei as decimal string
-    uint64_t chunks_stored{0};      // number of chunks stored on the network
-    std::string payment_mode_used;  // "auto", "merkle", or "single"
+/// Result of a private data put. The DataMap is returned to the caller; it
+/// is NOT stored on-network. REST populates `chunks_stored` /
+/// `payment_mode_used`; gRPC currently leaves them at their defaults (proto
+/// `PutDataResponse` only carries `data_map`).
+struct DataPutResult {
+    std::string data_map;             // hex caller-held DataMap
+    std::uint64_t chunks_stored{0};
+    std::string payment_mode_used;
+};
+
+/// Result of a public data put. The DataMap is stored on-network as an extra
+/// chunk; `address` is the shareable retrieval handle. REST populates
+/// `chunks_stored` / `payment_mode_used`; gRPC currently leaves them at
+/// their defaults.
+struct DataPutPublicResult {
+    std::string address;              // hex on-network DataMap address
+    std::uint64_t chunks_stored{0};
+    std::string payment_mode_used;
+};
+
+/// Result of a private file upload. The DataMap is returned to the caller;
+/// it is NOT stored on-network.
+struct FilePutResult {
+    std::string data_map;             // hex caller-held DataMap
+    std::string storage_cost_atto;    // "0" if all chunks already existed
+    std::string gas_cost_wei;         // decimal string
+    std::uint64_t chunks_stored{0};
+    std::string payment_mode_used;
+};
+
+/// Result of a public file upload. The DataMap is stored on-network as an
+/// extra chunk; `address` is the shareable retrieval handle.
+struct FilePutPublicResult {
+    std::string address;              // hex on-network DataMap address
+    std::string storage_cost_atto;    // "0" if all chunks already existed
+    std::string gas_cost_wei;         // decimal string
+    std::uint64_t chunks_stored{0};
+    std::string payment_mode_used;
 };
 
 /// Wallet address response.

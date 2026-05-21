@@ -22,6 +22,13 @@ inline constexpr int kDefaultTimeoutSeconds = 300;
 
 /// REST client for the antd daemon.
 ///
+/// Naming convention (post v1.0):
+///   * Unqualified verb (`data_put`, `data_get`, `file_put`, `file_get`) =
+///     private — the DataMap is returned to the caller and NOT stored
+///     on-network.
+///   * `_public` suffix = public — the DataMap is stored on-network as an
+///     extra chunk; the call returns the shareable address.
+///
 /// All methods throw antd::AntdError (or a subclass) on failure.
 class Client {
 public:
@@ -52,19 +59,23 @@ public:
     // --- Data (Immutable) ---
 
     /// Store public immutable data on the network.
-    PutResult data_put_public(const std::vector<uint8_t>& data, const std::string& payment_mode = "");
+    DataPutPublicResult data_put_public(const std::vector<uint8_t>& data,
+                                        PaymentMode payment_mode = PaymentMode::Auto);
 
     /// Retrieve public data by address.
     std::vector<uint8_t> data_get_public(std::string_view address);
 
-    /// Store private encrypted data on the network.
-    PutResult data_put_private(const std::vector<uint8_t>& data, const std::string& payment_mode = "");
+    /// Store private encrypted data on the network. The returned DataMap is
+    /// the caller's key to retrieve the data later via `data_get`.
+    DataPutResult data_put(const std::vector<uint8_t>& data,
+                           PaymentMode payment_mode = PaymentMode::Auto);
 
-    /// Retrieve private data using a data map.
-    std::vector<uint8_t> data_get_private(std::string_view data_map);
+    /// Retrieve private data using a caller-held DataMap.
+    std::vector<uint8_t> data_get(std::string_view data_map);
 
     /// Pre-upload cost breakdown for the given bytes.
-    UploadCostEstimate data_cost(const std::vector<uint8_t>& data);
+    UploadCostEstimate data_cost(const std::vector<uint8_t>& data,
+                                 PaymentMode payment_mode = PaymentMode::Auto);
 
     // --- Chunks ---
 
@@ -98,14 +109,28 @@ public:
 
     // --- Files ---
 
-    /// Upload a local file to the network.
-    FileUploadResult file_upload_public(std::string_view path, const std::string& payment_mode = "");
+    /// Upload a local file *privately*. The returned DataMap is the
+    /// caller's key to retrieve the file later via `file_get`. The DataMap
+    /// itself is NOT stored on-network.
+    FilePutResult file_put(std::string_view path,
+                           PaymentMode payment_mode = PaymentMode::Auto);
 
-    /// Download a file from the network to a local path.
-    void file_download_public(std::string_view address, std::string_view dest_path);
+    /// Download a file from a caller-held DataMap into `dest_path`.
+    void file_get(std::string_view data_map, std::string_view dest_path);
+
+    /// Upload a local file *publicly*. The DataMap is stored on-network as
+    /// an extra chunk; the returned address is the shareable retrieval
+    /// handle.
+    FilePutPublicResult file_put_public(std::string_view path,
+                                        PaymentMode payment_mode = PaymentMode::Auto);
+
+    /// Download a public file from an on-network DataMap address.
+    void file_get_public(std::string_view address, std::string_view dest_path);
 
     /// Pre-upload cost breakdown for the file at `path`.
-    UploadCostEstimate file_cost(std::string_view path, bool is_public);
+    UploadCostEstimate file_cost(std::string_view path,
+                                 bool is_public,
+                                 PaymentMode payment_mode = PaymentMode::Auto);
 
     // --- Wallet ---
 
