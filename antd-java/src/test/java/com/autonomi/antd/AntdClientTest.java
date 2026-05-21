@@ -66,11 +66,11 @@ class AntdClientTest {
             }
 
             // Data put private
-            if ("POST".equals(method) && "/v1/data/private".equals(path)) {
-                return json("{\"cost\":\"200\",\"data_map\":\"dm123\"}");
+            if ("POST".equals(method) && "/v1/data".equals(path)) {
+                return json("{\"data_map\":\"dm123\",\"chunks_stored\":2,\"payment_mode_used\":\"auto\"}");
             }
             // Data get private
-            if ("GET".equals(method) && path != null && path.startsWith("/v1/data/private")) {
+            if ("POST".equals(method) && "/v1/data/get".equals(path)) {
                 return json("{\"data\":\"" + b64("secret") + "\"}");
             }
 
@@ -88,10 +88,10 @@ class AntdClientTest {
             }
 
             // Files
-            if ("POST".equals(method) && "/v1/files/upload/public".equals(path)) {
+            if ("POST".equals(method) && "/v1/files/public".equals(path)) {
                 return json("{\"address\":\"file1\",\"storage_cost_atto\":\"1000\",\"gas_cost_wei\":\"42\",\"chunks_stored\":3,\"payment_mode_used\":\"auto\"}");
             }
-            if ("POST".equals(method) && "/v1/files/download/public".equals(path)) {
+            if ("POST".equals(method) && "/v1/files/public/get".equals(path)) {
                 return new MockResponse().setResponseCode(200);
             }
             if ("POST".equals(method) && "/v1/files/cost".equals(path)) {
@@ -147,9 +147,8 @@ class AntdClientTest {
 
     @Test
     void testDataPublic() {
-        PutResult put = client.dataPutPublic("hello".getBytes());
+        DataPutPublicResult put = client.dataPutPublic("hello".getBytes());
         assertEquals("abc123", put.address());
-        assertEquals("100", put.cost());
 
         byte[] data = client.dataGetPublic("abc123");
         assertEquals("hello", new String(data));
@@ -157,11 +156,10 @@ class AntdClientTest {
 
     @Test
     void testDataPrivate() {
-        PutResult put = client.dataPutPrivate("secret".getBytes());
-        assertEquals("dm123", put.address());
-        assertEquals("200", put.cost());
+        DataPutResult put = client.dataPut("secret".getBytes());
+        assertEquals("dm123", put.dataMap());
 
-        byte[] data = client.dataGetPrivate("dm123");
+        byte[] data = client.dataGet("dm123");
         assertEquals("secret", new String(data));
     }
 
@@ -186,7 +184,7 @@ class AntdClientTest {
 
     @Test
     void testFileUploadPublic() {
-        FileUploadResult put = client.fileUploadPublic("/tmp/test.txt");
+        FilePutPublicResult put = client.filePutPublic("/tmp/test.txt");
         assertEquals("file1", put.address());
         assertEquals("1000", put.storageCostAtto());
         assertEquals("42", put.gasCostWei());
@@ -196,7 +194,7 @@ class AntdClientTest {
 
     @Test
     void testFileDownloadPublic() {
-        assertDoesNotThrow(() -> client.fileDownloadPublic("file1", "/tmp/out.txt"));
+        assertDoesNotThrow(() -> client.fileGetPublic("file1", "/tmp/out.txt"));
     }
 
     @Test
