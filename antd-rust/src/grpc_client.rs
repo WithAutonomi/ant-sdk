@@ -286,11 +286,7 @@ impl GrpcClient {
     }
 
     /// Downloads a public file from an on-network DataMap address.
-    pub async fn file_get_public(
-        &self,
-        address: &str,
-        dest_path: &str,
-    ) -> Result<(), AntdError> {
+    pub async fn file_get_public(&self, address: &str, dest_path: &str) -> Result<(), AntdError> {
         self.files
             .clone()
             .get_public(proto::antd::v1::GetFilePublicRequest {

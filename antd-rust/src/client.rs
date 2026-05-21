@@ -331,11 +331,7 @@ impl Client {
     }
 
     /// Downloads a public file from an on-network DataMap address.
-    pub async fn file_get_public(
-        &self,
-        address: &str,
-        dest_path: &str,
-    ) -> Result<(), AntdError> {
+    pub async fn file_get_public(&self, address: &str, dest_path: &str) -> Result<(), AntdError> {
         self.do_json(
             reqwest::Method::POST,
             "/v1/files/public/get",

@@ -214,7 +214,10 @@ async fn test_data_put_public() {
     let _m = mock_data_put_public(&mut server);
     let client = Client::new(&server.url());
 
-    let result = client.data_put_public(b"hello", PaymentMode::Auto).await.unwrap();
+    let result = client
+        .data_put_public(b"hello", PaymentMode::Auto)
+        .await
+        .unwrap();
     assert_eq!(result.address, "abc123");
 }
 
@@ -318,7 +321,10 @@ async fn test_file_cost() {
     let _m = mock_file_cost(&mut server);
     let client = Client::new(&server.url());
 
-    let est = client.file_cost("/tmp/test.txt", true, PaymentMode::Auto).await.unwrap();
+    let est = client
+        .file_cost("/tmp/test.txt", true, PaymentMode::Auto)
+        .await
+        .unwrap();
     assert_eq!(est.cost, "1000");
     assert_eq!(est.file_size, 4096);
     assert_eq!(est.chunk_count, 3);
@@ -355,7 +361,10 @@ async fn test_error_mapping_bad_request() {
         .create();
     let client = Client::new(&server.url());
 
-    let err = client.data_put_public(b"bad", PaymentMode::Auto).await.unwrap_err();
+    let err = client
+        .data_put_public(b"bad", PaymentMode::Auto)
+        .await
+        .unwrap_err();
     match err {
         AntdError::BadRequest(msg) => assert_eq!(msg, "invalid data"),
         other => panic!("expected BadRequest, got: {other:?}"),
@@ -373,7 +382,10 @@ async fn test_error_mapping_payment() {
         .create();
     let client = Client::new(&server.url());
 
-    let err = client.data_put_public(b"data", PaymentMode::Auto).await.unwrap_err();
+    let err = client
+        .data_put_public(b"data", PaymentMode::Auto)
+        .await
+        .unwrap_err();
     match err {
         AntdError::Payment(msg) => assert_eq!(msg, "insufficient funds"),
         other => panic!("expected Payment, got: {other:?}"),
@@ -445,7 +457,10 @@ async fn test_error_mapping_already_exists() {
         .create();
     let client = Client::new(&server.url());
 
-    let err = client.data_put_public(b"test", PaymentMode::Auto).await.unwrap_err();
+    let err = client
+        .data_put_public(b"test", PaymentMode::Auto)
+        .await
+        .unwrap_err();
     match err {
         AntdError::AlreadyExists(msg) => assert_eq!(msg, "already exists"),
         other => panic!("expected AlreadyExists, got: {other:?}"),

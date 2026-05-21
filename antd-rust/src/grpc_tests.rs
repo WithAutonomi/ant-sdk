@@ -287,7 +287,10 @@ async fn test_grpc_health() {
 #[tokio::test]
 async fn test_grpc_data_put_public() {
     let client = start_mock_server().await;
-    let result = client.data_put_public(b"hello", PaymentMode::Auto).await.unwrap();
+    let result = client
+        .data_put_public(b"hello", PaymentMode::Auto)
+        .await
+        .unwrap();
     assert_eq!(result.address, "abc123");
 }
 
@@ -341,7 +344,10 @@ async fn test_grpc_chunk_get() {
 #[tokio::test]
 async fn test_grpc_file_upload_public() {
     let client = start_mock_server().await;
-    let result = client.file_put_public("/tmp/test.txt", PaymentMode::Auto).await.unwrap();
+    let result = client
+        .file_put_public("/tmp/test.txt", PaymentMode::Auto)
+        .await
+        .unwrap();
     assert_eq!(result.address, "file1");
     assert_eq!(result.storage_cost_atto, "1000");
     assert_eq!(result.gas_cost_wei, "42");
@@ -361,7 +367,10 @@ async fn test_grpc_file_download_public() {
 #[tokio::test]
 async fn test_grpc_file_cost() {
     let client = start_mock_server().await;
-    let est = client.file_cost("/tmp/test.txt", true, PaymentMode::Auto).await.unwrap();
+    let est = client
+        .file_cost("/tmp/test.txt", true, PaymentMode::Auto)
+        .await
+        .unwrap();
     assert_eq!(est.cost, "1000");
     assert_eq!(est.file_size, 4096);
     assert_eq!(est.chunk_count, 3);
