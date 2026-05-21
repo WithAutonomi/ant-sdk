@@ -85,3 +85,82 @@ jobs:
         with:
           files: artifacts/*
           generate_release_notes: true
+
+  docker:
+    name: Docker (multi-arch)
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pull the two linux binaries the build matrix just produced into the
+      # docker build context. The Dockerfile COPYs them by ${TARGETARCH}.
+      - uses: actions/download-artifact@v4
+        with:
+          name: antd-linux-amd64
+          path: deploy/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: antd-linux-arm64
+          path: deploy/
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Compose the tag list. :latest moves only on stable releases — a
+      # pre-release tag like v1.0.0-rc.1 publishes :v1.0.0-rc.1 only.
+      - name: Compute tags
+        id: tags
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          tags="ghcr.io/withautonomi/antd:${VERSION}"$'\n'
+          tags+="withautonomi/antd:${VERSION}"
+          if [[ "${VERSION}" != *-* ]]; then
+            tags+=$'\n'"ghcr.io/withautonomi/antd:latest"
+            tags+=$'\n'"withautonomi/antd:latest"
+          fi
+          {
+            echo "tags<<TAGS_EOF"
+            echo "$tags"
+            echo "TAGS_EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "Computed tags:"
+          echo "$tags"
+
+      - name: Build and push (linux/amd64,linux/arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: deploy/
+          file: deploy/Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: |
+            org.opencontainers.image.title=antd
+            org.opencontainers.image.description=REST + gRPC gateway for the Autonomi network
+            org.opencontainers.image.source=https://github.com/WithAutonomi/ant-sdk
+            org.opencontainers.image.version=${{ github.ref_name }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=GPL-3.0
+          cache-from: type=gha,scope=docker-release
+          cache-to: type=gha,scope=docker-release,mode=max
