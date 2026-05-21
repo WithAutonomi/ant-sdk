@@ -280,16 +280,16 @@ Download a file to a local path.
 
 Request: `{"address": "<hex>", "dest_path": "/absolute/path"}`
 
-#### `POST /v1/dirs/upload/public`
-Upload a local directory (recursively).
+#### `POST /v1/files`
+Upload a local file *privately*. Returns a caller-held DataMap; the DataMap is NOT stored on-network.
 
-Request: `{"path": "/absolute/path/to/dir", "payment_mode": "auto"}` (payment_mode is optional, defaults to "auto")
-Response: `{"address": "<hex>", "storage_cost_atto": "<atto>", "gas_cost_wei": "<wei>", "chunks_stored": <uint>, "payment_mode_used": "auto|merkle|single"}`
+Request: `{"path": "/absolute/path/to/file", "payment_mode": "auto"}` (payment_mode is optional, defaults to "auto")
+Response: `{"data_map": "<hex>", "storage_cost_atto": "<atto>", "gas_cost_wei": "<wei>", "chunks_stored": <uint>, "payment_mode_used": "auto|merkle|single"}`
 
-#### `POST /v1/dirs/download/public`
-Download a directory to a local path.
+#### `POST /v1/files/get`
+Download a private file from a caller-held DataMap into a local path.
 
-Request: `{"address": "<hex>", "dest_path": "/absolute/path"}`
+Request: `{"data_map": "<hex>", "dest_path": "/absolute/path"}`
 
 #### `POST /v1/files/cost`
 Estimate file upload cost. Samples up to 5 chunk addresses for the on-chain
@@ -374,6 +374,43 @@ Provide either `tx_hashes` (wave_batch) or `winner_pool_hash` (merkle).
 Wave-batch request: `{"upload_id": "hex", "tx_hashes": {"0xquotehash": "0xtxhash", ...}}`
 Merkle request: `{"upload_id": "hex", "winner_pool_hash": "0x..."}`
 Response: `{"data_map": "hex", "address": "hex", "chunks_stored": 5}`
+
+#### `POST /v1/chunks/prepare`
+Prepare a single-chunk upload for external signing. The bytes are stored
+verbatim as one chunk at their BLAKE3 address — no self-encryption. Unlike
+`POST /v1/chunks`, this handler does NOT require the daemon to have a wallet;
+all funds flow through the external signer.
+
+Request: `{"data": "<base64>"}`
+
+When the chunk is already on-network (no payment needed, no finalize call):
+```json
+{ "address": "<hex>", "already_stored": true }
+```
+
+When payment is needed (wave_batch shape — `payForQuotes()` then call `/v1/chunks/finalize` with the resulting `tx_hashes`):
+```json
+{
+  "address": "<hex>",
+  "already_stored": false,
+  "upload_id": "<hex>",
+  "payment_type": "wave_batch",
+  "payments": [
+    { "quote_hash": "0x...", "rewards_address": "0x...", "amount": "123" }
+  ],
+  "total_amount": "456",
+  "payment_vault_address": "0x...",
+  "payment_token_address": "0x...",
+  "rpc_url": "http://..."
+}
+```
+
+#### `POST /v1/chunks/finalize`
+Finalize a single-chunk upload after the external signer has paid the quotes
+returned by `/v1/chunks/prepare`.
+
+Request: `{"upload_id": "<hex>", "tx_hashes": {"0xquotehash": "0xtxhash", ...}}`
+Response: `{"address": "<hex>"}`
 
 ---
 
@@ -465,22 +502,22 @@ const client = createClient({ timeout: 60_000 });               // custom timeou
 client.health(): Promise<HealthStatus>
 
 // Data
-client.dataPutPublic(data: Buffer): Promise<PutResult>
+client.dataPutPublic(data: Buffer, opts?: { paymentMode?: PaymentMode }): Promise<DataPutPublicResult>
 client.dataGetPublic(address: string): Promise<Buffer>
-client.dataPutPrivate(data: Buffer): Promise<PutResult>  // .address is the data_map
-client.dataGetPrivate(dataMap: string): Promise<Buffer>
-client.dataCost(data: Buffer): Promise<UploadCostEstimate>
+client.dataPut(data: Buffer, opts?: { paymentMode?: PaymentMode }): Promise<DataPutResult>
+client.dataGet(dataMap: string): Promise<Buffer>
+client.dataCost(data: Buffer, opts?: { paymentMode?: PaymentMode }): Promise<UploadCostEstimate>
 
 // Chunks
 client.chunkPut(data: Buffer): Promise<PutResult>
 client.chunkGet(address: string): Promise<Buffer>
 
-
-
 // Files
-client.fileUploadPublic(path: string): Promise<PutResult>
-client.fileDownloadPublic(address: string, destPath: string): Promise<void>
-client.fileCost(path: string, isPublic?: boolean): Promise<UploadCostEstimate>
+client.filePut(path: string, opts?: { paymentMode?: PaymentMode }): Promise<FilePutResult>
+client.fileGet(dataMap: string, destPath: string): Promise<void>
+client.filePutPublic(path: string, opts?: { paymentMode?: PaymentMode }): Promise<FilePutPublicResult>
+client.fileGetPublic(address: string, destPath: string): Promise<void>
+client.fileCost(path: string, isPublic?: boolean, opts?: { paymentMode?: PaymentMode }): Promise<UploadCostEstimate>
 
 // Wallet
 client.walletAddress(): Promise<WalletAddress>
@@ -502,22 +539,22 @@ client = AntdClient(transport="grpc", target="localhost:50051")
 client.health() → HealthStatus
 
 # Data
-client.data_put_public(data: bytes) → PutResult
+client.data_put_public(data: bytes, payment_mode: PaymentMode = PaymentMode.AUTO) → DataPutPublicResult
 client.data_get_public(address: str) → bytes
-client.data_put_private(data: bytes) → PutResult  # .address is the data_map
-client.data_get_private(data_map: str) → bytes
-client.data_cost(data: bytes) → UploadCostEstimate
+client.data_put(data: bytes, payment_mode: PaymentMode = PaymentMode.AUTO) → DataPutResult
+client.data_get(data_map: str) → bytes
+client.data_cost(data: bytes, payment_mode: PaymentMode = PaymentMode.AUTO) → UploadCostEstimate
 
 # Chunks
 client.chunk_put(data: bytes) → PutResult
 client.chunk_get(address: str) → bytes
 
-
-
 # Files
-client.file_upload_public(path: str) → PutResult
-client.file_download_public(address: str, dest_path: str) → None
-client.file_cost(path: str, is_public: bool = True) → UploadCostEstimate
+client.file_put(path: str, payment_mode: PaymentMode = PaymentMode.AUTO) → FilePutResult
+client.file_get(data_map: str, dest_path: str) → None
+client.file_put_public(path: str, payment_mode: PaymentMode = PaymentMode.AUTO) → FilePutPublicResult
+client.file_get_public(address: str, dest_path: str) → None
+client.file_cost(path: str, is_public: bool = True, payment_mode: PaymentMode = PaymentMode.AUTO) → UploadCostEstimate
 
 # Wallet
 client.wallet_address() → WalletAddress
@@ -539,22 +576,22 @@ IAntdClient client = AntdClientFactory.CreateGrpc();   // localhost:50051
 Task<HealthStatus> HealthAsync();
 
 // Data
-Task<PutResult> DataPutPublicAsync(byte[] data);
+Task<DataPutPublicResult> DataPutPublicAsync(byte[] data, PaymentMode paymentMode = PaymentMode.Auto);
 Task<byte[]> DataGetPublicAsync(string address);
-Task<PutResult> DataPutPrivateAsync(byte[] data);
-Task<byte[]> DataGetPrivateAsync(string dataMap);
-Task<UploadCostEstimate> DataCostAsync(byte[] data);
+Task<DataPutResult> DataPutAsync(byte[] data, PaymentMode paymentMode = PaymentMode.Auto);
+Task<byte[]> DataGetAsync(string dataMap);
+Task<UploadCostEstimate> DataCostAsync(byte[] data, PaymentMode paymentMode = PaymentMode.Auto);
 
 // Chunks
 Task<PutResult> ChunkPutAsync(byte[] data);
 Task<byte[]> ChunkGetAsync(string address);
 
-
-
 // Files
-Task<PutResult> FileUploadPublicAsync(string path);
-Task FileDownloadPublicAsync(string address, string destPath);
-Task<UploadCostEstimate> FileCostAsync(string path, bool isPublic = true);
+Task<FilePutResult> FilePutAsync(string path, PaymentMode paymentMode = PaymentMode.Auto);
+Task FileGetAsync(string dataMap, string destPath);
+Task<FilePutPublicResult> FilePutPublicAsync(string path, PaymentMode paymentMode = PaymentMode.Auto);
+Task FileGetPublicAsync(string address, string destPath);
+Task<UploadCostEstimate> FileCostAsync(string path, bool isPublic = true, PaymentMode paymentMode = PaymentMode.Auto);
 
 // Wallet
 Task<WalletAddress> WalletAddressAsync();
@@ -576,22 +613,22 @@ val client = AntdClient.createGrpc()          // localhost:50051
 suspend fun health(): HealthStatus
 
 // Data
-suspend fun dataPutPublic(data: ByteArray): PutResult
+suspend fun dataPutPublic(data: ByteArray, paymentMode: PaymentMode = PaymentMode.Auto): DataPutPublicResult
 suspend fun dataGetPublic(address: String): ByteArray
-suspend fun dataPutPrivate(data: ByteArray): PutResult
-suspend fun dataGetPrivate(dataMap: String): ByteArray
-suspend fun dataCost(data: ByteArray): UploadCostEstimate
+suspend fun dataPut(data: ByteArray, paymentMode: PaymentMode = PaymentMode.Auto): DataPutResult
+suspend fun dataGet(dataMap: String): ByteArray
+suspend fun dataCost(data: ByteArray, paymentMode: PaymentMode = PaymentMode.Auto): UploadCostEstimate
 
 // Chunks
 suspend fun chunkPut(data: ByteArray): PutResult
 suspend fun chunkGet(address: String): ByteArray
 
-
-
 // Files
-suspend fun fileUploadPublic(path: String): PutResult
-suspend fun fileDownloadPublic(address: String, destPath: String)
-suspend fun fileCost(path: String, isPublic: Boolean = true): UploadCostEstimate
+suspend fun filePut(path: String, paymentMode: PaymentMode = PaymentMode.Auto): FilePutResult
+suspend fun fileGet(dataMap: String, destPath: String)
+suspend fun filePutPublic(path: String, paymentMode: PaymentMode = PaymentMode.Auto): FilePutPublicResult
+suspend fun fileGetPublic(address: String, destPath: String)
+suspend fun fileCost(path: String, isPublic: Boolean = true, paymentMode: PaymentMode = PaymentMode.Auto): UploadCostEstimate
 
 // Wallet
 suspend fun walletAddress(): WalletAddress
@@ -615,22 +652,22 @@ let client = try AntdClient.createGrpc()          // localhost:50051
 func health() async throws -> HealthStatus
 
 // Data
-func dataPutPublic(_ data: Data) async throws -> PutResult
+func dataPutPublic(_ data: Data, paymentMode: PaymentMode = .auto) async throws -> DataPutPublicResult
 func dataGetPublic(address: String) async throws -> Data
-func dataPutPrivate(_ data: Data) async throws -> PutResult
-func dataGetPrivate(dataMap: String) async throws -> Data
-func dataCost(_ data: Data) async throws -> UploadCostEstimate
+func dataPut(_ data: Data, paymentMode: PaymentMode = .auto) async throws -> DataPutResult
+func dataGet(dataMap: String) async throws -> Data
+func dataCost(_ data: Data, paymentMode: PaymentMode = .auto) async throws -> UploadCostEstimate
 
 // Chunks
 func chunkPut(_ data: Data) async throws -> PutResult
 func chunkGet(address: String) async throws -> Data
 
-
-
 // Files
-func fileUploadPublic(path: String) async throws -> PutResult
-func fileDownloadPublic(address: String, destPath: String) async throws
-func fileCost(path: String, isPublic: Bool) async throws -> UploadCostEstimate
+func filePut(path: String, paymentMode: PaymentMode = .auto) async throws -> FilePutResult
+func fileGet(dataMap: String, destPath: String) async throws
+func filePutPublic(path: String, paymentMode: PaymentMode = .auto) async throws -> FilePutPublicResult
+func fileGetPublic(address: String, destPath: String) async throws
+func fileCost(path: String, isPublic: Bool, paymentMode: PaymentMode = .auto) async throws -> UploadCostEstimate
 
 // Wallet
 func walletAddress() async throws -> WalletAddress
@@ -650,8 +687,12 @@ client := antd.NewClient(antd.DefaultBaseURL)        // localhost:8082
 // Health
 func (c *Client) Health(ctx context.Context) (*HealthStatus, error)
 
-// PaymentMode is a typed enum passed to every put/cost method.
-// antd.PaymentModeAuto | antd.PaymentModeMerkle | antd.PaymentModeSingle
+// Data
+func (c *Client) DataPutPublic(ctx context.Context, data []byte, paymentMode PaymentMode) (*DataPutPublicResult, error)
+func (c *Client) DataGetPublic(ctx context.Context, address string) ([]byte, error)
+func (c *Client) DataPut(ctx context.Context, data []byte, paymentMode PaymentMode) (*DataPutResult, error)
+func (c *Client) DataGet(ctx context.Context, dataMap string) ([]byte, error)
+func (c *Client) DataCost(ctx context.Context, data []byte, paymentMode PaymentMode) (*UploadCostEstimate, error)
 
 // Data — private = unqualified verb, public = _public suffix.
 func (c *Client) DataPut(ctx context.Context, data []byte, paymentMode PaymentMode) (*DataPutResult, error)
@@ -693,22 +734,22 @@ AntdClient client = AntdClient.create("http://remote:8082");
 HealthStatus health() throws AntdException
 
 // Data
-PutResult dataPutPublic(byte[] data) throws AntdException
+DataPutPublicResult dataPutPublic(byte[] data, PaymentMode paymentMode) throws AntdException
 byte[] dataGetPublic(String address) throws AntdException
-PutResult dataPutPrivate(byte[] data) throws AntdException  // .address() is the data_map
-byte[] dataGetPrivate(String dataMap) throws AntdException
-UploadCostEstimate dataCost(byte[] data) throws AntdException
+DataPutResult dataPut(byte[] data, PaymentMode paymentMode) throws AntdException
+byte[] dataGet(String dataMap) throws AntdException
+UploadCostEstimate dataCost(byte[] data, PaymentMode paymentMode) throws AntdException
 
 // Chunks
 PutResult chunkPut(byte[] data) throws AntdException
 byte[] chunkGet(String address) throws AntdException
 
-
-
 // Files
-PutResult fileUploadPublic(String path) throws AntdException
-void fileDownloadPublic(String address, String destPath) throws AntdException
-UploadCostEstimate fileCost(String path, boolean isPublic) throws AntdException
+FilePutResult filePut(String path, PaymentMode paymentMode) throws AntdException
+void fileGet(String dataMap, String destPath) throws AntdException
+FilePutPublicResult filePutPublic(String path, PaymentMode paymentMode) throws AntdException
+void fileGetPublic(String address, String destPath) throws AntdException
+UploadCostEstimate fileCost(String path, boolean isPublic, PaymentMode paymentMode) throws AntdException
 
 // Wallet
 WalletAddress walletAddress() throws AntdException
@@ -732,22 +773,22 @@ let client = Client::new("http://localhost:8082");        // REST, localhost:808
 async fn health(&self) -> Result<HealthStatus, AntdError>
 
 // Data
-async fn data_put_public(&self, data: &[u8]) -> Result<PutResult, AntdError>
+async fn data_put_public(&self, data: &[u8], payment_mode: PaymentMode) -> Result<DataPutPublicResult, AntdError>
 async fn data_get_public(&self, address: &str) -> Result<Vec<u8>, AntdError>
-async fn data_put_private(&self, data: &[u8]) -> Result<PutResult, AntdError>  // .address is the data_map
-async fn data_get_private(&self, data_map: &str) -> Result<Vec<u8>, AntdError>
-async fn data_cost(&self, data: &[u8]) -> Result<UploadCostEstimate, AntdError>
+async fn data_put(&self, data: &[u8], payment_mode: PaymentMode) -> Result<DataPutResult, AntdError>
+async fn data_get(&self, data_map: &str) -> Result<Vec<u8>, AntdError>
+async fn data_cost(&self, data: &[u8], payment_mode: PaymentMode) -> Result<UploadCostEstimate, AntdError>
 
 // Chunks
 async fn chunk_put(&self, data: &[u8]) -> Result<PutResult, AntdError>
 async fn chunk_get(&self, address: &str) -> Result<Vec<u8>, AntdError>
 
-
-
 // Files
-async fn file_upload_public(&self, path: &str) -> Result<PutResult, AntdError>
-async fn file_download_public(&self, address: &str, dest_path: &str) -> Result<(), AntdError>
-async fn file_cost(&self, path: &str, is_public: bool) -> Result<UploadCostEstimate, AntdError>
+async fn file_put(&self, path: &str, payment_mode: PaymentMode) -> Result<FilePutResult, AntdError>
+async fn file_get(&self, data_map: &str, dest_path: &str) -> Result<(), AntdError>
+async fn file_put_public(&self, path: &str, payment_mode: PaymentMode) -> Result<FilePutPublicResult, AntdError>
+async fn file_get_public(&self, address: &str, dest_path: &str) -> Result<(), AntdError>
+async fn file_cost(&self, path: &str, is_public: bool, payment_mode: PaymentMode) -> Result<UploadCostEstimate, AntdError>
 
 // Wallet
 async fn wallet_address(&self) -> Result<WalletAddress, AntdError>
@@ -772,22 +813,22 @@ antd::Client client("http://remote:8082");
 antd::HealthStatus health()                               // throws antd::AntdError
 
 // Data
-antd::PutResult dataPutPublic(const std::vector<uint8_t>& data)
+antd::DataPutPublicResult dataPutPublic(const std::vector<uint8_t>& data, antd::PaymentMode paymentMode = antd::PaymentMode::Auto)
 std::vector<uint8_t> dataGetPublic(const std::string& address)
-antd::PutResult dataPutPrivate(const std::vector<uint8_t>& data)  // .address is the data_map
-std::vector<uint8_t> dataGetPrivate(const std::string& dataMap)
-UploadCostEstimate dataCost(const std::vector<uint8_t>& data)
+antd::DataPutResult dataPut(const std::vector<uint8_t>& data, antd::PaymentMode paymentMode = antd::PaymentMode::Auto)
+std::vector<uint8_t> dataGet(const std::string& dataMap)
+UploadCostEstimate dataCost(const std::vector<uint8_t>& data, antd::PaymentMode paymentMode = antd::PaymentMode::Auto)
 
 // Chunks
 antd::PutResult chunkPut(const std::vector<uint8_t>& data)
 std::vector<uint8_t> chunkGet(const std::string& address)
 
-
-
 // Files
-antd::PutResult fileUploadPublic(const std::string& path)
-void fileDownloadPublic(const std::string& address, const std::string& destPath)
-UploadCostEstimate fileCost(const std::string& path, bool isPublic = true)
+antd::FilePutResult filePut(const std::string& path, antd::PaymentMode paymentMode = antd::PaymentMode::Auto)
+void fileGet(const std::string& dataMap, const std::string& destPath)
+antd::FilePutPublicResult filePutPublic(const std::string& path, antd::PaymentMode paymentMode = antd::PaymentMode::Auto)
+void fileGetPublic(const std::string& address, const std::string& destPath)
+UploadCostEstimate fileCost(const std::string& path, bool isPublic = true, antd::PaymentMode paymentMode = antd::PaymentMode::Auto)
 
 // Wallet
 antd::WalletAddress walletAddress()
@@ -812,22 +853,22 @@ client = Antd::Client.new(base_url: "http://remote:8082")
 client.health → HealthStatus
 
 # Data
-client.data_put_public(data) → PutResult
+client.data_put_public(data, payment_mode: :auto) → DataPutPublicResult
 client.data_get_public(address) → String
-client.data_put_private(data) → PutResult            # .address is the data_map
-client.data_get_private(data_map) → String
-client.data_cost(data) → UploadCostEstimate
+client.data_put(data, payment_mode: :auto) → DataPutResult
+client.data_get(data_map) → String
+client.data_cost(data, payment_mode: :auto) → UploadCostEstimate
 
 # Chunks
 client.chunk_put(data) → PutResult
 client.chunk_get(address) → String
 
-
-
 # Files
-client.file_upload_public(path) → PutResult
-client.file_download_public(address, dest_path) → nil
-client.file_cost(path, is_public: true) → UploadCostEstimate
+client.file_put(path, payment_mode: :auto) → FilePutResult
+client.file_get(data_map, dest_path) → nil
+client.file_put_public(path, payment_mode: :auto) → FilePutPublicResult
+client.file_get_public(address, dest_path) → nil
+client.file_cost(path, is_public: true, payment_mode: :auto) → UploadCostEstimate
 
 # Wallet
 client.wallet_address → WalletAddress
@@ -849,22 +890,22 @@ $client = AntdClient::create("http://remote:8082");
 $client->health(): HealthStatus
 
 // Data
-$client->dataPutPublic(string $data): PutResult
+$client->dataPutPublic(string $data, string $paymentMode = 'auto'): DataPutPublicResult
 $client->dataGetPublic(string $address): string
-$client->dataPutPrivate(string $data): PutResult     // ->address is the data_map
-$client->dataGetPrivate(string $dataMap): string
-$client->dataCost(string $data): UploadCostEstimate
+$client->dataPut(string $data, string $paymentMode = 'auto'): DataPutResult
+$client->dataGet(string $dataMap): string
+$client->dataCost(string $data, string $paymentMode = 'auto'): UploadCostEstimate
 
 // Chunks
 $client->chunkPut(string $data): PutResult
 $client->chunkGet(string $address): string
 
-
-
 // Files
-$client->fileUploadPublic(string $path): PutResult
-$client->fileDownloadPublic(string $address, string $destPath): void
-$client->fileCost(string $path, bool $isPublic = true): UploadCostEstimate
+$client->filePut(string $path, string $paymentMode = 'auto'): FilePutResult
+$client->fileGet(string $dataMap, string $destPath): void
+$client->filePutPublic(string $path, string $paymentMode = 'auto'): FilePutPublicResult
+$client->fileGetPublic(string $address, string $destPath): void
+$client->fileCost(string $path, bool $isPublic = true, string $paymentMode = 'auto'): UploadCostEstimate
 
 // Wallet
 $client->walletAddress(): array{address: string}
@@ -886,22 +927,22 @@ final client = AntdClient(baseUrl: 'http://remote:8082');
 Future<HealthStatus> health()
 
 // Data
-Future<PutResult> dataPutPublic(List<int> data)
+Future<DataPutPublicResult> dataPutPublic(List<int> data, {PaymentMode paymentMode = PaymentMode.auto})
 Future<List<int>> dataGetPublic(String address)
-Future<PutResult> dataPutPrivate(List<int> data)     // .address is the data_map
-Future<List<int>> dataGetPrivate(String dataMap)
-Future<UploadCostEstimate> dataCost(List<int> data)
+Future<DataPutResult> dataPut(List<int> data, {PaymentMode paymentMode = PaymentMode.auto})
+Future<List<int>> dataGet(String dataMap)
+Future<UploadCostEstimate> dataCost(List<int> data, {PaymentMode paymentMode = PaymentMode.auto})
 
 // Chunks
 Future<PutResult> chunkPut(List<int> data)
 Future<List<int>> chunkGet(String address)
 
-
-
 // Files
-Future<PutResult> fileUploadPublic(String path)
-Future<void> fileDownloadPublic(String address, String destPath)
-Future<UploadCostEstimate> fileCost(String path, {bool isPublic = true})
+Future<FilePutResult> filePut(String path, {PaymentMode paymentMode = PaymentMode.auto})
+Future<void> fileGet(String dataMap, String destPath)
+Future<FilePutPublicResult> filePutPublic(String path, {PaymentMode paymentMode = PaymentMode.auto})
+Future<void> fileGetPublic(String address, String destPath)
+Future<UploadCostEstimate> fileCost(String path, {bool isPublic = true, PaymentMode paymentMode = PaymentMode.auto})
 
 // Wallet
 Future<WalletAddress> walletAddress()
@@ -923,22 +964,22 @@ local client = antd.Client.new({base_url = "http://remote:8082"})
 client:health() → HealthStatus
 
 -- Data
-client:data_put_public(data) → PutResult
+client:data_put_public(data, payment_mode) → DataPutPublicResult (table)
 client:data_get_public(address) → string
-client:data_put_private(data) → PutResult            -- .address is the data_map
-client:data_get_private(data_map) → string
-client:data_cost(data) → UploadCostEstimate (table)
+client:data_put(data, payment_mode) → DataPutResult (table)
+client:data_get(data_map) → string
+client:data_cost(data, payment_mode) → UploadCostEstimate (table)
 
 -- Chunks
 client:chunk_put(data) → PutResult
 client:chunk_get(address) → string
 
-
-
 -- Files
-client:file_upload_public(path) → PutResult
-client:file_download_public(address, dest_path) → nil
-client:file_cost(path, is_public) → UploadCostEstimate (table)
+client:file_put(path, payment_mode) → FilePutResult (table)
+client:file_get(data_map, dest_path) → nil
+client:file_put_public(path, payment_mode) → FilePutPublicResult (table)
+client:file_get_public(address, dest_path) → nil
+client:file_cost(path, is_public, payment_mode) → UploadCostEstimate (table)
 
 -- Wallet
 client:wallet_address() → {address=string}
@@ -958,22 +999,22 @@ client = Antd.Client.new(base_url: "http://remote:8082")
 Antd.Client.health(client) :: {:ok, HealthStatus.t()} | {:error, term()}
 
 # Data
-Antd.Client.data_put_public(client, data) :: {:ok, PutResult.t()} | {:error, term()}
+Antd.Client.data_put_public(client, data, opts \\ []) :: {:ok, DataPutPublicResult.t()} | {:error, term()}  # opts: [payment_mode: :auto | :merkle | :single]
 Antd.Client.data_get_public(client, address) :: {:ok, binary()} | {:error, term()}
-Antd.Client.data_put_private(client, data) :: {:ok, PutResult.t()} | {:error, term()}
-Antd.Client.data_get_private(client, data_map) :: {:ok, binary()} | {:error, term()}
-Antd.Client.data_cost(client, data) :: {:ok, Antd.UploadCostEstimate.t()} | {:error, term()}
+Antd.Client.data_put(client, data, opts \\ []) :: {:ok, DataPutResult.t()} | {:error, term()}
+Antd.Client.data_get(client, data_map) :: {:ok, binary()} | {:error, term()}
+Antd.Client.data_cost(client, data, opts \\ []) :: {:ok, Antd.UploadCostEstimate.t()} | {:error, term()}
 
 # Chunks
 Antd.Client.chunk_put(client, data) :: {:ok, PutResult.t()} | {:error, term()}
 Antd.Client.chunk_get(client, address) :: {:ok, binary()} | {:error, term()}
 
-
-
 # Files
-Antd.Client.file_upload_public(client, path) :: {:ok, PutResult.t()} | {:error, term()}
-Antd.Client.file_download_public(client, address, dest_path) :: :ok | {:error, term()}
-Antd.Client.file_cost(client, path, is_public \\ true) :: {:ok, Antd.UploadCostEstimate.t()} | {:error, term()}
+Antd.Client.file_put(client, path, opts \\ []) :: {:ok, FilePutResult.t()} | {:error, term()}
+Antd.Client.file_get(client, data_map, dest_path) :: :ok | {:error, term()}
+Antd.Client.file_put_public(client, path, opts \\ []) :: {:ok, FilePutPublicResult.t()} | {:error, term()}
+Antd.Client.file_get_public(client, address, dest_path) :: :ok | {:error, term()}
+Antd.Client.file_cost(client, path, is_public \\ true, opts \\ []) :: {:ok, Antd.UploadCostEstimate.t()} | {:error, term()}
 
 # Wallet
 Antd.Client.wallet_address(client) :: {:ok, WalletAddress.t()} | {:error, term()}
@@ -996,22 +1037,22 @@ defer client.deinit();
 fn health(self: *Client) !HealthStatus
 
 // Data
-fn dataPutPublic(self: *Client, data: []const u8) !PutResult
+fn dataPutPublic(self: *Client, data: []const u8, payment_mode: PaymentMode) !DataPutPublicResult
 fn dataGetPublic(self: *Client, address: []const u8) ![]u8
-fn dataPutPrivate(self: *Client, data: []const u8) !PutResult
-fn dataGetPrivate(self: *Client, data_map: []const u8) ![]u8
-fn dataCost(self: *Client, data: []const u8) !UploadCostEstimate
+fn dataPut(self: *Client, data: []const u8, payment_mode: PaymentMode) !DataPutResult
+fn dataGet(self: *Client, data_map: []const u8) ![]u8
+fn dataCost(self: *Client, data: []const u8, payment_mode: PaymentMode) !UploadCostEstimate
 
 // Chunks
 fn chunkPut(self: *Client, data: []const u8) !PutResult
 fn chunkGet(self: *Client, address: []const u8) ![]u8
 
-
-
 // Files
-fn fileUploadPublic(self: *Client, path: []const u8) !PutResult
-fn fileDownloadPublic(self: *Client, address: []const u8, dest_path: []const u8) !void
-fn fileCost(self: *Client, path: []const u8, is_public: bool) !UploadCostEstimate
+fn filePut(self: *Client, path: []const u8, payment_mode: PaymentMode) !FilePutResult
+fn fileGet(self: *Client, data_map: []const u8, dest_path: []const u8) !void
+fn filePutPublic(self: *Client, path: []const u8, payment_mode: PaymentMode) !FilePutPublicResult
+fn fileGetPublic(self: *Client, address: []const u8, dest_path: []const u8) !void
+fn fileCost(self: *Client, path: []const u8, is_public: bool, payment_mode: PaymentMode) !UploadCostEstimate
 
 // Wallet
 fn walletAddress(self: *Client) !WalletAddress
@@ -1021,17 +1062,48 @@ fn walletApprove(self: *Client) !bool
 
 ---
 
+## External Signer SDK Methods
+
+Every SDK exposes a two-phase external-signer flow that lets the caller pay on-chain themselves (via wallet, hardware key, or custodial signer) instead of antd paying from its built-in wallet. The flow is always `prepare → external sign+pay → finalize`.
+
+| SDK method | Prepares for | REST route | Wave-batch finalize | Merkle finalize |
+|------------|--------------|------------|---------------------|-----------------|
+| `prepare_data_upload(data, visibility?)` | private/public data put | `POST /v1/data/prepare` | `finalize_upload(id, tx_hashes)` | `finalize_merkle_upload(id, winner_pool_hash)` |
+| `prepare_upload(path, visibility?)` | private file put | `POST /v1/upload/prepare` | `finalize_upload` | `finalize_merkle_upload` |
+| `prepare_upload_public(path)` | public file put (DataMap stored on-network at finalize) | `POST /v1/upload/prepare` (visibility = "public") | `finalize_upload` | `finalize_merkle_upload` |
+| `prepare_chunk_upload(data)` | single-chunk publish (no self-encryption) | `POST /v1/chunks/prepare` | `finalize_chunk_upload(id, tx_hashes)` | n/a — single chunks never trigger merkle |
+
+Reference signatures (Python; same method names exist on every SDK with idiomatic casing — `prepareUpload` / `PrepareUpload` etc.):
+
+```python
+client.prepare_data_upload(data: bytes, visibility: str | None = None) → PrepareUploadResult
+client.prepare_upload(path: str, visibility: str | None = None) → PrepareUploadResult
+client.prepare_upload_public(path: str) → PrepareUploadResult
+client.prepare_chunk_upload(data: bytes) → PrepareChunkResult
+client.finalize_upload(upload_id: str, tx_hashes: dict[str, str]) → FinalizeUploadResult
+client.finalize_merkle_upload(upload_id: str, winner_pool_hash: str, store_data_map: bool = False) → FinalizeUploadResult
+client.finalize_chunk_upload(upload_id: str, tx_hashes: dict[str, str]) → str  # returns the chunk address
+```
+
+`PrepareUploadResult` and `PrepareChunkResult` both carry the `payment_type` discriminator the REST endpoints emit (`"wave_batch"` or `"merkle"`); SDKs surface it directly so the caller can branch on which finalize to call. For full payment-shape detail see the `/v1/data/prepare`, `/v1/upload/prepare`, and `/v1/chunks/prepare` REST entries above. `PrepareChunkResult` additionally exposes `already_stored: bool` for the no-payment-needed path.
+
+All 15 SDKs expose these methods (REST-only SDKs included — they call the same endpoints).
+
+---
+
 ## MCP Tool → SDK Method Mapping
+
+Every tool with a `private` flag (`store_data`, `retrieve_data`, `upload_file`, `download_file`) picks the public method by default and switches to the private variant when `private=True`. The returned `address` carries either the on-network address (public) or the caller-held DataMap (private) — same field, different shape, so agents can round-trip the value back through the matching retrieve/download tool without renaming fields.
 
 | MCP Tool | Python SDK Method | Description |
 |----------|-------------------|-------------|
-| `store_data` | `data_put_public` / `data_put_private` | Store text on network |
-| `retrieve_data` | `data_get_public` / `data_get_private` | Retrieve text from network |
-| `upload_file` | `file_upload_public` | Upload file |
-| `download_file` | `file_download_public` | Download file |
+| `store_data(text, private?, payment_mode?)` | `data_put_public` / `data_put` | Store text on the network. Private store returns the caller-held DataMap in `address`. |
+| `retrieve_data(address, private?)` | `data_get_public` / `data_get` | Retrieve text. Pass `private=True` if `address` is a caller-held DataMap from a private store. |
+| `upload_file(path, private?, payment_mode?)` | `file_put_public` / `file_put` | Upload a local file. Private upload returns the caller-held DataMap in `address`. |
+| `download_file(address, dest_path, private?)` | `file_get_public` / `file_get` | Download a file. Pass `private=True` if `address` is a caller-held DataMap from a private upload. |
 | `chunk_put` | `chunk_put` | Store raw chunk |
 | `chunk_get` | `chunk_get` | Retrieve raw chunk |
-| `get_cost` | `data_cost` / `file_cost` | Estimate storage cost |
+| `get_cost(text?, file_path?, payment_mode?)` | `data_cost` / `file_cost` | Estimate storage cost. `payment_mode` flows through so the quote matches the eventual put. |
 | `check_balance` | `health` | Check daemon health |
 | `wallet_address` | `wallet_address` | Get wallet public address |
 | `wallet_balance` | `wallet_balance` | Get wallet balances |

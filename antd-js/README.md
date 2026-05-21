@@ -62,11 +62,11 @@ All methods are `async` and return Promises.
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `dataPutPublic(data)` | `PutResult` | Store public data |
+| `dataPutPublic(data, { paymentMode? })` | `DataPutPublicResult` | Store public data — DataMap stored on-network |
 | `dataGetPublic(address)` | `Buffer` | Retrieve public data by address |
-| `dataPutPrivate(data)` | `PutResult` | Store private (encrypted) data |
-| `dataGetPrivate(dataMap)` | `Buffer` | Retrieve private data by data map |
-| `dataCost(data)` | `UploadCostEstimate` | Estimate storage cost — size, chunks, gas, payment mode |
+| `dataPut(data, { paymentMode? })` | `DataPutResult` | Store private (encrypted) data — DataMap returned to caller |
+| `dataGet(dataMap)` | `Buffer` | Retrieve private data using a caller-held DataMap |
+| `dataCost(data, { paymentMode? })` | `UploadCostEstimate` | Estimate storage cost — size, chunks, gas, payment mode |
 
 ### Chunks
 
@@ -79,15 +79,39 @@ All methods are `async` and return Promises.
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `fileUploadPublic(path)` | `FileUploadResult` | Upload file |
-| `fileDownloadPublic(address, destPath)` | `void` | Download file |
-| `fileCost(path, isPublic?)` | `UploadCostEstimate` | Estimate upload cost — size, chunks, gas, payment mode |
+| `filePut(path, { paymentMode? })` | `FilePutResult` | Upload a file privately — DataMap returned to caller |
+| `fileGet(dataMap, destPath)` | `void` | Download a private file using a caller-held DataMap |
+| `filePutPublic(path, { paymentMode? })` | `FilePutPublicResult` | Upload a file publicly — DataMap stored on-network |
+| `fileGetPublic(address, destPath)` | `void` | Download a public file by address |
+| `fileCost(path, isPublic?, { paymentMode? })` | `UploadCostEstimate` | Estimate upload cost — size, chunks, gas, payment mode |
 
 ## Models
 
 ```typescript
-interface HealthStatus { ok: boolean; network: string }
+interface HealthStatus {
+  ok: boolean;
+  network: string;
+  version: string;
+  evmNetwork: string;
+  uptimeSeconds: number;
+  buildCommit: string;
+  paymentTokenAddress: string;
+  paymentVaultAddress: string;
+}
+
+// Result of chunkPut only
 interface PutResult { cost: string; address: string }
+
+// Data put results (DataMap shape)
+interface DataPutResult { dataMap: string; chunksStored: number; paymentModeUsed: string }
+interface DataPutPublicResult { address: string; chunksStored: number; paymentModeUsed: string }
+
+// File put results
+interface FilePutResult { dataMap: string; storageCostAtto: string; gasCostWei: string; chunksStored: number; paymentModeUsed: string }
+interface FilePutPublicResult { address: string; storageCostAtto: string; gasCostWei: string; chunksStored: number; paymentModeUsed: string }
+
+// Cost estimate
+interface UploadCostEstimate { cost: string; fileSize: number; chunkCount: number; estimatedGasCostWei: string; paymentMode: string }
 ```
 
 ## Errors

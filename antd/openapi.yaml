@@ -238,6 +238,66 @@ paths:
         "502":
           $ref: "#/components/responses/NetworkError"
 
+  /v1/chunks/prepare:
+    post:
+      tags: [chunks, upload]
+      operationId: prepareChunkUpload
+      summary: Prepare single-chunk upload for external signer
+      description: >-
+        Phase 1 of single-chunk external-signer publish. Stores the bytes
+        verbatim as one chunk at their BLAKE3 address (no self-encryption).
+        Quotes the close group and returns the wave-batch payment shape.
+        When the chunk is already on-network, returns already_stored:true
+        with the existing address and no upload_id — payment is unnecessary.
+        Unlike /v1/chunks, this endpoint does NOT require the daemon to have
+        a wallet; all funds flow through the external signer.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrepareChunkRequest"
+      responses:
+        "200":
+          description: Chunk prepared (or already stored)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrepareChunkResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/chunks/finalize:
+    post:
+      tags: [chunks, upload]
+      operationId: finalizeChunkUpload
+      summary: Finalize externally-signed single-chunk upload
+      description: >-
+        Phase 2 of single-chunk external-signer publish. Takes the upload_id
+        from /v1/chunks/prepare and the tx_hashes from the on-chain
+        payForQuotes() call, then publishes the chunk to the network.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinalizeChunkRequest"
+      responses:
+        "200":
+          description: Chunk stored on the network
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FinalizeChunkResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /v1/files:
     post:
       tags: [files]
@@ -677,6 +737,75 @@ components:
         data:
           type: string
           description: Base64-encoded chunk data
+
+    PrepareChunkRequest:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: string
+          description: Base64-encoded chunk bytes (stored verbatim, no self-encryption)
+
+    PrepareChunkResponse:
+      type: object
+      required: [address, already_stored]
+      description: >-
+        Mirrors PrepareUploadResponse's wave-batch shape so external signers
+        can reuse the same payForQuotes() path. When already_stored is true,
+        no payment or finalize call is needed and the payment fields are
+        omitted.
+      properties:
+        address:
+          type: string
+          description: Content-addressed BLAKE3 of the chunk bytes (hex, 32 bytes)
+        already_stored:
+          type: boolean
+          description: True if the chunk was already on-network — no payment / finalize needed
+        upload_id:
+          type: string
+          description: Opaque token to pass back to /v1/chunks/finalize (omitted when already_stored)
+        payment_type:
+          type: string
+          enum: [wave_batch]
+          description: Always "wave_batch" for single-chunk publishes (omitted when already_stored)
+        payments:
+          type: array
+          items:
+            $ref: "#/components/schemas/PaymentEntry"
+          description: Per-quote payment entries for payForQuotes() (omitted when already_stored)
+        total_amount:
+          type: string
+          description: Total amount to pay (atto tokens as decimal string)
+        payment_vault_address:
+          type: string
+          description: Payment vault contract address (hex with 0x prefix)
+        payment_token_address:
+          type: string
+          description: Payment token contract address (hex with 0x prefix)
+        rpc_url:
+          type: string
+          description: EVM RPC URL for submitting transactions
+
+    FinalizeChunkRequest:
+      type: object
+      required: [upload_id, tx_hashes]
+      properties:
+        upload_id:
+          type: string
+          description: The upload_id returned from /v1/chunks/prepare
+        tx_hashes:
+          type: object
+          additionalProperties:
+            type: string
+          description: Map of quote_hash (hex) to tx_hash (hex) from the payForQuotes() on-chain payment
+
+    FinalizeChunkResponse:
+      type: object
+      required: [address]
+      properties:
+        address:
+          type: string
+          description: Network address of the stored chunk (hex, 32 bytes)
 
     # -- Files --
     FilePutRequest:

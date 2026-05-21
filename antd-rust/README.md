@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Store data
     let result = client.data_put_public(b"Hello, Autonomi!").await?;
-    println!("Stored at {} (cost: {} atto)", result.address, result.cost);
+    println!("Stored at {} (chunks: {})", result.address, result.chunks_stored);
 
     // Retrieve data
     let data = client.data_get_public(&result.address).await?;
@@ -75,11 +75,11 @@ All methods are `async` and return `Result<T, AntdError>`.
 ### Data (Immutable)
 | Method | Description |
 |--------|-------------|
-| `data_put_public(data)` | Store public data |
-| `data_get_public(address)` | Retrieve public data |
-| `data_put_private(data)` | Store encrypted private data |
-| `data_get_private(data_map)` | Retrieve private data |
-| `data_cost(data)` | Estimate storage cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
+| `data_put_public(data, payment_mode)` | Store public data — returns `DataPutPublicResult` (DataMap stored on-network) |
+| `data_get_public(address)` | Retrieve public data by address |
+| `data_put(data, payment_mode)` | Store encrypted private data — returns `DataPutResult` (DataMap returned to caller) |
+| `data_get(data_map)` | Retrieve private data using a caller-held DataMap |
+| `data_cost(data, payment_mode)` | Estimate storage cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ### Chunks
 | Method | Description |
@@ -90,9 +90,11 @@ All methods are `async` and return `Result<T, AntdError>`.
 ### Files
 | Method | Description |
 |--------|-------------|
-| `file_upload_public(path)` | Upload a file |
-| `file_download_public(address, dest_path)` | Download a file |
-| `file_cost(path, is_public)` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
+| `file_put(path, payment_mode)` | Upload a file privately — returns `FilePutResult` (DataMap returned to caller) |
+| `file_get(data_map, dest_path)` | Download a private file using a caller-held DataMap |
+| `file_put_public(path, payment_mode)` | Upload a file publicly — returns `FilePutPublicResult` (DataMap stored on-network) |
+| `file_get_public(address, dest_path)` | Download a public file by address |
+| `file_cost(path, is_public, payment_mode)` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ## gRPC Transport
 
@@ -112,7 +114,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Store data
     let result = client.data_put_public(b"Hello, Autonomi!").await?;
-    println!("Stored at {} (cost: {} atto)", result.address, result.cost);
+    println!("Stored at {} (chunks: {})", result.address, result.chunks_stored);
 
     // Retrieve data
     let data = client.data_get_public(&result.address).await?;

@@ -53,7 +53,7 @@ pub fn main() !void {
     // Store data
     const result = try client.dataPutPublic("Hello, Autonomi!");
     defer result.deinit(allocator);
-    std.debug.print("Stored at {s} (cost: {s} atto)\n", .{ result.address, result.cost });
+    std.debug.print("Stored at {s} (chunks: {d})\n", .{ result.address, result.chunks_stored });
 
     // Retrieve data
     const data = try client.dataGetPublic(result.address);
@@ -96,11 +96,11 @@ All methods return `!T` (error union) using Zig's standard error handling.
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| `dataPutPublic` | `fn (self: *Client, data: []const u8) !PutResult` | Store public data |
-| `dataGetPublic` | `fn (self: *Client, address: []const u8) ![]const u8` | Retrieve public data |
-| `dataPutPrivate` | `fn (self: *Client, data: []const u8) !PutResult` | Store encrypted private data |
-| `dataGetPrivate` | `fn (self: *Client, data_map: []const u8) ![]const u8` | Retrieve private data |
-| `dataCost` | `fn (self: *Client, data: []const u8) !UploadCostEstimate` | Estimate storage cost — returns size, chunks, gas, payment mode |
+| `dataPutPublic` | `fn (self: *Client, data: []const u8, payment_mode: PaymentMode) !DataPutPublicResult` | Store public data — DataMap stored on-network |
+| `dataGetPublic` | `fn (self: *Client, address: []const u8) ![]const u8` | Retrieve public data by address |
+| `dataPut` | `fn (self: *Client, data: []const u8, payment_mode: PaymentMode) !DataPutResult` | Store encrypted private data — DataMap returned to caller |
+| `dataGet` | `fn (self: *Client, data_map: []const u8) ![]const u8` | Retrieve private data using a caller-held DataMap |
+| `dataCost` | `fn (self: *Client, data: []const u8, payment_mode: PaymentMode) !UploadCostEstimate` | Estimate storage cost — size, chunks, gas, payment mode |
 
 ### Chunks
 
@@ -113,9 +113,11 @@ All methods return `!T` (error union) using Zig's standard error handling.
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| `fileUploadPublic` | `fn (self: *Client, path: []const u8) !PutResult` | Upload a file |
-| `fileDownloadPublic` | `fn (self: *Client, address: []const u8, dest_path: []const u8) !void` | Download a file |
-| `fileCost` | `fn (self: *Client, path: []const u8, is_public: bool) !UploadCostEstimate` | Estimate upload cost — returns size, chunks, gas, payment mode |
+| `filePut` | `fn (self: *Client, path: []const u8, payment_mode: PaymentMode) !FilePutResult` | Upload a file privately — DataMap returned to caller |
+| `fileGet` | `fn (self: *Client, data_map: []const u8, dest_path: []const u8) !void` | Download a private file using a caller-held DataMap |
+| `filePutPublic` | `fn (self: *Client, path: []const u8, payment_mode: PaymentMode) !FilePutPublicResult` | Upload a file publicly — DataMap stored on-network |
+| `fileGetPublic` | `fn (self: *Client, address: []const u8, dest_path: []const u8) !void` | Download a public file by address |
+| `fileCost` | `fn (self: *Client, path: []const u8, is_public: bool, payment_mode: PaymentMode) !UploadCostEstimate` | Estimate upload cost — size, chunks, gas, payment mode |
 
 ## Error Handling
 
@@ -164,8 +166,8 @@ const result = client.health() catch |err| {
 The Zig SDK follows Zig's explicit memory management conventions:
 
 - **Caller owns all returned allocations.** You must free them when done.
-- Struct results (`HealthStatus`, `PutResult`, `UploadCostEstimate`) have a `deinit(allocator)` method that frees all owned memory.
-- Raw byte slices (`[]const u8`) returned by `dataGetPublic`, `dataGetPrivate`, and `chunkGet` must be freed with `allocator.free(result)`.
+- Struct results (`HealthStatus`, `PutResult`, `DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult`, `UploadCostEstimate`) have a `deinit(allocator)` method that frees all owned memory.
+- Raw byte slices (`[]const u8`) returned by `dataGetPublic`, `dataGet`, and `chunkGet` must be freed with `allocator.free(result)`.
 - Use `defer` immediately after receiving a result to ensure cleanup.
 
 ```zig

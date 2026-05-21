@@ -46,8 +46,8 @@ public class QuickStart {
             System.out.println("OK: " + health.ok() + ", Network: " + health.network());
 
             // Store data
-            PutResult result = client.dataPutPublic("Hello, Autonomi!".getBytes());
-            System.out.printf("Stored at %s (cost: %s atto)%n", result.address(), result.cost());
+            DataPutPublicResult result = client.dataPutPublic("Hello, Autonomi!".getBytes());
+            System.out.printf("Stored at %s (chunks: %d)%n", result.address(), result.chunksStored());
 
             // Retrieve data
             byte[] data = client.dataGetPublic(result.address());
@@ -96,11 +96,11 @@ All methods throw `AntdException` (or a typed subclass) on failure.
 
 | Method | Description |
 |--------|-------------|
-| `dataPutPublic(data)` | Store public data |
-| `dataGetPublic(address)` | Retrieve public data |
-| `dataPutPrivate(data)` | Store encrypted private data |
-| `dataGetPrivate(dataMap)` | Retrieve private data |
-| `dataCost(data)` | Estimate storage cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
+| `dataPutPublic(data, paymentMode)` | Store public data — returns `DataPutPublicResult` (DataMap stored on-network) |
+| `dataGetPublic(address)` | Retrieve public data by address |
+| `dataPut(data, paymentMode)` | Store encrypted private data — returns `DataPutResult` (DataMap returned to caller) |
+| `dataGet(dataMap)` | Retrieve private data using a caller-held DataMap |
+| `dataCost(data, paymentMode)` | Estimate storage cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ### Chunks
 
@@ -113,9 +113,11 @@ All methods throw `AntdException` (or a typed subclass) on failure.
 
 | Method | Description |
 |--------|-------------|
-| `fileUploadPublic(path)` | Upload a file |
-| `fileDownloadPublic(address, destPath)` | Download a file |
-| `fileCost(path, isPublic)` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
+| `filePut(path, paymentMode)` | Upload a file privately — returns `FilePutResult` (DataMap returned to caller) |
+| `fileGet(dataMap, destPath)` | Download a private file using a caller-held DataMap |
+| `filePutPublic(path, paymentMode)` | Upload a file publicly — returns `FilePutPublicResult` (DataMap stored on-network) |
+| `fileGetPublic(address, destPath)` | Download a public file by address |
+| `fileCost(path, isPublic, paymentMode)` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ## Async Usage
 
@@ -137,8 +139,8 @@ try (var client = new AsyncAntdClient()) {
           .join(); // block only at the end
 
     // Parallel uploads
-    CompletableFuture<PutResult> upload1 = client.dataPutPublicAsync("file1".getBytes());
-    CompletableFuture<PutResult> upload2 = client.dataPutPublicAsync("file2".getBytes());
+    CompletableFuture<DataPutPublicResult> upload1 = client.dataPutPublicAsync("file1".getBytes());
+    CompletableFuture<DataPutPublicResult> upload2 = client.dataPutPublicAsync("file2".getBytes());
 
     CompletableFuture.allOf(upload1, upload2).join();
     System.out.printf("Addresses: %s, %s%n", upload1.join().address(), upload2.join().address());
