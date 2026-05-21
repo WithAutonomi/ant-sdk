@@ -15,12 +15,15 @@ module Antd
         self.unmarshal_class_method = :decode
         self.service_name = 'antd.v1.DataService'
 
-        rpc :GetPublic, ::Antd::V1::GetPublicDataRequest, ::Antd::V1::GetPublicDataResponse
+        # Private = unqualified verb (the DataMap is returned to the caller; it is
+        # NOT stored on the network). Public = `_public` suffix (the DataMap is
+        # additionally stored on-network and the call returns the resulting address).
+        rpc :Put, ::Antd::V1::PutDataRequest, ::Antd::V1::PutDataResponse
         rpc :PutPublic, ::Antd::V1::PutPublicDataRequest, ::Antd::V1::PutPublicDataResponse
+        rpc :Get, ::Antd::V1::GetDataRequest, ::Antd::V1::GetDataResponse
+        rpc :GetPublic, ::Antd::V1::GetPublicDataRequest, ::Antd::V1::GetPublicDataResponse
         rpc :StreamPublic, ::Antd::V1::StreamPublicDataRequest, stream(::Antd::V1::DataChunk)
-        rpc :GetPrivate, ::Antd::V1::GetPrivateDataRequest, ::Antd::V1::GetPrivateDataResponse
-        rpc :PutPrivate, ::Antd::V1::PutPrivateDataRequest, ::Antd::V1::PutPrivateDataResponse
-        rpc :GetCost, ::Antd::V1::DataCostRequest, ::Antd::V1::Cost
+        rpc :Cost, ::Antd::V1::DataCostRequest, ::Antd::V1::Cost
       end
 
       Stub = Service.rpc_stub_class

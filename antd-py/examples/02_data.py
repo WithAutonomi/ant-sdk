@@ -19,7 +19,7 @@ print(
 # Store public data
 result = client.data_put_public(payload)
 print(f"Stored at address: {result.address}")
-print(f"Actual cost: {result.cost} atto tokens")
+print(f"Chunks stored: {result.chunks_stored}, payment mode: {result.payment_mode_used}")
 
 # Retrieve it back
 data = client.data_get_public(result.address)

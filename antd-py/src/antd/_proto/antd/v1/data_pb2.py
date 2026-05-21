@@ -25,7 +25,7 @@ _sym_db = _symbol_database.Default()
 from antd._proto.antd.v1 import common_pb2 as antd_dot_v1_dot_common__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x12\x61ntd/v1/data.proto\x12\x07\x61ntd.v1\x1a\x14\x61ntd/v1/common.proto\"\'\n\x14GetPublicDataRequest\x12\x0f\n\x07\x61\x64\x64ress\x18\x01 \x01(\t\"%\n\x15GetPublicDataResponse\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\"$\n\x14PutPublicDataRequest\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\"E\n\x15PutPublicDataResponse\x12\x1b\n\x04\x63ost\x18\x01 \x01(\x0b\x32\r.antd.v1.Cost\x12\x0f\n\x07\x61\x64\x64ress\x18\x02 \x01(\t\"*\n\x17StreamPublicDataRequest\x12\x0f\n\x07\x61\x64\x64ress\x18\x01 \x01(\t\"\x19\n\tDataChunk\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\")\n\x15GetPrivateDataRequest\x12\x10\n\x08\x64\x61ta_map\x18\x01 \x01(\t\"&\n\x16GetPrivateDataResponse\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\"%\n\x15PutPrivateDataRequest\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\"G\n\x16PutPrivateDataResponse\x12\x1b\n\x04\x63ost\x18\x01 \x01(\x0b\x32\r.antd.v1.Cost\x12\x10\n\x08\x64\x61ta_map\x18\x02 \x01(\t\"\x1f\n\x0f\x44\x61taCostRequest\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\x32\xbf\x03\n\x0b\x44\x61taService\x12J\n\tGetPublic\x12\x1d.antd.v1.GetPublicDataRequest\x1a\x1e.antd.v1.GetPublicDataResponse\x12J\n\tPutPublic\x12\x1d.antd.v1.PutPublicDataRequest\x1a\x1e.antd.v1.PutPublicDataResponse\x12\x46\n\x0cStreamPublic\x12 .antd.v1.StreamPublicDataRequest\x1a\x12.antd.v1.DataChunk0\x01\x12M\n\nGetPrivate\x12\x1e.antd.v1.GetPrivateDataRequest\x1a\x1f.antd.v1.GetPrivateDataResponse\x12M\n\nPutPrivate\x12\x1e.antd.v1.PutPrivateDataRequest\x1a\x1f.antd.v1.PutPrivateDataResponse\x12\x32\n\x07GetCost\x12\x18.antd.v1.DataCostRequest\x1a\r.antd.v1.CostBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\x07\x41ntd.V1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x12\x61ntd/v1/data.proto\x12\x07\x61ntd.v1\x1a\x14\x61ntd/v1/common.proto\"\'\n\x14GetPublicDataRequest\x12\x0f\n\x07\x61\x64\x64ress\x18\x01 \x01(\t\"%\n\x15GetPublicDataResponse\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\":\n\x14PutPublicDataRequest\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\x12\x14\n\x0cpayment_mode\x18\x02 \x01(\t\"E\n\x15PutPublicDataResponse\x12\x1b\n\x04\x63ost\x18\x01 \x01(\x0b\x32\r.antd.v1.Cost\x12\x0f\n\x07\x61\x64\x64ress\x18\x02 \x01(\t\"*\n\x17StreamPublicDataRequest\x12\x0f\n\x07\x61\x64\x64ress\x18\x01 \x01(\t\"\x19\n\tDataChunk\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\"\"\n\x0eGetDataRequest\x12\x10\n\x08\x64\x61ta_map\x18\x01 \x01(\t\"\x1f\n\x0fGetDataResponse\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\"4\n\x0ePutDataRequest\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\x12\x14\n\x0cpayment_mode\x18\x02 \x01(\t\"@\n\x0fPutDataResponse\x12\x1b\n\x04\x63ost\x18\x01 \x01(\x0b\x32\r.antd.v1.Cost\x12\x10\n\x08\x64\x61ta_map\x18\x02 \x01(\t\"5\n\x0f\x44\x61taCostRequest\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\x12\x14\n\x0cpayment_mode\x18\x02 \x01(\t2\x92\x03\n\x0b\x44\x61taService\x12\x38\n\x03Put\x12\x17.antd.v1.PutDataRequest\x1a\x18.antd.v1.PutDataResponse\x12J\n\tPutPublic\x12\x1d.antd.v1.PutPublicDataRequest\x1a\x1e.antd.v1.PutPublicDataResponse\x12\x38\n\x03Get\x12\x17.antd.v1.GetDataRequest\x1a\x18.antd.v1.GetDataResponse\x12J\n\tGetPublic\x12\x1d.antd.v1.GetPublicDataRequest\x1a\x1e.antd.v1.GetPublicDataResponse\x12\x46\n\x0cStreamPublic\x12 .antd.v1.StreamPublicDataRequest\x1a\x12.antd.v1.DataChunk0\x01\x12/\n\x04\x43ost\x12\x18.antd.v1.DataCostRequest\x1a\r.antd.v1.CostBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\x07\x41ntd.V1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -38,23 +38,23 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_GETPUBLICDATARESPONSE']._serialized_start=94
   _globals['_GETPUBLICDATARESPONSE']._serialized_end=131
   _globals['_PUTPUBLICDATAREQUEST']._serialized_start=133
-  _globals['_PUTPUBLICDATAREQUEST']._serialized_end=169
-  _globals['_PUTPUBLICDATARESPONSE']._serialized_start=171
-  _globals['_PUTPUBLICDATARESPONSE']._serialized_end=240
-  _globals['_STREAMPUBLICDATAREQUEST']._serialized_start=242
-  _globals['_STREAMPUBLICDATAREQUEST']._serialized_end=284
-  _globals['_DATACHUNK']._serialized_start=286
-  _globals['_DATACHUNK']._serialized_end=311
-  _globals['_GETPRIVATEDATAREQUEST']._serialized_start=313
-  _globals['_GETPRIVATEDATAREQUEST']._serialized_end=354
-  _globals['_GETPRIVATEDATARESPONSE']._serialized_start=356
-  _globals['_GETPRIVATEDATARESPONSE']._serialized_end=394
-  _globals['_PUTPRIVATEDATAREQUEST']._serialized_start=396
-  _globals['_PUTPRIVATEDATAREQUEST']._serialized_end=433
-  _globals['_PUTPRIVATEDATARESPONSE']._serialized_start=435
-  _globals['_PUTPRIVATEDATARESPONSE']._serialized_end=506
-  _globals['_DATACOSTREQUEST']._serialized_start=508
-  _globals['_DATACOSTREQUEST']._serialized_end=539
-  _globals['_DATASERVICE']._serialized_start=542
-  _globals['_DATASERVICE']._serialized_end=989
+  _globals['_PUTPUBLICDATAREQUEST']._serialized_end=191
+  _globals['_PUTPUBLICDATARESPONSE']._serialized_start=193
+  _globals['_PUTPUBLICDATARESPONSE']._serialized_end=262
+  _globals['_STREAMPUBLICDATAREQUEST']._serialized_start=264
+  _globals['_STREAMPUBLICDATAREQUEST']._serialized_end=306
+  _globals['_DATACHUNK']._serialized_start=308
+  _globals['_DATACHUNK']._serialized_end=333
+  _globals['_GETDATAREQUEST']._serialized_start=335
+  _globals['_GETDATAREQUEST']._serialized_end=369
+  _globals['_GETDATARESPONSE']._serialized_start=371
+  _globals['_GETDATARESPONSE']._serialized_end=402
+  _globals['_PUTDATAREQUEST']._serialized_start=404
+  _globals['_PUTDATAREQUEST']._serialized_end=456
+  _globals['_PUTDATARESPONSE']._serialized_start=458
+  _globals['_PUTDATARESPONSE']._serialized_end=522
+  _globals['_DATACOSTREQUEST']._serialized_start=524
+  _globals['_DATACOSTREQUEST']._serialized_end=577
+  _globals['_DATASERVICE']._serialized_start=580
+  _globals['_DATASERVICE']._serialized_end=982
 # @@protoc_insertion_point(module_scope)

@@ -35,11 +35,3 @@ class SecretKeyProto(_message.Message):
     HEX_FIELD_NUMBER: _ClassVar[int]
     hex: str
     def __init__(self, hex: _Optional[str] = ...) -> None: ...
-
-class GraphDescendant(_message.Message):
-    __slots__ = ("public_key", "content")
-    PUBLIC_KEY_FIELD_NUMBER: _ClassVar[int]
-    CONTENT_FIELD_NUMBER: _ClassVar[int]
-    public_key: str
-    content: str
-    def __init__(self, public_key: _Optional[str] = ..., content: _Optional[str] = ...) -> None: ...

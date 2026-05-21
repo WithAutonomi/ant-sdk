@@ -15,11 +15,14 @@ module Antd
         self.unmarshal_class_method = :decode
         self.service_name = 'antd.v1.FileService'
 
-        rpc :UploadPublic, ::Antd::V1::UploadFileRequest, ::Antd::V1::UploadPublicResponse
-        rpc :DownloadPublic, ::Antd::V1::DownloadPublicRequest, ::Antd::V1::DownloadResponse
-        rpc :DirUploadPublic, ::Antd::V1::UploadFileRequest, ::Antd::V1::UploadPublicResponse
-        rpc :DirDownloadPublic, ::Antd::V1::DownloadPublicRequest, ::Antd::V1::DownloadResponse
-        rpc :GetFileCost, ::Antd::V1::FileCostRequest, ::Antd::V1::Cost
+        # Private = unqualified verb (the DataMap is returned to the caller; it is
+        # NOT stored on the network). Public = `_public` suffix (the DataMap is
+        # additionally stored on-network and the call returns the resulting address).
+        rpc :Put, ::Antd::V1::PutFileRequest, ::Antd::V1::PutFileResponse
+        rpc :PutPublic, ::Antd::V1::PutFileRequest, ::Antd::V1::PutFilePublicResponse
+        rpc :Get, ::Antd::V1::GetFileRequest, ::Antd::V1::GetFileResponse
+        rpc :GetPublic, ::Antd::V1::GetFilePublicRequest, ::Antd::V1::GetFileResponse
+        rpc :Cost, ::Antd::V1::FileCostRequest, ::Antd::V1::Cost
       end
 
       Stub = Service.rpc_stub_class

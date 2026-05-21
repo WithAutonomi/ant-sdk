@@ -2,6 +2,22 @@
 
 from __future__ import annotations
 from dataclasses import dataclass, field
+from enum import Enum
+
+
+class PaymentMode(str, Enum):
+    """Payment-batching strategy for uploads.
+
+    The mode controls how on-chain chunk payments are bundled:
+
+    - ``AUTO``    -- server picks (merkle for 64+ chunks, single otherwise).
+    - ``MERKLE``  -- force merkle-batch (saves gas, min 2 chunks).
+    - ``SINGLE``  -- force per-chunk payments (works for any chunk count).
+    """
+
+    AUTO = "auto"
+    MERKLE = "merkle"
+    SINGLE = "single"
 
 
 @dataclass(frozen=True)
@@ -25,17 +41,65 @@ class HealthStatus:
 
 @dataclass(frozen=True)
 class PutResult:
-    """Result of a put/create operation."""
+    """Result of a single-chunk put (used by ``chunk_put``).
+
+    Data and file puts return richer types (``DataPutResult`` /
+    ``DataPutPublicResult`` / ``FilePutResult`` / ``FilePutPublicResult``).
+    """
     cost: str       # atto tokens as string
     address: str    # hex
 
 
 @dataclass(frozen=True)
-class FileUploadResult:
-    """Result of a public file or directory upload."""
-    address: str               # hex network address
-    storage_cost_atto: str     # storage cost in atto, "0" if all chunks already existed
-    gas_cost_wei: str          # gas cost in wei as decimal string
+class DataPutResult:
+    """Result of a private data put.
+
+    The DataMap is returned to the caller; it is NOT stored on-network. The
+    REST transport populates ``chunks_stored`` and ``payment_mode_used``; the
+    gRPC transport currently leaves them empty (proto ``PutDataResponse``
+    only carries ``data_map``).
+    """
+    data_map: str           # hex
+    chunks_stored: int = 0
+    payment_mode_used: str = ""    # "auto", "merkle", or "single"
+
+
+@dataclass(frozen=True)
+class DataPutPublicResult:
+    """Result of a public data put.
+
+    The DataMap is stored on-network as an additional chunk; ``address`` is
+    the shareable retrieval handle. REST populates ``chunks_stored`` and
+    ``payment_mode_used``; gRPC currently leaves them empty.
+    """
+    address: str            # hex
+    chunks_stored: int = 0
+    payment_mode_used: str = ""
+
+
+@dataclass(frozen=True)
+class FilePutResult:
+    """Result of a private file upload.
+
+    The DataMap is returned to the caller; it is NOT stored on-network.
+    """
+    data_map: str              # hex-encoded msgpack DataMap
+    storage_cost_atto: str     # "0" if all chunks already existed
+    gas_cost_wei: str          # decimal string
+    chunks_stored: int         # number of chunks stored on the network
+    payment_mode_used: str     # "auto", "merkle", or "single"
+
+
+@dataclass(frozen=True)
+class FilePutPublicResult:
+    """Result of a public file upload.
+
+    The DataMap is stored on-network as an additional chunk; ``address`` is
+    the shareable retrieval handle.
+    """
+    address: str               # hex network address of the stored DataMap
+    storage_cost_atto: str     # "0" if all chunks already existed
+    gas_cost_wei: str          # decimal string
     chunks_stored: int         # number of chunks stored on the network
     payment_mode_used: str     # "auto", "merkle", or "single"
 

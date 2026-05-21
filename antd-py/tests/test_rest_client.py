@@ -13,8 +13,13 @@ from antd._rest import RestClient
 from antd.exceptions import BadRequestError, NetworkError, NotFoundError
 from antd.models import (
     CandidateNodeEntry,
+    DataPutPublicResult,
+    DataPutResult,
+    FilePutPublicResult,
+    FilePutResult,
     FinalizeUploadResult,
     HealthStatus,
+    PaymentMode,
     PoolCommitmentEntry,
     PrepareChunkResult,
     PrepareUploadResult,
@@ -69,10 +74,6 @@ class _MockHandler(BaseHTTPRequestHandler):
             addr = path.split("/v1/data/public/")[1]
             self._json_response(200, {"data": _b64(f"public-{addr}".encode())})
 
-        elif path == "/v1/data/private":
-            # data_map comes as query param
-            self._json_response(200, {"data": _b64(b"private-payload")})
-
         elif path.startswith("/v1/chunks/"):
             addr = path.split("/v1/chunks/")[1]
             self._json_response(200, {"data": _b64(f"chunk-{addr}".encode())})
@@ -99,13 +100,29 @@ class _MockHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):  # noqa: N802
         body = self._read_body()
+        req_json: dict = json.loads(body) if body else {}
         path = self.path
 
-        if path == "/v1/data/public":
-            self._json_response(200, {"cost": "42", "address": "abc123"})
+        # Capture payment_mode for assertion in TestPaymentModeWiring.
+        if "payment_mode" in req_json:
+            self.server._last_payment_modes[path] = req_json["payment_mode"]
 
-        elif path == "/v1/data/private":
-            self._json_response(200, {"cost": "50", "data_map": "dm_xyz"})
+        if path == "/v1/data/public":
+            self._json_response(200, {
+                "address": "abc123",
+                "chunks_stored": 3,
+                "payment_mode_used": "auto",
+            })
+
+        elif path == "/v1/data":
+            self._json_response(200, {
+                "data_map": "dm_xyz",
+                "chunks_stored": 2,
+                "payment_mode_used": "merkle",
+            })
+
+        elif path == "/v1/data/get":
+            self._json_response(200, {"data": _b64(b"private-payload")})
 
         elif path == "/v1/data/cost":
             self._json_response(200, {
@@ -114,6 +131,39 @@ class _MockHandler(BaseHTTPRequestHandler):
                 "chunk_count": 3,
                 "estimated_gas_cost_wei": "150000000000000",
                 "payment_mode": "single",
+            })
+
+        elif path == "/v1/files":
+            self._json_response(200, {
+                "data_map": "file_dm_1",
+                "storage_cost_atto": "500",
+                "gas_cost_wei": "21",
+                "chunks_stored": 2,
+                "payment_mode_used": "single",
+            })
+
+        elif path == "/v1/files/get":
+            self._json_response(200, {})
+
+        elif path == "/v1/files/public":
+            self._json_response(200, {
+                "address": "file_addr_1",
+                "storage_cost_atto": "1000",
+                "gas_cost_wei": "42",
+                "chunks_stored": 3,
+                "payment_mode_used": "auto",
+            })
+
+        elif path == "/v1/files/public/get":
+            self._json_response(200, {})
+
+        elif path == "/v1/files/cost":
+            self._json_response(200, {
+                "cost": "1000",
+                "file_size": 4096,
+                "chunk_count": 3,
+                "estimated_gas_cost_wei": "150000000000000",
+                "payment_mode": "auto",
             })
 
         elif path == "/v1/chunks":
@@ -227,6 +277,7 @@ class _MockHandler(BaseHTTPRequestHandler):
 def mock_server():
     """Start a local HTTP server on an ephemeral port for the test module."""
     server = HTTPServer(("127.0.0.1", 0), _MockHandler)
+    server._last_payment_modes = {}
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     yield server
@@ -273,10 +324,11 @@ class TestHealth:
 
 class TestDataPutPublic:
     def test_returns_put_result(self, client: RestClient):
-        result = client.data_put_public(b"hello world")
-        assert isinstance(result, PutResult)
-        assert result.cost == "42"
+        result = client.data_put_public(b"hello world", PaymentMode.AUTO)
+        assert isinstance(result, DataPutPublicResult)
         assert result.address == "abc123"
+        assert result.chunks_stored == 3
+        assert result.payment_mode_used == "auto"
 
 
 class TestDataGetPublic:
@@ -285,29 +337,81 @@ class TestDataGetPublic:
         assert data == b"public-myaddr"
 
 
-class TestDataPutPrivate:
-    def test_returns_put_result_with_data_map(self, client: RestClient):
-        result = client.data_put_private(b"secret data")
-        assert isinstance(result, PutResult)
-        assert result.cost == "50"
-        # data_map is stored in the address field of PutResult
-        assert result.address == "dm_xyz"
+class TestDataPut:
+    def test_returns_data_put_result(self, client: RestClient):
+        result = client.data_put(b"secret data", PaymentMode.MERKLE)
+        assert isinstance(result, DataPutResult)
+        assert result.data_map == "dm_xyz"
+        assert result.chunks_stored == 2
+        assert result.payment_mode_used == "merkle"
 
 
-class TestDataGetPrivate:
+class TestDataGet:
     def test_returns_decoded_bytes(self, client: RestClient):
-        data = client.data_get_private("some_data_map")
+        data = client.data_get("some_data_map")
         assert data == b"private-payload"
 
 
 class TestDataCost:
     def test_returns_full_breakdown(self, client: RestClient):
-        est = client.data_cost(b"estimate me")
+        est = client.data_cost(b"estimate me", PaymentMode.SINGLE)
         assert est.cost == "99"
         assert est.file_size == 4
         assert est.chunk_count == 3
         assert est.estimated_gas_cost_wei == "150000000000000"
         assert est.payment_mode == "single"
+
+
+class TestFiles:
+    def test_file_put_returns_data_map(self, client: RestClient):
+        result = client.file_put("/tmp/test.txt", PaymentMode.SINGLE)
+        assert isinstance(result, FilePutResult)
+        assert result.data_map == "file_dm_1"
+        assert result.storage_cost_atto == "500"
+        assert result.chunks_stored == 2
+        assert result.payment_mode_used == "single"
+
+    def test_file_get_succeeds(self, client: RestClient):
+        # Returns None on success; raises on failure.
+        client.file_get("file_dm_1", "/tmp/out.txt")
+
+    def test_file_put_public_returns_address(self, client: RestClient):
+        result = client.file_put_public("/tmp/test.txt", PaymentMode.AUTO)
+        assert isinstance(result, FilePutPublicResult)
+        assert result.address == "file_addr_1"
+        assert result.storage_cost_atto == "1000"
+        assert result.chunks_stored == 3
+        assert result.payment_mode_used == "auto"
+
+    def test_file_get_public_succeeds(self, client: RestClient):
+        client.file_get_public("file_addr_1", "/tmp/out.txt")
+
+    def test_file_cost(self, client: RestClient):
+        est = client.file_cost("/tmp/test.txt", is_public=True, payment_mode=PaymentMode.AUTO)
+        assert est.cost == "1000"
+        assert est.chunk_count == 3
+
+
+class TestPaymentModeWiring:
+    """Assert the PaymentMode enum reaches the REST `payment_mode` body field
+    on every put/cost endpoint."""
+
+    def test_payment_mode_wires_into_request_body(self, client: RestClient, mock_server):
+        mock_server._last_payment_modes.clear()
+        client.data_put(b"x", PaymentMode.MERKLE)
+        client.data_put_public(b"x", PaymentMode.SINGLE)
+        client.data_cost(b"x", PaymentMode.AUTO)
+        client.file_put("/tmp/x", PaymentMode.MERKLE)
+        client.file_put_public("/tmp/x", PaymentMode.SINGLE)
+        client.file_cost("/tmp/x", is_public=False, payment_mode=PaymentMode.AUTO)
+
+        seen = mock_server._last_payment_modes
+        assert seen["/v1/data"] == "merkle"
+        assert seen["/v1/data/public"] == "single"
+        assert seen["/v1/data/cost"] == "auto"
+        assert seen["/v1/files"] == "merkle"
+        assert seen["/v1/files/public"] == "single"
+        assert seen["/v1/files/cost"] == "auto"
 
 
 class TestChunkRoundTrip:

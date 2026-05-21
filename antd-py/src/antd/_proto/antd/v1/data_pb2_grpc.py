@@ -35,33 +35,33 @@ class DataServiceStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.GetPublic = channel.unary_unary(
-                '/antd.v1.DataService/GetPublic',
-                request_serializer=antd_dot_v1_dot_data__pb2.GetPublicDataRequest.SerializeToString,
-                response_deserializer=antd_dot_v1_dot_data__pb2.GetPublicDataResponse.FromString,
+        self.Put = channel.unary_unary(
+                '/antd.v1.DataService/Put',
+                request_serializer=antd_dot_v1_dot_data__pb2.PutDataRequest.SerializeToString,
+                response_deserializer=antd_dot_v1_dot_data__pb2.PutDataResponse.FromString,
                 _registered_method=True)
         self.PutPublic = channel.unary_unary(
                 '/antd.v1.DataService/PutPublic',
                 request_serializer=antd_dot_v1_dot_data__pb2.PutPublicDataRequest.SerializeToString,
                 response_deserializer=antd_dot_v1_dot_data__pb2.PutPublicDataResponse.FromString,
                 _registered_method=True)
+        self.Get = channel.unary_unary(
+                '/antd.v1.DataService/Get',
+                request_serializer=antd_dot_v1_dot_data__pb2.GetDataRequest.SerializeToString,
+                response_deserializer=antd_dot_v1_dot_data__pb2.GetDataResponse.FromString,
+                _registered_method=True)
+        self.GetPublic = channel.unary_unary(
+                '/antd.v1.DataService/GetPublic',
+                request_serializer=antd_dot_v1_dot_data__pb2.GetPublicDataRequest.SerializeToString,
+                response_deserializer=antd_dot_v1_dot_data__pb2.GetPublicDataResponse.FromString,
+                _registered_method=True)
         self.StreamPublic = channel.unary_stream(
                 '/antd.v1.DataService/StreamPublic',
                 request_serializer=antd_dot_v1_dot_data__pb2.StreamPublicDataRequest.SerializeToString,
                 response_deserializer=antd_dot_v1_dot_data__pb2.DataChunk.FromString,
                 _registered_method=True)
-        self.GetPrivate = channel.unary_unary(
-                '/antd.v1.DataService/GetPrivate',
-                request_serializer=antd_dot_v1_dot_data__pb2.GetPrivateDataRequest.SerializeToString,
-                response_deserializer=antd_dot_v1_dot_data__pb2.GetPrivateDataResponse.FromString,
-                _registered_method=True)
-        self.PutPrivate = channel.unary_unary(
-                '/antd.v1.DataService/PutPrivate',
-                request_serializer=antd_dot_v1_dot_data__pb2.PutPrivateDataRequest.SerializeToString,
-                response_deserializer=antd_dot_v1_dot_data__pb2.PutPrivateDataResponse.FromString,
-                _registered_method=True)
-        self.GetCost = channel.unary_unary(
-                '/antd.v1.DataService/GetCost',
+        self.Cost = channel.unary_unary(
+                '/antd.v1.DataService/Cost',
                 request_serializer=antd_dot_v1_dot_data__pb2.DataCostRequest.SerializeToString,
                 response_deserializer=antd_dot_v1_dot_common__pb2.Cost.FromString,
                 _registered_method=True)
@@ -70,13 +70,28 @@ class DataServiceStub(object):
 class DataServiceServicer(object):
     """Missing associated documentation comment in .proto file."""
 
-    def GetPublic(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+    def Put(self, request, context):
+        """Private = unqualified verb (the DataMap is returned to the caller; it is
+        NOT stored on the network). Public = `_public` suffix (the DataMap is
+        additionally stored on-network and the call returns the resulting address).
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def PutPublic(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Get(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetPublic(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -88,19 +103,7 @@ class DataServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def GetPrivate(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def PutPrivate(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def GetCost(self, request, context):
+    def Cost(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -109,33 +112,33 @@ class DataServiceServicer(object):
 
 def add_DataServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'GetPublic': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetPublic,
-                    request_deserializer=antd_dot_v1_dot_data__pb2.GetPublicDataRequest.FromString,
-                    response_serializer=antd_dot_v1_dot_data__pb2.GetPublicDataResponse.SerializeToString,
+            'Put': grpc.unary_unary_rpc_method_handler(
+                    servicer.Put,
+                    request_deserializer=antd_dot_v1_dot_data__pb2.PutDataRequest.FromString,
+                    response_serializer=antd_dot_v1_dot_data__pb2.PutDataResponse.SerializeToString,
             ),
             'PutPublic': grpc.unary_unary_rpc_method_handler(
                     servicer.PutPublic,
                     request_deserializer=antd_dot_v1_dot_data__pb2.PutPublicDataRequest.FromString,
                     response_serializer=antd_dot_v1_dot_data__pb2.PutPublicDataResponse.SerializeToString,
             ),
+            'Get': grpc.unary_unary_rpc_method_handler(
+                    servicer.Get,
+                    request_deserializer=antd_dot_v1_dot_data__pb2.GetDataRequest.FromString,
+                    response_serializer=antd_dot_v1_dot_data__pb2.GetDataResponse.SerializeToString,
+            ),
+            'GetPublic': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetPublic,
+                    request_deserializer=antd_dot_v1_dot_data__pb2.GetPublicDataRequest.FromString,
+                    response_serializer=antd_dot_v1_dot_data__pb2.GetPublicDataResponse.SerializeToString,
+            ),
             'StreamPublic': grpc.unary_stream_rpc_method_handler(
                     servicer.StreamPublic,
                     request_deserializer=antd_dot_v1_dot_data__pb2.StreamPublicDataRequest.FromString,
                     response_serializer=antd_dot_v1_dot_data__pb2.DataChunk.SerializeToString,
             ),
-            'GetPrivate': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetPrivate,
-                    request_deserializer=antd_dot_v1_dot_data__pb2.GetPrivateDataRequest.FromString,
-                    response_serializer=antd_dot_v1_dot_data__pb2.GetPrivateDataResponse.SerializeToString,
-            ),
-            'PutPrivate': grpc.unary_unary_rpc_method_handler(
-                    servicer.PutPrivate,
-                    request_deserializer=antd_dot_v1_dot_data__pb2.PutPrivateDataRequest.FromString,
-                    response_serializer=antd_dot_v1_dot_data__pb2.PutPrivateDataResponse.SerializeToString,
-            ),
-            'GetCost': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetCost,
+            'Cost': grpc.unary_unary_rpc_method_handler(
+                    servicer.Cost,
                     request_deserializer=antd_dot_v1_dot_data__pb2.DataCostRequest.FromString,
                     response_serializer=antd_dot_v1_dot_common__pb2.Cost.SerializeToString,
             ),
@@ -151,7 +154,7 @@ class DataService(object):
     """Missing associated documentation comment in .proto file."""
 
     @staticmethod
-    def GetPublic(request,
+    def Put(request,
             target,
             options=(),
             channel_credentials=None,
@@ -164,9 +167,9 @@ class DataService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/antd.v1.DataService/GetPublic',
-            antd_dot_v1_dot_data__pb2.GetPublicDataRequest.SerializeToString,
-            antd_dot_v1_dot_data__pb2.GetPublicDataResponse.FromString,
+            '/antd.v1.DataService/Put',
+            antd_dot_v1_dot_data__pb2.PutDataRequest.SerializeToString,
+            antd_dot_v1_dot_data__pb2.PutDataResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -205,6 +208,60 @@ class DataService(object):
             _registered_method=True)
 
     @staticmethod
+    def Get(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/antd.v1.DataService/Get',
+            antd_dot_v1_dot_data__pb2.GetDataRequest.SerializeToString,
+            antd_dot_v1_dot_data__pb2.GetDataResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetPublic(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/antd.v1.DataService/GetPublic',
+            antd_dot_v1_dot_data__pb2.GetPublicDataRequest.SerializeToString,
+            antd_dot_v1_dot_data__pb2.GetPublicDataResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def StreamPublic(request,
             target,
             options=(),
@@ -232,7 +289,7 @@ class DataService(object):
             _registered_method=True)
 
     @staticmethod
-    def GetPrivate(request,
+    def Cost(request,
             target,
             options=(),
             channel_credentials=None,
@@ -245,61 +302,7 @@ class DataService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/antd.v1.DataService/GetPrivate',
-            antd_dot_v1_dot_data__pb2.GetPrivateDataRequest.SerializeToString,
-            antd_dot_v1_dot_data__pb2.GetPrivateDataResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def PutPrivate(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/antd.v1.DataService/PutPrivate',
-            antd_dot_v1_dot_data__pb2.PutPrivateDataRequest.SerializeToString,
-            antd_dot_v1_dot_data__pb2.PutPrivateDataResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def GetCost(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/antd.v1.DataService/GetCost',
+            '/antd.v1.DataService/Cost',
             antd_dot_v1_dot_data__pb2.DataCostRequest.SerializeToString,
             antd_dot_v1_dot_common__pb2.Cost.FromString,
             options,

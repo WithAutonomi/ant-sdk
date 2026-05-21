@@ -10,10 +10,14 @@ import httpx
 from .exceptions import raise_for_http_status
 from .models import (
     CandidateNodeEntry,
-    FileUploadResult,
+    DataPutPublicResult,
+    DataPutResult,
+    FilePutPublicResult,
+    FilePutResult,
     FinalizeUploadResult,
     HealthStatus,
     PaymentInfo,
+    PaymentMode,
     PoolCommitmentEntry,
     PrepareChunkResult,
     PrepareUploadResult,
@@ -39,12 +43,39 @@ def _health_status_from_json(j: dict) -> HealthStatus:
     )
 
 
-def _parse_file_upload_result(j: dict) -> FileUploadResult:
-    """Parse a file/dir upload public JSON response into a FileUploadResult."""
-    return FileUploadResult(
+def _parse_file_put_result(j: dict) -> FilePutResult:
+    """Parse a private file put JSON response into a ``FilePutResult``."""
+    return FilePutResult(
+        data_map=j.get("data_map", ""),
+        storage_cost_atto=j.get("storage_cost_atto", ""),
+        gas_cost_wei=j.get("gas_cost_wei", ""),
+        chunks_stored=int(j.get("chunks_stored", 0)),
+        payment_mode_used=j.get("payment_mode_used", ""),
+    )
+
+
+def _parse_file_put_public_result(j: dict) -> FilePutPublicResult:
+    """Parse a public file put JSON response into a ``FilePutPublicResult``."""
+    return FilePutPublicResult(
         address=j.get("address", ""),
         storage_cost_atto=j.get("storage_cost_atto", ""),
         gas_cost_wei=j.get("gas_cost_wei", ""),
+        chunks_stored=int(j.get("chunks_stored", 0)),
+        payment_mode_used=j.get("payment_mode_used", ""),
+    )
+
+
+def _parse_data_put_result(j: dict) -> DataPutResult:
+    return DataPutResult(
+        data_map=j.get("data_map", ""),
+        chunks_stored=int(j.get("chunks_stored", 0)),
+        payment_mode_used=j.get("payment_mode_used", ""),
+    )
+
+
+def _parse_data_put_public_result(j: dict) -> DataPutPublicResult:
+    return DataPutPublicResult(
+        address=j.get("address", ""),
         chunks_stored=int(j.get("chunks_stored", 0)),
         payment_mode_used=j.get("payment_mode_used", ""),
     )
@@ -202,41 +233,46 @@ class RestClient:
 
     # --- Data ---
 
-    def data_put_public(self, data: bytes, payment_mode: str | None = None) -> PutResult:
-        body: dict = {"data": _b64(data)}
-        if payment_mode is not None:
-            body["payment_mode"] = payment_mode
-        resp = self._http.post("/v1/data/public", json=body)
+    def data_put(self, data: bytes, payment_mode: PaymentMode = PaymentMode.AUTO) -> DataPutResult:
+        """Store private encrypted data. Returns the caller-held DataMap (hex)."""
+        resp = self._http.post("/v1/data", json={
+            "data": _b64(data),
+            "payment_mode": payment_mode.value,
+        })
         _check(resp)
-        j = resp.json()
-        return PutResult(cost=j.get("cost", ""), address=j.get("address", ""))
+        return _parse_data_put_result(resp.json())
+
+    def data_get(self, data_map: str) -> bytes:
+        """Retrieve private data from a caller-held DataMap (hex)."""
+        resp = self._http.post("/v1/data/get", json={"data_map": data_map})
+        _check(resp)
+        return _unb64(resp.json().get("data", ""))
+
+    def data_put_public(self, data: bytes, payment_mode: PaymentMode = PaymentMode.AUTO) -> DataPutPublicResult:
+        """Store public data. The DataMap is stored on-network as an extra
+        chunk; the returned address is the shareable retrieval handle."""
+        resp = self._http.post("/v1/data/public", json={
+            "data": _b64(data),
+            "payment_mode": payment_mode.value,
+        })
+        _check(resp)
+        return _parse_data_put_public_result(resp.json())
 
     def data_get_public(self, address: str) -> bytes:
         resp = self._http.get(f"/v1/data/public/{address}")
         _check(resp)
         return _unb64(resp.json().get("data", ""))
 
-    def data_put_private(self, data: bytes, payment_mode: str | None = None) -> PutResult:
-        body: dict = {"data": _b64(data)}
-        if payment_mode is not None:
-            body["payment_mode"] = payment_mode
-        resp = self._http.post("/v1/data/private", json=body)
-        _check(resp)
-        j = resp.json()
-        return PutResult(cost=j.get("cost", ""), address=j.get("data_map", ""))
-
-    def data_get_private(self, data_map: str) -> bytes:
-        resp = self._http.get("/v1/data/private", params={"data_map": data_map})
-        _check(resp)
-        return _unb64(resp.json().get("data", ""))
-
-    def data_cost(self, data: bytes) -> UploadCostEstimate:
+    def data_cost(self, data: bytes, payment_mode: PaymentMode = PaymentMode.AUTO) -> UploadCostEstimate:
         """Pre-upload cost breakdown for the given bytes.
 
         The server samples a small number of chunk addresses and extrapolates,
         much faster than quoting every chunk on slow networks. Gas is advisory.
         """
-        resp = self._http.post("/v1/data/cost", json={"data": _b64(data)})
+        resp = self._http.post("/v1/data/cost", json={
+            "data": _b64(data),
+            "payment_mode": payment_mode.value,
+        })
         _check(resp)
         return _parse_cost_estimate(resp.json())
 
@@ -279,22 +315,42 @@ class RestClient:
 
     # --- Files ---
 
-    def file_upload_public(self, path: str, payment_mode: str | None = None) -> FileUploadResult:
-        body: dict = {"path": path}
-        if payment_mode is not None:
-            body["payment_mode"] = payment_mode
-        resp = self._http.post("/v1/files/upload/public", json=body)
+    def file_put(self, path: str, payment_mode: PaymentMode = PaymentMode.AUTO) -> FilePutResult:
+        """Upload a file privately. Returns the caller-held DataMap (hex)."""
+        resp = self._http.post("/v1/files", json={
+            "path": path,
+            "payment_mode": payment_mode.value,
+        })
         _check(resp)
-        return _parse_file_upload_result(resp.json())
+        return _parse_file_put_result(resp.json())
 
-    def file_download_public(self, address: str, dest_path: str) -> None:
-        resp = self._http.post("/v1/files/download/public", json={
+    def file_get(self, data_map: str, dest_path: str) -> None:
+        """Download a private file from a caller-held DataMap into ``dest_path``."""
+        resp = self._http.post("/v1/files/get", json={
+            "data_map": data_map,
+            "dest_path": dest_path,
+        })
+        _check(resp)
+
+    def file_put_public(self, path: str, payment_mode: PaymentMode = PaymentMode.AUTO) -> FilePutPublicResult:
+        """Upload a file publicly. The DataMap is stored on-network as an
+        extra chunk; the returned address is the shareable retrieval handle."""
+        resp = self._http.post("/v1/files/public", json={
+            "path": path,
+            "payment_mode": payment_mode.value,
+        })
+        _check(resp)
+        return _parse_file_put_public_result(resp.json())
+
+    def file_get_public(self, address: str, dest_path: str) -> None:
+        """Download a public file from an on-network DataMap address."""
+        resp = self._http.post("/v1/files/public/get", json={
             "address": address,
             "dest_path": dest_path,
         })
         _check(resp)
 
-    def file_cost(self, path: str, is_public: bool = True) -> UploadCostEstimate:
+    def file_cost(self, path: str, is_public: bool = True, payment_mode: PaymentMode = PaymentMode.AUTO) -> UploadCostEstimate:
         """Pre-upload cost breakdown for the file at ``path``.
 
         The server samples a small number of chunk addresses and extrapolates,
@@ -303,6 +359,7 @@ class RestClient:
         resp = self._http.post("/v1/files/cost", json={
             "path": path,
             "is_public": is_public,
+            "payment_mode": payment_mode.value,
         })
         _check(resp)
         return _parse_cost_estimate(resp.json())
@@ -446,37 +503,41 @@ class AsyncRestClient:
 
     # --- Data ---
 
-    async def data_put_public(self, data: bytes, payment_mode: str | None = None) -> PutResult:
-        body: dict = {"data": _b64(data)}
-        if payment_mode is not None:
-            body["payment_mode"] = payment_mode
-        resp = await self._http.post("/v1/data/public", json=body)
+    async def data_put(self, data: bytes, payment_mode: PaymentMode = PaymentMode.AUTO) -> DataPutResult:
+        """Store private encrypted data. Returns the caller-held DataMap (hex)."""
+        resp = await self._http.post("/v1/data", json={
+            "data": _b64(data),
+            "payment_mode": payment_mode.value,
+        })
         _check(resp)
-        j = resp.json()
-        return PutResult(cost=j.get("cost", ""), address=j.get("address", ""))
+        return _parse_data_put_result(resp.json())
+
+    async def data_get(self, data_map: str) -> bytes:
+        """Retrieve private data from a caller-held DataMap (hex)."""
+        resp = await self._http.post("/v1/data/get", json={"data_map": data_map})
+        _check(resp)
+        return _unb64(resp.json().get("data", ""))
+
+    async def data_put_public(self, data: bytes, payment_mode: PaymentMode = PaymentMode.AUTO) -> DataPutPublicResult:
+        """Store public data. Returns the on-network DataMap address."""
+        resp = await self._http.post("/v1/data/public", json={
+            "data": _b64(data),
+            "payment_mode": payment_mode.value,
+        })
+        _check(resp)
+        return _parse_data_put_public_result(resp.json())
 
     async def data_get_public(self, address: str) -> bytes:
         resp = await self._http.get(f"/v1/data/public/{address}")
         _check(resp)
         return _unb64(resp.json().get("data", ""))
 
-    async def data_put_private(self, data: bytes, payment_mode: str | None = None) -> PutResult:
-        body: dict = {"data": _b64(data)}
-        if payment_mode is not None:
-            body["payment_mode"] = payment_mode
-        resp = await self._http.post("/v1/data/private", json=body)
-        _check(resp)
-        j = resp.json()
-        return PutResult(cost=j.get("cost", ""), address=j.get("data_map", ""))
-
-    async def data_get_private(self, data_map: str) -> bytes:
-        resp = await self._http.get("/v1/data/private", params={"data_map": data_map})
-        _check(resp)
-        return _unb64(resp.json().get("data", ""))
-
-    async def data_cost(self, data: bytes) -> UploadCostEstimate:
+    async def data_cost(self, data: bytes, payment_mode: PaymentMode = PaymentMode.AUTO) -> UploadCostEstimate:
         """Pre-upload cost breakdown for the given bytes."""
-        resp = await self._http.post("/v1/data/cost", json={"data": _b64(data)})
+        resp = await self._http.post("/v1/data/cost", json={
+            "data": _b64(data),
+            "payment_mode": payment_mode.value,
+        })
         _check(resp)
         return _parse_cost_estimate(resp.json())
 
@@ -513,26 +574,46 @@ class AsyncRestClient:
 
     # --- Files ---
 
-    async def file_upload_public(self, path: str, payment_mode: str | None = None) -> FileUploadResult:
-        body: dict = {"path": path}
-        if payment_mode is not None:
-            body["payment_mode"] = payment_mode
-        resp = await self._http.post("/v1/files/upload/public", json=body)
+    async def file_put(self, path: str, payment_mode: PaymentMode = PaymentMode.AUTO) -> FilePutResult:
+        """Upload a file privately. Returns the caller-held DataMap (hex)."""
+        resp = await self._http.post("/v1/files", json={
+            "path": path,
+            "payment_mode": payment_mode.value,
+        })
         _check(resp)
-        return _parse_file_upload_result(resp.json())
+        return _parse_file_put_result(resp.json())
 
-    async def file_download_public(self, address: str, dest_path: str) -> None:
-        resp = await self._http.post("/v1/files/download/public", json={
+    async def file_get(self, data_map: str, dest_path: str) -> None:
+        """Download a private file from a caller-held DataMap into ``dest_path``."""
+        resp = await self._http.post("/v1/files/get", json={
+            "data_map": data_map,
+            "dest_path": dest_path,
+        })
+        _check(resp)
+
+    async def file_put_public(self, path: str, payment_mode: PaymentMode = PaymentMode.AUTO) -> FilePutPublicResult:
+        """Upload a file publicly. Returns the on-network DataMap address."""
+        resp = await self._http.post("/v1/files/public", json={
+            "path": path,
+            "payment_mode": payment_mode.value,
+        })
+        _check(resp)
+        return _parse_file_put_public_result(resp.json())
+
+    async def file_get_public(self, address: str, dest_path: str) -> None:
+        """Download a public file from an on-network DataMap address."""
+        resp = await self._http.post("/v1/files/public/get", json={
             "address": address,
             "dest_path": dest_path,
         })
         _check(resp)
 
-    async def file_cost(self, path: str, is_public: bool = True) -> UploadCostEstimate:
+    async def file_cost(self, path: str, is_public: bool = True, payment_mode: PaymentMode = PaymentMode.AUTO) -> UploadCostEstimate:
         """Pre-upload cost breakdown for the file at ``path``."""
         resp = await self._http.post("/v1/files/cost", json={
             "path": path,
             "is_public": is_public,
+            "payment_mode": payment_mode.value,
         })
         _check(resp)
         return _parse_cost_estimate(resp.json())

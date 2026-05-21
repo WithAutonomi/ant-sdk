@@ -11,13 +11,18 @@ defmodule Antd do
   All functions return `{:ok, result}` or `{:error, exception}`.
   Bang variants (e.g. `health!/1`) raise on error.
 
+  ## Naming convention
+
+  Private = unqualified verb. Public = `_public` suffix. See `Antd.Client`
+  for full details.
+
   ## Quick Start
 
       client = Antd.Client.new()
 
-      # Store data
+      # Store public data
       {:ok, result} = Antd.data_put_public(client, "Hello, Autonomi!")
-      IO.puts("Stored at \#{result.address} (cost: \#{result.cost})")
+      IO.puts("Stored at \#{result.address}")
 
       # Retrieve data
       {:ok, data} = Antd.data_get_public(client, result.address)
@@ -27,24 +32,34 @@ defmodule Antd do
   defdelegate new(base_url \\ "http://localhost:8082", opts \\ []), to: Antd.Client
   defdelegate health(client), to: Antd.Client
   defdelegate health!(client), to: Antd.Client
-  defdelegate data_put_public(client, data), to: Antd.Client
-  defdelegate data_put_public!(client, data), to: Antd.Client
+
+  # --- Data ---
+  defdelegate data_put(client, data, opts \\ []), to: Antd.Client
+  defdelegate data_put!(client, data, opts \\ []), to: Antd.Client
+  defdelegate data_get(client, data_map), to: Antd.Client
+  defdelegate data_get!(client, data_map), to: Antd.Client
+  defdelegate data_put_public(client, data, opts \\ []), to: Antd.Client
+  defdelegate data_put_public!(client, data, opts \\ []), to: Antd.Client
   defdelegate data_get_public(client, address), to: Antd.Client
   defdelegate data_get_public!(client, address), to: Antd.Client
-  defdelegate data_put_private(client, data), to: Antd.Client
-  defdelegate data_put_private!(client, data), to: Antd.Client
-  defdelegate data_get_private(client, data_map), to: Antd.Client
-  defdelegate data_get_private!(client, data_map), to: Antd.Client
-  defdelegate data_cost(client, data), to: Antd.Client
-  defdelegate data_cost!(client, data), to: Antd.Client
+  defdelegate data_cost(client, data, opts \\ []), to: Antd.Client
+  defdelegate data_cost!(client, data, opts \\ []), to: Antd.Client
+
+  # --- Chunks ---
   defdelegate chunk_put(client, data), to: Antd.Client
   defdelegate chunk_put!(client, data), to: Antd.Client
   defdelegate chunk_get(client, address), to: Antd.Client
   defdelegate chunk_get!(client, address), to: Antd.Client
-  defdelegate file_upload_public(client, path), to: Antd.Client
-  defdelegate file_upload_public!(client, path), to: Antd.Client
-  defdelegate file_download_public(client, address, dest_path), to: Antd.Client
-  defdelegate file_download_public!(client, address, dest_path), to: Antd.Client
-  defdelegate file_cost(client, path, is_public), to: Antd.Client
-  defdelegate file_cost!(client, path, is_public), to: Antd.Client
+
+  # --- Files ---
+  defdelegate file_put(client, path, opts \\ []), to: Antd.Client
+  defdelegate file_put!(client, path, opts \\ []), to: Antd.Client
+  defdelegate file_get(client, data_map, dest_path), to: Antd.Client
+  defdelegate file_get!(client, data_map, dest_path), to: Antd.Client
+  defdelegate file_put_public(client, path, opts \\ []), to: Antd.Client
+  defdelegate file_put_public!(client, path, opts \\ []), to: Antd.Client
+  defdelegate file_get_public(client, address, dest_path), to: Antd.Client
+  defdelegate file_get_public!(client, address, dest_path), to: Antd.Client
+  defdelegate file_cost(client, path, is_public, opts \\ []), to: Antd.Client
+  defdelegate file_cost!(client, path, is_public, opts \\ []), to: Antd.Client
 end

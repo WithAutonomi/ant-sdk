@@ -128,7 +128,7 @@ try:
     )
 
     dst = src + ".downloaded"
-    client.file_download_public(fin.data_map_address, dst)
+    client.file_get_public(fin.data_map_address, dst)
     with open(src, "rb") as a, open(dst, "rb") as b:
         assert a.read() == b.read(), "file round-trip mismatch"
     os.unlink(dst)

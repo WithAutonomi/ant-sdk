@@ -10,13 +10,13 @@ client = AntdClient()
 
 # Store private data
 secret_message = b"This message is encrypted on the network"
-result = client.data_put_private(secret_message)
-data_map = result.address  # for private data, address holds the data map
+result = client.data_put(secret_message)
+data_map = result.data_map
 print(f"Data map: {data_map}")
-print(f"Cost: {result.cost} atto tokens")
+print(f"Chunks stored: {result.chunks_stored}, payment mode: {result.payment_mode_used}")
 
 # Retrieve and decrypt
-retrieved = client.data_get_private(data_map)
+retrieved = client.data_get(data_map)
 print(f"Decrypted: {retrieved.decode()}")
 
 assert retrieved == secret_message, "Private data round-trip mismatch!"

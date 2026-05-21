@@ -24,9 +24,9 @@ client = Antd.Client.new()
 {:ok, health} = Antd.Client.health(client)
 IO.puts("OK: #{health.ok}, Network: #{health.network}")
 
-# Store data
+# Store public data (public methods keep the `_public` suffix)
 {:ok, result} = Antd.Client.data_put_public(client, "Hello, Autonomi!")
-IO.puts("Stored at #{result.address} (cost: #{result.cost} atto)")
+IO.puts("Stored at #{result.address}")
 
 # Retrieve data
 {:ok, data} = Antd.Client.data_get_public(client, result.address)
@@ -44,6 +44,41 @@ client = Antd.Client.new()
 |> then(&Antd.Client.data_get_public!(client, &1))
 |> IO.puts()
 ```
+
+## Naming convention (private vs. public)
+
+The SDK follows the antd daemon's `put` / `get` convention:
+
+- **Private = unqualified verb.** `data_put`, `data_get`, `file_put`, `file_get`
+  upload privately. The returned DataMap is the caller-held handle and is
+  NOT stored on-network.
+- **Public = `_public` suffix.** `data_put_public`, `data_get_public`,
+  `file_put_public`, `file_get_public` store the DataMap on-network as an
+  extra chunk; the returned `address` is the shareable retrieval handle.
+- **Chunks** (`chunk_put` / `chunk_get`) have no public/private split.
+
+## Payment mode
+
+Put and cost methods accept an optional `:payment_mode` keyword:
+
+```elixir
+{:ok, _} = Antd.Client.data_put(client, payload, payment_mode: :merkle)
+{:ok, _} = Antd.Client.file_put_public(client, path, payment_mode: :single)
+```
+
+`Antd.PaymentMode` defines three atoms:
+
+| Atom      | Wire string | Meaning                                                  |
+|-----------|-------------|----------------------------------------------------------|
+| `:auto`   | `"auto"`    | Server picks (merkle for 64+ chunks, single otherwise).  |
+| `:merkle` | `"merkle"`  | Force merkle-batch (saves gas, min 2 chunks).            |
+| `:single` | `"single"`  | Force per-chunk payments (works for any chunk count).    |
+
+`:auto` is the default. The empty wire value is treated as `"auto"` by the
+daemon so older clients omitting the field stay compatible.
+
+`get` methods (data_get / data_get_public / file_get / file_get_public)
+do NOT take `:payment_mode`.
 
 ## gRPC Transport
 
@@ -63,7 +98,7 @@ Generate the Elixir protobuf/gRPC stubs from the proto definitions:
 
 ```bash
 protoc --elixir_out=plugins=grpc:lib \
-  -I../../antd/proto \
+  -I../antd/proto \
   antd/v1/common.proto antd/v1/health.proto antd/v1/data.proto \
   antd/v1/chunks.proto antd/v1/files.proto
 ```
@@ -96,7 +131,8 @@ All functions return `{:ok, result}` or `{:error, exception}` tuples, just like
 the REST client. Bang variants (e.g. `health!/1`) are also available. gRPC
 status codes are translated to the same `Antd.*Error` hierarchy.
 
-> **Note:** Wallet operations (address, balance, approve) and payment_mode are available via REST only.
+> **Note:** Wallet operations (address, balance, approve) and external-signer
+> two-phase upload are available via REST only.
 
 ## Prerequisites
 
@@ -133,11 +169,13 @@ All functions take a `%Antd.Client{}` as the first argument. Each returns `{:ok,
 
 | Function | Description |
 |----------|-------------|
-| `data_put_public(client, data)` | Store public data |
+| `data_put(client, data, opts)` | Store private encrypted data — returns `Antd.DataPutResult` with the caller-held DataMap |
+| `data_get(client, data_map)` | Retrieve private data using a caller-held DataMap |
+| `data_put_public(client, data, opts)` | Store public data — returns `Antd.DataPutPublicResult` with the shareable address |
 | `data_get_public(client, address)` | Retrieve public data |
-| `data_put_private(client, data)` | Store encrypted private data |
-| `data_get_private(client, data_map)` | Retrieve private data |
-| `data_cost(client, data)` | Estimate storage cost — returns `Antd.UploadCostEstimate` with size, chunks, gas, payment mode |
+| `data_cost(client, data, opts)` | Estimate storage cost — returns `Antd.UploadCostEstimate` with size, chunks, gas, payment mode |
+
+`opts` accepts `:payment_mode` (`:auto` / `:merkle` / `:single`; default `:auto`) on put and cost methods.
 
 ### Chunks
 
@@ -150,9 +188,31 @@ All functions take a `%Antd.Client{}` as the first argument. Each returns `{:ok,
 
 | Function | Description |
 |----------|-------------|
-| `file_upload_public(client, path)` | Upload a file |
-| `file_download_public(client, address, dest_path)` | Download a file |
-| `file_cost(client, path, is_public)` | Estimate upload cost — returns `Antd.UploadCostEstimate` with size, chunks, gas, payment mode |
+| `file_put(client, path, opts)` | Upload a file privately — returns `Antd.FilePutResult` with the caller-held DataMap |
+| `file_get(client, data_map, dest_path)` | Download a private file using a caller-held DataMap |
+| `file_put_public(client, path, opts)` | Upload a file publicly — returns `Antd.FilePutPublicResult` with the shareable address |
+| `file_get_public(client, address, dest_path)` | Download a public file |
+| `file_cost(client, path, is_public, opts)` | Estimate upload cost |
+
+### Wallet
+
+| Function | Description |
+|----------|-------------|
+| `wallet_address(client)` | Get the wallet address |
+| `wallet_balance(client)` | Get token + gas balances |
+| `wallet_approve(client)` | One-time token-spending approval for payment contracts |
+
+### External Signer (Two-Phase Upload)
+
+| Function | Description |
+|----------|-------------|
+| `prepare_upload(client, path, opts)` | Prepare a file upload (supports `:visibility`) |
+| `prepare_upload_public(client, path)` | Convenience: `prepare_upload(..., visibility: "public")` |
+| `prepare_data_upload(client, data, opts)` | Prepare an in-memory data upload |
+| `finalize_upload(client, upload_id, tx_hashes)` | Finalize after external signing |
+| `finalize_merkle_upload(client, upload_id, winner_pool_hash, opts)` | Finalize a merkle-batch upload |
+| `prepare_chunk_upload(client, data)` | Prepare a single chunk for external-signer publish |
+| `finalize_chunk_upload(client, upload_id, tx_hashes)` | Submit a prepared chunk after external payment |
 
 ## Error Handling
 
@@ -204,5 +264,5 @@ See the [examples/](examples/) directory:
 - `01_connect.exs` — Health check
 - `02_data.exs` — Public data storage and retrieval
 - `03_chunks.exs` — Raw chunk operations
-- `04_files.exs` — File and directory upload/download
+- `04_files.exs` — File upload/download (public and private)
 - `06_private_data.exs` — Private encrypted data

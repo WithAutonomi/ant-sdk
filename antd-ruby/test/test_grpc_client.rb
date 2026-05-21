@@ -17,17 +17,19 @@ rescue LoadError
   # with the same public API, delegating to injected @*_stub ivars.
   module Antd
     class GrpcClient
-      def health()          grpc_call { r = @health_stub.check(nil); HealthStatus.new(ok: r.status == "ok", network: r.network) } end
-      def data_put_public(d) grpc_call { r = @data_stub.put_public(nil); PutResult.new(cost: r.cost.atto_tokens, address: r.address) } end
-      def data_get_public(a) grpc_call { @data_stub.get_public(nil).data } end
-      def data_put_private(d) grpc_call { r = @data_stub.put_private(nil); PutResult.new(cost: r.cost.atto_tokens, address: r.data_map) } end
-      def data_get_private(m) grpc_call { @data_stub.get_private(nil).data } end
-      def data_cost(d)       grpc_call { @data_stub.get_cost(nil).atto_tokens } end
-      def chunk_put(d)       grpc_call { r = @chunk_stub.put(nil); PutResult.new(cost: r.cost.atto_tokens, address: r.address) } end
-      def chunk_get(a)       grpc_call { @chunk_stub.get(nil).data } end
-      def file_upload_public(p) grpc_call { r = @file_stub.upload_public(nil); FileUploadResult.new(address: r.address, storage_cost_atto: r.storage_cost_atto, gas_cost_wei: r.gas_cost_wei, chunks_stored: r.chunks_stored, payment_mode_used: r.payment_mode_used) } end
-      def file_download_public(a, d) grpc_call { @file_stub.download_public(nil); nil } end
-      def file_cost(p, ip = true) grpc_call { @file_stub.get_file_cost(nil).atto_tokens } end
+      def health()              grpc_call { r = @health_stub.check(nil); HealthStatus.new(ok: r.status == "ok", network: r.network) } end
+      def data_put(d, payment_mode: PaymentMode::AUTO) grpc_call { r = @data_stub.put(nil); DataPutResult.new(data_map: r.data_map) } end
+      def data_get(m)           grpc_call { @data_stub.get(nil).data } end
+      def data_put_public(d, payment_mode: PaymentMode::AUTO) grpc_call { r = @data_stub.put_public(nil); DataPutPublicResult.new(address: r.address) } end
+      def data_get_public(a)    grpc_call { @data_stub.get_public(nil).data } end
+      def data_cost(d, payment_mode: PaymentMode::AUTO) grpc_call { @data_stub.cost(nil).atto_tokens } end
+      def chunk_put(d)          grpc_call { r = @chunk_stub.put(nil); PutResult.new(cost: r.cost.atto_tokens, address: r.address) } end
+      def chunk_get(a)          grpc_call { @chunk_stub.get(nil).data } end
+      def file_put(p, payment_mode: PaymentMode::AUTO) grpc_call { r = @file_stub.put(nil); FilePutResult.new(data_map: r.data_map, storage_cost_atto: r.storage_cost_atto, gas_cost_wei: r.gas_cost_wei, chunks_stored: r.chunks_stored, payment_mode_used: r.payment_mode_used) } end
+      def file_get(m, d)        grpc_call { @file_stub.get(nil); nil } end
+      def file_put_public(p, payment_mode: PaymentMode::AUTO) grpc_call { r = @file_stub.put_public(nil); FilePutPublicResult.new(address: r.address, storage_cost_atto: r.storage_cost_atto, gas_cost_wei: r.gas_cost_wei, chunks_stored: r.chunks_stored, payment_mode_used: r.payment_mode_used) } end
+      def file_get_public(a, d) grpc_call { @file_stub.get_public(nil); nil } end
+      def file_cost(p, ip = true, payment_mode: PaymentMode::AUTO) grpc_call { @file_stub.cost(nil).atto_tokens } end
 
       private
 
@@ -97,22 +99,22 @@ module FakeGrpc
 
   class DataStub
     def put_public(_req)
-      OpenStruct.new(cost: Cost.new(atto_tokens: "100"), address: "abc123")
+      OpenStruct.new(address: "abc123")
     end
 
     def get_public(_req)
       OpenStruct.new(data: "hello")
     end
 
-    def put_private(_req)
-      OpenStruct.new(cost: Cost.new(atto_tokens: "200"), data_map: "dm123")
+    def put(_req)
+      OpenStruct.new(data_map: "dm123")
     end
 
-    def get_private(_req)
+    def get(_req)
       OpenStruct.new(data: "secret")
     end
 
-    def get_cost(_req)
+    def cost(_req)
       OpenStruct.new(atto_tokens: "50")
     end
   end
@@ -128,7 +130,21 @@ module FakeGrpc
   end
 
   class FileStub
-    def upload_public(_req)
+    def put(_req)
+      OpenStruct.new(
+        data_map: "filedm1",
+        storage_cost_atto: "500",
+        gas_cost_wei: "21",
+        chunks_stored: 2,
+        payment_mode_used: "single",
+      )
+    end
+
+    def get(_req)
+      OpenStruct.new
+    end
+
+    def put_public(_req)
       OpenStruct.new(
         address: "file1",
         storage_cost_atto: "1000",
@@ -138,11 +154,11 @@ module FakeGrpc
       )
     end
 
-    def download_public(_req)
+    def get_public(_req)
       OpenStruct.new
     end
 
-    def get_file_cost(_req)
+    def cost(_req)
       OpenStruct.new(atto_tokens: "1000")
     end
   end
@@ -210,7 +226,7 @@ class TestGrpcClient < Minitest::Test
 
   def test_data_put_public
     result = @client.data_put_public("hello")
-    assert_equal "100", result.cost
+    assert_instance_of Antd::DataPutPublicResult, result
     assert_equal "abc123", result.address
   end
 
@@ -221,14 +237,14 @@ class TestGrpcClient < Minitest::Test
 
   # --- Data Private ---
 
-  def test_data_put_private
-    result = @client.data_put_private("secret")
-    assert_equal "200", result.cost
-    assert_equal "dm123", result.address
+  def test_data_put
+    result = @client.data_put("secret")
+    assert_instance_of Antd::DataPutResult, result
+    assert_equal "dm123", result.data_map
   end
 
-  def test_data_get_private
-    data = @client.data_get_private("dm123")
+  def test_data_get
+    data = @client.data_get("dm123")
     assert_equal "secret", data
   end
 
@@ -254,8 +270,22 @@ class TestGrpcClient < Minitest::Test
 
   # --- Files ---
 
-  def test_file_upload_public
-    result = @client.file_upload_public("/tmp/test.txt")
+  def test_file_put
+    result = @client.file_put("/tmp/test.txt")
+    assert_instance_of Antd::FilePutResult, result
+    assert_equal "filedm1", result.data_map
+    assert_equal "500", result.storage_cost_atto
+    assert_equal 2, result.chunks_stored
+    assert_equal "single", result.payment_mode_used
+  end
+
+  def test_file_get
+    assert_nil @client.file_get("filedm1", "/tmp/out.txt")
+  end
+
+  def test_file_put_public
+    result = @client.file_put_public("/tmp/test.txt")
+    assert_instance_of Antd::FilePutPublicResult, result
     assert_equal "file1", result.address
     assert_equal "1000", result.storage_cost_atto
     assert_equal "42", result.gas_cost_wei
@@ -263,8 +293,8 @@ class TestGrpcClient < Minitest::Test
     assert_equal "auto", result.payment_mode_used
   end
 
-  def test_file_download_public
-    assert_nil @client.file_download_public("file1", "/tmp/out.txt")
+  def test_file_get_public
+    assert_nil @client.file_get_public("file1", "/tmp/out.txt")
   end
 
   def test_file_cost

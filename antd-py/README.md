@@ -75,11 +75,13 @@ await aclient.close()
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `data_put_public(data: bytes)` | `PutResult` | Store public data |
-| `data_get_public(address: str)` | `bytes` | Retrieve public data |
-| `data_put_private(data: bytes)` | `PutResult` | Store private (encrypted) data |
-| `data_get_private(data_map: str)` | `bytes` | Retrieve private data |
-| `data_cost(data: bytes)` | `UploadCostEstimate` | Estimate storage cost — size, chunks, gas, payment mode |
+| `data_put(data: bytes, payment_mode=PaymentMode.AUTO)` | `DataPutResult` | Store private (encrypted) data; returns caller-held DataMap |
+| `data_get(data_map: str)` | `bytes` | Retrieve private data from a caller-held DataMap |
+| `data_put_public(data: bytes, payment_mode=PaymentMode.AUTO)` | `DataPutPublicResult` | Store public data; returns on-network DataMap address |
+| `data_get_public(address: str)` | `bytes` | Retrieve public data by address |
+| `data_cost(data: bytes, payment_mode=PaymentMode.AUTO)` | `UploadCostEstimate` | Estimate storage cost — size, chunks, gas, payment mode |
+
+`PaymentMode` is a typed enum (`PaymentMode.AUTO`, `PaymentMode.MERKLE`, `PaymentMode.SINGLE`). Private uploads use the unqualified verb (`data_put` / `data_get`); the `_public` suffix marks the public variant.
 
 #### Chunks
 
@@ -92,9 +94,11 @@ await aclient.close()
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `file_upload_public(path: str)` | `FileUploadResult` | Upload a file |
-| `file_download_public(address: str, dest: str)` | `None` | Download a file |
-| `file_cost(path: str, is_public: bool)` | `UploadCostEstimate` | Estimate file cost — size, chunks, gas, payment mode |
+| `file_put(path: str, payment_mode=PaymentMode.AUTO)` | `FilePutResult` | Upload a file privately; returns caller-held DataMap |
+| `file_get(data_map: str, dest: str)` | `None` | Download a private file from a caller-held DataMap |
+| `file_put_public(path: str, payment_mode=PaymentMode.AUTO)` | `FilePutPublicResult` | Upload a file publicly; returns on-network DataMap address |
+| `file_get_public(address: str, dest: str)` | `None` | Download a public file by address |
+| `file_cost(path: str, is_public: bool, payment_mode=PaymentMode.AUTO)` | `UploadCostEstimate` | Estimate file cost — size, chunks, gas, payment mode |
 
 ## Models
 

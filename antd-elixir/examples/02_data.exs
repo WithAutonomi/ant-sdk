@@ -10,7 +10,7 @@ client = Antd.Client.new()
 
 payload = "Hello, Autonomi!"
 
-# Estimate cost before storing
+# Estimate cost before storing (payment_mode defaults to :auto).
 {:ok, est} = Antd.Client.data_cost(client, payload)
 IO.puts(
   "Estimate: #{est.file_size} bytes in #{est.chunk_count} chunks, " <>
@@ -18,10 +18,10 @@ IO.puts(
   "mode #{est.payment_mode}"
 )
 
-# Store public data
-{:ok, result} = Antd.Client.data_put_public(client, payload)
+# Store public data — public methods KEEP the `_public` suffix.
+{:ok, result} = Antd.Client.data_put_public(client, payload, payment_mode: :auto)
 IO.puts("Stored at address: #{result.address}")
-IO.puts("Actual cost: #{result.cost} atto tokens")
+IO.puts("Chunks stored: #{result.chunks_stored}, mode: #{result.payment_mode_used}")
 
 # Retrieve it back
 {:ok, data} = Antd.Client.data_get_public(client, result.address)

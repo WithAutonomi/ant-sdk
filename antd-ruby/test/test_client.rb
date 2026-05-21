@@ -53,12 +53,15 @@ class TestClient < Minitest::Test
 
   def test_data_put_public
     stub_request(:post, "#{BASE}/v1/data/public")
-      .to_return(status: 200, body: '{"cost":"100","address":"abc123"}',
+      .with(body: hash_including("payment_mode" => "auto"))
+      .to_return(status: 200, body: '{"address":"abc123","chunks_stored":3,"payment_mode_used":"auto"}',
                  headers: { "Content-Type" => "application/json" })
 
     result = @client.data_put_public("hello")
-    assert_equal "100", result.cost
+    assert_instance_of Antd::DataPutPublicResult, result
     assert_equal "abc123", result.address
+    assert_equal 3, result.chunks_stored
+    assert_equal "auto", result.payment_mode_used
   end
 
   def test_data_get_public
@@ -73,23 +76,27 @@ class TestClient < Minitest::Test
 
   # --- Data Private ---
 
-  def test_data_put_private
-    stub_request(:post, "#{BASE}/v1/data/private")
-      .to_return(status: 200, body: '{"cost":"200","data_map":"dm123"}',
+  def test_data_put
+    stub_request(:post, "#{BASE}/v1/data")
+      .with(body: hash_including("payment_mode" => "merkle"))
+      .to_return(status: 200, body: '{"data_map":"dm123","chunks_stored":2,"payment_mode_used":"merkle"}',
                  headers: { "Content-Type" => "application/json" })
 
-    result = @client.data_put_private("secret")
-    assert_equal "200", result.cost
-    assert_equal "dm123", result.address
+    result = @client.data_put("secret", payment_mode: Antd::PaymentMode::MERKLE)
+    assert_instance_of Antd::DataPutResult, result
+    assert_equal "dm123", result.data_map
+    assert_equal 2, result.chunks_stored
+    assert_equal "merkle", result.payment_mode_used
   end
 
-  def test_data_get_private
+  def test_data_get
     encoded = Base64.strict_encode64("secret")
-    stub_request(:get, %r{#{BASE}/v1/data/private\?data_map=})
+    stub_request(:post, "#{BASE}/v1/data/get")
+      .with(body: hash_including("data_map" => "dm123"))
       .to_return(status: 200, body: %({"data":"#{encoded}"}),
                  headers: { "Content-Type" => "application/json" })
 
-    data = @client.data_get_private("dm123")
+    data = @client.data_get("dm123")
     assert_equal "secret", data
   end
 
@@ -97,11 +104,12 @@ class TestClient < Minitest::Test
 
   def test_data_cost
     stub_request(:post, "#{BASE}/v1/data/cost")
+      .with(body: hash_including("payment_mode" => "single"))
       .to_return(status: 200,
                  body: '{"cost":"50","file_size":4,"chunk_count":3,"estimated_gas_cost_wei":"150000000000000","payment_mode":"single"}',
                  headers: { "Content-Type" => "application/json" })
 
-    est = @client.data_cost("test")
+    est = @client.data_cost("test", payment_mode: Antd::PaymentMode::SINGLE)
     assert_equal "50", est.cost
     assert_equal 4, est.file_size
     assert_equal 3, est.chunk_count
@@ -133,13 +141,39 @@ class TestClient < Minitest::Test
 
   # --- Files ---
 
-  def test_file_upload_public
-    stub_request(:post, "#{BASE}/v1/files/upload/public")
+  def test_file_put
+    stub_request(:post, "#{BASE}/v1/files")
+      .with(body: hash_including("payment_mode" => "single"))
+      .to_return(status: 200,
+                 body: '{"data_map":"filedm1","storage_cost_atto":"500","gas_cost_wei":"21","chunks_stored":2,"payment_mode_used":"single"}',
+                 headers: { "Content-Type" => "application/json" })
+
+    result = @client.file_put("/tmp/test.txt", payment_mode: Antd::PaymentMode::SINGLE)
+    assert_instance_of Antd::FilePutResult, result
+    assert_equal "filedm1", result.data_map
+    assert_equal "500", result.storage_cost_atto
+    assert_equal 2, result.chunks_stored
+    assert_equal "single", result.payment_mode_used
+  end
+
+  def test_file_get
+    stub_request(:post, "#{BASE}/v1/files/get")
+      .with(body: hash_including("data_map" => "filedm1", "dest_path" => "/tmp/out.txt"))
+      .to_return(status: 200, body: "",
+                 headers: { "Content-Type" => "application/json" })
+
+    assert_nil @client.file_get("filedm1", "/tmp/out.txt")
+  end
+
+  def test_file_put_public
+    stub_request(:post, "#{BASE}/v1/files/public")
+      .with(body: hash_including("payment_mode" => "auto"))
       .to_return(status: 200,
                  body: '{"address":"file1","storage_cost_atto":"1000","gas_cost_wei":"42","chunks_stored":3,"payment_mode_used":"auto"}',
                  headers: { "Content-Type" => "application/json" })
 
-    result = @client.file_upload_public("/tmp/test.txt")
+    result = @client.file_put_public("/tmp/test.txt")
+    assert_instance_of Antd::FilePutPublicResult, result
     assert_equal "file1", result.address
     assert_equal "1000", result.storage_cost_atto
     assert_equal "42", result.gas_cost_wei
@@ -147,16 +181,17 @@ class TestClient < Minitest::Test
     assert_equal "auto", result.payment_mode_used
   end
 
-  def test_file_download_public
-    stub_request(:post, "#{BASE}/v1/files/download/public")
+  def test_file_get_public
+    stub_request(:post, "#{BASE}/v1/files/public/get")
       .to_return(status: 200, body: "",
                  headers: { "Content-Type" => "application/json" })
 
-    assert_nil @client.file_download_public("file1", "/tmp/out.txt")
+    assert_nil @client.file_get_public("file1", "/tmp/out.txt")
   end
 
   def test_file_cost
     stub_request(:post, "#{BASE}/v1/files/cost")
+      .with(body: hash_including("payment_mode" => "auto"))
       .to_return(status: 200,
                  body: '{"cost":"1000","file_size":4096,"chunk_count":3,"estimated_gas_cost_wei":"150000000000000","payment_mode":"auto"}',
                  headers: { "Content-Type" => "application/json" })

@@ -130,7 +130,7 @@ Dir.mktmpdir("antd-ruby-07-extsig-") do |tmp|
        "chunks_stored=#{file_fin.chunks_stored}"
 
   dst = File.join(tmp, "file.bin.downloaded")
-  client.file_download_public(file_fin.data_map_address, dst)
+  client.file_get_public(file_fin.data_map_address, dst)
   unless File.binread(dst) == File.binread(src)
     warn "file round-trip mismatch"
     exit 1

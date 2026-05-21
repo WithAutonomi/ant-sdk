@@ -1,3 +1,26 @@
+defmodule Antd.PaymentMode do
+  @moduledoc """
+  Payment-batching strategy for uploads.
+
+  * `:auto`   — server picks (merkle for 64+ chunks, single otherwise).
+  * `:merkle` — force merkle-batch (saves gas, min 2 chunks).
+  * `:single` — force per-chunk payments (works for any chunk count).
+
+  The atom is serialized to the wire string at the request boundary; the
+  empty wire value is treated as `"auto"` by the daemon so older clients
+  that omit the field stay compatible.
+  """
+
+  @type t :: :auto | :merkle | :single
+
+  @doc "Serialize a `t:t/0` atom to the wire string the daemon expects."
+  @spec to_wire(t() | nil) :: String.t()
+  def to_wire(:auto), do: "auto"
+  def to_wire(:merkle), do: "merkle"
+  def to_wire(:single), do: "single"
+  def to_wire(nil), do: "auto"
+end
+
 defmodule Antd.HealthStatus do
   @moduledoc """
   Result of a health check.
@@ -31,7 +54,13 @@ defmodule Antd.HealthStatus do
 end
 
 defmodule Antd.PutResult do
-  @moduledoc "Result of a put/create operation."
+  @moduledoc """
+  Result of a single-chunk put (used by `Antd.Client.chunk_put/2`).
+
+  Data and file puts return richer types (`Antd.DataPutResult` /
+  `Antd.DataPutPublicResult` / `Antd.FilePutResult` /
+  `Antd.FilePutPublicResult`).
+  """
 
   @enforce_keys [:cost, :address]
   defstruct [:cost, :address]
@@ -42,11 +71,70 @@ defmodule Antd.PutResult do
         }
 end
 
-defmodule Antd.FileUploadResult do
+defmodule Antd.DataPutResult do
+  @moduledoc """
+  Result of a private data put.
+
+  The DataMap is returned to the caller; it is NOT stored on-network. The
+  REST transport populates `:chunks_stored` and `:payment_mode_used`; the
+  gRPC transport currently leaves them empty because proto
+  `PutDataResponse` only carries `data_map`.
+  """
+
+  @enforce_keys [:data_map]
+  defstruct data_map: "", chunks_stored: 0, payment_mode_used: ""
+
+  @type t :: %__MODULE__{
+          data_map: String.t(),
+          chunks_stored: non_neg_integer(),
+          payment_mode_used: String.t()
+        }
+end
+
+defmodule Antd.DataPutPublicResult do
+  @moduledoc """
+  Result of a public data put.
+
+  The DataMap is stored on-network as an additional chunk; `:address` is the
+  shareable retrieval handle. REST populates `:chunks_stored` and
+  `:payment_mode_used`; gRPC currently leaves them empty.
+  """
+
+  @enforce_keys [:address]
+  defstruct address: "", chunks_stored: 0, payment_mode_used: ""
+
+  @type t :: %__MODULE__{
+          address: String.t(),
+          chunks_stored: non_neg_integer(),
+          payment_mode_used: String.t()
+        }
+end
+
+defmodule Antd.FilePutResult do
+  @moduledoc """
+  Result of a private file upload.
+
+  The DataMap is returned to the caller; it is NOT stored on-network.
+  """
+
+  @enforce_keys [:data_map, :storage_cost_atto, :gas_cost_wei, :chunks_stored, :payment_mode_used]
+  defstruct [:data_map, :storage_cost_atto, :gas_cost_wei, :chunks_stored, :payment_mode_used]
+
+  @type t :: %__MODULE__{
+          data_map: String.t(),
+          storage_cost_atto: String.t(),
+          gas_cost_wei: String.t(),
+          chunks_stored: non_neg_integer(),
+          payment_mode_used: String.t()
+        }
+end
+
+defmodule Antd.FilePutPublicResult do
   @moduledoc """
   Result of a public file upload.
 
-  Returned by `Antd.Client.file_upload_public/2` and the equivalent gRPC client function.
+  The DataMap is stored on-network as an additional chunk; `:address` is the
+  shareable retrieval handle.
   """
 
   @enforce_keys [:address, :storage_cost_atto, :gas_cost_wei, :chunks_stored, :payment_mode_used]
@@ -124,7 +212,14 @@ end
 defmodule Antd.PrepareUploadResult do
   @moduledoc "Result of preparing an upload for external signing."
 
-  @enforce_keys [:upload_id, :payments, :total_amount, :payment_vault_address, :payment_token_address, :rpc_url]
+  @enforce_keys [
+    :upload_id,
+    :payments,
+    :total_amount,
+    :payment_vault_address,
+    :payment_token_address,
+    :rpc_url
+  ]
   defstruct [
     :upload_id,
     :payments,
@@ -213,8 +308,8 @@ end
 
 defmodule Antd.UploadCostEstimate do
   @moduledoc """
-  Pre-upload cost breakdown returned by `Antd.Client.data_cost/2` and
-  `Antd.Client.file_cost/3`.
+  Pre-upload cost breakdown returned by `Antd.Client.data_cost/3` and
+  `Antd.Client.file_cost/4`.
 
   The server samples up to 5 chunk addresses and extrapolates the storage
   cost. Gas is an advisory heuristic, not a live gas-oracle query.
