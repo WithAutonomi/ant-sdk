@@ -33,11 +33,11 @@ void main() async {
     final health = await client.health();
     print('OK: ${health.ok}, Network: ${health.network}');
 
-    // Store data
-    final result = await client.dataPutPublic(
-      Uint8List.fromList(utf8.encode('Hello, Autonomi!')),
-    );
-    print('Stored at ${result.address} (cost: ${result.cost} atto)');
+    // Store data publicly (shareable address)
+    final payload = Uint8List.fromList(utf8.encode('Hello, Autonomi!'));
+    final result = await client.dataPutPublic(payload, paymentMode: PaymentMode.auto);
+    print('Stored at ${result.address}');
+    print('  chunks: ${result.chunksStored}, mode: ${result.paymentModeUsed}');
 
     // Retrieve data
     final data = await client.dataGetPublic(result.address);
@@ -48,6 +48,21 @@ void main() async {
     client.close();
   }
 }
+```
+
+## Payment Mode
+
+All `*put*` and `*cost*` operations accept a `PaymentMode` parameter that
+controls how on-chain payments for stored chunks are bundled:
+
+| Mode | Behavior |
+|---|---|
+| `PaymentMode.auto` (default) | Daemon picks merkle for large uploads, single for small. |
+| `PaymentMode.merkle` | One on-chain transaction with a merkle proof covering all chunks. Cheaper for large uploads. Requires ≥2 chunks. |
+| `PaymentMode.single` | N transactions, one per chunk. Works for any chunk count. |
+
+```dart
+final result = await client.filePut('/tmp/big.bin', paymentMode: PaymentMode.merkle);
 ```
 
 ## gRPC Transport
@@ -62,20 +77,18 @@ Add the gRPC dependencies (already included in `pubspec.yaml`):
 ```yaml
 dependencies:
   grpc: ^4.0.1
-  protobuf: ^3.1.0
+  protobuf: ^4.1.0
 ```
 
 Generate the Dart protobuf/gRPC stubs from the proto definitions:
 
 ```bash
-# Install the Dart protoc plugin
-dart pub global activate protoc_plugin
+# Install the Dart protoc plugin (pin to 22.x — newer plugins emit code
+# targeting protobuf 6+, which conflicts with web3dart's transitive deps).
+dart pub global activate protoc_plugin 22.3.0
 
 # Generate stubs into lib/src/generated/
-protoc --dart_out=grpc:lib/src/generated \
-  -I../../antd/proto \
-  antd/v1/common.proto antd/v1/health.proto antd/v1/data.proto \
-  antd/v1/chunks.proto antd/v1/files.proto antd/v1/events.proto
+./tool/generate_proto.sh
 ```
 
 ### Usage
@@ -114,7 +127,7 @@ void main() async {
 The `GrpcAntdClient` throws the same `AntdError` hierarchy as the REST client,
 translating gRPC status codes to the appropriate error subclass.
 
-> **Note:** Wallet operations (address, balance, approve) and payment_mode are available via REST only.
+> **Note:** Wallet operations (address, balance, approve) are REST-only. The gRPC `PutDataResponse` / `PutPublicDataResponse` messages only carry the address/dataMap; `chunksStored` / `paymentModeUsed` are populated by REST only.
 
 ## Prerequisites
 
@@ -144,32 +157,57 @@ final client = AntdClient(httpClient: myHttpClient);
 
 All methods return `Future<T>` and can throw `AntdError` subclasses.
 
+The unqualified verb (`dataPut`, `filePut`, `dataGet`, `fileGet`) is the
+**private** variant — DataMaps are returned to the caller and not stored
+on-network. The `*Public` variants store the DataMap on-network and return
+a shareable address.
+
 ### Health
 | Method | Description |
 |--------|-------------|
 | `health()` | Check daemon status |
 
-### Data (Immutable)
+### Data
 | Method | Description |
 |--------|-------------|
-| `dataPutPublic(data)` | Store public data |
+| `dataPut(data, {paymentMode})` | Store encrypted private data — returns `DataPutResult { dataMap, chunksStored, paymentModeUsed }` |
+| `dataGet(dataMap)` | Retrieve private data |
+| `dataPutPublic(data, {paymentMode})` | Store public data — returns `DataPutPublicResult { address, chunksStored, paymentModeUsed }` |
 | `dataGetPublic(address)` | Retrieve public data |
-| `dataPutPrivate(data)` | Store encrypted private data |
-| `dataGetPrivate(dataMap)` | Retrieve private data |
-| `dataCost(data)` | Estimate storage cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
+| `dataCost(data, {paymentMode})` | Estimate storage cost |
 
 ### Chunks
 | Method | Description |
 |--------|-------------|
 | `chunkPut(data)` | Store a raw chunk |
 | `chunkGet(address)` | Retrieve a chunk |
+| `prepareChunkUpload(data)` | External-signer prepare step |
+| `finalizeChunkUpload(uploadId, txHashes)` | External-signer finalize step |
 
 ### Files
 | Method | Description |
 |--------|-------------|
-| `fileUploadPublic(path)` | Upload a file |
-| `fileDownloadPublic(address, destPath)` | Download a file |
-| `fileCost(path, {isPublic})` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
+| `filePut(path, {paymentMode})` | Upload a private file — returns `FilePutResult { dataMap, ... }` |
+| `fileGet(dataMap, destPath)` | Download a private file |
+| `filePutPublic(path, {paymentMode})` | Upload a public file — returns `FilePutPublicResult { address, ... }` |
+| `fileGetPublic(address, destPath)` | Download a public file |
+| `fileCost(path, {isPublic, paymentMode})` | Estimate upload cost |
+
+### Wallet
+| Method | Description |
+|--------|-------------|
+| `walletAddress()` | Wallet address |
+| `walletBalance()` | Token + gas balance |
+| `walletApprove()` | One-time token approval |
+
+### External Signer (Two-Phase Upload)
+| Method | Description |
+|--------|-------------|
+| `prepareUpload(path, {visibility})` | Prepare file upload for external signer |
+| `prepareUploadPublic(path)` | Convenience for public prepare |
+| `prepareDataUpload(data, {visibility})` | Prepare data upload |
+| `finalizeUpload(uploadId, txHashes)` | Wave-batch finalize |
+| `finalizeMerkleUpload(uploadId, winnerPoolHash)` | Merkle finalize |
 
 ## Error Handling
 
@@ -205,5 +243,6 @@ See the [example/](example/) directory:
 - `01_connect` — Health check
 - `02_data` — Public data storage and retrieval
 - `03_chunks` — Raw chunk operations
-- `04_files` — File and directory upload/download
+- `04_files` — File upload/download (public)
 - `06_private_data` — Private encrypted data storage
+- `07_external_signer` — File + chunk upload via external signer

@@ -8,8 +8,9 @@ import 'package:test/test.dart';
 // Standalone fake gRPC client for testing.
 //
 // Does NOT import grpc_client.dart (which requires proto-generated stubs).
-// Instead, defines a _FakeGrpcClient with the same 15-method API that returns
-// canned responses or throws fake gRPC-like errors for error mapping tests.
+// Instead, defines a _FakeGrpcClient with the same method surface that
+// returns canned responses or throws fake gRPC-like errors for error mapping
+// tests.
 // ---------------------------------------------------------------------------
 
 /// Simulates a gRPC error with a status code and message.
@@ -34,43 +35,59 @@ Exception mapGrpcError(FakeGrpcError e) {
   }
 }
 
-/// Fake gRPC client returning canned responses for all 15 methods.
+/// Fake gRPC client returning canned responses for all methods.
 class _FakeGrpcClient {
   final FakeGrpcError? errorToThrow;
 
   _FakeGrpcClient({this.errorToThrow});
 
-  // Helper: throw mapped error if configured, otherwise return the value.
   Future<T> _maybeThrow<T>(T value) async {
     if (errorToThrow != null) throw mapGrpcError(errorToThrow!);
     return value;
   }
 
-Future<HealthStatus> health() =>
+  Future<HealthStatus> health() =>
       _maybeThrow(const HealthStatus(ok: true, network: 'local'));
 
-Future<PutResult> dataPutPublic(Uint8List data) =>
-      _maybeThrow(const PutResult(cost: '100', address: 'abc123'));
+  Future<DataPutPublicResult> dataPutPublic(Uint8List data,
+          {PaymentMode paymentMode = PaymentMode.auto}) =>
+      _maybeThrow(const DataPutPublicResult(address: 'abc123'));
 
-Future<Uint8List> dataGetPublic(String address) =>
+  Future<Uint8List> dataGetPublic(String address) =>
       _maybeThrow(Uint8List.fromList([104, 101, 108, 108, 111])); // "hello"
 
-Future<PutResult> dataPutPrivate(Uint8List data) =>
-      _maybeThrow(const PutResult(cost: '200', address: 'dm123'));
+  Future<DataPutResult> dataPut(Uint8List data,
+          {PaymentMode paymentMode = PaymentMode.auto}) =>
+      _maybeThrow(const DataPutResult(dataMap: 'dm123'));
 
-Future<Uint8List> dataGetPrivate(String dataMap) =>
+  Future<Uint8List> dataGet(String dataMap) =>
       _maybeThrow(Uint8List.fromList([115, 101, 99, 114, 101, 116])); // "secret"
 
-Future<String> dataCost(Uint8List data) => _maybeThrow('50');
+  Future<String> dataCost(Uint8List data,
+          {PaymentMode paymentMode = PaymentMode.auto}) =>
+      _maybeThrow('50');
 
-Future<PutResult> chunkPut(Uint8List data) =>
+  Future<PutResult> chunkPut(Uint8List data) =>
       _maybeThrow(const PutResult(cost: '10', address: 'chunk1'));
 
-Future<Uint8List> chunkGet(String address) =>
+  Future<Uint8List> chunkGet(String address) =>
       _maybeThrow(Uint8List.fromList([99, 104, 117, 110, 107])); // "chunk"
 
-Future<FileUploadResult> fileUploadPublic(String path) =>
-      _maybeThrow(const FileUploadResult(
+  Future<FilePutResult> filePut(String path,
+          {PaymentMode paymentMode = PaymentMode.auto}) =>
+      _maybeThrow(const FilePutResult(
+        dataMap: 'private_dm',
+        storageCostAtto: '500',
+        gasCostWei: '21',
+        chunksStored: 2,
+        paymentModeUsed: 'single',
+      ));
+
+  Future<void> fileGet(String dataMap, String destPath) => _maybeThrow(null);
+
+  Future<FilePutPublicResult> filePutPublic(String path,
+          {PaymentMode paymentMode = PaymentMode.auto}) =>
+      _maybeThrow(const FilePutPublicResult(
         address: 'file1',
         storageCostAtto: '1000',
         gasCostWei: '42',
@@ -78,21 +95,19 @@ Future<FileUploadResult> fileUploadPublic(String path) =>
         paymentModeUsed: 'auto',
       ));
 
-Future<void> fileDownloadPublic(String address, String destPath) =>
+  Future<void> fileGetPublic(String address, String destPath) =>
       _maybeThrow(null);
 
-Future<String> fileCost(
+  Future<String> fileCost(
     String path, {
     bool isPublic = true,
+    PaymentMode paymentMode = PaymentMode.auto,
   }) =>
       _maybeThrow('1000');
 
-Future<void> close() async {}
+  Future<void> close() async {}
 }
 
-/// Creates a [_FakeGrpcClient] that always throws the given [GrpcError] when
-/// calling any method.  This lets us test the error-mapping switch in the
-/// real [GrpcAntdClient._handleError] via the static helper directly.
 _FakeGrpcClient errorClient(int grpcCode, String message) {
   return _FakeGrpcClient(
     errorToThrow: FakeGrpcError(grpcCode, message),
@@ -101,7 +116,7 @@ _FakeGrpcClient errorClient(int grpcCode, String message) {
 
 void main() {
   // -------------------------------------------------------------------------
-  // Happy-path tests – all 15 methods
+  // Happy-path tests
   // -------------------------------------------------------------------------
 
   group('Health', () {
@@ -116,8 +131,10 @@ void main() {
   group('Data Public', () {
     test('put public data', () async {
       final client = _FakeGrpcClient();
-      final result = await client.dataPutPublic(Uint8List.fromList([1, 2, 3]));
-      expect(result.cost, equals('100'));
+      final result = await client.dataPutPublic(
+        Uint8List.fromList([1, 2, 3]),
+        paymentMode: PaymentMode.merkle,
+      );
       expect(result.address, equals('abc123'));
     });
 
@@ -131,30 +148,35 @@ void main() {
   group('Data Private', () {
     test('put private data', () async {
       final client = _FakeGrpcClient();
-      final result = await client.dataPutPrivate(Uint8List.fromList([1, 2, 3]));
-      expect(result.cost, equals('200'));
-      expect(result.address, equals('dm123'));
+      final result = await client.dataPut(Uint8List.fromList([1]));
+      expect(result.dataMap, equals('dm123'));
     });
 
     test('get private data', () async {
       final client = _FakeGrpcClient();
-      final data = await client.dataGetPrivate('dm123');
+      final data = await client.dataGet('dm123');
       expect(String.fromCharCodes(data), equals('secret'));
     });
   });
 
-  group('Data Cost', () {
-    test('estimates storage cost', () async {
+  group('Cost', () {
+    test('data cost', () async {
       final client = _FakeGrpcClient();
-      final cost = await client.dataCost(Uint8List.fromList([1]));
+      final cost = await client.dataCost(Uint8List.fromList([1, 2, 3]));
       expect(cost, equals('50'));
+    });
+
+    test('file cost', () async {
+      final client = _FakeGrpcClient();
+      final cost = await client.fileCost('/tmp/test.txt', isPublic: true);
+      expect(cost, equals('1000'));
     });
   });
 
   group('Chunks', () {
     test('put chunk', () async {
       final client = _FakeGrpcClient();
-      final result = await client.chunkPut(Uint8List.fromList([1]));
+      final result = await client.chunkPut(Uint8List.fromList([1, 2]));
       expect(result.cost, equals('10'));
       expect(result.address, equals('chunk1'));
     });
@@ -166,10 +188,10 @@ void main() {
     });
   });
 
-  group('Files', () {
-    test('upload file', () async {
+  group('Files Public', () {
+    test('put public file', () async {
       final client = _FakeGrpcClient();
-      final result = await client.fileUploadPublic('/tmp/test.txt');
+      final result = await client.filePutPublic('/tmp/test.txt');
       expect(result.address, equals('file1'));
       expect(result.storageCostAtto, equals('1000'));
       expect(result.gasCostWei, equals('42'));
@@ -177,26 +199,29 @@ void main() {
       expect(result.paymentModeUsed, equals('auto'));
     });
 
-    test('download file', () async {
+    test('get public file', () async {
       final client = _FakeGrpcClient();
-      await client.fileDownloadPublic('file1', '/tmp/out.txt');
+      await client.fileGetPublic('file1', '/tmp/out.txt');
       // No exception means success.
     });
+  });
 
-    test('file cost', () async {
+  group('Files Private', () {
+    test('put private file', () async {
       final client = _FakeGrpcClient();
-      final cost =
-          await client.fileCost('/tmp/test.txt', isPublic: true);
-      expect(cost, equals('1000'));
+      final result = await client.filePut('/tmp/test.txt');
+      expect(result.dataMap, equals('private_dm'));
+      expect(result.chunksStored, equals(2));
+    });
+
+    test('get private file', () async {
+      final client = _FakeGrpcClient();
+      await client.fileGet('dm123', '/tmp/out.txt');
     });
   });
 
   // -------------------------------------------------------------------------
-  // Error mapping tests – GrpcError -> AntdError via _handleError
-  //
-  // We test this by calling GrpcAntdClient._handleError directly through
-  // a static invocation since _handleError is a static Never-returning method.
-  // We access it indirectly via the fake client that rethrows.
+  // Error mapping tests
   // -------------------------------------------------------------------------
 
   group('Error Mapping (gRPC -> AntdError)', () {
@@ -265,7 +290,6 @@ void main() {
       );
     });
 
-    // Verify error mapping works on multiple different methods, not just health.
     test('error propagates from dataPutPublic', () async {
       final client = errorClient(5, 'missing data');
       expect(
@@ -282,10 +306,10 @@ void main() {
       );
     });
 
-    test('error propagates from fileUploadPublic', () async {
+    test('error propagates from filePutPublic', () async {
       final client = errorClient(8, 'too large');
       expect(
-        () => client.fileUploadPublic('/tmp/big.bin'),
+        () => client.filePutPublic('/tmp/big.bin'),
         throwsA(isA<TooLargeError>()),
       );
     });

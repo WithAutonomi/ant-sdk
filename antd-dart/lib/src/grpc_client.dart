@@ -19,8 +19,9 @@ import 'models.dart';
 
 /// gRPC client for the antd daemon.
 ///
-/// Provides the same 15 async methods as [AntdClient] (REST), but communicates
-/// over gRPC using the proto-generated stubs from `antd/v1/*.proto`.
+/// Provides the same upload/download surface as [AntdClient] (REST), but
+/// communicates over gRPC using the proto-generated stubs from
+/// `antd/v1/*.proto`.
 ///
 /// **Proto compilation**: Run `protoc` with the Dart gRPC plugin to generate
 /// stubs into `lib/src/generated/`:
@@ -29,7 +30,7 @@ import 'models.dart';
 /// protoc --dart_out=grpc:lib/src/generated \
 ///   -I../../antd/proto \
 ///   antd/v1/common.proto antd/v1/health.proto antd/v1/data.proto \
-///   antd/v1/chunks.proto antd/v1/graph.proto antd/v1/files.proto
+///   antd/v1/chunks.proto antd/v1/files.proto
 /// ```
 class GrpcAntdClient {
   final ClientChannel _channel;
@@ -179,18 +180,54 @@ class GrpcAntdClient {
   }
 
   // ---------------------------------------------------------------------------
-  // Data (Immutable)
+  // Data
   // ---------------------------------------------------------------------------
 
-  /// Stores public immutable data on the network.
-  Future<PutResult> dataPutPublic(Uint8List data) async {
+  /// Stores private data via gRPC. Returns the caller-held DataMap.
+  ///
+  /// Note: the gRPC `PutDataResponse` only carries `data_map` (and an empty
+  /// cost message) — `chunksStored` and `paymentModeUsed` are surfaced as
+  /// `0` / `""`. Use [AntdClient.dataPut] (REST) to get those fields.
+  Future<DataPutResult> dataPut(
+    Uint8List data, {
+    PaymentMode paymentMode = PaymentMode.auto,
+  }) async {
     try {
-      final req = data_msg.PutPublicDataRequest()..data = data;
+      final req = data_msg.PutDataRequest()
+        ..data = data
+        ..paymentMode = paymentMode.wire;
+      final resp = await _dataStub.put(req);
+      return DataPutResult(dataMap: resp.dataMap);
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
+  /// Retrieves private data using the DataMap.
+  Future<Uint8List> dataGet(String dataMap) async {
+    try {
+      final req = data_msg.GetDataRequest()..dataMap = dataMap;
+      final resp = await _dataStub.get(req);
+      return Uint8List.fromList(resp.data);
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
+  /// Stores public immutable data on the network.
+  ///
+  /// gRPC `PutPublicDataResponse` only carries `address` (and an empty cost
+  /// message) — `chunksStored` / `paymentModeUsed` are surfaced as defaults.
+  Future<DataPutPublicResult> dataPutPublic(
+    Uint8List data, {
+    PaymentMode paymentMode = PaymentMode.auto,
+  }) async {
+    try {
+      final req = data_msg.PutPublicDataRequest()
+        ..data = data
+        ..paymentMode = paymentMode.wire;
       final resp = await _dataStub.putPublic(req);
-      return PutResult(
-        cost: resp.cost.attoTokens,
-        address: resp.address,
-      );
+      return DataPutPublicResult(address: resp.address);
     } on GrpcError catch (e) {
       _handleError(e);
     }
@@ -207,36 +244,16 @@ class GrpcAntdClient {
     }
   }
 
-  /// Stores private encrypted data on the network.
-  Future<PutResult> dataPutPrivate(Uint8List data) async {
-    try {
-      final req = data_msg.PutPrivateDataRequest()..data = data;
-      final resp = await _dataStub.putPrivate(req);
-      return PutResult(
-        cost: resp.cost.attoTokens,
-        address: resp.dataMap,
-      );
-    } on GrpcError catch (e) {
-      _handleError(e);
-    }
-  }
-
-  /// Retrieves private data using a data map.
-  Future<Uint8List> dataGetPrivate(String dataMap) async {
-    try {
-      final req = data_msg.GetPrivateDataRequest()..dataMap = dataMap;
-      final resp = await _dataStub.getPrivate(req);
-      return Uint8List.fromList(resp.data);
-    } on GrpcError catch (e) {
-      _handleError(e);
-    }
-  }
-
   /// Pre-upload cost breakdown for the given bytes.
-  Future<UploadCostEstimate> dataCost(Uint8List data) async {
+  Future<UploadCostEstimate> dataCost(
+    Uint8List data, {
+    PaymentMode paymentMode = PaymentMode.auto,
+  }) async {
     try {
-      final req = data_msg.DataCostRequest()..data = data;
-      final resp = await _dataStub.getCost(req);
+      final req = data_msg.DataCostRequest()
+        ..data = data
+        ..paymentMode = paymentMode.wire;
+      final resp = await _dataStub.cost(req);
       return UploadCostEstimate(
         cost: resp.attoTokens,
         fileSize: resp.fileSize.toInt(),
@@ -279,15 +296,55 @@ class GrpcAntdClient {
   }
 
   // ---------------------------------------------------------------------------
-  // Files & Directories
+  // Files
   // ---------------------------------------------------------------------------
 
-  /// Uploads a local file to the network.
-  Future<FileUploadResult> fileUploadPublic(String path) async {
+  /// Uploads a local file as a private upload and returns the caller-held
+  /// DataMap.
+  Future<FilePutResult> filePut(
+    String path, {
+    PaymentMode paymentMode = PaymentMode.auto,
+  }) async {
     try {
-      final req = files_msg.UploadFileRequest()..path = path;
-      final resp = await _fileStub.uploadPublic(req);
-      return FileUploadResult(
+      final req = files_msg.PutFileRequest()
+        ..path = path
+        ..paymentMode = paymentMode.wire;
+      final resp = await _fileStub.put(req);
+      return FilePutResult(
+        dataMap: resp.dataMap,
+        storageCostAtto: resp.storageCostAtto,
+        gasCostWei: resp.gasCostWei,
+        chunksStored: resp.chunksStored.toInt(),
+        paymentModeUsed: resp.paymentModeUsed,
+      );
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
+  /// Downloads a private file from a caller-held DataMap into [destPath].
+  Future<void> fileGet(String dataMap, String destPath) async {
+    try {
+      final req = files_msg.GetFileRequest()
+        ..dataMap = dataMap
+        ..destPath = destPath;
+      await _fileStub.get(req);
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
+  /// Uploads a local file as a public upload.
+  Future<FilePutPublicResult> filePutPublic(
+    String path, {
+    PaymentMode paymentMode = PaymentMode.auto,
+  }) async {
+    try {
+      final req = files_msg.PutFileRequest()
+        ..path = path
+        ..paymentMode = paymentMode.wire;
+      final resp = await _fileStub.putPublic(req);
+      return FilePutPublicResult(
         address: resp.address,
         storageCostAtto: resp.storageCostAtto,
         gasCostWei: resp.gasCostWei,
@@ -299,13 +356,13 @@ class GrpcAntdClient {
     }
   }
 
-  /// Downloads a file from the network to a local path.
-  Future<void> fileDownloadPublic(String address, String destPath) async {
+  /// Downloads a public file from an on-network DataMap address into [destPath].
+  Future<void> fileGetPublic(String address, String destPath) async {
     try {
-      final req = files_msg.DownloadPublicRequest()
+      final req = files_msg.GetFilePublicRequest()
         ..address = address
         ..destPath = destPath;
-      await _fileStub.downloadPublic(req);
+      await _fileStub.getPublic(req);
     } on GrpcError catch (e) {
       _handleError(e);
     }
@@ -315,12 +372,14 @@ class GrpcAntdClient {
   Future<UploadCostEstimate> fileCost(
     String path, {
     bool isPublic = true,
+    PaymentMode paymentMode = PaymentMode.auto,
   }) async {
     try {
       final req = files_msg.FileCostRequest()
         ..path = path
-        ..isPublic = isPublic;
-      final resp = await _fileStub.getFileCost(req);
+        ..isPublic = isPublic
+        ..paymentMode = paymentMode.wire;
+      final resp = await _fileStub.cost(req);
       return UploadCostEstimate(
         cost: resp.attoTokens,
         fileSize: resp.fileSize.toInt(),

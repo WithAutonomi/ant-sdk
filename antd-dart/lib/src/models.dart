@@ -1,3 +1,26 @@
+/// Payment mode for upload operations.
+///
+/// Controls how on-chain payments for stored chunks are bundled. [auto] is
+/// the recommended default — the daemon picks [merkle] for large uploads
+/// and [single] for small ones based on chunk count. Library consumers
+/// only need to override when they specifically want one transaction shape.
+enum PaymentMode {
+  /// Let the daemon pick — merkle batch for large uploads, single for small.
+  auto('auto'),
+
+  /// One on-chain transaction with a merkle proof covering all chunks.
+  /// Requires ≥2 chunks.
+  merkle('merkle'),
+
+  /// N transactions, one per chunk. Works for any chunk count, including 1.
+  single('single');
+
+  /// The wire representation sent to the daemon (`auto`, `merkle`, `single`).
+  final String wire;
+
+  const PaymentMode(this.wire);
+}
+
 /// HealthStatus is the result of a health check.
 ///
 /// The diagnostic fields ([version], [evmNetwork], [uptimeSeconds],
@@ -59,21 +82,20 @@ class HealthStatus {
       'uptimeSeconds: $uptimeSeconds, buildCommit: $buildCommit)';
 }
 
-/// PutResult is the result of a put/create operation.
+/// Result of a single-chunk put ([AntdClient.chunkPut]).
 class PutResult {
   /// Cost in atto tokens as a string.
   final String cost;
 
-  /// The hex address of the stored data.
+  /// The hex address of the stored chunk.
   final String address;
 
   const PutResult({required this.cost, required this.address});
 
-  factory PutResult.fromJson(Map<String, dynamic> json,
-      {String addressKey = 'address'}) {
+  factory PutResult.fromJson(Map<String, dynamic> json) {
     return PutResult(
       cost: json['cost'] as String? ?? '',
-      address: json[addressKey] as String? ?? '',
+      address: json['address'] as String? ?? '',
     );
   }
 
@@ -81,24 +103,135 @@ class PutResult {
   String toString() => 'PutResult(cost: $cost, address: $address)';
 }
 
-/// Result of a public file or directory upload.
-class FileUploadResult {
-  /// Hex network address of the uploaded file/directory.
-  final String address;
+/// Result of a private data put ([AntdClient.dataPut]).
+///
+/// The DataMap is returned to the caller; it is NOT stored on-network — the
+/// caller keeps it as the only retrieval handle.
+class DataPutResult {
+  /// Hex-encoded DataMap. Hand this back to [AntdClient.dataGet] to retrieve.
+  final String dataMap;
 
-  /// Storage cost in atto, "0" if all chunks already existed.
-  final String storageCostAtto;
-
-  /// Gas cost in wei as decimal string.
-  final String gasCostWei;
-
-  /// Number of chunks stored on the network (uint64).
+  /// Number of chunks stored on the network.
   final int chunksStored;
 
-  /// Which payment mode was actually used: "auto", "merkle", or "single".
+  /// Payment mode actually used by the daemon: `auto`, `merkle`, or `single`.
   final String paymentModeUsed;
 
-  const FileUploadResult({
+  const DataPutResult({
+    required this.dataMap,
+    this.chunksStored = 0,
+    this.paymentModeUsed = '',
+  });
+
+  factory DataPutResult.fromJson(Map<String, dynamic> json) {
+    return DataPutResult(
+      dataMap: json['data_map'] as String? ?? '',
+      chunksStored: (json['chunks_stored'] as num?)?.toInt() ?? 0,
+      paymentModeUsed: json['payment_mode_used'] as String? ?? '',
+    );
+  }
+
+  @override
+  String toString() =>
+      'DataPutResult(dataMap: $dataMap, chunksStored: $chunksStored, paymentModeUsed: $paymentModeUsed)';
+}
+
+/// Result of a public data put ([AntdClient.dataPutPublic]).
+///
+/// The DataMap is stored on-network as an additional chunk; [address] is the
+/// shareable retrieval handle.
+class DataPutPublicResult {
+  /// Hex address of the on-network DataMap chunk. Shareable.
+  final String address;
+
+  /// Number of chunks stored on the network.
+  final int chunksStored;
+
+  /// Payment mode actually used by the daemon: `auto`, `merkle`, or `single`.
+  final String paymentModeUsed;
+
+  const DataPutPublicResult({
+    required this.address,
+    this.chunksStored = 0,
+    this.paymentModeUsed = '',
+  });
+
+  factory DataPutPublicResult.fromJson(Map<String, dynamic> json) {
+    return DataPutPublicResult(
+      address: json['address'] as String? ?? '',
+      chunksStored: (json['chunks_stored'] as num?)?.toInt() ?? 0,
+      paymentModeUsed: json['payment_mode_used'] as String? ?? '',
+    );
+  }
+
+  @override
+  String toString() =>
+      'DataPutPublicResult(address: $address, chunksStored: $chunksStored, paymentModeUsed: $paymentModeUsed)';
+}
+
+/// Result of a private file upload ([AntdClient.filePut]).
+///
+/// The DataMap is returned to the caller; it is NOT stored on-network.
+class FilePutResult {
+  /// Hex-encoded msgpack-serialized DataMap.
+  final String dataMap;
+
+  /// Total storage cost in atto, "0" if all chunks already existed.
+  final String storageCostAtto;
+
+  /// Total gas cost in wei as a decimal string.
+  final String gasCostWei;
+
+  /// Number of chunks stored on the network.
+  final int chunksStored;
+
+  /// Which payment mode was actually used: `auto`, `merkle`, or `single`.
+  final String paymentModeUsed;
+
+  const FilePutResult({
+    required this.dataMap,
+    required this.storageCostAtto,
+    required this.gasCostWei,
+    required this.chunksStored,
+    required this.paymentModeUsed,
+  });
+
+  factory FilePutResult.fromJson(Map<String, dynamic> json) {
+    return FilePutResult(
+      dataMap: json['data_map'] as String? ?? '',
+      storageCostAtto: json['storage_cost_atto'] as String? ?? '',
+      gasCostWei: json['gas_cost_wei'] as String? ?? '',
+      chunksStored: (json['chunks_stored'] as num?)?.toInt() ?? 0,
+      paymentModeUsed: json['payment_mode_used'] as String? ?? '',
+    );
+  }
+
+  @override
+  String toString() =>
+      'FilePutResult(dataMap: $dataMap, storageCostAtto: $storageCostAtto, gasCostWei: $gasCostWei, chunksStored: $chunksStored, paymentModeUsed: $paymentModeUsed)';
+}
+
+/// Result of a public file upload ([AntdClient.filePutPublic]).
+///
+/// The DataMap is stored on-network as an additional chunk; [address] is the
+/// shareable retrieval handle.
+class FilePutPublicResult {
+  /// Hex network address of the stored DataMap.
+  final String address;
+
+  /// Total storage cost in atto, "0" if all chunks already existed.
+  final String storageCostAtto;
+
+  /// Total gas cost in wei as a decimal string.
+  final String gasCostWei;
+
+  /// Number of chunks stored on the network.
+  final int chunksStored;
+
+  /// Which payment mode was actually used: `auto`, `merkle`, or `single`.
+  final String paymentModeUsed;
+
+  const FilePutPublicResult({
     required this.address,
     required this.storageCostAtto,
     required this.gasCostWei,
@@ -106,8 +239,8 @@ class FileUploadResult {
     required this.paymentModeUsed,
   });
 
-  factory FileUploadResult.fromJson(Map<String, dynamic> json) {
-    return FileUploadResult(
+  factory FilePutPublicResult.fromJson(Map<String, dynamic> json) {
+    return FilePutPublicResult(
       address: json['address'] as String? ?? '',
       storageCostAtto: json['storage_cost_atto'] as String? ?? '',
       gasCostWei: json['gas_cost_wei'] as String? ?? '',
@@ -118,7 +251,7 @@ class FileUploadResult {
 
   @override
   String toString() =>
-      'FileUploadResult(address: $address, storageCostAtto: $storageCostAtto, gasCostWei: $gasCostWei, chunksStored: $chunksStored, paymentModeUsed: $paymentModeUsed)';
+      'FilePutPublicResult(address: $address, storageCostAtto: $storageCostAtto, gasCostWei: $gasCostWei, chunksStored: $chunksStored, paymentModeUsed: $paymentModeUsed)';
 }
 
 /// WalletAddress is the wallet address response.
@@ -412,7 +545,8 @@ class PrepareChunkResult {
       'PrepareChunkResult(address: $address, alreadyStored: $alreadyStored, uploadId: $uploadId, paymentType: $paymentType, totalAmount: $totalAmount)';
 }
 
-/// Pre-upload cost breakdown returned by `dataCost` and `fileCost`.
+/// Pre-upload cost breakdown returned by [AntdClient.dataCost] and
+/// [AntdClient.fileCost].
 ///
 /// The server samples up to 5 chunk addresses and extrapolates the storage
 /// cost. Gas is an advisory heuristic, not a live gas-oracle query.

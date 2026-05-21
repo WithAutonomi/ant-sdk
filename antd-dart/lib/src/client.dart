@@ -142,14 +142,40 @@ class AntdClient {
 
   // --- Data ---
 
-  /// Stores public immutable data on the network.
-  Future<PutResult> dataPutPublic(Uint8List data, {String? paymentMode}) async {
-    final body = <String, dynamic>{
+  /// Stores private encrypted data on the network and returns the caller-held
+  /// DataMap (hex). The DataMap is NOT stored on-network — the caller keeps
+  /// it as the only retrieval handle.
+  Future<DataPutResult> dataPut(
+    Uint8List data, {
+    PaymentMode paymentMode = PaymentMode.auto,
+  }) async {
+    final json = await _doJson('POST', '/v1/data', {
       'data': _b64Encode(data),
-    };
-    if (paymentMode != null) body['payment_mode'] = paymentMode;
-    final json = await _doJson('POST', '/v1/data/public', body);
-    return PutResult.fromJson(json!);
+      'payment_mode': paymentMode.wire,
+    });
+    return DataPutResult.fromJson(json!);
+  }
+
+  /// Retrieves private data from a caller-held DataMap (hex).
+  Future<Uint8List> dataGet(String dataMap) async {
+    final json = await _doJson('POST', '/v1/data/get', {
+      'data_map': dataMap,
+    });
+    return _b64Decode(json!['data'] as String);
+  }
+
+  /// Stores public immutable data on the network. The DataMap is stored
+  /// on-network as an extra chunk; the returned [address] is the shareable
+  /// retrieval handle.
+  Future<DataPutPublicResult> dataPutPublic(
+    Uint8List data, {
+    PaymentMode paymentMode = PaymentMode.auto,
+  }) async {
+    final json = await _doJson('POST', '/v1/data/public', {
+      'data': _b64Encode(data),
+      'payment_mode': paymentMode.wire,
+    });
+    return DataPutPublicResult.fromJson(json!);
   }
 
   /// Retrieves public data by address.
@@ -158,30 +184,17 @@ class AntdClient {
     return _b64Decode(json!['data'] as String);
   }
 
-  /// Stores private encrypted data on the network.
-  Future<PutResult> dataPutPrivate(Uint8List data, {String? paymentMode}) async {
-    final body = <String, dynamic>{
-      'data': _b64Encode(data),
-    };
-    if (paymentMode != null) body['payment_mode'] = paymentMode;
-    final json = await _doJson('POST', '/v1/data/private', body);
-    return PutResult.fromJson(json!, addressKey: 'data_map');
-  }
-
-  /// Retrieves private data using a data map.
-  Future<Uint8List> dataGetPrivate(String dataMap) async {
-    final encoded = Uri.encodeComponent(dataMap);
-    final json = await _doJson('GET', '/v1/data/private?data_map=$encoded');
-    return _b64Decode(json!['data'] as String);
-  }
-
   /// Pre-upload cost breakdown for the given bytes.
   ///
   /// The server samples a small number of chunk addresses and extrapolates,
   /// much faster than quoting every chunk on slow networks. Gas is advisory.
-  Future<UploadCostEstimate> dataCost(Uint8List data) async {
+  Future<UploadCostEstimate> dataCost(
+    Uint8List data, {
+    PaymentMode paymentMode = PaymentMode.auto,
+  }) async {
     final json = await _doJson('POST', '/v1/data/cost', {
       'data': _b64Encode(data),
+      'payment_mode': paymentMode.wire,
     });
     return UploadCostEstimate.fromJson(json!);
   }
@@ -249,19 +262,43 @@ class AntdClient {
 
   // --- Files ---
 
-  /// Uploads a local file to the network.
-  Future<FileUploadResult> fileUploadPublic(String path, {String? paymentMode}) async {
-    final body = <String, dynamic>{
+  /// Uploads a local file as a private upload and returns the caller-held
+  /// DataMap (hex). The DataMap is NOT stored on-network.
+  Future<FilePutResult> filePut(
+    String path, {
+    PaymentMode paymentMode = PaymentMode.auto,
+  }) async {
+    final json = await _doJson('POST', '/v1/files', {
       'path': path,
-    };
-    if (paymentMode != null) body['payment_mode'] = paymentMode;
-    final json = await _doJson('POST', '/v1/files/upload/public', body);
-    return FileUploadResult.fromJson(json!);
+      'payment_mode': paymentMode.wire,
+    });
+    return FilePutResult.fromJson(json!);
   }
 
-  /// Downloads a file from the network to a local path.
-  Future<void> fileDownloadPublic(String address, String destPath) async {
-    await _doJson('POST', '/v1/files/download/public', {
+  /// Downloads a private file from a caller-held DataMap (hex) into [destPath].
+  Future<void> fileGet(String dataMap, String destPath) async {
+    await _doJson('POST', '/v1/files/get', {
+      'data_map': dataMap,
+      'dest_path': destPath,
+    });
+  }
+
+  /// Uploads a local file as a public upload. The DataMap is stored on-network
+  /// as an extra chunk; the returned address is the shareable handle.
+  Future<FilePutPublicResult> filePutPublic(
+    String path, {
+    PaymentMode paymentMode = PaymentMode.auto,
+  }) async {
+    final json = await _doJson('POST', '/v1/files/public', {
+      'path': path,
+      'payment_mode': paymentMode.wire,
+    });
+    return FilePutPublicResult.fromJson(json!);
+  }
+
+  /// Downloads a public file from an on-network DataMap address to [destPath].
+  Future<void> fileGetPublic(String address, String destPath) async {
+    await _doJson('POST', '/v1/files/public/get', {
       'address': address,
       'dest_path': destPath,
     });
@@ -271,10 +308,12 @@ class AntdClient {
   Future<UploadCostEstimate> fileCost(
     String path, {
     bool isPublic = true,
+    PaymentMode paymentMode = PaymentMode.auto,
   }) async {
     final json = await _doJson('POST', '/v1/files/cost', {
       'path': path,
       'is_public': isPublic,
+      'payment_mode': paymentMode.wire,
     });
     return UploadCostEstimate.fromJson(json!);
   }

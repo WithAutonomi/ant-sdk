@@ -11,7 +11,8 @@ void main() async {
     // Store data
     final data = Uint8List.fromList(utf8.encode('Hello, Autonomi!'));
     final result = await client.dataPutPublic(data);
-    print('Stored at ${result.address} (cost: ${result.cost} atto)');
+    print('Stored at ${result.address}');
+    print('  chunks: ${result.chunksStored}, mode: ${result.paymentModeUsed}');
 
     // Retrieve data
     final retrieved = await client.dataGetPublic(result.address);
@@ -19,7 +20,7 @@ void main() async {
 
     // Estimate cost
     final cost = await client.dataCost(data);
-    print('Estimated cost: $cost atto');
+    print('Estimated cost: ${cost.cost} atto across ${cost.chunkCount} chunks');
   } on AntdError catch (e) {
     print('Error: $e');
   } finally {

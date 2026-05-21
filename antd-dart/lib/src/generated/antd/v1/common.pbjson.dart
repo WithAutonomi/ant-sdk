@@ -1,15 +1,14 @@
-// This is a generated file - do not edit.
 //
-// Generated from antd/v1/common.proto.
-
+//  Generated code. Do not modify.
+//  source: antd/v1/common.proto
+//
 // @dart = 3.3
 
 // ignore_for_file: annotate_overrides, camel_case_types, comment_references
 // ignore_for_file: constant_identifier_names
 // ignore_for_file: curly_braces_in_flow_control_structures
 // ignore_for_file: deprecated_member_use_from_same_package, library_prefixes
-// ignore_for_file: non_constant_identifier_names, prefer_relative_imports
-// ignore_for_file: unused_import
+// ignore_for_file: non_constant_identifier_names
 
 import 'dart:convert' as $convert;
 import 'dart:core' as $core;
@@ -22,13 +21,7 @@ const Cost$json = {
     {'1': 'atto_tokens', '3': 1, '4': 1, '5': 9, '10': 'attoTokens'},
     {'1': 'file_size', '3': 2, '4': 1, '5': 4, '10': 'fileSize'},
     {'1': 'chunk_count', '3': 3, '4': 1, '5': 13, '10': 'chunkCount'},
-    {
-      '1': 'estimated_gas_cost_wei',
-      '3': 4,
-      '4': 1,
-      '5': 9,
-      '10': 'estimatedGasCostWei'
-    },
+    {'1': 'estimated_gas_cost_wei', '3': 4, '4': 1, '5': 9, '10': 'estimatedGasCostWei'},
     {'1': 'payment_mode', '3': 5, '4': 1, '5': 9, '10': 'paymentMode'},
   ],
 };
@@ -49,8 +42,8 @@ const Address$json = {
 };
 
 /// Descriptor for `Address`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List addressDescriptor =
-    $convert.base64Decode('CgdBZGRyZXNzEhAKA2hleBgBIAEoCVIDaGV4');
+final $typed_data.Uint8List addressDescriptor = $convert.base64Decode(
+    'CgdBZGRyZXNzEhAKA2hleBgBIAEoCVIDaGV4');
 
 @$core.Deprecated('Use publicKeyProtoDescriptor instead')
 const PublicKeyProto$json = {
@@ -61,8 +54,8 @@ const PublicKeyProto$json = {
 };
 
 /// Descriptor for `PublicKeyProto`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List publicKeyProtoDescriptor =
-    $convert.base64Decode('Cg5QdWJsaWNLZXlQcm90bxIQCgNoZXgYASABKAlSA2hleA==');
+final $typed_data.Uint8List publicKeyProtoDescriptor = $convert.base64Decode(
+    'Cg5QdWJsaWNLZXlQcm90bxIQCgNoZXgYASABKAlSA2hleA==');
 
 @$core.Deprecated('Use secretKeyProtoDescriptor instead')
 const SecretKeyProto$json = {
@@ -73,19 +66,6 @@ const SecretKeyProto$json = {
 };
 
 /// Descriptor for `SecretKeyProto`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List secretKeyProtoDescriptor =
-    $convert.base64Decode('Cg5TZWNyZXRLZXlQcm90bxIQCgNoZXgYASABKAlSA2hleA==');
+final $typed_data.Uint8List secretKeyProtoDescriptor = $convert.base64Decode(
+    'Cg5TZWNyZXRLZXlQcm90bxIQCgNoZXgYASABKAlSA2hleA==');
 
-@$core.Deprecated('Use graphDescendantDescriptor instead')
-const GraphDescendant$json = {
-  '1': 'GraphDescendant',
-  '2': [
-    {'1': 'public_key', '3': 1, '4': 1, '5': 9, '10': 'publicKey'},
-    {'1': 'content', '3': 2, '4': 1, '5': 9, '10': 'content'},
-  ],
-};
-
-/// Descriptor for `GraphDescendant`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List graphDescendantDescriptor = $convert.base64Decode(
-    'Cg9HcmFwaERlc2NlbmRhbnQSHQoKcHVibGljX2tleRgBIAEoCVIJcHVibGljS2V5EhgKB2Nvbn'
-    'RlbnQYAiABKAlSB2NvbnRlbnQ=');
