@@ -10,11 +10,11 @@ public protocol AntdClientProtocol: Sendable {
     func health() async throws -> HealthStatus
 
     // Data
-    func dataPutPublic(_ data: Data, paymentMode: String?) async throws -> PutResult
+    func dataPut(_ data: Data, paymentMode: PaymentMode) async throws -> DataPutResult
+    func dataGet(dataMap: String) async throws -> Data
+    func dataPutPublic(_ data: Data, paymentMode: PaymentMode) async throws -> DataPutPublicResult
     func dataGetPublic(address: String) async throws -> Data
-    func dataPutPrivate(_ data: Data, paymentMode: String?) async throws -> PutResult
-    func dataGetPrivate(dataMap: String) async throws -> Data
-    func dataCost(_ data: Data) async throws -> UploadCostEstimate
+    func dataCost(_ data: Data, paymentMode: PaymentMode) async throws -> UploadCostEstimate
 
     // Chunks
     func chunkPut(_ data: Data) async throws -> PutResult
@@ -23,9 +23,11 @@ public protocol AntdClientProtocol: Sendable {
     func finalizeChunkUpload(uploadId: String, txHashes: [String: String]) async throws -> String
 
     // Files
-    func fileUploadPublic(path: String, paymentMode: String?) async throws -> FileUploadResult
-    func fileDownloadPublic(address: String, destPath: String) async throws
-    func fileCost(path: String, isPublic: Bool) async throws -> UploadCostEstimate
+    func filePut(path: String, paymentMode: PaymentMode) async throws -> FilePutResult
+    func fileGet(dataMap: String, destPath: String) async throws
+    func filePutPublic(path: String, paymentMode: PaymentMode) async throws -> FilePutPublicResult
+    func fileGetPublic(address: String, destPath: String) async throws
+    func fileCost(path: String, isPublic: Bool, paymentMode: PaymentMode) async throws -> UploadCostEstimate
 
     // Wallet
     func walletAddress() async throws -> WalletAddress

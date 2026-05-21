@@ -16,12 +16,12 @@ struct Examples {
 
             let payload = "Hello, Autonomi network!".data(using: .utf8)!
 
-            let est = try await client.dataCost(payload)
+            let est = try await client.dataCost(payload, paymentMode: .auto)
             print("Estimate: \(est.fileSize) bytes in \(est.chunkCount) chunks, storage \(est.cost) atto, gas \(est.estimatedGasCostWei) wei, mode \(est.paymentMode)")
 
-            let result = try await client.dataPutPublic(payload, paymentMode: nil)
+            let result = try await client.dataPutPublic(payload, paymentMode: .auto)
             print("Stored at address: \(result.address)")
-            print("Actual cost: \(result.cost) atto tokens")
+            print("Chunks stored: \(result.chunksStored), mode used: \(result.paymentModeUsed)")
 
             let data = try await client.dataGetPublic(address: result.address)
             let text = String(data: data, encoding: .utf8)!

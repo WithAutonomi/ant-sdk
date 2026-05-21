@@ -33,10 +33,11 @@ let client = AntdClient.createRest()
 let status = try await client.health()
 print("Network: \(status.network)")
 
-// Store data
-let result = try await client.dataPutPublic("Hello, Autonomi!".data(using: .utf8)!)
+// Store data publicly (shareable address)
+let payload = "Hello, Autonomi!".data(using: .utf8)!
+let result = try await client.dataPutPublic(payload, paymentMode: .auto)
 print("Address: \(result.address)")
-print("Cost: \(result.cost) atto tokens")
+print("Chunks stored: \(result.chunksStored), mode: \(result.paymentModeUsed)")
 
 // Retrieve data
 let data = try await client.dataGetPublic(address: result.address)
@@ -49,11 +50,25 @@ print(String(data: data, encoding: .utf8)!) // "Hello, Autonomi!"
 // REST (default, recommended)
 let restClient = AntdClient.createRest(baseURL: "http://localhost:8082")
 
-// gRPC (requires generated proto stubs; wallet operations and payment_mode are REST-only)
+// gRPC (requires generated proto stubs; wallet operations are REST-only)
 let grpcClient = AntdClient.createGrpc(target: "localhost:50051")
 
 // Dynamic transport selection
 let client = AntdClient.create(transport: "rest") // or "grpc"
+```
+
+## Payment Mode
+
+All `*put*` and `*cost*` operations take a `PaymentMode` parameter that controls how on-chain payments for stored chunks are bundled:
+
+| Mode | Behavior |
+|---|---|
+| `.auto` (default) | Daemon picks merkle for large uploads, single for small. |
+| `.merkle` | One on-chain transaction with a merkle proof covering all chunks. Cheaper for large uploads. Requires ≥2 chunks. |
+| `.single` | N transactions, one per chunk. Works for any chunk count. |
+
+```swift
+let result = try await client.filePut(path: "/tmp/big.bin", paymentMode: .merkle)
 ```
 
 ## API Surface
@@ -63,9 +78,13 @@ All methods are `async throws` for use with Swift concurrency.
 | Domain | Methods |
 |---|---|
 | **Health** | `health()` |
-| **Data** | `dataPutPublic`, `dataGetPublic`, `dataPutPrivate`, `dataGetPrivate`, `dataCost` |
-| **Chunks** | `chunkPut`, `chunkGet` |
-| **Files** | `fileUploadPublic`, `fileDownloadPublic`, `fileCost` |
+| **Data** | `dataPut`, `dataGet`, `dataPutPublic`, `dataGetPublic`, `dataCost` |
+| **Chunks** | `chunkPut`, `chunkGet`, `prepareChunkUpload`, `finalizeChunkUpload` |
+| **Files** | `filePut`, `fileGet`, `filePutPublic`, `fileGetPublic`, `fileCost` |
+| **Wallet** | `walletAddress`, `walletBalance`, `walletApprove` |
+| **External Signer** | `prepareUpload`, `prepareUploadPublic`, `prepareDataUpload`, `finalizeUpload`, `finalizeMerkleUpload` |
+
+The unqualified verb (`dataPut`, `filePut`, `dataGet`, `fileGet`) is the **private** variant — DataMaps are returned to the caller and not stored on-network. The `*Public` variants store the DataMap on-network and return a shareable address.
 
 ## Error Handling
 
@@ -124,7 +143,7 @@ antd-swift/
 │   │   ├── Models.swift              # Data types
 │   │   └── Errors.swift              # Error hierarchy
 │   └── AntdExamples/
-│       └── Main.swift                # 6 runnable examples
+│       └── Main.swift                # Runnable example
 └── Tests/
     └── AntdSdkTests/
         └── SmokeTests.swift
