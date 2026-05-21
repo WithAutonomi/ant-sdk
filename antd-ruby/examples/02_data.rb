@@ -10,12 +10,12 @@ client = Antd::Client.new
 data = "Hello, Autonomi!"
 
 # Estimate cost first
-cost = client.data_cost(data)
-puts "Estimated cost: #{cost} atto"
+est = client.data_cost(data)
+puts "Estimated cost: #{est.cost} atto (#{est.chunk_count} chunks)"
 
 # Store data
 result = client.data_put_public(data)
-puts "Stored at #{result.address} (cost: #{result.cost} atto)"
+puts "Stored at #{result.address} (chunks: #{result.chunks_stored}, mode: #{result.payment_mode_used})"
 
 # Retrieve data
 retrieved = client.data_get_public(result.address)
