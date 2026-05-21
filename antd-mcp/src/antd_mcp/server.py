@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 
 from mcp.server.fastmcp import FastMCP
 
-from antd import AsyncAntdClient
+from antd import AsyncAntdClient, PaymentMode
 from antd.exceptions import AntdError
 from .discover import discover_daemon_url
 from .errors import format_error, format_unexpected_error
@@ -76,6 +76,15 @@ def _err(exc: Exception, network: str) -> str:
     return json.dumps(d)
 
 
+def _pm(payment_mode: str) -> PaymentMode:
+    """Coerce a wire-format payment_mode string to the PaymentMode enum.
+
+    Raises ValueError if the string is not one of "auto", "merkle", "single" —
+    propagated to the caller as an MCP error.
+    """
+    return PaymentMode(payment_mode)
+
+
 # ---------------------------------------------------------------------------
 # Tool 1: store_data
 # ---------------------------------------------------------------------------
@@ -91,22 +100,37 @@ async def store_data(
 
     Args:
         text: The text content to store.
-        private: If True, store as private (encrypted). Default: public.
+        private: If True, store as private (encrypted). The returned ``address``
+            is the caller-held DataMap and is NOT itself stored on-network —
+            keep it safe. Default: public (DataMap stored on-network at
+            ``address``).
         payment_mode: Payment strategy — "auto" (default, uses merkle for 64+
             chunks), "merkle" (force batch payments, min 2 chunks), or "single"
             (per-chunk payments).
 
     Returns:
-        JSON with address and cost, or error details.
+        JSON with ``address`` (on-network address when public, caller-held
+        DataMap when private), ``chunks_stored``, ``payment_mode_used``, or
+        error details.
     """
     client, network = _get_ctx()
     data = text.encode("utf-8")
     try:
+        pm = _pm(payment_mode)
         if private:
-            result = await client.data_put_private(data, payment_mode=payment_mode)
+            result = await client.data_put(data, payment_mode=pm)
+            address = result.data_map
         else:
-            result = await client.data_put_public(data, payment_mode=payment_mode)
-        return _ok({"address": result.address, "cost": result.cost}, network)
+            result = await client.data_put_public(data, payment_mode=pm)
+            address = result.address
+        return _ok(
+            {
+                "address": address,
+                "chunks_stored": result.chunks_stored,
+                "payment_mode_used": result.payment_mode_used,
+            },
+            network,
+        )
     except AntdError as exc:
         return _err_antd(exc, network)
     except Exception as exc:
@@ -126,7 +150,8 @@ async def retrieve_data(
     """Retrieve data from the Autonomi network by address.
 
     Args:
-        address: The hex address (or data map for private data).
+        address: The on-network address (public) or the caller-held DataMap
+            (private).
         private: If True, retrieve as private (decrypted). Default: public.
 
     Returns:
@@ -135,7 +160,7 @@ async def retrieve_data(
     client, network = _get_ctx()
     try:
         if private:
-            raw = await client.data_get_private(address)
+            raw = await client.data_get(address)
         else:
             raw = await client.data_get_public(address)
         return _ok({"text": raw.decode("utf-8", errors="replace")}, network)
@@ -153,30 +178,45 @@ async def retrieve_data(
 @mcp.tool()
 async def upload_file(
     path: str,
+    private: bool = False,
     payment_mode: str = "auto",
 ) -> str:
-    """Upload a local file to the Autonomi network (public).
+    """Upload a local file to the Autonomi network.
 
     Args:
         path: Absolute path to the local file.
+        private: If True, upload as private (encrypted). The returned
+            ``address`` is the caller-held DataMap and is NOT stored
+            on-network — keep it safe. Default: public (DataMap stored
+            on-network at ``address``).
         payment_mode: Payment strategy — "auto" (default, uses merkle for 64+
             chunks), "merkle" (force batch payments, min 2 chunks), or "single"
             (per-chunk payments).
 
     Returns:
-        JSON with address, storage_cost_atto, gas_cost_wei, chunks_stored, and
-        payment_mode_used, or error details.
+        JSON with ``address`` (on-network address when public, caller-held
+        DataMap when private), ``storage_cost_atto``, ``gas_cost_wei``,
+        ``chunks_stored``, and ``payment_mode_used``, or error details.
     """
     client, network = _get_ctx()
     try:
-        result = await client.file_upload_public(path, payment_mode=payment_mode)
-        return _ok({
-            "address": result.address,
-            "storage_cost_atto": result.storage_cost_atto,
-            "gas_cost_wei": result.gas_cost_wei,
-            "chunks_stored": result.chunks_stored,
-            "payment_mode_used": result.payment_mode_used,
-        }, network)
+        pm = _pm(payment_mode)
+        if private:
+            result = await client.file_put(path, payment_mode=pm)
+            address = result.data_map
+        else:
+            result = await client.file_put_public(path, payment_mode=pm)
+            address = result.address
+        return _ok(
+            {
+                "address": address,
+                "storage_cost_atto": result.storage_cost_atto,
+                "gas_cost_wei": result.gas_cost_wei,
+                "chunks_stored": result.chunks_stored,
+                "payment_mode_used": result.payment_mode_used,
+            },
+            network,
+        )
     except AntdError as exc:
         return _err_antd(exc, network)
     except Exception as exc:
@@ -192,19 +232,25 @@ async def upload_file(
 async def download_file(
     address: str,
     dest_path: str,
+    private: bool = False,
 ) -> str:
     """Download a file from the Autonomi network to a local path.
 
     Args:
-        address: The network address of the file.
+        address: The on-network address (public) or the caller-held DataMap
+            (private).
         dest_path: Local path to save to.
+        private: If True, download as private (decrypted). Default: public.
 
     Returns:
         JSON confirming success, or error details.
     """
     client, network = _get_ctx()
     try:
-        await client.file_download_public(address, dest_path)
+        if private:
+            await client.file_get(address, dest_path)
+        else:
+            await client.file_get_public(address, dest_path)
         return _ok({"status": "downloaded", "dest_path": dest_path}, network)
     except AntdError as exc:
         return _err_antd(exc, network)
@@ -221,6 +267,7 @@ async def download_file(
 async def get_cost(
     text: str | None = None,
     file_path: str | None = None,
+    payment_mode: str = "auto",
 ) -> str:
     """Estimate storage cost before committing data to the network.
 
@@ -229,14 +276,17 @@ async def get_cost(
     Args:
         text: Text content to estimate cost for.
         file_path: Local file path to estimate cost for.
+        payment_mode: Payment strategy the estimate should reflect — "auto"
+            (default), "merkle", or "single".
 
     Returns:
         JSON with cost estimate in atto tokens, or error details.
     """
     client, network = _get_ctx()
     try:
+        pm = _pm(payment_mode)
         if text is not None:
-            est = await client.data_cost(text.encode("utf-8"))
+            est = await client.data_cost(text.encode("utf-8"), payment_mode=pm)
             return _ok(
                 {
                     "type": "data",
@@ -249,7 +299,7 @@ async def get_cost(
                 network,
             )
         elif file_path is not None:
-            est = await client.file_cost(file_path)
+            est = await client.file_cost(file_path, payment_mode=pm)
             return _ok(
                 {
                     "type": "file",
