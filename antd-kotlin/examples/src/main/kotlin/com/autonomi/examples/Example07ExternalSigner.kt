@@ -78,7 +78,7 @@ suspend fun example07ExternalSigner() {
         )
 
         val dst = File(tmpDir, "file.bin.downloaded")
-        client.fileDownloadPublic(fileFin.dataMapAddress, dst.absolutePath)
+        client.fileGetPublic(fileFin.dataMapAddress, dst.absolutePath)
         if (!dst.readBytes().contentEquals(fileBytes)) {
             throw RuntimeException("file round-trip mismatch")
         }

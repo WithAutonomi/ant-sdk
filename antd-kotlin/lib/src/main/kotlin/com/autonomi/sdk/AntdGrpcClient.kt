@@ -57,9 +57,12 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
 
     // ── Data ──
 
-    override suspend fun dataPutPublic(data: ByteArray, paymentMode: String?): PutResult = try {
-        val resp = dataStub.putPublic(putPublicDataRequest { this.data = ByteString.copyFrom(data) })
-        PutResult(resp.cost.attoTokens, resp.address)
+    override suspend fun dataPutPublic(data: ByteArray, paymentMode: PaymentMode): DataPutPublicResult = try {
+        val resp = dataStub.putPublic(putPublicDataRequest {
+            this.data = ByteString.copyFrom(data)
+            this.paymentMode = paymentMode.wire
+        })
+        DataPutPublicResult(address = resp.address)
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
     override suspend fun dataGetPublic(address: String): ByteArray = try {
@@ -67,18 +70,24 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
         resp.data.toByteArray()
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
-    override suspend fun dataPutPrivate(data: ByteArray, paymentMode: String?): PutResult = try {
-        val resp = dataStub.putPrivate(putPrivateDataRequest { this.data = ByteString.copyFrom(data) })
-        PutResult(resp.cost.attoTokens, resp.dataMap)
+    override suspend fun dataPut(data: ByteArray, paymentMode: PaymentMode): DataPutResult = try {
+        val resp = dataStub.put(putDataRequest {
+            this.data = ByteString.copyFrom(data)
+            this.paymentMode = paymentMode.wire
+        })
+        DataPutResult(dataMap = resp.dataMap)
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
-    override suspend fun dataGetPrivate(dataMap: String): ByteArray = try {
-        val resp = dataStub.getPrivate(getPrivateDataRequest { this.dataMap = dataMap })
+    override suspend fun dataGet(dataMap: String): ByteArray = try {
+        val resp = dataStub.get(getDataRequest { this.dataMap = dataMap })
         resp.data.toByteArray()
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
-    override suspend fun dataCost(data: ByteArray): UploadCostEstimate = try {
-        val resp = dataStub.getCost(dataCostRequest { this.data = ByteString.copyFrom(data) })
+    override suspend fun dataCost(data: ByteArray, paymentMode: PaymentMode): UploadCostEstimate = try {
+        val resp = dataStub.cost(dataCostRequest {
+            this.data = ByteString.copyFrom(data)
+            this.paymentMode = paymentMode.wire
+        })
         UploadCostEstimate(
             resp.attoTokens, resp.fileSize.toULong(), resp.chunkCount.toUInt(),
             resp.estimatedGasCostWei, resp.paymentMode)
@@ -106,9 +115,12 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
 
     // ── Files ──
 
-    override suspend fun fileUploadPublic(path: String, paymentMode: String?): FileUploadResult = try {
-        val resp = fileStub.uploadPublic(uploadFileRequest { this.path = path })
-        FileUploadResult(
+    override suspend fun filePutPublic(path: String, paymentMode: PaymentMode): FilePutPublicResult = try {
+        val resp = fileStub.putPublic(putFileRequest {
+            this.path = path
+            this.paymentMode = paymentMode.wire
+        })
+        FilePutPublicResult(
             address = resp.address,
             storageCostAtto = resp.storageCostAtto,
             gasCostWei = resp.gasCostWei,
@@ -117,14 +129,35 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
         )
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
-    override suspend fun fileDownloadPublic(address: String, destPath: String) = try {
-        fileStub.downloadPublic(downloadPublicRequest { this.address = address; this.destPath = destPath })
+    override suspend fun fileGetPublic(address: String, destPath: String) = try {
+        fileStub.getPublic(getFilePublicRequest { this.address = address; this.destPath = destPath })
         Unit
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
-    override suspend fun fileCost(path: String, isPublic: Boolean): UploadCostEstimate = try {
-        val resp = fileStub.getFileCost(fileCostRequest {
-            this.path = path; this.isPublic = isPublic
+    override suspend fun filePut(path: String, paymentMode: PaymentMode): FilePutResult = try {
+        val resp = fileStub.put(putFileRequest {
+            this.path = path
+            this.paymentMode = paymentMode.wire
+        })
+        FilePutResult(
+            dataMap = resp.dataMap,
+            storageCostAtto = resp.storageCostAtto,
+            gasCostWei = resp.gasCostWei,
+            chunksStored = resp.chunksStored.toULong(),
+            paymentModeUsed = resp.paymentModeUsed,
+        )
+    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
+
+    override suspend fun fileGet(dataMap: String, destPath: String) = try {
+        fileStub.get(getFileRequest { this.dataMap = dataMap; this.destPath = destPath })
+        Unit
+    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
+
+    override suspend fun fileCost(path: String, isPublic: Boolean, paymentMode: PaymentMode): UploadCostEstimate = try {
+        val resp = fileStub.cost(fileCostRequest {
+            this.path = path
+            this.isPublic = isPublic
+            this.paymentMode = paymentMode.wire
         })
         UploadCostEstimate(
             resp.attoTokens, resp.fileSize.toULong(), resp.chunkCount.toUInt(),
