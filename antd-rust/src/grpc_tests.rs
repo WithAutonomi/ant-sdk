@@ -4,6 +4,7 @@ use tonic::{Request, Response, Status};
 use crate::errors::AntdError;
 use crate::grpc_client::proto::antd::v1;
 use crate::grpc_client::GrpcClient;
+use crate::models::PaymentMode;
 
 // --- Mock service implementations ---
 
@@ -286,9 +287,11 @@ async fn test_grpc_health() {
 #[tokio::test]
 async fn test_grpc_data_put_public() {
     let client = start_mock_server().await;
-    let result = client.data_put_public(b"hello").await.unwrap();
+    let result = client
+        .data_put_public(b"hello", PaymentMode::Auto)
+        .await
+        .unwrap();
     assert_eq!(result.address, "abc123");
-    assert_eq!(result.cost, "100");
 }
 
 #[tokio::test]
@@ -301,22 +304,21 @@ async fn test_grpc_data_get_public() {
 #[tokio::test]
 async fn test_grpc_data_put_private() {
     let client = start_mock_server().await;
-    let result = client.data_put_private(b"secret").await.unwrap();
-    assert_eq!(result.address, "dm123");
-    assert_eq!(result.cost, "200");
+    let result = client.data_put(b"secret", PaymentMode::Auto).await.unwrap();
+    assert_eq!(result.data_map, "dm123");
 }
 
 #[tokio::test]
 async fn test_grpc_data_get_private() {
     let client = start_mock_server().await;
-    let data = client.data_get_private("dm123").await.unwrap();
+    let data = client.data_get("dm123").await.unwrap();
     assert_eq!(data, b"secret");
 }
 
 #[tokio::test]
 async fn test_grpc_data_cost() {
     let client = start_mock_server().await;
-    let est = client.data_cost(b"test").await.unwrap();
+    let est = client.data_cost(b"test", PaymentMode::Auto).await.unwrap();
     assert_eq!(est.cost, "50");
     assert_eq!(est.file_size, 4);
     assert_eq!(est.chunk_count, 3);
@@ -342,7 +344,10 @@ async fn test_grpc_chunk_get() {
 #[tokio::test]
 async fn test_grpc_file_upload_public() {
     let client = start_mock_server().await;
-    let result = client.file_upload_public("/tmp/test.txt").await.unwrap();
+    let result = client
+        .file_put_public("/tmp/test.txt", PaymentMode::Auto)
+        .await
+        .unwrap();
     assert_eq!(result.address, "file1");
     assert_eq!(result.storage_cost_atto, "1000");
     assert_eq!(result.gas_cost_wei, "42");
@@ -354,7 +359,7 @@ async fn test_grpc_file_upload_public() {
 async fn test_grpc_file_download_public() {
     let client = start_mock_server().await;
     client
-        .file_download_public("file1", "/tmp/out.txt")
+        .file_get_public("file1", "/tmp/out.txt")
         .await
         .unwrap();
 }
@@ -362,7 +367,10 @@ async fn test_grpc_file_download_public() {
 #[tokio::test]
 async fn test_grpc_file_cost() {
     let client = start_mock_server().await;
-    let est = client.file_cost("/tmp/test.txt", true).await.unwrap();
+    let est = client
+        .file_cost("/tmp/test.txt", true, PaymentMode::Auto)
+        .await
+        .unwrap();
     assert_eq!(est.cost, "1000");
     assert_eq!(est.file_size, 4096);
     assert_eq!(est.chunk_count, 3);

@@ -155,7 +155,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let dst = tmp.join("file.bin.downloaded");
     client
-        .file_download_public(&fin.data_map_address, dst.to_str().unwrap())
+        .file_get_public(&fin.data_map_address, dst.to_str().unwrap())
         .await?;
     let got = fs::read(&dst)?;
     if got != file_content.as_bytes() {
