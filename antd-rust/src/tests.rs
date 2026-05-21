@@ -4,6 +4,7 @@ use mockito::{Matcher, Mock, ServerGuard};
 use serde_json::json;
 
 use crate::errors::AntdError;
+use crate::models::PaymentMode;
 use crate::Client;
 
 async fn mock_server() -> ServerGuard {
@@ -213,9 +214,8 @@ async fn test_data_put_public() {
     let _m = mock_data_put_public(&mut server);
     let client = Client::new(&server.url());
 
-    let result = client.data_put_public(b"hello", None).await.unwrap();
+    let result = client.data_put_public(b"hello", PaymentMode::Auto).await.unwrap();
     assert_eq!(result.address, "abc123");
-    assert_eq!(result.cost, "100");
 }
 
 #[tokio::test]
@@ -234,9 +234,8 @@ async fn test_data_put_private() {
     let _m = mock_data_put_private(&mut server);
     let client = Client::new(&server.url());
 
-    let result = client.data_put_private(b"secret", None).await.unwrap();
-    assert_eq!(result.address, "dm123");
-    assert_eq!(result.cost, "200");
+    let result = client.data_put(b"secret", PaymentMode::Auto).await.unwrap();
+    assert_eq!(result.data_map, "dm123");
 }
 
 #[tokio::test]
@@ -245,7 +244,7 @@ async fn test_data_get_private() {
     let _m = mock_data_get_private(&mut server);
     let client = Client::new(&server.url());
 
-    let data = client.data_get_private("dm123").await.unwrap();
+    let data = client.data_get("dm123").await.unwrap();
     assert_eq!(data, b"secret");
 }
 
@@ -255,7 +254,7 @@ async fn test_data_cost() {
     let _m = mock_data_cost(&mut server);
     let client = Client::new(&server.url());
 
-    let est = client.data_cost(b"test").await.unwrap();
+    let est = client.data_cost(b"test", PaymentMode::Auto).await.unwrap();
     assert_eq!(est.cost, "50");
     assert_eq!(est.file_size, 4);
     assert_eq!(est.chunk_count, 3);
@@ -291,7 +290,7 @@ async fn test_file_upload_public() {
     let client = Client::new(&server.url());
 
     let result = client
-        .file_upload_public("/tmp/test.txt", None)
+        .file_put_public("/tmp/test.txt", PaymentMode::Auto)
         .await
         .unwrap();
     assert_eq!(result.address, "file1");
@@ -308,7 +307,7 @@ async fn test_file_download_public() {
     let client = Client::new(&server.url());
 
     client
-        .file_download_public("file1", "/tmp/out.txt")
+        .file_get_public("file1", "/tmp/out.txt")
         .await
         .unwrap();
 }
@@ -319,7 +318,7 @@ async fn test_file_cost() {
     let _m = mock_file_cost(&mut server);
     let client = Client::new(&server.url());
 
-    let est = client.file_cost("/tmp/test.txt", true).await.unwrap();
+    let est = client.file_cost("/tmp/test.txt", true, PaymentMode::Auto).await.unwrap();
     assert_eq!(est.cost, "1000");
     assert_eq!(est.file_size, 4096);
     assert_eq!(est.chunk_count, 3);
@@ -356,7 +355,7 @@ async fn test_error_mapping_bad_request() {
         .create();
     let client = Client::new(&server.url());
 
-    let err = client.data_put_public(b"bad", None).await.unwrap_err();
+    let err = client.data_put_public(b"bad", PaymentMode::Auto).await.unwrap_err();
     match err {
         AntdError::BadRequest(msg) => assert_eq!(msg, "invalid data"),
         other => panic!("expected BadRequest, got: {other:?}"),
@@ -374,7 +373,7 @@ async fn test_error_mapping_payment() {
         .create();
     let client = Client::new(&server.url());
 
-    let err = client.data_put_public(b"data", None).await.unwrap_err();
+    let err = client.data_put_public(b"data", PaymentMode::Auto).await.unwrap_err();
     match err {
         AntdError::Payment(msg) => assert_eq!(msg, "insufficient funds"),
         other => panic!("expected Payment, got: {other:?}"),
@@ -446,7 +445,7 @@ async fn test_error_mapping_already_exists() {
         .create();
     let client = Client::new(&server.url());
 
-    let err = client.data_put_public(b"test", None).await.unwrap_err();
+    let err = client.data_put_public(b"test", PaymentMode::Auto).await.unwrap_err();
     match err {
         AntdError::AlreadyExists(msg) => assert_eq!(msg, "already exists"),
         other => panic!("expected AlreadyExists, got: {other:?}"),

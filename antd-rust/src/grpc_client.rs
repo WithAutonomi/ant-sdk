@@ -89,23 +89,61 @@ impl GrpcClient {
 
     // --- Data ---
 
-    /// Stores public immutable data on the network.
-    pub async fn data_put_public(&self, data: &[u8]) -> Result<PutResult, AntdError> {
+    /// Stores private encrypted data. Returns the caller-held DataMap (hex).
+    pub async fn data_put(
+        &self,
+        data: &[u8],
+        payment_mode: PaymentMode,
+    ) -> Result<DataPutResult, AntdError> {
+        let resp = self
+            .data
+            .clone()
+            .put(proto::antd::v1::PutDataRequest {
+                data: data.to_vec(),
+                payment_mode: payment_mode.as_wire().to_string(),
+            })
+            .await?
+            .into_inner();
+
+        Ok(DataPutResult {
+            data_map: resp.data_map,
+            ..Default::default()
+        })
+    }
+
+    /// Retrieves private data from a caller-held DataMap (hex).
+    pub async fn data_get(&self, data_map: &str) -> Result<Vec<u8>, AntdError> {
+        let resp = self
+            .data
+            .clone()
+            .get(proto::antd::v1::GetDataRequest {
+                data_map: data_map.to_string(),
+            })
+            .await?
+            .into_inner();
+
+        Ok(resp.data)
+    }
+
+    /// Stores public data. Returns the on-network DataMap address.
+    pub async fn data_put_public(
+        &self,
+        data: &[u8],
+        payment_mode: PaymentMode,
+    ) -> Result<DataPutPublicResult, AntdError> {
         let resp = self
             .data
             .clone()
             .put_public(proto::antd::v1::PutPublicDataRequest {
                 data: data.to_vec(),
-                payment_mode: String::new(),
+                payment_mode: payment_mode.as_wire().to_string(),
             })
             .await?
             .into_inner();
 
-        let cost = resp.cost.map(|c| c.atto_tokens).unwrap_or_default();
-
-        Ok(PutResult {
-            cost,
+        Ok(DataPutPublicResult {
             address: resp.address,
+            ..Default::default()
         })
     }
 
@@ -123,48 +161,18 @@ impl GrpcClient {
         Ok(resp.data)
     }
 
-    /// Stores private encrypted data on the network.
-    pub async fn data_put_private(&self, data: &[u8]) -> Result<PutResult, AntdError> {
-        let resp = self
-            .data
-            .clone()
-            .put(proto::antd::v1::PutDataRequest {
-                data: data.to_vec(),
-                payment_mode: String::new(),
-            })
-            .await?
-            .into_inner();
-
-        let cost = resp.cost.map(|c| c.atto_tokens).unwrap_or_default();
-
-        Ok(PutResult {
-            cost,
-            address: resp.data_map,
-        })
-    }
-
-    /// Retrieves private data using a data map.
-    pub async fn data_get_private(&self, data_map: &str) -> Result<Vec<u8>, AntdError> {
-        let resp = self
-            .data
-            .clone()
-            .get(proto::antd::v1::GetDataRequest {
-                data_map: data_map.to_string(),
-            })
-            .await?
-            .into_inner();
-
-        Ok(resp.data)
-    }
-
-    /// Returns a pre-upload cost breakdown for the given bytes.
-    pub async fn data_cost(&self, data: &[u8]) -> Result<UploadCostEstimate, AntdError> {
+    /// Pre-upload cost breakdown for the given bytes.
+    pub async fn data_cost(
+        &self,
+        data: &[u8],
+        payment_mode: PaymentMode,
+    ) -> Result<UploadCostEstimate, AntdError> {
         let resp = self
             .data
             .clone()
             .cost(proto::antd::v1::DataCostRequest {
                 data: data.to_vec(),
-                payment_mode: String::new(),
+                payment_mode: payment_mode.as_wire().to_string(),
             })
             .await?
             .into_inner();
@@ -215,19 +223,60 @@ impl GrpcClient {
 
     // --- Files ---
 
-    /// Uploads a local file to the network.
-    pub async fn file_upload_public(&self, path: &str) -> Result<FileUploadResult, AntdError> {
+    /// Uploads a file privately. Returns the caller-held DataMap (hex).
+    pub async fn file_put(
+        &self,
+        path: &str,
+        payment_mode: PaymentMode,
+    ) -> Result<FilePutResult, AntdError> {
+        let resp = self
+            .files
+            .clone()
+            .put(proto::antd::v1::PutFileRequest {
+                path: path.to_string(),
+                payment_mode: payment_mode.as_wire().to_string(),
+            })
+            .await?
+            .into_inner();
+
+        Ok(FilePutResult {
+            data_map: resp.data_map,
+            storage_cost_atto: resp.storage_cost_atto,
+            gas_cost_wei: resp.gas_cost_wei,
+            chunks_stored: resp.chunks_stored,
+            payment_mode_used: resp.payment_mode_used,
+        })
+    }
+
+    /// Downloads a private file from a caller-held DataMap.
+    pub async fn file_get(&self, data_map: &str, dest_path: &str) -> Result<(), AntdError> {
+        self.files
+            .clone()
+            .get(proto::antd::v1::GetFileRequest {
+                data_map: data_map.to_string(),
+                dest_path: dest_path.to_string(),
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// Uploads a file publicly. Returns the on-network DataMap address.
+    pub async fn file_put_public(
+        &self,
+        path: &str,
+        payment_mode: PaymentMode,
+    ) -> Result<FilePutPublicResult, AntdError> {
         let resp = self
             .files
             .clone()
             .put_public(proto::antd::v1::PutFileRequest {
                 path: path.to_string(),
-                payment_mode: String::new(),
+                payment_mode: payment_mode.as_wire().to_string(),
             })
             .await?
             .into_inner();
 
-        Ok(FileUploadResult {
+        Ok(FilePutPublicResult {
             address: resp.address,
             storage_cost_atto: resp.storage_cost_atto,
             gas_cost_wei: resp.gas_cost_wei,
@@ -236,8 +285,8 @@ impl GrpcClient {
         })
     }
 
-    /// Downloads a file from the network to a local path.
-    pub async fn file_download_public(
+    /// Downloads a public file from an on-network DataMap address.
+    pub async fn file_get_public(
         &self,
         address: &str,
         dest_path: &str,
@@ -253,11 +302,12 @@ impl GrpcClient {
         Ok(())
     }
 
-    /// Returns a pre-upload cost breakdown for the file at `path`.
+    /// Pre-upload cost breakdown for the file at `path`.
     pub async fn file_cost(
         &self,
         path: &str,
         is_public: bool,
+        payment_mode: PaymentMode,
     ) -> Result<UploadCostEstimate, AntdError> {
         let resp = self
             .files
@@ -265,7 +315,7 @@ impl GrpcClient {
             .cost(proto::antd::v1::FileCostRequest {
                 path: path.to_string(),
                 is_public,
-                payment_mode: String::new(),
+                payment_mode: payment_mode.as_wire().to_string(),
             })
             .await?
             .into_inner();

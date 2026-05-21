@@ -147,23 +147,60 @@ impl Client {
 
     // --- Data ---
 
-    /// Stores public immutable data on the network.
+    /// Stores private encrypted data on the network. Returns the caller-held
+    /// DataMap (hex); the DataMap is NOT stored on-network.
+    pub async fn data_put(
+        &self,
+        data: &[u8],
+        payment_mode: PaymentMode,
+    ) -> Result<DataPutResult, AntdError> {
+        let body = json!({
+            "data": Self::b64_encode(data),
+            "payment_mode": payment_mode.as_wire(),
+        });
+        let (j, _) = self
+            .do_json(reqwest::Method::POST, "/v1/data", Some(body))
+            .await?;
+        let j = j.unwrap_or_default();
+        Ok(DataPutResult {
+            data_map: Self::str_field(&j, "data_map"),
+            chunks_stored: Self::u64_field(&j, "chunks_stored"),
+            payment_mode_used: Self::str_field(&j, "payment_mode_used"),
+        })
+    }
+
+    /// Retrieves private data from a caller-held DataMap (hex).
+    pub async fn data_get(&self, data_map: &str) -> Result<Vec<u8>, AntdError> {
+        let (j, _) = self
+            .do_json(
+                reqwest::Method::POST,
+                "/v1/data/get",
+                Some(json!({ "data_map": data_map })),
+            )
+            .await?;
+        let j = j.unwrap_or_default();
+        Self::b64_decode(&Self::str_field(&j, "data"))
+    }
+
+    /// Stores public data on the network. The DataMap is stored on-network
+    /// as an extra chunk; the returned address is the shareable handle.
     pub async fn data_put_public(
         &self,
         data: &[u8],
-        payment_mode: Option<&str>,
-    ) -> Result<PutResult, AntdError> {
-        let mut body = json!({ "data": Self::b64_encode(data) });
-        if let Some(mode) = payment_mode {
-            body["payment_mode"] = json!(mode);
-        }
+        payment_mode: PaymentMode,
+    ) -> Result<DataPutPublicResult, AntdError> {
+        let body = json!({
+            "data": Self::b64_encode(data),
+            "payment_mode": payment_mode.as_wire(),
+        });
         let (j, _) = self
             .do_json(reqwest::Method::POST, "/v1/data/public", Some(body))
             .await?;
         let j = j.unwrap_or_default();
-        Ok(PutResult {
-            cost: Self::str_field(&j, "cost"),
+        Ok(DataPutPublicResult {
             address: Self::str_field(&j, "address"),
+            chunks_stored: Self::u64_field(&j, "chunks_stored"),
+            payment_mode_used: Self::str_field(&j, "payment_mode_used"),
         })
     }
 
@@ -180,50 +217,20 @@ impl Client {
         Self::b64_decode(&Self::str_field(&j, "data"))
     }
 
-    /// Stores private encrypted data on the network.
-    pub async fn data_put_private(
+    /// Pre-upload cost breakdown for the given bytes.
+    pub async fn data_cost(
         &self,
         data: &[u8],
-        payment_mode: Option<&str>,
-    ) -> Result<PutResult, AntdError> {
-        let mut body = json!({ "data": Self::b64_encode(data) });
-        if let Some(mode) = payment_mode {
-            body["payment_mode"] = json!(mode);
-        }
-        let (j, _) = self
-            .do_json(reqwest::Method::POST, "/v1/data", Some(body))
-            .await?;
-        let j = j.unwrap_or_default();
-        Ok(PutResult {
-            cost: Self::str_field(&j, "cost"),
-            address: Self::str_field(&j, "data_map"),
-        })
-    }
-
-    /// Retrieves private data using a data map.
-    pub async fn data_get_private(&self, data_map: &str) -> Result<Vec<u8>, AntdError> {
-        let (j, _) = self
-            .do_json(
-                reqwest::Method::POST,
-                "/v1/data/get",
-                Some(json!({ "data_map": data_map })),
-            )
-            .await?;
-        let j = j.unwrap_or_default();
-        Self::b64_decode(&Self::str_field(&j, "data"))
-    }
-
-    /// Returns a pre-upload cost breakdown for the given bytes.
-    ///
-    /// The server samples a small number of chunk addresses and extrapolates,
-    /// which is much faster than quoting every chunk on slow networks. Gas is
-    /// advisory.
-    pub async fn data_cost(&self, data: &[u8]) -> Result<UploadCostEstimate, AntdError> {
+        payment_mode: PaymentMode,
+    ) -> Result<UploadCostEstimate, AntdError> {
         let (j, _) = self
             .do_json(
                 reqwest::Method::POST,
                 "/v1/data/cost",
-                Some(json!({ "data": Self::b64_encode(data) })),
+                Some(json!({
+                    "data": Self::b64_encode(data),
+                    "payment_mode": payment_mode.as_wire(),
+                })),
             )
             .await?;
         let j = j.unwrap_or_default();
@@ -265,21 +272,56 @@ impl Client {
 
     // --- Files ---
 
-    /// Uploads a local file to the network.
-    pub async fn file_upload_public(
+    /// Uploads a file privately. Returns the caller-held DataMap (hex).
+    pub async fn file_put(
         &self,
         path: &str,
-        payment_mode: Option<&str>,
-    ) -> Result<FileUploadResult, AntdError> {
-        let mut body = json!({ "path": path });
-        if let Some(mode) = payment_mode {
-            body["payment_mode"] = json!(mode);
-        }
+        payment_mode: PaymentMode,
+    ) -> Result<FilePutResult, AntdError> {
+        let body = json!({
+            "path": path,
+            "payment_mode": payment_mode.as_wire(),
+        });
+        let (j, _) = self
+            .do_json(reqwest::Method::POST, "/v1/files", Some(body))
+            .await?;
+        let j = j.unwrap_or_default();
+        Ok(FilePutResult {
+            data_map: Self::str_field(&j, "data_map"),
+            storage_cost_atto: Self::str_field(&j, "storage_cost_atto"),
+            gas_cost_wei: Self::str_field(&j, "gas_cost_wei"),
+            chunks_stored: Self::u64_field(&j, "chunks_stored"),
+            payment_mode_used: Self::str_field(&j, "payment_mode_used"),
+        })
+    }
+
+    /// Downloads a private file from a caller-held DataMap into `dest_path`.
+    pub async fn file_get(&self, data_map: &str, dest_path: &str) -> Result<(), AntdError> {
+        self.do_json(
+            reqwest::Method::POST,
+            "/v1/files/get",
+            Some(json!({ "data_map": data_map, "dest_path": dest_path })),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Uploads a file publicly. The DataMap is stored on-network as an extra
+    /// chunk; the returned address is the shareable handle.
+    pub async fn file_put_public(
+        &self,
+        path: &str,
+        payment_mode: PaymentMode,
+    ) -> Result<FilePutPublicResult, AntdError> {
+        let body = json!({
+            "path": path,
+            "payment_mode": payment_mode.as_wire(),
+        });
         let (j, _) = self
             .do_json(reqwest::Method::POST, "/v1/files/public", Some(body))
             .await?;
         let j = j.unwrap_or_default();
-        Ok(FileUploadResult {
+        Ok(FilePutPublicResult {
             address: Self::str_field(&j, "address"),
             storage_cost_atto: Self::str_field(&j, "storage_cost_atto"),
             gas_cost_wei: Self::str_field(&j, "gas_cost_wei"),
@@ -288,8 +330,8 @@ impl Client {
         })
     }
 
-    /// Downloads a file from the network to a local path.
-    pub async fn file_download_public(
+    /// Downloads a public file from an on-network DataMap address.
+    pub async fn file_get_public(
         &self,
         address: &str,
         dest_path: &str,
@@ -303,15 +345,12 @@ impl Client {
         Ok(())
     }
 
-    /// Returns a pre-upload cost breakdown for the file at `path`.
-    ///
-    /// The server samples a small number of chunk addresses and extrapolates,
-    /// which is much faster than quoting every chunk on slow networks. Gas is
-    /// advisory.
+    /// Pre-upload cost breakdown for the file at `path`.
     pub async fn file_cost(
         &self,
         path: &str,
         is_public: bool,
+        payment_mode: PaymentMode,
     ) -> Result<UploadCostEstimate, AntdError> {
         let (j, _) = self
             .do_json(
@@ -320,6 +359,7 @@ impl Client {
                 Some(json!({
                     "path": path,
                     "is_public": is_public,
+                    "payment_mode": payment_mode.as_wire(),
                 })),
             )
             .await?;

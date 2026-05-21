@@ -1,5 +1,31 @@
 use serde::{Deserialize, Serialize};
 
+/// Payment-batching strategy for uploads.
+///
+/// Passed as a required parameter to every put/cost method; the client
+/// serializes the variant to the wire string at the request boundary.
+///
+/// - `Auto`   — server picks (merkle for 64+ chunks, single otherwise).
+/// - `Merkle` — force merkle-batch (saves gas, min 2 chunks).
+/// - `Single` — force per-chunk payments (works for any chunk count).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaymentMode {
+    Auto,
+    Merkle,
+    Single,
+}
+
+impl PaymentMode {
+    /// Serialize to the wire string the daemon expects.
+    pub fn as_wire(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Merkle => "merkle",
+            Self::Single => "single",
+        }
+    }
+}
+
 /// Result of a health check against the antd daemon.
 ///
 /// The diagnostic fields (`version`, `evm_network`, `uptime_seconds`,
@@ -24,7 +50,9 @@ pub struct HealthStatus {
     pub payment_vault_address: String,
 }
 
-/// Result of a put/create operation containing cost and address.
+/// Result of a single-chunk put (used by `chunk_put`). Data and file puts
+/// return richer types — see [`DataPutResult`], [`DataPutPublicResult`],
+/// [`FilePutResult`], [`FilePutPublicResult`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PutResult {
     /// Cost in atto tokens as a string.
@@ -33,20 +61,61 @@ pub struct PutResult {
     pub address: String,
 }
 
-/// Result of a public file upload.
-///
-/// Returned by [`crate::Client::file_upload_public`] and the equivalent gRPC method.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FileUploadResult {
-    /// Hex-encoded network address of the uploaded file.
+/// Result of a private data put. The DataMap is returned to the caller; it
+/// is NOT stored on-network. The REST transport populates `chunks_stored`
+/// and `payment_mode_used`; the gRPC transport currently leaves them empty
+/// because the proto `PutDataResponse` only carries `data_map`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DataPutResult {
+    /// Hex-encoded caller-held DataMap.
+    pub data_map: String,
+    #[serde(default)]
+    pub chunks_stored: u64,
+    #[serde(default)]
+    pub payment_mode_used: String,
+}
+
+/// Result of a public data put. The DataMap is stored on-network as an
+/// extra chunk; `address` is the shareable retrieval handle.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DataPutPublicResult {
+    /// Hex-encoded on-network DataMap address.
     pub address: String,
-    /// Total storage cost paid in token units (atto). `"0"` if all chunks already existed.
+    #[serde(default)]
+    pub chunks_stored: u64,
+    #[serde(default)]
+    pub payment_mode_used: String,
+}
+
+/// Result of a private file upload. The DataMap is returned to the caller;
+/// it is NOT stored on-network.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilePutResult {
+    /// Hex-encoded caller-held DataMap.
+    pub data_map: String,
+    /// Storage cost paid in atto tokens. `"0"` if all chunks already existed.
     pub storage_cost_atto: String,
-    /// Total gas cost paid in wei as a decimal string (u128 exceeds JSON safe-integer range).
+    /// Gas cost paid in wei as a decimal string.
     pub gas_cost_wei: String,
     /// Number of chunks stored on the network.
     pub chunks_stored: u64,
     /// Which payment mode was actually used (`"auto"`, `"merkle"`, or `"single"`).
+    pub payment_mode_used: String,
+}
+
+/// Result of a public file upload. The DataMap is stored on-network as an
+/// extra chunk; `address` is the shareable retrieval handle.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilePutPublicResult {
+    /// Hex-encoded on-network DataMap address.
+    pub address: String,
+    /// Storage cost paid in atto tokens. `"0"` if all chunks already existed.
+    pub storage_cost_atto: String,
+    /// Gas cost paid in wei as a decimal string.
+    pub gas_cost_wei: String,
+    /// Number of chunks stored on the network.
+    pub chunks_stored: u64,
+    /// Which payment mode was actually used.
     pub payment_mode_used: String,
 }
 
@@ -80,46 +149,32 @@ pub struct PaymentInfo {
 /// A candidate node entry within a merkle batch payment pool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CandidateNodeEntry {
-    /// Hex-encoded rewards address.
     pub rewards_address: String,
-    /// Amount in atto tokens as a string.
     pub amount: String,
 }
 
 /// A pool commitment entry for merkle batch payments.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PoolCommitmentEntry {
-    /// Hex-encoded pool hash.
     pub pool_hash: String,
-    /// Candidate nodes in this pool.
     pub candidates: Vec<CandidateNodeEntry>,
 }
 
 /// Result of preparing an upload for external signing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrepareUploadResult {
-    /// Hex identifier for this upload session.
     pub upload_id: String,
-    /// Payments that must be signed externally.
     pub payments: Vec<PaymentInfo>,
-    /// Total amount across all payments.
     pub total_amount: String,
-    /// Payment vault contract address.
     pub payment_vault_address: String,
-    /// Payment token contract address.
     pub payment_token_address: String,
-    /// EVM RPC URL for submitting transactions.
     pub rpc_url: String,
-    /// Payment type: "direct" or "merkle". Empty for legacy responses.
     #[serde(rename = "payment_type", default)]
     pub payment_type: String,
-    /// Merkle tree depth (merkle payments only).
     #[serde(rename = "depth", default)]
     pub depth: Option<u8>,
-    /// Pool commitments for merkle batch payments.
     #[serde(rename = "pool_commitments", default)]
     pub pool_commitments: Option<Vec<PoolCommitmentEntry>>,
-    /// Timestamp for merkle payment submission.
     #[serde(rename = "merkle_payment_timestamp", default)]
     pub merkle_payment_timestamp: Option<u64>,
 }
@@ -127,82 +182,44 @@ pub struct PrepareUploadResult {
 /// Result of finalizing an externally-signed upload.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FinalizeUploadResult {
-    /// Hex address of the stored data.
     #[serde(default)]
     pub address: String,
-    /// Number of chunks stored.
     #[serde(default)]
     pub chunks_stored: i64,
-    /// Hex-encoded serialized DataMap (always returned). Empty for legacy
-    /// daemons that pre-date the field.
     #[serde(default)]
     pub data_map: String,
-    /// On-network address of the DataMap chunk. Populated only when prepare
-    /// was called with `visibility="public"` — the DataMap chunk was bundled
-    /// into the same external-signer payment batch and stored on-network.
-    /// Empty otherwise.
     #[serde(default)]
     pub data_map_address: String,
 }
 
-/// Result of preparing a single-chunk publish for external signing via
-/// `POST /v1/chunks/prepare`.
-///
-/// When [`already_stored`](Self::already_stored) is `true`, the chunk is
-/// already on-network — only [`address`](Self::address) is populated and no
-/// finalize call is needed. Otherwise the wave-batch payment fields describe
-/// what the external signer must submit before calling
-/// [`crate::Client::finalize_chunk_upload`].
+/// Result of preparing a single-chunk publish for external signing.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PrepareChunkResult {
-    /// Content-addressed BLAKE3 of the chunk bytes (hex, 64 chars). Always set.
     pub address: String,
-    /// `true` if the chunk is already stored on the network and no payment
-    /// is needed.
     #[serde(default)]
     pub already_stored: bool,
-
-    // Fields below are only populated when `already_stored == false`.
-    /// Opaque identifier to pass back to `finalize_chunk_upload`.
     #[serde(default)]
     pub upload_id: String,
-    /// Always `"wave_batch"` for single-chunk publishes (well below the
-    /// merkle threshold).
     #[serde(default)]
     pub payment_type: String,
-    /// Per-quote payment entries for `payForQuotes()`. Typically 5–7 (one
-    /// per peer in the close group).
     #[serde(default)]
     pub payments: Vec<PaymentInfo>,
-    /// Total amount to pay (atto tokens, decimal string).
     #[serde(default)]
     pub total_amount: String,
-    /// Payment vault contract address (hex with 0x prefix).
     #[serde(default)]
     pub payment_vault_address: String,
-    /// Payment token contract address (hex with 0x prefix).
     #[serde(default)]
     pub payment_token_address: String,
-    /// EVM RPC URL for submitting transactions.
     #[serde(default)]
     pub rpc_url: String,
 }
 
-/// Pre-upload cost breakdown returned by `estimate_data_cost` /
-/// `estimate_file_cost`.
-///
-/// The server samples up to 5 chunk addresses and extrapolates the storage
-/// cost. Gas is an advisory heuristic, not a live gas-oracle query.
+/// Pre-upload cost breakdown returned by `data_cost` / `file_cost`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UploadCostEstimate {
-    /// Storage cost in atto tokens as a string.
     pub cost: String,
-    /// Original file size in bytes.
     pub file_size: u64,
-    /// Number of data chunks the file would split into.
     pub chunk_count: u32,
-    /// Advisory gas cost heuristic in wei as a string.
     pub estimated_gas_cost_wei: String,
-    /// Payment mode that would be used: `"auto"`, `"merkle"`, or `"single"`.
     pub payment_mode: String,
 }

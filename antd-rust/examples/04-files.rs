@@ -1,4 +1,4 @@
-use antd_client::{Client, DEFAULT_BASE_URL};
+use antd_client::{Client, PaymentMode, DEFAULT_BASE_URL};
 use std::fs;
 
 #[tokio::main]
@@ -14,14 +14,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let src_file = tmp.join("hello.txt");
     fs::write(&src_file, file_content)?;
 
-    let est = client.file_cost(src_file.to_str().unwrap(), true).await?;
+    let est = client
+        .file_cost(src_file.to_str().unwrap(), true, PaymentMode::Auto)
+        .await?;
     println!(
         "Estimate: {} bytes in {} chunks, storage {} atto, gas {} wei, mode {}",
         est.file_size, est.chunk_count, est.cost, est.estimated_gas_cost_wei, est.payment_mode
     );
 
     let result = client
-        .file_upload_public(src_file.to_str().unwrap(), None)
+        .file_put_public(src_file.to_str().unwrap(), PaymentMode::Auto)
         .await?;
     println!(
         "File uploaded at: {} (storage: {} atto, gas: {} wei, chunks: {}, mode: {})",
@@ -34,7 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let dst_file = tmp.join("hello.txt.downloaded");
     client
-        .file_download_public(&result.address, dst_file.to_str().unwrap())
+        .file_get_public(&result.address, dst_file.to_str().unwrap())
         .await?;
     println!("File downloaded to {}", dst_file.display());
 
