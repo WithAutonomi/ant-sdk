@@ -188,7 +188,7 @@ try {
     );
 
     $dstFile = $srcFile . '.downloaded';
-    $client->fileDownloadPublic($fileFin->dataMapAddress, $dstFile);
+    $client->fileGetPublic($fileFin->dataMapAddress, $dstFile);
     if (file_get_contents($dstFile) !== $fileContent) {
         fwrite(STDERR, "file round-trip mismatch\n");
         exit(1);

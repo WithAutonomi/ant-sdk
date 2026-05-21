@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { healthStatusFromJson, RestClient } from "./rest-client.js";
+import { PaymentMode } from "./models.js";
 import {
   NotFoundError,
   BadRequestError,
@@ -58,7 +59,12 @@ const routes: Route[] = [
   {
     method: "POST",
     match: (p) => p === "/v1/data/public",
-    respond: () => jsonResponse(200, { cost: "100", address: "0xabc" }),
+    respond: () =>
+      jsonResponse(200, {
+        address: "0xabc",
+        chunks_stored: 3,
+        payment_mode_used: "single",
+      }),
   },
 
   // Data public GET
@@ -68,17 +74,22 @@ const routes: Route[] = [
     respond: () => jsonResponse(200, { data: b64("hello world") }),
   },
 
-  // Data private PUT
+  // Data private PUT (new convention: POST /v1/data)
   {
     method: "POST",
-    match: (p) => p === "/v1/data/private",
-    respond: () => jsonResponse(200, { cost: "200", data_map: "0xdm" }),
+    match: (p) => p === "/v1/data",
+    respond: () =>
+      jsonResponse(200, {
+        data_map: "0xdm",
+        chunks_stored: 2,
+        payment_mode_used: "merkle",
+      }),
   },
 
-  // Data private GET
+  // Data private GET (POST /v1/data/get with data_map in body)
   {
-    method: "GET",
-    match: (p) => p === "/v1/data/private",
+    method: "POST",
+    match: (p) => p === "/v1/data/get",
     respond: () => jsonResponse(200, { data: b64("secret data") }),
   },
 
@@ -110,10 +121,10 @@ const routes: Route[] = [
     respond: () => jsonResponse(200, { data: b64("chunk bytes") }),
   },
 
-  // File upload public
+  // File put public (renamed: was /v1/files/upload/public)
   {
     method: "POST",
-    match: (p) => p === "/v1/files/upload/public",
+    match: (p) => p === "/v1/files/public",
     respond: () =>
       jsonResponse(200, {
         address: "0xfile",
@@ -121,6 +132,48 @@ const routes: Route[] = [
         gas_cost_wei: "42",
         chunks_stored: 3,
         payment_mode_used: "auto",
+      }),
+  },
+
+  // File get public (renamed: was /v1/files/download/public)
+  {
+    method: "POST",
+    match: (p) => p === "/v1/files/public/get",
+    respond: () => jsonResponse(200, {}),
+  },
+
+  // File put private (NEW)
+  {
+    method: "POST",
+    match: (p) => p === "/v1/files",
+    respond: () =>
+      jsonResponse(200, {
+        data_map: "0xfdm",
+        storage_cost_atto: "900",
+        gas_cost_wei: "42",
+        chunks_stored: 2,
+        payment_mode_used: "merkle",
+      }),
+  },
+
+  // File get private (NEW)
+  {
+    method: "POST",
+    match: (p) => p === "/v1/files/get",
+    respond: () => jsonResponse(200, {}),
+  },
+
+  // File cost
+  {
+    method: "POST",
+    match: (p) => p === "/v1/files/cost",
+    respond: () =>
+      jsonResponse(200, {
+        cost: "1000",
+        file_size: 4096,
+        chunk_count: 3,
+        estimated_gas_cost_wei: "150000000000000",
+        payment_mode: "auto",
       }),
   },
 
@@ -236,7 +289,6 @@ describe("RestClient", () => {
     });
 
     it("defaults diagnostic fields to empty when talking to a pre-0.4.0 daemon", () => {
-      // Helper-level regression: older daemons reply with just {status, network}.
       const status = healthStatusFromJson({ status: "ok", network: "default" });
       expect(status.ok).toBe(true);
       expect(status.network).toBe("default");
@@ -249,16 +301,30 @@ describe("RestClient", () => {
     });
   });
 
+  // ---- PaymentMode ----
+
+  describe("PaymentMode", () => {
+    it("exposes the wire-format string literals the daemon accepts", () => {
+      expect(PaymentMode.Auto).toBe("auto");
+      expect(PaymentMode.Merkle).toBe("merkle");
+      expect(PaymentMode.Single).toBe("single");
+    });
+  });
+
   // ---- Data public ----
 
   describe("dataPutPublic()", () => {
-    it("returns PutResult with cost and address", async () => {
+    it("returns DataPutPublicResult with address + chunksStored + paymentModeUsed", async () => {
       const data = Buffer.from("test data");
       const result = await client.dataPutPublic(data);
-      expect(result).toEqual({ cost: "100", address: "0xabc" });
+      expect(result).toEqual({
+        address: "0xabc",
+        chunksStored: 3,
+        paymentModeUsed: "single",
+      });
     });
 
-    it("sends base64-encoded data in the request body", async () => {
+    it("sends base64-encoded data + default payment_mode='auto'", async () => {
       const data = Buffer.from("test data");
       await client.dataPutPublic(data);
 
@@ -266,16 +332,17 @@ describe("RestClient", () => {
       const [, init] = fetchFn.mock.calls[0];
       const body = JSON.parse(init!.body as string);
       expect(body.data).toBe(data.toString("base64"));
+      expect(body.payment_mode).toBe("auto");
     });
 
-    it("includes payment_mode when provided", async () => {
+    it("forwards explicit paymentMode option", async () => {
       const data = Buffer.from("test data");
-      await client.dataPutPublic(data, { paymentMode: "wallet" });
+      await client.dataPutPublic(data, { paymentMode: PaymentMode.Merkle });
 
       const fetchFn = vi.mocked(fetch);
       const [, init] = fetchFn.mock.calls[0];
       const body = JSON.parse(init!.body as string);
-      expect(body.payment_mode).toBe("wallet");
+      expect(body.payment_mode).toBe("merkle");
     });
   });
 
@@ -296,36 +363,67 @@ describe("RestClient", () => {
 
   // ---- Data private ----
 
-  describe("dataPutPrivate()", () => {
-    it("returns PutResult with cost and data_map as address", async () => {
+  describe("dataPut()", () => {
+    it("returns DataPutResult with dataMap + chunksStored + paymentModeUsed", async () => {
       const data = Buffer.from("private data");
-      const result = await client.dataPutPrivate(data);
-      expect(result).toEqual({ cost: "200", address: "0xdm" });
+      const result = await client.dataPut(data);
+      expect(result).toEqual({
+        dataMap: "0xdm",
+        chunksStored: 2,
+        paymentModeUsed: "merkle",
+      });
+    });
+
+    it("hits POST /v1/data with payment_mode in body", async () => {
+      const data = Buffer.from("x");
+      await client.dataPut(data, { paymentMode: PaymentMode.Merkle });
+
+      const fetchFn = vi.mocked(fetch);
+      const [url, init] = fetchFn.mock.calls[0];
+      expect(url).toBe("http://localhost:8082/v1/data");
+      const body = JSON.parse(init!.body as string);
+      expect(body.payment_mode).toBe("merkle");
+      expect(body.data).toBe(data.toString("base64"));
     });
   });
 
-  describe("dataGetPrivate()", () => {
-    it("returns decoded Buffer and passes data_map as query param", async () => {
-      const result = await client.dataGetPrivate("0xdm");
+  describe("dataGet()", () => {
+    it("POSTs data_map and returns decoded Buffer", async () => {
+      const result = await client.dataGet("0xdm");
       expect(result.toString()).toBe("secret data");
 
       const fetchFn = vi.mocked(fetch);
-      const [url] = fetchFn.mock.calls[0];
-      expect(url).toContain("data_map=0xdm");
+      const [url, init] = fetchFn.mock.calls[0];
+      expect(url).toBe("http://localhost:8082/v1/data/get");
+      const body = JSON.parse(init!.body as string);
+      expect(body).toEqual({ data_map: "0xdm" });
     });
   });
 
   // ---- Data cost ----
 
   describe("dataCost()", () => {
-    it("returns full breakdown", async () => {
+    it("returns full breakdown and forwards payment_mode", async () => {
       const data = Buffer.from("estimate me");
-      const est = await client.dataCost(data);
+      const est = await client.dataCost(data, { paymentMode: PaymentMode.Single });
       expect(est.cost).toBe("50");
       expect(est.fileSize).toBe(4);
       expect(est.chunkCount).toBe(3);
       expect(est.estimatedGasCostWei).toBe("150000000000000");
       expect(est.paymentMode).toBe("single");
+
+      const fetchFn = vi.mocked(fetch);
+      const [, init] = fetchFn.mock.calls[0];
+      const body = JSON.parse(init!.body as string);
+      expect(body.payment_mode).toBe("single");
+    });
+
+    it("defaults payment_mode to auto when omitted", async () => {
+      await client.dataCost(Buffer.from("x"));
+      const fetchFn = vi.mocked(fetch);
+      const [, init] = fetchFn.mock.calls[0];
+      const body = JSON.parse(init!.body as string);
+      expect(body.payment_mode).toBe("auto");
     });
   });
 
@@ -346,11 +444,11 @@ describe("RestClient", () => {
     });
   });
 
-  // ---- Files ----
+  // ---- Files public ----
 
-  describe("fileUploadPublic()", () => {
-    it("returns FileUploadResult with all five fields", async () => {
-      const result = await client.fileUploadPublic("/tmp/foo.txt");
+  describe("filePutPublic()", () => {
+    it("returns FilePutPublicResult with all five fields", async () => {
+      const result = await client.filePutPublic("/tmp/foo.txt");
       expect(result).toEqual({
         address: "0xfile",
         storageCostAtto: "1000",
@@ -358,6 +456,77 @@ describe("RestClient", () => {
         chunksStored: 3,
         paymentModeUsed: "auto",
       });
+    });
+
+    it("hits POST /v1/files/public with payment_mode in body", async () => {
+      await client.filePutPublic("/tmp/foo.txt", { paymentMode: PaymentMode.Single });
+
+      const fetchFn = vi.mocked(fetch);
+      const [url, init] = fetchFn.mock.calls[0];
+      expect(url).toBe("http://localhost:8082/v1/files/public");
+      const body = JSON.parse(init!.body as string);
+      expect(body).toEqual({ path: "/tmp/foo.txt", payment_mode: "single" });
+    });
+  });
+
+  describe("fileGetPublic()", () => {
+    it("POSTs address + dest_path to /v1/files/public/get", async () => {
+      await client.fileGetPublic("0xfile", "/tmp/out.txt");
+
+      const fetchFn = vi.mocked(fetch);
+      const [url, init] = fetchFn.mock.calls[0];
+      expect(url).toBe("http://localhost:8082/v1/files/public/get");
+      const body = JSON.parse(init!.body as string);
+      expect(body).toEqual({ address: "0xfile", dest_path: "/tmp/out.txt" });
+    });
+  });
+
+  // ---- Files private ----
+
+  describe("filePut()", () => {
+    it("returns FilePutResult and hits POST /v1/files with payment_mode", async () => {
+      const result = await client.filePut("/tmp/secret.txt", { paymentMode: PaymentMode.Merkle });
+      expect(result).toEqual({
+        dataMap: "0xfdm",
+        storageCostAtto: "900",
+        gasCostWei: "42",
+        chunksStored: 2,
+        paymentModeUsed: "merkle",
+      });
+
+      const fetchFn = vi.mocked(fetch);
+      const [url, init] = fetchFn.mock.calls[0];
+      expect(url).toBe("http://localhost:8082/v1/files");
+      const body = JSON.parse(init!.body as string);
+      expect(body).toEqual({ path: "/tmp/secret.txt", payment_mode: "merkle" });
+    });
+  });
+
+  describe("fileGet()", () => {
+    it("POSTs data_map + dest_path to /v1/files/get", async () => {
+      await client.fileGet("0xfdm", "/tmp/priv-out.txt");
+
+      const fetchFn = vi.mocked(fetch);
+      const [url, init] = fetchFn.mock.calls[0];
+      expect(url).toBe("http://localhost:8082/v1/files/get");
+      const body = JSON.parse(init!.body as string);
+      expect(body).toEqual({ data_map: "0xfdm", dest_path: "/tmp/priv-out.txt" });
+    });
+  });
+
+  // ---- File cost ----
+
+  describe("fileCost()", () => {
+    it("returns full breakdown and forwards payment_mode + is_public", async () => {
+      const est = await client.fileCost("/tmp/x.bin", true, { paymentMode: PaymentMode.Single });
+      expect(est.cost).toBe("1000");
+      expect(est.fileSize).toBe(4096);
+      expect(est.chunkCount).toBe(3);
+
+      const fetchFn = vi.mocked(fetch);
+      const [, init] = fetchFn.mock.calls[0];
+      const body = JSON.parse(init!.body as string);
+      expect(body).toEqual({ path: "/tmp/x.bin", is_public: true, payment_mode: "single" });
     });
   });
 
@@ -514,7 +683,7 @@ describe("RestClient", () => {
     });
   });
 
-  // ---- Public-prepare (V2-249 PR4) ----
+  // ---- Public-prepare visibility forwarding ----
 
   describe("prepareUpload() visibility forwarding", () => {
     it("forwards visibility:'public' to the daemon when provided", async () => {
@@ -611,7 +780,7 @@ describe("RestClient", () => {
     });
   });
 
-  // ---- Single-chunk external signer (V2-274, antd >= 0.7.0) ----
+  // ---- Single-chunk external signer ----
 
   describe("prepareChunkUpload()", () => {
     it("base64-encodes the payload and parses the wave-batch response", async () => {
@@ -666,7 +835,6 @@ describe("RestClient", () => {
             jsonResponse(200, {
               address: "bb" + "11".repeat(31),
               already_stored: true,
-              // no upload_id, no payments, no payment_type, etc.
             }),
           ),
         ),
@@ -864,7 +1032,6 @@ describe("RestClient", () => {
         }),
       );
 
-      // Use a short timeout client to trigger the timeout path
       const timeoutClient = new RestClient({ baseUrl: "http://localhost:8082", timeout: 100 });
       await expect(timeoutClient.health()).rejects.toThrow(NetworkError);
     });

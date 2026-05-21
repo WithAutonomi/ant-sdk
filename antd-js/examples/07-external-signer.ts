@@ -136,7 +136,7 @@ try {
   );
 
   const dstPath = srcPath + ".downloaded";
-  await client.fileDownloadPublic(fileFin.dataMapAddress, dstPath);
+  await client.fileGetPublic(fileFin.dataMapAddress, dstPath);
   const original = readFileSync(srcPath);
   const downloaded = readFileSync(dstPath);
   if (!original.equals(downloaded)) {

@@ -101,8 +101,62 @@ pub fn parsePutResult(allocator: Allocator, body: []const u8, address_key: []con
     return .{ .cost = cost, .address = address };
 }
 
-/// Parse a FileUploadResult from a JSON response body.
-pub fn parseFileUploadResult(allocator: Allocator, body: []const u8) !models.FileUploadResult {
+/// Parse a DataPutResult from a JSON response body (private data put).
+pub fn parseDataPutResult(allocator: Allocator, body: []const u8) !models.DataPutResult {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
+        return error.JsonError;
+    defer parsed.deinit();
+
+    const obj = switch (parsed.value) {
+        .object => |o| o,
+        else => return error.JsonError,
+    };
+
+    const data_map = dupeString(allocator, obj.get("data_map") orelse .null) catch
+        return error.JsonError;
+    errdefer allocator.free(data_map);
+
+    const chunks_stored = dupeU64(obj.get("chunks_stored") orelse .null);
+
+    const payment_mode_used = dupeString(allocator, obj.get("payment_mode_used") orelse .null) catch
+        return error.JsonError;
+
+    return .{
+        .data_map = data_map,
+        .chunks_stored = chunks_stored,
+        .payment_mode_used = payment_mode_used,
+    };
+}
+
+/// Parse a DataPutPublicResult from a JSON response body (public data put).
+pub fn parseDataPutPublicResult(allocator: Allocator, body: []const u8) !models.DataPutPublicResult {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
+        return error.JsonError;
+    defer parsed.deinit();
+
+    const obj = switch (parsed.value) {
+        .object => |o| o,
+        else => return error.JsonError,
+    };
+
+    const address = dupeString(allocator, obj.get("address") orelse .null) catch
+        return error.JsonError;
+    errdefer allocator.free(address);
+
+    const chunks_stored = dupeU64(obj.get("chunks_stored") orelse .null);
+
+    const payment_mode_used = dupeString(allocator, obj.get("payment_mode_used") orelse .null) catch
+        return error.JsonError;
+
+    return .{
+        .address = address,
+        .chunks_stored = chunks_stored,
+        .payment_mode_used = payment_mode_used,
+    };
+}
+
+/// Parse a FilePutPublicResult from a JSON response body.
+pub fn parseFilePutPublicResult(allocator: Allocator, body: []const u8) !models.FilePutPublicResult {
     const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
         return error.JsonError;
     defer parsed.deinit();
@@ -125,20 +179,50 @@ pub fn parseFileUploadResult(allocator: Allocator, body: []const u8) !models.Fil
         return error.JsonError;
     errdefer allocator.free(gas_cost_wei);
 
-    const chunks_stored: u64 = blk: {
-        const v = obj.get("chunks_stored") orelse break :blk 0;
-        break :blk switch (v) {
-            .integer => |i| if (i < 0) 0 else @intCast(i),
-            .float => |f| @intFromFloat(f),
-            else => 0,
-        };
-    };
+    const chunks_stored = dupeU64(obj.get("chunks_stored") orelse .null);
 
     const payment_mode_used = dupeString(allocator, obj.get("payment_mode_used") orelse .null) catch
         return error.JsonError;
 
     return .{
         .address = address,
+        .storage_cost_atto = storage_cost_atto,
+        .gas_cost_wei = gas_cost_wei,
+        .chunks_stored = chunks_stored,
+        .payment_mode_used = payment_mode_used,
+    };
+}
+
+/// Parse a FilePutResult from a JSON response body (private file put).
+pub fn parseFilePutResult(allocator: Allocator, body: []const u8) !models.FilePutResult {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
+        return error.JsonError;
+    defer parsed.deinit();
+
+    const obj = switch (parsed.value) {
+        .object => |o| o,
+        else => return error.JsonError,
+    };
+
+    const data_map = dupeString(allocator, obj.get("data_map") orelse .null) catch
+        return error.JsonError;
+    errdefer allocator.free(data_map);
+
+    const storage_cost_atto = dupeString(allocator, obj.get("storage_cost_atto") orelse .null) catch
+        return error.JsonError;
+    errdefer allocator.free(storage_cost_atto);
+
+    const gas_cost_wei = dupeString(allocator, obj.get("gas_cost_wei") orelse .null) catch
+        return error.JsonError;
+    errdefer allocator.free(gas_cost_wei);
+
+    const chunks_stored = dupeU64(obj.get("chunks_stored") orelse .null);
+
+    const payment_mode_used = dupeString(allocator, obj.get("payment_mode_used") orelse .null) catch
+        return error.JsonError;
+
+    return .{
+        .data_map = data_map,
         .storage_cost_atto = storage_cost_atto,
         .gas_cost_wei = gas_cost_wei,
         .chunks_stored = chunks_stored,
@@ -245,7 +329,7 @@ pub fn buildDataBody(allocator: Allocator, data: []const u8) ![]const u8 {
     return std.fmt.allocPrint(allocator, "{{\"data\":{s}}}", .{escaped}) catch return error.JsonError;
 }
 
-/// Build a JSON body for a data upload with an optional payment_mode field.
+/// Build a JSON body for a data upload with a payment_mode field.
 pub fn buildDataBodyWithPaymentMode(allocator: Allocator, data: []const u8, payment_mode: []const u8) ![]const u8 {
     const encoded_len = std.base64.standard.Encoder.calcSize(data.len);
     const encoded = allocator.alloc(u8, encoded_len) catch return error.JsonError;
@@ -259,6 +343,13 @@ pub fn buildDataBodyWithPaymentMode(allocator: Allocator, data: []const u8, paym
     defer allocator.free(escaped_mode);
 
     return std.fmt.allocPrint(allocator, "{{\"data\":{s},\"payment_mode\":{s}}}", .{ escaped_data, escaped_mode }) catch return error.JsonError;
+}
+
+/// Build a JSON body with a single `data_map` string field.
+pub fn buildDataMapBody(allocator: Allocator, data_map: []const u8) ![]const u8 {
+    const escaped = jsonEscapeString(allocator, data_map) catch return error.JsonError;
+    defer allocator.free(escaped);
+    return std.fmt.allocPrint(allocator, "{{\"data_map\":{s}}}", .{escaped}) catch return error.JsonError;
 }
 
 /// Values supported in JSON body construction.
@@ -312,8 +403,6 @@ pub fn buildJsonBody(allocator: Allocator, fields: []const struct { key: []const
 }
 
 /// Build a /v1/upload/prepare request body: `{"path":"...", "visibility":"..."}`.
-/// The `visibility` field is omitted entirely when null, preserving the pre-0.6.1
-/// wire shape that older daemons expect.
 pub fn buildPrepareUploadBody(allocator: Allocator, path: []const u8, visibility: ?[]const u8) ![]const u8 {
     if (visibility) |v| {
         return buildJsonBody(allocator, &.{
@@ -327,7 +416,6 @@ pub fn buildPrepareUploadBody(allocator: Allocator, path: []const u8, visibility
 }
 
 /// Build a /v1/data/prepare request body: `{"data":"<base64>", "visibility":"..."}`.
-/// The `visibility` field is omitted entirely when null.
 pub fn buildPrepareDataBody(allocator: Allocator, data: []const u8, visibility: ?[]const u8) ![]const u8 {
     const encoded_len = std.base64.standard.Encoder.calcSize(data.len);
     const encoded = allocator.alloc(u8, encoded_len) catch return error.JsonError;
@@ -347,10 +435,6 @@ pub fn buildPrepareDataBody(allocator: Allocator, data: []const u8, visibility: 
 
 /// Build a /v1/chunks/finalize request body from a pre-built `tx_hashes` JSON
 /// object literal (e.g. `"{\"qh1\":\"tx1\"}"`).
-///
-/// Mirrors the `finalizeUpload` shape: callers assemble the inner map
-/// themselves because std.json's writeStream API is version-fragile, and
-/// quote_hash/tx_hash maps are small and easy to format by hand.
 pub fn buildFinalizeChunkBody(allocator: Allocator, upload_id: []const u8, tx_hashes_json: []const u8) ![]const u8 {
     const escaped_id = jsonEscapeString(allocator, upload_id) catch return error.JsonError;
     defer allocator.free(escaped_id);
@@ -362,10 +446,6 @@ pub fn buildFinalizeChunkBody(allocator: Allocator, upload_id: []const u8, tx_ha
 }
 
 /// Parse a /v1/chunks/prepare response body into a PrepareChunkResult.
-///
-/// The "already-stored" branch returns only `address` + `already_stored:true`;
-/// the wave-batch branch additionally populates `upload_id`, `payment_type`,
-/// `payments`, `total_amount`, and the EVM config (vault/token/rpc).
 pub fn parsePrepareChunkResult(allocator: Allocator, body: []const u8) !models.PrepareChunkResult {
     const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
         return error.JsonError;
@@ -461,10 +541,6 @@ pub fn parsePrepareChunkResult(allocator: Allocator, body: []const u8) !models.P
 }
 
 /// Parse a /v1/upload/finalize response body into a FinalizeUploadResult.
-///
-/// `data_map_address` is populated only when prepare was called with
-/// visibility="public" (antd >= 0.6.1). Older daemons omit the field, which
-/// parses cleanly to the empty default.
 pub fn parseFinalizeUploadResult(allocator: Allocator, body: []const u8) !models.FinalizeUploadResult {
     const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
         return error.JsonError;

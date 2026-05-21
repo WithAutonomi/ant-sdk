@@ -1,4 +1,12 @@
 --- REST client for the antd daemon.
+--
+-- Naming convention (post v1.0):
+--   * Unqualified verb (`data_put`, `data_get`, `file_put`, `file_get`) =
+--     private — the DataMap is returned to the caller and NOT stored
+--     on-network.
+--   * `_public` suffix = public — the DataMap is stored on-network as an
+--     extra chunk; the call returns the shareable address.
+--
 -- @module antd.client
 
 local http = require("socket.http")
@@ -32,22 +40,12 @@ end
 
 -- ── internal helpers ──
 
---- URL-encode a string.
-local function url_encode(str)
-    return str:gsub("([^%w%-%.%_%~])", function(c)
-        return string.format("%%%02X", string.byte(c))
-    end)
-end
-
 --- Build full URL.
 function Client:_url(path)
     return self.base_url .. path
 end
 
 --- Perform an HTTP request that sends/receives JSON.
--- @return table|nil parsed JSON body (may be nil for empty responses)
--- @return number HTTP status code
--- @return table|nil error
 function Client:_do_json(method, path, body)
     local req_body
     local headers = {}
@@ -101,8 +99,6 @@ function Client:_do_json(method, path, body)
 end
 
 --- Perform an HTTP HEAD request.
--- @return number HTTP status code
--- @return table|nil error
 function Client:_do_head(path)
     local resp_parts = {}
     local _, status = http.request({
@@ -133,8 +129,15 @@ local function num(t, key)
     return 0
 end
 
+--- Resolve a payment-mode value from an opts table, defaulting to "auto".
+local function resolve_payment_mode(opts)
+    if opts and opts.payment_mode then
+        return opts.payment_mode
+    end
+    return models.PaymentMode.AUTO
+end
+
 --- Build a prepare-upload result table from a parsed JSON response.
--- Extracts legacy wave_batch fields and new merkle batch fields.
 local function build_prepare_result(j)
     local payment_type = j.payment_type or "wave_batch"
 
@@ -190,8 +193,6 @@ end
 
 -- ── Health ──
 
---- Check daemon health.
--- @return HealthStatus|nil, error|nil
 function Client:health()
     local j, _, err = self:_do_json("GET", "/health", nil)
     if err then return nil, err end
@@ -209,61 +210,64 @@ end
 
 --- Store public immutable data.
 -- @param data string raw bytes to store
--- @param opts table optional settings: { payment_mode = string }
--- @return PutResult|nil, error|nil
+-- @param opts table optional settings: { payment_mode = "auto"|"merkle"|"single" }
+-- @return DataPutPublicResult|nil, error|nil
 function Client:data_put_public(data, opts)
     local body = {
         data = base64.encode(data),
+        payment_mode = resolve_payment_mode(opts),
     }
-    if opts and opts.payment_mode then
-        body.payment_mode = opts.payment_mode
-    end
     local j, _, err = self:_do_json("POST", "/v1/data/public", body)
     if err then return nil, err end
-    return models.new_put_result(str(j, "cost"), str(j, "address")), nil
+    return models.new_data_put_public_result(
+        str(j, "address"),
+        num(j, "chunks_stored"),
+        str(j, "payment_mode_used")
+    ), nil
 end
 
 --- Retrieve public data by address.
--- @param address string hex address
--- @return string|nil raw bytes, error|nil
 function Client:data_get_public(address)
     local j, _, err = self:_do_json("GET", "/v1/data/public/" .. address, nil)
     if err then return nil, err end
     return base64.decode(str(j, "data")), nil
 end
 
---- Store private encrypted data.
+--- Store private encrypted data. The returned DataMap is the caller's key to
+-- retrieve the data later via :func:`data_get`; it is NOT stored on-network.
 -- @param data string raw bytes to store
--- @param opts table optional settings: { payment_mode = string }
--- @return PutResult|nil, error|nil
-function Client:data_put_private(data, opts)
+-- @param opts table optional settings: { payment_mode = "auto"|"merkle"|"single" }
+-- @return DataPutResult|nil, error|nil
+function Client:data_put(data, opts)
     local body = {
         data = base64.encode(data),
+        payment_mode = resolve_payment_mode(opts),
     }
-    if opts and opts.payment_mode then
-        body.payment_mode = opts.payment_mode
-    end
-    local j, _, err = self:_do_json("POST", "/v1/data/private", body)
+    local j, _, err = self:_do_json("POST", "/v1/data", body)
     if err then return nil, err end
-    return models.new_put_result(str(j, "cost"), str(j, "data_map")), nil
+    return models.new_data_put_result(
+        str(j, "data_map"),
+        num(j, "chunks_stored"),
+        str(j, "payment_mode_used")
+    ), nil
 end
 
---- Retrieve private data using a data map.
--- @param data_map string data map identifier
--- @return string|nil raw bytes, error|nil
-function Client:data_get_private(data_map)
-    local j, _, err = self:_do_json("GET", "/v1/data/private?data_map=" .. url_encode(data_map), nil)
+--- Retrieve private data using a caller-held DataMap.
+function Client:data_get(data_map)
+    local j, _, err = self:_do_json("POST", "/v1/data/get", { data_map = data_map })
     if err then return nil, err end
     return base64.decode(str(j, "data")), nil
 end
 
 --- Pre-upload cost breakdown for the given bytes.
 -- @param data string raw bytes
--- @return table|nil {cost, file_size, chunk_count, estimated_gas_cost_wei, payment_mode}, error|nil
-function Client:data_cost(data)
-    local j, _, err = self:_do_json("POST", "/v1/data/cost", {
+-- @param opts table optional settings: { payment_mode = "auto"|"merkle"|"single" }
+function Client:data_cost(data, opts)
+    local body = {
         data = base64.encode(data),
-    })
+        payment_mode = resolve_payment_mode(opts),
+    }
+    local j, _, err = self:_do_json("POST", "/v1/data/cost", body)
     if err then return nil, err end
     return {
         cost = str(j, "cost"),
@@ -276,9 +280,6 @@ end
 
 -- ── Chunks ──
 
---- Store a raw chunk.
--- @param data string raw bytes
--- @return PutResult|nil, error|nil
 function Client:chunk_put(data)
     local j, _, err = self:_do_json("POST", "/v1/chunks", {
         data = base64.encode(data),
@@ -287,32 +288,12 @@ function Client:chunk_put(data)
     return models.new_put_result(str(j, "cost"), str(j, "address")), nil
 end
 
---- Retrieve a chunk by address.
--- @param address string hex address
--- @return string|nil raw bytes, error|nil
 function Client:chunk_get(address)
     local j, _, err = self:_do_json("GET", "/v1/chunks/" .. address, nil)
     if err then return nil, err end
     return base64.decode(str(j, "data")), nil
 end
 
---- Prepare a single chunk for external-signer publish.
---
--- The daemon collects storage quotes from the close group, stashes the
--- prepared state, and returns either:
---
---   * `already_stored = true` with `address` populated — the chunk is
---     already on-network, no payment or finalize call is needed.
---   * `already_stored = false` with `upload_id`, `payments`, and
---     `total_amount` populated — the caller signs and submits
---     `payForQuotes()` externally, then calls
---     :func:`finalize_chunk_upload` with the resulting tx hashes.
---
--- Unlike :func:`chunk_put`, this method does NOT require the daemon to
--- have a wallet — all funds flow through the external signer.
---
--- @param data string raw chunk bytes
--- @return table|nil PrepareChunkResult, error|nil
 function Client:prepare_chunk_upload(data)
     local j, _, err = self:_do_json("POST", "/v1/chunks/prepare", {
         data = base64.encode(data),
@@ -345,11 +326,6 @@ function Client:prepare_chunk_upload(data)
     }), nil
 end
 
---- Submit a prepared chunk to the network after external payment.
---
--- @param upload_id string the upload ID from prepare_chunk_upload
--- @param tx_hashes table map of quote_hash to tx_hash (one per non-zero quote)
--- @return string|nil hex address of stored chunk, error|nil
 function Client:finalize_chunk_upload(upload_id, tx_hashes)
     local j, _, err = self:_do_json("POST", "/v1/chunks/finalize", {
         upload_id = upload_id,
@@ -361,20 +337,18 @@ end
 
 -- ── Files ──
 
---- Upload a file to the network.
+--- Upload a file to the network *publicly*.
 -- @param path string local file path
--- @param opts table optional settings: { payment_mode = string }
--- @return FileUploadResult|nil, error|nil
-function Client:file_upload_public(path, opts)
+-- @param opts table optional settings: { payment_mode = "auto"|"merkle"|"single" }
+-- @return FilePutPublicResult|nil, error|nil
+function Client:file_put_public(path, opts)
     local body = {
         path = path,
+        payment_mode = resolve_payment_mode(opts),
     }
-    if opts and opts.payment_mode then
-        body.payment_mode = opts.payment_mode
-    end
-    local j, _, err = self:_do_json("POST", "/v1/files/upload/public", body)
+    local j, _, err = self:_do_json("POST", "/v1/files/public", body)
     if err then return nil, err end
-    return models.new_file_upload_result(
+    return models.new_file_put_public_result(
         str(j, "address"),
         str(j, "storage_cost_atto"),
         str(j, "gas_cost_wei"),
@@ -383,27 +357,56 @@ function Client:file_upload_public(path, opts)
     ), nil
 end
 
---- Download a file from the network.
--- @param address string hex address
--- @param dest_path string local destination path
--- @return nil, error|nil
-function Client:file_download_public(address, dest_path)
-    local _, _, err = self:_do_json("POST", "/v1/files/download/public", {
+--- Download a public file from an on-network DataMap address.
+function Client:file_get_public(address, dest_path)
+    local _, _, err = self:_do_json("POST", "/v1/files/public/get", {
         address = address,
         dest_path = dest_path,
     })
     return nil, err
 end
 
---- Estimate cost of uploading a file.
+--- Upload a file to the network *privately*. The returned DataMap is the
+-- caller's key to retrieve the file later via :func:`file_get`.
+-- @param path string local file path
+-- @param opts table optional settings: { payment_mode = "auto"|"merkle"|"single" }
+-- @return FilePutResult|nil, error|nil
+function Client:file_put(path, opts)
+    local body = {
+        path = path,
+        payment_mode = resolve_payment_mode(opts),
+    }
+    local j, _, err = self:_do_json("POST", "/v1/files", body)
+    if err then return nil, err end
+    return models.new_file_put_result(
+        str(j, "data_map"),
+        str(j, "storage_cost_atto"),
+        str(j, "gas_cost_wei"),
+        num(j, "chunks_stored"),
+        str(j, "payment_mode_used")
+    ), nil
+end
+
+--- Download a private file from a caller-held DataMap into `dest_path`.
+function Client:file_get(data_map, dest_path)
+    local _, _, err = self:_do_json("POST", "/v1/files/get", {
+        data_map = data_map,
+        dest_path = dest_path,
+    })
+    return nil, err
+end
+
+--- Pre-upload cost breakdown for the file at `path`.
 -- @param path string local file path
 -- @param is_public boolean whether the file will be public
--- @return table|nil {cost, file_size, chunk_count, estimated_gas_cost_wei, payment_mode}, error|nil
-function Client:file_cost(path, is_public)
-    local j, _, err = self:_do_json("POST", "/v1/files/cost", {
+-- @param opts table optional settings: { payment_mode = "auto"|"merkle"|"single" }
+function Client:file_cost(path, is_public, opts)
+    local body = {
         path = path,
         is_public = is_public,
-    })
+        payment_mode = resolve_payment_mode(opts),
+    }
+    local j, _, err = self:_do_json("POST", "/v1/files/cost", body)
     if err then return nil, err end
     return {
         cost = str(j, "cost"),
@@ -416,24 +419,18 @@ end
 
 -- ── Wallet ──
 
---- Get the wallet's public address.
--- @return table|nil {address=string}, error|nil
 function Client:wallet_address()
     local j, _, err = self:_do_json("GET", "/v1/wallet/address", nil)
     if err then return nil, err end
     return { address = str(j, "address") }, nil
 end
 
---- Get the wallet's token and gas balances.
--- @return table|nil {balance=string, gas_balance=string}, error|nil
 function Client:wallet_balance()
     local j, _, err = self:_do_json("GET", "/v1/wallet/balance", nil)
     if err then return nil, err end
     return { balance = str(j, "balance"), gas_balance = str(j, "gas_balance") }, nil
 end
 
---- Approve the wallet to spend tokens on payment contracts (one-time operation).
--- @return boolean|nil, error|nil
 function Client:wallet_approve()
     local j, _, err = self:_do_json("POST", "/v1/wallet/approve", {})
     if err then return nil, err end
@@ -442,15 +439,6 @@ end
 
 -- ── External Signer (Two-Phase Upload) ──
 
---- Prepare a file upload for external signing.
---
--- @param path string local file path
--- @param visibility string|nil "public" to bundle the DataMap chunk into
---   the same external-signer payment batch (`data_map_address` on finalize
---   becomes the shareable retrieval handle); "private" or nil keeps the
---   existing private-only behaviour. When nil the field is omitted from
---   the request body, preserving the pre-public daemon wire shape.
--- @return table|nil PrepareUploadResult, error|nil
 function Client:prepare_upload(path, visibility)
     local body = { path = path }
     if visibility ~= nil then
@@ -461,23 +449,10 @@ function Client:prepare_upload(path, visibility)
     return build_prepare_result(j), nil
 end
 
---- Convenience: prepare a public file upload for external signing.
---
--- Equivalent to :func:`prepare_upload` with `visibility = "public"`.
--- The DataMap chunk is bundled into the same payment batch — after
--- :func:`finalize_upload`, the result's `data_map_address` is the
--- shareable retrieval handle.
---
--- @param path string local file path
--- @return table|nil PrepareUploadResult, error|nil
 function Client:prepare_upload_public(path)
     return self:prepare_upload(path, "public")
 end
 
---- Prepare a data upload for external signing.
--- Takes raw bytes, base64-encodes them, and POSTs to /v1/data/prepare.
--- @param data string raw bytes to upload
--- @return table|nil PrepareUploadResult, error|nil
 function Client:prepare_data_upload(data)
     local j, _, err = self:_do_json("POST", "/v1/data/prepare", {
         data = base64.encode(data),
@@ -486,16 +461,6 @@ function Client:prepare_data_upload(data)
     return build_prepare_result(j), nil
 end
 
---- Finalize an upload after an external signer has submitted payment transactions.
---
--- `data_map_address` in the result is populated only when prepare was
--- called with `visibility = "public"` — the DataMap chunk was bundled
--- into the same external-signer payment batch and stored on-network.
--- Older daemons that don't return `data_map_address` leave it as "".
---
--- @param upload_id string the upload ID from prepare_upload
--- @param tx_hashes table map of quote_hash to tx_hash
--- @return table|nil FinalizeUploadResult, error|nil
 function Client:finalize_upload(upload_id, tx_hashes)
     local j, _, err = self:_do_json("POST", "/v1/upload/finalize", {
         upload_id = upload_id,
@@ -510,11 +475,6 @@ function Client:finalize_upload(upload_id, tx_hashes)
     }), nil
 end
 
---- Finalize a merkle-batch upload after selecting a winning pool.
--- @param upload_id string the upload ID from prepare_upload
--- @param winner_pool_hash string hash of the winning pool commitment
--- @param store_data_map boolean whether to store the data map on-network (default false)
--- @return table|nil FinalizeUploadResult, error|nil
 function Client:finalize_merkle_upload(upload_id, winner_pool_hash, store_data_map)
     local j, _, err = self:_do_json("POST", "/v1/upload/finalize", {
         upload_id = upload_id,
@@ -531,8 +491,6 @@ function Client:finalize_merkle_upload(upload_id, winner_pool_hash, store_data_m
 end
 
 --- Create a client using daemon port discovery.
--- Falls back to the default base URL if discovery fails.
--- @param opts table optional settings: { timeout = number }
 -- @return Client client, string url
 function Client.auto_discover(opts)
     local url = discover.daemon_url()

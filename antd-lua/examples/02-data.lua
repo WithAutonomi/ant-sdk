@@ -26,7 +26,7 @@ if err2 then
     os.exit(1)
 end
 print("Stored at address: " .. result.address)
-print("Actual cost: " .. result.cost .. " atto tokens")
+print(string.format("Chunks stored: %d, payment mode: %s", result.chunks_stored, result.payment_mode_used))
 
 -- Retrieve it back
 local retrieved, err3 = client:data_get_public(result.address)

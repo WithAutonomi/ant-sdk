@@ -1,5 +1,5 @@
 /**
- * Example 04: Upload and download files and directories.
+ * Example 04: Upload and download files publicly.
  *
  * Creates a temp file, uploads it, then downloads to a new location.
  */
@@ -25,15 +25,15 @@ try {
       `mode ${est.paymentMode}`
   );
 
-  // Upload file
-  const result = await client.fileUploadPublic(srcPath);
+  // Upload file publicly
+  const result = await client.filePutPublic(srcPath);
   console.log(`File uploaded to: ${result.address}`);
   console.log(`Storage cost: ${result.storageCostAtto} atto, gas: ${result.gasCostWei} wei`);
   console.log(`Chunks stored: ${result.chunksStored}, payment mode: ${result.paymentModeUsed}`);
 
   // Download to new location
   const destPath = srcPath + ".downloaded";
-  await client.fileDownloadPublic(result.address, destPath);
+  await client.fileGetPublic(result.address, destPath);
   console.log(`Downloaded to: ${destPath}`);
 
   const content = readFileSync(destPath, "utf-8");

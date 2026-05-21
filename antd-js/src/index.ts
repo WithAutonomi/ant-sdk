@@ -1,7 +1,10 @@
 export type {
   HealthStatus,
   PutResult,
-  FileUploadResult,
+  DataPutResult,
+  DataPutPublicResult,
+  FilePutResult,
+  FilePutPublicResult,
   WalletAddress,
   WalletBalance,
   PaymentInfo,
@@ -12,6 +15,8 @@ export type {
   PrepareChunkResult,
   UploadCostEstimate,
 } from "./models.js";
+
+export { PaymentMode } from "./models.js";
 
 export {
   AntdError,

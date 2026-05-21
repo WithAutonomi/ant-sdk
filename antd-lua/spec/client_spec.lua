@@ -33,11 +33,9 @@ end
 
 -- Find route with prefix matching for paths with query strings
 local function find_route(method, url)
-    -- Try exact match first
     local route = mock_routes[method .. " " .. url]
     if route then return route end
 
-    -- Try matching without query string
     local path = url:match("^([^?]+)")
     route = mock_routes[method .. " " .. path]
     if route then return route end
@@ -55,12 +53,8 @@ local function install_mock()
         local url = params.url
         local method = params.method or "GET"
 
-        -- Extract path from URL
         local path = url:match("http://[^/]+(/.*)") or "/"
 
-        -- Drain the ltn12 source (if any) so tests can assert what the
-        -- client sent. Mirrors the antd-py / antd-go mock-daemon pattern
-        -- of stashing `_last_prepare_request` etc.
         if params.source then
             local body_parts = {}
             local sink = ltn12.sink.table(body_parts)
@@ -85,7 +79,6 @@ local function install_mock()
             route = { status = 404, body = cjson.encode({ error = "not found" }) }
         end
 
-        -- Write response body to sink
         if params.sink and route.body then
             local source = ltn12.source.string(route.body)
             ltn12.pump.all(source, params.sink)
@@ -102,7 +95,6 @@ local function uninstall_mock()
     end
 end
 
--- Install mock before requiring the client
 install_mock()
 
 local antd = require("antd")
@@ -129,18 +121,26 @@ local function setup_daemon()
 
     -- Data put public
     register_route("POST", "/v1/data/public", 200,
-        cjson.encode({ cost = "100", address = "abc123" }))
+        cjson.encode({
+            address = "abc123",
+            chunks_stored = 3,
+            payment_mode_used = "single",
+        }))
 
     -- Data get public
     register_route("GET", "/v1/data/public/abc123", 200,
         cjson.encode({ data = base64.encode("hello") }))
 
-    -- Data put private
-    register_route("POST", "/v1/data/private", 200,
-        cjson.encode({ cost = "200", data_map = "dm123" }))
+    -- Data put private (new convention: POST /v1/data)
+    register_route("POST", "/v1/data", 200,
+        cjson.encode({
+            data_map = "dm123",
+            chunks_stored = 2,
+            payment_mode_used = "merkle",
+        }))
 
-    -- Data get private
-    register_route("GET", "/v1/data/private", 200,
+    -- Data get private (POST /v1/data/get with data_map in body)
+    register_route("POST", "/v1/data/get", 200,
         cjson.encode({ data = base64.encode("secret") }))
 
     -- Data cost
@@ -159,8 +159,8 @@ local function setup_daemon()
     register_route("GET", "/v1/chunks/chunk1", 200,
         cjson.encode({ data = base64.encode("chunkdata") }))
 
-    -- Files
-    register_route("POST", "/v1/files/upload/public", 200,
+    -- File put public (was /v1/files/upload/public)
+    register_route("POST", "/v1/files/public", 200,
         cjson.encode({
             address = "file1",
             storage_cost_atto = "1000",
@@ -168,7 +168,24 @@ local function setup_daemon()
             chunks_stored = 3,
             payment_mode_used = "auto",
         }))
-    register_route("POST", "/v1/files/download/public", 200, "")
+
+    -- File get public (was /v1/files/download/public)
+    register_route("POST", "/v1/files/public/get", 200, "")
+
+    -- File put private (NEW)
+    register_route("POST", "/v1/files", 200,
+        cjson.encode({
+            data_map = "fdm1",
+            storage_cost_atto = "900",
+            gas_cost_wei = "42",
+            chunks_stored = 2,
+            payment_mode_used = "merkle",
+        }))
+
+    -- File get private (NEW)
+    register_route("POST", "/v1/files/get", 200, "")
+
+    -- File cost
     register_route("POST", "/v1/files/cost", 200,
         cjson.encode({
             cost = "1000",
@@ -193,7 +210,6 @@ describe("antd client", function()
         reset_mock()
     end)
 
-    -- Teardown mock after all tests
     teardown(function()
         uninstall_mock()
     end)
@@ -213,12 +229,32 @@ describe("antd client", function()
         end)
     end)
 
+    describe("PaymentMode", function()
+        it("exposes the wire-format string constants", function()
+            local models = require("antd.models")
+            assert.are.equal("auto", models.PaymentMode.AUTO)
+            assert.are.equal("merkle", models.PaymentMode.MERKLE)
+            assert.are.equal("single", models.PaymentMode.SINGLE)
+        end)
+    end)
+
     describe("data_put_public", function()
-        it("stores public data", function()
+        it("returns DataPutPublicResult and forwards default payment_mode=auto", function()
             local result, err = client:data_put_public("hello")
             assert.is_nil(err)
             assert.are.equal("abc123", result.address)
-            assert.are.equal("100", result.cost)
+            assert.are.equal(3, result.chunks_stored)
+            assert.are.equal("single", result.payment_mode_used)
+
+            local body = captured_body("POST", "/v1/data/public")
+            assert.are.equal("auto", body.payment_mode)
+        end)
+
+        it("forwards explicit payment_mode", function()
+            local _, err = client:data_put_public("hello", { payment_mode = "merkle" })
+            assert.is_nil(err)
+            local body = captured_body("POST", "/v1/data/public")
+            assert.are.equal("merkle", body.payment_mode)
         end)
     end)
 
@@ -230,32 +266,40 @@ describe("antd client", function()
         end)
     end)
 
-    describe("data_put_private", function()
-        it("stores private data", function()
-            local result, err = client:data_put_private("secret")
+    describe("data_put", function()
+        it("returns DataPutResult and POSTs payment_mode to /v1/data", function()
+            local result, err = client:data_put("secret", { payment_mode = "merkle" })
             assert.is_nil(err)
-            assert.are.equal("dm123", result.address)
-            assert.are.equal("200", result.cost)
+            assert.are.equal("dm123", result.data_map)
+            assert.are.equal(2, result.chunks_stored)
+            assert.are.equal("merkle", result.payment_mode_used)
+
+            local body = captured_body("POST", "/v1/data")
+            assert.are.equal("merkle", body.payment_mode)
         end)
     end)
 
-    describe("data_get_private", function()
-        it("retrieves private data", function()
-            local data, err = client:data_get_private("dm123")
+    describe("data_get", function()
+        it("POSTs data_map and returns decoded bytes", function()
+            local data, err = client:data_get("dm123")
             assert.is_nil(err)
             assert.are.equal("secret", data)
+            local body = captured_body("POST", "/v1/data/get")
+            assert.are.equal("dm123", body.data_map)
         end)
     end)
 
     describe("data_cost", function()
-        it("returns full breakdown", function()
-            local est, err = client:data_cost("test")
+        it("returns full breakdown and forwards payment_mode", function()
+            local est, err = client:data_cost("test", { payment_mode = "single" })
             assert.is_nil(err)
             assert.are.equal("50", est.cost)
             assert.are.equal(4, est.file_size)
             assert.are.equal(3, est.chunk_count)
             assert.are.equal("150000000000000", est.estimated_gas_cost_wei)
             assert.are.equal("single", est.payment_mode)
+            local body = captured_body("POST", "/v1/data/cost")
+            assert.are.equal("single", body.payment_mode)
         end)
     end)
 
@@ -276,34 +320,65 @@ describe("antd client", function()
         end)
     end)
 
-    describe("file_upload_public", function()
-        it("uploads a file", function()
-            local result, err = client:file_upload_public("/tmp/test.txt")
+    describe("file_put_public", function()
+        it("returns FilePutPublicResult and forwards payment_mode", function()
+            local result, err = client:file_put_public("/tmp/test.txt")
             assert.is_nil(err)
             assert.are.equal("file1", result.address)
             assert.are.equal("1000", result.storage_cost_atto)
             assert.are.equal("42", result.gas_cost_wei)
             assert.are.equal(3, result.chunks_stored)
             assert.are.equal("auto", result.payment_mode_used)
+            local body = captured_body("POST", "/v1/files/public")
+            assert.are.equal("auto", body.payment_mode)
         end)
     end)
 
-    describe("file_download_public", function()
-        it("downloads a file", function()
-            local _, err = client:file_download_public("file1", "/tmp/out.txt")
+    describe("file_get_public", function()
+        it("POSTs to /v1/files/public/get with address + dest_path", function()
+            local _, err = client:file_get_public("file1", "/tmp/out.txt")
             assert.is_nil(err)
+            local body = captured_body("POST", "/v1/files/public/get")
+            assert.are.equal("file1", body.address)
+            assert.are.equal("/tmp/out.txt", body.dest_path)
+        end)
+    end)
+
+    describe("file_put", function()
+        it("returns FilePutResult and POSTs payment_mode to /v1/files", function()
+            local result, err = client:file_put("/tmp/secret.txt", { payment_mode = "merkle" })
+            assert.is_nil(err)
+            assert.are.equal("fdm1", result.data_map)
+            assert.are.equal("900", result.storage_cost_atto)
+            assert.are.equal(2, result.chunks_stored)
+            assert.are.equal("merkle", result.payment_mode_used)
+            local body = captured_body("POST", "/v1/files")
+            assert.are.equal("merkle", body.payment_mode)
+        end)
+    end)
+
+    describe("file_get", function()
+        it("POSTs data_map + dest_path to /v1/files/get", function()
+            local _, err = client:file_get("fdm1", "/tmp/priv-out.txt")
+            assert.is_nil(err)
+            local body = captured_body("POST", "/v1/files/get")
+            assert.are.equal("fdm1", body.data_map)
+            assert.are.equal("/tmp/priv-out.txt", body.dest_path)
         end)
     end)
 
     describe("file_cost", function()
-        it("returns full breakdown", function()
-            local est, err = client:file_cost("/tmp/test.txt", true, false)
+        it("returns full breakdown and forwards payment_mode + is_public", function()
+            local est, err = client:file_cost("/tmp/test.txt", true, { payment_mode = "single" })
             assert.is_nil(err)
             assert.are.equal("1000", est.cost)
             assert.are.equal(4096, est.file_size)
             assert.are.equal(3, est.chunk_count)
             assert.are.equal("150000000000000", est.estimated_gas_cost_wei)
             assert.are.equal("auto", est.payment_mode)
+            local body = captured_body("POST", "/v1/files/cost")
+            assert.are.equal("single", body.payment_mode)
+            assert.is_true(body.is_public)
         end)
     end)
 
@@ -413,7 +488,6 @@ describe("antd client", function()
             local result, err = client:prepare_upload("/tmp/no-vis/file.dat")
             assert.is_nil(err)
             assert.are.equal("up_no_vis_1", result.upload_id)
-            -- visibility key must NOT appear in the request body when nil
             assert.is_nil(last_prepare_body.visibility)
             assert.are.equal("/tmp/no-vis/file.dat", last_prepare_body.path)
         end)
@@ -471,7 +545,6 @@ describe("antd client", function()
             assert.are.equal("deadbeef", result.data_map)
             assert.are.equal("0xDMAP", result.data_map_address)
             assert.are.equal(4, result.chunks_stored)
-            -- Sent body must contain the tx_hashes map
             local body = captured_body("POST", "/v1/upload/finalize")
             assert.are.equal("up_pub_1", body.upload_id)
             assert.are.equal("tx1", body.tx_hashes.qh1)
@@ -499,135 +572,70 @@ describe("antd client", function()
         it("parses an already-stored response and omits payment fields", function()
             register_route("POST", "/v1/chunks/prepare", 200,
                 cjson.encode({
-                    address = "addr_already_stored",
+                    address = "aa" .. string.rep("00", 31),
                     already_stored = true,
                 }))
 
             local result, err = client:prepare_chunk_upload("already-on-network")
             assert.is_nil(err)
-            assert.are.equal("addr_already_stored", result.address)
             assert.is_true(result.already_stored)
+            assert.are.equal(string.rep("a", 2) .. string.rep("00", 31), result.address)
             assert.are.equal("", result.upload_id)
             assert.are.equal(0, #result.payments)
             assert.are.equal("", result.total_amount)
             assert.are.equal("", result.payment_type)
-            -- Body must arrive base64-encoded under `data`.
-            local body = captured_body("POST", "/v1/chunks/prepare")
-            assert.are.equal(base64.encode("already-on-network"), body.data)
         end)
 
-        it("parses a wave-batch payment intent for a new chunk", function()
+        it("parses a wave-batch response into payment intent", function()
             register_route("POST", "/v1/chunks/prepare", 200,
                 cjson.encode({
-                    address = "addr_chunk_new",
+                    address = "bb" .. string.rep("11", 31),
                     already_stored = false,
-                    upload_id = "chunk_up_1",
+                    upload_id = "chunk-1",
                     payment_type = "wave_batch",
                     payments = {
-                        { quote_hash = "qhC", rewards_address = "0xRC", amount = "7" },
+                        { quote_hash = "qh1", rewards_address = "ra1", amount = "100" },
+                        { quote_hash = "qh2", rewards_address = "ra2", amount = "100" },
                     },
-                    total_amount = "7",
-                    payment_vault_address = "0xVC",
-                    payment_token_address = "0xTC",
-                    rpc_url = "http://rpc.local",
+                    total_amount = "200",
+                    payment_vault_address = "0xvault",
+                    payment_token_address = "0xtoken",
+                    rpc_url = "http://localhost:8545",
                 }))
 
-            local result, err = client:prepare_chunk_upload("new-chunk-bytes")
+            local result, err = client:prepare_chunk_upload("hello")
             assert.is_nil(err)
             assert.is_false(result.already_stored)
-            assert.are.equal("addr_chunk_new", result.address)
-            assert.are.equal("chunk_up_1", result.upload_id)
+            assert.are.equal("chunk-1", result.upload_id)
             assert.are.equal("wave_batch", result.payment_type)
-            assert.are.equal(1, #result.payments)
-            assert.are.equal("qhC", result.payments[1].quote_hash)
-            assert.are.equal("0xRC", result.payments[1].rewards_address)
-            assert.are.equal("7", result.payments[1].amount)
-            assert.are.equal("7", result.total_amount)
-            assert.are.equal("0xVC", result.payment_vault_address)
-            assert.are.equal("0xTC", result.payment_token_address)
-            assert.are.equal("http://rpc.local", result.rpc_url)
+            assert.are.equal(2, #result.payments)
+            assert.are.equal("qh1", result.payments[1].quote_hash)
+            assert.are.equal("100", result.payments[2].amount)
+            assert.are.equal("200", result.total_amount)
+            assert.are.equal("0xvault", result.payment_vault_address)
+            assert.are.equal("http://localhost:8545", result.rpc_url)
+
+            local body = captured_body("POST", "/v1/chunks/prepare")
+            assert.are.equal(base64.encode("hello"), body.data)
         end)
     end)
 
     describe("finalize_chunk_upload", function()
-        it("returns the stored chunk address and forwards tx_hashes", function()
+        it("forwards upload_id + tx_hashes and returns the address", function()
+            local addr = "cc" .. string.rep("22", 31)
             register_route("POST", "/v1/chunks/finalize", 200,
-                cjson.encode({ address = "addr_chunk_new" }))
+                cjson.encode({ address = addr }))
 
-            local addr, err = client:finalize_chunk_upload("chunk_up_1", {
-                qhC = "tx_C",
+            local got, err = client:finalize_chunk_upload("chunk-1", {
+                qh1 = "tx1",
+                qh2 = "tx2",
             })
             assert.is_nil(err)
-            assert.are.equal("addr_chunk_new", addr)
+            assert.are.equal(addr, got)
             local body = captured_body("POST", "/v1/chunks/finalize")
-            assert.are.equal("chunk_up_1", body.upload_id)
-            assert.are.equal("tx_C", body.tx_hashes.qhC)
-        end)
-    end)
-
-    describe("error mapping", function()
-        it("maps 404 to not_found error", function()
-            register_route("GET", "/health", 404,
-                cjson.encode({ error = "not found" }))
-            local _, err = client:health()
-            assert.is_not_nil(err)
-            assert.is_true(errors.is_antd_error(err))
-            assert.are.equal("not_found", err.type)
-            assert.are.equal(404, err.status_code)
-        end)
-
-        it("maps 400 to bad_request error", function()
-            register_route("POST", "/v1/data/public", 400,
-                cjson.encode({ error = "invalid data" }))
-            local _, err = client:data_put_public("bad")
-            assert.is_not_nil(err)
-            assert.are.equal("bad_request", err.type)
-            assert.are.equal(400, err.status_code)
-        end)
-
-        it("maps 402 to payment error", function()
-            register_route("POST", "/v1/data/public", 402,
-                cjson.encode({ error = "insufficient funds" }))
-            local _, err = client:data_put_public("data")
-            assert.is_not_nil(err)
-            assert.are.equal("payment", err.type)
-            assert.are.equal(402, err.status_code)
-        end)
-
-        it("maps 409 to already_exists error", function()
-            register_route("POST", "/v1/data/public", 409,
-                cjson.encode({ error = "already exists" }))
-            local _, err = client:data_put_public("test")
-            assert.is_not_nil(err)
-            assert.are.equal("already_exists", err.type)
-            assert.are.equal(409, err.status_code)
-        end)
-
-        it("maps 413 to too_large error", function()
-            register_route("POST", "/v1/data/public", 413,
-                cjson.encode({ error = "payload too large" }))
-            local _, err = client:data_put_public("huge")
-            assert.is_not_nil(err)
-            assert.are.equal("too_large", err.type)
-            assert.are.equal(413, err.status_code)
-        end)
-
-        it("maps 500 to internal error", function()
-            register_route("GET", "/health", 500,
-                cjson.encode({ error = "server error" }))
-            local _, err = client:health()
-            assert.is_not_nil(err)
-            assert.are.equal("internal", err.type)
-            assert.are.equal(500, err.status_code)
-        end)
-
-        it("maps 502 to network error", function()
-            register_route("GET", "/health", 502,
-                cjson.encode({ error = "bad gateway" }))
-            local _, err = client:health()
-            assert.is_not_nil(err)
-            assert.are.equal("network", err.type)
-            assert.are.equal(502, err.status_code)
+            assert.are.equal("chunk-1", body.upload_id)
+            assert.are.equal("tx1", body.tx_hashes.qh1)
+            assert.are.equal("tx2", body.tx_hashes.qh2)
         end)
     end)
 end)

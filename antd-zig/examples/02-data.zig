@@ -13,11 +13,11 @@ pub fn main() !void {
     const message = "Hello, Autonomi!";
     std.debug.print("Storing public data: {s}\n", .{message});
 
-    const put_result = try client.dataPutPublic(message, null);
+    const put_result = try client.dataPutPublic(message, .auto);
     defer put_result.deinit(allocator);
 
     std.debug.print("Stored at address: {s}\n", .{put_result.address});
-    std.debug.print("Cost: {s} atto\n", .{put_result.cost});
+    std.debug.print("Chunks stored: {d}, payment mode: {s}\n", .{ put_result.chunks_stored, put_result.payment_mode_used });
 
     // Retrieve public data
     const data = try client.dataGetPublic(put_result.address);
@@ -26,7 +26,7 @@ pub fn main() !void {
     std.debug.print("Retrieved: {s}\n", .{data});
 
     // Estimate storage cost
-    const est = try client.dataCost("some data to estimate");
+    const est = try client.dataCost("some data to estimate", .auto);
     defer est.deinit(allocator);
 
     std.debug.print(

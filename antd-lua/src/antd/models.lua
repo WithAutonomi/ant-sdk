@@ -4,6 +4,19 @@
 
 local M = {}
 
+--- Payment-batching strategy for uploads.
+--
+-- * `AUTO`   — server picks (merkle for 64+ chunks, single otherwise).
+-- * `MERKLE` — force merkle-batch (saves gas, min 2 chunks).
+-- * `SINGLE` — force per-chunk payments (works for any chunk count).
+--
+-- The string values are the wire-format the daemon accepts.
+M.PaymentMode = {
+    AUTO = "auto",
+    MERKLE = "merkle",
+    SINGLE = "single",
+}
+
 --- Create a HealthStatus table.
 --
 -- The diagnostic fields (version, evm_network, uptime_seconds, build_commit,
@@ -13,8 +26,7 @@ local M = {}
 --
 -- @param ok boolean daemon is healthy
 -- @param network string network name
--- @param opts table optional diagnostic fields: { version, evm_network,
---   uptime_seconds, build_commit, payment_token_address, payment_vault_address }
+-- @param opts table optional diagnostic fields
 -- @return table
 function M.new_health_status(ok, network, opts)
     opts = opts or {}
@@ -30,9 +42,9 @@ function M.new_health_status(ok, network, opts)
     }
 end
 
---- Create a PutResult table.
+--- Create a PutResult table (returned by chunk_put only).
 -- @param cost string cost in atto tokens
--- @param address string hex address or data map
+-- @param address string hex address
 -- @return table
 function M.new_put_result(cost, address)
     return {
@@ -41,15 +53,55 @@ function M.new_put_result(cost, address)
     }
 end
 
---- Create a FileUploadResult table.
--- Returned by file_upload_public.
--- @param address string hex network address
--- @param storage_cost_atto string storage cost in atto, "0" if all chunks already existed
--- @param gas_cost_wei string gas cost in wei as decimal string
--- @param chunks_stored number number of chunks stored on the network (uint64)
+--- Create a DataPutResult table.
+-- Result of a private data put. The DataMap is returned to the caller;
+-- it is NOT stored on-network.
+-- @param data_map string hex-encoded caller-held DataMap
+-- @param chunks_stored number number of chunks stored on the network
 -- @param payment_mode_used string "auto", "merkle", or "single"
 -- @return table
-function M.new_file_upload_result(address, storage_cost_atto, gas_cost_wei, chunks_stored, payment_mode_used)
+function M.new_data_put_result(data_map, chunks_stored, payment_mode_used)
+    return {
+        data_map = data_map,
+        chunks_stored = chunks_stored or 0,
+        payment_mode_used = payment_mode_used or "",
+    }
+end
+
+--- Create a DataPutPublicResult table.
+-- Result of a public data put. The DataMap is stored on-network as an extra
+-- chunk; `address` is the shareable retrieval handle.
+-- @param address string hex on-network DataMap address
+-- @param chunks_stored number number of chunks stored on the network
+-- @param payment_mode_used string "auto", "merkle", or "single"
+-- @return table
+function M.new_data_put_public_result(address, chunks_stored, payment_mode_used)
+    return {
+        address = address,
+        chunks_stored = chunks_stored or 0,
+        payment_mode_used = payment_mode_used or "",
+    }
+end
+
+--- Create a FilePutResult table.
+-- Result of a private file upload. The DataMap is returned to the caller;
+-- it is NOT stored on-network.
+-- @return table
+function M.new_file_put_result(data_map, storage_cost_atto, gas_cost_wei, chunks_stored, payment_mode_used)
+    return {
+        data_map = data_map,
+        storage_cost_atto = storage_cost_atto,
+        gas_cost_wei = gas_cost_wei,
+        chunks_stored = chunks_stored,
+        payment_mode_used = payment_mode_used,
+    }
+end
+
+--- Create a FilePutPublicResult table.
+-- Result of a public file upload. The DataMap is stored on-network as an
+-- extra chunk; `address` is the shareable retrieval handle.
+-- @return table
+function M.new_file_put_public_result(address, storage_cost_atto, gas_cost_wei, chunks_stored, payment_mode_used)
     return {
         address = address,
         storage_cost_atto = storage_cost_atto,
@@ -80,23 +132,6 @@ function M.new_wallet_balance(balance, gas_balance)
 end
 
 --- Create a PrepareChunkResult table.
---
--- Result of preparing a single-chunk external-signer publish via
--- POST /v1/chunks/prepare. When `already_stored` is true the chunk is
--- already on-network and no payment / finalize step is needed —
--- `upload_id` and the payment fields are empty strings / empty list.
---
--- @param opts table {
---     address = string,                  -- content-addressed BLAKE3 hex
---     already_stored = boolean,
---     upload_id = string,                -- empty when already_stored
---     payment_type = string,             -- "wave_batch" (only mode for single chunks)
---     payments = table,                  -- list of {quote_hash, rewards_address, amount}
---     total_amount = string,
---     payment_vault_address = string,
---     payment_token_address = string,
---     rpc_url = string,
---   }
 -- @return table
 function M.new_prepare_chunk_result(opts)
     opts = opts or {}
@@ -114,13 +149,6 @@ function M.new_prepare_chunk_result(opts)
 end
 
 --- Create a FinalizeUploadResult table.
---
--- @param opts table {
---     address = string,           -- hex address (set when store_data_map=true was passed)
---     chunks_stored = number,
---     data_map = string,          -- hex-encoded msgpack DataMap (always returned)
---     data_map_address = string,  -- set when prepare used visibility="public"
---   }
 -- @return table
 function M.new_finalize_upload_result(opts)
     opts = opts or {}

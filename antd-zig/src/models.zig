@@ -27,7 +27,27 @@ pub const HealthStatus = struct {
     }
 };
 
-/// Result of a put/create operation containing cost and address.
+/// Payment-batching strategy for uploads.
+///
+/// - `.auto`   — server picks (merkle for 64+ chunks, single otherwise).
+/// - `.merkle` — force merkle-batch (saves gas, min 2 chunks).
+/// - `.single` — force per-chunk payments (works for any chunk count).
+pub const PaymentMode = enum {
+    auto,
+    merkle,
+    single,
+
+    /// The wire-format string the daemon accepts.
+    pub fn wire(self: PaymentMode) []const u8 {
+        return switch (self) {
+            .auto => "auto",
+            .merkle => "merkle",
+            .single => "single",
+        };
+    }
+};
+
+/// Result of `chunkPut`. The DataMap concept doesn't apply at chunk level.
 pub const PutResult = struct {
     cost: []const u8,
     address: []const u8,
@@ -38,15 +58,59 @@ pub const PutResult = struct {
     }
 };
 
-/// Result of a public file or directory upload.
-pub const FileUploadResult = struct {
+/// Result of a private data put. The DataMap is returned to the caller; it
+/// is NOT stored on-network.
+pub const DataPutResult = struct {
+    data_map: []const u8,
+    chunks_stored: u64 = 0,
+    payment_mode_used: []const u8 = "",
+
+    pub fn deinit(self: DataPutResult, allocator: Allocator) void {
+        allocator.free(self.data_map);
+        allocator.free(self.payment_mode_used);
+    }
+};
+
+/// Result of a public data put. The DataMap is stored on-network as an extra
+/// chunk; `address` is the shareable retrieval handle.
+pub const DataPutPublicResult = struct {
+    address: []const u8,
+    chunks_stored: u64 = 0,
+    payment_mode_used: []const u8 = "",
+
+    pub fn deinit(self: DataPutPublicResult, allocator: Allocator) void {
+        allocator.free(self.address);
+        allocator.free(self.payment_mode_used);
+    }
+};
+
+/// Result of a private file upload. The DataMap is returned to the caller;
+/// it is NOT stored on-network.
+pub const FilePutResult = struct {
+    data_map: []const u8,
+    storage_cost_atto: []const u8,
+    gas_cost_wei: []const u8,
+    chunks_stored: u64,
+    payment_mode_used: []const u8,
+
+    pub fn deinit(self: FilePutResult, allocator: Allocator) void {
+        allocator.free(self.data_map);
+        allocator.free(self.storage_cost_atto);
+        allocator.free(self.gas_cost_wei);
+        allocator.free(self.payment_mode_used);
+    }
+};
+
+/// Result of a public file upload. The DataMap is stored on-network as an
+/// extra chunk; `address` is the shareable retrieval handle.
+pub const FilePutPublicResult = struct {
     address: []const u8,
     storage_cost_atto: []const u8,
     gas_cost_wei: []const u8,
     chunks_stored: u64,
     payment_mode_used: []const u8,
 
-    pub fn deinit(self: FileUploadResult, allocator: Allocator) void {
+    pub fn deinit(self: FilePutPublicResult, allocator: Allocator) void {
         allocator.free(self.address);
         allocator.free(self.storage_cost_atto);
         allocator.free(self.gas_cost_wei);
@@ -109,23 +173,12 @@ pub const PaymentInfo = struct {
 
 /// Result of `POST /v1/chunks/prepare` — the single-chunk external-signer
 /// prepare endpoint (antd >= 0.7.0).
-///
-/// When [already_stored] is true, the chunk is already on-network; only
-/// `address` and `already_stored` are populated and no finalize call is
-/// needed. Otherwise the wave-batch payment fields describe what the external
-/// signer must submit before calling `finalizeChunkUpload`.
 pub const PrepareChunkResult = struct {
-    /// Content-addressed BLAKE3 of the chunk bytes (hex, 64 chars). Always set.
     address: []const u8,
-    /// True if the chunk is already stored on the network and no payment is needed.
     already_stored: bool,
 
-    // Fields below are only populated when already_stored == false.
-
     upload_id: []const u8 = "",
-    /// Always "wave_batch" for single-chunk publishes.
     payment_type: []const u8 = "",
-    /// Per-quote payment entries for payForQuotes(). Caller-owned.
     payments: []PaymentInfo = &.{},
     total_amount: []const u8 = "",
     payment_vault_address: []const u8 = "",
@@ -147,16 +200,6 @@ pub const PrepareChunkResult = struct {
 
 /// Result of `POST /v1/upload/finalize` — the two-phase upload's phase-2
 /// response.
-///
-/// - `data_map` is the hex-encoded serialised DataMap (always returned).
-/// - `address` is the legacy field set when `store_data_map=true` was passed
-///   (paid by the daemon's wallet). Empty otherwise.
-/// - `data_map_address` is set when the upload was prepared with
-///   visibility="public" — the DataMap chunk was bundled into the same
-///   external-signer payment batch and stored on-network. This is the
-///   shareable retrieval handle for public uploads. Empty for private
-///   uploads (or against pre-0.6.1 daemons).
-/// - `chunks_stored` is the number of chunks stored on the network.
 pub const FinalizeUploadResult = struct {
     data_map: []const u8,
     address: []const u8 = "",
@@ -169,4 +212,3 @@ pub const FinalizeUploadResult = struct {
         allocator.free(self.data_map_address);
     }
 };
-

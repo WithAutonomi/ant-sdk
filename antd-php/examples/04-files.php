@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Example 04: Upload and download files and directories, with round-trip assertions.
+ * Example 04: Upload and download files publicly, with round-trip assertions.
  *
  * Prerequisites: antd daemon running with a funded wallet.
  */
@@ -36,16 +36,16 @@ file_put_contents($srcFile, $fileContent);
 
 $client = new AntdClient();
 
-$cost = $client->fileCost($srcFile, true, false);
+$cost = $client->fileCost($srcFile, true);
 echo "Estimated cost: {$cost->cost} atto ({$cost->chunkCount} chunks)\n";
 
-$result = $client->fileUploadPublic($srcFile);
+$result = $client->filePutPublic($srcFile);
 echo "File uploaded at: {$result->address}\n";
 echo "  storage: {$result->storageCostAtto} atto, gas: {$result->gasCostWei} wei\n";
 echo "  chunks: {$result->chunksStored}, mode: {$result->paymentModeUsed}\n";
 
 $dstFile = $tmp . '/hello.txt.downloaded';
-$client->fileDownloadPublic($result->address, $dstFile);
+$client->fileGetPublic($result->address, $dstFile);
 echo "File downloaded to {$dstFile}\n";
 
 if (file_get_contents($dstFile) !== $fileContent) {

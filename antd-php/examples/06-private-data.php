@@ -12,11 +12,13 @@ use Autonomi\Antd\AntdClient;
 
 $client = new AntdClient();
 
-// Store private data (encrypted on the network)
-$result = $client->dataPutPrivate('my secret data');
-echo "Private data stored (cost: {$result->cost} atto)\n";
-echo "Data map: {$result->address}\n";
+// Store private (encrypted) data. The DataMap is returned to the caller;
+// it is NOT stored on-network.
+$result = $client->dataPut('my secret data');
+echo "Private data stored\n";
+echo "Data map: {$result->dataMap}\n";
+echo "Chunks: {$result->chunksStored}, mode: {$result->paymentModeUsed}\n";
 
-// Retrieve private data using the data map
-$data = $client->dataGetPrivate($result->address);
+// Retrieve private data using the caller-held DataMap.
+$data = $client->dataGet($result->dataMap);
 echo "Retrieved: {$data}\n";

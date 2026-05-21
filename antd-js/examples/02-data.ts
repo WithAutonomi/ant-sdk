@@ -20,7 +20,7 @@ console.log(
 // Store public data
 const result = await client.dataPutPublic(payload);
 console.log(`Stored at address: ${result.address}`);
-console.log(`Actual cost: ${result.cost} atto tokens`);
+console.log(`Chunks stored: ${result.chunksStored}, payment mode: ${result.paymentModeUsed}`);
 
 // Retrieve it back
 const data = await client.dataGetPublic(result.address);

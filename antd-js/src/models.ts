@@ -17,19 +17,71 @@ export interface HealthStatus {
   paymentVaultAddress: string; // "" if unconfigured
 }
 
-/** Result of a put/create operation. */
+/**
+ * Payment-batching strategy for uploads.
+ *
+ * - `PaymentMode.Auto`   — server picks (merkle for 64+ chunks, single otherwise).
+ * - `PaymentMode.Merkle` — force merkle-batch (saves gas, min 2 chunks).
+ * - `PaymentMode.Single` — force per-chunk payments (works for any chunk count).
+ *
+ * The string values are the exact wire-format the daemon accepts, so a bare
+ * string literal (`"auto"` etc.) also satisfies the `PaymentMode` type.
+ */
+export const PaymentMode = {
+  Auto: "auto",
+  Merkle: "merkle",
+  Single: "single",
+} as const;
+export type PaymentMode = (typeof PaymentMode)[keyof typeof PaymentMode];
+
+/** Result of a `chunkPut` operation. The DataMap concept doesn't apply at chunk level. */
 export interface PutResult {
   cost: string; // atto tokens as string
   address: string; // hex
 }
 
-/** Result of a public file or directory upload. */
-export interface FileUploadResult {
-  address: string; // hex network address
-  storageCostAtto: string; // storage cost in atto, "0" if all chunks already existed
-  gasCostWei: string; // gas cost in wei as decimal string
-  chunksStored: number; // number of chunks stored on the network (uint64)
-  paymentModeUsed: string; // "auto", "merkle", or "single"
+/**
+ * Result of a private data put. The DataMap is returned to the caller; it
+ * is NOT stored on-network.
+ */
+export interface DataPutResult {
+  dataMap: string; // hex caller-held DataMap
+  chunksStored: number;
+  paymentModeUsed: string;
+}
+
+/**
+ * Result of a public data put. The DataMap is stored on-network as an extra
+ * chunk; `address` is the shareable retrieval handle.
+ */
+export interface DataPutPublicResult {
+  address: string; // hex on-network DataMap address
+  chunksStored: number;
+  paymentModeUsed: string;
+}
+
+/**
+ * Result of a private file upload. The DataMap is returned to the caller;
+ * it is NOT stored on-network.
+ */
+export interface FilePutResult {
+  dataMap: string; // hex caller-held DataMap
+  storageCostAtto: string; // "0" if all chunks already existed
+  gasCostWei: string; // decimal string
+  chunksStored: number;
+  paymentModeUsed: string;
+}
+
+/**
+ * Result of a public file upload. The DataMap is stored on-network as an
+ * extra chunk; `address` is the shareable retrieval handle.
+ */
+export interface FilePutPublicResult {
+  address: string; // hex on-network DataMap address
+  storageCostAtto: string;
+  gasCostWei: string;
+  chunksStored: number;
+  paymentModeUsed: string;
 }
 
 /** Wallet address response. */
@@ -115,7 +167,7 @@ export interface PrepareChunkResult {
 }
 
 /**
- * Pre-upload cost breakdown returned by `estimateDataCost` / `estimateFileCost`.
+ * Pre-upload cost breakdown returned by `dataCost` / `fileCost`.
  *
  * The server samples up to 5 chunk addresses and extrapolates the storage
  * cost. Gas is an advisory heuristic, not a live gas-oracle query.
