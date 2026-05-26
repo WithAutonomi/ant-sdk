@@ -81,13 +81,16 @@ def external_signer_pay(rpc_url, vault_addr, token_addr, payments, key)
   )
 
   # payForQuotes — one tx covering every quote in this wave.
+  # eth-0.5.13's encoder.rb:189 requires tuple args as a Hash keyed by
+  # the component name; arrays raise EncodingError before the positional
+  # fallback at line 211 ever runs.
   tuples = payments.map do |p|
     qh_hex = p.quote_hash.start_with?("0x") ? p.quote_hash[2..] : p.quote_hash
-    [
-      p.rewards_address,
-      Integer(p.amount),
-      [qh_hex].pack("H*"),
-    ]
+    {
+      "rewardsAddress" => p.rewards_address,
+      "amount" => Integer(p.amount),
+      "quoteHash" => [qh_hex].pack("H*"),
+    }
   end
   pay_receipt = client.transact_and_wait(
     vault_contract, "payForQuotes", tuples,
