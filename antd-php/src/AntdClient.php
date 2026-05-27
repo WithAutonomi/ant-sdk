@@ -841,7 +841,7 @@ class AntdClient
     {
         $json = $this->doJson('POST', '/v1/upload/finalize', [
             'upload_id' => $uploadId,
-            'tx_hashes' => $txHashes,
+            'tx_hashes' => (object) $txHashes,
         ]);
         return self::parseFinalizeUploadResult($json);
     }
@@ -857,7 +857,7 @@ class AntdClient
     {
         return $this->doJsonAsync('POST', '/v1/upload/finalize', [
             'upload_id' => $uploadId,
-            'tx_hashes' => $txHashes,
+            'tx_hashes' => (object) $txHashes,
         ])->then(
             fn(?array $json) => self::parseFinalizeUploadResult($json),
         );
@@ -901,7 +901,7 @@ class AntdClient
     {
         $json = $this->doJson('POST', '/v1/chunks/finalize', [
             'upload_id' => $uploadId,
-            'tx_hashes' => $txHashes,
+            'tx_hashes' => (object) $txHashes,
         ]);
         return (string)($json['address'] ?? '');
     }
@@ -917,7 +917,7 @@ class AntdClient
     {
         return $this->doJsonAsync('POST', '/v1/chunks/finalize', [
             'upload_id' => $uploadId,
-            'tx_hashes' => $txHashes,
+            'tx_hashes' => (object) $txHashes,
         ])->then(
             fn(?array $json) => (string)($json['address'] ?? ''),
         );
