@@ -257,4 +257,60 @@ public class AsyncAntdClient implements AutoCloseable {
     public CompletableFuture<UploadCostEstimate> fileCostAsync(String path, boolean isPublic) {
         return fileCostAsync(path, isPublic, PaymentMode.AUTO);
     }
+
+    // Wallet
+
+    public CompletableFuture<WalletAddress> walletAddressAsync() {
+        return doJsonAsync("GET", "/v1/wallet/address", null)
+                .thenApply(j -> new WalletAddress(str(j, "address")));
+    }
+
+    public CompletableFuture<WalletBalance> walletBalanceAsync() {
+        return doJsonAsync("GET", "/v1/wallet/balance", null)
+                .thenApply(j -> new WalletBalance(str(j, "balance"), str(j, "gas_balance")));
+    }
+
+    public CompletableFuture<Boolean> walletApproveAsync() {
+        return doJsonAsync("POST", "/v1/wallet/approve", "{}")
+                .thenApply(j -> {
+                    Object approved = j.get("approved");
+                    return approved instanceof Boolean b && b;
+                });
+    }
+
+    // External-signer upload prepare/finalize
+
+    public CompletableFuture<PrepareUploadResult> prepareUploadAsync(String path) {
+        return prepareUploadAsync(path, null);
+    }
+
+    public CompletableFuture<PrepareUploadResult> prepareUploadAsync(String path, String visibility) {
+        String body = visibility != null
+                ? Json.object("path", path, "visibility", visibility)
+                : Json.object("path", path);
+        return doJsonAsync("POST", "/v1/upload/prepare", body)
+                .thenApply(AntdClient::parsePrepareResponse);
+    }
+
+    public CompletableFuture<PrepareUploadResult> prepareUploadPublicAsync(String path) {
+        return prepareUploadAsync(path, "public");
+    }
+
+    public CompletableFuture<PrepareUploadResult> prepareDataUploadAsync(byte[] data) {
+        String body = Json.object("data", b64Encode(data));
+        return doJsonAsync("POST", "/v1/data/prepare", body)
+                .thenApply(AntdClient::parsePrepareResponse);
+    }
+
+    public CompletableFuture<FinalizeUploadResult> finalizeUploadAsync(String uploadId, Map<String, String> txHashes) {
+        String body = Json.object("upload_id", uploadId, "tx_hashes", txHashes);
+        return doJsonAsync("POST", "/v1/upload/finalize", body)
+                .thenApply(AntdClient::parseFinalizeUploadResult);
+    }
+
+    public CompletableFuture<FinalizeUploadResult> finalizeMerkleUploadAsync(String uploadId, String winnerPoolHash) {
+        String body = Json.object("upload_id", uploadId, "winner_pool_hash", winnerPoolHash);
+        return doJsonAsync("POST", "/v1/upload/finalize", body)
+                .thenApply(AntdClient::parseFinalizeUploadResult);
+    }
 }
