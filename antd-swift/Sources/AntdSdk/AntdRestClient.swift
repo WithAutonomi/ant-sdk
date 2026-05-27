@@ -298,7 +298,7 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         let body: [String: Any] = ["upload_id": uploadId, "tx_hashes": txHashes]
         let resp: FinalizeUploadDTO = try await postJSON("/v1/upload/finalize", body: body)
         return FinalizeUploadResult(
-            address: resp.address,
+            address: resp.address ?? "",
             chunksStored: resp.chunksStored,
             dataMap: resp.dataMap ?? "",
             dataMapAddress: resp.dataMapAddress ?? ""
@@ -312,7 +312,7 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         let body: [String: Any] = ["upload_id": uploadId, "winner_pool_hash": winnerPoolHash]
         let resp: FinalizeUploadDTO = try await postJSON("/v1/upload/finalize", body: body)
         return FinalizeMerkleUploadResult(
-            address: resp.address,
+            address: resp.address ?? "",
             chunksStored: resp.chunksStored,
             dataMap: resp.dataMap ?? "",
             dataMapAddress: resp.dataMapAddress ?? ""
@@ -467,7 +467,7 @@ private struct PrepareUploadDTO: Decodable {
 }
 
 private struct FinalizeUploadDTO: Decodable {
-    let address: String
+    let address: String?
     let chunksStored: Int64
     // `data_map` is always present on success but old daemons may omit it;
     // `data_map_address` is populated only when prepare was public.
