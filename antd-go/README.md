@@ -125,6 +125,20 @@ All methods take a `context.Context` as the first parameter for cancellation and
 | `FileGetPublic(ctx, address, destPath)` | Download a public file by address |
 | `FileCost(ctx, path, isPublic, paymentMode)` | Estimate upload cost — returns `*UploadCostEstimate` |
 
+### External Signer
+
+Two-phase upload — daemon prepares the payment intent, caller signs + submits the payForQuotes tx, daemon finalizes once the chain confirms. See `examples/07-external-signer/main.go` + `docs/external-signer-flow.md`.
+
+| Method | Description |
+|--------|-------------|
+| `PrepareUpload(ctx, path)` | Prepare a file upload for external signing — returns `*PrepareUploadResult` |
+| `PrepareUploadPublic(ctx, path)` | Convenience for a public-visibility prepare — returns `*PrepareUploadResult` |
+| `PrepareDataUpload(ctx, data)` | Prepare a data upload for external signing — returns `*PrepareUploadResult` |
+| `PrepareChunkUpload(ctx, data)` | Prepare a single chunk for external-signer publish — returns `*PrepareChunkResult` |
+| `FinalizeUpload(ctx, uploadID, txHashes, storeDataMap)` | Submit a prepared upload after external payment — returns `*FinalizeUploadResult` |
+| `FinalizeMerkleUpload(ctx, uploadID, winnerPoolHash, storeDataMap)` | Submit a prepared merkle upload after external payment |
+| `FinalizeChunkUpload(ctx, uploadID, txHashes)` | Submit a prepared chunk after external payment; returns the chunk address |
+
 ## gRPC Transport
 
 The SDK also provides a `GrpcClient` that connects to the antd daemon over gRPC.
@@ -257,4 +271,7 @@ See the [examples/](examples/) directory:
 
 - `01-connect` — Health check
 - `02-data` — Public and private data storage
-- `03-files` — File upload and download
+- `03-chunks` — Raw chunk store/retrieve
+- `04-files` — File upload and download
+- `06-private-data` — Private (encrypted) data round-trip via data_map
+- `07-external-signer` — External-signer file + chunk upload (anvil signer)

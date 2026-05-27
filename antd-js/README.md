@@ -85,6 +85,19 @@ All methods are `async` and return Promises.
 | `fileGetPublic(address, destPath)` | `void` | Download a public file by address |
 | `fileCost(path, isPublic?, { paymentMode? })` | `UploadCostEstimate` | Estimate upload cost — size, chunks, gas, payment mode |
 
+### External Signer
+
+Two-phase upload — daemon prepares the payment intent, caller signs + submits the payForQuotes tx, daemon finalizes once the chain confirms. See `examples/07-external-signer.ts`.
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `prepareUpload(path, { visibility? })` | `PrepareUploadResult` | Prepare a file upload for external signing |
+| `prepareUploadPublic(path)` | `PrepareUploadResult` | Convenience for `prepareUpload(path, { visibility: "public" })` |
+| `prepareDataUpload(data)` | `PrepareUploadResult` | Prepare a data upload for external signing |
+| `prepareChunkUpload(data)` | `PrepareChunkResult` | Prepare a single chunk for external-signer publish |
+| `finalizeUpload(uploadId, txHashes)` | `FinalizeUploadResult` | Submit a prepared upload after external payment. `data_map_address` populated when prepare used `visibility: "public"` |
+| `finalizeChunkUpload(uploadId, txHashes)` | `string` | Submit a prepared chunk after external payment; returns the chunk address |
+
 ## Models
 
 ```typescript
@@ -145,7 +158,7 @@ try {
 
 ## Examples
 
-The `examples/` directory contains 6 runnable scripts covering all major features:
+The `examples/` directory contains 7 runnable scripts covering all major features:
 
 | Example | Description |
 |---------|-------------|
@@ -154,6 +167,7 @@ The `examples/` directory contains 6 runnable scripts covering all major feature
 | `03-chunks.ts` | Raw chunk operations |
 | `04-files.ts` | File upload/download |
 | `06-private-data.ts` | Private encrypted data |
+| `07-external-signer.ts` | External-signer file + chunk upload (anvil signer) |
 
 Run examples with [tsx](https://github.com/privatenumber/tsx):
 

@@ -98,6 +98,19 @@ await aclient.close()
 | `file_get_public(address, dest_path)` | `None` | Download a public file by address |
 | `file_cost(path, is_public, payment_mode=...)` | `UploadCostEstimate` | Estimate file cost — size, chunks, gas, payment mode |
 
+#### External Signer
+
+Two-phase upload — daemon prepares the payment intent, caller signs + submits the payForQuotes tx, daemon finalizes once the chain confirms. See `examples/07_external_signer.py` + `docs/external-signer-flow.md`.
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `prepare_upload(path, visibility=None)` | `PrepareUploadResult` | Prepare a file upload for external signing |
+| `prepare_upload_public(path)` | `PrepareUploadResult` | Convenience for `prepare_upload(path, visibility="public")` |
+| `prepare_data_upload(data, visibility=None)` | `PrepareUploadResult` | Prepare a data upload for external signing |
+| `prepare_chunk_upload(data)` | `PrepareChunkResult` | Prepare a single chunk for external-signer publish |
+| `finalize_upload(upload_id, tx_hashes)` | `FinalizeUploadResult` | Submit a prepared upload after external payment. `data_map_address` populated when prepare used `visibility="public"` |
+| `finalize_chunk_upload(upload_id, tx_hashes)` | `str` | Submit a prepared chunk after external payment; returns the chunk address |
+
 ## Models
 
 All models are frozen dataclasses (immutable).
@@ -153,6 +166,8 @@ python examples/02_data.py         # Store/retrieve data
 python examples/03_chunks.py       # Raw chunks
 python examples/04_files.py        # File upload/download
 python examples/06_private_data.py # Private data with data maps
+python examples/07_external_signer.py # External-signer file + chunk upload
+python examples/08_grpc.py          # gRPC transport (requires antd[grpc])
 python examples/08_grpc.py         # gRPC transport (instead of REST)
 ```
 
