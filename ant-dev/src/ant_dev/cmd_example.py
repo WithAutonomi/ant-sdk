@@ -123,6 +123,7 @@ LANGUAGES: dict[str, Adapter] = {
             "connect": "01_connect.exs", "data": "02_data.exs",
             "chunks": "03_chunks.exs", "files": "04_files.exs",
             "private": "06_private_data.exs",
+            "external_signer": "07_external_signer.exs",
         },
         run=lambda cwd, f: ["elixir", f],
     ),
