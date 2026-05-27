@@ -510,10 +510,9 @@ impl Client {
     /// Returns payment details that an external signer must process before
     /// calling [`finalize_upload`](Self::finalize_upload).
     ///
-    /// `visibility="public"` returns 501 from the daemon until upstream
-    /// ant-client exposes `data_prepare_upload_with_visibility`; use
-    /// [`prepare_upload_public`](Self::prepare_upload_public) with a file path
-    /// until then.
+    /// When `visibility="public"`, the serialized DataMap is bundled
+    /// into the same external-signer payment batch and published
+    /// on-network on finalize.
     pub async fn prepare_data_upload(
         &self,
         data: &[u8],

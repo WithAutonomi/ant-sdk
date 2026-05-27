@@ -153,10 +153,10 @@ pub struct PrepareUploadRequest {
 #[derive(Deserialize)]
 pub struct PrepareDataUploadRequest {
     pub data: String, // base64
-    /// Same semantics as [`PrepareUploadRequest::visibility`]. Currently
-    /// only `"private"` (or omission) is accepted on this endpoint;
-    /// `"public"` returns 501 until upstream `ant-core` exposes
-    /// `data_prepare_upload_with_visibility` (tracked as ant-client PR #73).
+    /// Same semantics as [`PrepareUploadRequest::visibility`]: accepts
+    /// `"private"` (default) or `"public"`. When `"public"`, the
+    /// serialized DataMap is bundled into the same external-signer
+    /// payment batch and published on-network on finalize.
     #[serde(default)]
     pub visibility: Option<String>,
 }

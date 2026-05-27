@@ -153,19 +153,6 @@ pub async fn prepare_data_upload(
 
     let visibility = parse_visibility(req.visibility.as_deref()).map_err(AntdError::BadRequest)?;
 
-    // Public visibility on the in-memory data path requires the upstream
-    // `data_prepare_upload_with_visibility` (ant-client PR #73). Until that
-    // lands, refuse the public variant rather than silently returning a
-    // private prepare. The file-path equivalent works today.
-    if matches!(visibility, ant_core::data::Visibility::Public) {
-        return Err(AntdError::NotImplemented(
-            "visibility:\"public\" is not yet supported on /v1/data/prepare; \
-             use /v1/upload/prepare with a file path, or wait for upstream \
-             ant-client #73 to land"
-                .into(),
-        ));
-    }
-
     let data = BASE64
         .decode(&req.data)
         .map_err(|e| AntdError::BadRequest(format!("invalid base64: {e}")))?;
@@ -173,7 +160,7 @@ pub async fn prepare_data_upload(
     let client = state.client.clone();
     let prepared = tokio::spawn(async move {
         client
-            .data_prepare_upload(Bytes::from(data))
+            .data_prepare_upload_with_visibility(Bytes::from(data), visibility)
             .await
             .map_err(AntdError::from_core)
     })
