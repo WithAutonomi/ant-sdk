@@ -217,7 +217,8 @@ LANGUAGES: dict[str, Adapter] = {
         sdk_dir="antd-swift",
         examples={
             "connect": "1", "data": "2", "chunks": "3",
-            "files": "4", "private": "6", "all": "all",
+            "files": "4", "private": "6",
+            "external_signer": "7", "all": "all",
         },
         prep=[lambda cwd: ["swift", "build"]],
         run=lambda cwd, n: ["swift", "run", "AntdExamples", n],
