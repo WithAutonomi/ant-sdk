@@ -566,7 +566,7 @@ async fn test_prepare_upload_public_forwards_visibility() {
     assert_eq!(result.upload_id, "up_wave_1");
     assert_eq!(result.payment_type, "wave_batch");
     // The PartialJsonString matcher on the mock verifies the daemon saw
-    // visibility="public" — request would 501 otherwise.
+    // visibility="public".
 }
 
 #[tokio::test]
@@ -598,7 +598,7 @@ async fn test_prepare_upload_without_visibility_omits_field() {
         .unwrap();
     assert_eq!(result.upload_id, "up_priv");
     // If `visibility: null` had been serialized, the strict Matcher::Json
-    // above would reject the request and the test would fail with a 501.
+    // above would reject the request.
 }
 
 #[tokio::test]
