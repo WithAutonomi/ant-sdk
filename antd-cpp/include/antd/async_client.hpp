@@ -7,6 +7,7 @@
 
 #include <future>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -98,6 +99,41 @@ public:
     std::future<UploadCostEstimate> file_cost(std::string path,
                                               bool is_public,
                                               PaymentMode payment_mode = PaymentMode::Auto);
+
+    // --- Wallet ---
+
+    /// Get the wallet address configured on the daemon.
+    std::future<WalletAddress> wallet_address();
+
+    /// Get the wallet balance (tokens and gas).
+    std::future<WalletBalance> wallet_balance();
+
+    /// Approve the wallet to spend tokens on payment contracts (one-time op).
+    std::future<bool> wallet_approve();
+
+    // --- External Signer (Two-Phase Upload) ---
+
+    /// Prepare a file upload for external signing. See Client::prepare_upload.
+    std::future<PrepareUploadResult> prepare_upload(std::string path,
+                                                    std::optional<std::string> visibility = std::nullopt);
+
+    /// Convenience: prepare a public file upload. Equivalent to
+    /// prepare_upload(path, "public").
+    std::future<PrepareUploadResult> prepare_upload_public(std::string path);
+
+    /// Prepare a data upload for external signing. See Client::prepare_data_upload.
+    std::future<PrepareUploadResult> prepare_data_upload(const std::vector<uint8_t>& data,
+                                                         std::optional<std::string> visibility = std::nullopt);
+
+    /// Finalize a wave-batch upload after external signer submits payments.
+    std::future<FinalizeUploadResult> finalize_upload(std::string upload_id,
+                                                     std::map<std::string, std::string> tx_hashes,
+                                                     bool store_data_map = false);
+
+    /// Finalize a merkle upload after external signer submits payForMerkleTree.
+    std::future<FinalizeUploadResult> finalize_merkle_upload(std::string upload_id,
+                                                            std::string winner_pool_hash,
+                                                            bool store_data_map = false);
 
 private:
     Client client_;

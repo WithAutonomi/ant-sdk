@@ -376,7 +376,7 @@ public class AntdClient implements AutoCloseable {
 
     // External Signer (Two-Phase Upload)
 
-    private static PrepareUploadResult parsePrepareResponse(Map<String, Object> j) {
+    static PrepareUploadResult parsePrepareResponse(Map<String, Object> j) {
         String paymentType = str(j, "payment_type");
         if (paymentType.isEmpty()) {
             paymentType = "wave_batch";
@@ -442,7 +442,7 @@ public class AntdClient implements AutoCloseable {
         return parsePrepareResponse(j);
     }
 
-    private static FinalizeUploadResult parseFinalizeUploadResult(Map<String, Object> j) {
+    static FinalizeUploadResult parseFinalizeUploadResult(Map<String, Object> j) {
         return new FinalizeUploadResult(
                 str(j, "address"),
                 num(j, "chunks_stored"),

@@ -151,6 +151,12 @@ if(ANTD_BUILD_TESTS)
 
     add_test(NAME antd_tests COMMAND antd_tests)
 
+    add_executable(antd_async_tests tests/test_async_client.cpp)
+    target_link_libraries(antd_async_tests PRIVATE antd doctest::doctest)
+    target_include_directories(antd_async_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+    add_test(NAME antd_async_tests COMMAND antd_async_tests)
+
     # gRPC client tests — error mapping and model construction.
     # Does NOT require gRPC libraries; tests the mapping logic in isolation.
     add_executable(antd_grpc_tests tests/test_grpc_client.cpp)

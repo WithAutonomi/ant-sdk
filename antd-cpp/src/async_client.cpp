@@ -129,4 +129,66 @@ std::future<UploadCostEstimate> AsyncClient::file_cost(std::string path, bool is
         });
 }
 
+
+// ---------------------------------------------------------------------------
+// Wallet
+// ---------------------------------------------------------------------------
+
+std::future<WalletAddress> AsyncClient::wallet_address() {
+    return std::async(std::launch::async, [this] { return client_.wallet_address(); });
+}
+
+std::future<WalletBalance> AsyncClient::wallet_balance() {
+    return std::async(std::launch::async, [this] { return client_.wallet_balance(); });
+}
+
+std::future<bool> AsyncClient::wallet_approve() {
+    return std::async(std::launch::async, [this] { return client_.wallet_approve(); });
+}
+
+// ---------------------------------------------------------------------------
+// External Signer (Two-Phase Upload)
+// ---------------------------------------------------------------------------
+
+std::future<PrepareUploadResult> AsyncClient::prepare_upload(
+    std::string path, std::optional<std::string> visibility) {
+    return std::async(std::launch::async,
+                      [this, p = std::move(path), v = std::move(visibility)] {
+                          return client_.prepare_upload(p, v);
+                      });
+}
+
+std::future<PrepareUploadResult> AsyncClient::prepare_upload_public(std::string path) {
+    return std::async(std::launch::async, [this, p = std::move(path)] {
+        return client_.prepare_upload_public(p);
+    });
+}
+
+std::future<PrepareUploadResult> AsyncClient::prepare_data_upload(
+    const std::vector<uint8_t>& data, std::optional<std::string> visibility) {
+    return std::async(std::launch::async,
+                      [this, data, v = std::move(visibility)] {
+                          return client_.prepare_data_upload(data, v);
+                      });
+}
+
+std::future<FinalizeUploadResult> AsyncClient::finalize_upload(
+    std::string upload_id, std::map<std::string, std::string> tx_hashes,
+    bool store_data_map) {
+    return std::async(std::launch::async,
+                      [this, uid = std::move(upload_id),
+                       hashes = std::move(tx_hashes), store_data_map] {
+                          return client_.finalize_upload(uid, hashes, store_data_map);
+                      });
+}
+
+std::future<FinalizeUploadResult> AsyncClient::finalize_merkle_upload(
+    std::string upload_id, std::string winner_pool_hash, bool store_data_map) {
+    return std::async(std::launch::async,
+                      [this, uid = std::move(upload_id),
+                       wph = std::move(winner_pool_hash), store_data_map] {
+                          return client_.finalize_merkle_upload(uid, wph, store_data_map);
+                      });
+}
+
 }  // namespace antd
