@@ -46,35 +46,6 @@ pub struct FilePutPublicResult {
     pub address: String,
 }
 
-/// Payment entry for external signing.
-#[derive(uniffi::Record)]
-pub struct PaymentEntry {
-    /// Quote hash (hex, 32 bytes).
-    pub quote_hash: String,
-    /// Rewards address (hex with 0x prefix).
-    pub rewards_address: String,
-    /// Amount to pay (atto tokens as decimal string).
-    pub amount: String,
-}
-
-/// Result of preparing an upload for external signing.
-#[derive(uniffi::Record)]
-pub struct PrepareUploadResult {
-    /// Payment entries to sign externally.
-    pub payments: Vec<PaymentEntry>,
-    /// Total amount across all payments (atto tokens).
-    pub total_amount: String,
-    /// Hex-encoded serialized DataMap for later retrieval.
-    pub data_map: String,
-}
-
-/// Result of finalizing an externally-signed upload.
-#[derive(uniffi::Record)]
-pub struct FinalizeUploadResult {
-    /// Number of chunks stored on the network.
-    pub chunks_stored: u64,
-}
-
 // ===== Error types =====
 
 /// Error type for client operations.
@@ -96,23 +67,6 @@ pub enum ClientError {
     WalletNotConfigured,
     #[error("Internal error: {reason}")]
     InternalError { reason: String },
-}
-
-#[uniffi::export]
-impl ClientError {
-    /// Numeric error code for programmatic handling across FFI.
-    pub fn code(&self) -> i32 {
-        match self {
-            ClientError::InitializationFailed { .. } => 1,
-            ClientError::NetworkError { .. } => 2,
-            ClientError::PaymentError { .. } => 3,
-            ClientError::InvalidInput { .. } => 4,
-            ClientError::NotFound { .. } => 5,
-            ClientError::AlreadyExists => 6,
-            ClientError::WalletNotConfigured => 7,
-            ClientError::InternalError { .. } => 8,
-        }
-    }
 }
 
 /// Map ant-core errors to FFI errors.
@@ -140,13 +94,3 @@ pub enum WalletError {
     OperationFailed { reason: String },
 }
 
-#[uniffi::export]
-impl WalletError {
-    /// Numeric error code for programmatic handling across FFI.
-    pub fn code(&self) -> i32 {
-        match self {
-            WalletError::CreationFailed { .. } => 1,
-            WalletError::OperationFailed { .. } => 2,
-        }
-    }
-}

@@ -1,21 +1,19 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use tokio::sync::Mutex;
 use zeroize::Zeroize;
 
 use ant_core::data::{
-    Client as CoreClient, ClientConfig, CoreNodeConfig, MultiAddr, NodeMode, P2PNode,
-    PreparedUpload, finalize_batch_payment,
+    Client as CoreClient, ClientConfig, CoreNodeConfig, DevnetManifest, MultiAddr, NodeMode,
+    P2PNode, Wallet as CoreWallet,
 };
 
 use crate::data::{format_payment_mode, parse_payment_mode};
-use crate::wallet::Wallet;
+use crate::wallet::build_custom_network;
 use crate::{
     ChunkPutResult, ClientError, DataPutPrivateResult, DataPutPublicResult,
-    FinalizeUploadResult, FilePutPublicResult, PaymentEntry, PrepareUploadResult,
+    FilePutPublicResult,
 };
 
 /// Autonomi network client (wraps ant-core Client).
@@ -25,8 +23,6 @@ use crate::{
 #[derive(uniffi::Object)]
 pub struct Client {
     inner: CoreClient,
-    /// Pending prepared uploads (external signer flow).
-    pending_uploads: Mutex<HashMap<String, PreparedUpload>>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -61,7 +57,7 @@ impl Client {
 
         let client = CoreClient::from_node(Arc::new(node), ClientConfig::default());
 
-        Ok(Arc::new(Self { inner: client, pending_uploads: Mutex::new(HashMap::new()) }))
+        Ok(Arc::new(Self { inner: client }))
     }
 
     /// Connect to the network using explicit bootstrap peers.
@@ -108,7 +104,7 @@ impl Client {
 
         let client = CoreClient::from_node(Arc::new(node), ClientConfig::default());
 
-        Ok(Arc::new(Self { inner: client, pending_uploads: Mutex::new(HashMap::new()) }))
+        Ok(Arc::new(Self { inner: client }))
     }
 
     /// Connect to the network with a wallet configured for write operations.
@@ -161,13 +157,9 @@ impl Client {
             tokio::time::sleep(std::time::Duration::from_millis(250)).await;
         }
 
-        let network = evmlib::Network::new_custom(
-            &rpc_url,
-            &payment_token_address,
-            &payment_vault_address,
-            None,
-        );
-        let result = evmlib::wallet::Wallet::new_from_private_key(network, &private_key);
+        let network = build_custom_network(&rpc_url, &payment_token_address, &payment_vault_address)
+            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+        let result = CoreWallet::new_from_private_key(network, &private_key);
         // Clear the private key from memory as soon as possible
         private_key.zeroize();
         let wallet = result.map_err(|e| ClientError::InitializationFailed {
@@ -177,7 +169,85 @@ impl Client {
         let client =
             CoreClient::from_node(Arc::new(node), ClientConfig::default()).with_wallet(wallet);
 
-        Ok(Arc::new(Self { inner: client, pending_uploads: Mutex::new(HashMap::new()) }))
+        Ok(Arc::new(Self { inner: client }))
+    }
+
+    /// Connect to a locally running devnet using the manifest JSON file the
+    /// devnet wrote on startup (`LocalDevnet::write_manifest`).
+    ///
+    /// Reads bootstrap peers, EVM RPC URL + contract addresses, and the
+    /// funded wallet private key from the manifest, then constructs a Client
+    /// with the wallet attached. Suitable for **development and testing
+    /// only** — production code should provide bootstrap peers and wallet
+    /// material explicitly via [`Self::connect_with_wallet`].
+    ///
+    /// Fails if the manifest doesn't exist, is malformed, or has no `evm`
+    /// section (a devnet started without payment enforcement).
+    #[uniffi::constructor]
+    pub async fn connect_from_devnet_manifest(path: String) -> Result<Arc<Self>, ClientError> {
+        let bytes = std::fs::read(&path).map_err(|e| ClientError::InitializationFailed {
+            reason: format!("failed to read manifest at {path}: {e}"),
+        })?;
+        let manifest: DevnetManifest = serde_json::from_slice(&bytes).map_err(|e| {
+            ClientError::InitializationFailed {
+                reason: format!("invalid manifest JSON: {e}"),
+            }
+        })?;
+        let evm = manifest.evm.ok_or_else(|| ClientError::InitializationFailed {
+            reason: "manifest has no `evm` section — devnet started without payments?".into(),
+        })?;
+
+        // `allow_loopback(true)` is the critical bit — the devnet's bootstrap
+        // peers are at 127.0.0.1:<port>, and saorsa-core / libp2p filter
+        // loopback addresses by default as "non-routable". Without this the
+        // peer connections silently never form and chunk_put fails with
+        // "Found 0 peers, need 7". `local(true)` mirrors `connect_local()`
+        // since this constructor is also a local-devnet flow.
+        let mut builder = CoreNodeConfig::builder()
+            .mode(NodeMode::Client)
+            .port(0)
+            .local(true)
+            .allow_loopback(true)
+            .ipv6(false);
+        for peer in &manifest.bootstrap {
+            builder = builder.bootstrap_peer(peer.clone());
+        }
+        let config = builder
+            .build()
+            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+        let node = P2PNode::new(config)
+            .await
+            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+        node.start()
+            .await
+            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+
+        // Poll for peer connections. We need at least the close-group size
+        // (~7) for chunk_put to succeed, not just "any peer" — wait up to
+        // 15s for the network to stabilize.
+        for _ in 0..60 {
+            let count = node.connected_peers().await.len();
+            if count >= 7 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+
+        let network = build_custom_network(
+            &evm.rpc_url,
+            &evm.payment_token_address,
+            &evm.payment_vault_address,
+        )
+        .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+        let wallet = CoreWallet::new_from_private_key(network, &evm.wallet_private_key).map_err(
+            |e| ClientError::InitializationFailed {
+                reason: format!("failed to create wallet from manifest: {e}"),
+            },
+        )?;
+
+        let client =
+            CoreClient::from_node(Arc::new(node), ClientConfig::default()).with_wallet(wallet);
+        Ok(Arc::new(Self { inner: client }))
     }
 
     // ===== Chunk Operations =====
@@ -337,100 +407,6 @@ impl Client {
                 reason: e.to_string(),
             })?;
         Ok(())
-    }
-
-    // ===== External Signer Operations =====
-
-    /// Prepare a data upload for external signing.
-    /// Encrypts data, collects quotes, returns payment details.
-    /// Call finalize_upload() with tx hashes after signing externally.
-    pub async fn prepare_data_upload(
-        &self,
-        data: Vec<u8>,
-    ) -> Result<PrepareUploadResult, ClientError> {
-        let prepared = self.inner.data_prepare_upload(Bytes::from(data)).await?;
-
-        let payments: Vec<PaymentEntry> = prepared.payment_intent.payments.iter().map(|(qh, ra, amt)| {
-            PaymentEntry {
-                quote_hash: format!("{:#x}", qh),
-                rewards_address: format!("{:#x}", ra),
-                amount: amt.to_string(),
-            }
-        }).collect();
-
-        let total_amount = prepared.payment_intent.total_amount.to_string();
-
-        let data_map_bytes = rmp_serde::to_vec(&prepared.data_map).map_err(|e| {
-            ClientError::InternalError { reason: format!("serialize data map: {e}") }
-        })?;
-        let data_map = hex::encode(data_map_bytes);
-
-        let upload_id = hex::encode(rand::random::<[u8; 16]>());
-        self.pending_uploads.lock().await.insert(upload_id.clone(), prepared);
-
-        Ok(PrepareUploadResult { payments, total_amount, data_map })
-    }
-
-    /// Prepare a file upload for external signing.
-    pub async fn prepare_file_upload(
-        &self,
-        path: String,
-    ) -> Result<PrepareUploadResult, ClientError> {
-        let file_path = PathBuf::from(&path);
-        let prepared = self.inner.file_prepare_upload(&file_path).await?;
-
-        let payments: Vec<PaymentEntry> = prepared.payment_intent.payments.iter().map(|(qh, ra, amt)| {
-            PaymentEntry {
-                quote_hash: format!("{:#x}", qh),
-                rewards_address: format!("{:#x}", ra),
-                amount: amt.to_string(),
-            }
-        }).collect();
-
-        let total_amount = prepared.payment_intent.total_amount.to_string();
-
-        let data_map_bytes = rmp_serde::to_vec(&prepared.data_map).map_err(|e| {
-            ClientError::InternalError { reason: format!("serialize data map: {e}") }
-        })?;
-        let data_map = hex::encode(data_map_bytes);
-
-        let upload_id = hex::encode(rand::random::<[u8; 16]>());
-        self.pending_uploads.lock().await.insert(upload_id.clone(), prepared);
-
-        Ok(PrepareUploadResult { payments, total_amount, data_map })
-    }
-
-    /// Finalize an upload after external payment.
-    /// Takes a map of quote_hash (hex) → tx_hash (hex).
-    pub async fn finalize_upload(
-        &self,
-        upload_id: String,
-        tx_hashes: HashMap<String, String>,
-    ) -> Result<FinalizeUploadResult, ClientError> {
-        let prepared = self.pending_uploads.lock().await
-            .remove(&upload_id)
-            .ok_or_else(|| ClientError::NotFound {
-                reason: format!("upload_id {upload_id} not found"),
-            })?;
-
-        let tx_hash_map: HashMap<evmlib::common::QuoteHash, evmlib::common::TxHash> =
-            tx_hashes.iter().map(|(qh, th)| {
-                let q: [u8; 32] = hex::decode(qh.trim_start_matches("0x"))
-                    .map_err(|e| ClientError::InvalidInput { reason: format!("invalid quote_hash: {e}") })?
-                    .try_into()
-                    .map_err(|_| ClientError::InvalidInput { reason: "quote_hash must be 32 bytes".into() })?;
-                let t: [u8; 32] = hex::decode(th.trim_start_matches("0x"))
-                    .map_err(|e| ClientError::InvalidInput { reason: format!("invalid tx_hash: {e}") })?
-                    .try_into()
-                    .map_err(|_| ClientError::InvalidInput { reason: "tx_hash must be 32 bytes".into() })?;
-                Ok((q.into(), t.into()))
-            }).collect::<Result<_, ClientError>>()?;
-
-        let result = self.inner.finalize_upload(prepared, &tx_hash_map).await?;
-
-        Ok(FinalizeUploadResult {
-            chunks_stored: result.chunks_stored as u64,
-        })
     }
 
     // ===== Wallet Operations =====

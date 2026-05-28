@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use ant_core::data::{CustomNetwork, EvmAddress, EvmNetwork, Wallet as CoreWallet};
 use zeroize::Zeroize;
 
 use crate::WalletError;
@@ -7,7 +8,7 @@ use crate::WalletError;
 /// EVM wallet for paying storage costs.
 #[derive(uniffi::Object)]
 pub struct Wallet {
-    pub(crate) inner: evmlib::wallet::Wallet,
+    pub(crate) inner: CoreWallet,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -22,13 +23,8 @@ impl Wallet {
         payment_token_address: String,
         payment_vault_address: String,
     ) -> Result<Arc<Self>, WalletError> {
-        let network = evmlib::Network::new_custom(
-            &rpc_url,
-            &payment_token_address,
-            &payment_vault_address,
-            None,
-        );
-        let result = evmlib::wallet::Wallet::new_from_private_key(network, &private_key);
+        let network = build_custom_network(&rpc_url, &payment_token_address, &payment_vault_address)?;
+        let result = CoreWallet::new_from_private_key(network, &private_key);
         // Clear the private key from memory as soon as possible
         private_key.zeroize();
         let wallet = result.map_err(|e| WalletError::CreationFailed {
@@ -65,4 +61,27 @@ impl Wallet {
             })?;
         Ok(balance.to_string())
     }
+}
+
+/// Build a custom EVM network from string-form addresses.
+/// Shared by Wallet and the Client `connect_with_wallet` constructor.
+pub(crate) fn build_custom_network(
+    rpc_url: &str,
+    payment_token_address: &str,
+    payment_vault_address: &str,
+) -> Result<EvmNetwork, WalletError> {
+    let rpc_url: url::Url = rpc_url.parse().map_err(|e| {
+        WalletError::CreationFailed { reason: format!("invalid RPC URL: {e}") }
+    })?;
+    let token_addr: EvmAddress = payment_token_address.parse().map_err(|e| {
+        WalletError::CreationFailed { reason: format!("invalid token address: {e}") }
+    })?;
+    let vault_addr: EvmAddress = payment_vault_address.parse().map_err(|e| {
+        WalletError::CreationFailed { reason: format!("invalid vault address: {e}") }
+    })?;
+    Ok(EvmNetwork::Custom(CustomNetwork {
+        rpc_url_http: rpc_url,
+        payment_token_address: token_addr,
+        payment_vault_address: vault_addr,
+    }))
 }
