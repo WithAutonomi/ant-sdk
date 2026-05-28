@@ -166,4 +166,23 @@ if(ANTD_BUILD_TESTS)
     )
 
     add_test(NAME antd_grpc_tests COMMAND antd_grpc_tests)
+
+    # V2-284 external-signer wire-mapping tests — gated on ANTD_BUILD_GRPC=ON
+    # since they spin up a real grpc++ server and link against the generated
+    # proto + service stubs from antd/proto/antd/v1/*.proto.
+    if(ANTD_BUILD_GRPC)
+        add_executable(antd_grpc_external_signer_tests
+            tests/test_grpc_external_signer.cpp
+        )
+        target_link_libraries(antd_grpc_external_signer_tests
+            PRIVATE antd_grpc doctest::doctest
+        )
+        target_include_directories(antd_grpc_external_signer_tests PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${ANTD_PROTO_GEN_DIR}
+        )
+
+        add_test(NAME antd_grpc_external_signer_tests
+                 COMMAND antd_grpc_external_signer_tests)
+    endif()
 endif()
