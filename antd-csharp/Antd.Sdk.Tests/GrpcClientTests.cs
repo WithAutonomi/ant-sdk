@@ -178,7 +178,8 @@ public sealed class GrpcClientTests
             data: new DataService.DataServiceClient(new TestServiceInvoker()),
             chunks: new MockChunkServiceClient(),
             files: new FileService.FileServiceClient(new TestServiceInvoker()),
-            upload: new MockUploadServiceClient());
+            upload: new MockUploadServiceClient(),
+            wallet: new WalletService.WalletServiceClient(new TestServiceInvoker()));
 
     /// <summary>
     /// Stub CallInvoker for the service clients we don't override — never
