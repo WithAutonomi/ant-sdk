@@ -154,6 +154,17 @@ public:
     /// `PrepareChunkResult::address`).
     std::string finalize_chunk_upload(std::string_view upload_id,
                                       const std::map<std::string, std::string>& tx_hashes);
+    // --- Wallet (V2-286) ---
+
+    /// Returns the wallet's on-chain address (hex with 0x prefix).
+    WalletAddress wallet_address();
+
+    /// Returns the wallet's token + gas balances.
+    WalletBalance wallet_balance();
+
+    /// Approves the wallet to spend tokens on the payment vault contract.
+    /// One-time operation; idempotent at the contract level.
+    bool wallet_approve();
 
 private:
     struct Impl;
