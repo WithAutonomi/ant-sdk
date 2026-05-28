@@ -5,7 +5,7 @@ import warnings
 
 from antd._proto.antd.v1 import health_pb2 as antd_dot_v1_dot_health__pb2
 
-GRPC_GENERATED_VERSION = '1.78.0'
+GRPC_GENERATED_VERSION = '1.80.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 

@@ -17,12 +17,18 @@ from .exceptions import (
     TooLargeError,
 )
 from .models import (
+    CandidateNodeEntry,
     DataPutPublicResult,
     DataPutResult,
     FilePutPublicResult,
     FilePutResult,
+    FinalizeUploadResult,
     HealthStatus,
+    PaymentInfo,
     PaymentMode,
+    PoolCommitmentEntry,
+    PrepareChunkResult,
+    PrepareUploadResult,
     PutResult,
     UploadCostEstimate,
 )
@@ -72,10 +78,92 @@ def _estimate_from_cost(resp) -> UploadCostEstimate:
         payment_mode=resp.payment_mode,
     )
 
+
+def _prepare_upload_result_from_resp(resp) -> PrepareUploadResult:
+    """Convert a PrepareUploadResponse into the REST-style PrepareUploadResult.
+
+    Merkle-only fields (depth, pool_commitments, merkle_payment_timestamp)
+    are populated only when payment_type == "merkle"; otherwise left at their
+    dataclass defaults.
+    """
+    payments = [
+        PaymentInfo(
+            quote_hash=p.quote_hash,
+            rewards_address=p.rewards_address,
+            amount=p.amount,
+        )
+        for p in resp.payments
+    ]
+
+    pool_commitments: list[PoolCommitmentEntry] = []
+    depth = 0
+    merkle_ts = 0
+    if resp.payment_type == "merkle":
+        depth = int(resp.depth)
+        merkle_ts = int(resp.merkle_payment_timestamp)
+        pool_commitments = [
+            PoolCommitmentEntry(
+                pool_hash=pc.pool_hash,
+                candidates=[
+                    CandidateNodeEntry(
+                        rewards_address=c.rewards_address,
+                        amount=c.amount,
+                    )
+                    for c in pc.candidates
+                ],
+            )
+            for pc in resp.pool_commitments
+        ]
+
+    return PrepareUploadResult(
+        upload_id=resp.upload_id,
+        payments=payments,
+        total_amount=resp.total_amount,
+        payment_vault_address=resp.payment_vault_address,
+        payment_token_address=resp.payment_token_address,
+        rpc_url=resp.rpc_url,
+        payment_type=resp.payment_type,
+        depth=depth,
+        pool_commitments=pool_commitments,
+        merkle_payment_timestamp=merkle_ts,
+    )
+
+
+def _finalize_upload_result_from_resp(resp) -> FinalizeUploadResult:
+    return FinalizeUploadResult(
+        address=resp.address,
+        chunks_stored=int(resp.chunks_stored),
+        data_map=resp.data_map,
+        data_map_address=resp.data_map_address,
+    )
+
+
+def _prepare_chunk_result_from_resp(resp) -> PrepareChunkResult:
+    payments = [
+        PaymentInfo(
+            quote_hash=p.quote_hash,
+            rewards_address=p.rewards_address,
+            amount=p.amount,
+        )
+        for p in resp.payments
+    ]
+    return PrepareChunkResult(
+        address=resp.address,
+        already_stored=bool(resp.already_stored),
+        upload_id=resp.upload_id,
+        payment_type=resp.payment_type,
+        payments=payments,
+        total_amount=resp.total_amount,
+        payment_vault_address=resp.payment_vault_address,
+        payment_token_address=resp.payment_token_address,
+        rpc_url=resp.rpc_url,
+    )
+
 from antd._proto.antd.v1 import data_pb2, data_pb2_grpc
 from antd._proto.antd.v1 import chunks_pb2, chunks_pb2_grpc
 from antd._proto.antd.v1 import files_pb2, files_pb2_grpc
 from antd._proto.antd.v1 import health_pb2, health_pb2_grpc
+from antd._proto.antd.v1 import upload_pb2, upload_pb2_grpc
 
 
 # gRPC status code -> exception class mapping
@@ -122,6 +210,7 @@ class GrpcClient:
         self._data = data_pb2_grpc.DataServiceStub(self._channel)
         self._chunks = chunks_pb2_grpc.ChunkServiceStub(self._channel)
         self._files = files_pb2_grpc.FileServiceStub(self._channel)
+        self._upload = upload_pb2_grpc.UploadServiceStub(self._channel)
 
     def close(self) -> None:
         self._channel.close()
@@ -252,16 +341,84 @@ class GrpcClient:
     def wallet_approve(self) -> bool:
         raise NotImplementedError("wallet_approve is not yet supported via gRPC")
 
-    # --- External Signer (not yet available via gRPC) ---
+    # --- External Signer ---
 
-    def prepare_upload(self, path: str):
-        raise NotImplementedError("prepare_upload is not yet supported via gRPC")
+    def prepare_upload(self, path: str, visibility: str | None = None) -> PrepareUploadResult:
+        """Prepare a file upload for external signing.
 
-    def prepare_data_upload(self, data: bytes):
-        raise NotImplementedError("prepare_data_upload is not yet supported via gRPC")
+        ``visibility="public"`` bundles the DataMap chunk into the same
+        external-signer payment batch; the resulting ``data_map_address`` on
+        :meth:`finalize_upload` / :meth:`finalize_merkle_upload` is the
+        shareable retrieval handle. Defaults to private.
+        """
+        try:
+            resp = self._upload.PrepareFileUpload(upload_pb2.PrepareFileUploadRequest(
+                path=path, visibility=visibility or "",
+            ))
+            return _prepare_upload_result_from_resp(resp)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
 
-    def finalize_upload(self, upload_id: str, tx_hashes: dict):
-        raise NotImplementedError("finalize_upload is not yet supported via gRPC")
+    def prepare_upload_public(self, path: str) -> PrepareUploadResult:
+        """Convenience wrapper for ``prepare_upload(path, "public")``."""
+        return self.prepare_upload(path, "public")
+
+    def prepare_data_upload(self, data: bytes, visibility: str | None = None) -> PrepareUploadResult:
+        """Prepare an in-memory data upload for external signing."""
+        try:
+            resp = self._upload.PrepareDataUpload(upload_pb2.PrepareDataUploadRequest(
+                data=data, visibility=visibility or "",
+            ))
+            return _prepare_upload_result_from_resp(resp)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    def finalize_upload(self, upload_id: str, tx_hashes: dict[str, str]) -> FinalizeUploadResult:
+        """Finalize a wave-batch upload after external payment."""
+        try:
+            resp = self._upload.FinalizeUpload(upload_pb2.FinalizeUploadRequest(
+                upload_id=upload_id, tx_hashes=tx_hashes,
+            ))
+            return _finalize_upload_result_from_resp(resp)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    def finalize_merkle_upload(
+        self, upload_id: str, winner_pool_hash: str, store_data_map: bool = False,
+    ) -> FinalizeUploadResult:
+        """Finalize a merkle-batch upload after selecting a winning pool."""
+        try:
+            resp = self._upload.FinalizeUpload(upload_pb2.FinalizeUploadRequest(
+                upload_id=upload_id,
+                winner_pool_hash=winner_pool_hash,
+                store_data_map=store_data_map,
+            ))
+            return _finalize_upload_result_from_resp(resp)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    def prepare_chunk_upload(self, data: bytes) -> PrepareChunkResult:
+        """Prepare a single chunk for external-signer publish.
+
+        When the chunk is already on-network the response has
+        ``already_stored=True`` and the caller can skip
+        :meth:`finalize_chunk_upload` entirely.
+        """
+        try:
+            resp = self._chunks.PrepareChunk(chunks_pb2.PrepareChunkRequest(data=data))
+            return _prepare_chunk_result_from_resp(resp)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    def finalize_chunk_upload(self, upload_id: str, tx_hashes: dict[str, str]) -> str:
+        """Submit a prepared chunk after external payment. Returns the chunk address."""
+        try:
+            resp = self._chunks.FinalizeChunk(chunks_pb2.FinalizeChunkRequest(
+                upload_id=upload_id, tx_hashes=tx_hashes,
+            ))
+            return resp.address
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
 
 
 class AsyncGrpcClient:
@@ -288,6 +445,7 @@ class AsyncGrpcClient:
         self._data = data_pb2_grpc.DataServiceStub(self._channel)
         self._chunks = chunks_pb2_grpc.ChunkServiceStub(self._channel)
         self._files = files_pb2_grpc.FileServiceStub(self._channel)
+        self._upload = upload_pb2_grpc.UploadServiceStub(self._channel)
 
     async def close(self) -> None:
         await self._channel.close()
@@ -418,13 +576,70 @@ class AsyncGrpcClient:
     async def wallet_approve(self) -> bool:
         raise NotImplementedError("wallet_approve is not yet supported via gRPC")
 
-    # --- External Signer (not yet available via gRPC) ---
+    # --- External Signer ---
 
-    async def prepare_upload(self, path: str):
-        raise NotImplementedError("prepare_upload is not yet supported via gRPC")
+    async def prepare_upload(self, path: str, visibility: str | None = None) -> PrepareUploadResult:
+        """Async: prepare a file upload for external signing."""
+        try:
+            resp = await self._upload.PrepareFileUpload(upload_pb2.PrepareFileUploadRequest(
+                path=path, visibility=visibility or "",
+            ))
+            return _prepare_upload_result_from_resp(resp)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
 
-    async def prepare_data_upload(self, data: bytes):
-        raise NotImplementedError("prepare_data_upload is not yet supported via gRPC")
+    async def prepare_upload_public(self, path: str) -> PrepareUploadResult:
+        """Async convenience wrapper for ``prepare_upload(path, "public")``."""
+        return await self.prepare_upload(path, "public")
 
-    async def finalize_upload(self, upload_id: str, tx_hashes: dict):
-        raise NotImplementedError("finalize_upload is not yet supported via gRPC")
+    async def prepare_data_upload(self, data: bytes, visibility: str | None = None) -> PrepareUploadResult:
+        """Async: prepare an in-memory data upload for external signing."""
+        try:
+            resp = await self._upload.PrepareDataUpload(upload_pb2.PrepareDataUploadRequest(
+                data=data, visibility=visibility or "",
+            ))
+            return _prepare_upload_result_from_resp(resp)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    async def finalize_upload(self, upload_id: str, tx_hashes: dict[str, str]) -> FinalizeUploadResult:
+        """Async: finalize a wave-batch upload after external payment."""
+        try:
+            resp = await self._upload.FinalizeUpload(upload_pb2.FinalizeUploadRequest(
+                upload_id=upload_id, tx_hashes=tx_hashes,
+            ))
+            return _finalize_upload_result_from_resp(resp)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    async def finalize_merkle_upload(
+        self, upload_id: str, winner_pool_hash: str, store_data_map: bool = False,
+    ) -> FinalizeUploadResult:
+        """Async: finalize a merkle-batch upload after selecting a winning pool."""
+        try:
+            resp = await self._upload.FinalizeUpload(upload_pb2.FinalizeUploadRequest(
+                upload_id=upload_id,
+                winner_pool_hash=winner_pool_hash,
+                store_data_map=store_data_map,
+            ))
+            return _finalize_upload_result_from_resp(resp)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    async def prepare_chunk_upload(self, data: bytes) -> PrepareChunkResult:
+        """Async: prepare a single chunk for external-signer publish."""
+        try:
+            resp = await self._chunks.PrepareChunk(chunks_pb2.PrepareChunkRequest(data=data))
+            return _prepare_chunk_result_from_resp(resp)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    async def finalize_chunk_upload(self, upload_id: str, tx_hashes: dict[str, str]) -> str:
+        """Async: submit a prepared chunk after external payment. Returns the chunk address."""
+        try:
+            resp = await self._chunks.FinalizeChunk(chunks_pb2.FinalizeChunkRequest(
+                upload_id=upload_id, tx_hashes=tx_hashes,
+            ))
+            return resp.address
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
