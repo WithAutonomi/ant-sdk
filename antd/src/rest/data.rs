@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
-use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::Json;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
@@ -205,13 +204,22 @@ pub async fn data_cost(
 pub async fn data_stream_public(
     State(_state): State<Arc<AppState>>,
     Path(addr): Path<String>,
-) -> Result<Sse<impl tokio_stream::Stream<Item = Result<Event, std::convert::Infallible>>>, AntdError>
-{
+) -> Result<(), AntdError> {
+    // Address validation kept so a malformed call still returns 400 — that
+    // shape is part of the contract even if the body never lands.
     if addr.len() != 64 {
         return Err(AntdError::BadRequest(
             "address must be exactly 64 hex characters".into(),
         ));
     }
-    let stream = futures::stream::empty();
-    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+    // ant-core does not yet expose a chunk-by-chunk download primitive
+    // (`Client::data_download` returns the full Bytes in one call, and
+    // self-encryption decrypt currently needs every chunk before yielding
+    // any plaintext). Honest 501 until that lands — preferable to the
+    // previous shape that returned 200 OK with an empty SSE stream and
+    // looked indistinguishable from "still waiting for events."
+    Err(AntdError::NotImplemented(
+        "data stream-download not yet implemented;          ant-core does not yet expose a chunk-by-chunk download primitive"
+            .into(),
+    ))
 }
