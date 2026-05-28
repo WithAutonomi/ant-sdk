@@ -69,6 +69,7 @@ class GrpcAntdClientTest {
                         .addService(new MockDataService())
                         .addService(new MockChunkService())
                         .addService(new MockFileService())
+                        .addService(new MockWalletService())
                         .build()
                         .start();
 
@@ -513,6 +514,92 @@ class GrpcAntdClientTest {
                     () -> errClient.dataPutPublic("unknown".getBytes()));
             // Should be the base class, not a specific subtype (except AntdException itself)
             assertEquals(AntdException.class, ex.getClass());
+        }
+    }
+
+    // =========================================================================
+    // V2-286 MockWalletService + tests
+    // =========================================================================
+
+    static class MockWalletService extends antd.v1.WalletServiceGrpc.WalletServiceImplBase {
+        @Override
+        public void getAddress(antd.v1.Wallet.GetWalletAddressRequest req,
+                io.grpc.stub.StreamObserver<antd.v1.Wallet.GetWalletAddressResponse> resp) {
+            resp.onNext(antd.v1.Wallet.GetWalletAddressResponse.newBuilder()
+                    .setAddress("0xabc1234567890abcdef1234567890abcdef123456")
+                    .build());
+            resp.onCompleted();
+        }
+
+        @Override
+        public void getBalance(antd.v1.Wallet.GetWalletBalanceRequest req,
+                io.grpc.stub.StreamObserver<antd.v1.Wallet.GetWalletBalanceResponse> resp) {
+            resp.onNext(antd.v1.Wallet.GetWalletBalanceResponse.newBuilder()
+                    .setBalance("1000000000000000000")
+                    .setGasBalance("500000000000000000")
+                    .build());
+            resp.onCompleted();
+        }
+
+        @Override
+        public void approve(antd.v1.Wallet.WalletApproveRequest req,
+                io.grpc.stub.StreamObserver<antd.v1.Wallet.WalletApproveResponse> resp) {
+            resp.onNext(antd.v1.Wallet.WalletApproveResponse.newBuilder()
+                    .setApproved(true)
+                    .build());
+            resp.onCompleted();
+        }
+    }
+
+    @Test
+    void walletAddressReturnsAddress() {
+        com.autonomi.antd.models.WalletAddress r = client.walletAddress();
+        assertEquals("0xabc1234567890abcdef1234567890abcdef123456", r.address());
+    }
+
+    @Test
+    void walletBalanceReturnsBalances() {
+        com.autonomi.antd.models.WalletBalance r = client.walletBalance();
+        assertEquals("1000000000000000000", r.balance());
+        assertEquals("500000000000000000", r.gasBalance());
+    }
+
+    @Test
+    void walletApproveReturnsTrue() {
+        assertTrue(client.walletApprove());
+    }
+
+    /**
+     * Daemon emits gRPC FailedPrecondition for "wallet not configured"; the
+     * established mapping in GrpcAntdClient.mapException surfaces this as
+     * PaymentException. (Semantic is a bit off vs REST's 503 but matches every
+     * SDK.)
+     */
+    @Test
+    void walletAddressUnconfiguredReturnsPaymentException() throws Exception {
+        String serverName = InProcessServerBuilder.generateName();
+        Server errServer = InProcessServerBuilder.forName(serverName)
+                .directExecutor()
+                .addService(new antd.v1.WalletServiceGrpc.WalletServiceImplBase() {
+                    @Override
+                    public void getAddress(antd.v1.Wallet.GetWalletAddressRequest req,
+                            io.grpc.stub.StreamObserver<antd.v1.Wallet.GetWalletAddressResponse> resp) {
+                        resp.onError(io.grpc.Status.FAILED_PRECONDITION
+                                .withDescription("wallet not configured — set AUTONOMI_WALLET_KEY")
+                                .asRuntimeException());
+                    }
+                })
+                .build()
+                .start();
+        ManagedChannel ch = InProcessChannelBuilder.forName(serverName).directExecutor().build();
+        try (GrpcAntdClient c = new GrpcAntdClient(ch)) {
+            com.autonomi.antd.errors.PaymentException ex = assertThrows(
+                    com.autonomi.antd.errors.PaymentException.class,
+                    c::walletAddress);
+            assertTrue(ex.getMessage().contains("wallet not configured"));
+        } finally {
+            ch.shutdownNow();
+            errServer.shutdownNow();
         }
     }
 }
