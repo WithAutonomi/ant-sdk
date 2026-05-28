@@ -36,7 +36,8 @@ protoc \
   "$PROTO_DIR"/antd/v1/chunks.proto \
   "$PROTO_DIR"/antd/v1/files.proto \
   "$PROTO_DIR"/antd/v1/upload.proto \
-  "$PROTO_DIR"/antd/v1/events.proto
+  "$PROTO_DIR"/antd/v1/events.proto \
+  "$PROTO_DIR"/antd/v1/wallet.proto
 
 echo "Generated:"
 ls -la "$OUT_DIR"

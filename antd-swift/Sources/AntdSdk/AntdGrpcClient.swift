@@ -9,9 +9,10 @@ import GRPCProtobuf
 /// > Use ``AntdRestClient`` via ``AntdClient/createRest(baseURL:timeout:)`` on
 /// > older platforms.
 ///
-/// Currently implements the V2-284 external-signer prepare/finalize surface
-/// (file + data + chunks). Other RPCs throw until subsequent gRPC fan-out work
-/// lands; ``AntdRestClient`` is the recommended default for those.
+/// V2-284 implements the external-signer prepare/finalize surface (file + data +
+/// chunks). V2-286 implements the wallet surface (`walletAddress`, `walletBalance`,
+/// `walletApprove`). Other RPCs throw `notImplemented()` until subsequent gRPC
+/// fan-out work lands.
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, *)
 public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
 
@@ -38,7 +39,8 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
     /// Opens a one-shot grpc-swift connection to the daemon for the duration of
     /// `body`. Per-call connection setup keeps the SDK surface simple; the cost
     /// is one TCP handshake per RPC, which is acceptable for the external-signer
-    /// flow (caller makes one prepare + one finalize per upload).
+    /// flow (one prepare + one finalize per upload) and the wallet flow (caller
+    /// queries balance/address occasionally, approves once).
     private func withGRPC<T: Sendable>(
         _ body: @Sendable (GRPCClient<HTTP2ClientTransport.Posix>) async throws -> T
     ) async throws -> T {
@@ -72,10 +74,6 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
     public func filePutPublic(path: String, paymentMode: PaymentMode = .auto) async throws -> FilePutPublicResult { throw notImplemented() }
     public func fileGetPublic(address: String, destPath: String) async throws { throw notImplemented() }
     public func fileCost(path: String, isPublic: Bool = true, paymentMode: PaymentMode = .auto) async throws -> UploadCostEstimate { throw notImplemented() }
-    public func walletAddress() async throws -> WalletAddress { throw notImplemented() }
-    public func walletBalance() async throws -> WalletBalance { throw notImplemented() }
-    public func walletApprove() async throws -> Bool { throw notImplemented() }
-
     // MARK: - External signer (V2-284)
 
     /// Prepares a file upload for external signing.
@@ -209,5 +207,35 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
             poolCommitments: pools,
             merklePaymentTimestamp: merkleTs
         )
+    }
+
+    // MARK: - Wallet (V2-286)
+    //
+    // A missing daemon wallet emits gRPC `failedPrecondition`, which
+    // `ErrorMapping.fromGRPCStatus` maps to `PaymentError`. (Semantic a bit
+    // off vs REST's 503 but matches every other SDK's gRPC->SDK mapping.)
+
+    public func walletAddress() async throws -> WalletAddress {
+        try await withGRPC { client in
+            let req = Antd_V1_GetWalletAddressRequest()
+            let resp = try await Antd_V1_WalletService.Client(wrapping: client).getAddress(req)
+            return WalletAddress(address: resp.address)
+        }
+    }
+
+    public func walletBalance() async throws -> WalletBalance {
+        try await withGRPC { client in
+            let req = Antd_V1_GetWalletBalanceRequest()
+            let resp = try await Antd_V1_WalletService.Client(wrapping: client).getBalance(req)
+            return WalletBalance(balance: resp.balance, gasBalance: resp.gasBalance)
+        }
+    }
+
+    public func walletApprove() async throws -> Bool {
+        try await withGRPC { client in
+            let req = Antd_V1_WalletApproveRequest()
+            let resp = try await Antd_V1_WalletService.Client(wrapping: client).approve(req)
+            return resp.approved
+        }
     }
 }
