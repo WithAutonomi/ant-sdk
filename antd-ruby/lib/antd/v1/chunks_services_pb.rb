@@ -17,6 +17,13 @@ module Antd
 
         rpc :Get, ::Antd::V1::GetChunkRequest, ::Antd::V1::GetChunkResponse
         rpc :Put, ::Antd::V1::PutChunkRequest, ::Antd::V1::PutChunkResponse
+        # External-signer single-chunk publish. Mirrors REST
+        # `/v1/chunks/prepare` + `/v1/chunks/finalize`. Single chunks are always
+        # below the merkle threshold, so the payment shape is always wave-batch.
+        # When the chunk is already on-network, the prepare response has
+        # `already_stored = true` and the caller can skip the finalize step.
+        rpc :PrepareChunk, ::Antd::V1::PrepareChunkRequest, ::Antd::V1::PrepareChunkResponse
+        rpc :FinalizeChunk, ::Antd::V1::FinalizeChunkRequest, ::Antd::V1::FinalizeChunkResponse
       end
 
       Stub = Service.rpc_stub_class
