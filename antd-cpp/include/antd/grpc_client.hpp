@@ -101,6 +101,18 @@ public:
                                  bool is_public,
                                  PaymentMode payment_mode = PaymentMode::Auto);
 
+    // --- Wallet (V2-286) ---
+
+    /// Returns the wallet's on-chain address (hex with 0x prefix).
+    WalletAddress wallet_address();
+
+    /// Returns the wallet's token + gas balances.
+    WalletBalance wallet_balance();
+
+    /// Approves the wallet to spend tokens on the payment vault contract.
+    /// One-time operation; idempotent at the contract level.
+    bool wallet_approve();
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
