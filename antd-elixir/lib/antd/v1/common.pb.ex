@@ -1,7 +1,7 @@
 defmodule Antd.V1.Cost do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf, full_name: "antd.v1.Cost", protoc_gen_elixir_version: "0.16.0", syntax: :proto3
 
   field :atto_tokens, 1, type: :string, json_name: "attoTokens"
   field :file_size, 2, type: :uint64, json_name: "fileSize"
@@ -13,7 +13,7 @@ end
 defmodule Antd.V1.Address do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf, full_name: "antd.v1.Address", protoc_gen_elixir_version: "0.16.0", syntax: :proto3
 
   field :hex, 1, type: :string
 end
@@ -21,7 +21,10 @@ end
 defmodule Antd.V1.PublicKeyProto do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "antd.v1.PublicKeyProto",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :hex, 1, type: :string
 end
@@ -29,7 +32,23 @@ end
 defmodule Antd.V1.SecretKeyProto do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "antd.v1.SecretKeyProto",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :hex, 1, type: :string
+end
+
+defmodule Antd.V1.PaymentEntry do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "antd.v1.PaymentEntry",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :quote_hash, 1, type: :string, json_name: "quoteHash"
+  field :rewards_address, 2, type: :string, json_name: "rewardsAddress"
+  field :amount, 3, type: :string
 end
