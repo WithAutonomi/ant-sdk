@@ -3,6 +3,7 @@ package com.autonomi.sdk
 import antd.v1.*
 import com.google.protobuf.ByteString
 import io.grpc.ManagedChannelBuilder
+import io.grpc.StatusException
 import io.grpc.StatusRuntimeException
 import io.grpc.Status
 
@@ -29,6 +30,7 @@ class AntdGrpcClient internal constructor(
     private val chunkStub = ChunkServiceGrpcKt.ChunkServiceCoroutineStub(channel)
     private val fileStub = FileServiceGrpcKt.FileServiceCoroutineStub(channel)
     private val uploadStub = UploadServiceGrpcKt.UploadServiceCoroutineStub(channel)
+    private val walletStub = WalletServiceGrpcKt.WalletServiceCoroutineStub(channel)
 
     override fun close() {
         channel.shutdown()
@@ -190,16 +192,34 @@ class AntdGrpcClient internal constructor(
 
     // ── Wallet ──
 
-    override suspend fun walletAddress(): WalletAddress {
-        throw UnsupportedOperationException("walletAddress is not yet supported via gRPC")
+    // V2-286: parity with REST wallet surface. A missing daemon wallet emits
+    // gRPC FailedPrecondition which wrap() surfaces as PaymentException
+    // (established FailedPrecondition->Payment convention across all SDKs).
+    override suspend fun walletAddress(): WalletAddress = try {
+        val resp = walletStub.getAddress(getWalletAddressRequest {})
+        WalletAddress(address = resp.address)
+    } catch (e: StatusException) {
+        throw ExceptionMapping.fromGrpcStatus(e.status.asRuntimeException())
+    } catch (e: StatusRuntimeException) {
+        throw wrap(e)
     }
 
-    override suspend fun walletBalance(): WalletBalance {
-        throw UnsupportedOperationException("walletBalance is not yet supported via gRPC")
+    override suspend fun walletBalance(): WalletBalance = try {
+        val resp = walletStub.getBalance(getWalletBalanceRequest {})
+        WalletBalance(balance = resp.balance, gasBalance = resp.gasBalance)
+    } catch (e: StatusException) {
+        throw ExceptionMapping.fromGrpcStatus(e.status.asRuntimeException())
+    } catch (e: StatusRuntimeException) {
+        throw wrap(e)
     }
 
-    override suspend fun walletApprove(): Boolean {
-        throw UnsupportedOperationException("walletApprove not available via gRPC")
+    override suspend fun walletApprove(): Boolean = try {
+        val resp = walletStub.approve(walletApproveRequest {})
+        resp.approved
+    } catch (e: StatusException) {
+        throw ExceptionMapping.fromGrpcStatus(e.status.asRuntimeException())
+    } catch (e: StatusRuntimeException) {
+        throw wrap(e)
     }
 
     // ── External Signer ──
