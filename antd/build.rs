@@ -25,6 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "proto/antd/v1/chunks.proto",
                 "proto/antd/v1/files.proto",
                 "proto/antd/v1/events.proto",
+                "proto/antd/v1/wallet.proto",
             ],
             &["proto"],
         )?;
