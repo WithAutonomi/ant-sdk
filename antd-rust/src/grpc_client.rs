@@ -16,7 +16,7 @@ pub mod proto {
 use proto::antd::v1::{
     chunk_service_client::ChunkServiceClient, data_service_client::DataServiceClient,
     file_service_client::FileServiceClient, health_service_client::HealthServiceClient,
-    upload_service_client::UploadServiceClient,
+    upload_service_client::UploadServiceClient, wallet_service_client::WalletServiceClient,
 };
 
 /// Default gRPC endpoint of the antd daemon.
@@ -33,6 +33,7 @@ pub struct GrpcClient {
     chunks: ChunkServiceClient<Channel>,
     files: FileServiceClient<Channel>,
     upload: UploadServiceClient<Channel>,
+    wallet: WalletServiceClient<Channel>,
 }
 
 impl GrpcClient {
@@ -63,7 +64,8 @@ impl GrpcClient {
             data: DataServiceClient::new(channel.clone()),
             chunks: ChunkServiceClient::new(channel.clone()),
             files: FileServiceClient::new(channel.clone()),
-            upload: UploadServiceClient::new(channel),
+            upload: UploadServiceClient::new(channel.clone()),
+            wallet: WalletServiceClient::new(channel),
         })
     }
 
@@ -505,6 +507,49 @@ impl GrpcClient {
             .into_inner();
 
         Ok(finalize_response_to_result(resp))
+    }
+    // --- Wallet ---
+
+    /// Returns the wallet address configured in the daemon.
+    /// Returns `AntdError::ServiceUnavailable` if the daemon has no wallet
+    /// configured (the daemon emits gRPC `FailedPrecondition` which maps to
+    /// `ServiceUnavailable` in our error hierarchy).
+    pub async fn wallet_address(&self) -> Result<WalletAddress, AntdError> {
+        let resp = self
+            .wallet
+            .clone()
+            .get_address(proto::antd::v1::GetWalletAddressRequest {})
+            .await?
+            .into_inner();
+        Ok(WalletAddress {
+            address: resp.address,
+        })
+    }
+
+    /// Returns the wallet token + gas balances from the daemon.
+    pub async fn wallet_balance(&self) -> Result<WalletBalance, AntdError> {
+        let resp = self
+            .wallet
+            .clone()
+            .get_balance(proto::antd::v1::GetWalletBalanceRequest {})
+            .await?
+            .into_inner();
+        Ok(WalletBalance {
+            balance: resp.balance,
+            gas_balance: resp.gas_balance,
+        })
+    }
+
+    /// Approves the wallet to spend tokens on payment contracts.
+    /// One-time operation; idempotent at the contract level.
+    pub async fn wallet_approve(&self) -> Result<bool, AntdError> {
+        let resp = self
+            .wallet
+            .clone()
+            .approve(proto::antd::v1::WalletApproveRequest {})
+            .await?
+            .into_inner();
+        Ok(resp.approved)
     }
 }
 

@@ -769,3 +769,160 @@ async fn test_grpc_error_unavailable() {
         other => panic!("expected AntdError::Grpc, got: {other:?}"),
     }
 }
+
+// --- V2-286: WalletService ---
+
+#[derive(Default)]
+struct MockWalletService;
+
+#[tonic::async_trait]
+impl v1::wallet_service_server::WalletService for MockWalletService {
+    async fn get_address(
+        &self,
+        _request: Request<v1::GetWalletAddressRequest>,
+    ) -> Result<Response<v1::GetWalletAddressResponse>, Status> {
+        Ok(Response::new(v1::GetWalletAddressResponse {
+            address: "0xabc1234567890abcdef1234567890abcdef123456".to_string(),
+        }))
+    }
+
+    async fn get_balance(
+        &self,
+        _request: Request<v1::GetWalletBalanceRequest>,
+    ) -> Result<Response<v1::GetWalletBalanceResponse>, Status> {
+        Ok(Response::new(v1::GetWalletBalanceResponse {
+            balance: "1000000000000000000".to_string(),
+            gas_balance: "500000000000000000".to_string(),
+        }))
+    }
+
+    async fn approve(
+        &self,
+        _request: Request<v1::WalletApproveRequest>,
+    ) -> Result<Response<v1::WalletApproveResponse>, Status> {
+        Ok(Response::new(v1::WalletApproveResponse { approved: true }))
+    }
+}
+
+/// Spins a mock server with MockWalletService alongside the existing mocks
+/// and dials with a real GrpcClient. Mirrors `start_mock_server` but adds
+/// the wallet service so the V2-286 tests can target it.
+async fn start_wallet_mock_server() -> GrpcClient {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
+        Server::builder()
+            .add_service(v1::health_service_server::HealthServiceServer::new(
+                MockHealthService,
+            ))
+            .add_service(v1::data_service_server::DataServiceServer::new(
+                MockDataService,
+            ))
+            .add_service(v1::chunk_service_server::ChunkServiceServer::new(
+                MockChunkService,
+            ))
+            .add_service(v1::file_service_server::FileServiceServer::new(
+                MockFileService,
+            ))
+            .add_service(v1::wallet_service_server::WalletServiceServer::new(
+                MockWalletService,
+            ))
+            .serve_with_incoming(incoming)
+            .await
+            .unwrap();
+    });
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    GrpcClient::new(&format!("http://{addr}")).await.unwrap()
+}
+
+#[tokio::test]
+async fn test_wallet_address_returns_address() {
+    let client = start_wallet_mock_server().await;
+    let r = client.wallet_address().await.unwrap();
+    assert_eq!(r.address, "0xabc1234567890abcdef1234567890abcdef123456");
+}
+
+#[tokio::test]
+async fn test_wallet_balance_returns_balances() {
+    let client = start_wallet_mock_server().await;
+    let r = client.wallet_balance().await.unwrap();
+    assert_eq!(r.balance, "1000000000000000000");
+    assert_eq!(r.gas_balance, "500000000000000000");
+}
+
+#[tokio::test]
+async fn test_wallet_approve_returns_true() {
+    let client = start_wallet_mock_server().await;
+    let approved = client.wallet_approve().await.unwrap();
+    assert!(approved);
+}
+
+/// Failed-precondition path: daemon without a configured wallet returns
+/// gRPC FailedPrecondition. The client surfaces it as AntdError::Grpc with
+/// that code.
+struct UnconfiguredWalletService;
+
+#[tonic::async_trait]
+impl v1::wallet_service_server::WalletService for UnconfiguredWalletService {
+    async fn get_address(
+        &self,
+        _request: Request<v1::GetWalletAddressRequest>,
+    ) -> Result<Response<v1::GetWalletAddressResponse>, Status> {
+        Err(Status::failed_precondition(
+            "wallet not configured — set AUTONOMI_WALLET_KEY",
+        ))
+    }
+
+    async fn get_balance(
+        &self,
+        _request: Request<v1::GetWalletBalanceRequest>,
+    ) -> Result<Response<v1::GetWalletBalanceResponse>, Status> {
+        Err(Status::failed_precondition(
+            "wallet not configured — set AUTONOMI_WALLET_KEY",
+        ))
+    }
+
+    async fn approve(
+        &self,
+        _request: Request<v1::WalletApproveRequest>,
+    ) -> Result<Response<v1::WalletApproveResponse>, Status> {
+        Err(Status::failed_precondition(
+            "wallet not configured — set AUTONOMI_WALLET_KEY",
+        ))
+    }
+}
+
+async fn start_unconfigured_wallet_server() -> GrpcClient {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
+        Server::builder()
+            .add_service(v1::wallet_service_server::WalletServiceServer::new(
+                UnconfiguredWalletService,
+            ))
+            .serve_with_incoming(incoming)
+            .await
+            .unwrap();
+    });
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    GrpcClient::new(&format!("http://{addr}")).await.unwrap()
+}
+
+#[tokio::test]
+async fn test_wallet_address_unconfigured_returns_failed_precondition() {
+    let client = start_unconfigured_wallet_server().await;
+    let err = client.wallet_address().await.unwrap_err();
+    match err {
+        AntdError::Grpc(status) => {
+            assert_eq!(status.code(), tonic::Code::FailedPrecondition);
+            assert!(status.message().contains("wallet not configured"));
+        }
+        other => panic!("expected AntdError::Grpc, got: {other:?}"),
+    }
+}

@@ -10,6 +10,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "antd/v1/files.proto",
             "antd/v1/upload.proto",
             "antd/v1/events.proto",
+            "antd/v1/wallet.proto",
         ],
         &[proto_root],
     )?;
