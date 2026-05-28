@@ -16,6 +16,7 @@ pub mod proto {
 use proto::antd::v1::{
     chunk_service_client::ChunkServiceClient, data_service_client::DataServiceClient,
     file_service_client::FileServiceClient, health_service_client::HealthServiceClient,
+    upload_service_client::UploadServiceClient,
 };
 
 /// Default gRPC endpoint of the antd daemon.
@@ -31,6 +32,7 @@ pub struct GrpcClient {
     data: DataServiceClient<Channel>,
     chunks: ChunkServiceClient<Channel>,
     files: FileServiceClient<Channel>,
+    upload: UploadServiceClient<Channel>,
 }
 
 impl GrpcClient {
@@ -60,7 +62,8 @@ impl GrpcClient {
             health: HealthServiceClient::new(channel.clone()),
             data: DataServiceClient::new(channel.clone()),
             chunks: ChunkServiceClient::new(channel.clone()),
-            files: FileServiceClient::new(channel),
+            files: FileServiceClient::new(channel.clone()),
+            upload: UploadServiceClient::new(channel),
         })
     }
 
@@ -221,6 +224,69 @@ impl GrpcClient {
         Ok(resp.data)
     }
 
+    /// Prepares a single chunk for external-signer publish.
+    ///
+    /// Mirrors [`crate::Client::prepare_chunk_upload`]. Either the chunk is
+    /// already on-network ([`PrepareChunkResult::already_stored`] = `true`,
+    /// other fields empty) or returns wave-batch payment details for
+    /// `payForQuotes()`.
+    ///
+    /// Unlike [`chunk_put`](Self::chunk_put), does NOT require the daemon
+    /// to have a wallet — funds flow through the external signer.
+    ///
+    /// Requires antd >= 0.9.0.
+    pub async fn prepare_chunk_upload(&self, data: &[u8]) -> Result<PrepareChunkResult, AntdError> {
+        let resp = self
+            .chunks
+            .clone()
+            .prepare_chunk(proto::antd::v1::PrepareChunkRequest {
+                data: data.to_vec(),
+            })
+            .await?
+            .into_inner();
+
+        Ok(PrepareChunkResult {
+            address: resp.address,
+            already_stored: resp.already_stored,
+            upload_id: resp.upload_id,
+            payment_type: resp.payment_type,
+            payments: resp
+                .payments
+                .into_iter()
+                .map(payment_entry_to_info)
+                .collect(),
+            total_amount: resp.total_amount,
+            payment_vault_address: resp.payment_vault_address,
+            payment_token_address: resp.payment_token_address,
+            rpc_url: resp.rpc_url,
+        })
+    }
+
+    /// Submits a prepared chunk to the network after external payment.
+    ///
+    /// Mirrors [`crate::Client::finalize_chunk_upload`]. Returns the network
+    /// address of the stored chunk (matches
+    /// [`PrepareChunkResult::address`]).
+    ///
+    /// Requires antd >= 0.9.0.
+    pub async fn finalize_chunk_upload(
+        &self,
+        upload_id: &str,
+        tx_hashes: &std::collections::HashMap<String, String>,
+    ) -> Result<String, AntdError> {
+        let resp = self
+            .chunks
+            .clone()
+            .finalize_chunk(proto::antd::v1::FinalizeChunkRequest {
+                upload_id: upload_id.to_string(),
+                tx_hashes: tx_hashes.clone(),
+            })
+            .await?
+            .into_inner();
+
+        Ok(resp.address)
+    }
+
     // --- Files ---
 
     /// Uploads a file privately. Returns the caller-held DataMap (hex).
@@ -323,5 +389,182 @@ impl GrpcClient {
             estimated_gas_cost_wei: resp.estimated_gas_cost_wei,
             payment_mode: resp.payment_mode,
         })
+    }
+
+    // --- Upload (external signer) ---
+
+    /// Prepares a file upload for external signing.
+    ///
+    /// Mirrors [`crate::Client::prepare_upload`]. `visibility = Some("public")`
+    /// bundles the DataMap chunk into the same external-signer payment batch;
+    /// `None` / `Some("private")` keep it caller-held.
+    ///
+    /// Requires antd >= 0.9.0.
+    pub async fn prepare_upload(
+        &self,
+        path: &str,
+        visibility: Option<&str>,
+    ) -> Result<PrepareUploadResult, AntdError> {
+        let resp = self
+            .upload
+            .clone()
+            .prepare_file_upload(proto::antd::v1::PrepareFileUploadRequest {
+                path: path.to_string(),
+                visibility: visibility.unwrap_or("").to_string(),
+            })
+            .await?
+            .into_inner();
+
+        Ok(prepare_response_to_result(resp))
+    }
+
+    /// Convenience wrapper: prepares a *public* file upload for external
+    /// signing. Equivalent to [`prepare_upload`](Self::prepare_upload) with
+    /// `visibility = Some("public")`.
+    ///
+    /// Requires antd >= 0.9.0.
+    pub async fn prepare_upload_public(
+        &self,
+        path: &str,
+    ) -> Result<PrepareUploadResult, AntdError> {
+        self.prepare_upload(path, Some("public")).await
+    }
+
+    /// Prepares an in-memory data upload for external signing.
+    ///
+    /// Mirrors [`crate::Client::prepare_data_upload`]. `visibility = Some("public")`
+    /// bundles the DataMap chunk into the same external-signer payment batch.
+    ///
+    /// Requires antd >= 0.9.0.
+    pub async fn prepare_data_upload(
+        &self,
+        data: &[u8],
+        visibility: Option<&str>,
+    ) -> Result<PrepareUploadResult, AntdError> {
+        let resp = self
+            .upload
+            .clone()
+            .prepare_data_upload(proto::antd::v1::PrepareDataUploadRequest {
+                data: data.to_vec(),
+                visibility: visibility.unwrap_or("").to_string(),
+            })
+            .await?
+            .into_inner();
+
+        Ok(prepare_response_to_result(resp))
+    }
+
+    /// Finalizes a wave-batch upload after the external signer has submitted
+    /// `payForQuotes()` transactions.
+    ///
+    /// Mirrors [`crate::Client::finalize_upload`].
+    ///
+    /// Requires antd >= 0.9.0.
+    pub async fn finalize_upload(
+        &self,
+        upload_id: &str,
+        tx_hashes: &std::collections::HashMap<String, String>,
+    ) -> Result<FinalizeUploadResult, AntdError> {
+        let resp = self
+            .upload
+            .clone()
+            .finalize_upload(proto::antd::v1::FinalizeUploadRequest {
+                upload_id: upload_id.to_string(),
+                tx_hashes: tx_hashes.clone(),
+                winner_pool_hash: String::new(),
+                store_data_map: false,
+            })
+            .await?
+            .into_inner();
+
+        Ok(finalize_response_to_result(resp))
+    }
+
+    /// Finalizes a merkle-batch upload after the winning pool has been
+    /// determined.
+    ///
+    /// Mirrors [`crate::Client::finalize_merkle_upload`].
+    ///
+    /// Requires antd >= 0.9.0.
+    pub async fn finalize_merkle_upload(
+        &self,
+        upload_id: &str,
+        winner_pool_hash: &str,
+        store_data_map: bool,
+    ) -> Result<FinalizeUploadResult, AntdError> {
+        let resp = self
+            .upload
+            .clone()
+            .finalize_upload(proto::antd::v1::FinalizeUploadRequest {
+                upload_id: upload_id.to_string(),
+                tx_hashes: std::collections::HashMap::new(),
+                winner_pool_hash: winner_pool_hash.to_string(),
+                store_data_map,
+            })
+            .await?
+            .into_inner();
+
+        Ok(finalize_response_to_result(resp))
+    }
+}
+
+// --- proto → model conversions ---
+
+fn payment_entry_to_info(p: proto::antd::v1::PaymentEntry) -> PaymentInfo {
+    PaymentInfo {
+        quote_hash: p.quote_hash,
+        rewards_address: p.rewards_address,
+        amount: p.amount,
+    }
+}
+
+fn prepare_response_to_result(resp: proto::antd::v1::PrepareUploadResponse) -> PrepareUploadResult {
+    // gRPC proto3 uses scalar defaults rather than optional fields, so map
+    // the merkle-only fields onto Option via "zero means absent" heuristic
+    // that matches REST's omit-when-missing JSON shape.
+    let payment_type = resp.payment_type;
+    let is_merkle = payment_type == "merkle";
+
+    PrepareUploadResult {
+        upload_id: resp.upload_id,
+        payments: resp
+            .payments
+            .into_iter()
+            .map(payment_entry_to_info)
+            .collect(),
+        total_amount: resp.total_amount,
+        payment_vault_address: resp.payment_vault_address,
+        payment_token_address: resp.payment_token_address,
+        rpc_url: resp.rpc_url,
+        payment_type,
+        depth: is_merkle.then_some(resp.depth as u8),
+        pool_commitments: is_merkle.then(|| {
+            resp.pool_commitments
+                .into_iter()
+                .map(|pc| PoolCommitmentEntry {
+                    pool_hash: pc.pool_hash,
+                    candidates: pc
+                        .candidates
+                        .into_iter()
+                        .map(|c| CandidateNodeEntry {
+                            rewards_address: c.rewards_address,
+                            amount: c.amount,
+                        })
+                        .collect(),
+                })
+                .collect()
+        }),
+        merkle_payment_timestamp: is_merkle.then_some(resp.merkle_payment_timestamp),
+    }
+}
+
+fn finalize_response_to_result(
+    resp: proto::antd::v1::FinalizeUploadResponse,
+) -> FinalizeUploadResult {
+    FinalizeUploadResult {
+        data_map: resp.data_map,
+        address: resp.address,
+        data_map_address: resp.data_map_address,
+        chunks_stored: resp.chunks_stored as i64,
     }
 }
