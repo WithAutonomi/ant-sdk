@@ -6,7 +6,12 @@ import io.grpc.ManagedChannelBuilder
 import io.grpc.StatusRuntimeException
 import io.grpc.Status
 
-class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
+class AntdGrpcClient internal constructor(
+    private val channel: io.grpc.ManagedChannel,
+) : IAntdClient {
+
+    constructor(target: String = "localhost:50051") :
+        this(ManagedChannelBuilder.forTarget(target).usePlaintext().build())
 
     companion object {
         /**
@@ -19,11 +24,11 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
         }
     }
 
-    private val channel = ManagedChannelBuilder.forTarget(target).usePlaintext().build()
     private val healthStub = HealthServiceGrpcKt.HealthServiceCoroutineStub(channel)
     private val dataStub = DataServiceGrpcKt.DataServiceCoroutineStub(channel)
     private val chunkStub = ChunkServiceGrpcKt.ChunkServiceCoroutineStub(channel)
     private val fileStub = FileServiceGrpcKt.FileServiceCoroutineStub(channel)
+    private val uploadStub = UploadServiceGrpcKt.UploadServiceCoroutineStub(channel)
 
     override fun close() {
         channel.shutdown()
@@ -105,13 +110,32 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
         resp.data.toByteArray()
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
-    override suspend fun prepareChunkUpload(data: ByteArray): PrepareChunkResult {
-        throw UnsupportedOperationException("prepareChunkUpload is not yet supported via gRPC")
-    }
+    override suspend fun prepareChunkUpload(data: ByteArray): PrepareChunkResult = try {
+        val resp = chunkStub.prepareChunk(prepareChunkRequest {
+            this.data = ByteString.copyFrom(data)
+        })
+        PrepareChunkResult(
+            address = resp.address,
+            alreadyStored = resp.alreadyStored,
+            uploadId = resp.uploadId,
+            paymentType = resp.paymentType,
+            payments = resp.paymentsList.map {
+                PaymentInfo(it.quoteHash, it.rewardsAddress, it.amount)
+            },
+            totalAmount = resp.totalAmount,
+            paymentVaultAddress = resp.paymentVaultAddress,
+            paymentTokenAddress = resp.paymentTokenAddress,
+            rpcUrl = resp.rpcUrl,
+        )
+    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
-    override suspend fun finalizeChunkUpload(uploadId: String, txHashes: Map<String, String>): String {
-        throw UnsupportedOperationException("finalizeChunkUpload is not yet supported via gRPC")
-    }
+    override suspend fun finalizeChunkUpload(uploadId: String, txHashes: Map<String, String>): String = try {
+        val resp = chunkStub.finalizeChunk(finalizeChunkRequest {
+            this.uploadId = uploadId
+            this.txHashes.putAll(txHashes)
+        })
+        resp.address
+    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
     // ── Files ──
 
@@ -178,25 +202,78 @@ class AntdGrpcClient(target: String = "localhost:50051") : IAntdClient {
         throw UnsupportedOperationException("walletApprove not available via gRPC")
     }
 
-    // ── External Signer (not yet available via gRPC) ──
+    // ── External Signer ──
 
-    override suspend fun prepareUpload(path: String, visibility: String?): PrepareUploadResult {
-        throw UnsupportedOperationException("prepareUpload is not yet supported via gRPC")
+    private fun mapPrepareUploadResponse(resp: Upload.PrepareUploadResponse): PrepareUploadResult {
+        val payments = resp.paymentsList.map {
+            PaymentInfo(it.quoteHash, it.rewardsAddress, it.amount)
+        }
+        val isMerkle = resp.paymentType == "merkle"
+        return PrepareUploadResult(
+            uploadId = resp.uploadId,
+            payments = payments,
+            totalAmount = resp.totalAmount,
+            paymentVaultAddress = resp.paymentVaultAddress,
+            paymentTokenAddress = resp.paymentTokenAddress,
+            rpcUrl = resp.rpcUrl,
+            paymentType = resp.paymentType,
+            depth = if (isMerkle) resp.depth else null,
+            poolCommitments = if (isMerkle) {
+                resp.poolCommitmentsList.map { pc ->
+                    PoolCommitmentEntry(
+                        poolHash = pc.poolHash,
+                        candidates = pc.candidatesList.map {
+                            CandidateNodeEntry(it.rewardsAddress, it.amount)
+                        },
+                    )
+                }
+            } else null,
+            merklePaymentTimestamp = if (isMerkle) resp.merklePaymentTimestamp else null,
+        )
     }
 
-    override suspend fun prepareUploadPublic(path: String): PrepareUploadResult {
-        throw UnsupportedOperationException("prepareUploadPublic is not yet supported via gRPC")
-    }
+    override suspend fun prepareUpload(path: String, visibility: String?): PrepareUploadResult = try {
+        val resp = uploadStub.prepareFileUpload(prepareFileUploadRequest {
+            this.path = path
+            this.visibility = visibility ?: ""
+        })
+        mapPrepareUploadResponse(resp)
+    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
-    override suspend fun prepareDataUpload(data: ByteArray, visibility: String?): PrepareUploadResult {
-        throw UnsupportedOperationException("prepareDataUpload is not yet supported via gRPC")
-    }
+    override suspend fun prepareUploadPublic(path: String): PrepareUploadResult =
+        prepareUpload(path, "public")
 
-    override suspend fun finalizeUpload(uploadId: String, txHashes: Map<String, String>): FinalizeUploadResult {
-        throw UnsupportedOperationException("finalizeUpload is not yet supported via gRPC")
-    }
+    override suspend fun prepareDataUpload(data: ByteArray, visibility: String?): PrepareUploadResult = try {
+        val resp = uploadStub.prepareDataUpload(prepareDataUploadRequest {
+            this.data = ByteString.copyFrom(data)
+            this.visibility = visibility ?: ""
+        })
+        mapPrepareUploadResponse(resp)
+    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
-    override suspend fun finalizeMerkleUpload(uploadId: String, winnerPoolHash: String): FinalizeMerkleUploadResult {
-        throw UnsupportedOperationException("finalizeMerkleUpload is not yet supported via gRPC")
-    }
+    override suspend fun finalizeUpload(uploadId: String, txHashes: Map<String, String>): FinalizeUploadResult = try {
+        val resp = uploadStub.finalizeUpload(finalizeUploadRequest {
+            this.uploadId = uploadId
+            this.txHashes.putAll(txHashes)
+        })
+        FinalizeUploadResult(
+            address = resp.address,
+            chunksStored = resp.chunksStored,
+            dataMap = resp.dataMap,
+            dataMapAddress = resp.dataMapAddress,
+        )
+    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
+
+    override suspend fun finalizeMerkleUpload(uploadId: String, winnerPoolHash: String): FinalizeMerkleUploadResult = try {
+        val resp = uploadStub.finalizeUpload(finalizeUploadRequest {
+            this.uploadId = uploadId
+            this.winnerPoolHash = winnerPoolHash
+        })
+        FinalizeMerkleUploadResult(
+            address = resp.address,
+            chunksStored = resp.chunksStored,
+            dataMap = resp.dataMap,
+            dataMapAddress = resp.dataMapAddress,
+        )
+    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 }
