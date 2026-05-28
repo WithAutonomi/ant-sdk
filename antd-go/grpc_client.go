@@ -45,6 +45,7 @@ type GrpcClient struct {
 	chunk  pb.ChunkServiceClient
 	file   pb.FileServiceClient
 	upload pb.UploadServiceClient
+	wallet pb.WalletServiceClient
 }
 
 // NewGrpcClientAutoDiscover creates a gRPC client that discovers the daemon target
@@ -85,6 +86,7 @@ func NewGrpcClient(target string, opts ...GrpcOption) (*GrpcClient, error) {
 	c.chunk = pb.NewChunkServiceClient(conn)
 	c.file = pb.NewFileServiceClient(conn)
 	c.upload = pb.NewUploadServiceClient(conn)
+	c.wallet = pb.NewWalletServiceClient(conn)
 
 	return c, nil
 }
@@ -593,4 +595,48 @@ func (c *GrpcClient) FinalizeMerkleUpload(ctx context.Context, uploadID string, 
 		DataMapAddress: resp.GetDataMapAddress(),
 		ChunksStored:   int64(resp.GetChunksStored()),
 	}, nil
+}
+
+// --- Wallet ---
+//
+// V2-286: parity with REST Client.Wallet* methods. A missing daemon wallet
+// (no AUTONOMI_WALLET_KEY) is surfaced as gRPC FailedPrecondition; we map it
+// to the same error hierarchy as the other gRPC failure paths.
+
+// WalletAddress returns the wallet's public address (hex with 0x prefix).
+func (c *GrpcClient) WalletAddress(ctx context.Context) (*WalletAddress, error) {
+	ctx, cancel := c.ctx(ctx)
+	defer cancel()
+
+	resp, err := c.wallet.GetAddress(ctx, &pb.GetWalletAddressRequest{})
+	if err != nil {
+		return nil, errorFromGrpc(err)
+	}
+	return &WalletAddress{Address: resp.GetAddress()}, nil
+}
+
+// WalletBalance returns the wallet's token and gas balances (atto tokens
+// as decimal strings).
+func (c *GrpcClient) WalletBalance(ctx context.Context) (*WalletBalance, error) {
+	ctx, cancel := c.ctx(ctx)
+	defer cancel()
+
+	resp, err := c.wallet.GetBalance(ctx, &pb.GetWalletBalanceRequest{})
+	if err != nil {
+		return nil, errorFromGrpc(err)
+	}
+	return &WalletBalance{
+		Balance:    resp.GetBalance(),
+		GasBalance: resp.GetGasBalance(),
+	}, nil
+}
+
+// WalletApprove approves the wallet to spend tokens on the payment vault
+// contract. One-time operation; idempotent at the contract level.
+func (c *GrpcClient) WalletApprove(ctx context.Context) error {
+	ctx, cancel := c.ctx(ctx)
+	defer cancel()
+
+	_, err := c.wallet.Approve(ctx, &pb.WalletApproveRequest{})
+	return errorFromGrpc(err)
 }
