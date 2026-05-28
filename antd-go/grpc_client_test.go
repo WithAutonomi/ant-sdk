@@ -98,6 +98,120 @@ func (m *mockChunkService) Get(_ context.Context, _ *pb.GetChunkRequest) (*pb.Ge
 	return &pb.GetChunkResponse{Data: []byte("chunkdata")}, nil
 }
 
+func (m *mockChunkService) PrepareChunk(_ context.Context, req *pb.PrepareChunkRequest) (*pb.PrepareChunkResponse, error) {
+	// Inputs starting with "EXISTS" are treated as already-stored.
+	if len(req.GetData()) >= 6 && string(req.GetData()[:6]) == "EXISTS" {
+		return &pb.PrepareChunkResponse{
+			Address:       "0xabc",
+			AlreadyStored: true,
+		}, nil
+	}
+	return &pb.PrepareChunkResponse{
+		Address:       "0xnewchunk",
+		AlreadyStored: false,
+		UploadId:      "upid_chunk_42",
+		PaymentType:   "wave_batch",
+		Payments: []*pb.PaymentEntry{
+			{QuoteHash: "0xq1", RewardsAddress: "0xr1", Amount: "100"},
+		},
+		TotalAmount:         "100",
+		PaymentVaultAddress: "0xvault",
+		PaymentTokenAddress: "0xtoken",
+		RpcUrl:              "http://localhost:8545",
+	}, nil
+}
+
+func (m *mockChunkService) FinalizeChunk(_ context.Context, req *pb.FinalizeChunkRequest) (*pb.FinalizeChunkResponse, error) {
+	// Echo the upload_id into the address so the test can verify forwarding.
+	return &pb.FinalizeChunkResponse{
+		Address: "addr_for_" + req.GetUploadId(),
+	}, nil
+}
+
+// mockUploadService implements pb.UploadServiceServer.
+type mockUploadService struct {
+	pb.UnimplementedUploadServiceServer
+}
+
+func (m *mockUploadService) PrepareFileUpload(_ context.Context, req *pb.PrepareFileUploadRequest) (*pb.PrepareUploadResponse, error) {
+	// Encode visibility into upload_id so the test can verify forwarding.
+	return &pb.PrepareUploadResponse{
+		UploadId:    "upid_file_" + req.GetVisibility(),
+		PaymentType: "wave_batch",
+		Payments: []*pb.PaymentEntry{
+			{QuoteHash: "0xqa", RewardsAddress: "0xra", Amount: "1"},
+		},
+		TotalAmount:         "1",
+		PaymentVaultAddress: "0xvault",
+		PaymentTokenAddress: "0xtoken",
+		RpcUrl:              "http://localhost:8545",
+	}, nil
+}
+
+func (m *mockUploadService) PrepareDataUpload(_ context.Context, req *pb.PrepareDataUploadRequest) (*pb.PrepareUploadResponse, error) {
+	// Merkle when payload starts with "MERKLE"; wave-batch otherwise.
+	uploadID := "upid_data_" + req.GetVisibility()
+	d := req.GetData()
+	if len(d) >= 6 && string(d[:6]) == "MERKLE" {
+		return &pb.PrepareUploadResponse{
+			UploadId:    uploadID,
+			PaymentType: "merkle",
+			Depth:       7,
+			PoolCommitments: []*pb.PoolCommitmentEntry{
+				{
+					PoolHash: "0xpool",
+					Candidates: []*pb.CandidateNodeEntry{
+						{RewardsAddress: "0xc1", Amount: "5"},
+					},
+				},
+			},
+			MerklePaymentTimestamp: 1700000000,
+			TotalAmount:            "0",
+			PaymentVaultAddress:    "0xvault",
+			PaymentTokenAddress:    "0xtoken",
+			RpcUrl:                 "http://localhost:8545",
+		}, nil
+	}
+	return &pb.PrepareUploadResponse{
+		UploadId:    uploadID,
+		PaymentType: "wave_batch",
+		Payments: []*pb.PaymentEntry{
+			{QuoteHash: "0xqb", RewardsAddress: "0xrb", Amount: "2"},
+		},
+		TotalAmount:         "2",
+		PaymentVaultAddress: "0xvault",
+		PaymentTokenAddress: "0xtoken",
+		RpcUrl:              "http://localhost:8545",
+	}, nil
+}
+
+func (m *mockUploadService) FinalizeUpload(_ context.Context, req *pb.FinalizeUploadRequest) (*pb.FinalizeUploadResponse, error) {
+	// Merkle: winner_pool_hash populated, tx_hashes empty.
+	if req.GetWinnerPoolHash() != "" {
+		address := ""
+		if req.GetStoreDataMap() {
+			address = "stored_on_network"
+		}
+		return &pb.FinalizeUploadResponse{
+			DataMap:      "dm_merkle",
+			Address:      address,
+			ChunksStored: 64,
+		}, nil
+	}
+	// Wave-batch: include data_map_address when visibility was public
+	// (encoded into upload_id by the prepare mock).
+	dataMapAddress := ""
+	uid := req.GetUploadId()
+	if len(uid) >= 6 && uid[len(uid)-6:] == "public" {
+		dataMapAddress = "addr_public_dm"
+	}
+	return &pb.FinalizeUploadResponse{
+		DataMap:        "dm_wave",
+		DataMapAddress: dataMapAddress,
+		ChunksStored:   3,
+	}, nil
+}
+
 // mockFileService implements pb.FileServiceServer.
 type mockFileService struct {
 	pb.UnimplementedFileServiceServer
@@ -170,6 +284,7 @@ func startMockServer(t *testing.T) *GrpcClient {
 	pb.RegisterDataServiceServer(s, &mockDataService{})
 	pb.RegisterChunkServiceServer(s, &mockChunkService{})
 	pb.RegisterFileServiceServer(s, &mockFileService{})
+	pb.RegisterUploadServiceServer(s, &mockUploadService{})
 
 	go func() {
 		// Server stop on test cleanup is expected, swallow the error.
@@ -393,6 +508,197 @@ func TestGrpcFileCost(t *testing.T) {
 	}
 	if lastPaymentMode != "single" {
 		t.Fatalf("payment_mode did not wire through: got %q, want %q", lastPaymentMode, "single")
+	}
+}
+
+// --- External-signer prepare/finalize tests ---
+
+func TestGrpcPrepareUploadOmitsVisibilityWhenPrivate(t *testing.T) {
+	c := startMockServer(t)
+	r, err := c.PrepareUpload(context.Background(), "/tmp/x.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// PrepareUpload sets no visibility, so proto3 default of "" is sent;
+	// the mock echoes that into upload_id.
+	if r.UploadID != "upid_file_" {
+		t.Fatalf("expected default visibility echoed: got %q", r.UploadID)
+	}
+	if r.PaymentType != "wave_batch" {
+		t.Fatalf("expected wave_batch, got %q", r.PaymentType)
+	}
+	if len(r.Payments) != 1 || r.Payments[0].QuoteHash != "0xqa" {
+		t.Fatalf("unexpected payments: %+v", r.Payments)
+	}
+	if r.Depth != 0 || len(r.PoolCommitments) != 0 {
+		t.Fatalf("merkle fields populated on wave-batch: %+v", r)
+	}
+}
+
+func TestGrpcPrepareUploadPublicForwardsVisibility(t *testing.T) {
+	c := startMockServer(t)
+	r, err := c.PrepareUploadPublic(context.Background(), "/tmp/x.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.UploadID != "upid_file_public" {
+		t.Fatalf("expected visibility public to wire through: got %q", r.UploadID)
+	}
+}
+
+func TestGrpcPrepareDataUploadWaveBatch(t *testing.T) {
+	c := startMockServer(t)
+	r, err := c.PrepareDataUpload(context.Background(), []byte("small"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.UploadID != "upid_data_" {
+		t.Fatalf("unexpected upload_id: %q", r.UploadID)
+	}
+	if r.PaymentType != "wave_batch" {
+		t.Fatalf("expected wave_batch, got %q", r.PaymentType)
+	}
+	if r.Depth != 0 {
+		t.Fatalf("merkle depth set on wave-batch: %d", r.Depth)
+	}
+}
+
+func TestGrpcPrepareDataUploadMerkle(t *testing.T) {
+	c := startMockServer(t)
+	r, err := c.PrepareDataUpload(context.Background(), []byte("MERKLE-large-payload"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.PaymentType != "merkle" {
+		t.Fatalf("expected merkle, got %q", r.PaymentType)
+	}
+	if r.Depth != 7 {
+		t.Fatalf("expected depth 7, got %d", r.Depth)
+	}
+	if r.MerklePaymentTimestamp != 1700000000 {
+		t.Fatalf("expected merkle timestamp 1700000000, got %d", r.MerklePaymentTimestamp)
+	}
+	if len(r.PoolCommitments) != 1 || r.PoolCommitments[0].PoolHash != "0xpool" {
+		t.Fatalf("unexpected pool commitments: %+v", r.PoolCommitments)
+	}
+	if r.PoolCommitments[0].Candidates[0].RewardsAddress != "0xc1" {
+		t.Fatalf("unexpected candidate: %+v", r.PoolCommitments[0].Candidates[0])
+	}
+}
+
+func TestGrpcFinalizeUploadWaveBatchPrivateOmitsDataMapAddress(t *testing.T) {
+	c := startMockServer(t)
+	r, err := c.FinalizeUpload(context.Background(), "upid_file_", map[string]string{"0xq1": "0xtx1"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.DataMap != "dm_wave" {
+		t.Fatalf("unexpected data_map: %q", r.DataMap)
+	}
+	if r.DataMapAddress != "" {
+		t.Fatalf("expected empty data_map_address for private finalize: %q", r.DataMapAddress)
+	}
+	if r.ChunksStored != 3 {
+		t.Fatalf("expected 3 chunks_stored, got %d", r.ChunksStored)
+	}
+}
+
+func TestGrpcFinalizeUploadWaveBatchPublicReturnsDataMapAddress(t *testing.T) {
+	c := startMockServer(t)
+	r, err := c.FinalizeUpload(context.Background(), "upid_file_public", map[string]string{"0xq1": "0xtx1"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.DataMapAddress != "addr_public_dm" {
+		t.Fatalf("expected data_map_address for public finalize: got %q", r.DataMapAddress)
+	}
+}
+
+func TestGrpcFinalizeMerkleUploadStoreDataMapTrue(t *testing.T) {
+	c := startMockServer(t)
+	r, err := c.FinalizeMerkleUpload(context.Background(), "upid_data_", "0xwinpool", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.DataMap != "dm_merkle" {
+		t.Fatalf("unexpected data_map: %q", r.DataMap)
+	}
+	if r.Address != "stored_on_network" {
+		t.Fatalf("expected address populated on store_data_map=true: %q", r.Address)
+	}
+	if r.ChunksStored != 64 {
+		t.Fatalf("expected 64 chunks_stored, got %d", r.ChunksStored)
+	}
+}
+
+func TestGrpcFinalizeMerkleUploadStoreDataMapFalse(t *testing.T) {
+	c := startMockServer(t)
+	r, err := c.FinalizeMerkleUpload(context.Background(), "upid_data_", "0xwinpool", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.DataMap != "dm_merkle" {
+		t.Fatalf("unexpected data_map: %q", r.DataMap)
+	}
+	if r.Address != "" {
+		t.Fatalf("expected empty address for store_data_map=false: %q", r.Address)
+	}
+}
+
+func TestGrpcPrepareChunkUploadNewChunk(t *testing.T) {
+	c := startMockServer(t)
+	r, err := c.PrepareChunkUpload(context.Background(), []byte("newchunk"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.AlreadyStored {
+		t.Fatal("expected already_stored=false for new chunk")
+	}
+	if r.Address != "0xnewchunk" {
+		t.Fatalf("unexpected address: %q", r.Address)
+	}
+	if r.UploadID != "upid_chunk_42" {
+		t.Fatalf("unexpected upload_id: %q", r.UploadID)
+	}
+	if r.PaymentType != "wave_batch" || r.TotalAmount != "100" {
+		t.Fatalf("unexpected payment shape: %+v", r)
+	}
+	if len(r.Payments) != 1 || r.Payments[0].QuoteHash != "0xq1" {
+		t.Fatalf("unexpected payments: %+v", r.Payments)
+	}
+	if r.RPCUrl != "http://localhost:8545" {
+		t.Fatalf("unexpected rpc_url: %q", r.RPCUrl)
+	}
+}
+
+func TestGrpcPrepareChunkUploadAlreadyStoredShortCircuit(t *testing.T) {
+	c := startMockServer(t)
+	r, err := c.PrepareChunkUpload(context.Background(), []byte("EXISTS-data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.AlreadyStored {
+		t.Fatal("expected already_stored=true")
+	}
+	if r.Address != "0xabc" {
+		t.Fatalf("unexpected address: %q", r.Address)
+	}
+	if r.UploadID != "" {
+		t.Fatalf("expected empty upload_id on short-circuit: %q", r.UploadID)
+	}
+	if len(r.Payments) != 0 {
+		t.Fatalf("expected no payments on short-circuit: %+v", r.Payments)
+	}
+}
+
+func TestGrpcFinalizeChunkUploadReturnsAddressAndForwardsBody(t *testing.T) {
+	c := startMockServer(t)
+	addr, err := c.FinalizeChunkUpload(context.Background(), "upid_chunk_42", map[string]string{"0xq1": "0xtxabc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if addr != "addr_for_upid_chunk_42" {
+		t.Fatalf("expected echo, got: %q", addr)
 	}
 }
 

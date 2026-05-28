@@ -43,7 +43,8 @@ type GrpcClient struct {
 	health pb.HealthServiceClient
 	data   pb.DataServiceClient
 	chunk  pb.ChunkServiceClient
-	file pb.FileServiceClient
+	file   pb.FileServiceClient
+	upload pb.UploadServiceClient
 }
 
 // NewGrpcClientAutoDiscover creates a gRPC client that discovers the daemon target
@@ -83,6 +84,7 @@ func NewGrpcClient(target string, opts ...GrpcOption) (*GrpcClient, error) {
 	c.data = pb.NewDataServiceClient(conn)
 	c.chunk = pb.NewChunkServiceClient(conn)
 	c.file = pb.NewFileServiceClient(conn)
+	c.upload = pb.NewUploadServiceClient(conn)
 
 	return c, nil
 }
@@ -374,5 +376,221 @@ func (c *GrpcClient) FileCost(ctx context.Context, path string, isPublic bool, p
 		ChunkCount:          resp.GetChunkCount(),
 		EstimatedGasCostWei: resp.GetEstimatedGasCostWei(),
 		PaymentMode:         resp.GetPaymentMode(),
+	}, nil
+}
+
+// --- Chunks (external signer, 2 methods) ---
+
+// PrepareChunkUpload prepares a single chunk for external-signer publish.
+//
+// Mirrors Client.PrepareChunkUpload over gRPC. Either the chunk is already
+// on-network (AlreadyStored=true with other fields empty) or returns wave-batch
+// payment details for payForQuotes().
+//
+// Unlike ChunkPut, does NOT require the daemon to have a wallet — funds flow
+// through the external signer.
+//
+// Requires antd >= 0.9.0.
+func (c *GrpcClient) PrepareChunkUpload(ctx context.Context, content []byte) (*PrepareChunkResult, error) {
+	ctx, cancel := c.ctx(ctx)
+	defer cancel()
+
+	resp, err := c.chunk.PrepareChunk(ctx, &pb.PrepareChunkRequest{Data: content})
+	if err != nil {
+		return nil, errorFromGrpc(err)
+	}
+
+	r := &PrepareChunkResult{
+		Address:             resp.GetAddress(),
+		AlreadyStored:       resp.GetAlreadyStored(),
+		UploadID:            resp.GetUploadId(),
+		PaymentType:         resp.GetPaymentType(),
+		TotalAmount:         resp.GetTotalAmount(),
+		PaymentVaultAddress: resp.GetPaymentVaultAddress(),
+		PaymentTokenAddress: resp.GetPaymentTokenAddress(),
+		RPCUrl:              resp.GetRpcUrl(),
+	}
+	for _, p := range resp.GetPayments() {
+		r.Payments = append(r.Payments, PaymentInfo{
+			QuoteHash:      p.GetQuoteHash(),
+			RewardsAddress: p.GetRewardsAddress(),
+			Amount:         p.GetAmount(),
+		})
+	}
+	return r, nil
+}
+
+// FinalizeChunkUpload submits a prepared chunk to the network after the
+// external signer has paid. Returns the network address of the stored chunk
+// (matches PrepareChunkResult.Address).
+//
+// Requires antd >= 0.9.0.
+func (c *GrpcClient) FinalizeChunkUpload(ctx context.Context, uploadID string, txHashes map[string]string) (string, error) {
+	ctx, cancel := c.ctx(ctx)
+	defer cancel()
+
+	resp, err := c.chunk.FinalizeChunk(ctx, &pb.FinalizeChunkRequest{
+		UploadId: uploadID,
+		TxHashes: txHashes,
+	})
+	if err != nil {
+		return "", errorFromGrpc(err)
+	}
+	return resp.GetAddress(), nil
+}
+
+// --- Upload (external signer, 5 methods) ---
+
+// prepareResponseToResult converts a proto PrepareUploadResponse into the
+// REST-style PrepareUploadResult, populating the merkle-only fields
+// (Depth, PoolCommitments, MerklePaymentTimestamp) only when
+// PaymentType == "merkle".
+func prepareResponseToResult(resp *pb.PrepareUploadResponse) *PrepareUploadResult {
+	result := &PrepareUploadResult{
+		UploadID:            resp.GetUploadId(),
+		PaymentType:         resp.GetPaymentType(),
+		TotalAmount:         resp.GetTotalAmount(),
+		PaymentVaultAddress: resp.GetPaymentVaultAddress(),
+		PaymentTokenAddress: resp.GetPaymentTokenAddress(),
+		RPCUrl:              resp.GetRpcUrl(),
+	}
+	for _, p := range resp.GetPayments() {
+		result.Payments = append(result.Payments, PaymentInfo{
+			QuoteHash:      p.GetQuoteHash(),
+			RewardsAddress: p.GetRewardsAddress(),
+			Amount:         p.GetAmount(),
+		})
+	}
+	if result.PaymentType == "merkle" {
+		result.Depth = int(resp.GetDepth())
+		result.MerklePaymentTimestamp = resp.GetMerklePaymentTimestamp()
+		for _, pc := range resp.GetPoolCommitments() {
+			entry := PoolCommitmentEntry{PoolHash: pc.GetPoolHash()}
+			for _, cand := range pc.GetCandidates() {
+				entry.Candidates = append(entry.Candidates, CandidateNodeEntry{
+					RewardsAddress: cand.GetRewardsAddress(),
+					Amount:         cand.GetAmount(),
+				})
+			}
+			result.PoolCommitments = append(result.PoolCommitments, entry)
+		}
+	}
+	return result
+}
+
+// PrepareUpload prepares a private file upload for external signing.
+//
+// Mirrors Client.PrepareUpload over gRPC.
+//
+// Requires antd >= 0.9.0.
+func (c *GrpcClient) PrepareUpload(ctx context.Context, path string) (*PrepareUploadResult, error) {
+	ctx, cancel := c.ctx(ctx)
+	defer cancel()
+
+	resp, err := c.upload.PrepareFileUpload(ctx, &pb.PrepareFileUploadRequest{
+		Path: path,
+	})
+	if err != nil {
+		return nil, errorFromGrpc(err)
+	}
+	return prepareResponseToResult(resp), nil
+}
+
+// PrepareUploadPublic prepares a public file upload for external signing.
+// The DataMap chunk is bundled into the same external-signer payment batch;
+// after FinalizeUpload, FinalizeUploadResult.DataMapAddress is the shareable
+// retrieval handle.
+//
+// Mirrors Client.PrepareUploadPublic over gRPC.
+//
+// Requires antd >= 0.9.0.
+func (c *GrpcClient) PrepareUploadPublic(ctx context.Context, path string) (*PrepareUploadResult, error) {
+	ctx, cancel := c.ctx(ctx)
+	defer cancel()
+
+	resp, err := c.upload.PrepareFileUpload(ctx, &pb.PrepareFileUploadRequest{
+		Path:       path,
+		Visibility: "public",
+	})
+	if err != nil {
+		return nil, errorFromGrpc(err)
+	}
+	return prepareResponseToResult(resp), nil
+}
+
+// PrepareDataUpload prepares a private in-memory data upload for external
+// signing.
+//
+// Mirrors Client.PrepareDataUpload over gRPC.
+//
+// Requires antd >= 0.9.0.
+func (c *GrpcClient) PrepareDataUpload(ctx context.Context, data []byte) (*PrepareUploadResult, error) {
+	ctx, cancel := c.ctx(ctx)
+	defer cancel()
+
+	resp, err := c.upload.PrepareDataUpload(ctx, &pb.PrepareDataUploadRequest{
+		Data: data,
+	})
+	if err != nil {
+		return nil, errorFromGrpc(err)
+	}
+	return prepareResponseToResult(resp), nil
+}
+
+// FinalizeUpload finalizes a wave-batch upload after the external signer has
+// submitted payForQuotes() transactions. txHashes maps quote_hash to tx_hash
+// for each payment.
+//
+// If storeDataMap is true, the DataMap is also stored on-network via the
+// daemon's internal wallet and Address is returned. Prefer
+// PrepareUploadPublic + reading DataMapAddress instead.
+//
+// Mirrors Client.FinalizeUpload over gRPC.
+//
+// Requires antd >= 0.9.0.
+func (c *GrpcClient) FinalizeUpload(ctx context.Context, uploadID string, txHashes map[string]string, storeDataMap bool) (*FinalizeUploadResult, error) {
+	ctx, cancel := c.ctx(ctx)
+	defer cancel()
+
+	resp, err := c.upload.FinalizeUpload(ctx, &pb.FinalizeUploadRequest{
+		UploadId:     uploadID,
+		TxHashes:     txHashes,
+		StoreDataMap: storeDataMap,
+	})
+	if err != nil {
+		return nil, errorFromGrpc(err)
+	}
+	return &FinalizeUploadResult{
+		DataMap:        resp.GetDataMap(),
+		Address:        resp.GetAddress(),
+		DataMapAddress: resp.GetDataMapAddress(),
+		ChunksStored:   int64(resp.GetChunksStored()),
+	}, nil
+}
+
+// FinalizeMerkleUpload finalizes a merkle upload after the external signer
+// has submitted the payForMerkleTree2 transaction. winnerPoolHash is the
+// bytes32 value from the MerklePaymentMade event (hex with 0x prefix).
+//
+// Mirrors Client.FinalizeMerkleUpload over gRPC.
+//
+// Requires antd >= 0.9.0.
+func (c *GrpcClient) FinalizeMerkleUpload(ctx context.Context, uploadID string, winnerPoolHash string, storeDataMap bool) (*FinalizeUploadResult, error) {
+	ctx, cancel := c.ctx(ctx)
+	defer cancel()
+
+	resp, err := c.upload.FinalizeUpload(ctx, &pb.FinalizeUploadRequest{
+		UploadId:       uploadID,
+		WinnerPoolHash: winnerPoolHash,
+		StoreDataMap:   storeDataMap,
+	})
+	if err != nil {
+		return nil, errorFromGrpc(err)
+	}
+	return &FinalizeUploadResult{
+		DataMap:        resp.GetDataMap(),
+		Address:        resp.GetAddress(),
+		DataMapAddress: resp.GetDataMapAddress(),
+		ChunksStored:   int64(resp.GetChunksStored()),
 	}, nil
 }
