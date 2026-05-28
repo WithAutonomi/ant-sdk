@@ -12,6 +12,7 @@ public sealed class AntdGrpcClient : IAntdClient
     private readonly DataService.DataServiceClient _data;
     private readonly ChunkService.ChunkServiceClient _chunks;
     private readonly FileService.FileServiceClient _files;
+    private readonly WalletService.WalletServiceClient _wallet;
 
     public AntdGrpcClient(string target = "http://localhost:50051")
     {
@@ -20,6 +21,29 @@ public sealed class AntdGrpcClient : IAntdClient
         _data = new DataService.DataServiceClient(_channel);
         _chunks = new ChunkService.ChunkServiceClient(_channel);
         _files = new FileService.FileServiceClient(_channel);
+        _wallet = new WalletService.WalletServiceClient(_channel);
+    }
+
+    /// <summary>
+    /// Test-only constructor: skip the real GrpcChannel and inject a
+    /// pre-built WalletService.WalletServiceClient subclass (typically one
+    /// that overrides *Async methods with TestCalls.AsyncUnaryCall helpers).
+    /// All other stubs are also injected; pass real ones for the
+    /// not-exercised services.
+    /// </summary>
+    internal AntdGrpcClient(
+        HealthService.HealthServiceClient health,
+        DataService.DataServiceClient data,
+        ChunkService.ChunkServiceClient chunks,
+        FileService.FileServiceClient files,
+        WalletService.WalletServiceClient wallet)
+    {
+        _channel = null!;
+        _health = health;
+        _data = data;
+        _chunks = chunks;
+        _files = files;
+        _wallet = wallet;
     }
 
     public static AntdGrpcClient AutoDiscover()
@@ -28,11 +52,11 @@ public sealed class AntdGrpcClient : IAntdClient
         return string.IsNullOrEmpty(target) ? new AntdGrpcClient() : new AntdGrpcClient(target);
     }
 
-    public void Dispose() => _channel.Dispose();
+    public void Dispose() => _channel?.Dispose();
 
     public ValueTask DisposeAsync()
     {
-        _channel.Dispose();
+        _channel?.Dispose();
         return ValueTask.CompletedTask;
     }
 
@@ -235,16 +259,40 @@ public sealed class AntdGrpcClient : IAntdClient
         catch (RpcException ex) { throw Wrap(ex); }
     }
 
-    // Wallet (not yet available via gRPC)
+    // Wallet — V2-286 parity with REST AntdRestClient.WalletAddress/Balance/Approve.
+    // A missing daemon wallet emits gRPC FailedPrecondition; the existing
+    // ExceptionMapping.FromGrpcStatus maps that to PaymentError (established
+    // FailedPrecondition->Payment convention across all SDKs).
 
-    public Task<WalletAddress> WalletAddressAsync()
-        => throw new NotSupportedException("WalletAddress is not yet supported via gRPC");
+    public async Task<WalletAddress> WalletAddressAsync()
+    {
+        try
+        {
+            var resp = await _wallet.GetAddressAsync(new GetWalletAddressRequest());
+            return new WalletAddress(resp.Address);
+        }
+        catch (RpcException ex) { throw Wrap(ex); }
+    }
 
-    public Task<WalletBalance> WalletBalanceAsync()
-        => throw new NotSupportedException("WalletBalance is not yet supported via gRPC");
+    public async Task<WalletBalance> WalletBalanceAsync()
+    {
+        try
+        {
+            var resp = await _wallet.GetBalanceAsync(new GetWalletBalanceRequest());
+            return new WalletBalance(resp.Balance, resp.GasBalance);
+        }
+        catch (RpcException ex) { throw Wrap(ex); }
+    }
 
-    public Task<bool> WalletApproveAsync()
-        => throw new NotSupportedException("WalletApprove is not yet supported via gRPC");
+    public async Task<bool> WalletApproveAsync()
+    {
+        try
+        {
+            var resp = await _wallet.ApproveAsync(new WalletApproveRequest());
+            return resp.Approved;
+        }
+        catch (RpcException ex) { throw Wrap(ex); }
+    }
 
 
     // External Signer (Two-Phase Upload) — not yet available via gRPC

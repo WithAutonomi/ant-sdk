@@ -20,6 +20,8 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <!-- TestCalls.AsyncUnaryCall helper for mocking gRPC stubs. -->
+    <PackageReference Include="Grpc.Core.Testing" Version="2.46.6" />
   </ItemGroup>
 
 </Project>

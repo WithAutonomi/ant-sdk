@@ -23,6 +23,11 @@
     <Protobuf Include="..\..\antd\proto\antd\v1\chunks.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
     <Protobuf Include="..\..\antd\proto\antd\v1\files.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
     <Protobuf Include="..\..\antd\proto\antd\v1\events.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
+    <Protobuf Include="..\..\antd\proto\antd\v1\wallet.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Antd.Sdk.Tests" />
   </ItemGroup>
 
 </Project>
