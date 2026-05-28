@@ -96,7 +96,7 @@ defmodule Antd.GrpcClient do
   @doc "Checks the antd daemon status."
   @spec health(t()) :: {:ok, Antd.HealthStatus.t()} | {:error, Exception.t()}
   def health(%__MODULE__{channel: channel}) do
-    req = Antd.V1.HealthCheckRequest.new()
+    req = %Antd.V1.HealthCheckRequest{}
 
     case Antd.V1.HealthService.Stub.check(channel, req) do
       {:ok, resp} ->
@@ -136,10 +136,10 @@ defmodule Antd.GrpcClient do
           {:ok, Antd.DataPutResult.t()} | {:error, Exception.t()}
   def data_put(%__MODULE__{channel: channel}, data, opts \\ []) when is_binary(data) do
     req =
-      Antd.V1.PutDataRequest.new(
+      %Antd.V1.PutDataRequest{
         data: data,
         payment_mode: PaymentMode.to_wire(Keyword.get(opts, :payment_mode, :auto))
-      )
+      }
 
     case Antd.V1.DataService.Stub.put(channel, req) do
       {:ok, resp} ->
@@ -157,7 +157,7 @@ defmodule Antd.GrpcClient do
   @doc "Retrieves private data using a caller-held DataMap."
   @spec data_get(t(), String.t()) :: {:ok, binary()} | {:error, Exception.t()}
   def data_get(%__MODULE__{channel: channel}, data_map) do
-    req = Antd.V1.GetDataRequest.new(data_map: data_map)
+    req = %Antd.V1.GetDataRequest{data_map: data_map}
 
     case Antd.V1.DataService.Stub.get(channel, req) do
       {:ok, resp} -> {:ok, resp.data}
@@ -180,10 +180,10 @@ defmodule Antd.GrpcClient do
           {:ok, Antd.DataPutPublicResult.t()} | {:error, Exception.t()}
   def data_put_public(%__MODULE__{channel: channel}, data, opts \\ []) when is_binary(data) do
     req =
-      Antd.V1.PutPublicDataRequest.new(
+      %Antd.V1.PutPublicDataRequest{
         data: data,
         payment_mode: PaymentMode.to_wire(Keyword.get(opts, :payment_mode, :auto))
-      )
+      }
 
     case Antd.V1.DataService.Stub.put_public(channel, req) do
       {:ok, resp} ->
@@ -202,7 +202,7 @@ defmodule Antd.GrpcClient do
   @doc "Retrieves public data by address."
   @spec data_get_public(t(), String.t()) :: {:ok, binary()} | {:error, Exception.t()}
   def data_get_public(%__MODULE__{channel: channel}, address) do
-    req = Antd.V1.GetPublicDataRequest.new(address: address)
+    req = %Antd.V1.GetPublicDataRequest{address: address}
 
     case Antd.V1.DataService.Stub.get_public(channel, req) do
       {:ok, resp} -> {:ok, resp.data}
@@ -225,10 +225,10 @@ defmodule Antd.GrpcClient do
           {:ok, Antd.UploadCostEstimate.t()} | {:error, Exception.t()}
   def data_cost(%__MODULE__{channel: channel}, data, opts \\ []) when is_binary(data) do
     req =
-      Antd.V1.DataCostRequest.new(
+      %Antd.V1.DataCostRequest{
         data: data,
         payment_mode: PaymentMode.to_wire(Keyword.get(opts, :payment_mode, :auto))
-      )
+      }
 
     case Antd.V1.DataService.Stub.cost(channel, req) do
       {:ok, resp} ->
@@ -257,7 +257,7 @@ defmodule Antd.GrpcClient do
   @doc "Stores a raw chunk on the network."
   @spec chunk_put(t(), binary()) :: {:ok, Antd.PutResult.t()} | {:error, Exception.t()}
   def chunk_put(%__MODULE__{channel: channel}, data) when is_binary(data) do
-    req = Antd.V1.PutChunkRequest.new(data: data)
+    req = %Antd.V1.PutChunkRequest{data: data}
 
     case Antd.V1.ChunkService.Stub.put(channel, req) do
       {:ok, resp} ->
@@ -275,7 +275,7 @@ defmodule Antd.GrpcClient do
   @doc "Retrieves a chunk by address."
   @spec chunk_get(t(), String.t()) :: {:ok, binary()} | {:error, Exception.t()}
   def chunk_get(%__MODULE__{channel: channel}, address) do
-    req = Antd.V1.GetChunkRequest.new(address: address)
+    req = %Antd.V1.GetChunkRequest{address: address}
 
     case Antd.V1.ChunkService.Stub.get(channel, req) do
       {:ok, resp} -> {:ok, resp.data}
@@ -302,10 +302,10 @@ defmodule Antd.GrpcClient do
           {:ok, Antd.FilePutResult.t()} | {:error, Exception.t()}
   def file_put(%__MODULE__{channel: channel}, path, opts \\ []) when is_binary(path) do
     req =
-      Antd.V1.PutFileRequest.new(
+      %Antd.V1.PutFileRequest{
         path: path,
         payment_mode: PaymentMode.to_wire(Keyword.get(opts, :payment_mode, :auto))
-      )
+      }
 
     case Antd.V1.FileService.Stub.put(channel, req) do
       {:ok, resp} ->
@@ -323,7 +323,7 @@ defmodule Antd.GrpcClient do
   @doc "Downloads a private file from a caller-held DataMap into `dest_path`."
   @spec file_get(t(), String.t(), String.t()) :: :ok | {:error, Exception.t()}
   def file_get(%__MODULE__{channel: channel}, data_map, dest_path) do
-    req = Antd.V1.GetFileRequest.new(data_map: data_map, dest_path: dest_path)
+    req = %Antd.V1.GetFileRequest{data_map: data_map, dest_path: dest_path}
 
     case Antd.V1.FileService.Stub.get(channel, req) do
       {:ok, _resp} -> :ok
@@ -348,10 +348,10 @@ defmodule Antd.GrpcClient do
           {:ok, Antd.FilePutPublicResult.t()} | {:error, Exception.t()}
   def file_put_public(%__MODULE__{channel: channel}, path, opts \\ []) when is_binary(path) do
     req =
-      Antd.V1.PutFileRequest.new(
+      %Antd.V1.PutFileRequest{
         path: path,
         payment_mode: PaymentMode.to_wire(Keyword.get(opts, :payment_mode, :auto))
-      )
+      }
 
     case Antd.V1.FileService.Stub.put_public(channel, req) do
       {:ok, resp} ->
@@ -370,7 +370,7 @@ defmodule Antd.GrpcClient do
   @doc "Downloads a public file from the network to a local path."
   @spec file_get_public(t(), String.t(), String.t()) :: :ok | {:error, Exception.t()}
   def file_get_public(%__MODULE__{channel: channel}, address, dest_path) do
-    req = Antd.V1.GetFilePublicRequest.new(address: address, dest_path: dest_path)
+    req = %Antd.V1.GetFilePublicRequest{address: address, dest_path: dest_path}
 
     case Antd.V1.FileService.Stub.get_public(channel, req) do
       {:ok, _resp} -> :ok
@@ -415,11 +415,11 @@ defmodule Antd.GrpcClient do
           {:ok, Antd.UploadCostEstimate.t()} | {:error, Exception.t()}
   def file_cost(%__MODULE__{channel: channel}, path, is_public, opts \\ []) do
     req =
-      Antd.V1.FileCostRequest.new(
+      %Antd.V1.FileCostRequest{
         path: path,
         is_public: is_public,
         payment_mode: PaymentMode.to_wire(Keyword.get(opts, :payment_mode, :auto))
-      )
+      }
 
     case Antd.V1.FileService.Stub.cost(channel, req) do
       {:ok, resp} ->
@@ -444,12 +444,278 @@ defmodule Antd.GrpcClient do
   end
 
   # ---------------------------------------------------------------------------
+  # External signer (two-phase upload)
+  # ---------------------------------------------------------------------------
+
+  @doc """
+  Prepares a file upload for external signing.
+
+  ## Options
+
+    * `:visibility` — `"public"` bundles the DataMap chunk into the same
+      external-signer payment batch so finalize returns its on-network
+      address via `:data_map_address`. Omitting the option leaves the
+      proto3 default of `""`, preserving the wire shape for daemons
+      predating the public-prepare addition.
+  """
+  @spec prepare_upload(t(), String.t(), keyword()) ::
+          {:ok, Antd.PrepareUploadResult.t()} | {:error, Exception.t()}
+  def prepare_upload(%__MODULE__{channel: channel}, path, opts \\ []) do
+    req =
+      %Antd.V1.PrepareFileUploadRequest{
+        path: path,
+        visibility: Keyword.get(opts, :visibility, "")
+      }
+
+    case Antd.V1.UploadService.Stub.prepare_file_upload(channel, req) do
+      {:ok, resp} -> {:ok, prepare_response_from_proto(resp)}
+      {:error, rpc_error} -> {:error, translate_error(rpc_error)}
+    end
+  end
+
+  @doc "Like `prepare_upload/3` but raises on error."
+  @spec prepare_upload!(t(), String.t(), keyword()) :: Antd.PrepareUploadResult.t()
+  def prepare_upload!(client, path, opts \\ []), do: unwrap!(prepare_upload(client, path, opts))
+
+  @doc """
+  Convenience wrapper: prepare a *public* file upload for external signing.
+  Equivalent to `prepare_upload(client, path, visibility: "public")`.
+  """
+  @spec prepare_upload_public(t(), String.t()) ::
+          {:ok, Antd.PrepareUploadResult.t()} | {:error, Exception.t()}
+  def prepare_upload_public(%__MODULE__{} = client, path),
+    do: prepare_upload(client, path, visibility: "public")
+
+  @doc "Like `prepare_upload_public/2` but raises on error."
+  @spec prepare_upload_public!(t(), String.t()) :: Antd.PrepareUploadResult.t()
+  def prepare_upload_public!(client, path), do: unwrap!(prepare_upload_public(client, path))
+
+  @doc """
+  Prepares an in-memory data upload for external signing.
+
+  ## Options
+
+    * `:visibility` — see `prepare_upload/3`.
+  """
+  @spec prepare_data_upload(t(), binary(), keyword()) ::
+          {:ok, Antd.PrepareUploadResult.t()} | {:error, Exception.t()}
+  def prepare_data_upload(%__MODULE__{channel: channel}, data, opts \\ [])
+      when is_binary(data) do
+    req =
+      %Antd.V1.PrepareDataUploadRequest{
+        data: data,
+        visibility: Keyword.get(opts, :visibility, "")
+      }
+
+    case Antd.V1.UploadService.Stub.prepare_data_upload(channel, req) do
+      {:ok, resp} -> {:ok, prepare_response_from_proto(resp)}
+      {:error, rpc_error} -> {:error, translate_error(rpc_error)}
+    end
+  end
+
+  @doc "Like `prepare_data_upload/3` but raises on error."
+  @spec prepare_data_upload!(t(), binary(), keyword()) :: Antd.PrepareUploadResult.t()
+  def prepare_data_upload!(client, data, opts \\ []),
+    do: unwrap!(prepare_data_upload(client, data, opts))
+
+  @doc """
+  Finalizes a wave-batch upload after an external signer has submitted
+  the `payForQuotes()` transactions. `tx_hashes` maps each `quote_hash`
+  from the prepare result to its on-chain `tx_hash`.
+  """
+  @spec finalize_upload(t(), String.t(), map()) ::
+          {:ok, Antd.FinalizeUploadResult.t()} | {:error, Exception.t()}
+  def finalize_upload(%__MODULE__{channel: channel}, upload_id, tx_hashes) do
+    req =
+      %Antd.V1.FinalizeUploadRequest{
+        upload_id: upload_id,
+        tx_hashes: tx_hashes
+      }
+
+    case Antd.V1.UploadService.Stub.finalize_upload(channel, req) do
+      {:ok, resp} -> {:ok, finalize_response_from_proto(resp)}
+      {:error, rpc_error} -> {:error, translate_error(rpc_error)}
+    end
+  end
+
+  @doc "Like `finalize_upload/3` but raises on error."
+  @spec finalize_upload!(t(), String.t(), map()) :: Antd.FinalizeUploadResult.t()
+  def finalize_upload!(client, upload_id, tx_hashes),
+    do: unwrap!(finalize_upload(client, upload_id, tx_hashes))
+
+  @doc """
+  Finalizes a merkle-batch upload after the external signer has submitted
+  the `payForMerkleTree2()` transaction. `winner_pool_hash` is the
+  bytes32 from the `MerklePaymentMade` event (hex with `0x` prefix).
+
+  ## Options
+
+    * `:store_data_map` — legacy daemon-wallet path; when `true`, the
+      daemon stores the DataMap on-network and returns its address.
+      Prefer `:visibility => "public"` on prepare for the public-DataMap
+      case. Omitting the option leaves the proto3 default of `false`.
+  """
+  @spec finalize_merkle_upload(t(), String.t(), String.t(), keyword()) ::
+          {:ok, Antd.FinalizeUploadResult.t()} | {:error, Exception.t()}
+  def finalize_merkle_upload(%__MODULE__{channel: channel}, upload_id, winner_pool_hash,
+                             opts \\ []) do
+    req =
+      %Antd.V1.FinalizeUploadRequest{
+        upload_id: upload_id,
+        winner_pool_hash: winner_pool_hash,
+        store_data_map: Keyword.get(opts, :store_data_map, false)
+      }
+
+    case Antd.V1.UploadService.Stub.finalize_upload(channel, req) do
+      {:ok, resp} -> {:ok, finalize_response_from_proto(resp)}
+      {:error, rpc_error} -> {:error, translate_error(rpc_error)}
+    end
+  end
+
+  @doc "Like `finalize_merkle_upload/4` but raises on error."
+  @spec finalize_merkle_upload!(t(), String.t(), String.t(), keyword()) ::
+          Antd.FinalizeUploadResult.t()
+  def finalize_merkle_upload!(client, upload_id, winner_pool_hash, opts \\ []),
+    do: unwrap!(finalize_merkle_upload(client, upload_id, winner_pool_hash, opts))
+
+  @doc """
+  Prepares a single-chunk publish for external signing.
+
+  Returns either `already_stored: true` (no payment needed, no finalize
+  call required) or a wave-batch payment intent the external signer must
+  execute before calling `finalize_chunk_upload/3`.
+  """
+  @spec prepare_chunk_upload(t(), binary()) ::
+          {:ok, Antd.PrepareChunkResult.t()} | {:error, Exception.t()}
+  def prepare_chunk_upload(%__MODULE__{channel: channel}, data) when is_binary(data) do
+    req = %Antd.V1.PrepareChunkRequest{data: data}
+
+    case Antd.V1.ChunkService.Stub.prepare_chunk(channel, req) do
+      {:ok, resp} -> {:ok, prepare_chunk_response_from_proto(resp)}
+      {:error, rpc_error} -> {:error, translate_error(rpc_error)}
+    end
+  end
+
+  @doc "Like `prepare_chunk_upload/2` but raises on error."
+  @spec prepare_chunk_upload!(t(), binary()) :: Antd.PrepareChunkResult.t()
+  def prepare_chunk_upload!(client, data), do: unwrap!(prepare_chunk_upload(client, data))
+
+  @doc """
+  Submits a prepared chunk after external payment. Returns the on-network
+  address of the stored chunk (matches `PrepareChunkResult.address`).
+  """
+  @spec finalize_chunk_upload(t(), String.t(), map()) ::
+          {:ok, String.t()} | {:error, Exception.t()}
+  def finalize_chunk_upload(%__MODULE__{channel: channel}, upload_id, tx_hashes) do
+    req = %Antd.V1.FinalizeChunkRequest{upload_id: upload_id, tx_hashes: tx_hashes}
+
+    case Antd.V1.ChunkService.Stub.finalize_chunk(channel, req) do
+      {:ok, resp} -> {:ok, resp.address}
+      {:error, rpc_error} -> {:error, translate_error(rpc_error)}
+    end
+  end
+
+  @doc "Like `finalize_chunk_upload/3` but raises on error."
+  @spec finalize_chunk_upload!(t(), String.t(), map()) :: String.t()
+  def finalize_chunk_upload!(client, upload_id, tx_hashes),
+    do: unwrap!(finalize_chunk_upload(client, upload_id, tx_hashes))
+
+  # ---------------------------------------------------------------------------
   # Internal helpers
   # ---------------------------------------------------------------------------
 
   defp unwrap!({:ok, result}), do: result
   defp unwrap!(:ok), do: :ok
   defp unwrap!({:error, exception}), do: raise(exception)
+
+  # Merkle-only fields (`depth`, `pool_commitments`, `merkle_payment_timestamp`)
+  # are gated on `payment_type == "merkle"` — proto3 scalar defaults are not
+  # enough because REST omits these fields entirely on wave-batch and the
+  # model layer expects them empty/zero there.
+  defp prepare_response_from_proto(resp) do
+    payment_type = if resp.payment_type == "", do: "wave_batch", else: resp.payment_type
+
+    payments =
+      Enum.map(resp.payments, fn p ->
+        %Antd.PaymentInfo{
+          quote_hash: p.quote_hash,
+          rewards_address: p.rewards_address,
+          amount: p.amount
+        }
+      end)
+
+    {depth, pool_commitments, merkle_ts} =
+      if payment_type == "merkle" do
+        pcs =
+          Enum.map(resp.pool_commitments, fn pc ->
+            cands =
+              Enum.map(pc.candidates, fn c ->
+                %Antd.CandidateNodeEntry{
+                  rewards_address: c.rewards_address,
+                  amount: c.amount
+                }
+              end)
+
+            %Antd.PoolCommitmentEntry{pool_hash: pc.pool_hash, candidates: cands}
+          end)
+
+        {resp.depth, pcs, resp.merkle_payment_timestamp}
+      else
+        {0, [], 0}
+      end
+
+    %Antd.PrepareUploadResult{
+      upload_id: resp.upload_id,
+      payments: payments,
+      total_amount: resp.total_amount,
+      payment_vault_address: resp.payment_vault_address,
+      payment_token_address: resp.payment_token_address,
+      rpc_url: resp.rpc_url,
+      payment_type: payment_type,
+      depth: depth,
+      pool_commitments: pool_commitments,
+      merkle_payment_timestamp: merkle_ts
+    }
+  end
+
+  defp finalize_response_from_proto(resp) do
+    %Antd.FinalizeUploadResult{
+      data_map: resp.data_map,
+      address: resp.address,
+      data_map_address: resp.data_map_address,
+      chunks_stored: resp.chunks_stored
+    }
+  end
+
+  defp prepare_chunk_response_from_proto(resp) do
+    if resp.already_stored do
+      %Antd.PrepareChunkResult{
+        address: resp.address,
+        already_stored: true
+      }
+    else
+      payments =
+        Enum.map(resp.payments, fn p ->
+          %Antd.PaymentInfo{
+            quote_hash: p.quote_hash,
+            rewards_address: p.rewards_address,
+            amount: p.amount
+          }
+        end)
+
+      %Antd.PrepareChunkResult{
+        address: resp.address,
+        already_stored: false,
+        upload_id: resp.upload_id,
+        payment_type: resp.payment_type,
+        payments: payments,
+        total_amount: resp.total_amount,
+        payment_vault_address: resp.payment_vault_address,
+        payment_token_address: resp.payment_token_address,
+        rpc_url: resp.rpc_url
+      }
+    end
+  end
 
   defp translate_error(%GRPC.RPCError{status: status, message: message}) do
     case status do

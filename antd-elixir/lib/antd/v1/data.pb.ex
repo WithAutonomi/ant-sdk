@@ -1,7 +1,10 @@
 defmodule Antd.V1.GetPublicDataRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "antd.v1.GetPublicDataRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :address, 1, type: :string
 end
@@ -9,7 +12,10 @@ end
 defmodule Antd.V1.GetPublicDataResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "antd.v1.GetPublicDataResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :data, 1, type: :bytes
 end
@@ -17,7 +23,10 @@ end
 defmodule Antd.V1.PutPublicDataRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "antd.v1.PutPublicDataRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :data, 1, type: :bytes
   field :payment_mode, 2, type: :string, json_name: "paymentMode"
@@ -26,7 +35,10 @@ end
 defmodule Antd.V1.PutPublicDataResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "antd.v1.PutPublicDataResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :cost, 1, type: Antd.V1.Cost
   field :address, 2, type: :string
@@ -35,7 +47,10 @@ end
 defmodule Antd.V1.StreamPublicDataRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "antd.v1.StreamPublicDataRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :address, 1, type: :string
 end
@@ -43,7 +58,10 @@ end
 defmodule Antd.V1.DataChunk do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "antd.v1.DataChunk",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :data, 1, type: :bytes
 end
@@ -51,7 +69,10 @@ end
 defmodule Antd.V1.GetDataRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "antd.v1.GetDataRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :data_map, 1, type: :string, json_name: "dataMap"
 end
@@ -59,7 +80,10 @@ end
 defmodule Antd.V1.GetDataResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "antd.v1.GetDataResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :data, 1, type: :bytes
 end
@@ -67,7 +91,10 @@ end
 defmodule Antd.V1.PutDataRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "antd.v1.PutDataRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :data, 1, type: :bytes
   field :payment_mode, 2, type: :string, json_name: "paymentMode"
@@ -76,7 +103,10 @@ end
 defmodule Antd.V1.PutDataResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "antd.v1.PutDataResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :cost, 1, type: Antd.V1.Cost
   field :data_map, 2, type: :string, json_name: "dataMap"
@@ -85,7 +115,10 @@ end
 defmodule Antd.V1.DataCostRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "antd.v1.DataCostRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :data, 1, type: :bytes
   field :payment_mode, 2, type: :string, json_name: "paymentMode"
@@ -94,7 +127,7 @@ end
 defmodule Antd.V1.DataService.Service do
   @moduledoc false
 
-  use GRPC.Service, name: "antd.v1.DataService", protoc_gen_elixir_version: "0.13.0"
+  use GRPC.Service, name: "antd.v1.DataService", protoc_gen_elixir_version: "0.16.0"
 
   rpc :Put, Antd.V1.PutDataRequest, Antd.V1.PutDataResponse
 
