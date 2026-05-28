@@ -170,6 +170,7 @@ func startMockServer(t *testing.T) *GrpcClient {
 	pb.RegisterDataServiceServer(s, &mockDataService{})
 	pb.RegisterChunkServiceServer(s, &mockChunkService{})
 	pb.RegisterFileServiceServer(s, &mockFileService{})
+	pb.RegisterWalletServiceServer(s, &mockWalletService{})
 
 	go func() {
 		// Server stop on test cleanup is expected, swallow the error.
@@ -500,5 +501,124 @@ func TestGrpcErrorUnavailable(t *testing.T) {
 	}
 	if ne.StatusCode != 502 {
 		t.Fatalf("expected status 502, got %d", ne.StatusCode)
+	}
+}
+
+// --- V2-286: WalletService mock + tests ---
+
+type mockWalletService struct {
+	pb.UnimplementedWalletServiceServer
+}
+
+func (m *mockWalletService) GetAddress(_ context.Context, _ *pb.GetWalletAddressRequest) (*pb.GetWalletAddressResponse, error) {
+	return &pb.GetWalletAddressResponse{
+		Address: "0xabc1234567890abcdef1234567890abcdef123456",
+	}, nil
+}
+
+func (m *mockWalletService) GetBalance(_ context.Context, _ *pb.GetWalletBalanceRequest) (*pb.GetWalletBalanceResponse, error) {
+	return &pb.GetWalletBalanceResponse{
+		Balance:    "1000000000000000000",
+		GasBalance: "500000000000000000",
+	}, nil
+}
+
+func (m *mockWalletService) Approve(_ context.Context, _ *pb.WalletApproveRequest) (*pb.WalletApproveResponse, error) {
+	return &pb.WalletApproveResponse{Approved: true}, nil
+}
+
+// startUnconfiguredWalletServer returns FailedPrecondition for every wallet
+// RPC, matching the daemon's behaviour when no AUTONOMI_WALLET_KEY is set.
+type unconfiguredWalletService struct {
+	pb.UnimplementedWalletServiceServer
+}
+
+func (u *unconfiguredWalletService) GetAddress(_ context.Context, _ *pb.GetWalletAddressRequest) (*pb.GetWalletAddressResponse, error) {
+	return nil, status.Error(codes.FailedPrecondition, "wallet not configured — set AUTONOMI_WALLET_KEY")
+}
+
+func (u *unconfiguredWalletService) GetBalance(_ context.Context, _ *pb.GetWalletBalanceRequest) (*pb.GetWalletBalanceResponse, error) {
+	return nil, status.Error(codes.FailedPrecondition, "wallet not configured — set AUTONOMI_WALLET_KEY")
+}
+
+func (u *unconfiguredWalletService) Approve(_ context.Context, _ *pb.WalletApproveRequest) (*pb.WalletApproveResponse, error) {
+	return nil, status.Error(codes.FailedPrecondition, "wallet not configured — set AUTONOMI_WALLET_KEY")
+}
+
+func startUnconfiguredWalletServer(t *testing.T) *GrpcClient {
+	t.Helper()
+	lis := bufconn.Listen(bufSize)
+
+	s := grpc.NewServer()
+	pb.RegisterWalletServiceServer(s, &unconfiguredWalletService{})
+
+	go func() {
+		_ = s.Serve(lis)
+	}()
+	t.Cleanup(func() { s.Stop() })
+
+	dialer := func(context.Context, string) (net.Conn, error) {
+		return lis.Dial()
+	}
+
+	c, err := NewGrpcClient("passthrough:///bufconn",
+		WithDialOptions(
+			grpc.WithContextDialer(dialer),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		),
+	)
+	if err != nil {
+		t.Fatalf("failed to create grpc client: %v", err)
+	}
+	t.Cleanup(func() { c.Close() })
+	return c
+}
+
+func TestGrpcWalletAddress(t *testing.T) {
+	c := startMockServer(t)
+	r, err := c.WalletAddress(context.Background())
+	if err != nil {
+		t.Fatalf("WalletAddress: %v", err)
+	}
+	if r.Address != "0xabc1234567890abcdef1234567890abcdef123456" {
+		t.Fatalf("address: got %q", r.Address)
+	}
+}
+
+func TestGrpcWalletBalance(t *testing.T) {
+	c := startMockServer(t)
+	r, err := c.WalletBalance(context.Background())
+	if err != nil {
+		t.Fatalf("WalletBalance: %v", err)
+	}
+	if r.Balance != "1000000000000000000" {
+		t.Fatalf("balance: got %q", r.Balance)
+	}
+	if r.GasBalance != "500000000000000000" {
+		t.Fatalf("gas_balance: got %q", r.GasBalance)
+	}
+}
+
+func TestGrpcWalletApprove(t *testing.T) {
+	c := startMockServer(t)
+	if err := c.WalletApprove(context.Background()); err != nil {
+		t.Fatalf("WalletApprove: %v", err)
+	}
+}
+
+// The daemon emits `Status::failed_precondition` for "wallet not configured",
+// which antd-go's existing errorFromGrpc maps to *PaymentError. (The semantic
+// is a bit off — REST returns 503 for the same case — but matches the
+// established gRPC→SDK mapping across all SDKs and is not in V2-286's scope
+// to renumber.)
+func TestGrpcWalletAddressUnconfiguredReturnsTypedError(t *testing.T) {
+	c := startUnconfiguredWalletServer(t)
+	_, err := c.WalletAddress(context.Background())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var perr *PaymentError
+	if !errors.As(err, &perr) {
+		t.Fatalf("expected *PaymentError (FailedPrecondition→Payment), got %T: %v", err, err)
 	}
 }
