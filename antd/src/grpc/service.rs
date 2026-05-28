@@ -14,10 +14,6 @@ pub mod pb {
     tonic::include_proto!("antd.v1");
 }
 
-fn not_implemented(op: &str) -> Status {
-    Status::unimplemented(format!("{op} not yet implemented"))
-}
-
 /// Parse a gRPC `string payment_mode` field, treating proto3's empty-string
 /// default as "no preference" (Auto). Keeps REST's strict parse_payment_mode
 /// unchanged — only the gRPC boundary needs to absorb the empty default that
@@ -144,7 +140,13 @@ impl pb::data_service_server::DataService for DataServiceImpl {
         &self,
         _r: Request<pb::StreamPublicDataRequest>,
     ) -> Result<Response<Self::StreamPublicStream>, Status> {
-        Err(not_implemented("data stream public"))
+        // ant-core does not yet expose a chunk-by-chunk download primitive
+        // (`Client::data_download` returns the full Bytes in one call, and
+        // self-encryption decrypt currently needs every chunk before yielding
+        // any plaintext). Honest UNIMPLEMENTED until that lands.
+        Err(Status::unimplemented(
+            "data stream-download not yet implemented;              ant-core does not yet expose a chunk-by-chunk download primitive",
+        ))
     }
 
     async fn get(
