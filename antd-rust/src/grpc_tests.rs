@@ -131,6 +131,157 @@ impl v1::chunk_service_server::ChunkService for MockChunkService {
             data: b"chunkdata".to_vec(),
         }))
     }
+
+    async fn prepare_chunk(
+        &self,
+        request: Request<v1::PrepareChunkRequest>,
+    ) -> Result<Response<v1::PrepareChunkResponse>, Status> {
+        let data = request.into_inner().data;
+        // Inputs starting with "EXISTS" are treated as already-stored.
+        if data.starts_with(b"EXISTS") {
+            return Ok(Response::new(v1::PrepareChunkResponse {
+                address: "0xabc".to_string(),
+                already_stored: true,
+                ..Default::default()
+            }));
+        }
+        Ok(Response::new(v1::PrepareChunkResponse {
+            address: "0xnewchunk".to_string(),
+            already_stored: false,
+            upload_id: "upid_chunk_42".to_string(),
+            payment_type: "wave_batch".to_string(),
+            payments: vec![v1::PaymentEntry {
+                quote_hash: "0xq1".to_string(),
+                rewards_address: "0xr1".to_string(),
+                amount: "100".to_string(),
+            }],
+            total_amount: "100".to_string(),
+            payment_vault_address: "0xvault".to_string(),
+            payment_token_address: "0xtoken".to_string(),
+            rpc_url: "http://localhost:8545".to_string(),
+        }))
+    }
+
+    async fn finalize_chunk(
+        &self,
+        request: Request<v1::FinalizeChunkRequest>,
+    ) -> Result<Response<v1::FinalizeChunkResponse>, Status> {
+        let req = request.into_inner();
+        // Echo the upload_id into the address so the test can verify
+        // request-body forwarding.
+        Ok(Response::new(v1::FinalizeChunkResponse {
+            address: format!("addr_for_{}", req.upload_id),
+        }))
+    }
+}
+
+#[derive(Default)]
+struct MockUploadService;
+
+#[tonic::async_trait]
+impl v1::upload_service_server::UploadService for MockUploadService {
+    async fn prepare_file_upload(
+        &self,
+        request: Request<v1::PrepareFileUploadRequest>,
+    ) -> Result<Response<v1::PrepareUploadResponse>, Status> {
+        let req = request.into_inner();
+        // Encode the visibility into the upload_id so the test can verify
+        // the field is forwarded over the wire.
+        let upload_id = format!("upid_file_{}", req.visibility);
+        Ok(Response::new(v1::PrepareUploadResponse {
+            upload_id,
+            payment_type: "wave_batch".to_string(),
+            payments: vec![v1::PaymentEntry {
+                quote_hash: "0xqa".to_string(),
+                rewards_address: "0xra".to_string(),
+                amount: "1".to_string(),
+            }],
+            total_amount: "1".to_string(),
+            payment_vault_address: "0xvault".to_string(),
+            payment_token_address: "0xtoken".to_string(),
+            rpc_url: "http://localhost:8545".to_string(),
+            ..Default::default()
+        }))
+    }
+
+    async fn prepare_data_upload(
+        &self,
+        request: Request<v1::PrepareDataUploadRequest>,
+    ) -> Result<Response<v1::PrepareUploadResponse>, Status> {
+        let req = request.into_inner();
+        // Merkle response when payload starts with "MERKLE"; otherwise
+        // wave_batch. Also echoes visibility into upload_id like the
+        // file variant.
+        let upload_id = format!("upid_data_{}", req.visibility);
+        if req.data.starts_with(b"MERKLE") {
+            return Ok(Response::new(v1::PrepareUploadResponse {
+                upload_id,
+                payment_type: "merkle".to_string(),
+                payments: vec![],
+                depth: 7,
+                pool_commitments: vec![v1::PoolCommitmentEntry {
+                    pool_hash: "0xpool".to_string(),
+                    candidates: vec![v1::CandidateNodeEntry {
+                        rewards_address: "0xc1".to_string(),
+                        amount: "5".to_string(),
+                    }],
+                }],
+                merkle_payment_timestamp: 1_700_000_000,
+                total_amount: "0".to_string(),
+                payment_vault_address: "0xvault".to_string(),
+                payment_token_address: "0xtoken".to_string(),
+                rpc_url: "http://localhost:8545".to_string(),
+            }));
+        }
+        Ok(Response::new(v1::PrepareUploadResponse {
+            upload_id,
+            payment_type: "wave_batch".to_string(),
+            payments: vec![v1::PaymentEntry {
+                quote_hash: "0xqb".to_string(),
+                rewards_address: "0xrb".to_string(),
+                amount: "2".to_string(),
+            }],
+            total_amount: "2".to_string(),
+            payment_vault_address: "0xvault".to_string(),
+            payment_token_address: "0xtoken".to_string(),
+            rpc_url: "http://localhost:8545".to_string(),
+            ..Default::default()
+        }))
+    }
+
+    async fn finalize_upload(
+        &self,
+        request: Request<v1::FinalizeUploadRequest>,
+    ) -> Result<Response<v1::FinalizeUploadResponse>, Status> {
+        let req = request.into_inner();
+        // Wave-batch: tx_hashes populated, winner_pool_hash empty.
+        // Merkle:     winner_pool_hash populated, tx_hashes empty.
+        if !req.winner_pool_hash.is_empty() {
+            return Ok(Response::new(v1::FinalizeUploadResponse {
+                data_map: "dm_merkle".to_string(),
+                address: if req.store_data_map {
+                    "stored_on_network".to_string()
+                } else {
+                    String::new()
+                },
+                data_map_address: String::new(),
+                chunks_stored: 64,
+            }));
+        }
+        // Wave-batch — include data_map_address when visibility was public
+        // (encoded into upload_id).
+        let was_public = req.upload_id.ends_with("public");
+        Ok(Response::new(v1::FinalizeUploadResponse {
+            data_map: "dm_wave".to_string(),
+            address: String::new(),
+            data_map_address: if was_public {
+                "addr_public_dm".to_string()
+            } else {
+                String::new()
+            },
+            chunks_stored: 3,
+        }))
+    }
 }
 
 #[derive(Default)]
@@ -230,6 +381,9 @@ async fn start_mock_server() -> GrpcClient {
             ))
             .add_service(v1::file_service_server::FileServiceServer::new(
                 MockFileService,
+            ))
+            .add_service(v1::upload_service_server::UploadServiceServer::new(
+                MockUploadService,
             ))
             .serve_with_incoming(incoming)
             .await
@@ -376,6 +530,151 @@ async fn test_grpc_file_cost() {
     assert_eq!(est.chunk_count, 3);
     assert_eq!(est.estimated_gas_cost_wei, "150000000000000");
     assert_eq!(est.payment_mode, "auto");
+}
+
+// --- External-signer prepare/finalize tests ---
+
+#[tokio::test]
+async fn test_grpc_prepare_upload_omits_visibility_when_none() {
+    let client = start_mock_server().await;
+    let result = client.prepare_upload("/tmp/x.bin", None).await.unwrap();
+    // Empty visibility = proto3 default; the mock echoes it into upload_id.
+    assert_eq!(result.upload_id, "upid_file_");
+    assert_eq!(result.payment_type, "wave_batch");
+    assert_eq!(result.payments.len(), 1);
+    assert_eq!(result.payments[0].quote_hash, "0xqa");
+    assert!(result.depth.is_none());
+    assert!(result.pool_commitments.is_none());
+}
+
+#[tokio::test]
+async fn test_grpc_prepare_upload_forwards_visibility_public() {
+    let client = start_mock_server().await;
+    let result = client
+        .prepare_upload("/tmp/x.bin", Some("public"))
+        .await
+        .unwrap();
+    assert_eq!(result.upload_id, "upid_file_public");
+}
+
+#[tokio::test]
+async fn test_grpc_prepare_upload_public_convenience() {
+    let client = start_mock_server().await;
+    let result = client.prepare_upload_public("/tmp/x.bin").await.unwrap();
+    assert_eq!(result.upload_id, "upid_file_public");
+}
+
+#[tokio::test]
+async fn test_grpc_prepare_data_upload_wave_batch() {
+    let client = start_mock_server().await;
+    let result = client
+        .prepare_data_upload(b"small", Some("private"))
+        .await
+        .unwrap();
+    assert_eq!(result.upload_id, "upid_data_private");
+    assert_eq!(result.payment_type, "wave_batch");
+    assert!(result.depth.is_none());
+}
+
+#[tokio::test]
+async fn test_grpc_prepare_data_upload_merkle() {
+    let client = start_mock_server().await;
+    let result = client
+        .prepare_data_upload(b"MERKLE-large-payload", None)
+        .await
+        .unwrap();
+    assert_eq!(result.payment_type, "merkle");
+    assert_eq!(result.depth, Some(7));
+    assert_eq!(result.merkle_payment_timestamp, Some(1_700_000_000));
+    let pcs = result.pool_commitments.expect("pool_commitments present");
+    assert_eq!(pcs.len(), 1);
+    assert_eq!(pcs[0].pool_hash, "0xpool");
+    assert_eq!(pcs[0].candidates[0].rewards_address, "0xc1");
+}
+
+#[tokio::test]
+async fn test_grpc_finalize_upload_wave_batch_omits_data_map_address_when_private() {
+    let client = start_mock_server().await;
+    let mut tx_hashes = std::collections::HashMap::new();
+    tx_hashes.insert("0xq1".to_string(), "0xtx1".to_string());
+    let result = client
+        .finalize_upload("upid_file_", &tx_hashes)
+        .await
+        .unwrap();
+    assert_eq!(result.data_map, "dm_wave");
+    assert_eq!(result.data_map_address, "");
+    assert_eq!(result.chunks_stored, 3);
+}
+
+#[tokio::test]
+async fn test_grpc_finalize_upload_wave_batch_returns_data_map_address_when_public() {
+    let client = start_mock_server().await;
+    let mut tx_hashes = std::collections::HashMap::new();
+    tx_hashes.insert("0xq1".to_string(), "0xtx1".to_string());
+    let result = client
+        .finalize_upload("upid_file_public", &tx_hashes)
+        .await
+        .unwrap();
+    assert_eq!(result.data_map_address, "addr_public_dm");
+}
+
+#[tokio::test]
+async fn test_grpc_finalize_merkle_upload_store_data_map_true() {
+    let client = start_mock_server().await;
+    let result = client
+        .finalize_merkle_upload("upid_data_", "0xwinpool", true)
+        .await
+        .unwrap();
+    assert_eq!(result.data_map, "dm_merkle");
+    assert_eq!(result.address, "stored_on_network");
+    assert_eq!(result.chunks_stored, 64);
+}
+
+#[tokio::test]
+async fn test_grpc_finalize_merkle_upload_store_data_map_false() {
+    let client = start_mock_server().await;
+    let result = client
+        .finalize_merkle_upload("upid_data_", "0xwinpool", false)
+        .await
+        .unwrap();
+    assert_eq!(result.data_map, "dm_merkle");
+    assert_eq!(result.address, "");
+}
+
+#[tokio::test]
+async fn test_grpc_prepare_chunk_upload_new_chunk() {
+    let client = start_mock_server().await;
+    let result = client.prepare_chunk_upload(b"newchunk").await.unwrap();
+    assert!(!result.already_stored);
+    assert_eq!(result.address, "0xnewchunk");
+    assert_eq!(result.upload_id, "upid_chunk_42");
+    assert_eq!(result.payment_type, "wave_batch");
+    assert_eq!(result.payments.len(), 1);
+    assert_eq!(result.payments[0].quote_hash, "0xq1");
+    assert_eq!(result.total_amount, "100");
+    assert_eq!(result.rpc_url, "http://localhost:8545");
+}
+
+#[tokio::test]
+async fn test_grpc_prepare_chunk_upload_already_stored_short_circuit() {
+    let client = start_mock_server().await;
+    let result = client.prepare_chunk_upload(b"EXISTS-data").await.unwrap();
+    assert!(result.already_stored);
+    assert_eq!(result.address, "0xabc");
+    assert_eq!(result.upload_id, "");
+    assert!(result.payments.is_empty());
+}
+
+#[tokio::test]
+async fn test_grpc_finalize_chunk_upload_returns_address_and_forwards_body() {
+    let client = start_mock_server().await;
+    let mut tx_hashes = std::collections::HashMap::new();
+    tx_hashes.insert("0xq1".to_string(), "0xtxabc".to_string());
+    let addr = client
+        .finalize_chunk_upload("upid_chunk_42", &tx_hashes)
+        .await
+        .unwrap();
+    assert_eq!(addr, "addr_for_upid_chunk_42");
 }
 
 // --- gRPC error mapping tests ---
