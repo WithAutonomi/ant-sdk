@@ -15,6 +15,7 @@ require_relative "v1/health_services_pb"
 require_relative "v1/data_services_pb"
 require_relative "v1/chunks_services_pb"
 require_relative "v1/files_services_pb"
+require_relative "v1/wallet_services_pb"
 
 module Antd
   DEFAULT_GRPC_TARGET = "localhost:50051"
@@ -43,6 +44,7 @@ module Antd
       @data_stub   = Antd::V1::DataService::Stub.new(target, :this_channel_is_insecure)
       @chunk_stub  = Antd::V1::ChunkService::Stub.new(target, :this_channel_is_insecure)
       @file_stub   = Antd::V1::FileService::Stub.new(target, :this_channel_is_insecure)
+      @wallet_stub = Antd::V1::WalletService::Stub.new(target, :this_channel_is_insecure)
     end
 
     # --- Health ---
@@ -212,6 +214,31 @@ module Antd
         estimated_gas_cost_wei: resp.estimated_gas_cost_wei,
         payment_mode: resp.payment_mode
       )
+    end
+
+
+    # --- Wallet ---
+
+    # V2-286: parity with REST Antd::Client. A missing daemon wallet emits
+    # GRPC::FailedPrecondition which grpc_call surfaces as PaymentError
+    # (established FailedPrecondition->Payment convention across all SDKs).
+
+    # @return [WalletAddress]
+    def wallet_address
+      resp = grpc_call { @wallet_stub.get_address(Antd::V1::GetWalletAddressRequest.new) }
+      WalletAddress.new(address: resp.address)
+    end
+
+    # @return [WalletBalance]
+    def wallet_balance
+      resp = grpc_call { @wallet_stub.get_balance(Antd::V1::GetWalletBalanceRequest.new) }
+      WalletBalance.new(balance: resp.balance, gas_balance: resp.gas_balance)
+    end
+
+    # @return [Boolean]
+    def wallet_approve
+      resp = grpc_call { @wallet_stub.approve(Antd::V1::WalletApproveRequest.new) }
+      resp.approved
     end
 
     private

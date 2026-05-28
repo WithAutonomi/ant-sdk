@@ -164,6 +164,28 @@ module FakeGrpc
   end
 
   # A stub that always raises the given GRPC::BadStatus error.
+  class WalletStub
+    def get_address(_req)
+      OpenStruct.new(address: "0xabc1234567890abcdef1234567890abcdef123456")
+    end
+
+    def get_balance(_req)
+      OpenStruct.new(balance: "1000000000000000000", gas_balance: "500000000000000000")
+    end
+
+    def approve(_req)
+      OpenStruct.new(approved: true)
+    end
+  end
+
+  # Wallet stub that raises FailedPrecondition for every RPC — simulates a
+  # daemon started without AUTONOMI_WALLET_KEY.
+  class UnconfiguredWalletStub
+    def get_address(_req); raise GRPC::FailedPrecondition.new("wallet not configured — set AUTONOMI_WALLET_KEY"); end
+    def get_balance(_req); raise GRPC::FailedPrecondition.new("wallet not configured — set AUTONOMI_WALLET_KEY"); end
+    def approve(_req); raise GRPC::FailedPrecondition.new("wallet not configured — set AUTONOMI_WALLET_KEY"); end
+  end
+
   class ErrorStub
     def initialize(error)
       @error = error
@@ -192,6 +214,7 @@ def build_fake_client
   client.instance_variable_set(:@data_stub, FakeGrpc::DataStub.new)
   client.instance_variable_set(:@chunk_stub, FakeGrpc::ChunkStub.new)
   client.instance_variable_set(:@file_stub, FakeGrpc::FileStub.new)
+  client.instance_variable_set(:@wallet_stub, FakeGrpc::WalletStub.new)
   client
 end
 
@@ -382,5 +405,44 @@ class TestGrpcClient < Minitest::Test
     }.fetch(code_sym)
 
     klass.new(message)
+  end
+end
+
+# ---------------------------------------------------------------------------
+# V2-286: WalletService tests
+# ---------------------------------------------------------------------------
+
+def build_unconfigured_wallet_client
+  client = Antd::GrpcClient.allocate
+  client.instance_variable_set(:@wallet_stub, FakeGrpc::UnconfiguredWalletStub.new)
+  client
+end
+
+class TestGrpcWallet < Minitest::Test
+  def test_wallet_address_returns_address
+    c = build_fake_client
+    r = c.wallet_address
+    assert_equal "0xabc1234567890abcdef1234567890abcdef123456", r.address
+  end
+
+  def test_wallet_balance_returns_balances
+    c = build_fake_client
+    r = c.wallet_balance
+    assert_equal "1000000000000000000", r.balance
+    assert_equal "500000000000000000", r.gas_balance
+  end
+
+  def test_wallet_approve_returns_true
+    c = build_fake_client
+    assert_equal true, c.wallet_approve
+  end
+
+  # Daemon emits gRPC FailedPrecondition for "wallet not configured"; the
+  # established mapping (grpc_call) surfaces this as PaymentError. (Semantic a
+  # bit off vs REST's 503 but matches every SDK.)
+  def test_wallet_address_unconfigured_raises_payment_error
+    c = build_unconfigured_wallet_client
+    err = assert_raises(Antd::PaymentError) { c.wallet_address }
+    assert_match(/wallet not configured/, err.message)
   end
 end
