@@ -5,8 +5,8 @@ use bytes::Bytes;
 use zeroize::Zeroize;
 
 use ant_core::data::{
-    Client as CoreClient, ClientConfig, CoreNodeConfig, MultiAddr, NodeMode, P2PNode,
-    Wallet as CoreWallet,
+    Client as CoreClient, ClientConfig, CoreNodeConfig, DevnetManifest, MultiAddr, NodeMode,
+    P2PNode, Wallet as CoreWallet,
 };
 
 use crate::data::{format_payment_mode, parse_payment_mode};
@@ -169,6 +169,84 @@ impl Client {
         let client =
             CoreClient::from_node(Arc::new(node), ClientConfig::default()).with_wallet(wallet);
 
+        Ok(Arc::new(Self { inner: client }))
+    }
+
+    /// Connect to a locally running devnet using the manifest JSON file the
+    /// devnet wrote on startup (`LocalDevnet::write_manifest`).
+    ///
+    /// Reads bootstrap peers, EVM RPC URL + contract addresses, and the
+    /// funded wallet private key from the manifest, then constructs a Client
+    /// with the wallet attached. Suitable for **development and testing
+    /// only** — production code should provide bootstrap peers and wallet
+    /// material explicitly via [`Self::connect_with_wallet`].
+    ///
+    /// Fails if the manifest doesn't exist, is malformed, or has no `evm`
+    /// section (a devnet started without payment enforcement).
+    #[uniffi::constructor]
+    pub async fn connect_from_devnet_manifest(path: String) -> Result<Arc<Self>, ClientError> {
+        let bytes = std::fs::read(&path).map_err(|e| ClientError::InitializationFailed {
+            reason: format!("failed to read manifest at {path}: {e}"),
+        })?;
+        let manifest: DevnetManifest = serde_json::from_slice(&bytes).map_err(|e| {
+            ClientError::InitializationFailed {
+                reason: format!("invalid manifest JSON: {e}"),
+            }
+        })?;
+        let evm = manifest.evm.ok_or_else(|| ClientError::InitializationFailed {
+            reason: "manifest has no `evm` section — devnet started without payments?".into(),
+        })?;
+
+        // `allow_loopback(true)` is the critical bit — the devnet's bootstrap
+        // peers are at 127.0.0.1:<port>, and saorsa-core / libp2p filter
+        // loopback addresses by default as "non-routable". Without this the
+        // peer connections silently never form and chunk_put fails with
+        // "Found 0 peers, need 7". `local(true)` mirrors `connect_local()`
+        // since this constructor is also a local-devnet flow.
+        let mut builder = CoreNodeConfig::builder()
+            .mode(NodeMode::Client)
+            .port(0)
+            .local(true)
+            .allow_loopback(true)
+            .ipv6(false);
+        for peer in &manifest.bootstrap {
+            builder = builder.bootstrap_peer(peer.clone());
+        }
+        let config = builder
+            .build()
+            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+        let node = P2PNode::new(config)
+            .await
+            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+        node.start()
+            .await
+            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+
+        // Poll for peer connections. We need at least the close-group size
+        // (~7) for chunk_put to succeed, not just "any peer" — wait up to
+        // 15s for the network to stabilize.
+        for _ in 0..60 {
+            let count = node.connected_peers().await.len();
+            if count >= 7 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+
+        let network = build_custom_network(
+            &evm.rpc_url,
+            &evm.payment_token_address,
+            &evm.payment_vault_address,
+        )
+        .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+        let wallet = CoreWallet::new_from_private_key(network, &evm.wallet_private_key).map_err(
+            |e| ClientError::InitializationFailed {
+                reason: format!("failed to create wallet from manifest: {e}"),
+            },
+        )?;
+
+        let client =
+            CoreClient::from_node(Arc::new(node), ClientConfig::default()).with_wallet(wallet);
         Ok(Arc::new(Self { inner: client }))
     }
 
