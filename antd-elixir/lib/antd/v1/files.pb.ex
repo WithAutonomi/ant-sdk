@@ -1,7 +1,10 @@
 defmodule Antd.V1.PutFileRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "antd.v1.PutFileRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :path, 1, type: :string
   field :payment_mode, 2, type: :string, json_name: "paymentMode"
@@ -10,7 +13,10 @@ end
 defmodule Antd.V1.PutFilePublicResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "antd.v1.PutFilePublicResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :address, 2, type: :string
   field :storage_cost_atto, 3, type: :string, json_name: "storageCostAtto"
@@ -22,7 +28,10 @@ end
 defmodule Antd.V1.PutFileResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "antd.v1.PutFileResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :data_map, 1, type: :string, json_name: "dataMap"
   field :storage_cost_atto, 2, type: :string, json_name: "storageCostAtto"
@@ -34,7 +43,10 @@ end
 defmodule Antd.V1.GetFilePublicRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "antd.v1.GetFilePublicRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :address, 1, type: :string
   field :dest_path, 2, type: :string, json_name: "destPath"
@@ -43,7 +55,10 @@ end
 defmodule Antd.V1.GetFileRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "antd.v1.GetFileRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :data_map, 1, type: :string, json_name: "dataMap"
   field :dest_path, 2, type: :string, json_name: "destPath"
@@ -52,13 +67,19 @@ end
 defmodule Antd.V1.GetFileResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "antd.v1.GetFileResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 end
 
 defmodule Antd.V1.FileCostRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "antd.v1.FileCostRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :path, 1, type: :string
   field :is_public, 2, type: :bool, json_name: "isPublic"
@@ -68,7 +89,7 @@ end
 defmodule Antd.V1.FileService.Service do
   @moduledoc false
 
-  use GRPC.Service, name: "antd.v1.FileService", protoc_gen_elixir_version: "0.13.0"
+  use GRPC.Service, name: "antd.v1.FileService", protoc_gen_elixir_version: "0.16.0"
 
   rpc :Put, Antd.V1.PutFileRequest, Antd.V1.PutFileResponse
 

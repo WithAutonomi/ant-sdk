@@ -1,13 +1,19 @@
 defmodule Antd.V1.HealthCheckRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "antd.v1.HealthCheckRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 end
 
 defmodule Antd.V1.HealthCheckResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "antd.v1.HealthCheckResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :status, 1, type: :string
   field :network, 2, type: :string
@@ -22,7 +28,7 @@ end
 defmodule Antd.V1.HealthService.Service do
   @moduledoc false
 
-  use GRPC.Service, name: "antd.v1.HealthService", protoc_gen_elixir_version: "0.13.0"
+  use GRPC.Service, name: "antd.v1.HealthService", protoc_gen_elixir_version: "0.16.0"
 
   rpc :Check, Antd.V1.HealthCheckRequest, Antd.V1.HealthCheckResponse
 end
