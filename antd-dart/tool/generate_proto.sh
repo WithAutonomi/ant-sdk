@@ -26,6 +26,7 @@ protoc \
   "$PROTO_ROOT"/antd/v1/data.proto \
   "$PROTO_ROOT"/antd/v1/chunks.proto \
   "$PROTO_ROOT"/antd/v1/files.proto \
-  "$PROTO_ROOT"/antd/v1/events.proto
+  "$PROTO_ROOT"/antd/v1/events.proto \
+  "$PROTO_ROOT"/antd/v1/wallet.proto
 
 echo "Regenerated Dart stubs under $OUT_DIR"
