@@ -13,6 +13,7 @@ public sealed class AntdGrpcClient : IAntdClient
     private readonly ChunkService.ChunkServiceClient _chunks;
     private readonly FileService.FileServiceClient _files;
     private readonly UploadService.UploadServiceClient _upload;
+    private readonly WalletService.WalletServiceClient _wallet;
 
     public AntdGrpcClient(string target = "http://localhost:50051")
     {
@@ -22,6 +23,7 @@ public sealed class AntdGrpcClient : IAntdClient
         _chunks = new ChunkService.ChunkServiceClient(_channel);
         _files = new FileService.FileServiceClient(_channel);
         _upload = new UploadService.UploadServiceClient(_channel);
+        _wallet = new WalletService.WalletServiceClient(_channel);
     }
 
     /// <summary>
@@ -34,14 +36,16 @@ public sealed class AntdGrpcClient : IAntdClient
         DataService.DataServiceClient data,
         ChunkService.ChunkServiceClient chunks,
         FileService.FileServiceClient files,
-        UploadService.UploadServiceClient upload)
+        UploadService.UploadServiceClient upload,
+        WalletService.WalletServiceClient wallet)
     {
-        _channel = null;
+        _channel = null!;
         _health = health;
         _data = data;
         _chunks = chunks;
         _files = files;
         _upload = upload;
+        _wallet = wallet;
     }
 
     public static AntdGrpcClient AutoDiscover()
@@ -288,16 +292,40 @@ public sealed class AntdGrpcClient : IAntdClient
         catch (RpcException ex) { throw Wrap(ex); }
     }
 
-    // Wallet (not yet available via gRPC)
+    // Wallet — V2-286 parity with REST AntdRestClient.WalletAddress/Balance/Approve.
+    // A missing daemon wallet emits gRPC FailedPrecondition; the existing
+    // ExceptionMapping.FromGrpcStatus maps that to PaymentError (established
+    // FailedPrecondition->Payment convention across all SDKs).
 
-    public Task<WalletAddress> WalletAddressAsync()
-        => throw new NotSupportedException("WalletAddress is not yet supported via gRPC");
+    public async Task<WalletAddress> WalletAddressAsync()
+    {
+        try
+        {
+            var resp = await _wallet.GetAddressAsync(new GetWalletAddressRequest());
+            return new WalletAddress(resp.Address);
+        }
+        catch (RpcException ex) { throw Wrap(ex); }
+    }
 
-    public Task<WalletBalance> WalletBalanceAsync()
-        => throw new NotSupportedException("WalletBalance is not yet supported via gRPC");
+    public async Task<WalletBalance> WalletBalanceAsync()
+    {
+        try
+        {
+            var resp = await _wallet.GetBalanceAsync(new GetWalletBalanceRequest());
+            return new WalletBalance(resp.Balance, resp.GasBalance);
+        }
+        catch (RpcException ex) { throw Wrap(ex); }
+    }
 
-    public Task<bool> WalletApproveAsync()
-        => throw new NotSupportedException("WalletApprove is not yet supported via gRPC");
+    public async Task<bool> WalletApproveAsync()
+    {
+        try
+        {
+            var resp = await _wallet.ApproveAsync(new WalletApproveRequest());
+            return resp.Approved;
+        }
+        catch (RpcException ex) { throw Wrap(ex); }
+    }
 
 
     // External Signer (Two-Phase Upload)
