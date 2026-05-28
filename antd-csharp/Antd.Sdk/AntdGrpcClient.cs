@@ -7,11 +7,12 @@ namespace Antd.Sdk;
 
 public sealed class AntdGrpcClient : IAntdClient
 {
-    private readonly GrpcChannel _channel;
+    private readonly GrpcChannel? _channel;
     private readonly HealthService.HealthServiceClient _health;
     private readonly DataService.DataServiceClient _data;
     private readonly ChunkService.ChunkServiceClient _chunks;
     private readonly FileService.FileServiceClient _files;
+    private readonly UploadService.UploadServiceClient _upload;
 
     public AntdGrpcClient(string target = "http://localhost:50051")
     {
@@ -20,6 +21,27 @@ public sealed class AntdGrpcClient : IAntdClient
         _data = new DataService.DataServiceClient(_channel);
         _chunks = new ChunkService.ChunkServiceClient(_channel);
         _files = new FileService.FileServiceClient(_channel);
+        _upload = new UploadService.UploadServiceClient(_channel);
+    }
+
+    /// <summary>
+    /// Test-only constructor accepting pre-built service clients (which can be
+    /// subclassed mocks). Bypasses channel construction so tests can run
+    /// without a real network endpoint.
+    /// </summary>
+    internal AntdGrpcClient(
+        HealthService.HealthServiceClient health,
+        DataService.DataServiceClient data,
+        ChunkService.ChunkServiceClient chunks,
+        FileService.FileServiceClient files,
+        UploadService.UploadServiceClient upload)
+    {
+        _channel = null;
+        _health = health;
+        _data = data;
+        _chunks = chunks;
+        _files = files;
+        _upload = upload;
     }
 
     public static AntdGrpcClient AutoDiscover()
@@ -28,11 +50,11 @@ public sealed class AntdGrpcClient : IAntdClient
         return string.IsNullOrEmpty(target) ? new AntdGrpcClient() : new AntdGrpcClient(target);
     }
 
-    public void Dispose() => _channel.Dispose();
+    public void Dispose() => _channel?.Dispose();
 
     public ValueTask DisposeAsync()
     {
-        _channel.Dispose();
+        _channel?.Dispose();
         return ValueTask.CompletedTask;
     }
 
@@ -160,11 +182,42 @@ public sealed class AntdGrpcClient : IAntdClient
         catch (RpcException ex) { throw Wrap(ex); }
     }
 
-    public Task<PrepareChunkResult> PrepareChunkUploadAsync(byte[] data)
-        => throw new NotSupportedException("PrepareChunkUpload is not yet supported via gRPC");
+    public async Task<PrepareChunkResult> PrepareChunkUploadAsync(byte[] data)
+    {
+        try
+        {
+            var resp = await _chunks.PrepareChunkAsync(new PrepareChunkRequest
+            {
+                Data = ByteString.CopyFrom(data),
+            });
+            var payments = resp.Payments
+                .Select(p => new PaymentInfo(p.QuoteHash, p.RewardsAddress, p.Amount))
+                .ToList();
+            return new PrepareChunkResult(
+                resp.Address,
+                resp.AlreadyStored,
+                resp.UploadId,
+                resp.PaymentType,
+                payments,
+                resp.TotalAmount,
+                resp.PaymentVaultAddress,
+                resp.PaymentTokenAddress,
+                resp.RpcUrl);
+        }
+        catch (RpcException ex) { throw Wrap(ex); }
+    }
 
-    public Task<string> FinalizeChunkUploadAsync(string uploadId, IDictionary<string, string> txHashes)
-        => throw new NotSupportedException("FinalizeChunkUpload is not yet supported via gRPC");
+    public async Task<string> FinalizeChunkUploadAsync(string uploadId, IDictionary<string, string> txHashes)
+    {
+        try
+        {
+            var req = new FinalizeChunkRequest { UploadId = uploadId };
+            foreach (var kv in txHashes) req.TxHashes[kv.Key] = kv.Value;
+            var resp = await _chunks.FinalizeChunkAsync(req);
+            return resp.Address;
+        }
+        catch (RpcException ex) { throw Wrap(ex); }
+    }
 
     // Files
 
@@ -247,20 +300,95 @@ public sealed class AntdGrpcClient : IAntdClient
         => throw new NotSupportedException("WalletApprove is not yet supported via gRPC");
 
 
-    // External Signer (Two-Phase Upload) — not yet available via gRPC
+    // External Signer (Two-Phase Upload)
 
-    public Task<PrepareUploadResult> PrepareUploadAsync(string path, string? visibility = null)
-        => throw new NotSupportedException("PrepareUpload is not yet supported via gRPC");
+    private static PrepareUploadResult MapPrepareResponse(PrepareUploadResponse resp)
+    {
+        var payments = resp.Payments
+            .Select(p => new PaymentInfo(p.QuoteHash, p.RewardsAddress, p.Amount))
+            .ToList();
 
-    public Task<PrepareUploadResult> PrepareUploadPublicAsync(string path)
-        => throw new NotSupportedException("PrepareUploadPublic is not yet supported via gRPC");
+        var isMerkle = resp.PaymentType == "merkle";
+        int? depth = isMerkle ? (int?)resp.Depth : null;
+        long? merkleTs = isMerkle ? (long?)resp.MerklePaymentTimestamp : null;
+        List<PoolCommitmentEntry>? poolCommitments = isMerkle
+            ? resp.PoolCommitments.Select(pc => new PoolCommitmentEntry(
+                pc.PoolHash,
+                pc.Candidates.Select(c => new CandidateNodeEntry(c.RewardsAddress, c.Amount)).ToList()))
+                .ToList()
+            : null;
 
-    public Task<PrepareUploadResult> PrepareDataUploadAsync(byte[] data, string? visibility = null)
-        => throw new NotSupportedException("PrepareDataUpload is not yet supported via gRPC");
+        return new PrepareUploadResult(
+            UploadId: resp.UploadId,
+            Payments: payments,
+            TotalAmount: resp.TotalAmount,
+            PaymentVaultAddress: resp.PaymentVaultAddress,
+            PaymentTokenAddress: resp.PaymentTokenAddress,
+            RpcUrl: resp.RpcUrl,
+            PaymentType: resp.PaymentType,
+            Depth: depth,
+            PoolCommitments: poolCommitments,
+            MerklePaymentTimestamp: merkleTs);
+    }
 
-    public Task<FinalizeUploadResult> FinalizeUploadAsync(string uploadId, Dictionary<string, string> txHashes)
-        => throw new NotSupportedException("FinalizeUpload is not yet supported via gRPC");
+    private static FinalizeUploadResult MapFinalizeResponse(FinalizeUploadResponse resp) =>
+        new(resp.Address, (long)resp.ChunksStored, resp.DataMap, resp.DataMapAddress);
 
-    public Task<FinalizeMerkleUploadResult> FinalizeMerkleUploadAsync(string uploadId, string winnerPoolHash)
-        => throw new NotSupportedException("FinalizeMerkleUpload is not yet supported via gRPC");
+    public async Task<PrepareUploadResult> PrepareUploadAsync(string path, string? visibility = null)
+    {
+        try
+        {
+            var resp = await _upload.PrepareFileUploadAsync(new PrepareFileUploadRequest
+            {
+                Path = path,
+                Visibility = visibility ?? "",
+            });
+            return MapPrepareResponse(resp);
+        }
+        catch (RpcException ex) { throw Wrap(ex); }
+    }
+
+    public Task<PrepareUploadResult> PrepareUploadPublicAsync(string path) =>
+        PrepareUploadAsync(path, "public");
+
+    public async Task<PrepareUploadResult> PrepareDataUploadAsync(byte[] data, string? visibility = null)
+    {
+        try
+        {
+            var resp = await _upload.PrepareDataUploadAsync(new PrepareDataUploadRequest
+            {
+                Data = ByteString.CopyFrom(data),
+                Visibility = visibility ?? "",
+            });
+            return MapPrepareResponse(resp);
+        }
+        catch (RpcException ex) { throw Wrap(ex); }
+    }
+
+    public async Task<FinalizeUploadResult> FinalizeUploadAsync(string uploadId, Dictionary<string, string> txHashes)
+    {
+        try
+        {
+            var req = new FinalizeUploadRequest { UploadId = uploadId };
+            foreach (var kv in txHashes) req.TxHashes[kv.Key] = kv.Value;
+            var resp = await _upload.FinalizeUploadAsync(req);
+            return MapFinalizeResponse(resp);
+        }
+        catch (RpcException ex) { throw Wrap(ex); }
+    }
+
+    public async Task<FinalizeMerkleUploadResult> FinalizeMerkleUploadAsync(string uploadId, string winnerPoolHash)
+    {
+        try
+        {
+            var resp = await _upload.FinalizeUploadAsync(new FinalizeUploadRequest
+            {
+                UploadId = uploadId,
+                WinnerPoolHash = winnerPoolHash,
+            });
+            return new FinalizeMerkleUploadResult(
+                resp.Address, (long)resp.ChunksStored, resp.DataMap, resp.DataMapAddress);
+        }
+        catch (RpcException ex) { throw Wrap(ex); }
+    }
 }
