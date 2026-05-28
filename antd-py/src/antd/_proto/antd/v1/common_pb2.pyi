@@ -35,3 +35,13 @@ class SecretKeyProto(_message.Message):
     HEX_FIELD_NUMBER: _ClassVar[int]
     hex: str
     def __init__(self, hex: _Optional[str] = ...) -> None: ...
+
+class PaymentEntry(_message.Message):
+    __slots__ = ("quote_hash", "rewards_address", "amount")
+    QUOTE_HASH_FIELD_NUMBER: _ClassVar[int]
+    REWARDS_ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    AMOUNT_FIELD_NUMBER: _ClassVar[int]
+    quote_hash: str
+    rewards_address: str
+    amount: str
+    def __init__(self, quote_hash: _Optional[str] = ..., rewards_address: _Optional[str] = ..., amount: _Optional[str] = ...) -> None: ...
