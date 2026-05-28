@@ -6,17 +6,34 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "staticlib", "lib"]
 
+# In-crate uniffi bindgen — invoked as `cargo run --bin uniffi-bindgen -- generate ...`.
+# Keeps the bindgen pinned to the exact uniffi version the lib was compiled against,
+# avoiding metadata-version drift between an external `uniffi-bindgen-cli` install
+# and the runtime crate.
+[[bin]]
+# Note: NOT in src/bin/ because the monorepo root .gitignore has a top-level
+# `bin/` rule (intended for C#/.NET output) that swallows any Rust bin tree.
+name = "uniffi-bindgen"
+path = "src/uniffi-bindgen.rs"
+
 [dependencies]
-ant-core = { git = "https://github.com/WithAutonomi/ant-client" }
-evmlib = "0.8.0"
+# Pinned to a specific rev so the build is reproducible — without this, every
+# `cargo build` could pick up unrelated ant-core changes.
+# Bump via: gh api repos/WithAutonomi/ant-client/branches/main -q '.commit.sha'
+# Local iteration: temporarily override with `[patch.crates-io]` or a path dep
+# in `.cargo/config.toml` (don't commit the override).
+ant-core = { git = "https://github.com/WithAutonomi/ant-client", rev = "e67472424f94acd4b9188a342271210d4ab9f94d" }
+# QuoteHash / TxHash / Amount used through ant_protocol::evm; pin must match
+# ant-core's transitive ant-protocol version to avoid evmlib graph skew.
+ant-protocol = "2.0.3"
 bytes = "1"
 hex = "0.4"
-rand = "0.8"
 rmp-serde = "1"
 thiserror = "2"
+url = "2"
 zeroize = "1"
 tokio = { version = "1", features = ["rt-multi-thread"] }
-uniffi = { workspace = true, features = ["tokio"] }
+uniffi = { workspace = true, features = ["tokio", "cli"] }
 
 [build-dependencies]
 uniffi = { version = "0.29.4", features = ["build"] }

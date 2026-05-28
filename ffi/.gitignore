@@ -4,6 +4,7 @@ kotlin/AntFfi/Generated/
 swift/AntFfi/Generated/
 
 # Build artifacts
+build/
 rust/target/
 csharp/**/bin/
 csharp/**/obj/
