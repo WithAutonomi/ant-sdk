@@ -10,6 +10,7 @@
 #include "antd/v1/chunks.grpc.pb.h"
 #include "antd/v1/files.grpc.pb.h"
 #include "antd/v1/upload.grpc.pb.h"
+#include "antd/v1/wallet.grpc.pb.h"
 
 namespace antd {
 
@@ -53,6 +54,7 @@ struct GrpcClient::Impl {
     std::unique_ptr<antd::v1::ChunkService::Stub> chunk_stub;
     std::unique_ptr<antd::v1::FileService::Stub> file_stub;
     std::unique_ptr<antd::v1::UploadService::Stub> upload_stub;
+    std::unique_ptr<antd::v1::WalletService::Stub> wallet_stub;
 
     explicit Impl(const std::string& target)
         : channel(grpc::CreateChannel(target, grpc::InsecureChannelCredentials())),
@@ -60,7 +62,8 @@ struct GrpcClient::Impl {
           data_stub(antd::v1::DataService::NewStub(channel)),
           chunk_stub(antd::v1::ChunkService::NewStub(channel)),
           file_stub(antd::v1::FileService::NewStub(channel)),
-          upload_stub(antd::v1::UploadService::NewStub(channel)) {}
+          upload_stub(antd::v1::UploadService::NewStub(channel)),
+          wallet_stub(antd::v1::WalletService::NewStub(channel)) {}
 };
 
 // ---------------------------------------------------------------------------
@@ -420,6 +423,42 @@ std::string GrpcClient::finalize_chunk_upload(std::string_view upload_id,
     antd::v1::FinalizeChunkResponse resp;
     check_status(impl_->chunk_stub->FinalizeChunk(&ctx, req, &resp));
     return resp.address();
+}
+
+// Wallet (V2-286)
+// ---------------------------------------------------------------------------
+//
+// A missing daemon wallet emits gRPC `FAILED_PRECONDITION`, which
+// check_status() maps to PaymentError (established
+// FailedPrecondition->Payment convention across all SDKs).
+
+WalletAddress GrpcClient::wallet_address() {
+    grpc::ClientContext ctx;
+    antd::v1::GetWalletAddressRequest req;
+    antd::v1::GetWalletAddressResponse resp;
+    check_status(impl_->wallet_stub->GetAddress(&ctx, req, &resp));
+    return WalletAddress{
+        .address = resp.address(),
+    };
+}
+
+WalletBalance GrpcClient::wallet_balance() {
+    grpc::ClientContext ctx;
+    antd::v1::GetWalletBalanceRequest req;
+    antd::v1::GetWalletBalanceResponse resp;
+    check_status(impl_->wallet_stub->GetBalance(&ctx, req, &resp));
+    return WalletBalance{
+        .balance = resp.balance(),
+        .gas_balance = resp.gas_balance(),
+    };
+}
+
+bool GrpcClient::wallet_approve() {
+    grpc::ClientContext ctx;
+    antd::v1::WalletApproveRequest req;
+    antd::v1::WalletApproveResponse resp;
+    check_status(impl_->wallet_stub->Approve(&ctx, req, &resp));
+    return resp.approved();
 }
 
 }  // namespace antd
