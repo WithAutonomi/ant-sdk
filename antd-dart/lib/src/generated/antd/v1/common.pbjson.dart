@@ -69,3 +69,18 @@ const SecretKeyProto$json = {
 final $typed_data.Uint8List secretKeyProtoDescriptor = $convert.base64Decode(
     'Cg5TZWNyZXRLZXlQcm90bxIQCgNoZXgYASABKAlSA2hleA==');
 
+@$core.Deprecated('Use paymentEntryDescriptor instead')
+const PaymentEntry$json = {
+  '1': 'PaymentEntry',
+  '2': [
+    {'1': 'quote_hash', '3': 1, '4': 1, '5': 9, '10': 'quoteHash'},
+    {'1': 'rewards_address', '3': 2, '4': 1, '5': 9, '10': 'rewardsAddress'},
+    {'1': 'amount', '3': 3, '4': 1, '5': 9, '10': 'amount'},
+  ],
+};
+
+/// Descriptor for `PaymentEntry`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List paymentEntryDescriptor = $convert.base64Decode(
+    'CgxQYXltZW50RW50cnkSHQoKcXVvdGVfaGFzaBgBIAEoCVIJcXVvdGVIYXNoEicKD3Jld2FyZH'
+    'NfYWRkcmVzcxgCIAEoCVIOcmV3YXJkc0FkZHJlc3MSFgoGYW1vdW50GAMgASgJUgZhbW91bnQ=');
+

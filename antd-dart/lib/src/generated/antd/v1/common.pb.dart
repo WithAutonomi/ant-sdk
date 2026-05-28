@@ -249,6 +249,81 @@ class SecretKeyProto extends $pb.GeneratedMessage {
   void clearHex() => $_clearField(1);
 }
 
+/// External-signer per-quote payment entry. Shared by `UploadService` (file +
+/// data prepare, wave-batch path) and `ChunkService.PrepareChunk`.
+class PaymentEntry extends $pb.GeneratedMessage {
+  factory PaymentEntry({
+    $core.String? quoteHash,
+    $core.String? rewardsAddress,
+    $core.String? amount,
+  }) {
+    final result = create();
+    if (quoteHash != null) result.quoteHash = quoteHash;
+    if (rewardsAddress != null) result.rewardsAddress = rewardsAddress;
+    if (amount != null) result.amount = amount;
+    return result;
+  }
+
+  PaymentEntry._();
+
+  factory PaymentEntry.fromBuffer($core.List<$core.int> data, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(data, registry);
+  factory PaymentEntry.fromJson($core.String json, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'PaymentEntry', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'quoteHash')
+    ..aOS(2, _omitFieldNames ? '' : 'rewardsAddress')
+    ..aOS(3, _omitFieldNames ? '' : 'amount')
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PaymentEntry clone() => PaymentEntry()..mergeFromMessage(this);
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PaymentEntry copyWith(void Function(PaymentEntry) updates) => super.copyWith((message) => updates(message as PaymentEntry)) as PaymentEntry;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static PaymentEntry create() => PaymentEntry._();
+  @$core.override
+  PaymentEntry createEmptyInstance() => create();
+  static $pb.PbList<PaymentEntry> createRepeated() => $pb.PbList<PaymentEntry>();
+  @$core.pragma('dart2js:noInline')
+  static PaymentEntry getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<PaymentEntry>(create);
+  static PaymentEntry? _defaultInstance;
+
+  /// Quote hash (hex with 0x prefix, 32 bytes).
+  @$pb.TagNumber(1)
+  $core.String get quoteHash => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set quoteHash($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasQuoteHash() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearQuoteHash() => $_clearField(1);
+
+  /// Rewards address (hex with 0x prefix, 20 bytes).
+  @$pb.TagNumber(2)
+  $core.String get rewardsAddress => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set rewardsAddress($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasRewardsAddress() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearRewardsAddress() => $_clearField(2);
+
+  /// Amount to pay (atto tokens as decimal string).
+  @$pb.TagNumber(3)
+  $core.String get amount => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set amount($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasAmount() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearAmount() => $_clearField(3);
+}
+
 
 const $core.bool _omitFieldNames = $core.bool.fromEnvironment('protobuf.omit_field_names');
 const $core.bool _omitMessageNames = $core.bool.fromEnvironment('protobuf.omit_message_names');
