@@ -6,7 +6,7 @@
 #     -I../../antd/proto \
 #     --ruby_out=lib --grpc_out=lib \
 #     antd/v1/common.proto antd/v1/health.proto antd/v1/data.proto \
-#     antd/v1/chunks.proto antd/v1/files.proto
+#     antd/v1/chunks.proto antd/v1/files.proto antd/v1/upload.proto
 #
 # The generated files are expected under lib/antd/v1/.
 
@@ -15,6 +15,7 @@ require_relative "v1/health_services_pb"
 require_relative "v1/data_services_pb"
 require_relative "v1/chunks_services_pb"
 require_relative "v1/files_services_pb"
+require_relative "v1/upload_services_pb"
 
 module Antd
   DEFAULT_GRPC_TARGET = "localhost:50051"
@@ -43,6 +44,7 @@ module Antd
       @data_stub   = Antd::V1::DataService::Stub.new(target, :this_channel_is_insecure)
       @chunk_stub  = Antd::V1::ChunkService::Stub.new(target, :this_channel_is_insecure)
       @file_stub   = Antd::V1::FileService::Stub.new(target, :this_channel_is_insecure)
+      @upload_stub = Antd::V1::UploadService::Stub.new(target, :this_channel_is_insecure)
     end
 
     # --- Health ---
@@ -214,7 +216,173 @@ module Antd
       )
     end
 
+    # --- External Signer (chunks) ---
+
+    # Prepare a single chunk for external-signer publish.
+    #
+    # When the chunk is already on-network the result has
+    # +already_stored: true+ and the caller can skip +finalize_chunk_upload+
+    # entirely.
+    #
+    # @param data [String] raw chunk bytes
+    # @return [PrepareChunkResult]
+    def prepare_chunk_upload(data)
+      req = Antd::V1::PrepareChunkRequest.new(data: data.b)
+      resp = grpc_call { @chunk_stub.prepare_chunk(req) }
+      PrepareChunkResult.new(
+        address: resp.address,
+        already_stored: resp.already_stored,
+        upload_id: resp.upload_id,
+        payment_type: resp.payment_type,
+        payments: resp.payments.map { |p|
+          PaymentInfo.new(
+            quote_hash: p.quote_hash,
+            rewards_address: p.rewards_address,
+            amount: p.amount
+          )
+        },
+        total_amount: resp.total_amount,
+        payment_vault_address: resp.payment_vault_address,
+        payment_token_address: resp.payment_token_address,
+        rpc_url: resp.rpc_url
+      )
+    end
+
+    # Submit a prepared chunk after external payment. Returns the chunk address.
+    #
+    # @param upload_id [String]
+    # @param tx_hashes [Hash<String, String>]
+    # @return [String] hex chunk address
+    def finalize_chunk_upload(upload_id, tx_hashes)
+      req = Antd::V1::FinalizeChunkRequest.new(
+        upload_id: upload_id,
+        tx_hashes: tx_hashes
+      )
+      resp = grpc_call { @chunk_stub.finalize_chunk(req) }
+      resp.address
+    end
+
+    # --- External Signer (uploads) ---
+
+    # Prepare a file upload for external signing.
+    #
+    # @param path [String] local file path on the daemon host
+    # @param visibility [String, nil] +"private"+ (default when nil) or
+    #   +"public"+ to bundle the DataMap chunk into the same external-signer
+    #   payment batch
+    # @return [PrepareUploadResult]
+    def prepare_upload(path, visibility: nil)
+      req = Antd::V1::PrepareFileUploadRequest.new(
+        path: path,
+        visibility: visibility.to_s
+      )
+      resp = grpc_call { @upload_stub.prepare_file_upload(req) }
+      build_prepare_upload_result(resp)
+    end
+
+    # Convenience wrapper for +prepare_upload(path, visibility: "public")+.
+    #
+    # @param path [String]
+    # @return [PrepareUploadResult]
+    def prepare_upload_public(path)
+      prepare_upload(path, visibility: "public")
+    end
+
+    # Prepare an in-memory data upload for external signing.
+    #
+    # @param data [String] raw bytes
+    # @param visibility [String, nil] same semantics as +prepare_upload+
+    # @return [PrepareUploadResult]
+    def prepare_data_upload(data, visibility: nil)
+      req = Antd::V1::PrepareDataUploadRequest.new(
+        data: data.b,
+        visibility: visibility.to_s
+      )
+      resp = grpc_call { @upload_stub.prepare_data_upload(req) }
+      build_prepare_upload_result(resp)
+    end
+
+    # Finalize a wave-batch upload after external payment.
+    #
+    # @param upload_id [String]
+    # @param tx_hashes [Hash<String, String>]
+    # @return [FinalizeUploadResult]
+    def finalize_upload(upload_id, tx_hashes)
+      req = Antd::V1::FinalizeUploadRequest.new(
+        upload_id: upload_id,
+        tx_hashes: tx_hashes
+      )
+      resp = grpc_call { @upload_stub.finalize_upload(req) }
+      FinalizeUploadResult.new(
+        address: resp.address,
+        chunks_stored: resp.chunks_stored.to_i,
+        data_map: resp.data_map,
+        data_map_address: resp.data_map_address
+      )
+    end
+
+    # Finalize a merkle-batch upload after the winning pool has been
+    # determined.
+    #
+    # @param upload_id [String]
+    # @param winner_pool_hash [String]
+    # @param store_data_map [Boolean]
+    # @return [FinalizeUploadResult]
+    def finalize_merkle_upload(upload_id, winner_pool_hash, store_data_map: false)
+      req = Antd::V1::FinalizeUploadRequest.new(
+        upload_id: upload_id,
+        winner_pool_hash: winner_pool_hash,
+        store_data_map: store_data_map
+      )
+      resp = grpc_call { @upload_stub.finalize_upload(req) }
+      FinalizeUploadResult.new(
+        address: resp.address,
+        chunks_stored: resp.chunks_stored.to_i,
+        data_map: resp.data_map,
+        data_map_address: resp.data_map_address
+      )
+    end
+
     private
+
+    # Maps a PrepareUploadResponse proto into a +PrepareUploadResult+ struct,
+    # populating the merkle-only fields (+depth+, +pool_commitments+,
+    # +merkle_payment_timestamp+) only when +payment_type+ is +"merkle"+.
+    def build_prepare_upload_result(resp)
+      is_merkle = resp.payment_type == "merkle"
+      pool_commitments = if is_merkle
+        resp.pool_commitments.map { |pc|
+          PoolCommitmentEntry.new(
+            pool_hash: pc.pool_hash,
+            candidates: pc.candidates.map { |c|
+              CandidateNodeEntry.new(
+                rewards_address: c.rewards_address,
+                amount: c.amount
+              )
+            }
+          )
+        }
+      end
+      PrepareUploadResult.new(
+        upload_id: resp.upload_id,
+        payments: resp.payments.map { |p|
+          PaymentInfo.new(
+            quote_hash: p.quote_hash,
+            rewards_address: p.rewards_address,
+            amount: p.amount
+          )
+        },
+        total_amount: resp.total_amount,
+        payment_vault_address: resp.payment_vault_address,
+        payment_token_address: resp.payment_token_address,
+        rpc_url: resp.rpc_url,
+        payment_type: resp.payment_type,
+        depth: is_merkle ? resp.depth : nil,
+        pool_commitments: pool_commitments,
+        merkle_payment_timestamp: is_merkle ? resp.merkle_payment_timestamp.to_i : nil
+      )
+    end
+
 
     # Executes a gRPC call and translates errors to Antd error types.
     def grpc_call
