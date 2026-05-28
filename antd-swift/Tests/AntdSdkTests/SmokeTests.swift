@@ -11,11 +11,13 @@ final class SmokeTests: XCTestCase {
         XCTAssertTrue(client is AntdRestClient)
     }
 
+    @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, *)
     func testFactoryCreatesGrpcClient() {
         let client = AntdClient.createGrpc()
         XCTAssertTrue(client is AntdGrpcClient)
     }
 
+    @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, *)
     func testFactoryCreateWithTransportString() {
         let rest = AntdClient.create(transport: "rest")
         XCTAssertTrue(rest is AntdRestClient)
