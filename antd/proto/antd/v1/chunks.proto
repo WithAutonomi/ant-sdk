@@ -10,6 +10,14 @@ import "antd/v1/common.proto";
 service ChunkService {
   rpc Get(GetChunkRequest) returns (GetChunkResponse);
   rpc Put(PutChunkRequest) returns (PutChunkResponse);
+
+  // External-signer single-chunk publish. Mirrors REST
+  // `/v1/chunks/prepare` + `/v1/chunks/finalize`. Single chunks are always
+  // below the merkle threshold, so the payment shape is always wave-batch.
+  // When the chunk is already on-network, the prepare response has
+  // `already_stored = true` and the caller can skip the finalize step.
+  rpc PrepareChunk(PrepareChunkRequest) returns (PrepareChunkResponse);
+  rpc FinalizeChunk(FinalizeChunkRequest) returns (FinalizeChunkResponse);
 }
 
 message GetChunkRequest {
@@ -27,4 +35,58 @@ message PutChunkRequest {
 message PutChunkResponse {
   Cost cost = 1;
   string address = 2; // hex
+}
+
+// --- External signer (single-chunk) ---
+
+message PrepareChunkRequest {
+  // Raw chunk bytes — at most one ant-protocol chunk.
+  bytes data = 1;
+}
+
+// Mirrors REST `PrepareChunkResponse`. Single-chunk publishes are always
+// wave-batch, so there are no merkle fields. When `already_stored = true`
+// the payment fields are empty / zero and the caller can skip FinalizeChunk
+// entirely.
+message PrepareChunkResponse {
+  // Content-addressed BLAKE3 of the chunk bytes (hex with 0x prefix,
+  // 32 bytes).
+  string address = 1;
+  // True if the chunk was already stored on the network. In that case no
+  // payment or finalize call is needed; all subsequent fields are empty.
+  bool already_stored = 2;
+
+  // Opaque token to pass back to FinalizeChunk. Empty when
+  // `already_stored == true`.
+  string upload_id = 3;
+  // Always "wave_batch" for single-chunk publishes. Empty when
+  // `already_stored == true`.
+  string payment_type = 4;
+  // Per-quote payment entries for `payForQuotes()`. Empty when
+  // `already_stored == true`.
+  repeated PaymentEntry payments = 5;
+  // Total amount to pay (atto tokens as decimal string). Empty when
+  // `already_stored == true`.
+  string total_amount = 6;
+  // Unified payment vault contract address (hex with 0x prefix). Empty when
+  // `already_stored == true`.
+  string payment_vault_address = 7;
+  // Payment token contract address (hex with 0x prefix). Empty when
+  // `already_stored == true`.
+  string payment_token_address = 8;
+  // EVM RPC URL for submitting transactions. Empty when
+  // `already_stored == true`.
+  string rpc_url = 9;
+}
+
+message FinalizeChunkRequest {
+  // The upload_id returned from PrepareChunk.
+  string upload_id = 1;
+  // Map of quote_hash (hex) → tx_hash (hex) from the on-chain payment.
+  map<string, string> tx_hashes = 2;
+}
+
+message FinalizeChunkResponse {
+  // Network address of the stored chunk (hex with 0x prefix, 32 bytes).
+  string address = 1;
 }
