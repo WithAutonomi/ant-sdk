@@ -5,7 +5,7 @@ import warnings
 
 from antd._proto.antd.v1 import chunks_pb2 as antd_dot_v1_dot_chunks__pb2
 
-GRPC_GENERATED_VERSION = '1.78.0'
+GRPC_GENERATED_VERSION = '1.80.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -44,6 +44,16 @@ class ChunkServiceStub(object):
                 request_serializer=antd_dot_v1_dot_chunks__pb2.PutChunkRequest.SerializeToString,
                 response_deserializer=antd_dot_v1_dot_chunks__pb2.PutChunkResponse.FromString,
                 _registered_method=True)
+        self.PrepareChunk = channel.unary_unary(
+                '/antd.v1.ChunkService/PrepareChunk',
+                request_serializer=antd_dot_v1_dot_chunks__pb2.PrepareChunkRequest.SerializeToString,
+                response_deserializer=antd_dot_v1_dot_chunks__pb2.PrepareChunkResponse.FromString,
+                _registered_method=True)
+        self.FinalizeChunk = channel.unary_unary(
+                '/antd.v1.ChunkService/FinalizeChunk',
+                request_serializer=antd_dot_v1_dot_chunks__pb2.FinalizeChunkRequest.SerializeToString,
+                response_deserializer=antd_dot_v1_dot_chunks__pb2.FinalizeChunkResponse.FromString,
+                _registered_method=True)
 
 
 class ChunkServiceServicer(object):
@@ -61,6 +71,23 @@ class ChunkServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def PrepareChunk(self, request, context):
+        """External-signer single-chunk publish. Mirrors REST
+        `/v1/chunks/prepare` + `/v1/chunks/finalize`. Single chunks are always
+        below the merkle threshold, so the payment shape is always wave-batch.
+        When the chunk is already on-network, the prepare response has
+        `already_stored = true` and the caller can skip the finalize step.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def FinalizeChunk(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ChunkServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -73,6 +100,16 @@ def add_ChunkServiceServicer_to_server(servicer, server):
                     servicer.Put,
                     request_deserializer=antd_dot_v1_dot_chunks__pb2.PutChunkRequest.FromString,
                     response_serializer=antd_dot_v1_dot_chunks__pb2.PutChunkResponse.SerializeToString,
+            ),
+            'PrepareChunk': grpc.unary_unary_rpc_method_handler(
+                    servicer.PrepareChunk,
+                    request_deserializer=antd_dot_v1_dot_chunks__pb2.PrepareChunkRequest.FromString,
+                    response_serializer=antd_dot_v1_dot_chunks__pb2.PrepareChunkResponse.SerializeToString,
+            ),
+            'FinalizeChunk': grpc.unary_unary_rpc_method_handler(
+                    servicer.FinalizeChunk,
+                    request_deserializer=antd_dot_v1_dot_chunks__pb2.FinalizeChunkRequest.FromString,
+                    response_serializer=antd_dot_v1_dot_chunks__pb2.FinalizeChunkResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -129,6 +166,60 @@ class ChunkService(object):
             '/antd.v1.ChunkService/Put',
             antd_dot_v1_dot_chunks__pb2.PutChunkRequest.SerializeToString,
             antd_dot_v1_dot_chunks__pb2.PutChunkResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def PrepareChunk(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/antd.v1.ChunkService/PrepareChunk',
+            antd_dot_v1_dot_chunks__pb2.PrepareChunkRequest.SerializeToString,
+            antd_dot_v1_dot_chunks__pb2.PrepareChunkResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def FinalizeChunk(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/antd.v1.ChunkService/FinalizeChunk',
+            antd_dot_v1_dot_chunks__pb2.FinalizeChunkRequest.SerializeToString,
+            antd_dot_v1_dot_chunks__pb2.FinalizeChunkResponse.FromString,
             options,
             channel_credentials,
             insecure,
