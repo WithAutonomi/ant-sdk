@@ -127,6 +127,123 @@ module FakeGrpc
     def get(_req)
       OpenStruct.new(data: "chunkdata")
     end
+
+    # Inputs starting with "EXISTS" → already-stored short-circuit.
+    def prepare_chunk(req)
+      if req.data.byteslice(0, 6) == "EXISTS"
+        OpenStruct.new(
+          address: "0xabc",
+          already_stored: true,
+          upload_id: "",
+          payment_type: "",
+          payments: [],
+          total_amount: "",
+          payment_vault_address: "",
+          payment_token_address: "",
+          rpc_url: "",
+        )
+      else
+        OpenStruct.new(
+          address: "0xnewchunk",
+          already_stored: false,
+          upload_id: "upid_chunk_42",
+          payment_type: "wave_batch",
+          payments: [
+            OpenStruct.new(quote_hash: "0xq1", rewards_address: "0xr1", amount: "100"),
+          ],
+          total_amount: "100",
+          payment_vault_address: "0xvault",
+          payment_token_address: "0xtoken",
+          rpc_url: "http://localhost:8545",
+        )
+      end
+    end
+
+    def finalize_chunk(req)
+      # Echo upload_id into address so the test can verify forwarding.
+      OpenStruct.new(address: "addr_for_#{req.upload_id}")
+    end
+  end
+
+  # Mock UploadService stub. PrepareFileUpload echoes visibility into
+  # upload_id; PrepareDataUpload returns merkle when payload starts with
+  # "MERKLE"; FinalizeUpload returns merkle vs wave-batch based on which
+  # field is set.
+  class UploadStub
+    def prepare_file_upload(req)
+      OpenStruct.new(
+        upload_id: "upid_file_#{req.visibility}",
+        payment_type: "wave_batch",
+        payments: [
+          OpenStruct.new(quote_hash: "0xqa", rewards_address: "0xra", amount: "1"),
+        ],
+        depth: 0,
+        pool_commitments: [],
+        merkle_payment_timestamp: 0,
+        total_amount: "1",
+        payment_vault_address: "0xvault",
+        payment_token_address: "0xtoken",
+        rpc_url: "http://localhost:8545",
+      )
+    end
+
+    def prepare_data_upload(req)
+      uid = "upid_data_#{req.visibility}"
+      if req.data.byteslice(0, 6) == "MERKLE"
+        OpenStruct.new(
+          upload_id: uid,
+          payment_type: "merkle",
+          payments: [],
+          depth: 7,
+          pool_commitments: [
+            OpenStruct.new(
+              pool_hash: "0xpool",
+              candidates: [
+                OpenStruct.new(rewards_address: "0xc1", amount: "5"),
+              ],
+            ),
+          ],
+          merkle_payment_timestamp: 1_700_000_000,
+          total_amount: "0",
+          payment_vault_address: "0xvault",
+          payment_token_address: "0xtoken",
+          rpc_url: "http://localhost:8545",
+        )
+      else
+        OpenStruct.new(
+          upload_id: uid,
+          payment_type: "wave_batch",
+          payments: [
+            OpenStruct.new(quote_hash: "0xqb", rewards_address: "0xrb", amount: "2"),
+          ],
+          depth: 0,
+          pool_commitments: [],
+          merkle_payment_timestamp: 0,
+          total_amount: "2",
+          payment_vault_address: "0xvault",
+          payment_token_address: "0xtoken",
+          rpc_url: "http://localhost:8545",
+        )
+      end
+    end
+
+    def finalize_upload(req)
+      if req.winner_pool_hash && !req.winner_pool_hash.empty?
+        OpenStruct.new(
+          data_map: "dm_merkle",
+          address: req.store_data_map ? "stored_on_network" : "",
+          data_map_address: "",
+          chunks_stored: 64,
+        )
+      else
+        OpenStruct.new(
+          data_map: "dm_wave",
+          address: "",
+          data_map_address: req.upload_id.end_with?("public") ? "addr_public_dm" : "",
+          chunks_stored: 3,
+        )
+      end
+    end
   end
 
   class FileStub
@@ -192,6 +309,7 @@ def build_fake_client
   client.instance_variable_set(:@data_stub, FakeGrpc::DataStub.new)
   client.instance_variable_set(:@chunk_stub, FakeGrpc::ChunkStub.new)
   client.instance_variable_set(:@file_stub, FakeGrpc::FileStub.new)
+  client.instance_variable_set(:@upload_stub, FakeGrpc::UploadStub.new)
   client
 end
 
@@ -202,6 +320,7 @@ def build_error_client(error)
   client.instance_variable_set(:@data_stub, stub)
   client.instance_variable_set(:@chunk_stub, stub)
   client.instance_variable_set(:@file_stub, stub)
+  client.instance_variable_set(:@upload_stub, stub)
   client
 end
 
@@ -361,6 +480,97 @@ class TestGrpcClient < Minitest::Test
   def test_error_propagates_from_file_upload
     client = build_error_client(grpc_error(:RESOURCE_EXHAUSTED, "huge"))
     assert_raises(Antd::TooLargeError) { client.file_upload_public("/tmp/big") }
+  end
+
+  # --- External signer (prepare/finalize) ---
+
+  def test_prepare_upload_omits_visibility_when_nil
+    r = @client.prepare_upload("/tmp/x.bin")
+    # Empty visibility = proto3 default; the mock echoes that into upload_id.
+    assert_equal "upid_file_", r.upload_id
+    assert_equal "wave_batch", r.payment_type
+    assert_equal 1, r.payments.length
+    assert_equal "0xqa", r.payments.first.quote_hash
+    assert_nil r.depth
+    assert_nil r.pool_commitments
+    assert_nil r.merkle_payment_timestamp
+  end
+
+  def test_prepare_upload_forwards_visibility_public
+    r = @client.prepare_upload("/tmp/x.bin", visibility: "public")
+    assert_equal "upid_file_public", r.upload_id
+  end
+
+  def test_prepare_upload_public_convenience
+    r = @client.prepare_upload_public("/tmp/x.bin")
+    assert_equal "upid_file_public", r.upload_id
+  end
+
+  def test_prepare_data_upload_wave_batch
+    r = @client.prepare_data_upload("small")
+    assert_equal "upid_data_", r.upload_id
+    assert_equal "wave_batch", r.payment_type
+    assert_nil r.depth
+  end
+
+  def test_prepare_data_upload_merkle
+    r = @client.prepare_data_upload("MERKLE-large-payload")
+    assert_equal "merkle", r.payment_type
+    assert_equal 7, r.depth
+    assert_equal 1_700_000_000, r.merkle_payment_timestamp
+    assert_equal 1, r.pool_commitments.length
+    assert_equal "0xpool", r.pool_commitments.first.pool_hash
+    assert_equal "0xc1", r.pool_commitments.first.candidates.first.rewards_address
+  end
+
+  def test_finalize_upload_wave_batch_private_omits_data_map_address
+    r = @client.finalize_upload("upid_file_", { "0xq1" => "0xtx1" })
+    assert_equal "dm_wave", r.data_map
+    assert_equal "", r.data_map_address
+    assert_equal 3, r.chunks_stored
+  end
+
+  def test_finalize_upload_wave_batch_public_returns_data_map_address
+    r = @client.finalize_upload("upid_file_public", { "0xq1" => "0xtx1" })
+    assert_equal "addr_public_dm", r.data_map_address
+  end
+
+  def test_finalize_merkle_upload_store_data_map_true
+    r = @client.finalize_merkle_upload("upid_data_", "0xwinpool", store_data_map: true)
+    assert_equal "dm_merkle", r.data_map
+    assert_equal "stored_on_network", r.address
+    assert_equal 64, r.chunks_stored
+  end
+
+  def test_finalize_merkle_upload_store_data_map_default_false
+    r = @client.finalize_merkle_upload("upid_data_", "0xwinpool")
+    assert_equal "dm_merkle", r.data_map
+    assert_equal "", r.address
+  end
+
+  def test_prepare_chunk_upload_new_chunk
+    r = @client.prepare_chunk_upload("newchunk")
+    refute r.already_stored
+    assert_equal "0xnewchunk", r.address
+    assert_equal "upid_chunk_42", r.upload_id
+    assert_equal "wave_batch", r.payment_type
+    assert_equal 1, r.payments.length
+    assert_equal "0xq1", r.payments.first.quote_hash
+    assert_equal "100", r.total_amount
+    assert_equal "http://localhost:8545", r.rpc_url
+  end
+
+  def test_prepare_chunk_upload_already_stored_short_circuit
+    r = @client.prepare_chunk_upload("EXISTS-data")
+    assert r.already_stored
+    assert_equal "0xabc", r.address
+    assert_equal "", r.upload_id
+    assert_empty r.payments
+  end
+
+  def test_finalize_chunk_upload_returns_address_and_forwards_body
+    addr = @client.finalize_chunk_upload("upid_chunk_42", { "0xq1" => "0xtxabc" })
+    assert_equal "addr_for_upid_chunk_42", addr
   end
 
   private

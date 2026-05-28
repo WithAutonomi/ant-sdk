@@ -7,7 +7,7 @@ require 'google/protobuf'
 require 'antd/v1/common_pb'
 
 
-descriptor_data = "\n\x14\x61ntd/v1/chunks.proto\x12\x07\x61ntd.v1\x1a\x14\x61ntd/v1/common.proto\"\"\n\x0fGetChunkRequest\x12\x0f\n\x07\x61\x64\x64ress\x18\x01 \x01(\t\" \n\x10GetChunkResponse\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\"\x1f\n\x0fPutChunkRequest\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\"@\n\x10PutChunkResponse\x12\x1b\n\x04\x63ost\x18\x01 \x01(\x0b\x32\r.antd.v1.Cost\x12\x0f\n\x07\x61\x64\x64ress\x18\x02 \x01(\t2\x86\x01\n\x0c\x43hunkService\x12:\n\x03Get\x12\x18.antd.v1.GetChunkRequest\x1a\x19.antd.v1.GetChunkResponse\x12:\n\x03Put\x12\x18.antd.v1.PutChunkRequest\x1a\x19.antd.v1.PutChunkResponseBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\x07\x41ntd.V1b\x06proto3"
+descriptor_data = "\n\x14\x61ntd/v1/chunks.proto\x12\x07\x61ntd.v1\x1a\x14\x61ntd/v1/common.proto\"\"\n\x0fGetChunkRequest\x12\x0f\n\x07\x61\x64\x64ress\x18\x01 \x01(\t\" \n\x10GetChunkResponse\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\"\x1f\n\x0fPutChunkRequest\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\"@\n\x10PutChunkResponse\x12\x1b\n\x04\x63ost\x18\x01 \x01(\x0b\x32\r.antd.v1.Cost\x12\x0f\n\x07\x61\x64\x64ress\x18\x02 \x01(\t\"#\n\x13PrepareChunkRequest\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\"\xf6\x01\n\x14PrepareChunkResponse\x12\x0f\n\x07\x61\x64\x64ress\x18\x01 \x01(\t\x12\x16\n\x0e\x61lready_stored\x18\x02 \x01(\x08\x12\x11\n\tupload_id\x18\x03 \x01(\t\x12\x14\n\x0cpayment_type\x18\x04 \x01(\t\x12\'\n\x08payments\x18\x05 \x03(\x0b\x32\x15.antd.v1.PaymentEntry\x12\x14\n\x0ctotal_amount\x18\x06 \x01(\t\x12\x1d\n\x15payment_vault_address\x18\x07 \x01(\t\x12\x1d\n\x15payment_token_address\x18\x08 \x01(\t\x12\x0f\n\x07rpc_url\x18\t \x01(\t\"\x9a\x01\n\x14\x46inalizeChunkRequest\x12\x11\n\tupload_id\x18\x01 \x01(\t\x12>\n\ttx_hashes\x18\x02 \x03(\x0b\x32+.antd.v1.FinalizeChunkRequest.TxHashesEntry\x1a/\n\rTxHashesEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"(\n\x15\x46inalizeChunkResponse\x12\x0f\n\x07\x61\x64\x64ress\x18\x01 \x01(\t2\xa3\x02\n\x0c\x43hunkService\x12:\n\x03Get\x12\x18.antd.v1.GetChunkRequest\x1a\x19.antd.v1.GetChunkResponse\x12:\n\x03Put\x12\x18.antd.v1.PutChunkRequest\x1a\x19.antd.v1.PutChunkResponse\x12K\n\x0cPrepareChunk\x12\x1c.antd.v1.PrepareChunkRequest\x1a\x1d.antd.v1.PrepareChunkResponse\x12N\n\rFinalizeChunk\x12\x1d.antd.v1.FinalizeChunkRequest\x1a\x1e.antd.v1.FinalizeChunkResponseBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\x07\x41ntd.V1b\x06proto3"
 
 pool = ::Google::Protobuf::DescriptorPool.generated_pool
 pool.add_serialized_file(descriptor_data)
@@ -18,5 +18,9 @@ module Antd
     GetChunkResponse = ::Google::Protobuf::DescriptorPool.generated_pool.lookup("antd.v1.GetChunkResponse").msgclass
     PutChunkRequest = ::Google::Protobuf::DescriptorPool.generated_pool.lookup("antd.v1.PutChunkRequest").msgclass
     PutChunkResponse = ::Google::Protobuf::DescriptorPool.generated_pool.lookup("antd.v1.PutChunkResponse").msgclass
+    PrepareChunkRequest = ::Google::Protobuf::DescriptorPool.generated_pool.lookup("antd.v1.PrepareChunkRequest").msgclass
+    PrepareChunkResponse = ::Google::Protobuf::DescriptorPool.generated_pool.lookup("antd.v1.PrepareChunkResponse").msgclass
+    FinalizeChunkRequest = ::Google::Protobuf::DescriptorPool.generated_pool.lookup("antd.v1.FinalizeChunkRequest").msgclass
+    FinalizeChunkResponse = ::Google::Protobuf::DescriptorPool.generated_pool.lookup("antd.v1.FinalizeChunkResponse").msgclass
   end
 end
