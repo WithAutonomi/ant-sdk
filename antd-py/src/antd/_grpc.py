@@ -25,6 +25,8 @@ from .models import (
     PaymentMode,
     PutResult,
     UploadCostEstimate,
+    WalletAddress,
+    WalletBalance,
 )
 
 
@@ -76,6 +78,7 @@ from antd._proto.antd.v1 import data_pb2, data_pb2_grpc
 from antd._proto.antd.v1 import chunks_pb2, chunks_pb2_grpc
 from antd._proto.antd.v1 import files_pb2, files_pb2_grpc
 from antd._proto.antd.v1 import health_pb2, health_pb2_grpc
+from antd._proto.antd.v1 import wallet_pb2, wallet_pb2_grpc
 
 
 # gRPC status code -> exception class mapping
@@ -122,6 +125,7 @@ class GrpcClient:
         self._data = data_pb2_grpc.DataServiceStub(self._channel)
         self._chunks = chunks_pb2_grpc.ChunkServiceStub(self._channel)
         self._files = files_pb2_grpc.FileServiceStub(self._channel)
+        self._wallet = wallet_pb2_grpc.WalletServiceStub(self._channel)
 
     def close(self) -> None:
         self._channel.close()
@@ -241,16 +245,33 @@ class GrpcClient:
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
-    # --- Wallet (not yet available via gRPC) ---
+    # --- Wallet ---
+    #
+    # V2-286: parity with REST. A missing daemon wallet (no AUTONOMI_WALLET_KEY)
+    # emits gRPC FailedPrecondition, which _handle_rpc_error surfaces as
+    # PaymentError (the established FailedPrecondition→Payment mapping; the
+    # semantic is a bit off vs REST's 503 but matches every other SDK).
 
-    def wallet_address(self):
-        raise NotImplementedError("wallet_address is not yet supported via gRPC")
+    def wallet_address(self) -> WalletAddress:
+        try:
+            resp = self._wallet.GetAddress(wallet_pb2.GetWalletAddressRequest())
+            return WalletAddress(address=resp.address)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
 
-    def wallet_balance(self):
-        raise NotImplementedError("wallet_balance is not yet supported via gRPC")
+    def wallet_balance(self) -> WalletBalance:
+        try:
+            resp = self._wallet.GetBalance(wallet_pb2.GetWalletBalanceRequest())
+            return WalletBalance(balance=resp.balance, gas_balance=resp.gas_balance)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
 
     def wallet_approve(self) -> bool:
-        raise NotImplementedError("wallet_approve is not yet supported via gRPC")
+        try:
+            resp = self._wallet.Approve(wallet_pb2.WalletApproveRequest())
+            return resp.approved
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
 
     # --- External Signer (not yet available via gRPC) ---
 
@@ -285,6 +306,8 @@ class AsyncGrpcClient:
     def __init__(self, target: str = "localhost:50051"):
         self._channel = grpc.aio.insecure_channel(target)
         self._health = health_pb2_grpc.HealthServiceStub(self._channel)
+        # V2-286: WalletService stub. Mirrors sync GrpcClient.
+        self._wallet = wallet_pb2_grpc.WalletServiceStub(self._channel)
         self._data = data_pb2_grpc.DataServiceStub(self._channel)
         self._chunks = chunks_pb2_grpc.ChunkServiceStub(self._channel)
         self._files = files_pb2_grpc.FileServiceStub(self._channel)
@@ -409,14 +432,26 @@ class AsyncGrpcClient:
 
     # --- Wallet (not yet available via gRPC) ---
 
-    async def wallet_address(self):
-        raise NotImplementedError("wallet_address is not yet supported via gRPC")
+    async def wallet_address(self) -> WalletAddress:
+        try:
+            resp = await self._wallet.GetAddress(wallet_pb2.GetWalletAddressRequest())
+            return WalletAddress(address=resp.address)
+        except grpc.aio.AioRpcError as e:
+            _handle_rpc_error(e)
 
-    async def wallet_balance(self):
-        raise NotImplementedError("wallet_balance is not yet supported via gRPC")
+    async def wallet_balance(self) -> WalletBalance:
+        try:
+            resp = await self._wallet.GetBalance(wallet_pb2.GetWalletBalanceRequest())
+            return WalletBalance(balance=resp.balance, gas_balance=resp.gas_balance)
+        except grpc.aio.AioRpcError as e:
+            _handle_rpc_error(e)
 
     async def wallet_approve(self) -> bool:
-        raise NotImplementedError("wallet_approve is not yet supported via gRPC")
+        try:
+            resp = await self._wallet.Approve(wallet_pb2.WalletApproveRequest())
+            return resp.approved
+        except grpc.aio.AioRpcError as e:
+            _handle_rpc_error(e)
 
     # --- External Signer (not yet available via gRPC) ---
 
