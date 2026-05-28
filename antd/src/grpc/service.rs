@@ -1062,3 +1062,78 @@ impl pb::event_service_server::EventService for EventServiceImpl {
         )))
     }
 }
+
+// ── WalletService ──
+//
+// Mirrors `antd/src/rest/wallet.rs` 1:1; the underlying `Client::wallet()`
+// access is transport-agnostic. Same error mapping: a missing wallet returns
+// `Status::failed_precondition` (the gRPC analog of REST's 503 service-
+// unavailable for this case).
+
+pub struct WalletServiceImpl {
+    pub state: Arc<AppState>,
+}
+
+#[tonic::async_trait]
+impl pb::wallet_service_server::WalletService for WalletServiceImpl {
+    async fn get_address(
+        &self,
+        _request: Request<pb::GetWalletAddressRequest>,
+    ) -> Result<Response<pb::GetWalletAddressResponse>, Status> {
+        let wallet = self.state.client.wallet().ok_or_else(|| {
+            Status::failed_precondition("wallet not configured — set AUTONOMI_WALLET_KEY")
+        })?;
+        Ok(Response::new(pb::GetWalletAddressResponse {
+            address: format!("{:#x}", wallet.address()),
+        }))
+    }
+
+    async fn get_balance(
+        &self,
+        _request: Request<pb::GetWalletBalanceRequest>,
+    ) -> Result<Response<pb::GetWalletBalanceResponse>, Status> {
+        let wallet = self.state.client.wallet().ok_or_else(|| {
+            Status::failed_precondition("wallet not configured — set AUTONOMI_WALLET_KEY")
+        })?;
+
+        let balance = wallet
+            .balance_of_tokens()
+            .await
+            .map_err(|e| Status::internal(format!("failed to get token balance: {e}")))?;
+        let gas_balance = wallet
+            .balance_of_gas_tokens()
+            .await
+            .map_err(|e| Status::internal(format!("failed to get gas balance: {e}")))?;
+
+        Ok(Response::new(pb::GetWalletBalanceResponse {
+            balance: balance.to_string(),
+            gas_balance: gas_balance.to_string(),
+        }))
+    }
+
+    async fn approve(
+        &self,
+        _request: Request<pb::WalletApproveRequest>,
+    ) -> Result<Response<pb::WalletApproveResponse>, Status> {
+        if self.state.client.wallet().is_none() {
+            return Err(Status::failed_precondition(
+                "wallet not configured — set AUTONOMI_WALLET_KEY",
+            ));
+        }
+
+        let client = self.state.client.clone();
+        // Spawn so the approve tx can run on its own task (matches REST handler
+        // shape; ant-core's approve_token_spend is async and may be long).
+        tokio::spawn(async move {
+            client
+                .approve_token_spend()
+                .await
+                .map_err(AntdError::from_core)
+        })
+        .await
+        .map_err(|e| Status::internal(format!("task failed: {e}")))?
+        .map_err(|e| Status::internal(format!("approve failed: {e}")))?;
+
+        Ok(Response::new(pb::WalletApproveResponse { approved: true }))
+    }
+}

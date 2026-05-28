@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package antd.v1;
+
+option csharp_namespace = "Antd.V1";
+option go_package = "github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1";
+
+// Wallet operations. Mirrors the REST `/v1/wallet/*` surface 1:1.
+//
+// All three RPCs require the daemon to have been started with a configured
+// wallet (the `AUTONOMI_WALLET_KEY` env var). When the wallet is absent the
+// daemon returns `Status::failed_precondition` with the same "wallet not
+// configured" message the REST handlers return as 503.
+//
+// External-signer flows do NOT use this service — they pay via off-daemon
+// EVM transactions, see `UploadService` and `ChunkService.PrepareChunk` /
+// `FinalizeChunk` for the prepare/finalize surface. `WalletService` is only
+// for callers that have entrusted a key to the daemon.
+service WalletService {
+  // Returns the wallet's on-chain address (hex with 0x prefix).
+  rpc GetAddress(GetWalletAddressRequest) returns (GetWalletAddressResponse);
+
+  // Returns the wallet's token + gas balances.
+  rpc GetBalance(GetWalletBalanceRequest) returns (GetWalletBalanceResponse);
+
+  // Approves the wallet to spend tokens on the payment vault contract.
+  // One-time operation; safe to call repeatedly (idempotent at the contract
+  // level — a no-op once approval is in place).
+  rpc Approve(WalletApproveRequest) returns (WalletApproveResponse);
+}
+
+message GetWalletAddressRequest {}
+
+message GetWalletAddressResponse {
+  // Wallet address, hex with 0x prefix (20 bytes / 42 chars).
+  string address = 1;
+}
+
+message GetWalletBalanceRequest {}
+
+message GetWalletBalanceResponse {
+  // Token balance, atto tokens as decimal string.
+  string balance = 1;
+  // Gas (native EVM token) balance, atto tokens as decimal string.
+  string gas_balance = 2;
+}
+
+message WalletApproveRequest {}
+
+message WalletApproveResponse {
+  // True if the approve transaction succeeded.
+  bool approved = 1;
+}
