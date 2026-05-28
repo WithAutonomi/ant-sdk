@@ -444,6 +444,65 @@ defmodule Antd.GrpcClient do
   end
 
   # ---------------------------------------------------------------------------
+  # Wallet (V2-286)
+  # ---------------------------------------------------------------------------
+  #
+  # A missing daemon wallet emits gRPC `FailedPrecondition`, which
+  # translate_error/1 surfaces as `PaymentError` (established
+  # FailedPrecondition->Payment convention across all SDKs).
+
+  @doc "Returns the wallet's on-chain address."
+  @spec wallet_address(t()) :: {:ok, Antd.WalletAddress.t()} | {:error, Exception.t()}
+  def wallet_address(%__MODULE__{channel: channel}) do
+    req = %Antd.V1.GetWalletAddressRequest{}
+
+    case Antd.V1.WalletService.Stub.get_address(channel, req) do
+      {:ok, resp} -> {:ok, %Antd.WalletAddress{address: resp.address}}
+      {:error, rpc_error} -> {:error, translate_error(rpc_error)}
+    end
+  end
+
+  @doc "Like `wallet_address/1` but raises on error."
+  @spec wallet_address!(t()) :: Antd.WalletAddress.t()
+  def wallet_address!(client), do: unwrap!(wallet_address(client))
+
+  @doc "Returns the wallet's token + gas balances."
+  @spec wallet_balance(t()) :: {:ok, Antd.WalletBalance.t()} | {:error, Exception.t()}
+  def wallet_balance(%__MODULE__{channel: channel}) do
+    req = %Antd.V1.GetWalletBalanceRequest{}
+
+    case Antd.V1.WalletService.Stub.get_balance(channel, req) do
+      {:ok, resp} ->
+        {:ok, %Antd.WalletBalance{balance: resp.balance, gas_balance: resp.gas_balance}}
+
+      {:error, rpc_error} ->
+        {:error, translate_error(rpc_error)}
+    end
+  end
+
+  @doc "Like `wallet_balance/1` but raises on error."
+  @spec wallet_balance!(t()) :: Antd.WalletBalance.t()
+  def wallet_balance!(client), do: unwrap!(wallet_balance(client))
+
+  @doc """
+  Approves the wallet to spend tokens on the payment vault contract.
+  One-time operation; idempotent at the contract level.
+  """
+  @spec wallet_approve(t()) :: {:ok, boolean()} | {:error, Exception.t()}
+  def wallet_approve(%__MODULE__{channel: channel}) do
+    req = %Antd.V1.WalletApproveRequest{}
+
+    case Antd.V1.WalletService.Stub.approve(channel, req) do
+      {:ok, resp} -> {:ok, resp.approved}
+      {:error, rpc_error} -> {:error, translate_error(rpc_error)}
+    end
+  end
+
+  @doc "Like `wallet_approve/1` but raises on error."
+  @spec wallet_approve!(t()) :: boolean()
+  def wallet_approve!(client), do: unwrap!(wallet_approve(client))
+
+  # ---------------------------------------------------------------------------
   # Internal helpers
   # ---------------------------------------------------------------------------
 
