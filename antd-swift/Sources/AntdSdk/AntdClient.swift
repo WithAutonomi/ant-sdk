@@ -20,12 +20,20 @@ public enum AntdClient {
     }
 
     /// Create a gRPC client connecting to the antd daemon.
+    ///
+    /// > Requires macOS 15+ / iOS 18+ / tvOS 18+ / watchOS 11+ (grpc-swift 2.x).
+    /// > Use ``createRest(baseURL:timeout:)`` on older platforms.
+    ///
     /// - Parameter target: gRPC target address (default: localhost:50051)
+    @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, *)
     public static func createGrpc(target: String = "localhost:50051") -> AntdClientProtocol {
         AntdGrpcClient(target: target)
     }
 
     /// Create a client using the specified transport.
+    ///
+    /// > `transport: "grpc"` requires macOS 15+ / iOS 18+ / tvOS 18+ / watchOS 11+.
+    ///
     /// - Parameters:
     ///   - transport: "rest" or "grpc"
     ///   - endpoint: Optional custom endpoint override
@@ -34,7 +42,11 @@ public enum AntdClient {
         case "rest":
             return createRest(baseURL: endpoint ?? "http://localhost:8082")
         case "grpc":
-            return createGrpc(target: endpoint ?? "localhost:50051")
+            if #available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, *) {
+                return createGrpc(target: endpoint ?? "localhost:50051")
+            } else {
+                fatalError("gRPC transport requires macOS 15+ / iOS 18+. Use 'rest' on older platforms.")
+            }
         default:
             fatalError("Unknown transport: \(transport). Use 'rest' or 'grpc'.")
         }
