@@ -13,3 +13,8 @@ kotlin/.gradle/
 kotlin/build/
 kotlin/AntFfi/build/
 swift/.build/
+# Android: generated/staged by build-android.sh, not committed.
+android/.gradle/
+android/build/
+android/src/main/jniLibs/
+android/src/main/kotlin/
