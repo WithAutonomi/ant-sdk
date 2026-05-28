@@ -37,7 +37,25 @@ import antd.v1.Files.GetFilePublicRequest;
 import antd.v1.Files.GetFileResponse;
 import antd.v1.Files.FileCostRequest;
 
+import antd.v1.UploadServiceGrpc;
+import antd.v1.Upload.PrepareFileUploadRequest;
+import antd.v1.Upload.PrepareDataUploadRequest;
+import antd.v1.Upload.PrepareUploadResponse;
+import antd.v1.Upload.FinalizeUploadRequest;
+import antd.v1.Upload.FinalizeUploadResponse;
+import antd.v1.Upload.PoolCommitmentEntry;
+import antd.v1.Upload.CandidateNodeEntry;
+
+import antd.v1.Chunks.PrepareChunkRequest;
+import antd.v1.Chunks.PrepareChunkResponse;
+import antd.v1.Chunks.FinalizeChunkRequest;
+import antd.v1.Chunks.FinalizeChunkResponse;
+
 import antd.v1.Common.Cost;
+import antd.v1.Common.PaymentEntry;
+
+import java.util.HashMap;
+import java.util.Map;
 
 import com.google.protobuf.ByteString;
 
@@ -69,6 +87,7 @@ class GrpcAntdClientTest {
                         .addService(new MockDataService())
                         .addService(new MockChunkService())
                         .addService(new MockFileService())
+                        .addService(new MockUploadService())
                         .build()
                         .start();
 
@@ -191,6 +210,139 @@ class GrpcAntdClientTest {
                     GetChunkResponse.newBuilder()
                             .setData(ByteString.copyFromUtf8("chunkdata"))
                             .build());
+            responseObserver.onCompleted();
+        }
+
+        @Override
+        public void prepareChunk(PrepareChunkRequest request,
+                                 StreamObserver<PrepareChunkResponse> responseObserver) {
+            // Inputs starting with "EXISTS" → already-stored short-circuit.
+            ByteString data = request.getData();
+            if (data.size() >= 6 && data.substring(0, 6).toStringUtf8().equals("EXISTS")) {
+                responseObserver.onNext(
+                        PrepareChunkResponse.newBuilder()
+                                .setAddress("0xabc")
+                                .setAlreadyStored(true)
+                                .build());
+            } else {
+                responseObserver.onNext(
+                        PrepareChunkResponse.newBuilder()
+                                .setAddress("0xnewchunk")
+                                .setAlreadyStored(false)
+                                .setUploadId("upid_chunk_42")
+                                .setPaymentType("wave_batch")
+                                .addPayments(PaymentEntry.newBuilder()
+                                        .setQuoteHash("0xq1")
+                                        .setRewardsAddress("0xr1")
+                                        .setAmount("100")
+                                        .build())
+                                .setTotalAmount("100")
+                                .setPaymentVaultAddress("0xvault")
+                                .setPaymentTokenAddress("0xtoken")
+                                .setRpcUrl("http://localhost:8545")
+                                .build());
+            }
+            responseObserver.onCompleted();
+        }
+
+        @Override
+        public void finalizeChunk(FinalizeChunkRequest request,
+                                  StreamObserver<FinalizeChunkResponse> responseObserver) {
+            // Echo upload_id into address so the test can verify forwarding.
+            responseObserver.onNext(
+                    FinalizeChunkResponse.newBuilder()
+                            .setAddress("addr_for_" + request.getUploadId())
+                            .build());
+            responseObserver.onCompleted();
+        }
+    }
+
+    static class MockUploadService extends UploadServiceGrpc.UploadServiceImplBase {
+        @Override
+        public void prepareFileUpload(PrepareFileUploadRequest request,
+                                      StreamObserver<PrepareUploadResponse> responseObserver) {
+            // Encode visibility into upload_id so the test can verify forwarding.
+            responseObserver.onNext(
+                    PrepareUploadResponse.newBuilder()
+                            .setUploadId("upid_file_" + request.getVisibility())
+                            .setPaymentType("wave_batch")
+                            .addPayments(PaymentEntry.newBuilder()
+                                    .setQuoteHash("0xqa")
+                                    .setRewardsAddress("0xra")
+                                    .setAmount("1")
+                                    .build())
+                            .setTotalAmount("1")
+                            .setPaymentVaultAddress("0xvault")
+                            .setPaymentTokenAddress("0xtoken")
+                            .setRpcUrl("http://localhost:8545")
+                            .build());
+            responseObserver.onCompleted();
+        }
+
+        @Override
+        public void prepareDataUpload(PrepareDataUploadRequest request,
+                                      StreamObserver<PrepareUploadResponse> responseObserver) {
+            String uploadId = "upid_data_" + request.getVisibility();
+            ByteString data = request.getData();
+            if (data.size() >= 6 && data.substring(0, 6).toStringUtf8().equals("MERKLE")) {
+                responseObserver.onNext(
+                        PrepareUploadResponse.newBuilder()
+                                .setUploadId(uploadId)
+                                .setPaymentType("merkle")
+                                .setDepth(7)
+                                .addPoolCommitments(PoolCommitmentEntry.newBuilder()
+                                        .setPoolHash("0xpool")
+                                        .addCandidates(CandidateNodeEntry.newBuilder()
+                                                .setRewardsAddress("0xc1")
+                                                .setAmount("5")
+                                                .build())
+                                        .build())
+                                .setMerklePaymentTimestamp(1_700_000_000L)
+                                .setTotalAmount("0")
+                                .setPaymentVaultAddress("0xvault")
+                                .setPaymentTokenAddress("0xtoken")
+                                .setRpcUrl("http://localhost:8545")
+                                .build());
+            } else {
+                responseObserver.onNext(
+                        PrepareUploadResponse.newBuilder()
+                                .setUploadId(uploadId)
+                                .setPaymentType("wave_batch")
+                                .addPayments(PaymentEntry.newBuilder()
+                                        .setQuoteHash("0xqb")
+                                        .setRewardsAddress("0xrb")
+                                        .setAmount("2")
+                                        .build())
+                                .setTotalAmount("2")
+                                .setPaymentVaultAddress("0xvault")
+                                .setPaymentTokenAddress("0xtoken")
+                                .setRpcUrl("http://localhost:8545")
+                                .build());
+            }
+            responseObserver.onCompleted();
+        }
+
+        @Override
+        public void finalizeUpload(FinalizeUploadRequest request,
+                                   StreamObserver<FinalizeUploadResponse> responseObserver) {
+            // Merkle: winner_pool_hash populated.
+            if (!request.getWinnerPoolHash().isEmpty()) {
+                responseObserver.onNext(
+                        FinalizeUploadResponse.newBuilder()
+                                .setDataMap("dm_merkle")
+                                .setAddress(request.getStoreDataMap() ? "stored_on_network" : "")
+                                .setChunksStored(64L)
+                                .build());
+            } else {
+                String uid = request.getUploadId();
+                String dataMapAddress = uid.endsWith("public") ? "addr_public_dm" : "";
+                responseObserver.onNext(
+                        FinalizeUploadResponse.newBuilder()
+                                .setDataMap("dm_wave")
+                                .setDataMapAddress(dataMapAddress)
+                                .setChunksStored(3L)
+                                .build());
+            }
             responseObserver.onCompleted();
         }
     }
@@ -514,5 +666,113 @@ class GrpcAntdClientTest {
             // Should be the base class, not a specific subtype (except AntdException itself)
             assertEquals(AntdException.class, ex.getClass());
         }
+    }
+
+    // --- External-signer prepare/finalize tests ---
+
+    @Test
+    void testPrepareUploadOmitsVisibilityWhenNull() {
+        PrepareUploadResult r = client.prepareUpload("/tmp/x.bin");
+        assertEquals("upid_file_", r.uploadId());
+        assertEquals("wave_batch", r.paymentType());
+        assertEquals(1, r.payments().size());
+        assertEquals("0xqa", r.payments().get(0).quoteHash());
+        assertNull(r.depth());
+        assertNull(r.poolCommitments());
+        assertNull(r.merklePaymentTimestamp());
+    }
+
+    @Test
+    void testPrepareUploadForwardsVisibilityPublic() {
+        PrepareUploadResult r = client.prepareUpload("/tmp/x.bin", "public");
+        assertEquals("upid_file_public", r.uploadId());
+    }
+
+    @Test
+    void testPrepareUploadPublicConvenience() {
+        PrepareUploadResult r = client.prepareUploadPublic("/tmp/x.bin");
+        assertEquals("upid_file_public", r.uploadId());
+    }
+
+    @Test
+    void testPrepareDataUploadWaveBatch() {
+        PrepareUploadResult r = client.prepareDataUpload("small".getBytes());
+        assertEquals("upid_data_", r.uploadId());
+        assertEquals("wave_batch", r.paymentType());
+        assertNull(r.depth());
+    }
+
+    @Test
+    void testPrepareDataUploadMerkle() {
+        PrepareUploadResult r = client.prepareDataUpload("MERKLE-large-payload".getBytes());
+        assertEquals("merkle", r.paymentType());
+        assertEquals(Integer.valueOf(7), r.depth());
+        assertEquals(Long.valueOf(1_700_000_000L), r.merklePaymentTimestamp());
+        assertEquals(1, r.poolCommitments().size());
+        assertEquals("0xpool", r.poolCommitments().get(0).poolHash());
+        assertEquals("0xc1", r.poolCommitments().get(0).candidates().get(0).rewardsAddress());
+    }
+
+    @Test
+    void testFinalizeUploadWaveBatchPrivateOmitsDataMapAddress() {
+        Map<String, String> tx = new HashMap<>();
+        tx.put("0xq1", "0xtx1");
+        FinalizeUploadResult r = client.finalizeUpload("upid_file_", tx);
+        assertEquals("dm_wave", r.dataMap());
+        assertEquals("", r.dataMapAddress());
+        assertEquals(3L, r.chunksStored());
+    }
+
+    @Test
+    void testFinalizeUploadWaveBatchPublicReturnsDataMapAddress() {
+        Map<String, String> tx = new HashMap<>();
+        tx.put("0xq1", "0xtx1");
+        FinalizeUploadResult r = client.finalizeUpload("upid_file_public", tx);
+        assertEquals("addr_public_dm", r.dataMapAddress());
+    }
+
+    @Test
+    void testFinalizeMerkleUploadStoreDataMapTrue() {
+        FinalizeUploadResult r = client.finalizeMerkleUpload("upid_data_", "0xwinpool", true);
+        assertEquals("dm_merkle", r.dataMap());
+        assertEquals("stored_on_network", r.address());
+        assertEquals(64L, r.chunksStored());
+    }
+
+    @Test
+    void testFinalizeMerkleUploadStoreDataMapFalse() {
+        FinalizeUploadResult r = client.finalizeMerkleUpload("upid_data_", "0xwinpool");
+        assertEquals("dm_merkle", r.dataMap());
+        assertEquals("", r.address());
+    }
+
+    @Test
+    void testPrepareChunkUploadNewChunk() {
+        PrepareChunkResult r = client.prepareChunkUpload("newchunk".getBytes());
+        assertFalse(r.alreadyStored());
+        assertEquals("0xnewchunk", r.address());
+        assertEquals("upid_chunk_42", r.uploadId());
+        assertEquals("wave_batch", r.paymentType());
+        assertEquals(1, r.payments().size());
+        assertEquals("0xq1", r.payments().get(0).quoteHash());
+        assertEquals("100", r.totalAmount());
+        assertEquals("http://localhost:8545", r.rpcUrl());
+    }
+
+    @Test
+    void testPrepareChunkUploadAlreadyStoredShortCircuit() {
+        PrepareChunkResult r = client.prepareChunkUpload("EXISTS-data".getBytes());
+        assertTrue(r.alreadyStored());
+        assertEquals("0xabc", r.address());
+        assertEquals("", r.uploadId());
+        assertTrue(r.payments().isEmpty());
+    }
+
+    @Test
+    void testFinalizeChunkUploadReturnsAddressAndForwardsBody() {
+        Map<String, String> tx = new HashMap<>();
+        tx.put("0xq1", "0xtxabc");
+        String addr = client.finalizeChunkUpload("upid_chunk_42", tx);
+        assertEquals("addr_for_upid_chunk_42", addr);
     }
 }
