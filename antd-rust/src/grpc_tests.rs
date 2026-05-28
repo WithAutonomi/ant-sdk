@@ -131,6 +131,23 @@ impl v1::chunk_service_server::ChunkService for MockChunkService {
             data: b"chunkdata".to_vec(),
         }))
     }
+
+    // PrepareChunk + FinalizeChunk are added to the trait by V2-284 (chunks.proto
+    // gained the new RPCs). Real mock impls live in the antd-rust V2-284 fan-out
+    // PR; here we just stub them to keep the proto-only antd PR self-compiling.
+    async fn prepare_chunk(
+        &self,
+        _request: Request<v1::PrepareChunkRequest>,
+    ) -> Result<Response<v1::PrepareChunkResponse>, Status> {
+        unimplemented!("mock prepare_chunk — added in antd-rust V2-284 fan-out")
+    }
+
+    async fn finalize_chunk(
+        &self,
+        _request: Request<v1::FinalizeChunkRequest>,
+    ) -> Result<Response<v1::FinalizeChunkResponse>, Status> {
+        unimplemented!("mock finalize_chunk — added in antd-rust V2-284 fan-out")
+    }
 }
 
 #[derive(Default)]
