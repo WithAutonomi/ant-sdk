@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -100,6 +102,58 @@ public:
     UploadCostEstimate file_cost(std::string_view path,
                                  bool is_public,
                                  PaymentMode payment_mode = PaymentMode::Auto);
+
+    // --- External signer (two-phase upload) ---
+
+    /// Phase 1: prepare a file upload for external signing.
+    ///
+    /// @param path        Path to the file on the daemon host.
+    /// @param visibility  When set, forwarded as `visibility` on the wire.
+    ///                    `"public"` bundles the DataMap chunk into the
+    ///                    same external-signer payment batch — the
+    ///                    resulting `FinalizeUploadResult::data_map_address`
+    ///                    is the shareable retrieval handle. `std::nullopt`
+    ///                    (default) leaves the proto3 default of `""`,
+    ///                    preserving the pre-public daemon wire shape.
+    PrepareUploadResult prepare_upload(std::string_view path,
+                                       std::optional<std::string> visibility = std::nullopt);
+
+    /// Convenience wrapper: prepare a *public* file upload for external signing.
+    /// Equivalent to `prepare_upload(path, "public")`.
+    PrepareUploadResult prepare_upload_public(std::string_view path);
+
+    /// Phase 1 (data): prepare an in-memory data upload for external signing.
+    /// Mirrors `Client::prepare_data_upload` — takes raw bytes and forwards
+    /// `visibility` when set.
+    PrepareUploadResult prepare_data_upload(const std::vector<uint8_t>& data,
+                                            std::optional<std::string> visibility = std::nullopt);
+
+    /// Phase 2 (wave-batch): finalize an upload after an external signer has
+    /// submitted the per-quote `payForQuotes()` transactions. `tx_hashes`
+    /// maps each `quote_hash` from `PrepareUploadResult::payments` to its
+    /// resulting tx hash.
+    FinalizeUploadResult finalize_upload(std::string_view upload_id,
+                                          const std::map<std::string, std::string>& tx_hashes,
+                                          bool store_data_map = false);
+
+    /// Phase 2 (merkle): finalize an upload after the external signer has
+    /// submitted the `payForMerkleTree2()` transaction. `winner_pool_hash` is
+    /// the bytes32 from the `MerklePaymentMade` event (hex with 0x prefix).
+    FinalizeUploadResult finalize_merkle_upload(std::string_view upload_id,
+                                                 std::string_view winner_pool_hash,
+                                                 bool store_data_map = false);
+
+    /// Phase 1 (chunk): prepare a single-chunk publish for external signing.
+    /// Returns either `already_stored=true` (no payment needed and no
+    /// finalize call) or a wave-batch payment intent the external signer
+    /// must execute before calling `finalize_chunk_upload`.
+    PrepareChunkResult prepare_chunk_upload(const std::vector<uint8_t>& data);
+
+    /// Phase 2 (chunk): submit a prepared chunk after external payment.
+    /// Returns the on-network address of the stored chunk (matches
+    /// `PrepareChunkResult::address`).
+    std::string finalize_chunk_upload(std::string_view upload_id,
+                                      const std::map<std::string, std::string>& tx_hashes);
 
 private:
     struct Impl;
