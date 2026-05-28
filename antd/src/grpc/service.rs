@@ -6,7 +6,9 @@ use tonic::{Request, Response, Status};
 
 use crate::error::AntdError;
 use crate::state::AppState;
-use crate::types::{adjust_for_public_upload, format_payment_mode, parse_payment_mode};
+use crate::types::{
+    adjust_for_public_upload, format_payment_mode, parse_payment_mode, parse_visibility,
+};
 
 // Generated protobuf modules
 #[allow(dead_code)]
@@ -26,6 +28,87 @@ fn not_implemented(op: &str) -> Status {
 fn parse_grpc_payment_mode(s: &str) -> Result<ant_core::data::PaymentMode, String> {
     let opt = if s.is_empty() { None } else { Some(s) };
     parse_payment_mode(opt)
+}
+
+/// Same shape as `parse_grpc_payment_mode` but for `string visibility`.
+/// Empty default → `Visibility::Private` (matches REST's "field omitted ==
+/// private" contract); non-empty values flow through the strict
+/// `parse_visibility` parser which only accepts "private" / "public".
+fn parse_grpc_visibility(s: &str) -> Result<ant_core::data::Visibility, String> {
+    let opt = if s.is_empty() { None } else { Some(s) };
+    parse_visibility(opt)
+}
+
+/// Mirror of REST's `build_prepare_response` (antd/src/rest/upload.rs) for the
+/// gRPC wire shape. Same EVM-defaults resolution path; same wave-batch vs
+/// merkle field split. Kept in sync with the REST helper — any changes to
+/// `PreparedUpload` / `ExternalPaymentInfo` need to be reflected in both.
+fn build_grpc_prepare_response(
+    upload_id: String,
+    prepared: &ant_core::data::PreparedUpload,
+    network: &str,
+) -> pb::PrepareUploadResponse {
+    let evm_cfg = crate::evm_defaults::resolve(network);
+    let rpc_url = evm_cfg.rpc_url;
+    let payment_token_address = evm_cfg.token_addr;
+    let payment_vault_address = evm_cfg.vault_addr;
+
+    match &prepared.payment_info {
+        ant_core::data::ExternalPaymentInfo::WaveBatch { payment_intent, .. } => {
+            let payments: Vec<pb::PaymentEntry> = payment_intent
+                .payments
+                .iter()
+                .map(|(quote_hash, rewards_addr, amount)| pb::PaymentEntry {
+                    quote_hash: format!("{:#x}", quote_hash),
+                    rewards_address: format!("{:#x}", rewards_addr),
+                    amount: amount.to_string(),
+                })
+                .collect();
+
+            pb::PrepareUploadResponse {
+                upload_id,
+                payment_type: "wave_batch".into(),
+                payments,
+                depth: 0,
+                pool_commitments: Vec::new(),
+                merkle_payment_timestamp: 0,
+                total_amount: payment_intent.total_amount.to_string(),
+                payment_vault_address,
+                payment_token_address,
+                rpc_url,
+            }
+        }
+        ant_core::data::ExternalPaymentInfo::Merkle { prepared_batch, .. } => {
+            let pool_commitments: Vec<pb::PoolCommitmentEntry> = prepared_batch
+                .pool_commitments
+                .iter()
+                .map(|pc| pb::PoolCommitmentEntry {
+                    pool_hash: format!("0x{}", hex::encode(pc.pool_hash)),
+                    candidates: pc
+                        .candidates
+                        .iter()
+                        .map(|c| pb::CandidateNodeEntry {
+                            rewards_address: format!("0x{}", hex::encode(c.rewards_address)),
+                            amount: c.price.to_string(),
+                        })
+                        .collect(),
+                })
+                .collect();
+
+            pb::PrepareUploadResponse {
+                upload_id,
+                payment_type: "merkle".into(),
+                payments: Vec::new(),
+                depth: prepared_batch.depth as u32,
+                pool_commitments,
+                merkle_payment_timestamp: prepared_batch.merkle_payment_timestamp,
+                total_amount: "0".into(),
+                payment_vault_address,
+                payment_token_address,
+                rpc_url,
+            }
+        }
+    }
 }
 
 // ── HealthService ──
@@ -331,6 +414,135 @@ impl pb::chunk_service_server::ChunkService for ChunkServiceImpl {
             address: hex::encode(address),
         }))
     }
+
+    async fn prepare_chunk(
+        &self,
+        request: Request<pb::PrepareChunkRequest>,
+    ) -> Result<Response<pb::PrepareChunkResponse>, Status> {
+        let content = Bytes::from(request.into_inner().data);
+
+        // Compute the content address up-front so the "already stored"
+        // response can still return it without re-quoting (ant-core's prepare
+        // returns Ok(None) without the address on that path).
+        let address_hex = hex::encode(ant_core::data::compute_address(&content));
+
+        let client = self.state.client.clone();
+        let prepared = tokio::spawn(async move {
+            client
+                .prepare_chunk_payment(content)
+                .await
+                .map_err(AntdError::from_core)
+        })
+        .await
+        .map_err(|e| Status::internal(format!("task failed: {e}")))?
+        .map_err(tonic::Status::from)?;
+
+        let Some(prepared) = prepared else {
+            return Ok(Response::new(pb::PrepareChunkResponse {
+                address: address_hex,
+                already_stored: true,
+                ..Default::default()
+            }));
+        };
+
+        let evm_cfg = crate::evm_defaults::resolve(&self.state.network);
+
+        // Filter zero-amount quotes — they go into peer_quotes for
+        // ProofOfPayment but the external signer doesn't need a
+        // `payForQuotes` entry for them.
+        let payments: Vec<pb::PaymentEntry> = prepared
+            .payment
+            .quotes
+            .iter()
+            .filter(|q| !q.amount.is_zero())
+            .map(|q| pb::PaymentEntry {
+                quote_hash: format!("{:#x}", q.quote_hash),
+                rewards_address: format!("{:#x}", q.rewards_address),
+                amount: q.amount.to_string(),
+            })
+            .collect();
+        let total_amount = prepared.payment.total_amount().to_string();
+
+        let upload_id = hex::encode(rand::random::<[u8; 16]>());
+        self.state.pending_chunks.lock().await.insert(
+            upload_id.clone(),
+            crate::state::TimestampedChunk {
+                prepared,
+                created_at: std::time::Instant::now(),
+            },
+        );
+
+        Ok(Response::new(pb::PrepareChunkResponse {
+            address: address_hex,
+            already_stored: false,
+            upload_id,
+            payment_type: "wave_batch".into(),
+            payments,
+            total_amount,
+            payment_vault_address: evm_cfg.vault_addr,
+            payment_token_address: evm_cfg.token_addr,
+            rpc_url: evm_cfg.rpc_url,
+        }))
+    }
+
+    async fn finalize_chunk(
+        &self,
+        request: Request<pb::FinalizeChunkRequest>,
+    ) -> Result<Response<pb::FinalizeChunkResponse>, Status> {
+        use evmlib::common::{QuoteHash, TxHash};
+        use std::collections::HashMap;
+
+        let req = request.into_inner();
+        let timestamped = self
+            .state
+            .pending_chunks
+            .lock()
+            .await
+            .remove(&req.upload_id)
+            .ok_or_else(|| {
+                Status::not_found(format!(
+                    "upload_id {} not found — it may have expired or already been finalized",
+                    req.upload_id
+                ))
+            })?;
+
+        // Closure returns AntdError (small) rather than Status (>=176 bytes)
+        // to keep clippy::result_large_err happy; converted at the boundary.
+        let tx_hash_map: HashMap<QuoteHash, TxHash> = req
+            .tx_hashes
+            .iter()
+            .map(|(quote_hex, tx_hex)| {
+                let quote_bytes: [u8; 32] = hex::decode(quote_hex.trim_start_matches("0x"))
+                    .map_err(|e| {
+                        AntdError::BadRequest(format!("invalid quote_hash {quote_hex}: {e}"))
+                    })?
+                    .try_into()
+                    .map_err(|_| AntdError::BadRequest("quote_hash must be 32 bytes".into()))?;
+                let tx_bytes: [u8; 32] = hex::decode(tx_hex.trim_start_matches("0x"))
+                    .map_err(|e| AntdError::BadRequest(format!("invalid tx_hash {tx_hex}: {e}")))?
+                    .try_into()
+                    .map_err(|_| AntdError::BadRequest("tx_hash must be 32 bytes".into()))?;
+                Ok((quote_bytes.into(), tx_bytes.into()))
+            })
+            .collect::<Result<_, AntdError>>()
+            .map_err(tonic::Status::from)?;
+
+        let client = self.state.client.clone();
+        let prepared = timestamped.prepared;
+        let address = tokio::spawn(async move {
+            client
+                .finalize_chunk(prepared, &tx_hash_map)
+                .await
+                .map_err(AntdError::from_core)
+        })
+        .await
+        .map_err(|e| Status::internal(format!("task failed: {e}")))?
+        .map_err(tonic::Status::from)?;
+
+        Ok(Response::new(pb::FinalizeChunkResponse {
+            address: hex::encode(address),
+        }))
+    }
 }
 
 // ── FileService ──
@@ -561,6 +773,262 @@ impl pb::file_service_server::FileService for FileServiceImpl {
             chunk_count: chunk_count as u32,
             estimated_gas_cost_wei: estimate.estimated_gas_cost_wei,
             payment_mode: format_payment_mode(estimate.payment_mode),
+        }))
+    }
+}
+
+// ── UploadService ──
+//
+// External-signer two-phase upload flow. Mirrors the REST handlers in
+// `antd/src/rest/upload.rs` exactly — same `pending_uploads` state, same
+// `file_prepare_upload_with_visibility` / `data_prepare_upload_with_visibility`
+// / `finalize_upload` / `finalize_upload_merkle` call shapes. Helper
+// `build_grpc_prepare_response` (above) is the gRPC counterpart of REST's
+// `build_prepare_response`.
+
+pub struct UploadServiceImpl {
+    pub state: Arc<AppState>,
+}
+
+#[tonic::async_trait]
+impl pb::upload_service_server::UploadService for UploadServiceImpl {
+    async fn prepare_file_upload(
+        &self,
+        request: Request<pb::PrepareFileUploadRequest>,
+    ) -> Result<Response<pb::PrepareUploadResponse>, Status> {
+        let req = request.into_inner();
+        let path = PathBuf::from(&req.path).canonicalize().map_err(|e| {
+            tracing::warn!(path = %req.path, error = %e, "invalid prepare-file-upload path");
+            Status::invalid_argument("invalid path")
+        })?;
+        let visibility =
+            parse_grpc_visibility(&req.visibility).map_err(Status::invalid_argument)?;
+
+        let client = self.state.client.clone();
+        let prepared = tokio::spawn(async move {
+            client
+                .file_prepare_upload_with_visibility(&path, visibility)
+                .await
+                .map_err(AntdError::from_core)
+        })
+        .await
+        .map_err(|e| Status::internal(format!("task failed: {e}")))?
+        .map_err(tonic::Status::from)?;
+
+        let upload_id = hex::encode(rand::random::<[u8; 16]>());
+        let response =
+            build_grpc_prepare_response(upload_id.clone(), &prepared, &self.state.network);
+
+        self.state.pending_uploads.lock().await.insert(
+            upload_id,
+            crate::state::TimestampedUpload {
+                prepared,
+                created_at: std::time::Instant::now(),
+            },
+        );
+
+        Ok(Response::new(response))
+    }
+
+    async fn prepare_data_upload(
+        &self,
+        request: Request<pb::PrepareDataUploadRequest>,
+    ) -> Result<Response<pb::PrepareUploadResponse>, Status> {
+        let req = request.into_inner();
+        let visibility =
+            parse_grpc_visibility(&req.visibility).map_err(Status::invalid_argument)?;
+        let data = Bytes::from(req.data);
+
+        let client = self.state.client.clone();
+        let prepared = tokio::spawn(async move {
+            client
+                .data_prepare_upload_with_visibility(data, visibility)
+                .await
+                .map_err(AntdError::from_core)
+        })
+        .await
+        .map_err(|e| Status::internal(format!("task failed: {e}")))?
+        .map_err(tonic::Status::from)?;
+
+        let upload_id = hex::encode(rand::random::<[u8; 16]>());
+        let response =
+            build_grpc_prepare_response(upload_id.clone(), &prepared, &self.state.network);
+
+        self.state.pending_uploads.lock().await.insert(
+            upload_id,
+            crate::state::TimestampedUpload {
+                prepared,
+                created_at: std::time::Instant::now(),
+            },
+        );
+
+        Ok(Response::new(response))
+    }
+
+    async fn finalize_upload(
+        &self,
+        request: Request<pb::FinalizeUploadRequest>,
+    ) -> Result<Response<pb::FinalizeUploadResponse>, Status> {
+        use evmlib::common::{QuoteHash, TxHash};
+        use std::collections::HashMap;
+
+        let req = request.into_inner();
+        let timestamped = self
+            .state
+            .pending_uploads
+            .lock()
+            .await
+            .remove(&req.upload_id)
+            .ok_or_else(|| {
+                Status::not_found(format!(
+                    "upload_id {} not found — it may have expired or already been finalized",
+                    req.upload_id
+                ))
+            })?;
+        let prepared = timestamped.prepared;
+        let store_on_network = req.store_data_map;
+        let client = self.state.client.clone();
+
+        let (data_map_hex, address, data_map_address, chunks_stored) = match &prepared.payment_info
+        {
+            ant_core::data::ExternalPaymentInfo::WaveBatch { .. } => {
+                if !req.winner_pool_hash.is_empty() {
+                    return Err(Status::invalid_argument(
+                        "winner_pool_hash not applicable for wave-batch upload",
+                    ));
+                }
+                if req.tx_hashes.is_empty() {
+                    return Err(Status::invalid_argument(
+                        "tx_hashes required for wave-batch upload (this upload used wave_batch payment)",
+                    ));
+                }
+
+                // Closure returns AntdError (small) rather than Status
+                // (>=176 bytes) to keep clippy::result_large_err happy;
+                // converted at the boundary.
+                let tx_hash_map: HashMap<QuoteHash, TxHash> = req
+                    .tx_hashes
+                    .iter()
+                    .map(|(quote_hex, tx_hex)| {
+                        let quote_bytes: [u8; 32] = hex::decode(quote_hex.trim_start_matches("0x"))
+                            .map_err(|e| {
+                                AntdError::BadRequest(format!(
+                                    "invalid quote_hash {quote_hex}: {e}"
+                                ))
+                            })?
+                            .try_into()
+                            .map_err(|_| {
+                                AntdError::BadRequest("quote_hash must be 32 bytes".into())
+                            })?;
+                        let tx_bytes: [u8; 32] = hex::decode(tx_hex.trim_start_matches("0x"))
+                            .map_err(|e| {
+                                AntdError::BadRequest(format!("invalid tx_hash {tx_hex}: {e}"))
+                            })?
+                            .try_into()
+                            .map_err(|_| {
+                                AntdError::BadRequest("tx_hash must be 32 bytes".into())
+                            })?;
+                        Ok((quote_bytes.into(), tx_bytes.into()))
+                    })
+                    .collect::<Result<_, AntdError>>()
+                    .map_err(tonic::Status::from)?;
+
+                tokio::spawn(async move {
+                    let result = client
+                        .finalize_upload(prepared, &tx_hash_map)
+                        .await
+                        .map_err(AntdError::from_core)?;
+
+                    let data_map_bytes = rmp_serde::to_vec(&result.data_map)
+                        .map_err(|e| AntdError::Internal(format!("serialize data map: {e}")))?;
+                    let data_map_hex = hex::encode(data_map_bytes);
+
+                    let address = if store_on_network {
+                        let addr = client
+                            .data_map_store(&result.data_map)
+                            .await
+                            .map_err(AntdError::from_core)?;
+                        Some(hex::encode(addr))
+                    } else {
+                        None
+                    };
+
+                    let data_map_address = result.data_map_address.map(hex::encode);
+
+                    Ok::<_, AntdError>((
+                        data_map_hex,
+                        address,
+                        data_map_address,
+                        result.chunks_stored,
+                    ))
+                })
+                .await
+                .map_err(|e| Status::internal(format!("task failed: {e}")))?
+                .map_err(tonic::Status::from)?
+            }
+
+            ant_core::data::ExternalPaymentInfo::Merkle { .. } => {
+                if !req.tx_hashes.is_empty() {
+                    return Err(Status::invalid_argument(
+                        "tx_hashes not applicable for merkle upload",
+                    ));
+                }
+                if req.winner_pool_hash.is_empty() {
+                    return Err(Status::invalid_argument(
+                        "winner_pool_hash required for merkle upload (this upload used merkle payment)",
+                    ));
+                }
+
+                let winner_pool_hash: [u8; 32] =
+                    hex::decode(req.winner_pool_hash.trim_start_matches("0x"))
+                        .map_err(|e| {
+                            Status::invalid_argument(format!("invalid winner_pool_hash: {e}"))
+                        })?
+                        .try_into()
+                        .map_err(|_| {
+                            Status::invalid_argument("winner_pool_hash must be 32 bytes")
+                        })?;
+
+                tokio::spawn(async move {
+                    let result = client
+                        .finalize_upload_merkle(prepared, winner_pool_hash)
+                        .await
+                        .map_err(AntdError::from_core)?;
+
+                    let data_map_bytes = rmp_serde::to_vec(&result.data_map)
+                        .map_err(|e| AntdError::Internal(format!("serialize data map: {e}")))?;
+                    let data_map_hex = hex::encode(data_map_bytes);
+
+                    let address = if store_on_network {
+                        let addr = client
+                            .data_map_store(&result.data_map)
+                            .await
+                            .map_err(AntdError::from_core)?;
+                        Some(hex::encode(addr))
+                    } else {
+                        None
+                    };
+
+                    let data_map_address = result.data_map_address.map(hex::encode);
+
+                    Ok::<_, AntdError>((
+                        data_map_hex,
+                        address,
+                        data_map_address,
+                        result.chunks_stored,
+                    ))
+                })
+                .await
+                .map_err(|e| Status::internal(format!("task failed: {e}")))?
+                .map_err(tonic::Status::from)?
+            }
+        };
+
+        Ok(Response::new(pb::FinalizeUploadResponse {
+            data_map: data_map_hex,
+            address: address.unwrap_or_default(),
+            data_map_address: data_map_address.unwrap_or_default(),
+            chunks_stored: chunks_stored as u64,
         }))
     }
 }

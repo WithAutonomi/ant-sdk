@@ -11,7 +11,7 @@ pub mod service;
 use service::pb::{
     chunk_service_server::ChunkServiceServer, data_service_server::DataServiceServer,
     event_service_server::EventServiceServer, file_service_server::FileServiceServer,
-    health_service_server::HealthServiceServer,
+    health_service_server::HealthServiceServer, upload_service_server::UploadServiceServer,
 };
 
 pub async fn serve(
@@ -25,6 +25,9 @@ pub async fn serve(
         state: state.clone(),
     });
     let file_svc = FileServiceServer::new(service::FileServiceImpl {
+        state: state.clone(),
+    });
+    let upload_svc = UploadServiceServer::new(service::UploadServiceImpl {
         state: state.clone(),
     });
     let event_svc = EventServiceServer::new(service::EventServiceImpl {
@@ -42,6 +45,7 @@ pub async fn serve(
         .add_service(data_svc)
         .add_service(chunk_svc)
         .add_service(file_svc)
+        .add_service(upload_svc)
         .add_service(event_svc)
         .serve_with_incoming(TcpListenerStream::new(listener))
         .await?;

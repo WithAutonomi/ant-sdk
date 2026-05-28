@@ -24,3 +24,14 @@ message PublicKeyProto {
 message SecretKeyProto {
   string hex = 1;
 }
+
+// External-signer per-quote payment entry. Shared by `UploadService` (file +
+// data prepare, wave-batch path) and `ChunkService.PrepareChunk`.
+message PaymentEntry {
+  // Quote hash (hex with 0x prefix, 32 bytes).
+  string quote_hash = 1;
+  // Rewards address (hex with 0x prefix, 20 bytes).
+  string rewards_address = 2;
+  // Amount to pay (atto tokens as decimal string).
+  string amount = 3;
+}
