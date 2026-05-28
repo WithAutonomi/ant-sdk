@@ -28,6 +28,14 @@ import antd.v1.Chunks.GetChunkResponse;
 import antd.v1.Chunks.PutChunkRequest;
 import antd.v1.Chunks.PutChunkResponse;
 
+import antd.v1.WalletServiceGrpc;
+import antd.v1.Wallet.GetWalletAddressRequest;
+import antd.v1.Wallet.GetWalletAddressResponse;
+import antd.v1.Wallet.GetWalletBalanceRequest;
+import antd.v1.Wallet.GetWalletBalanceResponse;
+import antd.v1.Wallet.WalletApproveRequest;
+import antd.v1.Wallet.WalletApproveResponse;
+
 import antd.v1.FileServiceGrpc;
 import antd.v1.Files.PutFileRequest;
 import antd.v1.Files.PutFileResponse;
@@ -74,6 +82,7 @@ public class GrpcAntdClient implements AutoCloseable {
     private final DataServiceGrpc.DataServiceBlockingStub dataStub;
     private final ChunkServiceGrpc.ChunkServiceBlockingStub chunkStub;
     private final FileServiceGrpc.FileServiceBlockingStub fileStub;
+    private final WalletServiceGrpc.WalletServiceBlockingStub walletStub;
     private final UploadServiceGrpc.UploadServiceBlockingStub uploadStub;
 
     public static GrpcAntdClient autoDiscover() {
@@ -98,6 +107,7 @@ public class GrpcAntdClient implements AutoCloseable {
         this.dataStub = DataServiceGrpc.newBlockingStub(channel);
         this.chunkStub = ChunkServiceGrpc.newBlockingStub(channel);
         this.fileStub = FileServiceGrpc.newBlockingStub(channel);
+        this.walletStub = WalletServiceGrpc.newBlockingStub(channel);
         this.uploadStub = UploadServiceGrpc.newBlockingStub(channel);
     }
 
@@ -346,6 +356,42 @@ public class GrpcAntdClient implements AutoCloseable {
 
     public UploadCostEstimate fileCost(String path, boolean isPublic) {
         return fileCost(path, isPublic, PaymentMode.AUTO);
+    }
+
+    // Wallet — V2-286 parity with REST AntdClient.walletAddress/Balance/Approve.
+    // A missing daemon wallet emits gRPC FailedPrecondition which mapException
+    // surfaces as PaymentException (the established FailedPrecondition→Payment
+    // convention across all SDKs; semantic is a bit off vs REST's 503 but
+    // matches every other SDK).
+
+    public WalletAddress walletAddress() {
+        try {
+            GetWalletAddressResponse resp = walletStub.getAddress(
+                    GetWalletAddressRequest.getDefaultInstance());
+            return new WalletAddress(resp.getAddress());
+        } catch (StatusRuntimeException e) {
+            throw mapException(e);
+        }
+    }
+
+    public WalletBalance walletBalance() {
+        try {
+            GetWalletBalanceResponse resp = walletStub.getBalance(
+                    GetWalletBalanceRequest.getDefaultInstance());
+            return new WalletBalance(resp.getBalance(), resp.getGasBalance());
+        } catch (StatusRuntimeException e) {
+            throw mapException(e);
+        }
+    }
+
+    public boolean walletApprove() {
+        try {
+            WalletApproveResponse resp = walletStub.approve(
+                    WalletApproveRequest.getDefaultInstance());
+            return resp.getApproved();
+        } catch (StatusRuntimeException e) {
+            throw mapException(e);
+        }
     }
 
     // External Signer (Upload + Chunks prepare/finalize)
