@@ -1,0 +1,146 @@
+syntax = "proto3";
+
+package antd.v1;
+
+option csharp_namespace = "Antd.V1";
+option go_package = "github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1";
+
+import "antd/v1/common.proto";
+
+// External-signer flow for files + in-memory data. Mirrors the REST
+// `/v1/upload/prepare`, `/v1/data/prepare`, `/v1/upload/finalize` surface 1:1.
+//
+// Two-phase: caller submits a prepare request, daemon collects quotes from the
+// network and stashes server-side state keyed by `upload_id`. Caller then
+// signs + submits the EVM payment off-daemon, then calls FinalizeUpload with
+// the resulting transaction artefacts.
+//
+// Wave-batch (files with < 64 chunks): per-quote payments via `payForQuotes()`.
+// Merkle (files with >= 64 chunks): pool commitments via `payForMerkleTree2()`.
+//
+// File and data prepares are intentionally separate RPCs (their request shapes
+// differ — filesystem path vs raw bytes), but they share one finalize RPC
+// because the server-side stored state is the same shape either way.
+service UploadService {
+  // Phase 1: prepare a file upload for external signing. Returns payment
+  // details + an upload_id. For files with < 64 chunks returns
+  // `payment_type = "wave_batch"`; otherwise `payment_type = "merkle"`.
+  rpc PrepareFileUpload(PrepareFileUploadRequest) returns (PrepareUploadResponse);
+
+  // Phase 1 (data): prepare an in-memory data upload for external signing.
+  // Same as PrepareFileUpload but takes raw bytes instead of a filesystem
+  // path. Honours visibility = "public" (requires ant-client #73, already
+  // merged on main since 2026-05-05).
+  rpc PrepareDataUpload(PrepareDataUploadRequest) returns (PrepareUploadResponse);
+
+  // Phase 2: finalize an upload after the external EVM payment has landed.
+  // For wave-batch uploads pass `tx_hashes`; for merkle uploads pass
+  // `winner_pool_hash` from the `MerklePaymentMade` event. The server-side
+  // stored upload state is consumed (one-shot).
+  rpc FinalizeUpload(FinalizeUploadRequest) returns (FinalizeUploadResponse);
+}
+
+// --- Prepare requests ---
+
+message PrepareFileUploadRequest {
+  // Local filesystem path on the daemon host.
+  string path = 1;
+  // Upload visibility: "private" (default — DataMap returned to the caller)
+  // or "public" (DataMap chunk bundled into the same payment batch and
+  // stored on-network; its address is returned on finalize). Empty string
+  // is treated as "private".
+  string visibility = 2;
+}
+
+message PrepareDataUploadRequest {
+  // Raw bytes to upload.
+  bytes data = 1;
+  // Same semantics as PrepareFileUploadRequest.visibility.
+  string visibility = 2;
+}
+
+// --- Prepare response (shared by both prepares) ---
+
+message PrepareUploadResponse {
+  // Opaque token to pass back to FinalizeUpload.
+  string upload_id = 1;
+  // "wave_batch" or "merkle" — determines which fields are populated and
+  // which contract call the external signer must make.
+  string payment_type = 2;
+
+  // --- Wave-batch fields (populated when payment_type == "wave_batch") ---
+  // Per-quote payment entries for `payForQuotes()`.
+  repeated PaymentEntry payments = 3;
+
+  // --- Merkle fields (populated when payment_type == "merkle") ---
+  // Merkle tree depth (1..=8).
+  uint32 depth = 4;
+  // Pool commitments for `payForMerkleTree2()`.
+  repeated PoolCommitmentEntry pool_commitments = 5;
+  // Timestamp for the merkle payment (unix seconds).
+  uint64 merkle_payment_timestamp = 6;
+
+  // --- Common fields (always populated) ---
+  // Total amount to pay in atto tokens as a decimal string. For merkle this
+  // is "0" since the cost is determined on-chain.
+  string total_amount = 7;
+  // Unified payment vault contract address (hex with 0x prefix).
+  string payment_vault_address = 8;
+  // Payment token contract address (hex with 0x prefix).
+  string payment_token_address = 9;
+  // EVM RPC URL for submitting transactions.
+  string rpc_url = 10;
+}
+
+// A pool commitment entry for the merkle payment contract.
+message PoolCommitmentEntry {
+  // Pool hash (hex with 0x prefix, 32 bytes).
+  string pool_hash = 1;
+  // Exactly 16 candidate nodes.
+  repeated CandidateNodeEntry candidates = 2;
+}
+
+// A candidate node: rewards address + price (amount).
+message CandidateNodeEntry {
+  // Node's rewards address (hex with 0x prefix, 20 bytes).
+  string rewards_address = 1;
+  // Node's price as a decimal string (maps to the contract's `amount` field).
+  string amount = 2;
+}
+
+// --- Finalize request / response ---
+
+message FinalizeUploadRequest {
+  // The upload_id returned from a Prepare* call.
+  string upload_id = 1;
+  // Wave-batch: map of quote_hash (hex) → tx_hash (hex) from the on-chain
+  // payment. Required when the prepared upload was wave-batch, must be
+  // empty otherwise.
+  map<string, string> tx_hashes = 2;
+  // Merkle: winner pool hash (hex with 0x prefix, 32 bytes) from the
+  // `MerklePaymentMade` event. Required when the prepared upload was
+  // merkle, must be empty otherwise.
+  string winner_pool_hash = 3;
+  // If true, store the DataMap on-network via the daemon's internal wallet
+  // and return its address. If false (default), return the raw DataMap
+  // for caller-side storage. Equivalent to the REST `store_data_map`
+  // field.
+  bool store_data_map = 4;
+}
+
+message FinalizeUploadResponse {
+  // Hex-encoded rmp_serde-serialized DataMap. Always returned.
+  string data_map = 1;
+  // Network address of the stored DataMap, only set when the legacy
+  // `store_data_map = true` path published the DataMap via the daemon's
+  // internal wallet. New callers should prefer `visibility = "public"`
+  // on prepare and read `data_map_address` instead.
+  string address = 2;
+  // Network address of the bundled DataMap chunk when the upload was
+  // prepared with `visibility = "public"`. The DataMap chunk's payment
+  // is part of the same external-signer batch as the data chunks, so
+  // no separate daemon-wallet payment is required.
+  string data_map_address = 3;
+  // Number of chunks stored on the network.
+  uint64 chunks_stored = 4;
+}
