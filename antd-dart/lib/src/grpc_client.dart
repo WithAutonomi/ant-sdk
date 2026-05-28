@@ -14,6 +14,8 @@ import 'generated/antd/v1/files.pbgrpc.dart' as files_pb;
 import 'generated/antd/v1/files.pb.dart' as files_msg;
 import 'generated/antd/v1/upload.pbgrpc.dart' as upload_pb;
 import 'generated/antd/v1/upload.pb.dart' as upload_msg;
+import 'generated/antd/v1/wallet.pbgrpc.dart' as wallet_pb;
+import 'generated/antd/v1/wallet.pb.dart' as wallet_msg;
 
 import 'discover.dart';
 import 'errors.dart';
@@ -42,6 +44,7 @@ class GrpcAntdClient {
   final chunks_pb.ChunkServiceClient _chunkStub;
   final files_pb.FileServiceClient _fileStub;
   final upload_pb.UploadServiceClient _uploadStub;
+  final wallet_pb.WalletServiceClient _walletStub;
 
   /// Creates a new antd gRPC client.
   ///
@@ -97,6 +100,15 @@ class GrpcAntdClient {
               ),
         ),
         _uploadStub = upload_pb.UploadServiceClient(
+          channel ??
+              ClientChannel(
+                host,
+                port: port,
+                options: const ChannelOptions(
+                    credentials: ChannelCredentials.insecure()),
+              ),
+        ),
+        _walletStub = wallet_pb.WalletServiceClient(
           channel ??
               ClientChannel(
                 host,
@@ -440,6 +452,21 @@ class GrpcAntdClient {
     }
   }
 
+  // --- Wallet ---
+  //
+  // V2-286: parity with REST AntdClient. A missing daemon wallet emits gRPC
+  // FailedPrecondition which _handleError surfaces as PaymentError
+  // (established FailedPrecondition->Payment convention across all SDKs).
+
+  Future<WalletAddress> walletAddress() async {
+    try {
+      final resp = await _walletStub.getAddress(wallet_msg.GetWalletAddressRequest());
+      return WalletAddress(address: resp.address);
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
   /// Submits a prepared chunk after external payment. Returns the chunk
   /// address (matches [PrepareChunkResult.address]).
   ///
@@ -453,6 +480,15 @@ class GrpcAntdClient {
       req.txHashes.addAll(txHashes);
       final resp = await _chunkStub.finalizeChunk(req);
       return resp.address;
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
+  Future<WalletBalance> walletBalance() async {
+    try {
+      final resp = await _walletStub.getBalance(wallet_msg.GetWalletBalanceRequest());
+      return WalletBalance(balance: resp.balance, gasBalance: resp.gasBalance);
     } on GrpcError catch (e) {
       _handleError(e);
     }
@@ -475,6 +511,15 @@ class GrpcAntdClient {
         ..visibility = visibility ?? '';
       final resp = await _uploadStub.prepareFileUpload(req);
       return _mapPrepareUploadResponse(resp);
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
+  Future<bool> walletApprove() async {
+    try {
+      final resp = await _walletStub.approve(wallet_msg.WalletApproveRequest());
+      return resp.approved;
     } on GrpcError catch (e) {
       _handleError(e);
     }
