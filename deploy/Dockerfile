@@ -17,14 +17,22 @@
 #     -t withautonomi/antd:dev \
 #     deploy/
 
-FROM alpine:3.21
+# glibc base (NOT alpine/musl): the antd binaries built by the Release
+# workflow target *-unknown-linux-gnu, i.e. they are dynamically linked
+# against glibc (interpreter /lib64/ld-linux-*.so, NEEDED libc.so.6). A
+# musl runtime has no glibc loader, so antd fails to exec with
+# `exec /usr/local/bin/antd: no such file or directory` — the image cannot
+# run its own binary. debian-slim ships glibc; antd runs out of the box.
+FROM debian:trixie-slim
 
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 
-RUN apk add --no-cache ca-certificates wget tzdata \
- && addgroup -g 65532 -S antd \
- && adduser -u 65532 -S -G antd -h /var/lib/antd -s /sbin/nologin antd \
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates wget tzdata \
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd -g 65532 antd \
+ && useradd -u 65532 -g antd -M -s /usr/sbin/nologin -d /var/lib/antd antd \
  && mkdir -p /var/lib/antd \
  && chown -R antd:antd /var/lib/antd
 
