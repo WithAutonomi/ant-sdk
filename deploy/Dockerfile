@@ -25,8 +25,14 @@
 # run its own binary. debian-slim ships glibc; antd runs out of the box.
 FROM debian:trixie-slim
 
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+# NO defaults here. These are automatic platform build args: buildx injects
+# the per-platform value (e.g. arm64 on the arm64 leg of a multi-arch build)
+# only when the ARG is declared without a default. A default like
+# `ARG TARGETARCH=amd64` *overrides* buildx's value, so every platform's leg
+# would COPY antd-linux-amd64 — shipping an amd64 binary inside the arm64
+# image (exit 133 / SIGTRAP on Apple Silicon). Leave them empty.
+ARG TARGETOS
+ARG TARGETARCH
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates wget tzdata \
