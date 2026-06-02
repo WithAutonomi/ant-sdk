@@ -17,14 +17,28 @@
 #     -t withautonomi/antd:dev \
 #     deploy/
 
-FROM alpine:3.21
+# glibc base (NOT alpine/musl): the antd binaries built by the Release
+# workflow target *-unknown-linux-gnu, i.e. they are dynamically linked
+# against glibc (interpreter /lib64/ld-linux-*.so, NEEDED libc.so.6). A
+# musl runtime has no glibc loader, so antd fails to exec with
+# `exec /usr/local/bin/antd: no such file or directory` — the image cannot
+# run its own binary. debian-slim ships glibc; antd runs out of the box.
+FROM debian:trixie-slim
 
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+# NO defaults here. These are automatic platform build args: buildx injects
+# the per-platform value (e.g. arm64 on the arm64 leg of a multi-arch build)
+# only when the ARG is declared without a default. A default like
+# `ARG TARGETARCH=amd64` *overrides* buildx's value, so every platform's leg
+# would COPY antd-linux-amd64 — shipping an amd64 binary inside the arm64
+# image (exit 133 / SIGTRAP on Apple Silicon). Leave them empty.
+ARG TARGETOS
+ARG TARGETARCH
 
-RUN apk add --no-cache ca-certificates wget tzdata \
- && addgroup -g 65532 -S antd \
- && adduser -u 65532 -S -G antd -h /var/lib/antd -s /sbin/nologin antd \
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates wget tzdata \
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd -g 65532 antd \
+ && useradd -u 65532 -g antd -M -s /usr/sbin/nologin -d /var/lib/antd antd \
  && mkdir -p /var/lib/antd \
  && chown -R antd:antd /var/lib/antd
 
