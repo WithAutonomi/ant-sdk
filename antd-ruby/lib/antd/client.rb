@@ -397,7 +397,9 @@ module Antd
         payment_type: payment_type,
         depth: j["depth"] || 0,
         pool_commitments: pool_commitments,
-        merkle_payment_timestamp: j["merkle_payment_timestamp"] || 0
+        merkle_payment_timestamp: j["merkle_payment_timestamp"] || 0,
+        total_chunks: j["total_chunks"] || 0,
+        already_stored_count: j["already_stored_count"] || 0
       )
     end
 

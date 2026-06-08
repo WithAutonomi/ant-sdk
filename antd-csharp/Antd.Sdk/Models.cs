@@ -115,7 +115,11 @@ public sealed record PrepareUploadResult(
     string PaymentType = "wave_batch",
     int? Depth = null,
     List<PoolCommitmentEntry>? PoolCommitments = null,
-    long? MerklePaymentTimestamp = null);
+    long? MerklePaymentTimestamp = null,
+    // Already-stored preflight (added in antd 0.10.0). 0 against older daemons.
+    // The external signer pays for (TotalChunks - AlreadyStoredCount) chunks.
+    long TotalChunks = 0,
+    long AlreadyStoredCount = 0);
 
 /// <summary>Result of finalizing an externally-signed wave-batch upload.</summary>
 public sealed record FinalizeUploadResult(

@@ -62,6 +62,8 @@ class PrepareUploadResult:
     depth: int                      # merkle only
     pool_commitments: list[…]       # merkle only
     merkle_payment_timestamp: int   # merkle only
+    total_chunks: int               # added in antd 0.10.0 — chunks incl. already-stored
+    already_stored_count: int       # added in antd 0.10.0 — skipped chunks (no payment/PUT)
 
 class PaymentInfo:
     quote_hash: str                 # 32-byte hex, the bytes32 quoteHash in the contract

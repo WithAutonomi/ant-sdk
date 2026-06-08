@@ -339,7 +339,9 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
             paymentType: resp.paymentType ?? "wave_batch",
             depth: resp.depth,
             poolCommitments: poolCommitments,
-            merklePaymentTimestamp: resp.merklePaymentTimestamp
+            merklePaymentTimestamp: resp.merklePaymentTimestamp,
+            totalChunks: resp.totalChunks ?? 0,
+            alreadyStoredCount: resp.alreadyStoredCount ?? 0
         )
     }
 }
@@ -464,6 +466,9 @@ private struct PrepareUploadDTO: Decodable {
     let depth: Int?
     let poolCommitments: [PoolCommitmentEntryDTO]?
     let merklePaymentTimestamp: UInt64?
+    // Optional so older daemons that omit these still decode (defaulted to 0 on map).
+    let totalChunks: UInt64?
+    let alreadyStoredCount: UInt64?
 }
 
 private struct FinalizeUploadDTO: Decodable {

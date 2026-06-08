@@ -123,6 +123,8 @@ func mockDaemon(t *testing.T) *httptest.Server {
 				"payment_vault_address": "dp1",
 				"payment_token_address": "pt1",
 				"rpc_url":               "http://localhost:8545",
+				"total_chunks":          float64(3),
+				"already_stored_count":  float64(1),
 			})
 
 		// Prepare data upload — wave_batch
@@ -135,6 +137,8 @@ func mockDaemon(t *testing.T) *httptest.Server {
 				"payment_vault_address": "dp1",
 				"payment_token_address": "pt1",
 				"rpc_url":               "http://localhost:8545",
+				"total_chunks":          float64(5),
+				"already_stored_count":  float64(2),
 			})
 
 		// Finalize upload
@@ -370,6 +374,9 @@ func TestPrepareUpload(t *testing.T) {
 	if res.RPCUrl != "http://localhost:8545" {
 		t.Fatalf("unexpected rpc_url: %s", res.RPCUrl)
 	}
+	if res.TotalChunks != 3 || res.AlreadyStoredCount != 1 {
+		t.Fatalf("unexpected preflight: total_chunks=%d already_stored_count=%d", res.TotalChunks, res.AlreadyStoredCount)
+	}
 }
 
 func TestPrepareDataUpload(t *testing.T) {
@@ -397,6 +404,9 @@ func TestPrepareDataUpload(t *testing.T) {
 	}
 	if res.RPCUrl != "http://localhost:8545" {
 		t.Fatalf("unexpected rpc_url: %s", res.RPCUrl)
+	}
+	if res.TotalChunks != 5 || res.AlreadyStoredCount != 2 {
+		t.Fatalf("unexpected preflight: total_chunks=%d already_stored_count=%d", res.TotalChunks, res.AlreadyStoredCount)
 	}
 }
 

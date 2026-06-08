@@ -280,7 +280,9 @@ public sealed class AntdRestClient : IAntdClient
             PaymentType: resp.PaymentType ?? "wave_batch",
             Depth: resp.Depth,
             PoolCommitments: poolCommitments,
-            MerklePaymentTimestamp: resp.MerklePaymentTimestamp);
+            MerklePaymentTimestamp: resp.MerklePaymentTimestamp,
+            TotalChunks: resp.TotalChunks,
+            AlreadyStoredCount: resp.AlreadyStoredCount);
     }
 
     // Internal DTOs for JSON deserialization
@@ -366,7 +368,9 @@ public sealed class AntdRestClient : IAntdClient
         [property: JsonPropertyName("payment_type")] string? PaymentType = null,
         [property: JsonPropertyName("depth")] int? Depth = null,
         [property: JsonPropertyName("pool_commitments")] List<PoolCommitmentEntryDto>? PoolCommitments = null,
-        [property: JsonPropertyName("merkle_payment_timestamp")] long? MerklePaymentTimestamp = null);
+        [property: JsonPropertyName("merkle_payment_timestamp")] long? MerklePaymentTimestamp = null,
+        [property: JsonPropertyName("total_chunks")] long TotalChunks = 0,
+        [property: JsonPropertyName("already_stored_count")] long AlreadyStoredCount = 0);
 
     private sealed record FinalizeUploadDto(
         [property: JsonPropertyName("address")] string? Address = null,

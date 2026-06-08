@@ -397,6 +397,8 @@ describe("antd client", function()
                     payment_token_address = "0xTOKEN",
                     rpc_url = "http://localhost:8545",
                     merkle_payment_timestamp = 1700000000,
+                    total_chunks = 128,
+                    already_stored_count = 4,
                     pool_commitments = {
                         {
                             pool_hash = "pool_abc",
@@ -426,6 +428,9 @@ describe("antd client", function()
             assert.are.equal("2000", pc.candidates[1].amount)
             assert.are.equal("0xR2", pc.candidates[2].rewards_address)
             assert.are.equal("3000", pc.candidates[2].amount)
+            -- already-stored preflight (added in antd 0.10.0)
+            assert.are.equal(128, result.total_chunks)
+            assert.are.equal(4, result.already_stored_count)
         end)
     end)
 
@@ -465,6 +470,9 @@ describe("antd client", function()
 
             assert.are.equal(1, #result.payments)
             assert.are.equal("qh1", result.payments[1].quote_hash)
+            -- preflight fields absent in older-daemon responses default to 0
+            assert.are.equal(0, result.total_chunks)
+            assert.are.equal(0, result.already_stored_count)
         end)
     end)
 

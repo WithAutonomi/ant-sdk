@@ -31,6 +31,12 @@ fn build_prepare_response(
     let payment_token_address = evm_cfg.token_addr;
     let payment_vault_address = evm_cfg.vault_addr;
 
+    // Already-stored preflight (added in antd 0.10.0): surface how many chunks
+    // were skipped because they were already on-network, so external signers can
+    // reconcile the (possibly cheaper) payment against the full file size.
+    let total_chunks = prepared.total_chunks;
+    let already_stored_count = prepared.already_stored_addresses.len();
+
     match &prepared.payment_info {
         ant_core::data::ExternalPaymentInfo::WaveBatch { payment_intent, .. } => {
             let payments: Vec<PaymentEntry> = payment_intent
@@ -54,6 +60,8 @@ fn build_prepare_response(
                 payment_vault_address,
                 payment_token_address,
                 rpc_url,
+                total_chunks,
+                already_stored_count,
             })
         }
         ant_core::data::ExternalPaymentInfo::Merkle { prepared_batch, .. } => {
@@ -86,6 +94,8 @@ fn build_prepare_response(
                 payment_vault_address,
                 payment_token_address,
                 rpc_url,
+                total_chunks,
+                already_stored_count,
             })
         }
     }

@@ -416,7 +416,9 @@ public class AntdClient implements AutoCloseable {
                 str(j, "rpc_url"),
                 depth,
                 poolCommitments,
-                merklePaymentTimestamp
+                merklePaymentTimestamp,
+                num(j, "total_chunks"),
+                num(j, "already_stored_count")
         );
     }
 

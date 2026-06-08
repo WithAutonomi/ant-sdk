@@ -154,7 +154,9 @@ fn mock_prepare_upload_merkle(server: &mut ServerGuard) -> Mock {
                     ]
                 }
             ],
-            "merkle_payment_timestamp": 1700000000
+            "merkle_payment_timestamp": 1700000000,
+            "total_chunks": 128,
+            "already_stored_count": 4
         }"#,
         )
         .create()
@@ -492,6 +494,9 @@ async fn test_prepare_upload_merkle() {
     assert_eq!(pools[1].pool_hash, "0xpool2");
     assert_eq!(pools[1].candidates.len(), 1);
     assert_eq!(pools[1].candidates[0].rewards_address, "0xnode3");
+    // already-stored preflight (added in antd 0.10.0)
+    assert_eq!(result.total_chunks, 128);
+    assert_eq!(result.already_stored_count, 4);
 }
 
 #[tokio::test]
@@ -523,6 +528,9 @@ async fn test_prepare_upload_backward_compat() {
     assert_eq!(result.payment_vault_address, "0xDP");
     assert_eq!(result.payments.len(), 1);
     assert_eq!(result.payments[0].quote_hash, "qh1");
+    // preflight fields absent in older-daemon responses default to 0
+    assert_eq!(result.total_chunks, 0);
+    assert_eq!(result.already_stored_count, 0);
 }
 
 // ---------------------------------------------------------------------------
