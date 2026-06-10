@@ -138,6 +138,53 @@ pub struct DataServiceImpl {
     pub state: Arc<AppState>,
 }
 
+/// Spawn a constant-memory streaming download from `data_map` and return the
+/// gRPC response stream. `file_download_to_sender` runs on a background task and
+/// emits each decrypted batch as a `DataChunk`; a terminal ant-core error is
+/// forwarded as the stream's final `Err(Status)` (after any chunks already
+/// sent), closing the server-stream with that status. Shared by the private
+/// `stream` and public `stream_public` handlers — `stream` is the primitive,
+/// `stream_public` resolves the address to a DataMap then calls this.
+fn spawn_data_chunk_stream(
+    client: Arc<ant_core::data::Client>,
+    data_map: ant_core::data::DataMap,
+) -> tokio_stream::wrappers::ReceiverStream<Result<pb::DataChunk, Status>> {
+    let (byte_tx, mut byte_rx) =
+        tokio::sync::mpsc::channel::<std::result::Result<Bytes, ant_core::data::Error>>(16);
+    let (out_tx, out_rx) = tokio::sync::mpsc::channel::<Result<pb::DataChunk, Status>>(16);
+
+    // Producer: drive the download. file_download_to_sender returns a terminal
+    // error rather than sending it into the sink, so push it via a cloned
+    // handle after the chunks it already sent (preserves order on the channel).
+    let err_tx = byte_tx.clone();
+    tokio::spawn(async move {
+        if let Err(e) = client
+            .file_download_to_sender(&data_map, byte_tx, None)
+            .await
+        {
+            let _ = err_tx.send(Err(e)).await;
+        }
+    });
+
+    // Forwarder: bytes -> DataChunk, ant-core error -> Status (reusing the
+    // daemon's existing mapping). Stops early if the client drops the stream.
+    tokio::spawn(async move {
+        while let Some(item) = byte_rx.recv().await {
+            let mapped = match item {
+                Ok(bytes) => Ok(pb::DataChunk {
+                    data: bytes.to_vec(),
+                }),
+                Err(e) => Err(Status::from(AntdError::from_core(e))),
+            };
+            if out_tx.send(mapped).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    tokio_stream::wrappers::ReceiverStream::new(out_rx)
+}
+
 #[tonic::async_trait]
 impl pb::data_service_server::DataService for DataServiceImpl {
     async fn get_public(
@@ -218,18 +265,61 @@ impl pb::data_service_server::DataService for DataServiceImpl {
         }))
     }
 
+    type StreamStream = tokio_stream::wrappers::ReceiverStream<Result<pb::DataChunk, Status>>;
+    async fn stream(
+        &self,
+        request: Request<pb::StreamDataRequest>,
+    ) -> Result<Response<Self::StreamStream>, Status> {
+        let data_map_hex = request.into_inner().data_map;
+        let data_map_bytes = hex::decode(&data_map_hex)
+            .map_err(|e| Status::invalid_argument(format!("invalid hex data_map: {e}")))?;
+
+        // Reject oversized data maps before deserialization (10 MB limit) —
+        // mirrors `get`.
+        const MAX_DATA_MAP_SIZE: usize = 10 * 1024 * 1024;
+        if data_map_bytes.len() > MAX_DATA_MAP_SIZE {
+            return Err(Status::invalid_argument(format!(
+                "data map too large: {} bytes exceeds {} byte limit",
+                data_map_bytes.len(),
+                MAX_DATA_MAP_SIZE,
+            )));
+        }
+
+        let data_map: ant_core::data::DataMap = rmp_serde::from_slice(&data_map_bytes)
+            .map_err(|e| Status::invalid_argument(format!("invalid data map: {e}")))?;
+
+        let client = self.state.client.clone();
+        Ok(Response::new(spawn_data_chunk_stream(client, data_map)))
+    }
+
     type StreamPublicStream = tokio_stream::wrappers::ReceiverStream<Result<pb::DataChunk, Status>>;
     async fn stream_public(
         &self,
-        _r: Request<pb::StreamPublicDataRequest>,
+        request: Request<pb::StreamPublicDataRequest>,
     ) -> Result<Response<Self::StreamPublicStream>, Status> {
-        // ant-core does not yet expose a chunk-by-chunk download primitive
-        // (`Client::data_download` returns the full Bytes in one call, and
-        // self-encryption decrypt currently needs every chunk before yielding
-        // any plaintext). Honest UNIMPLEMENTED until that lands.
-        Err(Status::unimplemented(
-            "data stream-download not yet implemented;              ant-core does not yet expose a chunk-by-chunk download primitive",
-        ))
+        let addr = request.into_inner().address;
+        if addr.len() != 64 {
+            return Err(Status::invalid_argument(
+                "address must be exactly 64 hex characters",
+            ));
+        }
+        let address_bytes = hex::decode(&addr)
+            .map_err(|e| Status::invalid_argument(format!("invalid hex address: {e}")))?;
+        let address: [u8; 32] = address_bytes
+            .try_into()
+            .map_err(|_| Status::invalid_argument("address must be 32 bytes"))?;
+
+        // Resolve address -> DataMap up front so a fetch failure surfaces as a
+        // normal unary error before the stream opens; then stream from the
+        // DataMap (public wraps the private primitive).
+        let client = self.state.client.clone();
+        let data_map = client
+            .data_map_fetch(&address)
+            .await
+            .map_err(AntdError::from_core)
+            .map_err(tonic::Status::from)?;
+
+        Ok(Response::new(spawn_data_chunk_stream(client, data_map)))
     }
 
     async fn get(

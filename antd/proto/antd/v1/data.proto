@@ -15,6 +15,10 @@ service DataService {
   rpc PutPublic(PutPublicDataRequest) returns (PutPublicDataResponse);
   rpc Get(GetDataRequest) returns (GetDataResponse);
   rpc GetPublic(GetPublicDataRequest) returns (GetPublicDataResponse);
+  // Streaming downloads — constant memory, one decrypt batch at a time.
+  // Private streams from a caller-held DataMap; public resolves the address
+  // to a DataMap first (Stream is the primitive, StreamPublic wraps it).
+  rpc Stream(StreamDataRequest) returns (stream DataChunk);
   rpc StreamPublic(StreamPublicDataRequest) returns (stream DataChunk);
   rpc Cost(DataCostRequest) returns (antd.v1.Cost);
 }
@@ -53,6 +57,10 @@ message DataChunk {
 // --- Private ---
 
 message GetDataRequest {
+  string data_map = 1; // hex
+}
+
+message StreamDataRequest {
   string data_map = 1; // hex
 }
 

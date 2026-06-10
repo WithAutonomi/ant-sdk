@@ -68,6 +68,7 @@ pub fn router(state: Arc<AppState>, enable_cors: bool, rest_port: u16) -> Router
         // Data — convention: unqualified verb = private, `_public` suffix = public.
         .route("/v1/data", post(data::data_put))
         .route("/v1/data/get", post(data::data_get))
+        .route("/v1/data/stream", post(data::data_stream))
         .route("/v1/data/public", post(data::data_put_public))
         .route("/v1/data/public/{addr}", get(data::data_get_public))
         .route(
