@@ -415,6 +415,28 @@ struct StubServer {
             res.set_content(resp.dump(), "application/json");
         });
 
+        // Data stream public (streaming counterpart to data get public).
+        // Body is the raw decrypted bytes with a Content-Length set.
+        svr.Get("/v1/data/public/addr_pub_abc/stream",
+            [](const httplib::Request&, httplib::Response& res) {
+                res.set_content("hello", "application/octet-stream");
+            });
+
+        // Data stream public — missing address returns a JSON error body.
+        svr.Get("/v1/data/public/addr_missing/stream",
+            [](const httplib::Request&, httplib::Response& res) {
+                res.status = 404;
+                json err = {{"error", "record not found"}, {"code", "not_found"}};
+                res.set_content(err.dump(), "application/json");
+            });
+
+        // Data stream private (streaming counterpart to data get). Same body
+        // shape as POST /v1/data/get: {"data_map": "<hex>"}.
+        svr.Post("/v1/data/stream", [this](const httplib::Request& req, httplib::Response& res) {
+            try { last_data_get_body = json::parse(req.body); } catch (...) {}
+            res.set_content("secret", "application/octet-stream");
+        });
+
         // Data cost
         svr.Post("/v1/data/cost", [this](const httplib::Request& req, httplib::Response& res) {
             try { last_data_cost_body = json::parse(req.body); } catch (...) {}
@@ -638,6 +660,69 @@ TEST_CASE("data_get POSTs data_map and returns bytes") {
 
     CHECK(text == "secret");
     CHECK(stub.last_data_get_body.value("data_map", "") == "dm_priv_xyz");
+}
+
+TEST_CASE("data_stream POSTs data_map and streams bytes to the sink") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    std::string received;
+    c.data_stream("dm_priv_xyz", [&](const char* data, std::size_t len) {
+        received.append(data, len);
+        return true;
+    });
+
+    CHECK(received == "secret");
+    CHECK(stub.last_data_get_body.value("data_map", "") == "dm_priv_xyz");
+}
+
+TEST_CASE("data_stream_public GETs the /stream route and streams bytes") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    std::string received;
+    c.data_stream_public("addr_pub_abc", [&](const char* data, std::size_t len) {
+        received.append(data, len);
+        return true;
+    });
+
+    CHECK(received == "hello");
+}
+
+TEST_CASE("data_stream_public parses {\"error\"} on non-2xx") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    std::string received;
+    auto sink = [&](const char* data, std::size_t len) {
+        received.append(data, len);
+        return true;
+    };
+
+    CHECK_THROWS_AS(c.data_stream_public("addr_missing", sink), antd::NotFoundError);
+    // The error body must not leak into the caller's sink.
+    CHECK(received.empty());
+
+    try {
+        c.data_stream_public("addr_missing", sink);
+    } catch (const antd::NotFoundError& e) {
+        CHECK(std::string(e.what()).find("record not found") != std::string::npos);
+    }
+}
+
+TEST_CASE("data_stream sink returning false aborts the download") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    std::string received;
+    // Stop after the first chunk by returning false.
+    c.data_stream("dm_priv_xyz", [&](const char* data, std::size_t len) {
+        received.append(data, len);
+        return false;
+    });
+
+    // No throw; we simply stopped consuming. Body is small so we still got it.
+    CHECK(received == "secret");
 }
 
 TEST_CASE("data_cost forwards payment_mode") {

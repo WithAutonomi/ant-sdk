@@ -103,6 +103,18 @@ impl v1::data_service_server::DataService for MockDataService {
             rx,
         )))
     }
+
+    type StreamStream = tokio_stream::wrappers::ReceiverStream<Result<v1::DataChunk, Status>>;
+
+    async fn stream(
+        &self,
+        _request: Request<v1::StreamDataRequest>,
+    ) -> Result<Response<Self::StreamStream>, Status> {
+        let (_tx, rx) = tokio::sync::mpsc::channel(1);
+        Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(
+            rx,
+        )))
+    }
 }
 
 #[derive(Default)]

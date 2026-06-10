@@ -73,6 +73,24 @@ module Antd
       b64_decode(j["data"])
     end
 
+    # Stream private data from a caller-held DataMap (hex) — the streaming
+    # counterpart to +data_get+. Decrypted bytes arrive in chunks, keeping
+    # memory usage constant regardless of payload size.
+    #
+    # When a block is given, each raw byte chunk is yielded as it arrives and
+    # the method returns +nil+ once the body is fully consumed. When no block
+    # is given, an +Enumerator+ over the chunks is returned (lazy — the HTTP
+    # request runs when the enumerator is iterated).
+    #
+    # @param data_map [String]
+    # @yieldparam chunk [String] a raw byte chunk of the decrypted payload
+    # @return [nil, Enumerator]
+    def data_stream(data_map, &block)
+      return enum_for(:data_stream, data_map) unless block_given?
+
+      do_stream(:post, "/v1/data/stream", { data_map: data_map }, &block)
+    end
+
     # Store public data. The DataMap is stored on-network as an extra chunk;
     # the returned address is the shareable retrieval handle.
     # @param data [String] raw bytes
@@ -93,6 +111,24 @@ module Antd
     def data_get_public(address)
       j = do_json(:get, "/v1/data/public/#{address}")
       b64_decode(j["data"])
+    end
+
+    # Stream public data by address — the streaming counterpart to
+    # +data_get_public+. Decrypted bytes arrive in chunks, keeping memory
+    # usage constant regardless of payload size.
+    #
+    # When a block is given, each raw byte chunk is yielded as it arrives and
+    # the method returns +nil+ once the body is fully consumed. When no block
+    # is given, an +Enumerator+ over the chunks is returned (lazy — the HTTP
+    # request runs when the enumerator is iterated).
+    #
+    # @param address [String] hex address
+    # @yieldparam chunk [String] a raw byte chunk of the payload
+    # @return [nil, Enumerator]
+    def data_stream_public(address, &block)
+      return enum_for(:data_stream_public, address) unless block_given?
+
+      do_stream(:get, "/v1/data/public/#{address}/stream", nil, &block)
     end
 
     # Pre-upload cost breakdown for the given bytes.
@@ -449,6 +485,55 @@ module Antd
       return {} if response.body.nil? || response.body.empty?
 
       JSON.parse(response.body)
+    end
+
+    # Perform a streaming HTTP request, yielding raw body chunks to +block+ as
+    # they arrive. Reuses the same base-URL / timeout / error-mapping plumbing
+    # as +do_json+, but never buffers the success body in memory.
+    #
+    # On a non-2xx response the (short) body is read fully, parsed for an
+    # +{"error":...}+ field, and raised via +Antd.error_for_status+ — mirroring
+    # +do_json+. On 2xx, chunks are streamed straight to the block.
+    def do_stream(method, path, body = nil)
+      uri = build_uri(path)
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = (uri.scheme == "https")
+      http.open_timeout = @timeout
+      http.read_timeout = @timeout
+
+      request = case method
+                when :get  then Net::HTTP::Get.new(uri)
+                when :post then Net::HTTP::Post.new(uri)
+                when :put  then Net::HTTP::Put.new(uri)
+                end
+
+      if body
+        request["Content-Type"] = "application/json"
+        request.body = JSON.generate(body)
+      end
+
+      http.start do
+        http.request(request) do |response|
+          code = response.code.to_i
+
+          unless (200...300).cover?(code)
+            msg = response.body.to_s
+            begin
+              parsed = JSON.parse(msg)
+              msg = parsed["error"] if parsed["error"]
+            rescue JSON::ParserError
+              # use raw body as message
+            end
+            raise Antd.error_for_status(code, msg)
+          end
+
+          response.read_body do |chunk|
+            yield chunk unless chunk.empty?
+          end
+        end
+      end
+
+      nil
     end
 
     # Perform an HTTP HEAD request and return the status code.

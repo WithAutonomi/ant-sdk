@@ -259,6 +259,62 @@ async def download_file(
 
 
 # ---------------------------------------------------------------------------
+# Tool: stream_download_file
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def stream_download_file(
+    address: str,
+    dest_path: str,
+    private: bool = False,
+) -> str:
+    """Download a network object to a local path, streaming with constant memory.
+
+    Unlike ``download_file`` (which asks the daemon to write the file
+    server-side, requiring the daemon and this MCP server to share a
+    filesystem), this tool streams the raw bytes back to the MCP server process
+    and writes them to ``dest_path`` on **this** host, one chunk at a time. It
+    never buffers the whole object in memory, so it suits large objects.
+
+    Args:
+        address: The on-network address (public) or the caller-held DataMap
+            (private).
+        dest_path: Local path (on the MCP server host) to write the bytes to.
+        private: If True, treat ``address`` as a caller-held DataMap and stream
+            the private object. Default: public.
+
+    Returns:
+        JSON with ``status``, ``dest_path``, and ``bytes_written``, or error
+        details.
+    """
+    client, network = _get_ctx()
+    try:
+        bytes_written = 0
+        if private:
+            stream_cm = client.data_stream(address)
+        else:
+            stream_cm = client.data_stream_public(address)
+        with open(dest_path, "wb") as out:
+            async with stream_cm as chunks:
+                async for chunk in chunks:
+                    out.write(chunk)
+                    bytes_written += len(chunk)
+        return _ok(
+            {
+                "status": "downloaded",
+                "dest_path": dest_path,
+                "bytes_written": bytes_written,
+            },
+            network,
+        )
+    except AntdError as exc:
+        return _err_antd(exc, network)
+    except Exception as exc:
+        return _err(exc, network)
+
+
+# ---------------------------------------------------------------------------
 # Tool 5: get_cost
 # ---------------------------------------------------------------------------
 

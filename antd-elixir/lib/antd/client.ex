@@ -169,6 +169,33 @@ defmodule Antd.Client do
   def data_get!(client, data_map), do: unwrap!(data_get(client, data_map))
 
   @doc """
+  Streams private data for a caller-held DataMap (hex) with constant memory.
+
+  Unlike `data_get/2`, which buffers the entire decrypted payload in memory,
+  this returns a lazy `Enumerable` of raw binary chunks. The daemon decrypts
+  on the fly via `POST /v1/data/stream` and the body is consumed one chunk at
+  a time, so peak memory stays flat regardless of the object size.
+
+  The returned stream MUST be consumed in the same process that called
+  `data_stream/2` (a Req streaming constraint). Enumerating it yields binary
+  chunks; concatenate or write them as they arrive, e.g.
+
+      {:ok, stream} = Antd.Client.data_stream(client, data_map)
+      Enum.into(stream, File.stream!("out.bin"))
+
+  Non-2xx responses are parsed from the JSON `{"error": ...}` body and
+  returned as `{:error, exception}` (mirroring `data_get/2`).
+  """
+  @spec data_stream(t(), String.t()) :: {:ok, Enumerable.t()} | {:error, Exception.t()}
+  def data_stream(%__MODULE__{} = client, data_map) when is_binary(data_map) do
+    do_stream(client, :post, "/v1/data/stream", %{data_map: data_map})
+  end
+
+  @doc "Like `data_stream/2` but raises on error."
+  @spec data_stream!(t(), String.t()) :: Enumerable.t()
+  def data_stream!(client, data_map), do: unwrap!(data_stream(client, data_map))
+
+  @doc """
   Stores public data on the network.
 
   The DataMap is stored on-network as an extra chunk; the returned
@@ -216,6 +243,23 @@ defmodule Antd.Client do
   @doc "Like `data_get_public/2` but raises on error."
   @spec data_get_public!(t(), String.t()) :: binary()
   def data_get_public!(client, address), do: unwrap!(data_get_public(client, address))
+
+  @doc """
+  Streams public data by address with constant memory.
+
+  Streaming counterpart to `data_get_public/2`. Fetches via
+  `GET /v1/data/public/{address}/stream` and returns a lazy `Enumerable` of
+  raw binary chunks; see `data_stream/2` for the consumption contract
+  (same-process requirement, error mapping).
+  """
+  @spec data_stream_public(t(), String.t()) :: {:ok, Enumerable.t()} | {:error, Exception.t()}
+  def data_stream_public(%__MODULE__{} = client, address) when is_binary(address) do
+    do_stream(client, :get, "/v1/data/public/#{address}/stream", nil)
+  end
+
+  @doc "Like `data_stream_public/2` but raises on error."
+  @spec data_stream_public!(t(), String.t()) :: Enumerable.t()
+  def data_stream_public!(client, address), do: unwrap!(data_stream_public(client, address))
 
   @doc """
   Pre-upload cost breakdown for the given bytes.
@@ -802,6 +846,68 @@ defmodule Antd.Client do
         {:error, %Antd.AntdError{message: Exception.message(exception), status_code: 0}}
     end
   end
+
+  # Streams a response body chunk-by-chunk with constant memory.
+  #
+  # Uses Req's `into: :self` so body chunks land in the calling process'
+  # mailbox. Req returns the `%Req.Response{}` once the status line + headers
+  # are in, *before* the body is consumed, so we can branch on status:
+  #
+  #   * 2xx -> wrap the async body in a lazy `Stream` of binary chunks.
+  #   * non-2xx -> drain the (short) error body, parse `{"error"}`, and return
+  #     the mapped SDK error tuple (mirrors `do_json/4`).
+  defp do_stream(%__MODULE__{} = client, method, path, body) do
+    url = client.base_url <> path
+
+    req_opts = [
+      method: method,
+      url: url,
+      receive_timeout: client.timeout,
+      retry: false,
+      into: :self
+    ]
+
+    req_opts =
+      if body do
+        Keyword.merge(req_opts,
+          json: body,
+          headers: [{"content-type", "application/json"}]
+        )
+      else
+        req_opts
+      end
+
+    case Req.request(req_opts) do
+      {:ok, %Req.Response{status: status, body: async}}
+      when status >= 200 and status < 300 ->
+        {:ok, async_to_stream(async)}
+
+      {:ok, %Req.Response{status: status, body: async}} ->
+        message = drain_error_body(async)
+        {:error, Antd.Errors.error_for_status(status, message)}
+
+      {:error, exception} ->
+        {:error, %Antd.AntdError{message: Exception.message(exception), status_code: 0}}
+    end
+  end
+
+  # Already-buffered body (non-streaming adapters, e.g. Req.Test stubs): emit
+  # it as a single-element stream so the caller-facing contract is identical.
+  defp async_to_stream(body) when is_binary(body), do: [body]
+
+  defp async_to_stream(%Req.Response.Async{} = async) do
+    Stream.map(async, & &1)
+  end
+
+  defp drain_error_body(%Req.Response.Async{} = async) do
+    async
+    |> Enum.reduce("", fn chunk, acc -> acc <> chunk end)
+    |> extract_error_message()
+  end
+
+  defp drain_error_body(body) when is_binary(body), do: extract_error_message(body)
+  defp drain_error_body(body) when is_map(body), do: extract_error_message(body)
+  defp drain_error_body(_), do: "unknown error"
 
   defp extract_error_message(body) when is_map(body) do
     Map.get(body, "error", Jason.encode!(body))

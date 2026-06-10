@@ -131,6 +131,34 @@ export class RestClient {
     throw fromHttpStatus(resp.status, msg);
   }
 
+  /**
+   * Issue a request and return the response body as a stream of bytes.
+   *
+   * On a 2xx response, returns `response.body` (a `ReadableStream<Uint8Array>`)
+   * so the caller can consume the decrypted bytes incrementally at constant
+   * memory. On a non-2xx response, the JSON error envelope (`{"error":...}`)
+   * is read and parsed *before* returning, then thrown as the matching
+   * AntdError subclass — mirroring the buffered `check()` path.
+   */
+  private async requestStream(
+    method: string,
+    path: string,
+    options?: { json?: unknown },
+  ): Promise<ReadableStream<Uint8Array>> {
+    const resp = await this.request(method, path, options);
+    await this.check(resp);
+    if (resp.body === null) {
+      // The daemon always sets Content-Length on a successful stream; a null
+      // body means an empty response, which we surface as an empty stream.
+      return new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.close();
+        },
+      });
+    }
+    return resp.body as ReadableStream<Uint8Array>;
+  }
+
   private async getJson<T>(path: string, params?: Record<string, string>): Promise<T> {
     const resp = await this.request("GET", path, { params });
     await this.check(resp);
@@ -213,6 +241,40 @@ export class RestClient {
   async dataGet(dataMap: string): Promise<Buffer> {
     const j = await this.postJson<{ data: string }>("/v1/data/get", { data_map: dataMap });
     return RestClient.unb64(j.data);
+  }
+
+  /**
+   * Stream the decrypted bytes for a private DataMap at constant memory.
+   *
+   * Streaming counterpart to {@link dataGet}: instead of buffering the whole
+   * payload, the response body is returned as a `ReadableStream<Uint8Array>`
+   * the caller consumes incrementally. Same wire contract as `dataGet`
+   * (`POST /v1/data/stream` with `{"data_map":"<hex>"}`), but the daemon
+   * streams the raw decrypted bytes rather than a base64 JSON envelope.
+   *
+   * On a non-2xx response the JSON error envelope is parsed and thrown as the
+   * matching AntdError subclass before any bytes are yielded.
+   *
+   * Requires antd >= 0.10.0.
+   */
+  async dataStream(dataMap: string): Promise<ReadableStream<Uint8Array>> {
+    return this.requestStream("POST", "/v1/data/stream", { json: { data_map: dataMap } });
+  }
+
+  /**
+   * Stream the bytes of a public data address at constant memory.
+   *
+   * Streaming counterpart to {@link dataGetPublic}: the response body is
+   * returned as a `ReadableStream<Uint8Array>` consumed incrementally
+   * (`GET /v1/data/public/{address}/stream`).
+   *
+   * On a non-2xx response the JSON error envelope is parsed and thrown as the
+   * matching AntdError subclass before any bytes are yielded.
+   *
+   * Requires antd >= 0.10.0.
+   */
+  async dataStreamPublic(address: string): Promise<ReadableStream<Uint8Array>> {
+    return this.requestStream("GET", `/v1/data/public/${address}/stream`);
   }
 
   /**

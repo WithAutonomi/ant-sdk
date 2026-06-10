@@ -70,6 +70,69 @@ struct Client::Impl {
         return json::parse(res->body);
     }
 
+    /// Perform a streaming request, forwarding each chunk of a 2xx response
+    /// body to `sink` as it arrives (constant memory). Mirrors do_json's
+    /// non-2xx handling: the error body is buffered and parsed for {"error"}.
+    ///
+    /// httplib's high-level Client has no Post(..., ContentReceiver) overload,
+    /// so we build a Request directly and use Client::send — this works
+    /// uniformly for GET and POST and reuses the configured client/timeouts.
+    void do_stream(const std::string& method, const std::string& path,
+                   const DataSink& sink, const json& body = json()) {
+        httplib::Request req;
+        req.method = method;
+        req.path = path;
+        if (!body.is_null()) {
+            req.body = body.dump();
+            req.set_header("Content-Type", "application/json");
+        }
+
+        // Captured by the response_handler so the content_receiver knows
+        // whether to stream to the caller or buffer an error payload.
+        int status = 0;
+        bool success = false;
+        std::string error_body;
+
+        req.response_handler = [&](const httplib::Response& res) -> bool {
+            status = res.status;
+            success = res.status >= 200 && res.status < 300;
+            return true;  // keep going so we can read the (error) body too
+        };
+
+        // content_receiver is always invoked regardless of status, so route
+        // by the captured success flag: stream to the sink on 2xx, otherwise
+        // accumulate the short error body for parsing after send() returns.
+        req.content_receiver = [&](const char* data, size_t len,
+                                   uint64_t /*off*/, uint64_t /*total*/) -> bool {
+            if (success) {
+                return sink(data, len);
+            }
+            error_body.append(data, len);
+            return true;
+        };
+
+        auto res = http.send(req);
+
+        // A canceled transfer is expected when the caller's sink returns false;
+        // only treat it as an error when the response itself never arrived.
+        if (!res && status == 0) {
+            throw AntdError(0, "HTTP request failed: connection error");
+        }
+
+        if (!success) {
+            std::string msg = error_body;
+            try {
+                auto err_json = json::parse(error_body);
+                if (err_json.contains("error") && err_json["error"].is_string()) {
+                    msg = err_json["error"].get<std::string>();
+                }
+            } catch (...) {
+                // Use raw body as message.
+            }
+            error_for_status(status, msg);
+        }
+    }
+
     /// Perform a HEAD request, returning the status code.
     int do_head(const std::string& path) {
         auto res = http.Head(path);
@@ -132,6 +195,12 @@ std::vector<uint8_t> Client::data_get_public(std::string_view address) {
     return detail::base64_decode(j.value("data", ""));
 }
 
+void Client::data_stream_public(std::string_view address, const DataSink& sink) {
+    impl_->do_stream("GET",
+                     "/v1/data/public/" + std::string(address) + "/stream",
+                     sink);
+}
+
 DataPutResult Client::data_put(const std::vector<uint8_t>& data,
                                PaymentMode payment_mode) {
     json body = {
@@ -151,6 +220,12 @@ std::vector<uint8_t> Client::data_get(std::string_view data_map) {
         {"data_map", std::string(data_map)},
     });
     return detail::base64_decode(j.value("data", ""));
+}
+
+void Client::data_stream(std::string_view data_map, const DataSink& sink) {
+    impl_->do_stream("POST", "/v1/data/stream", sink, json{
+        {"data_map", std::string(data_map)},
+    });
 }
 
 UploadCostEstimate Client::data_cost(const std::vector<uint8_t>& data,

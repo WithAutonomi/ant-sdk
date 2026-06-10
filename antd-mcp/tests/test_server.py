@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import json
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock
 
 import pytest
@@ -70,6 +71,65 @@ def _wave_batch_prepare_result() -> PrepareUploadResult:
         rpc_url="http://rpc.example",
         payment_type="wave_batch",
     )
+
+
+def _stream_cm(chunks: list[bytes]):
+    """Build an async context manager yielding an async iterator over ``chunks``.
+
+    Mirrors the shape of ``AsyncRestClient.data_stream`` /
+    ``data_stream_public`` (``@asynccontextmanager`` yielding ``aiter_bytes``).
+    """
+
+    async def _aiter():
+        for c in chunks:
+            yield c
+
+    @asynccontextmanager
+    async def _cm(*args, **kwargs):
+        yield _aiter()
+
+    return _cm
+
+
+# ---------------------------------------------------------------------------
+# stream_download_file
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_stream_download_file_public_writes_chunks(mock_client, tmp_path):
+    """Public stream: bytes are written to dest_path and counted."""
+    chunks = [b"hello ", b"streamed ", b"world"]
+    mock_client.data_stream_public = _stream_cm(chunks)
+    dest = tmp_path / "out.bin"
+
+    raw = await _tool_fn(server.stream_download_file)(
+        address="0xpubaddr", dest_path=str(dest)
+    )
+    payload = json.loads(raw)
+
+    assert dest.read_bytes() == b"".join(chunks)
+    assert payload["status"] == "downloaded"
+    assert payload["dest_path"] == str(dest)
+    assert payload["bytes_written"] == len(b"".join(chunks))
+    assert payload["network"] == "test-net"
+
+
+@pytest.mark.asyncio
+async def test_stream_download_file_private_uses_data_stream(mock_client, tmp_path):
+    """private=True streams via data_stream (the DataMap path)."""
+    chunks = [b"\x00\x01", b"\x02\x03"]
+    mock_client.data_stream = _stream_cm(chunks)
+    dest = tmp_path / "secret.bin"
+
+    raw = await _tool_fn(server.stream_download_file)(
+        address="deadbeef", dest_path=str(dest), private=True
+    )
+    payload = json.loads(raw)
+
+    assert dest.read_bytes() == b"".join(chunks)
+    assert payload["bytes_written"] == 4
+    assert payload["network"] == "test-net"
 
 
 # ---------------------------------------------------------------------------

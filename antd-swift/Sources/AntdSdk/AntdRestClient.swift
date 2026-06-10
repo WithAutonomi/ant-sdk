@@ -124,6 +124,76 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         return decoded
     }
 
+    // MARK: - Data (streaming) — V2-289
+
+    /// Streams private data from a caller-held DataMap (hex) instead of
+    /// buffering the whole object in memory. The streaming counterpart to
+    /// ``dataGet(dataMap:)``.
+    ///
+    /// On a 2xx response the returned ``URLSession/AsyncBytes`` yields the
+    /// decrypted bytes incrementally (constant memory); the daemon sets a
+    /// `Content-Length`, so a stream that ends short signals a failed
+    /// download. On a non-2xx response the JSON `{"error":...}` body is parsed
+    /// and thrown as the matching ``AntdError`` *before* any bytes are handed
+    /// to the caller.
+    ///
+    /// > Note: this POSTs the same body as ``dataGet(dataMap:)``
+    /// > (`{"data_map":"<hex>"}`) to `POST /v1/data/stream`.
+    public func dataStream(dataMap: String) async throws -> URLSession.AsyncBytes {
+        guard let url = URL(string: "\(baseURL)/v1/data/stream") else {
+            throw BadRequestError("invalid URL: \(baseURL)/v1/data/stream")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["data_map": dataMap])
+        return try await openByteStream(request)
+    }
+
+    /// Streams public data by address — the streaming counterpart to
+    /// ``dataGetPublic(address:)``. Issues `GET /v1/data/public/{address}/stream`.
+    ///
+    /// On a 2xx response the returned ``URLSession/AsyncBytes`` yields the bytes
+    /// incrementally (constant memory). On a non-2xx response the JSON
+    /// `{"error":...}` body is parsed and thrown as the matching ``AntdError``
+    /// before any bytes are handed to the caller.
+    public func dataStreamPublic(address: String) async throws -> URLSession.AsyncBytes {
+        guard let url = URL(string: "\(baseURL)/v1/data/public/\(address)/stream") else {
+            throw BadRequestError("invalid URL: \(baseURL)/v1/data/public/\(address)/stream")
+        }
+        let request = URLRequest(url: url)
+        return try await openByteStream(request)
+    }
+
+    /// Opens a byte stream for `request`, inspecting the HTTP status *before*
+    /// returning the stream to the caller. On a non-2xx status the error body
+    /// is drained and mapped to an ``AntdError`` (mirroring the buffered
+    /// ``ensureSuccess(_:data:)`` path, but parsing the daemon's
+    /// `{"error":...}` JSON envelope when present).
+    private func openByteStream(_ request: URLRequest) async throws -> URLSession.AsyncBytes {
+        let (bytes, response) = try await session.bytes(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else { return bytes }
+        guard (200...299).contains(httpResponse.statusCode) else {
+            // Drain the (short) error body so we can surface its message.
+            var errorBody = Data()
+            for try await byte in bytes { errorBody.append(byte) }
+            throw Self.streamError(status: httpResponse.statusCode, body: errorBody)
+        }
+        return bytes
+    }
+
+    /// Maps a non-2xx streaming response to an ``AntdError``. Prefers the
+    /// daemon's `{"error":"..."}` JSON envelope; falls back to the raw body
+    /// (matching the buffered ``ensureSuccess(_:data:)`` behaviour).
+    private static func streamError(status: Int, body: Data) -> AntdError {
+        var message = String(data: body, encoding: .utf8) ?? ""
+        if let obj = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+           let parsed = obj["error"] as? String {
+            message = parsed
+        }
+        return ErrorMapping.fromHTTPStatus(status, body: message)
+    }
+
     public func dataCost(_ data: Data, paymentMode: PaymentMode = .auto) async throws -> UploadCostEstimate {
         let body: [String: Any] = [
             "data": data.base64EncodedString(),

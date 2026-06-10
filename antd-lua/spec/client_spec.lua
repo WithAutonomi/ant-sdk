@@ -143,6 +143,12 @@ local function setup_daemon()
     register_route("POST", "/v1/data/get", 200,
         cjson.encode({ data = base64.encode("secret") }))
 
+    -- Data stream private (POST /v1/data/stream): body is raw decrypted bytes
+    register_route("POST", "/v1/data/stream", 200, "streamed-secret-bytes")
+
+    -- Data stream public (GET /v1/data/public/{address}/stream): raw bytes
+    register_route("GET", "/v1/data/public/abc123/stream", 200, "streamed-public-bytes")
+
     -- Data cost
     register_route("POST", "/v1/data/cost", 200,
         cjson.encode({
@@ -286,6 +292,68 @@ describe("antd client", function()
             assert.are.equal("secret", data)
             local body = captured_body("POST", "/v1/data/get")
             assert.are.equal("dm123", body.data_map)
+        end)
+    end)
+
+    describe("data_stream", function()
+        it("POSTs data_map and forwards raw body chunks to the sink", function()
+            local got = {}
+            local ok, err = client:data_stream("dm123", function(chunk)
+                got[#got + 1] = chunk
+            end)
+            assert.is_nil(err)
+            assert.is_true(ok)
+            assert.are.equal("streamed-secret-bytes", table.concat(got))
+            local body = captured_body("POST", "/v1/data/stream")
+            assert.are.equal("dm123", body.data_map)
+        end)
+
+        it("returns a bad_request error when no sink callback is given", function()
+            local ok, err = client:data_stream("dm123", nil)
+            assert.is_nil(ok)
+            assert.is_not_nil(err)
+            assert.are.equal("bad_request", err.type)
+        end)
+
+        it("maps a non-2xx {\"error\"} body onto an antd error", function()
+            register_route("POST", "/v1/data/stream", 404,
+                cjson.encode({ error = "data map not found", code = "not_found" }))
+            local got = {}
+            local ok, err = client:data_stream("missing", function(chunk)
+                got[#got + 1] = chunk
+            end)
+            assert.is_nil(ok)
+            assert.is_not_nil(err)
+            assert.are.equal("not_found", err.type)
+            assert.are.equal("data map not found", err.message)
+            -- the error body must NOT be forwarded to the caller's sink
+            assert.are.equal(0, #got)
+        end)
+    end)
+
+    describe("data_stream_public", function()
+        it("GETs the /stream path and forwards raw body chunks to the sink", function()
+            local got = {}
+            local ok, err = client:data_stream_public("abc123", function(chunk)
+                got[#got + 1] = chunk
+            end)
+            assert.is_nil(err)
+            assert.is_true(ok)
+            assert.are.equal("streamed-public-bytes", table.concat(got))
+        end)
+
+        it("maps a non-2xx {\"error\"} body onto an antd error", function()
+            register_route("GET", "/v1/data/public/missing/stream", 404,
+                cjson.encode({ error = "address not found", code = "not_found" }))
+            local got = {}
+            local ok, err = client:data_stream_public("missing", function(chunk)
+                got[#got + 1] = chunk
+            end)
+            assert.is_nil(ok)
+            assert.is_not_nil(err)
+            assert.are.equal("not_found", err.type)
+            assert.are.equal("address not found", err.message)
+            assert.are.equal(0, #got)
         end)
     end)
 

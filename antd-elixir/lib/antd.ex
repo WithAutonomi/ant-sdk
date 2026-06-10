@@ -42,6 +42,10 @@ defmodule Antd do
   defdelegate data_put_public!(client, data, opts \\ []), to: Antd.Client
   defdelegate data_get_public(client, address), to: Antd.Client
   defdelegate data_get_public!(client, address), to: Antd.Client
+  defdelegate data_stream(client, data_map), to: Antd.Client
+  defdelegate data_stream!(client, data_map), to: Antd.Client
+  defdelegate data_stream_public(client, address), to: Antd.Client
+  defdelegate data_stream_public!(client, address), to: Antd.Client
   defdelegate data_cost(client, data, opts \\ []), to: Antd.Client
   defdelegate data_cost!(client, data, opts \\ []), to: Antd.Client
 

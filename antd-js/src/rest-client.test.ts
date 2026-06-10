@@ -26,6 +26,38 @@ function jsonResponse(status: number, body: unknown): Response {
   });
 }
 
+/** Build a raw-bytes streaming Response (octet-stream) for the *Stream methods. */
+function streamResponse(status: number, body: string): Response {
+  const bytes = new TextEncoder().encode(body);
+  return new Response(bytes, {
+    status,
+    statusText: status === 200 ? "OK" : "Error",
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "Content-Length": String(bytes.byteLength),
+    },
+  });
+}
+
+/** Drain a ReadableStream<Uint8Array> into a single concatenated string. */
+async function drainStream(stream: ReadableStream<Uint8Array>): Promise<string> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) chunks.push(value);
+  }
+  const total = chunks.reduce((n, c) => n + c.byteLength, 0);
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    out.set(c, off);
+    off += c.byteLength;
+  }
+  return new TextDecoder().decode(out);
+}
+
 type Route = {
   method: string;
   match: (path: string) => boolean;
@@ -67,6 +99,14 @@ const routes: Route[] = [
       }),
   },
 
+  // Data public STREAM (GET /v1/data/public/{addr}/stream) — must precede the
+  // buffered public-get route below, which also matches the /stream path.
+  {
+    method: "GET",
+    match: (p) => /^\/v1\/data\/public\/.+\/stream$/.test(p),
+    respond: () => streamResponse(200, "streamed public"),
+  },
+
   // Data public GET
   {
     method: "GET",
@@ -91,6 +131,13 @@ const routes: Route[] = [
     method: "POST",
     match: (p) => p === "/v1/data/get",
     respond: () => jsonResponse(200, { data: b64("secret data") }),
+  },
+
+  // Data private STREAM (POST /v1/data/stream with data_map in body)
+  {
+    method: "POST",
+    match: (p) => p === "/v1/data/stream",
+    respond: () => streamResponse(200, "streamed secret"),
   },
 
   // Data cost
@@ -397,6 +444,53 @@ describe("RestClient", () => {
       expect(url).toBe("http://localhost:8082/v1/data/get");
       const body = JSON.parse(init!.body as string);
       expect(body).toEqual({ data_map: "0xdm" });
+    });
+  });
+
+  // ---- Data streaming ----
+
+  describe("dataStream()", () => {
+    it("POSTs data_map to /v1/data/stream and returns a readable byte stream", async () => {
+      const stream = await client.dataStream("0xdm");
+      const text = await drainStream(stream);
+      expect(text).toBe("streamed secret");
+
+      const fetchFn = vi.mocked(fetch);
+      const [url, init] = fetchFn.mock.calls[0];
+      expect(url).toBe("http://localhost:8082/v1/data/stream");
+      expect((init!.method ?? "GET").toUpperCase()).toBe("POST");
+      const body = JSON.parse(init!.body as string);
+      expect(body).toEqual({ data_map: "0xdm" });
+    });
+
+    it("throws the matching AntdError on a non-2xx error envelope", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve(jsonResponse(404, { error: "data map not found" }))),
+      );
+      await expect(client.dataStream("0xmissing")).rejects.toThrow(NotFoundError);
+      await expect(client.dataStream("0xmissing")).rejects.toThrow("data map not found");
+    });
+  });
+
+  describe("dataStreamPublic()", () => {
+    it("GETs /v1/data/public/{addr}/stream and returns a readable byte stream", async () => {
+      const stream = await client.dataStreamPublic("0xabc");
+      const text = await drainStream(stream);
+      expect(text).toBe("streamed public");
+
+      const fetchFn = vi.mocked(fetch);
+      const [url, init] = fetchFn.mock.calls[0];
+      expect(url).toBe("http://localhost:8082/v1/data/public/0xabc/stream");
+      expect((init?.method ?? "GET").toUpperCase()).toBe("GET");
+    });
+
+    it("throws the matching AntdError on a non-2xx error envelope", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve(jsonResponse(400, { error: "invalid address" }))),
+      );
+      await expect(client.dataStreamPublic("bad")).rejects.toThrow(BadRequestError);
     });
   });
 

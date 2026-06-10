@@ -216,6 +216,77 @@ defmodule Antd.ClientTest do
   end
 
   # ---------------------------------------------------------------------------
+  # Streaming download (V2-289)
+  # ---------------------------------------------------------------------------
+
+  test "data_stream/2 POSTs to /v1/data/stream and streams the decrypted body",
+       %{bypass: bypass, client: client} do
+    Bypass.expect_once(bypass, "POST", "/v1/data/stream", fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      decoded = Jason.decode!(body)
+      assert decoded["data_map"] == "dm123"
+
+      conn = Plug.Conn.send_chunked(conn, 200)
+      {:ok, conn} = Plug.Conn.chunk(conn, "secret-")
+      {:ok, conn} = Plug.Conn.chunk(conn, "payload")
+      conn
+    end)
+
+    assert {:ok, stream} = Antd.Client.data_stream(client, "dm123")
+    assert IO.iodata_to_binary(Enum.to_list(stream)) == "secret-payload"
+  end
+
+  test "data_stream_public/2 GETs the /stream endpoint and streams the body",
+       %{bypass: bypass, client: client} do
+    Bypass.expect_once(bypass, "GET", "/v1/data/public/abc123/stream", fn conn ->
+      conn = Plug.Conn.send_chunked(conn, 200)
+      {:ok, conn} = Plug.Conn.chunk(conn, "hello-")
+      {:ok, conn} = Plug.Conn.chunk(conn, "world")
+      conn
+    end)
+
+    assert {:ok, stream} = Antd.Client.data_stream_public(client, "abc123")
+    assert IO.iodata_to_binary(Enum.to_list(stream)) == "hello-world"
+  end
+
+  test "data_stream/2 maps a non-2xx JSON error body to an SDK error",
+       %{bypass: bypass, client: client} do
+    Bypass.expect_once(bypass, "POST", "/v1/data/stream", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(404, Jason.encode!(%{error: "not found", code: "NOT_FOUND"}))
+    end)
+
+    assert {:error, %Antd.NotFoundError{status_code: 404, message: "not found"}} =
+             Antd.Client.data_stream(client, "missing")
+  end
+
+  test "data_stream_public/2 maps a non-2xx JSON error body to an SDK error",
+       %{bypass: bypass, client: client} do
+    Bypass.expect_once(bypass, "GET", "/v1/data/public/missing/stream", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(500, Jason.encode!(%{error: "boom", code: "INTERNAL"}))
+    end)
+
+    assert {:error, %Antd.InternalError{status_code: 500, message: "boom"}} =
+             Antd.Client.data_stream_public(client, "missing")
+  end
+
+  test "data_stream!/2 raises the mapped error on non-2xx",
+       %{bypass: bypass, client: client} do
+    Bypass.expect_once(bypass, "POST", "/v1/data/stream", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(404, Jason.encode!(%{error: "not found"}))
+    end)
+
+    assert_raise Antd.NotFoundError, fn ->
+      Antd.Client.data_stream!(client, "missing")
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # Chunks
   # ---------------------------------------------------------------------------
 

@@ -171,8 +171,10 @@ All functions take a `%Antd.Client{}` as the first argument. Each returns `{:ok,
 |----------|-------------|
 | `data_put_public(client, data, opts \\ [])` | Store public data — returns `Antd.DataPutPublicResult` (DataMap stored on-network). `opts`: `payment_mode: :auto | :merkle | :single`. |
 | `data_get_public(client, address)` | Retrieve public data by address |
+| `data_stream_public(client, address)` | Stream public data by address with constant memory — returns `{:ok, Enumerable}` of binary chunks |
 | `data_put(client, data, opts \\ [])` | Store encrypted private data — returns `Antd.DataPutResult` (DataMap returned to caller). `opts`: `payment_mode:`. |
 | `data_get(client, data_map)` | Retrieve private data using a caller-held DataMap |
+| `data_stream(client, data_map)` | Stream private data for a caller-held DataMap with constant memory — returns `{:ok, Enumerable}` of binary chunks |
 | `data_cost(client, data, opts \\ [])` | Estimate storage cost — returns `Antd.UploadCostEstimate` with size, chunks, gas, payment mode |
 
 ### Chunks

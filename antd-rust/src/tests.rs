@@ -251,6 +251,100 @@ async fn test_data_get_private() {
     assert_eq!(data, b"secret");
 }
 
+fn mock_data_stream_private(server: &mut ServerGuard) -> Mock {
+    // Streaming endpoint returns raw decrypted bytes (NOT base64/JSON).
+    server
+        .mock("POST", "/v1/data/stream")
+        .match_body(Matcher::Json(json!({"data_map": "dm123"})))
+        .with_status(200)
+        .with_header("content-type", "application/octet-stream")
+        .with_header("content-length", "6")
+        .with_body("secret")
+        .create()
+}
+
+fn mock_data_stream_public(server: &mut ServerGuard) -> Mock {
+    server
+        .mock("GET", "/v1/data/public/abc123/stream")
+        .with_status(200)
+        .with_header("content-type", "application/octet-stream")
+        .with_header("content-length", "5")
+        .with_body("hello")
+        .create()
+}
+
+async fn collect_stream(
+    stream: impl tokio_stream::Stream<Item = Result<bytes::Bytes, reqwest::Error>>,
+) -> Vec<u8> {
+    use tokio_stream::StreamExt;
+    let mut out = Vec::new();
+    tokio::pin!(stream);
+    while let Some(chunk) = stream.next().await {
+        out.extend_from_slice(&chunk.unwrap());
+    }
+    out
+}
+
+#[tokio::test]
+async fn test_data_stream_private() {
+    let mut server = mock_server().await;
+    let _m = mock_data_stream_private(&mut server);
+    let client = Client::new(&server.url());
+
+    let stream = client.data_stream("dm123").await.unwrap();
+    let data = collect_stream(stream).await;
+    assert_eq!(data, b"secret");
+}
+
+#[tokio::test]
+async fn test_data_stream_public() {
+    let mut server = mock_server().await;
+    let _m = mock_data_stream_public(&mut server);
+    let client = Client::new(&server.url());
+
+    let stream = client.data_stream_public("abc123").await.unwrap();
+    let data = collect_stream(stream).await;
+    assert_eq!(data, b"hello");
+}
+
+#[tokio::test]
+async fn test_data_stream_private_error_mapping() {
+    // A non-2xx JSON error body is surfaced before any stream item.
+    let mut server = mock_server().await;
+    let _m = server
+        .mock("POST", "/v1/data/stream")
+        .with_status(404)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"error":"data map not found","code":"not_found"}"#)
+        .create();
+    let client = Client::new(&server.url());
+
+    // Can't `unwrap_err()` — the Ok variant (impl Stream) is not Debug.
+    match client.data_stream("missing").await {
+        Err(AntdError::NotFound(msg)) => assert_eq!(msg, "data map not found"),
+        Err(other) => panic!("expected NotFound, got: {other:?}"),
+        Ok(_) => panic!("expected NotFound error, got Ok stream"),
+    }
+}
+
+#[tokio::test]
+async fn test_data_stream_public_error_mapping() {
+    let mut server = mock_server().await;
+    let _m = server
+        .mock("GET", "/v1/data/public/missing/stream")
+        .with_status(404)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"error":"address not found","code":"not_found"}"#)
+        .create();
+    let client = Client::new(&server.url());
+
+    match client.data_stream_public("missing").await {
+        Err(AntdError::NotFound(msg)) => assert_eq!(msg, "address not found"),
+        Err(other) => panic!("expected NotFound, got: {other:?}"),
+        Ok(_) => panic!("expected NotFound error, got Ok stream"),
+    }
+}
+
 #[tokio::test]
 async fn test_data_cost() {
     let mut server = mock_server().await;

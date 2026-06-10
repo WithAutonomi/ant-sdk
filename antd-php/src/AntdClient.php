@@ -116,6 +116,44 @@ class AntdClient
     }
 
     /**
+     * Issue a streaming request and return the response body as a PSR-7 stream.
+     *
+     * The body is read lazily (Guzzle `stream: true`), so memory stays constant
+     * regardless of payload size — the caller pulls bytes via
+     * {@see \Psr\Http\Message\StreamInterface::read()} / `eof()`.
+     *
+     * On a non-2xx response the (short) error body is fully read and parsed for
+     * a `{"error": "..."}` envelope, mirroring {@see doJson()}.
+     *
+     * @param array<string, mixed>|null $body JSON request body, or null.
+     * @return \Psr\Http\Message\StreamInterface
+     * @throws AntdError
+     */
+    private function doStream(string $method, string $path, ?array $body = null): \Psr\Http\Message\StreamInterface
+    {
+        $options = ['stream' => true];
+        if ($body !== null) {
+            $options['json'] = $body;
+        }
+
+        try {
+            $response = $this->http->request($method, $this->baseUrl . $path, $options);
+        } catch (\GuzzleHttp\Exception\ClientException|\GuzzleHttp\Exception\ServerException $e) {
+            $response = $e->getResponse();
+            $statusCode = $response->getStatusCode();
+            $responseBody = (string) $response->getBody();
+            $message = $responseBody;
+            $parsed = json_decode($responseBody, true);
+            if (is_array($parsed) && isset($parsed['error'])) {
+                $message = $parsed['error'];
+            }
+            throw ErrorFactory::fromHttpStatus($statusCode, $message);
+        }
+
+        return $response->getBody();
+    }
+
+    /**
      * @throws AntdError
      */
     private function doHead(string $path): int
@@ -287,6 +325,23 @@ class AntdClient
     }
 
     /**
+     * Stream public data by address, decrypted, with constant memory.
+     *
+     * Streaming counterpart to {@link dataGetPublic()}: instead of buffering the
+     * full payload in memory, the returned PSR-7 stream yields the decrypted
+     * bytes lazily as they arrive from the daemon. Read from it with
+     * `read()` / `eof()`, copy it with `\GuzzleHttp\Psr7\Utils::copyToStream()`,
+     * or cast to string with `(string) $stream` to buffer (defeats streaming).
+     *
+     * @return \Psr\Http\Message\StreamInterface
+     * @throws AntdError
+     */
+    public function dataStreamPublic(string $address): \Psr\Http\Message\StreamInterface
+    {
+        return $this->doStream('GET', '/v1/data/public/' . $address . '/stream');
+    }
+
+    /**
      * Store private encrypted data on the network. The returned DataMap is
      * the caller's key to retrieve the data later via {@link dataGet()}.
      */
@@ -337,6 +392,24 @@ class AntdClient
         return $this->doJsonAsync('POST', '/v1/data/get', ['data_map' => $dataMap])->then(
             fn(?array $json) => $this->b64Decode($json['data'] ?? ''),
         );
+    }
+
+    /**
+     * Stream private data from a caller-held DataMap, decrypted, with constant
+     * memory.
+     *
+     * Streaming counterpart to {@link dataGet()}: instead of buffering the full
+     * payload in memory, the returned PSR-7 stream yields the decrypted bytes
+     * lazily as they arrive from the daemon. Read from it with `read()` /
+     * `eof()`, copy it with `\GuzzleHttp\Psr7\Utils::copyToStream()`, or cast to
+     * string with `(string) $stream` to buffer (defeats streaming).
+     *
+     * @return \Psr\Http\Message\StreamInterface
+     * @throws AntdError
+     */
+    public function dataStream(string $dataMap): \Psr\Http\Message\StreamInterface
+    {
+        return $this->doStream('POST', '/v1/data/stream', ['data_map' => $dataMap]);
     }
 
     /**

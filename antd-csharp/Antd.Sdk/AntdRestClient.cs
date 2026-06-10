@@ -64,6 +64,27 @@ public sealed class AntdRestClient : IAntdClient
         throw ExceptionMapping.FromHttpStatus(resp.StatusCode, body);
     }
 
+    /// <summary>
+    /// Send a request and return the response body as a live stream for
+    /// constant-memory consumption. Uses <see cref="HttpCompletionOption.ResponseHeadersRead"/>
+    /// so the body is not buffered. On a non-2xx response the (short) error body
+    /// is read and mapped to an <see cref="AntdException"/>, mirroring the
+    /// buffered path. The caller owns the returned stream and must dispose it.
+    /// </summary>
+    private async Task<Stream> SendStreamAsync(HttpRequestMessage req)
+    {
+        var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync();
+            resp.Dispose();
+            throw ExceptionMapping.FromHttpStatus(resp.StatusCode, body);
+        }
+        // ReadAsStreamAsync hands ownership of the underlying network stream to
+        // the caller; disposing it releases the connection.
+        return await resp.Content.ReadAsStreamAsync();
+    }
+
     // Health
 
     public async Task<HealthStatus> HealthAsync()
@@ -122,6 +143,31 @@ public sealed class AntdRestClient : IAntdClient
     {
         var resp = await GetJsonAsync<DataGetDto>($"/v1/data/public/{address}");
         return Convert.FromBase64String(resp.Data);
+    }
+
+    /// <summary>
+    /// Streaming counterpart to <see cref="DataGetAsync"/>. Streams the raw
+    /// decrypted bytes of a privately stored data map with constant memory.
+    /// The caller owns the returned <see cref="Stream"/> and must dispose it.
+    /// </summary>
+    public async Task<Stream> DataStreamAsync(string dataMap)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Post, "/v1/data/stream")
+        {
+            Content = JsonContent.Create((object)new { data_map = dataMap }, options: JsonOpts),
+        };
+        return await SendStreamAsync(req);
+    }
+
+    /// <summary>
+    /// Streaming counterpart to <see cref="DataGetPublicAsync"/>. Streams the
+    /// raw bytes of publicly stored data with constant memory. The caller owns
+    /// the returned <see cref="Stream"/> and must dispose it.
+    /// </summary>
+    public async Task<Stream> DataStreamPublicAsync(string address)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Get, $"/v1/data/public/{address}/stream");
+        return await SendStreamAsync(req);
     }
 
     public async Task<UploadCostEstimate> DataCostAsync(byte[] data, PaymentMode paymentMode = PaymentMode.Auto)

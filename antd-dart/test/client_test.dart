@@ -455,6 +455,69 @@ void main() {
     });
   });
 
+  group('Data Stream (V2-289 Phase 1)', () {
+    test('dataStream streams private bytes and forwards data_map', () async {
+      final harness = await _StreamMockServer.start();
+      addTearDown(harness.stop);
+
+      final client = AntdClient(baseUrl: harness.baseUrl);
+      addTearDown(client.close);
+
+      final stream = await client.dataStream('dm-stream');
+      final bytes = await _collect(stream);
+      expect(utf8.decode(bytes), equals('streamed-secret'));
+
+      // data_map forwarded in the JSON body of POST /v1/data/stream.
+      expect(harness.lastStreamBody, isNotNull);
+      expect(harness.lastStreamBody!['data_map'], equals('dm-stream'));
+    });
+
+    test('dataStreamPublic streams public bytes by address', () async {
+      final harness = await _StreamMockServer.start();
+      addTearDown(harness.stop);
+
+      final client = AntdClient(baseUrl: harness.baseUrl);
+      addTearDown(client.close);
+
+      final stream = await client.dataStreamPublic('pub-addr');
+      final bytes = await _collect(stream);
+      expect(utf8.decode(bytes), equals('streamed-public'));
+
+      // The address lands in the path, hitting the …/stream route.
+      expect(harness.lastPublicStreamPath,
+          equals('/v1/data/public/pub-addr/stream'));
+    });
+
+    test('dataStream maps non-2xx {"error"} body to AntdError', () async {
+      final harness = await _StreamMockServer.start();
+      addTearDown(harness.stop);
+      harness.failNext = true;
+
+      final client = AntdClient(baseUrl: harness.baseUrl);
+      addTearDown(client.close);
+
+      expect(
+        () => client.dataStream('dm-stream'),
+        throwsA(isA<NotFoundError>()
+            .having((e) => e.message, 'message', equals('no such data map'))),
+      );
+    });
+
+    test('dataStreamPublic maps non-2xx {"error"} body to AntdError', () async {
+      final harness = await _StreamMockServer.start();
+      addTearDown(harness.stop);
+      harness.failNext = true;
+
+      final client = AntdClient(baseUrl: harness.baseUrl);
+      addTearDown(client.close);
+
+      expect(
+        () => client.dataStreamPublic('pub-addr'),
+        throwsA(isA<NotFoundError>()),
+      );
+    });
+  });
+
   group('Public Prepare (V2-249 PR4)', () {
     test('prepareUploadPublic forwards visibility=public on the wire', () async {
       final harness = await _ExternalSignerMockServer.start();
@@ -596,6 +659,92 @@ void main() {
       expect(tx['qh2'], equals('tx2'));
     });
   });
+}
+
+/// Drains a `Stream<List<int>>` into a single byte list.
+Future<List<int>> _collect(Stream<List<int>> stream) async {
+  final out = <int>[];
+  await for (final chunk in stream) {
+    out.addAll(chunk);
+  }
+  return out;
+}
+
+/// Local HTTP server on an ephemeral port that mimics the antd daemon's
+/// streaming-download endpoints (`POST /v1/data/stream`,
+/// `GET /v1/data/public/{address}/stream`). Uses a real server so the test
+/// exercises the genuine `http.Client.send` streaming transport.
+class _StreamMockServer {
+  final HttpServer _server;
+
+  /// When true, the next streaming request returns a non-2xx `{"error"}` body.
+  bool failNext = false;
+
+  Map<String, dynamic>? lastStreamBody;
+  String? lastPublicStreamPath;
+
+  _StreamMockServer._(this._server);
+
+  String get baseUrl => 'http://${_server.address.host}:${_server.port}';
+
+  static Future<_StreamMockServer> start() async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final harness = _StreamMockServer._(server);
+    server.listen(harness._handle);
+    return harness;
+  }
+
+  Future<void> stop() async {
+    await _server.close(force: true);
+  }
+
+  Future<void> _handle(HttpRequest req) async {
+    final raw = await utf8.decoder.bind(req).join();
+    Map<String, dynamic>? body;
+    if (raw.isNotEmpty) {
+      try {
+        body = jsonDecode(raw) as Map<String, dynamic>;
+      } catch (_) {
+        body = null;
+      }
+    }
+
+    if (failNext) {
+      _sendJson(req, 404, {'error': 'no such data map'});
+      return;
+    }
+
+    final route = '${req.method} ${req.uri.path}';
+    switch (route) {
+      case 'POST /v1/data/stream':
+        lastStreamBody = body;
+        _sendBytes(req, utf8.encode('streamed-secret'));
+        break;
+      case 'GET /v1/data/public/pub-addr/stream':
+        lastPublicStreamPath = req.uri.path;
+        _sendBytes(req, utf8.encode('streamed-public'));
+        break;
+      default:
+        _sendJson(req, 404, {'error': 'unknown route: $route'});
+    }
+  }
+
+  void _sendBytes(HttpRequest req, List<int> payload) {
+    req.response.statusCode = 200;
+    req.response.headers.contentType = ContentType.binary;
+    req.response.contentLength = payload.length;
+    req.response.add(payload);
+    req.response.close();
+  }
+
+  void _sendJson(HttpRequest req, int status, Map<String, dynamic> body) {
+    final payload = jsonEncode(body);
+    req.response.statusCode = status;
+    req.response.headers.contentType = ContentType.json;
+    req.response.contentLength = utf8.encode(payload).length;
+    req.response.write(payload);
+    req.response.close();
+  }
 }
 
 /// Local HTTP server on an ephemeral port that mimics the antd daemon's
