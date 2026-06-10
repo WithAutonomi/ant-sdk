@@ -129,6 +129,53 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any) (map
 	return result, resp.StatusCode, nil
 }
 
+// doStream issues a request and, on a 2xx status, returns the raw response body
+// for the caller to read incrementally (constant memory). On a non-2xx status
+// it reads and parses the JSON error body and returns an error. The caller MUST
+// Close the returned ReadCloser.
+//
+// Note: a client-level http.Client.Timeout also bounds body reads, so for very
+// large streams configure the client without a Timeout (via WithHTTPClient) and
+// rely on ctx for cancellation.
+func (c *Client) doStream(ctx context.Context, method, path string, body any) (io.ReadCloser, error) {
+	var reqBody io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("marshal request: %w", err)
+		}
+		reqBody = bytes.NewReader(b)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, c.url(path), reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		defer resp.Body.Close()
+		respBytes, _ := io.ReadAll(resp.Body)
+		msg := string(respBytes)
+		var parsed map[string]any
+		if json.Unmarshal(respBytes, &parsed) == nil {
+			if e, ok := parsed["error"].(string); ok {
+				msg = e
+			}
+		}
+		return nil, errorForStatus(resp.StatusCode, msg)
+	}
+
+	return resp.Body, nil
+}
+
 func str(m map[string]any, key string) string {
 	if v, ok := m[key].(string); ok {
 		return v
@@ -252,6 +299,23 @@ func (c *Client) DataGetPublic(ctx context.Context, address string) ([]byte, err
 		return nil, err
 	}
 	return b64Decode(str(j, "data"))
+}
+
+// DataStream streams private data from a caller-held DataMap (hex) instead of
+// buffering the whole object in memory. It is the streaming counterpart to
+// DataGet, suitable for large blobs or piping straight to a writer. The caller
+// reads the returned stream and MUST Close it. The response carries a
+// Content-Length, so a stream that ends short signals a failed download.
+func (c *Client) DataStream(ctx context.Context, dataMap string) (io.ReadCloser, error) {
+	return c.doStream(ctx, http.MethodPost, "/v1/data/stream", map[string]any{
+		"data_map": dataMap,
+	})
+}
+
+// DataStreamPublic streams public data by address — the streaming counterpart
+// to DataGetPublic. The caller reads the returned stream and MUST Close it.
+func (c *Client) DataStreamPublic(ctx context.Context, address string) (io.ReadCloser, error) {
+	return c.doStream(ctx, http.MethodGet, "/v1/data/public/"+address+"/stream", nil)
 }
 
 // DataCost returns a pre-upload cost breakdown for the given bytes.

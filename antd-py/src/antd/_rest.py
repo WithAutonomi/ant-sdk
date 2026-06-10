@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from typing import TYPE_CHECKING
 
 import httpx
@@ -109,6 +111,31 @@ def _check(resp: httpx.Response) -> None:
     try:
         body = resp.json()
         msg = body.get("error", resp.text)
+    except Exception:
+        msg = resp.text
+    raise_for_http_status(resp.status_code, msg)
+
+
+def _check_streamed(resp: httpx.Response) -> None:
+    """Like :func:`_check` but for a streamed response: the body must be read
+    before its text/JSON is available, so pull it in on the error path only."""
+    if resp.is_success:
+        return
+    resp.read()
+    try:
+        msg = resp.json().get("error", resp.text)
+    except Exception:
+        msg = resp.text
+    raise_for_http_status(resp.status_code, msg)
+
+
+async def _acheck_streamed(resp: httpx.Response) -> None:
+    """Async counterpart to :func:`_check_streamed`."""
+    if resp.is_success:
+        return
+    await resp.aread()
+    try:
+        msg = resp.json().get("error", resp.text)
     except Exception:
         msg = resp.text
     raise_for_http_status(resp.status_code, msg)
@@ -262,6 +289,31 @@ class RestClient:
         resp = self._http.get(f"/v1/data/public/{address}")
         _check(resp)
         return _unb64(resp.json().get("data", ""))
+
+    @contextmanager
+    def data_stream(self, data_map: str) -> Iterator[Iterator[bytes]]:
+        """Stream private data from a caller-held DataMap (hex), one decrypt
+        batch at a time, instead of buffering the whole object. The streaming
+        counterpart to :meth:`data_get`, suitable for large blobs.
+
+        Use as a context manager; the yielded iterator produces raw byte chunks::
+
+            with client.data_stream(data_map) as chunks:
+                for chunk in chunks:
+                    out.write(chunk)
+        """
+        with self._http.stream("POST", "/v1/data/stream", json={"data_map": data_map}) as resp:
+            _check_streamed(resp)
+            yield resp.iter_bytes()
+
+    @contextmanager
+    def data_stream_public(self, address: str) -> Iterator[Iterator[bytes]]:
+        """Stream public data by address — the streaming counterpart to
+        :meth:`data_get_public`. Use as a context manager (see
+        :meth:`data_stream`)."""
+        with self._http.stream("GET", f"/v1/data/public/{address}/stream") as resp:
+            _check_streamed(resp)
+            yield resp.iter_bytes()
 
     def data_cost(self, data: bytes, payment_mode: PaymentMode = PaymentMode.AUTO) -> UploadCostEstimate:
         """Pre-upload cost breakdown for the given bytes.
@@ -531,6 +583,27 @@ class AsyncRestClient:
         resp = await self._http.get(f"/v1/data/public/{address}")
         _check(resp)
         return _unb64(resp.json().get("data", ""))
+
+    @asynccontextmanager
+    async def data_stream(self, data_map: str) -> AsyncIterator[AsyncIterator[bytes]]:
+        """Stream private data from a caller-held DataMap (hex), one decrypt
+        batch at a time. The streaming counterpart to :meth:`data_get`::
+
+            async with client.data_stream(data_map) as chunks:
+                async for chunk in chunks:
+                    out.write(chunk)
+        """
+        async with self._http.stream("POST", "/v1/data/stream", json={"data_map": data_map}) as resp:
+            await _acheck_streamed(resp)
+            yield resp.aiter_bytes()
+
+    @asynccontextmanager
+    async def data_stream_public(self, address: str) -> AsyncIterator[AsyncIterator[bytes]]:
+        """Stream public data by address — the streaming counterpart to
+        :meth:`data_get_public` (see :meth:`data_stream`)."""
+        async with self._http.stream("GET", f"/v1/data/public/{address}/stream") as resp:
+            await _acheck_streamed(resp)
+            yield resp.aiter_bytes()
 
     async def data_cost(self, data: bytes, payment_mode: PaymentMode = PaymentMode.AUTO) -> UploadCostEstimate:
         """Pre-upload cost breakdown for the given bytes."""
