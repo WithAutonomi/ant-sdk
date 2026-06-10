@@ -588,9 +588,9 @@ final class DataStreamTests: XCTestCase {
         return obj
     }
 
-    private func collect(_ bytes: URLSession.AsyncBytes) async throws -> Data {
+    private func collect(_ stream: AsyncThrowingStream<Data, Error>) async throws -> Data {
         var data = Data()
-        for try await byte in bytes { data.append(byte) }
+        for try await chunk in stream { data.append(chunk) }
         return data
     }
 
@@ -630,7 +630,10 @@ final class DataStreamTests: XCTestCase {
 
         let client = makeClient()
         do {
-            _ = try await client.dataStream(dataMap: "missing")
+            // The error surfaces while draining the stream (delegate-driven),
+            // not from the call itself — so iterate to trigger it.
+            let stream = try await client.dataStream(dataMap: "missing")
+            _ = try await collect(stream)
             XCTFail("expected dataStream to throw on 404")
         } catch let error as NotFoundError {
             XCTAssertEqual(error.message, "data map not found")
@@ -647,7 +650,10 @@ final class DataStreamTests: XCTestCase {
 
         let client = makeClient()
         do {
-            _ = try await client.dataStreamPublic(address: "0xBAD")
+            // The error surfaces while draining the stream (delegate-driven),
+            // not from the call itself — so iterate to trigger it.
+            let stream = try await client.dataStreamPublic(address: "0xBAD")
+            _ = try await collect(stream)
             XCTFail("expected dataStreamPublic to throw on 502")
         } catch let error as NetworkError {
             XCTAssertEqual(error.message, "network unavailable")
