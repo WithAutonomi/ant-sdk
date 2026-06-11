@@ -45,6 +45,8 @@ impl v1::data_service_server::DataService for MockDataService {
                 ..Default::default()
             }),
             address: "abc123".to_string(),
+            chunks_stored: 2,
+            payment_mode_used: "auto".to_string(),
         }))
     }
 
@@ -67,6 +69,8 @@ impl v1::data_service_server::DataService for MockDataService {
                 ..Default::default()
             }),
             data_map: "dm123".to_string(),
+            chunks_stored: 3,
+            payment_mode_used: "single".to_string(),
         }))
     }
 
