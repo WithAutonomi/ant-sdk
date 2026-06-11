@@ -210,7 +210,10 @@ pub async fn data_cost(
 /// (chunked transfer can't signal an error after the `200` headers are sent).
 /// Shared by the private (`data_stream`) and public (`data_stream_public`)
 /// handlers — `data_stream` is the primitive, `data_stream_public` wraps it.
-fn stream_response(client: Arc<ant_core::data::Client>, data_map: ant_core::data::DataMap) -> Response {
+fn stream_response(
+    client: Arc<ant_core::data::Client>,
+    data_map: ant_core::data::DataMap,
+) -> Response {
     let content_length = data_map.original_file_size();
     let (tx, rx) =
         tokio::sync::mpsc::channel::<std::result::Result<Bytes, ant_core::data::Error>>(16);
