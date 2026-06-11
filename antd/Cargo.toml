@@ -4,7 +4,7 @@ version = "0.9.2"
 edition = "2021"
 
 [dependencies]
-ant-core = { git = "https://github.com/WithAutonomi/ant-client", tag = "ant-cli-v0.2.6" }  # pinned to v0.2.6 release (2026-06-03)
+ant-core = { git = "https://github.com/WithAutonomi/ant-client", rev = "cd0beb4f7a6137f68f07bf4579dcc8fee5926062" }  # rc-2026.6.2 (ant-core 0.2.8-rc.1) — includes file_download_to_sender (#111); repin to the ant-cli-v0.2.8 tag once cut
 self_encryption = "0.36.0"
 evmlib = "0.8.1"
 axum = { version = "0.8", features = ["macros"] }
