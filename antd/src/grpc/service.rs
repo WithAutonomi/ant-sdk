@@ -238,7 +238,7 @@ impl pb::data_service_server::DataService for DataServiceImpl {
         let data = req.data;
 
         let client = self.state.client.clone();
-        let address = tokio::spawn(async move {
+        let (address, chunks_stored, payment_mode_used) = tokio::spawn(async move {
             let result = client
                 .data_upload_with_mode(Bytes::from(data), mode)
                 .await
@@ -247,7 +247,7 @@ impl pb::data_service_server::DataService for DataServiceImpl {
                 .data_map_store(&result.data_map)
                 .await
                 .map_err(AntdError::from_core)?;
-            Ok::<_, AntdError>(address)
+            Ok::<_, AntdError>((address, result.chunks_stored, result.payment_mode_used))
         })
         .await
         .map_err(|e| Status::internal(format!("task failed: {e}")))?
@@ -262,6 +262,8 @@ impl pb::data_service_server::DataService for DataServiceImpl {
                 ..Default::default()
             }),
             address: hex::encode(address),
+            chunks_stored: chunks_stored as u64,
+            payment_mode_used: format_payment_mode(payment_mode_used),
         }))
     }
 
@@ -374,14 +376,18 @@ impl pb::data_service_server::DataService for DataServiceImpl {
         let data = req.data;
 
         let client = self.state.client.clone();
-        let data_map_hex = tokio::spawn(async move {
+        let (data_map_hex, chunks_stored, payment_mode_used) = tokio::spawn(async move {
             let result = client
                 .data_upload_with_mode(Bytes::from(data), mode)
                 .await
                 .map_err(AntdError::from_core)?;
             let data_map_bytes = rmp_serde::to_vec(&result.data_map)
                 .map_err(|e| AntdError::Internal(format!("failed to serialize data map: {e}")))?;
-            Ok::<_, AntdError>(hex::encode(data_map_bytes))
+            Ok::<_, AntdError>((
+                hex::encode(data_map_bytes),
+                result.chunks_stored,
+                result.payment_mode_used,
+            ))
         })
         .await
         .map_err(|e| Status::internal(format!("task failed: {e}")))?
@@ -396,6 +402,8 @@ impl pb::data_service_server::DataService for DataServiceImpl {
                 ..Default::default()
             }),
             data_map: data_map_hex,
+            chunks_stored: chunks_stored as u64,
+            payment_mode_used: format_payment_mode(payment_mode_used),
         }))
     }
 

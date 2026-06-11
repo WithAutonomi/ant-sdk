@@ -44,6 +44,10 @@ message PutPublicDataRequest {
 message PutPublicDataResponse {
   Cost cost = 1;
   string address = 2; // hex
+  // Number of chunks stored on the network.
+  uint64 chunks_stored = 3;
+  // Which payment mode was actually used ("auto", "merkle", or "single").
+  string payment_mode_used = 4;
 }
 
 message StreamPublicDataRequest {
@@ -79,6 +83,10 @@ message PutDataRequest {
 message PutDataResponse {
   Cost cost = 1;
   string data_map = 2; // hex
+  // Number of chunks stored on the network.
+  uint64 chunks_stored = 3;
+  // Which payment mode was actually used ("auto", "merkle", or "single").
+  string payment_mode_used = 4;
 }
 
 // --- Cost ---
