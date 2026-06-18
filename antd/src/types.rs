@@ -195,6 +195,15 @@ pub struct PrepareUploadResponse {
     pub payment_token_address: String,
     /// EVM RPC URL for submitting transactions.
     pub rpc_url: String,
+
+    // --- Already-stored preflight (added in antd 0.10.0) ---
+    /// Total number of chunks in this upload, including any already on-network.
+    /// Always present from antd 0.10.0; older daemons omit it.
+    pub total_chunks: usize,
+    /// How many of `total_chunks` were already stored on-network (deterministic
+    /// self-encryption) and therefore excluded from payment + PUT. The external
+    /// signer is paying for `total_chunks - already_stored_count` chunks.
+    pub already_stored_count: usize,
 }
 
 /// A pool commitment entry for the merkle payment contract.
@@ -463,6 +472,8 @@ mod tests {
             payment_vault_address: "0xcc".into(),
             payment_token_address: "0xdd".into(),
             rpc_url: "http://localhost:8545".into(),
+            total_chunks: 3,
+            already_stored_count: 1,
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["payment_type"], "wave_batch");
@@ -472,6 +483,9 @@ mod tests {
         assert!(json.get("depth").is_none());
         assert!(json.get("pool_commitments").is_none());
         assert!(json.get("merkle_payment_timestamp").is_none());
+        // Preflight fields are always present
+        assert_eq!(json["total_chunks"], 3);
+        assert_eq!(json["already_stored_count"], 1);
     }
 
     #[test]
@@ -493,6 +507,8 @@ mod tests {
             payment_vault_address: "0xee".into(),
             payment_token_address: "0xdd".into(),
             rpc_url: "http://localhost:8545".into(),
+            total_chunks: 128,
+            already_stored_count: 0,
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["payment_type"], "merkle");
@@ -502,6 +518,9 @@ mod tests {
         assert_eq!(json["payment_vault_address"], "0xee");
         // Wave fields must be absent
         assert!(json.get("payments").is_none());
+        // Preflight fields are always present, even on the merkle path
+        assert_eq!(json["total_chunks"], 128);
+        assert_eq!(json["already_stored_count"], 0);
     }
 
     #[test]

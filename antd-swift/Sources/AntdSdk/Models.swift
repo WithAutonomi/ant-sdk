@@ -213,7 +213,15 @@ public struct PrepareUploadResult: Sendable, Equatable {
     /// Unix timestamp for merkle payment. Present when `paymentType == "merkle"`.
     public let merklePaymentTimestamp: UInt64?
 
-    public init(uploadId: String, payments: [PaymentInfo], totalAmount: String, paymentVaultAddress: String, paymentTokenAddress: String, rpcUrl: String, paymentType: String = "wave_batch", depth: Int? = nil, poolCommitments: [PoolCommitmentEntry]? = nil, merklePaymentTimestamp: UInt64? = nil) {
+    /// Total chunks in this upload, including any already on-network. Added in
+    /// antd 0.10.0; 0 against older daemons. The external signer pays for
+    /// (`totalChunks` - `alreadyStoredCount`) chunks.
+    public let totalChunks: UInt64
+
+    /// Chunks already stored on-network and excluded from payment + PUT (added in antd 0.10.0).
+    public let alreadyStoredCount: UInt64
+
+    public init(uploadId: String, payments: [PaymentInfo], totalAmount: String, paymentVaultAddress: String, paymentTokenAddress: String, rpcUrl: String, paymentType: String = "wave_batch", depth: Int? = nil, poolCommitments: [PoolCommitmentEntry]? = nil, merklePaymentTimestamp: UInt64? = nil, totalChunks: UInt64 = 0, alreadyStoredCount: UInt64 = 0) {
         self.uploadId = uploadId
         self.payments = payments
         self.totalAmount = totalAmount
@@ -224,6 +232,8 @@ public struct PrepareUploadResult: Sendable, Equatable {
         self.depth = depth
         self.poolCommitments = poolCommitments
         self.merklePaymentTimestamp = merklePaymentTimestamp
+        self.totalChunks = totalChunks
+        self.alreadyStoredCount = alreadyStoredCount
     }
 }
 

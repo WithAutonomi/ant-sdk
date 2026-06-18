@@ -971,7 +971,7 @@ components:
 
     PrepareUploadResponse:
       type: object
-      required: [upload_id, payment_type, total_amount, payment_vault_address, payment_token_address, rpc_url]
+      required: [upload_id, payment_type, total_amount, payment_vault_address, payment_token_address, rpc_url, total_chunks, already_stored_count]
       properties:
         upload_id:
           type: string
@@ -1017,6 +1017,18 @@ components:
         rpc_url:
           type: string
           description: EVM RPC URL for submitting transactions
+        # -- Already-stored preflight (added in antd 0.10.0) --
+        total_chunks:
+          type: integer
+          description: >-
+            Total number of chunks in this upload, including any already
+            on-network. Added in antd 0.10.0; omitted by older daemons.
+        already_stored_count:
+          type: integer
+          description: >-
+            How many of total_chunks were already stored on-network and
+            excluded from payment + PUT. The external signer pays for
+            (total_chunks - already_stored_count) chunks. Added in antd 0.10.0.
 
     PoolCommitmentEntry:
       type: object

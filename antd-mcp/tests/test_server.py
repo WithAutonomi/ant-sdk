@@ -70,6 +70,8 @@ def _wave_batch_prepare_result() -> PrepareUploadResult:
         payment_token_address="0xtoken",
         rpc_url="http://rpc.example",
         payment_type="wave_batch",
+        total_chunks=4,
+        already_stored_count=2,
     )
 
 
@@ -152,6 +154,9 @@ async def test_prepare_upload_default_does_not_forward_visibility(mock_client):
     mock_client.prepare_upload.assert_awaited_once_with("/tmp/foo.bin")
     assert payload["upload_id"] == "upload-abc"
     assert payload["network"] == "test-net"
+    # already-stored preflight (added in antd 0.10.0)
+    assert payload["total_chunks"] == 4
+    assert payload["already_stored_count"] == 2
 
 
 @pytest.mark.asyncio

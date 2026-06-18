@@ -554,7 +554,9 @@ public sealed class AntdRestClientTests : IDisposable
             total_amount = "100",
             payment_vault_address = "pva1",
             payment_token_address = "pta1",
-            rpc_url = "https://rpc.example.com"
+            rpc_url = "https://rpc.example.com",
+            total_chunks = 3,
+            already_stored_count = 1
         });
         _server.Start();
 
@@ -565,6 +567,9 @@ public sealed class AntdRestClientTests : IDisposable
         Assert.Equal("qh1", result.Payments[0].QuoteHash);
         Assert.Equal("100", result.TotalAmount);
         Assert.Equal("https://rpc.example.com", result.RpcUrl);
+        // already-stored preflight (added in antd 0.10.0)
+        Assert.Equal(3L, result.TotalChunks);
+        Assert.Equal(1L, result.AlreadyStoredCount);
     }
 
     [Fact]
@@ -629,6 +634,9 @@ public sealed class AntdRestClientTests : IDisposable
         Assert.Equal(1700000000L, result.MerklePaymentTimestamp);
         Assert.Equal("500", result.TotalAmount);
         Assert.Empty(result.Payments);
+        // preflight fields absent in this response default to 0
+        Assert.Equal(0L, result.TotalChunks);
+        Assert.Equal(0L, result.AlreadyStoredCount);
     }
 
     [Fact]

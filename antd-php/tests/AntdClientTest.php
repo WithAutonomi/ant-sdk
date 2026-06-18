@@ -513,6 +513,8 @@ class AntdClientTest extends TestCase
                 'payment_vault_address' => '0xvault',
                 'payment_token_address' => '0xtoken',
                 'rpc_url' => 'http://localhost:8545',
+                'total_chunks' => 3,
+                'already_stored_count' => 1,
             ]),
         ]);
         $history = [];
@@ -529,6 +531,9 @@ class AntdClientTest extends TestCase
         $this->assertCount(1, $result->payments);
         $this->assertSame('qh1', $result->payments[0]->quoteHash);
         $this->assertSame('100', $result->totalAmount);
+        // already-stored preflight (added in antd 0.10.0)
+        $this->assertSame(3, $result->totalChunks);
+        $this->assertSame(1, $result->alreadyStoredCount);
     }
 
     public function testPrepareUploadPublicSendsVisibility(): void

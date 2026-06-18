@@ -112,7 +112,12 @@ elif prep.payment_type == "merkle":
     # ... extract winner_pool_hash from MerklePaymentMade event ...
     result = client.finalize_merkle_upload(prep.upload_id, "0xwinnerpoolhash")
 
-print(f"Stored: {result.chunks_stored} chunks")
+# Added in antd 0.10.0: the already-stored preflight. prep.total_chunks is the
+# full chunk count; prep.already_stored_count is how many were already on the
+# network (no payment/PUT). You pay for (total_chunks - already_stored_count),
+# which is why a prepare can come back cheaper than the raw file size implies.
+print(f"Stored: {result.chunks_stored} chunks "
+      f"({prep.already_stored_count}/{prep.total_chunks} already on-network)")
 ```
 
 **When to suggest this:** Developer has their own wallet/signer and doesn't want to use antd's built-in wallet. Common in web apps, mobile apps, or enterprise integrations.

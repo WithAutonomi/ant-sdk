@@ -259,6 +259,8 @@ const routes: Route[] = [
         payment_vault_address: "0xdp",
         payment_token_address: "0xpt",
         rpc_url: "http://rpc.local",
+        total_chunks: 3,
+        already_stored_count: 1,
       }),
   },
 
@@ -662,6 +664,8 @@ describe("RestClient", () => {
         paymentTokenAddress: "0xpt",
         rpcUrl: "http://rpc.local",
         paymentType: "wave_batch",
+        totalChunks: 3,
+        alreadyStoredCount: 1,
       });
     });
 
@@ -728,6 +732,9 @@ describe("RestClient", () => {
       expect(result.payments).toHaveLength(1);
       expect(result.payments[0].quoteHash).toBe("0xq2");
       expect(result.paymentType).toBe("wave_batch");
+      // preflight fields absent in this response default to 0
+      expect(result.totalChunks).toBe(0);
+      expect(result.alreadyStoredCount).toBe(0);
     });
   });
 

@@ -126,6 +126,10 @@ export interface PrepareUploadResult {
   depth?: number; // merkle tree depth (merkle only)
   poolCommitments?: PoolCommitmentEntry[]; // pool commitments (merkle only)
   merklePaymentTimestamp?: number; // payment timestamp (merkle only)
+  // Already-stored preflight (added in antd 0.10.0). 0 on older daemons. The
+  // external signer pays for (totalChunks - alreadyStoredCount) chunks.
+  totalChunks: number; // total chunks incl. already-stored
+  alreadyStoredCount: number; // chunks skipped (already on-network)
 }
 
 /** Result of finalizing an externally-signed upload. */

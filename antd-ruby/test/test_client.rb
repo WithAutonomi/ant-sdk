@@ -289,6 +289,8 @@ class TestClient < Minitest::Test
       payment_token_address: "0xTOKEN",
       rpc_url: "http://localhost:8545",
       merkle_payment_timestamp: 1700000000,
+      total_chunks: 128,
+      already_stored_count: 4,
       pool_commitments: [
         {
           pool_hash: "pool_abc",
@@ -324,6 +326,9 @@ class TestClient < Minitest::Test
     assert_equal "2000", pc.candidates[0].amount
     assert_equal "0xR2", pc.candidates[1].rewards_address
     assert_equal "3000", pc.candidates[1].amount
+    # already-stored preflight (added in antd 0.10.0)
+    assert_equal 128, result.total_chunks
+    assert_equal 4, result.already_stored_count
   end
 
   def test_finalize_merkle_upload
@@ -364,6 +369,9 @@ class TestClient < Minitest::Test
 
     assert_equal 1, result.payments.length
     assert_equal "qh1", result.payments[0].quote_hash
+    # preflight fields absent in older-daemon responses default to 0
+    assert_equal 0, result.total_chunks
+    assert_equal 0, result.already_stored_count
   end
 
   # --- Public Prepare: visibility forwarding + data_map_address surfacing ---

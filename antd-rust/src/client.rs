@@ -561,6 +561,11 @@ impl Client {
                         .collect()
                 }),
             merkle_payment_timestamp: j.get("merkle_payment_timestamp").and_then(|v| v.as_u64()),
+            total_chunks: j.get("total_chunks").and_then(|v| v.as_u64()).unwrap_or(0),
+            already_stored_count: j
+                .get("already_stored_count")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0),
         }
     }
 

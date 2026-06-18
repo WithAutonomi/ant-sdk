@@ -528,6 +528,9 @@ void main() {
 
       final res = await client.prepareUploadPublic('/tmp/test.txt');
       expect(res.uploadId, equals('up-pub-1'));
+      // already-stored preflight (added in antd 0.10.0)
+      expect(res.totalChunks, equals(3));
+      expect(res.alreadyStoredCount, equals(1));
 
       // Body captured by the mock server must include visibility="public".
       expect(harness.lastPrepareBody, isNotNull);
@@ -805,6 +808,8 @@ class _ExternalSignerMockServer {
           'payment_vault_address': 'dp1',
           'payment_token_address': 'pt1',
           'rpc_url': 'http://localhost:8545',
+          'total_chunks': 3,
+          'already_stored_count': 1,
         });
         break;
 

@@ -174,6 +174,8 @@ TEST_CASE("PrepareUploadResult merkle from JSON") {
         "payment_vault_address": "0xvault",
         "payment_token_address": "0xtoken",
         "rpc_url": "http://rpc.example.com",
+        "total_chunks": 128,
+        "already_stored_count": 4,
         "pool_commitments": [
             {
                 "pool_hash": "0xaabbccdd",
@@ -193,6 +195,8 @@ TEST_CASE("PrepareUploadResult merkle from JSON") {
     r.payment_vault_address = j.value("payment_vault_address", "");
     r.payment_token_address = j.value("payment_token_address", "");
     r.rpc_url = j.value("rpc_url", "");
+    r.total_chunks = j.value("total_chunks", uint64_t{0});
+    r.already_stored_count = j.value("already_stored_count", uint64_t{0});
 
     if (r.payment_type.empty()) {
         r.payment_type = "wave_batch";
@@ -243,6 +247,9 @@ TEST_CASE("PrepareUploadResult merkle from JSON") {
     CHECK(r.payment_token_address == "0xtoken");
     CHECK(r.rpc_url == "http://rpc.example.com");
     CHECK(r.payments.empty());
+    // already-stored preflight (added in antd 0.10.0)
+    CHECK(r.total_chunks == 128);
+    CHECK(r.already_stored_count == 4);
 
     REQUIRE(r.pool_commitments.size() == 1);
     CHECK(r.pool_commitments[0].pool_hash == "0xaabbccdd");
@@ -303,6 +310,8 @@ TEST_CASE("PrepareUploadResult backward compat - no payment_type defaults to wav
     r.payment_vault_address = j.value("payment_vault_address", "");
     r.payment_token_address = j.value("payment_token_address", "");
     r.rpc_url = j.value("rpc_url", "");
+    r.total_chunks = j.value("total_chunks", uint64_t{0});
+    r.already_stored_count = j.value("already_stored_count", uint64_t{0});
 
     if (r.payment_type.empty()) {
         r.payment_type = "wave_batch";

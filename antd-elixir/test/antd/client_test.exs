@@ -614,7 +614,9 @@ defmodule Antd.ClientTest do
           payment_vault_address: "pva1",
           payment_token_address: "pta1",
           rpc_url: "http://rpc",
-          payment_type: "wave_batch"
+          payment_type: "wave_batch",
+          total_chunks: 3,
+          already_stored_count: 1
         })
       )
     end)
@@ -625,6 +627,9 @@ defmodule Antd.ClientTest do
     assert length(result.payments) == 1
     assert hd(result.payments).quote_hash == "qh1"
     assert result.pool_commitments == []
+    # already-stored preflight (added in antd 0.10.0)
+    assert result.total_chunks == 3
+    assert result.already_stored_count == 1
   end
 
   test "prepare_upload/2 defaults payment_type to wave_batch", %{bypass: bypass, client: client} do
@@ -646,6 +651,9 @@ defmodule Antd.ClientTest do
 
     assert {:ok, result} = Antd.Client.prepare_upload(client, "/tmp/file.txt")
     assert result.payment_type == "wave_batch"
+    # preflight fields absent in older-daemon responses default to 0
+    assert result.total_chunks == 0
+    assert result.already_stored_count == 0
   end
 
   test "prepare_upload/2 parses merkle_batch response with pool_commitments", %{

@@ -427,6 +427,8 @@ class AntdRestClient(
             depth = resp.depth,
             poolCommitments = poolCommitments,
             merklePaymentTimestamp = resp.merklePaymentTimestamp,
+            totalChunks = resp.totalChunks,
+            alreadyStoredCount = resp.alreadyStoredCount,
         )
     }
 }

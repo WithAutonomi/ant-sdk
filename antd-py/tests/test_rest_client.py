@@ -197,6 +197,8 @@ class _MockHandler(BaseHTTPRequestHandler):
                         },
                     ],
                     "merkle_payment_timestamp": 1700000000,
+                    "total_chunks": 128,
+                    "already_stored_count": 0,
                 })
             elif "compat" in req.get("path", ""):
                 # Backward compat: no payment_type field
@@ -221,6 +223,8 @@ class _MockHandler(BaseHTTPRequestHandler):
                     "payment_vault_address": "0xDP",
                     "payment_token_address": "0xTK",
                     "rpc_url": "http://rpc.local",
+                    "total_chunks": 3,
+                    "already_stored_count": 1,
                 })
 
         elif path == "/v1/upload/finalize":
@@ -471,6 +475,9 @@ class TestPrepareUploadMerkle:
         assert pc.candidates[1].amount == "3000"
         # payments list should be empty for merkle
         assert result.payments == []
+        # already-stored preflight (added in antd 0.10.0)
+        assert result.total_chunks == 128
+        assert result.already_stored_count == 0
 
 
 class TestFinalizeMerkleUpload:
@@ -507,6 +514,9 @@ class TestPrepareUploadBackwardCompat:
         # wave_batch payments should still be parsed
         assert len(result.payments) == 1
         assert result.payments[0].quote_hash == "qh1"
+        # preflight fields absent in older-daemon responses default to 0
+        assert result.total_chunks == 0
+        assert result.already_stored_count == 0
 
 
 class TestPrepareUploadPublic:

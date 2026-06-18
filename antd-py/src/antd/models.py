@@ -152,6 +152,11 @@ class PrepareUploadResult:
     depth: int = 0                    # merkle tree depth
     pool_commitments: list[PoolCommitmentEntry] = field(default_factory=list)
     merkle_payment_timestamp: int = 0
+    # Already-stored preflight (added in antd 0.10.0). Older daemons omit these
+    # and they default to 0. total_chunks includes already-stored chunks; the
+    # external signer pays for (total_chunks - already_stored_count) chunks.
+    total_chunks: int = 0
+    already_stored_count: int = 0
 
 
 @dataclass(frozen=True)

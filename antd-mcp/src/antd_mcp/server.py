@@ -550,6 +550,9 @@ def _prepare_result_to_dict(result) -> dict:
         "total_amount": result.total_amount,
         "payment_token_address": result.payment_token_address,
         "rpc_url": result.rpc_url,
+        # Already-stored preflight (added in antd 0.10.0). 0 on older daemons.
+        "total_chunks": getattr(result, "total_chunks", 0),
+        "already_stored_count": getattr(result, "already_stored_count", 0),
     }
     d["payment_vault_address"] = result.payment_vault_address
     if result.payment_type == "merkle":

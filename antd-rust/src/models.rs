@@ -177,6 +177,15 @@ pub struct PrepareUploadResult {
     pub pool_commitments: Option<Vec<PoolCommitmentEntry>>,
     #[serde(rename = "merkle_payment_timestamp", default)]
     pub merkle_payment_timestamp: Option<u64>,
+    /// Total chunks in this upload, including any already on-network. Added in
+    /// antd 0.10.0; older daemons omit it and it defaults to 0. The external
+    /// signer pays for `total_chunks - already_stored_count` chunks.
+    #[serde(default)]
+    pub total_chunks: u64,
+    /// Chunks already stored on-network and excluded from payment + PUT.
+    /// Added in antd 0.10.0; defaults to 0 against older daemons.
+    #[serde(default)]
+    pub already_stored_count: u64,
 }
 
 /// Result of finalizing an externally-signed upload.

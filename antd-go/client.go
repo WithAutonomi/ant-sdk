@@ -556,6 +556,8 @@ func parsePrepareResponse(j map[string]any) *PrepareUploadResult {
 		PaymentVaultAddress: str(j, "payment_vault_address"),
 		PaymentTokenAddress: str(j, "payment_token_address"),
 		RPCUrl:              str(j, "rpc_url"),
+		TotalChunks:         int(num64(j, "total_chunks")),
+		AlreadyStoredCount:  int(num64(j, "already_stored_count")),
 	}
 
 	// Default to wave_batch for backward compatibility with older daemons

@@ -774,6 +774,8 @@ class AntdClient
             paymentVaultAddress: (string)($json['payment_vault_address'] ?? ''),
             paymentTokenAddress: (string)($json['payment_token_address'] ?? ''),
             rpcUrl: (string)($json['rpc_url'] ?? ''),
+            totalChunks: (int)($json['total_chunks'] ?? 0),
+            alreadyStoredCount: (int)($json['already_stored_count'] ?? 0),
         );
     }
 

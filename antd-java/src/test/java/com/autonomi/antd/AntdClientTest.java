@@ -308,6 +308,8 @@ class AntdClientTest {
                         + "\"payment_vault_address\":\"0xmerkle\","
                         + "\"total_amount\":\"0\","
                         + "\"payment_token_address\":\"0xtoken\","
+                        + "\"total_chunks\":128,"
+                        + "\"already_stored_count\":4,"
                         + "\"rpc_url\":\"http://localhost:8545\"}"
                     );
                 }
@@ -374,6 +376,10 @@ class AntdClientTest {
 
                 // Wave-batch fields should be empty
                 assertTrue(res.payments().isEmpty());
+
+                // already-stored preflight (added in antd 0.10.0)
+                assertEquals(128L, res.totalChunks());
+                assertEquals(4L, res.alreadyStoredCount());
             }
         }
     }

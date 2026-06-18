@@ -97,6 +97,12 @@ type PrepareUploadResult struct {
 	PaymentVaultAddress string `json:"payment_vault_address,omitempty"` // payment vault contract address
 	PaymentTokenAddress string `json:"payment_token_address"`  // token contract address
 	RPCUrl              string `json:"rpc_url"`                // EVM RPC URL
+
+	// Already-stored preflight (added in antd 0.10.0). Older daemons omit these
+	// and they default to 0. TotalChunks includes already-stored chunks; the
+	// external signer pays for (TotalChunks - AlreadyStoredCount) chunks.
+	TotalChunks        int `json:"total_chunks,omitempty"`         // total chunks incl. already-stored
+	AlreadyStoredCount int `json:"already_stored_count,omitempty"` // chunks skipped (already on-network)
 }
 
 // PoolCommitmentEntry describes a pool commitment for the merkle payment contract.

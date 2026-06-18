@@ -144,6 +144,11 @@ struct PrepareUploadResult {
     std::string payment_vault_address; // unified payment vault contract address
     std::string payment_token_address; // token contract address
     std::string rpc_url;               // EVM RPC URL
+
+    // Already-stored preflight (added in antd 0.10.0). 0 against older daemons.
+    // The external signer pays for (total_chunks - already_stored_count) chunks.
+    uint64_t total_chunks{0};          // total chunks incl. already-stored
+    uint64_t already_stored_count{0};  // chunks skipped (already on-network)
 };
 
 /// Result of finalizing an externally-signed upload.
