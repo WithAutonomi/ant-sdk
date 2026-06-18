@@ -1,0 +1,19 @@
+[Unit]
+Description=Autonomi antd daemon
+Documentation=https://github.com/WithAutonomi/ant-sdk
+# Best-effort: wait for the network in graphical/login sessions that provide it.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# --cors is non-negotiable: the browser extension calls antd's REST API from a
+# browser origin, which is blocked without it. Default listen addr is
+# 127.0.0.1:8082. Runs in the user's session so daemon.port/config land in the
+# user's ~/.local/share/ant/sdk/ (NOT a system unit running as root).
+ExecStart=/usr/bin/antd --cors
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

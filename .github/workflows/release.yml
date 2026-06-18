@@ -66,14 +66,187 @@ jobs:
           name: ${{ matrix.artifact }}
           path: antd/${{ matrix.artifact }}
 
+  # ---------------------------------------------------------------------------
+  # Installer packaging + binary signing. Each job consumes the bare binaries the
+  # build job produced, signs them where applicable, builds the OS installer, and
+  # uploads the signed binaries + installer for the release job to publish.
+  # Signing steps are gated on the relevant secrets being present, so a run
+  # without them still produces (unsigned) artifacts for pipeline testing.
+  # ---------------------------------------------------------------------------
+  package-linux:
+    name: Package Linux (deb/rpm/script)
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: antd-linux-amd64
+          path: bin
+      - uses: actions/download-artifact@v4
+        with:
+          name: antd-linux-arm64
+          path: bin
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Install nfpm
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+
+      - name: Build .deb and .rpm
+        run: |
+          chmod +x bin/antd-linux-amd64
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          ./installers/linux/build-deb-rpm.sh \
+            --bin "$PWD/bin/antd-linux-amd64" \
+            --version "${GITHUB_REF_NAME#v}" \
+            --out "$PWD/out"
+
+      - name: Stage the generic install script
+        run: cp installers/linux/install.sh "out/antd-linux-install.sh"
+
+      - name: Pass through bare linux binaries
+        run: cp bin/antd-linux-amd64 bin/antd-linux-arm64 out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-linux
+          path: out/*
+
+  package-macos:
+    name: Package macOS (.pkg, arm64)
+    needs: build
+    runs-on: macos-latest
+    env:
+      SIGNING_AVAILABLE: ${{ secrets.APPLE_TEAM_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: antd-darwin-arm64
+          path: bin
+
+      - name: Create keychain and import certificates
+        if: env.SIGNING_AVAILABLE == 'true'
+        env:
+          APPLICATION_CERT_P12_BASE64: ${{ secrets.APPLE_APPLICATION_CERTIFICATE_P12_BASE64 }}
+          APPLICATION_CERT_PASSWORD: ${{ secrets.APPLE_APPLICATION_CERTIFICATE_PASSWORD }}
+          INSTALLER_CERT_P12_BASE64: ${{ secrets.APPLE_INSTALLER_CERTIFICATE_P12_BASE64 }}
+          INSTALLER_CERT_PASSWORD: ${{ secrets.APPLE_INSTALLER_CERTIFICATE_PASSWORD }}
+        run: |
+          APP_CERT=$RUNNER_TEMP/app.p12
+          INST_CERT=$RUNNER_TEMP/inst.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/antd-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+          echo "$APPLICATION_CERT_P12_BASE64" | base64 --decode > "$APP_CERT"
+          echo "$INSTALLER_CERT_P12_BASE64" | base64 --decode > "$INST_CERT"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$APP_CERT" -P "$APPLICATION_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security import "$INST_CERT" -P "$INSTALLER_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          APP_ID=$(security find-identity -v "$KEYCHAIN_PATH" | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+          INST_ID=$(security find-identity -v "$KEYCHAIN_PATH" | grep "Developer ID Installer" | head -1 | awk -F'"' '{print $2}')
+          {
+            echo "KEYCHAIN_PATH=$KEYCHAIN_PATH"
+            echo "APP_SIGNING_IDENTITY=$APP_ID"
+            echo "INSTALLER_SIGNING_IDENTITY=$INST_ID"
+          } >> "$GITHUB_ENV"
+
+      - name: Sign standalone binary
+        if: env.SIGNING_AVAILABLE == 'true'
+        run: |
+          chmod +x bin/antd-darwin-arm64
+          codesign --sign "$APP_SIGNING_IDENTITY" --keychain "$KEYCHAIN_PATH" \
+            --options runtime --timestamp --force bin/antd-darwin-arm64
+          codesign --verify --verbose bin/antd-darwin-arm64
+
+      - name: Build (sign + notarize) .pkg
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_NOTARIZATION_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          chmod +x bin/antd-darwin-arm64
+          ./installers/macos/build-pkg.sh \
+            --bin "$PWD/bin/antd-darwin-arm64" \
+            --version "${GITHUB_REF_NAME#v}" \
+            --arch arm64 \
+            --out "$PWD/out"
+          cp bin/antd-darwin-arm64 out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-macos
+          path: out/*
+
+  package-windows:
+    name: Package Windows (.msi, x64)
+    needs: build
+    runs-on: windows-latest
+    env:
+      SIGNING_AVAILABLE: ${{ secrets.SM_API_KEY != '' }}
+      SM_HOST: ${{ secrets.SM_HOST }}
+      SM_API_KEY: ${{ secrets.SM_API_KEY }}
+      SM_CLIENT_CERT_PASSWORD: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
+      SM_KEYPAIR_ALIAS: ${{ secrets.SM_KEYPAIR_ALIAS }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: antd-windows-amd64.exe
+          path: bin
+
+      - name: Stage binary as antd.exe
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path msibin | Out-Null
+          Copy-Item bin\antd-windows-amd64.exe msibin\antd.exe
+
+      - name: Setup DigiCert Software Trust Manager
+        if: env.SIGNING_AVAILABLE == 'true'
+        uses: digicert/ssm-code-signing@v1.2.1
+        with:
+          sm_host: ${{ secrets.SM_HOST }}
+          sm_api_key: ${{ secrets.SM_API_KEY }}
+          sm_client_cert_b64: ${{ secrets.SM_CLIENT_CERT_B64 }}
+          sm_client_cert_password: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
+
+      - name: Sign standalone binary
+        if: env.SIGNING_AVAILABLE == 'true'
+        shell: pwsh
+        run: smctl sign --keypair-alias "$env:SM_KEYPAIR_ALIAS" --input "bin\antd-windows-amd64.exe"
+
+      - name: Build (sign) MSI
+        shell: pwsh
+        run: |
+          ./installers/windows/build-msi.ps1 -BinDir msibin -Version "$($env:GITHUB_REF_NAME -replace '^v','')" -OutDir out
+
+      - name: Stage signed standalone binary
+        shell: pwsh
+        run: Copy-Item bin\antd-windows-amd64.exe out\
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-windows
+          path: out/*
+
   release:
     name: Create Release
-    needs: build
+    needs: [build, package-linux, package-macos, package-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+          pattern: pkg-*
           merge-multiple: true
 
       - name: Generate checksums
@@ -85,6 +258,9 @@ jobs:
         with:
           files: artifacts/*
           generate_release_notes: true
+          # RC tags (vX.Y.Z-rc.N) publish as a pre-release: the test channel for
+          # the signing + installer pipeline. Stable tags publish normally.
+          prerelease: ${{ contains(github.ref_name, '-') }}
 
   docker:
     name: Docker (multi-arch)
