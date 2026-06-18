@@ -1,0 +1,28 @@
+#!/bin/sh
+# antd .pkg postinstall (runs as ROOT during installation).
+#
+# The LaunchAgent plist was just laid down at
+# /Library/LaunchAgents/com.autonomi.antd.plist. Agents there load per-user in
+# each user's GUI session, so antd will start at the next login automatically.
+# To start it NOW without a re-login we must bootstrap it into the *currently
+# logged-in console user's* GUI domain — postinstall runs as root, so we resolve
+# that user explicitly rather than trusting $HOME/$USER.
+set -e
+
+PLIST="/Library/LaunchAgents/com.autonomi.antd.plist"
+LABEL="com.autonomi.antd"
+
+console_user=$(stat -f %Su /dev/console 2>/dev/null || echo "")
+
+if [ -n "$console_user" ] && [ "$console_user" != "root" ]; then
+    uid=$(id -u "$console_user" 2>/dev/null || echo "")
+    if [ -n "$uid" ]; then
+        # Replace any previous instance, then load + start in the user's GUI session.
+        launchctl bootout "gui/$uid" "$PLIST" >/dev/null 2>&1 || true
+        launchctl bootstrap "gui/$uid" "$PLIST" >/dev/null 2>&1 || true
+        launchctl enable "gui/$uid/$LABEL" >/dev/null 2>&1 || true
+        launchctl kickstart -k "gui/$uid/$LABEL" >/dev/null 2>&1 || true
+    fi
+fi
+
+exit 0

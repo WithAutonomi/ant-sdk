@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- LaunchAgent: loads per-user in each user's GUI session (NOT a root
+         LaunchDaemon), so antd's daemon.port/config land in the user's
+         ~/Library/Application Support/ant/sdk/. Installed to
+         /Library/LaunchAgents/com.autonomi.antd.plist. -->
+    <key>Label</key>
+    <string>com.autonomi.antd</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/antd</string>
+        <!-- The cors flag is non-negotiable for the browser extension. -->
+        <string>--cors</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
