@@ -42,6 +42,15 @@ if (-not $Version) {
 }
 Write-Host "antd MSI build — version $Version"
 
+# Windows Installer ProductVersion must be numeric (major.minor.build), so strip
+# any SemVer pre-release/build suffix (e.g. 0.10.1-rc.1 -> 0.10.1). Only the
+# first three fields affect MSI upgrade logic, so RC builds share an MSI version
+# — fine for a test channel (the asset filename is fixed regardless of version).
+$msiVersion = ($Version -split '[-+]')[0]
+if ($msiVersion -ne $Version) {
+    Write-Host "Sanitized MSI ProductVersion: $Version -> $msiVersion"
+}
+
 $artifactsPath = (Resolve-Path $BinDir).Path
 $antdExe = Join-Path $artifactsPath "antd.exe"
 if (-not (Test-Path $antdExe)) { Write-Error "antd.exe not found in $artifactsPath" }
@@ -78,7 +87,7 @@ $wxsFile = Join-Path $scriptDir "antd.wxs"
 Write-Host "Building MSI -> $outputMsi"
 wix build `
     -arch x64 `
-    -d ProductVersion=$Version `
+    -d ProductVersion=$msiVersion `
     -d ArtifactsDir=$artifactsPath `
     -ext WixToolset.UI.wixext `
     -o $outputMsi `
