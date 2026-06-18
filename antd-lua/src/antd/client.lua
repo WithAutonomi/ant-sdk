@@ -98,6 +98,116 @@ function Client:_do_json(method, path, body)
     return result, status, nil
 end
 
+--- Perform a streaming HTTP request, forwarding the decrypted/raw response
+-- body to a caller-supplied per-chunk sink callback.
+--
+-- This is the streaming counterpart to :func:`_do_json`. Instead of
+-- buffering the whole response, each chunk handed to us by LuaSocket is
+-- forwarded straight to `sink_cb`, so memory stays constant regardless of
+-- payload size.
+--
+-- LuaSocket only surfaces the HTTP status code *after* the transfer has
+-- finished, by which point body chunks may already have been pumped. To
+-- keep success-path streaming truly constant-memory while still mapping a
+-- non-2xx response onto an antd error, we gate forwarding on the first
+-- chunk: the daemon's error bodies are short JSON blobs delivered before
+-- any large payload, so we hold back only the *first* chunk until we can
+-- be sure of the status. On a 2xx response the held chunk is flushed and
+-- all subsequent chunks stream through untouched.
+--
+-- @param method string HTTP method
+-- @param path string request path
+-- @param body table|nil JSON request body
+-- @param sink_cb function callback invoked as sink_cb(chunk) for each
+--   non-empty body chunk on a 2xx response; called zero or more times.
+-- @return boolean|nil ok (true on success), error|nil
+function Client:_do_stream(method, path, body, sink_cb)
+    if type(sink_cb) ~= "function" then
+        return nil, errors.bad_request("data_stream requires a sink callback function")
+    end
+
+    local req_body
+    local headers = {}
+    local source = nil
+    if body ~= nil then
+        req_body = cjson.encode(body)
+        headers["Content-Type"] = "application/json"
+        headers["Content-Length"] = tostring(#req_body)
+        source = ltn12.source.string(req_body)
+    end
+
+    -- LuaSocket runs the sink synchronously inside http.request and only
+    -- surfaces the status code as a return value afterwards. We cannot know
+    -- the status while the first chunk arrives. To keep the success path
+    -- constant-memory while still mapping a non-2xx response onto an antd
+    -- error, we gate only the FIRST chunk: it is held in `head_chunk` until
+    -- the request returns and the status is known. Subsequent chunks are
+    -- forwarded straight to the caller's `sink_cb` as they arrive, so at
+    -- most one chunk (~the daemon's HTTP chunk size) is ever buffered.
+    --
+    -- On a non-2xx response the daemon sends a short JSON error body, which
+    -- fits in the gated first chunk and is therefore never handed to the
+    -- caller; we decode it into an antd error instead.
+    local head_chunk = nil
+    local head_seen = false
+    local started_streaming = false
+
+    local stream_sink = function(chunk, err)
+        if err then
+            return nil, err
+        end
+        if chunk == nil or chunk == "" then
+            return 1
+        end
+        if not head_seen then
+            head_chunk = chunk
+            head_seen = true
+            return 1
+        end
+        -- We already buffered the first chunk; more data means this is a
+        -- real (large) 2xx body. Flush the head chunk once, then stream.
+        if not started_streaming then
+            started_streaming = true
+            sink_cb(head_chunk)
+            head_chunk = nil
+        end
+        sink_cb(chunk)
+        return 1
+    end
+
+    local _, status = http.request({
+        url = self:_url(path),
+        method = method,
+        headers = headers,
+        source = source,
+        sink = stream_sink,
+        timeout = self.timeout,
+    })
+
+    if not status or type(status) ~= "number" then
+        return nil, errors.network(tostring(status or "connection failed"))
+    end
+
+    if status < 200 or status >= 300 then
+        local resp_body = head_chunk or ""
+        local msg = resp_body
+        local ok, parsed = pcall(cjson.decode, resp_body)
+        if ok and type(parsed) == "table" and parsed.error then
+            msg = parsed.error
+        end
+        return nil, errors.error_for_status(status, msg)
+    end
+
+    -- 2xx: flush any still-buffered head chunk (single-chunk responses never
+    -- triggered the streaming branch). For multi-chunk responses the head was
+    -- already flushed and head_chunk cleared.
+    if head_chunk ~= nil then
+        sink_cb(head_chunk)
+    end
+
+    return true, nil
+end
+
 --- Perform an HTTP HEAD request.
 function Client:_do_head(path)
     local resp_parts = {}
@@ -260,6 +370,33 @@ function Client:data_get(data_map)
     local j, _, err = self:_do_json("POST", "/v1/data/get", { data_map = data_map })
     if err then return nil, err end
     return base64.decode(str(j, "data")), nil
+end
+
+--- Stream private data using a caller-held DataMap, forwarding decrypted bytes
+-- to a per-chunk sink callback instead of buffering the whole object.
+--
+-- This is the streaming counterpart to :func:`data_get`, suitable for large
+-- blobs or piping straight to a file. The daemon decrypts the data and
+-- streams the raw (already-decoded) bytes back; unlike :func:`data_get`, the
+-- chunks are NOT base64-encoded.
+--
+-- @param data_map string caller-held DataMap (hex)
+-- @param sink_cb function callback invoked as sink_cb(chunk) for each body
+--   chunk; receives raw bytes. Called zero or more times on success.
+-- @return boolean|nil ok (true on success), error|nil
+function Client:data_stream(data_map, sink_cb)
+    return self:_do_stream("POST", "/v1/data/stream", { data_map = data_map }, sink_cb)
+end
+
+--- Stream public data by address — the streaming counterpart to
+-- :func:`data_get_public`. The daemon streams raw (already-decoded) bytes.
+--
+-- @param address string on-network DataMap address
+-- @param sink_cb function callback invoked as sink_cb(chunk) for each body
+--   chunk; receives raw bytes. Called zero or more times on success.
+-- @return boolean|nil ok (true on success), error|nil
+function Client:data_stream_public(address, sink_cb)
+    return self:_do_stream("GET", "/v1/data/public/" .. address .. "/stream", nil, sink_cb)
 end
 
 --- Pre-upload cost breakdown for the given bytes.

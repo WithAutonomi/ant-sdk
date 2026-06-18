@@ -10,6 +10,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import okhttp3.ResponseBody
 import java.time.Duration
 import java.util.Base64
 
@@ -71,6 +72,43 @@ class AntdRestClient(
         ensureSuccess(response)
     }
 
+    /**
+     * Issues a GET and, on a 2xx status, returns the raw [ResponseBody] for the
+     * caller to read incrementally (constant memory). On a non-2xx status it
+     * reads and parses the JSON error body and throws the matching exception.
+     * The caller MUST close the returned body.
+     */
+    private suspend fun getStream(path: String): ResponseBody = withContext(Dispatchers.IO) {
+        val request = Request.Builder().url("$baseUrl$path").get().build()
+        val response = http.newCall(request).execute()
+        streamBody(response)
+    }
+
+    /**
+     * POST counterpart to [getStream]: streams the 2xx response body, mapping a
+     * non-2xx JSON `{"error":…}` body to the matching exception.
+     */
+    private suspend fun postStream(path: String, body: String): ResponseBody = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url("$baseUrl$path")
+            .post(body.toRequestBody(jsonMediaType))
+            .build()
+        val response = http.newCall(request).execute()
+        streamBody(response)
+    }
+
+    /**
+     * On success, hands back the open [ResponseBody] (caller owns closing it).
+     * On failure, consumes/closes the body and throws — mirroring [ensureSuccess].
+     */
+    private fun streamBody(response: Response): ResponseBody {
+        if (!response.isSuccessful) {
+            // ensureSuccess reads + closes the body and throws the mapped error.
+            ensureSuccess(response)
+        }
+        return response.body ?: throw InternalException("empty response body", response.code)
+    }
+
     private fun ensureSuccess(response: Response) {
         if (response.isSuccessful) return
         val body = response.body?.string() ?: ""
@@ -118,6 +156,35 @@ class AntdRestClient(
         val resp = postJson<DataGetDto>("/v1/data/get", body)
         return fromB64(resp.data)
     }
+
+    /**
+     * Streams private data from a caller-held DataMap (hex) instead of buffering
+     * the whole object in memory. Streaming counterpart to [dataGet], suitable
+     * for large blobs or piping straight to a sink.
+     *
+     * On success the daemon returns the decrypted bytes with a `Content-Length`
+     * header, so a stream that ends short signals a failed download. The caller
+     * reads the returned [ResponseBody] incrementally (via `byteStream()`,
+     * `source()`, or `bytes()`) and **MUST** close it (it is [java.io.Closeable];
+     * `use { … }` is recommended). On a non-2xx status the JSON `{"error":…}`
+     * body is parsed and surfaced as the matching [AntdException].
+     *
+     * Requires antd >= 0.10.0.
+     */
+    suspend fun dataStream(dataMap: String): ResponseBody {
+        val body = buildJsonObject { put("data_map", dataMap) }.toString()
+        return postStream("/v1/data/stream", body)
+    }
+
+    /**
+     * Streams public data by address — the streaming counterpart to
+     * [dataGetPublic]. The caller reads the returned [ResponseBody]
+     * incrementally and **MUST** close it (`use { … }` is recommended).
+     *
+     * Requires antd >= 0.10.0.
+     */
+    suspend fun dataStreamPublic(address: String): ResponseBody =
+        getStream("/v1/data/public/$address/stream")
 
     override suspend fun dataCost(data: ByteArray, paymentMode: PaymentMode): UploadCostEstimate {
         val body = buildJsonObject {

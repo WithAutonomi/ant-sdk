@@ -2,6 +2,8 @@ use std::time::Duration;
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
+use bytes::Bytes;
+use futures_core::Stream;
 use reqwest;
 use serde_json::{json, Value};
 
@@ -94,6 +96,46 @@ impl Client {
 
         let result: Value = serde_json::from_slice(&bytes)?;
         Ok((Some(result), status))
+    }
+
+    /// Sends a request and, on a 2xx response, returns the [`reqwest::Response`]
+    /// for streaming consumption via [`reqwest::Response::bytes_stream`].
+    ///
+    /// On a non-2xx response the JSON error body (`{"error":"..."}`) is read
+    /// and parsed into an [`AntdError`] — mirroring [`do_json`](Self::do_json).
+    /// This lets callers consume the body incrementally (constant memory)
+    /// instead of buffering the whole object.
+    async fn do_stream(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<Value>,
+    ) -> Result<reqwest::Response, AntdError> {
+        let mut req = self.http.request(method, self.url(path));
+        if let Some(b) = body {
+            req = req.json(&b);
+        }
+
+        let resp = req.send().await?;
+        let status = resp.status().as_u16();
+
+        if !(200..300).contains(&status) {
+            // Error responses are small JSON bodies sent before any stream
+            // body, so it is safe to buffer them fully.
+            let bytes = resp.bytes().await?;
+            let msg = if let Ok(parsed) = serde_json::from_slice::<Value>(&bytes) {
+                parsed
+                    .get("error")
+                    .and_then(|e| e.as_str())
+                    .unwrap_or_default()
+                    .to_string()
+            } else {
+                String::from_utf8_lossy(&bytes).to_string()
+            };
+            return Err(error_for_status(status, msg));
+        }
+
+        Ok(resp)
     }
 
     fn b64_encode(data: &[u8]) -> String {
@@ -215,6 +257,71 @@ impl Client {
             .await?;
         let j = j.unwrap_or_default();
         Self::b64_decode(&Self::str_field(&j, "data"))
+    }
+
+    /// Streams private data from a caller-held DataMap (hex).
+    ///
+    /// The streaming counterpart to [`data_get`](Self::data_get): instead of
+    /// buffering the whole decrypted object in memory, this returns an async
+    /// [`Stream`] of [`Bytes`] chunks that the caller consumes incrementally
+    /// (constant memory).
+    ///
+    /// The daemon decrypts the object and streams the raw bytes with a
+    /// `Content-Length` header; a body ending short of `Content-Length`
+    /// indicates a failed download. Non-2xx responses are surfaced as an
+    /// [`AntdError`] before any stream item is yielded.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use antd_client::{Client, DEFAULT_BASE_URL};
+    /// use futures_core::Stream;
+    /// use tokio_stream::StreamExt;
+    ///
+    /// # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new(DEFAULT_BASE_URL);
+    /// let mut stream = Box::pin(client.data_stream("deadbeef").await?);
+    /// while let Some(chunk) = stream.next().await {
+    ///     let chunk = chunk?;
+    ///     // process `chunk` (Bytes) incrementally
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn data_stream(
+        &self,
+        data_map: &str,
+    ) -> Result<impl Stream<Item = Result<Bytes, reqwest::Error>>, AntdError> {
+        let resp = self
+            .do_stream(
+                reqwest::Method::POST,
+                "/v1/data/stream",
+                Some(json!({ "data_map": data_map })),
+            )
+            .await?;
+        Ok(resp.bytes_stream())
+    }
+
+    /// Streams public data by address.
+    ///
+    /// The streaming counterpart to [`data_get_public`](Self::data_get_public):
+    /// returns an async [`Stream`] of [`Bytes`] chunks the caller consumes
+    /// incrementally (constant memory) rather than buffering the whole object.
+    ///
+    /// Non-2xx responses are surfaced as an [`AntdError`] before any stream
+    /// item is yielded.
+    pub async fn data_stream_public(
+        &self,
+        address: &str,
+    ) -> Result<impl Stream<Item = Result<Bytes, reqwest::Error>>, AntdError> {
+        let resp = self
+            .do_stream(
+                reqwest::Method::GET,
+                &format!("/v1/data/public/{address}/stream"),
+                None,
+            )
+            .await?;
+        Ok(resp.bytes_stream())
     }
 
     /// Pre-upload cost breakdown for the given bytes.

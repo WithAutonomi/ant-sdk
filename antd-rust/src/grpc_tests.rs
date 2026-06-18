@@ -45,6 +45,8 @@ impl v1::data_service_server::DataService for MockDataService {
                 ..Default::default()
             }),
             address: "abc123".to_string(),
+            chunks_stored: 2,
+            payment_mode_used: "auto".to_string(),
         }))
     }
 
@@ -67,6 +69,8 @@ impl v1::data_service_server::DataService for MockDataService {
                 ..Default::default()
             }),
             data_map: "dm123".to_string(),
+            chunks_stored: 3,
+            payment_mode_used: "single".to_string(),
         }))
     }
 
@@ -98,6 +102,18 @@ impl v1::data_service_server::DataService for MockDataService {
         &self,
         _request: Request<v1::StreamPublicDataRequest>,
     ) -> Result<Response<Self::StreamPublicStream>, Status> {
+        let (_tx, rx) = tokio::sync::mpsc::channel(1);
+        Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(
+            rx,
+        )))
+    }
+
+    type StreamStream = tokio_stream::wrappers::ReceiverStream<Result<v1::DataChunk, Status>>;
+
+    async fn stream(
+        &self,
+        _request: Request<v1::StreamDataRequest>,
+    ) -> Result<Response<Self::StreamStream>, Status> {
         let (_tx, rx) = tokio::sync::mpsc::channel(1);
         Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(
             rx,

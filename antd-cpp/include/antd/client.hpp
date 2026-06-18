@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -19,6 +21,13 @@ inline constexpr const char* kDefaultBaseURL = "http://localhost:8082";
 
 /// Default request timeout in seconds (5 minutes).
 inline constexpr int kDefaultTimeoutSeconds = 300;
+
+/// Sink invoked for each chunk of a streamed download.
+///
+/// Receives a pointer to the chunk and its length; the bytes are only valid
+/// for the duration of the call, so copy or write them out before returning.
+/// Return `true` to continue streaming or `false` to abort the download early.
+using DataSink = std::function<bool(const char* data, std::size_t len)>;
 
 /// REST client for the antd daemon.
 ///
@@ -65,6 +74,19 @@ public:
     /// Retrieve public data by address.
     std::vector<uint8_t> data_get_public(std::string_view address);
 
+    /// Stream public data by address, invoking `sink` for each chunk of
+    /// decrypted bytes as it arrives. The streaming counterpart to
+    /// `data_get_public`: memory usage stays constant regardless of object
+    /// size, so it is suited to large blobs or piping straight to a file.
+    ///
+    /// The daemon sets a Content-Length, so a `sink` that stops receiving
+    /// before the advertised length indicates a failed/truncated download.
+    /// Returning `false` from `sink` aborts the download early.
+    ///
+    /// On a non-2xx response the `{"error"}` body is parsed and thrown as the
+    /// matching AntdError subclass, exactly like `data_get_public`.
+    void data_stream_public(std::string_view address, const DataSink& sink);
+
     /// Store private encrypted data on the network. The returned DataMap is
     /// the caller's key to retrieve the data later via `data_get`.
     DataPutResult data_put(const std::vector<uint8_t>& data,
@@ -72,6 +94,18 @@ public:
 
     /// Retrieve private data using a caller-held DataMap.
     std::vector<uint8_t> data_get(std::string_view data_map);
+
+    /// Stream private data from a caller-held DataMap, invoking `sink` for each
+    /// chunk of decrypted bytes as it arrives. The streaming counterpart to
+    /// `data_get`: memory usage stays constant regardless of object size.
+    ///
+    /// The daemon sets a Content-Length, so a `sink` that stops receiving
+    /// before the advertised length indicates a failed/truncated download.
+    /// Returning `false` from `sink` aborts the download early.
+    ///
+    /// On a non-2xx response the `{"error"}` body is parsed and thrown as the
+    /// matching AntdError subclass, exactly like `data_get`.
+    void data_stream(std::string_view data_map, const DataSink& sink);
 
     /// Pre-upload cost breakdown for the given bytes.
     UploadCostEstimate data_cost(const std::vector<uint8_t>& data,

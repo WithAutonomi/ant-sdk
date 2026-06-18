@@ -179,6 +179,79 @@ pub const Client = struct {
         return resp_bytes;
     }
 
+    /// Perform an HTTP request and stream a successful (2xx) response body to
+    /// the caller-provided `writer`, in fixed-size chunks (constant memory).
+    ///
+    /// Unlike `doRequest`, the response body is NOT buffered: it is the
+    /// streaming counterpart used by `dataStream`/`dataStreamPublic`. On a
+    /// non-2xx status the (short) error body is buffered and parsed for a
+    /// `{"error":"..."}` message, mirroring `doRequest`'s error handling.
+    ///
+    /// `writer` must be a `std.io.Writer` (anytype so any concrete writer —
+    /// e.g. a file, an `ArrayList(u8).writer()`, or a network socket — works).
+    fn doStream(self: *Client, method: http.Method, path: []const u8, body: ?[]const u8, writer: anytype) !void {
+        const url_str = try self.buildUrl(path);
+        defer self.allocator.free(url_str);
+
+        const uri = std.Uri.parse(url_str) catch return error.HttpError;
+
+        var client = http.Client{ .allocator = self.allocator };
+        defer client.deinit();
+
+        var header_buf: [4096]u8 = undefined;
+        var req = client.open(method, uri, .{
+            .server_header_buffer = &header_buf,
+            .extra_headers = if (body != null)
+                &.{.{ .name = "Content-Type", .value = "application/json" }}
+            else
+                &.{},
+        }) catch return error.HttpError;
+        defer req.deinit();
+
+        if (body) |b| {
+            req.transfer_encoding = .{ .content_length = b.len };
+        }
+
+        req.send() catch return error.HttpError;
+
+        if (body) |b| {
+            req.writer().writeAll(b) catch return error.HttpError;
+            req.finish() catch return error.HttpError;
+        }
+
+        req.wait() catch return error.HttpError;
+
+        const status_code = @intFromEnum(req.response.status);
+
+        if (status_code < 200 or status_code >= 300) {
+            // Non-2xx: error bodies are short; buffer and parse the JSON
+            // `{"error":"..."}` message, mirroring doRequest.
+            var resp_body = std.ArrayList(u8).init(self.allocator);
+            defer resp_body.deinit();
+            var buf: [4096]u8 = undefined;
+            while (true) {
+                const n = req.reader().read(&buf) catch return error.HttpError;
+                if (n == 0) break;
+                resp_body.appendSlice(buf[0..n]) catch return error.HttpError;
+            }
+            const msg = json_helpers.parseErrorMessage(self.allocator, resp_body.items) orelse
+                self.allocator.dupe(u8, resp_body.items) catch "";
+            defer if (msg.len > 0) self.allocator.free(msg);
+            self.setLastError(@intCast(status_code), msg);
+            return errors.errorForStatus(@intCast(status_code));
+        }
+
+        // 2xx: stream the body straight to the caller's writer in fixed-size
+        // chunks. The daemon sets Content-Length, so a stream that ends short
+        // (a read error) surfaces as error.HttpError to the caller.
+        var buf: [16 * 1024]u8 = undefined;
+        while (true) {
+            const n = req.reader().read(&buf) catch return error.HttpError;
+            if (n == 0) break;
+            writer.writeAll(buf[0..n]) catch return error.HttpError;
+        }
+    }
+
     // --- Health ---
 
     /// Check the antd daemon status.
@@ -225,6 +298,34 @@ pub const Client = struct {
         const resp = try self.doRequest(.POST, "/v1/data/get", req_body) orelse return error.JsonError;
         defer self.allocator.free(resp);
         return json_helpers.parseBase64Data(self.allocator, resp);
+    }
+
+    /// Stream public data by address to a caller-provided `writer`, in constant
+    /// memory. The streaming counterpart to `dataGetPublic`: instead of
+    /// buffering and base64-decoding the whole object, decrypted bytes are
+    /// written straight to `writer` as they arrive.
+    ///
+    /// `writer` is any `std.io.Writer` (e.g. a file's writer, an
+    /// `ArrayList(u8).writer()`, or a socket). On a non-2xx response the daemon
+    /// returns `{"error":"..."}`, which is mapped to an `AntdError` exactly like
+    /// the buffered methods (and recorded in `last_error`).
+    pub fn dataStreamPublic(self: *Client, address: []const u8, writer: anytype) !void {
+        const path = try std.fmt.allocPrint(self.allocator, "/v1/data/public/{s}/stream", .{address});
+        defer self.allocator.free(path);
+        return self.doStream(.GET, path, null, writer);
+    }
+
+    /// Stream private data, using a caller-held DataMap, to a caller-provided
+    /// `writer`, in constant memory. The streaming counterpart to `dataGet`.
+    /// Sends the same `{"data_map":"<hex>"}` body as `dataGet` but to
+    /// `POST /v1/data/stream`; decrypted bytes are written straight to `writer`.
+    ///
+    /// `writer` is any `std.io.Writer`. Non-2xx `{"error":"..."}` responses are
+    /// mapped to an `AntdError` exactly like the buffered methods.
+    pub fn dataStream(self: *Client, data_map: []const u8, writer: anytype) !void {
+        const req_body = try json_helpers.buildDataMapBody(self.allocator, data_map);
+        defer self.allocator.free(req_body);
+        return self.doStream(.POST, "/v1/data/stream", req_body, writer);
     }
 
     /// Pre-upload cost breakdown for the given bytes.

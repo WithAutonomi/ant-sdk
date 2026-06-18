@@ -5,6 +5,7 @@ import com.autonomi.antd.errors.ExceptionFactory;
 import com.autonomi.antd.models.*;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -128,6 +129,54 @@ public class AntdClient implements AutoCloseable {
         }
     }
 
+    /**
+     * Performs a request whose 2xx response body is streamed back to the caller
+     * as an {@link InputStream} (constant memory). On a non-2xx status the body
+     * is read fully, parsed for a {@code {"error":"..."}} message, and turned
+     * into the matching {@link AntdException} — mirroring {@link #doJson}.
+     */
+    private InputStream doStream(String method, String path, String body) {
+        try {
+            HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
+                    .uri(URI.create(url(path)))
+                    .timeout(timeout);
+
+            if (body != null) {
+                reqBuilder.header("Content-Type", "application/json")
+                        .method(method, HttpRequest.BodyPublishers.ofString(body));
+            } else {
+                reqBuilder.method(method, HttpRequest.BodyPublishers.noBody());
+            }
+
+            HttpResponse<InputStream> resp = httpClient.send(reqBuilder.build(),
+                    HttpResponse.BodyHandlers.ofInputStream());
+
+            int status = resp.statusCode();
+
+            if (status < 200 || status >= 300) {
+                String respBody;
+                try (InputStream in = resp.body()) {
+                    respBody = new String(in.readAllBytes());
+                }
+                String msg = respBody;
+                try {
+                    Map<String, Object> parsed = Json.parseObject(respBody);
+                    Object err = parsed.get("error");
+                    if (err != null) msg = err.toString();
+                } catch (Exception ignored) {}
+                throw ExceptionFactory.fromHttpStatus(status, msg);
+            }
+
+            return resp.body();
+
+        } catch (AntdException e) {
+            throw e;
+        } catch (IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            throw new AntdException(0, "HTTP request failed: " + e.getMessage());
+        }
+    }
+
     private static String str(Map<String, Object> m, String key) {
         Object v = m.get(key);
         return v != null ? v.toString() : "";
@@ -193,6 +242,23 @@ public class AntdClient implements AutoCloseable {
         return b64Decode(str(j, "data"));
     }
 
+    /**
+     * Streams private data from a caller-held DataMap (hex) instead of buffering
+     * the whole object in memory — the streaming counterpart to {@link #dataGet}.
+     *
+     * <p>Suitable for large blobs or piping straight to a writer. The response
+     * carries a {@code Content-Length}, so a stream that ends short signals a
+     * failed download. The caller reads the returned stream and <b>MUST</b>
+     * close it (e.g. with try-with-resources).
+     *
+     * @param dataMap the caller-held DataMap (hex)
+     * @return an {@link InputStream} of the decrypted bytes; caller must close
+     */
+    public InputStream dataStream(String dataMap) {
+        String body = Json.object("data_map", dataMap);
+        return doStream("POST", "/v1/data/stream", body);
+    }
+
     /** Stores public data. Returns the on-network DataMap address. */
     public DataPutPublicResult dataPutPublic(byte[] data, PaymentMode paymentMode) {
         String body = Json.object("data", b64Encode(data), "payment_mode", paymentMode.wireValue());
@@ -211,6 +277,20 @@ public class AntdClient implements AutoCloseable {
     public byte[] dataGetPublic(String address) {
         Map<String, Object> j = doJson("GET", "/v1/data/public/" + address, null);
         return b64Decode(str(j, "data"));
+    }
+
+    /**
+     * Streams public data by address instead of buffering the whole object in
+     * memory — the streaming counterpart to {@link #dataGetPublic}.
+     *
+     * <p>The caller reads the returned stream and <b>MUST</b> close it (e.g.
+     * with try-with-resources).
+     *
+     * @param address the on-network DataMap address
+     * @return an {@link InputStream} of the decrypted bytes; caller must close
+     */
+    public InputStream dataStreamPublic(String address) {
+        return doStream("GET", "/v1/data/public/" + address + "/stream", null);
     }
 
     /** Pre-upload cost breakdown for the given bytes. */

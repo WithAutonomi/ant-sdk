@@ -120,10 +120,17 @@ final class StubURLProtocol: URLProtocol {
     static var routes: [String: Data] = [:]
     /// Path → most recent request body. Inspected by the test.
     static var lastBodies: [String: Data] = [:]
+    /// Path → HTTP status to return (defaults to 200 when absent).
+    static var statuses: [String: Int] = [:]
+    /// Path → raw bytes to stream back (non-JSON). Takes precedence over
+    /// `routes` when set; used by the streaming tests.
+    static var rawRoutes: [String: Data] = [:]
 
     static func reset() {
         routes = [:]
         lastBodies = [:]
+        statuses = [:]
+        rawRoutes = [:]
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -152,10 +159,13 @@ final class StubURLProtocol: URLProtocol {
             StubURLProtocol.lastBodies[path] = buf
         }
 
-        let bodyData = StubURLProtocol.routes[path] ?? Data("{}".utf8)
+        let status = StubURLProtocol.statuses[path] ?? 200
+        let bodyData = StubURLProtocol.rawRoutes[path]
+            ?? StubURLProtocol.routes[path]
+            ?? Data("{}".utf8)
         let response = HTTPURLResponse(
             url: url,
-            statusCode: 200,
+            statusCode: status,
             httpVersion: "HTTP/1.1",
             headerFields: ["Content-Type": "application/json"]
         )!
@@ -557,5 +567,102 @@ final class PreparePublicAndChunkTests: XCTestCase {
         XCTAssertEqual(req["upload_id"] as? String, "chunk_up_1")
         let txHashes = req["tx_hashes"] as? [String: String]
         XCTAssertEqual(txHashes?["qhC"], "tx_C")
+    }
+}
+
+// MARK: - V2-289 (streaming download) tests
+
+final class DataStreamTests: XCTestCase {
+
+    override func setUp() {
+        super.setUp()
+        StubURLProtocol.reset()
+    }
+
+    private func makeClient() -> AntdRestClient {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [StubURLProtocol.self] + (config.protocolClasses ?? [])
+        let session = URLSession(configuration: config)
+        return AntdRestClient(baseURL: "http://stub.local", session: session)
+    }
+
+    private func decodeJSON(_ data: Data?) -> [String: Any] {
+        guard let data = data, !data.isEmpty,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return [:] }
+        return obj
+    }
+
+    private func collect(_ stream: AsyncThrowingStream<Data, Error>) async throws -> Data {
+        var data = Data()
+        for try await chunk in stream { data.append(chunk) }
+        return data
+    }
+
+    /// dataStream POSTs to `/v1/data/stream` with `{data_map}` and streams the
+    /// decrypted bytes back.
+    func testDataStreamPostsDataMapAndStreamsBytes() async throws {
+        StubURLProtocol.rawRoutes["/v1/data/stream"] = Data("decrypted private payload".utf8)
+
+        let client = makeClient()
+        let stream = try await client.dataStream(dataMap: "abcd")
+        let data = try await collect(stream)
+
+        XCTAssertEqual(String(data: data, encoding: .utf8), "decrypted private payload")
+
+        let req = decodeJSON(StubURLProtocol.lastBodies["/v1/data/stream"])
+        XCTAssertEqual(req["data_map"] as? String, "abcd")
+    }
+
+    /// dataStreamPublic GETs `/v1/data/public/{address}/stream` and streams bytes.
+    func testDataStreamPublicGetsAddressStreamPathAndStreamsBytes() async throws {
+        StubURLProtocol.rawRoutes["/v1/data/public/0xPUB/stream"] = Data("public stream payload".utf8)
+
+        let client = makeClient()
+        let stream = try await client.dataStreamPublic(address: "0xPUB")
+        let data = try await collect(stream)
+
+        XCTAssertEqual(String(data: data, encoding: .utf8), "public stream payload")
+    }
+
+    /// A non-2xx response parses the `{"error"}` envelope into the matching
+    /// AntdError subclass before any bytes reach the caller.
+    func testDataStreamMapsErrorEnvelope() async throws {
+        StubURLProtocol.statuses["/v1/data/stream"] = 404
+        StubURLProtocol.rawRoutes["/v1/data/stream"] = Data(
+            #"{"error":"data map not found","code":"not_found"}"#.utf8
+        )
+
+        let client = makeClient()
+        do {
+            // The error surfaces while draining the stream (delegate-driven),
+            // not from the call itself — so iterate to trigger it.
+            let stream = try await client.dataStream(dataMap: "missing")
+            _ = try await collect(stream)
+            XCTFail("expected dataStream to throw on 404")
+        } catch let error as NotFoundError {
+            XCTAssertEqual(error.message, "data map not found")
+            XCTAssertEqual(error.statusCode, 404)
+        }
+    }
+
+    /// dataStreamPublic surfaces a non-2xx as the mapped error too.
+    func testDataStreamPublicMapsErrorEnvelope() async throws {
+        StubURLProtocol.statuses["/v1/data/public/0xBAD/stream"] = 502
+        StubURLProtocol.rawRoutes["/v1/data/public/0xBAD/stream"] = Data(
+            #"{"error":"network unavailable","code":"network"}"#.utf8
+        )
+
+        let client = makeClient()
+        do {
+            // The error surfaces while draining the stream (delegate-driven),
+            // not from the call itself — so iterate to trigger it.
+            let stream = try await client.dataStreamPublic(address: "0xBAD")
+            _ = try await collect(stream)
+            XCTFail("expected dataStreamPublic to throw on 502")
+        } catch let error as NetworkError {
+            XCTAssertEqual(error.message, "network unavailable")
+            XCTAssertEqual(error.statusCode, 502)
+        }
     }
 }

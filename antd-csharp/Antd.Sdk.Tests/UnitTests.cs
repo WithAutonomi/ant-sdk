@@ -280,6 +280,65 @@ public sealed class AntdRestClientTests : IDisposable
         Assert.Equal(original, result);
     }
 
+    // ── Data Streaming ──
+
+    [Fact]
+    public async Task DataStreamAsync_ReturnsRawByteStream()
+    {
+        var original = Encoding.UTF8.GetBytes("private streamed content");
+        // The daemon streams raw decrypted bytes (not base64/JSON).
+        _server.Route("POST", "/v1/data/stream", 200, Encoding.UTF8.GetString(original));
+        _server.Start();
+
+        await using var stream = await _client.DataStreamAsync("some_data_map");
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms);
+
+        Assert.Equal(original, ms.ToArray());
+        // Verify the request body matches the buffered get (data_map field).
+        var sent = _server.LastRequestBodies["POST /v1/data/stream"];
+        Assert.Contains("some_data_map", sent);
+    }
+
+    [Fact]
+    public async Task DataStreamPublicAsync_ReturnsRawByteStream()
+    {
+        var original = Encoding.UTF8.GetBytes("public streamed content");
+        _server.Route("GET", "/v1/data/public/abc123/stream", 200, Encoding.UTF8.GetString(original));
+        _server.Start();
+
+        await using var stream = await _client.DataStreamPublicAsync("abc123");
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms);
+
+        Assert.Equal(original, ms.ToArray());
+    }
+
+    [Fact]
+    public async Task DataStreamAsync_Non2xx_ThrowsMappedException()
+    {
+        _server.Route("POST", "/v1/data/stream", 404, "{\"error\":\"not found\",\"code\":\"NOT_FOUND\"}");
+        _server.Start();
+
+        var ex = await Assert.ThrowsAsync<NotFoundException>(
+            () => _client.DataStreamAsync("missing"));
+
+        Assert.Equal(404, ex.StatusCode);
+        Assert.Contains("not found", ex.Message);
+    }
+
+    [Fact]
+    public async Task DataStreamPublicAsync_Non2xx_ThrowsMappedException()
+    {
+        _server.Route("GET", "/v1/data/public/missing/stream", 502, "{\"error\":\"bad gateway\",\"code\":\"NETWORK\"}");
+        _server.Start();
+
+        var ex = await Assert.ThrowsAsync<NetworkException>(
+            () => _client.DataStreamPublicAsync("missing"));
+
+        Assert.Equal(502, ex.StatusCode);
+    }
+
     // ── Data Cost ──
 
     [Fact]

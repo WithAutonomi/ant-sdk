@@ -45,6 +45,7 @@ class RestClientTest {
         var lastFilePutPublicBody: String = ""
         var lastFileCostBody: String = ""
         var lastDataGetBody: String = ""
+        var lastDataStreamBody: String = ""
         var lastFileGetBody: String = ""
 
         override fun dispatch(request: RecordedRequest): MockResponse {
@@ -75,6 +76,21 @@ class RestClientTest {
             if (method == "POST" && path == "/v1/data/get") {
                 lastDataGetBody = request.body.readUtf8()
                 return json("""{"data":"${b64("secret")}"}""")
+            }
+
+            // Data private stream — body is the raw decrypted bytes (not JSON),
+            // with a Content-Length header set by MockResponse.setBody.
+            if (method == "POST" && path == "/v1/data/stream") {
+                lastDataStreamBody = request.body.readUtf8()
+                return MockResponse()
+                    .setHeader("Content-Type", "application/octet-stream")
+                    .setBody("streamed-secret")
+            }
+            // Data public stream
+            if (method == "GET" && path == "/v1/data/public/abc123/stream") {
+                return MockResponse()
+                    .setHeader("Content-Type", "application/octet-stream")
+                    .setBody("streamed-hello")
             }
 
             // Data cost
@@ -245,6 +261,46 @@ class RestClientTest {
             daemon.lastDataGetBody.contains("\"data_map\":\"dm123\""),
             "data_map must reach the wire; got ${daemon.lastDataGetBody}",
         )
+    }
+
+    @Test
+    fun `dataStream posts data_map and streams raw bytes`() = runTest {
+        client.dataStream("dm123").use { body ->
+            assertEquals("streamed-secret", String(body.bytes()))
+        }
+        assertTrue(
+            daemon.lastDataStreamBody.contains("\"data_map\":\"dm123\""),
+            "data_map must reach the wire; got ${daemon.lastDataStreamBody}",
+        )
+    }
+
+    @Test
+    fun `dataStreamPublic streams raw bytes by address`() = runTest {
+        client.dataStreamPublic("abc123").use { body ->
+            assertEquals("streamed-hello", String(body.bytes()))
+        }
+    }
+
+    @Test
+    fun `dataStreamPublic maps non-2xx error body to exception`() = runTest {
+        val errServer = MockWebServer()
+        errServer.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) = MockResponse()
+                .setResponseCode(404)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"error":"not found"}""")
+        }
+        errServer.start()
+
+        val errClient = AntdRestClient(baseUrl = errServer.url("/").toString())
+        try {
+            assertFailsWith<NotFoundException> {
+                errClient.dataStreamPublic("nonexistent")
+            }
+        } finally {
+            errClient.close()
+            errServer.shutdown()
+        }
     }
 
     @Test

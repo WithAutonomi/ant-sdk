@@ -150,6 +150,33 @@ class AntdClientTest extends TestCase
         $this->assertSame('hello', $data);
     }
 
+    public function testDataStreamPublic(): void
+    {
+        $mock = new MockHandler([
+            new Response(200, ['Content-Length' => '5'], 'hello'),
+        ]);
+        $history = [];
+        $client = $this->createRecordingClient($mock, $history);
+        $stream = $client->dataStreamPublic('abc123');
+        $this->assertInstanceOf(\Psr\Http\Message\StreamInterface::class, $stream);
+        $this->assertSame('hello', (string) $stream);
+
+        $request = $history[0]['request'];
+        $this->assertSame('GET', $request->getMethod());
+        $this->assertStringEndsWith('/v1/data/public/abc123/stream', (string) $request->getUri());
+    }
+
+    public function testDataStreamPublicErrorThrows(): void
+    {
+        $mock = new MockHandler([
+            $this->jsonResponse(404, ['error' => 'not found', 'code' => 'NOT_FOUND']),
+        ]);
+        $client = $this->createClient($mock);
+        $this->expectException(NotFoundError::class);
+        $this->expectExceptionMessage('not found');
+        $client->dataStreamPublic('missing');
+    }
+
     // --- Data Private ---
 
     public function testDataPut(): void
@@ -190,6 +217,35 @@ class AntdClientTest extends TestCase
         $this->assertStringEndsWith('/v1/data/get', (string) $request->getUri());
         $body = json_decode((string) $request->getBody(), true);
         $this->assertSame('dm123', $body['data_map']);
+    }
+
+    public function testDataStream(): void
+    {
+        $mock = new MockHandler([
+            new Response(200, ['Content-Length' => '6'], 'secret'),
+        ]);
+        $history = [];
+        $client = $this->createRecordingClient($mock, $history);
+        $stream = $client->dataStream('dm123');
+        $this->assertInstanceOf(\Psr\Http\Message\StreamInterface::class, $stream);
+        $this->assertSame('secret', (string) $stream);
+
+        $request = $history[0]['request'];
+        $this->assertSame('POST', $request->getMethod());
+        $this->assertStringEndsWith('/v1/data/stream', (string) $request->getUri());
+        $body = json_decode((string) $request->getBody(), true);
+        $this->assertSame('dm123', $body['data_map']);
+    }
+
+    public function testDataStreamErrorThrows(): void
+    {
+        $mock = new MockHandler([
+            $this->jsonResponse(404, ['error' => 'not found', 'code' => 'NOT_FOUND']),
+        ]);
+        $client = $this->createClient($mock);
+        $this->expectException(NotFoundError::class);
+        $this->expectExceptionMessage('not found');
+        $client->dataStream('missing');
     }
 
     // --- Data Cost ---

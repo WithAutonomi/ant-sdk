@@ -124,6 +124,170 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         return decoded
     }
 
+    // MARK: - Data (streaming) — V2-289
+
+    /// Streams private data from a caller-held DataMap (hex) instead of
+    /// buffering the whole object in memory. The streaming counterpart to
+    /// ``dataGet(dataMap:)``.
+    ///
+    /// On a 2xx response the returned `AsyncThrowingStream<Data, Error>` yields
+    /// the decrypted bytes incrementally (constant memory) as the daemon
+    /// delivers them. On a non-2xx response the JSON `{"error":...}` body is
+    /// parsed and the matching ``AntdError`` is thrown from the stream *before*
+    /// any payload chunk is handed to the caller.
+    ///
+    /// This is implemented with a delegate-driven `URLSessionDataTask` rather
+    /// than `URLSession.bytes(for:)`, because `URLSession.AsyncBytes` is
+    /// Darwin-only and does not exist in swift-corelibs-foundation (Linux).
+    ///
+    /// > Note: this POSTs the same body as ``dataGet(dataMap:)``
+    /// > (`{"data_map":"<hex>"}`) to `POST /v1/data/stream`.
+    public func dataStream(dataMap: String) async throws -> AsyncThrowingStream<Data, Error> {
+        guard let url = URL(string: "\(baseURL)/v1/data/stream") else {
+            throw BadRequestError("invalid URL: \(baseURL)/v1/data/stream")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["data_map": dataMap])
+        return openByteStream(request)
+    }
+
+    /// Streams public data by address — the streaming counterpart to
+    /// ``dataGetPublic(address:)``. Issues `GET /v1/data/public/{address}/stream`.
+    ///
+    /// On a 2xx response the returned `AsyncThrowingStream<Data, Error>` yields
+    /// the bytes incrementally (constant memory). On a non-2xx response the JSON
+    /// `{"error":...}` body is parsed and the matching ``AntdError`` is thrown
+    /// from the stream before any payload chunk is handed to the caller.
+    ///
+    /// Like ``dataStream(dataMap:)``, this uses a delegate-driven data task so
+    /// it compiles on both Darwin Foundation and swift-corelibs-foundation
+    /// (Linux), which has no `URLSession.AsyncBytes`.
+    public func dataStreamPublic(address: String) async throws -> AsyncThrowingStream<Data, Error> {
+        guard let url = URL(string: "\(baseURL)/v1/data/public/\(address)/stream") else {
+            throw BadRequestError("invalid URL: \(baseURL)/v1/data/public/\(address)/stream")
+        }
+        let request = URLRequest(url: url)
+        return openByteStream(request)
+    }
+
+    /// Opens a delegate-driven byte stream for `request`. The HTTP status is
+    /// inspected in the response delegate callback: on a non-2xx status the
+    /// (short) error body is buffered and, when the task completes, mapped to an
+    /// ``AntdError`` (mirroring the buffered ``ensureSuccess(_:data:)`` path,
+    /// but parsing the daemon's `{"error":...}` JSON envelope when present).
+    ///
+    /// Each session is created with its own delegate and invalidated when the
+    /// stream finishes (or the consumer cancels), so neither the delegate nor
+    /// the session leaks. The `config` is copied from the shared ``session`` so
+    /// the same timeouts — and, in tests, the stub `URLProtocol` — apply.
+    private func openByteStream(_ request: URLRequest) -> AsyncThrowingStream<Data, Error> {
+        // Copy the configuration of the shared session so the delegate session
+        // inherits its timeouts and any injected `protocolClasses` (test stub).
+        let config = session.configuration
+        return AsyncThrowingStream { continuation in
+            let delegate = StreamingDelegate(continuation: continuation)
+            let streamSession = URLSession(
+                configuration: config,
+                delegate: delegate,
+                delegateQueue: nil
+            )
+            let task = streamSession.dataTask(with: request)
+            // Once the stream finishes (success, error, or cancellation), tear
+            // the task down and let the session release the delegate.
+            continuation.onTermination = { @Sendable _ in
+                task.cancel()
+                streamSession.finishTasksAndInvalidate()
+            }
+            task.resume()
+        }
+    }
+
+    /// `URLSessionDataDelegate` that bridges a `URLSessionDataTask` into an
+    /// `AsyncThrowingStream<Data, Error>`. Only delegate methods that exist on
+    /// both Darwin Foundation and swift-corelibs-foundation are used, so it
+    /// compiles and runs on Linux (Swift 6.0.3) as well as Apple platforms.
+    private final class StreamingDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+        private let continuation: AsyncThrowingStream<Data, Error>.Continuation
+        /// The HTTP status seen in `didReceive response`; defaults to 200 when a
+        /// non-HTTP response is delivered (treated as success, matching the
+        /// buffered path's `ensureSuccess`).
+        private var statusCode = 200
+        /// True once a non-2xx status is seen: subsequent body chunks are
+        /// buffered as the error envelope instead of being yielded.
+        private var isError = false
+        /// Buffered error body, populated only on the non-2xx path.
+        private var errorBody = Data()
+
+        init(continuation: AsyncThrowingStream<Data, Error>.Continuation) {
+            self.continuation = continuation
+        }
+
+        func urlSession(
+            _ session: URLSession,
+            dataTask: URLSessionDataTask,
+            didReceive response: URLResponse,
+            completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+        ) {
+            if let http = response as? HTTPURLResponse {
+                statusCode = http.statusCode
+                isError = !(200...299).contains(http.statusCode)
+            }
+            // Continue receiving in both cases: on the error path we need the
+            // short `{"error":...}` body, which arrives via `didReceive data`.
+            completionHandler(.allow)
+        }
+
+        func urlSession(
+            _ session: URLSession,
+            dataTask: URLSessionDataTask,
+            didReceive data: Data
+        ) {
+            if isError {
+                errorBody.append(data)
+            } else {
+                continuation.yield(data)
+            }
+        }
+
+        func urlSession(
+            _ session: URLSession,
+            task: URLSessionTask,
+            didCompleteWithError error: Error?
+        ) {
+            if isError {
+                // Non-2xx: surface the mapped daemon error, ignoring any
+                // transport error (the body is the authoritative message).
+                continuation.finish(throwing: Self.streamError(status: statusCode, body: errorBody))
+                return
+            }
+            if let error = error {
+                // A cancelled task is the normal teardown path once the consumer
+                // stops iterating; don't surface it as a failure.
+                if (error as NSError).code == NSURLErrorCancelled {
+                    continuation.finish()
+                } else {
+                    continuation.finish(throwing: error)
+                }
+                return
+            }
+            continuation.finish()
+        }
+
+        /// Maps a non-2xx streaming response to an ``AntdError``. Prefers the
+        /// daemon's `{"error":"..."}` JSON envelope; falls back to the raw body
+        /// (matching the buffered ``ensureSuccess(_:data:)`` behaviour).
+        private static func streamError(status: Int, body: Data) -> AntdError {
+            var message = String(data: body, encoding: .utf8) ?? ""
+            if let obj = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+               let parsed = obj["error"] as? String {
+                message = parsed
+            }
+            return ErrorMapping.fromHTTPStatus(status, body: message)
+        }
+    }
+
     public func dataCost(_ data: Data, paymentMode: PaymentMode = .auto) async throws -> UploadCostEstimate {
         let body: [String: Any] = [
             "data": data.base64EncodedString(),

@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
+use axum::body::Body;
 use axum::extract::{Path, State};
+use axum::http::{header, StatusCode};
+use axum::response::Response;
 use axum::Json;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
@@ -201,25 +204,93 @@ pub async fn data_cost(
     }))
 }
 
+/// Build a streaming response that decrypts `data_map` one batch at a time and
+/// forwards the plaintext bytes. `Content-Length` is set from the DataMap's
+/// known original size, so a client detects a failed download as a short read
+/// (chunked transfer can't signal an error after the `200` headers are sent).
+/// Shared by the private (`data_stream`) and public (`data_stream_public`)
+/// handlers — `data_stream` is the primitive, `data_stream_public` wraps it.
+fn stream_response(
+    client: Arc<ant_core::data::Client>,
+    data_map: ant_core::data::DataMap,
+) -> Response {
+    let content_length = data_map.original_file_size();
+    let (tx, rx) =
+        tokio::sync::mpsc::channel::<std::result::Result<Bytes, ant_core::data::Error>>(16);
+
+    // file_download_to_sender returns a terminal error rather than sending it
+    // into the sink, so push it via a cloned handle after the chunks it already
+    // sent. The body then ends short of Content-Length — the failure signal.
+    let err_tx = tx.clone();
+    tokio::spawn(async move {
+        if let Err(e) = client.file_download_to_sender(&data_map, tx, None).await {
+            let _ = err_tx.send(Err(e)).await;
+        }
+    });
+
+    // ant_core::data::Error is a std::error::Error, so the byte channel feeds
+    // Body::from_stream directly — no per-chunk re-wrapping needed.
+    let body = Body::from_stream(tokio_stream::wrappers::ReceiverStream::new(rx));
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/octet-stream")
+        .header(header::CONTENT_LENGTH, content_length.to_string())
+        .body(body)
+        .expect("static content-type + numeric content-length are always valid")
+}
+
+/// `POST /v1/data/stream` — private streaming download from a caller-held
+/// DataMap (the primitive). Mirrors `data_get` but streams the plaintext
+/// instead of buffering it into a base64 JSON body. POST (not GET) because the
+/// hex DataMap can be many KB.
+pub async fn data_stream(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<DataGetRequest>,
+) -> Result<Response, AntdError> {
+    let data_map_bytes = hex::decode(&req.data_map)
+        .map_err(|e| AntdError::BadRequest(format!("invalid hex data_map: {e}")))?;
+
+    // Reject oversized data maps before deserialization (10 MB limit) — mirrors
+    // the gRPC `stream` / `get` handlers.
+    const MAX_DATA_MAP_SIZE: usize = 10 * 1024 * 1024;
+    if data_map_bytes.len() > MAX_DATA_MAP_SIZE {
+        return Err(AntdError::BadRequest(format!(
+            "data map too large: {} bytes exceeds {} byte limit",
+            data_map_bytes.len(),
+            MAX_DATA_MAP_SIZE,
+        )));
+    }
+
+    let data_map: ant_core::data::DataMap = rmp_serde::from_slice(&data_map_bytes)
+        .map_err(|e| AntdError::BadRequest(format!("invalid data map: {e}")))?;
+
+    Ok(stream_response(state.client.clone(), data_map))
+}
+
+/// `GET /v1/data/public/{addr}/stream` — public streaming download. Resolves
+/// the address to a DataMap, then streams from it (wraps the private
+/// primitive). A fetch failure surfaces as a normal error response before the
+/// stream opens.
 pub async fn data_stream_public(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Path(addr): Path<String>,
-) -> Result<(), AntdError> {
-    // Address validation kept so a malformed call still returns 400 — that
-    // shape is part of the contract even if the body never lands.
+) -> Result<Response, AntdError> {
     if addr.len() != 64 {
         return Err(AntdError::BadRequest(
             "address must be exactly 64 hex characters".into(),
         ));
     }
-    // ant-core does not yet expose a chunk-by-chunk download primitive
-    // (`Client::data_download` returns the full Bytes in one call, and
-    // self-encryption decrypt currently needs every chunk before yielding
-    // any plaintext). Honest 501 until that lands — preferable to the
-    // previous shape that returned 200 OK with an empty SSE stream and
-    // looked indistinguishable from "still waiting for events."
-    Err(AntdError::NotImplemented(
-        "data stream-download not yet implemented;          ant-core does not yet expose a chunk-by-chunk download primitive"
-            .into(),
-    ))
+    let address_bytes = hex::decode(&addr)
+        .map_err(|e| AntdError::BadRequest(format!("invalid hex address: {e}")))?;
+    let address: [u8; 32] = address_bytes
+        .try_into()
+        .map_err(|_| AntdError::BadRequest("address must be 32 bytes".into()))?;
+
+    let data_map = state
+        .client
+        .data_map_fetch(&address)
+        .await
+        .map_err(AntdError::from_core)?;
+
+    Ok(stream_response(state.client.clone(), data_map))
 }

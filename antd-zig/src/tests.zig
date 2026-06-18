@@ -450,6 +450,49 @@ test "buildFinalizeChunkBody embeds upload_id and tx_hashes literal" {
     try testing.expectEqualStrings("tx2", tx2);
 }
 
+// =============================================================================
+// V2-289 Phase 1 (REST): streaming download fan-out.
+//
+// dataStream/dataStreamPublic are the streaming counterparts to
+// dataGet/dataGetPublic. Like the rest of this file, these tests don't spin up
+// a mock HTTP server — they assert the wire-shape contracts that the streaming
+// methods rely on:
+//   - dataStream POSTs the SAME {"data_map":"<hex>"} body as dataGet (just to
+//     /v1/data/stream instead of /v1/data/get).
+//   - dataStreamPublic GETs /v1/data/public/{address}/stream (no body).
+// End-to-end byte-streaming behaviour is covered by the daemon's E2E suite and
+// the antd-go SDK's integration tests.
+// =============================================================================
+
+test "dataStream reuses the data_map request body shape of dataGet" {
+    // dataStream sends buildDataMapBody(data_map) exactly like dataGet, so the
+    // private-stream body must base64-free, hex-string match the buffered get.
+    const body = try json_helpers.buildDataMapBody(testing.allocator, "deadbeef");
+    defer testing.allocator.free(body);
+
+    const parsed = try std.json.parseFromSlice(std.json.Value, testing.allocator, body, .{});
+    defer parsed.deinit();
+    const obj = getJsonObject(parsed.value) orelse return error.JsonError;
+
+    const dm = getJsonString(obj.get("data_map") orelse return error.JsonError) orelse return error.JsonError;
+    try testing.expectEqualStrings("deadbeef", dm);
+    // No other fields — same shape POST /v1/data/get accepts.
+    try testing.expectEqual(@as(usize, 1), obj.count());
+}
+
+test "streaming non-2xx error body parses into the SDK {\"error\"} contract" {
+    // doStream maps non-2xx {"error":"..."} bodies via parseErrorMessage, the
+    // same path the buffered methods use. Verify that contract holds.
+    const body =
+        \\{"error":"data map not found","code":"not_found"}
+    ;
+    const msg = json_helpers.parseErrorMessage(testing.allocator, body);
+    defer if (msg) |m| testing.allocator.free(m);
+
+    try testing.expect(msg != null);
+    try testing.expectEqualStrings("data map not found", msg.?);
+}
+
 // Note: Integration tests that exercise the full Client against a running antd
 // daemon are not included here. To run integration tests, start the daemon with
 // `ant dev start` and write tests that create a Client pointing at the daemon URL.

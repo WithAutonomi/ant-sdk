@@ -117,6 +117,44 @@ class AntdClient {
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
+  /// Issues a streaming request and returns the response body as a
+  /// `Stream<List<int>>` on success. Mirrors [_doJson]'s non-2xx handling:
+  /// the (short) error body is drained and parsed for `{"error"}` before the
+  /// mapped [AntdError] is thrown. On 2xx the body stream is returned
+  /// un-buffered so the caller can consume it with constant memory.
+  Future<Stream<List<int>>> _doStream(
+    String method,
+    String path, [
+    Map<String, dynamic>? body,
+  ]) async {
+    final uri = Uri.parse(_url(path));
+    final request = http.Request(method, uri);
+    if (body != null) {
+      request.headers['Content-Type'] = 'application/json';
+      request.body = jsonEncode(body);
+    }
+
+    final response =
+        await _httpClient.send(request).timeout(_timeout);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      // Drain the (short) error body so we can parse {"error"} like _doJson.
+      final raw = await response.stream.bytesToString();
+      var msg = raw;
+      try {
+        final parsed = jsonDecode(raw) as Map<String, dynamic>;
+        if (parsed.containsKey('error')) {
+          msg = parsed['error'] as String;
+        }
+      } catch (_) {
+        // Use raw body as message.
+      }
+      throw errorForStatus(response.statusCode, msg);
+    }
+
+    return response.stream;
+  }
+
   Future<int> _doHead(String path) async {
     final uri = Uri.parse(_url(path));
     final response = await _httpClient
@@ -164,6 +202,21 @@ class AntdClient {
     return _b64Decode(json!['data'] as String);
   }
 
+  /// Streams private data from a caller-held DataMap (hex) — the streaming
+  /// counterpart to [dataGet].
+  ///
+  /// Returns a `Stream<List<int>>` of the decrypted bytes, consumed with
+  /// constant memory rather than buffering the whole payload like [dataGet].
+  /// On a non-2xx response the (short) error body is parsed for `{"error"}`
+  /// and surfaced as the matching [AntdError] before any bytes are yielded.
+  ///
+  /// Requires antd >= 0.10.0.
+  Future<Stream<List<int>>> dataStream(String dataMap) {
+    return _doStream('POST', '/v1/data/stream', {
+      'data_map': dataMap,
+    });
+  }
+
   /// Stores public immutable data on the network. The DataMap is stored
   /// on-network as an extra chunk; the returned [address] is the shareable
   /// retrieval handle.
@@ -182,6 +235,19 @@ class AntdClient {
   Future<Uint8List> dataGetPublic(String address) async {
     final json = await _doJson('GET', '/v1/data/public/$address');
     return _b64Decode(json!['data'] as String);
+  }
+
+  /// Streams public data by address — the streaming counterpart to
+  /// [dataGetPublic].
+  ///
+  /// Returns a `Stream<List<int>>` of the bytes, consumed with constant
+  /// memory rather than buffering the whole payload like [dataGetPublic].
+  /// On a non-2xx response the (short) error body is parsed for `{"error"}`
+  /// and surfaced as the matching [AntdError] before any bytes are yielded.
+  ///
+  /// Requires antd >= 0.10.0.
+  Future<Stream<List<int>>> dataStreamPublic(String address) {
+    return _doStream('GET', '/v1/data/public/$address/stream');
   }
 
   /// Pre-upload cost breakdown for the given bytes.

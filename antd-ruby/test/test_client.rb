@@ -74,6 +74,41 @@ class TestClient < Minitest::Test
     assert_equal "hello", data
   end
 
+  # --- Data Public Streaming ---
+
+  def test_data_stream_public_with_block
+    stub_request(:get, "#{BASE}/v1/data/public/abc123/stream")
+      .to_return(status: 200, body: "hello world",
+                 headers: { "Content-Type" => "application/octet-stream" })
+
+    chunks = []
+    result = @client.data_stream_public("abc123") { |c| chunks << c }
+    assert_nil result
+    assert_equal "hello world", chunks.join
+  end
+
+  def test_data_stream_public_returns_enumerator
+    stub_request(:get, "#{BASE}/v1/data/public/abc123/stream")
+      .to_return(status: 200, body: "enum bytes",
+                 headers: { "Content-Type" => "application/octet-stream" })
+
+    enum = @client.data_stream_public("abc123")
+    assert_instance_of Enumerator, enum
+    assert_equal "enum bytes", enum.to_a.join
+  end
+
+  def test_data_stream_public_error
+    stub_request(:get, "#{BASE}/v1/data/public/missing/stream")
+      .to_return(status: 404, body: '{"error":"not found","code":"NOT_FOUND"}',
+                 headers: { "Content-Type" => "application/json" })
+
+    err = assert_raises(Antd::NotFoundError) do
+      @client.data_stream_public("missing") { |_c| }
+    end
+    assert_equal 404, err.status_code
+    assert_includes err.message, "not found"
+  end
+
   # --- Data Private ---
 
   def test_data_put
@@ -98,6 +133,43 @@ class TestClient < Minitest::Test
 
     data = @client.data_get("dm123")
     assert_equal "secret", data
+  end
+
+  # --- Data Private Streaming ---
+
+  def test_data_stream_with_block
+    stub_request(:post, "#{BASE}/v1/data/stream")
+      .with(body: hash_including("data_map" => "dm123"))
+      .to_return(status: 200, body: "secret bytes",
+                 headers: { "Content-Type" => "application/octet-stream" })
+
+    chunks = []
+    result = @client.data_stream("dm123") { |c| chunks << c }
+    assert_nil result
+    assert_equal "secret bytes", chunks.join
+  end
+
+  def test_data_stream_returns_enumerator
+    stub_request(:post, "#{BASE}/v1/data/stream")
+      .with(body: hash_including("data_map" => "dm123"))
+      .to_return(status: 200, body: "lazy secret",
+                 headers: { "Content-Type" => "application/octet-stream" })
+
+    enum = @client.data_stream("dm123")
+    assert_instance_of Enumerator, enum
+    assert_equal "lazy secret", enum.to_a.join
+  end
+
+  def test_data_stream_error
+    stub_request(:post, "#{BASE}/v1/data/stream")
+      .to_return(status: 500, body: '{"error":"decrypt failed","code":"INTERNAL"}',
+                 headers: { "Content-Type" => "application/json" })
+
+    err = assert_raises(Antd::InternalError) do
+      @client.data_stream("dmX") { |_c| }
+    end
+    assert_equal 500, err.status_code
+    assert_includes err.message, "decrypt failed"
   end
 
   # --- Data Cost ---

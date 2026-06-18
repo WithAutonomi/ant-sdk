@@ -10,6 +10,7 @@ import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.*;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.Map;
@@ -72,6 +73,18 @@ class AntdClientTest {
             // Data get private
             if ("POST".equals(method) && "/v1/data/get".equals(path)) {
                 return json("{\"data\":\"" + b64("secret") + "\"}");
+            }
+            // Data stream private — raw decrypted bytes, Content-Length set by MockResponse
+            if ("POST".equals(method) && "/v1/data/stream".equals(path)) {
+                return new MockResponse()
+                        .setHeader("Content-Type", "application/octet-stream")
+                        .setBody("secret");
+            }
+            // Data stream public — raw decrypted bytes
+            if ("GET".equals(method) && "/v1/data/public/abc123/stream".equals(path)) {
+                return new MockResponse()
+                        .setHeader("Content-Type", "application/octet-stream")
+                        .setBody("hello");
             }
 
             // Data cost
@@ -161,6 +174,46 @@ class AntdClientTest {
 
         byte[] data = client.dataGet("dm123");
         assertEquals("secret", new String(data));
+    }
+
+    @Test
+    void testDataStreamPrivate() throws IOException {
+        try (InputStream in = client.dataStream("dm123")) {
+            assertEquals("secret", new String(in.readAllBytes()));
+        }
+    }
+
+    @Test
+    void testDataStreamPublic() throws IOException {
+        try (InputStream in = client.dataStreamPublic("abc123")) {
+            assertEquals("hello", new String(in.readAllBytes()));
+        }
+    }
+
+    @Test
+    void testDataStreamErrorMapping() throws IOException {
+        // A non-2xx status with a JSON {"error"} body must map to the typed
+        // exception before any stream is returned.
+        try (MockWebServer errServer = new MockWebServer()) {
+            errServer.setDispatcher(new Dispatcher() {
+                @Override
+                public MockResponse dispatch(RecordedRequest request) {
+                    return new MockResponse()
+                            .setResponseCode(404)
+                            .setHeader("Content-Type", "application/json")
+                            .setBody("{\"error\":\"data map not found\"}");
+                }
+            });
+            errServer.start();
+
+            try (AntdClient errClient = new AntdClient(errServer.url("/").toString())) {
+                AntdException ex = assertThrows(AntdException.class,
+                        () -> errClient.dataStream("missing"));
+                assertInstanceOf(NotFoundException.class, ex);
+                assertEquals(404, ex.getStatusCode());
+                assertTrue(ex.getMessage().contains("data map not found"));
+            }
+        }
     }
 
     @Test
