@@ -518,6 +518,76 @@ void main() {
     });
   });
 
+  group('Data Stream with progress (V2-512 NDJSON)', () {
+    test('dataStreamWithProgress opts into NDJSON and yields progress + data',
+        () async {
+      final harness = await _StreamMockServer.start();
+      addTearDown(harness.stop);
+
+      final client = AntdClient(baseUrl: harness.baseUrl);
+      addTearDown(client.close);
+
+      final stream = await client.dataStreamWithProgress('dm-stream');
+      final frames = await stream.toList();
+
+      // Opt-in: the request advertised the NDJSON media type.
+      expect(harness.lastAcceptHeader, equals('application/x-ndjson'));
+      // data_map forwarded in the JSON body.
+      expect(harness.lastStreamBody!['data_map'], equals('dm-stream'));
+
+      // meta (byte total) is surfaced first, then the progress and data frames.
+      expect(frames, hasLength(3));
+      expect(frames[0].isMeta, isTrue);
+      expect(frames[0].totalBytes, equals('streamed-secret'.length));
+
+      expect(frames[1].isProgress, isTrue);
+      expect(frames[1].progress!.phase, equals('fetching'));
+      expect(frames[1].progress!.fetched, equals(1));
+      expect(frames[1].progress!.total, equals(1));
+
+      expect(frames[2].isProgress, isFalse);
+      expect(frames[2].isMeta, isFalse);
+      expect(utf8.decode(frames[2].data!), equals('streamed-secret'));
+    });
+
+    test('dataStreamPublicWithProgress opts into NDJSON by address', () async {
+      final harness = await _StreamMockServer.start();
+      addTearDown(harness.stop);
+
+      final client = AntdClient(baseUrl: harness.baseUrl);
+      addTearDown(client.close);
+
+      final stream = await client.dataStreamPublicWithProgress('pub-addr');
+      final frames = await stream.toList();
+
+      expect(harness.lastAcceptHeader, equals('application/x-ndjson'));
+      expect(harness.lastPublicStreamPath,
+          equals('/v1/data/public/pub-addr/stream'));
+
+      expect(frames[0].isMeta, isTrue);
+      expect(frames[0].totalBytes, equals('streamed-public'.length));
+      expect(frames[1].isProgress, isTrue);
+      expect(utf8.decode(frames[2].data!), equals('streamed-public'));
+    });
+
+    test('a terminal NDJSON error frame surfaces as an AntdError', () async {
+      final harness = await _StreamMockServer.start();
+      addTearDown(harness.stop);
+      harness.ndjsonError = true;
+
+      final client = AntdClient(baseUrl: harness.baseUrl);
+      addTearDown(client.close);
+
+      final stream = await client.dataStreamWithProgress('dm-stream');
+      // The leading progress frame is fine; draining hits the error frame.
+      expect(
+        () => stream.toList(),
+        throwsA(isA<InternalError>()
+            .having((e) => e.message, 'message', equals('decrypt failed'))),
+      );
+    });
+  });
+
   group('Public Prepare (V2-249 PR4)', () {
     test('prepareUploadPublic forwards visibility=public on the wire', () async {
       final harness = await _ExternalSignerMockServer.start();
@@ -683,8 +753,13 @@ class _StreamMockServer {
   /// When true, the next streaming request returns a non-2xx `{"error"}` body.
   bool failNext = false;
 
+  /// When true, an NDJSON stream emits a terminal `{"type":"error"}` frame
+  /// (after a 200 + a leading progress frame) instead of data frames.
+  bool ndjsonError = false;
+
   Map<String, dynamic>? lastStreamBody;
   String? lastPublicStreamPath;
+  String? lastAcceptHeader;
 
   _StreamMockServer._(this._server);
 
@@ -717,19 +792,49 @@ class _StreamMockServer {
       return;
     }
 
+    lastAcceptHeader = req.headers.value('accept');
+    final wantsNdjson = lastAcceptHeader == 'application/x-ndjson';
+
     final route = '${req.method} ${req.uri.path}';
     switch (route) {
       case 'POST /v1/data/stream':
         lastStreamBody = body;
-        _sendBytes(req, utf8.encode('streamed-secret'));
+        if (wantsNdjson) {
+          _sendNdjson(req, utf8.encode('streamed-secret'));
+        } else {
+          _sendBytes(req, utf8.encode('streamed-secret'));
+        }
         break;
       case 'GET /v1/data/public/pub-addr/stream':
         lastPublicStreamPath = req.uri.path;
-        _sendBytes(req, utf8.encode('streamed-public'));
+        if (wantsNdjson) {
+          _sendNdjson(req, utf8.encode('streamed-public'));
+        } else {
+          _sendBytes(req, utf8.encode('streamed-public'));
+        }
         break;
       default:
         _sendJson(req, 404, {'error': 'unknown route: $route'});
     }
+  }
+
+  /// Streams an interleaved NDJSON body: a `meta` frame, a `progress` frame,
+  /// then either a terminal `error` frame ([ndjsonError]) or a base64 `data`
+  /// frame carrying [payload].
+  void _sendNdjson(HttpRequest req, List<int> payload) {
+    req.response.statusCode = 200;
+    req.response.headers.contentType = ContentType('application', 'x-ndjson');
+    final lines = <String>[
+      jsonEncode({'type': 'meta', 'total_size': payload.length}),
+      jsonEncode({'type': 'progress', 'phase': 'fetching', 'fetched': 1, 'total': 1}),
+    ];
+    if (ndjsonError) {
+      lines.add(jsonEncode({'type': 'error', 'message': 'decrypt failed'}));
+    } else {
+      lines.add(jsonEncode({'type': 'data', 'chunk': base64.encode(payload)}));
+    }
+    req.response.write(lines.map((l) => '$l\n').join());
+    req.response.close();
   }
 
   void _sendBytes(HttpRequest req, List<int> payload) {

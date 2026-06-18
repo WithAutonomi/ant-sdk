@@ -12,6 +12,7 @@
 
 import 'dart:core' as $core;
 
+import 'package:fixnum/fixnum.dart' as $fixnum;
 import 'package:protobuf/protobuf.dart' as $pb;
 
 import 'common.pb.dart' as $2;
@@ -175,10 +176,14 @@ class PutPublicDataResponse extends $pb.GeneratedMessage {
   factory PutPublicDataResponse({
     $2.Cost? cost,
     $core.String? address,
+    $fixnum.Int64? chunksStored,
+    $core.String? paymentModeUsed,
   }) {
     final result = create();
     if (cost != null) result.cost = cost;
     if (address != null) result.address = address;
+    if (chunksStored != null) result.chunksStored = chunksStored;
+    if (paymentModeUsed != null) result.paymentModeUsed = paymentModeUsed;
     return result;
   }
 
@@ -190,6 +195,8 @@ class PutPublicDataResponse extends $pb.GeneratedMessage {
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'PutPublicDataResponse', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
     ..aOM<$2.Cost>(1, _omitFieldNames ? '' : 'cost', subBuilder: $2.Cost.create)
     ..aOS(2, _omitFieldNames ? '' : 'address')
+    ..a<$fixnum.Int64>(3, _omitFieldNames ? '' : 'chunksStored', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
+    ..aOS(4, _omitFieldNames ? '' : 'paymentModeUsed')
     ..hasRequiredFields = false
   ;
 
@@ -229,14 +236,36 @@ class PutPublicDataResponse extends $pb.GeneratedMessage {
   $core.bool hasAddress() => $_has(1);
   @$pb.TagNumber(2)
   void clearAddress() => $_clearField(2);
+
+  /// Number of chunks stored on the network.
+  @$pb.TagNumber(3)
+  $fixnum.Int64 get chunksStored => $_getI64(2);
+  @$pb.TagNumber(3)
+  set chunksStored($fixnum.Int64 value) => $_setInt64(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasChunksStored() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearChunksStored() => $_clearField(3);
+
+  /// Which payment mode was actually used ("auto", "merkle", or "single").
+  @$pb.TagNumber(4)
+  $core.String get paymentModeUsed => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set paymentModeUsed($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasPaymentModeUsed() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearPaymentModeUsed() => $_clearField(4);
 }
 
 class StreamPublicDataRequest extends $pb.GeneratedMessage {
   factory StreamPublicDataRequest({
     $core.String? address,
+    $core.bool? includeProgress,
   }) {
     final result = create();
     if (address != null) result.address = address;
+    if (includeProgress != null) result.includeProgress = includeProgress;
     return result;
   }
 
@@ -247,6 +276,7 @@ class StreamPublicDataRequest extends $pb.GeneratedMessage {
 
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'StreamPublicDataRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'address')
+    ..aOB(2, _omitFieldNames ? '' : 'includeProgress')
     ..hasRequiredFields = false
   ;
 
@@ -275,14 +305,40 @@ class StreamPublicDataRequest extends $pb.GeneratedMessage {
   $core.bool hasAddress() => $_has(0);
   @$pb.TagNumber(1)
   void clearAddress() => $_clearField(1);
+
+  /// When true, the server interleaves DownloadProgress frames with the data
+  /// frames on the same stream so the caller can drive a determinate fetch
+  /// progress bar. Defaults to false — old clients omitting it receive a
+  /// pure data-frame stream, byte-identical to the pre-progress behaviour.
+  @$pb.TagNumber(2)
+  $core.bool get includeProgress => $_getBF(1);
+  @$pb.TagNumber(2)
+  set includeProgress($core.bool value) => $_setBool(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasIncludeProgress() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearIncludeProgress() => $_clearField(2);
 }
 
+enum DataChunk_Kind {
+  data, 
+  progress, 
+  notSet
+}
+
+/// A single frame of a streaming download. Exactly one of `data` (a decrypted
+/// plaintext chunk) or `progress` (a fetch-progress update) is set per frame.
+/// `data` keeps wire tag 1, so a frame carrying data is byte-identical to the
+/// pre-oneof `DataChunk { bytes data = 1 }` — only opt-in progress consumers
+/// ever observe `progress` frames (see StreamDataRequest.include_progress).
 class DataChunk extends $pb.GeneratedMessage {
   factory DataChunk({
     $core.List<$core.int>? data,
+    DownloadProgress? progress,
   }) {
     final result = create();
     if (data != null) result.data = data;
+    if (progress != null) result.progress = progress;
     return result;
   }
 
@@ -291,8 +347,15 @@ class DataChunk extends $pb.GeneratedMessage {
   factory DataChunk.fromBuffer($core.List<$core.int> data, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(data, registry);
   factory DataChunk.fromJson($core.String json, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(json, registry);
 
+  static const $core.Map<$core.int, DataChunk_Kind> _DataChunk_KindByTag = {
+    1 : DataChunk_Kind.data,
+    2 : DataChunk_Kind.progress,
+    0 : DataChunk_Kind.notSet
+  };
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'DataChunk', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
+    ..oo(0, [1, 2])
     ..a<$core.List<$core.int>>(1, _omitFieldNames ? '' : 'data', $pb.PbFieldType.OY)
+    ..aOM<DownloadProgress>(2, _omitFieldNames ? '' : 'progress', subBuilder: DownloadProgress.create)
     ..hasRequiredFields = false
   ;
 
@@ -313,6 +376,9 @@ class DataChunk extends $pb.GeneratedMessage {
   static DataChunk getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<DataChunk>(create);
   static DataChunk? _defaultInstance;
 
+  DataChunk_Kind whichKind() => _DataChunk_KindByTag[$_whichOneof(0)]!;
+  void clearKind() => $_clearField($_whichOneof(0));
+
   @$pb.TagNumber(1)
   $core.List<$core.int> get data => $_getN(0);
   @$pb.TagNumber(1)
@@ -321,6 +387,96 @@ class DataChunk extends $pb.GeneratedMessage {
   $core.bool hasData() => $_has(0);
   @$pb.TagNumber(1)
   void clearData() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  DownloadProgress get progress => $_getN(1);
+  @$pb.TagNumber(2)
+  set progress(DownloadProgress value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasProgress() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearProgress() => $_clearField(2);
+  @$pb.TagNumber(2)
+  DownloadProgress ensureProgress() => $_ensure(1);
+}
+
+/// Fetch-progress update surfaced from ant-core's DownloadEvent. `fetched` /
+/// `total` count chunks (not bytes); `total` is 0 while still unknown (e.g.
+/// mid DataMap-resolution). This is the *numerator* for a real progress bar —
+/// the x-content-length header / Content-Length is the byte *denominator*, but
+/// decrypted-byte delivery lands in lumps, so chunk-fetch counts are what
+/// actually advance smoothly during a download.
+class DownloadProgress extends $pb.GeneratedMessage {
+  factory DownloadProgress({
+    $core.String? phase,
+    $fixnum.Int64? fetched,
+    $fixnum.Int64? total,
+  }) {
+    final result = create();
+    if (phase != null) result.phase = phase;
+    if (fetched != null) result.fetched = fetched;
+    if (total != null) result.total = total;
+    return result;
+  }
+
+  DownloadProgress._();
+
+  factory DownloadProgress.fromBuffer($core.List<$core.int> data, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(data, registry);
+  factory DownloadProgress.fromJson($core.String json, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'DownloadProgress', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'phase')
+    ..a<$fixnum.Int64>(2, _omitFieldNames ? '' : 'fetched', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
+    ..a<$fixnum.Int64>(3, _omitFieldNames ? '' : 'total', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  DownloadProgress clone() => DownloadProgress()..mergeFromMessage(this);
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  DownloadProgress copyWith(void Function(DownloadProgress) updates) => super.copyWith((message) => updates(message as DownloadProgress)) as DownloadProgress;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static DownloadProgress create() => DownloadProgress._();
+  @$core.override
+  DownloadProgress createEmptyInstance() => create();
+  static $pb.PbList<DownloadProgress> createRepeated() => $pb.PbList<DownloadProgress>();
+  @$core.pragma('dart2js:noInline')
+  static DownloadProgress getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<DownloadProgress>(create);
+  static DownloadProgress? _defaultInstance;
+
+  /// One of: "resolving_map", "resolved", "fetching".
+  @$pb.TagNumber(1)
+  $core.String get phase => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set phase($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasPhase() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearPhase() => $_clearField(1);
+
+  /// Chunks fetched so far in the current phase.
+  @$pb.TagNumber(2)
+  $fixnum.Int64 get fetched => $_getI64(1);
+  @$pb.TagNumber(2)
+  set fetched($fixnum.Int64 value) => $_setInt64(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasFetched() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearFetched() => $_clearField(2);
+
+  /// Total chunks for the current phase, or 0 if not yet known.
+  @$pb.TagNumber(3)
+  $fixnum.Int64 get total => $_getI64(2);
+  @$pb.TagNumber(3)
+  set total($fixnum.Int64 value) => $_setInt64(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasTotal() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearTotal() => $_clearField(3);
 }
 
 class GetDataRequest extends $pb.GeneratedMessage {
@@ -367,6 +523,65 @@ class GetDataRequest extends $pb.GeneratedMessage {
   $core.bool hasDataMap() => $_has(0);
   @$pb.TagNumber(1)
   void clearDataMap() => $_clearField(1);
+}
+
+class StreamDataRequest extends $pb.GeneratedMessage {
+  factory StreamDataRequest({
+    $core.String? dataMap,
+    $core.bool? includeProgress,
+  }) {
+    final result = create();
+    if (dataMap != null) result.dataMap = dataMap;
+    if (includeProgress != null) result.includeProgress = includeProgress;
+    return result;
+  }
+
+  StreamDataRequest._();
+
+  factory StreamDataRequest.fromBuffer($core.List<$core.int> data, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(data, registry);
+  factory StreamDataRequest.fromJson($core.String json, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'StreamDataRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'dataMap')
+    ..aOB(2, _omitFieldNames ? '' : 'includeProgress')
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  StreamDataRequest clone() => StreamDataRequest()..mergeFromMessage(this);
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  StreamDataRequest copyWith(void Function(StreamDataRequest) updates) => super.copyWith((message) => updates(message as StreamDataRequest)) as StreamDataRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static StreamDataRequest create() => StreamDataRequest._();
+  @$core.override
+  StreamDataRequest createEmptyInstance() => create();
+  static $pb.PbList<StreamDataRequest> createRepeated() => $pb.PbList<StreamDataRequest>();
+  @$core.pragma('dart2js:noInline')
+  static StreamDataRequest getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<StreamDataRequest>(create);
+  static StreamDataRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get dataMap => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set dataMap($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasDataMap() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearDataMap() => $_clearField(1);
+
+  /// See StreamPublicDataRequest.include_progress. Defaults to false.
+  @$pb.TagNumber(2)
+  $core.bool get includeProgress => $_getBF(1);
+  @$pb.TagNumber(2)
+  set includeProgress($core.bool value) => $_setBool(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasIncludeProgress() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearIncludeProgress() => $_clearField(2);
 }
 
 class GetDataResponse extends $pb.GeneratedMessage {
@@ -480,10 +695,14 @@ class PutDataResponse extends $pb.GeneratedMessage {
   factory PutDataResponse({
     $2.Cost? cost,
     $core.String? dataMap,
+    $fixnum.Int64? chunksStored,
+    $core.String? paymentModeUsed,
   }) {
     final result = create();
     if (cost != null) result.cost = cost;
     if (dataMap != null) result.dataMap = dataMap;
+    if (chunksStored != null) result.chunksStored = chunksStored;
+    if (paymentModeUsed != null) result.paymentModeUsed = paymentModeUsed;
     return result;
   }
 
@@ -495,6 +714,8 @@ class PutDataResponse extends $pb.GeneratedMessage {
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'PutDataResponse', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
     ..aOM<$2.Cost>(1, _omitFieldNames ? '' : 'cost', subBuilder: $2.Cost.create)
     ..aOS(2, _omitFieldNames ? '' : 'dataMap')
+    ..a<$fixnum.Int64>(3, _omitFieldNames ? '' : 'chunksStored', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
+    ..aOS(4, _omitFieldNames ? '' : 'paymentModeUsed')
     ..hasRequiredFields = false
   ;
 
@@ -534,6 +755,26 @@ class PutDataResponse extends $pb.GeneratedMessage {
   $core.bool hasDataMap() => $_has(1);
   @$pb.TagNumber(2)
   void clearDataMap() => $_clearField(2);
+
+  /// Number of chunks stored on the network.
+  @$pb.TagNumber(3)
+  $fixnum.Int64 get chunksStored => $_getI64(2);
+  @$pb.TagNumber(3)
+  set chunksStored($fixnum.Int64 value) => $_setInt64(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasChunksStored() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearChunksStored() => $_clearField(3);
+
+  /// Which payment mode was actually used ("auto", "merkle", or "single").
+  @$pb.TagNumber(4)
+  $core.String get paymentModeUsed => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set paymentModeUsed($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasPaymentModeUsed() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearPaymentModeUsed() => $_clearField(4);
 }
 
 class DataCostRequest extends $pb.GeneratedMessage {

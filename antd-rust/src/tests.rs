@@ -310,6 +310,87 @@ async fn test_data_stream_public() {
 }
 
 #[tokio::test]
+async fn test_data_stream_with_progress_parses_ndjson() {
+    use crate::DownloadFrame;
+    use tokio_stream::StreamExt;
+
+    // Daemon NDJSON framing: a leading meta line (byte denominator), then
+    // interleaved progress + base64 data frames.
+    let body = concat!(
+        "{\"type\":\"meta\",\"total_size\":6}\n",
+        "{\"type\":\"progress\",\"phase\":\"fetching\",\"fetched\":1,\"total\":2}\n",
+        "{\"type\":\"data\",\"chunk\":\"c2Vj\"}\n",
+        "{\"type\":\"progress\",\"phase\":\"fetching\",\"fetched\":2,\"total\":2}\n",
+        "{\"type\":\"data\",\"chunk\":\"cmV0\"}\n",
+    );
+    let mut server = mock_server().await;
+    let _m = server
+        .mock("POST", "/v1/data/stream")
+        .match_header("accept", "application/x-ndjson")
+        .match_body(Matcher::Json(json!({"data_map": "dm123"})))
+        .with_status(200)
+        .with_header("content-type", "application/x-ndjson")
+        .with_body(body)
+        .create();
+    let client = Client::new(&server.url());
+
+    let stream = client.data_stream_with_progress("dm123").await.unwrap();
+    tokio::pin!(stream);
+    let mut data = Vec::new();
+    let mut progress = Vec::new();
+    let mut total = None;
+    while let Some(item) = stream.next().await {
+        match item.unwrap() {
+            DownloadFrame::Meta(t) => total = Some(t),
+            DownloadFrame::Data(b) => data.extend_from_slice(&b),
+            DownloadFrame::Progress(p) => progress.push(p),
+        }
+    }
+    // Data frames reassemble to the payload; the meta line surfaces as the byte
+    // denominator; both progress frames surface separately.
+    assert_eq!(data, b"secret");
+    assert_eq!(total, Some(6));
+    assert_eq!(progress.len(), 2);
+    assert_eq!(progress[0].phase, "fetching");
+    assert_eq!(progress[0].fetched, 1);
+    assert_eq!(progress[1].fetched, 2);
+    assert_eq!(progress[1].total, 2);
+}
+
+#[tokio::test]
+async fn test_data_stream_with_progress_surfaces_error_frame() {
+    use tokio_stream::StreamExt;
+
+    // A terminal `error` frame mid-stream must surface as a stream error
+    // (NDJSON can signal failure explicitly, unlike the raw short-read path).
+    let body = concat!(
+        "{\"type\":\"meta\",\"total_size\":10}\n",
+        "{\"type\":\"data\",\"chunk\":\"c2Vj\"}\n",
+        "{\"type\":\"error\",\"message\":\"network: peer timeout\"}\n",
+    );
+    let mut server = mock_server().await;
+    let _m = server
+        .mock("POST", "/v1/data/stream")
+        .match_header("accept", "application/x-ndjson")
+        .with_status(200)
+        .with_header("content-type", "application/x-ndjson")
+        .with_body(body)
+        .create();
+    let client = Client::new(&server.url());
+
+    let stream = client.data_stream_with_progress("dm123").await.unwrap();
+    tokio::pin!(stream);
+    let mut saw_error = false;
+    while let Some(item) = stream.next().await {
+        if let Err(AntdError::Internal(msg)) = item {
+            assert!(msg.contains("peer timeout"));
+            saw_error = true;
+        }
+    }
+    assert!(saw_error, "expected a terminal error frame to surface");
+}
+
+#[tokio::test]
 async fn test_data_stream_private_error_mapping() {
     // A non-2xx JSON error body is surfaced before any stream item.
     let mut server = mock_server().await;

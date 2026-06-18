@@ -344,3 +344,50 @@ public struct UploadCostEstimate: Sendable, Equatable {
         self.paymentMode = paymentMode
     }
 }
+
+/// A fetch-progress update emitted during a streaming download when progress is
+/// requested. Counts are in *chunks*, not bytes — the byte denominator is the
+/// download's total size (the `x-content-length` header over gRPC, the leading
+/// NDJSON `meta` frame over REST). `total` is 0 while still unknown (mid
+/// DataMap-resolution).
+///
+/// `phase` is one of:
+/// - `"resolving_map"` — walking the hierarchical DataMap to learn the count
+/// - `"resolved"` — DataMap resolved, `total` now holds the real chunk count
+/// - `"fetching"` — fetching data chunks; `fetched`/`total` advance the bar
+public struct DownloadProgress: Sendable, Equatable {
+    public let phase: String
+    public let fetched: UInt64
+    public let total: UInt64
+
+    public init(phase: String, fetched: UInt64, total: UInt64) {
+        self.phase = phase
+        self.fetched = fetched
+        self.total = total
+    }
+}
+
+/// One frame of a progress-enabled streaming download: the total size, a
+/// plaintext data chunk, or a ``DownloadProgress`` update. Yielded by the
+/// `*WithProgress` streaming methods; the plain `dataStream` methods stay a pure
+/// `Data` stream for callers that don't need progress.
+public enum DownloadFrame: Sendable, Equatable {
+    /// Total download size in *bytes* — the progress denominator, surfaced from
+    /// the gRPC `x-content-length` response metadata or the REST NDJSON `meta`
+    /// frame. Emitted at most once, before any data.
+    case meta(UInt64)
+    case data(Data)
+    case progress(DownloadProgress)
+
+    /// True if this frame carries a progress update rather than data bytes.
+    public var isProgress: Bool {
+        if case .progress = self { return true }
+        return false
+    }
+
+    /// True if this frame carries the total-size denominator.
+    public var isMeta: Bool {
+        if case .meta = self { return true }
+        return false
+    }
+}

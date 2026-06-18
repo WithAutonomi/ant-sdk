@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -925,5 +926,98 @@ func TestFinalizeChunkUploadReturnsAddress(t *testing.T) {
 	}
 	if addr == "" || len(addr) != 64 {
 		t.Fatalf("expected 64-char hex address, got %q", addr)
+	}
+}
+
+// ── REST NDJSON progress framing (antd >= V2-512) ──
+
+func TestDataStreamWithProgressParsesNdjson(t *testing.T) {
+	var gotAccept string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/data/stream" {
+			gotAccept = r.Header.Get("Accept")
+			w.Header().Set("Content-Type", ndjsonContentType)
+			w.WriteHeader(200)
+			lines := []string{
+				`{"type":"meta","total_size":6}`,
+				`{"type":"progress","phase":"fetching","fetched":1,"total":2}`,
+				`{"type":"data","chunk":"` + base64.StdEncoding.EncodeToString([]byte("sec")) + `"}`,
+				`{"type":"progress","phase":"fetching","fetched":2,"total":2}`,
+				`{"type":"data","chunk":"` + base64.StdEncoding.EncodeToString([]byte("ret")) + `"}`,
+			}
+			for _, l := range lines {
+				_, _ = w.Write([]byte(l + "\n"))
+			}
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	s, err := c.DataStreamWithProgress(context.Background(), "dm123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	if gotAccept != ndjsonContentType {
+		t.Fatalf("expected Accept=%q, got %q", ndjsonContentType, gotAccept)
+	}
+
+	var data []byte
+	var progress []DownloadProgress
+	var meta *uint64
+	for {
+		frame, err := s.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		switch {
+		case frame.IsMeta():
+			meta = frame.Meta
+		case frame.IsProgress():
+			progress = append(progress, *frame.Progress)
+		default:
+			data = append(data, frame.Data...)
+		}
+	}
+	if string(data) != "secret" {
+		t.Fatalf("unexpected reassembled data: %q", data)
+	}
+	if meta == nil || *meta != 6 {
+		t.Fatalf("expected Meta byte-total 6 from meta line, got %v", meta)
+	}
+	if len(progress) != 2 || progress[1].Fetched != 2 || progress[1].Total != 2 {
+		t.Fatalf("unexpected progress frames: %+v", progress)
+	}
+}
+
+func TestDataStreamWithProgressSurfacesErrorFrame(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", ndjsonContentType)
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte(`{"type":"data","chunk":"` + base64.StdEncoding.EncodeToString([]byte("partial")) + `"}` + "\n"))
+		_, _ = w.Write([]byte(`{"type":"error","message":"chunk fetch failed"}` + "\n"))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	s, err := c.DataStreamWithProgress(context.Background(), "dm123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	// First frame is data; the terminal error frame must surface as an error
+	// (a raw octet-stream download cannot signal a mid-stream failure).
+	if _, err := s.Recv(); err != nil {
+		t.Fatalf("expected first data frame, got error: %v", err)
+	}
+	if _, err := s.Recv(); err == nil || errors.Is(err, io.EOF) {
+		t.Fatalf("expected terminal error frame to surface, got %v", err)
 	}
 }

@@ -339,6 +339,89 @@ public sealed class AntdRestClientTests : IDisposable
         Assert.Equal(502, ex.StatusCode);
     }
 
+    // ── Data Streaming With Progress (NDJSON) ──
+
+    [Fact]
+    public async Task DataStreamWithProgressAsync_ParsesNdjsonFrames()
+    {
+        // meta (skipped) → progress → data → data, mirroring the daemon's NDJSON.
+        var ndjson =
+            "{\"type\":\"meta\",\"total_size\":6}\n" +
+            "{\"type\":\"progress\",\"phase\":\"fetching\",\"fetched\":1,\"total\":2}\n" +
+            "{\"type\":\"data\",\"chunk\":\"" + Convert.ToBase64String(Encoding.UTF8.GetBytes("sec")) + "\"}\n" +
+            "{\"type\":\"data\",\"chunk\":\"" + Convert.ToBase64String(Encoding.UTF8.GetBytes("ret")) + "\"}\n";
+        _server.Route("POST", "/v1/data/stream", 200, ndjson);
+        _server.Start();
+
+        var buf = new List<byte>();
+        DownloadProgress? progress = null;
+        ulong? totalSize = null;
+        var sawData = false;
+        await foreach (var frame in _client.DataStreamWithProgressAsync("some_data_map"))
+        {
+            if (frame.IsMeta)
+            {
+                Assert.False(sawData, "meta frame must arrive before any data");
+                totalSize = frame.TotalSize;
+            }
+            else if (frame.IsProgress) progress = frame.Progress;
+            else { sawData = true; buf.AddRange(frame.Data!); }
+        }
+
+        Assert.Equal("secret", Encoding.UTF8.GetString(buf.ToArray()));
+        // The leading NDJSON meta line surfaces the byte-total denominator.
+        Assert.Equal(6UL, totalSize);
+        Assert.NotNull(progress);
+        Assert.Equal("fetching", progress!.Phase);
+        Assert.Equal(1UL, progress.Fetched);
+        Assert.Equal(2UL, progress.Total);
+
+        // The request opts into NDJSON via Accept and carries the data_map.
+        var sent = _server.LastRequestBodies["POST /v1/data/stream"];
+        Assert.Contains("some_data_map", sent);
+    }
+
+    [Fact]
+    public async Task DataStreamPublicWithProgressAsync_ParsesNdjsonFrames()
+    {
+        var ndjson =
+            "{\"type\":\"meta\",\"total_size\":5}\n" +
+            "{\"type\":\"data\",\"chunk\":\"" + Convert.ToBase64String(Encoding.UTF8.GetBytes("hello")) + "\"}\n";
+        _server.Route("GET", "/v1/data/public/abc123/stream", 200, ndjson);
+        _server.Start();
+
+        var buf = new List<byte>();
+        ulong? totalSize = null;
+        await foreach (var frame in _client.DataStreamPublicWithProgressAsync("abc123"))
+        {
+            if (frame.IsMeta) totalSize = frame.TotalSize;
+            else if (!frame.IsProgress) buf.AddRange(frame.Data!);
+        }
+
+        Assert.Equal("hello", Encoding.UTF8.GetString(buf.ToArray()));
+        // The leading NDJSON meta line surfaces the byte-total denominator.
+        Assert.Equal(5UL, totalSize);
+    }
+
+    [Fact]
+    public async Task DataStreamWithProgressAsync_ErrorFrame_Throws()
+    {
+        // A terminal error frame surfaces as the SDK's mapped exception —
+        // raw octet-stream downloads cannot signal a mid-stream failure.
+        var ndjson =
+            "{\"type\":\"meta\",\"total_size\":0}\n" +
+            "{\"type\":\"error\",\"message\":\"chunk fetch failed\"}\n";
+        _server.Route("POST", "/v1/data/stream", 200, ndjson);
+        _server.Start();
+
+        var ex = await Assert.ThrowsAsync<InternalException>(async () =>
+        {
+            await foreach (var _ in _client.DataStreamWithProgressAsync("some_data_map")) { }
+        });
+
+        Assert.Contains("chunk fetch failed", ex.Message);
+    }
+
     // ── Data Cost ──
 
     [Fact]

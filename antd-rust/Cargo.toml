@@ -15,6 +15,9 @@ serde_json = "1"
 base64 = "0.22"
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }
+# tokio-stream's StreamExt::map adapts the tonic server-stream into the
+# public Stream<Bytes> surface for data_stream/data_stream_public.
+tokio-stream = "0.1"
 tonic = "0.12"
 prost = "0.13"
 
@@ -23,7 +26,6 @@ tonic-build = "0.12"
 
 [dev-dependencies]
 mockito = "1"
-tokio-stream = "0.1"
 alloy = { version = "1", features = ["full"] }
 hex = "0.4"
 

@@ -3,9 +3,18 @@ package com.autonomi.sdk
 import antd.v1.*
 import com.google.protobuf.ByteString
 import io.grpc.ManagedChannel
+import io.grpc.Metadata
 import io.grpc.Server
+import io.grpc.ServerCall
+import io.grpc.ServerCallHandler
+import io.grpc.ServerInterceptor
+import io.grpc.ServerInterceptors
+import io.grpc.ForwardingServerCall
 import io.grpc.inprocess.InProcessChannelBuilder
 import io.grpc.inprocess.InProcessServerBuilder
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -33,6 +42,10 @@ class GrpcClientTest {
             .directExecutor()
             .addService(MockChunkService())
             .addService(MockUploadService())
+            // The daemon attaches the total plaintext size as the
+            // x-content-length response header so the consumer can surface a
+            // byte denominator (V2-510); mimic it with a server interceptor.
+            .addService(ServerInterceptors.intercept(MockDataService(), ContentLengthInterceptor()))
             .build()
             .start()
 
@@ -48,6 +61,62 @@ class GrpcClientTest {
     }
 
     // --- Mock servicers ---
+
+    // Server-streams the payload in two chunks so the client's chunk-by-chunk
+    // collection is exercised, not just a single message.
+    class MockDataService : DataServiceGrpcKt.DataServiceCoroutineImplBase() {
+        // When include_progress is set, interleave a progress frame between the
+        // data chunks so the oneof mapping is exercised; otherwise emit a pure
+        // data-frame stream (the pre-progress behaviour).
+        override fun stream(request: Data.StreamDataRequest): Flow<Data.DataChunk> =
+            if (request.includeProgress) flowOf(
+                dataChunk { progress = downloadProgress { phase = "fetching"; fetched = 1; total = 2 } },
+                dataChunk { data = ByteString.copyFromUtf8("sec") },
+                dataChunk { data = ByteString.copyFromUtf8("ret") },
+            ) else flowOf(
+                dataChunk { data = ByteString.copyFromUtf8("sec") },
+                dataChunk { data = ByteString.copyFromUtf8("ret") },
+            )
+
+        override fun streamPublic(request: Data.StreamPublicDataRequest): Flow<Data.DataChunk> =
+            if (request.includeProgress) flowOf(
+                dataChunk { progress = downloadProgress { phase = "resolved"; fetched = 0; total = 2 } },
+                dataChunk { data = ByteString.copyFromUtf8("hel") },
+                dataChunk { data = ByteString.copyFromUtf8("lo") },
+            ) else flowOf(
+                dataChunk { data = ByteString.copyFromUtf8("hel") },
+                dataChunk { data = ByteString.copyFromUtf8("lo") },
+            )
+    }
+
+    // Sets x-content-length initial metadata per data-stream method, matching
+    // the daemon's byte-total header: Stream → "secret" (6), StreamPublic →
+    // "hello" (5). Headers arrive before the first message.
+    class ContentLengthInterceptor : ServerInterceptor {
+        override fun <ReqT, RespT> interceptCall(
+            call: ServerCall<ReqT, RespT>,
+            headers: Metadata,
+            next: ServerCallHandler<ReqT, RespT>,
+        ): ServerCall.Listener<ReqT> {
+            val total = when (call.methodDescriptor.bareMethodName) {
+                "Stream" -> "6"
+                "StreamPublic" -> "5"
+                else -> null
+            }
+            val wrapped = object : ForwardingServerCall.SimpleForwardingServerCall<ReqT, RespT>(call) {
+                override fun sendHeaders(responseHeaders: Metadata) {
+                    if (total != null) {
+                        responseHeaders.put(
+                            Metadata.Key.of("x-content-length", Metadata.ASCII_STRING_MARSHALLER),
+                            total,
+                        )
+                    }
+                    super.sendHeaders(responseHeaders)
+                }
+            }
+            return next.startCall(wrapped, headers)
+        }
+    }
 
     class MockChunkService : ChunkServiceGrpcKt.ChunkServiceCoroutineImplBase() {
         override suspend fun prepareChunk(request: Chunks.PrepareChunkRequest): Chunks.PrepareChunkResponse {
@@ -254,5 +323,47 @@ class GrpcClientTest {
     fun finalizeChunkUploadReturnsAddressAndForwardsBody() = runTest {
         val addr = client.finalizeChunkUpload("upid_chunk_42", mapOf("0xq1" to "0xtxabc"))
         assertEquals("addr_for_upid_chunk_42", addr)
+    }
+
+    @Test
+    fun dataStreamPrivate() = runTest {
+        val chunks = client.dataStream("dm123").toList()
+        assertEquals("secret", chunks.joinToString("") { String(it) })
+    }
+
+    @Test
+    fun dataStreamPublic() = runTest {
+        val chunks = client.dataStreamPublic("abc123").toList()
+        assertEquals("hello", chunks.joinToString("") { String(it) })
+    }
+
+    @Test
+    fun dataStreamWithProgressPrivate() = runTest {
+        val frames = client.dataStreamWithProgress("dm123").toList()
+        // meta (x-content-length) + 1 progress frame + 2 data frames.
+        assertEquals(4, frames.size)
+        assertTrue(frames[0].isMeta)
+        assertEquals(6UL, frames[0].totalSize)
+        val progress = frames[1]
+        assertTrue(progress.isProgress)
+        assertEquals("fetching", progress.progress!!.phase)
+        assertEquals(1UL, progress.progress!!.fetched)
+        assertEquals(2UL, progress.progress!!.total)
+        val data = frames.drop(2).joinToString("") { String(it.data!!) }
+        assertEquals("secret", data)
+        assertFalse(frames[2].isProgress)
+    }
+
+    @Test
+    fun dataStreamWithProgressPublic() = runTest {
+        val frames = client.dataStreamPublicWithProgress("abc123").toList()
+        assertEquals(4, frames.size)
+        assertTrue(frames[0].isMeta)
+        assertEquals(5UL, frames[0].totalSize)
+        assertTrue(frames[1].isProgress)
+        assertEquals("resolved", frames[1].progress!!.phase)
+        assertEquals(2UL, frames[1].progress!!.total)
+        val data = frames.drop(2).joinToString("") { String(it.data!!) }
+        assertEquals("hello", data)
     }
 }

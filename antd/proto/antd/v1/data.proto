@@ -52,10 +52,38 @@ message PutPublicDataResponse {
 
 message StreamPublicDataRequest {
   string address = 1; // hex
+  // When true, the server interleaves DownloadProgress frames with the data
+  // frames on the same stream so the caller can drive a determinate fetch
+  // progress bar. Defaults to false — old clients omitting it receive a
+  // pure data-frame stream, byte-identical to the pre-progress behaviour.
+  bool include_progress = 2;
 }
 
+// A single frame of a streaming download. Exactly one of `data` (a decrypted
+// plaintext chunk) or `progress` (a fetch-progress update) is set per frame.
+// `data` keeps wire tag 1, so a frame carrying data is byte-identical to the
+// pre-oneof `DataChunk { bytes data = 1 }` — only opt-in progress consumers
+// ever observe `progress` frames (see StreamDataRequest.include_progress).
 message DataChunk {
-  bytes data = 1;
+  oneof kind {
+    bytes data = 1;
+    DownloadProgress progress = 2;
+  }
+}
+
+// Fetch-progress update surfaced from ant-core's DownloadEvent. `fetched` /
+// `total` count chunks (not bytes); `total` is 0 while still unknown (e.g.
+// mid DataMap-resolution). This is the *numerator* for a real progress bar —
+// the x-content-length header / Content-Length is the byte *denominator*, but
+// decrypted-byte delivery lands in lumps, so chunk-fetch counts are what
+// actually advance smoothly during a download.
+message DownloadProgress {
+  // One of: "resolving_map", "resolved", "fetching".
+  string phase = 1;
+  // Chunks fetched so far in the current phase.
+  uint64 fetched = 2;
+  // Total chunks for the current phase, or 0 if not yet known.
+  uint64 total = 3;
 }
 
 // --- Private ---
@@ -66,6 +94,8 @@ message GetDataRequest {
 
 message StreamDataRequest {
   string data_map = 1; // hex
+  // See StreamPublicDataRequest.include_progress. Defaults to false.
+  bool include_progress = 2;
 }
 
 message GetDataResponse {

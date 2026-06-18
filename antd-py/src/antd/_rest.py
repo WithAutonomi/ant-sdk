@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 import base64
+import json
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from typing import TYPE_CHECKING
 
 import httpx
 
-from .exceptions import raise_for_http_status
+from .exceptions import InternalError, raise_for_http_status
 from .models import (
     CandidateNodeEntry,
     DataPutPublicResult,
     DataPutResult,
+    DownloadFrame,
+    DownloadProgress,
     FilePutPublicResult,
     FilePutResult,
     FinalizeUploadResult,
@@ -139,6 +142,36 @@ async def _acheck_streamed(resp: httpx.Response) -> None:
     except Exception:
         msg = resp.text
     raise_for_http_status(resp.status_code, msg)
+
+
+# Media type that opts the stream endpoints into NDJSON progress framing.
+_NDJSON_CONTENT_TYPE = "application/x-ndjson"
+
+
+def _parse_ndjson_frame(line: str) -> DownloadFrame | None:
+    """Parse one NDJSON download line into a :class:`DownloadFrame`. Returns
+    ``None`` for the leading ``meta`` frame, blank lines, and unknown frame types
+    (forward-compat). Raises :class:`InternalError` on a terminal ``error`` frame,
+    which a raw octet-stream download cannot signal mid-stream."""
+    line = line.strip()
+    if not line:
+        return None
+    frame = json.loads(line)
+    kind = frame.get("type")
+    if kind == "data":
+        return DownloadFrame(data=base64.b64decode(frame.get("chunk", "")))
+    if kind == "progress":
+        return DownloadFrame(progress=DownloadProgress(
+            phase=frame.get("phase", ""),
+            fetched=int(frame.get("fetched", 0)),
+            total=int(frame.get("total", 0)),
+        ))
+    if kind == "error":
+        raise InternalError(frame.get("message", "stream error"), 500)
+    if kind == "meta":
+        return DownloadFrame(meta=int(frame.get("total_size", 0)))
+    # Unknown frame types: skip for forward-compatibility.
+    return None
 
 
 def _parse_prepare_chunk_result(j: dict) -> PrepareChunkResult:
@@ -316,6 +349,34 @@ class RestClient:
         with self._http.stream("GET", f"/v1/data/public/{address}/stream") as resp:
             _check_streamed(resp)
             yield resp.iter_bytes()
+
+    @contextmanager
+    def data_stream_with_progress(self, data_map: str) -> Iterator[Iterator[DownloadFrame]]:
+        """:meth:`data_stream` with interleaved fetch-progress frames. Opts into
+        NDJSON framing (``Accept: application/x-ndjson``); the yielded iterator
+        produces :class:`DownloadFrame`s — each a plaintext chunk or a
+        :class:`DownloadProgress` update::
+
+            with client.data_stream_with_progress(data_map) as frames:
+                for frame in frames:
+                    if frame.is_progress:
+                        bar.update(frame.progress.fetched, frame.progress.total)
+                    else:
+                        out.write(frame.data)
+        """
+        headers = {"Accept": _NDJSON_CONTENT_TYPE}
+        with self._http.stream("POST", "/v1/data/stream", json={"data_map": data_map}, headers=headers) as resp:
+            _check_streamed(resp)
+            yield (f for line in resp.iter_lines() if (f := _parse_ndjson_frame(line)) is not None)
+
+    @contextmanager
+    def data_stream_public_with_progress(self, address: str) -> Iterator[Iterator[DownloadFrame]]:
+        """:meth:`data_stream_public` with interleaved fetch-progress frames.
+        See :meth:`data_stream_with_progress`."""
+        headers = {"Accept": _NDJSON_CONTENT_TYPE}
+        with self._http.stream("GET", f"/v1/data/public/{address}/stream", headers=headers) as resp:
+            _check_streamed(resp)
+            yield (f for line in resp.iter_lines() if (f := _parse_ndjson_frame(line)) is not None)
 
     def data_cost(self, data: bytes, payment_mode: PaymentMode = PaymentMode.AUTO) -> UploadCostEstimate:
         """Pre-upload cost breakdown for the given bytes.
@@ -606,6 +667,39 @@ class AsyncRestClient:
         async with self._http.stream("GET", f"/v1/data/public/{address}/stream") as resp:
             await _acheck_streamed(resp)
             yield resp.aiter_bytes()
+
+    @asynccontextmanager
+    async def data_stream_with_progress(self, data_map: str) -> AsyncIterator[AsyncIterator[DownloadFrame]]:
+        """:meth:`data_stream` with interleaved fetch-progress frames. Opts into
+        NDJSON framing and yields an async iterator of :class:`DownloadFrame`s
+        (see the sync client's ``data_stream_with_progress``)."""
+        headers = {"Accept": _NDJSON_CONTENT_TYPE}
+        async with self._http.stream("POST", "/v1/data/stream", json={"data_map": data_map}, headers=headers) as resp:
+            await _acheck_streamed(resp)
+
+            async def frames() -> AsyncIterator[DownloadFrame]:
+                async for line in resp.aiter_lines():
+                    frame = _parse_ndjson_frame(line)
+                    if frame is not None:
+                        yield frame
+
+            yield frames()
+
+    @asynccontextmanager
+    async def data_stream_public_with_progress(self, address: str) -> AsyncIterator[AsyncIterator[DownloadFrame]]:
+        """:meth:`data_stream_public` with interleaved fetch-progress frames.
+        See :meth:`data_stream_with_progress`."""
+        headers = {"Accept": _NDJSON_CONTENT_TYPE}
+        async with self._http.stream("GET", f"/v1/data/public/{address}/stream", headers=headers) as resp:
+            await _acheck_streamed(resp)
+
+            async def frames() -> AsyncIterator[DownloadFrame]:
+                async for line in resp.aiter_lines():
+                    frame = _parse_ndjson_frame(line)
+                    if frame is not None:
+                        yield frame
+
+            yield frames()
 
     async def data_cost(self, data: bytes, payment_mode: PaymentMode = PaymentMode.AUTO) -> UploadCostEstimate:
         """Pre-upload cost breakdown for the given bytes."""

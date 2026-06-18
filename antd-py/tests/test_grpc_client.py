@@ -19,6 +19,8 @@ from antd._proto.antd.v1 import (
     chunks_pb2,
     chunks_pb2_grpc,
     common_pb2,
+    data_pb2,
+    data_pb2_grpc,
     upload_pb2,
     upload_pb2_grpc,
 )
@@ -144,6 +146,28 @@ class MockUploadServicer(upload_pb2_grpc.UploadServiceServicer):
         )
 
 
+class MockDataServicer(data_pb2_grpc.DataServiceServicer):
+    """Server-streams the payload in two chunks so the client's
+    chunk-by-chunk consumption is exercised, not just a single message."""
+
+    def Stream(self, request, context):
+        if request.include_progress:
+            # Mirror the daemon: attach the byte total as initial metadata.
+            context.send_initial_metadata([("x-content-length", "6")])
+            yield data_pb2.DataChunk(progress=data_pb2.DownloadProgress(
+                phase="fetching", fetched=1, total=2))
+        for part in (b"sec", b"ret"):
+            yield data_pb2.DataChunk(data=part)
+
+    def StreamPublic(self, request, context):
+        if request.include_progress:
+            context.send_initial_metadata([("x-content-length", "5")])
+            yield data_pb2.DataChunk(progress=data_pb2.DownloadProgress(
+                phase="fetching", fetched=1, total=2))
+        for part in (b"hel", b"lo"):
+            yield data_pb2.DataChunk(data=part)
+
+
 # --- Fixtures: sync + async mock servers -----------------------------------
 
 
@@ -152,6 +176,7 @@ def sync_client():
     server = grpc.server(ThreadPoolExecutor(max_workers=4))
     chunks_pb2_grpc.add_ChunkServiceServicer_to_server(MockChunkServicer(), server)
     upload_pb2_grpc.add_UploadServiceServicer_to_server(MockUploadServicer(), server)
+    data_pb2_grpc.add_DataServiceServicer_to_server(MockDataServicer(), server)
     port = server.add_insecure_port("127.0.0.1:0")
     server.start()
     client = GrpcClient(target=f"127.0.0.1:{port}")
@@ -167,6 +192,7 @@ async def async_client():
     server = grpc.aio.server()
     chunks_pb2_grpc.add_ChunkServiceServicer_to_server(MockChunkServicer(), server)
     upload_pb2_grpc.add_UploadServiceServicer_to_server(MockUploadServicer(), server)
+    data_pb2_grpc.add_DataServiceServicer_to_server(MockDataServicer(), server)
     port = server.add_insecure_port("127.0.0.1:0")
     await server.start()
     client = AsyncGrpcClient(target=f"127.0.0.1:{port}")
@@ -328,3 +354,52 @@ class TestAsyncChunkPrepareFinalize:
             "upid_chunk_42", {"0xq1": "0xtx1"},
         )
         assert addr == "addr_for_upid_chunk_42"
+
+
+class TestSyncDataStream:
+    def test_stream_private(self, sync_client):
+        chunks = list(sync_client.data_stream("dm123"))
+        assert chunks == [b"sec", b"ret"]
+        assert b"".join(chunks) == b"secret"
+
+    def test_stream_public(self, sync_client):
+        assert b"".join(sync_client.data_stream_public("abc123")) == b"hello"
+
+    def test_stream_with_progress(self, sync_client):
+        frames = list(sync_client.data_stream_with_progress("dm123"))
+        data = b"".join(f.data for f in frames if f.data is not None)
+        progress = [f.progress for f in frames if f.is_progress]
+        meta = [f.meta for f in frames if f.is_meta]
+        assert data == b"secret"
+        assert meta == [6]
+        assert len(progress) == 1
+        assert progress[0].phase == "fetching"
+        assert progress[0].fetched == 1 and progress[0].total == 2
+
+    def test_stream_public_with_progress(self, sync_client):
+        frames = list(sync_client.data_stream_public_with_progress("abc123"))
+        assert b"".join(f.data for f in frames if f.data is not None) == b"hello"
+        assert [f.meta for f in frames if f.is_meta] == [5]
+        assert any(f.is_progress for f in frames)
+
+
+class TestAsyncDataStream:
+    @pytest.mark.asyncio
+    async def test_stream_private(self, async_client):
+        chunks = [c async for c in async_client.data_stream("dm123")]
+        assert chunks == [b"sec", b"ret"]
+        assert b"".join(chunks) == b"secret"
+
+    @pytest.mark.asyncio
+    async def test_stream_public(self, async_client):
+        chunks = [c async for c in async_client.data_stream_public("abc123")]
+        assert b"".join(chunks) == b"hello"
+
+    @pytest.mark.asyncio
+    async def test_stream_with_progress(self, async_client):
+        frames = [f async for f in async_client.data_stream_with_progress("dm123")]
+        data = b"".join(f.data for f in frames if f.data is not None)
+        progress = [f.progress for f in frames if f.is_progress]
+        assert data == b"secret"
+        assert [f.meta for f in frames if f.is_meta] == [6]
+        assert len(progress) == 1 and progress[0].total == 2

@@ -143,7 +143,7 @@ defmodule Antd.GrpcClient do
 
     case Antd.V1.DataService.Stub.put(channel, req) do
       {:ok, resp} ->
-        {:ok, %Antd.DataPutResult{data_map: resp.data_map}}
+        {:ok, %Antd.DataPutResult{data_map: resp.data_map, chunks_stored: resp.chunks_stored, payment_mode_used: resp.payment_mode_used}}
 
       {:error, rpc_error} ->
         {:error, translate_error(rpc_error)}
@@ -170,6 +170,71 @@ defmodule Antd.GrpcClient do
   def data_get!(client, data_map), do: unwrap!(data_get(client, data_map))
 
   @doc """
+  Streams private data from a caller-held DataMap, one decrypt batch at a time,
+  instead of buffering the whole object. The gRPC counterpart to `data_get/2`
+  and mirror of the REST client's `data_stream/2`.
+
+  On success returns `{:ok, enumerable}` where enumerating yields binary chunks;
+  concatenate or write them as they arrive, e.g.
+
+      {:ok, stream} = Antd.GrpcClient.data_stream(client, data_map)
+      Enum.into(stream, File.stream!("out.bin"))
+
+  A mid-stream gRPC error is raised as the translated exception while the
+  enumerable is consumed.
+  """
+  @spec data_stream(t(), String.t()) :: {:ok, Enumerable.t()} | {:error, Exception.t()}
+  def data_stream(%__MODULE__{channel: channel}, data_map) when is_binary(data_map) do
+    req = %Antd.V1.StreamDataRequest{data_map: data_map}
+
+    case Antd.V1.DataService.Stub.stream(channel, req) do
+      {:ok, reply_enum} -> {:ok, map_chunk_stream(reply_enum)}
+      {:error, rpc_error} -> {:error, translate_error(rpc_error)}
+    end
+  end
+
+  @doc "Like `data_stream/2` but raises on error."
+  @spec data_stream!(t(), String.t()) :: Enumerable.t()
+  def data_stream!(client, data_map), do: unwrap!(data_stream(client, data_map))
+
+  @doc """
+  `data_stream/2` with interleaved fetch-progress frames so the caller can drive
+  a *determinate* download progress bar. Sets the request's `include_progress`
+  flag; enumerating the returned stream yields `Antd.DownloadFrame` structs —
+  each a plaintext chunk (`:data`) or a `Antd.DownloadProgress` update
+  (`:progress`). The byte denominator arrives separately as the
+  `x-content-length` response header.
+
+      {:ok, frames} = Antd.GrpcClient.data_stream_with_progress(client, data_map)
+      Enum.each(frames, fn
+        %Antd.DownloadFrame{progress: %{} = p} -> render_bar(p.fetched, p.total)
+        %Antd.DownloadFrame{data: bytes} -> IO.binwrite(bytes)
+      end)
+  """
+  @spec data_stream_with_progress(t(), String.t()) ::
+          {:ok, Enumerable.t()} | {:error, Exception.t()}
+  def data_stream_with_progress(%__MODULE__{channel: channel}, data_map)
+      when is_binary(data_map) do
+    req = %Antd.V1.StreamDataRequest{data_map: data_map, include_progress: true}
+
+    case Antd.V1.DataService.Stub.stream(channel, req, return_headers: true) do
+      {:ok, reply_enum, %{headers: headers}} ->
+        {:ok, prepend_meta(headers, map_frame_stream(reply_enum))}
+
+      {:ok, reply_enum} ->
+        {:ok, map_frame_stream(reply_enum)}
+
+      {:error, rpc_error} ->
+        {:error, translate_error(rpc_error)}
+    end
+  end
+
+  @doc "Like `data_stream_with_progress/2` but raises on error."
+  @spec data_stream_with_progress!(t(), String.t()) :: Enumerable.t()
+  def data_stream_with_progress!(client, data_map),
+    do: unwrap!(data_stream_with_progress(client, data_map))
+
+  @doc """
   Stores public data on the network.
 
   ## Options
@@ -187,7 +252,7 @@ defmodule Antd.GrpcClient do
 
     case Antd.V1.DataService.Stub.put_public(channel, req) do
       {:ok, resp} ->
-        {:ok, %Antd.DataPutPublicResult{address: resp.address}}
+        {:ok, %Antd.DataPutPublicResult{address: resp.address, chunks_stored: resp.chunks_stored, payment_mode_used: resp.payment_mode_used}}
 
       {:error, rpc_error} ->
         {:error, translate_error(rpc_error)}
@@ -213,6 +278,117 @@ defmodule Antd.GrpcClient do
   @doc "Like `data_get_public/2` but raises on error."
   @spec data_get_public!(t(), String.t()) :: binary()
   def data_get_public!(client, address), do: unwrap!(data_get_public(client, address))
+
+  @doc """
+  Streams public data by address — the gRPC counterpart to `data_get_public/2`.
+  Same `{:ok, enumerable}` of binary chunks contract as `data_stream/2`.
+  """
+  @spec data_stream_public(t(), String.t()) :: {:ok, Enumerable.t()} | {:error, Exception.t()}
+  def data_stream_public(%__MODULE__{channel: channel}, address) when is_binary(address) do
+    req = %Antd.V1.StreamPublicDataRequest{address: address}
+
+    case Antd.V1.DataService.Stub.stream_public(channel, req) do
+      {:ok, reply_enum} -> {:ok, map_chunk_stream(reply_enum)}
+      {:error, rpc_error} -> {:error, translate_error(rpc_error)}
+    end
+  end
+
+  @doc "Like `data_stream_public/2` but raises on error."
+  @spec data_stream_public!(t(), String.t()) :: Enumerable.t()
+  def data_stream_public!(client, address), do: unwrap!(data_stream_public(client, address))
+
+  @doc """
+  `data_stream_public/2` with interleaved fetch-progress frames. See
+  `data_stream_with_progress/2`.
+  """
+  @spec data_stream_public_with_progress(t(), String.t()) ::
+          {:ok, Enumerable.t()} | {:error, Exception.t()}
+  def data_stream_public_with_progress(%__MODULE__{channel: channel}, address)
+      when is_binary(address) do
+    req = %Antd.V1.StreamPublicDataRequest{address: address, include_progress: true}
+
+    case Antd.V1.DataService.Stub.stream_public(channel, req, return_headers: true) do
+      {:ok, reply_enum, %{headers: headers}} ->
+        {:ok, prepend_meta(headers, map_frame_stream(reply_enum))}
+
+      {:ok, reply_enum} ->
+        {:ok, map_frame_stream(reply_enum)}
+
+      {:error, rpc_error} ->
+        {:error, translate_error(rpc_error)}
+    end
+  end
+
+  @doc "Like `data_stream_public_with_progress/2` but raises on error."
+  @spec data_stream_public_with_progress!(t(), String.t()) :: Enumerable.t()
+  def data_stream_public_with_progress!(client, address),
+    do: unwrap!(data_stream_public_with_progress(client, address))
+
+  # Maps a server-stream of DataChunk results into a lazy stream of raw binary
+  # chunk payloads. A mid-stream {:error, _} is raised as the translated
+  # exception during consumption (the head-of-call error is handled by the
+  # caller's case on the Stub return).
+  defp map_chunk_stream(reply_enum) do
+    # `DataChunk` is a oneof `kind {data | progress}`. The plain stream leaves
+    # `include_progress` false, so only `{:data, _}` arms arrive; any stray
+    # progress / unset frame is dropped so the byte stream stays pure.
+    Stream.flat_map(reply_enum, fn
+      {:ok, %Antd.V1.DataChunk{kind: {:data, data}}} -> [data]
+      %Antd.V1.DataChunk{kind: {:data, data}} -> [data]
+      {:ok, %Antd.V1.DataChunk{}} -> []
+      %Antd.V1.DataChunk{} -> []
+      {:error, rpc_error} -> raise translate_error(rpc_error)
+    end)
+  end
+
+  # Maps a server-stream of DataChunk results into a lazy stream of
+  # `Antd.DownloadFrame` structs — either a plaintext chunk or a
+  # `Antd.DownloadProgress` update. A mid-stream {:error, _} is raised as the
+  # translated exception during consumption. `return_headers: true` appends a
+  # `{:trailers, _}` (and may yield `{:headers, _}`) item — drop those.
+  defp map_frame_stream(reply_enum) do
+    reply_enum
+    |> Stream.reject(&match?({:trailers, _}, &1))
+    |> Stream.reject(&match?({:headers, _}, &1))
+    |> Stream.map(fn
+      {:ok, %Antd.V1.DataChunk{} = chunk} -> frame_of(chunk)
+      %Antd.V1.DataChunk{} = chunk -> frame_of(chunk)
+      {:error, rpc_error} -> raise translate_error(rpc_error)
+    end)
+  end
+
+  # Prepend a byte-total `Antd.DownloadFrame` (`:meta`) read from the gRPC
+  # `x-content-length` response header, when present, ahead of the frame stream.
+  defp prepend_meta(headers, frame_stream) do
+    case meta_from_headers(headers) do
+      nil -> frame_stream
+      frame -> Stream.concat([frame], frame_stream)
+    end
+  end
+
+  defp meta_from_headers(headers) when is_map(headers) do
+    case Map.get(headers, "x-content-length") do
+      nil ->
+        nil
+
+      value ->
+        case Integer.parse(to_string(value)) do
+          {n, _} -> %Antd.DownloadFrame{meta: n}
+          :error -> nil
+        end
+    end
+  end
+
+  defp meta_from_headers(_), do: nil
+
+  defp frame_of(%Antd.V1.DataChunk{kind: {:progress, p}}) do
+    %Antd.DownloadFrame{
+      progress: %Antd.DownloadProgress{phase: p.phase, fetched: p.fetched, total: p.total}
+    }
+  end
+
+  defp frame_of(%Antd.V1.DataChunk{kind: {:data, data}}), do: %Antd.DownloadFrame{data: data}
+  defp frame_of(%Antd.V1.DataChunk{}), do: %Antd.DownloadFrame{data: ""}
 
   @doc """
   Pre-upload cost breakdown for the given bytes.

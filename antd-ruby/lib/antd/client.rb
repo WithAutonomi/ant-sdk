@@ -91,6 +91,25 @@ module Antd
       do_stream(:post, "/v1/data/stream", { data_map: data_map }, &block)
     end
 
+    # Like +data_stream+ but opts into NDJSON progress framing
+    # (+Accept: application/x-ndjson+), yielding +DownloadFrame+s so the caller
+    # can drive a *determinate* progress bar. Each frame is either a plaintext
+    # byte chunk (+frame.data+) or a +DownloadProgress+ update
+    # (+frame.progress+). The leading +meta+ frame (byte denominator) is parsed
+    # and skipped here; a terminal +error+ frame is raised as an SDK error (a
+    # raw octet-stream download cannot signal a failure mid-stream).
+    #
+    # Same block/Enumerator contract as +data_stream+.
+    #
+    # @param data_map [String]
+    # @yieldparam frame [DownloadFrame]
+    # @return [nil, Enumerator]
+    def data_stream_with_progress(data_map, &block)
+      return enum_for(:data_stream_with_progress, data_map) unless block_given?
+
+      do_stream_ndjson(:post, "/v1/data/stream", { data_map: data_map }, &block)
+    end
+
     # Store public data. The DataMap is stored on-network as an extra chunk;
     # the returned address is the shareable retrieval handle.
     # @param data [String] raw bytes
@@ -129,6 +148,18 @@ module Antd
       return enum_for(:data_stream_public, address) unless block_given?
 
       do_stream(:get, "/v1/data/public/#{address}/stream", nil, &block)
+    end
+
+    # Like +data_stream_public+ but opts into NDJSON progress framing. See
+    # +data_stream_with_progress+ for the contract.
+    #
+    # @param address [String] hex address
+    # @yieldparam frame [DownloadFrame]
+    # @return [nil, Enumerator]
+    def data_stream_public_with_progress(address, &block)
+      return enum_for(:data_stream_public_with_progress, address) unless block_given?
+
+      do_stream_ndjson(:get, "/v1/data/public/#{address}/stream", nil, &block)
     end
 
     # Pre-upload cost breakdown for the given bytes.
@@ -536,6 +567,96 @@ module Antd
       end
 
       nil
+    end
+
+    # Like +do_stream+ but opts into NDJSON progress framing by sending
+    # +Accept: application/x-ndjson+, splitting the streamed body into lines
+    # (buffering partial lines across byte-chunk boundaries) and yielding a
+    # parsed +DownloadFrame+ per non-skipped line. A terminal +error+ frame is
+    # raised via +Antd.error_for_status+. Non-2xx responses are handled exactly
+    # as in +do_stream+.
+    def do_stream_ndjson(method, path, body = nil)
+      uri = build_uri(path)
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = (uri.scheme == "https")
+      http.open_timeout = @timeout
+      http.read_timeout = @timeout
+
+      request = case method
+                when :get  then Net::HTTP::Get.new(uri)
+                when :post then Net::HTTP::Post.new(uri)
+                when :put  then Net::HTTP::Put.new(uri)
+                end
+      request["Accept"] = "application/x-ndjson"
+
+      if body
+        request["Content-Type"] = "application/json"
+        request.body = JSON.generate(body)
+      end
+
+      http.start do
+        http.request(request) do |response|
+          code = response.code.to_i
+
+          unless (200...300).cover?(code)
+            msg = response.body.to_s
+            begin
+              parsed = JSON.parse(msg)
+              msg = parsed["error"] if parsed["error"]
+            rescue JSON::ParserError
+              # use raw body as message
+            end
+            raise Antd.error_for_status(code, msg)
+          end
+
+          buffer = +""
+          response.read_body do |chunk|
+            buffer << chunk
+            while (nl = buffer.index("\n"))
+              line = buffer.slice!(0..nl)
+              frame = parse_ndjson_frame(line)
+              yield frame unless frame.nil?
+            end
+          end
+          # Flush a trailing line with no terminating newline.
+          unless buffer.empty?
+            frame = parse_ndjson_frame(buffer)
+            yield frame unless frame.nil?
+          end
+        end
+      end
+
+      nil
+    end
+
+    # Parse one NDJSON download line into a +DownloadFrame+. Maps the leading
+    # +meta+ frame to a byte-total +DownloadFrame+; returns +nil+ for blank
+    # lines and unknown frame types (forward-compat). Raises via
+    # +Antd.error_for_status+ on a terminal +error+ frame, which a raw
+    # octet-stream download cannot signal mid-stream.
+    def parse_ndjson_frame(line)
+      line = line.strip
+      return nil if line.empty?
+
+      obj = JSON.parse(line)
+      case obj["type"]
+      when "data"
+        DownloadFrame.new(data: b64_decode(obj["chunk"] || ""))
+      when "progress"
+        DownloadFrame.new(progress: DownloadProgress.new(
+          phase: obj["phase"] || "",
+          fetched: (obj["fetched"] || 0).to_i,
+          total: (obj["total"] || 0).to_i
+        ))
+      when "error"
+        raise Antd.error_for_status(500, obj["message"] || "stream error")
+      when "meta"
+        # The leading "meta" frame carries the byte denominator (total_size).
+        DownloadFrame.new(meta: (obj["total_size"] || 0).to_i)
+      else
+        # Unknown frame types are ignored for forward compatibility.
+        nil
+      end
     end
 
     # Perform an HTTP HEAD request and return the status code.

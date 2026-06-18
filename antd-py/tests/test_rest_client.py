@@ -52,6 +52,14 @@ class _MockHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
+    def _ndjson_response(self, lines: list[dict]) -> None:
+        payload = b"".join((json.dumps(o) + "\n").encode() for o in lines)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
     # --- GET routes ---
 
     def do_GET(self):  # noqa: N802
@@ -120,6 +128,20 @@ class _MockHandler(BaseHTTPRequestHandler):
                 "chunks_stored": 2,
                 "payment_mode_used": "merkle",
             })
+
+        elif path == "/v1/data/stream":
+            # NDJSON progress framing when the caller opts in via Accept; the
+            # default raw path isn't exercised here (httpx streams it verbatim).
+            if "application/x-ndjson" in self.headers.get("Accept", ""):
+                self._ndjson_response([
+                    {"type": "meta", "total_size": 6},
+                    {"type": "progress", "phase": "fetching", "fetched": 1, "total": 2},
+                    {"type": "data", "chunk": _b64(b"sec")},
+                    {"type": "progress", "phase": "fetching", "fetched": 2, "total": 2},
+                    {"type": "data", "chunk": _b64(b"ret")},
+                ])
+            else:
+                self._json_response(400, {"error": "expected ndjson"})
 
         elif path == "/v1/data/get":
             self._json_response(200, {"data": _b64(b"private-payload")})
@@ -624,3 +646,31 @@ class TestErrorMapping:
             _check(resp)
         assert exc_info.value.status_code == 502
         assert "bad gateway" in str(exc_info.value)
+
+
+class TestDataStreamWithProgress:
+    def test_ndjson_frames_parsed(self, client: RestClient):
+        data = bytearray()
+        progress = []
+        meta = []
+        with client.data_stream_with_progress("dm123") as frames:
+            for frame in frames:
+                if frame.is_meta:
+                    meta.append(frame.meta)
+                elif frame.is_progress:
+                    progress.append(frame.progress)
+                else:
+                    data.extend(frame.data)
+        assert bytes(data) == b"secret"
+        assert meta == [6]
+        assert len(progress) == 2
+        assert progress[0].phase == "fetching"
+        assert progress[1].fetched == 2 and progress[1].total == 2
+
+    def test_ndjson_error_frame_raises(self, client: RestClient):
+        from antd._rest import _parse_ndjson_frame
+        from antd.exceptions import InternalError
+        # The terminal error frame must surface mid-stream (a raw octet-stream
+        # download cannot signal a failure after the body has started).
+        with pytest.raises(InternalError):
+            _parse_ndjson_frame('{"type":"error","message":"boom"}')

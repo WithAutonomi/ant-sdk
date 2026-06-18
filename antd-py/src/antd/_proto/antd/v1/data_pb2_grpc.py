@@ -55,6 +55,11 @@ class DataServiceStub(object):
                 request_serializer=antd_dot_v1_dot_data__pb2.GetPublicDataRequest.SerializeToString,
                 response_deserializer=antd_dot_v1_dot_data__pb2.GetPublicDataResponse.FromString,
                 _registered_method=True)
+        self.Stream = channel.unary_stream(
+                '/antd.v1.DataService/Stream',
+                request_serializer=antd_dot_v1_dot_data__pb2.StreamDataRequest.SerializeToString,
+                response_deserializer=antd_dot_v1_dot_data__pb2.DataChunk.FromString,
+                _registered_method=True)
         self.StreamPublic = channel.unary_stream(
                 '/antd.v1.DataService/StreamPublic',
                 request_serializer=antd_dot_v1_dot_data__pb2.StreamPublicDataRequest.SerializeToString,
@@ -97,6 +102,15 @@ class DataServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def Stream(self, request, context):
+        """Streaming downloads — constant memory, one decrypt batch at a time.
+        Private streams from a caller-held DataMap; public resolves the address
+        to a DataMap first (Stream is the primitive, StreamPublic wraps it).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def StreamPublic(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -131,6 +145,11 @@ def add_DataServiceServicer_to_server(servicer, server):
                     servicer.GetPublic,
                     request_deserializer=antd_dot_v1_dot_data__pb2.GetPublicDataRequest.FromString,
                     response_serializer=antd_dot_v1_dot_data__pb2.GetPublicDataResponse.SerializeToString,
+            ),
+            'Stream': grpc.unary_stream_rpc_method_handler(
+                    servicer.Stream,
+                    request_deserializer=antd_dot_v1_dot_data__pb2.StreamDataRequest.FromString,
+                    response_serializer=antd_dot_v1_dot_data__pb2.DataChunk.SerializeToString,
             ),
             'StreamPublic': grpc.unary_stream_rpc_method_handler(
                     servicer.StreamPublic,
@@ -251,6 +270,33 @@ class DataService(object):
             '/antd.v1.DataService/GetPublic',
             antd_dot_v1_dot_data__pb2.GetPublicDataRequest.SerializeToString,
             antd_dot_v1_dot_data__pb2.GetPublicDataResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Stream(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/antd.v1.DataService/Stream',
+            antd_dot_v1_dot_data__pb2.StreamDataRequest.SerializeToString,
+            antd_dot_v1_dot_data__pb2.DataChunk.FromString,
             options,
             channel_credentials,
             insecure,

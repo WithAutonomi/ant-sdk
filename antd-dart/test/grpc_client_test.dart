@@ -63,6 +63,42 @@ class _FakeGrpcClient {
   Future<Uint8List> dataGet(String dataMap) =>
       _maybeThrow(Uint8List.fromList([115, 101, 99, 114, 101, 116])); // "secret"
 
+  // Server-streams the payload in two chunks so the caller's chunk-by-chunk
+  // consumption is exercised, not just a single message.
+  Stream<List<int>> dataStream(String dataMap) async* {
+    if (errorToThrow != null) throw mapGrpcError(errorToThrow!);
+    yield [115, 101, 99]; // "sec"
+    yield [114, 101, 116]; // "ret"
+  }
+
+  Stream<List<int>> dataStreamPublic(String address) async* {
+    if (errorToThrow != null) throw mapGrpcError(errorToThrow!);
+    yield [104, 101, 108]; // "hel"
+    yield [108, 111]; // "lo"
+  }
+
+  // Mirrors GrpcAntdClient.dataStreamWithProgress: the byte total arrives first
+  // (from the x-content-length header, surfaced as a meta frame), then when
+  // include_progress is set the daemon interleaves DownloadProgress frames with
+  // the data frames. Emits meta, a progress frame, then the data in two chunks.
+  Stream<DownloadFrame> dataStreamWithProgress(String dataMap) async* {
+    if (errorToThrow != null) throw mapGrpcError(errorToThrow!);
+    yield const DownloadFrame.meta(6); // "secret"
+    yield const DownloadFrame.progress(
+        DownloadProgress(phase: 'fetching', fetched: 1, total: 2));
+    yield DownloadFrame.data([115, 101, 99]); // "sec"
+    yield DownloadFrame.data([114, 101, 116]); // "ret"
+  }
+
+  Stream<DownloadFrame> dataStreamPublicWithProgress(String address) async* {
+    if (errorToThrow != null) throw mapGrpcError(errorToThrow!);
+    yield const DownloadFrame.meta(5); // "hello"
+    yield const DownloadFrame.progress(
+        DownloadProgress(phase: 'resolving_map', fetched: 0, total: 0));
+    yield DownloadFrame.data([104, 101, 108]); // "hel"
+    yield DownloadFrame.data([108, 111]); // "lo"
+  }
+
   Future<String> dataCost(Uint8List data,
           {PaymentMode paymentMode = PaymentMode.auto}) =>
       _maybeThrow('50');
@@ -156,6 +192,61 @@ void main() {
       final client = _FakeGrpcClient();
       final data = await client.dataGet('dm123');
       expect(String.fromCharCodes(data), equals('secret'));
+    });
+
+    test('stream private data', () async {
+      final client = _FakeGrpcClient();
+      final chunks = await client.dataStream('dm123').toList();
+      final bytes = chunks.expand((c) => c).toList();
+      expect(String.fromCharCodes(bytes), equals('secret'));
+    });
+
+    test('stream public data', () async {
+      final client = _FakeGrpcClient();
+      final chunks = await client.dataStreamPublic('abc123').toList();
+      final bytes = chunks.expand((c) => c).toList();
+      expect(String.fromCharCodes(bytes), equals('hello'));
+    });
+
+    test('stream private data with progress surfaces meta then progress',
+        () async {
+      final client = _FakeGrpcClient();
+      final frames = await client.dataStreamWithProgress('dm123').toList();
+
+      // Byte total (x-content-length) is surfaced first, before any data.
+      expect(frames.first.isMeta, isTrue);
+      expect(frames.first.totalBytes, equals(6));
+
+      // Then the progress frame.
+      expect(frames[1].isProgress, isTrue);
+      expect(frames[1].progress!.phase, equals('fetching'));
+      expect(frames[1].progress!.fetched, equals(1));
+      expect(frames[1].progress!.total, equals(2));
+
+      final bytes = frames
+          .where((f) => f.data != null)
+          .expand((f) => f.data!)
+          .toList();
+      expect(String.fromCharCodes(bytes), equals('secret'));
+    });
+
+    test('stream public data with progress surfaces meta then progress',
+        () async {
+      final client = _FakeGrpcClient();
+      final frames =
+          await client.dataStreamPublicWithProgress('abc123').toList();
+
+      expect(frames.first.isMeta, isTrue);
+      expect(frames.first.totalBytes, equals(5));
+
+      expect(frames[1].isProgress, isTrue);
+      expect(frames[1].progress!.phase, equals('resolving_map'));
+
+      final bytes = frames
+          .where((f) => f.data != null)
+          .expand((f) => f.data!)
+          .toList();
+      expect(String.fromCharCodes(bytes), equals('hello'));
     });
   });
 

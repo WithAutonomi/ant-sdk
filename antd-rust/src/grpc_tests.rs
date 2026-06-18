@@ -102,7 +102,18 @@ impl v1::data_service_server::DataService for MockDataService {
         &self,
         _request: Request<v1::StreamPublicDataRequest>,
     ) -> Result<Response<Self::StreamPublicStream>, Status> {
-        let (_tx, rx) = tokio::sync::mpsc::channel(1);
+        // Emit the payload as two chunks so the client's chunk-by-chunk
+        // consumption is exercised, not just a single message.
+        let (tx, rx) = tokio::sync::mpsc::channel(2);
+        tokio::spawn(async move {
+            for part in [b"hel".to_vec(), b"lo".to_vec()] {
+                let _ = tx
+                    .send(Ok(v1::DataChunk {
+                        kind: Some(v1::data_chunk::Kind::Data(part)),
+                    }))
+                    .await;
+            }
+        });
         Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(
             rx,
         )))
@@ -112,12 +123,39 @@ impl v1::data_service_server::DataService for MockDataService {
 
     async fn stream(
         &self,
-        _request: Request<v1::StreamDataRequest>,
+        request: Request<v1::StreamDataRequest>,
     ) -> Result<Response<Self::StreamStream>, Status> {
-        let (_tx, rx) = tokio::sync::mpsc::channel(1);
-        Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(
-            rx,
-        )))
+        let include_progress = request.into_inner().include_progress;
+        let (tx, rx) = tokio::sync::mpsc::channel(4);
+        tokio::spawn(async move {
+            // When progress is requested, interleave a fetch-progress frame so
+            // the with-progress consumer path is exercised.
+            if include_progress {
+                let _ = tx
+                    .send(Ok(v1::DataChunk {
+                        kind: Some(v1::data_chunk::Kind::Progress(v1::DownloadProgress {
+                            phase: "fetching".to_string(),
+                            fetched: 1,
+                            total: 2,
+                        })),
+                    }))
+                    .await;
+            }
+            for part in [b"sec".to_vec(), b"ret".to_vec()] {
+                let _ = tx
+                    .send(Ok(v1::DataChunk {
+                        kind: Some(v1::data_chunk::Kind::Data(part)),
+                    }))
+                    .await;
+            }
+        });
+        // The daemon attaches the total plaintext size as response metadata so
+        // the consumer can surface a byte denominator (V2-510).
+        let mut response = Response::new(tokio_stream::wrappers::ReceiverStream::new(rx));
+        response
+            .metadata_mut()
+            .insert("x-content-length", "6".parse().unwrap());
+        Ok(response)
     }
 }
 
@@ -483,6 +521,72 @@ async fn test_grpc_data_get_private() {
     let client = start_mock_server().await;
     let data = client.data_get("dm123").await.unwrap();
     assert_eq!(data, b"secret");
+}
+
+#[tokio::test]
+async fn test_grpc_data_stream_private() {
+    use tokio_stream::StreamExt;
+    let client = start_mock_server().await;
+    let mut stream = Box::pin(client.data_stream("dm123").await.unwrap());
+    let mut buf = Vec::new();
+    while let Some(item) = stream.next().await {
+        buf.extend_from_slice(&item.unwrap());
+    }
+    assert_eq!(buf, b"secret");
+}
+
+#[tokio::test]
+async fn test_grpc_data_stream_public() {
+    use tokio_stream::StreamExt;
+    let client = start_mock_server().await;
+    let mut stream = Box::pin(client.data_stream_public("abc123").await.unwrap());
+    let mut buf = Vec::new();
+    while let Some(item) = stream.next().await {
+        buf.extend_from_slice(&item.unwrap());
+    }
+    assert_eq!(buf, b"hello");
+}
+
+#[tokio::test]
+async fn test_grpc_data_stream_with_progress() {
+    use crate::DownloadFrame;
+    use tokio_stream::StreamExt;
+    let client = start_mock_server().await;
+    let mut stream = Box::pin(client.data_stream_with_progress("dm123").await.unwrap());
+
+    let mut buf = Vec::new();
+    let mut progress = Vec::new();
+    let mut total = None;
+    while let Some(item) = stream.next().await {
+        match item.unwrap() {
+            DownloadFrame::Meta(t) => total = Some(t),
+            DownloadFrame::Data(b) => buf.extend_from_slice(&b),
+            DownloadFrame::Progress(p) => progress.push(p),
+        }
+    }
+    // Data reassembles to the full payload, the byte denominator arrives as a
+    // leading Meta frame (from x-content-length), and the interleaved progress
+    // frame is surfaced separately (not spliced into the bytes).
+    assert_eq!(buf, b"secret");
+    assert_eq!(total, Some(6));
+    assert_eq!(progress.len(), 1);
+    assert_eq!(progress[0].phase, "fetching");
+    assert_eq!(progress[0].fetched, 1);
+    assert_eq!(progress[0].total, 2);
+}
+
+#[tokio::test]
+async fn test_grpc_data_stream_no_progress_when_not_requested() {
+    // The plain data_stream sets include_progress=false, so the mock emits no
+    // progress frame and the consumer sees only data bytes.
+    use tokio_stream::StreamExt;
+    let client = start_mock_server().await;
+    let mut stream = Box::pin(client.data_stream("dm123").await.unwrap());
+    let mut buf = Vec::new();
+    while let Some(item) = stream.next().await {
+        buf.extend_from_slice(&item.unwrap());
+    }
+    assert_eq!(buf, b"secret");
 }
 
 #[tokio::test]

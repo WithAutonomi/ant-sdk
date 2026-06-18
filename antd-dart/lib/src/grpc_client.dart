@@ -209,9 +209,8 @@ class GrpcAntdClient {
 
   /// Stores private data via gRPC. Returns the caller-held DataMap.
   ///
-  /// Note: the gRPC `PutDataResponse` only carries `data_map` (and an empty
-  /// cost message) — `chunksStored` and `paymentModeUsed` are surfaced as
-  /// `0` / `""`. Use [AntdClient.dataPut] (REST) to get those fields.
+  /// The gRPC `PutDataResponse` carries `chunksStored` and `paymentModeUsed`
+  /// alongside the DataMap (empty cost message, matching REST).
   Future<DataPutResult> dataPut(
     Uint8List data, {
     PaymentMode paymentMode = PaymentMode.auto,
@@ -221,7 +220,7 @@ class GrpcAntdClient {
         ..data = data
         ..paymentMode = paymentMode.wire;
       final resp = await _dataStub.put(req);
-      return DataPutResult(dataMap: resp.dataMap);
+      return DataPutResult(dataMap: resp.dataMap, chunksStored: resp.chunksStored.toInt(), paymentModeUsed: resp.paymentModeUsed);
     } on GrpcError catch (e) {
       _handleError(e);
     }
@@ -251,7 +250,7 @@ class GrpcAntdClient {
         ..data = data
         ..paymentMode = paymentMode.wire;
       final resp = await _dataStub.putPublic(req);
-      return DataPutPublicResult(address: resp.address);
+      return DataPutPublicResult(address: resp.address, chunksStored: resp.chunksStored.toInt(), paymentModeUsed: resp.paymentModeUsed);
     } on GrpcError catch (e) {
       _handleError(e);
     }
@@ -263,6 +262,102 @@ class GrpcAntdClient {
       final req = data_msg.GetPublicDataRequest()..address = address;
       final resp = await _dataStub.getPublic(req);
       return Uint8List.fromList(resp.data);
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
+  /// Streams private data from a caller-held DataMap (hex), one decrypt batch
+  /// at a time, instead of buffering the whole object. The gRPC counterpart to
+  /// [dataGet] and mirror of the REST client's [dataStream]; yields raw byte
+  /// chunks the caller consumes incrementally.
+  Stream<List<int>> dataStream(String dataMap) async* {
+    final req = data_msg.StreamDataRequest()..dataMap = dataMap;
+    try {
+      await for (final chunk in _dataStub.stream(req)) {
+        yield chunk.data;
+      }
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
+  /// Streams public data by address — the gRPC counterpart to [dataGetPublic].
+  Stream<List<int>> dataStreamPublic(String address) async* {
+    final req = data_msg.StreamPublicDataRequest()..address = address;
+    try {
+      await for (final chunk in _dataStub.streamPublic(req)) {
+        yield chunk.data;
+      }
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
+  /// Maps a wire `DataChunk` (oneof `kind { data | progress }`) onto a public
+  /// [DownloadFrame]. A chunk with no arm set (shouldn't occur) is treated as an
+  /// empty data frame, matching the antd-rust reference consumer.
+  static DownloadFrame _frameOf(data_msg.DataChunk chunk) {
+    if (chunk.whichKind() == data_msg.DataChunk_Kind.progress) {
+      final p = chunk.progress;
+      return DownloadFrame.progress(DownloadProgress(
+        phase: p.phase,
+        fetched: p.fetched.toInt(),
+        total: p.total.toInt(),
+      ));
+    }
+    return DownloadFrame.data(chunk.data);
+  }
+
+  /// Reads the total download size from a stream response's `x-content-length`
+  /// header and wraps it as a leading [DownloadFrame.meta]. Returns `null` when
+  /// the header is absent or unparseable (older daemons), so the caller simply
+  /// yields no meta frame.
+  static DownloadFrame? _metaFrameOf(Map<String, String> headers) {
+    final raw = headers['x-content-length'];
+    if (raw == null) return null;
+    final total = int.tryParse(raw);
+    if (total == null) return null;
+    return DownloadFrame.meta(total);
+  }
+
+  /// Like [dataStream] but requests interleaved fetch-progress frames so the
+  /// caller can drive a *determinate* progress bar. Sets the request's
+  /// `include_progress` flag and yields [DownloadFrame]s — each a plaintext
+  /// chunk or a [DownloadProgress] update. The byte denominator is surfaced as
+  /// a leading [DownloadFrame.meta], read from the response's `x-content-length`
+  /// metadata header.
+  Stream<DownloadFrame> dataStreamWithProgress(String dataMap) async* {
+    final req = data_msg.StreamDataRequest()
+      ..dataMap = dataMap
+      ..includeProgress = true;
+    try {
+      final response = _dataStub.stream(req);
+      // Headers (initial metadata) arrive before the first message; emit the
+      // byte total as the first frame when present.
+      final meta = _metaFrameOf(await response.headers);
+      if (meta != null) yield meta;
+      await for (final chunk in response) {
+        yield _frameOf(chunk);
+      }
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
+  /// Like [dataStreamPublic] but requests interleaved fetch-progress frames.
+  /// See [dataStreamWithProgress].
+  Stream<DownloadFrame> dataStreamPublicWithProgress(String address) async* {
+    final req = data_msg.StreamPublicDataRequest()
+      ..address = address
+      ..includeProgress = true;
+    try {
+      final response = _dataStub.streamPublic(req);
+      final meta = _metaFrameOf(await response.headers);
+      if (meta != null) yield meta;
+      await for (final chunk in response) {
+        yield _frameOf(chunk);
+      }
     } on GrpcError catch (e) {
       _handleError(e);
     }

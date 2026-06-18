@@ -29,6 +29,13 @@ inline constexpr int kDefaultTimeoutSeconds = 300;
 /// Return `true` to continue streaming or `false` to abort the download early.
 using DataSink = std::function<bool(const char* data, std::size_t len)>;
 
+/// Sink invoked for each [DownloadFrame] of a progress-enabled streamed
+/// download (the `*_with_progress` methods). Each frame is either a plaintext
+/// data chunk or a [DownloadProgress] update — discriminate with
+/// `DownloadFrame::is_progress()`. Return `true` to continue or `false` to
+/// abort the download early.
+using DownloadFrameSink = std::function<bool(const DownloadFrame& frame)>;
+
 /// REST client for the antd daemon.
 ///
 /// Naming convention (post v1.0):
@@ -106,6 +113,20 @@ public:
     /// On a non-2xx response the `{"error"}` body is parsed and thrown as the
     /// matching AntdError subclass, exactly like `data_get`.
     void data_stream(std::string_view data_map, const DataSink& sink);
+
+    /// Like `data_stream` but opts into NDJSON progress framing
+    /// (`Accept: application/x-ndjson`), invoking `sink` with each
+    /// [DownloadFrame] so the caller can drive a *determinate* progress bar.
+    /// Data frames carry the plaintext bytes; progress frames carry chunk-fetch
+    /// counts. The byte denominator arrives as the leading NDJSON `meta` frame
+    /// (parsed and dropped here); a terminal `error` frame surfaces as the
+    /// matching AntdError subclass. Returning `false` from `sink` aborts early.
+    void data_stream_with_progress(std::string_view data_map,
+                                   const DownloadFrameSink& sink);
+
+    /// The public counterpart to `data_stream_with_progress`.
+    void data_stream_public_with_progress(std::string_view address,
+                                          const DownloadFrameSink& sink);
 
     /// Pre-upload cost breakdown for the given bytes.
     UploadCostEstimate data_cost(const std::vector<uint8_t>& data,

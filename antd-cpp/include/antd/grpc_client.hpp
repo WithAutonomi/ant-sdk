@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -16,6 +17,27 @@ namespace antd {
 
 /// Default gRPC target address of the antd daemon.
 inline constexpr const char* kDefaultGrpcTarget = "localhost:50051";
+
+/// Callback invoked with each raw byte chunk of a streaming download. Return
+/// false to stop the stream early. Identical to the REST client's DataSink so
+/// the two transports share a streaming surface. (Repeating the alias rather
+/// than including client.hpp keeps the heavyweight HTTP deps out of this
+/// header; an identical `using` redeclaration is well-formed.)
+#ifndef ANTD_DATASINK_DEFINED
+#define ANTD_DATASINK_DEFINED
+using DataSink = std::function<bool(const char* data, std::size_t len)>;
+#endif
+
+/// Callback invoked with each [DownloadFrame] of a progress-enabled streaming
+/// download (the `*_with_progress` methods). Each frame is either a plaintext
+/// data chunk or a [DownloadProgress] update — discriminate with
+/// `DownloadFrame::is_progress()`. Return false to stop the stream early.
+/// Identical to the REST client's DownloadFrameSink so the two transports share
+/// a progress-streaming surface.
+#ifndef ANTD_DOWNLOADFRAMESINK_DEFINED
+#define ANTD_DOWNLOADFRAMESINK_DEFINED
+using DownloadFrameSink = std::function<bool(const DownloadFrame& frame)>;
+#endif
 
 /// gRPC client for the antd daemon.
 ///
@@ -69,6 +91,29 @@ public:
 
     /// Retrieve private data using a caller-held DataMap.
     std::vector<uint8_t> data_get(std::string_view data_map);
+
+    /// Stream private data from a caller-held DataMap, one chunk at a time,
+    /// instead of buffering the whole object. The gRPC counterpart to
+    /// `data_get` and mirror of the REST client's `data_stream`; `sink` is
+    /// invoked with each chunk and may return false to stop early.
+    void data_stream(std::string_view data_map, const DataSink& sink);
+
+    /// Stream public data by address — the gRPC counterpart to
+    /// `data_get_public`.
+    void data_stream_public(std::string_view address, const DataSink& sink);
+
+    /// Like `data_stream` but requests interleaved fetch-progress frames so the
+    /// caller can drive a *determinate* progress bar. Sets the request's
+    /// `include_progress` flag, then invokes `sink` with each [DownloadFrame] —
+    /// a plaintext data chunk or a [DownloadProgress] update. Returning false
+    /// from `sink` stops the stream early. The byte denominator is read
+    /// separately from the response's `x-content-length` metadata.
+    void data_stream_with_progress(std::string_view data_map,
+                                   const DownloadFrameSink& sink);
+
+    /// The public counterpart to `data_stream_with_progress`.
+    void data_stream_public_with_progress(std::string_view address,
+                                          const DownloadFrameSink& sink);
 
     /// Pre-upload cost breakdown for the given bytes.
     UploadCostEstimate data_cost(const std::vector<uint8_t>& data,

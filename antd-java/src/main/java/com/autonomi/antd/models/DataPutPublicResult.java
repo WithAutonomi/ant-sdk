@@ -2,9 +2,8 @@ package com.autonomi.antd.models;
 
 /**
  * Result of a public data put. The DataMap is stored on-network as an extra
- * chunk; {@code address} is the shareable retrieval handle. REST populates
- * {@code chunksStored} and {@code paymentModeUsed}; gRPC currently leaves
- * them empty.
+ * chunk; {@code address} is the shareable retrieval handle. Both REST and
+ * gRPC populate {@code chunksStored} and {@code paymentModeUsed}.
  *
  * @param address         hex-encoded on-network DataMap address
  * @param chunksStored    number of chunks stored on the network

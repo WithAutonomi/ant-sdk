@@ -23,6 +23,10 @@ import antd.v1.Data.GetDataResponse;
 import antd.v1.Data.PutDataRequest;
 import antd.v1.Data.PutDataResponse;
 import antd.v1.Data.DataCostRequest;
+import antd.v1.Data.DataChunk;
+import antd.v1.Data.DownloadProgress;
+import antd.v1.Data.StreamDataRequest;
+import antd.v1.Data.StreamPublicDataRequest;
 
 import antd.v1.ChunkServiceGrpc;
 import antd.v1.Chunks.GetChunkRequest;
@@ -83,6 +87,7 @@ class GrpcAntdClientTest {
 
         server = InProcessServerBuilder.forName(serverName)
                         .directExecutor()
+                        .intercept(new ContentLengthInterceptor())
                         .addService(new MockHealthService())
                         .addService(new MockDataService())
                         .addService(new MockChunkService())
@@ -174,6 +179,36 @@ class GrpcAntdClientTest {
                     GetDataResponse.newBuilder()
                             .setData(ByteString.copyFromUtf8("secret"))
                             .build());
+            responseObserver.onCompleted();
+        }
+
+        @Override
+        public void stream(StreamDataRequest request,
+                           StreamObserver<DataChunk> responseObserver) {
+            // When progress requested, interleave a progress frame before the data.
+            if (request.getIncludeProgress()) {
+                responseObserver.onNext(DataChunk.newBuilder()
+                        .setProgress(DownloadProgress.newBuilder()
+                                .setPhase("fetching").setFetched(1).setTotal(2).build())
+                        .build());
+            }
+            // Two chunks so the client's chunk-boundary buffering is exercised.
+            responseObserver.onNext(DataChunk.newBuilder().setData(ByteString.copyFromUtf8("sec")).build());
+            responseObserver.onNext(DataChunk.newBuilder().setData(ByteString.copyFromUtf8("ret")).build());
+            responseObserver.onCompleted();
+        }
+
+        @Override
+        public void streamPublic(StreamPublicDataRequest request,
+                                 StreamObserver<DataChunk> responseObserver) {
+            if (request.getIncludeProgress()) {
+                responseObserver.onNext(DataChunk.newBuilder()
+                        .setProgress(DownloadProgress.newBuilder()
+                                .setPhase("fetching").setFetched(1).setTotal(2).build())
+                        .build());
+            }
+            responseObserver.onNext(DataChunk.newBuilder().setData(ByteString.copyFromUtf8("hel")).build());
+            responseObserver.onNext(DataChunk.newBuilder().setData(ByteString.copyFromUtf8("lo")).build());
             responseObserver.onCompleted();
         }
 
@@ -385,6 +420,40 @@ class GrpcAntdClientTest {
         }
     }
 
+    /**
+     * Mirrors the daemon: attaches the byte total as {@code x-content-length}
+     * initial response metadata on the streaming download methods, so the
+     * client's header-capture interceptor can surface the leading meta frame.
+     * A {@link io.grpc.ServerInterceptor} is the idiomatic way for a service to
+     * send initial metadata from grpc-java (the {@link StreamObserver}-based
+     * service impls can't set headers directly).
+     */
+    static class ContentLengthInterceptor implements ServerInterceptor {
+        private static final Metadata.Key<String> X_CONTENT_LENGTH =
+                Metadata.Key.of("x-content-length", Metadata.ASCII_STRING_MARSHALLER);
+
+        @Override
+        public <ReqT, RespT> ServerCall.Listener<ReqT> interceptCall(
+                ServerCall<ReqT, RespT> call, Metadata requestHeaders,
+                ServerCallHandler<ReqT, RespT> next) {
+            String fullMethod = call.getMethodDescriptor().getFullMethodName();
+            // "secret" => 6 bytes; "hello" => 5 bytes — match the chunk data below.
+            final String total = fullMethod.endsWith("/Stream") ? "6"
+                    : fullMethod.endsWith("/StreamPublic") ? "5" : null;
+            if (total == null) {
+                return next.startCall(call, requestHeaders);
+            }
+            return next.startCall(new ForwardingServerCall
+                    .SimpleForwardingServerCall<>(call) {
+                @Override
+                public void sendHeaders(Metadata responseHeaders) {
+                    responseHeaders.put(X_CONTENT_LENGTH, total);
+                    super.sendHeaders(responseHeaders);
+                }
+            }, requestHeaders);
+        }
+    }
+
     // =========================================================================
     // Tests
     // =========================================================================
@@ -428,6 +497,69 @@ class GrpcAntdClientTest {
     void testDataGetPrivate() {
         byte[] data = client.dataGet("dm123");
         assertEquals("secret", new String(data));
+    }
+
+    @Test
+    void testDataStreamPrivate() throws Exception {
+        try (java.io.InputStream in = client.dataStream("dm123")) {
+            assertEquals("secret", new String(in.readAllBytes()));
+        }
+    }
+
+    @Test
+    void testDataStreamPublic() throws Exception {
+        try (java.io.InputStream in = client.dataStreamPublic("abc123")) {
+            assertEquals("hello", new String(in.readAllBytes()));
+        }
+    }
+
+    @Test
+    void testDataStreamPrivateWithProgress() {
+        var frames = client.dataStreamWithProgress("dm123");
+        StringBuilder data = new StringBuilder();
+        int progressCount = 0;
+        Long metaTotal = null;
+        boolean dataSeen = false;
+        while (frames.hasNext()) {
+            com.autonomi.antd.models.DownloadFrame f = frames.next();
+            if (f.isMeta()) {
+                assertFalse(dataSeen, "meta frame must precede data frames");
+                metaTotal = f.totalSize();
+            } else if (f.isProgress()) {
+                progressCount++;
+                assertEquals("fetching", f.progress().phase());
+                assertEquals(1L, f.progress().fetched());
+                assertEquals(2L, f.progress().total());
+            } else {
+                dataSeen = true;
+                data.append(new String(f.data()));
+            }
+        }
+        // x-content-length response header surfaces as the leading meta frame.
+        assertEquals(Long.valueOf(6L), metaTotal);
+        assertEquals("secret", data.toString());
+        assertEquals(1, progressCount);
+    }
+
+    @Test
+    void testDataStreamPublicWithProgress() {
+        var frames = client.dataStreamPublicWithProgress("abc123");
+        StringBuilder data = new StringBuilder();
+        int progressCount = 0;
+        Long metaTotal = null;
+        while (frames.hasNext()) {
+            com.autonomi.antd.models.DownloadFrame f = frames.next();
+            if (f.isMeta()) {
+                metaTotal = f.totalSize();
+            } else if (f.isProgress()) {
+                progressCount++;
+            } else {
+                data.append(new String(f.data()));
+            }
+        }
+        assertEquals(Long.valueOf(5L), metaTotal);
+        assertEquals("hello", data.toString());
+        assertEquals(1, progressCount);
     }
 
     @Test

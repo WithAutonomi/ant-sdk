@@ -1,5 +1,6 @@
 package com.autonomi.sdk
 
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -79,18 +80,42 @@ class RestClientTest {
             }
 
             // Data private stream — body is the raw decrypted bytes (not JSON),
-            // with a Content-Length header set by MockResponse.setBody.
+            // with a Content-Length header set by MockResponse.setBody. When the
+            // client opts into NDJSON (Accept: application/x-ndjson), stream
+            // interleaved meta/progress/data frames instead.
             if (method == "POST" && path == "/v1/data/stream") {
                 lastDataStreamBody = request.body.readUtf8()
+                if (request.getHeader("Accept") == "application/x-ndjson") {
+                    return ndjson(
+                        """{"type":"meta","total_size":6}""",
+                        """{"type":"progress","phase":"fetching","fetched":1,"total":2}""",
+                        """{"type":"data","chunk":"${b64("secret")}"}""",
+                    )
+                }
                 return MockResponse()
                     .setHeader("Content-Type", "application/octet-stream")
                     .setBody("streamed-secret")
             }
             // Data public stream
             if (method == "GET" && path == "/v1/data/public/abc123/stream") {
+                if (request.getHeader("Accept") == "application/x-ndjson") {
+                    return ndjson(
+                        """{"type":"meta","total_size":5}""",
+                        """{"type":"progress","phase":"resolved","fetched":0,"total":2}""",
+                        """{"type":"data","chunk":"${b64("hello")}"}""",
+                    )
+                }
                 return MockResponse()
                     .setHeader("Content-Type", "application/octet-stream")
                     .setBody("streamed-hello")
+            }
+            // Data public stream that fails mid-stream with a terminal error
+            // frame (only the NDJSON path can signal this).
+            if (method == "GET" && path == "/v1/data/public/boom/stream") {
+                return ndjson(
+                    """{"type":"meta","total_size":0}""",
+                    """{"type":"error","message":"chunk fetch failed"}""",
+                )
             }
 
             // Data cost
@@ -181,6 +206,12 @@ class RestClientTest {
 
             fun b64(s: String): String =
                 Base64.getEncoder().encodeToString(s.toByteArray())
+
+            // Newline-delimited JSON body (one frame per line, trailing newline).
+            fun ndjson(vararg lines: String): MockResponse =
+                MockResponse()
+                    .setHeader("Content-Type", "application/x-ndjson")
+                    .setBody(lines.joinToString("\n") + "\n")
         }
     }
 
@@ -279,6 +310,46 @@ class RestClientTest {
         client.dataStreamPublic("abc123").use { body ->
             assertEquals("streamed-hello", String(body.bytes()))
         }
+    }
+
+    @Test
+    fun `dataStreamWithProgress yields meta then progress then data frames over NDJSON`() = runTest {
+        val frames = client.dataStreamWithProgress("dm123").toList()
+        // meta (byte denominator) + 1 progress + 1 data frame.
+        assertEquals(3, frames.size)
+        assertTrue(frames[0].isMeta)
+        assertEquals(6UL, frames[0].totalSize)
+        assertTrue(frames[1].isProgress)
+        assertEquals("fetching", frames[1].progress!!.phase)
+        assertEquals(1UL, frames[1].progress!!.fetched)
+        assertEquals(2UL, frames[1].progress!!.total)
+        assertFalse(frames[2].isProgress)
+        assertEquals("secret", String(frames[2].data!!))
+        // Opt-in is signalled via the request body too.
+        assertTrue(
+            daemon.lastDataStreamBody.contains("\"data_map\":\"dm123\""),
+            "data_map must reach the wire; got ${daemon.lastDataStreamBody}",
+        )
+    }
+
+    @Test
+    fun `dataStreamPublicWithProgress yields meta then progress then data frames over NDJSON`() = runTest {
+        val frames = client.dataStreamPublicWithProgress("abc123").toList()
+        assertEquals(3, frames.size)
+        assertTrue(frames[0].isMeta)
+        assertEquals(5UL, frames[0].totalSize)
+        assertTrue(frames[1].isProgress)
+        assertEquals("resolved", frames[1].progress!!.phase)
+        assertEquals(2UL, frames[1].progress!!.total)
+        assertEquals("hello", String(frames[2].data!!))
+    }
+
+    @Test
+    fun `dataStreamPublicWithProgress surfaces terminal error frame`() = runTest {
+        val ex = assertFailsWith<InternalException> {
+            client.dataStreamPublicWithProgress("boom").toList()
+        }
+        assertEquals("chunk fetch failed", ex.message)
     }
 
     @Test

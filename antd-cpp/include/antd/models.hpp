@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -189,6 +190,62 @@ struct PrepareChunkResult {
     std::string payment_token_address;
     // EVM RPC URL for submitting transactions.
     std::string rpc_url;
+};
+
+/// A fetch-progress update emitted during a streaming download when progress
+/// is requested. Counts are in *chunks*, not bytes — the byte denominator is
+/// the download's total size (the `x-content-length` response metadata over
+/// gRPC, the NDJSON `meta` frame over REST). `total` is 0 while still unknown
+/// (mid DataMap-resolution).
+///
+/// `phase` is one of:
+///   * `"resolving_map"` — walking the hierarchical DataMap to learn the chunk count
+///   * `"resolved"`      — DataMap resolved, `total` now holds the real chunk count
+///   * `"fetching"`      — fetching data chunks; `fetched`/`total` advance the bar
+struct DownloadProgress {
+    std::string phase;
+    std::uint64_t fetched{0};
+    std::uint64_t total{0};
+};
+
+/// One frame of a progress-enabled streaming download: the total size (`meta`),
+/// a plaintext data chunk (`data`), or a [DownloadProgress] update
+/// (`progress`). Exactly one of the three optionals is set per frame; use
+/// `is_meta()` / `is_progress()` to discriminate.
+///
+/// Returned (via a callback sink) by the `*_with_progress` streaming methods;
+/// the plain `data_stream` / `data_stream_public` methods stay a pure byte
+/// stream for callers that don't need progress.
+struct DownloadFrame {
+    std::optional<std::vector<uint8_t>> data;
+    std::optional<DownloadProgress> progress;
+    /// Total download size in *bytes* — the progress *denominator*, surfaced
+    /// from the gRPC `x-content-length` response metadata or the REST NDJSON
+    /// `meta` frame. Emitted at most once, before any data, when the daemon
+    /// reports it. Pair it with the byte count of the `data` frames (or with
+    /// the [DownloadProgress] chunk counts) to render a byte-accurate bar.
+    std::optional<std::uint64_t> total_size;
+
+    /// True when this frame carries the total-bytes denominator.
+    bool is_meta() const { return total_size.has_value(); }
+
+    /// True when this frame carries a progress update rather than data bytes.
+    bool is_progress() const { return progress.has_value(); }
+
+    /// Construct a meta frame carrying the total download size in bytes.
+    static DownloadFrame from_meta(std::uint64_t total) {
+        return DownloadFrame{std::nullopt, std::nullopt, total};
+    }
+
+    /// Construct a data frame from raw bytes.
+    static DownloadFrame from_data(std::vector<uint8_t> bytes) {
+        return DownloadFrame{std::move(bytes), std::nullopt, std::nullopt};
+    }
+
+    /// Construct a progress frame.
+    static DownloadFrame from_progress(DownloadProgress p) {
+        return DownloadFrame{std::nullopt, std::move(p), std::nullopt};
+    }
 };
 
 /// Pre-upload cost breakdown returned by data_cost and file_cost.

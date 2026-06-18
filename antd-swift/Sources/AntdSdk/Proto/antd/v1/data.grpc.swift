@@ -68,6 +68,18 @@ public enum Antd_V1_DataService {
                 method: "GetPublic"
             )
         }
+        /// Namespace for "Stream" metadata.
+        public enum Stream {
+            /// Request type for "Stream".
+            public typealias Input = Antd_V1_StreamDataRequest
+            /// Response type for "Stream".
+            public typealias Output = Antd_V1_DataChunk
+            /// Descriptor for "Stream".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "antd.v1.DataService"),
+                method: "Stream"
+            )
+        }
         /// Namespace for "StreamPublic" metadata.
         public enum StreamPublic {
             /// Request type for "StreamPublic".
@@ -98,6 +110,7 @@ public enum Antd_V1_DataService {
             PutPublic.descriptor,
             Get.descriptor,
             GetPublic.descriptor,
+            Stream.descriptor,
             StreamPublic.descriptor,
             Cost.descriptor
         ]
@@ -186,6 +199,26 @@ extension Antd_V1_DataService {
             request: GRPCCore.StreamingServerRequest<Antd_V1_GetPublicDataRequest>,
             context: GRPCCore.ServerContext
         ) async throws -> GRPCCore.StreamingServerResponse<Antd_V1_GetPublicDataResponse>
+
+        /// Handle the "Stream" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Streaming downloads — constant memory, one decrypt batch at a time.
+        /// > Private streams from a caller-held DataMap; public resolves the address
+        /// > to a DataMap first (Stream is the primitive, StreamPublic wraps it).
+        ///
+        /// - Parameters:
+        ///   - request: A streaming request of `Antd_V1_StreamDataRequest` messages.
+        ///   - context: Context providing information about the RPC.
+        /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+        ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+        ///     to an internal error.
+        /// - Returns: A streaming response of `Antd_V1_DataChunk` messages.
+        func stream(
+            request: GRPCCore.StreamingServerRequest<Antd_V1_StreamDataRequest>,
+            context: GRPCCore.ServerContext
+        ) async throws -> GRPCCore.StreamingServerResponse<Antd_V1_DataChunk>
 
         /// Handle the "StreamPublic" method.
         ///
@@ -286,6 +319,26 @@ extension Antd_V1_DataService {
             context: GRPCCore.ServerContext
         ) async throws -> GRPCCore.ServerResponse<Antd_V1_GetPublicDataResponse>
 
+        /// Handle the "Stream" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Streaming downloads — constant memory, one decrypt batch at a time.
+        /// > Private streams from a caller-held DataMap; public resolves the address
+        /// > to a DataMap first (Stream is the primitive, StreamPublic wraps it).
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Antd_V1_StreamDataRequest` message.
+        ///   - context: Context providing information about the RPC.
+        /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+        ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+        ///     to an internal error.
+        /// - Returns: A streaming response of `Antd_V1_DataChunk` messages.
+        func stream(
+            request: GRPCCore.ServerRequest<Antd_V1_StreamDataRequest>,
+            context: GRPCCore.ServerContext
+        ) async throws -> GRPCCore.StreamingServerResponse<Antd_V1_DataChunk>
+
         /// Handle the "StreamPublic" method.
         ///
         /// - Parameters:
@@ -383,6 +436,27 @@ extension Antd_V1_DataService {
             context: GRPCCore.ServerContext
         ) async throws -> Antd_V1_GetPublicDataResponse
 
+        /// Handle the "Stream" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Streaming downloads — constant memory, one decrypt batch at a time.
+        /// > Private streams from a caller-held DataMap; public resolves the address
+        /// > to a DataMap first (Stream is the primitive, StreamPublic wraps it).
+        ///
+        /// - Parameters:
+        ///   - request: A `Antd_V1_StreamDataRequest` message.
+        ///   - response: A response stream of `Antd_V1_DataChunk` messages.
+        ///   - context: Context providing information about the RPC.
+        /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+        ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+        ///     to an internal error.
+        func stream(
+            request: Antd_V1_StreamDataRequest,
+            response: GRPCCore.RPCWriter<Antd_V1_DataChunk>,
+            context: GRPCCore.ServerContext
+        ) async throws
+
         /// Handle the "StreamPublic" method.
         ///
         /// - Parameters:
@@ -463,6 +537,17 @@ extension Antd_V1_DataService.StreamingServiceProtocol {
             }
         )
         router.registerHandler(
+            forMethod: Antd_V1_DataService.Method.Stream.descriptor,
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Antd_V1_StreamDataRequest>(),
+            serializer: GRPCProtobuf.ProtobufSerializer<Antd_V1_DataChunk>(),
+            handler: { request, context in
+                try await self.stream(
+                    request: request,
+                    context: context
+                )
+            }
+        )
+        router.registerHandler(
             forMethod: Antd_V1_DataService.Method.StreamPublic.descriptor,
             deserializer: GRPCProtobuf.ProtobufDeserializer<Antd_V1_StreamPublicDataRequest>(),
             serializer: GRPCProtobuf.ProtobufSerializer<Antd_V1_DataChunk>(),
@@ -532,6 +617,17 @@ extension Antd_V1_DataService.ServiceProtocol {
             context: context
         )
         return GRPCCore.StreamingServerResponse(single: response)
+    }
+
+    public func stream(
+        request: GRPCCore.StreamingServerRequest<Antd_V1_StreamDataRequest>,
+        context: GRPCCore.ServerContext
+    ) async throws -> GRPCCore.StreamingServerResponse<Antd_V1_DataChunk> {
+        let response = try await self.stream(
+            request: GRPCCore.ServerRequest(stream: request),
+            context: context
+        )
+        return response
     }
 
     public func streamPublic(
@@ -609,6 +705,23 @@ extension Antd_V1_DataService.SimpleServiceProtocol {
                 context: context
             ),
             metadata: [:]
+        )
+    }
+
+    public func stream(
+        request: GRPCCore.ServerRequest<Antd_V1_StreamDataRequest>,
+        context: GRPCCore.ServerContext
+    ) async throws -> GRPCCore.StreamingServerResponse<Antd_V1_DataChunk> {
+        return GRPCCore.StreamingServerResponse<Antd_V1_DataChunk>(
+            metadata: [:],
+            producer: { writer in
+                try await self.stream(
+                    request: request.message,
+                    response: writer,
+                    context: context
+                )
+                return [:]
+            }
         )
     }
 
@@ -732,6 +845,31 @@ extension Antd_V1_DataService {
             deserializer: some GRPCCore.MessageDeserializer<Antd_V1_GetPublicDataResponse>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Antd_V1_GetPublicDataResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "Stream" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Streaming downloads — constant memory, one decrypt batch at a time.
+        /// > Private streams from a caller-held DataMap; public resolves the address
+        /// > to a DataMap first (Stream is the primitive, StreamPublic wraps it).
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Antd_V1_StreamDataRequest` message.
+        ///   - serializer: A serializer for `Antd_V1_StreamDataRequest` messages.
+        ///   - deserializer: A deserializer for `Antd_V1_DataChunk` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func stream<Result>(
+            request: GRPCCore.ClientRequest<Antd_V1_StreamDataRequest>,
+            serializer: some GRPCCore.MessageSerializer<Antd_V1_StreamDataRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Antd_V1_DataChunk>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.StreamingClientResponse<Antd_V1_DataChunk>) async throws -> Result
         ) async throws -> Result where Result: Sendable
 
         /// Call the "StreamPublic" method.
@@ -915,6 +1053,40 @@ extension Antd_V1_DataService {
             )
         }
 
+        /// Call the "Stream" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Streaming downloads — constant memory, one decrypt batch at a time.
+        /// > Private streams from a caller-held DataMap; public resolves the address
+        /// > to a DataMap first (Stream is the primitive, StreamPublic wraps it).
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Antd_V1_StreamDataRequest` message.
+        ///   - serializer: A serializer for `Antd_V1_StreamDataRequest` messages.
+        ///   - deserializer: A deserializer for `Antd_V1_DataChunk` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func stream<Result>(
+            request: GRPCCore.ClientRequest<Antd_V1_StreamDataRequest>,
+            serializer: some GRPCCore.MessageSerializer<Antd_V1_StreamDataRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Antd_V1_DataChunk>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.StreamingClientResponse<Antd_V1_DataChunk>) async throws -> Result
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.serverStreaming(
+                request: request,
+                descriptor: Antd_V1_DataService.Method.Stream.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
         /// Call the "StreamPublic" method.
         ///
         /// - Parameters:
@@ -1079,6 +1251,35 @@ extension Antd_V1_DataService.ClientProtocol {
             request: request,
             serializer: GRPCProtobuf.ProtobufSerializer<Antd_V1_GetPublicDataRequest>(),
             deserializer: GRPCProtobuf.ProtobufDeserializer<Antd_V1_GetPublicDataResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "Stream" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > Streaming downloads — constant memory, one decrypt batch at a time.
+    /// > Private streams from a caller-held DataMap; public resolves the address
+    /// > to a DataMap first (Stream is the primitive, StreamPublic wraps it).
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Antd_V1_StreamDataRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func stream<Result>(
+        request: GRPCCore.ClientRequest<Antd_V1_StreamDataRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.StreamingClientResponse<Antd_V1_DataChunk>) async throws -> Result
+    ) async throws -> Result where Result: Sendable {
+        try await self.stream(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Antd_V1_StreamDataRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Antd_V1_DataChunk>(),
             options: options,
             onResponse: handleResponse
         )
@@ -1252,6 +1453,39 @@ extension Antd_V1_DataService.ClientProtocol {
             metadata: metadata
         )
         return try await self.getPublic(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "Stream" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > Streaming downloads — constant memory, one decrypt batch at a time.
+    /// > Private streams from a caller-held DataMap; public resolves the address
+    /// > to a DataMap first (Stream is the primitive, StreamPublic wraps it).
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func stream<Result>(
+        _ message: Antd_V1_StreamDataRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.StreamingClientResponse<Antd_V1_DataChunk>) async throws -> Result
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Antd_V1_StreamDataRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.stream(
             request: request,
             options: options,
             onResponse: handleResponse

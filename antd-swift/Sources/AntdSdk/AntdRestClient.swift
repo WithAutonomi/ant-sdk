@@ -172,6 +172,101 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         return openByteStream(request)
     }
 
+    /// ``dataStream(dataMap:)`` with interleaved fetch-progress frames so the
+    /// caller can drive a *determinate* download progress bar. Opts into NDJSON
+    /// framing (`Accept: application/x-ndjson`); the returned stream yields
+    /// ``DownloadFrame`` values — each a plaintext chunk (`.data`) or a
+    /// ``DownloadProgress`` update (`.progress`).
+    public func dataStreamWithProgress(dataMap: String) async throws -> AsyncThrowingStream<DownloadFrame, Error> {
+        guard let url = URL(string: "\(baseURL)/v1/data/stream") else {
+            throw BadRequestError("invalid URL: \(baseURL)/v1/data/stream")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(Self.ndjsonContentType, forHTTPHeaderField: "Accept")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["data_map": dataMap])
+        return Self.ndjsonFrames(from: openByteStream(request))
+    }
+
+    /// ``dataStreamPublic(address:)`` with interleaved fetch-progress frames.
+    /// See ``dataStreamWithProgress(dataMap:)``.
+    public func dataStreamPublicWithProgress(address: String) async throws -> AsyncThrowingStream<DownloadFrame, Error> {
+        guard let url = URL(string: "\(baseURL)/v1/data/public/\(address)/stream") else {
+            throw BadRequestError("invalid URL: \(baseURL)/v1/data/public/\(address)/stream")
+        }
+        var request = URLRequest(url: url)
+        request.setValue(Self.ndjsonContentType, forHTTPHeaderField: "Accept")
+        return Self.ndjsonFrames(from: openByteStream(request))
+    }
+
+    /// Media type that opts the stream endpoints into NDJSON progress framing.
+    private static let ndjsonContentType = "application/x-ndjson"
+
+    /// Adapts a raw NDJSON byte stream into a ``DownloadFrame`` stream, buffering
+    /// partial lines across chunk boundaries and parsing each complete line. The
+    /// leading `meta` frame and unknown frame types are skipped; a terminal
+    /// `error` frame finishes the stream by throwing (a raw octet-stream
+    /// download cannot signal a mid-stream failure).
+    private static func ndjsonFrames(
+        from byteStream: AsyncThrowingStream<Data, Error>
+    ) -> AsyncThrowingStream<DownloadFrame, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                var buffer = Data()
+                do {
+                    for try await chunk in byteStream {
+                        buffer.append(chunk)
+                        while let nl = buffer.firstIndex(of: 0x0A) {
+                            let line = Data(buffer[buffer.startIndex..<nl])
+                            buffer = Data(buffer[buffer.index(after: nl)...])
+                            if let frame = try parseNdjsonFrame(line) {
+                                continuation.yield(frame)
+                            }
+                        }
+                    }
+                    if let frame = try parseNdjsonFrame(buffer) {
+                        continuation.yield(frame)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// Parses one NDJSON line into a ``DownloadFrame``. Returns `nil` for the
+    /// leading `meta` frame, blank lines, and unknown frame types
+    /// (forward-compat); throws ``InternalError`` on a terminal `error` frame.
+    private static func parseNdjsonFrame(_ line: Data) throws -> DownloadFrame? {
+        guard !line.isEmpty,
+              let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+              let type = obj["type"] as? String else {
+            return nil
+        }
+        switch type {
+        case "data":
+            let b64 = obj["chunk"] as? String ?? ""
+            return .data(Data(base64Encoded: b64) ?? Data())
+        case "progress":
+            func u64(_ v: Any?) -> UInt64 { (v as? NSNumber)?.uint64Value ?? 0 }
+            return .progress(DownloadProgress(
+                phase: obj["phase"] as? String ?? "",
+                fetched: u64(obj["fetched"]),
+                total: u64(obj["total"])
+            ))
+        case "error":
+            throw InternalError(obj["message"] as? String ?? "stream error")
+        case "meta":
+            func u64(_ v: Any?) -> UInt64 { (v as? NSNumber)?.uint64Value ?? 0 }
+            return .meta(u64(obj["total_size"]))
+        default:
+            return nil
+        }
+    }
+
     /// Opens a delegate-driven byte stream for `request`. The HTTP status is
     /// inspected in the response delegate callback: on a non-2xx status the
     /// (short) error body is buffered and, when the task completes, mapped to an

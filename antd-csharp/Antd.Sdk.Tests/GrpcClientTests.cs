@@ -172,10 +172,55 @@ public sealed class GrpcClientTests
         }
     }
 
+    /// <summary>In-memory <see cref="IAsyncStreamReader{T}"/> over a fixed list,
+    /// so the mock server-stream needs no live channel.</summary>
+    private sealed class ListStreamReader<T> : IAsyncStreamReader<T>
+    {
+        private readonly IEnumerator<T> _e;
+        public ListStreamReader(IEnumerable<T> items) => _e = items.GetEnumerator();
+        public T Current => _e.Current;
+        public Task<bool> MoveNext(CancellationToken cancellationToken) => Task.FromResult(_e.MoveNext());
+    }
+
+    private sealed class MockDataServiceClient : DataService.DataServiceClient
+    {
+        private static AsyncServerStreamingCall<DataChunk> Stream(Metadata responseHeaders, params DataChunk[] frames) =>
+            TestCalls.AsyncServerStreamingCall(
+                new ListStreamReader<DataChunk>(frames),
+                Task.FromResult(responseHeaders),
+                () => Status.DefaultSuccess,
+                () => new Metadata(),
+                () => { });
+
+        // Server-streams the payload in two chunks so the client's
+        // chunk-by-chunk consumption is exercised, not just a single message.
+        // When include_progress is set, interleaves a progress frame between the
+        // data frames — mirroring the daemon's oneof DataChunk behaviour — and
+        // sends the byte-total denominator as x-content-length initial metadata.
+        private static AsyncServerStreamingCall<DataChunk> StreamOf(bool includeProgress, params byte[][] parts)
+        {
+            var frames = new List<DataChunk>();
+            if (includeProgress)
+                frames.Add(new DataChunk { Progress = new Antd.V1.DownloadProgress { Phase = "fetching", Fetched = 1, Total = 2 } });
+            frames.AddRange(parts.Select(p => new DataChunk { Data = ByteString.CopyFrom(p) }));
+            var total = parts.Sum(p => p.Length);
+            var headers = includeProgress
+                ? new Metadata { { "x-content-length", total.ToString() } }
+                : new Metadata();
+            return Stream(headers, frames.ToArray());
+        }
+
+        public override AsyncServerStreamingCall<DataChunk> Stream(StreamDataRequest request, CallOptions options)
+            => StreamOf(request.IncludeProgress, Encoding.UTF8.GetBytes("sec"), Encoding.UTF8.GetBytes("ret"));
+
+        public override AsyncServerStreamingCall<DataChunk> StreamPublic(StreamPublicDataRequest request, CallOptions options)
+            => StreamOf(request.IncludeProgress, Encoding.UTF8.GetBytes("hel"), Encoding.UTF8.GetBytes("lo"));
+    }
+
     private static AntdGrpcClient MakeClient() =>
         new AntdGrpcClient(
             health: new HealthService.HealthServiceClient(new TestServiceInvoker()),
-            data: new DataService.DataServiceClient(new TestServiceInvoker()),
+            data: new MockDataServiceClient(),
             chunks: new MockChunkServiceClient(),
             files: new FileService.FileServiceClient(new TestServiceInvoker()),
             upload: new MockUploadServiceClient(),
@@ -323,5 +368,71 @@ public sealed class GrpcClientTests
         var addr = await client.FinalizeChunkUploadAsync(
             "upid_chunk_42", new Dictionary<string, string> { ["0xq1"] = "0xtxabc" });
         Assert.Equal("addr_for_upid_chunk_42", addr);
+    }
+
+    [Fact]
+    public async Task DataStream_Private_YieldsChunks()
+    {
+        var client = MakeClient();
+        var buf = new List<byte>();
+        await foreach (var chunk in client.DataStreamAsync("dm123"))
+            buf.AddRange(chunk);
+        Assert.Equal("secret", Encoding.UTF8.GetString(buf.ToArray()));
+    }
+
+    [Fact]
+    public async Task DataStream_Public_YieldsChunks()
+    {
+        var client = MakeClient();
+        var buf = new List<byte>();
+        await foreach (var chunk in client.DataStreamPublicAsync("abc123"))
+            buf.AddRange(chunk);
+        Assert.Equal("hello", Encoding.UTF8.GetString(buf.ToArray()));
+    }
+
+    [Fact]
+    public async Task DataStreamWithProgress_Private_ReassemblesDataAndObservesProgress()
+    {
+        var client = MakeClient();
+        var buf = new List<byte>();
+        DownloadProgress? progress = null;
+        ulong? totalSize = null;
+        var sawData = false;
+        await foreach (var frame in client.DataStreamWithProgressAsync("dm123"))
+        {
+            if (frame.IsMeta)
+            {
+                Assert.False(sawData, "meta frame must arrive before any data");
+                totalSize = frame.TotalSize;
+            }
+            else if (frame.IsProgress) progress = frame.Progress;
+            else { sawData = true; buf.AddRange(frame.Data!); }
+        }
+        Assert.Equal("secret", Encoding.UTF8.GetString(buf.ToArray()));
+        // The byte-total denominator is surfaced from x-content-length (sec+ret = 6).
+        Assert.Equal(6UL, totalSize);
+        Assert.NotNull(progress);
+        Assert.Equal("fetching", progress!.Phase);
+        Assert.Equal(1UL, progress.Fetched);
+        Assert.Equal(2UL, progress.Total);
+    }
+
+    [Fact]
+    public async Task DataStreamWithProgress_Public_ReassemblesDataAndObservesProgress()
+    {
+        var client = MakeClient();
+        var buf = new List<byte>();
+        var sawProgress = false;
+        ulong? totalSize = null;
+        await foreach (var frame in client.DataStreamPublicWithProgressAsync("abc123"))
+        {
+            if (frame.IsMeta) totalSize = frame.TotalSize;
+            else if (frame.IsProgress) sawProgress = true;
+            else buf.AddRange(frame.Data!);
+        }
+        Assert.Equal("hello", Encoding.UTF8.GetString(buf.ToArray()));
+        Assert.True(sawProgress);
+        // hel+lo = 5 bytes surfaced from x-content-length.
+        Assert.Equal(5UL, totalSize);
     }
 }

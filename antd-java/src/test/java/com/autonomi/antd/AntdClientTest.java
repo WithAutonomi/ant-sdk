@@ -74,17 +74,41 @@ class AntdClientTest {
             if ("POST".equals(method) && "/v1/data/get".equals(path)) {
                 return json("{\"data\":\"" + b64("secret") + "\"}");
             }
-            // Data stream private — raw decrypted bytes, Content-Length set by MockResponse
+            boolean wantsNdjson = "application/x-ndjson".equals(request.getHeader("Accept"));
+
+            // Data stream private — raw decrypted bytes, or NDJSON frames when
+            // Accept: application/x-ndjson is sent.
             if ("POST".equals(method) && "/v1/data/stream".equals(path)) {
+                if (wantsNdjson) {
+                    return ndjson(
+                            "{\"type\":\"meta\",\"total_size\":6}",
+                            "{\"type\":\"progress\",\"phase\":\"fetching\",\"fetched\":1,\"total\":2}",
+                            "{\"type\":\"data\",\"chunk\":\"" + b64("sec") + "\"}",
+                            "{\"type\":\"data\",\"chunk\":\"" + b64("ret") + "\"}");
+                }
                 return new MockResponse()
                         .setHeader("Content-Type", "application/octet-stream")
                         .setBody("secret");
             }
-            // Data stream public — raw decrypted bytes
+            // Data stream public — raw decrypted bytes, or NDJSON frames.
             if ("GET".equals(method) && "/v1/data/public/abc123/stream".equals(path)) {
+                if (wantsNdjson) {
+                    return ndjson(
+                            "{\"type\":\"meta\",\"total_size\":5}",
+                            "{\"type\":\"progress\",\"phase\":\"fetching\",\"fetched\":1,\"total\":2}",
+                            "{\"type\":\"data\",\"chunk\":\"" + b64("hel") + "\"}",
+                            "{\"type\":\"data\",\"chunk\":\"" + b64("lo") + "\"}");
+                }
                 return new MockResponse()
                         .setHeader("Content-Type", "application/octet-stream")
                         .setBody("hello");
+            }
+            // NDJSON stream that ends with a terminal error frame.
+            if ("GET".equals(method) && "/v1/data/public/errstream/stream".equals(path)) {
+                return ndjson(
+                        "{\"type\":\"meta\",\"total_size\":0}",
+                        "{\"type\":\"progress\",\"phase\":\"fetching\",\"fetched\":1,\"total\":2}",
+                        "{\"type\":\"error\",\"message\":\"chunk fetch failed\"}");
             }
 
             // Data cost
@@ -122,6 +146,12 @@ class AntdClientTest {
             return new MockResponse()
                     .setHeader("Content-Type", "application/json")
                     .setBody(body);
+        }
+
+        private static MockResponse ndjson(String... lines) {
+            return new MockResponse()
+                    .setHeader("Content-Type", "application/x-ndjson")
+                    .setBody(String.join("\n", lines) + "\n");
         }
 
         private static String b64(String s) {
@@ -214,6 +244,69 @@ class AntdClientTest {
                 assertTrue(ex.getMessage().contains("data map not found"));
             }
         }
+    }
+
+    @Test
+    void testDataStreamWithProgressPrivate() {
+        java.util.Iterator<DownloadFrame> frames = client.dataStreamWithProgress("dm123");
+        StringBuilder data = new StringBuilder();
+        int progressCount = 0;
+        Long metaTotal = null;
+        boolean dataSeen = false;
+        while (frames.hasNext()) {
+            DownloadFrame f = frames.next();
+            if (f.isMeta()) {
+                // Meta (byte total) must surface before any data.
+                assertFalse(dataSeen, "meta frame must precede data frames");
+                metaTotal = f.totalSize();
+            } else if (f.isProgress()) {
+                progressCount++;
+                assertEquals("fetching", f.progress().phase());
+                assertEquals(1L, f.progress().fetched());
+                assertEquals(2L, f.progress().total());
+            } else {
+                dataSeen = true;
+                data.append(new String(f.data()));
+            }
+        }
+        // "meta" frame surfaces the byte total; the two data frames reassemble;
+        // one progress frame.
+        assertEquals(Long.valueOf(6L), metaTotal);
+        assertEquals("secret", data.toString());
+        assertEquals(1, progressCount);
+    }
+
+    @Test
+    void testDataStreamWithProgressPublic() {
+        java.util.Iterator<DownloadFrame> frames = client.dataStreamPublicWithProgress("abc123");
+        StringBuilder data = new StringBuilder();
+        int progressCount = 0;
+        Long metaTotal = null;
+        while (frames.hasNext()) {
+            DownloadFrame f = frames.next();
+            if (f.isMeta()) {
+                metaTotal = f.totalSize();
+            } else if (f.isProgress()) {
+                progressCount++;
+            } else {
+                data.append(new String(f.data()));
+            }
+        }
+        assertEquals(Long.valueOf(5L), metaTotal);
+        assertEquals("hello", data.toString());
+        assertEquals(1, progressCount);
+    }
+
+    @Test
+    void testDataStreamWithProgressErrorFrameThrows() {
+        java.util.Iterator<DownloadFrame> frames = client.dataStreamPublicWithProgress("errstream");
+        // Drains the leading progress frame, then the error frame throws.
+        AntdException ex = assertThrows(AntdException.class, () -> {
+            while (frames.hasNext()) {
+                frames.next();
+            }
+        });
+        assertTrue(ex.getMessage().contains("chunk fetch failed"));
     }
 
     @Test

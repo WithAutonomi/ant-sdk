@@ -3,12 +3,14 @@ package antd
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"testing"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
@@ -69,6 +71,43 @@ func (m *mockDataService) Put(_ context.Context, req *pb.PutDataRequest) (*pb.Pu
 
 func (m *mockDataService) Get(_ context.Context, _ *pb.GetDataRequest) (*pb.GetDataResponse, error) {
 	return &pb.GetDataResponse{Data: []byte("secret")}, nil
+}
+
+// Stream emits the private payload as two chunks so the reader's
+// chunk-boundary buffering is exercised, not just a single Recv.
+func (m *mockDataService) Stream(req *pb.StreamDataRequest, srv grpc.ServerStreamingServer[pb.DataChunk]) error {
+	if req.GetIncludeProgress() {
+		// Mirror the daemon: attach the byte total as response metadata.
+		_ = srv.SetHeader(metadata.Pairs("x-content-length", "6"))
+		if err := srv.Send(&pb.DataChunk{Kind: &pb.DataChunk_Progress{Progress: &pb.DownloadProgress{
+			Phase: "fetching", Fetched: 1, Total: 2,
+		}}}); err != nil {
+			return err
+		}
+	}
+	for _, part := range [][]byte{[]byte("sec"), []byte("ret")} {
+		if err := srv.Send(&pb.DataChunk{Kind: &pb.DataChunk_Data{Data: part}}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *mockDataService) StreamPublic(req *pb.StreamPublicDataRequest, srv grpc.ServerStreamingServer[pb.DataChunk]) error {
+	if req.GetIncludeProgress() {
+		_ = srv.SetHeader(metadata.Pairs("x-content-length", "5"))
+		if err := srv.Send(&pb.DataChunk{Kind: &pb.DataChunk_Progress{Progress: &pb.DownloadProgress{
+			Phase: "fetching", Fetched: 1, Total: 2,
+		}}}); err != nil {
+			return err
+		}
+	}
+	for _, part := range [][]byte{[]byte("hel"), []byte("lo")} {
+		if err := srv.Send(&pb.DataChunk{Kind: &pb.DataChunk_Data{Data: part}}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (m *mockDataService) Cost(_ context.Context, req *pb.DataCostRequest) (*pb.Cost, error) {
@@ -410,6 +449,103 @@ func TestGrpcDataGet(t *testing.T) {
 	}
 	if string(data) != "secret" {
 		t.Fatalf("unexpected data: %s", data)
+	}
+}
+
+func TestGrpcDataStream(t *testing.T) {
+	c := startMockServer(t)
+	rc, err := c.DataStream(context.Background(), "dm123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rc.Close()
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "secret" {
+		t.Fatalf("unexpected streamed data: %s", data)
+	}
+}
+
+func TestGrpcDataStreamPublic(t *testing.T) {
+	c := startMockServer(t)
+	rc, err := c.DataStreamPublic(context.Background(), "abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rc.Close()
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "hello" {
+		t.Fatalf("unexpected streamed data: %s", data)
+	}
+}
+
+// drainFrames reads a DownloadFrameStream to EOF, returning the concatenated
+// data bytes, every progress frame, and the meta byte-total (if any).
+func drainFrames(t *testing.T, s DownloadFrameStream) ([]byte, []DownloadProgress, *uint64) {
+	t.Helper()
+	var data []byte
+	var progress []DownloadProgress
+	var meta *uint64
+	for {
+		frame, err := s.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		switch {
+		case frame.IsMeta():
+			meta = frame.Meta
+		case frame.IsProgress():
+			progress = append(progress, *frame.Progress)
+		default:
+			data = append(data, frame.Data...)
+		}
+	}
+	return data, progress, meta
+}
+
+func TestGrpcDataStreamWithProgress(t *testing.T) {
+	c := startMockServer(t)
+	s, err := c.DataStreamWithProgress(context.Background(), "dm123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	data, progress, meta := drainFrames(t, s)
+	if string(data) != "secret" {
+		t.Fatalf("unexpected streamed data: %s", data)
+	}
+	if meta == nil || *meta != 6 {
+		t.Fatalf("expected Meta byte-total 6, got %v", meta)
+	}
+	if len(progress) != 1 || progress[0].Phase != "fetching" || progress[0].Fetched != 1 || progress[0].Total != 2 {
+		t.Fatalf("unexpected progress frames: %+v", progress)
+	}
+}
+
+func TestGrpcDataStreamPublicWithProgress(t *testing.T) {
+	c := startMockServer(t)
+	s, err := c.DataStreamPublicWithProgress(context.Background(), "abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	data, progress, meta := drainFrames(t, s)
+	if string(data) != "hello" {
+		t.Fatalf("unexpected streamed data: %s", data)
+	}
+	if meta == nil || *meta != 5 {
+		t.Fatalf("expected Meta byte-total 5, got %v", meta)
+	}
+	if len(progress) != 1 || progress[0].Phase != "fetching" {
+		t.Fatalf("unexpected progress frames: %+v", progress)
 	}
 }
 

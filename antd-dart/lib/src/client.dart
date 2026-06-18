@@ -13,6 +13,9 @@ const defaultBaseUrl = 'http://localhost:8082';
 /// Default request timeout.
 const defaultTimeout = Duration(minutes: 5);
 
+/// Media type that opts the stream endpoints into NDJSON progress framing.
+const _ndjsonContentType = 'application/x-ndjson';
+
 /// REST client for the antd daemon.
 class AntdClient {
   final String _baseUrl;
@@ -126,9 +129,24 @@ class AntdClient {
     String method,
     String path, [
     Map<String, dynamic>? body,
-  ]) async {
+  ]) {
+    return _doStreamWithAccept(method, path, body, null);
+  }
+
+  /// Like [_doStream] but optionally sets an `Accept` header — used to opt into
+  /// NDJSON progress framing on the stream endpoints
+  /// (`Accept: application/x-ndjson`).
+  Future<Stream<List<int>>> _doStreamWithAccept(
+    String method,
+    String path,
+    Map<String, dynamic>? body,
+    String? accept,
+  ) async {
     final uri = Uri.parse(_url(path));
     final request = http.Request(method, uri);
+    if (accept != null) {
+      request.headers['Accept'] = accept;
+    }
     if (body != null) {
       request.headers['Content-Type'] = 'application/json';
       request.body = jsonEncode(body);
@@ -248,6 +266,87 @@ class AntdClient {
   /// Requires antd >= 0.10.0.
   Future<Stream<List<int>>> dataStreamPublic(String address) {
     return _doStream('GET', '/v1/data/public/$address/stream');
+  }
+
+  /// Parses one NDJSON download line into a [DownloadFrame]. Maps the leading
+  /// `meta` frame to a [DownloadFrame.meta] byte total; returns `null` for blank
+  /// lines and unknown frame types (forward-compat). Throws the matching
+  /// [AntdError] (an [InternalError]) on a terminal `error` frame, which a raw
+  /// octet-stream download cannot signal mid-stream.
+  static DownloadFrame? _parseNdjsonFrame(String line) {
+    final trimmed = line.trim();
+    if (trimmed.isEmpty) return null;
+    final frame = jsonDecode(trimmed) as Map<String, dynamic>;
+    switch (frame['type']) {
+      case 'data':
+        return DownloadFrame.data(_b64Decode(frame['chunk'] as String? ?? ''));
+      case 'progress':
+        return DownloadFrame.progress(DownloadProgress(
+          phase: frame['phase'] as String? ?? '',
+          fetched: (frame['fetched'] as num?)?.toInt() ?? 0,
+          total: (frame['total'] as num?)?.toInt() ?? 0,
+        ));
+      case 'error':
+        throw InternalError(frame['message'] as String? ?? 'stream error');
+      case 'meta':
+        // "meta" carries the byte denominator; surface it as a meta frame.
+        return DownloadFrame.meta((frame['total_size'] as num?)?.toInt() ?? 0);
+      // Unknown frame types: skip for forward-compatibility.
+      default:
+        return null;
+    }
+  }
+
+  /// Decodes an NDJSON download body into [DownloadFrame]s, splitting the byte
+  /// stream on newlines and buffering partial lines across chunk boundaries.
+  static Stream<DownloadFrame> _ndjsonFrames(Stream<List<int>> body) async* {
+    var buffer = '';
+    await for (final chunk in body) {
+      buffer += utf8.decode(chunk, allowMalformed: true);
+      var nl = buffer.indexOf('\n');
+      while (nl >= 0) {
+        final line = buffer.substring(0, nl);
+        buffer = buffer.substring(nl + 1);
+        final frame = _parseNdjsonFrame(line);
+        if (frame != null) yield frame;
+        nl = buffer.indexOf('\n');
+      }
+    }
+    // Flush a trailing line with no terminating newline.
+    final frame = _parseNdjsonFrame(buffer);
+    if (frame != null) yield frame;
+  }
+
+  /// Like [dataStream] but opts into NDJSON progress framing
+  /// (`Accept: application/x-ndjson`), yielding [DownloadFrame]s so the caller
+  /// can drive a *determinate* progress bar. Data frames carry the plaintext
+  /// bytes; progress frames carry chunk-fetch counts. The byte denominator
+  /// arrives as the leading NDJSON `meta` frame, surfaced as a
+  /// [DownloadFrame.meta]; a terminal `error` frame surfaces as an [AntdError].
+  ///
+  /// Requires antd >= 0.11.0.
+  Future<Stream<DownloadFrame>> dataStreamWithProgress(String dataMap) async {
+    final body = await _doStreamWithAccept(
+      'POST',
+      '/v1/data/stream',
+      {'data_map': dataMap},
+      _ndjsonContentType,
+    );
+    return _ndjsonFrames(body);
+  }
+
+  /// The public counterpart to [dataStreamWithProgress].
+  ///
+  /// Requires antd >= 0.11.0.
+  Future<Stream<DownloadFrame>> dataStreamPublicWithProgress(
+      String address) async {
+    final body = await _doStreamWithAccept(
+      'GET',
+      '/v1/data/public/$address/stream',
+      null,
+      _ndjsonContentType,
+    );
+    return _ndjsonFrames(body);
   }
 
   /// Pre-upload cost breakdown for the given bytes.

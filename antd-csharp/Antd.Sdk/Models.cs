@@ -154,3 +154,53 @@ public sealed record UploadCostEstimate(
     uint ChunkCount,
     string EstimatedGasCostWei,
     string PaymentMode);
+
+/// <summary>
+/// A fetch-progress update emitted during a streaming download when progress is
+/// requested. Counts are in <em>chunks</em>, not bytes — the byte denominator is
+/// the download's total size (the <c>x-content-length</c> metadata over gRPC, the
+/// leading NDJSON <c>meta</c> frame over REST). <see cref="Total"/> is 0 while
+/// still unknown (mid DataMap-resolution).
+///
+/// <see cref="Phase"/> is one of:
+/// <list type="bullet">
+///   <item><c>"resolving_map"</c> — walking the hierarchical DataMap to learn the chunk count</item>
+///   <item><c>"resolved"</c> — DataMap resolved, <see cref="Total"/> now holds the real chunk count</item>
+///   <item><c>"fetching"</c> — fetching data chunks; <see cref="Fetched"/>/<see cref="Total"/> advance the bar</item>
+/// </list>
+/// </summary>
+public sealed record DownloadProgress(string Phase, ulong Fetched, ulong Total);
+
+/// <summary>
+/// One frame of a progress-enabled streaming download: the total size, a
+/// plaintext data chunk, or a <see cref="DownloadProgress"/> update. At most one
+/// of <see cref="TotalSize"/>, <see cref="Data"/>, or <see cref="Progress"/> is
+/// set — <see cref="TotalSize"/> != <c>null</c> is the byte total
+/// (see <see cref="IsMeta"/>), <see cref="Progress"/> != <c>null</c> identifies
+/// a progress frame (see <see cref="IsProgress"/>), otherwise the frame carries
+/// data (<see cref="Data"/> may be empty). Returned by the <c>*WithProgress</c>
+/// streaming methods; the plain <c>DataStream</c> methods stay a pure byte
+/// stream for callers that don't need progress.
+/// </summary>
+public sealed record DownloadFrame(byte[]? Data, DownloadProgress? Progress, ulong? TotalSize = null)
+{
+    /// <summary>Whether this frame carries a progress update rather than data bytes.</summary>
+    public bool IsProgress => Progress != null;
+
+    /// <summary>Whether this frame carries the total-size denominator.</summary>
+    public bool IsMeta => TotalSize != null;
+
+    /// <summary>A data frame carrying plaintext bytes.</summary>
+    public static DownloadFrame OfData(byte[] data) => new(data, null);
+
+    /// <summary>A progress frame carrying a fetch-progress update.</summary>
+    public static DownloadFrame OfProgress(DownloadProgress progress) => new(null, progress);
+
+    /// <summary>
+    /// A meta frame carrying the total download size in <em>bytes</em> — the
+    /// progress <em>denominator</em>, surfaced from the gRPC
+    /// <c>x-content-length</c> response metadata or the REST NDJSON <c>meta</c>
+    /// frame. Emitted at most once, before any data, when the daemon reports it.
+    /// </summary>
+    public static DownloadFrame OfMeta(ulong totalSize) => new(null, null, totalSize);
+}

@@ -1,6 +1,7 @@
 package antd
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -138,6 +139,13 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any) (map
 // large streams configure the client without a Timeout (via WithHTTPClient) and
 // rely on ctx for cancellation.
 func (c *Client) doStream(ctx context.Context, method, path string, body any) (io.ReadCloser, error) {
+	return c.doStreamWithAccept(ctx, method, path, body, "")
+}
+
+// doStreamWithAccept is doStream with an optional Accept header. Passing
+// "application/x-ndjson" opts the stream endpoints into interleaved NDJSON
+// progress framing; an empty accept leaves the default raw octet-stream body.
+func (c *Client) doStreamWithAccept(ctx context.Context, method, path string, body any, accept string) (io.ReadCloser, error) {
 	var reqBody io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -153,6 +161,9 @@ func (c *Client) doStream(ctx context.Context, method, path string, body any) (i
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if accept != "" {
+		req.Header.Set("Accept", accept)
 	}
 
 	resp, err := c.http.Do(req)
@@ -316,6 +327,97 @@ func (c *Client) DataStream(ctx context.Context, dataMap string) (io.ReadCloser,
 // to DataGetPublic. The caller reads the returned stream and MUST Close it.
 func (c *Client) DataStreamPublic(ctx context.Context, address string) (io.ReadCloser, error) {
 	return c.doStream(ctx, http.MethodGet, "/v1/data/public/"+address+"/stream", nil)
+}
+
+// ndjsonContentType opts the stream endpoints into NDJSON progress framing.
+const ndjsonContentType = "application/x-ndjson"
+
+// ndjsonStream parses an NDJSON download body (Accept: application/x-ndjson)
+// into a [DownloadFrame] sequence, mirroring the gRPC DownloadStream surface.
+// It reads one line at a time (constant memory bar a single chunk) and tolerates
+// arbitrarily long lines — a base64 data chunk is ~1.4x its raw size.
+type ndjsonStream struct {
+	body io.ReadCloser
+	r    *bufio.Reader
+}
+
+// Recv returns the next frame, or io.EOF when the body is exhausted. The leading
+// "meta" frame (byte denominator) and unknown frame types are skipped for
+// forward-compatibility; an "error" frame is surfaced as a terminal error,
+// which raw octet-stream downloads cannot signal mid-stream.
+func (s *ndjsonStream) Recv() (DownloadFrame, error) {
+	for {
+		line, err := s.r.ReadBytes('\n')
+		if len(line) == 0 && err != nil {
+			if err == io.EOF {
+				return DownloadFrame{}, io.EOF
+			}
+			return DownloadFrame{}, fmt.Errorf("read ndjson stream: %w", err)
+		}
+		line = bytes.TrimRight(line, "\r\n")
+		if len(line) == 0 {
+			if err == io.EOF {
+				return DownloadFrame{}, io.EOF
+			}
+			continue
+		}
+		var frame map[string]any
+		if jErr := json.Unmarshal(line, &frame); jErr != nil {
+			return DownloadFrame{}, fmt.Errorf("invalid NDJSON frame: %w", jErr)
+		}
+		switch frame["type"] {
+		case "data":
+			data, dErr := b64Decode(str(frame, "chunk"))
+			if dErr != nil {
+				return DownloadFrame{}, fmt.Errorf("base64 decode: %w", dErr)
+			}
+			return DownloadFrame{Data: data}, nil
+		case "progress":
+			return DownloadFrame{Progress: &DownloadProgress{
+				Phase:   str(frame, "phase"),
+				Fetched: unum64(frame, "fetched"),
+				Total:   unum64(frame, "total"),
+			}}, nil
+		case "error":
+			return DownloadFrame{}, errorForStatus(http.StatusInternalServerError, str(frame, "message"))
+		case "meta":
+			total := unum64(frame, "total_size")
+			return DownloadFrame{Meta: &total}, nil
+		default:
+			// Any unknown/forward-compat frame: skip.
+			if err == io.EOF {
+				return DownloadFrame{}, io.EOF
+			}
+		}
+	}
+}
+
+// Close releases the underlying HTTP body. Safe to call after the stream drains.
+func (s *ndjsonStream) Close() error { return s.body.Close() }
+
+// DataStreamWithProgress is DataStream with interleaved fetch-progress frames so
+// the caller can drive a *determinate* download progress bar. It opts into
+// NDJSON framing (Accept: application/x-ndjson) and returns a stream of
+// [DownloadFrame]s — each a plaintext chunk or a [DownloadProgress] update.
+// Drain with Recv until io.EOF, then Close.
+func (c *Client) DataStreamWithProgress(ctx context.Context, dataMap string) (DownloadFrameStream, error) {
+	body, err := c.doStreamWithAccept(ctx, http.MethodPost, "/v1/data/stream", map[string]any{
+		"data_map": dataMap,
+	}, ndjsonContentType)
+	if err != nil {
+		return nil, err
+	}
+	return &ndjsonStream{body: body, r: bufio.NewReader(body)}, nil
+}
+
+// DataStreamPublicWithProgress is DataStreamPublic with interleaved
+// fetch-progress frames. See DataStreamWithProgress.
+func (c *Client) DataStreamPublicWithProgress(ctx context.Context, address string) (DownloadFrameStream, error) {
+	body, err := c.doStreamWithAccept(ctx, http.MethodGet, "/v1/data/public/"+address+"/stream", nil, ndjsonContentType)
+	if err != nil {
+		return nil, err
+	}
+	return &ndjsonStream{body: body, r: bufio.NewReader(body)}, nil
 }
 
 // DataCost returns a pre-upload cost breakdown for the given bytes.

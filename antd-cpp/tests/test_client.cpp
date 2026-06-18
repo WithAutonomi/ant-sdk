@@ -6,6 +6,9 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
 #include <thread>
 
 #include "antd/client.hpp"
@@ -425,9 +428,20 @@ struct StubServer {
         });
 
         // Data stream public (streaming counterpart to data get public).
-        // Body is the raw decrypted bytes with a Content-Length set.
+        // Default: raw decrypted bytes with a Content-Length. With
+        // Accept: application/x-ndjson, interleaved NDJSON progress framing
+        // (meta -> progress -> data, base64 under key "chunk").
         svr.Get("/v1/data/public/addr_pub_abc/stream",
-            [](const httplib::Request&, httplib::Response& res) {
+            [](const httplib::Request& req, httplib::Response& res) {
+                if (req.get_header_value("Accept") == "application/x-ndjson") {
+                    std::string ndjson;
+                    ndjson += json{{"type", "meta"}, {"total_size", 5}}.dump() + "\n";
+                    ndjson += json{{"type", "progress"}, {"phase", "fetching"},
+                                   {"fetched", 1}, {"total", 1}}.dump() + "\n";
+                    ndjson += json{{"type", "data"}, {"chunk", "aGVsbG8="}}.dump() + "\n";
+                    res.set_content(ndjson, "application/x-ndjson");
+                    return;
+                }
                 res.set_content("hello", "application/octet-stream");
             });
 
@@ -439,10 +453,34 @@ struct StubServer {
                 res.set_content(err.dump(), "application/json");
             });
 
+        // Data stream public — NDJSON terminal error frame. A 200 stream that
+        // signals failure mid-body via {"type":"error"} (raw octet-stream
+        // cannot signal this once bytes have flowed).
+        svr.Get("/v1/data/public/addr_errframe/stream",
+            [](const httplib::Request&, httplib::Response& res) {
+                std::string ndjson;
+                ndjson += json{{"type", "meta"}, {"total_size", 0}}.dump() + "\n";
+                ndjson += json{{"type", "error"},
+                               {"message", "chunk fetch failed"}}.dump() + "\n";
+                res.set_content(ndjson, "application/x-ndjson");
+            });
+
         // Data stream private (streaming counterpart to data get). Same body
-        // shape as POST /v1/data/get: {"data_map": "<hex>"}.
+        // shape as POST /v1/data/get: {"data_map": "<hex>"}. With
+        // Accept: application/x-ndjson, interleaved NDJSON progress framing.
         svr.Post("/v1/data/stream", [this](const httplib::Request& req, httplib::Response& res) {
             try { last_data_get_body = json::parse(req.body); } catch (...) {}
+            if (req.get_header_value("Accept") == "application/x-ndjson") {
+                std::string ndjson;
+                ndjson += json{{"type", "meta"}, {"total_size", 6}}.dump() + "\n";
+                ndjson += json{{"type", "progress"}, {"phase", "resolving_map"},
+                               {"fetched", 0}, {"total", 0}}.dump() + "\n";
+                ndjson += json{{"type", "progress"}, {"phase", "fetching"},
+                               {"fetched", 1}, {"total", 1}}.dump() + "\n";
+                ndjson += json{{"type", "data"}, {"chunk", "c2VjcmV0"}}.dump() + "\n";
+                res.set_content(ndjson, "application/x-ndjson");
+                return;
+            }
             res.set_content("secret", "application/octet-stream");
         });
 
@@ -732,6 +770,109 @@ TEST_CASE("data_stream sink returning false aborts the download") {
 
     // No throw; we simply stopped consuming. Body is small so we still got it.
     CHECK(received == "secret");
+}
+
+// ---------------------------------------------------------------------------
+// V2-512: progress-enabled streaming downloads (NDJSON framing).
+// ---------------------------------------------------------------------------
+
+TEST_CASE("data_stream_with_progress yields progress then data frames") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    std::vector<antd::DownloadProgress> progress;
+    std::string received;
+    std::vector<std::uint64_t> meta;
+    std::size_t meta_index = SIZE_MAX;  // position of the first meta frame
+    std::size_t frame_index = 0;
+    c.data_stream_with_progress("dm_priv_xyz", [&](const antd::DownloadFrame& f) {
+        if (f.is_meta()) {
+            if (meta.empty()) meta_index = frame_index;
+            meta.push_back(*f.total_size);
+        } else if (f.is_progress()) {
+            progress.push_back(*f.progress);
+        } else {
+            received.append(f.data->begin(), f.data->end());
+        }
+        ++frame_index;
+        return true;
+    });
+
+    // The byte total surfaces first, as a single leading Meta frame; then two
+    // progress frames + one data frame.
+    REQUIRE(meta.size() == 1);
+    CHECK(meta_index == 0);
+    CHECK(meta[0] == 6);
+    REQUIRE(progress.size() == 2);
+    CHECK(progress[0].phase == "resolving_map");
+    CHECK(progress[1].phase == "fetching");
+    CHECK(progress[1].fetched == 1);
+    CHECK(progress[1].total == 1);
+    CHECK(received == "secret");
+    // Request opted into NDJSON and still carried the data_map body.
+    CHECK(stub.last_data_get_body.value("data_map", "") == "dm_priv_xyz");
+}
+
+TEST_CASE("data_stream_public_with_progress yields progress then data frames") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    bool saw_progress = false;
+    std::string received;
+    std::optional<std::uint64_t> first_total;  // set by the first frame if Meta
+    bool first_frame = true;
+    c.data_stream_public_with_progress("addr_pub_abc", [&](const antd::DownloadFrame& f) {
+        if (first_frame) {
+            first_frame = false;
+            if (f.is_meta()) first_total = *f.total_size;
+        }
+        if (f.is_meta()) {
+            // Meta carries the byte total; nothing else to accumulate.
+        } else if (f.is_progress()) {
+            saw_progress = true;
+            CHECK(f.progress->phase == "fetching");
+        } else {
+            received.append(f.data->begin(), f.data->end());
+        }
+        return true;
+    });
+
+    // The byte total (5) leads, before any progress/data frame.
+    REQUIRE(first_total.has_value());
+    CHECK(*first_total == 5);
+    CHECK(saw_progress);
+    CHECK(received == "hello");
+}
+
+TEST_CASE("data_stream_with_progress surfaces a terminal error frame") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    auto sink = [&](const antd::DownloadFrame&) { return true; };
+    // The {"type":"error"} frame throws out of the parser as an InternalError
+    // (mapped from status 500), even though the HTTP response was 200.
+    CHECK_THROWS_AS(
+        c.data_stream_public_with_progress("addr_errframe", sink),
+        antd::InternalError);
+
+    try {
+        c.data_stream_public_with_progress("addr_errframe", sink);
+    } catch (const antd::AntdError& e) {
+        CHECK(std::string(e.what()).find("chunk fetch failed") != std::string::npos);
+    }
+}
+
+TEST_CASE("data_stream_with_progress sink returning false aborts the download") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    int frames = 0;
+    c.data_stream_with_progress("dm_priv_xyz", [&](const antd::DownloadFrame&) {
+        ++frames;
+        return false;  // abort after the first frame
+    });
+
+    CHECK(frames == 1);
 }
 
 TEST_CASE("data_cost forwards payment_mode") {

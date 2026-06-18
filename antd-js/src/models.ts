@@ -171,6 +171,56 @@ export interface PrepareChunkResult {
 }
 
 /**
+ * A per-chunk fetch-progress update interleaved into a `*WithProgress`
+ * download stream.
+ *
+ * The byte denominator (total payload size) arrives separately as the leading
+ * NDJSON `meta` frame and is the basis for a byte-level bar; these counts are
+ * CHUNKS — `fetched` of `total` chunks resolved/fetched so far — and are the
+ * numerator that actually advances determinately as decrypt batches land.
+ */
+export interface DownloadProgress {
+  /** Fetch phase: `"resolving_map"`, `"resolved"`, or `"fetching"`. */
+  phase: string;
+  /** Chunks fetched so far. */
+  fetched: number;
+  /** Total chunks to fetch, or 0 if not yet known. */
+  total: number;
+}
+
+/**
+ * One frame of a `dataStreamWithProgress` / `dataStreamPublicWithProgress`
+ * download. Exactly one of `meta` / `data` / `progress` is set — `meta` carries
+ * the total download size in *bytes* (the progress *denominator*), `data`
+ * carries a plaintext chunk batch, `progress` carries a {@link DownloadProgress}
+ * update.
+ *
+ * The `meta` frame is surfaced from the leading REST NDJSON `meta` line and is
+ * emitted at most once, before any data, when the daemon reports it (older
+ * daemons omit it). Pair it with the byte count of the `data` frames to render
+ * a byte-accurate progress bar. Use {@link isMetaFrame} / {@link isProgressFrame}
+ * to discriminate.
+ */
+export type DownloadFrame =
+  | { meta: number; data?: undefined; progress?: undefined }
+  | { meta?: undefined; data: Uint8Array; progress?: undefined }
+  | { meta?: undefined; data?: undefined; progress: DownloadProgress };
+
+/** Type guard: true when the frame is a `meta` byte-total frame. */
+export function isMetaFrame(
+  frame: DownloadFrame,
+): frame is { meta: number; data?: undefined; progress?: undefined } {
+  return frame.meta !== undefined;
+}
+
+/** Type guard: true when the frame is a {@link DownloadProgress} update. */
+export function isProgressFrame(
+  frame: DownloadFrame,
+): frame is { meta?: undefined; data?: undefined; progress: DownloadProgress } {
+  return frame.progress !== undefined;
+}
+
+/**
  * Pre-upload cost breakdown returned by `dataCost` / `fileCost`.
  *
  * The server samples up to 5 chunk addresses and extrapolates the storage

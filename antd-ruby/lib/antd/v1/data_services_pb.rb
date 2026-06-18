@@ -22,6 +22,10 @@ module Antd
         rpc :PutPublic, ::Antd::V1::PutPublicDataRequest, ::Antd::V1::PutPublicDataResponse
         rpc :Get, ::Antd::V1::GetDataRequest, ::Antd::V1::GetDataResponse
         rpc :GetPublic, ::Antd::V1::GetPublicDataRequest, ::Antd::V1::GetPublicDataResponse
+        # Streaming downloads — constant memory, one decrypt batch at a time.
+        # Private streams from a caller-held DataMap; public resolves the address
+        # to a DataMap first (Stream is the primitive, StreamPublic wraps it).
+        rpc :Stream, ::Antd::V1::StreamDataRequest, stream(::Antd::V1::DataChunk)
         rpc :StreamPublic, ::Antd::V1::StreamPublicDataRequest, stream(::Antd::V1::DataChunk)
         rpc :Cost, ::Antd::V1::DataCostRequest, ::Antd::V1::Cost
       end

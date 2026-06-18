@@ -9,6 +9,53 @@ namespace antd {
 
 using json = nlohmann::json;
 
+namespace {
+
+/// Media type that opts the stream endpoints into NDJSON progress framing.
+constexpr const char* kNdjsonContentType = "application/x-ndjson";
+
+/// Parse one NDJSON line into a [DownloadFrame], appending it to `out`.
+///
+/// Returns false for blank lines and unknown frame types (forward-compat) —
+/// nothing is appended in those cases. The leading `meta` frame surfaces as a
+/// Meta DownloadFrame carrying the total byte count. Throws the matching
+/// AntdError subclass for a terminal `error` frame.
+bool parse_ndjson_frame(std::string_view line, DownloadFrame& out) {
+    if (!line.empty() && line.back() == '\r') {
+        line.remove_suffix(1);
+    }
+    if (line.empty()) {
+        return false;
+    }
+    json v = json::parse(line);
+    const std::string type = v.value("type", "");
+    if (type == "data") {
+        // base64 lives under "chunk" (NOT "data") on NDJSON data frames.
+        out = DownloadFrame::from_data(detail::base64_decode(v.value("chunk", "")));
+        return true;
+    }
+    if (type == "progress") {
+        out = DownloadFrame::from_progress(DownloadProgress{
+            v.value("phase", ""),
+            v.value<std::uint64_t>("fetched", 0),
+            v.value<std::uint64_t>("total", 0),
+        });
+        return true;
+    }
+    if (type == "error") {
+        error_for_status(500, v.value("message", "download failed"));
+    }
+    if (type == "meta") {
+        // "meta" carries the byte denominator; surface it as a Meta frame.
+        out = DownloadFrame::from_meta(v.value<std::uint64_t>("total_size", 0));
+        return true;
+    }
+    // Unknown types are ignored for forward compatibility.
+    return false;
+}
+
+}  // namespace
+
 // ---------------------------------------------------------------------------
 // Impl (pimpl hides httplib from the public header)
 // ---------------------------------------------------------------------------
@@ -78,13 +125,17 @@ struct Client::Impl {
     /// so we build a Request directly and use Client::send — this works
     /// uniformly for GET and POST and reuses the configured client/timeouts.
     void do_stream(const std::string& method, const std::string& path,
-                   const DataSink& sink, const json& body = json()) {
+                   const DataSink& sink, const json& body = json(),
+                   const std::string& accept = std::string()) {
         httplib::Request req;
         req.method = method;
         req.path = path;
         if (!body.is_null()) {
             req.body = body.dump();
             req.set_header("Content-Type", "application/json");
+        }
+        if (!accept.empty()) {
+            req.set_header("Accept", accept);
         }
 
         // Captured by the response_handler so the content_receiver knows
@@ -226,6 +277,55 @@ void Client::data_stream(std::string_view data_map, const DataSink& sink) {
     impl_->do_stream("POST", "/v1/data/stream", sink, json{
         {"data_map", std::string(data_map)},
     });
+}
+
+namespace {
+
+/// Adapt a [DownloadFrameSink] onto the byte-oriented [DataSink] do_stream
+/// uses: buffer the raw body across chunk boundaries, split on '\n', and emit
+/// a [DownloadFrame] per complete NDJSON line. A `false` return from the frame
+/// sink aborts the download (propagated as a `false` DataSink return);
+/// `error` frames throw out of parse_ndjson_frame and unwind the request.
+///
+/// Trailing bytes with no terminating newline are not flushed here — the
+/// daemon terminates every NDJSON frame (including the final one) with '\n',
+/// so a complete stream leaves the buffer empty.
+DataSink ndjson_sink(const DownloadFrameSink& frames) {
+    auto buf = std::make_shared<std::string>();
+    return [buf, frames](const char* data, std::size_t len) -> bool {
+        buf->append(data, len);
+        std::size_t start = 0;
+        std::size_t nl;
+        while ((nl = buf->find('\n', start)) != std::string::npos) {
+            std::string_view line(buf->data() + start, nl - start);
+            DownloadFrame frame;
+            if (parse_ndjson_frame(line, frame)) {
+                if (!frames(frame)) {
+                    buf->clear();
+                    return false;  // caller aborted
+                }
+            }
+            start = nl + 1;
+        }
+        buf->erase(0, start);
+        return true;
+    };
+}
+
+}  // namespace
+
+void Client::data_stream_with_progress(std::string_view data_map,
+                                       const DownloadFrameSink& sink) {
+    impl_->do_stream("POST", "/v1/data/stream", ndjson_sink(sink),
+                     json{{"data_map", std::string(data_map)}},
+                     kNdjsonContentType);
+}
+
+void Client::data_stream_public_with_progress(std::string_view address,
+                                              const DownloadFrameSink& sink) {
+    impl_->do_stream("GET",
+                     "/v1/data/public/" + std::string(address) + "/stream",
+                     ndjson_sink(sink), json(), kNdjsonContentType);
 }
 
 UploadCostEstimate Client::data_cost(const std::vector<uint8_t>& data,

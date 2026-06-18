@@ -176,6 +176,67 @@ data class PrepareChunkResult(
 )
 
 /**
+ * A fetch-progress update emitted during a streaming download when progress is
+ * requested. Counts are in *chunks*, not bytes — the byte denominator is the
+ * download's total size (`x-content-length` over gRPC, the NDJSON `meta` frame
+ * over REST). [total] is 0 while still unknown (mid DataMap-resolution).
+ *
+ * [phase] is one of:
+ * - `"resolving_map"` — walking the hierarchical DataMap to learn the chunk count
+ * - `"resolved"` — DataMap resolved, [total] now holds the real chunk count
+ * - `"fetching"` — fetching data chunks; [fetched]/[total] advance the bar
+ */
+data class DownloadProgress(
+    val phase: String,
+    val fetched: ULong,
+    val total: ULong,
+)
+
+/**
+ * One frame of a progress-enabled streaming download: the total size
+ * ([totalSize] set), a plaintext data chunk ([data] set), or a
+ * [DownloadProgress] update ([progress] set). Returned by the `*WithProgress`
+ * streaming methods; the plain `dataStream` / `dataStreamPublic` methods stay a
+ * pure byte stream for callers that don't need progress.
+ */
+data class DownloadFrame(
+    val data: ByteArray? = null,
+    val progress: DownloadProgress? = null,
+    /**
+     * Total download size in *bytes* — the progress *denominator*, surfaced
+     * from the gRPC `x-content-length` response metadata or the REST NDJSON
+     * `meta` frame. Emitted at most once, before any data, when the daemon
+     * reports it. Pair it with the byte count of the [data] frames (or with
+     * [DownloadProgress] chunk counts) to render a byte-accurate progress bar.
+     */
+    val totalSize: ULong? = null,
+) {
+    /** True when this frame carries a [progress] update rather than [data]. */
+    val isProgress: Boolean get() = progress != null
+
+    /** True when this frame carries the [totalSize] byte denominator. */
+    val isMeta: Boolean get() = totalSize != null
+
+    // data classes with a ByteArray member need structural equals/hashCode.
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is DownloadFrame) return false
+        if (data != null) {
+            if (other.data == null) return false
+            if (!data.contentEquals(other.data)) return false
+        } else if (other.data != null) return false
+        return progress == other.progress && totalSize == other.totalSize
+    }
+
+    override fun hashCode(): Int {
+        var result = data?.contentHashCode() ?: 0
+        result = 31 * result + (progress?.hashCode() ?: 0)
+        result = 31 * result + (totalSize?.hashCode() ?: 0)
+        return result
+    }
+}
+
+/**
  * Pre-upload cost breakdown returned by `dataCost` and `fileCost`.
  *
  * The server samples up to 5 chunk addresses and extrapolates the storage

@@ -169,3 +169,50 @@ type UploadCostEstimate struct {
 	EstimatedGasCostWei string `json:"estimated_gas_cost_wei"`  // advisory wei heuristic
 	PaymentMode         string `json:"payment_mode"`            // "auto" | "merkle" | "single"
 }
+
+// DownloadProgress is a fetch-progress update emitted during a streaming
+// download when progress is requested. Counts are in *chunks*, not bytes — the
+// byte denominator is the download's total size (the x-content-length header
+// over gRPC, the leading NDJSON meta frame over REST). Total is 0 while still
+// unknown (mid DataMap-resolution).
+//
+// Phase is one of:
+//   - "resolving_map" — walking the hierarchical DataMap to learn the chunk count
+//   - "resolved" — DataMap resolved, Total now holds the real chunk count
+//   - "fetching" — fetching data chunks; Fetched/Total advance the bar
+type DownloadProgress struct {
+	Phase   string `json:"phase"`
+	Fetched uint64 `json:"fetched"`
+	Total   uint64 `json:"total"`
+}
+
+// DownloadFrame is one frame of a progress-enabled streaming download: the total
+// size, a plaintext data chunk, or a [DownloadProgress] update. At most one of
+// Meta, Data, or Progress is set — Meta != nil is the byte total, Progress != nil
+// is a progress update, otherwise the frame carries data (Data may be empty).
+// Returned by the *WithProgress streaming methods; the plain DataStream methods
+// stay a pure byte stream for callers that don't need progress.
+type DownloadFrame struct {
+	// Meta, when non-nil, is the total download size in bytes — the progress
+	// denominator, surfaced from the gRPC x-content-length response header or
+	// the REST NDJSON meta frame. Emitted at most once, before any data.
+	Meta     *uint64
+	Data     []byte
+	Progress *DownloadProgress
+}
+
+// IsProgress reports whether this frame carries a progress update rather than
+// data bytes.
+func (f DownloadFrame) IsProgress() bool { return f.Progress != nil }
+
+// IsMeta reports whether this frame carries the total-size denominator.
+func (f DownloadFrame) IsMeta() bool { return f.Meta != nil }
+
+// DownloadFrameStream is a progress-enabled streaming download. Both the gRPC
+// and REST progress methods return a value satisfying it, so callers can drive
+// either transport with the same loop: Recv until io.EOF, then Close. Close
+// releases the underlying RPC/HTTP body and is safe to call at any time.
+type DownloadFrameStream interface {
+	Recv() (DownloadFrame, error)
+	Close() error
+}

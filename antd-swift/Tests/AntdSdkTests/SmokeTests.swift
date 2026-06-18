@@ -665,4 +665,68 @@ final class DataStreamTests: XCTestCase {
             XCTAssertEqual(error.statusCode, 502)
         }
     }
+
+    private func collectFrames(
+        _ stream: AsyncThrowingStream<DownloadFrame, Error>
+    ) async throws -> (data: Data, progress: [DownloadProgress], total: UInt64?) {
+        var data = Data()
+        var progress: [DownloadProgress] = []
+        var total: UInt64?
+        for try await frame in stream {
+            switch frame {
+            case .meta(let t): total = t
+            case .data(let d): data.append(d)
+            case .progress(let p): progress.append(p)
+            }
+        }
+        return (data, progress, total)
+    }
+
+    private func ndjson(_ lines: [[String: Any]]) -> Data {
+        let joined = lines
+            .map { String(decoding: try! JSONSerialization.data(withJSONObject: $0), as: UTF8.self) }
+            .joined(separator: "\n")
+        return Data((joined + "\n").utf8)
+    }
+
+    /// dataStreamWithProgress opts into NDJSON and yields interleaved data +
+    /// progress frames; the base64 payload lives under the `chunk` key.
+    func testDataStreamWithProgressParsesNdjson() async throws {
+        StubURLProtocol.rawRoutes["/v1/data/stream"] = ndjson([
+            ["type": "meta", "total_size": 6],
+            ["type": "progress", "phase": "fetching", "fetched": 1, "total": 2],
+            ["type": "data", "chunk": Data("sec".utf8).base64EncodedString()],
+            ["type": "progress", "phase": "fetching", "fetched": 2, "total": 2],
+            ["type": "data", "chunk": Data("ret".utf8).base64EncodedString()],
+        ])
+
+        let client = makeClient()
+        let stream = try await client.dataStreamWithProgress(dataMap: "abcd")
+        let (data, progress, total) = try await collectFrames(stream)
+
+        XCTAssertEqual(String(decoding: data, as: UTF8.self), "secret")
+        XCTAssertEqual(total, 6)
+        XCTAssertEqual(progress, [
+            DownloadProgress(phase: "fetching", fetched: 1, total: 2),
+            DownloadProgress(phase: "fetching", fetched: 2, total: 2),
+        ])
+    }
+
+    /// A terminal NDJSON `error` frame surfaces mid-stream (a raw octet-stream
+    /// download cannot signal a failure after the body has started).
+    func testDataStreamWithProgressSurfacesErrorFrame() async throws {
+        StubURLProtocol.rawRoutes["/v1/data/stream"] = ndjson([
+            ["type": "data", "chunk": Data("partial".utf8).base64EncodedString()],
+            ["type": "error", "message": "chunk fetch failed"],
+        ])
+
+        let client = makeClient()
+        do {
+            let stream = try await client.dataStreamWithProgress(dataMap: "abcd")
+            _ = try await collectFrames(stream)
+            XCTFail("expected terminal error frame to throw")
+        } catch let error as InternalError {
+            XCTAssertEqual(error.message, "chunk fetch failed")
+        }
+    }
 }

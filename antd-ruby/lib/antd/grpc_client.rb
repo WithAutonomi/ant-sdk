@@ -76,7 +76,7 @@ module Antd
     def data_put(data, payment_mode: PaymentMode::AUTO)
       req = Antd::V1::PutDataRequest.new(data: data.b, payment_mode: payment_mode)
       resp = grpc_call { @data_stub.put(req) }
-      DataPutResult.new(data_map: resp.data_map)
+      DataPutResult.new(data_map: resp.data_map, chunks_stored: resp.chunks_stored, payment_mode_used: resp.payment_mode_used)
     end
 
     # Retrieve private data from a caller-held DataMap (hex).
@@ -95,7 +95,7 @@ module Antd
     def data_put_public(data, payment_mode: PaymentMode::AUTO)
       req = Antd::V1::PutPublicDataRequest.new(data: data.b, payment_mode: payment_mode)
       resp = grpc_call { @data_stub.put_public(req) }
-      DataPutPublicResult.new(address: resp.address)
+      DataPutPublicResult.new(address: resp.address, chunks_stored: resp.chunks_stored, payment_mode_used: resp.payment_mode_used)
     end
 
     # Retrieve public data by address.
@@ -105,6 +105,75 @@ module Antd
       req = Antd::V1::GetPublicDataRequest.new(address: address)
       resp = grpc_call { @data_stub.get_public(req) }
       resp.data
+    end
+
+    # Stream private data from a caller-held DataMap (hex), one decrypt batch at
+    # a time, instead of buffering the whole object. The gRPC counterpart to
+    # +data_get+ and mirror of the REST client's +data_stream+.
+    #
+    # When a block is given, each raw byte chunk is yielded as it arrives and the
+    # method returns +nil+. When no block is given, an +Enumerator+ over the
+    # chunks is returned.
+    #
+    # @param data_map [String] hex-encoded DataMap
+    # @yieldparam chunk [String] a raw byte chunk of the decrypted payload
+    # @return [nil, Enumerator]
+    def data_stream(data_map, &block)
+      return enum_for(:data_stream, data_map) unless block_given?
+
+      req = Antd::V1::StreamDataRequest.new(data_map: data_map)
+      grpc_call { @data_stub.stream(req).each { |chunk| block.call(chunk.data) } }
+      nil
+    end
+
+    # Stream public data by address — the gRPC counterpart to +data_get_public+.
+    # Same block/Enumerator contract as +data_stream+.
+    #
+    # @param address [String] hex address
+    # @yieldparam chunk [String] a raw byte chunk of the decrypted payload
+    # @return [nil, Enumerator]
+    def data_stream_public(address, &block)
+      return enum_for(:data_stream_public, address) unless block_given?
+
+      req = Antd::V1::StreamPublicDataRequest.new(address: address)
+      grpc_call { @data_stub.stream_public(req).each { |chunk| block.call(chunk.data) } }
+      nil
+    end
+
+    # Like +data_stream+ but requests interleaved fetch-progress frames so the
+    # caller can drive a *determinate* progress bar. Sets the request's
+    # +include_progress+ flag and yields +DownloadFrame+s — each either a
+    # plaintext byte chunk (+frame.data+) or a +DownloadProgress+ update
+    # (+frame.progress+). The byte denominator is surfaced as a leading
+    # +DownloadFrame+ (+frame.meta+), read from the response's
+    # +x-content-length+ initial metadata before any chunk.
+    #
+    # When a block is given each frame is yielded and the method returns +nil+;
+    # otherwise an +Enumerator+ over the frames is returned.
+    #
+    # @param data_map [String] hex-encoded DataMap
+    # @yieldparam frame [DownloadFrame]
+    # @return [nil, Enumerator]
+    def data_stream_with_progress(data_map, &block)
+      return enum_for(:data_stream_with_progress, data_map) unless block_given?
+
+      req = Antd::V1::StreamDataRequest.new(data_map: data_map, include_progress: true)
+      grpc_call { stream_with_progress(@data_stub.stream(req, return_op: true), &block) }
+      nil
+    end
+
+    # Like +data_stream_public+ but requests interleaved fetch-progress frames.
+    # See +data_stream_with_progress+ for the contract.
+    #
+    # @param address [String] hex address
+    # @yieldparam frame [DownloadFrame]
+    # @return [nil, Enumerator]
+    def data_stream_public_with_progress(address, &block)
+      return enum_for(:data_stream_public_with_progress, address) unless block_given?
+
+      req = Antd::V1::StreamPublicDataRequest.new(address: address, include_progress: true)
+      grpc_call { stream_with_progress(@data_stub.stream_public(req, return_op: true), &block) }
+      nil
     end
 
     # Pre-upload cost breakdown for the given bytes.
@@ -371,6 +440,52 @@ module Antd
 
     private
 
+    # Drives a +return_op: true+ server-streaming call, yielding +DownloadFrame+s.
+    # The byte denominator is surfaced first as a leading +DownloadFrame+ (its
+    # +meta+ set), read from the response's +x-content-length+ initial metadata;
+    # then each wire +DataChunk+ is mapped to a data/progress frame.
+    #
+    # +op+ is a +GRPC::ActiveCall::Operation+ (from calling the stub method with
+    # +return_op: true+). +op.execute+ returns the response enumerator and starts
+    # the call; +op.metadata+ then holds the server's initial metadata. An
+    # absent or unparseable +x-content-length+ (older daemons) yields no Meta
+    # frame.
+    def stream_with_progress(op)
+      responses = op.execute
+      meta = meta_frame_from_op(op)
+      yield meta unless meta.nil?
+      responses.each { |chunk| yield frame_from_chunk(chunk) }
+    end
+
+    # Builds a leading byte-total +DownloadFrame+ from a server-stream
+    # operation's +x-content-length+ initial metadata, or +nil+ when the header
+    # is absent or unparseable.
+    def meta_frame_from_op(op)
+      md = op.metadata
+      return nil if md.nil?
+
+      value = md["x-content-length"]
+      return nil if value.nil?
+
+      value = value.first if value.is_a?(Array)
+      total = Integer(value, 10) rescue nil
+      return nil if total.nil?
+
+      DownloadFrame.new(meta: total)
+    end
+
+    # Maps a wire +DataChunk+ (oneof kind {data | progress}) onto a public
+    # +DownloadFrame+. A chunk with no arm set (shouldn't occur) is treated as
+    # an empty data frame, matching the antd-rust reference consumer.
+    def frame_from_chunk(chunk)
+      if chunk.kind == :progress
+        p = chunk.progress
+        DownloadFrame.new(progress: DownloadProgress.new(phase: p.phase, fetched: p.fetched, total: p.total))
+      else
+        DownloadFrame.new(data: chunk.data)
+      end
+    end
+
     # Maps a PrepareUploadResponse proto into a +PrepareUploadResult+ struct,
     # populating the merkle-only fields (+depth+, +pool_commitments+,
     # +merkle_payment_timestamp+) only when +payment_type+ is +"merkle"+.
@@ -428,7 +543,7 @@ module Antd
     rescue GRPC::FailedPrecondition => e
       raise PaymentError, e.message
     rescue GRPC::BadStatus => e
-      raise AntdError.new(e.code, e.message)
+      raise AntdError.new(e.message, status_code: e.code)
     end
   end
 end

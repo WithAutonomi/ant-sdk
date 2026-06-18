@@ -232,3 +232,37 @@ pub struct UploadCostEstimate {
     pub estimated_gas_cost_wei: String,
     pub payment_mode: String,
 }
+
+/// A fetch-progress update emitted during a streaming download when progress is
+/// requested. Counts are in *chunks*, not bytes — the byte denominator is the
+/// download's total size (`x-content-length` over gRPC, the NDJSON `meta` frame
+/// over REST). `total` is 0 while still unknown (mid DataMap-resolution).
+///
+/// `phase` is one of:
+/// - `"resolving_map"` — walking the hierarchical DataMap to learn the chunk count
+/// - `"resolved"` — DataMap resolved, `total` now holds the real chunk count
+/// - `"fetching"` — fetching data chunks; `fetched`/`total` advance the bar
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DownloadProgress {
+    pub phase: String,
+    pub fetched: u64,
+    pub total: u64,
+}
+
+/// One frame of a progress-enabled streaming download: the total size, a
+/// plaintext data chunk, or a [`DownloadProgress`] update. Returned by the
+/// `*_with_progress` streaming methods; the plain `data_stream` /
+/// `data_stream_public` methods stay a pure `Stream<Bytes>` for callers that
+/// don't need progress.
+#[derive(Debug, Clone)]
+pub enum DownloadFrame {
+    /// Total download size in *bytes* — the progress *denominator*, surfaced
+    /// from the gRPC `x-content-length` response metadata or the REST NDJSON
+    /// `meta` frame. Emitted at most once, before any data, when the daemon
+    /// reports it. Pair it with the byte count of the [`Data`](Self::Data)
+    /// frames (or with [`DownloadProgress`] chunk counts) to render a
+    /// byte-accurate progress bar.
+    Meta(u64),
+    Data(bytes::Bytes),
+    Progress(DownloadProgress),
+}

@@ -3,11 +3,14 @@ package antd
 import (
 	"context"
 	"fmt"
+	"io"
+	"strconv"
 	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	pb "github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1"
@@ -186,7 +189,9 @@ func (c *GrpcClient) DataPut(ctx context.Context, data []byte, paymentMode Payme
 		return nil, errorFromGrpc(err)
 	}
 	return &DataPutResult{
-		DataMap: resp.GetDataMap(),
+		DataMap:         resp.GetDataMap(),
+		ChunksStored:    resp.GetChunksStored(),
+		PaymentModeUsed: resp.GetPaymentModeUsed(),
 	}, nil
 }
 
@@ -216,7 +221,9 @@ func (c *GrpcClient) DataPutPublic(ctx context.Context, data []byte, paymentMode
 		return nil, errorFromGrpc(err)
 	}
 	return &DataPutPublicResult{
-		Address: resp.GetAddress(),
+		Address:         resp.GetAddress(),
+		ChunksStored:    resp.GetChunksStored(),
+		PaymentModeUsed: resp.GetPaymentModeUsed(),
 	}, nil
 }
 
@@ -230,6 +237,174 @@ func (c *GrpcClient) DataGetPublic(ctx context.Context, address string) ([]byte,
 		return nil, errorFromGrpc(err)
 	}
 	return resp.GetData(), nil
+}
+
+// dataChunkStream is the minimal view of a server-streaming DataChunk RPC that
+// both Stream and StreamPublic satisfy, letting one reader adapter wrap either.
+type dataChunkStream interface {
+	Recv() (*pb.DataChunk, error)
+	Header() (metadata.MD, error)
+}
+
+// grpcChunkReader adapts a server-streaming DataChunk RPC into an io.ReadCloser
+// so gRPC streaming downloads present the same surface as the REST client's
+// DataStream. It pulls one chunk at a time (constant memory) and buffers any
+// bytes left over from a chunk that didn't fit the caller's Read buffer.
+type grpcChunkReader struct {
+	stream dataChunkStream
+	cancel context.CancelFunc
+	buf    []byte
+}
+
+func (r *grpcChunkReader) Read(p []byte) (int, error) {
+	for len(r.buf) == 0 {
+		chunk, err := r.stream.Recv()
+		if err != nil {
+			// io.EOF is the clean end-of-stream signal; pass it through
+			// verbatim and map everything else onto our error types.
+			if err == io.EOF {
+				return 0, io.EOF
+			}
+			return 0, errorFromGrpc(err)
+		}
+		r.buf = chunk.GetData()
+	}
+	n := copy(p, r.buf)
+	r.buf = r.buf[n:]
+	return n, nil
+}
+
+// Close cancels the underlying RPC. It is safe to call after the stream has
+// already drained; cancelling a finished context is a no-op.
+func (r *grpcChunkReader) Close() error {
+	r.cancel()
+	return nil
+}
+
+// DataStream streams private data from a caller-held DataMap (hex) instead of
+// buffering it all in memory — the gRPC counterpart to DataGet and the mirror
+// of the REST client's DataStream. The caller reads the returned stream and
+// MUST Close it (Close cancels the RPC).
+func (c *GrpcClient) DataStream(ctx context.Context, dataMap string) (io.ReadCloser, error) {
+	// Unlike the buffered calls, the timeout context must live until the
+	// caller is done reading, so cancel is handed to Close rather than
+	// deferred here.
+	ctx, cancel := c.ctx(ctx)
+	stream, err := c.data.Stream(ctx, &pb.StreamDataRequest{DataMap: dataMap})
+	if err != nil {
+		cancel()
+		return nil, errorFromGrpc(err)
+	}
+	return &grpcChunkReader{stream: stream, cancel: cancel}, nil
+}
+
+// DataStreamPublic streams public data by address — the gRPC counterpart to
+// DataGetPublic and the mirror of the REST client's DataStreamPublic. The
+// caller reads the returned stream and MUST Close it.
+func (c *GrpcClient) DataStreamPublic(ctx context.Context, address string) (io.ReadCloser, error) {
+	ctx, cancel := c.ctx(ctx)
+	stream, err := c.data.StreamPublic(ctx, &pb.StreamPublicDataRequest{Address: address})
+	if err != nil {
+		cancel()
+		return nil, errorFromGrpc(err)
+	}
+	return &grpcChunkReader{stream: stream, cancel: cancel}, nil
+}
+
+// DownloadStream is a progress-enabled streaming download: a sequence of
+// [DownloadFrame]s, each either a plaintext data chunk or a [DownloadProgress]
+// update interleaved on the same RPC. Returned by DataStreamWithProgress /
+// DataStreamPublicWithProgress. The caller drains it with Recv until io.EOF and
+// MUST Close it (Close cancels the RPC).
+//
+// Unlike the plain DataStream io.ReadCloser, frames preserve the chunk
+// boundaries the server emits — a data frame holds exactly one decrypted chunk.
+type DownloadStream struct {
+	stream dataChunkStream
+	cancel context.CancelFunc
+	meta   *uint64 // pending byte-total Meta frame, emitted before any chunk
+}
+
+// Recv returns the next frame, or io.EOF when the stream is exhausted. A frame
+// whose Meta is non-nil is the byte-total denominator (emitted first); a frame
+// whose Progress is non-nil is a progress update; otherwise it carries data
+// bytes. A wire frame with no oneof arm set (shouldn't occur) is surfaced as an
+// empty data frame, matching the antd-rust reference consumer.
+func (s *DownloadStream) Recv() (DownloadFrame, error) {
+	if s.meta != nil {
+		total := *s.meta
+		s.meta = nil
+		return DownloadFrame{Meta: &total}, nil
+	}
+	chunk, err := s.stream.Recv()
+	if err != nil {
+		if err == io.EOF {
+			return DownloadFrame{}, io.EOF
+		}
+		return DownloadFrame{}, errorFromGrpc(err)
+	}
+	if p := chunk.GetProgress(); p != nil {
+		return DownloadFrame{Progress: &DownloadProgress{
+			Phase:   p.GetPhase(),
+			Fetched: p.GetFetched(),
+			Total:   p.GetTotal(),
+		}}, nil
+	}
+	return DownloadFrame{Data: chunk.GetData()}, nil
+}
+
+// Close cancels the underlying RPC. Safe to call after the stream has drained.
+func (s *DownloadStream) Close() error {
+	s.cancel()
+	return nil
+}
+
+// metaFromHeader reads the total download size from the stream's
+// x-content-length response header (sent before the first chunk) and returns it
+// as a pending Meta frame. Header() blocks until the server sends its initial
+// metadata. Returns nil when the header is absent or unparseable (older
+// daemons), so no Meta frame is emitted.
+func metaFromHeader(stream dataChunkStream) *uint64 {
+	md, err := stream.Header()
+	if err != nil {
+		return nil
+	}
+	vals := md.Get("x-content-length")
+	if len(vals) == 0 {
+		return nil
+	}
+	n, err := strconv.ParseUint(vals[0], 10, 64)
+	if err != nil {
+		return nil
+	}
+	return &n
+}
+
+// DataStreamWithProgress is DataStream with interleaved fetch-progress frames so
+// the caller can drive a *determinate* download progress bar. It sets the
+// stream request's include_progress flag, then returns a [DownloadStream] whose
+// frames are either plaintext chunks or [DownloadProgress] updates. The byte
+// denominator arrives separately as the x-content-length response header.
+func (c *GrpcClient) DataStreamWithProgress(ctx context.Context, dataMap string) (*DownloadStream, error) {
+	ctx, cancel := c.ctx(ctx)
+	stream, err := c.data.Stream(ctx, &pb.StreamDataRequest{DataMap: dataMap, IncludeProgress: true})
+	if err != nil {
+		cancel()
+		return nil, errorFromGrpc(err)
+	}
+	return &DownloadStream{stream: stream, cancel: cancel, meta: metaFromHeader(stream)}, nil
+}
+
+// DataStreamPublicWithProgress is DataStreamPublic with interleaved
+// fetch-progress frames. See DataStreamWithProgress.
+func (c *GrpcClient) DataStreamPublicWithProgress(ctx context.Context, address string) (*DownloadStream, error) {
+	ctx, cancel := c.ctx(ctx)
+	stream, err := c.data.StreamPublic(ctx, &pb.StreamPublicDataRequest{Address: address, IncludeProgress: true})
+	if err != nil {
+		cancel()
+		return nil, errorFromGrpc(err)
+	}
+	return &DownloadStream{stream: stream, cancel: cancel, meta: metaFromHeader(stream)}, nil
 }
 
 // DataCost returns a pre-upload cost breakdown for the given bytes.

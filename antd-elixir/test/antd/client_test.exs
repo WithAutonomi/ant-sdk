@@ -286,6 +286,61 @@ defmodule Antd.ClientTest do
     end
   end
 
+  test "data_stream_with_progress/2 opts into NDJSON and yields data + progress frames",
+       %{bypass: bypass, client: client} do
+    Bypass.expect_once(bypass, "POST", "/v1/data/stream", fn conn ->
+      assert Plug.Conn.get_req_header(conn, "accept") == ["application/x-ndjson"]
+
+      lines = [
+        Jason.encode!(%{type: "meta", total_size: 6}),
+        Jason.encode!(%{type: "progress", phase: "fetching", fetched: 1, total: 2}),
+        Jason.encode!(%{type: "data", chunk: Base.encode64("sec")}),
+        Jason.encode!(%{type: "progress", phase: "fetching", fetched: 2, total: 2}),
+        Jason.encode!(%{type: "data", chunk: Base.encode64("ret")})
+      ]
+
+      conn = Plug.Conn.send_chunked(conn, 200)
+      # Split a line across two HTTP chunks to exercise line-buffering.
+      body = Enum.map_join(lines, "\n", & &1) <> "\n"
+      {first, rest} = String.split_at(body, 10)
+      {:ok, conn} = Plug.Conn.chunk(conn, first)
+      {:ok, conn} = Plug.Conn.chunk(conn, rest)
+      conn
+    end)
+
+    assert {:ok, stream} = Antd.Client.data_stream_with_progress(client, "dm123")
+    frames = Enum.to_list(stream)
+
+    data =
+      frames
+      |> Enum.filter(&(&1.data != nil))
+      |> Enum.map_join(& &1.data)
+
+    progress = Enum.filter(frames, &Antd.DownloadFrame.progress?/1)
+    meta = Enum.filter(frames, &Antd.DownloadFrame.meta?/1)
+
+    assert data == "secret"
+    # The leading NDJSON meta line surfaces as the byte denominator.
+    assert [%Antd.DownloadFrame{meta: 6}] = meta
+    assert length(progress) == 2
+    assert List.last(progress).progress.fetched == 2
+    assert List.last(progress).progress.total == 2
+  end
+
+  test "data_stream_with_progress/2 raises on a terminal NDJSON error frame",
+       %{bypass: bypass, client: client} do
+    Bypass.expect_once(bypass, "POST", "/v1/data/stream", fn conn ->
+      conn = Plug.Conn.send_chunked(conn, 200)
+      {:ok, conn} = Plug.Conn.chunk(conn, Jason.encode!(%{type: "error", message: "decrypt failed"}) <> "\n")
+      conn
+    end)
+
+    assert {:ok, stream} = Antd.Client.data_stream_with_progress(client, "dm123")
+    # The terminal error frame surfaces mid-stream (a raw octet-stream download
+    # cannot signal a failure after the body has started).
+    assert_raise Antd.InternalError, fn -> Enum.to_list(stream) end
+  end
+
   # ---------------------------------------------------------------------------
   # Chunks
   # ---------------------------------------------------------------------------

@@ -18,7 +18,12 @@
 #include "antd/errors.hpp"
 #include "antd/models.hpp"
 
+#include <charconv>
+#include <cstdint>
+#include <optional>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <vector>
 
 // ---------------------------------------------------------------------------
@@ -257,6 +262,206 @@ TEST_CASE("chunk data byte round-trip") {
     std::string proto_bytes = "chunkdata";
     std::vector<uint8_t> result(proto_bytes.begin(), proto_bytes.end());
     CHECK(std::string(result.begin(), result.end()) == "chunkdata");
+}
+
+// ---------------------------------------------------------------------------
+// Streaming downloads (data_stream / data_stream_public). The real methods
+// drain a gRPC server-stream into a DataSink; reproduce that draining logic
+// here (the test binary doesn't link gRPC) to validate chunk accumulation and
+// early-stop semantics.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("streaming download accumulates chunks via DataSink") {
+    // Two chunks so chunk-boundary handling is exercised, not a single buffer.
+    std::vector<std::string> chunks = {"sec", "ret"};
+    std::string out;
+    auto sink = [&out](const char* data, std::size_t len) -> bool {
+        out.append(data, len);
+        return true;
+    };
+    for (const auto& c : chunks) {
+        sink(c.data(), c.size());
+    }
+    CHECK(out == "secret");
+}
+
+TEST_CASE("streaming download stops early when sink returns false") {
+    std::vector<std::string> chunks = {"hel", "lo"};
+    std::string out;
+    int calls = 0;
+    auto sink = [&](const char* data, std::size_t len) -> bool {
+        ++calls;
+        out.append(data, len);
+        return false;  // request early stop after the first chunk
+    };
+    for (const auto& c : chunks) {
+        if (!sink(c.data(), c.size())) break;
+    }
+    CHECK(calls == 1);
+    CHECK(out == "hel");
+}
+
+// ---------------------------------------------------------------------------
+// V2-512: progress-enabled streaming downloads. The real data_stream_with_
+// progress methods set include_progress=true and map the DataChunk oneof
+// (kind_case) onto a DownloadFrame. The test binary doesn't link gRPC, so we
+// reproduce that oneof-mapping logic here with a simulated wire frame to
+// validate the discrimination and accumulation semantics.
+// ---------------------------------------------------------------------------
+
+namespace test_grpc {
+
+// Simulated DataChunk oneof arm — mirrors antd::v1::DataChunk::KindCase.
+enum KindCase { KIND_NOT_SET = 0, kData = 1, kProgress = 2 };
+
+// A minimal stand-in for a wire DataChunk carrying exactly one oneof arm.
+struct WireChunk {
+    KindCase kind{KIND_NOT_SET};
+    std::string data;              // set when kind == kData
+    antd::DownloadProgress progress;  // set when kind == kProgress
+};
+
+// Standalone mirror of frame_of() from grpc_client.cpp: a progress arm becomes
+// a progress frame; a data arm (or unset oneof) becomes a data frame.
+antd::DownloadFrame frame_of(const WireChunk& chunk) {
+    if (chunk.kind == kProgress) {
+        return antd::DownloadFrame::from_progress(chunk.progress);
+    }
+    std::vector<uint8_t> bytes(chunk.data.begin(), chunk.data.end());
+    return antd::DownloadFrame::from_data(std::move(bytes));
+}
+
+// Standalone mirror of deliver_meta_frame()'s parse step from grpc_client.cpp.
+// The real code reads the `x-content-length` value out of the stream's server
+// initial metadata (a std::multimap<grpc::string_ref, grpc::string_ref>); the
+// test binary doesn't link gRPC, so we reproduce the parse-and-prepend logic
+// against the raw header value. A present + fully-numeric value yields a Meta
+// frame; an absent (nullptr) or unparseable value yields none — matching the
+// older-daemon fallthrough.
+std::optional<antd::DownloadFrame> meta_frame_of(const char* x_content_length) {
+    if (x_content_length == nullptr) {
+        return std::nullopt;  // header absent — older daemon
+    }
+    std::string_view val(x_content_length);
+    std::uint64_t total = 0;
+    const char* first = val.data();
+    const char* last = first + val.size();
+    auto [ptr, ec] = std::from_chars(first, last, total);
+    if (ec != std::errc() || ptr != last) {
+        return std::nullopt;  // unparseable — skip the Meta frame
+    }
+    return antd::DownloadFrame::from_meta(total);
+}
+
+}  // namespace test_grpc
+
+TEST_CASE("gRPC oneof: data arm maps to a data DownloadFrame") {
+    test_grpc::WireChunk wire;
+    wire.kind = test_grpc::kData;
+    wire.data = "secret";
+
+    auto frame = test_grpc::frame_of(wire);
+    CHECK_FALSE(frame.is_progress());
+    REQUIRE(frame.data.has_value());
+    CHECK(std::string(frame.data->begin(), frame.data->end()) == "secret");
+}
+
+TEST_CASE("gRPC oneof: progress arm maps to a progress DownloadFrame") {
+    test_grpc::WireChunk wire;
+    wire.kind = test_grpc::kProgress;
+    wire.progress = antd::DownloadProgress{"fetching", 3, 7};
+
+    auto frame = test_grpc::frame_of(wire);
+    CHECK(frame.is_progress());
+    REQUIRE(frame.progress.has_value());
+    CHECK(frame.progress->phase == "fetching");
+    CHECK(frame.progress->fetched == 3);
+    CHECK(frame.progress->total == 7);
+}
+
+TEST_CASE("gRPC oneof: unset arm defaults to an empty data frame") {
+    test_grpc::WireChunk wire;  // KIND_NOT_SET
+    auto frame = test_grpc::frame_of(wire);
+    CHECK_FALSE(frame.is_progress());
+    REQUIRE(frame.data.has_value());
+    CHECK(frame.data->empty());
+}
+
+TEST_CASE("progress-enabled stream interleaves progress and data frames") {
+    // A representative wire sequence: a resolving-map progress, a fetching
+    // progress, then the decrypted data chunk.
+    std::vector<test_grpc::WireChunk> wire = {
+        {test_grpc::kProgress, "", antd::DownloadProgress{"resolving_map", 0, 0}},
+        {test_grpc::kProgress, "", antd::DownloadProgress{"fetching", 1, 1}},
+        {test_grpc::kData, "secret", {}},
+    };
+
+    std::vector<antd::DownloadProgress> progress;
+    std::string received;
+    for (const auto& w : wire) {
+        auto f = test_grpc::frame_of(w);
+        if (f.is_progress()) {
+            progress.push_back(*f.progress);
+        } else {
+            received.append(f.data->begin(), f.data->end());
+        }
+    }
+
+    REQUIRE(progress.size() == 2);
+    CHECK(progress[0].phase == "resolving_map");
+    CHECK(progress[1].phase == "fetching");
+    CHECK(received == "secret");
+}
+
+// ---------------------------------------------------------------------------
+// V2-510: the byte denominator (x-content-length response metadata) surfaces
+// as a leading Meta DownloadFrame before any data. The real
+// data_stream_*_with_progress methods call WaitForInitialMetadata(), look the
+// header up in ctx.GetServerInitialMetadata(), parse it to a uint64, and
+// deliver a Meta frame first. The test binary doesn't link gRPC, so we
+// validate the parse-and-prepend logic via meta_frame_of().
+// ---------------------------------------------------------------------------
+
+TEST_CASE("gRPC meta: numeric x-content-length maps to a Meta frame") {
+    auto frame = test_grpc::meta_frame_of("12345");
+    REQUIRE(frame.has_value());
+    CHECK(frame->is_meta());
+    CHECK_FALSE(frame->is_progress());
+    REQUIRE(frame->total_size.has_value());
+    CHECK(*frame->total_size == 12345);
+}
+
+TEST_CASE("gRPC meta: absent x-content-length yields no Meta frame") {
+    // Older daemon — header missing (find() returns end(), modelled as nullptr).
+    CHECK_FALSE(test_grpc::meta_frame_of(nullptr).has_value());
+}
+
+TEST_CASE("gRPC meta: unparseable x-content-length yields no Meta frame") {
+    CHECK_FALSE(test_grpc::meta_frame_of("not-a-number").has_value());
+    CHECK_FALSE(test_grpc::meta_frame_of("123abc").has_value());
+    CHECK_FALSE(test_grpc::meta_frame_of("").has_value());
+}
+
+TEST_CASE("gRPC meta: Meta frame leads the progress/data sequence") {
+    // The denominator is delivered first, then the wire chunk sequence.
+    std::vector<antd::DownloadFrame> frames;
+    if (auto meta = test_grpc::meta_frame_of("6")) {
+        frames.push_back(*meta);
+    }
+    std::vector<test_grpc::WireChunk> wire = {
+        {test_grpc::kProgress, "", antd::DownloadProgress{"fetching", 1, 1}},
+        {test_grpc::kData, "secret", {}},
+    };
+    for (const auto& w : wire) {
+        frames.push_back(test_grpc::frame_of(w));
+    }
+
+    REQUIRE(frames.size() == 3);
+    REQUIRE(frames[0].is_meta());
+    CHECK(*frames[0].total_size == 6);
+    CHECK(frames[1].is_progress());
+    CHECK_FALSE(frames[2].is_progress());
+    CHECK_FALSE(frames[2].is_meta());
 }
 
 // ---------------------------------------------------------------------------
