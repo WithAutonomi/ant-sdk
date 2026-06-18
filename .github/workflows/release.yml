@@ -210,14 +210,39 @@ jobs:
           New-Item -ItemType Directory -Force -Path msibin | Out-Null
           Copy-Item bin\antd-windows-amd64.exe msibin\antd.exe
 
+      - name: Prepare client certificate
+        if: env.SIGNING_AVAILABLE == 'true'
+        shell: pwsh
+        run: |
+          # smctl authenticates to DigiCert ONE with the client cert; it reads
+          # the path from SM_CLIENT_CERT_FILE. Decode it to disk and export the
+          # path for the signing steps (mirrors maidsafe/autonomi).
+          $raw = @'
+          ${{ secrets.SM_CLIENT_CERT_B64 }}
+          '@
+          $clean = ($raw -replace '\s', '')
+          if ([string]::IsNullOrWhiteSpace($clean)) { Write-Error "SM_CLIENT_CERT_B64 is empty" }
+          $certPath = Join-Path $env:RUNNER_TEMP "Certificate.p12"
+          [System.IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($clean))
+          "SM_CLIENT_CERT_FILE=$certPath" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "sm_client_cert_b64_clean=$clean" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        id: cert
+
       - name: Setup DigiCert Software Trust Manager
         if: env.SIGNING_AVAILABLE == 'true'
         uses: digicert/ssm-code-signing@v1.2.1
         with:
           sm_host: ${{ secrets.SM_HOST }}
           sm_api_key: ${{ secrets.SM_API_KEY }}
-          sm_client_cert_b64: ${{ secrets.SM_CLIENT_CERT_B64 }}
+          sm_client_cert_b64: ${{ steps.cert.outputs.sm_client_cert_b64_clean }}
           sm_client_cert_password: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
+
+      - name: Verify smctl
+        if: env.SIGNING_AVAILABLE == 'true'
+        shell: pwsh
+        run: |
+          smctl healthcheck
+          smctl keypair ls
 
       - name: Sign standalone binary
         if: env.SIGNING_AVAILABLE == 'true'

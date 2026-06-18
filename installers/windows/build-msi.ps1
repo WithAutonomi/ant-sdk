@@ -65,10 +65,15 @@ function Test-Smctl {
 function Invoke-Sign([string] $Path) {
     if (Test-Smctl) {
         Write-Host "Signing $Path"
+        # smctl may print "signCommand ... FAILED" yet still exit 0, so don't
+        # trust the exit code alone — verify the resulting signature is Valid and
+        # fail hard otherwise (never silently ship an unsigned artifact).
         & smctl sign --keypair-alias "$env:SM_KEYPAIR_ALIAS" --input "$Path"
-        if ($LASTEXITCODE -ne 0) { Write-Error "smctl signing failed for $Path" }
         $sig = Get-AuthenticodeSignature $Path
         Write-Host "  signature status: $($sig.Status)"
+        if ($LASTEXITCODE -ne 0 -or $sig.Status -ne 'Valid') {
+            Write-Error "Signing did not produce a valid signature for $Path (exit=$LASTEXITCODE, status=$($sig.Status))"
+        }
     } else {
         Write-Warning "smctl unavailable or SM_KEYPAIR_ALIAS unset — NOT signing $Path"
     }
