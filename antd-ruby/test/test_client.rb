@@ -172,6 +172,90 @@ class TestClient < Minitest::Test
     assert_includes err.message, "decrypt failed"
   end
 
+  # --- Data Streaming with Progress (NDJSON) ---
+
+  # NDJSON body: leading meta (byte total) + interleaved progress/data frames.
+  # base64 payloads are carried under the "chunk" key (matches the daemon).
+  def test_data_stream_with_progress
+    ndjson = [
+      { type: "meta", total_size: 6 },
+      { type: "progress", phase: "fetching", fetched: 1, total: 2 },
+      { type: "data", chunk: Base64.strict_encode64("sec") },
+      { type: "progress", phase: "fetching", fetched: 2, total: 2 },
+      { type: "data", chunk: Base64.strict_encode64("ret") }
+    ].map(&:to_json).join("\n") + "\n"
+
+    stub_request(:post, "#{BASE}/v1/data/stream")
+      .with(headers: { "Accept" => "application/x-ndjson" })
+      .to_return(status: 200, body: ndjson,
+                 headers: { "Content-Type" => "application/x-ndjson" })
+
+    data = +""
+    progress = []
+    meta = nil
+    first_frame = nil
+    @client.data_stream_with_progress("dm123") do |frame|
+      first_frame ||= frame
+      if frame.meta?
+        meta = frame.meta
+      elsif frame.progress?
+        progress << frame.progress
+      else
+        data << frame.data
+      end
+    end
+
+    # The byte-total meta frame surfaces first, before any data/progress.
+    assert(first_frame.meta?)
+    assert_equal 6, meta
+    assert_equal "secret", data
+    assert_equal 2, progress.length
+    assert_equal "fetching", progress[0].phase
+    assert_equal 1, progress[0].fetched
+    assert_equal 2, progress[1].fetched
+    assert_equal 2, progress[1].total
+  end
+
+  def test_data_stream_public_with_progress
+    ndjson = [
+      { type: "meta", total_size: 5 },
+      { type: "progress", phase: "fetching", fetched: 1, total: 1 },
+      { type: "data", chunk: Base64.strict_encode64("hello") }
+    ].map(&:to_json).join("\n") + "\n"
+
+    stub_request(:get, "#{BASE}/v1/data/public/abc123/stream")
+      .with(headers: { "Accept" => "application/x-ndjson" })
+      .to_return(status: 200, body: ndjson,
+                 headers: { "Content-Type" => "application/x-ndjson" })
+
+    frames = @client.data_stream_public_with_progress("abc123").to_a
+    assert_instance_of Enumerator, @client.data_stream_public_with_progress("abc123")
+    data = frames.select { |f| !f.meta? && !f.progress? }.map(&:data).join
+    assert_equal "hello", data
+    assert(frames.any?(&:progress?))
+    # The leading meta frame carries the byte total and comes first.
+    assert(frames.first.meta?)
+    assert_equal 5, frames.first.meta
+  end
+
+  # A terminal error frame must surface mid-stream as the mapped SDK error —
+  # a raw octet-stream download cannot signal a failure after the body starts.
+  def test_data_stream_with_progress_error_frame_raises
+    ndjson = [
+      { type: "meta", total_size: 0 },
+      { type: "error", message: "decrypt failed" }
+    ].map(&:to_json).join("\n") + "\n"
+
+    stub_request(:post, "#{BASE}/v1/data/stream")
+      .to_return(status: 200, body: ndjson,
+                 headers: { "Content-Type" => "application/x-ndjson" })
+
+    err = assert_raises(Antd::InternalError) do
+      @client.data_stream_with_progress("dm123") { |_f| }
+    end
+    assert_includes err.message, "decrypt failed"
+  end
+
   # --- Data Cost ---
 
   def test_data_cost

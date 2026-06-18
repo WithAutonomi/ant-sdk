@@ -141,6 +141,67 @@ defmodule Antd.GrpcClientTest do
   end
 
   # ---------------------------------------------------------------------------
+  # Data Streaming
+  #
+  # Mirrors map_chunk_stream/1 in GrpcClient: a server-stream of
+  # {:ok, DataChunk} (or raw struct) mapped to its binary payloads. Uses plain
+  # maps in place of the proto struct so the test needs no generated module.
+  # ---------------------------------------------------------------------------
+
+  defp simulate_chunk_stream(replies) do
+    Stream.map(replies, fn
+      {:ok, %{data: data}} -> data
+      %{data: data} -> data
+    end)
+  end
+
+  test "data_stream yields concatenable binary chunks" do
+    # Two chunks so chunk-boundary handling is exercised, not a single message.
+    chunks = simulate_chunk_stream([{:ok, %{data: "sec"}}, {:ok, %{data: "ret"}}]) |> Enum.to_list()
+    assert chunks == ["sec", "ret"]
+    assert Enum.join(chunks) == "secret"
+  end
+
+  test "data_stream_public yields concatenable binary chunks" do
+    assert simulate_chunk_stream([{:ok, %{data: "hel"}}, {:ok, %{data: "lo"}}]) |> Enum.join() ==
+             "hello"
+  end
+
+  # Mirrors map_frame_stream/1 + frame_of/1, but over the REAL generated
+  # `Antd.V1.DataChunk` oneof struct so the `kind: {:data | :progress, _}`
+  # representation is genuinely exercised.
+  defp simulate_frame_stream(chunks) do
+    Stream.map(chunks, fn
+      %Antd.V1.DataChunk{kind: {:progress, p}} ->
+        %Antd.DownloadFrame{
+          progress: %Antd.DownloadProgress{phase: p.phase, fetched: p.fetched, total: p.total}
+        }
+
+      %Antd.V1.DataChunk{kind: {:data, data}} ->
+        %Antd.DownloadFrame{data: data}
+    end)
+  end
+
+  test "data_stream_with_progress maps the oneof to data + progress frames" do
+    frames =
+      simulate_frame_stream([
+        %Antd.V1.DataChunk{
+          kind: {:progress, %Antd.V1.DownloadProgress{phase: "fetching", fetched: 1, total: 2}}
+        },
+        %Antd.V1.DataChunk{kind: {:data, "sec"}},
+        %Antd.V1.DataChunk{kind: {:data, "ret"}}
+      ])
+      |> Enum.to_list()
+
+    data = frames |> Enum.reject(&Antd.DownloadFrame.progress?/1) |> Enum.map_join(& &1.data)
+    progress = Enum.filter(frames, &Antd.DownloadFrame.progress?/1)
+
+    assert data == "secret"
+    assert [%Antd.DownloadFrame{progress: %Antd.DownloadProgress{phase: "fetching", fetched: 1, total: 2}}] =
+             progress
+  end
+
+  # ---------------------------------------------------------------------------
   # PaymentMode serialization (atom -> wire string)
   # ---------------------------------------------------------------------------
 

@@ -1,3 +1,6 @@
+use bytes::Bytes;
+use futures_core::Stream;
+use tokio_stream::StreamExt;
 use tonic::transport::{Channel, Endpoint};
 
 use crate::discover::discover_grpc_target;
@@ -21,6 +24,46 @@ use proto::antd::v1::{
 
 /// Default gRPC endpoint of the antd daemon.
 pub const DEFAULT_GRPC_ENDPOINT: &str = "http://localhost:50051";
+
+/// Extract the plaintext bytes of a `DataChunk`, or `None` if the frame is a
+/// progress update (or empty). Used by the non-progress stream methods to drop
+/// any stray progress frames and yield only data bytes.
+fn data_bytes_of(chunk: proto::antd::v1::DataChunk) -> Option<Bytes> {
+    match chunk.kind {
+        Some(proto::antd::v1::data_chunk::Kind::Data(d)) => Some(Bytes::from(d)),
+        _ => None,
+    }
+}
+
+/// Map a wire `DataChunk` onto the public [`DownloadFrame`]. A frame with no
+/// `kind` set (shouldn't occur) is treated as an empty data chunk.
+fn frame_of(chunk: proto::antd::v1::DataChunk) -> DownloadFrame {
+    match chunk.kind {
+        Some(proto::antd::v1::data_chunk::Kind::Progress(p)) => {
+            DownloadFrame::Progress(DownloadProgress {
+                phase: p.phase,
+                fetched: p.fetched,
+                total: p.total,
+            })
+        }
+        Some(proto::antd::v1::data_chunk::Kind::Data(d)) => DownloadFrame::Data(Bytes::from(d)),
+        None => DownloadFrame::Data(Bytes::new()),
+    }
+}
+
+/// Read the total download size from a stream response's `x-content-length`
+/// metadata and wrap it as a leading [`DownloadFrame::Meta`]. Returns `None`
+/// when the header is absent or unparseable (older daemons), so the caller
+/// simply yields no Meta frame.
+fn meta_frame_of(
+    metadata: &tonic::metadata::MetadataMap,
+) -> Option<Result<DownloadFrame, AntdError>> {
+    metadata
+        .get("x-content-length")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(|total| Ok(DownloadFrame::Meta(total)))
+}
 
 /// gRPC client for the antd daemon.
 ///
@@ -112,7 +155,8 @@ impl GrpcClient {
 
         Ok(DataPutResult {
             data_map: resp.data_map,
-            ..Default::default()
+            chunks_stored: resp.chunks_stored,
+            payment_mode_used: resp.payment_mode_used,
         })
     }
 
@@ -148,7 +192,8 @@ impl GrpcClient {
 
         Ok(DataPutPublicResult {
             address: resp.address,
-            ..Default::default()
+            chunks_stored: resp.chunks_stored,
+            payment_mode_used: resp.payment_mode_used,
         })
     }
 
@@ -164,6 +209,107 @@ impl GrpcClient {
             .into_inner();
 
         Ok(resp.data)
+    }
+
+    /// Streams private data from a caller-held DataMap (hex), one decrypt
+    /// batch at a time, instead of buffering the whole object in memory.
+    ///
+    /// The gRPC counterpart to [`data_get`](Self::data_get) and mirror of the
+    /// REST client's [`data_stream`](crate::Client::data_stream): returns an
+    /// async [`Stream`] of [`Bytes`] chunks the caller consumes incrementally.
+    pub async fn data_stream(
+        &self,
+        data_map: &str,
+    ) -> Result<impl Stream<Item = Result<Bytes, AntdError>>, AntdError> {
+        let stream = self
+            .data
+            .clone()
+            .stream(proto::antd::v1::StreamDataRequest {
+                data_map: data_map.to_string(),
+                include_progress: false,
+            })
+            .await?
+            .into_inner();
+
+        Ok(stream.filter_map(|item| match item {
+            Ok(chunk) => data_bytes_of(chunk).map(Ok),
+            Err(e) => Some(Err(AntdError::from(e))),
+        }))
+    }
+
+    /// Streams public data by address — the gRPC counterpart to
+    /// [`data_get_public`](Self::data_get_public). Returns an async [`Stream`]
+    /// of [`Bytes`] chunks consumed incrementally (constant memory).
+    pub async fn data_stream_public(
+        &self,
+        address: &str,
+    ) -> Result<impl Stream<Item = Result<Bytes, AntdError>>, AntdError> {
+        let stream = self
+            .data
+            .clone()
+            .stream_public(proto::antd::v1::StreamPublicDataRequest {
+                address: address.to_string(),
+                include_progress: false,
+            })
+            .await?
+            .into_inner();
+
+        Ok(stream.filter_map(|item| match item {
+            Ok(chunk) => data_bytes_of(chunk).map(Ok),
+            Err(e) => Some(Err(AntdError::from(e))),
+        }))
+    }
+
+    /// Like [`data_stream`](Self::data_stream) but requests interleaved
+    /// fetch-progress frames so the caller can drive a *determinate* progress
+    /// bar. Each item is a [`DownloadFrame`] — either a plaintext [`Bytes`]
+    /// chunk ([`DownloadFrame::Data`]) or a [`DownloadProgress`] update
+    /// ([`DownloadFrame::Progress`]). The byte denominator is surfaced as a
+    /// leading [`DownloadFrame::Meta`], read from the response's
+    /// `x-content-length` metadata.
+    pub async fn data_stream_with_progress(
+        &self,
+        data_map: &str,
+    ) -> Result<impl Stream<Item = Result<DownloadFrame, AntdError>>, AntdError> {
+        let response = self
+            .data
+            .clone()
+            .stream(proto::antd::v1::StreamDataRequest {
+                data_map: data_map.to_string(),
+                include_progress: true,
+            })
+            .await?;
+
+        let meta = meta_frame_of(response.metadata());
+        let stream = response
+            .into_inner()
+            .map(|item| item.map(frame_of).map_err(AntdError::from));
+
+        Ok(tokio_stream::iter(meta).chain(stream))
+    }
+
+    /// Like [`data_stream_public`](Self::data_stream_public) but requests
+    /// interleaved fetch-progress frames. See
+    /// [`data_stream_with_progress`](Self::data_stream_with_progress).
+    pub async fn data_stream_public_with_progress(
+        &self,
+        address: &str,
+    ) -> Result<impl Stream<Item = Result<DownloadFrame, AntdError>>, AntdError> {
+        let response = self
+            .data
+            .clone()
+            .stream_public(proto::antd::v1::StreamPublicDataRequest {
+                address: address.to_string(),
+                include_progress: true,
+            })
+            .await?;
+
+        let meta = meta_frame_of(response.metadata());
+        let stream = response
+            .into_inner()
+            .map(|item| item.map(frame_of).map_err(AntdError::from));
+
+        Ok(tokio_stream::iter(meta).chain(stream))
     }
 
     /// Pre-upload cost breakdown for the given bytes.

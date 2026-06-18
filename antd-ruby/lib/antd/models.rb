@@ -152,4 +152,47 @@ module Antd
     :payment_mode,            # "auto" | "merkle" | "single"
     keyword_init: true
   )
+
+  # A fetch-progress update emitted during a streaming download when progress
+  # is requested. Counts are in *chunks*, not bytes — the byte denominator is
+  # the download's total size (the +x-content-length+ header over gRPC, the
+  # leading NDJSON +meta+ frame over REST). +total+ is 0 while still unknown
+  # (mid DataMap-resolution).
+  #
+  # +phase+ is one of:
+  # * +"resolving_map"+ -- walking the hierarchical DataMap to learn the count
+  # * +"resolved"+      -- DataMap resolved; +total+ now holds the chunk count
+  # * +"fetching"+      -- fetching data chunks; +fetched+/+total+ advance the bar
+  DownloadProgress = Struct.new(:phase, :fetched, :total, keyword_init: true) do
+    def initialize(phase: "", fetched: 0, total: 0)
+      super
+    end
+  end
+
+  # One frame of a progress-enabled streaming download: the total size
+  # (+meta+), a plaintext data chunk (+data+), or a +DownloadProgress+ update
+  # (+progress+). At most one of the three is set. Yielded by the
+  # +*_with_progress+ streaming methods; the plain +data_stream+ /
+  # +data_stream_public+ methods stay a pure byte stream for callers that don't
+  # need progress.
+  DownloadFrame = Struct.new(:data, :progress, :meta, keyword_init: true) do
+    def initialize(data: nil, progress: nil, meta: nil)
+      super
+    end
+
+    # True if this frame carries a progress update rather than data bytes.
+    def progress?
+      !progress.nil?
+    end
+    alias_method :is_progress, :progress?
+
+    # True if this frame carries the total-size denominator (in bytes).
+    #
+    # Surfaced from the gRPC +x-content-length+ response metadata or the REST
+    # NDJSON +meta+ frame. Emitted at most once, before any data.
+    def meta?
+      !meta.nil?
+    end
+    alias_method :is_meta, :meta?
+  end
 end

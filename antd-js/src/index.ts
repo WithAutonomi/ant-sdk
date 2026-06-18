@@ -14,9 +14,11 @@ export type {
   FinalizeUploadResult,
   PrepareChunkResult,
   UploadCostEstimate,
+  DownloadProgress,
+  DownloadFrame,
 } from "./models.js";
 
-export { PaymentMode } from "./models.js";
+export { PaymentMode, isMetaFrame, isProgressFrame } from "./models.js";
 
 export {
   AntdError,

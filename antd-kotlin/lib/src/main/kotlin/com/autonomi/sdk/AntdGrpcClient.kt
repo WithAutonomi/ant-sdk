@@ -2,10 +2,23 @@ package com.autonomi.sdk
 
 import antd.v1.*
 import com.google.protobuf.ByteString
+import io.grpc.CallOptions
+import io.grpc.Channel
+import io.grpc.ClientCall
+import io.grpc.ClientInterceptor
+import io.grpc.ForwardingClientCall
+import io.grpc.ForwardingClientCallListener
 import io.grpc.ManagedChannelBuilder
+import io.grpc.Metadata
+import io.grpc.MethodDescriptor
 import io.grpc.StatusException
 import io.grpc.StatusRuntimeException
 import io.grpc.Status
+import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 
 class AntdGrpcClient internal constructor(
     private val channel: io.grpc.ManagedChannel,
@@ -23,6 +36,42 @@ class AntdGrpcClient internal constructor(
             val target = DaemonDiscovery.discoverGrpcTarget().ifEmpty { "localhost:50051" }
             return AntdGrpcClient(target)
         }
+
+        /** Response-metadata key carrying the total download size in bytes. */
+        private val X_CONTENT_LENGTH: Metadata.Key<String> =
+            Metadata.Key.of("x-content-length", Metadata.ASCII_STRING_MARSHALLER)
+    }
+
+    /**
+     * Captures a streaming call's response headers into [headers] so the
+     * `*WithProgress` methods can surface the `x-content-length` byte total —
+     * grpc-kotlin's coroutine stub otherwise hides response metadata.
+     */
+    private class MetadataCapturingInterceptor(
+        private val headers: AtomicReference<Metadata?>,
+    ) : ClientInterceptor {
+        override fun <ReqT, RespT> interceptCall(
+            method: MethodDescriptor<ReqT, RespT>,
+            callOptions: CallOptions,
+            next: Channel,
+        ): ClientCall<ReqT, RespT> =
+            object : ForwardingClientCall.SimpleForwardingClientCall<ReqT, RespT>(
+                next.newCall(method, callOptions),
+            ) {
+                override fun start(responseListener: Listener<RespT>, metadata: Metadata) {
+                    super.start(
+                        object : ForwardingClientCallListener.SimpleForwardingClientCallListener<RespT>(
+                            responseListener,
+                        ) {
+                            override fun onHeaders(responseHeaders: Metadata) {
+                                headers.set(responseHeaders)
+                                super.onHeaders(responseHeaders)
+                            }
+                        },
+                        metadata,
+                    )
+                }
+            }
     }
 
     private val healthStub = HealthServiceGrpcKt.HealthServiceCoroutineStub(channel)
@@ -69,7 +118,7 @@ class AntdGrpcClient internal constructor(
             this.data = ByteString.copyFrom(data)
             this.paymentMode = paymentMode.wire
         })
-        DataPutPublicResult(address = resp.address)
+        DataPutPublicResult(address = resp.address, chunksStored = resp.chunksStored.toULong(), paymentModeUsed = resp.paymentModeUsed)
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
     override suspend fun dataGetPublic(address: String): ByteArray = try {
@@ -82,13 +131,118 @@ class AntdGrpcClient internal constructor(
             this.data = ByteString.copyFrom(data)
             this.paymentMode = paymentMode.wire
         })
-        DataPutResult(dataMap = resp.dataMap)
+        DataPutResult(dataMap = resp.dataMap, chunksStored = resp.chunksStored.toULong(), paymentModeUsed = resp.paymentModeUsed)
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
     override suspend fun dataGet(dataMap: String): ByteArray = try {
         val resp = dataStub.get(getDataRequest { this.dataMap = dataMap })
         resp.data.toByteArray()
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
+
+    /**
+     * Streams private data from a caller-held DataMap (hex), one decrypt batch
+     * at a time, instead of buffering the whole object. The gRPC counterpart to
+     * [dataGet] and mirror of the REST client's `dataStream`; returns a cold
+     * [Flow] of raw byte chunks the caller collects incrementally.
+     */
+    fun dataStream(dataMap: String): Flow<ByteArray> =
+        dataStub.stream(streamDataRequest { this.dataMap = dataMap })
+            .map { it.data.toByteArray() }
+            .catch { ex -> throw wrapStream(ex) }
+
+    /** Streams public data by address — the gRPC counterpart to [dataGetPublic]. */
+    fun dataStreamPublic(address: String): Flow<ByteArray> =
+        dataStub.streamPublic(streamPublicDataRequest { this.address = address })
+            .map { it.data.toByteArray() }
+            .catch { ex -> throw wrapStream(ex) }
+
+    /**
+     * Like [dataStream] but requests interleaved fetch-progress frames so the
+     * caller can drive a *determinate* download progress bar. Each emitted
+     * [DownloadFrame] is either a plaintext byte chunk or a [DownloadProgress]
+     * update (see [DownloadFrame.isProgress]). The byte denominator is surfaced
+     * as a leading [DownloadFrame] carrying [DownloadFrame.totalSize], read from
+     * the response's `x-content-length` metadata (emitted at most once, before
+     * any data; absent/unparseable header => no Meta frame).
+     *
+     * Requires antd >= 0.11.0.
+     */
+    fun dataStreamWithProgress(dataMap: String): Flow<DownloadFrame> = flow {
+        val headers = AtomicReference<Metadata?>()
+        val stub = dataStub.withInterceptors(MetadataCapturingInterceptor(headers))
+        val chunks = stub.stream(streamDataRequest {
+            this.dataMap = dataMap
+            this.includeProgress = true
+        }).map { frameOf(it) }
+        emitWithMeta(chunks, headers)
+    }.catch { ex -> throw wrapStream(ex) }
+
+    /**
+     * Like [dataStreamPublic] but requests interleaved fetch-progress frames.
+     * See [dataStreamWithProgress].
+     */
+    fun dataStreamPublicWithProgress(address: String): Flow<DownloadFrame> = flow {
+        val headers = AtomicReference<Metadata?>()
+        val stub = dataStub.withInterceptors(MetadataCapturingInterceptor(headers))
+        val chunks = stub.streamPublic(streamPublicDataRequest {
+            this.address = address
+            this.includeProgress = true
+        }).map { frameOf(it) }
+        emitWithMeta(chunks, headers)
+    }.catch { ex -> throw wrapStream(ex) }
+
+    /**
+     * Collects the mapped [chunks] flow, prepending a leading [DownloadFrame]
+     * carrying the byte denominator from the captured `x-content-length` header
+     * the moment it becomes available. Response headers arrive before the first
+     * message, so the Meta frame is emitted before any data; an absent or
+     * unparseable header yields no Meta frame (older daemons).
+     */
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<DownloadFrame>.emitWithMeta(
+        chunks: Flow<DownloadFrame>,
+        headers: AtomicReference<Metadata?>,
+    ) {
+        var metaEmitted = false
+        chunks.collect { frame ->
+            if (!metaEmitted) {
+                metaEmitted = true
+                metaFrameOf(headers.get())?.let { emit(it) }
+            }
+            emit(frame)
+        }
+    }
+
+    /**
+     * Reads `x-content-length` from captured response [metadata] and wraps it as
+     * a leading [DownloadFrame]. Returns null when the header is absent or
+     * unparseable, so the caller simply yields no Meta frame.
+     */
+    private fun metaFrameOf(metadata: Metadata?): DownloadFrame? =
+        metadata?.get(X_CONTENT_LENGTH)?.toULongOrNull()?.let { DownloadFrame(totalSize = it) }
+
+    /**
+     * Maps a wire [Data.DataChunk] onto a public [DownloadFrame] via its
+     * `oneof kind`. A frame with no arm set (shouldn't occur) is treated as an
+     * empty data chunk, matching the antd-rust reference consumer.
+     */
+    private fun frameOf(chunk: Data.DataChunk): DownloadFrame =
+        when (chunk.kindCase) {
+            Data.DataChunk.KindCase.PROGRESS -> DownloadFrame(
+                progress = DownloadProgress(
+                    phase = chunk.progress.phase,
+                    fetched = chunk.progress.fetched.toULong(),
+                    total = chunk.progress.total.toULong(),
+                ),
+            )
+            else -> DownloadFrame(data = chunk.data.toByteArray())
+        }
+
+    /** Maps the coroutine stub's stream errors (StatusException) onto AntdException. */
+    private fun wrapStream(ex: Throwable): Throwable = when (ex) {
+        is StatusException -> ExceptionMapping.fromGrpcStatus(ex.status.asRuntimeException())
+        is StatusRuntimeException -> wrap(ex)
+        else -> ex
+    }
 
     override suspend fun dataCost(data: ByteArray, paymentMode: PaymentMode): UploadCostEstimate = try {
         val resp = dataStub.cost(dataCostRequest {

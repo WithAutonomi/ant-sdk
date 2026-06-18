@@ -22,16 +22,68 @@ rescue LoadError
       def data_get(m)           grpc_call { @data_stub.get(nil).data } end
       def data_put_public(d, payment_mode: PaymentMode::AUTO) grpc_call { r = @data_stub.put_public(nil); DataPutPublicResult.new(address: r.address) } end
       def data_get_public(a)    grpc_call { @data_stub.get_public(nil).data } end
-      def data_cost(d, payment_mode: PaymentMode::AUTO) grpc_call { @data_stub.cost(nil).atto_tokens } end
+      def data_stream(m, &blk)
+        return enum_for(:data_stream, m) unless block_given?
+        grpc_call { @data_stub.stream(nil).each { |c| blk.call(c.data) } }
+        nil
+      end
+      def data_stream_public(a, &blk)
+        return enum_for(:data_stream_public, a) unless block_given?
+        grpc_call { @data_stub.stream_public(nil).each { |c| blk.call(c.data) } }
+        nil
+      end
+      def data_stream_with_progress(m, &blk)
+        return enum_for(:data_stream_with_progress, m) unless block_given?
+        req = OpenStruct.new(data_map: m, include_progress: true)
+        grpc_call { stream_with_progress(@data_stub.stream(req, return_op: true), &blk) }
+        nil
+      end
+      def data_stream_public_with_progress(a, &blk)
+        return enum_for(:data_stream_public_with_progress, a) unless block_given?
+        req = OpenStruct.new(address: a, include_progress: true)
+        grpc_call { stream_with_progress(@data_stub.stream_public(req, return_op: true), &blk) }
+        nil
+      end
+      def data_cost(d, payment_mode: PaymentMode::AUTO) grpc_call { r = @data_stub.cost(nil); UploadCostEstimate.new(cost: r.atto_tokens, file_size: r.file_size, chunk_count: r.chunk_count, estimated_gas_cost_wei: r.estimated_gas_cost_wei, payment_mode: r.payment_mode) } end
       def chunk_put(d)          grpc_call { r = @chunk_stub.put(nil); PutResult.new(cost: r.cost.atto_tokens, address: r.address) } end
       def chunk_get(a)          grpc_call { @chunk_stub.get(nil).data } end
       def file_put(p, payment_mode: PaymentMode::AUTO) grpc_call { r = @file_stub.put(nil); FilePutResult.new(data_map: r.data_map, storage_cost_atto: r.storage_cost_atto, gas_cost_wei: r.gas_cost_wei, chunks_stored: r.chunks_stored, payment_mode_used: r.payment_mode_used) } end
       def file_get(m, d)        grpc_call { @file_stub.get(nil); nil } end
       def file_put_public(p, payment_mode: PaymentMode::AUTO) grpc_call { r = @file_stub.put_public(nil); FilePutPublicResult.new(address: r.address, storage_cost_atto: r.storage_cost_atto, gas_cost_wei: r.gas_cost_wei, chunks_stored: r.chunks_stored, payment_mode_used: r.payment_mode_used) } end
       def file_get_public(a, d) grpc_call { @file_stub.get_public(nil); nil } end
-      def file_cost(p, ip = true, payment_mode: PaymentMode::AUTO) grpc_call { @file_stub.cost(nil).atto_tokens } end
+      def file_cost(p, ip = true, payment_mode: PaymentMode::AUTO) grpc_call { r = @file_stub.cost(nil); UploadCostEstimate.new(cost: r.atto_tokens, file_size: r.file_size, chunk_count: r.chunk_count, estimated_gas_cost_wei: r.estimated_gas_cost_wei, payment_mode: r.payment_mode) } end
 
       private
+
+      # Mirrors the real GrpcClient#stream_with_progress: yields a leading
+      # byte-total Meta frame (from x-content-length initial metadata), then the
+      # data/progress frames.
+      def stream_with_progress(op)
+        responses = op.execute
+        meta = meta_frame_from_op(op)
+        yield meta unless meta.nil?
+        responses.each { |chunk| yield frame_from_chunk(chunk) }
+      end
+
+      def meta_frame_from_op(op)
+        md = op.metadata
+        return nil if md.nil?
+        value = md["x-content-length"]
+        return nil if value.nil?
+        value = value.first if value.is_a?(Array)
+        total = Integer(value, 10) rescue nil
+        return nil if total.nil?
+        DownloadFrame.new(meta: total)
+      end
+
+      def frame_from_chunk(chunk)
+        if chunk.kind == :progress
+          p = chunk.progress
+          DownloadFrame.new(progress: DownloadProgress.new(phase: p.phase, fetched: p.fetched, total: p.total))
+        else
+          DownloadFrame.new(data: chunk.data)
+        end
+      end
 
       def grpc_call
         yield
@@ -87,6 +139,16 @@ module FakeGrpc
   # Simulates a cost sub-message with an atto_tokens field.
   Cost = Struct.new(:atto_tokens, keyword_init: true)
 
+  # Simulates a +GRPC::ActiveCall::Operation+ (returned when a server-streaming
+  # stub method is called with +return_op: true+). +#execute+ yields the
+  # response enumerator; +#metadata+ exposes the server's initial metadata
+  # (e.g. the +x-content-length+ byte-total header).
+  FakeOp = Struct.new(:responses, :metadata) do
+    def execute
+      responses
+    end
+  end
+
   # --------------------------------------------------
   # Fake stub classes
   # --------------------------------------------------
@@ -112,6 +174,40 @@ module FakeGrpc
 
     def get(_req)
       OpenStruct.new(data: "secret")
+    end
+
+    # Server-streams the payload in two chunks so the client's chunk-by-chunk
+    # consumption is exercised, not just a single message. When the request
+    # opts into progress (include_progress), a leading progress frame is
+    # interleaved — mirroring the daemon's oneof DataChunk{data | progress}.
+    #
+    # With +return_op: true+ (the *_with_progress path) it returns a fake
+    # +GRPC::ActiveCall::Operation+ carrying the +x-content-length+ initial
+    # metadata, mirroring the daemon's byte-total header.
+    def stream(req, return_op: false)
+      chunks = []
+      chunks << progress_chunk if req.respond_to?(:include_progress) && req.include_progress
+      chunks += [OpenStruct.new(kind: :data, data: "sec"), OpenStruct.new(kind: :data, data: "ret")]
+      return chunks unless return_op
+
+      FakeOp.new(chunks, { "x-content-length" => "6" })
+    end
+
+    def stream_public(req, return_op: false)
+      chunks = []
+      chunks << progress_chunk if req.respond_to?(:include_progress) && req.include_progress
+      chunks += [OpenStruct.new(kind: :data, data: "hel"), OpenStruct.new(kind: :data, data: "lo")]
+      return chunks unless return_op
+
+      FakeOp.new(chunks, { "x-content-length" => "5" })
+    end
+
+    # A oneof DataChunk with the `progress` arm set (kind == :progress).
+    def progress_chunk
+      OpenStruct.new(
+        kind: :progress,
+        progress: OpenStruct.new(phase: "fetching", fetched: 1, total: 2)
+      )
     end
 
     def cost(_req)
@@ -390,11 +486,67 @@ class TestGrpcClient < Minitest::Test
     assert_equal "secret", data
   end
 
+  # --- Data Streaming ---
+
+  def test_data_stream
+    chunks = []
+    @client.data_stream("dm123") { |c| chunks << c }
+    assert_equal %w[sec ret], chunks
+    assert_equal "secret", chunks.join
+  end
+
+  def test_data_stream_returns_enumerator_without_block
+    assert_equal "secret", @client.data_stream("dm123").to_a.join
+  end
+
+  def test_data_stream_public
+    chunks = []
+    @client.data_stream_public("abc123") { |c| chunks << c }
+    assert_equal "hello", chunks.join
+  end
+
+  # --- Data Streaming with Progress (oneof DataChunk) ---
+
+  # include_progress=true → mock interleaves a leading progress frame; data
+  # frames reassemble to the plaintext, progress frames map to DownloadProgress.
+  def test_data_stream_with_progress
+    frames = []
+    @client.data_stream_with_progress("dm123") { |f| frames << f }
+
+    data = frames.select { |f| !f.meta? && !f.progress? }.map(&:data).join
+    progress = frames.select(&:progress?).map(&:progress)
+    assert_equal "secret", data
+    assert_equal 1, progress.length
+    assert_equal "fetching", progress[0].phase
+    assert_equal 1, progress[0].fetched
+    assert_equal 2, progress[0].total
+    # The byte-total Meta frame (x-content-length) surfaces first.
+    assert(frames.first.meta?)
+    assert_equal 6, frames.first.meta
+  end
+
+  def test_data_stream_with_progress_returns_enumerator
+    frames = @client.data_stream_with_progress("dm123").to_a
+    assert_equal "secret", frames.select { |f| !f.meta? && !f.progress? }.map(&:data).join
+    assert(frames.any?(&:progress?))
+    assert(frames.any?(&:meta?))
+  end
+
+  def test_data_stream_public_with_progress
+    frames = []
+    @client.data_stream_public_with_progress("abc123") { |f| frames << f }
+    assert_equal "hello", frames.select { |f| !f.meta? && !f.progress? }.map(&:data).join
+    assert(frames.any?(&:progress?))
+    # The byte-total Meta frame (x-content-length) surfaces first.
+    assert(frames.first.meta?)
+    assert_equal 5, frames.first.meta
+  end
+
   # --- Data Cost ---
 
   def test_data_cost
     cost = @client.data_cost("test")
-    assert_equal "50", cost
+    assert_equal "50", cost.cost
   end
 
   # --- Chunks ---
@@ -441,7 +593,7 @@ class TestGrpcClient < Minitest::Test
 
   def test_file_cost
     cost = @client.file_cost("/tmp/test.txt", true)
-    assert_equal "1000", cost
+    assert_equal "1000", cost.cost
   end
 
   # --- Error Mapping (GRPC::BadStatus -> Antd errors) ---
@@ -502,7 +654,7 @@ class TestGrpcClient < Minitest::Test
 
   def test_error_propagates_from_file_upload
     client = build_error_client(grpc_error(:RESOURCE_EXHAUSTED, "huge"))
-    assert_raises(Antd::TooLargeError) { client.file_upload_public("/tmp/big") }
+    assert_raises(Antd::TooLargeError) { client.file_put_public("/tmp/big") }
   end
 
   # --- External signer (prepare/finalize) ---

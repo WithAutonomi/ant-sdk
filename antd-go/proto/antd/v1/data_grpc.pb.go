@@ -23,6 +23,7 @@ const (
 	DataService_PutPublic_FullMethodName    = "/antd.v1.DataService/PutPublic"
 	DataService_Get_FullMethodName          = "/antd.v1.DataService/Get"
 	DataService_GetPublic_FullMethodName    = "/antd.v1.DataService/GetPublic"
+	DataService_Stream_FullMethodName       = "/antd.v1.DataService/Stream"
 	DataService_StreamPublic_FullMethodName = "/antd.v1.DataService/StreamPublic"
 	DataService_Cost_FullMethodName         = "/antd.v1.DataService/Cost"
 )
@@ -38,6 +39,10 @@ type DataServiceClient interface {
 	PutPublic(ctx context.Context, in *PutPublicDataRequest, opts ...grpc.CallOption) (*PutPublicDataResponse, error)
 	Get(ctx context.Context, in *GetDataRequest, opts ...grpc.CallOption) (*GetDataResponse, error)
 	GetPublic(ctx context.Context, in *GetPublicDataRequest, opts ...grpc.CallOption) (*GetPublicDataResponse, error)
+	// Streaming downloads — constant memory, one decrypt batch at a time.
+	// Private streams from a caller-held DataMap; public resolves the address
+	// to a DataMap first (Stream is the primitive, StreamPublic wraps it).
+	Stream(ctx context.Context, in *StreamDataRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DataChunk], error)
 	StreamPublic(ctx context.Context, in *StreamPublicDataRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DataChunk], error)
 	Cost(ctx context.Context, in *DataCostRequest, opts ...grpc.CallOption) (*Cost, error)
 }
@@ -90,9 +95,28 @@ func (c *dataServiceClient) GetPublic(ctx context.Context, in *GetPublicDataRequ
 	return out, nil
 }
 
+func (c *dataServiceClient) Stream(ctx context.Context, in *StreamDataRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DataChunk], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &DataService_ServiceDesc.Streams[0], DataService_Stream_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[StreamDataRequest, DataChunk]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type DataService_StreamClient = grpc.ServerStreamingClient[DataChunk]
+
 func (c *dataServiceClient) StreamPublic(ctx context.Context, in *StreamPublicDataRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DataChunk], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &DataService_ServiceDesc.Streams[0], DataService_StreamPublic_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &DataService_ServiceDesc.Streams[1], DataService_StreamPublic_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -130,6 +154,10 @@ type DataServiceServer interface {
 	PutPublic(context.Context, *PutPublicDataRequest) (*PutPublicDataResponse, error)
 	Get(context.Context, *GetDataRequest) (*GetDataResponse, error)
 	GetPublic(context.Context, *GetPublicDataRequest) (*GetPublicDataResponse, error)
+	// Streaming downloads — constant memory, one decrypt batch at a time.
+	// Private streams from a caller-held DataMap; public resolves the address
+	// to a DataMap first (Stream is the primitive, StreamPublic wraps it).
+	Stream(*StreamDataRequest, grpc.ServerStreamingServer[DataChunk]) error
 	StreamPublic(*StreamPublicDataRequest, grpc.ServerStreamingServer[DataChunk]) error
 	Cost(context.Context, *DataCostRequest) (*Cost, error)
 	mustEmbedUnimplementedDataServiceServer()
@@ -153,6 +181,9 @@ func (UnimplementedDataServiceServer) Get(context.Context, *GetDataRequest) (*Ge
 }
 func (UnimplementedDataServiceServer) GetPublic(context.Context, *GetPublicDataRequest) (*GetPublicDataResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetPublic not implemented")
+}
+func (UnimplementedDataServiceServer) Stream(*StreamDataRequest, grpc.ServerStreamingServer[DataChunk]) error {
+	return status.Error(codes.Unimplemented, "method Stream not implemented")
 }
 func (UnimplementedDataServiceServer) StreamPublic(*StreamPublicDataRequest, grpc.ServerStreamingServer[DataChunk]) error {
 	return status.Error(codes.Unimplemented, "method StreamPublic not implemented")
@@ -253,6 +284,17 @@ func _DataService_GetPublic_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DataService_Stream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(StreamDataRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(DataServiceServer).Stream(m, &grpc.GenericServerStream[StreamDataRequest, DataChunk]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type DataService_StreamServer = grpc.ServerStreamingServer[DataChunk]
+
 func _DataService_StreamPublic_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(StreamPublicDataRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -311,6 +353,11 @@ var DataService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "Stream",
+			Handler:       _DataService_Stream_Handler,
+			ServerStreams: true,
+		},
 		{
 			StreamName:    "StreamPublic",
 			Handler:       _DataService_StreamPublic_Handler,

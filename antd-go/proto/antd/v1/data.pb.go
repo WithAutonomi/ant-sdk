@@ -165,11 +165,15 @@ func (x *PutPublicDataRequest) GetPaymentMode() string {
 }
 
 type PutPublicDataResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Cost          *Cost                  `protobuf:"bytes,1,opt,name=cost,proto3" json:"cost,omitempty"`
-	Address       string                 `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"` // hex
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Cost    *Cost                  `protobuf:"bytes,1,opt,name=cost,proto3" json:"cost,omitempty"`
+	Address string                 `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"` // hex
+	// Number of chunks stored on the network.
+	ChunksStored uint64 `protobuf:"varint,3,opt,name=chunks_stored,json=chunksStored,proto3" json:"chunks_stored,omitempty"`
+	// Which payment mode was actually used ("auto", "merkle", or "single").
+	PaymentModeUsed string `protobuf:"bytes,4,opt,name=payment_mode_used,json=paymentModeUsed,proto3" json:"payment_mode_used,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *PutPublicDataResponse) Reset() {
@@ -216,11 +220,30 @@ func (x *PutPublicDataResponse) GetAddress() string {
 	return ""
 }
 
+func (x *PutPublicDataResponse) GetChunksStored() uint64 {
+	if x != nil {
+		return x.ChunksStored
+	}
+	return 0
+}
+
+func (x *PutPublicDataResponse) GetPaymentModeUsed() string {
+	if x != nil {
+		return x.PaymentModeUsed
+	}
+	return ""
+}
+
 type StreamPublicDataRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Address       string                 `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"` // hex
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Address string                 `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"` // hex
+	// When true, the server interleaves DownloadProgress frames with the data
+	// frames on the same stream so the caller can drive a determinate fetch
+	// progress bar. Defaults to false — old clients omitting it receive a
+	// pure data-frame stream, byte-identical to the pre-progress behaviour.
+	IncludeProgress bool `protobuf:"varint,2,opt,name=include_progress,json=includeProgress,proto3" json:"include_progress,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *StreamPublicDataRequest) Reset() {
@@ -260,9 +283,25 @@ func (x *StreamPublicDataRequest) GetAddress() string {
 	return ""
 }
 
+func (x *StreamPublicDataRequest) GetIncludeProgress() bool {
+	if x != nil {
+		return x.IncludeProgress
+	}
+	return false
+}
+
+// A single frame of a streaming download. Exactly one of `data` (a decrypted
+// plaintext chunk) or `progress` (a fetch-progress update) is set per frame.
+// `data` keeps wire tag 1, so a frame carrying data is byte-identical to the
+// pre-oneof `DataChunk { bytes data = 1 }` — only opt-in progress consumers
+// ever observe `progress` frames (see StreamDataRequest.include_progress).
 type DataChunk struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Kind:
+	//
+	//	*DataChunk_Data
+	//	*DataChunk_Progress
+	Kind          isDataChunk_Kind `protobuf_oneof:"kind"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -297,11 +336,114 @@ func (*DataChunk) Descriptor() ([]byte, []int) {
 	return file_antd_v1_data_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *DataChunk) GetData() []byte {
+func (x *DataChunk) GetKind() isDataChunk_Kind {
 	if x != nil {
-		return x.Data
+		return x.Kind
 	}
 	return nil
+}
+
+func (x *DataChunk) GetData() []byte {
+	if x != nil {
+		if x, ok := x.Kind.(*DataChunk_Data); ok {
+			return x.Data
+		}
+	}
+	return nil
+}
+
+func (x *DataChunk) GetProgress() *DownloadProgress {
+	if x != nil {
+		if x, ok := x.Kind.(*DataChunk_Progress); ok {
+			return x.Progress
+		}
+	}
+	return nil
+}
+
+type isDataChunk_Kind interface {
+	isDataChunk_Kind()
+}
+
+type DataChunk_Data struct {
+	Data []byte `protobuf:"bytes,1,opt,name=data,proto3,oneof"`
+}
+
+type DataChunk_Progress struct {
+	Progress *DownloadProgress `protobuf:"bytes,2,opt,name=progress,proto3,oneof"`
+}
+
+func (*DataChunk_Data) isDataChunk_Kind() {}
+
+func (*DataChunk_Progress) isDataChunk_Kind() {}
+
+// Fetch-progress update surfaced from ant-core's DownloadEvent. `fetched` /
+// `total` count chunks (not bytes); `total` is 0 while still unknown (e.g.
+// mid DataMap-resolution). This is the *numerator* for a real progress bar —
+// the x-content-length header / Content-Length is the byte *denominator*, but
+// decrypted-byte delivery lands in lumps, so chunk-fetch counts are what
+// actually advance smoothly during a download.
+type DownloadProgress struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// One of: "resolving_map", "resolved", "fetching".
+	Phase string `protobuf:"bytes,1,opt,name=phase,proto3" json:"phase,omitempty"`
+	// Chunks fetched so far in the current phase.
+	Fetched uint64 `protobuf:"varint,2,opt,name=fetched,proto3" json:"fetched,omitempty"`
+	// Total chunks for the current phase, or 0 if not yet known.
+	Total         uint64 `protobuf:"varint,3,opt,name=total,proto3" json:"total,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DownloadProgress) Reset() {
+	*x = DownloadProgress{}
+	mi := &file_antd_v1_data_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DownloadProgress) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DownloadProgress) ProtoMessage() {}
+
+func (x *DownloadProgress) ProtoReflect() protoreflect.Message {
+	mi := &file_antd_v1_data_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DownloadProgress.ProtoReflect.Descriptor instead.
+func (*DownloadProgress) Descriptor() ([]byte, []int) {
+	return file_antd_v1_data_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *DownloadProgress) GetPhase() string {
+	if x != nil {
+		return x.Phase
+	}
+	return ""
+}
+
+func (x *DownloadProgress) GetFetched() uint64 {
+	if x != nil {
+		return x.Fetched
+	}
+	return 0
+}
+
+func (x *DownloadProgress) GetTotal() uint64 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
 }
 
 type GetDataRequest struct {
@@ -313,7 +455,7 @@ type GetDataRequest struct {
 
 func (x *GetDataRequest) Reset() {
 	*x = GetDataRequest{}
-	mi := &file_antd_v1_data_proto_msgTypes[6]
+	mi := &file_antd_v1_data_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -325,7 +467,7 @@ func (x *GetDataRequest) String() string {
 func (*GetDataRequest) ProtoMessage() {}
 
 func (x *GetDataRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_antd_v1_data_proto_msgTypes[6]
+	mi := &file_antd_v1_data_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -338,7 +480,7 @@ func (x *GetDataRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDataRequest.ProtoReflect.Descriptor instead.
 func (*GetDataRequest) Descriptor() ([]byte, []int) {
-	return file_antd_v1_data_proto_rawDescGZIP(), []int{6}
+	return file_antd_v1_data_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *GetDataRequest) GetDataMap() string {
@@ -346,6 +488,59 @@ func (x *GetDataRequest) GetDataMap() string {
 		return x.DataMap
 	}
 	return ""
+}
+
+type StreamDataRequest struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	DataMap string                 `protobuf:"bytes,1,opt,name=data_map,json=dataMap,proto3" json:"data_map,omitempty"` // hex
+	// See StreamPublicDataRequest.include_progress. Defaults to false.
+	IncludeProgress bool `protobuf:"varint,2,opt,name=include_progress,json=includeProgress,proto3" json:"include_progress,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *StreamDataRequest) Reset() {
+	*x = StreamDataRequest{}
+	mi := &file_antd_v1_data_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StreamDataRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamDataRequest) ProtoMessage() {}
+
+func (x *StreamDataRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_antd_v1_data_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamDataRequest.ProtoReflect.Descriptor instead.
+func (*StreamDataRequest) Descriptor() ([]byte, []int) {
+	return file_antd_v1_data_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *StreamDataRequest) GetDataMap() string {
+	if x != nil {
+		return x.DataMap
+	}
+	return ""
+}
+
+func (x *StreamDataRequest) GetIncludeProgress() bool {
+	if x != nil {
+		return x.IncludeProgress
+	}
+	return false
 }
 
 type GetDataResponse struct {
@@ -357,7 +552,7 @@ type GetDataResponse struct {
 
 func (x *GetDataResponse) Reset() {
 	*x = GetDataResponse{}
-	mi := &file_antd_v1_data_proto_msgTypes[7]
+	mi := &file_antd_v1_data_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -369,7 +564,7 @@ func (x *GetDataResponse) String() string {
 func (*GetDataResponse) ProtoMessage() {}
 
 func (x *GetDataResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_antd_v1_data_proto_msgTypes[7]
+	mi := &file_antd_v1_data_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -382,7 +577,7 @@ func (x *GetDataResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDataResponse.ProtoReflect.Descriptor instead.
 func (*GetDataResponse) Descriptor() ([]byte, []int) {
-	return file_antd_v1_data_proto_rawDescGZIP(), []int{7}
+	return file_antd_v1_data_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GetDataResponse) GetData() []byte {
@@ -405,7 +600,7 @@ type PutDataRequest struct {
 
 func (x *PutDataRequest) Reset() {
 	*x = PutDataRequest{}
-	mi := &file_antd_v1_data_proto_msgTypes[8]
+	mi := &file_antd_v1_data_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -417,7 +612,7 @@ func (x *PutDataRequest) String() string {
 func (*PutDataRequest) ProtoMessage() {}
 
 func (x *PutDataRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_antd_v1_data_proto_msgTypes[8]
+	mi := &file_antd_v1_data_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -430,7 +625,7 @@ func (x *PutDataRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PutDataRequest.ProtoReflect.Descriptor instead.
 func (*PutDataRequest) Descriptor() ([]byte, []int) {
-	return file_antd_v1_data_proto_rawDescGZIP(), []int{8}
+	return file_antd_v1_data_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *PutDataRequest) GetData() []byte {
@@ -448,16 +643,20 @@ func (x *PutDataRequest) GetPaymentMode() string {
 }
 
 type PutDataResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Cost          *Cost                  `protobuf:"bytes,1,opt,name=cost,proto3" json:"cost,omitempty"`
-	DataMap       string                 `protobuf:"bytes,2,opt,name=data_map,json=dataMap,proto3" json:"data_map,omitempty"` // hex
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Cost    *Cost                  `protobuf:"bytes,1,opt,name=cost,proto3" json:"cost,omitempty"`
+	DataMap string                 `protobuf:"bytes,2,opt,name=data_map,json=dataMap,proto3" json:"data_map,omitempty"` // hex
+	// Number of chunks stored on the network.
+	ChunksStored uint64 `protobuf:"varint,3,opt,name=chunks_stored,json=chunksStored,proto3" json:"chunks_stored,omitempty"`
+	// Which payment mode was actually used ("auto", "merkle", or "single").
+	PaymentModeUsed string `protobuf:"bytes,4,opt,name=payment_mode_used,json=paymentModeUsed,proto3" json:"payment_mode_used,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *PutDataResponse) Reset() {
 	*x = PutDataResponse{}
-	mi := &file_antd_v1_data_proto_msgTypes[9]
+	mi := &file_antd_v1_data_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -469,7 +668,7 @@ func (x *PutDataResponse) String() string {
 func (*PutDataResponse) ProtoMessage() {}
 
 func (x *PutDataResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_antd_v1_data_proto_msgTypes[9]
+	mi := &file_antd_v1_data_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -482,7 +681,7 @@ func (x *PutDataResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PutDataResponse.ProtoReflect.Descriptor instead.
 func (*PutDataResponse) Descriptor() ([]byte, []int) {
-	return file_antd_v1_data_proto_rawDescGZIP(), []int{9}
+	return file_antd_v1_data_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *PutDataResponse) GetCost() *Cost {
@@ -499,6 +698,20 @@ func (x *PutDataResponse) GetDataMap() string {
 	return ""
 }
 
+func (x *PutDataResponse) GetChunksStored() uint64 {
+	if x != nil {
+		return x.ChunksStored
+	}
+	return 0
+}
+
+func (x *PutDataResponse) GetPaymentModeUsed() string {
+	if x != nil {
+		return x.PaymentModeUsed
+	}
+	return ""
+}
+
 type DataCostRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Data  []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
@@ -511,7 +724,7 @@ type DataCostRequest struct {
 
 func (x *DataCostRequest) Reset() {
 	*x = DataCostRequest{}
-	mi := &file_antd_v1_data_proto_msgTypes[10]
+	mi := &file_antd_v1_data_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -523,7 +736,7 @@ func (x *DataCostRequest) String() string {
 func (*DataCostRequest) ProtoMessage() {}
 
 func (x *DataCostRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_antd_v1_data_proto_msgTypes[10]
+	mi := &file_antd_v1_data_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -536,7 +749,7 @@ func (x *DataCostRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DataCostRequest.ProtoReflect.Descriptor instead.
 func (*DataCostRequest) Descriptor() ([]byte, []int) {
-	return file_antd_v1_data_proto_rawDescGZIP(), []int{10}
+	return file_antd_v1_data_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *DataCostRequest) GetData() []byte {
@@ -564,32 +777,47 @@ const file_antd_v1_data_proto_rawDesc = "" +
 	"\x04data\x18\x01 \x01(\fR\x04data\"M\n" +
 	"\x14PutPublicDataRequest\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\x12!\n" +
-	"\fpayment_mode\x18\x02 \x01(\tR\vpaymentMode\"T\n" +
+	"\fpayment_mode\x18\x02 \x01(\tR\vpaymentMode\"\xa5\x01\n" +
 	"\x15PutPublicDataResponse\x12!\n" +
 	"\x04cost\x18\x01 \x01(\v2\r.antd.v1.CostR\x04cost\x12\x18\n" +
-	"\aaddress\x18\x02 \x01(\tR\aaddress\"3\n" +
+	"\aaddress\x18\x02 \x01(\tR\aaddress\x12#\n" +
+	"\rchunks_stored\x18\x03 \x01(\x04R\fchunksStored\x12*\n" +
+	"\x11payment_mode_used\x18\x04 \x01(\tR\x0fpaymentModeUsed\"^\n" +
 	"\x17StreamPublicDataRequest\x12\x18\n" +
-	"\aaddress\x18\x01 \x01(\tR\aaddress\"\x1f\n" +
-	"\tDataChunk\x12\x12\n" +
-	"\x04data\x18\x01 \x01(\fR\x04data\"+\n" +
+	"\aaddress\x18\x01 \x01(\tR\aaddress\x12)\n" +
+	"\x10include_progress\x18\x02 \x01(\bR\x0fincludeProgress\"b\n" +
+	"\tDataChunk\x12\x14\n" +
+	"\x04data\x18\x01 \x01(\fH\x00R\x04data\x127\n" +
+	"\bprogress\x18\x02 \x01(\v2\x19.antd.v1.DownloadProgressH\x00R\bprogressB\x06\n" +
+	"\x04kind\"X\n" +
+	"\x10DownloadProgress\x12\x14\n" +
+	"\x05phase\x18\x01 \x01(\tR\x05phase\x12\x18\n" +
+	"\afetched\x18\x02 \x01(\x04R\afetched\x12\x14\n" +
+	"\x05total\x18\x03 \x01(\x04R\x05total\"+\n" +
 	"\x0eGetDataRequest\x12\x19\n" +
-	"\bdata_map\x18\x01 \x01(\tR\adataMap\"%\n" +
+	"\bdata_map\x18\x01 \x01(\tR\adataMap\"Y\n" +
+	"\x11StreamDataRequest\x12\x19\n" +
+	"\bdata_map\x18\x01 \x01(\tR\adataMap\x12)\n" +
+	"\x10include_progress\x18\x02 \x01(\bR\x0fincludeProgress\"%\n" +
 	"\x0fGetDataResponse\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\"G\n" +
 	"\x0ePutDataRequest\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\x12!\n" +
-	"\fpayment_mode\x18\x02 \x01(\tR\vpaymentMode\"O\n" +
+	"\fpayment_mode\x18\x02 \x01(\tR\vpaymentMode\"\xa0\x01\n" +
 	"\x0fPutDataResponse\x12!\n" +
 	"\x04cost\x18\x01 \x01(\v2\r.antd.v1.CostR\x04cost\x12\x19\n" +
-	"\bdata_map\x18\x02 \x01(\tR\adataMap\"H\n" +
+	"\bdata_map\x18\x02 \x01(\tR\adataMap\x12#\n" +
+	"\rchunks_stored\x18\x03 \x01(\x04R\fchunksStored\x12*\n" +
+	"\x11payment_mode_used\x18\x04 \x01(\tR\x0fpaymentModeUsed\"H\n" +
 	"\x0fDataCostRequest\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\x12!\n" +
-	"\fpayment_mode\x18\x02 \x01(\tR\vpaymentMode2\x92\x03\n" +
+	"\fpayment_mode\x18\x02 \x01(\tR\vpaymentMode2\xce\x03\n" +
 	"\vDataService\x128\n" +
 	"\x03Put\x12\x17.antd.v1.PutDataRequest\x1a\x18.antd.v1.PutDataResponse\x12J\n" +
 	"\tPutPublic\x12\x1d.antd.v1.PutPublicDataRequest\x1a\x1e.antd.v1.PutPublicDataResponse\x128\n" +
 	"\x03Get\x12\x17.antd.v1.GetDataRequest\x1a\x18.antd.v1.GetDataResponse\x12J\n" +
-	"\tGetPublic\x12\x1d.antd.v1.GetPublicDataRequest\x1a\x1e.antd.v1.GetPublicDataResponse\x12F\n" +
+	"\tGetPublic\x12\x1d.antd.v1.GetPublicDataRequest\x1a\x1e.antd.v1.GetPublicDataResponse\x12:\n" +
+	"\x06Stream\x12\x1a.antd.v1.StreamDataRequest\x1a\x12.antd.v1.DataChunk0\x01\x12F\n" +
 	"\fStreamPublic\x12 .antd.v1.StreamPublicDataRequest\x1a\x12.antd.v1.DataChunk0\x01\x12/\n" +
 	"\x04Cost\x12\x18.antd.v1.DataCostRequest\x1a\r.antd.v1.CostBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\aAntd.V1b\x06proto3"
 
@@ -605,7 +833,7 @@ func file_antd_v1_data_proto_rawDescGZIP() []byte {
 	return file_antd_v1_data_proto_rawDescData
 }
 
-var file_antd_v1_data_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_antd_v1_data_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_antd_v1_data_proto_goTypes = []any{
 	(*GetPublicDataRequest)(nil),    // 0: antd.v1.GetPublicDataRequest
 	(*GetPublicDataResponse)(nil),   // 1: antd.v1.GetPublicDataResponse
@@ -613,33 +841,38 @@ var file_antd_v1_data_proto_goTypes = []any{
 	(*PutPublicDataResponse)(nil),   // 3: antd.v1.PutPublicDataResponse
 	(*StreamPublicDataRequest)(nil), // 4: antd.v1.StreamPublicDataRequest
 	(*DataChunk)(nil),               // 5: antd.v1.DataChunk
-	(*GetDataRequest)(nil),          // 6: antd.v1.GetDataRequest
-	(*GetDataResponse)(nil),         // 7: antd.v1.GetDataResponse
-	(*PutDataRequest)(nil),          // 8: antd.v1.PutDataRequest
-	(*PutDataResponse)(nil),         // 9: antd.v1.PutDataResponse
-	(*DataCostRequest)(nil),         // 10: antd.v1.DataCostRequest
-	(*Cost)(nil),                    // 11: antd.v1.Cost
+	(*DownloadProgress)(nil),        // 6: antd.v1.DownloadProgress
+	(*GetDataRequest)(nil),          // 7: antd.v1.GetDataRequest
+	(*StreamDataRequest)(nil),       // 8: antd.v1.StreamDataRequest
+	(*GetDataResponse)(nil),         // 9: antd.v1.GetDataResponse
+	(*PutDataRequest)(nil),          // 10: antd.v1.PutDataRequest
+	(*PutDataResponse)(nil),         // 11: antd.v1.PutDataResponse
+	(*DataCostRequest)(nil),         // 12: antd.v1.DataCostRequest
+	(*Cost)(nil),                    // 13: antd.v1.Cost
 }
 var file_antd_v1_data_proto_depIdxs = []int32{
-	11, // 0: antd.v1.PutPublicDataResponse.cost:type_name -> antd.v1.Cost
-	11, // 1: antd.v1.PutDataResponse.cost:type_name -> antd.v1.Cost
-	8,  // 2: antd.v1.DataService.Put:input_type -> antd.v1.PutDataRequest
-	2,  // 3: antd.v1.DataService.PutPublic:input_type -> antd.v1.PutPublicDataRequest
-	6,  // 4: antd.v1.DataService.Get:input_type -> antd.v1.GetDataRequest
-	0,  // 5: antd.v1.DataService.GetPublic:input_type -> antd.v1.GetPublicDataRequest
-	4,  // 6: antd.v1.DataService.StreamPublic:input_type -> antd.v1.StreamPublicDataRequest
-	10, // 7: antd.v1.DataService.Cost:input_type -> antd.v1.DataCostRequest
-	9,  // 8: antd.v1.DataService.Put:output_type -> antd.v1.PutDataResponse
-	3,  // 9: antd.v1.DataService.PutPublic:output_type -> antd.v1.PutPublicDataResponse
-	7,  // 10: antd.v1.DataService.Get:output_type -> antd.v1.GetDataResponse
-	1,  // 11: antd.v1.DataService.GetPublic:output_type -> antd.v1.GetPublicDataResponse
-	5,  // 12: antd.v1.DataService.StreamPublic:output_type -> antd.v1.DataChunk
-	11, // 13: antd.v1.DataService.Cost:output_type -> antd.v1.Cost
-	8,  // [8:14] is the sub-list for method output_type
-	2,  // [2:8] is the sub-list for method input_type
-	2,  // [2:2] is the sub-list for extension type_name
-	2,  // [2:2] is the sub-list for extension extendee
-	0,  // [0:2] is the sub-list for field type_name
+	13, // 0: antd.v1.PutPublicDataResponse.cost:type_name -> antd.v1.Cost
+	6,  // 1: antd.v1.DataChunk.progress:type_name -> antd.v1.DownloadProgress
+	13, // 2: antd.v1.PutDataResponse.cost:type_name -> antd.v1.Cost
+	10, // 3: antd.v1.DataService.Put:input_type -> antd.v1.PutDataRequest
+	2,  // 4: antd.v1.DataService.PutPublic:input_type -> antd.v1.PutPublicDataRequest
+	7,  // 5: antd.v1.DataService.Get:input_type -> antd.v1.GetDataRequest
+	0,  // 6: antd.v1.DataService.GetPublic:input_type -> antd.v1.GetPublicDataRequest
+	8,  // 7: antd.v1.DataService.Stream:input_type -> antd.v1.StreamDataRequest
+	4,  // 8: antd.v1.DataService.StreamPublic:input_type -> antd.v1.StreamPublicDataRequest
+	12, // 9: antd.v1.DataService.Cost:input_type -> antd.v1.DataCostRequest
+	11, // 10: antd.v1.DataService.Put:output_type -> antd.v1.PutDataResponse
+	3,  // 11: antd.v1.DataService.PutPublic:output_type -> antd.v1.PutPublicDataResponse
+	9,  // 12: antd.v1.DataService.Get:output_type -> antd.v1.GetDataResponse
+	1,  // 13: antd.v1.DataService.GetPublic:output_type -> antd.v1.GetPublicDataResponse
+	5,  // 14: antd.v1.DataService.Stream:output_type -> antd.v1.DataChunk
+	5,  // 15: antd.v1.DataService.StreamPublic:output_type -> antd.v1.DataChunk
+	13, // 16: antd.v1.DataService.Cost:output_type -> antd.v1.Cost
+	10, // [10:17] is the sub-list for method output_type
+	3,  // [3:10] is the sub-list for method input_type
+	3,  // [3:3] is the sub-list for extension type_name
+	3,  // [3:3] is the sub-list for extension extendee
+	0,  // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_antd_v1_data_proto_init() }
@@ -648,13 +881,17 @@ func file_antd_v1_data_proto_init() {
 		return
 	}
 	file_antd_v1_common_proto_init()
+	file_antd_v1_data_proto_msgTypes[5].OneofWrappers = []any{
+		(*DataChunk_Data)(nil),
+		(*DataChunk_Progress)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_antd_v1_data_proto_rawDesc), len(file_antd_v1_data_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

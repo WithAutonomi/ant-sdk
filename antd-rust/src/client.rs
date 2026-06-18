@@ -1,3 +1,5 @@
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -13,6 +15,115 @@ use crate::models::*;
 
 /// Default base URL of the antd daemon.
 pub const DEFAULT_BASE_URL: &str = "http://localhost:8082";
+
+/// Media type that opts the stream endpoints into NDJSON progress framing.
+const NDJSON_CONTENT_TYPE: &str = "application/x-ndjson";
+
+/// Parse one NDJSON line into a [`DownloadFrame`]. Returns `Ok(None)` for the
+/// leading `meta` frame, blank lines, and unknown frame types (forward-compat);
+/// maps an `error` frame to a stream error.
+fn parse_ndjson_frame(line: &[u8]) -> Result<Option<DownloadFrame>, AntdError> {
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    if line.is_empty() {
+        return Ok(None);
+    }
+    let v: Value = serde_json::from_slice(line)
+        .map_err(|e| AntdError::Internal(format!("invalid NDJSON frame: {e}")))?;
+    match v.get("type").and_then(Value::as_str) {
+        Some("data") => {
+            let b64 = v.get("chunk").and_then(Value::as_str).unwrap_or_default();
+            let bytes = BASE64
+                .decode(b64)
+                .map_err(|e| AntdError::Internal(format!("base64 decode: {e}")))?;
+            Ok(Some(DownloadFrame::Data(Bytes::from(bytes))))
+        }
+        Some("progress") => Ok(Some(DownloadFrame::Progress(DownloadProgress {
+            phase: v
+                .get("phase")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            fetched: v.get("fetched").and_then(Value::as_u64).unwrap_or(0),
+            total: v.get("total").and_then(Value::as_u64).unwrap_or(0),
+        }))),
+        Some("error") => Err(AntdError::Internal(
+            v.get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("download failed")
+                .to_string(),
+        )),
+        // "meta" carries the byte denominator; surface it as a Meta frame.
+        Some("meta") => Ok(Some(DownloadFrame::Meta(
+            v.get("total_size").and_then(Value::as_u64).unwrap_or(0),
+        ))),
+        // Unknown types are ignored for forward compatibility.
+        _ => Ok(None),
+    }
+}
+
+/// [`Stream`] adapter that parses an NDJSON download body into
+/// [`DownloadFrame`]s, buffering partial lines across byte-chunk boundaries.
+struct NdjsonFrames {
+    inner: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>,
+    buf: Vec<u8>,
+    done: bool,
+}
+
+impl NdjsonFrames {
+    fn new<S>(inner: S) -> Self
+    where
+        S: Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
+    {
+        Self {
+            inner: Box::pin(inner),
+            buf: Vec::new(),
+            done: false,
+        }
+    }
+}
+
+impl Stream for NdjsonFrames {
+    type Item = Result<DownloadFrame, AntdError>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        loop {
+            // Emit any complete line already buffered.
+            if let Some(pos) = this.buf.iter().position(|&b| b == b'\n') {
+                let line: Vec<u8> = this.buf.drain(..=pos).collect();
+                match parse_ndjson_frame(&line[..line.len() - 1]) {
+                    Ok(Some(frame)) => return Poll::Ready(Some(Ok(frame))),
+                    Ok(None) => continue,
+                    Err(e) => return Poll::Ready(Some(Err(e))),
+                }
+            }
+            if this.done {
+                return Poll::Ready(None);
+            }
+            match this.inner.as_mut().poll_next(cx) {
+                Poll::Ready(Some(Ok(bytes))) => {
+                    this.buf.extend_from_slice(&bytes);
+                    continue;
+                }
+                Poll::Ready(Some(Err(e))) => return Poll::Ready(Some(Err(AntdError::from(e)))),
+                Poll::Ready(None) => {
+                    this.done = true;
+                    // Flush a trailing line with no terminating newline.
+                    if !this.buf.is_empty() {
+                        let line = std::mem::take(&mut this.buf);
+                        return match parse_ndjson_frame(&line) {
+                            Ok(Some(frame)) => Poll::Ready(Some(Ok(frame))),
+                            Ok(None) => Poll::Ready(None),
+                            Err(e) => Poll::Ready(Some(Err(e))),
+                        };
+                    }
+                    return Poll::Ready(None);
+                }
+                Poll::Pending => return Poll::Pending,
+            }
+        }
+    }
+}
 
 /// Default request timeout (5 minutes).
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
@@ -111,7 +222,23 @@ impl Client {
         path: &str,
         body: Option<Value>,
     ) -> Result<reqwest::Response, AntdError> {
+        self.do_stream_with_accept(method, path, body, None).await
+    }
+
+    /// Like [`do_stream`](Self::do_stream) but optionally sets an `Accept`
+    /// header — used to opt into NDJSON progress framing on the stream
+    /// endpoints (`Accept: application/x-ndjson`).
+    async fn do_stream_with_accept(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<Value>,
+        accept: Option<&str>,
+    ) -> Result<reqwest::Response, AntdError> {
         let mut req = self.http.request(method, self.url(path));
+        if let Some(a) = accept {
+            req = req.header(reqwest::header::ACCEPT, a);
+        }
         if let Some(b) = body {
             req = req.json(&b);
         }
@@ -322,6 +449,44 @@ impl Client {
             )
             .await?;
         Ok(resp.bytes_stream())
+    }
+
+    /// Like [`data_stream`](Self::data_stream) but opts into NDJSON progress
+    /// framing (`Accept: application/x-ndjson`), yielding [`DownloadFrame`]s so
+    /// the caller can drive a *determinate* progress bar. Data frames carry the
+    /// plaintext [`Bytes`]; progress frames carry chunk-fetch counts. The byte
+    /// denominator arrives as the leading NDJSON `meta` frame (parsed and
+    /// dropped here); a terminal `error` frame surfaces as a stream error.
+    pub async fn data_stream_with_progress(
+        &self,
+        data_map: &str,
+    ) -> Result<impl Stream<Item = Result<DownloadFrame, AntdError>>, AntdError> {
+        let resp = self
+            .do_stream_with_accept(
+                reqwest::Method::POST,
+                "/v1/data/stream",
+                Some(json!({ "data_map": data_map })),
+                Some(NDJSON_CONTENT_TYPE),
+            )
+            .await?;
+        Ok(NdjsonFrames::new(resp.bytes_stream()))
+    }
+
+    /// The public counterpart to
+    /// [`data_stream_with_progress`](Self::data_stream_with_progress).
+    pub async fn data_stream_public_with_progress(
+        &self,
+        address: &str,
+    ) -> Result<impl Stream<Item = Result<DownloadFrame, AntdError>>, AntdError> {
+        let resp = self
+            .do_stream_with_accept(
+                reqwest::Method::GET,
+                &format!("/v1/data/public/{address}/stream"),
+                None,
+                Some(NDJSON_CONTENT_TYPE),
+            )
+            .await?;
+        Ok(NdjsonFrames::new(resp.bytes_stream()))
     }
 
     /// Pre-upload cost breakdown for the given bytes.

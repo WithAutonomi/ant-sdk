@@ -84,6 +84,12 @@ public struct Antd_V1_PutPublicDataResponse: Sendable {
   /// hex
   public var address: String = String()
 
+  /// Number of chunks stored on the network.
+  public var chunksStored: UInt64 = 0
+
+  /// Which payment mode was actually used ("auto", "merkle", or "single").
+  public var paymentModeUsed: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -99,17 +105,75 @@ public struct Antd_V1_StreamPublicDataRequest: Sendable {
   /// hex
   public var address: String = String()
 
+  /// When true, the server interleaves DownloadProgress frames with the data
+  /// frames on the same stream so the caller can drive a determinate fetch
+  /// progress bar. Defaults to false — old clients omitting it receive a
+  /// pure data-frame stream, byte-identical to the pre-progress behaviour.
+  public var includeProgress: Bool = false
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 }
 
+/// A single frame of a streaming download. Exactly one of `data` (a decrypted
+/// plaintext chunk) or `progress` (a fetch-progress update) is set per frame.
+/// `data` keeps wire tag 1, so a frame carrying data is byte-identical to the
+/// pre-oneof `DataChunk { bytes data = 1 }` — only opt-in progress consumers
+/// ever observe `progress` frames (see StreamDataRequest.include_progress).
 public struct Antd_V1_DataChunk: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var data: Data = Data()
+  public var kind: Antd_V1_DataChunk.OneOf_Kind? = nil
+
+  public var data: Data {
+    get {
+      if case .data(let v)? = kind {return v}
+      return Data()
+    }
+    set {kind = .data(newValue)}
+  }
+
+  public var progress: Antd_V1_DownloadProgress {
+    get {
+      if case .progress(let v)? = kind {return v}
+      return Antd_V1_DownloadProgress()
+    }
+    set {kind = .progress(newValue)}
+  }
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public enum OneOf_Kind: Equatable, Sendable {
+    case data(Data)
+    case progress(Antd_V1_DownloadProgress)
+
+  }
+
+  public init() {}
+}
+
+/// Fetch-progress update surfaced from ant-core's DownloadEvent. `fetched` /
+/// `total` count chunks (not bytes); `total` is 0 while still unknown (e.g.
+/// mid DataMap-resolution). This is the *numerator* for a real progress bar —
+/// the x-content-length header / Content-Length is the byte *denominator*, but
+/// decrypted-byte delivery lands in lumps, so chunk-fetch counts are what
+/// actually advance smoothly during a download.
+public struct Antd_V1_DownloadProgress: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// One of: "resolving_map", "resolved", "fetching".
+  public var phase: String = String()
+
+  /// Chunks fetched so far in the current phase.
+  public var fetched: UInt64 = 0
+
+  /// Total chunks for the current phase, or 0 if not yet known.
+  public var total: UInt64 = 0
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -123,6 +187,22 @@ public struct Antd_V1_GetDataRequest: Sendable {
 
   /// hex
   public var dataMap: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Antd_V1_StreamDataRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// hex
+  public var dataMap: String = String()
+
+  /// See StreamPublicDataRequest.include_progress. Defaults to false.
+  public var includeProgress: Bool = false
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -174,6 +254,12 @@ public struct Antd_V1_PutDataResponse: Sendable {
 
   /// hex
   public var dataMap: String = String()
+
+  /// Number of chunks stored on the network.
+  public var chunksStored: UInt64 = 0
+
+  /// Which payment mode was actually used ("auto", "merkle", or "single").
+  public var paymentModeUsed: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -299,7 +385,7 @@ extension Antd_V1_PutPublicDataRequest: SwiftProtobuf.Message, SwiftProtobuf._Me
 
 extension Antd_V1_PutPublicDataResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PutPublicDataResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}cost\0\u{1}address\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}cost\0\u{1}address\0\u{3}chunks_stored\0\u{3}payment_mode_used\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -309,6 +395,8 @@ extension Antd_V1_PutPublicDataResponse: SwiftProtobuf.Message, SwiftProtobuf._M
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularMessageField(value: &self._cost) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.address) }()
+      case 3: try { try decoder.decodeSingularUInt64Field(value: &self.chunksStored) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.paymentModeUsed) }()
       default: break
       }
     }
@@ -325,12 +413,20 @@ extension Antd_V1_PutPublicDataResponse: SwiftProtobuf.Message, SwiftProtobuf._M
     if !self.address.isEmpty {
       try visitor.visitSingularStringField(value: self.address, fieldNumber: 2)
     }
+    if self.chunksStored != 0 {
+      try visitor.visitSingularUInt64Field(value: self.chunksStored, fieldNumber: 3)
+    }
+    if !self.paymentModeUsed.isEmpty {
+      try visitor.visitSingularStringField(value: self.paymentModeUsed, fieldNumber: 4)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Antd_V1_PutPublicDataResponse, rhs: Antd_V1_PutPublicDataResponse) -> Bool {
     if lhs._cost != rhs._cost {return false}
     if lhs.address != rhs.address {return false}
+    if lhs.chunksStored != rhs.chunksStored {return false}
+    if lhs.paymentModeUsed != rhs.paymentModeUsed {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -338,7 +434,7 @@ extension Antd_V1_PutPublicDataResponse: SwiftProtobuf.Message, SwiftProtobuf._M
 
 extension Antd_V1_StreamPublicDataRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".StreamPublicDataRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}address\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}address\0\u{3}include_progress\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -347,6 +443,7 @@ extension Antd_V1_StreamPublicDataRequest: SwiftProtobuf.Message, SwiftProtobuf.
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.address) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self.includeProgress) }()
       default: break
       }
     }
@@ -356,11 +453,15 @@ extension Antd_V1_StreamPublicDataRequest: SwiftProtobuf.Message, SwiftProtobuf.
     if !self.address.isEmpty {
       try visitor.visitSingularStringField(value: self.address, fieldNumber: 1)
     }
+    if self.includeProgress != false {
+      try visitor.visitSingularBoolField(value: self.includeProgress, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Antd_V1_StreamPublicDataRequest, rhs: Antd_V1_StreamPublicDataRequest) -> Bool {
     if lhs.address != rhs.address {return false}
+    if lhs.includeProgress != rhs.includeProgress {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -368,7 +469,7 @@ extension Antd_V1_StreamPublicDataRequest: SwiftProtobuf.Message, SwiftProtobuf.
 
 extension Antd_V1_DataChunk: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".DataChunk"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}data\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}data\0\u{1}progress\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -376,21 +477,93 @@ extension Antd_V1_DataChunk: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularBytesField(value: &self.data) }()
+      case 1: try {
+        var v: Data?
+        try decoder.decodeSingularBytesField(value: &v)
+        if let v = v {
+          if self.kind != nil {try decoder.handleConflictingOneOf()}
+          self.kind = .data(v)
+        }
+      }()
+      case 2: try {
+        var v: Antd_V1_DownloadProgress?
+        var hadOneofValue = false
+        if let current = self.kind {
+          hadOneofValue = true
+          if case .progress(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.kind = .progress(v)
+        }
+      }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.data.isEmpty {
-      try visitor.visitSingularBytesField(value: self.data, fieldNumber: 1)
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    switch self.kind {
+    case .data?: try {
+      guard case .data(let v)? = self.kind else { preconditionFailure() }
+      try visitor.visitSingularBytesField(value: v, fieldNumber: 1)
+    }()
+    case .progress?: try {
+      guard case .progress(let v)? = self.kind else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    }()
+    case nil: break
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Antd_V1_DataChunk, rhs: Antd_V1_DataChunk) -> Bool {
-    if lhs.data != rhs.data {return false}
+    if lhs.kind != rhs.kind {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Antd_V1_DownloadProgress: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DownloadProgress"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}phase\0\u{1}fetched\0\u{1}total\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.phase) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.fetched) }()
+      case 3: try { try decoder.decodeSingularUInt64Field(value: &self.total) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.phase.isEmpty {
+      try visitor.visitSingularStringField(value: self.phase, fieldNumber: 1)
+    }
+    if self.fetched != 0 {
+      try visitor.visitSingularUInt64Field(value: self.fetched, fieldNumber: 2)
+    }
+    if self.total != 0 {
+      try visitor.visitSingularUInt64Field(value: self.total, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Antd_V1_DownloadProgress, rhs: Antd_V1_DownloadProgress) -> Bool {
+    if lhs.phase != rhs.phase {return false}
+    if lhs.fetched != rhs.fetched {return false}
+    if lhs.total != rhs.total {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -421,6 +594,41 @@ extension Antd_V1_GetDataRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
 
   public static func ==(lhs: Antd_V1_GetDataRequest, rhs: Antd_V1_GetDataRequest) -> Bool {
     if lhs.dataMap != rhs.dataMap {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Antd_V1_StreamDataRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".StreamDataRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}data_map\0\u{3}include_progress\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.dataMap) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self.includeProgress) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.dataMap.isEmpty {
+      try visitor.visitSingularStringField(value: self.dataMap, fieldNumber: 1)
+    }
+    if self.includeProgress != false {
+      try visitor.visitSingularBoolField(value: self.includeProgress, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Antd_V1_StreamDataRequest, rhs: Antd_V1_StreamDataRequest) -> Bool {
+    if lhs.dataMap != rhs.dataMap {return false}
+    if lhs.includeProgress != rhs.includeProgress {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -493,7 +701,7 @@ extension Antd_V1_PutDataRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
 
 extension Antd_V1_PutDataResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PutDataResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}cost\0\u{3}data_map\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}cost\0\u{3}data_map\0\u{3}chunks_stored\0\u{3}payment_mode_used\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -503,6 +711,8 @@ extension Antd_V1_PutDataResponse: SwiftProtobuf.Message, SwiftProtobuf._Message
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularMessageField(value: &self._cost) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.dataMap) }()
+      case 3: try { try decoder.decodeSingularUInt64Field(value: &self.chunksStored) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.paymentModeUsed) }()
       default: break
       }
     }
@@ -519,12 +729,20 @@ extension Antd_V1_PutDataResponse: SwiftProtobuf.Message, SwiftProtobuf._Message
     if !self.dataMap.isEmpty {
       try visitor.visitSingularStringField(value: self.dataMap, fieldNumber: 2)
     }
+    if self.chunksStored != 0 {
+      try visitor.visitSingularUInt64Field(value: self.chunksStored, fieldNumber: 3)
+    }
+    if !self.paymentModeUsed.isEmpty {
+      try visitor.visitSingularStringField(value: self.paymentModeUsed, fieldNumber: 4)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Antd_V1_PutDataResponse, rhs: Antd_V1_PutDataResponse) -> Bool {
     if lhs._cost != rhs._cost {return false}
     if lhs.dataMap != rhs.dataMap {return false}
+    if lhs.chunksStored != rhs.chunksStored {return false}
+    if lhs.paymentModeUsed != rhs.paymentModeUsed {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

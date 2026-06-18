@@ -136,11 +136,23 @@ public class AntdClient implements AutoCloseable {
      * into the matching {@link AntdException} — mirroring {@link #doJson}.
      */
     private InputStream doStream(String method, String path, String body) {
+        return doStream(method, path, body, null);
+    }
+
+    /**
+     * Like {@link #doStream(String, String, String)} but optionally sets an
+     * {@code Accept} header — used to opt into NDJSON progress framing on the
+     * stream endpoints ({@code Accept: application/x-ndjson}).
+     */
+    private InputStream doStream(String method, String path, String body, String accept) {
         try {
             HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
                     .uri(URI.create(url(path)))
                     .timeout(timeout);
 
+            if (accept != null) {
+                reqBuilder.header("Accept", accept);
+            }
             if (body != null) {
                 reqBuilder.header("Content-Type", "application/json")
                         .method(method, HttpRequest.BodyPublishers.ofString(body));
@@ -291,6 +303,139 @@ public class AntdClient implements AutoCloseable {
      */
     public InputStream dataStreamPublic(String address) {
         return doStream("GET", "/v1/data/public/" + address + "/stream", null);
+    }
+
+    /** Media type that opts the stream endpoints into NDJSON progress framing. */
+    private static final String NDJSON_CONTENT_TYPE = "application/x-ndjson";
+
+    /**
+     * Streams private data with interleaved fetch-progress frames so the caller
+     * can drive a <i>determinate</i> download progress bar — the REST
+     * counterpart to {@link #dataStream}. Opts into NDJSON framing
+     * ({@code Accept: application/x-ndjson}) and yields {@link DownloadFrame}s:
+     * each a byte-total meta frame ({@link DownloadFrame#totalSize()}), a
+     * plaintext chunk ({@link DownloadFrame#data()}), or a
+     * {@link DownloadProgress} update ({@link DownloadFrame#progress()}). The
+     * byte denominator arrives as the leading NDJSON {@code meta} frame
+     * (surfaced here as a {@link DownloadFrame#isMeta() meta} frame); a terminal
+     * {@code error} frame surfaces as the matching {@link AntdException} during
+     * iteration.
+     *
+     * <p>The returned {@link Iterator} reads one line at a time (constant memory
+     * bar a single chunk). The underlying HTTP body is closed when the stream is
+     * exhausted (or on error).
+     *
+     * @param dataMap the caller-held DataMap (hex)
+     * @return an iterator of {@link DownloadFrame}s
+     */
+    public Iterator<DownloadFrame> dataStreamWithProgress(String dataMap) {
+        String body = Json.object("data_map", dataMap);
+        InputStream in = doStream("POST", "/v1/data/stream", body, NDJSON_CONTENT_TYPE);
+        return new NdjsonFrameIterator(in);
+    }
+
+    /**
+     * Streams public data with interleaved fetch-progress frames — the REST
+     * counterpart to {@link #dataStreamPublic}. See {@link #dataStreamWithProgress}.
+     *
+     * @param address the on-network DataMap address
+     * @return an iterator of {@link DownloadFrame}s
+     */
+    public Iterator<DownloadFrame> dataStreamPublicWithProgress(String address) {
+        InputStream in = doStream("GET", "/v1/data/public/" + address + "/stream",
+                null, NDJSON_CONTENT_TYPE);
+        return new NdjsonFrameIterator(in);
+    }
+
+    /**
+     * Parses an NDJSON download body ({@code Accept: application/x-ndjson}) into
+     * a {@link DownloadFrame} sequence, mirroring the gRPC progress surface. The
+     * leading {@code meta} frame is surfaced as the byte denominator; unknown
+     * frame types are skipped for forward-compatibility; an {@code error} frame
+     * is surfaced as a
+     * terminal {@link AntdException}, which raw octet-stream downloads cannot
+     * signal mid-stream.
+     */
+    private final class NdjsonFrameIterator implements Iterator<DownloadFrame> {
+        private final java.io.BufferedReader reader;
+        private DownloadFrame nextFrame;
+        private boolean done;
+
+        NdjsonFrameIterator(InputStream in) {
+            this.reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8));
+        }
+
+        @Override
+        public boolean hasNext() {
+            advance();
+            return nextFrame != null;
+        }
+
+        @Override
+        public DownloadFrame next() {
+            advance();
+            if (nextFrame == null) {
+                throw new java.util.NoSuchElementException();
+            }
+            DownloadFrame f = nextFrame;
+            nextFrame = null;
+            return f;
+        }
+
+        /** Reads forward to the next data/progress frame, or end-of-stream. */
+        private void advance() {
+            if (nextFrame != null || done) {
+                return;
+            }
+            try {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.isEmpty()) {
+                        continue;
+                    }
+                    Map<String, Object> frame = Json.parseObject(line);
+                    String type = str(frame, "type");
+                    switch (type) {
+                        case "data" -> {
+                            nextFrame = DownloadFrame.ofData(b64Decode(str(frame, "chunk")));
+                            return;
+                        }
+                        case "progress" -> {
+                            nextFrame = DownloadFrame.ofProgress(new DownloadProgress(
+                                    str(frame, "phase"),
+                                    num(frame, "fetched"),
+                                    num(frame, "total")));
+                            return;
+                        }
+                        case "meta" -> {
+                            nextFrame = DownloadFrame.ofMeta(num(frame, "total_size"));
+                            return;
+                        }
+                        case "error" -> {
+                            close();
+                            throw new AntdException(0, str(frame, "message"));
+                        }
+                        default -> {
+                            // Any unknown/forward-compat frame: skip.
+                        }
+                    }
+                }
+                // Stream exhausted.
+                done = true;
+                close();
+            } catch (IOException e) {
+                done = true;
+                close();
+                throw new AntdException(0, "read NDJSON stream failed: " + e.getMessage());
+            }
+        }
+
+        private void close() {
+            try {
+                reader.close();
+            } catch (IOException ignored) {}
+        }
     }
 
     /** Pre-upload cost breakdown for the given bytes. */

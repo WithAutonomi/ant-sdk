@@ -600,3 +600,87 @@ class UploadCostEstimate {
   String toString() =>
       'UploadCostEstimate(cost: $cost, fileSize: $fileSize, chunkCount: $chunkCount, estimatedGasCostWei: $estimatedGasCostWei, paymentMode: $paymentMode)';
 }
+
+/// A fetch-progress update emitted during a streaming download when progress is
+/// requested. Counts are in *chunks*, not bytes — the byte denominator is the
+/// download's total size (the `x-content-length` header over gRPC, the leading
+/// NDJSON `meta` frame over REST). [total] is 0 while still unknown (mid
+/// DataMap-resolution).
+///
+/// [phase] is one of:
+///   * `"resolving_map"` — walking the hierarchical DataMap to learn the count
+///   * `"resolved"` — DataMap resolved, [total] now holds the real chunk count
+///   * `"fetching"` — fetching data chunks; [fetched]/[total] advance the bar
+class DownloadProgress {
+  /// One of `"resolving_map"`, `"resolved"`, `"fetching"`.
+  final String phase;
+
+  /// Chunks fetched so far in the current phase.
+  final int fetched;
+
+  /// Total chunks for the current phase, or 0 if not yet known.
+  final int total;
+
+  const DownloadProgress({
+    required this.phase,
+    required this.fetched,
+    required this.total,
+  });
+
+  @override
+  String toString() =>
+      'DownloadProgress(phase: $phase, fetched: $fetched, total: $total)';
+}
+
+/// One frame of a progress-enabled streaming download: the total size, a
+/// plaintext data chunk, or a [DownloadProgress] update. At most one of [meta]
+/// / [data] / [progress] is set. Yielded by the `*WithProgress` streaming
+/// methods; the plain `dataStream` / `dataStreamPublic` methods stay a pure
+/// byte stream for callers that don't need progress.
+class DownloadFrame {
+  /// Plaintext bytes for a data frame, `null` otherwise.
+  final List<int>? data;
+
+  /// The progress update for a progress frame, `null` otherwise.
+  final DownloadProgress? progress;
+
+  /// Total download size in *bytes* — the progress *denominator* — for a meta
+  /// frame, `null` otherwise.
+  ///
+  /// Surfaced from the gRPC `x-content-length` response metadata or the REST
+  /// NDJSON `meta` frame. Emitted at most once, before any data, when the
+  /// daemon reports it. Pair it with the byte count of the [data] frames (or
+  /// with [DownloadProgress] chunk counts) to render a byte-accurate progress
+  /// bar.
+  final int? totalBytes;
+
+  /// Constructs a data frame carrying plaintext [bytes].
+  const DownloadFrame.data(List<int> bytes)
+      : data = bytes,
+        progress = null,
+        totalBytes = null;
+
+  /// Constructs a progress frame carrying a [DownloadProgress] update.
+  const DownloadFrame.progress(DownloadProgress this.progress)
+      : data = null,
+        totalBytes = null;
+
+  /// Constructs a meta frame carrying the total download size in [bytes].
+  const DownloadFrame.meta(int bytes)
+      : totalBytes = bytes,
+        data = null,
+        progress = null;
+
+  /// True if this frame carries a progress update rather than data bytes.
+  bool get isProgress => progress != null;
+
+  /// True if this frame carries the total-size denominator (in bytes).
+  bool get isMeta => totalBytes != null;
+
+  @override
+  String toString() {
+    if (isMeta) return 'DownloadFrame.meta($totalBytes bytes)';
+    if (isProgress) return 'DownloadFrame.progress($progress)';
+    return 'DownloadFrame.data(${data!.length} bytes)';
+  }
+}

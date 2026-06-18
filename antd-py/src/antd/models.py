@@ -199,3 +199,49 @@ class UploadCostEstimate:
     chunk_count: int              # number of data chunks
     estimated_gas_cost_wei: str   # advisory gas heuristic in wei
     payment_mode: str             # "auto" | "merkle" | "single"
+
+
+@dataclass(frozen=True)
+class DownloadProgress:
+    """A fetch-progress update emitted during a streaming download when progress
+    is requested. Counts are in *chunks*, not bytes — the byte denominator is the
+    download's total size (the x-content-length header over gRPC, the leading
+    NDJSON ``meta`` frame over REST). ``total`` is 0 while still unknown (mid
+    DataMap-resolution).
+
+    ``phase`` is one of:
+
+    - ``"resolving_map"`` — walking the hierarchical DataMap to learn the count
+    - ``"resolved"`` — DataMap resolved, ``total`` now holds the real chunk count
+    - ``"fetching"`` — fetching data chunks; ``fetched``/``total`` advance the bar
+    """
+    phase: str
+    fetched: int
+    total: int
+
+
+@dataclass(frozen=True)
+class DownloadFrame:
+    """One frame of a progress-enabled streaming download: the total size, a
+    plaintext data chunk, or a :class:`DownloadProgress` update. At most one of
+    ``meta``, ``data``, or ``progress`` is set. Yielded by the ``*_with_progress``
+    streaming methods; the plain ``data_stream`` methods stay a pure byte stream
+    for callers that don't need progress.
+    """
+    data: bytes | None = None
+    progress: DownloadProgress | None = None
+    meta: int | None = None
+
+    @property
+    def is_progress(self) -> bool:
+        """True if this frame carries a progress update rather than data bytes."""
+        return self.progress is not None
+
+    @property
+    def is_meta(self) -> bool:
+        """True if this frame carries the total-size denominator (in bytes).
+
+        Surfaced from the gRPC ``x-content-length`` response metadata or the REST
+        NDJSON ``meta`` frame. Emitted at most once, before any data.
+        """
+        return self.meta is not None

@@ -332,3 +332,57 @@ defmodule Antd.UploadCostEstimate do
           payment_mode: String.t()
         }
 end
+
+defmodule Antd.DownloadProgress do
+  @moduledoc """
+  A fetch-progress update emitted during a streaming download when progress is
+  requested. Counts are in *chunks*, not bytes — the byte denominator is the
+  download's total size (the `x-content-length` header over gRPC, the leading
+  NDJSON `meta` frame over REST). `total` is 0 while still unknown (mid
+  DataMap-resolution).
+
+  `phase` is one of:
+
+    * `"resolving_map"` — walking the hierarchical DataMap to learn the count
+    * `"resolved"` — DataMap resolved, `total` now holds the real chunk count
+    * `"fetching"` — fetching data chunks; `fetched`/`total` advance the bar
+  """
+
+  defstruct phase: "", fetched: 0, total: 0
+
+  @type t :: %__MODULE__{
+          phase: String.t(),
+          fetched: non_neg_integer(),
+          total: non_neg_integer()
+        }
+end
+
+defmodule Antd.DownloadFrame do
+  @moduledoc """
+  One frame of a progress-enabled streaming download: the total size, a
+  plaintext data chunk, or a `Antd.DownloadProgress` update. At most one of
+  `:meta`, `:data`, or `:progress` is set. Yielded by the `*_with_progress`
+  streaming methods; the plain `data_stream` methods stay a pure binary stream
+  for callers that don't need progress.
+
+  `:meta` is the total download size in *bytes* — the progress denominator,
+  surfaced from the gRPC `x-content-length` response header or the REST NDJSON
+  `meta` frame. Emitted at most once, before any data.
+  """
+
+  defstruct data: nil, progress: nil, meta: nil
+
+  @type t :: %__MODULE__{
+          data: binary() | nil,
+          progress: Antd.DownloadProgress.t() | nil,
+          meta: non_neg_integer() | nil
+        }
+
+  @doc "True if this frame carries a progress update rather than data bytes."
+  @spec progress?(t()) :: boolean()
+  def progress?(%__MODULE__{progress: progress}), do: not is_nil(progress)
+
+  @doc "True if this frame carries the total-size denominator (in bytes)."
+  @spec meta?(t()) :: boolean()
+  def meta?(%__MODULE__{meta: meta}), do: not is_nil(meta)
+end

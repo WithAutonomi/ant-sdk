@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator, Iterator
+
 import grpc
 import grpc.aio
 
@@ -20,6 +22,8 @@ from .models import (
     CandidateNodeEntry,
     DataPutPublicResult,
     DataPutResult,
+    DownloadFrame,
+    DownloadProgress,
     FilePutPublicResult,
     FilePutResult,
     FinalizeUploadResult,
@@ -34,6 +38,31 @@ from .models import (
     WalletAddress,
     WalletBalance,
 )
+
+
+def _frame_from_chunk(chunk) -> DownloadFrame:
+    """Map a wire ``DataChunk`` (oneof kind {data | progress}) onto a public
+    :class:`DownloadFrame`. A chunk with no arm set (shouldn't occur) is treated
+    as an empty data frame, matching the antd-rust reference consumer."""
+    if chunk.WhichOneof("kind") == "progress":
+        p = chunk.progress
+        return DownloadFrame(progress=DownloadProgress(
+            phase=p.phase, fetched=p.fetched, total=p.total,
+        ))
+    return DownloadFrame(data=chunk.data)
+
+
+def _meta_frame(metadata) -> DownloadFrame | None:
+    """Build a leading :class:`DownloadFrame` byte-total from a stream call's
+    ``x-content-length`` initial metadata. Returns ``None`` when the header is
+    absent or unparseable (older daemons), so no Meta frame is emitted."""
+    for key, value in metadata or ():
+        if key == "x-content-length":
+            try:
+                return DownloadFrame(meta=int(value))
+            except (TypeError, ValueError):
+                return None
+    return None
 
 
 def _health_status_from_resp(resp) -> HealthStatus:
@@ -242,7 +271,7 @@ class GrpcClient:
         """Store private encrypted data. Returns the caller-held DataMap (hex)."""
         try:
             resp = self._data.Put(data_pb2.PutDataRequest(data=data, payment_mode=payment_mode.value))
-            return DataPutResult(data_map=resp.data_map)
+            return DataPutResult(data_map=resp.data_map, chunks_stored=resp.chunks_stored, payment_mode_used=resp.payment_mode_used)
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
@@ -258,7 +287,7 @@ class GrpcClient:
         """Store public data. Returns the on-network DataMap address."""
         try:
             resp = self._data.PutPublic(data_pb2.PutPublicDataRequest(data=data, payment_mode=payment_mode.value))
-            return DataPutPublicResult(address=resp.address)
+            return DataPutPublicResult(address=resp.address, chunks_stored=resp.chunks_stored, payment_mode_used=resp.payment_mode_used)
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
@@ -266,6 +295,69 @@ class GrpcClient:
         try:
             resp = self._data.GetPublic(data_pb2.GetPublicDataRequest(address=address))
             return resp.data
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    def data_stream(self, data_map: str) -> Iterator[bytes]:
+        """Stream private data from a caller-held DataMap (hex), one decrypt
+        batch at a time, instead of buffering the whole object. The gRPC
+        counterpart to :meth:`data_get` and mirror of the REST client's
+        ``data_stream``; yields raw byte chunks::
+
+            for chunk in client.data_stream(data_map):
+                out.write(chunk)
+        """
+        try:
+            for chunk in self._data.Stream(data_pb2.StreamDataRequest(data_map=data_map)):
+                yield chunk.data
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    def data_stream_public(self, address: str) -> Iterator[bytes]:
+        """Stream public data by address — the gRPC counterpart to
+        :meth:`data_get_public`. Yields raw byte chunks (see
+        :meth:`data_stream`)."""
+        try:
+            for chunk in self._data.StreamPublic(data_pb2.StreamPublicDataRequest(address=address)):
+                yield chunk.data
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    def data_stream_with_progress(self, data_map: str) -> Iterator[DownloadFrame]:
+        """:meth:`data_stream` with interleaved fetch-progress frames so the
+        caller can drive a *determinate* download progress bar. Sets the
+        request's ``include_progress`` flag and yields :class:`DownloadFrame`s —
+        each a plaintext chunk or a :class:`DownloadProgress` update. The byte
+        denominator arrives separately as the x-content-length response header::
+
+            for frame in client.data_stream_with_progress(data_map):
+                if frame.is_progress:
+                    bar.update(frame.progress.fetched, frame.progress.total)
+                else:
+                    out.write(frame.data)
+        """
+        try:
+            req = data_pb2.StreamDataRequest(data_map=data_map, include_progress=True)
+            call = self._data.Stream(req)
+            meta = _meta_frame(call.initial_metadata())
+            if meta is not None:
+                yield meta
+            for chunk in call:
+                yield _frame_from_chunk(chunk)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    def data_stream_public_with_progress(self, address: str) -> Iterator[DownloadFrame]:
+        """:meth:`data_stream_public` with interleaved fetch-progress frames.
+        See :meth:`data_stream_with_progress`."""
+        try:
+            req = data_pb2.StreamPublicDataRequest(address=address, include_progress=True)
+            call = self._data.StreamPublic(req)
+            meta = _meta_frame(call.initial_metadata())
+            if meta is not None:
+                yield meta
+            for chunk in call:
+                yield _frame_from_chunk(chunk)
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
@@ -496,7 +588,7 @@ class AsyncGrpcClient:
         """Store private encrypted data. Returns the caller-held DataMap (hex)."""
         try:
             resp = await self._data.Put(data_pb2.PutDataRequest(data=data, payment_mode=payment_mode.value))
-            return DataPutResult(data_map=resp.data_map)
+            return DataPutResult(data_map=resp.data_map, chunks_stored=resp.chunks_stored, payment_mode_used=resp.payment_mode_used)
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
@@ -512,7 +604,7 @@ class AsyncGrpcClient:
         """Store public data. Returns the on-network DataMap address."""
         try:
             resp = await self._data.PutPublic(data_pb2.PutPublicDataRequest(data=data, payment_mode=payment_mode.value))
-            return DataPutPublicResult(address=resp.address)
+            return DataPutPublicResult(address=resp.address, chunks_stored=resp.chunks_stored, payment_mode_used=resp.payment_mode_used)
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
@@ -520,6 +612,59 @@ class AsyncGrpcClient:
         try:
             resp = await self._data.GetPublic(data_pb2.GetPublicDataRequest(address=address))
             return resp.data
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    async def data_stream(self, data_map: str) -> AsyncIterator[bytes]:
+        """Stream private data from a caller-held DataMap (hex), one decrypt
+        batch at a time — the gRPC counterpart to :meth:`data_get`. Yields raw
+        byte chunks::
+
+            async for chunk in client.data_stream(data_map):
+                out.write(chunk)
+        """
+        try:
+            async for chunk in self._data.Stream(data_pb2.StreamDataRequest(data_map=data_map)):
+                yield chunk.data
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    async def data_stream_public(self, address: str) -> AsyncIterator[bytes]:
+        """Stream public data by address — the gRPC counterpart to
+        :meth:`data_get_public`. Yields raw byte chunks (see
+        :meth:`data_stream`)."""
+        try:
+            async for chunk in self._data.StreamPublic(data_pb2.StreamPublicDataRequest(address=address)):
+                yield chunk.data
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    async def data_stream_with_progress(self, data_map: str) -> AsyncIterator[DownloadFrame]:
+        """:meth:`data_stream` with interleaved fetch-progress frames. Sets the
+        request's ``include_progress`` flag and yields :class:`DownloadFrame`s
+        (see the sync client's ``data_stream_with_progress``)."""
+        try:
+            req = data_pb2.StreamDataRequest(data_map=data_map, include_progress=True)
+            call = self._data.Stream(req)
+            meta = _meta_frame(await call.initial_metadata())
+            if meta is not None:
+                yield meta
+            async for chunk in call:
+                yield _frame_from_chunk(chunk)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    async def data_stream_public_with_progress(self, address: str) -> AsyncIterator[DownloadFrame]:
+        """:meth:`data_stream_public` with interleaved fetch-progress frames.
+        See :meth:`data_stream_with_progress`."""
+        try:
+            req = data_pb2.StreamPublicDataRequest(address=address, include_progress=True)
+            call = self._data.StreamPublic(req)
+            meta = _meta_frame(await call.initial_metadata())
+            if meta is not None:
+                yield meta
+            async for chunk in call:
+                yield _frame_from_chunk(chunk)
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 

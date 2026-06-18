@@ -42,6 +42,8 @@ defmodule Antd.V1.PutPublicDataResponse do
 
   field :cost, 1, type: Antd.V1.Cost
   field :address, 2, type: :string
+  field :chunks_stored, 3, type: :uint64, json_name: "chunksStored"
+  field :payment_mode_used, 4, type: :string, json_name: "paymentModeUsed"
 end
 
 defmodule Antd.V1.StreamPublicDataRequest do
@@ -53,6 +55,7 @@ defmodule Antd.V1.StreamPublicDataRequest do
     syntax: :proto3
 
   field :address, 1, type: :string
+  field :include_progress, 2, type: :bool, json_name: "includeProgress"
 end
 
 defmodule Antd.V1.DataChunk do
@@ -63,7 +66,23 @@ defmodule Antd.V1.DataChunk do
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
-  field :data, 1, type: :bytes
+  oneof :kind, 0
+
+  field :data, 1, type: :bytes, oneof: 0
+  field :progress, 2, type: Antd.V1.DownloadProgress, oneof: 0
+end
+
+defmodule Antd.V1.DownloadProgress do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "antd.v1.DownloadProgress",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :phase, 1, type: :string
+  field :fetched, 2, type: :uint64
+  field :total, 3, type: :uint64
 end
 
 defmodule Antd.V1.GetDataRequest do
@@ -75,6 +94,18 @@ defmodule Antd.V1.GetDataRequest do
     syntax: :proto3
 
   field :data_map, 1, type: :string, json_name: "dataMap"
+end
+
+defmodule Antd.V1.StreamDataRequest do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "antd.v1.StreamDataRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :data_map, 1, type: :string, json_name: "dataMap"
+  field :include_progress, 2, type: :bool, json_name: "includeProgress"
 end
 
 defmodule Antd.V1.GetDataResponse do
@@ -110,6 +141,8 @@ defmodule Antd.V1.PutDataResponse do
 
   field :cost, 1, type: Antd.V1.Cost
   field :data_map, 2, type: :string, json_name: "dataMap"
+  field :chunks_stored, 3, type: :uint64, json_name: "chunksStored"
+  field :payment_mode_used, 4, type: :string, json_name: "paymentModeUsed"
 end
 
 defmodule Antd.V1.DataCostRequest do
@@ -136,6 +169,8 @@ defmodule Antd.V1.DataService.Service do
   rpc :Get, Antd.V1.GetDataRequest, Antd.V1.GetDataResponse
 
   rpc :GetPublic, Antd.V1.GetPublicDataRequest, Antd.V1.GetPublicDataResponse
+
+  rpc :Stream, Antd.V1.StreamDataRequest, stream(Antd.V1.DataChunk)
 
   rpc :StreamPublic, Antd.V1.StreamPublicDataRequest, stream(Antd.V1.DataChunk)
 

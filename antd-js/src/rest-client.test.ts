@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { healthStatusFromJson, RestClient } from "./rest-client.js";
-import { PaymentMode } from "./models.js";
+import { PaymentMode, isMetaFrame, isProgressFrame } from "./models.js";
+import type { DownloadFrame } from "./models.js";
 import {
   NotFoundError,
   BadRequestError,
@@ -36,6 +37,17 @@ function streamResponse(status: number, body: string): Response {
       "Content-Type": "application/octet-stream",
       "Content-Length": String(bytes.byteLength),
     },
+  });
+}
+
+/** Build an NDJSON streaming Response from already-serialized JSON lines. */
+function ndjsonResponse(status: number, lines: string[]): Response {
+  const body = lines.map((l) => l + "\n").join("");
+  const bytes = new TextEncoder().encode(body);
+  return new Response(bytes, {
+    status,
+    statusText: status === 200 ? "OK" : "Error",
+    headers: { "Content-Type": "application/x-ndjson" },
   });
 }
 
@@ -493,6 +505,145 @@ describe("RestClient", () => {
         vi.fn(() => Promise.resolve(jsonResponse(400, { error: "invalid address" }))),
       );
       await expect(client.dataStreamPublic("bad")).rejects.toThrow(BadRequestError);
+    });
+  });
+
+  describe("dataStreamWithProgress()", () => {
+    it("opts into NDJSON, reassembles data, and surfaces progress frames", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((_input: string | URL | Request, _init?: RequestInit) =>
+          Promise.resolve(
+            ndjsonResponse(200, [
+              `{"type":"meta","total_size":6}`,
+              `{"type":"progress","phase":"fetching","fetched":1,"total":2}`,
+              `{"type":"data","chunk":"${b64("sec")}"}`,
+              `{"type":"progress","phase":"fetching","fetched":2,"total":2}`,
+              `{"type":"data","chunk":"${b64("ret")}"}`,
+            ]),
+          ),
+        ),
+      );
+
+      const frames: DownloadFrame[] = [];
+      for await (const frame of client.dataStreamWithProgress("0xdm")) {
+        frames.push(frame);
+      }
+
+      // The byte-total meta frame is yielded first, before any data/progress.
+      expect(isMetaFrame(frames[0])).toBe(true);
+      const metas = frames.filter(isMetaFrame).map((f) => f.meta);
+      expect(metas).toEqual([6]);
+
+      // Two progress frames + two data frames.
+      const progress = frames.filter(isProgressFrame).map((f) => f.progress);
+      expect(progress).toEqual([
+        { phase: "fetching", fetched: 1, total: 2 },
+        { phase: "fetching", fetched: 2, total: 2 },
+      ]);
+
+      const data = frames.filter(
+        (f): f is { data: Uint8Array } => f.data !== undefined,
+      );
+      const joined = data.map((f) => new TextDecoder().decode(f.data)).join("");
+      expect(joined).toBe("secret");
+
+      // Sent the NDJSON Accept header to POST /v1/data/stream.
+      const fetchFn = vi.mocked(fetch);
+      const [url, init] = fetchFn.mock.calls[0];
+      expect(url).toBe("http://localhost:8082/v1/data/stream");
+      expect((init!.method ?? "GET").toUpperCase()).toBe("POST");
+      expect((init!.headers as Record<string, string>).Accept).toBe("application/x-ndjson");
+      expect(JSON.parse(init!.body as string)).toEqual({ data_map: "0xdm" });
+    });
+
+    it("buffers data frames split across network chunk boundaries", async () => {
+      const line = `{"type":"data","chunk":"${b64("hello world")}"}\n`;
+      const bytes = new TextEncoder().encode(line);
+      const mid = Math.floor(bytes.byteLength / 2);
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(bytes.slice(0, mid));
+          controller.enqueue(bytes.slice(mid));
+          controller.close();
+        },
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+          Promise.resolve(
+            new Response(stream, {
+              status: 200,
+              statusText: "OK",
+              headers: { "Content-Type": "application/x-ndjson" },
+            }),
+          ),
+        ),
+      );
+
+      const frames: DownloadFrame[] = [];
+      for await (const frame of client.dataStreamWithProgress("0xdm")) {
+        frames.push(frame);
+      }
+      const data = frames.filter((f): f is { data: Uint8Array } => !isProgressFrame(f));
+      expect(data.map((f) => new TextDecoder().decode(f.data)).join("")).toBe("hello world");
+    });
+
+    it("throws InternalError on a terminal error frame", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+          Promise.resolve(
+            ndjsonResponse(200, [
+              `{"type":"data","chunk":"${b64("partial")}"}`,
+              `{"type":"error","message":"chunk fetch failed"}`,
+            ]),
+          ),
+        ),
+      );
+
+      await expect(async () => {
+        for await (const _frame of client.dataStreamWithProgress("0xdm")) {
+          // drain until the error frame throws
+        }
+      }).rejects.toThrow(InternalError);
+    });
+  });
+
+  describe("dataStreamPublicWithProgress()", () => {
+    it("GETs the public stream with the NDJSON Accept header and yields frames", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((_input: string | URL | Request, _init?: RequestInit) =>
+          Promise.resolve(
+            ndjsonResponse(200, [
+              `{"type":"meta","total_size":3}`,
+              `{"type":"progress","phase":"resolving_map","fetched":0,"total":0}`,
+              `{"type":"data","chunk":"${b64("pub")}"}`,
+            ]),
+          ),
+        ),
+      );
+
+      const frames: DownloadFrame[] = [];
+      for await (const frame of client.dataStreamPublicWithProgress("0xabc")) {
+        frames.push(frame);
+      }
+      // Byte-total meta frame is yielded first.
+      expect(isMetaFrame(frames[0])).toBe(true);
+      expect(frames.filter(isMetaFrame).map((f) => f.meta)).toEqual([3]);
+
+      const data = frames.filter(
+        (f): f is { data: Uint8Array } => f.data !== undefined,
+      );
+      expect(data.map((f) => new TextDecoder().decode(f.data)).join("")).toBe("pub");
+      expect(frames.filter(isProgressFrame)).toHaveLength(1);
+
+      const fetchFn = vi.mocked(fetch);
+      const [url, init] = fetchFn.mock.calls[0];
+      expect(url).toBe("http://localhost:8082/v1/data/public/0xabc/stream");
+      expect((init?.method ?? "GET").toUpperCase()).toBe("GET");
+      expect((init!.headers as Record<string, string>).Accept).toBe("application/x-ndjson");
     });
   });
 

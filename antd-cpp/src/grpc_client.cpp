@@ -2,6 +2,10 @@
 
 #include <grpcpp/grpcpp.h>
 
+#include <charconv>
+#include <cstdint>
+#include <system_error>
+
 // Proto-generated headers — produced by protoc + grpc_cpp_plugin.
 // Run `protoc` against antd/proto/antd/v1/*.proto or let the CMake
 // antd_grpc target handle compilation automatically.
@@ -112,6 +116,8 @@ DataPutPublicResult GrpcClient::data_put_public(const std::vector<uint8_t>& data
     check_status(impl_->data_stub->PutPublic(&ctx, req, &resp));
     return DataPutPublicResult{
         .address = resp.address(),
+        .chunks_stored = resp.chunks_stored(),
+        .payment_mode_used = resp.payment_mode_used(),
     };
 }
 
@@ -135,6 +141,8 @@ DataPutResult GrpcClient::data_put(const std::vector<uint8_t>& data,
     check_status(impl_->data_stub->Put(&ctx, req, &resp));
     return DataPutResult{
         .data_map = resp.data_map(),
+        .chunks_stored = resp.chunks_stored(),
+        .payment_mode_used = resp.payment_mode_used(),
     };
 }
 
@@ -146,6 +154,146 @@ std::vector<uint8_t> GrpcClient::data_get(std::string_view data_map) {
     check_status(impl_->data_stub->Get(&ctx, req, &resp));
     const auto& d = resp.data();
     return std::vector<uint8_t>(d.begin(), d.end());
+}
+
+// Drains a server-streaming DataChunk reader into `sink` one chunk at a time
+// (constant memory). A sink returning false cancels the RPC and stops early;
+// the resulting CANCELLED status is expected and not surfaced as an error.
+//
+// The plain (non-progress) stream methods leave include_progress at its proto3
+// default of false, so the daemon emits only data frames. Any stray progress
+// frame is defensively skipped (mirrors the antd-rust reference consumer).
+static void drain_chunks(grpc::ClientContext& ctx,
+                         grpc::ClientReader<antd::v1::DataChunk>& reader,
+                         const DataSink& sink) {
+    antd::v1::DataChunk chunk;
+    bool stopped = false;
+    while (reader.Read(&chunk)) {
+        if (chunk.kind_case() != antd::v1::DataChunk::kData) {
+            continue;  // skip progress / unset frames
+        }
+        const auto& d = chunk.data();
+        if (!sink(d.data(), d.size())) {
+            stopped = true;
+            ctx.TryCancel();
+            break;
+        }
+    }
+    grpc::Status status = reader.Finish();
+    if (!stopped) {
+        check_status(status);
+    }
+}
+
+// Map a wire DataChunk onto a public DownloadFrame. A progress arm becomes a
+// progress frame; a data arm (or an unset oneof, which shouldn't occur) becomes
+// a data frame — matching the antd-rust reference consumer.
+static DownloadFrame frame_of(const antd::v1::DataChunk& chunk) {
+    if (chunk.kind_case() == antd::v1::DataChunk::kProgress) {
+        const auto& p = chunk.progress();
+        return DownloadFrame::from_progress(
+            DownloadProgress{p.phase(), p.fetched(), p.total()});
+    }
+    const auto& d = chunk.data();
+    return DownloadFrame::from_data(
+        std::vector<uint8_t>(d.begin(), d.end()));
+}
+
+// Read the total download size from the stream's server initial metadata
+// (the `x-content-length` header) and deliver it as a leading Meta frame
+// before any data. Blocks for the server's initial metadata, then looks the
+// header up in the multimap. Absent or unparseable header (older daemons) =>
+// no Meta frame; a false sink return propagates the caller's early stop.
+//
+// Returns false when the sink asked to stop, so the caller can cancel and skip
+// the read loop — matching drain_frames' early-stop semantics.
+static bool deliver_meta_frame(grpc::ClientContext& ctx,
+                               grpc::ClientReader<antd::v1::DataChunk>& reader,
+                               const DownloadFrameSink& sink) {
+    reader.WaitForInitialMetadata();
+    const auto& md = ctx.GetServerInitialMetadata();
+    auto it = md.find("x-content-length");
+    if (it == md.end()) {
+        return true;  // older daemon — no denominator, no Meta frame
+    }
+    const grpc::string_ref& val = it->second;
+    std::uint64_t total = 0;
+    const char* first = val.data();
+    const char* last = first + val.size();
+    auto [ptr, ec] = std::from_chars(first, last, total);
+    if (ec != std::errc() || ptr != last) {
+        return true;  // unparseable — skip the Meta frame
+    }
+    if (!sink(DownloadFrame::from_meta(total))) {
+        ctx.TryCancel();
+        return false;
+    }
+    return true;
+}
+
+// Drains a progress-enabled DataChunk reader into a DownloadFrameSink, mapping
+// each wire frame's oneof arm to a DownloadFrame. Mirrors drain_chunks for the
+// early-stop / status-handling semantics.
+static void drain_frames(grpc::ClientContext& ctx,
+                         grpc::ClientReader<antd::v1::DataChunk>& reader,
+                         const DownloadFrameSink& sink) {
+    antd::v1::DataChunk chunk;
+    bool stopped = false;
+    while (reader.Read(&chunk)) {
+        if (!sink(frame_of(chunk))) {
+            stopped = true;
+            ctx.TryCancel();
+            break;
+        }
+    }
+    grpc::Status status = reader.Finish();
+    if (!stopped) {
+        check_status(status);
+    }
+}
+
+void GrpcClient::data_stream(std::string_view data_map, const DataSink& sink) {
+    grpc::ClientContext ctx;
+    antd::v1::StreamDataRequest req;
+    req.set_data_map(std::string(data_map));
+    auto reader = impl_->data_stub->Stream(&ctx, req);
+    drain_chunks(ctx, *reader, sink);
+}
+
+void GrpcClient::data_stream_public(std::string_view address, const DataSink& sink) {
+    grpc::ClientContext ctx;
+    antd::v1::StreamPublicDataRequest req;
+    req.set_address(std::string(address));
+    auto reader = impl_->data_stub->StreamPublic(&ctx, req);
+    drain_chunks(ctx, *reader, sink);
+}
+
+void GrpcClient::data_stream_with_progress(std::string_view data_map,
+                                           const DownloadFrameSink& sink) {
+    grpc::ClientContext ctx;
+    antd::v1::StreamDataRequest req;
+    req.set_data_map(std::string(data_map));
+    req.set_include_progress(true);
+    auto reader = impl_->data_stub->Stream(&ctx, req);
+    if (!deliver_meta_frame(ctx, *reader, sink)) {
+        reader->Finish();  // reap the (cancelled) status; sink asked to stop
+        return;
+    }
+    drain_frames(ctx, *reader, sink);
+}
+
+void GrpcClient::data_stream_public_with_progress(std::string_view address,
+                                                  const DownloadFrameSink& sink) {
+    grpc::ClientContext ctx;
+    antd::v1::StreamPublicDataRequest req;
+    req.set_address(std::string(address));
+    req.set_include_progress(true);
+    auto reader = impl_->data_stub->StreamPublic(&ctx, req);
+    if (!deliver_meta_frame(ctx, *reader, sink)) {
+        reader->Finish();  // reap the (cancelled) status; sink asked to stop
+        return;
+    }
+    drain_frames(ctx, *reader, sink);
 }
 
 UploadCostEstimate GrpcClient::data_cost(const std::vector<uint8_t>& data,

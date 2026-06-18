@@ -1,9 +1,11 @@
 import { discoverDaemonUrl } from "./discover.js";
-import { fromHttpStatus, NetworkError } from "./errors.js";
+import { fromHttpStatus, InternalError, NetworkError } from "./errors.js";
 import { PaymentMode } from "./models.js";
 import type {
   DataPutPublicResult,
   DataPutResult,
+  DownloadFrame,
+  DownloadProgress,
   FilePutPublicResult,
   FilePutResult,
   FinalizeUploadResult,
@@ -15,6 +17,81 @@ import type {
   WalletAddress,
   WalletBalance,
 } from "./models.js";
+
+/** Media type that opts the stream endpoints into NDJSON progress framing. */
+const NDJSON_CONTENT_TYPE = "application/x-ndjson";
+
+/**
+ * Parse one NDJSON download line into a {@link DownloadFrame}. The leading
+ * `meta` line is surfaced as a `meta` byte-total frame; blank lines and unknown
+ * frame types return `null` (forward-compat). Throws {@link InternalError} on a
+ * terminal `error` frame, which a raw octet-stream download cannot signal
+ * mid-stream.
+ */
+function parseNdjsonFrame(line: string): DownloadFrame | null {
+  const trimmed = line.trim();
+  if (trimmed === "") return null;
+  const frame = JSON.parse(trimmed) as Record<string, unknown>;
+  switch (frame.type) {
+    case "data":
+      // base64 batch is under key "chunk" (matches daemon antd/src/rest/data.rs).
+      return { data: new Uint8Array(Buffer.from(String(frame.chunk ?? ""), "base64")) };
+    case "progress": {
+      const progress: DownloadProgress = {
+        phase: typeof frame.phase === "string" ? frame.phase : "",
+        fetched: Number(frame.fetched ?? 0),
+        total: Number(frame.total ?? 0),
+      };
+      return { progress };
+    }
+    case "error":
+      throw new InternalError(
+        typeof frame.message === "string" ? frame.message : "stream error",
+      );
+    case "meta":
+      // "meta" carries the byte denominator (total_size) for a byte-accurate bar.
+      return { meta: Number(frame.total_size ?? 0) };
+    // Unknown frame types are skipped for forward-compatibility.
+    default:
+      return null;
+  }
+}
+
+/**
+ * Adapt a raw NDJSON byte stream into an async iterable of
+ * {@link DownloadFrame}s, buffering partial lines across network chunk
+ * boundaries. A terminal `error` frame is surfaced as a thrown
+ * {@link InternalError}.
+ */
+async function* ndjsonFrames(
+  stream: ReadableStream<Uint8Array>,
+): AsyncGenerator<DownloadFrame> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl: number;
+      while ((nl = buf.indexOf("\n")) !== -1) {
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        const frame = parseNdjsonFrame(line);
+        if (frame !== null) yield frame;
+      }
+    }
+    // Flush a trailing line with no terminating newline.
+    buf += decoder.decode();
+    if (buf.length > 0) {
+      const frame = parseNdjsonFrame(buf);
+      if (frame !== null) yield frame;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
 
 /** Wire shape of the antd /health response. All diagnostic fields are
  * optional so we can still parse responses from a pre-0.4.0 daemon. */
@@ -89,7 +166,7 @@ export class RestClient {
   private async request(
     method: string,
     path: string,
-    options?: { json?: unknown; params?: Record<string, string> },
+    options?: { json?: unknown; params?: Record<string, string>; accept?: string },
   ): Promise<Response> {
     let url = `${this.baseUrl}${path}`;
     if (options?.params) {
@@ -100,10 +177,14 @@ export class RestClient {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeout);
 
+    const headers: Record<string, string> = {};
+    if (options?.json !== undefined) headers["Content-Type"] = "application/json";
+    if (options?.accept !== undefined) headers["Accept"] = options.accept;
+
     try {
       const resp = await fetch(url, {
         method,
-        headers: options?.json !== undefined ? { "Content-Type": "application/json" } : undefined,
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
         body: options?.json !== undefined ? JSON.stringify(options.json) : undefined,
         signal: controller.signal,
       });
@@ -143,7 +224,7 @@ export class RestClient {
   private async requestStream(
     method: string,
     path: string,
-    options?: { json?: unknown },
+    options?: { json?: unknown; accept?: string },
   ): Promise<ReadableStream<Uint8Array>> {
     const resp = await this.request(method, path, options);
     await this.check(resp);
@@ -275,6 +356,45 @@ export class RestClient {
    */
   async dataStreamPublic(address: string): Promise<ReadableStream<Uint8Array>> {
     return this.requestStream("GET", `/v1/data/public/${address}/stream`);
+  }
+
+  /**
+   * {@link dataStream} with interleaved per-chunk fetch-progress frames.
+   *
+   * Opts into NDJSON framing (`Accept: application/x-ndjson`) so the daemon
+   * interleaves progress updates with the decrypted batches on the same
+   * `POST /v1/data/stream` response. Yields {@link DownloadFrame}s — each a
+   * plaintext chunk (`data`) or a {@link DownloadProgress} update (`progress`,
+   * the determinate numerator for a progress bar). The leading `meta` byte
+   * denominator is parsed and dropped here; a terminal `error` frame is thrown
+   * as an {@link InternalError}. The plain {@link dataStream} is unchanged.
+   *
+   *     for await (const frame of client.dataStreamWithProgress(dataMap)) {
+   *       if (isProgressFrame(frame)) bar.update(frame.progress.fetched, frame.progress.total);
+   *       else out.write(frame.data);
+   *     }
+   *
+   * Requires antd >= 0.11.0.
+   */
+  async *dataStreamWithProgress(dataMap: string): AsyncGenerator<DownloadFrame> {
+    const stream = await this.requestStream("POST", "/v1/data/stream", {
+      json: { data_map: dataMap },
+      accept: NDJSON_CONTENT_TYPE,
+    });
+    yield* ndjsonFrames(stream);
+  }
+
+  /**
+   * {@link dataStreamPublic} with interleaved per-chunk fetch-progress frames.
+   * See {@link dataStreamWithProgress}.
+   *
+   * Requires antd >= 0.11.0.
+   */
+  async *dataStreamPublicWithProgress(address: string): AsyncGenerator<DownloadFrame> {
+    const stream = await this.requestStream("GET", `/v1/data/public/${address}/stream`, {
+      accept: NDJSON_CONTENT_TYPE,
+    });
+    yield* ndjsonFrames(stream);
   }
 
   /**

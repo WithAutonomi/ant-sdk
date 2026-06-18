@@ -7,6 +7,7 @@ use tracing_subscriber::EnvFilter;
 
 use ant_core::data::{
     Client, ClientConfig, CoreNodeConfig, EvmNetwork, MultiAddr, NodeMode, P2PNode, Wallet,
+    MAX_WIRE_MESSAGE_SIZE,
 };
 
 mod config;
@@ -149,7 +150,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Init P2P node in client mode
     tracing::info!(network = %config.network, "connecting to Autonomi network...");
 
-    let mut builder = CoreNodeConfig::builder().mode(NodeMode::Client).port(0); // OS assigns ephemeral port
+    // `max_message_size` must match `ant_core::data::Network::new` (which uses
+    // MAX_WIRE_MESSAGE_SIZE). Without it the node falls back to saorsa-transport's
+    // 1 MiB default, and any inbound chunk response larger than 1 MiB is rejected
+    // by the reader ("incoming stream exceeded read limit"), which surfaces as a
+    // failed download — or, one layer up, as an all-timeout close-group sweep.
+    let mut builder = CoreNodeConfig::builder()
+        .mode(NodeMode::Client)
+        .port(0) // OS assigns ephemeral port
+        .max_message_size(MAX_WIRE_MESSAGE_SIZE);
 
     if config.network == "local" {
         builder = builder.local(true).allow_loopback(true).ipv6(false);

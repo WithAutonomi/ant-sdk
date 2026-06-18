@@ -1,5 +1,7 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -168,6 +170,106 @@ public sealed class AntdRestClient : IAntdClient
     {
         var req = new HttpRequestMessage(HttpMethod.Get, $"/v1/data/public/{address}/stream");
         return await SendStreamAsync(req);
+    }
+
+    /// <summary>Media type that opts the stream endpoints into NDJSON progress framing.</summary>
+    private const string NdjsonContentType = "application/x-ndjson";
+
+    /// <summary>
+    /// Streams private data like <see cref="DataStreamAsync"/> but opts into
+    /// interleaved NDJSON progress framing (<c>Accept: application/x-ndjson</c>),
+    /// yielding <see cref="DownloadFrame"/>s so the caller can drive a
+    /// <em>determinate</em> progress bar. Data frames carry the plaintext bytes;
+    /// progress frames carry chunk-fetch counts. The byte denominator arrives as
+    /// a leading meta frame (<see cref="DownloadFrame.IsMeta"/>), mapped from the
+    /// NDJSON <c>meta</c> line; a terminal <c>error</c> frame surfaces as an
+    /// <see cref="AntdException"/>.
+    /// </summary>
+    public IAsyncEnumerable<DownloadFrame> DataStreamWithProgressAsync(
+        string dataMap, CancellationToken cancellationToken = default)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Post, "/v1/data/stream")
+        {
+            Content = JsonContent.Create((object)new { data_map = dataMap }, options: JsonOpts),
+        };
+        return StreamNdjsonFramesAsync(req, cancellationToken);
+    }
+
+    /// <summary>Public counterpart to <see cref="DataStreamWithProgressAsync"/>.</summary>
+    public IAsyncEnumerable<DownloadFrame> DataStreamPublicWithProgressAsync(
+        string address, CancellationToken cancellationToken = default)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Get, $"/v1/data/public/{address}/stream");
+        return StreamNdjsonFramesAsync(req, cancellationToken);
+    }
+
+    /// <summary>
+    /// Sends <paramref name="req"/> with <c>Accept: application/x-ndjson</c> and
+    /// yields a <see cref="DownloadFrame"/> per NDJSON line. The leading
+    /// <c>meta</c> frame surfaces as a byte-total meta frame; blank lines and
+    /// unknown frame types are skipped (forward-compat); a terminal <c>error</c>
+    /// frame throws — raw octet-stream downloads cannot signal a mid-stream
+    /// failure, NDJSON can.
+    /// </summary>
+    private async IAsyncEnumerable<DownloadFrame> StreamNdjsonFramesAsync(
+        HttpRequestMessage req, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(NdjsonContentType));
+
+        var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(cancellationToken);
+            resp.Dispose();
+            throw ExceptionMapping.FromHttpStatus(resp.StatusCode, body);
+        }
+
+        using (resp)
+        await using (var stream = await resp.Content.ReadAsStreamAsync(cancellationToken))
+        using (var reader = new StreamReader(stream))
+        {
+            while (true)
+            {
+                var line = await reader.ReadLineAsync(cancellationToken);
+                if (line == null) yield break;
+                if (line.Length == 0) continue;
+                var frame = ParseNdjsonFrame(line);
+                if (frame != null) yield return frame;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Parses one NDJSON line into a <see cref="DownloadFrame"/>. The leading
+    /// <c>meta</c> line maps to a byte-total meta frame; unknown frame types
+    /// return <c>null</c> (forward-compat); an <c>error</c> frame throws the
+    /// mapped exception.
+    /// </summary>
+    private static DownloadFrame? ParseNdjsonFrame(string line)
+    {
+        using var doc = JsonDocument.Parse(line);
+        var root = doc.RootElement;
+        var type = root.TryGetProperty("type", out var t) ? t.GetString() : null;
+        switch (type)
+        {
+            case "data":
+                var b64 = root.TryGetProperty("chunk", out var c) ? c.GetString() ?? "" : "";
+                return DownloadFrame.OfData(Convert.FromBase64String(b64));
+            case "progress":
+                return DownloadFrame.OfProgress(new DownloadProgress(
+                    root.TryGetProperty("phase", out var p) ? p.GetString() ?? "" : "",
+                    root.TryGetProperty("fetched", out var f) ? f.GetUInt64() : 0UL,
+                    root.TryGetProperty("total", out var tot) ? tot.GetUInt64() : 0UL));
+            case "meta":
+                return DownloadFrame.OfMeta(
+                    root.TryGetProperty("total_size", out var ts) ? ts.GetUInt64() : 0UL);
+            case "error":
+                var msg = root.TryGetProperty("message", out var m) ? m.GetString() ?? "download failed" : "download failed";
+                throw ExceptionMapping.FromHttpStatus(HttpStatusCode.InternalServerError, msg);
+            default:
+                // Unknown/forward-compat frame types: skip.
+                return null;
+        }
     }
 
     public async Task<UploadCostEstimate> DataCostAsync(byte[] data, PaymentMode paymentMode = PaymentMode.Auto)

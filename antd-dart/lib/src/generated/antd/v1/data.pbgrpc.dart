@@ -47,6 +47,10 @@ class DataServiceClient extends $grpc.Client {
       '/antd.v1.DataService/GetPublic',
       ($1.GetPublicDataRequest value) => value.writeToBuffer(),
       ($core.List<$core.int> value) => $1.GetPublicDataResponse.fromBuffer(value));
+  static final _$stream = $grpc.ClientMethod<$1.StreamDataRequest, $1.DataChunk>(
+      '/antd.v1.DataService/Stream',
+      ($1.StreamDataRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $1.DataChunk.fromBuffer(value));
   static final _$streamPublic = $grpc.ClientMethod<$1.StreamPublicDataRequest, $1.DataChunk>(
       '/antd.v1.DataService/StreamPublic',
       ($1.StreamPublicDataRequest value) => value.writeToBuffer(),
@@ -75,6 +79,13 @@ class DataServiceClient extends $grpc.Client {
 
   $grpc.ResponseFuture<$1.GetPublicDataResponse> getPublic($1.GetPublicDataRequest request, {$grpc.CallOptions? options}) {
     return $createUnaryCall(_$getPublic, request, options: options);
+  }
+
+  /// Streaming downloads — constant memory, one decrypt batch at a time.
+  /// Private streams from a caller-held DataMap; public resolves the address
+  /// to a DataMap first (Stream is the primitive, StreamPublic wraps it).
+  $grpc.ResponseStream<$1.DataChunk> stream($1.StreamDataRequest request, {$grpc.CallOptions? options}) {
+    return $createStreamingCall(_$stream, $async.Stream.fromIterable([request]), options: options);
   }
 
   $grpc.ResponseStream<$1.DataChunk> streamPublic($1.StreamPublicDataRequest request, {$grpc.CallOptions? options}) {
@@ -119,6 +130,13 @@ abstract class DataServiceBase extends $grpc.Service {
         false,
         ($core.List<$core.int> value) => $1.GetPublicDataRequest.fromBuffer(value),
         ($1.GetPublicDataResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$1.StreamDataRequest, $1.DataChunk>(
+        'Stream',
+        stream_Pre,
+        false,
+        true,
+        ($core.List<$core.int> value) => $1.StreamDataRequest.fromBuffer(value),
+        ($1.DataChunk value) => value.writeToBuffer()));
     $addMethod($grpc.ServiceMethod<$1.StreamPublicDataRequest, $1.DataChunk>(
         'StreamPublic',
         streamPublic_Pre,
@@ -151,6 +169,10 @@ abstract class DataServiceBase extends $grpc.Service {
     return getPublic($call, await $request);
   }
 
+  $async.Stream<$1.DataChunk> stream_Pre($grpc.ServiceCall $call, $async.Future<$1.StreamDataRequest> $request) async* {
+    yield* stream($call, await $request);
+  }
+
   $async.Stream<$1.DataChunk> streamPublic_Pre($grpc.ServiceCall $call, $async.Future<$1.StreamPublicDataRequest> $request) async* {
     yield* streamPublic($call, await $request);
   }
@@ -163,6 +185,7 @@ abstract class DataServiceBase extends $grpc.Service {
   $async.Future<$1.PutPublicDataResponse> putPublic($grpc.ServiceCall call, $1.PutPublicDataRequest request);
   $async.Future<$1.GetDataResponse> get($grpc.ServiceCall call, $1.GetDataRequest request);
   $async.Future<$1.GetPublicDataResponse> getPublic($grpc.ServiceCall call, $1.GetPublicDataRequest request);
+  $async.Stream<$1.DataChunk> stream($grpc.ServiceCall call, $1.StreamDataRequest request);
   $async.Stream<$1.DataChunk> streamPublic($grpc.ServiceCall call, $1.StreamPublicDataRequest request);
   $async.Future<$2.Cost> cost($grpc.ServiceCall call, $1.DataCostRequest request);
 }

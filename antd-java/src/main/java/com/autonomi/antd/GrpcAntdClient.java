@@ -3,8 +3,16 @@ package com.autonomi.antd;
 import com.autonomi.antd.errors.*;
 import com.autonomi.antd.models.*;
 
+import io.grpc.CallOptions;
+import io.grpc.Channel;
+import io.grpc.ClientCall;
+import io.grpc.ClientInterceptor;
+import io.grpc.ForwardingClientCall;
+import io.grpc.ForwardingClientCallListener;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
+import io.grpc.Metadata;
+import io.grpc.MethodDescriptor;
 import io.grpc.StatusRuntimeException;
 
 import antd.v1.HealthServiceGrpc;
@@ -21,6 +29,9 @@ import antd.v1.Data.GetDataResponse;
 import antd.v1.Data.PutDataRequest;
 import antd.v1.Data.PutDataResponse;
 import antd.v1.Data.DataCostRequest;
+import antd.v1.Data.DataChunk;
+import antd.v1.Data.StreamDataRequest;
+import antd.v1.Data.StreamPublicDataRequest;
 
 import antd.v1.ChunkServiceGrpc;
 import antd.v1.Chunks.GetChunkRequest;
@@ -64,10 +75,13 @@ import antd.v1.Common.PaymentEntry;
 
 import com.google.protobuf.ByteString;
 
+import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * gRPC client for the antd daemon.
@@ -174,7 +188,7 @@ public class GrpcAntdClient implements AutoCloseable {
                     .setPaymentMode(paymentMode.wireValue())
                     .build();
             PutDataResponse resp = dataStub.put(req);
-            return new DataPutResult(resp.getDataMap());
+            return new DataPutResult(resp.getDataMap(), resp.getChunksStored(), resp.getPaymentModeUsed());
         } catch (StatusRuntimeException e) {
             throw mapException(e);
         }
@@ -201,7 +215,7 @@ public class GrpcAntdClient implements AutoCloseable {
                     .setPaymentMode(paymentMode.wireValue())
                     .build();
             PutPublicDataResponse resp = dataStub.putPublic(req);
-            return new DataPutPublicResult(resp.getAddress());
+            return new DataPutPublicResult(resp.getAddress(), resp.getChunksStored(), resp.getPaymentModeUsed());
         } catch (StatusRuntimeException e) {
             throw mapException(e);
         }
@@ -218,6 +232,265 @@ public class GrpcAntdClient implements AutoCloseable {
             return resp.getData().toByteArray();
         } catch (StatusRuntimeException e) {
             throw mapException(e);
+        }
+    }
+
+    /**
+     * Streams private data from a caller-held DataMap (hex), one decrypt batch
+     * at a time, instead of buffering the whole object in memory. The gRPC
+     * counterpart to {@link #dataGet} and mirror of the REST client's
+     * {@code dataStream}; the caller reads the returned stream and MUST close
+     * it (closing cancels the RPC).
+     */
+    public InputStream dataStream(String dataMap) {
+        StreamDataRequest req = StreamDataRequest.newBuilder().setDataMap(dataMap).build();
+        return openChunkStream(() -> dataStub.stream(req));
+    }
+
+    /**
+     * Streams public data by address — the gRPC counterpart to
+     * {@link #dataGetPublic}. The caller reads the returned stream and MUST
+     * close it.
+     */
+    public InputStream dataStreamPublic(String address) {
+        StreamPublicDataRequest req = StreamPublicDataRequest.newBuilder().setAddress(address).build();
+        return openChunkStream(() -> dataStub.streamPublic(req));
+    }
+
+    private InputStream openChunkStream(java.util.function.Supplier<Iterator<DataChunk>> open) {
+        try {
+            return new GrpcChunkInputStream(open.get());
+        } catch (StatusRuntimeException e) {
+            throw mapException(e);
+        }
+    }
+
+    /**
+     * Streams private data with interleaved fetch-progress frames so the caller
+     * can drive a <i>determinate</i> download progress bar. Sets the request's
+     * {@code include_progress} flag, then yields {@link DownloadFrame}s — each
+     * a byte-total meta frame ({@link DownloadFrame#totalSize()}), a plaintext
+     * chunk ({@link DownloadFrame#data()}), or a {@link DownloadProgress} update
+     * ({@link DownloadFrame#progress()}). The byte denominator arrives via the
+     * response's {@code x-content-length} initial metadata and is surfaced as
+     * the leading meta frame (absent/unparseable on older daemons => no meta
+     * frame).
+     *
+     * <p>The returned {@link Iterator} pulls one frame at a time (constant
+     * memory). Stream errors surface as the mapped {@link AntdException} during
+     * iteration.
+     */
+    public Iterator<DownloadFrame> dataStreamWithProgress(String dataMap) {
+        StreamDataRequest req = StreamDataRequest.newBuilder()
+                .setDataMap(dataMap)
+                .setIncludeProgress(true)
+                .build();
+        AtomicReference<Metadata> headers = new AtomicReference<>();
+        DataServiceGrpc.DataServiceBlockingStub stub =
+                dataStub.withInterceptors(new HeaderCaptureInterceptor(headers));
+        return openFrameStream(() -> stub.stream(req), headers);
+    }
+
+    /**
+     * Streams public data with interleaved fetch-progress frames — see
+     * {@link #dataStreamWithProgress}.
+     */
+    public Iterator<DownloadFrame> dataStreamPublicWithProgress(String address) {
+        StreamPublicDataRequest req = StreamPublicDataRequest.newBuilder()
+                .setAddress(address)
+                .setIncludeProgress(true)
+                .build();
+        AtomicReference<Metadata> headers = new AtomicReference<>();
+        DataServiceGrpc.DataServiceBlockingStub stub =
+                dataStub.withInterceptors(new HeaderCaptureInterceptor(headers));
+        return openFrameStream(() -> stub.streamPublic(req), headers);
+    }
+
+    private Iterator<DownloadFrame> openFrameStream(
+            java.util.function.Supplier<Iterator<DataChunk>> open,
+            AtomicReference<Metadata> headers) {
+        try {
+            return new GrpcFrameIterator(open.get(), headers);
+        } catch (StatusRuntimeException e) {
+            throw mapException(e);
+        }
+    }
+
+    /** Metadata key carrying the total download size in bytes (response header). */
+    private static final Metadata.Key<String> X_CONTENT_LENGTH =
+            Metadata.Key.of("x-content-length", Metadata.ASCII_STRING_MARSHALLER);
+
+    /**
+     * Reads the byte total from captured response {@code x-content-length}
+     * metadata as a leading meta frame, or {@code null} when the header is
+     * absent or unparseable (older daemons) so no meta frame is emitted.
+     */
+    private static DownloadFrame metaFrameFromHeaders(Metadata headers) {
+        if (headers == null) {
+            return null;
+        }
+        String value = headers.get(X_CONTENT_LENGTH);
+        if (value == null) {
+            return null;
+        }
+        try {
+            return DownloadFrame.ofMeta(Long.parseLong(value.trim()));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * {@link ClientInterceptor} that stashes the response's initial
+     * {@link Metadata} into a holder so the (header-hiding) blocking stub's
+     * caller can read {@code x-content-length}. Wraps the call listener's
+     * {@code onHeaders} to capture headers the moment the server sends them.
+     */
+    private static final class HeaderCaptureInterceptor implements ClientInterceptor {
+        private final AtomicReference<Metadata> holder;
+
+        HeaderCaptureInterceptor(AtomicReference<Metadata> holder) {
+            this.holder = holder;
+        }
+
+        @Override
+        public <ReqT, RespT> ClientCall<ReqT, RespT> interceptCall(
+                MethodDescriptor<ReqT, RespT> method, CallOptions callOptions, Channel next) {
+            return new ForwardingClientCall.SimpleForwardingClientCall<>(
+                    next.newCall(method, callOptions)) {
+                @Override
+                public void start(Listener<RespT> responseListener, Metadata headers) {
+                    super.start(new ForwardingClientCallListener
+                            .SimpleForwardingClientCallListener<>(responseListener) {
+                        @Override
+                        public void onHeaders(Metadata responseHeaders) {
+                            holder.set(responseHeaders);
+                            super.onHeaders(responseHeaders);
+                        }
+                    }, headers);
+                }
+            };
+        }
+    }
+
+    /** Maps a wire {@link DataChunk} oneof onto the public {@link DownloadFrame}. */
+    private static DownloadFrame frameOf(DataChunk chunk) {
+        if (chunk.getKindCase() == DataChunk.KindCase.PROGRESS) {
+            var p = chunk.getProgress();
+            return DownloadFrame.ofProgress(
+                    new DownloadProgress(p.getPhase(), p.getFetched(), p.getTotal()));
+        }
+        // DATA or KIND_NOT_SET (shouldn't occur) → an (empty) data frame, matching
+        // the antd-rust reference consumer.
+        return DownloadFrame.ofData(chunk.getData().toByteArray());
+    }
+
+    /**
+     * Adapts a server-streaming {@link DataChunk} RPC into an
+     * {@code Iterator<DownloadFrame>}, mapping the oneof to data/progress frames.
+     * Stream errors surface as the mapped {@link AntdException} during iteration.
+     */
+    private final class GrpcFrameIterator implements Iterator<DownloadFrame> {
+        private final Iterator<DataChunk> chunks;
+        private final AtomicReference<Metadata> headers;
+        // Pending byte-total meta frame, emitted before any chunk. Resolved
+        // lazily once the underlying iterator has forced the response headers to
+        // arrive (onHeaders precedes the first message).
+        private DownloadFrame pendingMeta;
+        private boolean metaResolved;
+
+        GrpcFrameIterator(Iterator<DataChunk> chunks, AtomicReference<Metadata> headers) {
+            this.chunks = chunks;
+            this.headers = headers;
+        }
+
+        @Override
+        public boolean hasNext() {
+            try {
+                // Force headers to arrive (blocking stub buffers the first
+                // message), then resolve the leading meta frame exactly once.
+                boolean more = chunks.hasNext();
+                if (!metaResolved) {
+                    metaResolved = true;
+                    pendingMeta = metaFrameFromHeaders(headers.get());
+                }
+                return pendingMeta != null || more;
+            } catch (StatusRuntimeException e) {
+                throw mapException(e);
+            }
+        }
+
+        @Override
+        public DownloadFrame next() {
+            if (!hasNext()) {
+                throw new java.util.NoSuchElementException();
+            }
+            if (pendingMeta != null) {
+                DownloadFrame meta = pendingMeta;
+                pendingMeta = null;
+                return meta;
+            }
+            try {
+                return frameOf(chunks.next());
+            } catch (StatusRuntimeException e) {
+                throw mapException(e);
+            }
+        }
+    }
+
+    /**
+     * Adapts a server-streaming DataChunk RPC into an {@link InputStream} so
+     * gRPC streaming downloads present the same surface as the REST client's
+     * {@code dataStream}. Pulls one chunk at a time (constant memory) and
+     * buffers bytes a single read couldn't consume. Stream errors surface as
+     * the mapped {@code AntdException} during read.
+     */
+    private final class GrpcChunkInputStream extends InputStream {
+        private static final byte[] EMPTY = new byte[0];
+        private final Iterator<DataChunk> chunks;
+        private byte[] buf = EMPTY;
+        private int pos = 0;
+
+        GrpcChunkInputStream(Iterator<DataChunk> chunks) {
+            this.chunks = chunks;
+        }
+
+        @Override
+        public int read() {
+            if (!fill()) {
+                return -1;
+            }
+            return buf[pos++] & 0xFF;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) {
+            if (len == 0) {
+                return 0;
+            }
+            if (!fill()) {
+                return -1;
+            }
+            int n = Math.min(len, buf.length - pos);
+            System.arraycopy(buf, pos, b, off, n);
+            pos += n;
+            return n;
+        }
+
+        /** Ensures buf has unread bytes, advancing to the next chunk as needed. */
+        private boolean fill() {
+            while (pos >= buf.length) {
+                try {
+                    if (!chunks.hasNext()) {
+                        return false;
+                    }
+                    buf = chunks.next().getData().toByteArray();
+                    pos = 0;
+                } catch (StatusRuntimeException e) {
+                    throw mapException(e);
+                }
+            }
+            return true;
         }
     }
 

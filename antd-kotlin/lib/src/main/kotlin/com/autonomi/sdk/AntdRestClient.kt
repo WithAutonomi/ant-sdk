@@ -1,8 +1,16 @@
 package com.autonomi.sdk
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.FlowCollector
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
@@ -20,6 +28,9 @@ class AntdRestClient(
 ) : IAntdClient {
 
     companion object {
+        /** Media type that opts the stream endpoints into NDJSON progress framing. */
+        private const val NDJSON_CONTENT_TYPE = "application/x-ndjson"
+
         /**
          * Create a client by auto-discovering the daemon port from the
          * `daemon.port` file.  Falls back to `http://localhost:8082` if not found.
@@ -98,6 +109,30 @@ class AntdRestClient(
     }
 
     /**
+     * GET counterpart to [postStreamWithAccept]: streams the 2xx body with an
+     * `Accept` header (e.g. `application/x-ndjson` to opt into progress framing).
+     */
+    private suspend fun getStreamWithAccept(path: String, accept: String): ResponseBody = withContext(Dispatchers.IO) {
+        val request = Request.Builder().url("$baseUrl$path").get().header("Accept", accept).build()
+        val response = http.newCall(request).execute()
+        streamBody(response)
+    }
+
+    /**
+     * [postStream] with an `Accept` header — passing `application/x-ndjson` opts
+     * the stream endpoints into interleaved NDJSON progress framing.
+     */
+    private suspend fun postStreamWithAccept(path: String, body: String, accept: String): ResponseBody = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url("$baseUrl$path")
+            .post(body.toRequestBody(jsonMediaType))
+            .header("Accept", accept)
+            .build()
+        val response = http.newCall(request).execute()
+        streamBody(response)
+    }
+
+    /**
      * On success, hands back the open [ResponseBody] (caller owns closing it).
      * On failure, consumes/closes the body and throws — mirroring [ensureSuccess].
      */
@@ -117,6 +152,53 @@ class AntdRestClient(
 
     private fun b64(data: ByteArray): String = Base64.getEncoder().encodeToString(data)
     private fun fromB64(s: String): ByteArray = Base64.getDecoder().decode(s)
+
+    /**
+     * Reads an NDJSON download body line by line, parsing each into a
+     * [DownloadFrame] and emitting it. The leading `meta` frame surfaces the
+     * byte denominator ([DownloadFrame.totalSize]); unknown frame types are
+     * skipped for forward compatibility; an `error` frame is surfaced as the
+     * matching
+     * [AntdException], which a raw octet-stream download cannot signal
+     * mid-stream. The body is closed when the stream drains.
+     */
+    private suspend fun FlowCollector<DownloadFrame>.emitNdjsonFrames(body: ResponseBody) {
+        body.use { rb ->
+            val reader = rb.charStream().buffered()
+            reader.lineSequence().forEach { raw ->
+                val line = raw.trim()
+                if (line.isEmpty()) return@forEach
+                val obj = json.parseToJsonElement(line) as? JsonObject
+                    ?: throw InternalException("invalid NDJSON frame: $line", 500)
+                when (obj["type"]?.jsonPrimitive?.contentOrNull) {
+                    "data" -> {
+                        val b64 = obj["chunk"]?.jsonPrimitive?.contentOrNull ?: ""
+                        emit(DownloadFrame(data = fromB64(b64)))
+                    }
+                    "progress" -> emit(
+                        DownloadFrame(
+                            progress = DownloadProgress(
+                                phase = obj["phase"]?.jsonPrimitive?.contentOrNull ?: "",
+                                fetched = (obj["fetched"]?.jsonPrimitive?.longOrNull ?: 0L).toULong(),
+                                total = (obj["total"]?.jsonPrimitive?.longOrNull ?: 0L).toULong(),
+                            ),
+                        ),
+                    )
+                    "error" -> throw InternalException(
+                        obj["message"]?.jsonPrimitive?.contentOrNull ?: "download failed",
+                        500,
+                    )
+                    // "meta" surfaces the byte denominator as a leading Meta
+                    // frame; absent/unparseable total_size yields no frame.
+                    "meta" -> obj["total_size"]?.jsonPrimitive?.longOrNull?.let {
+                        emit(DownloadFrame(totalSize = it.toULong()))
+                    }
+                    // Unknown/forward-compat frame types: skip.
+                    else -> Unit
+                }
+            }
+        }
+    }
 
     // ── Health ──
 
@@ -185,6 +267,32 @@ class AntdRestClient(
      */
     suspend fun dataStreamPublic(address: String): ResponseBody =
         getStream("/v1/data/public/$address/stream")
+
+    /**
+     * Like [dataStream] but opts into NDJSON progress framing
+     * (`Accept: application/x-ndjson`), emitting [DownloadFrame]s so the caller
+     * can drive a *determinate* progress bar. Data frames carry the plaintext
+     * bytes; progress frames carry chunk-fetch counts. The leading `meta` frame
+     * (byte denominator) is parsed and dropped; a terminal `error` frame is
+     * surfaced as the matching [AntdException].
+     *
+     * Requires antd >= 0.11.0.
+     */
+    fun dataStreamWithProgress(dataMap: String): Flow<DownloadFrame> = flow {
+        val body = buildJsonObject { put("data_map", dataMap) }.toString()
+        val response = postStreamWithAccept("/v1/data/stream", body, NDJSON_CONTENT_TYPE)
+        emitNdjsonFrames(response)
+    }.flowOn(Dispatchers.IO)
+
+    /**
+     * The public counterpart to [dataStreamWithProgress]. See its docs.
+     *
+     * Requires antd >= 0.11.0.
+     */
+    fun dataStreamPublicWithProgress(address: String): Flow<DownloadFrame> = flow {
+        val response = getStreamWithAccept("/v1/data/public/$address/stream", NDJSON_CONTENT_TYPE)
+        emitNdjsonFrames(response)
+    }.flowOn(Dispatchers.IO)
 
     override suspend fun dataCost(data: ByteArray, paymentMode: PaymentMode): UploadCostEstimate {
         val body = buildJsonObject {

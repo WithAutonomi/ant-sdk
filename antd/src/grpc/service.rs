@@ -138,20 +138,77 @@ pub struct DataServiceImpl {
     pub state: Arc<AppState>,
 }
 
-/// Spawn a constant-memory streaming download from `data_map` and return the
-/// gRPC response stream. `file_download_to_sender` runs on a background task and
-/// emits each decrypted batch as a `DataChunk`; a terminal ant-core error is
+/// Map an ant-core `DownloadEvent` onto the wire `DownloadProgress` frame.
+/// `fetched`/`total` count chunks; `total` is 0 where the count is not yet
+/// known (mid map-resolution). The `phase` string lets a consumer tell the
+/// resolution phase apart from the main fetch phase.
+fn download_event_to_progress(ev: ant_core::data::DownloadEvent) -> pb::DownloadProgress {
+    use ant_core::data::DownloadEvent::*;
+    match ev {
+        ResolvingDataMap { total_map_chunks } => pb::DownloadProgress {
+            phase: "resolving_map".into(),
+            fetched: 0,
+            total: total_map_chunks as u64,
+        },
+        MapChunkFetched { fetched } => pb::DownloadProgress {
+            phase: "resolving_map".into(),
+            fetched: fetched as u64,
+            total: 0,
+        },
+        DataMapResolved { total_chunks } => pb::DownloadProgress {
+            phase: "resolved".into(),
+            fetched: 0,
+            total: total_chunks as u64,
+        },
+        ChunksFetched { fetched, total } => pb::DownloadProgress {
+            phase: "fetching".into(),
+            fetched: fetched as u64,
+            total: total as u64,
+        },
+    }
+}
+
+/// Build the gRPC server-streaming response for a constant-memory download from
+/// `data_map`. `file_download_to_sender` runs on a background task and emits each
+/// decrypted batch as a `DataChunk` data frame; a terminal ant-core error is
 /// forwarded as the stream's final `Err(Status)` (after any chunks already
-/// sent), closing the server-stream with that status. Shared by the private
-/// `stream` and public `stream_public` handlers — `stream` is the primitive,
-/// `stream_public` resolves the address to a DataMap then calls this.
-fn spawn_data_chunk_stream(
+/// sent), closing the server-stream with that status.
+///
+/// When `include_progress` is set, a `DownloadEvent` sender is threaded into the
+/// download and each event is interleaved on the *same* stream as a `DataChunk`
+/// progress frame (the `data`/`progress` oneof). The byte-delivery the data
+/// frames carry is lumpy (one decrypt batch at a time, often the whole file at
+/// once), so these per-chunk fetch events are what actually advance a real
+/// progress bar. When unset, no progress sender is passed and the stream carries
+/// only data frames — byte-identical to the pre-progress behaviour.
+///
+/// The total plaintext size (`DataMap::original_file_size`) is attached as the
+/// `x-content-length` response-metadata header, sent before the first chunk.
+/// This mirrors the REST handler's `Content-Length` (see `rest/data.rs`) and
+/// gives the byte *denominator*; the progress frames give the chunk *numerator*.
+/// Shared by the private `stream` and public `stream_public` handlers —
+/// `stream` is the primitive, `stream_public` resolves the address to a DataMap
+/// then calls this.
+fn data_chunk_stream_response(
     client: Arc<ant_core::data::Client>,
     data_map: ant_core::data::DataMap,
-) -> tokio_stream::wrappers::ReceiverStream<Result<pb::DataChunk, Status>> {
+    include_progress: bool,
+) -> Response<tokio_stream::wrappers::ReceiverStream<Result<pb::DataChunk, Status>>> {
+    // Capture the total before `data_map` is moved into the producer task below.
+    let total_size = data_map.original_file_size();
+
     let (byte_tx, mut byte_rx) =
         tokio::sync::mpsc::channel::<std::result::Result<Bytes, ant_core::data::Error>>(16);
     let (out_tx, out_rx) = tokio::sync::mpsc::channel::<Result<pb::DataChunk, Status>>(16);
+
+    // Progress channel only when requested — otherwise pass None and the
+    // download emits no events at all.
+    let (prog_tx, prog_rx) = if include_progress {
+        let (tx, rx) = tokio::sync::mpsc::channel::<ant_core::data::DownloadEvent>(64);
+        (Some(tx), Some(rx))
+    } else {
+        (None, None)
+    };
 
     // Producer: drive the download. file_download_to_sender returns a terminal
     // error rather than sending it into the sink, so push it via a cloned
@@ -159,30 +216,64 @@ fn spawn_data_chunk_stream(
     let err_tx = byte_tx.clone();
     tokio::spawn(async move {
         if let Err(e) = client
-            .file_download_to_sender(&data_map, byte_tx, None)
+            .file_download_to_sender(&data_map, byte_tx, prog_tx)
             .await
         {
             let _ = err_tx.send(Err(e)).await;
         }
     });
 
-    // Forwarder: bytes -> DataChunk, ant-core error -> Status (reusing the
-    // daemon's existing mapping). Stops early if the client drops the stream.
+    // Data forwarder: bytes -> DataChunk(data) frame, ant-core error -> Status
+    // (reusing the daemon's existing mapping). Stops early if the client drops
+    // the stream.
+    let data_out = out_tx.clone();
     tokio::spawn(async move {
         while let Some(item) = byte_rx.recv().await {
             let mapped = match item {
                 Ok(bytes) => Ok(pb::DataChunk {
-                    data: bytes.to_vec(),
+                    kind: Some(pb::data_chunk::Kind::Data(bytes.to_vec())),
                 }),
                 Err(e) => Err(Status::from(AntdError::from_core(e))),
             };
-            if out_tx.send(mapped).await.is_err() {
+            if data_out.send(mapped).await.is_err() {
                 break;
             }
         }
     });
 
-    tokio_stream::wrappers::ReceiverStream::new(out_rx)
+    // Progress forwarder: DownloadEvent -> DataChunk(progress) frame on the same
+    // output channel, interleaved with data frames by arrival order. Runs only
+    // when a progress receiver exists; ends when the download drops its sender.
+    if let Some(mut prog_rx) = prog_rx {
+        let prog_out = out_tx.clone();
+        tokio::spawn(async move {
+            while let Some(ev) = prog_rx.recv().await {
+                let frame = pb::DataChunk {
+                    kind: Some(pb::data_chunk::Kind::Progress(download_event_to_progress(
+                        ev,
+                    ))),
+                };
+                if prog_out.send(Ok(frame)).await.is_err() {
+                    break;
+                }
+            }
+        });
+    }
+    // Drop the original sender so the output stream terminates once both
+    // forwarders finish (each holds only a clone).
+    drop(out_tx);
+
+    let stream = tokio_stream::wrappers::ReceiverStream::new(out_rx);
+    let mut response = Response::new(stream);
+    // Numeric ASCII is always a valid metadata value, so the parse can't fail.
+    response.metadata_mut().insert(
+        "x-content-length",
+        total_size
+            .to_string()
+            .parse()
+            .expect("decimal digits are a valid ascii metadata value"),
+    );
+    response
 }
 
 #[tonic::async_trait]
@@ -272,7 +363,9 @@ impl pb::data_service_server::DataService for DataServiceImpl {
         &self,
         request: Request<pb::StreamDataRequest>,
     ) -> Result<Response<Self::StreamStream>, Status> {
-        let data_map_hex = request.into_inner().data_map;
+        let req = request.into_inner();
+        let include_progress = req.include_progress;
+        let data_map_hex = req.data_map;
         let data_map_bytes = hex::decode(&data_map_hex)
             .map_err(|e| Status::invalid_argument(format!("invalid hex data_map: {e}")))?;
 
@@ -291,7 +384,11 @@ impl pb::data_service_server::DataService for DataServiceImpl {
             .map_err(|e| Status::invalid_argument(format!("invalid data map: {e}")))?;
 
         let client = self.state.client.clone();
-        Ok(Response::new(spawn_data_chunk_stream(client, data_map)))
+        Ok(data_chunk_stream_response(
+            client,
+            data_map,
+            include_progress,
+        ))
     }
 
     type StreamPublicStream = tokio_stream::wrappers::ReceiverStream<Result<pb::DataChunk, Status>>;
@@ -299,7 +396,9 @@ impl pb::data_service_server::DataService for DataServiceImpl {
         &self,
         request: Request<pb::StreamPublicDataRequest>,
     ) -> Result<Response<Self::StreamPublicStream>, Status> {
-        let addr = request.into_inner().address;
+        let req = request.into_inner();
+        let include_progress = req.include_progress;
+        let addr = req.address;
         if addr.len() != 64 {
             return Err(Status::invalid_argument(
                 "address must be exactly 64 hex characters",
@@ -321,7 +420,11 @@ impl pb::data_service_server::DataService for DataServiceImpl {
             .map_err(AntdError::from_core)
             .map_err(tonic::Status::from)?;
 
-        Ok(Response::new(spawn_data_chunk_stream(client, data_map)))
+        Ok(data_chunk_stream_response(
+            client,
+            data_map,
+            include_progress,
+        ))
     }
 
     async fn get(

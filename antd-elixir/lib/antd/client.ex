@@ -196,6 +196,30 @@ defmodule Antd.Client do
   def data_stream!(client, data_map), do: unwrap!(data_stream(client, data_map))
 
   @doc """
+  `data_stream/2` with interleaved fetch-progress frames so the caller can drive
+  a *determinate* download progress bar. Opts into NDJSON framing (`Accept:
+  application/x-ndjson`); enumerating the returned stream yields
+  `Antd.DownloadFrame` structs — each a plaintext chunk (`:data`) or a
+  `Antd.DownloadProgress` update (`:progress`).
+
+      {:ok, frames} = Antd.Client.data_stream_with_progress(client, data_map)
+      Enum.each(frames, fn
+        %Antd.DownloadFrame{progress: %{} = p} -> render_bar(p.fetched, p.total)
+        %Antd.DownloadFrame{data: bytes} -> IO.binwrite(bytes)
+      end)
+  """
+  @spec data_stream_with_progress(t(), String.t()) ::
+          {:ok, Enumerable.t()} | {:error, Exception.t()}
+  def data_stream_with_progress(%__MODULE__{} = client, data_map) when is_binary(data_map) do
+    do_stream_ndjson(client, :post, "/v1/data/stream", %{data_map: data_map})
+  end
+
+  @doc "Like `data_stream_with_progress/2` but raises on error."
+  @spec data_stream_with_progress!(t(), String.t()) :: Enumerable.t()
+  def data_stream_with_progress!(client, data_map),
+    do: unwrap!(data_stream_with_progress(client, data_map))
+
+  @doc """
   Stores public data on the network.
 
   The DataMap is stored on-network as an extra chunk; the returned
@@ -260,6 +284,22 @@ defmodule Antd.Client do
   @doc "Like `data_stream_public/2` but raises on error."
   @spec data_stream_public!(t(), String.t()) :: Enumerable.t()
   def data_stream_public!(client, address), do: unwrap!(data_stream_public(client, address))
+
+  @doc """
+  `data_stream_public/2` with interleaved fetch-progress frames. See
+  `data_stream_with_progress/2`.
+  """
+  @spec data_stream_public_with_progress(t(), String.t()) ::
+          {:ok, Enumerable.t()} | {:error, Exception.t()}
+  def data_stream_public_with_progress(%__MODULE__{} = client, address)
+      when is_binary(address) do
+    do_stream_ndjson(client, :get, "/v1/data/public/#{address}/stream", nil)
+  end
+
+  @doc "Like `data_stream_public_with_progress/2` but raises on error."
+  @spec data_stream_public_with_progress!(t(), String.t()) :: Enumerable.t()
+  def data_stream_public_with_progress!(client, address),
+    do: unwrap!(data_stream_public_with_progress(client, address))
 
   @doc """
   Pre-upload cost breakdown for the given bytes.
@@ -858,7 +898,7 @@ defmodule Antd.Client do
   #   * 2xx -> wrap the async body in a lazy `Stream` of binary chunks.
   #   * non-2xx -> drain the (short) error body, parse `{"error"}`, and return
   #     the mapped SDK error tuple (mirrors `do_json/4`).
-  defp do_stream(%__MODULE__{} = client, method, path, body) do
+  defp do_stream(%__MODULE__{} = client, method, path, body, extra_headers \\ []) do
     url = client.base_url <> path
 
     req_opts = [
@@ -869,15 +909,9 @@ defmodule Antd.Client do
       into: :self
     ]
 
-    req_opts =
-      if body do
-        Keyword.merge(req_opts,
-          json: body,
-          headers: [{"content-type", "application/json"}]
-        )
-      else
-        req_opts
-      end
+    headers = extra_headers ++ if(body, do: [{"content-type", "application/json"}], else: [])
+    req_opts = if headers == [], do: req_opts, else: Keyword.put(req_opts, :headers, headers)
+    req_opts = if body, do: Keyword.put(req_opts, :json, body), else: req_opts
 
     case Req.request(req_opts) do
       {:ok, %Req.Response{status: status, body: async}}
@@ -923,4 +957,62 @@ defmodule Antd.Client do
   end
 
   defp extract_error_message(_), do: "unknown error"
+
+  # Media type that opts the stream endpoints into NDJSON progress framing.
+  @ndjson_content_type "application/x-ndjson"
+
+  # Streams a download as NDJSON progress frames: sets `Accept:
+  # application/x-ndjson` and parses the interleaved meta/progress/data/error
+  # lines into `Antd.DownloadFrame` structs.
+  defp do_stream_ndjson(%__MODULE__{} = client, method, path, body) do
+    case do_stream(client, method, path, body, [{"accept", @ndjson_content_type}]) do
+      {:ok, byte_stream} -> {:ok, ndjson_frame_stream(byte_stream)}
+      {:error, _} = err -> err
+    end
+  end
+
+  # Line-buffers the raw byte stream across chunk boundaries and parses each
+  # complete NDJSON line into a frame, dropping meta / unknown frames.
+  defp ndjson_frame_stream(byte_stream) do
+    byte_stream
+    |> Stream.transform("", fn chunk, buffer ->
+      parts = String.split(buffer <> chunk, "\n")
+      {complete, [rest]} = Enum.split(parts, length(parts) - 1)
+      {complete, rest}
+    end)
+    |> Stream.flat_map(fn line ->
+      case parse_ndjson_frame(line) do
+        nil -> []
+        frame -> [frame]
+      end
+    end)
+  end
+
+  # Parses one NDJSON line. Returns nil for the leading `meta` frame, blank
+  # lines, and unknown frame types (forward-compat); raises on a terminal
+  # `error` frame, which a raw octet-stream download cannot signal mid-stream.
+  defp parse_ndjson_frame(line) do
+    case Jason.decode(String.trim(line)) do
+      {:ok, %{"type" => "data"} = m} ->
+        %Antd.DownloadFrame{data: Base.decode64!(m["chunk"] || "")}
+
+      {:ok, %{"type" => "progress"} = m} ->
+        %Antd.DownloadFrame{
+          progress: %Antd.DownloadProgress{
+            phase: m["phase"] || "",
+            fetched: m["fetched"] || 0,
+            total: m["total"] || 0
+          }
+        }
+
+      {:ok, %{"type" => "error"} = m} ->
+        raise Antd.Errors.error_for_status(500, m["message"] || "stream error")
+
+      {:ok, %{"type" => "meta"} = m} ->
+        %Antd.DownloadFrame{meta: m["total_size"] || 0}
+
+      _ ->
+        nil
+    end
+  end
 end
