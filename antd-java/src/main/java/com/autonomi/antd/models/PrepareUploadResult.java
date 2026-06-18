@@ -17,6 +17,8 @@ import java.util.List;
  * @param depth                  merkle tree depth 1-8 (merkle only)
  * @param poolCommitments        pool commitments for payForMerkleTree() (merkle only)
  * @param merklePaymentTimestamp unix seconds timestamp (merkle only)
+ * @param totalChunks            total chunks incl. already-stored (added in antd 0.10.0; 0 on older daemons)
+ * @param alreadyStoredCount     chunks already on-network, excluded from payment (added in antd 0.10.0)
  */
 public record PrepareUploadResult(
         String uploadId,
@@ -28,4 +30,6 @@ public record PrepareUploadResult(
         String rpcUrl,
         Integer depth,
         List<PoolCommitmentEntry> poolCommitments,
-        Long merklePaymentTimestamp) {}
+        Long merklePaymentTimestamp,
+        long totalChunks,
+        long alreadyStoredCount) {}

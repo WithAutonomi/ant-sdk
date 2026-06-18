@@ -28,5 +28,13 @@ readonly class PrepareUploadResult
         public string $paymentTokenAddress,
         /** EVM RPC URL the external signer should submit transactions through. */
         public string $rpcUrl,
+        /**
+         * Total chunks in this upload, including any already on-network.
+         * Added in antd 0.10.0; 0 against older daemons. The external signer
+         * pays for ($totalChunks - $alreadyStoredCount) chunks.
+         */
+        public int $totalChunks = 0,
+        /** Chunks already stored on-network and excluded from payment + PUT (added in antd 0.10.0). */
+        public int $alreadyStoredCount = 0,
     ) {}
 }

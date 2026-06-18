@@ -400,6 +400,8 @@ export class RestClient {
       depth?: number;
       pool_commitments?: { pool_hash: string; candidates: { rewards_address: string; amount: string }[] }[];
       merkle_payment_timestamp?: number;
+      total_chunks?: number;
+      already_stored_count?: number;
     }>("/v1/upload/prepare", body);
     const result: PrepareUploadResult = {
       uploadId: j.upload_id,
@@ -413,6 +415,8 @@ export class RestClient {
       paymentTokenAddress: j.payment_token_address,
       rpcUrl: j.rpc_url,
       paymentType: j.payment_type ?? "wave_batch",
+      totalChunks: j.total_chunks ?? 0,
+      alreadyStoredCount: j.already_stored_count ?? 0,
     };
     if (j.depth !== undefined) result.depth = j.depth;
     if (j.pool_commitments !== undefined) {
@@ -456,6 +460,8 @@ export class RestClient {
       depth?: number;
       pool_commitments?: { pool_hash: string; candidates: { rewards_address: string; amount: string }[] }[];
       merkle_payment_timestamp?: number;
+      total_chunks?: number;
+      already_stored_count?: number;
     }>("/v1/data/prepare", { data: RestClient.b64(data) });
     const result: PrepareUploadResult = {
       uploadId: j.upload_id,
@@ -469,6 +475,8 @@ export class RestClient {
       paymentTokenAddress: j.payment_token_address,
       rpcUrl: j.rpc_url,
       paymentType: j.payment_type ?? "wave_batch",
+      totalChunks: j.total_chunks ?? 0,
+      alreadyStoredCount: j.already_stored_count ?? 0,
     };
     if (j.depth !== undefined) result.depth = j.depth;
     if (j.pool_commitments !== undefined) {

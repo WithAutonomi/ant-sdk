@@ -405,11 +405,16 @@ final class PreparePublicAndChunkTests: XCTestCase {
             "payment_vault_address": "0xDP",
             "payment_token_address": "0xTK",
             "rpc_url": "http://rpc.local",
+            "total_chunks": 3,
+            "already_stored_count": 1,
         ])
 
         let client = makeClient()
         let result = try await client.prepareUploadPublic(path: "/tmp/file.dat")
         XCTAssertEqual(result.uploadId, "up_wave_1")
+        // already-stored preflight (added in antd 0.10.0)
+        XCTAssertEqual(result.totalChunks, 3)
+        XCTAssertEqual(result.alreadyStoredCount, 1)
 
         let req = decodeJSON(StubURLProtocol.lastBodies["/v1/upload/prepare"])
         XCTAssertEqual(req["visibility"] as? String, "public")

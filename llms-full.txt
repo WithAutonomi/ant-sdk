@@ -336,9 +336,13 @@ The response includes a `payment_type` discriminator that determines the payment
   "total_amount": "456",
   "payment_vault_address": "0x...",
   "payment_token_address": "0x...",
-  "rpc_url": "http://..."
+  "rpc_url": "http://...",
+  "total_chunks": 3,
+  "already_stored_count": 1
 }
 ```
+
+`total_chunks` and `already_stored_count` were added in antd 0.10.0 (older daemons omit them; SDKs default both to 0). They report the already-stored preflight: the signer pays for `total_chunks - already_stored_count` chunks, so a prepare can legitimately come back cheaper than the raw file size implies.
 
 **Merkle response** (>= 64 chunks — call `payForMerkleTree()`, finalize with `winner_pool_hash`):
 ```json
@@ -358,7 +362,9 @@ The response includes a `payment_type` discriminator that determines the payment
   "payment_vault_address": "0x...",
   "total_amount": "0",
   "payment_token_address": "0x...",
-  "rpc_url": "http://..."
+  "rpc_url": "http://...",
+  "total_chunks": 128,
+  "already_stored_count": 4
 }
 ```
 

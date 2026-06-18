@@ -722,7 +722,9 @@ defmodule Antd.Client do
       payment_type: payment_type,
       depth: body["depth"] || 0,
       pool_commitments: pool_commitments,
-      merkle_payment_timestamp: body["merkle_payment_timestamp"] || 0
+      merkle_payment_timestamp: body["merkle_payment_timestamp"] || 0,
+      total_chunks: body["total_chunks"] || 0,
+      already_stored_count: body["already_stored_count"] || 0
     }
   end
 

@@ -120,6 +120,10 @@ data class PrepareUploadResult(
     val depth: Int? = null,
     val poolCommitments: List<PoolCommitmentEntry>? = null,
     val merklePaymentTimestamp: Long? = null,
+    // Already-stored preflight (added in antd 0.10.0). 0 on older daemons. The
+    // external signer pays for (totalChunks - alreadyStoredCount) chunks.
+    val totalChunks: Long = 0,
+    val alreadyStoredCount: Long = 0,
 )
 
 /**
@@ -309,6 +313,8 @@ internal data class PrepareUploadDto(
     val depth: Int? = null,
     @SerialName("pool_commitments") val poolCommitments: List<PoolCommitmentEntryDto>? = null,
     @SerialName("merkle_payment_timestamp") val merklePaymentTimestamp: Long? = null,
+    @SerialName("total_chunks") val totalChunks: Long = 0,
+    @SerialName("already_stored_count") val alreadyStoredCount: Long = 0,
 )
 
 @Serializable

@@ -230,7 +230,9 @@ defmodule Antd.PrepareUploadResult do
     :payment_type,
     :depth,
     :pool_commitments,
-    :merkle_payment_timestamp
+    :merkle_payment_timestamp,
+    :total_chunks,
+    :already_stored_count
   ]
 
   @type t :: %__MODULE__{
@@ -243,7 +245,11 @@ defmodule Antd.PrepareUploadResult do
           payment_type: String.t() | nil,
           depth: integer() | nil,
           pool_commitments: [Antd.PoolCommitmentEntry.t()] | nil,
-          merkle_payment_timestamp: integer() | nil
+          merkle_payment_timestamp: integer() | nil,
+          # Already-stored preflight (added in antd 0.10.0). 0 on older daemons.
+          # The external signer pays for total_chunks - already_stored_count.
+          total_chunks: integer(),
+          already_stored_count: integer()
         }
 end
 

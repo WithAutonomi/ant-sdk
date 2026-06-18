@@ -188,6 +188,9 @@ local function build_prepare_result(j)
         depth = num(j, "depth"),
         pool_commitments = pool_commitments,
         merkle_payment_timestamp = num(j, "merkle_payment_timestamp"),
+        -- Already-stored preflight (added in antd 0.10.0). 0 on older daemons.
+        total_chunks = num(j, "total_chunks"),
+        already_stored_count = num(j, "already_stored_count"),
     }
 end
 

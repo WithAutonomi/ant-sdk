@@ -333,6 +333,8 @@ static PrepareUploadResult parse_prepare_response(const json& j) {
     result.payment_vault_address = j.value("payment_vault_address", "");
     result.payment_token_address = j.value("payment_token_address", "");
     result.rpc_url = j.value("rpc_url", "");
+    result.total_chunks = j.value("total_chunks", uint64_t{0});
+    result.already_stored_count = j.value("already_stored_count", uint64_t{0});
 
     // Default to wave_batch for backward compatibility with older daemons
     if (result.payment_type.empty()) {

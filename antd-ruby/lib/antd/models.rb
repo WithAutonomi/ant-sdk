@@ -91,11 +91,16 @@ module Antd
   PoolCommitmentEntry = Struct.new(:pool_hash, :candidates, keyword_init: true)
 
   # Result of preparing an upload for external signing.
+  # +total_chunks+ and +already_stored_count+ (added in antd 0.10.0) describe
+  # the already-stored preflight: +total_chunks+ includes chunks already on the
+  # network, +already_stored_count+ is how many were skipped (no payment/PUT).
+  # Older daemons omit them and they default to 0.
   PrepareUploadResult = Struct.new(
     :upload_id, :payments, :total_amount,
     :payment_vault_address, :payment_token_address, :rpc_url,
     :payment_type, :depth, :pool_commitments,
     :merkle_payment_timestamp,
+    :total_chunks, :already_stored_count,
     keyword_init: true
   )
 

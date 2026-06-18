@@ -189,6 +189,8 @@ def _parse_prepare_result(j: dict) -> PrepareUploadResult:
         depth=j.get("depth", 0),
         pool_commitments=pool_commitments,
         merkle_payment_timestamp=j.get("merkle_payment_timestamp", 0),
+        total_chunks=j.get("total_chunks", 0),
+        already_stored_count=j.get("already_stored_count", 0),
     )
 
 

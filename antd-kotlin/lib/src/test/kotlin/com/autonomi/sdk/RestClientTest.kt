@@ -120,7 +120,7 @@ class RestClientTest {
                 lastPrepareBody = request.body.readUtf8()
                 lastVisibility = "\"visibility\"\\s*:\\s*\"([^\"]+)\"".toRegex()
                     .find(lastPrepareBody)?.groupValues?.get(1)
-                return json("""{"upload_id":"up-1","payment_type":"wave_batch","payments":[{"quote_hash":"qh1","rewards_address":"ra1","amount":"100"}],"total_amount":"100","payment_vault_address":"0xvault","payment_token_address":"0xtoken","rpc_url":"http://localhost:8545"}""")
+                return json("""{"upload_id":"up-1","payment_type":"wave_batch","payments":[{"quote_hash":"qh1","rewards_address":"ra1","amount":"100"}],"total_amount":"100","payment_vault_address":"0xvault","payment_token_address":"0xtoken","rpc_url":"http://localhost:8545","total_chunks":3,"already_stored_count":1}""")
             }
 
             // External-signer finalize. Echo a data_map_address when the prior
@@ -517,6 +517,9 @@ class RestClientTest {
             "expected path forwarded; got ${daemon.lastPrepareBody}",
         )
         assertEquals("up-1", res.uploadId)
+        // already-stored preflight (added in antd 0.10.0)
+        assertEquals(3L, res.totalChunks)
+        assertEquals(1L, res.alreadyStoredCount)
     }
 
     @Test

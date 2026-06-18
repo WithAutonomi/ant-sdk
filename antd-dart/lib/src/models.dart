@@ -395,6 +395,14 @@ class PrepareUploadResult {
   /// Unix-seconds timestamp for the merkle payment. Present only when [paymentType] == "merkle".
   final int? merklePaymentTimestamp;
 
+  /// Total chunks in this upload, including any already on-network. Added in
+  /// antd 0.10.0; 0 against older daemons. The external signer pays for
+  /// ([totalChunks] - [alreadyStoredCount]) chunks.
+  final int totalChunks;
+
+  /// Chunks already stored on-network and excluded from payment + PUT (added in antd 0.10.0).
+  final int alreadyStoredCount;
+
   const PrepareUploadResult({
     required this.uploadId,
     required this.payments,
@@ -406,6 +414,8 @@ class PrepareUploadResult {
     this.depth,
     this.poolCommitments,
     this.merklePaymentTimestamp,
+    this.totalChunks = 0,
+    this.alreadyStoredCount = 0,
   });
 
   factory PrepareUploadResult.fromJson(Map<String, dynamic> json) {
@@ -427,6 +437,8 @@ class PrepareUploadResult {
           .toList(),
       merklePaymentTimestamp:
           (json['merkle_payment_timestamp'] as num?)?.toInt(),
+      totalChunks: (json['total_chunks'] as num?)?.toInt() ?? 0,
+      alreadyStoredCount: (json['already_stored_count'] as num?)?.toInt() ?? 0,
     );
   }
 
