@@ -32,3 +32,15 @@ toml = "0.8"
 
 [build-dependencies]
 tonic-build = "0.12"
+
+# Release profile tuned for binary size. Measured on antd (2026-06-09):
+# Linux 36.5 MB -> 22.1 MB (-37%), Windows .exe 29.8 MB -> 24.6 MB (-17%).
+# `strip` alone is the big, free win on Linux (debug symbols the .exe never
+# needed); thin LTO + a single codegen unit add the rest and tend to improve
+# runtime perf, at the cost of a slower release link (does not affect dev /
+# `cargo build`). Both variants smoke-tested (launch + /health) on Linux and
+# Windows.
+[profile.release]
+strip = "symbols"
+lto = "thin"
+codegen-units = 1
