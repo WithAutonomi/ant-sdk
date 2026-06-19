@@ -95,6 +95,7 @@ wix build `
     -d ProductVersion=$msiVersion `
     -d ArtifactsDir=$artifactsPath `
     -bindpath $scriptDir `
+    -pdbtype none `
     -ext WixToolset.UI.wixext `
     -o $outputMsi `
     $wxsFile
