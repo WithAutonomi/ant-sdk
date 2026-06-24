@@ -70,27 +70,89 @@ rm -rf "$XCF_DIR"
 SLICE_DIR="$BUILD_DIR/slices"
 rm -rf "$SLICE_DIR"
 
-# Each slice needs: libant_ffi.a + Headers/{ant_ffiFFI.h, module.modulemap}
-# The modulemap inside Headers must be named exactly `module.modulemap` (not
-# the uniffi-emitted `ant_ffiFFI.modulemap`) for Xcode to find it.
-prepare_slice() {
-    local slice_name="$1"
-    local lib_src="$2"
-    local out="$SLICE_DIR/$slice_name"
-    mkdir -p "$out/Headers"
-    cp "$lib_src" "$out/libant_ffi.a"
-    cp "$GEN_DIR/ant_ffiFFI.h" "$out/Headers/"
-    cp "$GEN_DIR/ant_ffiFFI.modulemap" "$out/Headers/module.modulemap"
+# Each slice is a DYNAMIC `.framework` built from the cdylib — NOT a static
+# `.a` + `Headers/`. A static-library xcframework copies its `module.modulemap`
+# into the consumer's shared `BUILT_PRODUCTS_DIR/include/`, which collides with
+# any *other* static xcframework that does the same (e.g. Reown AppKit's
+# `yttrium`): "Multiple commands produce .../include/module.modulemap". A
+# dynamic framework keeps its modulemap inside `Modules/`, so multiple such
+# frameworks coexist in one app. (Linear V2-532.)
+FW_NAME="ant_ffiFFI"   # must match the uniffi module name the Swift glue imports
+
+write_modulemap() {
+    cat > "$1" <<EOF
+framework module $FW_NAME {
+    umbrella header "$FW_NAME.h"
+    export *
+}
+EOF
 }
 
-prepare_slice "ios-arm64"           "$RUST_DIR/target/aarch64-apple-ios/release/libant_ffi.a"
-prepare_slice "ios-arm64-simulator" "$RUST_DIR/target/aarch64-apple-ios-sim/release/libant_ffi.a"
-prepare_slice "macos-arm64"         "$RUST_DIR/target/release/libant_ffi.a"
+# $1 plist path, $2 platform (ios|macos)
+write_plist() {
+    local minkey minver
+    if [ "$2" = "macos" ]; then
+        minkey="LSMinimumSystemVersion"; minver="$MACOSX_DEPLOYMENT_TARGET"
+    else
+        minkey="MinimumOSVersion"; minver="$IPHONEOS_DEPLOYMENT_TARGET"
+    fi
+    # CFBundleIdentifier disallows underscores — strip them from the module name.
+    local bundle_id="com.autonomi.${FW_NAME//_/}"
+    cat > "$1" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleExecutable</key><string>$FW_NAME</string>
+  <key>CFBundleIdentifier</key><string>$bundle_id</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleName</key><string>$FW_NAME</string>
+  <key>CFBundlePackageType</key><string>FMWK</string>
+  <key>CFBundleShortVersionString</key><string>0.2.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>$minkey</key><string>$minver</string>
+</dict></plist>
+EOF
+}
+
+# $1 slice dir, $2 cdylib path, $3 platform (ios|macos)
+prepare_framework() {
+    local slice_name="$1" dylib_src="$2" platform="$3"
+    local fw="$SLICE_DIR/$slice_name/$FW_NAME.framework"
+
+    if [ "$platform" = "macos" ]; then
+        # macOS frameworks use a versioned bundle (Versions/A + symlinks).
+        local V="$fw/Versions/A"
+        mkdir -p "$V/Headers" "$V/Modules" "$V/Resources"
+        cp "$dylib_src" "$V/$FW_NAME"
+        install_name_tool -id "@rpath/$FW_NAME.framework/Versions/A/$FW_NAME" "$V/$FW_NAME"
+        cp "$GEN_DIR/$FW_NAME.h" "$V/Headers/"
+        write_modulemap "$V/Modules/module.modulemap"
+        write_plist "$V/Resources/Info.plist" "$platform"
+        ln -s "A" "$fw/Versions/Current"
+        ln -s "Versions/Current/$FW_NAME" "$fw/$FW_NAME"
+        ln -s "Versions/Current/Headers" "$fw/Headers"
+        ln -s "Versions/Current/Modules" "$fw/Modules"
+        ln -s "Versions/Current/Resources" "$fw/Resources"
+    else
+        # iOS / simulator frameworks are flat.
+        mkdir -p "$fw/Headers" "$fw/Modules"
+        cp "$dylib_src" "$fw/$FW_NAME"
+        install_name_tool -id "@rpath/$FW_NAME.framework/$FW_NAME" "$fw/$FW_NAME"
+        cp "$GEN_DIR/$FW_NAME.h" "$fw/Headers/"
+        write_modulemap "$fw/Modules/module.modulemap"
+        write_plist "$fw/Info.plist" "$platform"
+    fi
+}
+
+prepare_framework "ios-arm64"           "$RUST_DIR/target/aarch64-apple-ios/release/libant_ffi.dylib"     "ios"
+prepare_framework "ios-arm64-simulator" "$RUST_DIR/target/aarch64-apple-ios-sim/release/libant_ffi.dylib" "ios"
+prepare_framework "macos-arm64"         "$RUST_DIR/target/release/libant_ffi.dylib"                        "macos"
 
 xcodebuild -create-xcframework \
-    -library "$SLICE_DIR/ios-arm64/libant_ffi.a"           -headers "$SLICE_DIR/ios-arm64/Headers" \
-    -library "$SLICE_DIR/ios-arm64-simulator/libant_ffi.a" -headers "$SLICE_DIR/ios-arm64-simulator/Headers" \
-    -library "$SLICE_DIR/macos-arm64/libant_ffi.a"         -headers "$SLICE_DIR/macos-arm64/Headers" \
+    -framework "$SLICE_DIR/ios-arm64/$FW_NAME.framework" \
+    -framework "$SLICE_DIR/ios-arm64-simulator/$FW_NAME.framework" \
+    -framework "$SLICE_DIR/macos-arm64/$FW_NAME.framework" \
     -output "$XCF_DIR" > /dev/null
 
 echo "==> Packaging zip + checksum"
