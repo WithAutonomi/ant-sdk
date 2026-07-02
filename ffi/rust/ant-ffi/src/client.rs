@@ -270,6 +270,64 @@ impl Client {
         Ok(Self::wrap(client))
     }
 
+    /// Like [`Self::connect_from_devnet_manifest`] but for the **external-signer**
+    /// flow: configures the devnet's EVM network for quote/price queries but
+    /// attaches **no wallet** (the manifest's `wallet_private_key` may be empty
+    /// — e.g. the Sepolia devnet, which expects you to bring your own wallet).
+    /// Pay via `prepare_*` + an external signer + `finalize_upload`.
+    #[uniffi::constructor]
+    pub async fn connect_from_devnet_manifest_external_signer(
+        path: String,
+    ) -> Result<Arc<Self>, ClientError> {
+        let bytes = std::fs::read(&path).map_err(|e| ClientError::InitializationFailed {
+            reason: format!("failed to read manifest at {path}: {e}"),
+        })?;
+        let manifest: DevnetManifest =
+            serde_json::from_slice(&bytes).map_err(|e| ClientError::InitializationFailed {
+                reason: format!("invalid manifest JSON: {e}"),
+            })?;
+        let evm = manifest.evm.ok_or_else(|| ClientError::InitializationFailed {
+            reason: "manifest has no `evm` section — devnet started without payments?".into(),
+        })?;
+
+        // Same devnet-tuned node config as the wallet variant (local +
+        // loopback), so the client joins the local devnet the same way.
+        let mut builder = CoreNodeConfig::builder()
+            .mode(NodeMode::Client)
+            .port(0)
+            .local(true)
+            .allow_loopback(true)
+            .ipv6(false);
+        for peer in &manifest.bootstrap {
+            builder = builder.bootstrap_peer(peer.clone());
+        }
+        let config = builder
+            .build()
+            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+        let node = P2PNode::new(config)
+            .await
+            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+        node.start()
+            .await
+            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+        for _ in 0..60 {
+            if node.connected_peers().await.len() >= 7 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+
+        let network = build_custom_network(
+            &evm.rpc_url,
+            &evm.payment_token_address,
+            &evm.payment_vault_address,
+        )
+        .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+        let client = CoreClient::from_node(Arc::new(node), ClientConfig::default())
+            .with_evm_network(network);
+        Ok(Self::wrap(client))
+    }
+
     // ===== Chunk Operations =====
 
     /// Store a chunk on the network.
