@@ -86,8 +86,12 @@ for entry in "${TARGET_PAIRS[@]}"; do
 done
 
 echo "==> Generating Kotlin bindings"
+# Read UniFFI metadata from a freshly cross-compiled Android .so (metadata is
+# arch-independent). Do NOT use target/release/libant_ffi.dylib here — this
+# script never builds that host cdylib (it only builds the bindgen *binary*),
+# so it can be stale and produce bindings that lag the Rust source.
 "$RUST_DIR/target/release/uniffi-bindgen" generate \
-    --library "$RUST_DIR/target/release/libant_ffi.dylib" \
+    --library "$RUST_DIR/target/aarch64-linux-android/release/libant_ffi.so" \
     --language kotlin \
     --out-dir "$ANDROID_DIR/src/main/kotlin"
 
