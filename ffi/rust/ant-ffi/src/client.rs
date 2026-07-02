@@ -1,19 +1,22 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
 use zeroize::Zeroize;
 
 use ant_core::data::{
-    Client as CoreClient, ClientConfig, CoreNodeConfig, DevnetManifest, MultiAddr, NodeMode,
-    P2PNode, Wallet as CoreWallet,
+    Client as CoreClient, ClientConfig, CoreNodeConfig, DevnetManifest, ExternalPaymentInfo,
+    MultiAddr, NodeMode, P2PNode, PreparedUpload, Visibility, Wallet as CoreWallet,
 };
+use ant_protocol::evm::{QuoteHash, TxHash};
 
 use crate::data::{format_payment_mode, parse_payment_mode};
 use crate::wallet::build_custom_network;
 use crate::{
-    ChunkPutResult, ClientError, DataPutPrivateResult, DataPutPublicResult,
-    FilePutPublicResult,
+    ChunkPutResult, ClientError, DataPutPrivateResult, DataPutPublicResult, ExternalUploadResult,
+    FilePutPublicResult, PaymentEntry, PreparedUploadInfo,
 };
 
 /// Autonomi network client (wraps ant-core Client).
@@ -23,6 +26,23 @@ use crate::{
 #[derive(uniffi::Object)]
 pub struct Client {
     inner: CoreClient,
+    /// External-signer prepared uploads awaiting finalize, keyed by upload_id.
+    /// The `PreparedUpload` holds chunk content in memory until finalize stores
+    /// it, so entries live only between `prepare_*` and `finalize_upload`.
+    sessions: Mutex<HashMap<String, PreparedUpload>>,
+    /// Monotonic source of unique upload_ids for this client instance.
+    next_id: AtomicU64,
+}
+
+impl Client {
+    /// Wrap a core client with fresh external-signer session state.
+    fn wrap(inner: CoreClient) -> Arc<Self> {
+        Arc::new(Self {
+            inner,
+            sessions: Mutex::new(HashMap::new()),
+            next_id: AtomicU64::new(1),
+        })
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -57,7 +77,7 @@ impl Client {
 
         let client = CoreClient::from_node(Arc::new(node), ClientConfig::default());
 
-        Ok(Arc::new(Self { inner: client }))
+        Ok(Self::wrap(client))
     }
 
     /// Connect to the network using explicit bootstrap peers.
@@ -104,7 +124,7 @@ impl Client {
 
         let client = CoreClient::from_node(Arc::new(node), ClientConfig::default());
 
-        Ok(Arc::new(Self { inner: client }))
+        Ok(Self::wrap(client))
     }
 
     /// Connect to the network with a wallet configured for write operations.
@@ -169,7 +189,7 @@ impl Client {
         let client =
             CoreClient::from_node(Arc::new(node), ClientConfig::default()).with_wallet(wallet);
 
-        Ok(Arc::new(Self { inner: client }))
+        Ok(Self::wrap(client))
     }
 
     /// Connect to a locally running devnet using the manifest JSON file the
@@ -247,7 +267,7 @@ impl Client {
 
         let client =
             CoreClient::from_node(Arc::new(node), ClientConfig::default()).with_wallet(wallet);
-        Ok(Arc::new(Self { inner: client }))
+        Ok(Self::wrap(client))
     }
 
     // ===== Chunk Operations =====
@@ -421,6 +441,200 @@ impl Client {
             })?;
         Ok(())
     }
+
+    // ===== External-signer (WalletConnect) operations =====
+
+    /// Connect with an EVM network configured but **no wallet / private key**.
+    ///
+    /// This is the external-signer entry point: quote collection and price
+    /// queries work (they need the network), but payment is signed off-device
+    /// by an external wallet (e.g. WalletConnect). Use [`Self::prepare_data_upload`]
+    /// / [`Self::prepare_file_upload`] then [`Self::finalize_upload`].
+    #[uniffi::constructor]
+    pub async fn connect_for_external_signer(
+        peers: Vec<String>,
+        rpc_url: String,
+        payment_token_address: String,
+        payment_vault_address: String,
+    ) -> Result<Arc<Self>, ClientError> {
+        let mut builder = CoreNodeConfig::builder().mode(NodeMode::Client).port(0);
+        for peer_str in &peers {
+            let addr: MultiAddr =
+                peer_str
+                    .parse()
+                    .map_err(|e| ClientError::InitializationFailed {
+                        reason: format!("invalid peer address {peer_str}: {e}"),
+                    })?;
+            builder = builder.bootstrap_peer(addr);
+        }
+        let config = builder
+            .build()
+            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+        let node = P2PNode::new(config)
+            .await
+            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+        node.start()
+            .await
+            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+        for _ in 0..20 {
+            if !node.connected_peers().await.is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+
+        let network =
+            build_custom_network(&rpc_url, &payment_token_address, &payment_vault_address)
+                .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+        let client = CoreClient::from_node(Arc::new(node), ClientConfig::default())
+            .with_evm_network(network);
+        Ok(Self::wrap(client))
+    }
+
+    /// Phase 1 (external signer): encrypt `data`, collect quotes, and return
+    /// the payment summary. `visibility` is `"public"` or `"private"`. The
+    /// prepared state is retained under the returned `upload_id` until
+    /// [`Self::finalize_upload`].
+    pub async fn prepare_data_upload(
+        &self,
+        data: Vec<u8>,
+        visibility: String,
+    ) -> Result<PreparedUploadInfo, ClientError> {
+        let vis = parse_visibility(&visibility)?;
+        let prepared = self
+            .inner
+            .data_prepare_upload_with_visibility(Bytes::from(data), vis)
+            .await?;
+        self.stash_prepared(prepared)
+    }
+
+    /// Phase 1 (external signer): same as [`Self::prepare_data_upload`] but for
+    /// a file on disk.
+    pub async fn prepare_file_upload(
+        &self,
+        path: String,
+        visibility: String,
+    ) -> Result<PreparedUploadInfo, ClientError> {
+        let vis = parse_visibility(&visibility)?;
+        let prepared = self
+            .inner
+            .file_prepare_upload_with_visibility(&PathBuf::from(path), vis)
+            .await?;
+        self.stash_prepared(prepared)
+    }
+
+    /// Phase 2 (external signer): after the external wallet has paid
+    /// (`payForQuotes`), finalize the upload by supplying the resulting
+    /// `quote_hash -> tx_hash` map (both 0x-prefixed hex). Stores the chunks
+    /// and returns the data map / address. `upload_id` comes from a prior
+    /// `prepare_*` call. If everything was already stored, pass an empty map.
+    pub async fn finalize_upload(
+        &self,
+        upload_id: String,
+        tx_hashes: HashMap<String, String>,
+    ) -> Result<ExternalUploadResult, ClientError> {
+        let prepared = self
+            .sessions
+            .lock()
+            .expect("sessions mutex poisoned")
+            .remove(&upload_id)
+            .ok_or_else(|| ClientError::InvalidInput {
+                reason: format!("unknown or already-finalized upload_id: {upload_id}"),
+            })?;
+
+        let mut tx_hash_map: HashMap<QuoteHash, TxHash> =
+            HashMap::with_capacity(tx_hashes.len());
+        for (quote_hex, tx_hex) in &tx_hashes {
+            let quote_bytes = decode_hash(quote_hex, "quote hash")?;
+            let tx_bytes = decode_hash(tx_hex, "tx hash")?;
+            tx_hash_map.insert(QuoteHash::from(quote_bytes), TxHash::from(tx_bytes));
+        }
+
+        let result = self.inner.finalize_upload(prepared, &tx_hash_map).await?;
+
+        let data_map_bytes =
+            rmp_serde::to_vec(&result.data_map).map_err(|e| ClientError::InternalError {
+                reason: format!("failed to serialize data map: {e}"),
+            })?;
+
+        Ok(ExternalUploadResult {
+            data_map: hex::encode(data_map_bytes),
+            address: result.data_map_address.map(hex::encode),
+            chunks_stored: result.chunks_stored as u64,
+            storage_cost_atto: result.storage_cost_atto,
+            gas_cost_wei: result.gas_cost_wei.to_string(),
+        })
+    }
+}
+
+impl Client {
+    /// Build the FFI summary for a prepared upload and stash the heavy state
+    /// under a fresh `upload_id`. Wave-batch only for now.
+    fn stash_prepared(&self, prepared: PreparedUpload) -> Result<PreparedUploadInfo, ClientError> {
+        let data_map_address = prepared.data_map_address.map(hex::encode);
+        let (payment_type, payments, total_amount) = match &prepared.payment_info {
+            ExternalPaymentInfo::WaveBatch { payment_intent, .. } => {
+                let payments = payment_intent
+                    .payments
+                    .iter()
+                    .map(|(quote_hash, rewards_addr, amount)| PaymentEntry {
+                        quote_hash: format!("0x{}", hex::encode(quote_hash)),
+                        rewards_address: format!("{rewards_addr}"),
+                        amount: amount.to_string(),
+                    })
+                    .collect::<Vec<_>>();
+                (
+                    "wave_batch".to_string(),
+                    payments,
+                    payment_intent.total_amount.to_string(),
+                )
+            }
+            ExternalPaymentInfo::Merkle { .. } => {
+                return Err(ClientError::InvalidInput {
+                    reason: "this upload triggered merkle batching, which the FFI external-signer \
+                             surface does not support yet (wave-batch only). Use a smaller upload \
+                             or a wallet-backed put for now."
+                        .into(),
+                });
+            }
+        };
+        let already_stored = payments.is_empty();
+        let upload_id = format!("upl-{}", self.next_id.fetch_add(1, Ordering::Relaxed));
+        self.sessions
+            .lock()
+            .expect("sessions mutex poisoned")
+            .insert(upload_id.clone(), prepared);
+        Ok(PreparedUploadInfo {
+            upload_id,
+            payment_type,
+            payments,
+            total_amount,
+            data_map_address,
+            already_stored,
+        })
+    }
+}
+
+/// Parse a visibility string ("public" | "private") into ant-core's enum.
+fn parse_visibility(s: &str) -> Result<Visibility, ClientError> {
+    match s {
+        "public" => Ok(Visibility::Public),
+        "private" => Ok(Visibility::Private),
+        other => Err(ClientError::InvalidInput {
+            reason: format!("invalid visibility {other:?}; use \"public\" or \"private\""),
+        }),
+    }
+}
+
+/// Decode a 0x-prefixed (or bare) hex string into a 32-byte hash.
+fn decode_hash(hex_str: &str, label: &str) -> Result<[u8; 32], ClientError> {
+    let bytes =
+        hex::decode(hex_str.trim_start_matches("0x")).map_err(|e| ClientError::InvalidInput {
+            reason: format!("invalid {label} {hex_str}: {e}"),
+        })?;
+    bytes.try_into().map_err(|_| ClientError::InvalidInput {
+        reason: format!("{label} {hex_str} must be 32 bytes"),
+    })
 }
 
 /// Parse a hex string into a 32-byte address.

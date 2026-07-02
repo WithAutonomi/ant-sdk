@@ -46,6 +46,58 @@ pub struct FilePutPublicResult {
     pub address: String,
 }
 
+// ===== External-signer (WalletConnect) upload types =====
+
+/// A single on-chain payment the external wallet must settle: one entry of the
+/// `payForQuotes((address,uint256,bytes32)[])` call.
+#[derive(uniffi::Record)]
+pub struct PaymentEntry {
+    /// 0x-prefixed quote hash (32 bytes) — the key in the tx-hash map at finalize.
+    pub quote_hash: String,
+    /// 0x-prefixed EVM rewards address to pay.
+    pub rewards_address: String,
+    /// Amount to pay in atto-tokens (base-10 string; exceeds u64).
+    pub amount: String,
+}
+
+/// Summary of a prepared external-signer upload. The heavy prepared-chunk
+/// state stays in Rust, referenced by `upload_id` until `finalize_upload`.
+/// The caller uses `payments` to build ERC-20 `approve` + `payForQuotes`,
+/// has the external wallet sign them, then calls `finalize_upload` with the
+/// resulting `quote_hash -> tx_hash` map.
+#[derive(uniffi::Record)]
+pub struct PreparedUploadInfo {
+    /// Opaque handle for this prepared upload; pass to `finalize_upload`.
+    pub upload_id: String,
+    /// Payment shape. Currently always `"wave_batch"` (merkle not yet exposed).
+    pub payment_type: String,
+    /// Per-quote payments to settle on-chain. Empty if everything was already stored.
+    pub payments: Vec<PaymentEntry>,
+    /// Total across all payments (atto-tokens, base-10).
+    pub total_amount: String,
+    /// For public uploads: hex address the data is retrievable from after
+    /// finalize. `None` for private uploads.
+    pub data_map_address: Option<String>,
+    /// True if every chunk already existed on the network — `payments` is
+    /// empty and `finalize_upload` may be called with an empty map.
+    pub already_stored: bool,
+}
+
+/// Result of finalizing an external-signer upload.
+#[derive(uniffi::Record)]
+pub struct ExternalUploadResult {
+    /// Hex-encoded serialized data map (for private retrieval; always present).
+    pub data_map: String,
+    /// For public uploads: hex data-map address (shareable). `None` if private.
+    pub address: Option<String>,
+    /// Number of chunks stored on the network.
+    pub chunks_stored: u64,
+    /// Total storage cost paid, in atto-tokens (base-10). "0" if all pre-existed.
+    pub storage_cost_atto: String,
+    /// Total gas cost in wei (base-10).
+    pub gas_cost_wei: String,
+}
+
 // ===== Error types =====
 
 /// Error type for client operations.
