@@ -98,6 +98,30 @@ pub struct ExternalUploadResult {
     pub gas_cost_wei: String,
 }
 
+// ===== Progress reporting =====
+
+/// A progress update for a long-running upload or download, delivered to a
+/// [`ProgressListener`]. `phase` is one of:
+///   - upload:   `"encrypting"`, `"quoting"`, `"storing"`
+///   - download: `"resolving"`, `"downloading"`
+/// `total` is 0 when the total isn't known yet (show an indeterminate bar);
+/// otherwise `done / total` is a 0..1 fraction of the current phase.
+#[derive(uniffi::Record)]
+pub struct ProgressUpdate {
+    pub phase: String,
+    pub done: u64,
+    pub total: u64,
+}
+
+/// Foreign callback invoked as an upload/download progresses. Implement it on
+/// the Swift/Kotlin side and pass it to the `*_with_progress` client methods.
+/// Calls arrive on a background thread — marshal to the UI thread before
+/// touching UI state.
+#[uniffi::export(callback_interface)]
+pub trait ProgressListener: Send + Sync {
+    fn on_progress(&self, update: ProgressUpdate);
+}
+
 // ===== Error types =====
 
 /// Error type for client operations.

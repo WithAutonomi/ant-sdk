@@ -1,14 +1,17 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 use zeroize::Zeroize;
 
 use ant_core::data::{
-    Client as CoreClient, ClientConfig, CoreNodeConfig, DevnetManifest, ExternalPaymentInfo,
-    MultiAddr, NodeMode, P2PNode, PreparedUpload, Visibility, Wallet as CoreWallet,
+    Client as CoreClient, ClientConfig, CoreNodeConfig, DevnetManifest, DownloadEvent,
+    ExternalPaymentInfo, MultiAddr, NodeMode, P2PNode, PreparedUpload, UploadEvent,
+    Visibility, Wallet as CoreWallet,
 };
 use ant_protocol::evm::{QuoteHash, TxHash};
 
@@ -16,8 +19,103 @@ use crate::data::{format_payment_mode, parse_payment_mode};
 use crate::wallet::build_custom_network;
 use crate::{
     ChunkPutResult, ClientError, DataPutPrivateResult, DataPutPublicResult, ExternalUploadResult,
-    FilePutPublicResult, PaymentEntry, PreparedUploadInfo,
+    FilePutPublicResult, PaymentEntry, PreparedUploadInfo, ProgressListener, ProgressUpdate,
 };
+
+/// Map an ant-core [`UploadEvent`] to the FFI [`ProgressUpdate`] shape.
+fn map_upload_event(ev: UploadEvent) -> ProgressUpdate {
+    match ev {
+        UploadEvent::Encrypting { chunks_done } => ProgressUpdate {
+            phase: "encrypting".into(),
+            done: chunks_done as u64,
+            total: 0,
+        },
+        UploadEvent::Encrypted { total_chunks } => ProgressUpdate {
+            phase: "encrypting".into(),
+            done: total_chunks as u64,
+            total: total_chunks as u64,
+        },
+        UploadEvent::QuotingChunks { .. } => ProgressUpdate {
+            phase: "quoting".into(),
+            done: 0,
+            total: 0,
+        },
+        UploadEvent::ChunkQuoted { quoted, total } => ProgressUpdate {
+            phase: "quoting".into(),
+            done: quoted as u64,
+            total: total as u64,
+        },
+        UploadEvent::ChunkStored { stored, total } => ProgressUpdate {
+            phase: "storing".into(),
+            done: stored as u64,
+            total: total as u64,
+        },
+        UploadEvent::WaveComplete {
+            stored_so_far,
+            total,
+            ..
+        } => ProgressUpdate {
+            phase: "storing".into(),
+            done: stored_so_far as u64,
+            total: total as u64,
+        },
+    }
+}
+
+/// Map an ant-core [`DownloadEvent`] to the FFI [`ProgressUpdate`] shape.
+fn map_download_event(ev: DownloadEvent) -> ProgressUpdate {
+    match ev {
+        DownloadEvent::ResolvingDataMap { total_map_chunks } => ProgressUpdate {
+            phase: "resolving".into(),
+            done: 0,
+            total: total_map_chunks as u64,
+        },
+        DownloadEvent::MapChunkFetched { fetched } => ProgressUpdate {
+            phase: "resolving".into(),
+            done: fetched as u64,
+            total: 0,
+        },
+        DownloadEvent::DataMapResolved { total_chunks } => ProgressUpdate {
+            phase: "downloading".into(),
+            done: 0,
+            total: total_chunks as u64,
+        },
+        DownloadEvent::ChunksFetched { fetched, total } => ProgressUpdate {
+            phase: "downloading".into(),
+            done: fetched as u64,
+            total: total as u64,
+        },
+    }
+}
+
+/// Spin up a channel + reader task that forwards ant-core upload events to a
+/// foreign [`ProgressListener`]. The returned sender is handed to ant-core;
+/// when it drops (the operation finishes) the task ends. Await the handle after
+/// the operation to flush the last events.
+fn upload_progress_bridge(
+    listener: Box<dyn ProgressListener>,
+) -> (mpsc::Sender<UploadEvent>, JoinHandle<()>) {
+    let (tx, mut rx) = mpsc::channel::<UploadEvent>(64);
+    let handle = tokio::spawn(async move {
+        while let Some(ev) = rx.recv().await {
+            listener.on_progress(map_upload_event(ev));
+        }
+    });
+    (tx, handle)
+}
+
+/// Download counterpart of [`upload_progress_bridge`].
+fn download_progress_bridge(
+    listener: Box<dyn ProgressListener>,
+) -> (mpsc::Sender<DownloadEvent>, JoinHandle<()>) {
+    let (tx, mut rx) = mpsc::channel::<DownloadEvent>(64);
+    let handle = tokio::spawn(async move {
+        while let Some(ev) = rx.recv().await {
+            listener.on_progress(map_download_event(ev));
+        }
+    });
+    (tx, handle)
+}
 
 /// Autonomi network client (wraps ant-core Client).
 ///
@@ -591,6 +689,64 @@ impl Client {
         upload_id: String,
         tx_hashes: HashMap<String, String>,
     ) -> Result<ExternalUploadResult, ClientError> {
+        self.finalize_inner(upload_id, tx_hashes, None).await
+    }
+
+    /// Same as [`Self::finalize_upload`] but reports live storing progress:
+    /// `listener` gets `"storing"` updates (`done`/`total` chunks) as chunks
+    /// land on the network.
+    pub async fn finalize_upload_with_progress(
+        &self,
+        upload_id: String,
+        tx_hashes: HashMap<String, String>,
+        listener: Box<dyn ProgressListener>,
+    ) -> Result<ExternalUploadResult, ClientError> {
+        self.finalize_inner(upload_id, tx_hashes, Some(listener))
+            .await
+    }
+
+    /// Download public data by address straight to a file on disk, reporting
+    /// live progress (`"resolving"` then `"downloading"` phases). Returns bytes
+    /// written.
+    pub async fn download_public_to_file(
+        &self,
+        address_hex: String,
+        dest_path: String,
+        listener: Box<dyn ProgressListener>,
+    ) -> Result<u64, ClientError> {
+        let address = hex_to_address(&address_hex)?;
+        let data_map = self.inner.data_map_fetch(&address).await?;
+        self.download_to_file(data_map, dest_path, listener).await
+    }
+
+    /// Download private data by hex-encoded data map straight to a file on
+    /// disk, reporting live progress. Returns bytes written.
+    pub async fn download_private_to_file(
+        &self,
+        data_map_hex: String,
+        dest_path: String,
+        listener: Box<dyn ProgressListener>,
+    ) -> Result<u64, ClientError> {
+        let data_map_bytes =
+            hex::decode(&data_map_hex).map_err(|e| ClientError::InvalidInput {
+                reason: format!("invalid hex: {e}"),
+            })?;
+        let data_map: ant_core::data::DataMap = rmp_serde::from_slice(&data_map_bytes)
+            .map_err(|e| ClientError::InvalidInput {
+                reason: format!("invalid data map: {e}"),
+            })?;
+        self.download_to_file(data_map, dest_path, listener).await
+    }
+}
+
+impl Client {
+    /// Shared finalize path — optionally bridges storing progress to `listener`.
+    async fn finalize_inner(
+        &self,
+        upload_id: String,
+        tx_hashes: HashMap<String, String>,
+        listener: Option<Box<dyn ProgressListener>>,
+    ) -> Result<ExternalUploadResult, ClientError> {
         let prepared = self
             .sessions
             .lock()
@@ -608,7 +764,22 @@ impl Client {
             tx_hash_map.insert(QuoteHash::from(quote_bytes), TxHash::from(tx_bytes));
         }
 
-        let result = self.inner.finalize_upload(prepared, &tx_hash_map).await?;
+        let (sender, handle) = match listener {
+            Some(l) => {
+                let (tx, h) = upload_progress_bridge(l);
+                (Some(tx), Some(h))
+            }
+            None => (None, None),
+        };
+
+        let result = self
+            .inner
+            .finalize_upload_with_progress(prepared, &tx_hash_map, sender)
+            .await?;
+
+        if let Some(h) = handle {
+            let _ = h.await;
+        }
 
         let data_map_bytes =
             rmp_serde::to_vec(&result.data_map).map_err(|e| ClientError::InternalError {
@@ -623,9 +794,23 @@ impl Client {
             gas_cost_wei: result.gas_cost_wei.to_string(),
         })
     }
-}
 
-impl Client {
+    /// Shared download-to-file path with progress bridging.
+    async fn download_to_file(
+        &self,
+        data_map: ant_core::data::DataMap,
+        dest_path: String,
+        listener: Box<dyn ProgressListener>,
+    ) -> Result<u64, ClientError> {
+        let (tx, handle) = download_progress_bridge(listener);
+        let written = self
+            .inner
+            .file_download_with_progress(&data_map, Path::new(&dest_path), Some(tx))
+            .await?;
+        let _ = handle.await;
+        Ok(written)
+    }
+
     /// Build the FFI summary for a prepared upload and stash the heavy state
     /// under a fresh `upload_id`. Wave-batch only for now.
     fn stash_prepared(&self, prepared: PreparedUpload) -> Result<PreparedUploadInfo, ClientError> {
