@@ -1,20 +1,121 @@
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 use zeroize::Zeroize;
 
 use ant_core::data::{
-    Client as CoreClient, ClientConfig, CoreNodeConfig, DevnetManifest, MultiAddr, NodeMode,
-    P2PNode, Wallet as CoreWallet,
+    Client as CoreClient, ClientConfig, CoreNodeConfig, DevnetManifest, DownloadEvent,
+    ExternalPaymentInfo, MultiAddr, NodeMode, P2PNode, PreparedUpload, UploadEvent, Visibility,
+    Wallet as CoreWallet,
 };
+use ant_protocol::evm::{QuoteHash, TxHash};
 
 use crate::data::{format_payment_mode, parse_payment_mode};
 use crate::wallet::build_custom_network;
 use crate::{
-    ChunkPutResult, ClientError, DataPutPrivateResult, DataPutPublicResult,
-    FilePutPublicResult,
+    ChunkPutResult, ClientError, DataPutPrivateResult, DataPutPublicResult, ExternalUploadResult,
+    FilePutPublicResult, PaymentEntry, PreparedUploadInfo, ProgressListener, ProgressUpdate,
 };
+
+/// Map an ant-core [`UploadEvent`] to the FFI [`ProgressUpdate`] shape.
+fn map_upload_event(ev: UploadEvent) -> ProgressUpdate {
+    match ev {
+        UploadEvent::Encrypting { chunks_done } => ProgressUpdate {
+            phase: "encrypting".into(),
+            done: chunks_done as u64,
+            total: 0,
+        },
+        UploadEvent::Encrypted { total_chunks } => ProgressUpdate {
+            phase: "encrypting".into(),
+            done: total_chunks as u64,
+            total: total_chunks as u64,
+        },
+        UploadEvent::QuotingChunks { .. } => ProgressUpdate {
+            phase: "quoting".into(),
+            done: 0,
+            total: 0,
+        },
+        UploadEvent::ChunkQuoted { quoted, total } => ProgressUpdate {
+            phase: "quoting".into(),
+            done: quoted as u64,
+            total: total as u64,
+        },
+        UploadEvent::ChunkStored { stored, total } => ProgressUpdate {
+            phase: "storing".into(),
+            done: stored as u64,
+            total: total as u64,
+        },
+        UploadEvent::WaveComplete {
+            stored_so_far,
+            total,
+            ..
+        } => ProgressUpdate {
+            phase: "storing".into(),
+            done: stored_so_far as u64,
+            total: total as u64,
+        },
+    }
+}
+
+/// Map an ant-core [`DownloadEvent`] to the FFI [`ProgressUpdate`] shape.
+fn map_download_event(ev: DownloadEvent) -> ProgressUpdate {
+    match ev {
+        DownloadEvent::ResolvingDataMap { total_map_chunks } => ProgressUpdate {
+            phase: "resolving".into(),
+            done: 0,
+            total: total_map_chunks as u64,
+        },
+        DownloadEvent::MapChunkFetched { fetched } => ProgressUpdate {
+            phase: "resolving".into(),
+            done: fetched as u64,
+            total: 0,
+        },
+        DownloadEvent::DataMapResolved { total_chunks } => ProgressUpdate {
+            phase: "downloading".into(),
+            done: 0,
+            total: total_chunks as u64,
+        },
+        DownloadEvent::ChunksFetched { fetched, total } => ProgressUpdate {
+            phase: "downloading".into(),
+            done: fetched as u64,
+            total: total as u64,
+        },
+    }
+}
+
+/// Spin up a channel + reader task that forwards ant-core upload events to a
+/// foreign [`ProgressListener`]. The returned sender is handed to ant-core;
+/// when it drops (the operation finishes) the task ends. Await the handle after
+/// the operation to flush the last events.
+fn upload_progress_bridge(
+    listener: Box<dyn ProgressListener>,
+) -> (mpsc::Sender<UploadEvent>, JoinHandle<()>) {
+    let (tx, mut rx) = mpsc::channel::<UploadEvent>(64);
+    let handle = tokio::spawn(async move {
+        while let Some(ev) = rx.recv().await {
+            listener.on_progress(map_upload_event(ev));
+        }
+    });
+    (tx, handle)
+}
+
+/// Download counterpart of [`upload_progress_bridge`].
+fn download_progress_bridge(
+    listener: Box<dyn ProgressListener>,
+) -> (mpsc::Sender<DownloadEvent>, JoinHandle<()>) {
+    let (tx, mut rx) = mpsc::channel::<DownloadEvent>(64);
+    let handle = tokio::spawn(async move {
+        while let Some(ev) = rx.recv().await {
+            listener.on_progress(map_download_event(ev));
+        }
+    });
+    (tx, handle)
+}
 
 /// Autonomi network client (wraps ant-core Client).
 ///
@@ -23,6 +124,34 @@ use crate::{
 #[derive(uniffi::Object)]
 pub struct Client {
     inner: CoreClient,
+    /// External-signer prepared uploads awaiting finalize, keyed by upload_id.
+    ///
+    /// Each `PreparedUpload` holds the upload's chunk content **in memory** so
+    /// finalize can store it after the external wallet pays. Lifecycle &
+    /// memory cost the caller must know:
+    ///   - An entry is created by every successful `prepare_*` call and removed
+    ///     only by a successful `finalize_upload*` or an explicit
+    ///     `cancel_upload`. There is no TTL or automatic eviction.
+    ///   - So a caller that prepares repeatedly without finalizing (e.g. the
+    ///     user backs out of the confirm sheet) retains one payload-sized buffer
+    ///     per abandoned upload for the life of the `Client`. Call
+    ///     `cancel_upload` to release one, or drop the whole `Client`.
+    ///
+    /// A bounded cache / TTL is a possible follow-up if this proves a problem.
+    sessions: Mutex<HashMap<String, PreparedUpload>>,
+    /// Monotonic source of unique upload_ids for this client instance.
+    next_id: AtomicU64,
+}
+
+impl Client {
+    /// Wrap a core client with fresh external-signer session state.
+    fn wrap(inner: CoreClient) -> Arc<Self> {
+        Arc::new(Self {
+            inner,
+            sessions: Mutex::new(HashMap::new()),
+            next_id: AtomicU64::new(1),
+        })
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -57,22 +186,21 @@ impl Client {
 
         let client = CoreClient::from_node(Arc::new(node), ClientConfig::default());
 
-        Ok(Arc::new(Self { inner: client }))
+        Ok(Self::wrap(client))
     }
 
     /// Connect to the network using explicit bootstrap peers.
     #[uniffi::constructor]
     pub async fn connect(peers: Vec<String>) -> Result<Arc<Self>, ClientError> {
-        let mut builder = CoreNodeConfig::builder()
-            .mode(NodeMode::Client)
-            .port(0);
+        let mut builder = CoreNodeConfig::builder().mode(NodeMode::Client).port(0);
 
         for peer_str in &peers {
-            let addr: MultiAddr = peer_str
-                .parse()
-                .map_err(|e| ClientError::InitializationFailed {
-                    reason: format!("invalid peer address {peer_str}: {e}"),
-                })?;
+            let addr: MultiAddr =
+                peer_str
+                    .parse()
+                    .map_err(|e| ClientError::InitializationFailed {
+                        reason: format!("invalid peer address {peer_str}: {e}"),
+                    })?;
             builder = builder.bootstrap_peer(addr);
         }
 
@@ -104,7 +232,7 @@ impl Client {
 
         let client = CoreClient::from_node(Arc::new(node), ClientConfig::default());
 
-        Ok(Arc::new(Self { inner: client }))
+        Ok(Self::wrap(client))
     }
 
     /// Connect to the network with a wallet configured for write operations.
@@ -119,16 +247,15 @@ impl Client {
         payment_token_address: String,
         payment_vault_address: String,
     ) -> Result<Arc<Self>, ClientError> {
-        let mut builder = CoreNodeConfig::builder()
-            .mode(NodeMode::Client)
-            .port(0);
+        let mut builder = CoreNodeConfig::builder().mode(NodeMode::Client).port(0);
 
         for peer_str in &peers {
-            let addr: MultiAddr = peer_str
-                .parse()
-                .map_err(|e| ClientError::InitializationFailed {
-                    reason: format!("invalid peer address {peer_str}: {e}"),
-                })?;
+            let addr: MultiAddr =
+                peer_str
+                    .parse()
+                    .map_err(|e| ClientError::InitializationFailed {
+                        reason: format!("invalid peer address {peer_str}: {e}"),
+                    })?;
             builder = builder.bootstrap_peer(addr);
         }
 
@@ -157,19 +284,22 @@ impl Client {
             tokio::time::sleep(std::time::Duration::from_millis(250)).await;
         }
 
-        let network = build_custom_network(&rpc_url, &payment_token_address, &payment_vault_address)
-            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+        let network =
+            build_custom_network(&rpc_url, &payment_token_address, &payment_vault_address)
+                .map_err(|e| ClientError::InitializationFailed {
+                    reason: e.to_string(),
+                })?;
         let result = CoreWallet::new_from_private_key(network, &private_key);
         // Clear the private key from memory as soon as possible
         private_key.zeroize();
         let wallet = result.map_err(|e| ClientError::InitializationFailed {
-                reason: format!("failed to create wallet: {e}"),
-            })?;
+            reason: format!("failed to create wallet: {e}"),
+        })?;
 
         let client =
             CoreClient::from_node(Arc::new(node), ClientConfig::default()).with_wallet(wallet);
 
-        Ok(Arc::new(Self { inner: client }))
+        Ok(Self::wrap(client))
     }
 
     /// Connect to a locally running devnet using the manifest JSON file the
@@ -188,14 +318,15 @@ impl Client {
         let bytes = std::fs::read(&path).map_err(|e| ClientError::InitializationFailed {
             reason: format!("failed to read manifest at {path}: {e}"),
         })?;
-        let manifest: DevnetManifest = serde_json::from_slice(&bytes).map_err(|e| {
-            ClientError::InitializationFailed {
+        let manifest: DevnetManifest =
+            serde_json::from_slice(&bytes).map_err(|e| ClientError::InitializationFailed {
                 reason: format!("invalid manifest JSON: {e}"),
-            }
-        })?;
-        let evm = manifest.evm.ok_or_else(|| ClientError::InitializationFailed {
-            reason: "manifest has no `evm` section — devnet started without payments?".into(),
-        })?;
+            })?;
+        let evm = manifest
+            .evm
+            .ok_or_else(|| ClientError::InitializationFailed {
+                reason: "manifest has no `evm` section — devnet started without payments?".into(),
+            })?;
 
         // `allow_loopback(true)` is the critical bit — the devnet's bootstrap
         // peers are at 127.0.0.1:<port>, and saorsa-core / libp2p filter
@@ -214,13 +345,19 @@ impl Client {
         }
         let config = builder
             .build()
-            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
         let node = P2PNode::new(config)
             .await
-            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
         node.start()
             .await
-            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
 
         // Poll for peer connections. We need at least the close-group size
         // (~7) for chunk_put to succeed, not just "any peer" — wait up to
@@ -238,16 +375,87 @@ impl Client {
             &evm.payment_token_address,
             &evm.payment_vault_address,
         )
-        .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
-        let wallet = CoreWallet::new_from_private_key(network, &evm.wallet_private_key).map_err(
-            |e| ClientError::InitializationFailed {
-                reason: format!("failed to create wallet from manifest: {e}"),
-            },
-        )?;
+        .map_err(|e| ClientError::InitializationFailed {
+            reason: e.to_string(),
+        })?;
+        let wallet =
+            CoreWallet::new_from_private_key(network, &evm.wallet_private_key).map_err(|e| {
+                ClientError::InitializationFailed {
+                    reason: format!("failed to create wallet from manifest: {e}"),
+                }
+            })?;
 
         let client =
             CoreClient::from_node(Arc::new(node), ClientConfig::default()).with_wallet(wallet);
-        Ok(Arc::new(Self { inner: client }))
+        Ok(Self::wrap(client))
+    }
+
+    /// Like [`Self::connect_from_devnet_manifest`] but for the **external-signer**
+    /// flow: configures the devnet's EVM network for quote/price queries but
+    /// attaches **no wallet** (the manifest's `wallet_private_key` may be empty
+    /// — e.g. the Sepolia devnet, which expects you to bring your own wallet).
+    /// Pay via `prepare_*` + an external signer + `finalize_upload`.
+    #[uniffi::constructor]
+    pub async fn connect_from_devnet_manifest_external_signer(
+        path: String,
+    ) -> Result<Arc<Self>, ClientError> {
+        let bytes = std::fs::read(&path).map_err(|e| ClientError::InitializationFailed {
+            reason: format!("failed to read manifest at {path}: {e}"),
+        })?;
+        let manifest: DevnetManifest =
+            serde_json::from_slice(&bytes).map_err(|e| ClientError::InitializationFailed {
+                reason: format!("invalid manifest JSON: {e}"),
+            })?;
+        let evm = manifest
+            .evm
+            .ok_or_else(|| ClientError::InitializationFailed {
+                reason: "manifest has no `evm` section — devnet started without payments?".into(),
+            })?;
+
+        // Same devnet-tuned node config as the wallet variant (local +
+        // loopback), so the client joins the local devnet the same way.
+        let mut builder = CoreNodeConfig::builder()
+            .mode(NodeMode::Client)
+            .port(0)
+            .local(true)
+            .allow_loopback(true)
+            .ipv6(false);
+        for peer in &manifest.bootstrap {
+            builder = builder.bootstrap_peer(peer.clone());
+        }
+        let config = builder
+            .build()
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
+        let node = P2PNode::new(config)
+            .await
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
+        node.start()
+            .await
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
+        for _ in 0..60 {
+            if node.connected_peers().await.len() >= 7 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+
+        let network = build_custom_network(
+            &evm.rpc_url,
+            &evm.payment_token_address,
+            &evm.payment_vault_address,
+        )
+        .map_err(|e| ClientError::InitializationFailed {
+            reason: e.to_string(),
+        })?;
+        let client = CoreClient::from_node(Arc::new(node), ClientConfig::default())
+            .with_evm_network(network);
+        Ok(Self::wrap(client))
     }
 
     // ===== Chunk Operations =====
@@ -287,9 +495,8 @@ impl Client {
         data: Vec<u8>,
         payment_mode: String,
     ) -> Result<DataPutPublicResult, ClientError> {
-        let mode = parse_payment_mode(&payment_mode).map_err(|e| ClientError::InvalidInput {
-            reason: e,
-        })?;
+        let mode = parse_payment_mode(&payment_mode)
+            .map_err(|e| ClientError::InvalidInput { reason: e })?;
 
         let result = self
             .inner
@@ -319,20 +526,18 @@ impl Client {
         data: Vec<u8>,
         payment_mode: String,
     ) -> Result<DataPutPrivateResult, ClientError> {
-        let mode = parse_payment_mode(&payment_mode).map_err(|e| ClientError::InvalidInput {
-            reason: e,
-        })?;
+        let mode = parse_payment_mode(&payment_mode)
+            .map_err(|e| ClientError::InvalidInput { reason: e })?;
 
         let result = self
             .inner
             .data_upload_with_mode(Bytes::from(data), mode)
             .await?;
 
-        let data_map_bytes = rmp_serde::to_vec(&result.data_map).map_err(|e| {
-            ClientError::InternalError {
+        let data_map_bytes =
+            rmp_serde::to_vec(&result.data_map).map_err(|e| ClientError::InternalError {
                 reason: format!("failed to serialize data map: {e}"),
-            }
-        })?;
+            })?;
 
         Ok(DataPutPrivateResult {
             data_map: hex::encode(data_map_bytes),
@@ -354,10 +559,9 @@ impl Client {
                 ),
             });
         }
-        let data_map_bytes =
-            hex::decode(&data_map_hex).map_err(|e| ClientError::InvalidInput {
-                reason: format!("invalid hex: {e}"),
-            })?;
+        let data_map_bytes = hex::decode(&data_map_hex).map_err(|e| ClientError::InvalidInput {
+            reason: format!("invalid hex: {e}"),
+        })?;
         let data_map: ant_core::data::DataMap =
             rmp_serde::from_slice(&data_map_bytes).map_err(|e| ClientError::InvalidInput {
                 reason: format!("invalid data map: {e}"),
@@ -374,15 +578,11 @@ impl Client {
         path: String,
         payment_mode: String,
     ) -> Result<FilePutPublicResult, ClientError> {
-        let mode = parse_payment_mode(&payment_mode).map_err(|e| ClientError::InvalidInput {
-            reason: e,
-        })?;
+        let mode = parse_payment_mode(&payment_mode)
+            .map_err(|e| ClientError::InvalidInput { reason: e })?;
         let file_path = PathBuf::from(&path);
 
-        let result = self
-            .inner
-            .file_upload_with_mode(&file_path, mode)
-            .await?;
+        let result = self.inner.file_upload_with_mode(&file_path, mode).await?;
 
         let address = self.inner.data_map_store(&result.data_map).await?;
 
@@ -421,6 +621,345 @@ impl Client {
             })?;
         Ok(())
     }
+
+    // ===== External-signer (WalletConnect) operations =====
+
+    /// Connect with an EVM network configured but **no wallet / private key**.
+    ///
+    /// This is the external-signer entry point: quote collection and price
+    /// queries work (they need the network), but payment is signed off-device
+    /// by an external wallet (e.g. WalletConnect). Use [`Self::prepare_data_upload`]
+    /// / [`Self::prepare_file_upload`] then [`Self::finalize_upload`].
+    #[uniffi::constructor]
+    pub async fn connect_for_external_signer(
+        peers: Vec<String>,
+        rpc_url: String,
+        payment_token_address: String,
+        payment_vault_address: String,
+    ) -> Result<Arc<Self>, ClientError> {
+        let mut builder = CoreNodeConfig::builder().mode(NodeMode::Client).port(0);
+        for peer_str in &peers {
+            let addr: MultiAddr =
+                peer_str
+                    .parse()
+                    .map_err(|e| ClientError::InitializationFailed {
+                        reason: format!("invalid peer address {peer_str}: {e}"),
+                    })?;
+            builder = builder.bootstrap_peer(addr);
+        }
+        let config = builder
+            .build()
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
+        let node = P2PNode::new(config)
+            .await
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
+        node.start()
+            .await
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
+        for _ in 0..20 {
+            if !node.connected_peers().await.is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+
+        let network =
+            build_custom_network(&rpc_url, &payment_token_address, &payment_vault_address)
+                .map_err(|e| ClientError::InitializationFailed {
+                    reason: e.to_string(),
+                })?;
+        let client = CoreClient::from_node(Arc::new(node), ClientConfig::default())
+            .with_evm_network(network);
+        Ok(Self::wrap(client))
+    }
+
+    /// Phase 1 (external signer): encrypt `data`, collect quotes, and return
+    /// the payment summary. `visibility` is `"public"` or `"private"`. The
+    /// prepared state is retained under the returned `upload_id` until
+    /// [`Self::finalize_upload`].
+    pub async fn prepare_data_upload(
+        &self,
+        data: Vec<u8>,
+        visibility: String,
+    ) -> Result<PreparedUploadInfo, ClientError> {
+        let vis = parse_visibility(&visibility)?;
+        let prepared = self
+            .inner
+            .data_prepare_upload_with_visibility(Bytes::from(data), vis)
+            .await?;
+        self.stash_prepared(prepared)
+    }
+
+    /// Phase 1 (external signer): same as [`Self::prepare_data_upload`] but for
+    /// a file on disk.
+    pub async fn prepare_file_upload(
+        &self,
+        path: String,
+        visibility: String,
+    ) -> Result<PreparedUploadInfo, ClientError> {
+        let vis = parse_visibility(&visibility)?;
+        let prepared = self
+            .inner
+            .file_prepare_upload_with_visibility(&PathBuf::from(path), vis)
+            .await?;
+        self.stash_prepared(prepared)
+    }
+
+    /// Phase 2 (external signer): after the external wallet has paid
+    /// (`payForQuotes`), finalize the upload by supplying the resulting
+    /// `quote_hash -> tx_hash` map (both 0x-prefixed hex). Stores the chunks
+    /// and returns the data map / address. `upload_id` comes from a prior
+    /// `prepare_*` call. If everything was already stored, pass an empty map.
+    ///
+    /// # Retry / failure contract (IMPORTANT for paid uploads)
+    ///
+    /// - **Bad input** (a malformed `quote_hash`/`tx_hash`) is validated before
+    ///   any state is touched, so it errors with the upload left intact — safe
+    ///   to call again with a corrected map.
+    /// - **A storage/network failure *after* payment is currently NOT
+    ///   retryable.** ant-core consumes the prepared upload (and the paid
+    ///   proofs) by value, so on such a failure the paid attempt is stranded:
+    ///   a fresh `prepare_*` collects new quotes with different quote hashes
+    ///   that will not match the already-paid tx map. Do not tell the user the
+    ///   payment can simply be reused. Fixing this needs an ant-core retry-state
+    ///   API — tracked in WithAutonomi/ant-client#140 (core) and
+    ///   WithAutonomi/ant-sdk#201 (this surface).
+    pub async fn finalize_upload(
+        &self,
+        upload_id: String,
+        tx_hashes: HashMap<String, String>,
+    ) -> Result<ExternalUploadResult, ClientError> {
+        self.finalize_inner(upload_id, tx_hashes, None).await
+    }
+
+    /// Same as [`Self::finalize_upload`] but reports live storing progress:
+    /// `listener` gets `"storing"` updates (`done`/`total` chunks) as chunks
+    /// land on the network.
+    pub async fn finalize_upload_with_progress(
+        &self,
+        upload_id: String,
+        tx_hashes: HashMap<String, String>,
+        listener: Box<dyn ProgressListener>,
+    ) -> Result<ExternalUploadResult, ClientError> {
+        self.finalize_inner(upload_id, tx_hashes, Some(listener))
+            .await
+    }
+
+    /// Discard a prepared upload that will not be finalized, freeing the chunk
+    /// content it holds in memory (see the `sessions` field docs on lifecycle).
+    /// Returns `true` if an upload with this id was present. Safe to call with
+    /// an unknown or already-finalized id — it simply returns `false`.
+    pub fn cancel_upload(&self, upload_id: String) -> bool {
+        self.sessions
+            .lock()
+            .expect("sessions mutex poisoned")
+            .remove(&upload_id)
+            .is_some()
+    }
+
+    /// Download public data by address straight to a file on disk, reporting
+    /// live progress (`"resolving"` then `"downloading"` phases). Returns bytes
+    /// written.
+    pub async fn download_public_to_file(
+        &self,
+        address_hex: String,
+        dest_path: String,
+        listener: Box<dyn ProgressListener>,
+    ) -> Result<u64, ClientError> {
+        let address = hex_to_address(&address_hex)?;
+        let data_map = self.inner.data_map_fetch(&address).await?;
+        self.download_to_file(data_map, dest_path, listener).await
+    }
+
+    /// Download private data by hex-encoded data map straight to a file on
+    /// disk, reporting live progress. Returns bytes written.
+    pub async fn download_private_to_file(
+        &self,
+        data_map_hex: String,
+        dest_path: String,
+        listener: Box<dyn ProgressListener>,
+    ) -> Result<u64, ClientError> {
+        // Reject unreasonably large hex input (20 MB hex = 10 MB decoded),
+        // matching the cap on `data_get_private` — this surface is reachable
+        // from app/UI input, so guard against a decode-driven memory spike.
+        const MAX_HEX_INPUT: usize = 20 * 1024 * 1024;
+        if data_map_hex.len() > MAX_HEX_INPUT {
+            return Err(ClientError::InvalidInput {
+                reason: format!(
+                    "data map hex too large: {} bytes (max {})",
+                    data_map_hex.len(),
+                    MAX_HEX_INPUT
+                ),
+            });
+        }
+        let data_map_bytes = hex::decode(&data_map_hex).map_err(|e| ClientError::InvalidInput {
+            reason: format!("invalid hex: {e}"),
+        })?;
+        let data_map: ant_core::data::DataMap =
+            rmp_serde::from_slice(&data_map_bytes).map_err(|e| ClientError::InvalidInput {
+                reason: format!("invalid data map: {e}"),
+            })?;
+        self.download_to_file(data_map, dest_path, listener).await
+    }
+}
+
+impl Client {
+    /// Shared finalize path — optionally bridges storing progress to `listener`.
+    async fn finalize_inner(
+        &self,
+        upload_id: String,
+        tx_hashes: HashMap<String, String>,
+        listener: Option<Box<dyn ProgressListener>>,
+    ) -> Result<ExternalUploadResult, ClientError> {
+        // Parse & validate ALL tx hashes BEFORE removing the prepared upload
+        // from the session map. The caller has already paid on-chain, so a
+        // malformed hash must NOT destroy the only in-memory copy of the
+        // prepared chunks — with this ordering, bad input returns an error and
+        // leaves the upload intact and retryable.
+        let mut tx_hash_map: HashMap<QuoteHash, TxHash> = HashMap::with_capacity(tx_hashes.len());
+        for (quote_hex, tx_hex) in &tx_hashes {
+            let quote_bytes = decode_hash(quote_hex, "quote hash")?;
+            let tx_bytes = decode_hash(tx_hex, "tx hash")?;
+            tx_hash_map.insert(QuoteHash::from(quote_bytes), TxHash::from(tx_bytes));
+        }
+
+        // Take ownership of the prepared upload only now that the input is
+        // known-good, so bad-input retries stay lossless. WARNING: ant-core's
+        // `finalize_upload_with_progress` consumes the `PreparedUpload` (and the
+        // paid proofs) by value and does not hand them back on error, so a
+        // *network* store failure below strands the paid attempt — it is NOT
+        // safely retryable, because a re-prepare yields fresh quote hashes that
+        // won't match the already-paid tx map. See the `finalize_upload` docs
+        // and WithAutonomi/ant-client#140 + WithAutonomi/ant-sdk#201 for the fix.
+        let prepared = self
+            .sessions
+            .lock()
+            .expect("sessions mutex poisoned")
+            .remove(&upload_id)
+            .ok_or_else(|| ClientError::InvalidInput {
+                reason: format!("unknown or already-finalized upload_id: {upload_id}"),
+            })?;
+
+        let (sender, handle) = match listener {
+            Some(l) => {
+                let (tx, h) = upload_progress_bridge(l);
+                (Some(tx), Some(h))
+            }
+            None => (None, None),
+        };
+
+        let result = self
+            .inner
+            .finalize_upload_with_progress(prepared, &tx_hash_map, sender)
+            .await?;
+
+        if let Some(h) = handle {
+            let _ = h.await;
+        }
+
+        let data_map_bytes =
+            rmp_serde::to_vec(&result.data_map).map_err(|e| ClientError::InternalError {
+                reason: format!("failed to serialize data map: {e}"),
+            })?;
+
+        Ok(ExternalUploadResult {
+            data_map: hex::encode(data_map_bytes),
+            address: result.data_map_address.map(hex::encode),
+            chunks_stored: result.chunks_stored as u64,
+            storage_cost_atto: result.storage_cost_atto,
+            gas_cost_wei: result.gas_cost_wei.to_string(),
+        })
+    }
+
+    /// Shared download-to-file path with progress bridging.
+    async fn download_to_file(
+        &self,
+        data_map: ant_core::data::DataMap,
+        dest_path: String,
+        listener: Box<dyn ProgressListener>,
+    ) -> Result<u64, ClientError> {
+        let (tx, handle) = download_progress_bridge(listener);
+        let written = self
+            .inner
+            .file_download_with_progress(&data_map, Path::new(&dest_path), Some(tx))
+            .await?;
+        let _ = handle.await;
+        Ok(written)
+    }
+
+    /// Build the FFI summary for a prepared upload and stash the heavy state
+    /// under a fresh `upload_id`. Wave-batch only for now.
+    fn stash_prepared(&self, prepared: PreparedUpload) -> Result<PreparedUploadInfo, ClientError> {
+        let data_map_address = prepared.data_map_address.map(hex::encode);
+        let (payment_type, payments, total_amount) = match &prepared.payment_info {
+            ExternalPaymentInfo::WaveBatch { payment_intent, .. } => {
+                let payments = payment_intent
+                    .payments
+                    .iter()
+                    .map(|(quote_hash, rewards_addr, amount)| PaymentEntry {
+                        quote_hash: format!("0x{}", hex::encode(quote_hash)),
+                        rewards_address: format!("{rewards_addr}"),
+                        amount: amount.to_string(),
+                    })
+                    .collect::<Vec<_>>();
+                (
+                    "wave_batch".to_string(),
+                    payments,
+                    payment_intent.total_amount.to_string(),
+                )
+            }
+            ExternalPaymentInfo::Merkle { .. } => {
+                return Err(ClientError::InvalidInput {
+                    reason: "this upload triggered merkle batching, which the FFI external-signer \
+                             surface does not support yet (wave-batch only). Use a smaller upload \
+                             or a wallet-backed put for now."
+                        .into(),
+                });
+            }
+        };
+        let already_stored = payments.is_empty();
+        let upload_id = format!("upl-{}", self.next_id.fetch_add(1, Ordering::Relaxed));
+        self.sessions
+            .lock()
+            .expect("sessions mutex poisoned")
+            .insert(upload_id.clone(), prepared);
+        Ok(PreparedUploadInfo {
+            upload_id,
+            payment_type,
+            payments,
+            total_amount,
+            data_map_address,
+            already_stored,
+        })
+    }
+}
+
+/// Parse a visibility string ("public" | "private") into ant-core's enum.
+fn parse_visibility(s: &str) -> Result<Visibility, ClientError> {
+    match s {
+        "public" => Ok(Visibility::Public),
+        "private" => Ok(Visibility::Private),
+        other => Err(ClientError::InvalidInput {
+            reason: format!("invalid visibility {other:?}; use \"public\" or \"private\""),
+        }),
+    }
+}
+
+/// Decode a 0x-prefixed (or bare) hex string into a 32-byte hash.
+fn decode_hash(hex_str: &str, label: &str) -> Result<[u8; 32], ClientError> {
+    let bytes =
+        hex::decode(hex_str.trim_start_matches("0x")).map_err(|e| ClientError::InvalidInput {
+            reason: format!("invalid {label} {hex_str}: {e}"),
+        })?;
+    bytes.try_into().map_err(|_| ClientError::InvalidInput {
+        reason: format!("{label} {hex_str} must be 32 bytes"),
+    })
 }
 
 /// Parse a hex string into a 32-byte address.
@@ -428,9 +967,7 @@ fn hex_to_address(hex: &str) -> Result<[u8; 32], ClientError> {
     let bytes = hex::decode(hex).map_err(|e| ClientError::InvalidInput {
         reason: format!("invalid hex address: {e}"),
     })?;
-    bytes
-        .try_into()
-        .map_err(|_| ClientError::InvalidInput {
-            reason: "address must be 32 bytes".into(),
-        })
+    bytes.try_into().map_err(|_| ClientError::InvalidInput {
+        reason: "address must be 32 bytes".into(),
+    })
 }

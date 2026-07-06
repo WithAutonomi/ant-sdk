@@ -22,10 +22,10 @@ path = "src/uniffi-bindgen.rs"
 # Bump via: gh api repos/WithAutonomi/ant-client/branches/main -q '.commit.sha'
 # Local iteration: temporarily override with `[patch.crates-io]` or a path dep
 # in `.cargo/config.toml` (don't commit the override).
-ant-core = { git = "https://github.com/WithAutonomi/ant-client", rev = "e67472424f94acd4b9188a342271210d4ab9f94d" }
+ant-core = { git = "https://github.com/WithAutonomi/ant-client", rev = "95a23beefa53e733bb276922a89d1809ad2fe957" }
 # QuoteHash / TxHash / Amount used through ant_protocol::evm; pin must match
 # ant-core's transitive ant-protocol version to avoid evmlib graph skew.
-ant-protocol = "2.0.3"
+ant-protocol = "2.2.2"
 bytes = "1"
 hex = "0.4"
 rmp-serde = "1"
@@ -33,7 +33,7 @@ serde_json = "1"
 thiserror = "2"
 url = "2"
 zeroize = "1"
-tokio = { version = "1", features = ["rt-multi-thread"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
 uniffi = { workspace = true, features = ["tokio", "cli"] }
 
 [build-dependencies]
