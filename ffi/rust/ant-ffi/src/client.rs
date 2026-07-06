@@ -10,8 +10,8 @@ use zeroize::Zeroize;
 
 use ant_core::data::{
     Client as CoreClient, ClientConfig, CoreNodeConfig, DevnetManifest, DownloadEvent,
-    ExternalPaymentInfo, MultiAddr, NodeMode, P2PNode, PreparedUpload, UploadEvent,
-    Visibility, Wallet as CoreWallet,
+    ExternalPaymentInfo, MultiAddr, NodeMode, P2PNode, PreparedUpload, UploadEvent, Visibility,
+    Wallet as CoreWallet,
 };
 use ant_protocol::evm::{QuoteHash, TxHash};
 
@@ -125,8 +125,19 @@ fn download_progress_bridge(
 pub struct Client {
     inner: CoreClient,
     /// External-signer prepared uploads awaiting finalize, keyed by upload_id.
-    /// The `PreparedUpload` holds chunk content in memory until finalize stores
-    /// it, so entries live only between `prepare_*` and `finalize_upload`.
+    ///
+    /// Each `PreparedUpload` holds the upload's chunk content **in memory** so
+    /// finalize can store it after the external wallet pays. Lifecycle &
+    /// memory cost the caller must know:
+    ///   - An entry is created by every successful `prepare_*` call and removed
+    ///     only by a successful `finalize_upload*` or an explicit
+    ///     `cancel_upload`. There is no TTL or automatic eviction.
+    ///   - So a caller that prepares repeatedly without finalizing (e.g. the
+    ///     user backs out of the confirm sheet) retains one payload-sized buffer
+    ///     per abandoned upload for the life of the `Client`. Call
+    ///     `cancel_upload` to release one, or drop the whole `Client`.
+    ///
+    /// A bounded cache / TTL is a possible follow-up if this proves a problem.
     sessions: Mutex<HashMap<String, PreparedUpload>>,
     /// Monotonic source of unique upload_ids for this client instance.
     next_id: AtomicU64,
@@ -181,16 +192,15 @@ impl Client {
     /// Connect to the network using explicit bootstrap peers.
     #[uniffi::constructor]
     pub async fn connect(peers: Vec<String>) -> Result<Arc<Self>, ClientError> {
-        let mut builder = CoreNodeConfig::builder()
-            .mode(NodeMode::Client)
-            .port(0);
+        let mut builder = CoreNodeConfig::builder().mode(NodeMode::Client).port(0);
 
         for peer_str in &peers {
-            let addr: MultiAddr = peer_str
-                .parse()
-                .map_err(|e| ClientError::InitializationFailed {
-                    reason: format!("invalid peer address {peer_str}: {e}"),
-                })?;
+            let addr: MultiAddr =
+                peer_str
+                    .parse()
+                    .map_err(|e| ClientError::InitializationFailed {
+                        reason: format!("invalid peer address {peer_str}: {e}"),
+                    })?;
             builder = builder.bootstrap_peer(addr);
         }
 
@@ -237,16 +247,15 @@ impl Client {
         payment_token_address: String,
         payment_vault_address: String,
     ) -> Result<Arc<Self>, ClientError> {
-        let mut builder = CoreNodeConfig::builder()
-            .mode(NodeMode::Client)
-            .port(0);
+        let mut builder = CoreNodeConfig::builder().mode(NodeMode::Client).port(0);
 
         for peer_str in &peers {
-            let addr: MultiAddr = peer_str
-                .parse()
-                .map_err(|e| ClientError::InitializationFailed {
-                    reason: format!("invalid peer address {peer_str}: {e}"),
-                })?;
+            let addr: MultiAddr =
+                peer_str
+                    .parse()
+                    .map_err(|e| ClientError::InitializationFailed {
+                        reason: format!("invalid peer address {peer_str}: {e}"),
+                    })?;
             builder = builder.bootstrap_peer(addr);
         }
 
@@ -275,14 +284,17 @@ impl Client {
             tokio::time::sleep(std::time::Duration::from_millis(250)).await;
         }
 
-        let network = build_custom_network(&rpc_url, &payment_token_address, &payment_vault_address)
-            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+        let network =
+            build_custom_network(&rpc_url, &payment_token_address, &payment_vault_address)
+                .map_err(|e| ClientError::InitializationFailed {
+                    reason: e.to_string(),
+                })?;
         let result = CoreWallet::new_from_private_key(network, &private_key);
         // Clear the private key from memory as soon as possible
         private_key.zeroize();
         let wallet = result.map_err(|e| ClientError::InitializationFailed {
-                reason: format!("failed to create wallet: {e}"),
-            })?;
+            reason: format!("failed to create wallet: {e}"),
+        })?;
 
         let client =
             CoreClient::from_node(Arc::new(node), ClientConfig::default()).with_wallet(wallet);
@@ -306,14 +318,15 @@ impl Client {
         let bytes = std::fs::read(&path).map_err(|e| ClientError::InitializationFailed {
             reason: format!("failed to read manifest at {path}: {e}"),
         })?;
-        let manifest: DevnetManifest = serde_json::from_slice(&bytes).map_err(|e| {
-            ClientError::InitializationFailed {
+        let manifest: DevnetManifest =
+            serde_json::from_slice(&bytes).map_err(|e| ClientError::InitializationFailed {
                 reason: format!("invalid manifest JSON: {e}"),
-            }
-        })?;
-        let evm = manifest.evm.ok_or_else(|| ClientError::InitializationFailed {
-            reason: "manifest has no `evm` section — devnet started without payments?".into(),
-        })?;
+            })?;
+        let evm = manifest
+            .evm
+            .ok_or_else(|| ClientError::InitializationFailed {
+                reason: "manifest has no `evm` section — devnet started without payments?".into(),
+            })?;
 
         // `allow_loopback(true)` is the critical bit — the devnet's bootstrap
         // peers are at 127.0.0.1:<port>, and saorsa-core / libp2p filter
@@ -332,13 +345,19 @@ impl Client {
         }
         let config = builder
             .build()
-            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
         let node = P2PNode::new(config)
             .await
-            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
         node.start()
             .await
-            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
 
         // Poll for peer connections. We need at least the close-group size
         // (~7) for chunk_put to succeed, not just "any peer" — wait up to
@@ -356,12 +375,15 @@ impl Client {
             &evm.payment_token_address,
             &evm.payment_vault_address,
         )
-        .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
-        let wallet = CoreWallet::new_from_private_key(network, &evm.wallet_private_key).map_err(
-            |e| ClientError::InitializationFailed {
-                reason: format!("failed to create wallet from manifest: {e}"),
-            },
-        )?;
+        .map_err(|e| ClientError::InitializationFailed {
+            reason: e.to_string(),
+        })?;
+        let wallet =
+            CoreWallet::new_from_private_key(network, &evm.wallet_private_key).map_err(|e| {
+                ClientError::InitializationFailed {
+                    reason: format!("failed to create wallet from manifest: {e}"),
+                }
+            })?;
 
         let client =
             CoreClient::from_node(Arc::new(node), ClientConfig::default()).with_wallet(wallet);
@@ -384,9 +406,11 @@ impl Client {
             serde_json::from_slice(&bytes).map_err(|e| ClientError::InitializationFailed {
                 reason: format!("invalid manifest JSON: {e}"),
             })?;
-        let evm = manifest.evm.ok_or_else(|| ClientError::InitializationFailed {
-            reason: "manifest has no `evm` section — devnet started without payments?".into(),
-        })?;
+        let evm = manifest
+            .evm
+            .ok_or_else(|| ClientError::InitializationFailed {
+                reason: "manifest has no `evm` section — devnet started without payments?".into(),
+            })?;
 
         // Same devnet-tuned node config as the wallet variant (local +
         // loopback), so the client joins the local devnet the same way.
@@ -401,13 +425,19 @@ impl Client {
         }
         let config = builder
             .build()
-            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
         let node = P2PNode::new(config)
             .await
-            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
         node.start()
             .await
-            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
         for _ in 0..60 {
             if node.connected_peers().await.len() >= 7 {
                 break;
@@ -420,7 +450,9 @@ impl Client {
             &evm.payment_token_address,
             &evm.payment_vault_address,
         )
-        .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+        .map_err(|e| ClientError::InitializationFailed {
+            reason: e.to_string(),
+        })?;
         let client = CoreClient::from_node(Arc::new(node), ClientConfig::default())
             .with_evm_network(network);
         Ok(Self::wrap(client))
@@ -463,9 +495,8 @@ impl Client {
         data: Vec<u8>,
         payment_mode: String,
     ) -> Result<DataPutPublicResult, ClientError> {
-        let mode = parse_payment_mode(&payment_mode).map_err(|e| ClientError::InvalidInput {
-            reason: e,
-        })?;
+        let mode = parse_payment_mode(&payment_mode)
+            .map_err(|e| ClientError::InvalidInput { reason: e })?;
 
         let result = self
             .inner
@@ -495,20 +526,18 @@ impl Client {
         data: Vec<u8>,
         payment_mode: String,
     ) -> Result<DataPutPrivateResult, ClientError> {
-        let mode = parse_payment_mode(&payment_mode).map_err(|e| ClientError::InvalidInput {
-            reason: e,
-        })?;
+        let mode = parse_payment_mode(&payment_mode)
+            .map_err(|e| ClientError::InvalidInput { reason: e })?;
 
         let result = self
             .inner
             .data_upload_with_mode(Bytes::from(data), mode)
             .await?;
 
-        let data_map_bytes = rmp_serde::to_vec(&result.data_map).map_err(|e| {
-            ClientError::InternalError {
+        let data_map_bytes =
+            rmp_serde::to_vec(&result.data_map).map_err(|e| ClientError::InternalError {
                 reason: format!("failed to serialize data map: {e}"),
-            }
-        })?;
+            })?;
 
         Ok(DataPutPrivateResult {
             data_map: hex::encode(data_map_bytes),
@@ -530,10 +559,9 @@ impl Client {
                 ),
             });
         }
-        let data_map_bytes =
-            hex::decode(&data_map_hex).map_err(|e| ClientError::InvalidInput {
-                reason: format!("invalid hex: {e}"),
-            })?;
+        let data_map_bytes = hex::decode(&data_map_hex).map_err(|e| ClientError::InvalidInput {
+            reason: format!("invalid hex: {e}"),
+        })?;
         let data_map: ant_core::data::DataMap =
             rmp_serde::from_slice(&data_map_bytes).map_err(|e| ClientError::InvalidInput {
                 reason: format!("invalid data map: {e}"),
@@ -550,15 +578,11 @@ impl Client {
         path: String,
         payment_mode: String,
     ) -> Result<FilePutPublicResult, ClientError> {
-        let mode = parse_payment_mode(&payment_mode).map_err(|e| ClientError::InvalidInput {
-            reason: e,
-        })?;
+        let mode = parse_payment_mode(&payment_mode)
+            .map_err(|e| ClientError::InvalidInput { reason: e })?;
         let file_path = PathBuf::from(&path);
 
-        let result = self
-            .inner
-            .file_upload_with_mode(&file_path, mode)
-            .await?;
+        let result = self.inner.file_upload_with_mode(&file_path, mode).await?;
 
         let address = self.inner.data_map_store(&result.data_map).await?;
 
@@ -625,13 +649,19 @@ impl Client {
         }
         let config = builder
             .build()
-            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
         let node = P2PNode::new(config)
             .await
-            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
         node.start()
             .await
-            .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+            .map_err(|e| ClientError::InitializationFailed {
+                reason: e.to_string(),
+            })?;
         for _ in 0..20 {
             if !node.connected_peers().await.is_empty() {
                 break;
@@ -641,7 +671,9 @@ impl Client {
 
         let network =
             build_custom_network(&rpc_url, &payment_token_address, &payment_vault_address)
-                .map_err(|e| ClientError::InitializationFailed { reason: e.to_string() })?;
+                .map_err(|e| ClientError::InitializationFailed {
+                    reason: e.to_string(),
+                })?;
         let client = CoreClient::from_node(Arc::new(node), ClientConfig::default())
             .with_evm_network(network);
         Ok(Self::wrap(client))
@@ -705,6 +737,18 @@ impl Client {
             .await
     }
 
+    /// Discard a prepared upload that will not be finalized, freeing the chunk
+    /// content it holds in memory (see the `sessions` field docs on lifecycle).
+    /// Returns `true` if an upload with this id was present. Safe to call with
+    /// an unknown or already-finalized id — it simply returns `false`.
+    pub fn cancel_upload(&self, upload_id: String) -> bool {
+        self.sessions
+            .lock()
+            .expect("sessions mutex poisoned")
+            .remove(&upload_id)
+            .is_some()
+    }
+
     /// Download public data by address straight to a file on disk, reporting
     /// live progress (`"resolving"` then `"downloading"` phases). Returns bytes
     /// written.
@@ -727,12 +771,24 @@ impl Client {
         dest_path: String,
         listener: Box<dyn ProgressListener>,
     ) -> Result<u64, ClientError> {
-        let data_map_bytes =
-            hex::decode(&data_map_hex).map_err(|e| ClientError::InvalidInput {
-                reason: format!("invalid hex: {e}"),
-            })?;
-        let data_map: ant_core::data::DataMap = rmp_serde::from_slice(&data_map_bytes)
-            .map_err(|e| ClientError::InvalidInput {
+        // Reject unreasonably large hex input (20 MB hex = 10 MB decoded),
+        // matching the cap on `data_get_private` — this surface is reachable
+        // from app/UI input, so guard against a decode-driven memory spike.
+        const MAX_HEX_INPUT: usize = 20 * 1024 * 1024;
+        if data_map_hex.len() > MAX_HEX_INPUT {
+            return Err(ClientError::InvalidInput {
+                reason: format!(
+                    "data map hex too large: {} bytes (max {})",
+                    data_map_hex.len(),
+                    MAX_HEX_INPUT
+                ),
+            });
+        }
+        let data_map_bytes = hex::decode(&data_map_hex).map_err(|e| ClientError::InvalidInput {
+            reason: format!("invalid hex: {e}"),
+        })?;
+        let data_map: ant_core::data::DataMap =
+            rmp_serde::from_slice(&data_map_bytes).map_err(|e| ClientError::InvalidInput {
                 reason: format!("invalid data map: {e}"),
             })?;
         self.download_to_file(data_map, dest_path, listener).await
@@ -747,6 +803,23 @@ impl Client {
         tx_hashes: HashMap<String, String>,
         listener: Option<Box<dyn ProgressListener>>,
     ) -> Result<ExternalUploadResult, ClientError> {
+        // Parse & validate ALL tx hashes BEFORE removing the prepared upload
+        // from the session map. The caller has already paid on-chain, so a
+        // malformed hash must NOT destroy the only in-memory copy of the
+        // prepared chunks — with this ordering, bad input returns an error and
+        // leaves the upload intact and retryable.
+        let mut tx_hash_map: HashMap<QuoteHash, TxHash> = HashMap::with_capacity(tx_hashes.len());
+        for (quote_hex, tx_hex) in &tx_hashes {
+            let quote_bytes = decode_hash(quote_hex, "quote hash")?;
+            let tx_bytes = decode_hash(tx_hex, "tx hash")?;
+            tx_hash_map.insert(QuoteHash::from(quote_bytes), TxHash::from(tx_bytes));
+        }
+
+        // Take ownership of the prepared upload only now that the input is
+        // known-good. NOTE: ant-core's `finalize_upload_with_progress` consumes
+        // the `PreparedUpload` by value, so a *network* store failure below
+        // still consumes it — the caller must then re-prepare (safe: the same
+        // on-chain payment can be reused). Only bad-input retries are lossless.
         let prepared = self
             .sessions
             .lock()
@@ -755,14 +828,6 @@ impl Client {
             .ok_or_else(|| ClientError::InvalidInput {
                 reason: format!("unknown or already-finalized upload_id: {upload_id}"),
             })?;
-
-        let mut tx_hash_map: HashMap<QuoteHash, TxHash> =
-            HashMap::with_capacity(tx_hashes.len());
-        for (quote_hex, tx_hex) in &tx_hashes {
-            let quote_bytes = decode_hash(quote_hex, "quote hash")?;
-            let tx_bytes = decode_hash(tx_hex, "tx hash")?;
-            tx_hash_map.insert(QuoteHash::from(quote_bytes), TxHash::from(tx_bytes));
-        }
 
         let (sender, handle) = match listener {
             Some(l) => {
@@ -885,9 +950,7 @@ fn hex_to_address(hex: &str) -> Result<[u8; 32], ClientError> {
     let bytes = hex::decode(hex).map_err(|e| ClientError::InvalidInput {
         reason: format!("invalid hex address: {e}"),
     })?;
-    bytes
-        .try_into()
-        .map_err(|_| ClientError::InvalidInput {
-            reason: "address must be 32 bytes".into(),
-        })
+    bytes.try_into().map_err(|_| ClientError::InvalidInput {
+        reason: "address must be 32 bytes".into(),
+    })
 }

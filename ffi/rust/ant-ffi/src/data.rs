@@ -21,7 +21,9 @@ pub fn parse_payment_mode(mode: &str) -> Result<PaymentMode, String> {
         "auto" => Ok(PaymentMode::Auto),
         "merkle" => Ok(PaymentMode::Merkle),
         "single" => Ok(PaymentMode::Single),
-        other => Err(format!("invalid payment_mode: {other:?}. Use \"auto\", \"merkle\", or \"single\"")),
+        other => Err(format!(
+            "invalid payment_mode: {other:?}. Use \"auto\", \"merkle\", or \"single\""
+        )),
     }
 }
 

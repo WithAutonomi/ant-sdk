@@ -101,9 +101,19 @@ pub struct ExternalUploadResult {
 // ===== Progress reporting =====
 
 /// A progress update for a long-running upload or download, delivered to a
-/// [`ProgressListener`]. `phase` is one of:
-///   - upload:   `"encrypting"`, `"quoting"`, `"storing"`
-///   - download: `"resolving"`, `"downloading"`
+/// [`ProgressListener`].
+///
+/// `phase` is one of the following strings. Note which methods actually emit
+/// each phase today:
+///
+///   - **upload** — `"storing"` only, emitted by `finalize_upload_with_progress`
+///     as chunks land on the network. The `"encrypting"` and `"quoting"` phases
+///     exist in the enum for completeness but are **not** currently surfaced by
+///     the external-signer FFI: they happen inside `prepare_*`, which does not
+///     yet take a listener. (A prepare-with-progress API is a possible follow-up.)
+///   - **download** — `"resolving"` then `"downloading"`, emitted by the
+///     `download_*_to_file` methods.
+///
 /// `total` is 0 when the total isn't known yet (show an indeterminate bar);
 /// otherwise `done / total` is a 0..1 fraction of the current phase.
 #[derive(uniffi::Record)]
@@ -154,9 +164,13 @@ impl From<ant_core::data::Error> for ClientError {
             Error::InvalidData(msg) => ClientError::InvalidInput { reason: msg },
             Error::Payment(msg) => ClientError::PaymentError { reason: msg },
             Error::Network(msg) => ClientError::NetworkError { reason: msg },
-            Error::Timeout(msg) => ClientError::NetworkError { reason: format!("timeout: {msg}") },
+            Error::Timeout(msg) => ClientError::NetworkError {
+                reason: format!("timeout: {msg}"),
+            },
             Error::InsufficientPeers(msg) => ClientError::NetworkError { reason: msg },
-            other => ClientError::InternalError { reason: other.to_string() },
+            other => ClientError::InternalError {
+                reason: other.to_string(),
+            },
         }
     }
 }
@@ -169,4 +183,3 @@ pub enum WalletError {
     #[error("Operation failed: {reason}")]
     OperationFailed { reason: String },
 }
-
