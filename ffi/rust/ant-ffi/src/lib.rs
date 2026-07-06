@@ -60,26 +60,62 @@ pub struct PaymentEntry {
     pub amount: String,
 }
 
+/// One pool commitment for the merkle payment call
+/// `payForMerkleTree(uint8 depth, PoolCommitment[], uint64 timestamp)`.
+/// Only populated on merkle-batched uploads (`payment_type == "merkle"`).
+#[derive(uniffi::Record)]
+pub struct PoolCommitmentEntry {
+    /// 0x-prefixed pool hash (32 bytes).
+    pub pool_hash: String,
+    /// The pool's candidate nodes (exactly `CANDIDATES_PER_POOL` of them).
+    pub candidates: Vec<CandidateNodeEntry>,
+}
+
+/// One candidate node inside a [`PoolCommitmentEntry`].
+#[derive(uniffi::Record)]
+pub struct CandidateNodeEntry {
+    /// 0x-prefixed EVM rewards address (20 bytes).
+    pub rewards_address: String,
+    /// Node price in atto-tokens (base-10 string).
+    pub amount: String,
+}
+
 /// Summary of a prepared external-signer upload. The heavy prepared-chunk
-/// state stays in Rust, referenced by `upload_id` until `finalize_upload`.
-/// The caller uses `payments` to build ERC-20 `approve` + `payForQuotes`,
-/// has the external wallet sign them, then calls `finalize_upload` with the
-/// resulting `quote_hash -> tx_hash` map.
+/// state stays in Rust, referenced by `upload_id` until finalize.
+///
+/// `payment_type` selects which fields are meaningful and which finalize call
+/// to use:
+///   - `"wave_batch"` — use `payments` to build ERC-20 `approve` + `payForQuotes`,
+///     then call `finalize_upload(upload_id, {quote_hash: tx_hash})`. The merkle
+///     fields (`depth`/`pool_commitments`/`merkle_payment_timestamp`) are empty/0.
+///   - `"merkle"` — use `depth` + `pool_commitments` + `merkle_payment_timestamp`
+///     to build the `payForMerkleTree` call, then call
+///     `finalize_upload_merkle(upload_id, winner_pool_hash)` with the hash from
+///     the `MerklePaymentMade` event. `payments` is empty and `total_amount` is
+///     `"0"` (the settled cost isn't known until the winner pool is chosen
+///     on-chain).
 #[derive(uniffi::Record)]
 pub struct PreparedUploadInfo {
-    /// Opaque handle for this prepared upload; pass to `finalize_upload`.
+    /// Opaque handle for this prepared upload; pass to the matching finalize call.
     pub upload_id: String,
-    /// Payment shape. Currently always `"wave_batch"` (merkle not yet exposed).
+    /// Payment shape: `"wave_batch"` or `"merkle"`.
     pub payment_type: String,
-    /// Per-quote payments to settle on-chain. Empty if everything was already stored.
+    /// Wave-batch only: per-quote payments to settle on-chain. Empty for merkle
+    /// or if everything was already stored.
     pub payments: Vec<PaymentEntry>,
-    /// Total across all payments (atto-tokens, base-10).
+    /// Wave-batch: total across all payments (atto-tokens, base-10). `"0"` for merkle.
     pub total_amount: String,
+    /// Merkle only: merkle tree depth for the `payForMerkleTree` call. 0 for wave-batch.
+    pub depth: u32,
+    /// Merkle only: pool commitments for the `payForMerkleTree` call. Empty for wave-batch.
+    pub pool_commitments: Vec<PoolCommitmentEntry>,
+    /// Merkle only: timestamp for the `payForMerkleTree` call. 0 for wave-batch.
+    pub merkle_payment_timestamp: u64,
     /// For public uploads: hex address the data is retrievable from after
     /// finalize. `None` for private uploads.
     pub data_map_address: Option<String>,
-    /// True if every chunk already existed on the network — `payments` is
-    /// empty and `finalize_upload` may be called with an empty map.
+    /// True if every chunk already existed on the network — nothing to pay;
+    /// finalize may be called with an empty map / any winner hash.
     pub already_stored: bool,
 }
 
