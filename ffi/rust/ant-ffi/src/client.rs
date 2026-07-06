@@ -10,16 +10,17 @@ use zeroize::Zeroize;
 
 use ant_core::data::{
     Client as CoreClient, ClientConfig, CoreNodeConfig, DevnetManifest, DownloadEvent,
-    ExternalPaymentInfo, MultiAddr, NodeMode, P2PNode, PreparedUpload, UploadEvent, Visibility,
-    Wallet as CoreWallet,
+    ExternalPaymentInfo, FileUploadResult, MultiAddr, NodeMode, P2PNode, PreparedUpload,
+    UploadEvent, Visibility, Wallet as CoreWallet,
 };
 use ant_protocol::evm::{QuoteHash, TxHash};
 
 use crate::data::{format_payment_mode, parse_payment_mode};
 use crate::wallet::build_custom_network;
 use crate::{
-    ChunkPutResult, ClientError, DataPutPrivateResult, DataPutPublicResult, ExternalUploadResult,
-    FilePutPublicResult, PaymentEntry, PreparedUploadInfo, ProgressListener, ProgressUpdate,
+    CandidateNodeEntry, ChunkPutResult, ClientError, DataPutPrivateResult, DataPutPublicResult,
+    ExternalUploadResult, FilePutPublicResult, PaymentEntry, PoolCommitmentEntry,
+    PreparedUploadInfo, ProgressListener, ProgressUpdate,
 };
 
 /// Map an ant-core [`UploadEvent`] to the FFI [`ProgressUpdate`] shape.
@@ -50,15 +51,8 @@ fn map_upload_event(ev: UploadEvent) -> ProgressUpdate {
             done: stored as u64,
             total: total as u64,
         },
-        UploadEvent::WaveComplete {
-            stored_so_far,
-            total,
-            ..
-        } => ProgressUpdate {
-            phase: "storing".into(),
-            done: stored_so_far as u64,
-            total: total as u64,
-        },
+        // ant-core 0.3.0 removed `UploadEvent::WaveComplete`; per-chunk
+        // `ChunkStored` already carries the running total.
     }
 }
 
@@ -751,6 +745,38 @@ impl Client {
             .await
     }
 
+    /// Phase 2 (external signer, MERKLE): after the wallet has paid via
+    /// `payForMerkleTree`, finalize by supplying the `winner_pool_hash`
+    /// (0x-prefixed hex, 32 bytes) read from the `MerklePaymentMade` event in
+    /// the payment receipt. Use this for uploads whose
+    /// `PreparedUploadInfo.payment_type == "merkle"`; wave-batch uploads must
+    /// use [`Self::finalize_upload`] (this rejects them with a clear error, and
+    /// vice versa, without consuming the prepared upload).
+    ///
+    /// The same retry/failure contract as [`Self::finalize_upload`] applies: a
+    /// storage failure after payment is currently not retryable
+    /// (WithAutonomi/ant-client#140).
+    pub async fn finalize_upload_merkle(
+        &self,
+        upload_id: String,
+        winner_pool_hash: String,
+    ) -> Result<ExternalUploadResult, ClientError> {
+        self.finalize_merkle_inner(upload_id, winner_pool_hash, None)
+            .await
+    }
+
+    /// Same as [`Self::finalize_upload_merkle`] but reports live storing
+    /// progress via `listener` (the `"storing"` phase).
+    pub async fn finalize_upload_merkle_with_progress(
+        &self,
+        upload_id: String,
+        winner_pool_hash: String,
+        listener: Box<dyn ProgressListener>,
+    ) -> Result<ExternalUploadResult, ClientError> {
+        self.finalize_merkle_inner(upload_id, winner_pool_hash, Some(listener))
+            .await
+    }
+
     /// Discard a prepared upload that will not be finalized, freeing the chunk
     /// content it holds in memory (see the `sessions` field docs on lifecycle).
     /// Returns `true` if an upload with this id was present. Safe to call with
@@ -837,14 +863,7 @@ impl Client {
         // safely retryable, because a re-prepare yields fresh quote hashes that
         // won't match the already-paid tx map. See the `finalize_upload` docs
         // and WithAutonomi/ant-client#140 + WithAutonomi/ant-sdk#201 for the fix.
-        let prepared = self
-            .sessions
-            .lock()
-            .expect("sessions mutex poisoned")
-            .remove(&upload_id)
-            .ok_or_else(|| ClientError::InvalidInput {
-                reason: format!("unknown or already-finalized upload_id: {upload_id}"),
-            })?;
+        let prepared = self.take_session(&upload_id, PaymentKind::Wave)?;
 
         let (sender, handle) = match listener {
             Some(l) => {
@@ -863,11 +882,83 @@ impl Client {
             let _ = h.await;
         }
 
+        Self::to_external_result(result)
+    }
+
+    /// Shared finalize path for MERKLE uploads. Validates `winner_pool_hash`
+    /// before taking the session (bad input is lossless), then consumes the
+    /// prepared upload via ant-core's merkle finalize. Same post-payment
+    /// non-retryability caveat as [`Self::finalize_inner`] applies.
+    async fn finalize_merkle_inner(
+        &self,
+        upload_id: String,
+        winner_pool_hash: String,
+        listener: Option<Box<dyn ProgressListener>>,
+    ) -> Result<ExternalUploadResult, ClientError> {
+        let winner = decode_hash(&winner_pool_hash, "winner pool hash")?;
+        let prepared = self.take_session(&upload_id, PaymentKind::Merkle)?;
+
+        let (sender, handle) = match listener {
+            Some(l) => {
+                let (tx, h) = upload_progress_bridge(l);
+                (Some(tx), Some(h))
+            }
+            None => (None, None),
+        };
+
+        let result = self
+            .inner
+            .finalize_upload_merkle_with_progress(prepared, winner, sender)
+            .await?;
+
+        if let Some(h) = handle {
+            let _ = h.await;
+        }
+
+        Self::to_external_result(result)
+    }
+
+    /// Remove the prepared upload for `upload_id`, but only if it matches the
+    /// expected payment shape. An unknown id, or a call routed to the wrong
+    /// finalize method, errors WITHOUT removing anything — so a mis-routed
+    /// finalize is lossless and retryable via the correct method.
+    fn take_session(
+        &self,
+        upload_id: &str,
+        expect: PaymentKind,
+    ) -> Result<PreparedUpload, ClientError> {
+        let mut map = self.sessions.lock().expect("sessions mutex poisoned");
+        let actual = match map.get(upload_id) {
+            None => {
+                return Err(ClientError::InvalidInput {
+                    reason: format!("unknown or already-finalized upload_id: {upload_id}"),
+                });
+            }
+            Some(p) => match p.payment_info {
+                ExternalPaymentInfo::Merkle { .. } => PaymentKind::Merkle,
+                ExternalPaymentInfo::WaveBatch { .. } => PaymentKind::Wave,
+            },
+        };
+        if actual != expect {
+            let (used, want) = match actual {
+                PaymentKind::Merkle => ("merkle", "finalize_upload_merkle"),
+                PaymentKind::Wave => ("wave-batch", "finalize_upload"),
+            };
+            return Err(ClientError::InvalidInput {
+                reason: format!("upload {upload_id} used {used} payment; call {want} instead"),
+            });
+        }
+        Ok(map
+            .remove(upload_id)
+            .expect("session entry present while holding the lock"))
+    }
+
+    /// Convert ant-core's [`FileUploadResult`] into the FFI [`ExternalUploadResult`].
+    fn to_external_result(result: FileUploadResult) -> Result<ExternalUploadResult, ClientError> {
         let data_map_bytes =
             rmp_serde::to_vec(&result.data_map).map_err(|e| ClientError::InternalError {
                 reason: format!("failed to serialize data map: {e}"),
             })?;
-
         Ok(ExternalUploadResult {
             data_map: hex::encode(data_map_bytes),
             address: result.data_map_address.map(hex::encode),
@@ -894,12 +985,26 @@ impl Client {
     }
 
     /// Build the FFI summary for a prepared upload and stash the heavy state
-    /// under a fresh `upload_id`. Wave-batch only for now.
+    /// under a fresh `upload_id`. Handles both wave-batch and merkle payment.
     fn stash_prepared(&self, prepared: PreparedUpload) -> Result<PreparedUploadInfo, ClientError> {
         let data_map_address = prepared.data_map_address.map(hex::encode);
-        let (payment_type, payments, total_amount) = match &prepared.payment_info {
+        // Everything already on the network (nothing to pay/store) when the
+        // preflight found every chunk. Independent of payment shape — merkle
+        // never produces per-quote `payments`, so we can't infer this from an
+        // empty payments list.
+        let already_stored = prepared.already_stored_addresses.len() >= prepared.total_chunks;
+
+        // Defaults: wave leaves the merkle fields empty; merkle leaves `payments`
+        // empty and `total_amount` "0".
+        let mut payments = Vec::new();
+        let mut total_amount = "0".to_string();
+        let mut depth = 0u32;
+        let mut pool_commitments = Vec::new();
+        let mut merkle_payment_timestamp = 0u64;
+
+        let payment_type = match &prepared.payment_info {
             ExternalPaymentInfo::WaveBatch { payment_intent, .. } => {
-                let payments = payment_intent
+                payments = payment_intent
                     .payments
                     .iter()
                     .map(|(quote_hash, rewards_addr, amount)| PaymentEntry {
@@ -908,22 +1013,33 @@ impl Client {
                         amount: amount.to_string(),
                     })
                     .collect::<Vec<_>>();
-                (
-                    "wave_batch".to_string(),
-                    payments,
-                    payment_intent.total_amount.to_string(),
-                )
+                total_amount = payment_intent.total_amount.to_string();
+                "wave_batch".to_string()
             }
-            ExternalPaymentInfo::Merkle { .. } => {
-                return Err(ClientError::InvalidInput {
-                    reason: "this upload triggered merkle batching, which the FFI external-signer \
-                             surface does not support yet (wave-batch only). Use a smaller upload \
-                             or a wallet-backed put for now."
-                        .into(),
-                });
+            // Merkle: expose depth + pool commitments + timestamp so the app can
+            // build the `payForMerkleTree(uint8, PoolCommitment[], uint64)` call.
+            // Mirrors the antd daemon's gRPC/REST mapping.
+            ExternalPaymentInfo::Merkle { prepared_batch, .. } => {
+                depth = prepared_batch.depth as u32;
+                merkle_payment_timestamp = prepared_batch.merkle_payment_timestamp;
+                pool_commitments = prepared_batch
+                    .pool_commitments
+                    .iter()
+                    .map(|pc| PoolCommitmentEntry {
+                        pool_hash: format!("0x{}", hex::encode(pc.pool_hash)),
+                        candidates: pc
+                            .candidates
+                            .iter()
+                            .map(|c| CandidateNodeEntry {
+                                rewards_address: format!("0x{}", hex::encode(c.rewards_address)),
+                                amount: c.price.to_string(),
+                            })
+                            .collect(),
+                    })
+                    .collect::<Vec<_>>();
+                "merkle".to_string()
             }
         };
-        let already_stored = payments.is_empty();
         let upload_id = format!("upl-{}", self.next_id.fetch_add(1, Ordering::Relaxed));
         self.sessions
             .lock()
@@ -934,10 +1050,21 @@ impl Client {
             payment_type,
             payments,
             total_amount,
+            depth,
+            pool_commitments,
+            merkle_payment_timestamp,
             data_map_address,
             already_stored,
         })
     }
+}
+
+/// Which external-signer payment shape a finalize call targets. Used to route
+/// `finalize_upload` (wave) vs `finalize_upload_merkle` and reject mismatches.
+#[derive(Clone, Copy, PartialEq)]
+enum PaymentKind {
+    Wave,
+    Merkle,
 }
 
 /// Parse a visibility string ("public" | "private") into ant-core's enum.
@@ -970,4 +1097,49 @@ fn hex_to_address(hex: &str) -> Result<[u8; 32], ClientError> {
     bytes.try_into().map_err(|_| ClientError::InvalidInput {
         reason: "address must be 32 bytes".into(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decode_hash_accepts_32_bytes_with_or_without_0x() {
+        let bare = "11".repeat(32);
+        let prefixed = format!("0x{bare}");
+        let want = [0x11u8; 32];
+        assert_eq!(decode_hash(&bare, "winner pool hash").unwrap(), want);
+        assert_eq!(decode_hash(&prefixed, "winner pool hash").unwrap(), want);
+    }
+
+    #[test]
+    fn decode_hash_rejects_wrong_length() {
+        // 31 bytes — one short of a 32-byte hash.
+        let short = "ab".repeat(31);
+        let err = decode_hash(&short, "winner pool hash").unwrap_err();
+        assert!(
+            matches!(err, ClientError::InvalidInput { reason } if reason.contains("32 bytes")),
+            "expected a 32-byte length error"
+        );
+    }
+
+    #[test]
+    fn decode_hash_rejects_non_hex() {
+        let err = decode_hash("0xzz", "winner pool hash").unwrap_err();
+        assert!(matches!(err, ClientError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn parse_visibility_maps_known_values_and_rejects_others() {
+        assert!(matches!(
+            parse_visibility("public").unwrap(),
+            Visibility::Public
+        ));
+        assert!(matches!(
+            parse_visibility("private").unwrap(),
+            Visibility::Private
+        ));
+        let err = parse_visibility("shared").unwrap_err();
+        assert!(matches!(err, ClientError::InvalidInput { .. }));
+    }
 }

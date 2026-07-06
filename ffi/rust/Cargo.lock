@@ -803,8 +803,8 @@ dependencies = [
 
 [[package]]
 name = "ant-core"
-version = "0.2.9"
-source = "git+https://github.com/WithAutonomi/ant-client?rev=95a23beefa53e733bb276922a89d1809ad2fe957#95a23beefa53e733bb276922a89d1809ad2fe957"
+version = "0.3.0"
+source = "git+https://github.com/WithAutonomi/ant-client?tag=ant-cli-v0.2.10#7255f5b94123c4ea6a5f3127d238ccc2eed21c42"
 dependencies = [
  "ant-protocol",
  "async-stream",

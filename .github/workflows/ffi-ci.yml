@@ -1,0 +1,90 @@
+name: FFI CI
+
+# CI for the `ant-ffi` crate (ffi/rust/ant-ffi) — the UniFFI surface that the
+# ant-swift / ant-android SDKs ship. This subtree previously had no CI, so
+# PRs touching it had no automated signal (build/clippy/fmt/test/bindgen were
+# only ever run locally). Mirrors the `check-antd` job in ci.yml.
+
+on:
+  push:
+    branches: [main]
+    # `!**/*.md` skips CI when only docs changed. GitHub Actions allows EITHER
+    # `paths` OR `paths-ignore`, not both, so the negation lives inside `paths`.
+    paths:
+      - "ffi/rust/**"
+      - ".github/workflows/ffi-ci.yml"
+      - "!**/*.md"
+  pull_request:
+    paths:
+      - "ffi/rust/**"
+      - ".github/workflows/ffi-ci.yml"
+      - "!**/*.md"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+# Cancel in-flight PR runs when a new push lands on the same PR. Main pushes
+# never cancel — each commit needs full coverage.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check-ant-ffi:
+    name: Check (ant-ffi)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ffi/rust
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ffi/rust
+
+      - uses: arduino/setup-protoc@v3
+        with:
+          version: "25.x"
+          # Authenticate to lift the action's release-list call from the
+          # ~60/hr per-IP unauth quota onto our 5,000/hr token quota.
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features --locked -- -D warnings
+
+      - name: Build docs
+        run: cargo doc --locked --no-deps
+
+      - name: Run tests
+        run: cargo test --locked
+
+      # Smoke-test the UniFFI foreign-binding generation. A plain `cargo build`
+      # does not exercise `#[uniffi::export]` metadata, so a broken export
+      # surface (the kind that only shows up when Swift/Kotlin is generated)
+      # would otherwise slip through. This is the check reviewers were running
+      # by hand. No Xcode/NDK needed — generation emits source, not artifacts.
+      - name: UniFFI binding generation (Swift + Kotlin)
+        run: |
+          set -euo pipefail
+          cargo build --release --locked -p ant-ffi
+          cargo build --release --locked --bin uniffi-bindgen
+          out="$(mktemp -d)"
+          # Linux cdylib is libant_ffi.so (not .dylib).
+          lib="target/release/libant_ffi.so"
+          ./target/release/uniffi-bindgen generate --library "$lib" --language swift  --out-dir "$out"
+          ./target/release/uniffi-bindgen generate --library "$lib" --language kotlin --out-dir "$out"
+          # Fail loudly if nothing was emitted.
+          test -n "$(find "$out" -name '*.swift')" || { echo "no Swift bindings generated"; exit 1; }
+          test -n "$(find "$out" -name '*.kt')"    || { echo "no Kotlin bindings generated"; exit 1; }
+          echo "Generated Swift + Kotlin bindings OK"
