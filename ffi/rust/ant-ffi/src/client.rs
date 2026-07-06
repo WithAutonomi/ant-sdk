@@ -716,6 +716,20 @@ impl Client {
     /// `quote_hash -> tx_hash` map (both 0x-prefixed hex). Stores the chunks
     /// and returns the data map / address. `upload_id` comes from a prior
     /// `prepare_*` call. If everything was already stored, pass an empty map.
+    ///
+    /// # Retry / failure contract (IMPORTANT for paid uploads)
+    ///
+    /// - **Bad input** (a malformed `quote_hash`/`tx_hash`) is validated before
+    ///   any state is touched, so it errors with the upload left intact — safe
+    ///   to call again with a corrected map.
+    /// - **A storage/network failure *after* payment is currently NOT
+    ///   retryable.** ant-core consumes the prepared upload (and the paid
+    ///   proofs) by value, so on such a failure the paid attempt is stranded:
+    ///   a fresh `prepare_*` collects new quotes with different quote hashes
+    ///   that will not match the already-paid tx map. Do not tell the user the
+    ///   payment can simply be reused. Fixing this needs an ant-core retry-state
+    ///   API — tracked in WithAutonomi/ant-client#140 (core) and
+    ///   WithAutonomi/ant-sdk#201 (this surface).
     pub async fn finalize_upload(
         &self,
         upload_id: String,
@@ -816,10 +830,13 @@ impl Client {
         }
 
         // Take ownership of the prepared upload only now that the input is
-        // known-good. NOTE: ant-core's `finalize_upload_with_progress` consumes
-        // the `PreparedUpload` by value, so a *network* store failure below
-        // still consumes it — the caller must then re-prepare (safe: the same
-        // on-chain payment can be reused). Only bad-input retries are lossless.
+        // known-good, so bad-input retries stay lossless. WARNING: ant-core's
+        // `finalize_upload_with_progress` consumes the `PreparedUpload` (and the
+        // paid proofs) by value and does not hand them back on error, so a
+        // *network* store failure below strands the paid attempt — it is NOT
+        // safely retryable, because a re-prepare yields fresh quote hashes that
+        // won't match the already-paid tx map. See the `finalize_upload` docs
+        // and WithAutonomi/ant-client#140 + WithAutonomi/ant-sdk#201 for the fix.
         let prepared = self
             .sessions
             .lock()
