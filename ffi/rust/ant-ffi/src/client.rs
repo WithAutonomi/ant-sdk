@@ -51,15 +51,8 @@ fn map_upload_event(ev: UploadEvent) -> ProgressUpdate {
             done: stored as u64,
             total: total as u64,
         },
-        UploadEvent::WaveComplete {
-            stored_so_far,
-            total,
-            ..
-        } => ProgressUpdate {
-            phase: "storing".into(),
-            done: stored_so_far as u64,
-            total: total as u64,
-        },
+        // ant-core 0.3.0 removed `UploadEvent::WaveComplete`; per-chunk
+        // `ChunkStored` already carries the running total.
     }
 }
 
