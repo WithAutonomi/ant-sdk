@@ -1,10 +1,10 @@
 [package]
 name = "antd"
-version = "0.10.0"
+version = "0.11.0"
 edition = "2021"
 
 [dependencies]
-ant-core = { git = "https://github.com/WithAutonomi/ant-client", tag = "ant-cli-v0.2.8" }  # ant-core 0.2.8 release; includes file_download_to_sender + DownloadEvent (#111)
+ant-core = { git = "https://github.com/WithAutonomi/ant-client", tag = "ant-cli-v0.2.10" }  # ant-core 0.3.0 release; disk-eviction + node health + merkle de-wave (WaveComplete removed)
 self_encryption = "0.36.0"
 evmlib = "0.8.1"
 axum = { version = "0.8", features = ["macros"] }

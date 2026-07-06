@@ -804,8 +804,8 @@ dependencies = [
 
 [[package]]
 name = "ant-core"
-version = "0.2.8"
-source = "git+https://github.com/WithAutonomi/ant-client?tag=ant-cli-v0.2.8#4d0448458ec302af68a5504c533d105b0991c93c"
+version = "0.3.0"
+source = "git+https://github.com/WithAutonomi/ant-client?tag=ant-cli-v0.2.10#7255f5b94123c4ea6a5f3127d238ccc2eed21c42"
 dependencies = [
  "ant-protocol",
  "async-stream",
@@ -857,9 +857,9 @@ dependencies = [
 
 [[package]]
 name = "ant-protocol"
-version = "2.2.0"
+version = "2.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f61260c89bbc0039e0643f3e2ec79b1c17aee9d81b58d7edbc52314689489f39"
+checksum = "6a35986649c5963ec808efb44621d8b94716cc2ef5a041ea9a1875487578097c"
 dependencies = [
  "blake3",
  "bytes",
@@ -876,7 +876,7 @@ dependencies = [
 
 [[package]]
 name = "antd"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "ant-core",
  "axum 0.8.9",
@@ -4253,9 +4253,9 @@ dependencies = [
 
 [[package]]
 name = "quinn-proto"
-version = "0.11.14"
+version = "0.11.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "434b42fec591c96ef50e21e886936e66d3cc3f737104fdb9b737c40ffb94c098"
+checksum = "4fcb935c5bec503c2f0e306bdd3e58bb9029dcb14fa8d9ac76e3a5256ac0763e"
 dependencies = [
  "aws-lc-rs",
  "bytes",
@@ -4906,9 +4906,9 @@ dependencies = [
 
 [[package]]
 name = "saorsa-core"
-version = "0.26.0"
+version = "0.26.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa8cc1b7f59f97d018760ff150bbb4f217197c41622b83f7085c9cf0424b736e"
+checksum = "5d9c05644c46b8de670aa5c8eea037b90731f1f204e8aa5d8a2f03496d740401"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5021,9 +5021,9 @@ dependencies = [
 
 [[package]]
 name = "saorsa-transport"
-version = "0.35.0"
+version = "0.35.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "621d0a207914a8fd6453f25e4bcc369914cbfaf59a2857e898c079b95f52f5bb"
+checksum = "3c39d5524d6c886e402d9024d927988ea4e80b0105ce04ff03c89191579d2ada"
 dependencies = [
  "anyhow",
  "async-trait",
