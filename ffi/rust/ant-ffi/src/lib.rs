@@ -1,5 +1,6 @@
 mod client;
 mod data;
+mod payments;
 mod wallet;
 
 pub use client::Client;
@@ -132,6 +133,56 @@ pub struct ExternalUploadResult {
     pub storage_cost_atto: String,
     /// Total gas cost in wei (base-10).
     pub gas_cost_wei: String,
+}
+
+// ===== External-signer payment plumbing (calldata / config) =====
+
+/// On-chain configuration for a known Autonomi EVM network, so the app doesn't
+/// have to hardcode addresses or guess a chain id from an RPC URL string.
+/// Fetch with the free `network_info(name)` function.
+#[derive(uniffi::Record)]
+pub struct NetworkInfo {
+    /// EVM chain id (e.g. 42161 Arbitrum One, 421614 Arbitrum Sepolia).
+    pub chain_id: u32,
+    /// 0x-prefixed ANT payment-token address.
+    pub token_address: String,
+    /// 0x-prefixed payment-vault address.
+    pub vault_address: String,
+    /// Default HTTPS RPC URL for the network.
+    pub rpc_url: String,
+}
+
+/// One transaction the external wallet must sign & send, in order, to pay for a
+/// prepared upload. Produced by [`Client::payment_transactions`].
+///
+/// The app signs each `TxRequest` in the returned order (approve first, then the
+/// payment call), waiting for each receipt before the next.
+#[derive(uniffi::Record)]
+pub struct TxRequest {
+    /// 0x-prefixed contract address to send the transaction to (token for
+    /// `approve`, vault for the payment call).
+    pub to: String,
+    /// 0x-prefixed ABI-encoded calldata for the transaction's `data` field.
+    pub data: String,
+    /// `"approve"` (ERC-20 allowance) or `"pay"` (the vault payment call).
+    pub kind: String,
+    /// Wave-batch `"pay"` only: the 0x-prefixed quote hashes this payment
+    /// settles. After signing, map each of these to the resulting tx hash to
+    /// build the `finalize_upload` map. Empty for `approve` and for merkle.
+    pub quote_hashes: Vec<String>,
+}
+
+/// Outcome of a settled transaction, from the `wait_for_receipt` free function.
+#[derive(uniffi::Record)]
+pub struct TxReceipt {
+    /// `true` if the transaction succeeded (receipt status `0x1`), `false` if it
+    /// reverted (`0x0`).
+    pub success: bool,
+    /// Gas units consumed (base-10 string).
+    pub gas_used: String,
+    /// Effective gas price paid in wei (base-10 string). Multiply by `gas_used`
+    /// for the total gas cost.
+    pub effective_gas_price: String,
 }
 
 // ===== Progress reporting =====

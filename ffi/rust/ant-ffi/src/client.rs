@@ -9,7 +9,7 @@ use tokio::task::JoinHandle;
 use zeroize::Zeroize;
 
 use ant_core::data::{
-    Client as CoreClient, ClientConfig, CoreNodeConfig, DevnetManifest, DownloadEvent,
+    Client as CoreClient, ClientConfig, CoreNodeConfig, DevnetManifest, DownloadEvent, EvmNetwork,
     ExternalPaymentInfo, FileUploadResult, MultiAddr, NodeMode, P2PNode, PreparedUpload,
     UploadEvent, Visibility, Wallet as CoreWallet,
 };
@@ -20,7 +20,7 @@ use crate::wallet::build_custom_network;
 use crate::{
     CandidateNodeEntry, ChunkPutResult, ClientError, DataPutPrivateResult, DataPutPublicResult,
     ExternalUploadResult, FilePutPublicResult, PaymentEntry, PoolCommitmentEntry,
-    PreparedUploadInfo, ProgressListener, ProgressUpdate,
+    PreparedUploadInfo, ProgressListener, ProgressUpdate, TxRequest,
 };
 
 /// Map an ant-core [`UploadEvent`] to the FFI [`ProgressUpdate`] shape.
@@ -135,15 +135,26 @@ pub struct Client {
     sessions: Mutex<HashMap<String, PreparedUpload>>,
     /// Monotonic source of unique upload_ids for this client instance.
     next_id: AtomicU64,
+    /// EVM network this client pays on, retained for the external-signer path so
+    /// [`Self::payment_transactions`] can build calldata (token/vault + RPC).
+    /// `Some` only for the `connect_for_external_signer` constructors.
+    evm_network: Option<EvmNetwork>,
 }
 
 impl Client {
     /// Wrap a core client with fresh external-signer session state.
     fn wrap(inner: CoreClient) -> Arc<Self> {
+        Self::wrap_with_network(inner, None)
+    }
+
+    /// Wrap a core client, retaining its EVM network for the external-signer
+    /// calldata path.
+    fn wrap_with_network(inner: CoreClient, evm_network: Option<EvmNetwork>) -> Arc<Self> {
         Arc::new(Self {
             inner,
             sessions: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
+            evm_network,
         })
     }
 }
@@ -448,8 +459,8 @@ impl Client {
             reason: e.to_string(),
         })?;
         let client = CoreClient::from_node(Arc::new(node), ClientConfig::default())
-            .with_evm_network(network);
-        Ok(Self::wrap(client))
+            .with_evm_network(network.clone());
+        Ok(Self::wrap_with_network(client, Some(network)))
     }
 
     // ===== Chunk Operations =====
@@ -669,8 +680,8 @@ impl Client {
                     reason: e.to_string(),
                 })?;
         let client = CoreClient::from_node(Arc::new(node), ClientConfig::default())
-            .with_evm_network(network);
-        Ok(Self::wrap(client))
+            .with_evm_network(network.clone());
+        Ok(Self::wrap_with_network(client, Some(network)))
     }
 
     /// Phase 1 (external signer): encrypt `data`, collect quotes, and return
@@ -703,6 +714,39 @@ impl Client {
             .file_prepare_upload_with_visibility(&PathBuf::from(path), vis)
             .await?;
         self.stash_prepared(prepared)
+    }
+
+    /// Phase 1.5 (external signer): build the ordered transactions the external
+    /// wallet must sign to pay for a prepared upload — an ERC-20 `approve`
+    /// followed by the vault payment call(s). This replaces the hand-rolled ABI
+    /// encoding + hardcoded selectors that consumers used to carry.
+    ///
+    /// Sign each [`TxRequest`] in the returned order, waiting for each receipt,
+    /// then finalize:
+    ///   - **wave-batch**: for each `"pay"` tx, map every entry in its
+    ///     `quote_hashes` to that tx's hash, then call [`Self::finalize_upload`];
+    ///   - **merkle**: read the winner pool hash from the `"pay"` receipt's
+    ///     `MerklePaymentMade` event and call [`Self::finalize_upload_merkle`].
+    ///
+    /// Returns an empty list when everything was already stored (nothing to
+    /// pay). Only valid on a client built with `connect_for_external_signer` /
+    /// `connect_from_devnet_manifest_external_signer`; other clients return
+    /// [`ClientError::WalletNotConfigured`].
+    pub async fn payment_transactions(
+        &self,
+        upload_id: String,
+    ) -> Result<Vec<TxRequest>, ClientError> {
+        let network = self
+            .evm_network
+            .as_ref()
+            .ok_or(ClientError::WalletNotConfigured)?;
+        let map = self.sessions.lock().expect("sessions mutex poisoned");
+        let prepared = map
+            .get(&upload_id)
+            .ok_or_else(|| ClientError::InvalidInput {
+                reason: format!("unknown or already-finalized upload_id: {upload_id}"),
+            })?;
+        crate::payments::build_payment_transactions(network, prepared)
     }
 
     /// Phase 2 (external signer): after the external wallet has paid
