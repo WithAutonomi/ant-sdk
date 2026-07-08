@@ -11,7 +11,7 @@ use zeroize::Zeroize;
 use ant_core::data::{
     Client as CoreClient, ClientConfig, CoreNodeConfig, DevnetManifest, DownloadEvent,
     ExternalPaymentInfo, FileUploadResult, MultiAddr, NodeMode, P2PNode, PreparedUpload,
-    UploadEvent, Visibility, Wallet as CoreWallet,
+    UploadEvent, Visibility, Wallet as CoreWallet, MAX_WIRE_MESSAGE_SIZE,
 };
 use ant_protocol::evm::{QuoteHash, TxHash};
 
@@ -158,7 +158,8 @@ impl Client {
             .port(0)
             .local(true)
             .allow_loopback(true)
-            .ipv6(false);
+            .ipv6(false)
+            .max_message_size(MAX_WIRE_MESSAGE_SIZE);
 
         let config = builder
             .build()
@@ -186,7 +187,10 @@ impl Client {
     /// Connect to the network using explicit bootstrap peers.
     #[uniffi::constructor]
     pub async fn connect(peers: Vec<String>) -> Result<Arc<Self>, ClientError> {
-        let mut builder = CoreNodeConfig::builder().mode(NodeMode::Client).port(0);
+        let mut builder = CoreNodeConfig::builder()
+            .mode(NodeMode::Client)
+            .port(0)
+            .max_message_size(MAX_WIRE_MESSAGE_SIZE);
 
         for peer_str in &peers {
             let addr: MultiAddr =
@@ -241,7 +245,10 @@ impl Client {
         payment_token_address: String,
         payment_vault_address: String,
     ) -> Result<Arc<Self>, ClientError> {
-        let mut builder = CoreNodeConfig::builder().mode(NodeMode::Client).port(0);
+        let mut builder = CoreNodeConfig::builder()
+            .mode(NodeMode::Client)
+            .port(0)
+            .max_message_size(MAX_WIRE_MESSAGE_SIZE);
 
         for peer_str in &peers {
             let addr: MultiAddr =
@@ -333,7 +340,8 @@ impl Client {
             .port(0)
             .local(true)
             .allow_loopback(true)
-            .ipv6(false);
+            .ipv6(false)
+            .max_message_size(MAX_WIRE_MESSAGE_SIZE);
         for peer in &manifest.bootstrap {
             builder = builder.bootstrap_peer(peer.clone());
         }
@@ -413,7 +421,8 @@ impl Client {
             .port(0)
             .local(true)
             .allow_loopback(true)
-            .ipv6(false);
+            .ipv6(false)
+            .max_message_size(MAX_WIRE_MESSAGE_SIZE);
         for peer in &manifest.bootstrap {
             builder = builder.bootstrap_peer(peer.clone());
         }
@@ -631,7 +640,10 @@ impl Client {
         payment_token_address: String,
         payment_vault_address: String,
     ) -> Result<Arc<Self>, ClientError> {
-        let mut builder = CoreNodeConfig::builder().mode(NodeMode::Client).port(0);
+        let mut builder = CoreNodeConfig::builder()
+            .mode(NodeMode::Client)
+            .port(0)
+            .max_message_size(MAX_WIRE_MESSAGE_SIZE);
         for peer_str in &peers {
             let addr: MultiAddr =
                 peer_str
