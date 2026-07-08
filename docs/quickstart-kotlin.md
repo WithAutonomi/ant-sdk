@@ -2,6 +2,8 @@
 
 A comprehensive guide to using the Autonomi network with the Kotlin SDK.
 
+> **Platform note:** The REST/gRPC SDK requires a locally-running antd daemon and is designed for **JVM/server** applications. For **Android** apps, use the [FFI bindings](../ffi/) — published as `com.autonomi:ant-android` — which embed the Autonomi client directly, no daemon needed. See [ant-android](https://github.com/WithAutonomi/ant-android).
+
 ## Setup
 
 ```bash
