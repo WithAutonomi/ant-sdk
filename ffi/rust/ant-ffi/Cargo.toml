@@ -17,13 +17,16 @@ name = "uniffi-bindgen"
 path = "src/uniffi-bindgen.rs"
 
 [dependencies]
-# Pinned to a released ant-client tag so the build is reproducible and stays
-# aligned with the antd daemon (antd v0.11.0 pins the same ant-cli-v0.2.10 =
-# ant-core 0.3.0). Bump in lockstep with antd's ant-core so the whole SDK
-# ships on one core version.
+# Pinned to a released ant-client tag so the build is reproducible. Bump in
+# lockstep with antd's ant-core where possible so the whole SDK ships on one
+# core version. ant-core 0.3.1 (tag ant-cli-v0.2.11) keeps ant-protocol 2.2.2,
+# so this bump is graph-safe; it picks up the data_download shrunk-DataMap
+# resolve fix, a block_in_place panic fix in data_download, and the quinn-proto
+# RUSTSEC-2026-0185 security bump. (antd still pins ant-cli-v0.2.10 / 0.3.0 on
+# its own release lane; realign when antd next bumps.)
 # Local iteration: temporarily override with `[patch.crates-io]` or a path dep
 # in `.cargo/config.toml` (don't commit the override).
-ant-core = { git = "https://github.com/WithAutonomi/ant-client", tag = "ant-cli-v0.2.10" }
+ant-core = { git = "https://github.com/WithAutonomi/ant-client", tag = "ant-cli-v0.2.11" }
 # QuoteHash / TxHash / Amount used through ant_protocol::evm; pin must match
 # ant-core's transitive ant-protocol version to avoid evmlib graph skew.
 ant-protocol = "2.2.2"
