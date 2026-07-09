@@ -4,7 +4,7 @@ version = "0.11.0"
 edition = "2021"
 
 [dependencies]
-ant-core = { git = "https://github.com/WithAutonomi/ant-client", tag = "ant-cli-v0.2.10" }  # ant-core 0.3.0 release; disk-eviction + node health + merkle de-wave (WaveComplete removed)
+ant-core = { git = "https://github.com/WithAutonomi/ant-client", tag = "ant-cli-v0.2.11" }  # ant-core 0.3.1 release; data_download shrunk-DataMap resolve + block_in_place panic fix + quinn-proto RUSTSEC-2026-0185 (was 0.3.0 / ant-cli-v0.2.10)
 self_encryption = "0.36.0"
 evmlib = "0.8.1"
 axum = { version = "0.8", features = ["macros"] }
