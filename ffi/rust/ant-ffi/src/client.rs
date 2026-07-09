@@ -341,16 +341,22 @@ impl Client {
                 reason: "manifest has no `evm` section — devnet started without payments?".into(),
             })?;
 
-        // `allow_loopback(true)` is the critical bit — the devnet's bootstrap
-        // peers are at 127.0.0.1:<port>, and saorsa-core / libp2p filter
-        // loopback addresses by default as "non-routable". Without this the
-        // peer connections silently never form and chunk_put fails with
-        // "Found 0 peers, need 7". `local(true)` mirrors `connect_local()`
-        // since this constructor is also a local-devnet flow.
+        // `allow_loopback(true)` lets the client accept a loopback devnet's
+        // 127.0.0.1 bootstrap peers (saorsa-core / libp2p otherwise filter
+        // loopback as "non-routable" → peers never form and chunk_put fails
+        // with "Found 0 peers, need 7").
+        //
+        // `local` (loopback bind) is auto-detected from the manifest: an
+        // all-loopback devnet keeps `local(true)` (the common single-box
+        // case), but a **LAN devnet** — any non-loopback bootstrap addr, e.g.
+        // a node advertising 192.168.x — needs `local(false)` so the client
+        // binds 0.0.0.0 and can actually send to the LAN. Devnet-only path;
+        // production connects via `connect` / `connect_with_wallet`.
+        let lan = manifest.bootstrap.iter().any(|a| !a.is_loopback());
         let mut builder = CoreNodeConfig::builder()
             .mode(NodeMode::Client)
             .port(0)
-            .local(true)
+            .local(!lan)
             .allow_loopback(true)
             .ipv6(false)
             .max_message_size(MAX_WIRE_MESSAGE_SIZE);
@@ -426,12 +432,15 @@ impl Client {
                 reason: "manifest has no `evm` section — devnet started without payments?".into(),
             })?;
 
-        // Same devnet-tuned node config as the wallet variant (local +
-        // loopback), so the client joins the local devnet the same way.
+        // Same devnet-tuned node config as the wallet variant: allow_loopback
+        // for 127.0.0.1 devnets, and auto-detect LAN vs loopback so a LAN
+        // devnet (non-loopback bootstrap addr) binds 0.0.0.0 (local=false) and
+        // can actually reach the nodes. See the wallet variant for detail.
+        let lan = manifest.bootstrap.iter().any(|a| !a.is_loopback());
         let mut builder = CoreNodeConfig::builder()
             .mode(NodeMode::Client)
             .port(0)
-            .local(true)
+            .local(!lan)
             .allow_loopback(true)
             .ipv6(false)
             .max_message_size(MAX_WIRE_MESSAGE_SIZE);
