@@ -47,6 +47,35 @@ pub struct FilePutPublicResult {
     pub address: String,
 }
 
+/// Estimated cost of uploading a file, produced *before* any payment by
+/// sampling a few of the file's chunk addresses and extrapolating. No wallet
+/// is required. Use this to show the user a cost preview before preparing the
+/// real upload.
+#[derive(uniffi::Record)]
+pub struct CostEstimate {
+    /// Original file size in bytes.
+    pub file_size: u64,
+    /// Number of data chunks the file would split into (excludes the extra
+    /// data-map chunk added for public uploads).
+    pub chunk_count: u64,
+    /// Estimated storage cost in atto-tokens (base-10 string; may exceed u64).
+    pub storage_cost_atto: String,
+    /// Rough estimated gas cost in wei (base-10 string). A heuristic based on
+    /// chunk count and payment mode, NOT a live gas-price query.
+    pub estimated_gas_cost_wei: String,
+    /// Payment mode that would be used: "auto", "merkle", or "single".
+    pub payment_mode: String,
+    /// How much to trust `storage_cost_atto`:
+    /// - `"priced_sample"` — extrapolated from at least one live quote (normal case).
+    /// - `"verified_all_already_stored"` — every chunk was sampled and already
+    ///   stored; cost is exactly `"0"` (genuinely free).
+    /// - `"all_samples_already_stored_incomplete"` — every *sampled* chunk was
+    ///   already stored but the tail was unsampled; `"0"` is a best-effort guess
+    ///   the real upload reconciles at payment time. Render as "likely already
+    ///   stored", not guaranteed-free.
+    pub confidence: String,
+}
+
 // ===== External-signer (WalletConnect) upload types =====
 
 /// A single on-chain payment the external wallet must settle: one entry of the

@@ -15,12 +15,12 @@ use ant_core::data::{
 };
 use ant_protocol::evm::{QuoteHash, TxHash};
 
-use crate::data::{format_payment_mode, parse_payment_mode};
+use crate::data::{format_cost_confidence, format_payment_mode, parse_payment_mode};
 use crate::wallet::build_custom_network;
 use crate::{
-    CandidateNodeEntry, ChunkPutResult, ClientError, DataPutPrivateResult, DataPutPublicResult,
-    ExternalUploadResult, FilePutPublicResult, PaymentEntry, PoolCommitmentEntry,
-    PreparedUploadInfo, ProgressListener, ProgressUpdate, TxRequest,
+    CandidateNodeEntry, ChunkPutResult, ClientError, CostEstimate, DataPutPrivateResult,
+    DataPutPublicResult, ExternalUploadResult, FilePutPublicResult, PaymentEntry,
+    PoolCommitmentEntry, PreparedUploadInfo, ProgressListener, ProgressUpdate, TxRequest,
 };
 
 /// Map an ant-core [`UploadEvent`] to the FFI [`ProgressUpdate`] shape.
@@ -602,6 +602,37 @@ impl Client {
 
         Ok(FilePutPublicResult {
             address: hex::encode(address),
+        })
+    }
+
+    /// Estimate the cost of uploading a file *before* preparing or paying for
+    /// it. Samples a few of the file's chunk addresses and extrapolates, so it
+    /// is fast (~seconds) and needs **no wallet** — safe to call in the
+    /// external-signer flow to preview cost before `prepare_file_upload`.
+    ///
+    /// `payment_mode` is one of "auto", "merkle", or "single". Check
+    /// `CostEstimate.confidence` before treating a `"0"` storage cost as free.
+    pub async fn estimate_file_cost(
+        &self,
+        path: String,
+        payment_mode: String,
+    ) -> Result<CostEstimate, ClientError> {
+        let mode = parse_payment_mode(&payment_mode)
+            .map_err(|e| ClientError::InvalidInput { reason: e })?;
+        let file_path = PathBuf::from(&path);
+
+        let estimate = self
+            .inner
+            .estimate_upload_cost(&file_path, mode, None)
+            .await?;
+
+        Ok(CostEstimate {
+            file_size: estimate.file_size,
+            chunk_count: estimate.chunk_count as u64,
+            storage_cost_atto: estimate.storage_cost_atto,
+            estimated_gas_cost_wei: estimate.estimated_gas_cost_wei,
+            payment_mode: format_payment_mode(estimate.payment_mode),
+            confidence: format_cost_confidence(estimate.confidence),
         })
     }
 
