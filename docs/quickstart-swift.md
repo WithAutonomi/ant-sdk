@@ -2,7 +2,14 @@
 
 A comprehensive guide to using the Autonomi network with the Swift SDK.
 
-> **Platform note:** The REST/gRPC SDK requires a locally-running antd daemon and is designed for **macOS** applications. For **iOS** apps, use the [FFI bindings](../ffi/) which embed the Autonomi client directly — no daemon needed.
+> **📱 Building an iOS (or macOS) app? This is the wrong doc.** This page covers
+> the **REST/gRPC SDK**, which needs a locally-running `antd` daemon. For native
+> apps, use the in-process Swift bindings — **[`ant-swift`](https://github.com/WithAutonomi/ant-swift)**
+> — which embed the Autonomi client directly (no daemon), ship a prebuilt
+> `.xcframework` via SwiftPM, and have their own getting-started guide covering
+> connect methods, uploads/downloads, cost estimation, and external-signer
+> (WalletConnect) payments. Continue below only if you specifically want the
+> daemon-backed REST SDK on macOS.
 
 ## Setup
 
