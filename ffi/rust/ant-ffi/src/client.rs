@@ -606,10 +606,10 @@ impl Client {
         })
     }
 
-    /// Upload a file from disk (private). Returns the serialized data map (hex)
+    /// Upload a file from disk privately. Returns the serialized data map (hex)
     /// rather than publishing it — the caller must keep it to retrieve the file
-    /// (see [`Self::data_get_private`]). Mirrors [`Self::file_upload_public`] for
-    /// the private case, the file analog of [`Self::data_put_private`].
+    /// later via `dataGetPrivate`. This is the private counterpart of
+    /// `fileUploadPublic`, and the file-based analog of `dataPutPrivate`.
     pub async fn file_upload_private(
         &self,
         path: String,
@@ -633,8 +633,15 @@ impl Client {
 
     /// Publish an existing private data map as a public network chunk, returning
     /// its hex address. Lets a caller turn a previously-private upload (a hex
-    /// data map from [`Self::data_put_private`] / [`Self::file_upload_private`])
-    /// into a shareable public address **without re-uploading the data**.
+    /// data map from `dataPutPrivate` / `fileUploadPrivate`) into a shareable
+    /// public address **without re-uploading the underlying file data**.
+    ///
+    /// Note: the file's data chunks are not re-stored, but the serialized data
+    /// map is itself stored as one small public chunk — so this may store and
+    /// pay for that single chunk (unless it is already on the network). On a
+    /// client with no wallet (external-signer mode) storing an unpaid chunk
+    /// will fail; use it on a wallet-backed client, or on data maps whose chunk
+    /// is already stored.
     pub async fn data_map_store(&self, data_map_hex: String) -> Result<String, ClientError> {
         // Same guard as data_get_private (20 MB hex = 10 MB decoded).
         const MAX_HEX_INPUT: usize = 20 * 1024 * 1024;
@@ -659,8 +666,8 @@ impl Client {
     }
 
     /// Fetch a public data map by hex address and return it serialized (hex) —
-    /// the inverse of [`Self::data_map_store`]. Returns just the data map, not
-    /// the file content; use [`Self::data_get_public`] to fetch the bytes.
+    /// the inverse of `dataMapStore`. Returns just the data map, not the file
+    /// content; use `dataGetPublic` to fetch the bytes.
     pub async fn data_map_fetch(&self, address_hex: String) -> Result<String, ClientError> {
         let address = hex_to_address(&address_hex)?;
         let data_map = self.inner.data_map_fetch(&address).await?;
@@ -674,10 +681,15 @@ impl Client {
     /// Estimate the cost of uploading a file *before* preparing or paying for
     /// it. Samples a few of the file's chunk addresses and extrapolates, so it
     /// is fast (~seconds) and needs **no wallet** — safe to call in the
-    /// external-signer flow to preview cost before `prepare_file_upload`.
+    /// external-signer flow to preview cost before `prepareFileUpload`.
     ///
     /// `payment_mode` is one of "auto", "merkle", or "single". Check
     /// `CostEstimate.confidence` before treating a `"0"` storage cost as free.
+    ///
+    /// This prices the file's data chunks only. A *public* upload additionally
+    /// stores the serialized data map as one extra chunk, which is not included
+    /// here — so treat the result as the data-storage estimate, not the exact
+    /// guaranteed total of a public publish.
     pub async fn estimate_file_cost(
         &self,
         path: String,
@@ -825,10 +837,10 @@ impl Client {
         self.stash_prepared(prepared)
     }
 
-    /// Phase 1 (external signer): same as [`Self::prepare_file_upload`] but
-    /// reports encryption/quoting progress to `listener`. Encrypting a large
-    /// file to spill can take seconds, so this surfaces the `"encrypting"` and
-    /// `"quoting"` phases the plain `prepare_file_upload` runs silently. (Only
+    /// Phase 1 (external signer): same as `prepareFileUpload` but reports
+    /// encryption/quoting progress to `listener`. Encrypting a large file to
+    /// spill can take seconds, so this surfaces the `"encrypting"` and
+    /// `"quoting"` phases the plain `prepareFileUpload` runs silently. (Only
     /// files support prepare progress; ant-core has no in-memory data variant.)
     pub async fn prepare_file_upload_with_progress(
         &self,

@@ -231,11 +231,12 @@ pub struct TxReceipt {
 /// `phase` is one of the following strings. Note which methods actually emit
 /// each phase today:
 ///
-///   - **upload** — `"storing"` only, emitted by `finalize_upload_with_progress`
-///     as chunks land on the network. The `"encrypting"` and `"quoting"` phases
-///     exist in the enum for completeness but are **not** currently surfaced by
-///     the external-signer FFI: they happen inside `prepare_*`, which does not
-///     yet take a listener. (A prepare-with-progress API is a possible follow-up.)
+///   - **upload** — `"encrypting"` then `"quoting"`, emitted by
+///     `prepare_file_upload_with_progress` while the file is encrypted and
+///     quoted, then `"storing"`, emitted by `finalize_upload_with_progress` as
+///     chunks land on the network. (The plain `prepare_file_upload` /
+///     `prepare_data_upload` and the in-memory `prepare_data_upload` path take
+///     no listener, so they surface no encrypt/quote progress.)
 ///   - **download** — `"resolving"` then `"downloading"`, emitted by the
 ///     `download_*_to_file` methods.
 ///
