@@ -88,3 +88,26 @@ jobs:
           test -n "$(find "$out" -name '*.swift')" || { echo "no Swift bindings generated"; exit 1; }
           test -n "$(find "$out" -name '*.kt')"    || { echo "no Kotlin bindings generated"; exit 1; }
           echo "Generated Swift + Kotlin bindings OK"
+
+  # RUSTSEC audit of the ffi dependency tree. Mirrors the `audit` job in ci.yml
+  # (which only covered antd / antd-rust) — the ffi subtree previously had no
+  # audit, so AntFfi releases could ship transitively-vulnerable crates (e.g.
+  # crossbeam-epoch RUSTSEC-2026-0204, rustls-webpki RUSTSEC-2026-0098/0099/0104
+  # were only caught after v0.0.5 shipped). Runs on the same triggers as the
+  # rest of this workflow, so ffi-only PRs get audited.
+  audit:
+    name: Security audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: cargo-audit-tool
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Audit ant-ffi dependencies
+        working-directory: ffi/rust
+        run: cargo audit
