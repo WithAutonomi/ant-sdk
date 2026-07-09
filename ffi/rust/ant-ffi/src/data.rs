@@ -1,5 +1,5 @@
 /// Re-export ant-core types used in FFI signatures.
-pub use ant_core::data::PaymentMode;
+pub use ant_core::data::{CostEstimateConfidence, PaymentMode};
 
 /// Result of a data upload operation (internal, not exposed via UniFFI).
 pub struct DataUploadResult {
@@ -33,5 +33,17 @@ pub fn format_payment_mode(mode: PaymentMode) -> String {
         PaymentMode::Auto => "auto".into(),
         PaymentMode::Merkle => "merkle".into(),
         PaymentMode::Single => "single".into(),
+    }
+}
+
+/// Format a cost-estimate confidence for FFI results. Strings match ant-core's
+/// serde `snake_case` names so callers can rely on a stable vocabulary.
+pub fn format_cost_confidence(confidence: CostEstimateConfidence) -> String {
+    match confidence {
+        CostEstimateConfidence::PricedSample => "priced_sample".into(),
+        CostEstimateConfidence::VerifiedAllAlreadyStored => "verified_all_already_stored".into(),
+        CostEstimateConfidence::AllSamplesAlreadyStoredIncomplete => {
+            "all_samples_already_stored_incomplete".into()
+        }
     }
 }

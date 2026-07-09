@@ -47,6 +47,44 @@ pub struct FilePutPublicResult {
     pub address: String,
 }
 
+/// Result of uploading a file (private). The data map is returned to the
+/// caller instead of being published; keep it secret — it is required to
+/// retrieve the file and is not recoverable from the network.
+#[derive(uniffi::Record)]
+pub struct FilePutPrivateResult {
+    /// Hex-encoded serialized data map (caller keeps this secret).
+    pub data_map: String,
+}
+
+/// Estimated cost of uploading a file, produced *before* any payment by
+/// sampling a few of the file's chunk addresses and extrapolating. No wallet
+/// is required. Use this to show the user a cost preview before preparing the
+/// real upload.
+#[derive(uniffi::Record)]
+pub struct CostEstimate {
+    /// Original file size in bytes.
+    pub file_size: u64,
+    /// Number of data chunks the file would split into (excludes the extra
+    /// data-map chunk added for public uploads).
+    pub chunk_count: u64,
+    /// Estimated storage cost in atto-tokens (base-10 string; may exceed u64).
+    pub storage_cost_atto: String,
+    /// Rough estimated gas cost in wei (base-10 string). A heuristic based on
+    /// chunk count and payment mode, NOT a live gas-price query.
+    pub estimated_gas_cost_wei: String,
+    /// Payment mode that would be used: "auto", "merkle", or "single".
+    pub payment_mode: String,
+    /// How much to trust `storage_cost_atto`:
+    /// - `"priced_sample"` — extrapolated from at least one live quote (normal case).
+    /// - `"verified_all_already_stored"` — every chunk was sampled and already
+    ///   stored; cost is exactly `"0"` (genuinely free).
+    /// - `"all_samples_already_stored_incomplete"` — every *sampled* chunk was
+    ///   already stored but the tail was unsampled; `"0"` is a best-effort guess
+    ///   the real upload reconciles at payment time. Render as "likely already
+    ///   stored", not guaranteed-free.
+    pub confidence: String,
+}
+
 // ===== External-signer (WalletConnect) upload types =====
 
 /// A single on-chain payment the external wallet must settle: one entry of the
@@ -193,11 +231,12 @@ pub struct TxReceipt {
 /// `phase` is one of the following strings. Note which methods actually emit
 /// each phase today:
 ///
-///   - **upload** — `"storing"` only, emitted by `finalize_upload_with_progress`
-///     as chunks land on the network. The `"encrypting"` and `"quoting"` phases
-///     exist in the enum for completeness but are **not** currently surfaced by
-///     the external-signer FFI: they happen inside `prepare_*`, which does not
-///     yet take a listener. (A prepare-with-progress API is a possible follow-up.)
+///   - **upload** — `"encrypting"` then `"quoting"`, emitted by
+///     `prepare_file_upload_with_progress` while the file is encrypted and
+///     quoted, then `"storing"`, emitted by `finalize_upload_with_progress` as
+///     chunks land on the network. (The plain `prepare_file_upload` /
+///     `prepare_data_upload` and the in-memory `prepare_data_upload` path take
+///     no listener, so they surface no encrypt/quote progress.)
 ///   - **download** — `"resolving"` then `"downloading"`, emitted by the
 ///     `download_*_to_file` methods.
 ///

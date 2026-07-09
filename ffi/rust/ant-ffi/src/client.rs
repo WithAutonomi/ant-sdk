@@ -15,12 +15,13 @@ use ant_core::data::{
 };
 use ant_protocol::evm::{QuoteHash, TxHash};
 
-use crate::data::{format_payment_mode, parse_payment_mode};
+use crate::data::{format_cost_confidence, format_payment_mode, parse_payment_mode};
 use crate::wallet::build_custom_network;
 use crate::{
-    CandidateNodeEntry, ChunkPutResult, ClientError, DataPutPrivateResult, DataPutPublicResult,
-    ExternalUploadResult, FilePutPublicResult, PaymentEntry, PoolCommitmentEntry,
-    PreparedUploadInfo, ProgressListener, ProgressUpdate, TxRequest,
+    CandidateNodeEntry, ChunkPutResult, ClientError, CostEstimate, DataPutPrivateResult,
+    DataPutPublicResult, ExternalUploadResult, FilePutPrivateResult, FilePutPublicResult,
+    PaymentEntry, PoolCommitmentEntry, PreparedUploadInfo, ProgressListener, ProgressUpdate,
+    TxRequest,
 };
 
 /// Map an ant-core [`UploadEvent`] to the FFI [`ProgressUpdate`] shape.
@@ -605,6 +606,114 @@ impl Client {
         })
     }
 
+    /// Upload a file from disk privately. Returns the serialized data map (hex)
+    /// rather than publishing it — the caller must keep it to retrieve the file
+    /// later via `dataGetPrivate`. This is the private counterpart of
+    /// `fileUploadPublic`, and the file-based analog of `dataPutPrivate`.
+    pub async fn file_upload_private(
+        &self,
+        path: String,
+        payment_mode: String,
+    ) -> Result<FilePutPrivateResult, ClientError> {
+        let mode = parse_payment_mode(&payment_mode)
+            .map_err(|e| ClientError::InvalidInput { reason: e })?;
+        let file_path = PathBuf::from(&path);
+
+        let result = self.inner.file_upload_with_mode(&file_path, mode).await?;
+
+        let data_map_bytes =
+            rmp_serde::to_vec(&result.data_map).map_err(|e| ClientError::InternalError {
+                reason: format!("failed to serialize data map: {e}"),
+            })?;
+
+        Ok(FilePutPrivateResult {
+            data_map: hex::encode(data_map_bytes),
+        })
+    }
+
+    /// Publish an existing private data map as a public network chunk, returning
+    /// its hex address. Lets a caller turn a previously-private upload (a hex
+    /// data map from `dataPutPrivate` / `fileUploadPrivate`) into a shareable
+    /// public address **without re-uploading the underlying file data**.
+    ///
+    /// Note: the file's data chunks are not re-stored, but the serialized data
+    /// map is itself stored as one small public chunk — so this may store and
+    /// pay for that single chunk (unless it is already on the network). On a
+    /// client with no wallet (external-signer mode) storing an unpaid chunk
+    /// will fail; use it on a wallet-backed client, or on data maps whose chunk
+    /// is already stored.
+    pub async fn data_map_store(&self, data_map_hex: String) -> Result<String, ClientError> {
+        // Same guard as data_get_private (20 MB hex = 10 MB decoded).
+        const MAX_HEX_INPUT: usize = 20 * 1024 * 1024;
+        if data_map_hex.len() > MAX_HEX_INPUT {
+            return Err(ClientError::InvalidInput {
+                reason: format!(
+                    "data map hex too large: {} bytes (max {})",
+                    data_map_hex.len(),
+                    MAX_HEX_INPUT
+                ),
+            });
+        }
+        let data_map_bytes = hex::decode(&data_map_hex).map_err(|e| ClientError::InvalidInput {
+            reason: format!("invalid hex: {e}"),
+        })?;
+        let data_map: ant_core::data::DataMap =
+            rmp_serde::from_slice(&data_map_bytes).map_err(|e| ClientError::InvalidInput {
+                reason: format!("invalid data map: {e}"),
+            })?;
+        let address = self.inner.data_map_store(&data_map).await?;
+        Ok(hex::encode(address))
+    }
+
+    /// Fetch a public data map by hex address and return it serialized (hex) —
+    /// the inverse of `dataMapStore`. Returns just the data map, not the file
+    /// content; use `dataGetPublic` to fetch the bytes.
+    pub async fn data_map_fetch(&self, address_hex: String) -> Result<String, ClientError> {
+        let address = hex_to_address(&address_hex)?;
+        let data_map = self.inner.data_map_fetch(&address).await?;
+        let data_map_bytes =
+            rmp_serde::to_vec(&data_map).map_err(|e| ClientError::InternalError {
+                reason: format!("failed to serialize data map: {e}"),
+            })?;
+        Ok(hex::encode(data_map_bytes))
+    }
+
+    /// Estimate the cost of uploading a file *before* preparing or paying for
+    /// it. Samples a few of the file's chunk addresses and extrapolates, so it
+    /// is fast (~seconds) and needs **no wallet** — safe to call in the
+    /// external-signer flow to preview cost before `prepareFileUpload`.
+    ///
+    /// `payment_mode` is one of "auto", "merkle", or "single". Check
+    /// `CostEstimate.confidence` before treating a `"0"` storage cost as free.
+    ///
+    /// This prices the file's data chunks only. A *public* upload additionally
+    /// stores the serialized data map as one extra chunk, which is not included
+    /// here — so treat the result as the data-storage estimate, not the exact
+    /// guaranteed total of a public publish.
+    pub async fn estimate_file_cost(
+        &self,
+        path: String,
+        payment_mode: String,
+    ) -> Result<CostEstimate, ClientError> {
+        let mode = parse_payment_mode(&payment_mode)
+            .map_err(|e| ClientError::InvalidInput { reason: e })?;
+        let file_path = PathBuf::from(&path);
+
+        let estimate = self
+            .inner
+            .estimate_upload_cost(&file_path, mode, None)
+            .await?;
+
+        Ok(CostEstimate {
+            file_size: estimate.file_size,
+            chunk_count: estimate.chunk_count as u64,
+            storage_cost_atto: estimate.storage_cost_atto,
+            estimated_gas_cost_wei: estimate.estimated_gas_cost_wei,
+            payment_mode: format_payment_mode(estimate.payment_mode),
+            confidence: format_cost_confidence(estimate.confidence),
+        })
+    }
+
     /// Download a file to disk by hex-encoded address.
     pub async fn file_download_public(
         &self,
@@ -726,6 +835,29 @@ impl Client {
             .file_prepare_upload_with_visibility(&PathBuf::from(path), vis)
             .await?;
         self.stash_prepared(prepared)
+    }
+
+    /// Phase 1 (external signer): same as `prepareFileUpload` but reports
+    /// encryption/quoting progress to `listener`. Encrypting a large file to
+    /// spill can take seconds, so this surfaces the `"encrypting"` and
+    /// `"quoting"` phases the plain `prepareFileUpload` runs silently. (Only
+    /// files support prepare progress; ant-core has no in-memory data variant.)
+    pub async fn prepare_file_upload_with_progress(
+        &self,
+        path: String,
+        visibility: String,
+        listener: Box<dyn ProgressListener>,
+    ) -> Result<PreparedUploadInfo, ClientError> {
+        let vis = parse_visibility(&visibility)?;
+        let (sender, handle) = upload_progress_bridge(listener);
+        let result = self
+            .inner
+            .file_prepare_upload_with_progress(&PathBuf::from(path), vis, Some(sender))
+            .await;
+        // Drop of `sender` inside the call ends the bridge; await it to flush
+        // any queued progress events before returning either way.
+        let _ = handle.await;
+        self.stash_prepared(result?)
     }
 
     /// Phase 1.5 (external signer): build the ordered transactions the external
