@@ -47,6 +47,15 @@ pub struct FilePutPublicResult {
     pub address: String,
 }
 
+/// Result of uploading a file (private). The data map is returned to the
+/// caller instead of being published; keep it secret — it is required to
+/// retrieve the file and is not recoverable from the network.
+#[derive(uniffi::Record)]
+pub struct FilePutPrivateResult {
+    /// Hex-encoded serialized data map (caller keeps this secret).
+    pub data_map: String,
+}
+
 /// Estimated cost of uploading a file, produced *before* any payment by
 /// sampling a few of the file's chunk addresses and extrapolating. No wallet
 /// is required. Use this to show the user a cost preview before preparing the
