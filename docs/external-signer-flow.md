@@ -1,4 +1,9 @@
-# External-Signer Upload Flow
+# External-Signer Upload Flow (antd daemon / REST)
+
+> 📱 **Building a mobile app (iOS `ant-swift` / Android `ant-android`)?** This
+> document is the **antd daemon REST** flow — HTTP endpoints and hand-rolled ABI.
+> It does **not** apply to the mobile SDK, where the SDK builds the transactions
+> for you. Use [`mobile-external-signer.md`](./mobile-external-signer.md) instead.
 
 Reference for SDK authors implementing `07_external_signer` examples. Covers the two-phase upload flow where the user's wallet key never touches the antd daemon — the daemon prepares a payment intent, the SDK signs and submits the EVM transaction(s) externally, and the daemon finalizes once the on-chain payment is settled.
 
