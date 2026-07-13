@@ -231,12 +231,15 @@ pub struct TxReceipt {
 /// `phase` is one of the following strings. Note which methods actually emit
 /// each phase today:
 ///
-///   - **upload** — `"encrypting"` then `"quoting"`, emitted by
-///     `prepare_file_upload_with_progress` while the file is encrypted and
-///     quoted, then `"storing"`, emitted by `finalize_upload_with_progress` as
-///     chunks land on the network. (The plain `prepare_file_upload` /
-///     `prepare_data_upload` and the in-memory `prepare_data_upload` path take
-///     no listener, so they surface no encrypt/quote progress.)
+///   - **upload** — `"encrypting"`, then `"quoting"`, then `"storing"` as the
+///     file is self-encrypted, quoted, and its chunks land on the network. On
+///     the wallet-backed path all three phases come from a single
+///     `file_upload_public_with_progress` / `file_upload_private_with_progress`
+///     call. On the external-signer path they are split across the two steps:
+///     `prepare_file_upload_with_progress` emits `"encrypting"`/`"quoting"` and
+///     `finalize_upload_with_progress` emits `"storing"`. (The plain
+///     `file_upload_*` / `prepare_*` methods take no listener, so they surface
+///     no progress.)
 ///   - **download** — `"resolving"` then `"downloading"`, emitted by the
 ///     `download_*_to_file` methods.
 ///
@@ -269,6 +272,10 @@ pub enum ClientError {
     NetworkError { reason: String },
     #[error("Payment error: {reason}")]
     PaymentError { reason: String },
+    #[error("Timeout: {reason}")]
+    Timeout { reason: String },
+    #[error("Insufficient disk space: {reason}")]
+    InsufficientDiskSpace { reason: String },
     #[error("Invalid input: {reason}")]
     InvalidInput { reason: String },
     #[error("Not found: {reason}")]
@@ -290,10 +297,13 @@ impl From<ant_core::data::Error> for ClientError {
             Error::InvalidData(msg) => ClientError::InvalidInput { reason: msg },
             Error::Payment(msg) => ClientError::PaymentError { reason: msg },
             Error::Network(msg) => ClientError::NetworkError { reason: msg },
-            Error::Timeout(msg) => ClientError::NetworkError {
-                reason: format!("timeout: {msg}"),
-            },
+            Error::Timeout(msg) => ClientError::Timeout { reason: msg },
+            Error::InsufficientDiskSpace(msg) => ClientError::InsufficientDiskSpace { reason: msg },
             Error::InsufficientPeers(msg) => ClientError::NetworkError { reason: msg },
+            // Note: ant-core has no dedicated NotFound or InsufficientFunds
+            // variant — a missing record surfaces as `Network(..)` and low
+            // balance as `Payment(..)`. Distinguishing those cleanly needs an
+            // upstream ant-client change (tracked on V2-599 / V2-601).
             other => ClientError::InternalError {
                 reason: other.to_string(),
             },
