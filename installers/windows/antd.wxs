@@ -106,6 +106,14 @@
     <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT"
               Value="antd has been installed to C:\Program Files\Autonomi\antd\ and will start automatically at each login with the cors flag enabled." />
 
+    <!-- WixUI_Minimal always shows a licence agreement. Without this variable WiX
+         substitutes its built-in default License.rtf, which is lorem ipsum
+         placeholder text — that is what v0.10.1-rc.3 and v0.11.1-rc.1 shipped,
+         and what users clicked "I accept" on. Resolved via the -bindpath passed
+         to wix build (same as antd-launch.vbs). Generated from the repo's
+         LICENSE-MIT + LICENSE-APACHE so the two can never drift. -->
+    <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
+
     <!-- Publish must live inside a UI element (not directly under Package). -->
     <UI>
       <ui:WixUI Id="WixUI_Minimal" />
