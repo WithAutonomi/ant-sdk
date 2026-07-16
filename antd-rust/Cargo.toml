@@ -3,7 +3,7 @@ name = "antd-client"
 version = "0.1.0"
 edition = "2021"
 description = "Rust REST client SDK for the antd daemon — the gateway to the Autonomi decentralized network"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/WithAutonomi/ant-sdk"
 
 [dependencies]

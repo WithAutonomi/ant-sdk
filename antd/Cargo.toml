@@ -2,6 +2,7 @@
 name = "antd"
 version = "0.11.1-rc.1"
 edition = "2021"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 ant-core = { git = "https://github.com/WithAutonomi/ant-client", tag = "ant-cli-v0.2.11" }  # ant-core 0.3.1 release; data_download shrunk-DataMap resolve + block_in_place panic fix + quinn-proto RUSTSEC-2026-0185 (was 0.3.0 / ant-cli-v0.2.10)
