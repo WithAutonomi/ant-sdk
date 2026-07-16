@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  WiX v5 source for the antd daemon MSI.
+
+  Installs antd.exe to C:\Program Files\Autonomi\antd\ (nested beside the GUI
+  under the shared Autonomi\ parent) and registers PER-USER login autostart via
+  an HKLM ...\CurrentVersion\Run value. An HKLM Run value runs for every user at
+  THEIR login, in THEIR session (so antd's daemon.port/config land in the user's
+  %APPDATA%\ant\sdk\) and never as SYSTEM (which a Windows Service would). The
+  Run value points at a hidden VBScript launcher so no console window appears.
+  The exit dialog offers to start antd immediately so the extension connects
+  without a reboot.
+
+  NB: deliberately a Run key, not a Windows Service (Service => LocalSystem =>
+  wrong profile) and not a Scheduled Task (schtasks /XML needs UTF-16 + awkward
+  quoting; the Run key is declarative and auto-removed on uninstall).
+
+  Build (see build-msi.ps1):
+    wix build -arch x64 -d ProductVersion=X.X.X.X -d ArtifactsDir=path\to\binaries `
+      -ext WixToolset.UI.wixext -o antd-windows-x64-setup.msi antd.wxs
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <Package Name="Autonomi antd"
+           Manufacturer="Autonomi"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="6f1d2e3c-9a4b-4c7d-8e2f-1a2b3c4d5e6f"
+           Scope="perMachine"
+           Language="1033"
+           Codepage="1252">
+
+    <SummaryInformation Description="Autonomi antd daemon - REST + gRPC gateway for the Autonomi network"
+                        Manufacturer="Autonomi" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Autonomi antd is already installed."
+                  Schedule="afterInstallInitialize" />
+
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- C:\Program Files\Autonomi\antd\ on x64 (package built with -arch x64). -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="AutonomiFolder" Name="Autonomi">
+        <Directory Id="INSTALLFOLDER" Name="antd" />
+      </Directory>
+    </StandardDirectory>
+
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+      <!-- The daemon. -->
+      <Component Id="AntdBinary" Guid="a7c1e2b3-4d5f-4a6b-8c9d-0e1f2a3b4c5d">
+        <File Id="AntdExe"
+              Name="antd.exe"
+              Source="$(var.ArtifactsDir)\antd.exe"
+              KeyPath="yes" />
+      </Component>
+
+      <!-- Hidden launcher: starts antd with no console window (Run "...", 0). -->
+      <Component Id="AntdLauncher" Guid="b8d2f3c4-5e6a-4b7c-9d0e-1f2a3b4c5d6e">
+        <File Id="AntdLaunchVbs"
+              Name="antd-launch.vbs"
+              Source="antd-launch.vbs"
+              KeyPath="yes" />
+      </Component>
+
+      <!-- Per-user login autostart: HKLM Run value launching antd (hidden) with
+           the cors flag. Removed automatically on uninstall with the component. -->
+      <Component Id="AutostartRunKey" Guid="c9e3a4d5-6f7b-4c8d-0e1f-2a3b4c5d6e7f">
+        <RegistryValue Root="HKLM"
+                       Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                       Name="Autonomi antd"
+                       Type="string"
+                       Value="&quot;C:\Windows\System32\wscript.exe&quot; &quot;C:\Program Files\Autonomi\antd\antd-launch.vbs&quot;"
+                       KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <Feature Id="ProductFeature"
+             Title="Autonomi antd"
+             Description="Install the antd daemon and register per-user autostart"
+             Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+    </Feature>
+
+    <!-- Stop a running instance on uninstall (deferred SYSTEM; ignore if none). -->
+    <CustomAction Id="StopAntd"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;C:\Windows\System32\taskkill.exe&quot; /F /IM antd.exe /T"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="StopAntd" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot;" />
+    </InstallExecuteSequence>
+
+    <!-- Launch-on-finish: start antd now (hidden) in the user's context. -->
+    <CustomAction Id="LaunchAntd"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;C:\Windows\System32\wscript.exe&quot; &quot;C:\Program Files\Autonomi\antd\antd-launch.vbs&quot;"
+                  Execute="immediate"
+                  Impersonate="yes"
+                  Return="asyncNoWait" />
+
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Start antd now" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT"
+              Value="antd has been installed to C:\Program Files\Autonomi\antd\ and will start automatically at each login with the cors flag enabled." />
+
+    <!-- Publish must live inside a UI element (not directly under Package). -->
+    <UI>
+      <ui:WixUI Id="WixUI_Minimal" />
+      <Publish Dialog="ExitDialog"
+               Control="Finish"
+               Event="DoAction"
+               Value="LaunchAntd"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed" />
+    </UI>
+
+  </Package>
+</Wix>

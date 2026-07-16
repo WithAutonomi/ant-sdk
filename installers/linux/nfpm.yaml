@@ -1,0 +1,36 @@
+# nfpm config for the antd Linux packages (.deb and .rpm from one source).
+# https://nfpm.goreleaser.com/configuration/
+#
+# Rendered by build-deb-rpm.sh, which exports the ${...} values (sourced from
+# ../common/metadata.env plus the resolved version and binary path) and invokes
+# `nfpm package` once per packager. A single nfpm `arch: amd64` maps to deb
+# `amd64` and rpm `x86_64` automatically.
+
+name: antd
+arch: amd64
+platform: linux
+version: ${ANTD_VERSION}
+section: net
+priority: optional
+maintainer: ${ANTD_MAINTAINER}
+description: ${ANTD_DESCRIPTION}
+vendor: ${ANTD_VENDOR}
+homepage: ${ANTD_HOMEPAGE}
+license: ${ANTD_LICENSE}
+
+contents:
+  # The daemon binary. /usr/bin/antd matches the extension's "find & run" help.
+  - src: ${ANTD_BIN_SRC}
+    dst: /usr/bin/antd
+    file_info:
+      mode: 0755
+  # Per-user systemd unit (loaded by each user's `systemctl --user` manager).
+  - src: ./systemd/antd.service
+    dst: /usr/lib/systemd/user/antd.service
+    file_info:
+      mode: 0644
+
+scripts:
+  postinstall: ./scripts/postinstall.sh
+  preremove: ./scripts/preremove.sh
+  postremove: ./scripts/postremove.sh
