@@ -300,10 +300,20 @@ impl From<ant_core::data::Error> for ClientError {
             Error::Timeout(msg) => ClientError::Timeout { reason: msg },
             Error::InsufficientDiskSpace(msg) => ClientError::InsufficientDiskSpace { reason: msg },
             Error::InsufficientPeers(msg) => ClientError::NetworkError { reason: msg },
-            // Note: ant-core has no dedicated NotFound or InsufficientFunds
-            // variant — a missing record surfaces as `Network(..)` and low
-            // balance as `Payment(..)`. Distinguishing those cleanly needs an
-            // upstream ant-client change (tracked on V2-599 / V2-601).
+            // A full disk during a download comes back as `Io` (core writes
+            // the destination file); surface it as disk-space rather than a
+            // generic internal error. Other `Io` kinds fall through below.
+            Error::Io(e) if e.kind() == std::io::ErrorKind::StorageFull => {
+                ClientError::InsufficientDiskSpace {
+                    reason: format!("local disk full: {e}"),
+                }
+            }
+            // Note: at the pinned ant-core (0.3.1) a missing record surfaces
+            // as `InvalidData(..)` -> `InvalidInput` above, so this mapping
+            // never produces `NotFound`. Upstream ant-client#153 (merged
+            // 2026-07-20) adds a core `NotFound` variant; its arm lands with
+            // the 0.4.x pin bump (V2-650 / V2-686). Low balance still
+            // surfaces as `Payment(..)` pending an upstream variant (V2-601).
             other => ClientError::InternalError {
                 reason: other.to_string(),
             },
@@ -318,4 +328,32 @@ pub enum WalletError {
     CreationFailed { reason: String },
     #[error("Operation failed: {reason}")]
     OperationFailed { reason: String },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn core_io_storage_full_maps_to_insufficient_disk_space() {
+        let io = std::io::Error::new(std::io::ErrorKind::StorageFull, "No space left on device");
+        let err: ClientError = ant_core::data::Error::Io(io).into();
+        assert!(matches!(
+            err,
+            ClientError::InsufficientDiskSpace { reason } if reason.contains("No space left")
+        ));
+    }
+
+    #[test]
+    fn core_io_other_kinds_stay_internal() {
+        let io = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied");
+        let err: ClientError = ant_core::data::Error::Io(io).into();
+        assert!(matches!(err, ClientError::InternalError { .. }));
+    }
+
+    #[test]
+    fn core_timeout_maps_to_timeout_variant() {
+        let err: ClientError = ant_core::data::Error::Timeout("slow".into()).into();
+        assert!(matches!(err, ClientError::Timeout { reason } if reason == "slow"));
+    }
 }
