@@ -9,6 +9,14 @@ pub use wallet::Wallet;
 
 uniffi::setup_scaffolding!();
 
+/// The AntFfi SDK version, e.g. `"0.0.8"` — matches the released SDK version
+/// (the ant-swift tag / ant-android maven version) from 0.0.8 onward. Bump
+/// the crate version in `Cargo.toml` as part of every release cut.
+#[uniffi::export]
+pub fn ant_ffi_version() -> String {
+    env!("CARGO_PKG_VERSION").into()
+}
+
 // ===== Result types =====
 
 /// Result of storing a chunk on the network.
@@ -292,6 +300,19 @@ pub enum ClientError {
     Timeout { reason: String },
     #[error("Insufficient disk space: {reason}")]
     InsufficientDiskSpace { reason: String },
+    /// The upload stopped partway: some chunks stored and some on-chain spend
+    /// already occurred. Money has been spent — show `storage_cost_atto` /
+    /// `gas_cost_wei` to the user rather than a generic failure, and retry the
+    /// upload (chunks already on the network are skipped, not re-paid).
+    #[error("Partial upload: {reason} ({chunks_stored}/{total_chunks} chunks stored)")]
+    PartialUpload {
+        chunks_stored: u64,
+        chunks_failed: u64,
+        total_chunks: u64,
+        storage_cost_atto: String,
+        gas_cost_wei: String,
+        reason: String,
+    },
     #[error("Invalid input: {reason}")]
     InvalidInput { reason: String },
     #[error("Not found: {reason}")]
@@ -324,6 +345,24 @@ impl From<ant_core::data::Error> for ClientError {
                     reason: format!("local disk full: {e}"),
                 }
             }
+            // Keep the money-visible summary (counts + on-chain spend) as
+            // structured fields; the per-chunk address lists are dropped —
+            // resume-from-partial needs upstream retryable finalize (V2-571).
+            Error::PartialUpload {
+                stored_count,
+                failed_count,
+                total_chunks,
+                spend,
+                reason,
+                ..
+            } => ClientError::PartialUpload {
+                chunks_stored: stored_count as u64,
+                chunks_failed: failed_count as u64,
+                total_chunks: total_chunks as u64,
+                storage_cost_atto: spend.storage_cost_atto,
+                gas_cost_wei: spend.gas_cost_wei.to_string(),
+                reason,
+            },
             // Note: at the pinned ant-core (0.3.1) a missing record surfaces
             // as `InvalidData(..)` -> `InvalidInput` above, so this mapping
             // never produces `NotFound`. Upstream ant-client#153 (merged
@@ -371,5 +410,44 @@ mod tests {
     fn core_timeout_maps_to_timeout_variant() {
         let err: ClientError = ant_core::data::Error::Timeout("slow".into()).into();
         assert!(matches!(err, ClientError::Timeout { reason } if reason == "slow"));
+    }
+
+    #[test]
+    fn core_partial_upload_maps_to_structured_variant() {
+        let err: ClientError = ant_core::data::Error::PartialUpload {
+            stored: vec![[1u8; 32]],
+            stored_count: 1,
+            failed: vec![([2u8; 32], "store failed".into())],
+            failed_count: 1,
+            total_chunks: 2,
+            spend: Box::new(ant_core::data::error::PartialUploadSpend {
+                storage_cost_atto: "123".into(),
+                gas_cost_wei: 456,
+            }),
+            reason: "node went away".into(),
+        }
+        .into();
+        match err {
+            ClientError::PartialUpload {
+                chunks_stored,
+                chunks_failed,
+                total_chunks,
+                storage_cost_atto,
+                gas_cost_wei,
+                reason,
+            } => {
+                assert_eq!((chunks_stored, chunks_failed, total_chunks), (1, 1, 2));
+                assert_eq!(storage_cost_atto, "123");
+                assert_eq!(gas_cost_wei, "456");
+                assert_eq!(reason, "node went away");
+            }
+            other => panic!("expected PartialUpload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ant_ffi_version_is_semverish() {
+        let v = ant_ffi_version();
+        assert_eq!(v.split('.').count(), 3, "want x.y.z, got {v}");
     }
 }
