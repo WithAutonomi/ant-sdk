@@ -10,8 +10,8 @@ repositories {
 }
 
 dependencies {
-    // JNA for UniFFI native bindings
-    implementation("net.java.dev.jna:jna:5.14.0")
+    // JNA for UniFFI native bindings (kept in lockstep with ffi/android)
+    implementation("net.java.dev.jna:jna:5.17.0")
 
     // Kotlin coroutines (for async UniFFI bindings)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")

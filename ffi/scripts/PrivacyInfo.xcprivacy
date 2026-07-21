@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Privacy manifest embedded into every AntFfi.xcframework slice by
+  build-swift.sh. Required because the Rust binary links required-reason
+  APIs (nm shows stat/fstat + statvfs) - without this, App Store uploads of
+  consumer apps are rejected with ITMS-91053.
+
+  Declared categories, matched to what the SDK actually does:
+  - FileTimestamp (C617.1): stat/fstat on files inside the app container
+    (upload sources, self-encryption spill files, bootstrap cache).
+  - DiskSpace (85F4.1): statvfs to check sufficient disk space before the
+    self-encryption spill (the InsufficientDiskSpace pre-flight).
+
+  The SDK collects no data and does no tracking.
+-->
+<plist version="1.0">
+<dict>
+    <key>NSPrivacyTracking</key>
+    <false/>
+    <key>NSPrivacyTrackingDomains</key>
+    <array/>
+    <key>NSPrivacyCollectedDataTypes</key>
+    <array/>
+    <key>NSPrivacyAccessedAPITypes</key>
+    <array>
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <string>C617.1</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategoryDiskSpace</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <string>85F4.1</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>
