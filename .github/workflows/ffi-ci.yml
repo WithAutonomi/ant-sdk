@@ -12,11 +12,17 @@ on:
     # `paths` OR `paths-ignore`, not both, so the negation lives inside `paths`.
     paths:
       - "ffi/rust/**"
+      - "ffi/scripts/**"
+      - "ffi/android/**"
+      - "ffi/kotlin/**"
       - ".github/workflows/ffi-ci.yml"
       - "!**/*.md"
   pull_request:
     paths:
       - "ffi/rust/**"
+      - "ffi/scripts/**"
+      - "ffi/android/**"
+      - "ffi/kotlin/**"
       - ".github/workflows/ffi-ci.yml"
       - "!**/*.md"
 
@@ -111,3 +117,72 @@ jobs:
       - name: Audit ant-ffi dependencies
         working-directory: ffi/rust
         run: cargo audit
+
+  # Cheap Linux-safe checks for the packaging paths (build scripts, the
+  # Android/Kotlin gradle projects, the privacy manifest, the vendored
+  # bootstrap-peer list). These paths previously triggered NO workflow at all,
+  # so packaging PRs shipped with zero automated signal. Full artifact proof
+  # (xcframework contents, AAR alignment) still happens at the release build;
+  # compile/AAR/R8 coverage is tracked separately (V2-651).
+  packaging:
+    name: Packaging checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell syntax (bash -n) on build scripts
+        run: |
+          set -euo pipefail
+          for f in ffi/scripts/*.sh; do bash -n "$f" && echo "parses: $f"; done
+
+      - name: Privacy-manifest plist syntax
+        run: |
+          set -euo pipefail
+          found=0
+          for f in ffi/scripts/*.xcprivacy; do
+            [ -e "$f" ] || continue
+            python3 -c 'import plistlib,sys; plistlib.load(open(sys.argv[1],"rb"))' "$f"
+            echo "plist OK: $f"
+            found=1
+          done
+          [ "$found" = 1 ] || echo "no .xcprivacy files yet (lands with the privacy-manifest PR)"
+
+      # The vendored copy compiled into connect_default* must match the pinned
+      # ant-client tag's resources/bootstrap_peers.toml — this makes forgetting
+      # the re-copy at a pin bump a CI failure instead of stale bootstrap
+      # shipping to production apps. (V2-698)
+      - name: Vendored bootstrap peers match the pinned ant-client tag
+        run: |
+          set -euo pipefail
+          vendored="ffi/rust/ant-ffi/resources/bootstrap_peers.toml"
+          if [ ! -f "$vendored" ]; then
+            echo "no vendored peers file yet (lands with the connect_default PR)"; exit 0
+          fi
+          tag="$(sed -n 's/.*tag = "\(ant-cli-v[^"]*\)".*/\1/p' ffi/rust/ant-ffi/Cargo.toml | head -1)"
+          test -n "$tag" || { echo "could not read the ant-client tag from Cargo.toml" >&2; exit 1; }
+          curl -fsSL "https://raw.githubusercontent.com/WithAutonomi/ant-client/$tag/resources/bootstrap_peers.toml" \
+            -o /tmp/upstream_peers.toml
+          diff -u /tmp/upstream_peers.toml "$vendored"
+          echo "vendored peers match $tag"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      # Configuration + dependency resolution only (no .so files needed):
+      # proves the AAR's declared deps (JNA, coroutines) actually resolve on
+      # Maven Central at the pinned versions.
+      - name: Android dependency-resolution smoke
+        working-directory: ffi/android
+        run: |
+          set -euo pipefail
+          gradle --no-daemon --console=plain dependencies \
+            --configuration releaseRuntimeClasspath > /tmp/deps.txt
+          grep -E "net\.java\.dev\.jna:jna" /tmp/deps.txt \
+            || { echo "JNA did not resolve" >&2; cat /tmp/deps.txt; exit 1; }
+          echo "resolved:"; grep -E "net\.java\.dev\.jna:jna|kotlinx-coroutines-core" /tmp/deps.txt | sort -u | head -5
