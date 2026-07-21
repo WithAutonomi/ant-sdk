@@ -192,7 +192,7 @@ pub async fn wait_for_receipt(
         }
 
         if start.elapsed().as_secs() >= timeout_secs {
-            return Err(ClientError::NetworkError {
+            return Err(ClientError::Timeout {
                 reason: format!("timed out waiting for receipt of {tx_hash} after {timeout_secs}s"),
             });
         }

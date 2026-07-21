@@ -231,12 +231,15 @@ pub struct TxReceipt {
 /// `phase` is one of the following strings. Note which methods actually emit
 /// each phase today:
 ///
-///   - **upload** — `"encrypting"` then `"quoting"`, emitted by
-///     `prepare_file_upload_with_progress` while the file is encrypted and
-///     quoted, then `"storing"`, emitted by `finalize_upload_with_progress` as
-///     chunks land on the network. (The plain `prepare_file_upload` /
-///     `prepare_data_upload` and the in-memory `prepare_data_upload` path take
-///     no listener, so they surface no encrypt/quote progress.)
+///   - **upload** — `"encrypting"`, then `"quoting"`, then `"storing"` as the
+///     file is self-encrypted, quoted, and its chunks land on the network. On
+///     the wallet-backed path all three phases come from a single
+///     `file_upload_public_with_progress` / `file_upload_private_with_progress`
+///     call. On the external-signer path they are split across the two steps:
+///     `prepare_file_upload_with_progress` emits `"encrypting"`/`"quoting"` and
+///     `finalize_upload_with_progress` emits `"storing"`. (The plain
+///     `file_upload_*` / `prepare_*` methods take no listener, so they surface
+///     no progress.)
 ///   - **download** — `"resolving"` then `"downloading"`, emitted by the
 ///     `download_*_to_file` methods.
 ///
@@ -269,6 +272,10 @@ pub enum ClientError {
     NetworkError { reason: String },
     #[error("Payment error: {reason}")]
     PaymentError { reason: String },
+    #[error("Timeout: {reason}")]
+    Timeout { reason: String },
+    #[error("Insufficient disk space: {reason}")]
+    InsufficientDiskSpace { reason: String },
     #[error("Invalid input: {reason}")]
     InvalidInput { reason: String },
     #[error("Not found: {reason}")]
@@ -290,10 +297,23 @@ impl From<ant_core::data::Error> for ClientError {
             Error::InvalidData(msg) => ClientError::InvalidInput { reason: msg },
             Error::Payment(msg) => ClientError::PaymentError { reason: msg },
             Error::Network(msg) => ClientError::NetworkError { reason: msg },
-            Error::Timeout(msg) => ClientError::NetworkError {
-                reason: format!("timeout: {msg}"),
-            },
+            Error::Timeout(msg) => ClientError::Timeout { reason: msg },
+            Error::InsufficientDiskSpace(msg) => ClientError::InsufficientDiskSpace { reason: msg },
             Error::InsufficientPeers(msg) => ClientError::NetworkError { reason: msg },
+            // A full disk during a download comes back as `Io` (core writes
+            // the destination file); surface it as disk-space rather than a
+            // generic internal error. Other `Io` kinds fall through below.
+            Error::Io(e) if e.kind() == std::io::ErrorKind::StorageFull => {
+                ClientError::InsufficientDiskSpace {
+                    reason: format!("local disk full: {e}"),
+                }
+            }
+            // Note: at the pinned ant-core (0.3.1) a missing record surfaces
+            // as `InvalidData(..)` -> `InvalidInput` above, so this mapping
+            // never produces `NotFound`. Upstream ant-client#153 (merged
+            // 2026-07-20) adds a core `NotFound` variant; its arm lands with
+            // the 0.4.x pin bump (V2-650 / V2-686). Low balance still
+            // surfaces as `Payment(..)` pending an upstream variant (V2-601).
             other => ClientError::InternalError {
                 reason: other.to_string(),
             },
@@ -308,4 +328,32 @@ pub enum WalletError {
     CreationFailed { reason: String },
     #[error("Operation failed: {reason}")]
     OperationFailed { reason: String },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn core_io_storage_full_maps_to_insufficient_disk_space() {
+        let io = std::io::Error::new(std::io::ErrorKind::StorageFull, "No space left on device");
+        let err: ClientError = ant_core::data::Error::Io(io).into();
+        assert!(matches!(
+            err,
+            ClientError::InsufficientDiskSpace { reason } if reason.contains("No space left")
+        ));
+    }
+
+    #[test]
+    fn core_io_other_kinds_stay_internal() {
+        let io = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied");
+        let err: ClientError = ant_core::data::Error::Io(io).into();
+        assert!(matches!(err, ClientError::InternalError { .. }));
+    }
+
+    #[test]
+    fn core_timeout_maps_to_timeout_variant() {
+        let err: ClientError = ant_core::data::Error::Timeout("slow".into()).into();
+        assert!(matches!(err, ClientError::Timeout { reason } if reason == "slow"));
+    }
 }

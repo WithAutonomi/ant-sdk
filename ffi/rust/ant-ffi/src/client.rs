@@ -615,6 +615,41 @@ impl Client {
         })
     }
 
+    /// Same as [`Self::file_upload_public`] but reports live progress to
+    /// `listener`: the `"encrypting"`, `"quoting"` and `"storing"` upload phases
+    /// as the file is self-encrypted, quoted and its chunks land on the network.
+    /// Use this on the wallet-backed (built-in payment) path to drive a progress
+    /// bar; the external-signer path uses the `prepare`/`finalize_*_with_progress`
+    /// pair instead.
+    pub async fn file_upload_public_with_progress(
+        &self,
+        path: String,
+        payment_mode: String,
+        listener: Box<dyn ProgressListener>,
+    ) -> Result<FilePutPublicResult, ClientError> {
+        let mode = parse_payment_mode(&payment_mode)
+            .map_err(|e| ClientError::InvalidInput { reason: e })?;
+        let file_path = PathBuf::from(&path);
+
+        let (sender, handle) = upload_progress_bridge(listener);
+        let result = self
+            .inner
+            .file_upload_with_progress(&file_path, mode, Some(sender))
+            .await;
+        // Drop of `sender` inside the call ends the bridge; await it to flush
+        // any queued progress events before returning either way.
+        let _ = handle.await;
+        let result = result?;
+
+        // The data-map chunk is small and stored separately (no progress),
+        // matching `file_upload_public`.
+        let address = self.inner.data_map_store(&result.data_map).await?;
+
+        Ok(FilePutPublicResult {
+            address: hex::encode(address),
+        })
+    }
+
     /// Upload a file from disk privately. Returns the serialized data map (hex)
     /// rather than publishing it — the caller must keep it to retrieve the file
     /// later via `dataGetPrivate`. This is the private counterpart of
@@ -629,6 +664,37 @@ impl Client {
         let file_path = PathBuf::from(&path);
 
         let result = self.inner.file_upload_with_mode(&file_path, mode).await?;
+
+        let data_map_bytes =
+            rmp_serde::to_vec(&result.data_map).map_err(|e| ClientError::InternalError {
+                reason: format!("failed to serialize data map: {e}"),
+            })?;
+
+        Ok(FilePutPrivateResult {
+            data_map: hex::encode(data_map_bytes),
+        })
+    }
+
+    /// Same as [`Self::file_upload_private`] but reports live progress to
+    /// `listener` (the `"encrypting"`, `"quoting"` and `"storing"` upload
+    /// phases). See [`Self::file_upload_public_with_progress`].
+    pub async fn file_upload_private_with_progress(
+        &self,
+        path: String,
+        payment_mode: String,
+        listener: Box<dyn ProgressListener>,
+    ) -> Result<FilePutPrivateResult, ClientError> {
+        let mode = parse_payment_mode(&payment_mode)
+            .map_err(|e| ClientError::InvalidInput { reason: e })?;
+        let file_path = PathBuf::from(&path);
+
+        let (sender, handle) = upload_progress_bridge(listener);
+        let result = self
+            .inner
+            .file_upload_with_progress(&file_path, mode, Some(sender))
+            .await;
+        let _ = handle.await;
+        let result = result?;
 
         let data_map_bytes =
             rmp_serde::to_vec(&result.data_map).map_err(|e| ClientError::InternalError {
@@ -732,12 +798,11 @@ impl Client {
         let address = hex_to_address(&address_hex)?;
         let data_map = self.inner.data_map_fetch(&address).await?;
         let dest = PathBuf::from(&dest_path);
-        self.inner
-            .file_download(&data_map, &dest)
-            .await
-            .map_err(|e| ClientError::NetworkError {
-                reason: e.to_string(),
-            })?;
+        // Propagate the real error via the `From<ant_core::data::Error>` mapping
+        // instead of flattening everything into `NetworkError` — a timeout or an
+        // out-of-disk-space failure now surfaces as its own `ClientError`
+        // variant rather than a misleading "network error".
+        self.inner.file_download(&data_map, &dest).await?;
         Ok(())
     }
 
