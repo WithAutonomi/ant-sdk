@@ -75,7 +75,9 @@ dependencies {
     // The `:android-aarch64` etc. variants aren't needed because we ship
     // the JNI libs directly via `jniLibs.srcDirs` above; consumers only
     // need the JVM-side JNA jar.
-    api("net.java.dev.jna:jna:5.14.0@aar")
+    // >= 5.15 required: 5.14's x86_64 libjnidispatch.so is 4KB-aligned and
+    // crashes on 16KB-page devices/emulators (Play compliance).
+    api("net.java.dev.jna:jna:5.17.0@aar")
     // Required for the `suspend fn` wrappers uniffi generates for async Rust.
     api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
 }

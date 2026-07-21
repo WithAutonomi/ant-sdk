@@ -27,6 +27,11 @@ RUST_DIR="$FFI_DIR/rust"
 BUILD_DIR="$FFI_DIR/build"
 XCF_DIR="$BUILD_DIR/AntFfi.xcframework"
 
+# Framework version string comes from the crate version (which tracks the
+# released SDK version) instead of a hardcoded value drifting out of date.
+ANT_FFI_VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$RUST_DIR/ant-ffi/Cargo.toml" | head -1)"
+[ -n "$ANT_FFI_VERSION" ] || { echo "failed to read version from ant-ffi/Cargo.toml" >&2; exit 1; }
+
 # Deployment targets — must match Package.swift's .iOS(.v16) / .macOS(.v13)
 # declarations in ant-swift. Setting these silences "built for newer X version"
 # warnings at consumer link time. iOS<13 also fails to link due to missing
@@ -108,7 +113,7 @@ write_plist() {
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleName</key><string>$FW_NAME</string>
   <key>CFBundlePackageType</key><string>FMWK</string>
-  <key>CFBundleShortVersionString</key><string>0.2.0</string>
+  <key>CFBundleShortVersionString</key><string>$ANT_FFI_VERSION</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>$minkey</key><string>$minver</string>
 </dict></plist>
@@ -129,6 +134,9 @@ prepare_framework() {
         cp "$GEN_DIR/$FW_NAME.h" "$V/Headers/"
         write_modulemap "$V/Modules/module.modulemap"
         write_plist "$V/Resources/Info.plist" "$platform"
+        # Required-reason-API privacy manifest (ITMS-91053); macOS bundles
+        # keep resources under Versions/A/Resources.
+        cp "$SCRIPT_DIR/PrivacyInfo.xcprivacy" "$V/Resources/PrivacyInfo.xcprivacy"
         ln -s "A" "$fw/Versions/Current"
         ln -s "Versions/Current/$FW_NAME" "$fw/$FW_NAME"
         ln -s "Versions/Current/Headers" "$fw/Headers"
@@ -142,6 +150,9 @@ prepare_framework() {
         cp "$GEN_DIR/$FW_NAME.h" "$fw/Headers/"
         write_modulemap "$fw/Modules/module.modulemap"
         write_plist "$fw/Info.plist" "$platform"
+        # Required-reason-API privacy manifest (ITMS-91053); flat frameworks
+        # carry it at the bundle root.
+        cp "$SCRIPT_DIR/PrivacyInfo.xcprivacy" "$fw/PrivacyInfo.xcprivacy"
     fi
 }
 
