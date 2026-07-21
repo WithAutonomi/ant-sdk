@@ -17,6 +17,68 @@ pub fn ant_ffi_version() -> String {
     env!("CARGO_PKG_VERSION").into()
 }
 
+// ===== Typed enums (0.0.8: replace the old stringly params/fields) =====
+
+/// How an upload is paid for.
+#[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PaymentMode {
+    /// Let the SDK pick: merkle batching for large uploads, single otherwise.
+    Auto,
+    /// Merkle-batched payment — one on-chain payment covering many chunks.
+    Merkle,
+    /// Per-quote wave payment.
+    Single,
+}
+
+/// Whether an upload is publicly retrievable by address, or private (the data
+/// map is returned to the caller only).
+#[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Visibility {
+    Public,
+    Private,
+}
+
+/// Which phase a [`ProgressUpdate`] belongs to.
+#[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProgressPhase {
+    Encrypting,
+    Quoting,
+    Storing,
+    Resolving,
+    Downloading,
+}
+
+/// Payment shape of a prepared external-signer upload — selects which
+/// finalize call to use (see [`PreparedUploadInfo`]).
+#[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PaymentType {
+    WaveBatch,
+    Merkle,
+}
+
+/// What a [`TxRequest`] is for.
+#[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TxKind {
+    /// ERC-20 allowance approval (sent to the token contract).
+    Approve,
+    /// The vault payment call.
+    Pay,
+}
+
+/// How much to trust a [`CostEstimate`]'s `storage_cost_atto`.
+#[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CostConfidence {
+    /// Extrapolated from at least one live quote (the normal case).
+    PricedSample,
+    /// Every chunk was sampled and already stored; cost is exactly `"0"`
+    /// (genuinely free).
+    VerifiedAllAlreadyStored,
+    /// Every *sampled* chunk was already stored but the tail was unsampled;
+    /// `"0"` is a best-effort guess the real upload reconciles at payment
+    /// time. Render as "likely already stored", not guaranteed-free.
+    AllSamplesAlreadyStoredIncomplete,
+}
+
 // ===== Result types =====
 
 /// Result of storing a chunk on the network.
@@ -33,8 +95,8 @@ pub struct DataPutPublicResult {
     pub address: String,
     /// Number of chunks stored.
     pub chunks_stored: u64,
-    /// Payment mode that was used: "auto", "merkle", or "single".
-    pub payment_mode_used: String,
+    /// Payment mode that was used.
+    pub payment_mode_used: PaymentMode,
 }
 
 /// Result of a private data upload (data map returned to caller).
@@ -45,7 +107,7 @@ pub struct DataPutPrivateResult {
     /// Number of chunks stored.
     pub chunks_stored: u64,
     /// Payment mode that was used.
-    pub payment_mode_used: String,
+    pub payment_mode_used: PaymentMode,
 }
 
 /// Result of uploading a file (public).
@@ -59,8 +121,8 @@ pub struct FilePutPublicResult {
     pub storage_cost_atto: String,
     /// Total gas cost in wei (base-10).
     pub gas_cost_wei: String,
-    /// Payment mode that was used: "auto", "merkle", or "single".
-    pub payment_mode_used: String,
+    /// Payment mode that was used.
+    pub payment_mode_used: PaymentMode,
 }
 
 /// Result of uploading a file (private). The data map is returned to the
@@ -76,8 +138,8 @@ pub struct FilePutPrivateResult {
     pub storage_cost_atto: String,
     /// Total gas cost in wei (base-10).
     pub gas_cost_wei: String,
-    /// Payment mode that was used: "auto", "merkle", or "single".
-    pub payment_mode_used: String,
+    /// Payment mode that was used.
+    pub payment_mode_used: PaymentMode,
 }
 
 /// Estimated cost of uploading a file, produced *before* any payment by
@@ -96,17 +158,11 @@ pub struct CostEstimate {
     /// Rough estimated gas cost in wei (base-10 string). A heuristic based on
     /// chunk count and payment mode, NOT a live gas-price query.
     pub estimated_gas_cost_wei: String,
-    /// Payment mode that would be used: "auto", "merkle", or "single".
-    pub payment_mode: String,
-    /// How much to trust `storage_cost_atto`:
-    /// - `"priced_sample"` — extrapolated from at least one live quote (normal case).
-    /// - `"verified_all_already_stored"` — every chunk was sampled and already
-    ///   stored; cost is exactly `"0"` (genuinely free).
-    /// - `"all_samples_already_stored_incomplete"` — every *sampled* chunk was
-    ///   already stored but the tail was unsampled; `"0"` is a best-effort guess
-    ///   the real upload reconciles at payment time. Render as "likely already
-    ///   stored", not guaranteed-free.
-    pub confidence: String,
+    /// Payment mode that would be used.
+    pub payment_mode: PaymentMode,
+    /// How much to trust `storage_cost_atto` — see [`CostConfidence`]'s
+    /// per-variant docs before treating a `"0"` cost as free.
+    pub confidence: CostConfidence,
 }
 
 // ===== External-signer (WalletConnect) upload types =====
@@ -148,21 +204,22 @@ pub struct CandidateNodeEntry {
 ///
 /// `payment_type` selects which fields are meaningful and which finalize call
 /// to use:
-///   - `"wave_batch"` — use `payments` to build ERC-20 `approve` + `payForQuotes`,
-///     then call `finalize_upload(upload_id, {quote_hash: tx_hash})`. The merkle
-///     fields (`depth`/`pool_commitments`/`merkle_payment_timestamp`) are empty/0.
-///   - `"merkle"` — use `depth` + `pool_commitments` + `merkle_payment_timestamp`
-///     to build the `payForMerkleTree` call, then call
-///     `finalize_upload_merkle(upload_id, winner_pool_hash)` with the hash from
-///     the `MerklePaymentMade` event. `payments` is empty and `total_amount` is
-///     `"0"` (the settled cost isn't known until the winner pool is chosen
-///     on-chain).
+///   - [`PaymentType::WaveBatch`] — use `payments` to build ERC-20 `approve` +
+///     `payForQuotes`, then call `finalize_upload(upload_id, {quote_hash:
+///     tx_hash})`. The merkle fields
+///     (`depth`/`pool_commitments`/`merkle_payment_timestamp`) are empty/0.
+///   - [`PaymentType::Merkle`] — use `depth` + `pool_commitments` +
+///     `merkle_payment_timestamp` to build the `payForMerkleTree` call, then
+///     call `finalize_upload_merkle(upload_id, winner_pool_hash)` with the
+///     hash from the `MerklePaymentMade` event. `payments` is empty and
+///     `total_amount` is `"0"` (the settled cost isn't known until the winner
+///     pool is chosen on-chain).
 #[derive(uniffi::Record)]
 pub struct PreparedUploadInfo {
     /// Opaque handle for this prepared upload; pass to the matching finalize call.
     pub upload_id: String,
-    /// Payment shape: `"wave_batch"` or `"merkle"`.
-    pub payment_type: String,
+    /// Payment shape — selects the finalize call (see the struct docs).
+    pub payment_type: PaymentType,
     /// Wave-batch only: per-quote payments to settle on-chain. Empty for merkle
     /// or if everything was already stored.
     pub payments: Vec<PaymentEntry>,
@@ -226,11 +283,12 @@ pub struct TxRequest {
     pub to: String,
     /// 0x-prefixed ABI-encoded calldata for the transaction's `data` field.
     pub data: String,
-    /// `"approve"` (ERC-20 allowance) or `"pay"` (the vault payment call).
-    pub kind: String,
-    /// Wave-batch `"pay"` only: the 0x-prefixed quote hashes this payment
-    /// settles. After signing, map each of these to the resulting tx hash to
-    /// build the `finalize_upload` map. Empty for `approve` and for merkle.
+    /// What this transaction is for (allowance approval vs the payment call).
+    pub kind: TxKind,
+    /// Wave-batch [`TxKind::Pay`] only: the 0x-prefixed quote hashes this
+    /// payment settles. After signing, map each of these to the resulting tx
+    /// hash to build the `finalize_upload` map. Empty for approvals and for
+    /// merkle.
     pub quote_hashes: Vec<String>,
 }
 
@@ -252,26 +310,28 @@ pub struct TxReceipt {
 /// A progress update for a long-running upload or download, delivered to a
 /// [`ProgressListener`].
 ///
-/// `phase` is one of the following strings. Note which methods actually emit
-/// each phase today:
+/// Note which methods actually emit each [`ProgressPhase`] today:
 ///
-///   - **upload** — `"encrypting"`, then `"quoting"`, then `"storing"` as the
-///     file is self-encrypted, quoted, and its chunks land on the network. On
-///     the wallet-backed path all three phases come from a single
+///   - **upload** — `Encrypting`, then `Quoting`, then `Storing` as the file
+///     is self-encrypted, quoted, and its chunks land on the network. On the
+///     wallet-backed path all three phases come from a single
 ///     `file_upload_public_with_progress` / `file_upload_private_with_progress`
 ///     call. On the external-signer path they are split across the two steps:
-///     `prepare_file_upload_with_progress` emits `"encrypting"`/`"quoting"` and
-///     `finalize_upload_with_progress` emits `"storing"`. (The plain
+///     `prepare_file_upload_with_progress` emits `Encrypting`/`Quoting` and
+///     `finalize_upload_with_progress` emits `Storing`. (The plain
 ///     `file_upload_*` / `prepare_*` methods take no listener, so they surface
 ///     no progress.)
-///   - **download** — `"resolving"` then `"downloading"`, emitted by the
+///   - **download** — `Resolving` then `Downloading`, emitted by the
 ///     `download_*_to_file` methods.
+///   - **estimate** — `estimate_file_cost_with_progress` emits `Encrypting`
+///     only (estimating self-encrypts the whole file; nothing is quoted or
+///     stored).
 ///
 /// `total` is 0 when the total isn't known yet (show an indeterminate bar);
 /// otherwise `done / total` is a 0..1 fraction of the current phase.
 #[derive(uniffi::Record)]
 pub struct ProgressUpdate {
-    pub phase: String,
+    pub phase: ProgressPhase,
     pub done: u64,
     pub total: u64,
 }
@@ -304,6 +364,8 @@ pub enum ClientError {
     /// already occurred. Money has been spent — show `storage_cost_atto` /
     /// `gas_cost_wei` to the user rather than a generic failure, and retry the
     /// upload (chunks already on the network are skipped, not re-paid).
+    /// Per-chunk address lists are not exposed — resume-from-partial needs
+    /// upstream retryable finalize (tracked as V2-571).
     #[error("Partial upload: {reason} ({chunks_stored}/{total_chunks} chunks stored)")]
     PartialUpload {
         chunks_stored: u64,
