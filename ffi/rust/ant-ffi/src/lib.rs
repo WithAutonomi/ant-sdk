@@ -45,6 +45,14 @@ pub struct DataPutPrivateResult {
 pub struct FilePutPublicResult {
     /// Hex-encoded address of the stored data map.
     pub address: String,
+    /// Number of chunks stored on the network.
+    pub chunks_stored: u64,
+    /// Total storage cost paid, in atto-tokens (base-10). "0" if all pre-existed.
+    pub storage_cost_atto: String,
+    /// Total gas cost in wei (base-10).
+    pub gas_cost_wei: String,
+    /// Payment mode that was used: "auto", "merkle", or "single".
+    pub payment_mode_used: String,
 }
 
 /// Result of uploading a file (private). The data map is returned to the
@@ -54,6 +62,14 @@ pub struct FilePutPublicResult {
 pub struct FilePutPrivateResult {
     /// Hex-encoded serialized data map (caller keeps this secret).
     pub data_map: String,
+    /// Number of chunks stored on the network.
+    pub chunks_stored: u64,
+    /// Total storage cost paid, in atto-tokens (base-10). "0" if all pre-existed.
+    pub storage_cost_atto: String,
+    /// Total gas cost in wei (base-10).
+    pub gas_cost_wei: String,
+    /// Payment mode that was used: "auto", "merkle", or "single".
+    pub payment_mode_used: String,
 }
 
 /// Estimated cost of uploading a file, produced *before* any payment by

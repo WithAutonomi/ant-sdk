@@ -596,7 +596,10 @@ impl Client {
 
     // ===== File Operations =====
 
-    /// Upload a file from disk (public). Returns the address.
+    /// Upload a file from disk (public). The serialized data map is stored as
+    /// part of the same upload payment batch — one payment covers the file's
+    /// chunks and the data-map chunk. Returns the shareable address plus
+    /// chunk/cost details.
     pub async fn file_upload_public(
         &self,
         path: String,
@@ -606,13 +609,12 @@ impl Client {
             .map_err(|e| ClientError::InvalidInput { reason: e })?;
         let file_path = PathBuf::from(&path);
 
-        let result = self.inner.file_upload_with_mode(&file_path, mode).await?;
+        let result = self
+            .inner
+            .file_upload_public_with_mode(&file_path, mode)
+            .await?;
 
-        let address = self.inner.data_map_store(&result.data_map).await?;
-
-        Ok(FilePutPublicResult {
-            address: hex::encode(address),
-        })
+        Self::to_file_put_public_result(result)
     }
 
     /// Same as [`Self::file_upload_public`] but reports live progress to
@@ -634,20 +636,14 @@ impl Client {
         let (sender, handle) = upload_progress_bridge(listener);
         let result = self
             .inner
-            .file_upload_with_progress(&file_path, mode, Some(sender))
+            .file_upload_public_with_progress(&file_path, mode, Some(sender))
             .await;
         // Drop of `sender` inside the call ends the bridge; await it to flush
         // any queued progress events before returning either way.
         let _ = handle.await;
         let result = result?;
 
-        // The data-map chunk is small and stored separately (no progress),
-        // matching `file_upload_public`.
-        let address = self.inner.data_map_store(&result.data_map).await?;
-
-        Ok(FilePutPublicResult {
-            address: hex::encode(address),
-        })
+        Self::to_file_put_public_result(result)
     }
 
     /// Upload a file from disk privately. Returns the serialized data map (hex)
@@ -665,14 +661,7 @@ impl Client {
 
         let result = self.inner.file_upload_with_mode(&file_path, mode).await?;
 
-        let data_map_bytes =
-            rmp_serde::to_vec(&result.data_map).map_err(|e| ClientError::InternalError {
-                reason: format!("failed to serialize data map: {e}"),
-            })?;
-
-        Ok(FilePutPrivateResult {
-            data_map: hex::encode(data_map_bytes),
-        })
+        Self::to_file_put_private_result(result)
     }
 
     /// Same as [`Self::file_upload_private`] but reports live progress to
@@ -696,14 +685,7 @@ impl Client {
         let _ = handle.await;
         let result = result?;
 
-        let data_map_bytes =
-            rmp_serde::to_vec(&result.data_map).map_err(|e| ClientError::InternalError {
-                reason: format!("failed to serialize data map: {e}"),
-            })?;
-
-        Ok(FilePutPrivateResult {
-            data_map: hex::encode(data_map_bytes),
-        })
+        Self::to_file_put_private_result(result)
     }
 
     /// Publish an existing private data map as a public network chunk, returning
@@ -1213,6 +1195,43 @@ impl Client {
         Ok(map
             .remove(upload_id)
             .expect("session entry present while holding the lock"))
+    }
+
+    /// Convert ant-core's [`FileUploadResult`] into the FFI
+    /// [`FilePutPublicResult`]. Public uploads always carry a data-map address.
+    fn to_file_put_public_result(
+        result: FileUploadResult,
+    ) -> Result<FilePutPublicResult, ClientError> {
+        let address = result
+            .data_map_address
+            .ok_or_else(|| ClientError::InternalError {
+                reason: "public upload returned no data-map address".into(),
+            })?;
+        Ok(FilePutPublicResult {
+            address: hex::encode(address),
+            chunks_stored: result.chunks_stored as u64,
+            storage_cost_atto: result.storage_cost_atto,
+            gas_cost_wei: result.gas_cost_wei.to_string(),
+            payment_mode_used: format_payment_mode(result.payment_mode_used),
+        })
+    }
+
+    /// Convert ant-core's [`FileUploadResult`] into the FFI
+    /// [`FilePutPrivateResult`] (serializes the data map for the caller).
+    fn to_file_put_private_result(
+        result: FileUploadResult,
+    ) -> Result<FilePutPrivateResult, ClientError> {
+        let data_map_bytes =
+            rmp_serde::to_vec(&result.data_map).map_err(|e| ClientError::InternalError {
+                reason: format!("failed to serialize data map: {e}"),
+            })?;
+        Ok(FilePutPrivateResult {
+            data_map: hex::encode(data_map_bytes),
+            chunks_stored: result.chunks_stored as u64,
+            storage_cost_atto: result.storage_cost_atto,
+            gas_cost_wei: result.gas_cost_wei.to_string(),
+            payment_mode_used: format_payment_mode(result.payment_mode_used),
+        })
     }
 
     /// Convert ant-core's [`FileUploadResult`] into the FFI [`ExternalUploadResult`].
