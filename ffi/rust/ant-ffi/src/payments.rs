@@ -11,7 +11,7 @@ use ant_protocol::evm::contract::payment_vault::MAX_TRANSFERS_PER_TRANSACTION;
 use ant_protocol::evm::utils::http_provider;
 use ant_protocol::evm::{Address, Network, U256};
 
-use crate::{ClientError, NetworkInfo, TxReceipt, TxRequest};
+use crate::{ClientError, NetworkInfo, TxKind, TxReceipt, TxRequest};
 
 /// ERC-20 `approve(address spender, uint256 value)` selector (keccak256 of the
 /// signature, first 4 bytes). Standard and stable; asserted in tests.
@@ -78,7 +78,7 @@ pub(crate) fn build_payment_transactions(
             txs.push(TxRequest {
                 to: format!("{token:#x}"),
                 data: encode_approve(vault, payment_intent.total_amount),
-                kind: "approve".into(),
+                kind: TxKind::Approve,
                 quote_hashes: Vec::new(),
             });
             // payForQuotes, batched exactly like evmlib::external_signer so a
@@ -101,7 +101,7 @@ pub(crate) fn build_payment_transactions(
                 txs.push(TxRequest {
                     to: format!("{vault:#x}"),
                     data: format!("0x{}", hex::encode(&calldata)),
-                    kind: "pay".into(),
+                    kind: TxKind::Pay,
                     quote_hashes,
                 });
             }
@@ -135,13 +135,13 @@ pub(crate) fn build_payment_transactions(
                 TxRequest {
                     to: format!("{token:#x}"),
                     data: encode_approve(vault, approve_amount),
-                    kind: "approve".into(),
+                    kind: TxKind::Approve,
                     quote_hashes: Vec::new(),
                 },
                 TxRequest {
                     to: format!("{vault:#x}"),
                     data: format!("0x{}", hex::encode(&calldata)),
-                    kind: "pay".into(),
+                    kind: TxKind::Pay,
                     quote_hashes: Vec::new(),
                 },
             ])

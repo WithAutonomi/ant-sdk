@@ -1,49 +1,59 @@
 /// Re-export ant-core types used in FFI signatures.
-pub use ant_core::data::{CostEstimateConfidence, PaymentMode};
+pub use ant_core::data::{CostEstimateConfidence, PaymentMode as CorePaymentMode};
 
 /// Result of a data upload operation (internal, not exposed via UniFFI).
 pub struct DataUploadResult {
     pub data_map: ant_core::data::DataMap,
     pub chunks_stored: usize,
-    pub payment_mode_used: PaymentMode,
+    pub payment_mode_used: CorePaymentMode,
 }
 
 /// Result of a file upload operation (internal, not exposed via UniFFI).
 pub struct FileUploadResult {
     pub data_map: ant_core::data::DataMap,
     pub chunks_stored: usize,
-    pub payment_mode_used: PaymentMode,
+    pub payment_mode_used: CorePaymentMode,
 }
 
-/// Parse a payment mode string into ant-core's PaymentMode.
-pub fn parse_payment_mode(mode: &str) -> Result<PaymentMode, String> {
+// Total conversions between the FFI-facing enums and ant-core's. Plain fns
+// rather than `From` impls — the orphan rule forbids `impl From<Local> for
+// ant_core::...`.
+
+/// FFI [`crate::PaymentMode`] -> ant-core.
+pub fn to_core_payment_mode(mode: crate::PaymentMode) -> CorePaymentMode {
     match mode {
-        "auto" => Ok(PaymentMode::Auto),
-        "merkle" => Ok(PaymentMode::Merkle),
-        "single" => Ok(PaymentMode::Single),
-        other => Err(format!(
-            "invalid payment_mode: {other:?}. Use \"auto\", \"merkle\", or \"single\""
-        )),
+        crate::PaymentMode::Auto => CorePaymentMode::Auto,
+        crate::PaymentMode::Merkle => CorePaymentMode::Merkle,
+        crate::PaymentMode::Single => CorePaymentMode::Single,
     }
 }
 
-/// Format a PaymentMode for FFI results.
-pub fn format_payment_mode(mode: PaymentMode) -> String {
+/// ant-core payment mode -> FFI [`crate::PaymentMode`] (for results).
+pub fn from_core_payment_mode(mode: CorePaymentMode) -> crate::PaymentMode {
     match mode {
-        PaymentMode::Auto => "auto".into(),
-        PaymentMode::Merkle => "merkle".into(),
-        PaymentMode::Single => "single".into(),
+        CorePaymentMode::Auto => crate::PaymentMode::Auto,
+        CorePaymentMode::Merkle => crate::PaymentMode::Merkle,
+        CorePaymentMode::Single => crate::PaymentMode::Single,
     }
 }
 
-/// Format a cost-estimate confidence for FFI results. Strings match ant-core's
-/// serde `snake_case` names so callers can rely on a stable vocabulary.
-pub fn format_cost_confidence(confidence: CostEstimateConfidence) -> String {
+/// FFI [`crate::Visibility`] -> ant-core.
+pub fn to_core_visibility(visibility: crate::Visibility) -> ant_core::data::Visibility {
+    match visibility {
+        crate::Visibility::Public => ant_core::data::Visibility::Public,
+        crate::Visibility::Private => ant_core::data::Visibility::Private,
+    }
+}
+
+/// ant-core cost-estimate confidence -> FFI [`crate::CostConfidence`].
+pub fn from_core_confidence(confidence: CostEstimateConfidence) -> crate::CostConfidence {
     match confidence {
-        CostEstimateConfidence::PricedSample => "priced_sample".into(),
-        CostEstimateConfidence::VerifiedAllAlreadyStored => "verified_all_already_stored".into(),
+        CostEstimateConfidence::PricedSample => crate::CostConfidence::PricedSample,
+        CostEstimateConfidence::VerifiedAllAlreadyStored => {
+            crate::CostConfidence::VerifiedAllAlreadyStored
+        }
         CostEstimateConfidence::AllSamplesAlreadyStoredIncomplete => {
-            "all_samples_already_stored_incomplete".into()
+            crate::CostConfidence::AllSamplesAlreadyStoredIncomplete
         }
     }
 }

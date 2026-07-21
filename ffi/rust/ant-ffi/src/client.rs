@@ -11,17 +11,19 @@ use zeroize::Zeroize;
 use ant_core::data::{
     Client as CoreClient, ClientConfig, CoreNodeConfig, DevnetManifest, DownloadEvent, EvmNetwork,
     ExternalPaymentInfo, FileUploadResult, MultiAddr, NodeMode, P2PNode, PreparedUpload,
-    UploadEvent, Visibility, Wallet as CoreWallet, MAX_WIRE_MESSAGE_SIZE,
+    UploadEvent, Wallet as CoreWallet, MAX_WIRE_MESSAGE_SIZE,
 };
 use ant_protocol::evm::{QuoteHash, TxHash};
 
-use crate::data::{format_cost_confidence, format_payment_mode, parse_payment_mode};
+use crate::data::{
+    from_core_confidence, from_core_payment_mode, to_core_payment_mode, to_core_visibility,
+};
 use crate::wallet::build_custom_network;
 use crate::{
     CandidateNodeEntry, ChunkPutResult, ClientError, CostEstimate, DataPutPrivateResult,
     DataPutPublicResult, ExternalUploadResult, FilePutPrivateResult, FilePutPublicResult,
-    PaymentEntry, PoolCommitmentEntry, PreparedUploadInfo, ProgressListener, ProgressUpdate,
-    TxRequest,
+    PaymentEntry, PaymentMode, PaymentType, PoolCommitmentEntry, PreparedUploadInfo,
+    ProgressListener, ProgressPhase, ProgressUpdate, TxRequest, Visibility,
 };
 
 /// Mainnet bootstrap peers vendored from ant-client's
@@ -81,27 +83,27 @@ fn apply_data_dir(data_dir: Option<&str>) {
 fn map_upload_event(ev: UploadEvent) -> ProgressUpdate {
     match ev {
         UploadEvent::Encrypting { chunks_done } => ProgressUpdate {
-            phase: "encrypting".into(),
+            phase: ProgressPhase::Encrypting,
             done: chunks_done as u64,
             total: 0,
         },
         UploadEvent::Encrypted { total_chunks } => ProgressUpdate {
-            phase: "encrypting".into(),
+            phase: ProgressPhase::Encrypting,
             done: total_chunks as u64,
             total: total_chunks as u64,
         },
         UploadEvent::QuotingChunks { .. } => ProgressUpdate {
-            phase: "quoting".into(),
+            phase: ProgressPhase::Quoting,
             done: 0,
             total: 0,
         },
         UploadEvent::ChunkQuoted { quoted, total } => ProgressUpdate {
-            phase: "quoting".into(),
+            phase: ProgressPhase::Quoting,
             done: quoted as u64,
             total: total as u64,
         },
         UploadEvent::ChunkStored { stored, total } => ProgressUpdate {
-            phase: "storing".into(),
+            phase: ProgressPhase::Storing,
             done: stored as u64,
             total: total as u64,
         },
@@ -114,22 +116,22 @@ fn map_upload_event(ev: UploadEvent) -> ProgressUpdate {
 fn map_download_event(ev: DownloadEvent) -> ProgressUpdate {
     match ev {
         DownloadEvent::ResolvingDataMap { total_map_chunks } => ProgressUpdate {
-            phase: "resolving".into(),
+            phase: ProgressPhase::Resolving,
             done: 0,
             total: total_map_chunks as u64,
         },
         DownloadEvent::MapChunkFetched { fetched } => ProgressUpdate {
-            phase: "resolving".into(),
+            phase: ProgressPhase::Resolving,
             done: fetched as u64,
             total: 0,
         },
         DownloadEvent::DataMapResolved { total_chunks } => ProgressUpdate {
-            phase: "downloading".into(),
+            phase: ProgressPhase::Downloading,
             done: 0,
             total: total_chunks as u64,
         },
         DownloadEvent::ChunksFetched { fetched, total } => ProgressUpdate {
-            phase: "downloading".into(),
+            phase: ProgressPhase::Downloading,
             done: fetched as u64,
             total: total as u64,
         },
@@ -653,10 +655,9 @@ impl Client {
     pub async fn data_put_public(
         &self,
         data: Vec<u8>,
-        payment_mode: String,
+        payment_mode: PaymentMode,
     ) -> Result<DataPutPublicResult, ClientError> {
-        let mode = parse_payment_mode(&payment_mode)
-            .map_err(|e| ClientError::InvalidInput { reason: e })?;
+        let mode = to_core_payment_mode(payment_mode);
 
         let result = self
             .inner
@@ -668,7 +669,7 @@ impl Client {
         Ok(DataPutPublicResult {
             address: hex::encode(address),
             chunks_stored: result.chunks_stored as u64,
-            payment_mode_used: format_payment_mode(result.payment_mode_used),
+            payment_mode_used: from_core_payment_mode(result.payment_mode_used),
         })
     }
 
@@ -684,10 +685,9 @@ impl Client {
     pub async fn data_put_private(
         &self,
         data: Vec<u8>,
-        payment_mode: String,
+        payment_mode: PaymentMode,
     ) -> Result<DataPutPrivateResult, ClientError> {
-        let mode = parse_payment_mode(&payment_mode)
-            .map_err(|e| ClientError::InvalidInput { reason: e })?;
+        let mode = to_core_payment_mode(payment_mode);
 
         let result = self
             .inner
@@ -702,7 +702,7 @@ impl Client {
         Ok(DataPutPrivateResult {
             data_map: hex::encode(data_map_bytes),
             chunks_stored: result.chunks_stored as u64,
-            payment_mode_used: format_payment_mode(result.payment_mode_used),
+            payment_mode_used: from_core_payment_mode(result.payment_mode_used),
         })
     }
 
@@ -722,10 +722,9 @@ impl Client {
     pub async fn file_upload_public(
         &self,
         path: String,
-        payment_mode: String,
+        payment_mode: PaymentMode,
     ) -> Result<FilePutPublicResult, ClientError> {
-        let mode = parse_payment_mode(&payment_mode)
-            .map_err(|e| ClientError::InvalidInput { reason: e })?;
+        let mode = to_core_payment_mode(payment_mode);
         let file_path = PathBuf::from(&path);
 
         let result = self
@@ -737,7 +736,7 @@ impl Client {
     }
 
     /// Same as [`Self::file_upload_public`] but reports live progress to
-    /// `listener`: the `"encrypting"`, `"quoting"` and `"storing"` upload phases
+    /// `listener`: the `Encrypting`, `Quoting` and `Storing` upload phases
     /// as the file is self-encrypted, quoted and its chunks land on the network.
     /// Use this on the wallet-backed (built-in payment) path to drive a progress
     /// bar; the external-signer path uses the `prepare`/`finalize_*_with_progress`
@@ -745,11 +744,10 @@ impl Client {
     pub async fn file_upload_public_with_progress(
         &self,
         path: String,
-        payment_mode: String,
+        payment_mode: PaymentMode,
         listener: Box<dyn ProgressListener>,
     ) -> Result<FilePutPublicResult, ClientError> {
-        let mode = parse_payment_mode(&payment_mode)
-            .map_err(|e| ClientError::InvalidInput { reason: e })?;
+        let mode = to_core_payment_mode(payment_mode);
         let file_path = PathBuf::from(&path);
 
         let (sender, handle) = upload_progress_bridge(listener);
@@ -772,10 +770,9 @@ impl Client {
     pub async fn file_upload_private(
         &self,
         path: String,
-        payment_mode: String,
+        payment_mode: PaymentMode,
     ) -> Result<FilePutPrivateResult, ClientError> {
-        let mode = parse_payment_mode(&payment_mode)
-            .map_err(|e| ClientError::InvalidInput { reason: e })?;
+        let mode = to_core_payment_mode(payment_mode);
         let file_path = PathBuf::from(&path);
 
         let result = self.inner.file_upload_with_mode(&file_path, mode).await?;
@@ -784,16 +781,15 @@ impl Client {
     }
 
     /// Same as [`Self::file_upload_private`] but reports live progress to
-    /// `listener` (the `"encrypting"`, `"quoting"` and `"storing"` upload
+    /// `listener` (the `Encrypting`, `Quoting` and `Storing` upload
     /// phases). See [`Self::file_upload_public_with_progress`].
     pub async fn file_upload_private_with_progress(
         &self,
         path: String,
-        payment_mode: String,
+        payment_mode: PaymentMode,
         listener: Box<dyn ProgressListener>,
     ) -> Result<FilePutPrivateResult, ClientError> {
-        let mode = parse_payment_mode(&payment_mode)
-            .map_err(|e| ClientError::InvalidInput { reason: e })?;
+        let mode = to_core_payment_mode(payment_mode);
         let file_path = PathBuf::from(&path);
 
         let (sender, handle) = upload_progress_bridge(listener);
@@ -842,8 +838,8 @@ impl Client {
     /// is fast (~seconds) and needs **no wallet** — safe to call in the
     /// external-signer flow to preview cost before `prepareFileUpload`.
     ///
-    /// `payment_mode` is one of "auto", "merkle", or "single". Check
-    /// `CostEstimate.confidence` before treating a `"0"` storage cost as free.
+    /// Check `CostEstimate.confidence` before treating a `"0"` storage cost
+    /// as free.
     ///
     /// This prices the file's data chunks only. A *public* upload additionally
     /// stores the serialized data map as one extra chunk, which is not included
@@ -852,10 +848,9 @@ impl Client {
     pub async fn estimate_file_cost(
         &self,
         path: String,
-        payment_mode: String,
+        payment_mode: PaymentMode,
     ) -> Result<CostEstimate, ClientError> {
-        let mode = parse_payment_mode(&payment_mode)
-            .map_err(|e| ClientError::InvalidInput { reason: e })?;
+        let mode = to_core_payment_mode(payment_mode);
         let file_path = PathBuf::from(&path);
 
         let estimate = self
@@ -868,24 +863,23 @@ impl Client {
             chunk_count: estimate.chunk_count as u64,
             storage_cost_atto: estimate.storage_cost_atto,
             estimated_gas_cost_wei: estimate.estimated_gas_cost_wei,
-            payment_mode: format_payment_mode(estimate.payment_mode),
-            confidence: format_cost_confidence(estimate.confidence),
+            payment_mode: from_core_payment_mode(estimate.payment_mode),
+            confidence: from_core_confidence(estimate.confidence),
         })
     }
 
     /// Same as [`Self::estimate_file_cost`] but reports live progress to
-    /// `listener` (the `"encrypting"` phase). Estimating requires
+    /// `listener` (the `Encrypting` phase). Estimating requires
     /// self-encrypting the whole file to derive chunk addresses, which takes
     /// real time for large files — without progress, a multi-GB estimate looks
     /// like a hang.
     pub async fn estimate_file_cost_with_progress(
         &self,
         path: String,
-        payment_mode: String,
+        payment_mode: PaymentMode,
         listener: Box<dyn ProgressListener>,
     ) -> Result<CostEstimate, ClientError> {
-        let mode = parse_payment_mode(&payment_mode)
-            .map_err(|e| ClientError::InvalidInput { reason: e })?;
+        let mode = to_core_payment_mode(payment_mode);
         let file_path = PathBuf::from(&path);
 
         let (sender, handle) = upload_progress_bridge(listener);
@@ -901,8 +895,8 @@ impl Client {
             chunk_count: estimate.chunk_count as u64,
             storage_cost_atto: estimate.storage_cost_atto,
             estimated_gas_cost_wei: estimate.estimated_gas_cost_wei,
-            payment_mode: format_payment_mode(estimate.payment_mode),
-            confidence: format_cost_confidence(estimate.confidence),
+            payment_mode: from_core_payment_mode(estimate.payment_mode),
+            confidence: from_core_confidence(estimate.confidence),
         })
     }
 
@@ -1017,15 +1011,15 @@ impl Client {
     }
 
     /// Phase 1 (external signer): encrypt `data`, collect quotes, and return
-    /// the payment summary. `visibility` is `"public"` or `"private"`. The
+    /// the payment summary. The
     /// prepared state is retained under the returned `upload_id` until
     /// [`Self::finalize_upload`].
     pub async fn prepare_data_upload(
         &self,
         data: Vec<u8>,
-        visibility: String,
+        visibility: Visibility,
     ) -> Result<PreparedUploadInfo, ClientError> {
-        let vis = parse_visibility(&visibility)?;
+        let vis = to_core_visibility(visibility);
         let prepared = self
             .inner
             .data_prepare_upload_with_visibility(Bytes::from(data), vis)
@@ -1038,9 +1032,9 @@ impl Client {
     pub async fn prepare_file_upload(
         &self,
         path: String,
-        visibility: String,
+        visibility: Visibility,
     ) -> Result<PreparedUploadInfo, ClientError> {
-        let vis = parse_visibility(&visibility)?;
+        let vis = to_core_visibility(visibility);
         let prepared = self
             .inner
             .file_prepare_upload_with_visibility(&PathBuf::from(path), vis)
@@ -1050,16 +1044,16 @@ impl Client {
 
     /// Phase 1 (external signer): same as `prepareFileUpload` but reports
     /// encryption/quoting progress to `listener`. Encrypting a large file to
-    /// spill can take seconds, so this surfaces the `"encrypting"` and
-    /// `"quoting"` phases the plain `prepareFileUpload` runs silently. (Only
+    /// spill can take seconds, so this surfaces the `Encrypting` and
+    /// `Quoting` phases the plain `prepareFileUpload` runs silently. (Only
     /// files support prepare progress; ant-core has no in-memory data variant.)
     pub async fn prepare_file_upload_with_progress(
         &self,
         path: String,
-        visibility: String,
+        visibility: Visibility,
         listener: Box<dyn ProgressListener>,
     ) -> Result<PreparedUploadInfo, ClientError> {
-        let vis = parse_visibility(&visibility)?;
+        let vis = to_core_visibility(visibility);
         let (sender, handle) = upload_progress_bridge(listener);
         let result = self
             .inner
@@ -1132,7 +1126,7 @@ impl Client {
     }
 
     /// Same as [`Self::finalize_upload`] but reports live storing progress:
-    /// `listener` gets `"storing"` updates (`done`/`total` chunks) as chunks
+    /// `listener` gets `Storing` updates (`done`/`total` chunks) as chunks
     /// land on the network.
     pub async fn finalize_upload_with_progress(
         &self,
@@ -1148,7 +1142,8 @@ impl Client {
     /// `payForMerkleTree`, finalize by supplying the `winner_pool_hash`
     /// (0x-prefixed hex, 32 bytes) read from the `MerklePaymentMade` event in
     /// the payment receipt. Use this for uploads whose
-    /// `PreparedUploadInfo.payment_type == "merkle"`; wave-batch uploads must
+    /// `PreparedUploadInfo.payment_type` is [`crate::PaymentType::Merkle`];
+    /// wave-batch uploads must
     /// use [`Self::finalize_upload`] (this rejects them with a clear error, and
     /// vice versa, without consuming the prepared upload).
     ///
@@ -1165,7 +1160,7 @@ impl Client {
     }
 
     /// Same as [`Self::finalize_upload_merkle`] but reports live storing
-    /// progress via `listener` (the `"storing"` phase).
+    /// progress via `listener` (the `Storing` phase).
     pub async fn finalize_upload_merkle_with_progress(
         &self,
         upload_id: String,
@@ -1189,7 +1184,7 @@ impl Client {
     }
 
     /// Download public data by address straight to a file on disk, reporting
-    /// live progress (`"resolving"` then `"downloading"` phases). Returns bytes
+    /// live progress (`Resolving` then `Downloading` phases). Returns bytes
     /// written.
     pub async fn download_public_to_file(
         &self,
@@ -1348,7 +1343,7 @@ impl Client {
             chunks_stored: result.chunks_stored as u64,
             storage_cost_atto: result.storage_cost_atto,
             gas_cost_wei: result.gas_cost_wei.to_string(),
-            payment_mode_used: format_payment_mode(result.payment_mode_used),
+            payment_mode_used: from_core_payment_mode(result.payment_mode_used),
         })
     }
 
@@ -1366,7 +1361,7 @@ impl Client {
             chunks_stored: result.chunks_stored as u64,
             storage_cost_atto: result.storage_cost_atto,
             gas_cost_wei: result.gas_cost_wei.to_string(),
-            payment_mode_used: format_payment_mode(result.payment_mode_used),
+            payment_mode_used: from_core_payment_mode(result.payment_mode_used),
         })
     }
 
@@ -1431,7 +1426,7 @@ impl Client {
                     })
                     .collect::<Vec<_>>();
                 total_amount = payment_intent.total_amount.to_string();
-                "wave_batch".to_string()
+                PaymentType::WaveBatch
             }
             // Merkle: expose depth + pool commitments + timestamp so the app can
             // build the `payForMerkleTree(uint8, PoolCommitment[], uint64)` call.
@@ -1454,7 +1449,7 @@ impl Client {
                             .collect(),
                     })
                     .collect::<Vec<_>>();
-                "merkle".to_string()
+                PaymentType::Merkle
             }
         };
         let upload_id = format!("upl-{}", self.next_id.fetch_add(1, Ordering::Relaxed));
@@ -1482,17 +1477,6 @@ impl Client {
 enum PaymentKind {
     Wave,
     Merkle,
-}
-
-/// Parse a visibility string ("public" | "private") into ant-core's enum.
-fn parse_visibility(s: &str) -> Result<Visibility, ClientError> {
-    match s {
-        "public" => Ok(Visibility::Public),
-        "private" => Ok(Visibility::Private),
-        other => Err(ClientError::InvalidInput {
-            reason: format!("invalid visibility {other:?}; use \"public\" or \"private\""),
-        }),
-    }
 }
 
 /// Decode a 0x-prefixed (or bare) hex string into a 32-byte hash.
@@ -1579,16 +1563,18 @@ mod tests {
     }
 
     #[test]
-    fn parse_visibility_maps_known_values_and_rejects_others() {
+    fn enum_conversions_round_trip() {
+        use crate::data::{from_core_payment_mode, to_core_payment_mode, to_core_visibility};
+        for mode in [PaymentMode::Auto, PaymentMode::Merkle, PaymentMode::Single] {
+            assert_eq!(from_core_payment_mode(to_core_payment_mode(mode)), mode);
+        }
         assert!(matches!(
-            parse_visibility("public").unwrap(),
-            Visibility::Public
+            to_core_visibility(Visibility::Public),
+            ant_core::data::Visibility::Public
         ));
         assert!(matches!(
-            parse_visibility("private").unwrap(),
-            Visibility::Private
+            to_core_visibility(Visibility::Private),
+            ant_core::data::Visibility::Private
         ));
-        let err = parse_visibility("shared").unwrap_err();
-        assert!(matches!(err, ClientError::InvalidInput { .. }));
     }
 }
