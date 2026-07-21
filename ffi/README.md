@@ -110,7 +110,7 @@ renders them camelCase in Swift/Kotlin, e.g. `chunk_put` → `chunkPut`):
 
 | Domain | Methods |
 |---|---|
-| **Connect** | `connect_local`, `connect`, `connect_with_wallet`, `connect_from_devnet_manifest`, `connect_from_devnet_manifest_external_signer`, `connect_for_external_signer` |
+| **Connect** | `connect_default`, `connect_default_with_wallet`, `connect_default_for_external_signer` (production network, vendored peers), `connect_local`, `connect`, `connect_with_wallet`, `connect_from_devnet_manifest`, `connect_from_devnet_manifest_external_signer`, `connect_for_external_signer` — all take an optional `data_dir` (required on Android: pass the app's files dir) |
 | **Chunks** | `chunk_put`, `chunk_get`, `chunk_exists` |
 | **Data (bytes)** | `data_put_public`, `data_get_public`, `data_put_private`, `data_get_private` |
 | **Files** | `file_upload_public`, `file_upload_private`, `file_download_public`, `download_public_to_file`, `download_private_to_file`, `estimate_file_cost` |
