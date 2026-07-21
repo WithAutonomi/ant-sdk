@@ -24,6 +24,59 @@ use crate::{
     TxRequest,
 };
 
+/// Mainnet bootstrap peers vendored from ant-client's
+/// `resources/bootstrap_peers.toml` at the pinned ant-core tag, so the
+/// `connect_default*` constructors can reach the production network with zero
+/// configuration — the same last-resort pattern as antd's compiled-in copy.
+/// Re-copy from the pinned checkout whenever the ant-core pin is bumped.
+const COMPILED_IN_BOOTSTRAP_PEERS_TOML: &str = include_str!("../resources/bootstrap_peers.toml");
+
+#[derive(serde::Deserialize)]
+struct BootstrapConfig {
+    peers: Vec<String>,
+}
+
+/// Parse the vendored peer list ("ip:port" socket addresses) into the
+/// `/ip4/<ip>/udp/<port>/quic` multiaddr strings [`Client::connect`] expects.
+/// Errors instead of silently returning an empty list — a malformed vendored
+/// file is a build-time regression, not a runtime condition.
+fn default_bootstrap_peer_strings() -> Result<Vec<String>, ClientError> {
+    let cfg: BootstrapConfig = toml::from_str(COMPILED_IN_BOOTSTRAP_PEERS_TOML).map_err(|e| {
+        ClientError::InternalError {
+            reason: format!("vendored bootstrap_peers.toml is malformed: {e}"),
+        }
+    })?;
+    let peers: Vec<String> = cfg
+        .peers
+        .iter()
+        .filter_map(|s| s.parse::<std::net::SocketAddr>().ok())
+        .map(|sa| {
+            let ip_tag = if sa.is_ipv4() { "ip4" } else { "ip6" };
+            format!("/{}/{}/udp/{}/quic", ip_tag, sa.ip(), sa.port())
+        })
+        .collect();
+    if peers.is_empty() {
+        return Err(ClientError::InternalError {
+            reason: "vendored bootstrap_peers.toml contains no usable peers".into(),
+        });
+    }
+    Ok(peers)
+}
+
+/// Plant the directory Autonomi derives its local state paths from (bootstrap
+/// cache, config). At the pinned ant-core those paths come from the `HOME`
+/// env var; Android app processes have no `HOME`, so `connect*` fails with
+/// `HomeDirNotFound` unless one is planted — previously done app-side via a
+/// libc `setenv` shim (the demos' `AntFfiBootstrap.kt`). Passing `data_dir`
+/// does the planting SDK-side. No-op when `None`.
+fn apply_data_dir(data_dir: Option<&str>) {
+    if let Some(dir) = data_dir {
+        // Must run before any core call that reads HOME (`P2PNode::new` reads
+        // the saorsa bootstrap cache under it).
+        std::env::set_var("HOME", dir);
+    }
+}
+
 /// Map an ant-core [`UploadEvent`] to the FFI [`ProgressUpdate`] shape.
 fn map_upload_event(ev: UploadEvent) -> ProgressUpdate {
     match ev {
@@ -163,8 +216,11 @@ impl Client {
 #[uniffi::export(async_runtime = "tokio")]
 impl Client {
     /// Connect to a local test network.
-    #[uniffi::constructor]
-    pub async fn connect_local() -> Result<Arc<Self>, ClientError> {
+    ///
+    /// `data_dir`: see [`Self::connect`].
+    #[uniffi::constructor(default(data_dir = None))]
+    pub async fn connect_local(data_dir: Option<String>) -> Result<Arc<Self>, ClientError> {
+        apply_data_dir(data_dir.as_deref());
         let builder = CoreNodeConfig::builder()
             .mode(NodeMode::Client)
             .port(0)
@@ -196,9 +252,21 @@ impl Client {
         Ok(Self::wrap(client))
     }
 
-    /// Connect to the network using explicit bootstrap peers.
-    #[uniffi::constructor]
-    pub async fn connect(peers: Vec<String>) -> Result<Arc<Self>, ClientError> {
+    /// Connect to the network using explicit bootstrap peers
+    /// (`/ip4/<ip>/udp/<port>/quic` multiaddr strings).
+    ///
+    /// `data_dir` overrides the directory Autonomi's local state (bootstrap
+    /// cache, config) lives under. **Required on Android** — pass the app's
+    /// files directory (`context.filesDir`); Android processes have no
+    /// `HOME`, so connecting without it fails with `InitializationFailed`
+    /// (`HomeDirNotFound`). Leave `None` on iOS / desktop to use the
+    /// platform default.
+    #[uniffi::constructor(default(data_dir = None))]
+    pub async fn connect(
+        peers: Vec<String>,
+        data_dir: Option<String>,
+    ) -> Result<Arc<Self>, ClientError> {
+        apply_data_dir(data_dir.as_deref());
         let mut builder = CoreNodeConfig::builder()
             .mode(NodeMode::Client)
             .port(0)
@@ -245,18 +313,76 @@ impl Client {
         Ok(Self::wrap(client))
     }
 
+    /// Connect to the Autonomi **production network** using the bootstrap
+    /// peers vendored into the SDK — no configuration needed. Read-only
+    /// client; for uploads use [`Self::connect_default_with_wallet`] or
+    /// [`Self::connect_default_for_external_signer`].
+    ///
+    /// `data_dir`: see [`Self::connect`].
+    #[uniffi::constructor(default(data_dir = None))]
+    pub async fn connect_default(data_dir: Option<String>) -> Result<Arc<Self>, ClientError> {
+        Self::connect(default_bootstrap_peer_strings()?, data_dir).await
+    }
+
+    /// [`Self::connect_default`] with a wallet attached for write operations,
+    /// preset for the production EVM network (same coordinates as
+    /// `networkInfo("arbitrum-one")`).
+    ///
+    /// `data_dir`: see [`Self::connect`].
+    #[uniffi::constructor(default(data_dir = None))]
+    pub async fn connect_default_with_wallet(
+        private_key: String,
+        data_dir: Option<String>,
+    ) -> Result<Arc<Self>, ClientError> {
+        let net = crate::payments::network_info("arbitrum-one".into())?;
+        Self::connect_with_wallet(
+            default_bootstrap_peer_strings()?,
+            private_key,
+            net.rpc_url,
+            net.token_address,
+            net.vault_address,
+            data_dir,
+        )
+        .await
+    }
+
+    /// [`Self::connect_default`] configured for the **external-signer** flow
+    /// (mobile wallets / WalletConnect): production peers + production EVM
+    /// network for quotes, no wallet attached. Pay via `prepare_*` + your
+    /// signer + `finalize_*`.
+    ///
+    /// `data_dir`: see [`Self::connect`].
+    #[uniffi::constructor(default(data_dir = None))]
+    pub async fn connect_default_for_external_signer(
+        data_dir: Option<String>,
+    ) -> Result<Arc<Self>, ClientError> {
+        let net = crate::payments::network_info("arbitrum-one".into())?;
+        Self::connect_for_external_signer(
+            default_bootstrap_peer_strings()?,
+            net.rpc_url,
+            net.token_address,
+            net.vault_address,
+            data_dir,
+        )
+        .await
+    }
+
     /// Connect to the network with a wallet configured for write operations.
     ///
     /// Takes the wallet private key and EVM network details directly,
     /// since the wallet must be constructed fresh for ownership transfer.
-    #[uniffi::constructor]
+    ///
+    /// `data_dir`: see [`Self::connect`].
+    #[uniffi::constructor(default(data_dir = None))]
     pub async fn connect_with_wallet(
         peers: Vec<String>,
         mut private_key: String,
         rpc_url: String,
         payment_token_address: String,
         payment_vault_address: String,
+        data_dir: Option<String>,
     ) -> Result<Arc<Self>, ClientError> {
+        apply_data_dir(data_dir.as_deref());
         let mut builder = CoreNodeConfig::builder()
             .mode(NodeMode::Client)
             .port(0)
@@ -326,8 +452,14 @@ impl Client {
     ///
     /// Fails if the manifest doesn't exist, is malformed, or has no `evm`
     /// section (a devnet started without payment enforcement).
-    #[uniffi::constructor]
-    pub async fn connect_from_devnet_manifest(path: String) -> Result<Arc<Self>, ClientError> {
+    ///
+    /// `data_dir`: see [`Self::connect`].
+    #[uniffi::constructor(default(data_dir = None))]
+    pub async fn connect_from_devnet_manifest(
+        path: String,
+        data_dir: Option<String>,
+    ) -> Result<Arc<Self>, ClientError> {
+        apply_data_dir(data_dir.as_deref());
         let bytes = std::fs::read(&path).map_err(|e| ClientError::InitializationFailed {
             reason: format!("failed to read manifest at {path}: {e}"),
         })?;
@@ -415,10 +547,14 @@ impl Client {
     /// attaches **no wallet** (the manifest's `wallet_private_key` may be empty
     /// — e.g. the Sepolia devnet, which expects you to bring your own wallet).
     /// Pay via `prepare_*` + an external signer + `finalize_upload`.
-    #[uniffi::constructor]
+    ///
+    /// `data_dir`: see [`Self::connect`].
+    #[uniffi::constructor(default(data_dir = None))]
     pub async fn connect_from_devnet_manifest_external_signer(
         path: String,
+        data_dir: Option<String>,
     ) -> Result<Arc<Self>, ClientError> {
+        apply_data_dir(data_dir.as_deref());
         let bytes = std::fs::read(&path).map_err(|e| ClientError::InitializationFailed {
             reason: format!("failed to read manifest at {path}: {e}"),
         })?;
@@ -827,13 +963,17 @@ impl Client {
     /// queries work (they need the network), but payment is signed off-device
     /// by an external wallet (e.g. WalletConnect). Use [`Self::prepare_data_upload`]
     /// / [`Self::prepare_file_upload`] then [`Self::finalize_upload`].
-    #[uniffi::constructor]
+    ///
+    /// `data_dir`: see [`Self::connect`].
+    #[uniffi::constructor(default(data_dir = None))]
     pub async fn connect_for_external_signer(
         peers: Vec<String>,
         rpc_url: String,
         payment_token_address: String,
         payment_vault_address: String,
+        data_dir: Option<String>,
     ) -> Result<Arc<Self>, ClientError> {
+        apply_data_dir(data_dir.as_deref());
         let mut builder = CoreNodeConfig::builder()
             .mode(NodeMode::Client)
             .port(0)
@@ -1364,6 +1504,16 @@ fn hex_to_address(hex: &str) -> Result<[u8; 32], ClientError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_bootstrap_peers_are_valid_multiaddrs() {
+        let peers = default_bootstrap_peer_strings().unwrap();
+        assert_eq!(peers.len(), 7, "vendored mainnet peer count");
+        for p in &peers {
+            assert!(p.starts_with("/ip4/") && p.ends_with("/quic"), "shape: {p}");
+            assert!(p.parse::<MultiAddr>().is_ok(), "unparseable multiaddr: {p}");
+        }
+    }
 
     #[test]
     fn decode_hash_accepts_32_bytes_with_or_without_0x() {
