@@ -1,6 +1,8 @@
 [package]
 name = "ant-ffi"
-version = "0.2.0"
+# Matches the released SDK version (ant-swift tag / ant-android maven version)
+# so the exported ant_ffi_version() tells the truth — bump on every release.
+version = "0.0.8"
 edition = "2021"
 
 [lib]

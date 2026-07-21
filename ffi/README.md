@@ -113,11 +113,11 @@ renders them camelCase in Swift/Kotlin, e.g. `chunk_put` → `chunkPut`):
 | **Connect** | `connect_local`, `connect`, `connect_with_wallet`, `connect_from_devnet_manifest`, `connect_from_devnet_manifest_external_signer`, `connect_for_external_signer` |
 | **Chunks** | `chunk_put`, `chunk_get`, `chunk_exists` |
 | **Data (bytes)** | `data_put_public`, `data_get_public`, `data_put_private`, `data_get_private` |
-| **Files** | `file_upload_public`, `file_upload_private`, `file_download_public`, `download_public_to_file`, `download_private_to_file`, `estimate_file_cost` |
+| **Files** | `file_upload_public`(`_with_progress`), `file_upload_private`(`_with_progress`), `file_download_public`, `file_download_private`, `download_public_to_file`, `download_private_to_file`, `estimate_file_cost`(`_with_progress`) |
 | **Data maps** | `data_map_store`, `data_map_fetch` |
 | **External signer** | `prepare_data_upload`, `prepare_file_upload`, `prepare_file_upload_with_progress`, `payment_transactions`, `finalize_upload`(`_with_progress`), `finalize_upload_merkle`(`_with_progress`), `cancel_upload` |
 | **Wallet** | `wallet_approve`; `Wallet` object: `from_private_key`, `address`, `balance_of_tokens`, `balance_of_gas_tokens` |
-| **Free fns** | `network_info`, `wait_for_receipt`, `merkle_winner_pool_hash` |
+| **Free fns** | `network_info`, `wait_for_receipt`, `merkle_winner_pool_hash`, `ant_ffi_version` |
 
 ## Type Mapping
 
