@@ -708,24 +708,7 @@ impl Client {
 
     /// Retrieve private data using a hex-encoded data map.
     pub async fn data_get_private(&self, data_map_hex: String) -> Result<Vec<u8>, ClientError> {
-        // Reject unreasonably large hex input (20 MB hex = 10 MB decoded)
-        const MAX_HEX_INPUT: usize = 20 * 1024 * 1024;
-        if data_map_hex.len() > MAX_HEX_INPUT {
-            return Err(ClientError::InvalidInput {
-                reason: format!(
-                    "data map hex too large: {} bytes (max {})",
-                    data_map_hex.len(),
-                    MAX_HEX_INPUT
-                ),
-            });
-        }
-        let data_map_bytes = hex::decode(&data_map_hex).map_err(|e| ClientError::InvalidInput {
-            reason: format!("invalid hex: {e}"),
-        })?;
-        let data_map: ant_core::data::DataMap =
-            rmp_serde::from_slice(&data_map_bytes).map_err(|e| ClientError::InvalidInput {
-                reason: format!("invalid data map: {e}"),
-            })?;
+        let data_map = decode_data_map_hex(&data_map_hex)?;
         let content = self.inner.data_download(&data_map).await?;
         Ok(content.to_vec())
     }
@@ -836,24 +819,7 @@ impl Client {
     /// will fail; use it on a wallet-backed client, or on data maps whose chunk
     /// is already stored.
     pub async fn data_map_store(&self, data_map_hex: String) -> Result<String, ClientError> {
-        // Same guard as data_get_private (20 MB hex = 10 MB decoded).
-        const MAX_HEX_INPUT: usize = 20 * 1024 * 1024;
-        if data_map_hex.len() > MAX_HEX_INPUT {
-            return Err(ClientError::InvalidInput {
-                reason: format!(
-                    "data map hex too large: {} bytes (max {})",
-                    data_map_hex.len(),
-                    MAX_HEX_INPUT
-                ),
-            });
-        }
-        let data_map_bytes = hex::decode(&data_map_hex).map_err(|e| ClientError::InvalidInput {
-            reason: format!("invalid hex: {e}"),
-        })?;
-        let data_map: ant_core::data::DataMap =
-            rmp_serde::from_slice(&data_map_bytes).map_err(|e| ClientError::InvalidInput {
-                reason: format!("invalid data map: {e}"),
-            })?;
+        let data_map = decode_data_map_hex(&data_map_hex)?;
         let address = self.inner.data_map_store(&data_map).await?;
         Ok(hex::encode(address))
     }
@@ -907,6 +873,39 @@ impl Client {
         })
     }
 
+    /// Same as [`Self::estimate_file_cost`] but reports live progress to
+    /// `listener` (the `"encrypting"` phase). Estimating requires
+    /// self-encrypting the whole file to derive chunk addresses, which takes
+    /// real time for large files — without progress, a multi-GB estimate looks
+    /// like a hang.
+    pub async fn estimate_file_cost_with_progress(
+        &self,
+        path: String,
+        payment_mode: String,
+        listener: Box<dyn ProgressListener>,
+    ) -> Result<CostEstimate, ClientError> {
+        let mode = parse_payment_mode(&payment_mode)
+            .map_err(|e| ClientError::InvalidInput { reason: e })?;
+        let file_path = PathBuf::from(&path);
+
+        let (sender, handle) = upload_progress_bridge(listener);
+        let estimate = self
+            .inner
+            .estimate_upload_cost(&file_path, mode, Some(sender))
+            .await;
+        let _ = handle.await;
+        let estimate = estimate?;
+
+        Ok(CostEstimate {
+            file_size: estimate.file_size,
+            chunk_count: estimate.chunk_count as u64,
+            storage_cost_atto: estimate.storage_cost_atto,
+            estimated_gas_cost_wei: estimate.estimated_gas_cost_wei,
+            payment_mode: format_payment_mode(estimate.payment_mode),
+            confidence: format_cost_confidence(estimate.confidence),
+        })
+    }
+
     /// Download a file to disk by hex-encoded address.
     pub async fn file_download_public(
         &self,
@@ -920,6 +919,22 @@ impl Client {
         // instead of flattening everything into `NetworkError` — a timeout or an
         // out-of-disk-space failure now surfaces as its own `ClientError`
         // variant rather than a misleading "network error".
+        self.inner.file_download(&data_map, &dest).await?;
+        Ok(())
+    }
+
+    /// Download a private file to disk by hex-encoded data map, without a
+    /// progress listener — the no-progress counterpart of
+    /// [`Self::download_private_to_file`], mirroring how
+    /// [`Self::file_download_public`] pairs with
+    /// [`Self::download_public_to_file`].
+    pub async fn file_download_private(
+        &self,
+        data_map_hex: String,
+        dest_path: String,
+    ) -> Result<(), ClientError> {
+        let data_map = decode_data_map_hex(&data_map_hex)?;
+        let dest = PathBuf::from(&dest_path);
         self.inner.file_download(&data_map, &dest).await?;
         Ok(())
     }
@@ -1195,26 +1210,7 @@ impl Client {
         dest_path: String,
         listener: Box<dyn ProgressListener>,
     ) -> Result<u64, ClientError> {
-        // Reject unreasonably large hex input (20 MB hex = 10 MB decoded),
-        // matching the cap on `data_get_private` — this surface is reachable
-        // from app/UI input, so guard against a decode-driven memory spike.
-        const MAX_HEX_INPUT: usize = 20 * 1024 * 1024;
-        if data_map_hex.len() > MAX_HEX_INPUT {
-            return Err(ClientError::InvalidInput {
-                reason: format!(
-                    "data map hex too large: {} bytes (max {})",
-                    data_map_hex.len(),
-                    MAX_HEX_INPUT
-                ),
-            });
-        }
-        let data_map_bytes = hex::decode(&data_map_hex).map_err(|e| ClientError::InvalidInput {
-            reason: format!("invalid hex: {e}"),
-        })?;
-        let data_map: ant_core::data::DataMap =
-            rmp_serde::from_slice(&data_map_bytes).map_err(|e| ClientError::InvalidInput {
-                reason: format!("invalid data map: {e}"),
-            })?;
+        let data_map = decode_data_map_hex(&data_map_hex)?;
         self.download_to_file(data_map, dest_path, listener).await
     }
 }
@@ -1517,6 +1513,28 @@ fn hex_to_address(hex: &str) -> Result<[u8; 32], ClientError> {
     })?;
     bytes.try_into().map_err(|_| ClientError::InvalidInput {
         reason: "address must be 32 bytes".into(),
+    })
+}
+
+/// Decode a hex-encoded serialized data map, rejecting unreasonably large
+/// input first (20 MB hex = 10 MB decoded) — this surface is reachable from
+/// app/UI input, so guard against a decode-driven memory spike.
+fn decode_data_map_hex(data_map_hex: &str) -> Result<ant_core::data::DataMap, ClientError> {
+    const MAX_HEX_INPUT: usize = 20 * 1024 * 1024;
+    if data_map_hex.len() > MAX_HEX_INPUT {
+        return Err(ClientError::InvalidInput {
+            reason: format!(
+                "data map hex too large: {} bytes (max {})",
+                data_map_hex.len(),
+                MAX_HEX_INPUT
+            ),
+        });
+    }
+    let data_map_bytes = hex::decode(data_map_hex).map_err(|e| ClientError::InvalidInput {
+        reason: format!("invalid hex: {e}"),
+    })?;
+    rmp_serde::from_slice(&data_map_bytes).map_err(|e| ClientError::InvalidInput {
+        reason: format!("invalid data map: {e}"),
     })
 }
 

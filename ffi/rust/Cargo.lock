@@ -847,7 +847,7 @@ dependencies = [
 
 [[package]]
 name = "ant-ffi"
-version = "0.2.0"
+version = "0.0.8"
 dependencies = [
  "ant-core",
  "ant-protocol",
