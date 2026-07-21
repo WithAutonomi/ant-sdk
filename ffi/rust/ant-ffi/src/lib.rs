@@ -323,6 +323,9 @@ pub struct TxReceipt {
 ///     no progress.)
 ///   - **download** — `Resolving` then `Downloading`, emitted by the
 ///     `download_*_to_file` methods.
+///   - **estimate** — `estimate_file_cost_with_progress` emits `Encrypting`
+///     only (estimating self-encrypts the whole file; nothing is quoted or
+///     stored).
 ///
 /// `total` is 0 when the total isn't known yet (show an indeterminate bar);
 /// otherwise `done / total` is a 0..1 fraction of the current phase.
@@ -361,6 +364,8 @@ pub enum ClientError {
     /// already occurred. Money has been spent — show `storage_cost_atto` /
     /// `gas_cost_wei` to the user rather than a generic failure, and retry the
     /// upload (chunks already on the network are skipped, not re-paid).
+    /// Per-chunk address lists are not exposed — resume-from-partial needs
+    /// upstream retryable finalize (tracked as V2-571).
     #[error("Partial upload: {reason} ({chunks_stored}/{total_chunks} chunks stored)")]
     PartialUpload {
         chunks_stored: u64,

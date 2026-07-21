@@ -1563,11 +1563,16 @@ mod tests {
     }
 
     #[test]
-    fn enum_conversions_round_trip() {
-        use crate::data::{from_core_payment_mode, to_core_payment_mode, to_core_visibility};
+    fn payment_mode_round_trips_through_core() {
+        use crate::data::{from_core_payment_mode, to_core_payment_mode};
         for mode in [PaymentMode::Auto, PaymentMode::Merkle, PaymentMode::Single] {
             assert_eq!(from_core_payment_mode(to_core_payment_mode(mode)), mode);
         }
+    }
+
+    #[test]
+    fn visibility_maps_to_core() {
+        use crate::data::to_core_visibility;
         assert!(matches!(
             to_core_visibility(Visibility::Public),
             ant_core::data::Visibility::Public
@@ -1576,5 +1581,25 @@ mod tests {
             to_core_visibility(Visibility::Private),
             ant_core::data::Visibility::Private
         ));
+    }
+
+    // PaymentType, TxKind and ProgressPhase have no ant-core counterpart
+    // (FFI-only vocabulary), so there is no conversion to exercise.
+    #[test]
+    fn cost_confidence_maps_from_core() {
+        use crate::data::from_core_confidence;
+        use ant_core::data::CostEstimateConfidence as Core;
+        assert_eq!(
+            from_core_confidence(Core::PricedSample),
+            crate::CostConfidence::PricedSample
+        );
+        assert_eq!(
+            from_core_confidence(Core::VerifiedAllAlreadyStored),
+            crate::CostConfidence::VerifiedAllAlreadyStored
+        );
+        assert_eq!(
+            from_core_confidence(Core::AllSamplesAlreadyStoredIncomplete),
+            crate::CostConfidence::AllSamplesAlreadyStoredIncomplete
+        );
     }
 }
