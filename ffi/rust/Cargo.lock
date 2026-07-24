@@ -803,8 +803,8 @@ dependencies = [
 
 [[package]]
 name = "ant-core"
-version = "0.3.1"
-source = "git+https://github.com/WithAutonomi/ant-client?tag=ant-cli-v0.2.11#e1b5eac6ce87d7bae0b681467a49d8c875df5c75"
+version = "0.5.0"
+source = "git+https://github.com/WithAutonomi/ant-client?tag=ant-cli-v0.3.1#d93a9719041e0acbafd3eb07feeb9cc06f3fff0b"
 dependencies = [
  "ant-protocol",
  "async-stream",
@@ -877,9 +877,9 @@ dependencies = [
 
 [[package]]
 name = "ant-protocol"
-version = "2.2.2"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a35986649c5963ec808efb44621d8b94716cc2ef5a041ea9a1875487578097c"
+checksum = "5b665880152b4e124094acc1faaff5f20a275594e6364b8a729b50f3bc326674"
 dependencies = [
  "blake3",
  "bytes",
@@ -2385,9 +2385,9 @@ dependencies = [
 
 [[package]]
 name = "evmlib"
-version = "0.8.1"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebd96cf24017cd31cd422c80de3078a821b7884a5b1feb00087e98209326c676"
+checksum = "8da0d9ad5b5cab92cc92ddac9afb884f86b226340caf17f6e5c41d51175dcaa1"
 dependencies = [
  "alloy",
  "ant-merkle",
