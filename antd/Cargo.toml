@@ -1,13 +1,13 @@
 [package]
 name = "antd"
-version = "0.11.1"
+version = "0.11.2"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-ant-core = { git = "https://github.com/WithAutonomi/ant-client", tag = "ant-cli-v0.2.11" }  # ant-core 0.3.1 release; data_download shrunk-DataMap resolve + block_in_place panic fix + quinn-proto RUSTSEC-2026-0185 (was 0.3.0 / ant-cli-v0.2.10)
+ant-core = { git = "https://github.com/WithAutonomi/ant-client", tag = "ant-cli-v0.3.1" }  # ant-core 0.5.0 release; moves to the ant-protocol 2.3.0 line (was 0.3.1 / ant-cli-v0.2.11)
 self_encryption = "0.36.0"
-evmlib = "0.8.1"
+evmlib = "0.9.0"
 axum = { version = "0.8", features = ["macros"] }
 tower-http = { version = "0.6", features = ["cors", "limit", "trace"] }
 tonic = "0.12"
