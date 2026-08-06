@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# NAME IS A PLACEHOLDER-BUT-PERMANENT working title.
+# `autonomi` and `autonomi-client` on PyPI are already taken (the latter is the
+# legacy MaidSafe-era pyo3 binding); `antd` is the daemon SDK. `ant-ffi` matches
+# the Rust crate and the AntFfi artifact family (ant-swift / com.autonomi:ant-android)
+# and is currently free on PyPI. The intent is to move this to a product-named
+# package under a future dedicated org; treat the name as permanent for anything
+# already published, but not as the final destination. See V2-880.
+name = "ant-ffi"
+version = "0.0.8"  # tracks the AntFfi release version (ant-ffi crate / ant_ffi_version())
+description = "Autonomi FFI — direct-network, daemon-less client for Python (UniFFI bindings)"
+readme = "README.md"
+requires-python = ">=3.9"  # floor of the UniFFI 0.29-generated Python
+license = { text = "MIT OR Apache-2.0" }
+
+[tool.setuptools]
+# Pure-Python (ctypes) module + the bundled native library live in ant_ffi/.
+packages = ["ant_ffi"]
+
+[tool.setuptools.package-data]
+# Ship the native library next to the module; the generated loader resolves it
+# from the package directory. Wheels are platform-tagged (py3-none-<platform>),
+# one per OS/arch — the CI matrix builds the right binary per wheel.
+ant_ffi = ["*.dylib", "*.so", "*.dll"]
