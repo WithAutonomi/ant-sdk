@@ -1,0 +1,129 @@
+name: Publish Python (ant-ffi)
+
+# Builds the ant-ffi Python wheel across the platform matrix and publishes to
+# PyPI (or TestPyPI) via Trusted Publishing — no long-lived API token.
+#
+# Each platform reuses the same build script developers run locally, so CI and
+# local builds are the single source of truth:
+#   linux  -> ffi/scripts/build-wheel-manylinux.sh   (manylinux_2_28 in Docker)
+#   macos  -> ffi/scripts/build-wheel-macos.sh        (universal2, lipo+delocate)
+#   windows-> ffi/scripts/build-wheel-windows.ps1     (delvewheel)
+#
+# Wheels are tagged py3-none-<platform>: one per OS/arch, valid for every
+# Python 3 (the bindings are pure ctypes over a bundled native library).
+#
+# ── One-time setup required before the first publish ──
+#   1. Create GitHub environments `pypi` and `testpypi` (Settings > Environments;
+#      optionally add reviewers as a release gate).
+#   2. Register a PyPI/TestPyPI "pending publisher" (Trusted Publishing):
+#        PyPI project: ant-ffi   owner: WithAutonomi   repo: ant-sdk
+#        workflow: publish-python.yml   environment: pypi   (and again for testpypi)
+#   No secrets needed — OIDC via `id-token: write` below.
+#
+# ── How to run ──
+#   • Push a tag `python-v<version>` (e.g. python-v0.0.8) -> builds + publishes to PyPI.
+#   • Or run manually (Actions > Run workflow) with `publish`:
+#       none     -> build the full matrix only (matrix smoke test, no upload)
+#       testpypi -> build + upload to TestPyPI
+#       pypi     -> build + upload to PyPI
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Where to publish the built wheels"
+        type: choice
+        options: [none, testpypi, pypi]
+        default: none
+  push:
+    tags:
+      - "python-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build wheel (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+            script: bash ffi/scripts/build-wheel-manylinux.sh x86_64
+          - name: linux-aarch64
+            os: ubuntu-24.04-arm          # native arm runner — no QEMU
+            script: bash ffi/scripts/build-wheel-manylinux.sh aarch64
+          - name: macos-universal2
+            os: macos-latest              # arm64 host; lipo adds the x86_64 slice
+            script: bash ffi/scripts/build-wheel-macos.sh
+          - name: windows-amd64
+            os: windows-latest
+            script: pwsh ffi/scripts/build-wheel-windows.ps1
+    steps:
+      - uses: actions/checkout@v4
+
+      # Rust for the native macOS/Windows builds. The Linux jobs install Rust
+      # inside the manylinux container, so the host toolchain there is unused
+      # (harmless).
+      - uses: dtolnay/rust-toolchain@stable
+
+      # ant-core's build touches protobuf on the native build paths; the Linux
+      # container build vendors its own, but installing here is harmless and
+      # covers macOS/Windows.
+      - uses: arduino/setup-protoc@v3
+        with:
+          version: "25.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build wheel
+        run: ${{ matrix.script }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.name }}
+          path: ffi/python/wheelhouse/*.whl
+          if-no-files-found: error
+
+  publish:
+    name: Publish
+    needs: build
+    # Publish on a python-v* tag (-> PyPI), or when a manual run asks for it.
+    if: >-
+      startsWith(github.ref, 'refs/tags/python-v') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.publish != 'none')
+    runs-on: ubuntu-latest
+    environment: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'testpypi') && 'testpypi' || 'pypi' }}
+    permissions:
+      id-token: write   # OIDC token for Trusted Publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: wheel-*
+          merge-multiple: true
+
+      - name: List wheels to publish
+        run: ls -la dist
+
+      - name: Publish to TestPyPI
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'testpypi'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: dist
+
+      - name: Publish to PyPI
+        if: startsWith(github.ref, 'refs/tags/python-v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'pypi')
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
