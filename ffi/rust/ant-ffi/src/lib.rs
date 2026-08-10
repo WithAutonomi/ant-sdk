@@ -6,6 +6,10 @@ mod wallet;
 pub use client::Client;
 pub use data::{DataUploadResult, FileUploadResult};
 pub use wallet::Wallet;
+// Re-export the free functions at the crate root so downstream Rust consumers
+// (e.g. the napi-rs `ffi/node` wrapper) can call them directly — `#[uniffi::export]`
+// alone only wires them into the UniFFI scaffolding, and `mod payments` is private.
+pub use payments::{merkle_winner_pool_hash, network_info, wait_for_receipt};
 
 uniffi::setup_scaffolding!();
 

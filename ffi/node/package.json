@@ -1,0 +1,53 @@
+{
+  "name": "@withautonomi/ant-ffi",
+  "version": "0.0.8",
+  "description": "Direct-network (daemon-less) Autonomi client for Node.js and Electron — native addon over the Rust ant-ffi core.",
+  "author": "Autonomi",
+  "license": "MIT OR Apache-2.0",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WithAutonomi/ant-sdk.git",
+    "directory": "ffi/node"
+  },
+  "keywords": [
+    "autonomi",
+    "ant",
+    "storage",
+    "web3",
+    "napi-rs",
+    "native"
+  ],
+  "engines": {
+    "node": ">= 16"
+  },
+  "napi": {
+    "binaryName": "ant-ffi",
+    "targets": [
+      "x86_64-pc-windows-msvc",
+      "aarch64-pc-windows-msvc",
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-unknown-linux-musl",
+      "aarch64-unknown-linux-musl"
+    ]
+  },
+  "files": [
+    "index.js",
+    "index.d.ts"
+  ],
+  "scripts": {
+    "artifacts": "napi artifacts",
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "prepublishOnly": "napi prepublish -t npm",
+    "test": "node --test \"__test__/**/*.test.mjs\"",
+    "version": "napi version"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.8.5"
+  }
+}
