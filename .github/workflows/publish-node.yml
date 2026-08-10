@@ -72,10 +72,12 @@ jobs:
             host: windows-latest
           - target: x86_64-unknown-linux-gnu
             host: ubuntu-latest
-            build_args: --use-napi-cross
+            zig: true
+            build_args: -x
           - target: aarch64-unknown-linux-gnu
             host: ubuntu-latest
-            build_args: --use-napi-cross
+            zig: true
+            build_args: -x
           - target: x86_64-unknown-linux-musl
             host: ubuntu-latest
             zig: true

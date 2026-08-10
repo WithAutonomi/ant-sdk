@@ -4,18 +4,21 @@
 #   • test  — native build + offline smoke tests on Linux/macOS/Windows. This is
 #             the fast signal that the addon loads and works on each OS.
 #   • build — the full cross-compile platform matrix (8 targets), proving each
-#             prebuilt `.node` compiles and packages. napi's recommended flow:
-#               linux-gnu  -> --use-napi-cross (portable old-glibc sysroot, no Docker)
-#               linux-musl -> Zig + cargo-zigbuild (-x)
-#               macOS/Win  -> native runners (arm64 host cross-builds the x64 slice)
+#             prebuilt `.node` compiles and packages:
+#               linux (gnu+musl) -> Zig + cargo-zigbuild (-x)
+#               macOS/Win        -> native runners (arm64 host builds the x64 slice)
 #
-# `fail-fast: false` so every target's result is visible in one run. musl (Zig
-# cross of the full ant-core native tree: QUIC/libp2p/rustls/evmlib + C deps) is
-# the target most likely to need iteration.
+# All four Linux targets go through cargo-zigbuild rather than --use-napi-cross:
+# napi-cross hits an npm optional-dependency bug (npm/cli#4828) on CI, and Zig
+# already cross-compiles the full ant-core native tree (QUIC/libp2p/rustls/evmlib
+# + C deps like secp256k1/blst) cleanly for musl and gnu alike.
 #
-# Note: `npm install` (not `npm ci`) so npm resolves @napi-rs/cli's per-platform
-# optional deps (e.g. @napi-rs/cross-toolchain) for the *runner's* platform — a
-# committed lockfile generated on one OS omits the others' optional binaries.
+# Follow-up: verify the gnu glibc floor zigbuild targets is old enough for broad
+# distro support (musl is static, so unaffected).
+#
+# `fail-fast: false` so every target's result is visible in one run. `npm install`
+# (not `npm ci`) so npm resolves @napi-rs/cli's per-platform optional native deps
+# for the runner — a lockfile generated on one OS omits the others' binaries.
 
 name: CI (node ffi)
 
@@ -96,10 +99,12 @@ jobs:
             host: windows-latest
           - target: x86_64-unknown-linux-gnu
             host: ubuntu-latest
-            build_args: --use-napi-cross
+            zig: true
+            build_args: -x
           - target: aarch64-unknown-linux-gnu
             host: ubuntu-latest
-            build_args: --use-napi-cross
+            zig: true
+            build_args: -x
           - target: x86_64-unknown-linux-musl
             host: ubuntu-latest
             zig: true
