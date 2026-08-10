@@ -1,0 +1,149 @@
+# Build the ffi/node addon across the platform matrix and publish
+# @withautonomi/ant-ffi (+ its per-platform packages) to npm, in lockstep.
+#
+# Mirrors publish-python.yml: the same per-target build the CI job runs, then a
+# single publish step. Platform packages (@withautonomi/ant-ffi-<platform>) are
+# published by napi's `prepublish` (the package.json `prepublishOnly` hook that
+# `npm publish` triggers); the main package carries them as optionalDependencies
+# with os/cpu constraints, so `npm install` pulls only the matching prebuilt.
+#
+# ── One-time setup required before the first publish ──
+#   1. Create the `@withautonomi` org on npmjs.com (the scope is currently free).
+#   2. Create a GitHub environment named `npm` (Settings > Environments;
+#      optionally add reviewers as a release gate).
+#   3. Provide npm auth — either:
+#        a. a granular automation token as repo/environment secret `NPM_TOKEN`
+#           (Automation type, scoped to the @withautonomi org), OR
+#        b. npm OIDC trusted publishing (no token) — provenance is already
+#           enabled below via `id-token: write`.
+#
+# ── How to run ──
+#   • Push a tag `node-v<version>` (e.g. node-v0.0.8) -> builds + publishes to npm.
+#   • Or run manually (Actions > Run workflow) with `publish`:
+#       none -> build the full matrix only (matrix smoke test, no upload)
+#       npm  -> build + publish to npm
+
+name: Publish Node (ant-ffi)
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish the built packages to npm"
+        type: choice
+        options: [none, npm]
+        default: none
+  push:
+    tags:
+      - "node-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-node-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    working-directory: ffi/node
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.host }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            host: macos-latest
+          - target: aarch64-apple-darwin
+            host: macos-latest
+          - target: x86_64-pc-windows-msvc
+            host: windows-latest
+          - target: aarch64-pc-windows-msvc
+            host: windows-latest
+          - target: x86_64-unknown-linux-gnu
+            host: ubuntu-latest
+            build_args: --use-napi-cross
+          - target: aarch64-unknown-linux-gnu
+            host: ubuntu-latest
+            build_args: --use-napi-cross
+          - target: x86_64-unknown-linux-musl
+            host: ubuntu-latest
+            zig: true
+            build_args: -x
+          - target: aarch64-unknown-linux-musl
+            host: ubuntu-latest
+            zig: true
+            build_args: -x
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Set up Zig (musl cross)
+        if: ${{ matrix.zig }}
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.14.1
+      - name: Install cargo-zigbuild (musl cross)
+        if: ${{ matrix.zig }}
+        run: cargo install cargo-zigbuild --locked
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ffi/node/target/
+          key: publish-${{ matrix.target }}-cargo-${{ hashFiles('ffi/node/Cargo.lock') }}
+      - run: npm ci
+      - name: Build ${{ matrix.target }}
+        run: npx napi build --platform --release --target ${{ matrix.target }} ${{ matrix.build_args }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bindings-${{ matrix.target }}
+          path: ffi/node/*.node
+          if-no-files-found: error
+
+  publish:
+    name: publish to npm
+    needs: build
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write # npm provenance / OIDC trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - name: Download all prebuilt binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: ffi/node/artifacts
+          merge-multiple: true
+      - name: Assemble per-platform npm dirs
+        run: |
+          npx napi create-npm-dirs
+          npx napi artifacts --output-dir artifacts
+          ls -R npm
+      - name: Publish
+        if: ${{ github.event_name == 'push' || inputs.publish == 'npm' }}
+        run: |
+          npm config set provenance true
+          npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

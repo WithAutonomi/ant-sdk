@@ -11,3 +11,5 @@ index.d.ts
 
 # Generated per-platform npm packages (created by `napi create-npm-dirs` / prepublish)
 npm/
+# Downloaded CI artifacts staging dir (publish workflow)
+artifacts/
