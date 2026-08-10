@@ -1,0 +1,39 @@
+# napi-rs wrapper crate: a thin `#[napi]` layer over `ant-ffi`'s plain Rust lib.
+# No business logic lives here — every method delegates to `ant-ffi`, which is
+# the same inner client the Swift/Kotlin/C#/Python bindings wrap via UniFFI.
+# napi-rs (not UniFFI) drives this lane because UniFFI has no maintained Node
+# generator; see ffi/README.md and the V2-881 ticket.
+
+# Declare this crate its own workspace root so cargo never tries to fold it into
+# the sibling `ffi/rust` UniFFI workspace (different build model, own lockfile).
+[workspace]
+
+[package]
+name = "ant-ffi-node"
+# Mirrors the released SDK version (ant-ffi crate / ant-swift tag / maven
+# version) so the exported version string tells the truth. Bump on each release.
+version = "0.0.8"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# napi8 => Node-API v8, covering Node 16+ (and all Node 18/20/22+). `async`
+# pulls in `tokio_rt`, so async fns run on napi's managed tokio runtime and
+# return JS Promises — the same runtime model ant-ffi's futures expect.
+napi = { version = "3.12", default-features = false, features = ["napi8", "async"] }
+napi-derive = "3.6"
+# The inner client. Path dep on the sibling UniFFI crate's `lib` target; we call
+# its public `Client`/`Wallet` methods and free fns and re-pack the records.
+ant-ffi = { path = "../rust/ant-ffi" }
+
+[build-dependencies]
+napi-build = "2.4"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = "symbols"
