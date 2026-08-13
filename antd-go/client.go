@@ -116,7 +116,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any) (map
 				msg = e
 			}
 		}
-		return nil, resp.StatusCode, errorForStatus(resp.StatusCode, msg)
+		return nil, resp.StatusCode, errorForResponse(resp.StatusCode, msg, parsed)
 	}
 
 	if len(respBytes) == 0 {
@@ -181,7 +181,7 @@ func (c *Client) doStreamWithAccept(ctx context.Context, method, path string, bo
 				msg = e
 			}
 		}
-		return nil, errorForStatus(resp.StatusCode, msg)
+		return nil, errorForResponse(resp.StatusCode, msg, parsed)
 	}
 
 	return resp.Body, nil
@@ -682,26 +682,44 @@ func parsePrepareResponse(j map[string]any) *PrepareUploadResult {
 	if result.PaymentType == "merkle" {
 		result.Depth = int(num64(j, "depth"))
 		result.MerklePaymentTimestamp = uint64(num64(j, "merkle_payment_timestamp"))
+		result.PoolCommitments = parsePoolCommitments(arrAt(j, "pool_commitments"))
 
-		for _, pc := range arrAt(j, "pool_commitments") {
-			if pcm, ok := pc.(map[string]any); ok {
-				entry := PoolCommitmentEntry{
-					PoolHash: str(pcm, "pool_hash"),
-				}
-				for _, c := range arrAt(pcm, "candidates") {
-					if cm, ok := c.(map[string]any); ok {
-						entry.Candidates = append(entry.Candidates, CandidateNodeEntry{
-							RewardsAddress: str(cm, "rewards_address"),
-							Amount:         str(cm, "amount"),
-						})
-					}
-				}
-				result.PoolCommitments = append(result.PoolCommitments, entry)
+		// Multi-batch shape (antd >= 0.12.0). On single-batch uploads the
+		// legacy fields above mirror MerkleBatches[0]; on multi-batch
+		// uploads only this list is populated.
+		for _, b := range arrAt(j, "merkle_batches") {
+			if bm, ok := b.(map[string]any); ok {
+				result.MerkleBatches = append(result.MerkleBatches, MerkleBatchEntry{
+					Depth:                  int(num64(bm, "depth")),
+					PoolCommitments:        parsePoolCommitments(arrAt(bm, "pool_commitments")),
+					MerklePaymentTimestamp: uint64(num64(bm, "merkle_payment_timestamp")),
+				})
 			}
 		}
 	}
 
 	return result
+}
+
+func parsePoolCommitments(raw []any) []PoolCommitmentEntry {
+	var entries []PoolCommitmentEntry
+	for _, pc := range raw {
+		if pcm, ok := pc.(map[string]any); ok {
+			entry := PoolCommitmentEntry{
+				PoolHash: str(pcm, "pool_hash"),
+			}
+			for _, c := range arrAt(pcm, "candidates") {
+				if cm, ok := c.(map[string]any); ok {
+					entry.Candidates = append(entry.Candidates, CandidateNodeEntry{
+						RewardsAddress: str(cm, "rewards_address"),
+						Amount:         str(cm, "amount"),
+					})
+				}
+			}
+			entries = append(entries, entry)
+		}
+	}
+	return entries
 }
 
 // PrepareUpload prepares a private file upload for external signing.
@@ -774,14 +792,41 @@ func (c *Client) FinalizeUpload(ctx context.Context, uploadID string, txHashes m
 	}, nil
 }
 
-// FinalizeMerkleUpload finalizes a merkle upload after the external signer has submitted
-// the payForMerkleTree transaction. winnerPoolHash is the bytes32 value from the
-// MerklePaymentMade event (hex with 0x prefix).
+// FinalizeMerkleUpload finalizes a single-batch merkle upload after the
+// external signer has submitted the payForMerkleTree transaction.
+// winnerPoolHash is the bytes32 value from the MerklePaymentMade event (hex
+// with 0x prefix). Uploads whose prepare result has more than one entry in
+// MerkleBatches must use FinalizeMerkleUploadMulti instead — the daemon
+// rejects the single-hash form for them.
 func (c *Client) FinalizeMerkleUpload(ctx context.Context, uploadID string, winnerPoolHash string, storeDataMap bool) (*FinalizeUploadResult, error) {
 	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/upload/finalize", map[string]any{
 		"upload_id":        uploadID,
 		"winner_pool_hash": winnerPoolHash,
 		"store_data_map":   storeDataMap,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &FinalizeUploadResult{
+		DataMap:        str(j, "data_map"),
+		Address:        str(j, "address"),
+		DataMapAddress: str(j, "data_map_address"),
+		ChunksStored:   num64(j, "chunks_stored"),
+	}, nil
+}
+
+// FinalizeMerkleUploadMulti finalizes a merkle upload paid in one or more
+// batches (antd >= 0.12.0). winnerPoolHashes is index-aligned with the
+// prepare result's MerkleBatches: entry i is the MerklePaymentMade winner
+// hash of batch i's payForMerkleTree2 transaction, or "" for a batch the
+// signer never paid. Paid batches store; the chunks of unpaid batches
+// surface via *PartialUploadError, and re-preparing the same content skips
+// already-stored chunks so a retry pays only for the missing remainder.
+func (c *Client) FinalizeMerkleUploadMulti(ctx context.Context, uploadID string, winnerPoolHashes []string, storeDataMap bool) (*FinalizeUploadResult, error) {
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/upload/finalize", map[string]any{
+		"upload_id":          uploadID,
+		"winner_pool_hashes": winnerPoolHashes,
+		"store_data_map":     storeDataMap,
 	})
 	if err != nil {
 		return nil, err
