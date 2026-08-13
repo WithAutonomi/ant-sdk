@@ -64,7 +64,10 @@ fn build_prepare_response(
                 already_stored_count,
             })
         }
-        ant_core::data::ExternalPaymentInfo::Merkle { prepared_batch, .. } => {
+        ant_core::data::ExternalPaymentInfo::Merkle {
+            prepared_batches, ..
+        } => {
+            let prepared_batch = single_merkle_batch(prepared_batches)?;
             // Serialize pool commitments for JSON response.
             // Each candidate has rewards_address + price (maps to contract's amount).
             let pool_commitments: Vec<PoolCommitmentEntry> = prepared_batch
@@ -98,6 +101,26 @@ fn build_prepare_response(
                 already_stored_count,
             })
         }
+    }
+}
+
+/// Extract the single merkle payment batch from a prepared upload, refusing
+/// multi-batch prepares. ant-core 0.6.0 (ADR-0003) splits an external upload
+/// larger than one merkle tree (256 fresh chunks ≈ 1 GiB) into several payment
+/// batches, but this wire API still carries exactly one batch out and one
+/// winner hash back — exposing only the first batch would take payment for a
+/// fraction of the file that finalize can never complete. Lifting the cap
+/// means teaching prepare/finalize (REST + gRPC) the batch-list shape.
+pub(crate) fn single_merkle_batch(
+    batches: &[ant_core::data::PreparedMerkleBatch],
+) -> Result<&ant_core::data::PreparedMerkleBatch, AntdError> {
+    match batches {
+        [batch] => Ok(batch),
+        _ => Err(AntdError::NotImplemented(format!(
+            "file needs {} merkle payment batches; the external-signer API supports one batch \
+             (256 fresh chunks ≈ 1 GiB) per upload — split the file or use a wallet-backed upload",
+            batches.len()
+        ))),
     }
 }
 

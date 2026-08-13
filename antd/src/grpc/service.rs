@@ -43,7 +43,7 @@ fn build_grpc_prepare_response(
     upload_id: String,
     prepared: &ant_core::data::PreparedUpload,
     network: &str,
-) -> pb::PrepareUploadResponse {
+) -> Result<pb::PrepareUploadResponse, AntdError> {
     let evm_cfg = crate::evm_defaults::resolve(network);
     let rpc_url = evm_cfg.rpc_url;
     let payment_token_address = evm_cfg.token_addr;
@@ -61,7 +61,7 @@ fn build_grpc_prepare_response(
                 })
                 .collect();
 
-            pb::PrepareUploadResponse {
+            Ok(pb::PrepareUploadResponse {
                 upload_id,
                 payment_type: "wave_batch".into(),
                 payments,
@@ -72,9 +72,12 @@ fn build_grpc_prepare_response(
                 payment_vault_address,
                 payment_token_address,
                 rpc_url,
-            }
+            })
         }
-        ant_core::data::ExternalPaymentInfo::Merkle { prepared_batch, .. } => {
+        ant_core::data::ExternalPaymentInfo::Merkle {
+            prepared_batches, ..
+        } => {
+            let prepared_batch = crate::rest::upload::single_merkle_batch(prepared_batches)?;
             let pool_commitments: Vec<pb::PoolCommitmentEntry> = prepared_batch
                 .pool_commitments
                 .iter()
@@ -91,7 +94,7 @@ fn build_grpc_prepare_response(
                 })
                 .collect();
 
-            pb::PrepareUploadResponse {
+            Ok(pb::PrepareUploadResponse {
                 upload_id,
                 payment_type: "merkle".into(),
                 payments: Vec::new(),
@@ -102,7 +105,7 @@ fn build_grpc_prepare_response(
                 payment_vault_address,
                 payment_token_address,
                 rpc_url,
-            }
+            })
         }
     }
 }
@@ -1020,7 +1023,8 @@ impl pb::upload_service_server::UploadService for UploadServiceImpl {
 
         let upload_id = hex::encode(rand::random::<[u8; 16]>());
         let response =
-            build_grpc_prepare_response(upload_id.clone(), &prepared, &self.state.network);
+            build_grpc_prepare_response(upload_id.clone(), &prepared, &self.state.network)
+                .map_err(tonic::Status::from)?;
 
         self.state.pending_uploads.lock().await.insert(
             upload_id,
@@ -1055,7 +1059,8 @@ impl pb::upload_service_server::UploadService for UploadServiceImpl {
 
         let upload_id = hex::encode(rand::random::<[u8; 16]>());
         let response =
-            build_grpc_prepare_response(upload_id.clone(), &prepared, &self.state.network);
+            build_grpc_prepare_response(upload_id.clone(), &prepared, &self.state.network)
+                .map_err(tonic::Status::from)?;
 
         self.state.pending_uploads.lock().await.insert(
             upload_id,
