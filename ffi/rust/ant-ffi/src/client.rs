@@ -1439,7 +1439,9 @@ impl Client {
             // prepares outright — surfacing only the first batch would let the
             // caller pay for a fraction of the file that finalize can never
             // complete.
-            ExternalPaymentInfo::Merkle { prepared_batches, .. } => {
+            ExternalPaymentInfo::Merkle {
+                prepared_batches, ..
+            } => {
                 let prepared_batch = match prepared_batches.as_slice() {
                     [batch] => batch,
                     batches => {

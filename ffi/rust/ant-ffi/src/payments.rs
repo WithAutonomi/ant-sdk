@@ -107,7 +107,9 @@ pub(crate) fn build_payment_transactions(
             }
             Ok(txs)
         }
-        ExternalPaymentInfo::Merkle { prepared_batches, .. } => {
+        ExternalPaymentInfo::Merkle {
+            prepared_batches, ..
+        } => {
             // `stash_prepared` rejects multi-batch prepares, so a stashed
             // session always holds exactly one batch here; guard anyway so a
             // core change can't silently build a payment covering only part of
