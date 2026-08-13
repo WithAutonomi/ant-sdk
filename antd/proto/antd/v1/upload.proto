@@ -35,8 +35,10 @@ service UploadService {
 
   // Phase 2: finalize an upload after the external EVM payment has landed.
   // For wave-batch uploads pass `tx_hashes`; for merkle uploads pass
-  // `winner_pool_hash` from the `MerklePaymentMade` event. The server-side
-  // stored upload state is consumed (one-shot).
+  // `winner_pool_hashes` — one `MerklePaymentMade` winner hash per entry in
+  // the prepare response's `merkle_batches` (`winner_pool_hash` remains
+  // accepted when there is exactly one batch). The server-side stored upload
+  // state is consumed (one-shot) once inputs validate.
   rpc FinalizeUpload(FinalizeUploadRequest) returns (FinalizeUploadResponse);
 }
 
@@ -73,12 +75,22 @@ message PrepareUploadResponse {
   repeated PaymentEntry payments = 3;
 
   // --- Merkle fields (populated when payment_type == "merkle") ---
+  // LEGACY single-batch fields: populated only when `merkle_batches` has
+  // exactly one entry (mirroring that entry), so pre-multi-batch clients
+  // keep working for uploads that fit one merkle tree. Multi-batch prepares
+  // leave them empty — a legacy client cannot pay a fraction of the file.
   // Merkle tree depth (1..=8).
   uint32 depth = 4;
   // Pool commitments for `payForMerkleTree2()`.
   repeated PoolCommitmentEntry pool_commitments = 5;
   // Timestamp for the merkle payment (unix seconds).
   uint64 merkle_payment_timestamp = 6;
+  // All merkle payment batches, in order. ant-core splits an upload larger
+  // than one merkle tree (256 fresh chunks ≈ 1 GiB) into several batches;
+  // the signer submits one `payForMerkleTree2()` transaction per entry and
+  // passes the winner hashes back index-aligned in
+  // `FinalizeUploadRequest.winner_pool_hashes`.
+  repeated MerkleBatchEntry merkle_batches = 11;
 
   // --- Common fields (always populated) ---
   // Total amount to pay in atto tokens as a decimal string. For merkle this
@@ -90,6 +102,17 @@ message PrepareUploadResponse {
   string payment_token_address = 9;
   // EVM RPC URL for submitting transactions.
   string rpc_url = 10;
+}
+
+// One merkle payment batch: everything the external signer needs for a
+// single `payForMerkleTree2()` call.
+message MerkleBatchEntry {
+  // Merkle tree depth (1..=8).
+  uint32 depth = 1;
+  // Pool commitments for `payForMerkleTree2()`.
+  repeated PoolCommitmentEntry pool_commitments = 2;
+  // Timestamp for the merkle payment (unix seconds).
+  uint64 merkle_payment_timestamp = 3;
 }
 
 // A pool commitment entry for the merkle payment contract.
@@ -117,10 +140,17 @@ message FinalizeUploadRequest {
   // payment. Required when the prepared upload was wave-batch, must be
   // empty otherwise.
   map<string, string> tx_hashes = 2;
-  // Merkle: winner pool hash (hex with 0x prefix, 32 bytes) from the
-  // `MerklePaymentMade` event. Required when the prepared upload was
-  // merkle, must be empty otherwise.
+  // Merkle, LEGACY single-batch: winner pool hash (hex with 0x prefix,
+  // 32 bytes) from the `MerklePaymentMade` event. Accepted only when the
+  // prepared upload has exactly one merkle batch; must be empty otherwise
+  // (and must not be combined with `winner_pool_hashes`).
   string winner_pool_hash = 3;
+  // Merkle: one winner pool hash per entry in the prepare response's
+  // `merkle_batches`, index-aligned. An empty string marks a batch the
+  // signer never paid — paid batches store and the unpaid chunks surface
+  // via the PARTIAL_UPLOAD error. Required (over `winner_pool_hash`) when
+  // the prepared upload has more than one batch.
+  repeated string winner_pool_hashes = 5;
   // If true, store the DataMap on-network via the daemon's internal wallet
   // and return its address. If false (default), return the raw DataMap
   // for caller-side storage. Equivalent to the REST `store_data_map`
