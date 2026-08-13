@@ -1431,7 +1431,28 @@ impl Client {
             // Merkle: expose depth + pool commitments + timestamp so the app can
             // build the `payForMerkleTree(uint8, PoolCommitment[], uint64)` call.
             // Mirrors the antd daemon's gRPC/REST mapping.
-            ExternalPaymentInfo::Merkle { prepared_batch, .. } => {
+            //
+            // ant-core 0.6.0 (ADR-0003) splits an upload larger than one merkle
+            // tree (256 fresh chunks ≈ 1 GiB) into several payment batches, but
+            // this surface still speaks single-batch: one payForMerkleTree tx,
+            // one winner hash into `finalize_upload_merkle`. Refuse multi-batch
+            // prepares outright — surfacing only the first batch would let the
+            // caller pay for a fraction of the file that finalize can never
+            // complete.
+            ExternalPaymentInfo::Merkle { prepared_batches, .. } => {
+                let prepared_batch = match prepared_batches.as_slice() {
+                    [batch] => batch,
+                    batches => {
+                        return Err(ClientError::InvalidInput {
+                            reason: format!(
+                                "file needs {} merkle payment batches; external signing \
+                                 supports one batch (256 fresh chunks ≈ 1 GiB) per upload — \
+                                 upload smaller pieces until multi-batch signing ships",
+                                batches.len()
+                            ),
+                        });
+                    }
+                };
                 depth = prepared_batch.depth as u32;
                 merkle_payment_timestamp = prepared_batch.merkle_payment_timestamp;
                 pool_commitments = prepared_batch
