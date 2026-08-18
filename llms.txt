@@ -1,6 +1,6 @@
 # antd SDK
 
-> Go, JavaScript/TypeScript, Python, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, Elixir, Zig, Rust, C++, and Java SDKs for the Autonomi network via the antd daemon. Provides REST and gRPC transports, an MCP server (14 tools), and a local daemon that manages wallet, payments, and network connectivity.
+> Go, JavaScript/TypeScript, Python, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, Elixir, Zig, Rust, C++, and Java SDKs for the Autonomi network via the antd daemon. Provides REST and gRPC transports, an MCP server (19 tools), and a local daemon that manages wallet, payments, and network connectivity.
 
 ## Quick Start
 
@@ -13,22 +13,24 @@ data = client.data_get_public(result.address)
 
 ## SDKs
 
+> **Install note:** registry packages for these SDKs are **not yet published** — install from a clone of this repo (`git clone https://github.com/WithAutonomi/ant-sdk`); each SDK directory's README has the steps. The Go module installs directly (path-tagged releases). Do **not** run `npm install antd`, `pip install antd`, or `gem install antd`: on the public registries those names are unrelated or unregistered packages.
+
 - [Go SDK](antd-go/) — `go get github.com/WithAutonomi/ant-sdk/antd-go` — REST + gRPC, context-based (Go 1.21+)
-- [JS/TS SDK](antd-js/) — `npm install antd` — REST, async (Node.js 18+)
-- [Python SDK](antd-py/) — `pip install antd` — REST + gRPC, sync + async
-- [C# SDK](antd-csharp/Antd.Sdk/) — `dotnet add package Antd.Sdk` — REST + gRPC, async
+- [JS/TS SDK](antd-js/) — from source — REST, async (Node.js 18+)
+- [Python SDK](antd-py/) — from source: `pip install -e "./antd-py[rest]"` — REST + gRPC, sync + async
+- [C# SDK](antd-csharp/Antd.Sdk/) — from source — REST + gRPC, async
 - [Kotlin SDK](antd-kotlin/) — REST + gRPC, coroutine-based async (JDK 17+)
 - [Swift SDK](antd-swift/) — REST + gRPC, async/await (Swift 5.9+, macOS only)
-- [Ruby SDK](antd-ruby/) — `gem install antd` — REST + gRPC, sync (Ruby 3.0+)
-- [PHP SDK](antd-php/) — `composer require autonomi/antd` — REST, sync + async (PHP 8.1+)
-- [Dart SDK](antd-dart/) — `dart pub add antd` — REST + gRPC, async (Dart 3.0+)
-- [Lua SDK](antd-lua/) — `luarocks install antd` — REST, sync (Lua 5.1+)
-- [Elixir SDK](antd-elixir/) — `{:antd, "~> 0.1"}` in mix.exs — REST + gRPC, async (Elixir 1.14+)
+- [Ruby SDK](antd-ruby/) — from source — REST + gRPC, sync (Ruby 3.0+)
+- [PHP SDK](antd-php/) — from source — REST, sync + async (PHP 8.1+)
+- [Dart SDK](antd-dart/) — from source — REST + gRPC, async (Dart 3.0+)
+- [Lua SDK](antd-lua/) — from source — REST, sync (Lua 5.1+)
+- [Elixir SDK](antd-elixir/) — from source (path dep in mix.exs) — REST + gRPC, async (Elixir 1.14+)
 - [Zig SDK](antd-zig/) — build.zig.zon dependency — REST, sync (Zig 0.14+)
-- [Rust SDK](antd-rust/) — `cargo add antd-client` — REST + gRPC, async/tokio
+- [Rust SDK](antd-rust/) — from source (path dependency on `antd-rust/`) — REST + gRPC, async/tokio
 - [C++ SDK](antd-cpp/) — CMake FetchContent — REST + gRPC, sync + async (C++20)
 - [Java SDK](antd-java/) — Gradle/Maven — REST + gRPC, sync + async (Java 17+)
-- [MCP Server](antd-mcp/) — 14 tools for AI agent integration
+- [MCP Server](antd-mcp/) — 19 tools for AI agent integration
 
 ## API Reference
 

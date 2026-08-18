@@ -8,7 +8,7 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that e
 pip install -e antd-mcp/
 ```
 
-Requires the `antd` Python SDK (`pip install antd[rest]`).
+Requires the `antd` Python SDK — install it from the repo root first: `pip install -e "./antd-py[rest]"` (the `antd` name on PyPI is not ours; there is no registry install yet).
 
 ## Running
 
@@ -56,7 +56,7 @@ The server will auto-discover the daemon via the port file. Add `"env": {"ANTD_B
 | 4 | `download_file(address, dest_path, private?)` | Download to local path — the **daemon** writes the file (daemon and MCP server must share a filesystem). Pass `private=True` if `address` is a caller-held DataMap from a private upload. |
 | 5 | `stream_download_file(address, dest_path, private?)` | Like `download_file`, but streams the bytes back to the MCP server process and writes `dest_path` on **this** host with constant memory (suits large objects / no shared filesystem). Returns `bytes_written`. |
 | 6 | `get_cost(text?, file_path?, payment_mode?)` | Estimate storage cost — returns `cost`, `file_size`, `chunk_count`, `estimated_gas_cost_wei`, `payment_mode` |
-| 7 | `check_balance()` | Check daemon health and network status |
+| 7 | `check_health()` | Check daemon health and network status |
 
 ### Wallet Operations
 
