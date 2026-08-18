@@ -106,8 +106,7 @@ data, _ := client.DataGetPublic(ctx, result.Address)
 ```
 
 ```java
-// Java — Gradle: implementation("com.autonomi:antd-java:0.1.0")
-//        Maven: <dependency><groupId>com.autonomi</groupId><artifactId>antd-java</artifactId><version>0.1.0</version></dependency>
+// Java — from source (antd-java/); Gradle/Maven coordinates not yet published
 import com.autonomi.antd.AntdClient;
 
 try (AntdClient client = AntdClient.create()) {           // REST, localhost:8082
@@ -117,7 +116,7 @@ try (AntdClient client = AntdClient.create()) {           // REST, localhost:808
 ```
 
 ```rust
-// Rust — cargo add antd-client
+// Rust — from source: path dependency on antd-rust/ (crate not yet published)
 use antd_client::Client;
 
 #[tokio::main]
@@ -142,7 +141,7 @@ auto data = client.dataGetPublic(result.address);
 ```
 
 ```ruby
-# Ruby — gem install antd
+# Ruby — from source (antd-ruby/; gem not yet published)
 require "antd"
 
 client = Antd::Client.new                            # REST, localhost:8082
@@ -153,7 +152,7 @@ data = client.data_get_public(result.address)
 ```
 
 ```php
-// PHP — composer require autonomi/antd
+// PHP — from source (antd-php/; package not yet published)
 <?php
 use Autonomi\AntdClient;
 
@@ -165,7 +164,7 @@ $data = $client->dataGetPublic($result->address);
 ```
 
 ```dart
-// Dart — dart pub add antd
+// Dart — from source (antd-dart/; package not yet published)
 import 'package:antd/antd.dart';
 
 final client = AntdClient();                         // REST, localhost:8082
@@ -176,7 +175,7 @@ final data = await client.dataGetPublic(result.address);
 ```
 
 ```lua
--- Lua — luarocks install antd
+-- Lua — from source (antd-lua/; rock not yet published)
 local antd = require("antd")
 
 local client = antd.Client.new()                     -- REST, localhost:8082
@@ -187,7 +186,7 @@ local data = client:data_get_public(result.address)
 ```
 
 ```elixir
-# Elixir — {:antd, "~> 0.1"} in mix.exs deps
+# Elixir — from source: path dep on antd-elixir/ in mix.exs
 client = Antd.Client.new()                           # REST, localhost:8082
 client = Antd.Client.new(base_url: "http://remote:8082")
 
@@ -729,8 +728,7 @@ func (c *Client) WalletApprove(ctx context.Context) error
 ## Java SDK Method Signatures
 
 ```java
-// Gradle: implementation("com.autonomi:antd-java:0.1.0")
-// Maven:  <dependency><groupId>com.autonomi</groupId><artifactId>antd-java</artifactId><version>0.1.0</version></dependency>
+// Java — from source (antd-java/); Gradle/Maven coordinates not yet published
 import com.autonomi.antd.AntdClient;
 
 AntdClient client = AntdClient.create();                  // REST, localhost:8082
@@ -770,7 +768,7 @@ boolean walletApprove() throws AntdException
 ## Rust SDK Method Signatures
 
 ```rust
-// cargo add antd-client
+// path dependency on antd-rust/ (crate not yet published)
 use antd_client::{Client, PutResult, HealthStatus, AntdError};
 
 let client = Client::new("http://localhost:8082");        // REST, localhost:8082
@@ -1110,10 +1108,12 @@ Every tool with a `private` flag (`store_data`, `retrieve_data`, `upload_file`, 
 | `chunk_put` | `chunk_put` | Store raw chunk |
 | `chunk_get` | `chunk_get` | Retrieve raw chunk |
 | `get_cost(text?, file_path?, payment_mode?)` | `data_cost` / `file_cost` | Estimate storage cost. `payment_mode` flows through so the quote matches the eventual put. |
-| `check_balance` | `health` | Check daemon health |
+| `check_health` | `health` | Check daemon health |
 | `wallet_address` | `wallet_address` | Get wallet public address |
 | `wallet_balance` | `wallet_balance` | Get wallet balances |
 | `wallet_approve` | `wallet_approve` | Approve wallet for payments |
+
+Eight newer tools are not yet mapped in this table: `stream_download_file` and the external-signer set (`prepare_upload`, `prepare_upload_public`, `prepare_data_upload`, `finalize_upload`, `finalize_merkle_upload`, `prepare_chunk_upload`, `finalize_chunk_upload`). See [antd-mcp/README.md](antd-mcp/README.md) for the full 19-tool list.
 
 ---
 
