@@ -15,12 +15,12 @@ A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized 
               │ Client API  │
               └──────┬──────┘
                      │
-   ┌─────────────────┼─────────────────┬╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┐
+   ┌─────────────────┼─────────────────┬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬┐
    │                 │                 │                   ╎
-┌──┴───────────┐ ┌───┴──────────┐ ┌────┴────────────┐ ┌╌╌╌┴╌╌╌╌╌╌╌╌╌╌╌┐
+┌──┴───────────┐ ┌───┴──────────┐ ┌────┴────────────┐ ┌╬╬╬┴╬╬╬╬╬╬╬╬╬╬╬┐
 │     antd     │ │   Bindings   │ │    ant-mcp      │ ╎    ant-wasm    ╎
 │ Rust Daemon  │ │  FFI Mobile  │ │   MCP Server    │ ╎  WebAssembly   ╎
-└──┬────────┬──┘ └──────────────┘ └─────────────────┘ └╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘
+└──┬────────┬──┘ └──────────────┘ └─────────────────┘ └╬╬╬╬╬╬╬╬╬╬╬╬╬╬╬┘
    │        │                                               WIP
 ┌──┴───┐ ┌──┴───┐
 │ REST │ │ gRPC │
@@ -85,7 +85,7 @@ All data and file upload operations accept an optional `payment_mode` parameter 
 | Component | Language | Description |
 |-----------|----------|-------------|
 | [`antd/`](antd/) | Rust | REST + gRPC gateway daemon |
-| [`antd-mcp/`](antd-mcp/) | Python | MCP server exposing 14 tools for AI agents (Claude, etc.) |
+| [`antd-mcp/`](antd-mcp/) | Python | MCP server exposing 19 tools for AI agents (Claude, etc.) |
 | [`ant-dev/`](ant-dev/) | Python | Developer CLI for local environment management |
 
 ### Language SDKs
@@ -121,22 +121,24 @@ All data and file upload operations accept an optional `payment_mode` parameter 
 
 **Language-specific** (install only what you need):
 
+> **Note:** registry packages are not yet published — install from a clone of this repo (each SDK directory's README has the steps). Do **not** use `npm install antd`, `pip install antd`, or `gem install antd`: those names are unrelated or unregistered packages on the public registries.
+
 | Language | Version | Install |
 |----------|---------|---------|
 | Go | 1.21+ | `go get github.com/WithAutonomi/ant-sdk/antd-go` |
-| Node.js / TypeScript | 18+ | `npm install antd` |
-| C# / .NET | 8+ | `dotnet add package Antd.Sdk` |
+| Node.js / TypeScript | 18+ | From source (see `antd-js/`) |
+| C# / .NET | 8+ | From source (see `antd-csharp/`) |
 | Kotlin | JDK 17+ | Gradle dependency |
 | Swift | 5.9+ / Xcode 15+ | Swift Package Manager (macOS only) |
-| Ruby | 3.0+ | `gem install antd` |
-| PHP | 8.1+ | `composer require autonomi/antd` |
-| Dart | 3.0+ | `dart pub add antd` |
-| Lua | 5.1+ / LuaRocks | `luarocks install antd` |
-| Elixir | 1.14+ | `{:antd, "~> 0.1"}` in mix.exs |
+| Ruby | 3.0+ | From source (see `antd-ruby/`) |
+| PHP | 8.1+ | From source (see `antd-php/`) |
+| Dart | 3.0+ | From source (see `antd-dart/`) |
+| Lua | 5.1+ / LuaRocks | From source (see `antd-lua/`) |
+| Elixir | 1.14+ | Path dep on `antd-elixir/` in mix.exs |
 | Zig | 0.14+ | build.zig.zon dependency |
-| Rust (client) | 2021 edition | `cargo add antd-client` |
+| Rust (client) | 2021 edition | Path dependency on `antd-rust/` |
 | C++ | C++20 | CMake FetchContent |
-| Java | 17+ | Gradle/Maven (com.autonomi:antd-java) |
+| Java | 17+ | From source (see `antd-java/`; Maven coordinates not yet published) |
 
 ### Option A: Using the `ant` CLI
 

@@ -16,27 +16,29 @@ App  →  SDK  →  antd daemon (localhost)  →  Autonomi Network
 
 For detailed API signatures and endpoint documentation, see:
 - **[llms.txt](llms.txt)** — concise overview of all REST endpoints, gRPC services, error codes, and SDK links
-- **[llms-full.txt](llms-full.txt)** — complete reference with method signatures for all 12 languages, request/response formats, and runnable examples
+- **[llms-full.txt](llms-full.txt)** — complete reference with method signatures for all 15 languages, request/response formats, and runnable examples
 
 ## Choosing a Language
+
+> **Install note:** registry packages are not yet published — install from a clone of this repo. Do **not** run `npm install antd` / `pip install antd` / `gem install antd`: those registry names are unrelated or unregistered packages.
 
 | Language | SDK | Async Model | Transport | Install |
 |----------|-----|-------------|-----------|---------|
 | Go | `antd-go` | `context.Context` | REST + gRPC | `go get github.com/WithAutonomi/ant-sdk/antd-go` |
-| Python | `antd-py` | sync + async | REST + gRPC | `pip install antd` |
-| TypeScript | `antd-js` | Promises | REST | `npm install antd` |
-| C# | `antd-csharp` | `Task<T>` / async-await | REST + gRPC | `dotnet add package Antd.Sdk` |
+| Python | `antd-py` | sync + async | REST + gRPC | `pip install -e "./antd-py[rest]"` (from clone) |
+| TypeScript | `antd-js` | Promises | REST | From source (see `antd-js/`) |
+| C# | `antd-csharp` | `Task<T>` / async-await | REST + gRPC | From source (see `antd-csharp/`) |
 | Kotlin | `antd-kotlin` | `suspend` / coroutines | REST + gRPC | Gradle dependency |
 | Swift | `antd-swift` | `async throws` | REST + gRPC | Swift Package Manager |
-| Ruby | `antd-ruby` | sync | REST + gRPC | `gem install antd` |
-| PHP | `antd-php` | sync + async | REST | `composer require autonomi/antd` |
-| Dart | `antd-dart` | `Future<T>` / async-await | REST + gRPC | `dart pub add antd` |
-| Lua | `antd-lua` | sync | REST | `luarocks install antd` |
-| Elixir | `antd-elixir` | `{:ok, result}` / GenServer | REST + gRPC | `{:antd, "~> 0.1"}` in mix.exs deps |
+| Ruby | `antd-ruby` | sync | REST + gRPC | From source (see `antd-ruby/`) |
+| PHP | `antd-php` | sync + async | REST | From source (see `antd-php/`) |
+| Dart | `antd-dart` | `Future<T>` / async-await | REST + gRPC | From source (see `antd-dart/`) |
+| Lua | `antd-lua` | sync | REST | From source (see `antd-lua/`) |
+| Elixir | `antd-elixir` | `{:ok, result}` / GenServer | REST + gRPC | Path dep on `antd-elixir/` in mix.exs |
 | Zig | `antd-zig` | error unions / async | REST | Add dependency in build.zig.zon |
-| Rust | `antd-rust` | async/await (tokio) | REST + gRPC | `cargo add antd-client` |
+| Rust | `antd-rust` | async/await (tokio) | REST + gRPC | Path dependency on `antd-rust/` |
 | C++ | `antd-cpp` | sync + async (std::future) | REST + gRPC | CMake FetchContent |
-| Java | `antd-java` | sync + async (CompletableFuture) | REST + gRPC | Gradle/Maven (com.autonomi:antd-java) |
+| Java | `antd-java` | sync + async (CompletableFuture) | REST + gRPC | From source (see `antd-java/`; Maven coordinates not yet published) |
 
 **Swift note:** REST/gRPC SDK is macOS only. iOS apps must use the FFI bindings (`ffi/`) which embed the client directly — no daemon needed.
 
@@ -160,6 +162,6 @@ When a developer asks to build something, follow this sequence:
 ## Reference
 
 - [llms.txt](llms.txt) — REST endpoints, gRPC services, error codes, SDK links
-- [llms-full.txt](llms-full.txt) — complete method signatures for all 12 languages, request/response formats, runnable examples
+- [llms-full.txt](llms-full.txt) — complete method signatures for all 15 languages, request/response formats, runnable examples
 - [docs/architecture.md](docs/architecture.md) — full mental model, data primitive deep-dive, payment model, design patterns
 - [docs/tutorial-store-retrieve.md](docs/tutorial-store-retrieve.md) — store text, files, private data, chunks (all 12 languages)
