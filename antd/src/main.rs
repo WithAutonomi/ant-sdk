@@ -305,6 +305,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         evm_preset,
         evm_token_addr,
         evm_vault_addr,
+        last_store_ok: Arc::new(std::sync::RwLock::new(None)),
     });
 
     // Spawn background task to clean up stale pending prepares (1-hour TTL)

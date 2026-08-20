@@ -119,6 +119,7 @@ pub fn router(state: Arc<AppState>, enable_cors: bool, rest_port: u16) -> Router
 }
 
 async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
+    let net = state.network_health().await;
     Json(HealthResponse {
         status: "ok".into(),
         network: state.network.clone(),
@@ -128,5 +129,10 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
         build_commit: state.build_commit.clone(),
         payment_token_address: state.evm_token_addr.clone(),
         payment_vault_address: state.evm_vault_addr.clone(),
+        write_ready: net.write_ready,
+        connected_peers: net.connected_peers,
+        routing_table_size: net.routing_table_size,
+        rebootstrap_threshold: net.rebootstrap_threshold,
+        last_store_ok_secs_ago: net.last_store_ok_secs_ago,
     })
 }
