@@ -137,8 +137,10 @@ message FinalizeUploadRequest {
   // The upload_id returned from a Prepare* call.
   string upload_id = 1;
   // Wave-batch: map of quote_hash (hex) → tx_hash (hex) from the on-chain
-  // payment. Required when the prepared upload was wave-batch, must be
-  // empty otherwise.
+  // payment. Required when the prepared upload was wave-batch and prepare
+  // reported payments; may be empty when prepare reported none (every chunk
+  // already stored — no on-chain payment is needed). Must be empty for
+  // merkle uploads.
   map<string, string> tx_hashes = 2;
   // Merkle, LEGACY single-batch: winner pool hash (hex with 0x prefix,
   // 32 bytes) from the `MerklePaymentMade` event. Accepted only when the
