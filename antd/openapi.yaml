@@ -1086,7 +1086,9 @@ components:
             type: string
           description: >-
             Wave-batch only: map of quote_hash (hex) to tx_hash (hex) from
-            the payForQuotes() on-chain payment
+            the payForQuotes() on-chain payment. When prepare reported no
+            payments (every chunk already stored), pass an empty object —
+            the upload finalizes without any on-chain payment.
         winner_pool_hash:
           type: string
           description: >-

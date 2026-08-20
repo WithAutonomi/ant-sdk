@@ -1107,7 +1107,7 @@ impl pb::upload_service_server::UploadService for UploadServiceImpl {
         use std::collections::HashMap;
 
         enum PaymentShape {
-            Wave,
+            Wave { expected_quotes: Vec<QuoteHash> },
             Merkle { batch_count: usize },
         }
         enum PaymentArtefacts {
@@ -1133,7 +1133,15 @@ impl pb::upload_service_server::UploadService for UploadServiceImpl {
                 .prepared
                 .payment_info
             {
-                ant_core::data::ExternalPaymentInfo::WaveBatch { .. } => PaymentShape::Wave,
+                ant_core::data::ExternalPaymentInfo::WaveBatch { payment_intent, .. } => {
+                    PaymentShape::Wave {
+                        expected_quotes: payment_intent
+                            .payments
+                            .iter()
+                            .map(|(quote_hash, _, _)| *quote_hash)
+                            .collect(),
+                    }
+                }
                 ant_core::data::ExternalPaymentInfo::Merkle {
                     prepared_batches, ..
                 } => PaymentShape::Merkle {
@@ -1143,47 +1151,19 @@ impl pb::upload_service_server::UploadService for UploadServiceImpl {
         };
 
         let artefacts = match shape {
-            PaymentShape::Wave => {
+            PaymentShape::Wave { expected_quotes } => {
                 if !req.winner_pool_hash.is_empty() || !req.winner_pool_hashes.is_empty() {
                     return Err(Status::invalid_argument(
                         "winner_pool_hash(es) not applicable for wave-batch upload",
                     ));
                 }
-                if req.tx_hashes.is_empty() {
-                    return Err(Status::invalid_argument(
-                        "tx_hashes required for wave-batch upload (this upload used wave_batch payment)",
-                    ));
-                }
-
-                // Closure returns AntdError (small) rather than Status
-                // (>=176 bytes) to keep clippy::result_large_err happy;
-                // converted at the boundary.
-                let tx_hash_map: HashMap<QuoteHash, TxHash> = req
-                    .tx_hashes
-                    .iter()
-                    .map(|(quote_hex, tx_hex)| {
-                        let quote_bytes: [u8; 32] = hex::decode(quote_hex.trim_start_matches("0x"))
-                            .map_err(|e| {
-                                AntdError::BadRequest(format!(
-                                    "invalid quote_hash {quote_hex}: {e}"
-                                ))
-                            })?
-                            .try_into()
-                            .map_err(|_| {
-                                AntdError::BadRequest("quote_hash must be 32 bytes".into())
-                            })?;
-                        let tx_bytes: [u8; 32] = hex::decode(tx_hex.trim_start_matches("0x"))
-                            .map_err(|e| {
-                                AntdError::BadRequest(format!("invalid tx_hash {tx_hex}: {e}"))
-                            })?
-                            .try_into()
-                            .map_err(|_| {
-                                AntdError::BadRequest("tx_hash must be 32 bytes".into())
-                            })?;
-                        Ok((quote_bytes.into(), tx_bytes.into()))
-                    })
-                    .collect::<Result<_, AntdError>>()
-                    .map_err(tonic::Status::from)?;
+                // proto3 cannot distinguish an absent map from an empty one,
+                // so an empty tx_hashes is valid here exactly when prepare
+                // reported no payments (every chunk already stored) — the
+                // shared resolver checks that against the stored upload.
+                let tx_hash_map =
+                    crate::rest::upload::resolve_wave_tx_hashes(&expected_quotes, &req.tx_hashes)
+                        .map_err(tonic::Status::from)?;
                 PaymentArtefacts::Wave(tx_hash_map)
             }
             PaymentShape::Merkle { batch_count } => {
