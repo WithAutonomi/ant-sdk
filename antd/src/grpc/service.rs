@@ -150,6 +150,7 @@ impl pb::health_service_server::HealthService for HealthServiceImpl {
         &self,
         _request: Request<pb::HealthCheckRequest>,
     ) -> Result<Response<pb::HealthCheckResponse>, Status> {
+        let net = self.state.network_health().await;
         Ok(Response::new(pb::HealthCheckResponse {
             status: "ok".into(),
             network: self.state.network.clone(),
@@ -159,6 +160,11 @@ impl pb::health_service_server::HealthService for HealthServiceImpl {
             build_commit: self.state.build_commit.clone(),
             payment_token_address: self.state.evm_token_addr.clone(),
             payment_vault_address: self.state.evm_vault_addr.clone(),
+            write_ready: net.write_ready,
+            connected_peers: net.connected_peers,
+            routing_table_size: net.routing_table_size,
+            rebootstrap_threshold: net.rebootstrap_threshold,
+            last_store_ok_secs_ago: net.last_store_ok_secs_ago,
         }))
     }
 }
@@ -375,6 +381,7 @@ impl pb::data_service_server::DataService for DataServiceImpl {
         .map_err(|e| Status::internal(format!("task failed: {e}")))?
         .map_err(tonic::Status::from)?;
 
+        self.state.mark_store_ok();
         Ok(Response::new(pb::PutPublicDataResponse {
             // ant-core's DataUploadResult does not expose per-upload storage
             // cost — REST mirrors this by omitting the field from its response
@@ -527,6 +534,7 @@ impl pb::data_service_server::DataService for DataServiceImpl {
         .map_err(|e| Status::internal(format!("task failed: {e}")))?
         .map_err(tonic::Status::from)?;
 
+        self.state.mark_store_ok();
         Ok(Response::new(pb::PutDataResponse {
             // ant-core's DataUploadResult does not expose per-upload storage
             // cost — REST mirrors this by omitting the field from its response
@@ -638,6 +646,7 @@ impl pb::chunk_service_server::ChunkService for ChunkServiceImpl {
             .await
             .map_err(|e| tonic::Status::from(AntdError::from_core(e)))?;
 
+        self.state.mark_store_ok();
         Ok(Response::new(pb::PutChunkResponse {
             // ant-core chunk_put returns only the address; cost is pre-paid
             // via the wallet and not reported back per-chunk.
@@ -773,6 +782,7 @@ impl pb::chunk_service_server::ChunkService for ChunkServiceImpl {
         .map_err(|e| Status::internal(format!("task failed: {e}")))?
         .map_err(tonic::Status::from)?;
 
+        self.state.mark_store_ok();
         Ok(Response::new(pb::FinalizeChunkResponse {
             address: hex::encode(address),
         }))
@@ -818,6 +828,7 @@ impl pb::file_service_server::FileService for FileServiceImpl {
         .map_err(|e| Status::internal(format!("task failed: {e}")))?
         .map_err(tonic::Status::from)?;
 
+        self.state.mark_store_ok();
         Ok(Response::new(pb::PutFileResponse {
             data_map: data_map_hex,
             storage_cost_atto: result.storage_cost_atto,
@@ -860,6 +871,7 @@ impl pb::file_service_server::FileService for FileServiceImpl {
         .map_err(|e| Status::internal(format!("task failed: {e}")))?
         .map_err(tonic::Status::from)?;
 
+        self.state.mark_store_ok();
         Ok(Response::new(pb::PutFilePublicResponse {
             address: hex::encode(address),
             storage_cost_atto: result.storage_cost_atto,
@@ -1245,6 +1257,7 @@ impl pb::upload_service_server::UploadService for UploadServiceImpl {
         .map_err(|e| Status::internal(format!("task failed: {e}")))?
         .map_err(tonic::Status::from)?;
 
+        self.state.mark_store_ok();
         Ok(Response::new(pb::FinalizeUploadResponse {
             data_map: data_map_hex,
             address: address.unwrap_or_default(),
