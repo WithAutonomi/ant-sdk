@@ -389,6 +389,7 @@ impl GrpcClient {
             .clone()
             .prepare_chunk(proto::antd::v1::PrepareChunkRequest {
                 data: data.to_vec(),
+                include_signed_quotes: false,
             })
             .await?
             .into_inner();
@@ -559,6 +560,7 @@ impl GrpcClient {
             .prepare_file_upload(proto::antd::v1::PrepareFileUploadRequest {
                 path: path.to_string(),
                 visibility: visibility.unwrap_or("").to_string(),
+                include_signed_quotes: false,
             })
             .await?
             .into_inner();
@@ -595,6 +597,7 @@ impl GrpcClient {
             .prepare_data_upload(proto::antd::v1::PrepareDataUploadRequest {
                 data: data.to_vec(),
                 visibility: visibility.unwrap_or("").to_string(),
+                include_signed_quotes: false,
             })
             .await?
             .into_inner();

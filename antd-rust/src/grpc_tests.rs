@@ -213,6 +213,7 @@ impl v1::chunk_service_server::ChunkService for MockChunkService {
             payment_vault_address: "0xvault".to_string(),
             payment_token_address: "0xtoken".to_string(),
             rpc_url: "http://localhost:8545".to_string(),
+            signed_quotes: Vec::new(),
         }))
     }
 
@@ -286,6 +287,7 @@ impl v1::upload_service_server::UploadService for MockUploadService {
                 payment_vault_address: "0xvault".to_string(),
                 payment_token_address: "0xtoken".to_string(),
                 rpc_url: "http://localhost:8545".to_string(),
+                signed_quotes: Vec::new(),
             }));
         }
         Ok(Response::new(v1::PrepareUploadResponse {
