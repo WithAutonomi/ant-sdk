@@ -524,6 +524,38 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
 
+  /v1/verify/quotes:
+    post:
+      tags: [verify]
+      operationId: verifyQuotes
+      summary: Verify signed payment quotes offline
+      description: >-
+        Stateless offline verification of signed quotes (added in antd
+        0.13.0): quote-hash recomputation, ML-DSA-65 signature, paid-fields
+        equality against each entry's payment triple, and the ADR-0004
+        resolve-before-pay commitment binding with exact on-curve pricing.
+        Pure function of the request — no network, wallet, or session state.
+        Run it on a daemon you trust (your own), never the counterparty's.
+        Malformed entries yield per-entry valid:false verdicts, not transport
+        errors; only an unparseable body or an oversized batch is a 400.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyQuotesRequest"
+      responses:
+        "200":
+          description: Per-entry verdicts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyQuotesResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /v1/upload/prepare:
     post:
       tags: [upload]
@@ -745,6 +777,14 @@ components:
         data:
           type: string
           description: Base64-encoded chunk bytes (stored verbatim, no self-encryption)
+        include_signed_quotes:
+          type: boolean
+          default: false
+          description: >-
+            When true, the wave-batch response additionally carries the full
+            signed quotes + ADR-0004 commitment sidecars (signed_quotes) so a
+            hosted-payments gateway can verify the batch offline via
+            /v1/verify/quotes before paying. Added in antd 0.13.0.
 
     PrepareChunkResponse:
       type: object
@@ -785,6 +825,15 @@ components:
         rpc_url:
           type: string
           description: EVM RPC URL for submitting transactions
+        signed_quotes:
+          type: array
+          items:
+            $ref: "#/components/schemas/SignedQuoteEntry"
+          description: >-
+            Present only when the request set include_signed_quotes and the
+            payment type is wave_batch: one entry per payments[] quote for
+            offline verification via /v1/verify/quotes. Merkle prepares omit
+            it. Added in antd 0.13.0.
 
     FinalizeChunkRequest:
       type: object
@@ -951,6 +1000,14 @@ components:
             ant-core exposes data_prepare_upload_with_visibility (tracked
             as ant-client PR #73). Use /v1/upload/prepare with a file path
             today.
+        include_signed_quotes:
+          type: boolean
+          default: false
+          description: >-
+            When true, the wave-batch response additionally carries the full
+            signed quotes + ADR-0004 commitment sidecars (signed_quotes) so a
+            hosted-payments gateway can verify the batch offline via
+            /v1/verify/quotes before paying. Added in antd 0.13.0.
 
     PrepareUploadRequest:
       type: object
@@ -968,6 +1025,14 @@ components:
             the same external-signer payment batch and surfaces its
             network address on /v1/upload/finalize via data_map_address.
             Omitting this field preserves pre-0.5.0 (private) behavior.
+        include_signed_quotes:
+          type: boolean
+          default: false
+          description: >-
+            When true, the wave-batch response additionally carries the full
+            signed quotes + ADR-0004 commitment sidecars (signed_quotes) so a
+            hosted-payments gateway can verify the batch offline via
+            /v1/verify/quotes before paying. Added in antd 0.13.0.
 
     PrepareUploadResponse:
       type: object
@@ -1029,6 +1094,15 @@ components:
             How many of total_chunks were already stored on-network and
             excluded from payment + PUT. The external signer pays for
             (total_chunks - already_stored_count) chunks. Added in antd 0.10.0.
+        signed_quotes:
+          type: array
+          items:
+            $ref: "#/components/schemas/SignedQuoteEntry"
+          description: >-
+            Present only when the request set include_signed_quotes and the
+            payment type is wave_batch: one entry per payments[] quote for
+            offline verification via /v1/verify/quotes. Merkle prepares omit
+            it. Added in antd 0.13.0.
 
     PoolCommitmentEntry:
       type: object
@@ -1055,6 +1129,118 @@ components:
         amount:
           type: string
           description: Node price (decimal string)
+
+    SignedQuoteEntry:
+      type: object
+      required: [quote_hash, quote]
+      description: >-
+        One payments[] quote in full signed form. quote and
+        commitment_sidecar are opaque base64 blobs — pass them to
+        /v1/verify/quotes unchanged; only antd parses them.
+      properties:
+        quote_hash:
+          type: string
+          description: Quote hash (hex with 0x prefix) — matches the payments[] entry
+        quote:
+          type: string
+          description: base64(msgpack-serialized signed PaymentQuote), opaque
+        commitment_sidecar:
+          type: string
+          description: >-
+            base64(msgpack-serialized StorageCommitment) — the ADR-0004
+            sidecar the quote's commitment_pin resolves to. Absent for
+            baseline quotes.
+
+    VerifyQuotesRequest:
+      type: object
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          maxItems: 1024
+          items:
+            $ref: "#/components/schemas/VerifyQuoteEntry"
+
+    VerifyQuoteEntry:
+      type: object
+      required: [quote_hash, rewards_address, amount, signed_quote]
+      description: >-
+        One entry to verify: the payment triple the caller was asked to pay
+        plus the opaque signed artifacts from the prepare response's
+        signed_quotes.
+      properties:
+        quote_hash:
+          type: string
+          description: Quote hash the payer was asked to pay (hex, 32 bytes)
+        rewards_address:
+          type: string
+          description: Rewards address the payer was asked to pay (hex with 0x prefix)
+        amount:
+          type: string
+          description: Amount the payer was asked to pay (atto tokens, decimal string)
+        signed_quote:
+          type: string
+          description: base64(msgpack) signed PaymentQuote — from signed_quotes[].quote
+        commitment_sidecar:
+          type: string
+          description: >-
+            base64(msgpack) StorageCommitment sidecar — from
+            signed_quotes[].commitment_sidecar. Required when the quote is
+            commitment-bound.
+
+    VerifyQuotesResponse:
+      type: object
+      required: [valid, entries]
+      properties:
+        valid:
+          type: boolean
+          description: True only when entries is non-empty and every entry verified
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/VerifyQuoteVerdict"
+
+    VerifyQuoteVerdict:
+      type: object
+      required: [quote_hash, valid]
+      description: >-
+        Per-entry verification verdict. The extracted fields are populated as
+        soon as the signed quote deserializes — even when a later check
+        fails — so policy layers can see what the quote claimed.
+      properties:
+        quote_hash:
+          type: string
+          description: Echo of the request entry's quote_hash
+        valid:
+          type: boolean
+          description: >-
+            True when every check passed: hash recomputation, ML-DSA-65
+            signature, paid-fields equality, and the ADR-0004 commitment
+            binding with exact on-curve pricing.
+        error:
+          type: string
+          description: The first failing rule, by name. Absent when valid.
+        timestamp_unix_secs:
+          type: integer
+          format: int64
+          description: Quote timestamp (unix seconds) — for the caller's expiry policy
+        content:
+          type: string
+          description: The chunk address the quote covers (hex, 32 bytes)
+        price:
+          type: string
+          description: The signed price (atto tokens, decimal string)
+        rewards_address:
+          type: string
+          description: The signed rewards address (hex with 0x prefix)
+        committed_key_count:
+          type: integer
+          description: >-
+            Claimed ADR-0004 storage-commitment key count (0 = baseline
+            quote) — for the caller's count-plausibility cap.
+        pinned:
+          type: boolean
+          description: Whether the quote pins a storage commitment
 
     PaymentEntry:
       type: object

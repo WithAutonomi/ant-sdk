@@ -10,6 +10,10 @@ use crate::models::*;
 /// Generated protobuf types for the antd gRPC API.
 pub mod proto {
     pub mod antd {
+        // Generated code: tonic client methods all return
+        // `Result<_, tonic::Status>`, which newer clippy flags as
+        // result_large_err — not actionable in generated code.
+        #[allow(clippy::result_large_err)]
         pub mod v1 {
             tonic::include_proto!("antd.v1");
         }
@@ -389,6 +393,7 @@ impl GrpcClient {
             .clone()
             .prepare_chunk(proto::antd::v1::PrepareChunkRequest {
                 data: data.to_vec(),
+                include_signed_quotes: false,
             })
             .await?
             .into_inner();
@@ -559,6 +564,7 @@ impl GrpcClient {
             .prepare_file_upload(proto::antd::v1::PrepareFileUploadRequest {
                 path: path.to_string(),
                 visibility: visibility.unwrap_or("").to_string(),
+                include_signed_quotes: false,
             })
             .await?
             .into_inner();
@@ -595,6 +601,7 @@ impl GrpcClient {
             .prepare_data_upload(proto::antd::v1::PrepareDataUploadRequest {
                 data: data.to_vec(),
                 visibility: visibility.unwrap_or("").to_string(),
+                include_signed_quotes: false,
             })
             .await?
             .into_inner();

@@ -8,6 +8,7 @@ license = "MIT OR Apache-2.0"
 ant-core = { git = "https://github.com/WithAutonomi/ant-client", tag = "ant-cli-v0.3.3" }  # ant-core 0.6.0 release; multi-batch external merkle (ADR-0003) + PartialUpload on merkle finalize, ant-protocol 2.3.2 line (was 0.5.1 / ant-cli-v0.3.2)
 self_encryption = "0.36.0"
 evmlib = "0.9.1" # must track ant-core's transitive evmlib (via ant-protocol) to avoid a second copy in the graph
+ant-protocol = "=2.3.2" # pinned exactly to ant-core's transitive ant-protocol — a different version would fork PaymentQuote/StorageCommitment in the graph
 axum = { version = "0.8", features = ["macros"] }
 tower-http = { version = "0.6", features = ["cors", "limit", "trace"] }
 tonic = "0.12"
@@ -30,6 +31,9 @@ futures = "0.3"
 rand = "0.8"
 postcard = { version = "1.1.3", features = ["use-std"] }
 toml = "0.8"
+
+[dev-dependencies]
+xor_name = "5"
 
 [build-dependencies]
 tonic-build = "0.12"

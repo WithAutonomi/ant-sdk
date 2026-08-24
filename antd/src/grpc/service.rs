@@ -43,14 +43,18 @@ fn build_grpc_prepare_response(
     upload_id: String,
     prepared: &ant_core::data::PreparedUpload,
     network: &str,
-) -> pb::PrepareUploadResponse {
+    include_signed_quotes: bool,
+) -> Result<pb::PrepareUploadResponse, AntdError> {
     let evm_cfg = crate::evm_defaults::resolve(network);
     let rpc_url = evm_cfg.rpc_url;
     let payment_token_address = evm_cfg.token_addr;
     let payment_vault_address = evm_cfg.vault_addr;
 
     match &prepared.payment_info {
-        ant_core::data::ExternalPaymentInfo::WaveBatch { payment_intent, .. } => {
+        ant_core::data::ExternalPaymentInfo::WaveBatch {
+            payment_intent,
+            prepared_chunks,
+        } => {
             let payments: Vec<pb::PaymentEntry> = payment_intent
                 .payments
                 .iter()
@@ -61,7 +65,18 @@ fn build_grpc_prepare_response(
                 })
                 .collect();
 
-            pb::PrepareUploadResponse {
+            // Opt-in signed-quote exposure (V2-854), mirroring the REST arm.
+            let signed_quotes = if include_signed_quotes {
+                crate::signed_quotes::entries_for_prepared_chunks(prepared_chunks, payment_intent)
+                    .map_err(AntdError::Internal)?
+                    .iter()
+                    .map(to_pb_signed_quote)
+                    .collect::<Result<Vec<_>, AntdError>>()?
+            } else {
+                Vec::new()
+            };
+
+            Ok(pb::PrepareUploadResponse {
                 upload_id,
                 payment_type: "wave_batch".into(),
                 payments,
@@ -73,7 +88,8 @@ fn build_grpc_prepare_response(
                 payment_vault_address,
                 payment_token_address,
                 rpc_url,
-            }
+                signed_quotes,
+            })
         }
         ant_core::data::ExternalPaymentInfo::Merkle {
             prepared_batches, ..
@@ -97,7 +113,7 @@ fn build_grpc_prepare_response(
                     _ => (0, Vec::new(), 0),
                 };
 
-            pb::PrepareUploadResponse {
+            Ok(pb::PrepareUploadResponse {
                 upload_id,
                 payment_type: "merkle".into(),
                 payments: Vec::new(),
@@ -109,9 +125,34 @@ fn build_grpc_prepare_response(
                 payment_vault_address,
                 payment_token_address,
                 rpc_url,
-            }
+                // Merkle candidate exposure is blocked upstream (V2-854 open
+                // question 1) — mirrors the REST arm.
+                signed_quotes: Vec::new(),
+            })
         }
     }
+}
+
+/// Convert a REST-shaped signed-quote entry into its proto twin (base64
+/// strings → raw bytes). Deriving the proto shape from the REST helper keeps
+/// the two transports byte-identical.
+fn to_pb_signed_quote(
+    entry: &crate::types::SignedQuoteEntry,
+) -> Result<pb::SignedQuoteEntry, AntdError> {
+    use base64::engine::general_purpose::STANDARD as BASE64;
+    use base64::Engine;
+    Ok(pb::SignedQuoteEntry {
+        quote_hash: entry.quote_hash.clone(),
+        quote: BASE64
+            .decode(&entry.quote)
+            .map_err(|e| AntdError::Internal(format!("signed quote round-trip: {e}")))?,
+        commitment_sidecar: match &entry.commitment_sidecar {
+            Some(b64) => BASE64
+                .decode(b64)
+                .map_err(|e| AntdError::Internal(format!("sidecar round-trip: {e}")))?,
+            None => Vec::new(),
+        },
+    })
 }
 
 /// Convert a REST-shaped merkle batch entry into its proto twin. Deriving the
@@ -653,7 +694,9 @@ impl pb::chunk_service_server::ChunkService for ChunkServiceImpl {
         &self,
         request: Request<pb::PrepareChunkRequest>,
     ) -> Result<Response<pb::PrepareChunkResponse>, Status> {
-        let content = Bytes::from(request.into_inner().data);
+        let req = request.into_inner();
+        let include_signed_quotes = req.include_signed_quotes;
+        let content = Bytes::from(req.data);
 
         // Compute the content address up-front so the "already stored"
         // response can still return it without re-quoting (ant-core's prepare
@@ -697,6 +740,33 @@ impl pb::chunk_service_server::ChunkService for ChunkServiceImpl {
             .collect();
         let total_amount = prepared.payment.total_amount().to_string();
 
+        // Opt-in signed-quote exposure (V2-854), mirroring the REST handler —
+        // built before the prepared state moves into the session map.
+        let signed_quotes = if include_signed_quotes {
+            let paid = prepared
+                .payment
+                .quotes
+                .iter()
+                .filter(|q| !q.amount.is_zero())
+                .map(|q| q.quote_hash)
+                .collect();
+            crate::signed_quotes::entries_for_quotes(
+                prepared.peer_quotes.iter().map(|(_, q)| q),
+                &prepared.commitment_sidecars,
+                &paid,
+            )
+            .map_err(AntdError::Internal)
+            .and_then(|entries| {
+                entries
+                    .iter()
+                    .map(to_pb_signed_quote)
+                    .collect::<Result<Vec<_>, AntdError>>()
+            })
+            .map_err(tonic::Status::from)?
+        } else {
+            Vec::new()
+        };
+
         let upload_id = hex::encode(rand::random::<[u8; 16]>());
         self.state.pending_chunks.lock().await.insert(
             upload_id.clone(),
@@ -716,6 +786,7 @@ impl pb::chunk_service_server::ChunkService for ChunkServiceImpl {
             payment_vault_address: evm_cfg.vault_addr,
             payment_token_address: evm_cfg.token_addr,
             rpc_url: evm_cfg.rpc_url,
+            signed_quotes,
         }))
     }
 
@@ -1031,6 +1102,7 @@ impl pb::upload_service_server::UploadService for UploadServiceImpl {
         request: Request<pb::PrepareFileUploadRequest>,
     ) -> Result<Response<pb::PrepareUploadResponse>, Status> {
         let req = request.into_inner();
+        let include_signed_quotes = req.include_signed_quotes;
         let path = PathBuf::from(&req.path).canonicalize().map_err(|e| {
             tracing::warn!(path = %req.path, error = %e, "invalid prepare-file-upload path");
             Status::invalid_argument("invalid path")
@@ -1050,8 +1122,13 @@ impl pb::upload_service_server::UploadService for UploadServiceImpl {
         .map_err(tonic::Status::from)?;
 
         let upload_id = hex::encode(rand::random::<[u8; 16]>());
-        let response =
-            build_grpc_prepare_response(upload_id.clone(), &prepared, &self.state.network);
+        let response = build_grpc_prepare_response(
+            upload_id.clone(),
+            &prepared,
+            &self.state.network,
+            include_signed_quotes,
+        )
+        .map_err(tonic::Status::from)?;
 
         self.state.pending_uploads.lock().await.insert(
             upload_id,
@@ -1069,6 +1146,7 @@ impl pb::upload_service_server::UploadService for UploadServiceImpl {
         request: Request<pb::PrepareDataUploadRequest>,
     ) -> Result<Response<pb::PrepareUploadResponse>, Status> {
         let req = request.into_inner();
+        let include_signed_quotes = req.include_signed_quotes;
         let visibility =
             parse_grpc_visibility(&req.visibility).map_err(Status::invalid_argument)?;
         let data = Bytes::from(req.data);
@@ -1085,8 +1163,13 @@ impl pb::upload_service_server::UploadService for UploadServiceImpl {
         .map_err(tonic::Status::from)?;
 
         let upload_id = hex::encode(rand::random::<[u8; 16]>());
-        let response =
-            build_grpc_prepare_response(upload_id.clone(), &prepared, &self.state.network);
+        let response = build_grpc_prepare_response(
+            upload_id.clone(),
+            &prepared,
+            &self.state.network,
+            include_signed_quotes,
+        )
+        .map_err(tonic::Status::from)?;
 
         self.state.pending_uploads.lock().await.insert(
             upload_id,
@@ -1354,5 +1437,78 @@ impl pb::wallet_service_server::WalletService for WalletServiceImpl {
         .map_err(|e| Status::internal(format!("approve failed: {e}")))?;
 
         Ok(Response::new(pb::WalletApproveResponse { approved: true }))
+    }
+}
+
+// ── Verify service (stateless offline quote verification, V2-854) ──
+
+pub struct VerifyServiceImpl;
+
+#[tonic::async_trait]
+impl pb::verify_service_server::VerifyService for VerifyServiceImpl {
+    /// gRPC twin of REST `POST /v1/verify/quotes`. Converts the raw-bytes
+    /// proto entries into the REST-shaped (base64) entries and runs the same
+    /// verification core, keeping the two transports byte-identical.
+    async fn verify_quotes(
+        &self,
+        request: Request<pb::VerifyQuotesRequest>,
+    ) -> Result<Response<pb::VerifyQuotesResponse>, Status> {
+        use base64::engine::general_purpose::STANDARD as BASE64;
+        use base64::Engine;
+
+        let req = request.into_inner();
+        if req.entries.len() > crate::signed_quotes::MAX_VERIFY_ENTRIES {
+            return Err(Status::invalid_argument(format!(
+                "too many entries: {} (max {})",
+                req.entries.len(),
+                crate::signed_quotes::MAX_VERIFY_ENTRIES
+            )));
+        }
+
+        let entries: Vec<crate::types::VerifyQuoteEntry> = req
+            .entries
+            .iter()
+            .map(|e| crate::types::VerifyQuoteEntry {
+                quote_hash: e.quote_hash.clone(),
+                rewards_address: e.rewards_address.clone(),
+                amount: e.amount.clone(),
+                signed_quote: BASE64.encode(&e.signed_quote),
+                commitment_sidecar: if e.commitment_sidecar.is_empty() {
+                    None
+                } else {
+                    Some(BASE64.encode(&e.commitment_sidecar))
+                },
+            })
+            .collect();
+
+        // CPU-bound (ML-DSA-65 verifications) — keep it off the async reactor.
+        let verdicts = tokio::task::spawn_blocking(move || {
+            entries
+                .iter()
+                .map(crate::signed_quotes::verify_entry)
+                .collect::<Vec<_>>()
+        })
+        .await
+        .map_err(|e| Status::internal(format!("verify task failed: {e}")))?;
+
+        let valid = !verdicts.is_empty() && verdicts.iter().all(|v| v.valid);
+        Ok(Response::new(pb::VerifyQuotesResponse {
+            valid,
+            entries: verdicts
+                .into_iter()
+                .map(|v| pb::VerifyQuoteVerdict {
+                    quote_hash: v.quote_hash,
+                    valid: v.valid,
+                    error: v.error.unwrap_or_default(),
+                    quote_decoded: v.content.is_some(),
+                    timestamp_unix_secs: v.timestamp_unix_secs.unwrap_or_default(),
+                    content: v.content.unwrap_or_default(),
+                    price: v.price.unwrap_or_default(),
+                    rewards_address: v.rewards_address.unwrap_or_default(),
+                    committed_key_count: v.committed_key_count.unwrap_or_default(),
+                    pinned: v.pinned.unwrap_or_default(),
+                })
+                .collect(),
+        }))
     }
 }

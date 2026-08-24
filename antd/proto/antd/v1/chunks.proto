@@ -42,6 +42,8 @@ message PutChunkResponse {
 message PrepareChunkRequest {
   // Raw chunk bytes — at most one ant-protocol chunk.
   bytes data = 1;
+  // Same semantics as PrepareFileUploadRequest.include_signed_quotes.
+  bool include_signed_quotes = 2;
 }
 
 // Mirrors REST `PrepareChunkResponse`. Single-chunk publishes are always
@@ -77,6 +79,9 @@ message PrepareChunkResponse {
   // EVM RPC URL for submitting transactions. Empty when
   // `already_stored == true`.
   string rpc_url = 9;
+  // Populated only when the request set `include_signed_quotes` and payment
+  // is required — same semantics as PrepareUploadResponse.signed_quotes.
+  repeated SignedQuoteEntry signed_quotes = 10;
 }
 
 message FinalizeChunkRequest {
