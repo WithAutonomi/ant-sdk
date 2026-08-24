@@ -12,7 +12,7 @@ use service::pb::{
     chunk_service_server::ChunkServiceServer, data_service_server::DataServiceServer,
     event_service_server::EventServiceServer, file_service_server::FileServiceServer,
     health_service_server::HealthServiceServer, upload_service_server::UploadServiceServer,
-    wallet_service_server::WalletServiceServer,
+    verify_service_server::VerifyServiceServer, wallet_service_server::WalletServiceServer,
 };
 
 pub async fn serve(
@@ -40,6 +40,7 @@ pub async fn serve(
     let health_svc = HealthServiceServer::new(service::HealthServiceImpl {
         state: state.clone(),
     });
+    let verify_svc = VerifyServiceServer::new(service::VerifyServiceImpl);
 
     let addr = listener.local_addr()?;
     tracing::info!("gRPC server listening on {addr}");
@@ -52,6 +53,7 @@ pub async fn serve(
         .add_service(upload_svc)
         .add_service(event_svc)
         .add_service(wallet_svc)
+        .add_service(verify_svc)
         .serve_with_incoming(TcpListenerStream::new(listener))
         .await?;
 
