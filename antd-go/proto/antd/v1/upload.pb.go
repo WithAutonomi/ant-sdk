@@ -29,9 +29,15 @@ type PrepareFileUploadRequest struct {
 	// or "public" (DataMap chunk bundled into the same payment batch and
 	// stored on-network; its address is returned on finalize). Empty string
 	// is treated as "private".
-	Visibility    string `protobuf:"bytes,2,opt,name=visibility,proto3" json:"visibility,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Visibility string `protobuf:"bytes,2,opt,name=visibility,proto3" json:"visibility,omitempty"`
+	// When true, the wave-batch response additionally carries the full signed
+	// quotes + ADR-0004 commitment sidecars (`signed_quotes`) so a
+	// hosted-payments gateway can verify the batch offline before paying
+	// (V2-854). Default false: ~5–6 KB per quote plus up to 8 KB per sidecar,
+	// and existing consumers see no change.
+	IncludeSignedQuotes bool `protobuf:"varint,3,opt,name=include_signed_quotes,json=includeSignedQuotes,proto3" json:"include_signed_quotes,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *PrepareFileUploadRequest) Reset() {
@@ -78,14 +84,23 @@ func (x *PrepareFileUploadRequest) GetVisibility() string {
 	return ""
 }
 
+func (x *PrepareFileUploadRequest) GetIncludeSignedQuotes() bool {
+	if x != nil {
+		return x.IncludeSignedQuotes
+	}
+	return false
+}
+
 type PrepareDataUploadRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Raw bytes to upload.
 	Data []byte `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
 	// Same semantics as PrepareFileUploadRequest.visibility.
-	Visibility    string `protobuf:"bytes,2,opt,name=visibility,proto3" json:"visibility,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Visibility string `protobuf:"bytes,2,opt,name=visibility,proto3" json:"visibility,omitempty"`
+	// Same semantics as PrepareFileUploadRequest.include_signed_quotes.
+	IncludeSignedQuotes bool `protobuf:"varint,3,opt,name=include_signed_quotes,json=includeSignedQuotes,proto3" json:"include_signed_quotes,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *PrepareDataUploadRequest) Reset() {
@@ -132,6 +147,13 @@ func (x *PrepareDataUploadRequest) GetVisibility() string {
 	return ""
 }
 
+func (x *PrepareDataUploadRequest) GetIncludeSignedQuotes() bool {
+	if x != nil {
+		return x.IncludeSignedQuotes
+	}
+	return false
+}
+
 type PrepareUploadResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Opaque token to pass back to FinalizeUpload.
@@ -168,7 +190,12 @@ type PrepareUploadResponse struct {
 	// Payment token contract address (hex with 0x prefix).
 	PaymentTokenAddress string `protobuf:"bytes,9,opt,name=payment_token_address,json=paymentTokenAddress,proto3" json:"payment_token_address,omitempty"`
 	// EVM RPC URL for submitting transactions.
-	RpcUrl        string `protobuf:"bytes,10,opt,name=rpc_url,json=rpcUrl,proto3" json:"rpc_url,omitempty"`
+	RpcUrl string `protobuf:"bytes,10,opt,name=rpc_url,json=rpcUrl,proto3" json:"rpc_url,omitempty"`
+	// Populated only when the request set `include_signed_quotes` and the
+	// payment type is wave_batch: one entry per `payments[]` quote for offline
+	// verification via `VerifyService.VerifyQuotes`. Merkle prepares leave it
+	// empty (the daemon does not retain merkle candidate commitments).
+	SignedQuotes  []*SignedQuoteEntry `protobuf:"bytes,12,rep,name=signed_quotes,json=signedQuotes,proto3" json:"signed_quotes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -278,6 +305,13 @@ func (x *PrepareUploadResponse) GetRpcUrl() string {
 		return x.RpcUrl
 	}
 	return ""
+}
+
+func (x *PrepareUploadResponse) GetSignedQuotes() []*SignedQuoteEntry {
+	if x != nil {
+		return x.SignedQuotes
+	}
+	return nil
 }
 
 // One merkle payment batch: everything the external signer needs for a
@@ -460,8 +494,10 @@ type FinalizeUploadRequest struct {
 	// The upload_id returned from a Prepare* call.
 	UploadId string `protobuf:"bytes,1,opt,name=upload_id,json=uploadId,proto3" json:"upload_id,omitempty"`
 	// Wave-batch: map of quote_hash (hex) → tx_hash (hex) from the on-chain
-	// payment. Required when the prepared upload was wave-batch, must be
-	// empty otherwise.
+	// payment. Required when the prepared upload was wave-batch and prepare
+	// reported payments; may be empty when prepare reported none (every chunk
+	// already stored — no on-chain payment is needed). Must be empty for
+	// merkle uploads.
 	TxHashes map[string]string `protobuf:"bytes,2,rep,name=tx_hashes,json=txHashes,proto3" json:"tx_hashes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Merkle, LEGACY single-batch: winner pool hash (hex with 0x prefix,
 	// 32 bytes) from the `MerklePaymentMade` event. Accepted only when the
@@ -630,17 +666,19 @@ var File_antd_v1_upload_proto protoreflect.FileDescriptor
 
 const file_antd_v1_upload_proto_rawDesc = "" +
 	"\n" +
-	"\x14antd/v1/upload.proto\x12\aantd.v1\x1a\x14antd/v1/common.proto\"N\n" +
+	"\x14antd/v1/upload.proto\x12\aantd.v1\x1a\x14antd/v1/common.proto\"\x82\x01\n" +
 	"\x18PrepareFileUploadRequest\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x1e\n" +
 	"\n" +
 	"visibility\x18\x02 \x01(\tR\n" +
-	"visibility\"N\n" +
+	"visibility\x122\n" +
+	"\x15include_signed_quotes\x18\x03 \x01(\bR\x13includeSignedQuotes\"\x82\x01\n" +
 	"\x18PrepareDataUploadRequest\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\x12\x1e\n" +
 	"\n" +
 	"visibility\x18\x02 \x01(\tR\n" +
-	"visibility\"\x89\x04\n" +
+	"visibility\x122\n" +
+	"\x15include_signed_quotes\x18\x03 \x01(\bR\x13includeSignedQuotes\"\xc9\x04\n" +
 	"\x15PrepareUploadResponse\x12\x1b\n" +
 	"\tupload_id\x18\x01 \x01(\tR\buploadId\x12!\n" +
 	"\fpayment_type\x18\x02 \x01(\tR\vpaymentType\x121\n" +
@@ -653,7 +691,8 @@ const file_antd_v1_upload_proto_rawDesc = "" +
 	"\x15payment_vault_address\x18\b \x01(\tR\x13paymentVaultAddress\x122\n" +
 	"\x15payment_token_address\x18\t \x01(\tR\x13paymentTokenAddress\x12\x17\n" +
 	"\arpc_url\x18\n" +
-	" \x01(\tR\x06rpcUrl\"\xab\x01\n" +
+	" \x01(\tR\x06rpcUrl\x12>\n" +
+	"\rsigned_quotes\x18\f \x03(\v2\x19.antd.v1.SignedQuoteEntryR\fsignedQuotes\"\xab\x01\n" +
 	"\x10MerkleBatchEntry\x12\x14\n" +
 	"\x05depth\x18\x01 \x01(\rR\x05depth\x12G\n" +
 	"\x10pool_commitments\x18\x02 \x03(\v2\x1c.antd.v1.PoolCommitmentEntryR\x0fpoolCommitments\x128\n" +
@@ -709,25 +748,27 @@ var file_antd_v1_upload_proto_goTypes = []any{
 	(*FinalizeUploadResponse)(nil),   // 7: antd.v1.FinalizeUploadResponse
 	nil,                              // 8: antd.v1.FinalizeUploadRequest.TxHashesEntry
 	(*PaymentEntry)(nil),             // 9: antd.v1.PaymentEntry
+	(*SignedQuoteEntry)(nil),         // 10: antd.v1.SignedQuoteEntry
 }
 var file_antd_v1_upload_proto_depIdxs = []int32{
-	9, // 0: antd.v1.PrepareUploadResponse.payments:type_name -> antd.v1.PaymentEntry
-	4, // 1: antd.v1.PrepareUploadResponse.pool_commitments:type_name -> antd.v1.PoolCommitmentEntry
-	3, // 2: antd.v1.PrepareUploadResponse.merkle_batches:type_name -> antd.v1.MerkleBatchEntry
-	4, // 3: antd.v1.MerkleBatchEntry.pool_commitments:type_name -> antd.v1.PoolCommitmentEntry
-	5, // 4: antd.v1.PoolCommitmentEntry.candidates:type_name -> antd.v1.CandidateNodeEntry
-	8, // 5: antd.v1.FinalizeUploadRequest.tx_hashes:type_name -> antd.v1.FinalizeUploadRequest.TxHashesEntry
-	0, // 6: antd.v1.UploadService.PrepareFileUpload:input_type -> antd.v1.PrepareFileUploadRequest
-	1, // 7: antd.v1.UploadService.PrepareDataUpload:input_type -> antd.v1.PrepareDataUploadRequest
-	6, // 8: antd.v1.UploadService.FinalizeUpload:input_type -> antd.v1.FinalizeUploadRequest
-	2, // 9: antd.v1.UploadService.PrepareFileUpload:output_type -> antd.v1.PrepareUploadResponse
-	2, // 10: antd.v1.UploadService.PrepareDataUpload:output_type -> antd.v1.PrepareUploadResponse
-	7, // 11: antd.v1.UploadService.FinalizeUpload:output_type -> antd.v1.FinalizeUploadResponse
-	9, // [9:12] is the sub-list for method output_type
-	6, // [6:9] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	9,  // 0: antd.v1.PrepareUploadResponse.payments:type_name -> antd.v1.PaymentEntry
+	4,  // 1: antd.v1.PrepareUploadResponse.pool_commitments:type_name -> antd.v1.PoolCommitmentEntry
+	3,  // 2: antd.v1.PrepareUploadResponse.merkle_batches:type_name -> antd.v1.MerkleBatchEntry
+	10, // 3: antd.v1.PrepareUploadResponse.signed_quotes:type_name -> antd.v1.SignedQuoteEntry
+	4,  // 4: antd.v1.MerkleBatchEntry.pool_commitments:type_name -> antd.v1.PoolCommitmentEntry
+	5,  // 5: antd.v1.PoolCommitmentEntry.candidates:type_name -> antd.v1.CandidateNodeEntry
+	8,  // 6: antd.v1.FinalizeUploadRequest.tx_hashes:type_name -> antd.v1.FinalizeUploadRequest.TxHashesEntry
+	0,  // 7: antd.v1.UploadService.PrepareFileUpload:input_type -> antd.v1.PrepareFileUploadRequest
+	1,  // 8: antd.v1.UploadService.PrepareDataUpload:input_type -> antd.v1.PrepareDataUploadRequest
+	6,  // 9: antd.v1.UploadService.FinalizeUpload:input_type -> antd.v1.FinalizeUploadRequest
+	2,  // 10: antd.v1.UploadService.PrepareFileUpload:output_type -> antd.v1.PrepareUploadResponse
+	2,  // 11: antd.v1.UploadService.PrepareDataUpload:output_type -> antd.v1.PrepareUploadResponse
+	7,  // 12: antd.v1.UploadService.FinalizeUpload:output_type -> antd.v1.FinalizeUploadResponse
+	10, // [10:13] is the sub-list for method output_type
+	7,  // [7:10] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_antd_v1_upload_proto_init() }

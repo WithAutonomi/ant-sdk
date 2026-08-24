@@ -480,9 +480,17 @@ func (c *Client) ChunkGet(ctx context.Context, address string) ([]byte, error) {
 //
 // Requires antd >= 0.7.0.
 func (c *Client) PrepareChunkUpload(ctx context.Context, content []byte) (*PrepareChunkResult, error) {
-	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/chunks/prepare", map[string]any{
-		"data": b64Encode(content),
-	})
+	return c.PrepareChunkUploadWithOptions(ctx, content, PrepareOptions{})
+}
+
+// PrepareChunkUploadWithOptions is PrepareChunkUpload with explicit options.
+// Visibility is not applicable to single-chunk publishes and is ignored.
+func (c *Client) PrepareChunkUploadWithOptions(ctx context.Context, content []byte, opts PrepareOptions) (*PrepareChunkResult, error) {
+	body := map[string]any{"data": b64Encode(content)}
+	if opts.IncludeSignedQuotes {
+		body["include_signed_quotes"] = true
+	}
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/chunks/prepare", body)
 	if err != nil {
 		return nil, err
 	}
@@ -510,6 +518,7 @@ func (c *Client) PrepareChunkUpload(ctx context.Context, content []byte) (*Prepa
 			})
 		}
 	}
+	r.SignedQuotes = parseSignedQuotes(arrAt(j, "signed_quotes"))
 	return r, nil
 }
 
@@ -678,6 +687,10 @@ func parsePrepareResponse(j map[string]any) *PrepareUploadResult {
 		}
 	}
 
+	// Signed-quote exposure (antd >= 0.13.0) — present only when the prepare
+	// requested IncludeSignedQuotes.
+	result.SignedQuotes = parseSignedQuotes(arrAt(j, "signed_quotes"))
+
 	// Parse merkle fields
 	if result.PaymentType == "merkle" {
 		result.Depth = int(num64(j, "depth"))
@@ -733,6 +746,105 @@ func (c *Client) PrepareUpload(ctx context.Context, path string) (*PrepareUpload
 		return nil, err
 	}
 	return parsePrepareResponse(j), nil
+}
+
+// PrepareOptions selects optional behaviour for the prepare endpoints.
+type PrepareOptions struct {
+	// Visibility is "private" (default when empty) or "public" — see
+	// PrepareUploadPublic for what "public" changes.
+	Visibility string
+	// IncludeSignedQuotes asks the daemon to carry the full signed quotes +
+	// ADR-0004 commitment sidecars in the response (wave-batch only), for
+	// offline verification via VerifyQuotes. Requires antd >= 0.13.0; older
+	// daemons ignore the flag and SignedQuotes stays empty.
+	IncludeSignedQuotes bool
+}
+
+// PrepareUploadWithOptions is PrepareUpload with explicit options.
+func (c *Client) PrepareUploadWithOptions(ctx context.Context, path string, opts PrepareOptions) (*PrepareUploadResult, error) {
+	body := map[string]any{"path": path}
+	if opts.Visibility != "" {
+		body["visibility"] = opts.Visibility
+	}
+	if opts.IncludeSignedQuotes {
+		body["include_signed_quotes"] = true
+	}
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/upload/prepare", body)
+	if err != nil {
+		return nil, err
+	}
+	return parsePrepareResponse(j), nil
+}
+
+// PrepareDataUploadWithOptions is PrepareDataUpload with explicit options.
+// Note visibility:"public" is not yet supported by the data endpoint (the
+// daemon returns 501) — see PrepareDataUpload.
+func (c *Client) PrepareDataUploadWithOptions(ctx context.Context, data []byte, opts PrepareOptions) (*PrepareUploadResult, error) {
+	body := map[string]any{"data": b64Encode(data)}
+	if opts.Visibility != "" {
+		body["visibility"] = opts.Visibility
+	}
+	if opts.IncludeSignedQuotes {
+		body["include_signed_quotes"] = true
+	}
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/data/prepare", body)
+	if err != nil {
+		return nil, err
+	}
+	return parsePrepareResponse(j), nil
+}
+
+// VerifyQuotes verifies a batch of signed quotes offline via
+// POST /v1/verify/quotes: quote-hash recomputation, ML-DSA-65 signature,
+// paid-fields equality against each entry's triple, and the ADR-0004
+// commitment binding with exact on-curve pricing. Stateless and offline —
+// call it on a daemon you trust (your own), never the counterparty's.
+// Policy checks (expiry windows, replay ledgers, chunk-set equality,
+// count-plausibility caps) remain the caller's job; the verdicts carry the
+// extracted fields those policies need.
+//
+// Requires antd >= 0.13.0.
+func (c *Client) VerifyQuotes(ctx context.Context, entries []VerifyQuoteEntry) (*VerifyQuotesResult, error) {
+	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/verify/quotes", map[string]any{
+		"entries": entries,
+	})
+	if err != nil {
+		return nil, err
+	}
+	result := &VerifyQuotesResult{Valid: boolField(j, "valid")}
+	for _, e := range arrAt(j, "entries") {
+		em, ok := e.(map[string]any)
+		if !ok {
+			continue
+		}
+		result.Entries = append(result.Entries, VerifyQuoteVerdict{
+			QuoteHash:         str(em, "quote_hash"),
+			Valid:             boolField(em, "valid"),
+			Error:             str(em, "error"),
+			TimestampUnixSecs: uint64(num64(em, "timestamp_unix_secs")),
+			Content:           str(em, "content"),
+			Price:             str(em, "price"),
+			RewardsAddress:    str(em, "rewards_address"),
+			CommittedKeyCount: uint32(num64(em, "committed_key_count")),
+			Pinned:            boolField(em, "pinned"),
+		})
+	}
+	return result, nil
+}
+
+// parseSignedQuotes maps a JSON signed_quotes array into typed entries.
+func parseSignedQuotes(raw []any) []SignedQuoteEntry {
+	var out []SignedQuoteEntry
+	for _, s := range raw {
+		if sm, ok := s.(map[string]any); ok {
+			out = append(out, SignedQuoteEntry{
+				QuoteHash:         str(sm, "quote_hash"),
+				Quote:             str(sm, "quote"),
+				CommitmentSidecar: str(sm, "commitment_sidecar"),
+			})
+		}
+	}
+	return out
 }
 
 // PrepareUploadPublic prepares a public file upload for external signing.
