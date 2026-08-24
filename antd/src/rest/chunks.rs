@@ -117,6 +117,7 @@ pub async fn chunk_prepare(
             payment_vault_address: None,
             payment_token_address: None,
             rpc_url: None,
+            signed_quotes: None,
         }));
     };
 
@@ -138,6 +139,29 @@ pub async fn chunk_prepare(
         .collect();
     let total_amount = prepared.payment.total_amount().to_string();
 
+    // Opt-in signed-quote exposure (V2-854) — built before the prepared state
+    // moves into the session map. Restricted to the paid quote set (the
+    // non-zero-amount quotes that populate `payments` above).
+    let signed_quotes = if req.include_signed_quotes {
+        let paid = prepared
+            .payment
+            .quotes
+            .iter()
+            .filter(|q| !q.amount.is_zero())
+            .map(|q| q.quote_hash)
+            .collect();
+        Some(
+            crate::signed_quotes::entries_for_quotes(
+                prepared.peer_quotes.iter().map(|(_, q)| q),
+                &prepared.commitment_sidecars,
+                &paid,
+            )
+            .map_err(AntdError::Internal)?,
+        )
+    } else {
+        None
+    };
+
     let upload_id = hex::encode(rand::random::<[u8; 16]>());
     state.pending_chunks.lock().await.insert(
         upload_id.clone(),
@@ -157,6 +181,7 @@ pub async fn chunk_prepare(
         payment_vault_address: Some(evm_cfg.vault_addr),
         payment_token_address: Some(evm_cfg.token_addr),
         rpc_url: Some(evm_cfg.rpc_url),
+        signed_quotes,
     }))
 }
 

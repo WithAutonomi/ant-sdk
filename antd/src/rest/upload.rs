@@ -25,6 +25,7 @@ fn build_prepare_response(
     upload_id: String,
     prepared: &ant_core::data::PreparedUpload,
     network: &str,
+    include_signed_quotes: bool,
 ) -> Result<PrepareUploadResponse, AntdError> {
     let evm_cfg = evm_defaults::resolve(network);
     let rpc_url = evm_cfg.rpc_url;
@@ -38,7 +39,10 @@ fn build_prepare_response(
     let already_stored_count = prepared.already_stored_addresses.len();
 
     match &prepared.payment_info {
-        ant_core::data::ExternalPaymentInfo::WaveBatch { payment_intent, .. } => {
+        ant_core::data::ExternalPaymentInfo::WaveBatch {
+            payment_intent,
+            prepared_chunks,
+        } => {
             let payments: Vec<PaymentEntry> = payment_intent
                 .payments
                 .iter()
@@ -48,6 +52,21 @@ fn build_prepare_response(
                     amount: amount.to_string(),
                 })
                 .collect();
+
+            // Opt-in signed-quote exposure (V2-854): the session state already
+            // holds the full signed quotes + commitment sidecars; serialize
+            // them out for offline verification via /v1/verify/quotes.
+            let signed_quotes = if include_signed_quotes {
+                Some(
+                    crate::signed_quotes::entries_for_prepared_chunks(
+                        prepared_chunks,
+                        payment_intent,
+                    )
+                    .map_err(AntdError::Internal)?,
+                )
+            } else {
+                None
+            };
 
             Ok(PrepareUploadResponse {
                 upload_id,
@@ -63,6 +82,7 @@ fn build_prepare_response(
                 rpc_url,
                 total_chunks,
                 already_stored_count,
+                signed_quotes,
             })
         }
         ant_core::data::ExternalPaymentInfo::Merkle {
@@ -97,6 +117,10 @@ fn build_prepare_response(
                 rpc_url,
                 total_chunks,
                 already_stored_count,
+                // Merkle candidate exposure is blocked upstream: ant-core
+                // keeps candidate pools private and discards resolved
+                // candidate commitments (V2-854 open question 1).
+                signed_quotes: None,
             })
         }
     }
@@ -282,7 +306,12 @@ pub async fn prepare_upload(
 
     // Generate a unique upload ID and store the prepared state
     let upload_id = hex::encode(rand::random::<[u8; 16]>());
-    let response = build_prepare_response(upload_id.clone(), &prepared, &state.network)?;
+    let response = build_prepare_response(
+        upload_id.clone(),
+        &prepared,
+        &state.network,
+        req.include_signed_quotes,
+    )?;
 
     state.pending_uploads.lock().await.insert(
         upload_id,
@@ -323,7 +352,12 @@ pub async fn prepare_data_upload(
     .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
 
     let upload_id = hex::encode(rand::random::<[u8; 16]>());
-    let response = build_prepare_response(upload_id.clone(), &prepared, &state.network)?;
+    let response = build_prepare_response(
+        upload_id.clone(),
+        &prepared,
+        &state.network,
+        req.include_signed_quotes,
+    )?;
 
     state.pending_uploads.lock().await.insert(
         upload_id,

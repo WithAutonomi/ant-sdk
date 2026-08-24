@@ -77,6 +77,9 @@ pub struct PrepareChunkRequest {
     /// (≤ 4 MiB before self-encryption is irrelevant here — the bytes are
     /// stored verbatim as one chunk at their BLAKE3 address).
     pub data: String,
+    /// Same semantics as `PrepareUploadRequest::include_signed_quotes`.
+    #[serde(default)]
+    pub include_signed_quotes: bool,
 }
 
 /// `POST /v1/chunks/prepare` response. Mirrors [`PrepareUploadResponse`]'s
@@ -120,6 +123,10 @@ pub struct PrepareChunkResponse {
     pub payment_token_address: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rpc_url: Option<String>,
+    /// Same semantics as `PrepareUploadResponse::signed_quotes` — present only
+    /// when the request set `include_signed_quotes` and payment is required.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signed_quotes: Option<Vec<SignedQuoteEntry>>,
 }
 
 #[derive(Deserialize)]
@@ -148,6 +155,13 @@ pub struct PrepareUploadRequest {
     /// pre-0.6.1 behavior.
     #[serde(default)]
     pub visibility: Option<String>,
+    /// When true, the wave-batch response additionally carries the full
+    /// signed quotes + ADR-0004 commitment sidecars (`signed_quotes`) so a
+    /// hosted-payments gateway can verify the batch offline before paying
+    /// (V2-854). Default false: ~5–6 KB per quote plus up to 8 KB per
+    /// sidecar, and existing consumers see no change.
+    #[serde(default)]
+    pub include_signed_quotes: bool,
 }
 
 #[derive(Deserialize)]
@@ -159,6 +173,9 @@ pub struct PrepareDataUploadRequest {
     /// payment batch and published on-network on finalize.
     #[serde(default)]
     pub visibility: Option<String>,
+    /// Same semantics as [`PrepareUploadRequest::include_signed_quotes`].
+    #[serde(default)]
+    pub include_signed_quotes: bool,
 }
 
 #[derive(Serialize)]
@@ -217,6 +234,102 @@ pub struct PrepareUploadResponse {
     /// self-encryption) and therefore excluded from payment + PUT. The external
     /// signer is paying for `total_chunks - already_stored_count` chunks.
     pub already_stored_count: usize,
+
+    // --- Signed-quote exposure (V2-854, antd 0.13.0) ---
+    /// Present only when the request set `include_signed_quotes` and the
+    /// payment type is wave_batch: one entry per `payments[]` quote carrying
+    /// the full signed quote (and its ADR-0004 commitment sidecar when the
+    /// quote pins one) as opaque bytes for offline verification via
+    /// `/v1/verify/quotes`. Merkle prepares omit it (candidate exposure is
+    /// tracked separately — the daemon does not retain merkle candidate
+    /// commitments).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signed_quotes: Option<Vec<SignedQuoteEntry>>,
+}
+
+/// One `payments[]` quote in full signed form: the opaque serialized
+/// [`PaymentQuote`] plus, for commitment-bound quotes, the commitment sidecar
+/// the quote pins. Consumers treat both as opaque bytes — only antd
+/// (`/v1/verify/quotes`) parses them.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SignedQuoteEntry {
+    /// Quote hash (hex with 0x prefix) — matches the `payments[]` entry.
+    pub quote_hash: String,
+    /// base64(msgpack-serialized signed PaymentQuote). Opaque.
+    pub quote: String,
+    /// base64(msgpack-serialized StorageCommitment) — the ADR-0004 sidecar
+    /// the quote's `commitment_pin` resolves to. Absent for baseline quotes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commitment_sidecar: Option<String>,
+}
+
+// ── VerifyQuotes (stateless offline verification, V2-854) ──
+
+#[derive(Deserialize)]
+pub struct VerifyQuotesRequest {
+    pub entries: Vec<VerifyQuoteEntry>,
+}
+
+/// One entry to verify: the `/pay`-shaped payment triple plus the opaque
+/// signed artifacts from the prepare response's `signed_quotes`.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct VerifyQuoteEntry {
+    /// Quote hash the payer was asked to pay (hex, 32 bytes).
+    pub quote_hash: String,
+    /// Rewards address the payer was asked to pay (hex with 0x prefix).
+    pub rewards_address: String,
+    /// Amount the payer was asked to pay (atto tokens, decimal string).
+    pub amount: String,
+    /// base64(msgpack) signed PaymentQuote — from `signed_quotes[].quote`.
+    pub signed_quote: String,
+    /// base64(msgpack) StorageCommitment sidecar — from
+    /// `signed_quotes[].commitment_sidecar`. Required when the quote is
+    /// commitment-bound.
+    #[serde(default)]
+    pub commitment_sidecar: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct VerifyQuotesResponse {
+    /// True only when every entry verified.
+    pub valid: bool,
+    pub entries: Vec<VerifyQuoteVerdict>,
+}
+
+/// Per-entry verification verdict. The extracted fields are populated as soon
+/// as the signed quote deserializes — even when a later check fails — so
+/// policy layers can see what the quote claimed.
+#[derive(Serialize, Clone, Debug)]
+pub struct VerifyQuoteVerdict {
+    /// Echo of the request entry's quote_hash.
+    pub quote_hash: String,
+    /// True when every check passed: hash recomputation, ML-DSA-65 signature,
+    /// paid-fields equality, and the ADR-0004 commitment binding with exact
+    /// on-curve pricing.
+    pub valid: bool,
+    /// The first failing rule, by name. Absent when valid.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// Quote timestamp (unix seconds) — for the caller's expiry policy.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp_unix_secs: Option<u64>,
+    /// The chunk address the quote covers (hex, 32 bytes) — for the caller's
+    /// chunk-set equality policy.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    /// The signed price (atto tokens, decimal string).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub price: Option<String>,
+    /// The signed rewards address (hex with 0x prefix).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rewards_address: Option<String>,
+    /// Claimed ADR-0004 storage-commitment key count (0 = baseline quote) —
+    /// for the caller's count-plausibility cap.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub committed_key_count: Option<u32>,
+    /// Whether the quote pins a storage commitment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pinned: Option<bool>,
 }
 
 /// One merkle payment batch: everything the external signer needs for a
@@ -510,6 +623,7 @@ mod tests {
             rpc_url: "http://localhost:8545".into(),
             total_chunks: 3,
             already_stored_count: 1,
+            signed_quotes: None,
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["payment_type"], "wave_batch");
@@ -519,6 +633,8 @@ mod tests {
         assert!(json.get("depth").is_none());
         assert!(json.get("pool_commitments").is_none());
         assert!(json.get("merkle_payment_timestamp").is_none());
+        // Opt-in signed-quote exposure must be absent when not requested
+        assert!(json.get("signed_quotes").is_none());
         // Preflight fields are always present
         assert_eq!(json["total_chunks"], 3);
         assert_eq!(json["already_stored_count"], 1);
@@ -556,6 +672,7 @@ mod tests {
             rpc_url: "http://localhost:8545".into(),
             total_chunks: 128,
             already_stored_count: 0,
+            signed_quotes: None,
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["payment_type"], "merkle");
@@ -817,6 +934,7 @@ mod tests {
             payment_vault_address: Some("0xcc".into()),
             payment_token_address: Some("0xdd".into()),
             rpc_url: Some("http://localhost:8545".into()),
+            signed_quotes: None,
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["already_stored"], false);
@@ -840,6 +958,7 @@ mod tests {
             payment_vault_address: None,
             payment_token_address: None,
             rpc_url: None,
+            signed_quotes: None,
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["already_stored"], true);

@@ -338,6 +338,82 @@ The flow is:
 
 Out of scope for the V2-312 examples (small files only). When merkle examples are added (separate ticket), this section becomes the spec.
 
+## Signed-quote exposure + offline verification (hosted payments, V2-854)
+
+Added in antd 0.13.0. In hosted-payment mode the party that pays is not the
+party that collected the quotes — the payer (a payment gateway) receives
+`payments[]` triples from a customer-controlled instance and must not trust
+them: a fabricated triple could name any address and any amount. Two additions
+close this:
+
+### Opt-in exposure: `include_signed_quotes`
+
+All three prepare endpoints (`/v1/upload/prepare`, `/v1/data/prepare`,
+`/v1/chunks/prepare`, and their gRPC twins) accept
+`"include_signed_quotes": true`. The wave-batch response then carries
+`signed_quotes[]` alongside `payments[]`:
+
+```json
+{
+  "payments":     [{"quote_hash": "0x…", "rewards_address": "0x…", "amount": "…"}],
+  "signed_quotes": [{"quote_hash": "0x…", "quote": "<base64>", "commitment_sidecar": "<base64>"}]
+}
+```
+
+- `quote` is the full signed `PaymentQuote` (ML-DSA-65 pubkey + signature over
+  content/timestamp/price/rewards_address/count/pin) as opaque
+  base64(msgpack) bytes.
+- `commitment_sidecar` is the ADR-0004 `StorageCommitment` the quote pins —
+  present only for commitment-bound quotes (baseline quotes have none).
+- Size: ~5–6 KB per quote plus up to 8 KB per sidecar — hence opt-in.
+  Default-off; existing consumers see no change.
+- Merkle prepares never populate it: ant-core does not retain merkle
+  candidate commitments (V2-854 open question 1 — hosted merkle is V2-934).
+
+The signer relays these blobs to its payment gateway **unmodified**; nothing
+outside antd ever parses them.
+
+### Offline verification: `POST /v1/verify/quotes`
+
+The gateway verifies a batch before paying by calling `VerifyQuotes` on its
+**own** antd instance (never the customer's). Stateless, offline, pure:
+
+```json
+{"entries": [{
+  "quote_hash": "0x…", "rewards_address": "0x…", "amount": "…",
+  "signed_quote": "<base64>", "commitment_sidecar": "<base64>"
+}]}
+```
+
+Per entry, antd checks (the crypto + exact-arithmetic layer):
+
+1. **Hash recomputation** — `quote_hash == hash(signed_quote)`: the triple is
+   tied to a concrete quote, not a made-up hash.
+2. **ML-DSA-65 signature** over the paid fields.
+3. **Paid-fields equality** — the triple's `rewards_address` exactly equals
+   the signed one, and `amount` exactly equals **3× the signed `price`** (the
+   single-node payment multiplier: single-quote payments pay only the median
+   quote of the close group, at 3×, keeping per-chunk economics equivalent —
+   V2-619).
+4. **ADR-0004 resolve-before-pay binding** — commitment sidecar present for
+   pinned quotes, signed under the quote's own key, `commitment_hash == pin`,
+   attested `key_count` equals the claimed count, and
+   `price == calculate_price(key_count)` by exact recomputation (baseline
+   quotes must price exactly `calculate_price(0)`). An unresolvable pin is
+   never valid.
+
+The response carries per-entry verdicts plus the fields caller-side policy
+needs (`timestamp_unix_secs`, `content`, `price`, `rewards_address`,
+`committed_key_count`, `pinned`). **Policy stays caller-side**: expiry
+windows, paid-quote replay ledgers, chunk-set equality vs the declared
+upload, count-plausibility caps, and spend ceilings are the gateway's job —
+`VerifyQuotes` proves internal consistency, not signer legitimacy (keypairs
+are free to mint; only economic caps and spot-check re-quoting bound a
+self-consistent fabrication).
+
+Go client: `PrepareUploadWithOptions(ctx, path, PrepareOptions{IncludeSignedQuotes: true})`
+then `VerifyQuotes(ctx, entries)`.
+
 ## References
 
 - Daemon surface: PR [#90](https://github.com/WithAutonomi/ant-sdk/pull/90), squash `a3cf4e40`

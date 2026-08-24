@@ -879,6 +879,7 @@ name = "antd"
 version = "0.12.0"
 dependencies = [
  "ant-core",
+ "ant-protocol",
  "axum 0.8.9",
  "base64",
  "blake3",
@@ -904,6 +905,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "xor_name",
 ]
 
 [[package]]

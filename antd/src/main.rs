@@ -17,6 +17,7 @@ mod grpc;
 mod peers;
 mod port_file;
 mod rest;
+mod signed_quotes;
 mod state;
 mod types;
 
