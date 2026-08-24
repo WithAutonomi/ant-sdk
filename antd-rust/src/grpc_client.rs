@@ -10,6 +10,10 @@ use crate::models::*;
 /// Generated protobuf types for the antd gRPC API.
 pub mod proto {
     pub mod antd {
+        // Generated code: tonic client methods all return
+        // `Result<_, tonic::Status>`, which newer clippy flags as
+        // result_large_err — not actionable in generated code.
+        #[allow(clippy::result_large_err)]
         pub mod v1 {
             tonic::include_proto!("antd.v1");
         }
