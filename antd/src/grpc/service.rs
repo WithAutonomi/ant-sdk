@@ -213,18 +213,29 @@ fn download_event_to_progress(ev: ant_core::data::DownloadEvent) -> pb::Download
 /// progress bar. When unset, no progress sender is passed and the stream carries
 /// only data frames — byte-identical to the pre-progress behaviour.
 ///
-/// The total plaintext size (`DataMap::original_file_size`) is attached as the
+/// A shrunk (child) `data_map` is resolved to its root form up front — on a
+/// child map `original_file_size()` describes the serialized parent map, not
+/// the plaintext (V2-1104) — so the size below is correct and a resolution
+/// failure surfaces as a `Status` before the stream opens. This also means the
+/// `resolving_map` progress phase no longer appears: the download starts from
+/// an already-resolved map.
+///
+/// The total plaintext size (root map `original_file_size`) is attached as the
 /// `x-content-length` response-metadata header, sent before the first chunk.
 /// This mirrors the REST handler's `Content-Length` (see `rest/data.rs`) and
 /// gives the byte *denominator*; the progress frames give the chunk *numerator*.
 /// Shared by the private `stream` and public `stream_public` handlers —
 /// `stream` is the primitive, `stream_public` resolves the address to a DataMap
 /// then calls this.
-fn data_chunk_stream_response(
+async fn data_chunk_stream_response(
     client: Arc<ant_core::data::Client>,
     data_map: ant_core::data::DataMap,
     include_progress: bool,
-) -> Response<tokio_stream::wrappers::ReceiverStream<Result<pb::DataChunk, Status>>> {
+) -> Result<Response<tokio_stream::wrappers::ReceiverStream<Result<pb::DataChunk, Status>>>, Status>
+{
+    let data_map = crate::datamap::resolve_root_data_map(&client, data_map)
+        .await
+        .map_err(|e| Status::from(AntdError::from_core(e)))?;
     // Capture the total before `data_map` is moved into the producer task below.
     let total_size = data_map.original_file_size();
 
@@ -304,7 +315,7 @@ fn data_chunk_stream_response(
             .parse()
             .expect("decimal digits are a valid ascii metadata value"),
     );
-    response
+    Ok(response)
 }
 
 #[tonic::async_trait]
@@ -415,11 +426,7 @@ impl pb::data_service_server::DataService for DataServiceImpl {
             .map_err(|e| Status::invalid_argument(format!("invalid data map: {e}")))?;
 
         let client = self.state.client.clone();
-        Ok(data_chunk_stream_response(
-            client,
-            data_map,
-            include_progress,
-        ))
+        data_chunk_stream_response(client, data_map, include_progress).await
     }
 
     type StreamPublicStream = tokio_stream::wrappers::ReceiverStream<Result<pb::DataChunk, Status>>;
@@ -451,11 +458,7 @@ impl pb::data_service_server::DataService for DataServiceImpl {
             .map_err(AntdError::from_core)
             .map_err(tonic::Status::from)?;
 
-        Ok(data_chunk_stream_response(
-            client,
-            data_map,
-            include_progress,
-        ))
+        data_chunk_stream_response(client, data_map, include_progress).await
     }
 
     async fn get(
