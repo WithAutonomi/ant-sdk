@@ -227,6 +227,9 @@ fn download_event_to_progress(ev: ant_core::data::DownloadEvent) -> pb::Download
 /// Shared by the private `stream` and public `stream_public` handlers —
 /// `stream` is the primitive, `stream_public` resolves the address to a DataMap
 /// then calls this.
+// tonic's service contract fixes the error type to `tonic::Status` (≥176
+// bytes), which clippy 1.98's result_large_err flags — it cannot be boxed here.
+#[allow(clippy::result_large_err)]
 async fn data_chunk_stream_response(
     client: Arc<ant_core::data::Client>,
     data_map: ant_core::data::DataMap,

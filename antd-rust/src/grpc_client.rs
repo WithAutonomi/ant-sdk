@@ -8,6 +8,9 @@ use crate::errors::AntdError;
 use crate::models::*;
 
 /// Generated protobuf types for the antd gRPC API.
+// tonic 0.12's generated stubs return `Result<_, tonic::Status>` and `Status`
+// is ≥176 bytes — clippy 1.98's result_large_err flags code we can't reshape.
+#[allow(clippy::result_large_err)]
 pub mod proto {
     pub mod antd {
         pub mod v1 {
