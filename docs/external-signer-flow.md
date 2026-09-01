@@ -180,6 +180,8 @@ Content-Type: application/json
 }
 ```
 
+If `payments` came back empty from prepare (every chunk already stored — e.g. a repeated upload), skip steps 2–4 and finalize with `"tx_hashes": {}`: no on-chain payment is needed and the daemon returns the DataMap directly. Both REST and gRPC accept this.
+
 Returns `FinalizeUploadResult { data_map_address, data_map, chunks_stored, address }`. The `data_map_address` is what other clients use to retrieve the file via `file_download_public(data_map_address)`.
 
 ## Single-chunk publish

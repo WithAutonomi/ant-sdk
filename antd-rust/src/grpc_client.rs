@@ -620,6 +620,7 @@ impl GrpcClient {
                 upload_id: upload_id.to_string(),
                 tx_hashes: tx_hashes.clone(),
                 winner_pool_hash: String::new(),
+                winner_pool_hashes: Vec::new(),
                 store_data_map: false,
             })
             .await?
@@ -647,6 +648,10 @@ impl GrpcClient {
                 upload_id: upload_id.to_string(),
                 tx_hashes: std::collections::HashMap::new(),
                 winner_pool_hash: winner_pool_hash.to_string(),
+                // Legacy single-batch call shape; the multi-batch surface
+                // (winner-hash list, merkle_batches consumption) is the
+                // client-sweep follow-up.
+                winner_pool_hashes: Vec::new(),
                 store_data_map,
             })
             .await?

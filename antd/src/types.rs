@@ -175,15 +175,28 @@ pub struct PrepareUploadResponse {
     pub payments: Vec<PaymentEntry>,
 
     // --- Merkle fields (present when payment_type == "merkle") ---
-    /// Merkle tree depth (1-8).
+    // The legacy singular fields mirror `merkle_batches[0]` and are present
+    // only when there is exactly one batch, so pre-multi-batch clients keep
+    // working for uploads that fit one merkle tree. Multi-batch prepares
+    // omit them — a legacy client cannot pay a fraction of the file.
+    /// Merkle tree depth (1-8). Legacy: only when exactly one batch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub depth: Option<u8>,
-    /// Pool commitments for `payForMerkleTree2()`.
+    /// Pool commitments for `payForMerkleTree2()`. Legacy: only when exactly
+    /// one batch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pool_commitments: Option<Vec<PoolCommitmentEntry>>,
-    /// Timestamp for the merkle payment (unix seconds).
+    /// Timestamp for the merkle payment (unix seconds). Legacy: only when
+    /// exactly one batch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub merkle_payment_timestamp: Option<u64>,
+    /// All merkle payment batches, in order. ant-core splits an upload larger
+    /// than one merkle tree (256 fresh chunks ≈ 1 GiB) into several batches;
+    /// the signer submits one `payForMerkleTree2()` transaction per entry and
+    /// passes the winner hashes back index-aligned in the finalize request's
+    /// `winner_pool_hashes`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub merkle_batches: Option<Vec<MerkleBatchEntry>>,
 
     // --- Common fields (always present) ---
     /// Total amount to pay (atto tokens as decimal string).
@@ -204,6 +217,18 @@ pub struct PrepareUploadResponse {
     /// self-encryption) and therefore excluded from payment + PUT. The external
     /// signer is paying for `total_chunks - already_stored_count` chunks.
     pub already_stored_count: usize,
+}
+
+/// One merkle payment batch: everything the external signer needs for a
+/// single `payForMerkleTree2()` call.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct MerkleBatchEntry {
+    /// Merkle tree depth (1-8).
+    pub depth: u8,
+    /// Pool commitments for `payForMerkleTree2()`.
+    pub pool_commitments: Vec<PoolCommitmentEntry>,
+    /// Timestamp for the merkle payment (unix seconds).
+    pub merkle_payment_timestamp: u64,
 }
 
 /// A pool commitment entry for the merkle payment contract.
@@ -241,9 +266,19 @@ pub struct FinalizeUploadRequest {
     /// Wave-batch: map of quote_hash (hex) → tx_hash (hex) from on-chain payment.
     #[serde(default)]
     pub tx_hashes: Option<HashMap<String, String>>,
-    /// Merkle: winner pool hash (hex, 32 bytes) from `MerklePaymentMade` event.
+    /// Merkle, LEGACY single-batch: winner pool hash (hex, 32 bytes) from the
+    /// `MerklePaymentMade` event. Accepted only when the prepared upload has
+    /// exactly one merkle batch; must not be combined with
+    /// `winner_pool_hashes`.
     #[serde(default)]
     pub winner_pool_hash: Option<String>,
+    /// Merkle: one winner pool hash per entry in the prepare response's
+    /// `merkle_batches`, index-aligned. `null` or `""` marks a batch the
+    /// signer never paid — paid batches store and the unpaid chunks surface
+    /// via the `PARTIAL_UPLOAD` error. Required (over `winner_pool_hash`)
+    /// when the prepared upload has more than one batch.
+    #[serde(default)]
+    pub winner_pool_hashes: Option<Vec<Option<String>>>,
     /// If true, store the DataMap on-network and return its address.
     /// If false (default), return the raw DataMap for caller-side storage.
     #[serde(default)]
@@ -468,6 +503,7 @@ mod tests {
             depth: None,
             pool_commitments: None,
             merkle_payment_timestamp: None,
+            merkle_batches: None,
             total_amount: "100".into(),
             payment_vault_address: "0xcc".into(),
             payment_token_address: "0xdd".into(),
@@ -503,6 +539,17 @@ mod tests {
                 }],
             }]),
             merkle_payment_timestamp: Some(1712150400),
+            merkle_batches: Some(vec![MerkleBatchEntry {
+                depth: 5,
+                pool_commitments: vec![PoolCommitmentEntry {
+                    pool_hash: "0xaabb".into(),
+                    candidates: vec![CandidateNodeEntry {
+                        rewards_address: "0x1234".into(),
+                        amount: "1000".into(),
+                    }],
+                }],
+                merkle_payment_timestamp: 1712150400,
+            }]),
             total_amount: "0".into(),
             payment_vault_address: "0xee".into(),
             payment_token_address: "0xdd".into(),
@@ -515,6 +562,11 @@ mod tests {
         assert_eq!(json["depth"], 5);
         assert_eq!(json["merkle_payment_timestamp"], 1712150400u64);
         assert_eq!(json["pool_commitments"][0]["pool_hash"], "0xaabb");
+        assert_eq!(json["merkle_batches"][0]["depth"], 5);
+        assert_eq!(
+            json["merkle_batches"][0]["pool_commitments"][0]["pool_hash"],
+            "0xaabb"
+        );
         assert_eq!(json["payment_vault_address"], "0xee");
         // Wave fields must be absent
         assert!(json.get("payments").is_none());

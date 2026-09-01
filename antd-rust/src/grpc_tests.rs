@@ -281,6 +281,7 @@ impl v1::upload_service_server::UploadService for MockUploadService {
                     }],
                 }],
                 merkle_payment_timestamp: 1_700_000_000,
+                merkle_batches: Vec::new(),
                 total_amount: "0".to_string(),
                 payment_vault_address: "0xvault".to_string(),
                 payment_token_address: "0xtoken".to_string(),
