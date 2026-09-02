@@ -51,7 +51,26 @@ All options can be set via CLI flags or environment variables:
 | `--grpc-port` | `ANTD_GRPC_PORT` | *(from addr)* | Override gRPC port (use 0 for OS-assigned) |
 | `--network` | `ANTD_NETWORK` | `default` | Network mode: `default`, `local` |
 | `--peers` | `ANTD_PEERS` | *(none)* | Comma-separated bootstrap peer multiaddrs |
-| `--cors` | `ANTD_CORS` | `false` | Enable CORS headers (restricted to localhost) |
+| `--cors` | `ANTD_CORS` | *(off)* | CORS for browser callers — see [CORS](#cors) |
+
+### CORS
+
+Non-browser clients (SDKs, CLI, scripts) are unaffected by CORS; this flag
+only matters for calls made from a browser page or extension.
+
+- `--cors` (no value) allows **browser-extension origins only**
+  (`chrome-extension://`, `moz-extension://`, `safari-web-extension://`).
+  This is what the [installers](../installers/) use so the Autonomi browser
+  extension can reach the daemon.
+- `--cors http://127.0.0.1:8000` (comma-separated list) additionally allows
+  those exact web origins — use this to let your own web app call antd.
+  Origins are matched exactly: `http://localhost:8000` and
+  `http://127.0.0.1:8000` are different origins, so list both if needed.
+- `--cors '*'` allows any origin. **Development only** — antd has no
+  authentication, so this lets any webpage you visit drive the REST API,
+  including wallet endpoints.
+- `ANTD_CORS=true` / `ANTD_CORS=false` keep their old boolean meaning
+  (equivalent to bare `--cors` / no flag).
 
 ### Wallet & EVM Configuration
 
