@@ -62,35 +62,15 @@ async fn request_id_middleware(request: Request<axum::body::Body>, next: Next) -
     response
 }
 
-/// Browser-extension origin prefixes allowed in every enabled CORS mode
-/// (see [`CorsMode`] for the rationale).
-const EXTENSION_ORIGIN_PREFIXES: [&str; 3] = [
-    "chrome-extension://",
-    "moz-extension://",
-    "safari-web-extension://",
-];
-
-fn is_extension_origin(origin: &HeaderValue) -> bool {
-    let Ok(origin) = origin.to_str() else {
-        return false;
-    };
-    EXTENSION_ORIGIN_PREFIXES
-        .iter()
-        .any(|prefix| origin.starts_with(prefix))
-}
-
 fn cors_layer(mode: &CorsMode) -> Option<CorsLayer> {
     let allow_origin = match mode {
         CorsMode::Disabled => return None,
         CorsMode::AllowAny => AllowOrigin::any(),
-        CorsMode::Extensions => AllowOrigin::predicate(|origin, _| is_extension_origin(origin)),
         CorsMode::AllowList(list) => {
             let list = list.clone();
             AllowOrigin::predicate(move |origin, _| {
-                is_extension_origin(origin)
-                    || list
-                        .iter()
-                        .any(|allowed| allowed.as_bytes() == origin.as_bytes())
+                list.iter()
+                    .any(|allowed| allowed.as_bytes() == origin.as_bytes())
             })
         }
     };
@@ -203,26 +183,40 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn extensions_mode_allows_extension_origins_only() {
-        let mode = CorsMode::Extensions;
-        assert_eq!(allow_origin_for(&mode, EXT).await.as_deref(), Some(EXT));
-        assert_eq!(
-            allow_origin_for(&mode, "chrome-extension://abcdefghijklmnop")
-                .await
-                .as_deref(),
-            Some("chrome-extension://abcdefghijklmnop"),
-        );
+    async fn empty_allowlist_from_bare_cors_allows_nothing() {
+        let mode = CorsMode::AllowList(Vec::new());
         assert_eq!(allow_origin_for(&mode, WEB).await, None);
+        assert_eq!(allow_origin_for(&mode, EXT).await, None);
     }
 
     #[tokio::test]
-    async fn allowlist_echoes_listed_origin_and_keeps_extensions() {
+    async fn allowlist_echoes_listed_origin_only() {
         let mode = CorsMode::AllowList(vec![WEB.to_owned()]);
         assert_eq!(allow_origin_for(&mode, WEB).await.as_deref(), Some(WEB));
-        assert_eq!(allow_origin_for(&mode, EXT).await.as_deref(), Some(EXT));
         assert_eq!(allow_origin_for(&mode, "http://evil.example").await, None);
         // Not the daemon's own origin (the old bug), and exact match only.
         assert_eq!(allow_origin_for(&mode, "http://127.0.0.1:8082").await, None);
+        // Unrelated browser-extension origins get no blanket allowance:
+        // extensions must use declared host permissions (or be listed).
+        assert_eq!(allow_origin_for(&mode, EXT).await, None);
+        assert_eq!(
+            allow_origin_for(&mode, "chrome-extension://abcdefghijklmnop").await,
+            None,
+        );
+    }
+
+    #[tokio::test]
+    async fn explicitly_listed_extension_origin_is_allowed() {
+        let mode = CorsMode::AllowList(vec![EXT.to_owned()]);
+        assert_eq!(allow_origin_for(&mode, EXT).await.as_deref(), Some(EXT));
+        assert_eq!(
+            allow_origin_for(
+                &mode,
+                "moz-extension://0badd00d-1234-5678-9abc-def012345678"
+            )
+            .await,
+            None,
+        );
     }
 
     #[tokio::test]

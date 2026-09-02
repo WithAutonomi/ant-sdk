@@ -20,7 +20,8 @@ and the extension can't find the daemon.
 ## Runtime contract (what the extension needs)
 
 1. antd version ≥ 0.9.2.
-2. Started with `--cors` (browser-origin REST is blocked without it).
+2. Started with `--cors` (kept for compatibility; the extension itself
+   needs no CORS — it uses declared localhost host permissions).
 3. Listening on `127.0.0.1:8082` (default).
 4. Auto-started on login; survives reboot.
 5. Runs in the user's session → per-user data dir:
@@ -126,7 +127,8 @@ release, confirm/update the extension's `src/shared/constants.ts`:
 2. Run installer with defaults.
 3. Within seconds, no reboot, extension shows **Connected**.
 4. antd listening on `127.0.0.1:8082`, answers `GET /health`.
-5. Started with `--cors` (extension origin requests succeed).
+5. Started with `--cors` (compatibility flag; extension requests succeed
+   via its host permissions).
 6. `daemon.port`/config under the per-user data dir.
 7. Reboot / re-login → antd running again automatically.
 8. No lingering console window (Windows).

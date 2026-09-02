@@ -30,11 +30,12 @@ pub struct Config {
     #[arg(long, env = "ANTD_PEERS", value_delimiter = ',')]
     pub peers: Option<Vec<String>>,
 
-    /// Enable CORS for browser callers. Bare `--cors` allows browser-extension
-    /// origins only. Pass a comma-separated list of origins to also allow
-    /// specific web pages (e.g. `--cors http://127.0.0.1:8000`), or `*` to
-    /// allow any origin (unsafe outside development: any webpage can then
-    /// drive this daemon's REST API, including wallet endpoints).
+    /// Enable CORS for browser pages. Pass a comma-separated list of exact
+    /// origins (e.g. `--cors http://127.0.0.1:8000`), or `*` to allow any
+    /// origin (unsafe outside development: any webpage can then drive this
+    /// daemon's REST API, including wallet endpoints). Bare `--cors` is
+    /// accepted for backward compatibility but allows no origins by itself
+    /// (the browser extension needs no CORS — it uses host permissions).
     #[arg(long, env = "ANTD_CORS", value_name = "ORIGINS", num_args = 0..=1, default_missing_value = "true")]
     pub cors: Option<String>,
 
@@ -63,18 +64,22 @@ pub struct Config {
 
 /// Parsed CORS policy derived from `--cors` / `ANTD_CORS`.
 ///
-/// Browser-extension origins (`chrome-extension://`, `moz-extension://`,
-/// `safari-web-extension://`) are allowed in every enabled mode: extensions
-/// can already bypass CORS entirely by requesting localhost host-permissions,
-/// so echoing their origin adds no attack surface — while Firefox MV3, where
-/// host permissions are not granted at install, needs the CORS path to work.
+/// Extension origins get no blanket allowance: the official browser
+/// extension declares localhost host permissions, which exempt its
+/// background fetches from CORS in both Chrome and Firefox (127+ grants
+/// MV3 host permissions at install), so it never needs the CORS path.
+/// Echoing arbitrary `*-extension://` origins would instead hand every
+/// installed extension — including ones that never declared, or were
+/// denied, localhost access — a CORS grant to an unauthenticated API with
+/// wallet endpoints. A specific extension with a stable ID can still be
+/// allowed by listing its exact origin.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CorsMode {
     /// No CORS headers at all (flag absent, or `ANTD_CORS=false`).
     Disabled,
-    /// Browser-extension origins only (bare `--cors` / `ANTD_CORS=true`).
-    Extensions,
-    /// Extension origins plus these exact web origins.
+    /// Exactly these origins. Bare `--cors` / `ANTD_CORS=true` yield an
+    /// empty list — accepted for backward compatibility (installers pass
+    /// bare `--cors`) but allowing nothing by itself.
     AllowList(Vec<String>),
     /// Any origin (`--cors '*'`). Unsafe outside development.
     AllowAny,
@@ -100,7 +105,7 @@ impl Config {
         }
         if entries.len() == 1 {
             match entries[0].to_ascii_lowercase().as_str() {
-                "true" | "1" | "on" | "yes" => return Ok(CorsMode::Extensions),
+                "true" | "1" | "on" | "yes" => return Ok(CorsMode::AllowList(Vec::new())),
                 "false" | "0" | "off" | "no" => return Ok(CorsMode::Disabled),
                 _ => {}
             }
@@ -174,14 +179,17 @@ mod tests {
     }
 
     #[test]
-    fn bare_flag_allows_extensions_only() {
-        assert_eq!(mode(&["--cors"]), Ok(CorsMode::Extensions));
+    fn bare_flag_is_accepted_but_allows_no_origins() {
+        assert_eq!(mode(&["--cors"]), Ok(CorsMode::AllowList(Vec::new())));
     }
 
     #[test]
     fn bool_values_keep_old_env_contract() {
-        assert_eq!(mode(&["--cors", "true"]), Ok(CorsMode::Extensions));
-        assert_eq!(mode(&["--cors", "1"]), Ok(CorsMode::Extensions));
+        assert_eq!(
+            mode(&["--cors", "true"]),
+            Ok(CorsMode::AllowList(Vec::new()))
+        );
+        assert_eq!(mode(&["--cors", "1"]), Ok(CorsMode::AllowList(Vec::new())));
         assert_eq!(mode(&["--cors", "false"]), Ok(CorsMode::Disabled));
         assert_eq!(mode(&["--cors", "0"]), Ok(CorsMode::Disabled));
         assert_eq!(mode(&["--cors", ""]), Ok(CorsMode::Disabled));

@@ -56,21 +56,21 @@ All options can be set via CLI flags or environment variables:
 ### CORS
 
 Non-browser clients (SDKs, CLI, scripts) are unaffected by CORS; this flag
-only matters for calls made from a browser page or extension.
+only matters for calls made from a browser page. The Autonomi browser
+extension does **not** need it: its declared localhost host permissions
+exempt its background fetches from CORS in both Chrome and Firefox.
 
-- `--cors` (no value) allows **browser-extension origins only**
-  (`chrome-extension://`, `moz-extension://`, `safari-web-extension://`).
-  This is what the [installers](../installers/) use so the Autonomi browser
-  extension can reach the daemon.
-- `--cors http://127.0.0.1:8000` (comma-separated list) additionally allows
-  those exact web origins — use this to let your own web app call antd.
-  Origins are matched exactly: `http://localhost:8000` and
-  `http://127.0.0.1:8000` are different origins, so list both if needed.
+- `--cors http://127.0.0.1:8000` (comma-separated list) allows those exact
+  origins — use this to let your own web app call antd. Origins are matched
+  exactly: `http://localhost:8000` and `http://127.0.0.1:8000` are different
+  origins, so list both if needed. An extension with a stable ID can be
+  allowed the same way (e.g. `--cors chrome-extension://<id>`).
 - `--cors '*'` allows any origin. **Development only** — antd has no
   authentication, so this lets any webpage you visit drive the REST API,
   including wallet endpoints.
-- `ANTD_CORS=true` / `ANTD_CORS=false` keep their old boolean meaning
-  (equivalent to bare `--cors` / no flag).
+- Bare `--cors` (and `ANTD_CORS=true`) is accepted for backward
+  compatibility but allows no origins by itself; `ANTD_CORS=false` keeps
+  meaning disabled.
 
 ### Wallet & EVM Configuration
 

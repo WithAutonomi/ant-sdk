@@ -69,11 +69,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Network:   {}", config.network);
     match &cors_mode {
         config::CorsMode::Disabled => println!("  CORS:      disabled"),
-        config::CorsMode::Extensions => println!(
-            "  CORS:      browser extensions only (pass --cors <origins> to allow web pages)"
+        config::CorsMode::AllowList(origins) if origins.is_empty() => println!(
+            "  CORS:      no origins allowed (pass --cors <origins> to allow web pages; \
+             the browser extension uses host permissions instead of CORS)"
         ),
         config::CorsMode::AllowList(origins) => {
-            println!("  CORS:      browser extensions + {}", origins.join(", "))
+            println!("  CORS:      {}", origins.join(", "))
         }
         config::CorsMode::AllowAny => println!("  CORS:      any origin"),
     }
