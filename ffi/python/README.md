@@ -10,11 +10,11 @@ Async `Client` methods are real `async def` — they run on Rust's tokio runtime
 and bridge to asyncio, so `await client.data_put_public(...)` works from plain
 asyncio with no extra event-loop setup.
 
-> **Package name.** `ant-ffi` is a **placeholder-but-permanent** working title.
-> The product-level names (`autonomi`, `autonomi-client`) are already taken on
-> PyPI; `ant-ffi` matches the Rust crate and the AntFfi artifact family and is
-> free. The intent is to move to a product-named package under a dedicated org
-> later. Track: V2-880.
+> **Package name.** The distribution is `ant-sdk` (matches this repo) — a
+> working title, distribution name only: the *import* name is `ant_ffi`,
+> fixed by the UniFFI crate namespace (`pip install ant-sdk`, then
+> `import ant_ffi`). If a product-level rename happens, the PyPI project
+> will be deleted and recreated under the new name. Track: V2-880.
 
 ## Layout
 

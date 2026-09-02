@@ -1021,3 +1021,119 @@ func TestDataStreamWithProgressSurfacesErrorFrame(t *testing.T) {
 		t.Fatalf("expected terminal error frame to surface, got %v", err)
 	}
 }
+
+func TestParsePrepareResponseMultiBatch(t *testing.T) {
+	j := map[string]any{
+		"upload_id":    "mb1",
+		"payment_type": "merkle",
+		"merkle_batches": []any{
+			map[string]any{
+				"depth": float64(8),
+				"pool_commitments": []any{
+					map[string]any{
+						"pool_hash": "0xp1",
+						"candidates": []any{
+							map[string]any{"rewards_address": "0xr1", "amount": "7"},
+						},
+					},
+				},
+				"merkle_payment_timestamp": float64(1712150400),
+			},
+			map[string]any{
+				"depth":                    float64(6),
+				"pool_commitments":         []any{},
+				"merkle_payment_timestamp": float64(1712150401),
+			},
+		},
+		"total_amount": "0",
+	}
+	res := parsePrepareResponse(j)
+	if len(res.MerkleBatches) != 2 {
+		t.Fatalf("expected 2 batches, got %d", len(res.MerkleBatches))
+	}
+	if res.MerkleBatches[0].Depth != 8 || res.MerkleBatches[1].Depth != 6 {
+		t.Fatalf("unexpected batch depths: %+v", res.MerkleBatches)
+	}
+	if res.MerkleBatches[0].PoolCommitments[0].Candidates[0].Amount != "7" {
+		t.Fatalf("unexpected candidate amount: %+v", res.MerkleBatches[0])
+	}
+	// Multi-batch prepares omit the legacy singular fields.
+	if res.Depth != 0 || len(res.PoolCommitments) != 0 {
+		t.Fatalf("legacy fields must stay empty on multi-batch: %+v", res)
+	}
+}
+
+func TestFinalizeMerkleUploadMultiSendsHashList(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		writeJSON(w, map[string]any{"data_map": "dm_multi", "chunks_stored": float64(300)})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	res, err := c.FinalizeMerkleUploadMulti(context.Background(), "mb1", []string{"0xw1", "", "0xw3"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.DataMap != "dm_multi" || res.ChunksStored != 300 {
+		t.Fatalf("unexpected result: %+v", res)
+	}
+	hashes, ok := got["winner_pool_hashes"].([]any)
+	if !ok || len(hashes) != 3 || hashes[0] != "0xw1" || hashes[1] != "" || hashes[2] != "0xw3" {
+		t.Fatalf("unexpected winner_pool_hashes in request: %v", got["winner_pool_hashes"])
+	}
+	if _, present := got["winner_pool_hash"]; present {
+		t.Fatal("legacy winner_pool_hash must not be sent by the multi variant")
+	}
+}
+
+func TestPartialUploadErrorCarriesCounts(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		writeJSON(w, map[string]any{
+			"error":         "Partial upload: 300/312 chunks stored, 12 failed after retries",
+			"code":          "PARTIAL_UPLOAD",
+			"chunks_stored": float64(300),
+			"chunks_failed": float64(12),
+			"total_chunks":  float64(312),
+		})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	_, err := c.FinalizeMerkleUploadMulti(context.Background(), "mb1", []string{"0xw1"}, false)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var perr *PartialUploadError
+	if !errors.As(err, &perr) {
+		t.Fatalf("expected *PartialUploadError, got %T: %v", err, err)
+	}
+	if perr.ChunksStored != 300 || perr.ChunksFailed != 12 || perr.TotalChunks != 312 {
+		t.Fatalf("unexpected counts: %+v", perr)
+	}
+	if perr.StatusCode != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d", perr.StatusCode)
+	}
+}
+
+func TestPlain502StillMapsToNetworkError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		writeJSON(w, map[string]any{"error": "upstream unreachable", "code": "NETWORK_ERROR"})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	_, err := c.FinalizeUpload(context.Background(), "up1", map[string]string{}, false)
+	var nerr *NetworkError
+	if !errors.As(err, &nerr) {
+		t.Fatalf("expected *NetworkError for plain 502, got %T: %v", err, err)
+	}
+}

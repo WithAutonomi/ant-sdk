@@ -136,8 +136,11 @@ Two-phase upload — daemon prepares the payment intent, caller signs + submits 
 | `PrepareDataUpload(ctx, data)` | Prepare a data upload for external signing — returns `*PrepareUploadResult` |
 | `PrepareChunkUpload(ctx, data)` | Prepare a single chunk for external-signer publish — returns `*PrepareChunkResult` |
 | `FinalizeUpload(ctx, uploadID, txHashes, storeDataMap)` | Submit a prepared upload after external payment — returns `*FinalizeUploadResult` |
-| `FinalizeMerkleUpload(ctx, uploadID, winnerPoolHash, storeDataMap)` | Submit a prepared merkle upload after external payment |
+| `FinalizeMerkleUpload(ctx, uploadID, winnerPoolHash, storeDataMap)` | Submit a prepared single-batch merkle upload after external payment |
+| `FinalizeMerkleUploadMulti(ctx, uploadID, winnerPoolHashes, storeDataMap)` | Submit a merkle upload paid in one or more batches (antd ≥ 0.12.0) — one winner hash per `MerkleBatches` entry, `""` for an unpaid batch |
 | `FinalizeChunkUpload(ctx, uploadID, txHashes)` | Submit a prepared chunk after external payment; returns the chunk address |
+
+Merkle uploads larger than one merkle tree (256 fresh chunks ≈ 1 GiB) arrive as multiple entries in `PrepareUploadResult.MerkleBatches`; pay one `payForMerkleTree2()` transaction per entry and finalize with `FinalizeMerkleUploadMulti`. A finalize where some chunks failed quorum — or belonged to unpaid batches — returns `*PartialUploadError` with `ChunksStored` / `ChunksFailed` / `TotalChunks`; re-preparing the same content skips stored chunks, so a retry pays only for the remainder.
 
 ## gRPC Transport
 
