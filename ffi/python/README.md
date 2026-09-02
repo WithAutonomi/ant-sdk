@@ -47,6 +47,19 @@ cp target/release/libant_ffi.dylib ../python/ant_ffi/   # or .so / .dll
 
 (`ffi/scripts/build.sh` does all of the above alongside the C#/Kotlin/Swift steps.)
 
+## Build & check a wheel
+
+This is a **wheel-only** distribution. `sdist` is deliberately blocked — a
+source tarball would embed this host's native library under a platform-neutral
+name — and the wheel build refuses to run unless the generated module and
+native library are staged (otherwise the wheel would install cleanly and fail
+on first import). Build and verify with:
+
+```bash
+cd ffi/python && python3 -m build --wheel
+../scripts/check-python-wheel.sh   # installs into a throwaway venv + imports
+```
+
 ## Smoke test (offline, no network)
 
 ```bash
