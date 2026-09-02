@@ -81,5 +81,14 @@ docker run --rm --network host \
     "$PY" -m auditwheel show /io/python/wheelhouse/*.whl
     chown -R '"$(id -u)"':'"$(id -g)"' /io/python/wheelhouse /io/python/ant_ffi /io/python/dist 2>/dev/null || true
   '
+# Native-arch hosts only: pip refuses a foreign-arch wheel, so a cross build
+# (x86_64 host, aarch64 target) can't self-check here.
+if [[ "$(uname -m)" == "$ARCH" ]]; then
+  echo "=== install repaired wheel into a clean venv + import check ==="
+  "$SCRIPT_DIR/check-python-wheel.sh"
+else
+  echo "=== skipping venv import check: host $(uname -m) != target $ARCH ==="
+fi
+
 echo "=== done -> $FFI_DIR/python/wheelhouse/ ==="
 ls -la "$FFI_DIR/python/wheelhouse/"
