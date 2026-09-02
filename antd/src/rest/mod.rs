@@ -6,8 +6,9 @@ use axum::middleware::{self, Next};
 use axum::response::Response;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 
+use crate::config::CorsMode;
 use crate::state::AppState;
 use crate::types::HealthResponse;
 
@@ -61,7 +62,27 @@ async fn request_id_middleware(request: Request<axum::body::Body>, next: Next) -
     response
 }
 
-pub fn router(state: Arc<AppState>, enable_cors: bool, rest_port: u16) -> Router {
+fn cors_layer(mode: &CorsMode) -> Option<CorsLayer> {
+    let allow_origin = match mode {
+        CorsMode::Disabled => return None,
+        CorsMode::AllowAny => AllowOrigin::any(),
+        CorsMode::AllowList(list) => {
+            let list = list.clone();
+            AllowOrigin::predicate(move |origin, _| {
+                list.iter()
+                    .any(|allowed| allowed.as_bytes() == origin.as_bytes())
+            })
+        }
+    };
+    Some(
+        CorsLayer::new()
+            .allow_origin(allow_origin)
+            .allow_methods([Method::GET, Method::POST, Method::HEAD, Method::OPTIONS])
+            .allow_headers(tower_http::cors::Any),
+    )
+}
+
+pub fn router(state: Arc<AppState>, cors: &CorsMode) -> Router {
     let app = Router::new()
         // Health
         .route("/health", get(health))
@@ -101,20 +122,9 @@ pub fn router(state: Arc<AppState>, enable_cors: bool, rest_port: u16) -> Router
         .layer(middleware::from_fn(request_id_middleware))
         .with_state(state);
 
-    if enable_cors {
-        // Restrict CORS to the daemon's own localhost origin to prevent
-        // cross-origin CSRF from malicious webpages. Non-browser clients
-        // (SDKs, CLI, AI agents) don't send Origin headers so are unaffected.
-        let origin: HeaderValue = format!("http://127.0.0.1:{rest_port}")
-            .parse()
-            .expect("valid origin header");
-        let cors = CorsLayer::new()
-            .allow_origin(origin)
-            .allow_methods([Method::GET, Method::POST, Method::HEAD, Method::OPTIONS])
-            .allow_headers(tower_http::cors::Any);
-        app.layer(cors)
-    } else {
-        app
+    match cors_layer(cors) {
+        Some(layer) => app.layer(layer),
+        None => app,
     }
 }
 
@@ -135,4 +145,111 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
         rebootstrap_threshold: net.rebootstrap_threshold,
         last_store_ok_secs_ago: net.last_store_ok_secs_ago,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::body::Body;
+    use axum::http::{header, Request, StatusCode};
+    use tower::ServiceExt;
+
+    use super::*;
+
+    /// A stateless router with the same CORS layer the real router gets,
+    /// so origin handling is testable without an `AppState` (which needs
+    /// a live network client).
+    fn test_app(mode: &CorsMode) -> Router {
+        let app = Router::new().route("/probe", get(|| async { "ok" }));
+        match cors_layer(mode) {
+            Some(layer) => app.layer(layer),
+            None => app,
+        }
+    }
+
+    async fn allow_origin_for(mode: &CorsMode, origin: &str) -> Option<String> {
+        let preflight = Request::builder()
+            .method(Method::OPTIONS)
+            .uri("/probe")
+            .header(header::ORIGIN, origin)
+            .header(header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
+            .body(Body::empty())
+            .unwrap();
+        let resp = test_app(mode).oneshot(preflight).await.unwrap();
+        resp.headers()
+            .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .map(|v| v.to_str().unwrap().to_owned())
+    }
+
+    const WEB: &str = "http://127.0.0.1:8000";
+    const EXT: &str = "moz-extension://c0ffee00-1234-5678-9abc-def012345678";
+
+    #[tokio::test]
+    async fn disabled_sets_no_cors_headers() {
+        assert_eq!(allow_origin_for(&CorsMode::Disabled, WEB).await, None);
+    }
+
+    #[tokio::test]
+    async fn empty_allowlist_from_bare_cors_allows_nothing() {
+        let mode = CorsMode::AllowList(Vec::new());
+        assert_eq!(allow_origin_for(&mode, WEB).await, None);
+        assert_eq!(allow_origin_for(&mode, EXT).await, None);
+    }
+
+    #[tokio::test]
+    async fn allowlist_echoes_listed_origin_only() {
+        let mode = CorsMode::AllowList(vec![WEB.to_owned()]);
+        assert_eq!(allow_origin_for(&mode, WEB).await.as_deref(), Some(WEB));
+        assert_eq!(allow_origin_for(&mode, "http://evil.example").await, None);
+        // Not the daemon's own origin (the old bug), and exact match only.
+        assert_eq!(allow_origin_for(&mode, "http://127.0.0.1:8082").await, None);
+        // Unrelated browser-extension origins get no blanket allowance:
+        // extensions must use declared host permissions (or be listed).
+        assert_eq!(allow_origin_for(&mode, EXT).await, None);
+        assert_eq!(
+            allow_origin_for(&mode, "chrome-extension://abcdefghijklmnop").await,
+            None,
+        );
+    }
+
+    #[tokio::test]
+    async fn explicitly_listed_extension_origin_is_allowed() {
+        let mode = CorsMode::AllowList(vec![EXT.to_owned()]);
+        assert_eq!(allow_origin_for(&mode, EXT).await.as_deref(), Some(EXT));
+        assert_eq!(
+            allow_origin_for(
+                &mode,
+                "moz-extension://0badd00d-1234-5678-9abc-def012345678"
+            )
+            .await,
+            None,
+        );
+    }
+
+    #[tokio::test]
+    async fn allow_any_sends_wildcard() {
+        assert_eq!(
+            allow_origin_for(&CorsMode::AllowAny, WEB).await.as_deref(),
+            Some("*"),
+        );
+    }
+
+    #[tokio::test]
+    async fn actual_request_carries_cors_header_too() {
+        let req = Request::builder()
+            .uri("/probe")
+            .header(header::ORIGIN, WEB)
+            .body(Body::empty())
+            .unwrap();
+        let resp = test_app(&CorsMode::AllowList(vec![WEB.to_owned()]))
+            .oneshot(req)
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers()
+                .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .map(|v| v.to_str().unwrap()),
+            Some(WEB),
+        );
+    }
 }

@@ -27,6 +27,7 @@ use state::AppState;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse config first so we can use --log-level for the subscriber
     let config = Config::parse();
+    let cors_mode = config.cors_mode()?;
 
     // Use --log-level / ANTD_LOG_LEVEL with "info" default
     let log_level = &config.log_level;
@@ -66,12 +67,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  REST:      http://{}", actual_rest_addr);
     println!("  gRPC:      {}", actual_grpc_addr);
     println!("  Network:   {}", config.network);
-    println!(
-        "  CORS:      {}",
-        if config.cors { "enabled" } else { "disabled" }
-    );
+    match &cors_mode {
+        config::CorsMode::Disabled => println!("  CORS:      disabled"),
+        config::CorsMode::AllowList(origins) if origins.is_empty() => println!(
+            "  CORS:      no origins allowed (pass --cors <origins> to allow web pages; \
+             the browser extension uses host permissions instead of CORS)"
+        ),
+        config::CorsMode::AllowList(origins) => {
+            println!("  CORS:      {}", origins.join(", "))
+        }
+        config::CorsMode::AllowAny => println!("  CORS:      any origin"),
+    }
     println!("  Log level: {}", log_level);
     println!();
+    if cors_mode == config::CorsMode::AllowAny {
+        println!(
+            "  WARNING: --cors '*' lets ANY webpage in a local browser drive this\n  \
+             daemon's REST API, including wallet endpoints. Use an explicit origin\n  \
+             list (--cors http://host:port) outside development.\n"
+        );
+        tracing::warn!("CORS allows any origin ('*') — unsafe outside development");
+    }
 
     // Write port file for SDK discovery
     let port_file_path = port_file::write(actual_rest_addr.port(), actual_grpc_addr.port());
@@ -320,7 +336,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Build REST router
-    let app = rest::router(state.clone(), config.cors, actual_rest_addr.port());
+    let app = rest::router(state.clone(), &cors_mode);
 
     // Run both servers concurrently via tokio::select!.
     // If either server returns (with success or error), initiate shutdown.

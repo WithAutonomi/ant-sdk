@@ -196,6 +196,56 @@ pub(crate) fn resolve_winner_pool_hashes(
     }
 }
 
+/// Validate + parse the wave-batch `tx_hashes` map against the payments the
+/// prepare reported. Pure validation — call this BEFORE consuming the
+/// prepared upload, so a bad request leaves the server-side state intact and
+/// retryable.
+///
+/// An empty map is valid exactly when prepare reported no payments (every
+/// chunk already stored on the network — ant-sdk#233). Otherwise every
+/// reported quote must have a receipt: ant-core rejects a missing one only
+/// after the upload has been consumed, so catch it here. Extra entries for
+/// unknown quotes are tolerated (ant-core ignores them).
+pub(crate) fn resolve_wave_tx_hashes(
+    expected_quotes: &[evmlib::common::QuoteHash],
+    tx_hashes: &HashMap<String, String>,
+) -> Result<HashMap<evmlib::common::QuoteHash, evmlib::common::TxHash>, AntdError> {
+    if tx_hashes.is_empty() && !expected_quotes.is_empty() {
+        return Err(AntdError::BadRequest(format!(
+            "tx_hashes required for wave-batch upload: prepare reported {} payment(s); an empty \
+             map is only valid when every chunk is already stored",
+            expected_quotes.len()
+        )));
+    }
+
+    let tx_hash_map: HashMap<evmlib::common::QuoteHash, evmlib::common::TxHash> = tx_hashes
+        .iter()
+        .map(|(quote_hex, tx_hex)| {
+            let quote_bytes: [u8; 32] = hex::decode(quote_hex.trim_start_matches("0x"))
+                .map_err(|e| AntdError::BadRequest(format!("invalid quote_hash {quote_hex}: {e}")))?
+                .try_into()
+                .map_err(|_| AntdError::BadRequest("quote_hash must be 32 bytes".into()))?;
+            let tx_bytes: [u8; 32] = hex::decode(tx_hex.trim_start_matches("0x"))
+                .map_err(|e| AntdError::BadRequest(format!("invalid tx_hash {tx_hex}: {e}")))?
+                .try_into()
+                .map_err(|_| AntdError::BadRequest("tx_hash must be 32 bytes".into()))?;
+            Ok((quote_bytes.into(), tx_bytes.into()))
+        })
+        .collect::<Result<_, AntdError>>()?;
+
+    if let Some(missing) = expected_quotes
+        .iter()
+        .find(|quote| !tx_hash_map.contains_key(*quote))
+    {
+        return Err(AntdError::BadRequest(format!(
+            "tx_hashes is missing a receipt for quote {} (prepare reported a payment for it)",
+            hex::encode(missing)
+        )));
+    }
+
+    Ok(tx_hash_map)
+}
+
 /// Phase 1: Prepare a file upload for external signing.
 ///
 /// Encrypts the file, collects storage quotes from the network, and returns
@@ -289,6 +339,8 @@ pub async fn prepare_data_upload(
 /// Phase 2: Finalize an upload after external payment.
 ///
 /// For wave-batch uploads, takes `tx_hashes` (map of quote_hash → tx_hash).
+/// When prepare reported no payments (every chunk already stored), an empty
+/// map finalizes without any on-chain payment and returns the DataMap.
 /// For merkle uploads, takes `winner_pool_hashes` — one `MerklePaymentMade`
 /// winner hash per prepared batch, index-aligned with the prepare response's
 /// `merkle_batches` (`winner_pool_hash` is still accepted for single-batch
@@ -305,8 +357,12 @@ pub async fn finalize_upload(
     Json(req): Json<FinalizeUploadRequest>,
 ) -> Result<Json<FinalizeUploadResponse>, AntdError> {
     enum PaymentShape {
-        Wave,
-        Merkle { batch_count: usize },
+        Wave {
+            expected_quotes: Vec<evmlib::common::QuoteHash>,
+        },
+        Merkle {
+            batch_count: usize,
+        },
     }
     enum PaymentArtefacts {
         Wave(HashMap<evmlib::common::QuoteHash, evmlib::common::TxHash>),
@@ -327,7 +383,15 @@ pub async fn finalize_upload(
             .prepared
             .payment_info
         {
-            ant_core::data::ExternalPaymentInfo::WaveBatch { .. } => PaymentShape::Wave,
+            ant_core::data::ExternalPaymentInfo::WaveBatch { payment_intent, .. } => {
+                PaymentShape::Wave {
+                    expected_quotes: payment_intent
+                        .payments
+                        .iter()
+                        .map(|(quote_hash, _, _)| *quote_hash)
+                        .collect(),
+                }
+            }
             ant_core::data::ExternalPaymentInfo::Merkle {
                 prepared_batches, ..
             } => PaymentShape::Merkle {
@@ -338,10 +402,11 @@ pub async fn finalize_upload(
 
     // Validate + parse the payment artefacts against that shape.
     let artefacts = match shape {
-        PaymentShape::Wave => {
+        PaymentShape::Wave { expected_quotes } => {
             let tx_hashes_raw = req.tx_hashes.ok_or_else(|| {
                 AntdError::BadRequest(
-                    "tx_hashes required for wave-batch upload (this upload used wave_batch payment)"
+                    "tx_hashes required for wave-batch upload (this upload used wave_batch \
+                     payment); pass an empty object when prepare reported no payments"
                         .into(),
                 )
             })?;
@@ -352,32 +417,7 @@ pub async fn finalize_upload(
                 ));
             }
 
-            let tx_hash_map: HashMap<evmlib::common::QuoteHash, evmlib::common::TxHash> =
-                tx_hashes_raw
-                    .iter()
-                    .map(|(quote_hex, tx_hex)| {
-                        let quote_bytes: [u8; 32] = hex::decode(quote_hex.trim_start_matches("0x"))
-                            .map_err(|e| {
-                                AntdError::BadRequest(format!(
-                                    "invalid quote_hash {quote_hex}: {e}"
-                                ))
-                            })?
-                            .try_into()
-                            .map_err(|_| {
-                                AntdError::BadRequest("quote_hash must be 32 bytes".into())
-                            })?;
-                        let tx_bytes: [u8; 32] = hex::decode(tx_hex.trim_start_matches("0x"))
-                            .map_err(|e| {
-                                AntdError::BadRequest(format!("invalid tx_hash {tx_hex}: {e}"))
-                            })?
-                            .try_into()
-                            .map_err(|_| {
-                                AntdError::BadRequest("tx_hash must be 32 bytes".into())
-                            })?;
-                        Ok((quote_bytes.into(), tx_bytes.into()))
-                    })
-                    .collect::<Result<_, AntdError>>()?;
-            PaymentArtefacts::Wave(tx_hash_map)
+            PaymentArtefacts::Wave(resolve_wave_tx_hashes(&expected_quotes, &tx_hashes_raw)?)
         }
         PaymentShape::Merkle { batch_count } => {
             if req.tx_hashes.is_some() {
@@ -527,5 +567,64 @@ mod tests {
         );
         assert!(req.winner_pool_hash.is_none());
         assert!(req.tx_hashes.is_none());
+    }
+
+    // ── resolve_wave_tx_hashes (ant-sdk#233) ──
+
+    fn quote(byte: u8) -> evmlib::common::QuoteHash {
+        [byte; 32].into()
+    }
+
+    fn hashes(entries: &[(&str, &str)]) -> HashMap<String, String> {
+        entries
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn empty_map_valid_when_no_payments_expected() {
+        // The all-already-stored case: prepare reported zero payments, so an
+        // empty map finalizes without any on-chain payment.
+        let map = resolve_wave_tx_hashes(&[], &HashMap::new()).unwrap();
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn empty_map_rejected_when_payments_expected() {
+        let err = resolve_wave_tx_hashes(&[quote(0x11)], &HashMap::new()).unwrap_err();
+        assert!(matches!(err, AntdError::BadRequest(_)), "got {err:?}");
+        assert!(err.to_string().contains("1 payment"));
+    }
+
+    #[test]
+    fn missing_receipt_rejected_before_consuming_upload() {
+        // A map that covers only some reported payments would only fail
+        // inside ant-core, after the upload_id had been consumed.
+        let provided = hashes(&[(HASH_A, HASH_B)]);
+        let err = resolve_wave_tx_hashes(&[quote(0x11), quote(0x33)], &provided).unwrap_err();
+        assert!(matches!(err, AntdError::BadRequest(_)), "got {err:?}");
+        assert!(err.to_string().contains(&hex::encode([0x33u8; 32])));
+    }
+
+    #[test]
+    fn full_coverage_resolves_with_extra_entries_tolerated() {
+        // 0x-prefixed and bare hex both accepted; unknown extras ignored by
+        // ant-core, so they pass validation too.
+        const HASH_C: &str = "0x3333333333333333333333333333333333333333333333333333333333333333";
+        let provided = hashes(&[(HASH_A, HASH_B), (HASH_B, HASH_A), (HASH_C, HASH_A)]);
+        let map = resolve_wave_tx_hashes(&[quote(0x11), quote(0x22)], &provided).unwrap();
+        assert_eq!(map.len(), 3);
+        assert_eq!(map.get(&quote(0x11)), Some(&[0x22u8; 32].into()));
+    }
+
+    #[test]
+    fn bad_hex_rejected() {
+        let err =
+            resolve_wave_tx_hashes(&[quote(0x11)], &hashes(&[("nothex", HASH_B)])).unwrap_err();
+        assert!(err.to_string().contains("invalid quote_hash"));
+        let err =
+            resolve_wave_tx_hashes(&[quote(0x11)], &hashes(&[(HASH_A, "0x1111")])).unwrap_err();
+        assert!(err.to_string().contains("tx_hash must be 32 bytes"));
     }
 }
