@@ -1,6 +1,7 @@
-name: Publish Python (ant-ffi)
+name: Publish Python (ant-sdk)
 
-# Builds the ant-ffi Python wheel across the platform matrix and publishes to
+# Builds the `ant-sdk` Python wheel (import name `ant_ffi`, from the ant-ffi
+# crate) across the platform matrix and publishes to
 # PyPI (or TestPyPI) via Trusted Publishing — no long-lived API token.
 #
 # Each platform reuses the same build script developers run locally, so CI and
@@ -16,7 +17,7 @@ name: Publish Python (ant-ffi)
 #   1. Create GitHub environments `pypi` and `testpypi` (Settings > Environments;
 #      optionally add reviewers as a release gate).
 #   2. Register a PyPI/TestPyPI "pending publisher" (Trusted Publishing):
-#        PyPI project: ant-ffi   owner: WithAutonomi   repo: ant-sdk
+#        PyPI project: ant-sdk   owner: WithAutonomi   repo: ant-sdk
 #        workflow: publish-python.yml   environment: pypi   (and again for testpypi)
 #   No secrets needed — OIDC via `id-token: write` below.
 #
