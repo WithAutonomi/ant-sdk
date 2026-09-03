@@ -17,20 +17,52 @@ pub struct TimestampedChunk {
     pub created_at: std::time::Instant,
 }
 
-/// Mirror of saorsa-core's `AUTO_REBOOTSTRAP_THRESHOLD`
-/// (dht_network_manager.rs): the routing-table size below which the DHT
-/// auto-re-bootstraps. v0.27.3 marked it `pub`, but its module is
-/// `pub(crate)` and nothing re-exports it, so it remains unreachable for
-/// consumers. Keep in sync until saorsa-core exports it at crate root.
-pub const REBOOTSTRAP_THRESHOLD: usize = 3;
+/// Daemon-local record of the last successful store-type operation
+/// (data/file/chunk put, external-signer finalize). `None` until the first
+/// success in this process. Feeds /health `last_store_ok_secs_ago`.
+#[derive(Clone, Default)]
+pub struct StoreMarker(Arc<std::sync::RwLock<Option<std::time::Instant>>>);
 
-/// Live network-participation snapshot reported by /health (REST and gRPC).
+impl StoreMarker {
+    /// Record a successful store-type operation.
+    pub fn mark(&self) {
+        if let Ok(mut guard) = self.0.write() {
+            *guard = Some(std::time::Instant::now());
+        }
+    }
+
+    /// Seconds since the last recorded success, or `None` if none yet.
+    pub fn secs_ago(&self) -> Option<u64> {
+        self.0
+            .read()
+            .ok()
+            .and_then(|guard| *guard)
+            .map(|at| at.elapsed().as_secs())
+    }
+}
+
+/// Live snapshot reported by /health (REST and gRPC): ant-core's
+/// [`ant_core::data::NetworkHealth`] — the one write-readiness formula shared
+/// by every embedded client — plus the daemon-local `last_store_ok_secs_ago`.
 pub struct NetworkHealth {
     pub write_ready: bool,
     pub connected_peers: u32,
     pub routing_table_size: u32,
     pub rebootstrap_threshold: u32,
     pub last_store_ok_secs_ago: Option<u64>,
+}
+
+impl NetworkHealth {
+    /// Layer the daemon-local store marker onto ant-core's network snapshot.
+    fn compose(net: ant_core::data::NetworkHealth, last_store_ok_secs_ago: Option<u64>) -> Self {
+        Self {
+            write_ready: net.write_ready,
+            connected_peers: net.connected_peers,
+            routing_table_size: net.routing_table_size,
+            rebootstrap_threshold: net.rebootstrap_threshold,
+            last_store_ok_secs_ago,
+        }
+    }
 }
 
 /// Shared application state passed to all handlers.
@@ -62,49 +94,24 @@ pub struct AppState {
     pub evm_token_addr: String,
     /// Payment vault contract address, or "" if unconfigured.
     pub evm_vault_addr: String,
-    /// Instant of the last store-type operation (data/file/chunk put,
-    /// external-signer finalize) that completed successfully, or `None` until
-    /// the first success in this process. Feeds /health `last_store_ok_secs_ago`.
-    pub last_store_ok: Arc<std::sync::RwLock<Option<std::time::Instant>>>,
+    /// Marker for the last successful store-type operation.
+    pub last_store_ok: StoreMarker,
 }
 
 impl AppState {
     /// Record a successful store-type operation for /health reporting.
     pub fn mark_store_ok(&self) {
-        if let Ok(mut guard) = self.last_store_ok.write() {
-            *guard = Some(std::time::Instant::now());
-        }
+        self.last_store_ok.mark();
     }
 
     /// Compute the live network-participation snapshot for /health.
     ///
-    /// Both node reads are in-memory, so this is cheap enough to run per
-    /// request. `write_ready` is a best-effort floor keyed on
-    /// `max(routing_table_size, connected_peers)`: in client mode the DHT
-    /// routing table can sit below the re-bootstrap threshold while plenty of
-    /// live connections exist and stores succeed (observed on a LAN devnet:
-    /// rt=2, connected=10, paid upload fine), so the routing table alone
-    /// would under-report. Neither signal guarantees a store will fully
-    /// succeed (stores proceed with as little as one reachable node), but
-    /// when both are below the threshold the node is known-degraded.
+    /// The peer/routing snapshot and `write_ready` formula come from
+    /// [`ant_core::data::Network::health`] (cheap in-memory reads, fine per
+    /// request); only `last_store_ok_secs_ago` is daemon state.
     pub async fn network_health(&self) -> NetworkHealth {
-        let node = self.client.network().node();
-        let connected_peers = node.peer_count().await;
-        let routing_table_size = node.dht_manager().get_routing_table_size().await;
-        let effective_peers = routing_table_size.max(connected_peers);
-        let last_store_ok_secs_ago = self
-            .last_store_ok
-            .read()
-            .ok()
-            .and_then(|guard| *guard)
-            .map(|at| at.elapsed().as_secs());
-        NetworkHealth {
-            write_ready: effective_peers >= REBOOTSTRAP_THRESHOLD,
-            connected_peers: connected_peers.try_into().unwrap_or(u32::MAX),
-            routing_table_size: routing_table_size.try_into().unwrap_or(u32::MAX),
-            rebootstrap_threshold: REBOOTSTRAP_THRESHOLD as u32,
-            last_store_ok_secs_ago,
-        }
+        let net = self.client.network().health().await;
+        NetworkHealth::compose(net, self.last_store_ok.secs_ago())
     }
 
     /// Remove pending uploads older than the given duration.
@@ -135,5 +142,49 @@ impl AppState {
                 "cleaned up stale pending chunks"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ant_core::data::NetworkHealth as CoreHealth;
+
+    #[test]
+    fn store_marker_transitions_from_none_to_fresh() {
+        let marker = StoreMarker::default();
+        assert_eq!(marker.secs_ago(), None);
+        marker.mark();
+        assert!(marker.secs_ago().unwrap() <= 1);
+    }
+
+    #[test]
+    fn compose_layers_store_marker_without_touching_readiness() {
+        let degraded = NetworkHealth::compose(CoreHealth::from_counts(0, 0), None);
+        assert!(!degraded.write_ready);
+        assert_eq!(degraded.last_store_ok_secs_ago, None);
+
+        // Client-mode shape: live connections carry readiness while the
+        // routing table lags below the threshold.
+        let ready = NetworkHealth::compose(CoreHealth::from_counts(10, 2), Some(5));
+        assert!(ready.write_ready);
+        assert_eq!(ready.connected_peers, 10);
+        assert_eq!(ready.routing_table_size, 2);
+        assert_eq!(
+            ready.rebootstrap_threshold,
+            CoreHealth::from_counts(0, 0).rebootstrap_threshold
+        );
+        assert_eq!(ready.last_store_ok_secs_ago, Some(5));
+    }
+
+    #[test]
+    fn readiness_recovers_when_counts_recover() {
+        // The degraded -> recovered transition the /health fields exist to
+        // expose (write_ready must not stick false once peers return).
+        let threshold = CoreHealth::from_counts(0, 0).rebootstrap_threshold as usize;
+        let before = NetworkHealth::compose(CoreHealth::from_counts(1, 1), None);
+        assert!(!before.write_ready);
+        let after = NetworkHealth::compose(CoreHealth::from_counts(1, threshold), None);
+        assert!(after.write_ready);
     }
 }

@@ -5,7 +5,7 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-ant-core = { git = "https://github.com/WithAutonomi/ant-client", tag = "ant-cli-v0.3.5" }  # ant-core 0.8.0 release; NetworkHealth helper (V2-1037) + ant-protocol 2.3.4 line -> saorsa-core >=0.27.2 with runtime re-bootstrap recovery (V2-1036) — the graph /health's write_ready depends on (was 0.6.0 / ant-cli-v0.3.3)
+ant-core = { git = "https://github.com/WithAutonomi/ant-client", tag = "ant-cli-v0.3.5" }  # ant-core 0.8.0 release; NetworkHealth helper (V2-1037) + ant-protocol 2.3.4 line. Lock pins saorsa-core 0.27.3: the FIRST release containing the runtime re-bootstrap recovery (V2-1036, saorsa-core#153) that /health's write_ready semantics depend on — 0.27.2 predates it despite its tag date (was 0.6.0 / ant-cli-v0.3.3)
 self_encryption = "0.36.0"
 evmlib = "0.9.1" # must track ant-core's transitive evmlib (via ant-protocol) to avoid a second copy in the graph
 axum = { version = "0.8", features = ["macros"] }

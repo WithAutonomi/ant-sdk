@@ -602,6 +602,11 @@ components:
         - build_commit
         - payment_token_address
         - payment_vault_address
+        - write_ready
+        - connected_peers
+        - routing_table_size
+        - rebootstrap_threshold
+        - last_store_ok_secs_ago
       properties:
         status:
           type: string
@@ -636,6 +641,35 @@ components:
           type: string
           example: "0x607483B50C5F06c25cDC316b6d1E071084EeC9f5"
           description: "Payment vault contract address, or empty if unconfigured"
+        write_ready:
+          type: boolean
+          example: true
+          description: "Best-effort write-path signal: max(routing_table_size, connected_peers) >= rebootstrap_threshold. false means stores are known-degraded"
+        connected_peers:
+          type: integer
+          format: int32
+          minimum: 0
+          example: 10
+          description: "Live transport-level connection count (distinct from routing_table_size)"
+        routing_table_size:
+          type: integer
+          format: int32
+          minimum: 0
+          example: 8
+          description: "DHT routing-table entries — the number auto-re-bootstrap keys off"
+        rebootstrap_threshold:
+          type: integer
+          format: int32
+          minimum: 0
+          example: 3
+          description: "Routing-table floor below which the DHT auto-re-bootstraps"
+        last_store_ok_secs_ago:
+          type: integer
+          format: int64
+          minimum: 0
+          nullable: true
+          example: 42
+          description: "Seconds since the last successful store-type operation, or null if none has succeeded in this process yet"
 
     # -- Data --
     DataPutRequest:
