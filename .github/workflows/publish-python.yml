@@ -86,6 +86,14 @@ jobs:
           version: "25.x"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      # On a tag push the wheel's metadata version and the native
+      # ant_ffi_version() must both equal the tag suffix; the per-script
+      # install/import check enforces it (and metadata == native always).
+      - name: Derive expected version from tag
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/python-v')
+        shell: bash
+        run: echo "EXPECTED_VERSION=${GITHUB_REF#refs/tags/python-v}" >> "$GITHUB_ENV"
+
       - name: Build wheel
         run: ${{ matrix.script }}
 
@@ -98,9 +106,12 @@ jobs:
   publish:
     name: Publish
     needs: build
-    # Publish on a python-v* tag (-> PyPI), or when a manual run asks for it.
+    # Publish on a python-v* tag PUSH (-> PyPI), or when a manual run asks for
+    # it. The tag clause requires the push event: a workflow_dispatch whose
+    # selected ref happens to be a python-v* tag must obey its `publish` input
+    # (publish=none on a tag ref would otherwise upload to production PyPI).
     if: >-
-      startsWith(github.ref, 'refs/tags/python-v') ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/python-v')) ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.publish != 'none')
     runs-on: ubuntu-latest
     environment: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'testpypi') && 'testpypi' || 'pypi' }}
@@ -124,7 +135,7 @@ jobs:
           packages-dir: dist
 
       - name: Publish to PyPI
-        if: startsWith(github.ref, 'refs/tags/python-v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'pypi')
+        if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/python-v')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'pypi')
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist

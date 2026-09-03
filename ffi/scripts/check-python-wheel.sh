@@ -39,6 +39,24 @@ VPY="$TMP/venv/bin/python"
 "$VPY" -m pip install --quiet "$WHEEL"
 
 # Import from the temp dir so the repo checkout can't mask the installed
-# package.
-(cd "$TMP" && "$VPY" -c 'import ant_ffi; print("ok: ant_ffi", ant_ffi.ant_ffi_version())')
+# package. Beyond import: the wheel's metadata version and the native
+# ant_ffi_version() must agree (a wheel can carry any metadata version over
+# any native build), and when EXPECTED_VERSION is set (CI exports the
+# python-v* tag suffix on release pushes) both must equal it.
+(cd "$TMP" && "$VPY" -c '
+import os
+import sys
+from importlib.metadata import version
+
+import ant_ffi
+
+meta = version("ant-sdk")
+native = ant_ffi.ant_ffi_version()
+print(f"ok: ant_ffi native={native} metadata={meta}")
+if meta != native:
+    sys.exit(f"error: wheel metadata version {meta!r} != native ant_ffi_version() {native!r}")
+expected = os.environ.get("EXPECTED_VERSION")
+if expected and meta != expected:
+    sys.exit(f"error: wheel version {meta!r} != release tag version {expected!r}")
+')
 echo "=== wheel check passed: $WHEEL ==="

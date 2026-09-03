@@ -53,13 +53,16 @@ docker run --rm --network host \
 
     # 1. Build the native lib + the in-crate uniffi-bindgen.
     cd /io/rust
-    cargo build --release -p ant-ffi
+    cargo build --locked --release -p ant-ffi
     LIB=/io/rust/target/release/libant_ffi.so
     test -f "$LIB"
 
     # 2. Generate the pure-Python bindings and bundle the fresh .so.
     OUT=/io/python/ant_ffi
     mkdir -p "$OUT"
+    # Drop stale/foreign native libs first — the package-data globs would
+    # ship any leftover .dylib/.dll from a previous build of another platform.
+    rm -f "$OUT"/*.so "$OUT"/*.dll "$OUT"/*.dylib
     /io/rust/target/release/uniffi-bindgen generate \
       --library "$LIB" --language python --out-dir "$OUT"
     cp "$LIB" "$OUT/"
@@ -70,7 +73,7 @@ docker run --rm --network host \
     # setuptools, and we build with --no-isolation (setup.py imports it).
     "$PY" -m pip install -q --upgrade pip build auditwheel setuptools wheel
     cd /io/python
-    rm -rf build dist *.egg-info
+    rm -rf build dist wheelhouse *.egg-info
     "$PY" -m build --wheel --no-isolation
 
     # 4. auditwheel: verify glibc floor, bundle external libs, honest retag.

@@ -16,14 +16,17 @@ $PyPkg   = Join-Path $PyDir  "ant_ffi"
 
 Write-Host "=== [1/6] build ant-ffi + bindgen (x86_64-pc-windows-msvc) ==="
 Push-Location $RustDir
-cargo build --release -p ant-ffi
-cargo build --release --bin uniffi-bindgen
+cargo build --locked --release -p ant-ffi
+cargo build --locked --release --bin uniffi-bindgen
 $Dll = Join-Path $RustDir "target\release\ant_ffi.dll"
 if (!(Test-Path $Dll)) { throw "missing native library: $Dll" }
 Pop-Location
 
 Write-Host "=== [2/6] bundle DLL next to the module ==="
 New-Item -ItemType Directory -Force -Path $PyPkg | Out-Null
+# Drop stale/foreign native libs first — the package-data globs would ship
+# any leftover .so/.dylib (or stale .dll) from a previous build.
+Remove-Item (Join-Path $PyPkg "*.so"), (Join-Path $PyPkg "*.dylib"), (Join-Path $PyPkg "*.dll") -ErrorAction SilentlyContinue
 Copy-Item $Dll $PyPkg -Force
 
 Write-Host "=== [3/6] generate bindings ==="
@@ -37,7 +40,7 @@ python -m venv $Venv
 & (Join-Path $Venv "Scripts\python.exe") -m pip install -q --upgrade pip setuptools wheel delvewheel
 $Py = Join-Path $Venv "Scripts\python.exe"
 Push-Location $PyDir
-Remove-Item -Recurse -Force build, dist, *.egg-info -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force build, dist, wheelhouse, *.egg-info -ErrorAction SilentlyContinue
 & $Py setup.py -q bdist_wheel --plat-name win_amd64
 if ($LASTEXITCODE -ne 0) { throw "wheel build failed" }
 
@@ -56,11 +59,26 @@ $Repaired = (Get-ChildItem wheelhouse\ant_sdk-*.whl | Sort-Object LastWriteTime 
 & $CheckPy -m pip install -q $Repaired
 if ($LASTEXITCODE -ne 0) { throw "installed-wheel pip install failed" }
 # Import from outside the source tree so the checkout can't mask the install.
+# Same invariant as check-python-wheel.sh: metadata version == native
+# ant_ffi_version(), and both == EXPECTED_VERSION when CI sets it (tag pushes).
+$VersionCheck = @'
+import os, sys
+from importlib.metadata import version
+import ant_ffi
+meta = version("ant-sdk")
+native = ant_ffi.ant_ffi_version()
+print("ok: ant_ffi native=%s metadata=%s" % (native, meta))
+if meta != native:
+    sys.exit("error: wheel metadata version %r != native ant_ffi_version() %r" % (meta, native))
+expected = os.environ.get("EXPECTED_VERSION")
+if expected and meta != expected:
+    sys.exit("error: wheel version %r != release tag version %r" % (meta, expected))
+'@
 Push-Location $env:TEMP
-& $CheckPy -c "import ant_ffi; print('ok: ant_ffi', ant_ffi.ant_ffi_version())"
+$VersionCheck | & $CheckPy -
 $ImportOk = $LASTEXITCODE -eq 0
 Pop-Location
-if (-not $ImportOk) { throw "installed-wheel import check failed" }
+if (-not $ImportOk) { throw "installed-wheel import/version check failed" }
 
 Write-Host "=== done -> $PyDir\wheelhouse\ ==="
 Get-ChildItem wheelhouse

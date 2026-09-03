@@ -24,13 +24,16 @@ rustup target add x86_64-apple-darwin aarch64-apple-darwin >/dev/null
 
 echo "=== [2/7] build both arches (deployment target $MACOSX_DEPLOYMENT_TARGET) ==="
 cd "$RUST_DIR"
-cargo build --release -p ant-ffi --target aarch64-apple-darwin
-cargo build --release -p ant-ffi --target x86_64-apple-darwin
+cargo build --locked --release -p ant-ffi --target aarch64-apple-darwin
+cargo build --locked --release -p ant-ffi --target x86_64-apple-darwin
 ARM=target/aarch64-apple-darwin/release/libant_ffi.dylib
 X86=target/x86_64-apple-darwin/release/libant_ffi.dylib
 
 echo "=== [3/7] lipo -> universal2 dylib ==="
 mkdir -p "$PY_PKG"
+# Drop stale/foreign native libs first — the package-data globs would ship
+# any leftover .so/.dll from a previous build of another platform.
+rm -f "$PY_PKG"/*.so "$PY_PKG"/*.dll "$PY_PKG"/*.dylib
 lipo -create -output "$PY_PKG/libant_ffi.dylib" "$ARM" "$X86"
 lipo -info "$PY_PKG/libant_ffi.dylib"
 
@@ -46,7 +49,7 @@ python3 -m venv "$VENV"
 source "$VENV/bin/activate"
 pip install -q --upgrade pip setuptools wheel delocate
 cd "$FFI_DIR/python"
-rm -rf build dist ./*.egg-info
+rm -rf build dist wheelhouse ./*.egg-info
 python setup.py -q bdist_wheel --plat-name "$PLAT_TAG"
 
 echo "=== [6/7] delocate: verify self-contained + both arches ==="
