@@ -63,6 +63,18 @@ uniffi-bindgen generate --library "$LIB_PATH" --language swift --out-dir "$SWIFT
 echo "Generated Swift bindings in $SWIFT_GENERATED_DIR"
 
 echo ""
+echo "=== Step 2d: Generate Python bindings ==="
+PYTHON_DIR="$FFI_DIR/python"
+PYTHON_GENERATED_DIR="$PYTHON_DIR/ant_ffi"
+mkdir -p "$PYTHON_GENERATED_DIR"
+
+uniffi-bindgen generate --library "$LIB_PATH" --language python --out-dir "$PYTHON_GENERATED_DIR"
+# Bundle the native library next to the generated module; the loader resolves it
+# from the package directory ($PYTHON_GENERATED_DIR).
+cp "$LIB_PATH" "$PYTHON_GENERATED_DIR/"
+echo "Generated Python bindings in $PYTHON_GENERATED_DIR"
+
+echo ""
 echo "=== Step 3: Build .NET solution ==="
 
 # Copy native library to output directory
@@ -93,3 +105,4 @@ echo "Native library: $LIB_PATH"
 echo "C# bindings: $GENERATED_DIR"
 echo "Kotlin bindings: $KOTLIN_GENERATED_DIR"
 echo "Swift bindings: $SWIFT_GENERATED_DIR"
+echo "Python bindings: $PYTHON_GENERATED_DIR"
