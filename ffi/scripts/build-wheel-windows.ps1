@@ -31,8 +31,14 @@ Copy-Item $Dll $PyPkg -Force
 
 Write-Host "=== [3/6] generate bindings ==="
 $Bindgen = Join-Path $RustDir "target\release\uniffi-bindgen.exe"
+# uniffi-bindgen runs `cargo metadata` from the CURRENT directory; the repo
+# root has no Cargo.toml, so run it from the Rust workspace (the bash scripts
+# already do this implicitly via `cd`).
+Push-Location $RustDir
 & $Bindgen generate --library $Dll --language python --out-dir $PyPkg
-if ($LASTEXITCODE -ne 0) { throw "uniffi-bindgen failed" }
+$BindgenExit = $LASTEXITCODE
+Pop-Location
+if ($BindgenExit -ne 0) { throw "uniffi-bindgen failed" }
 
 Write-Host "=== [4/6] build wheel (setup.py forces py3-none-win_amd64) ==="
 $Venv = Join-Path $env:TEMP "antffi-wheel-venv"
