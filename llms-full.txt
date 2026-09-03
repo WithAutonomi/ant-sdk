@@ -213,9 +213,35 @@ const data = try client.dataGetPublic(result.address);
 ### Health
 
 #### `GET /health`
-Returns daemon health and network name.
+Returns daemon health, network name, build/EVM info, and a live
+network-participation snapshot.
 
-Response: `{"status": "ok", "network": "local"}`
+Response:
+```json
+{
+  "status": "ok",
+  "network": "local",
+  "version": "0.12.0",
+  "evm_network": "arbitrum-one",
+  "uptime_seconds": 12345,
+  "build_commit": "1cbfb3ec85ad",
+  "payment_token_address": "0x...",
+  "payment_vault_address": "0x...",
+  "write_ready": true,
+  "connected_peers": 10,
+  "routing_table_size": 8,
+  "rebootstrap_threshold": 3,
+  "last_store_ok_secs_ago": 42
+}
+```
+
+`write_ready` is a best-effort write-path signal:
+`max(routing_table_size, connected_peers) >= rebootstrap_threshold`; `false`
+means stores are known-degraded (e.g. the daemon has lost its peers) even
+though `status` stays `"ok"` and cached reads may still succeed.
+`last_store_ok_secs_ago` is `null` until the first successful store-type
+operation in this process. The five network fields were added in antd 0.12.1;
+older daemons omit them.
 
 ### Data
 
@@ -425,7 +451,7 @@ Response: `{"address": "<hex>"}`
 Default target: `localhost:50051`. Package: `antd.v1`.
 
 ### HealthService (health.proto)
-- `Check(HealthCheckRequest) → HealthCheckResponse` — returns status and network name
+- `Check(HealthCheckRequest) → HealthCheckResponse` — returns status, network name, version/build/EVM info, and the live network snapshot (`write_ready`, `connected_peers`, `routing_table_size`, `rebootstrap_threshold`, `last_store_ok_secs_ago`) — same semantics as REST `GET /health`
 
 ### DataService (data.proto)
 - `GetPublic(GetPublicDataRequest{address}) → GetPublicDataResponse{data: bytes}`

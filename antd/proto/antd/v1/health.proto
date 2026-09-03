@@ -20,4 +20,9 @@ message HealthCheckResponse {
   string build_commit = 6; // short git SHA, or "" if built outside a git checkout
   string payment_token_address = 7; // token contract, or "" if unconfigured
   string payment_vault_address = 8; // payment vault contract, or "" if unconfigured
+  bool write_ready = 9; // best-effort write-path signal: max(routing_table_size, connected_peers) >= rebootstrap_threshold; false = stores known-degraded
+  uint32 connected_peers = 10; // live transport-level connection count (distinct from routing_table_size)
+  uint32 routing_table_size = 11; // DHT routing-table entries — the number auto-re-bootstrap keys off
+  uint32 rebootstrap_threshold = 12; // routing-table floor below which the DHT auto-re-bootstraps
+  optional uint64 last_store_ok_secs_ago = 13; // seconds since the last successful store-type operation; absent if none this process
 }

@@ -482,6 +482,19 @@ pub struct HealthResponse {
     pub build_commit: String,
     pub payment_token_address: String,
     pub payment_vault_address: String,
+    /// Best-effort write-path signal: `max(routing_table_size,
+    /// connected_peers)` at or above the DHT re-bootstrap threshold.
+    /// `false` means stores are known-degraded.
+    pub write_ready: bool,
+    /// Live transport-level connection count (distinct from routing table).
+    pub connected_peers: u32,
+    /// DHT routing-table entries — the number auto-re-bootstrap keys off.
+    pub routing_table_size: u32,
+    /// Routing-table floor below which the DHT auto-re-bootstraps.
+    pub rebootstrap_threshold: u32,
+    /// Seconds since the last successful store-type operation, or `null` if
+    /// none has succeeded in this process yet.
+    pub last_store_ok_secs_ago: Option<u64>,
 }
 
 // ── Tests ──
@@ -639,6 +652,11 @@ mod tests {
             build_commit: "abcdef123456".into(),
             payment_token_address: "0xtoken".into(),
             payment_vault_address: "0xvault".into(),
+            write_ready: true,
+            connected_peers: 7,
+            routing_table_size: 12,
+            rebootstrap_threshold: 3,
+            last_store_ok_secs_ago: Some(42),
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["status"], "ok");
@@ -649,6 +667,11 @@ mod tests {
         assert_eq!(json["build_commit"], "abcdef123456");
         assert_eq!(json["payment_token_address"], "0xtoken");
         assert_eq!(json["payment_vault_address"], "0xvault");
+        assert_eq!(json["write_ready"], true);
+        assert_eq!(json["connected_peers"], 7);
+        assert_eq!(json["routing_table_size"], 12);
+        assert_eq!(json["rebootstrap_threshold"], 3);
+        assert_eq!(json["last_store_ok_secs_ago"], 42u64);
     }
 
     #[test]
@@ -665,11 +688,27 @@ mod tests {
             build_commit: String::new(),
             payment_token_address: String::new(),
             payment_vault_address: String::new(),
+            write_ready: false,
+            connected_peers: 0,
+            routing_table_size: 0,
+            rebootstrap_threshold: 3,
+            last_store_ok_secs_ago: None,
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["build_commit"], "");
         assert_eq!(json["payment_token_address"], "");
         assert_eq!(json["payment_vault_address"], "");
+        // A degraded node must still round-trip its zero/absent signals
+        // explicitly: write_ready false, counts 0, and a JSON null (not a
+        // missing key) for never-stored.
+        assert_eq!(json["write_ready"], false);
+        assert_eq!(json["connected_peers"], 0);
+        assert_eq!(json["routing_table_size"], 0);
+        assert!(json
+            .as_object()
+            .unwrap()
+            .contains_key("last_store_ok_secs_ago"));
+        assert!(json["last_store_ok_secs_ago"].is_null());
     }
 
     #[test]

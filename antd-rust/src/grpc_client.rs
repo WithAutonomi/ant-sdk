@@ -136,6 +136,11 @@ impl GrpcClient {
             build_commit: resp.build_commit,
             payment_token_address: resp.payment_token_address,
             payment_vault_address: resp.payment_vault_address,
+            write_ready: resp.write_ready,
+            connected_peers: resp.connected_peers,
+            routing_table_size: resp.routing_table_size,
+            rebootstrap_threshold: resp.rebootstrap_threshold,
+            last_store_ok_secs_ago: resp.last_store_ok_secs_ago,
         })
     }
 

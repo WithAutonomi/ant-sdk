@@ -321,6 +321,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         evm_preset,
         evm_token_addr,
         evm_vault_addr,
+        last_store_ok: state::StoreMarker::default(),
     });
 
     // Spawn background task to clean up stale pending prepares (1-hour TTL)
