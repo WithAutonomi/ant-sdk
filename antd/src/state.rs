@@ -17,9 +17,11 @@ pub struct TimestampedChunk {
     pub created_at: std::time::Instant,
 }
 
-/// Mirror of saorsa-core's private `AUTO_REBOOTSTRAP_THRESHOLD`
+/// Mirror of saorsa-core's `AUTO_REBOOTSTRAP_THRESHOLD`
 /// (dht_network_manager.rs): the routing-table size below which the DHT
-/// auto-re-bootstraps. Keep in sync until saorsa-core exposes it publicly.
+/// auto-re-bootstraps. v0.27.3 marked it `pub`, but its module is
+/// `pub(crate)` and nothing re-exports it, so it remains unreachable for
+/// consumers. Keep in sync until saorsa-core exports it at crate root.
 pub const REBOOTSTRAP_THRESHOLD: usize = 3;
 
 /// Live network-participation snapshot reported by /health (REST and gRPC).
