@@ -11,7 +11,7 @@ build-backend = "setuptools.build_meta"
 # product-level rename happens, the plan is to delete and recreate the PyPI
 # project under the new name. See V2-880.
 name = "ant-sdk"
-version = "0.0.8"  # tracks the AntFfi release version (ant-ffi crate / ant_ffi_version())
+version = "0.0.9"  # tracks the AntFfi release version (ant-ffi crate / ant_ffi_version())
 description = "Autonomi FFI — direct-network, daemon-less client for Python (UniFFI bindings)"
 readme = "README.md"
 requires-python = ">=3.9"  # floor of the UniFFI 0.29-generated Python
