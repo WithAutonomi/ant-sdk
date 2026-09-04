@@ -482,6 +482,7 @@ pub async fn finalize_upload(
     .await
     .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
 
+    state.mark_store_ok();
     Ok(Json(FinalizeUploadResponse {
         data_map: data_map_hex,
         address,

@@ -44,6 +44,7 @@ pub async fn data_put_public(
     .await
     .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
 
+    state.mark_store_ok();
     Ok(Json(DataPutPublicResponse {
         address: hex::encode(address),
         chunks_stored,
@@ -118,6 +119,7 @@ pub async fn data_put(
     .await
     .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
 
+    state.mark_store_ok();
     Ok(Json(DataPutResponse {
         data_map: data_map_hex,
         chunks_stored,
