@@ -2,7 +2,7 @@
 name = "ant-ffi"
 # Matches the released SDK version (ant-swift tag / ant-android maven version)
 # so the exported ant_ffi_version() tells the truth — bump on every release.
-version = "0.0.8"
+version = "0.0.9"
 edition = "2021"
 
 [lib]
@@ -21,15 +21,17 @@ path = "src/uniffi-bindgen.rs"
 [dependencies]
 # Pinned to a released ant-client tag so the build is reproducible. Bump in
 # lockstep with antd's ant-core where possible so the whole SDK ships on one
-# core version. ant-core 0.6.0 (tag ant-cli-v0.3.3) requires the ant-protocol
-# 2.3.2 line — the pin below must move with it (skew pulls a second copy of
-# ant-protocol into the graph). antd is realigned to the same tag this wave.
+# core version. ant-core 0.8.1 (tag ant-cli-v0.3.6) requires the ant-protocol
+# 2.3.5 line — the pin below must move with it (skew pulls a second copy of
+# ant-protocol into the graph). 2.3.5 floors saorsa-core at 0.27.3, whose
+# runtime re-bootstrap recovery (V2-1036) the shipped client needs — a client
+# on the older line can starve its routing table and never heal.
 # Local iteration: temporarily override with `[patch.crates-io]` or a path dep
 # in `.cargo/config.toml` (don't commit the override).
-ant-core = { git = "https://github.com/WithAutonomi/ant-client", tag = "ant-cli-v0.3.3" }
+ant-core = { git = "https://github.com/WithAutonomi/ant-client", tag = "ant-cli-v0.3.6" }
 # QuoteHash / TxHash / Amount used through ant_protocol::evm; pin must match
 # ant-core's transitive ant-protocol version to avoid evmlib graph skew.
-ant-protocol = "2.3.2"
+ant-protocol = "2.3.5"
 bytes = "1"
 hex = "0.4"
 # Raw JSON-RPC for external-signer receipt/event reads (wait_for_receipt,
