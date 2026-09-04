@@ -245,16 +245,23 @@ fn ndjson_line(value: serde_json::Value) -> Bytes {
 }
 
 /// Build the default raw streaming response: decrypt `data_map` one batch at a
-/// time and forward the plaintext bytes. `Content-Length` is set from the
-/// DataMap's known original size, so a client detects a failed download as a
+/// time and forward the plaintext bytes. A shrunk (child) map is resolved to
+/// its root form first — on a child map `original_file_size()` describes the
+/// serialized parent map, not the file, which used to truncate every download
+/// over ~12.5 MB at a bogus `Content-Length` (V2-1104). `Content-Length` is
+/// set from the resolved root map, so a client detects a failed download as a
 /// short read (chunked transfer can't signal an error after the `200` headers
-/// are sent). Shared by the private (`data_stream`) and public
+/// are sent); a resolution failure surfaces as a normal error response before
+/// the stream opens. Shared by the private (`data_stream`) and public
 /// (`data_stream_public`) handlers — `data_stream` is the primitive,
 /// `data_stream_public` wraps it.
-fn stream_response(
+async fn stream_response(
     client: Arc<ant_core::data::Client>,
     data_map: ant_core::data::DataMap,
-) -> Response {
+) -> Result<Response, AntdError> {
+    let data_map = crate::datamap::resolve_root_data_map(&client, data_map)
+        .await
+        .map_err(AntdError::from_core)?;
     let content_length = data_map.original_file_size();
     let (tx, rx) =
         tokio::sync::mpsc::channel::<std::result::Result<Bytes, ant_core::data::Error>>(16);
@@ -272,12 +279,12 @@ fn stream_response(
     // ant_core::data::Error is a std::error::Error, so the byte channel feeds
     // Body::from_stream directly — no per-chunk re-wrapping needed.
     let body = Body::from_stream(tokio_stream::wrappers::ReceiverStream::new(rx));
-    Response::builder()
+    Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/octet-stream")
         .header(header::CONTENT_LENGTH, content_length.to_string())
         .body(body)
-        .expect("static content-type + numeric content-length are always valid")
+        .expect("static content-type + numeric content-length are always valid"))
 }
 
 /// Build the opt-in NDJSON streaming response: interleave fetch-progress frames
@@ -291,10 +298,18 @@ fn stream_response(
 ///   `{"type":"error","message":".."}`            — terminal failure (then end)
 /// Unlike the raw path, NDJSON *can* signal a mid-stream error explicitly rather
 /// than relying on a short read, so there is no `Content-Length` here.
-fn stream_response_ndjson(
+///
+/// A shrunk (child) map is resolved to its root form before the response opens
+/// (so `meta.total_size` is the true plaintext size, not the serialized parent
+/// map's — V2-1104), which also means the `resolving_map` progress phase no
+/// longer appears: the download starts from an already-resolved map.
+async fn stream_response_ndjson(
     client: Arc<ant_core::data::Client>,
     data_map: ant_core::data::DataMap,
-) -> Response {
+) -> Result<Response, AntdError> {
+    let data_map = crate::datamap::resolve_root_data_map(&client, data_map)
+        .await
+        .map_err(AntdError::from_core)?;
     let total_size = data_map.original_file_size();
 
     let (byte_tx, mut byte_rx) =
@@ -357,11 +372,11 @@ fn stream_response_ndjson(
     drop(line_tx);
 
     let body = Body::from_stream(tokio_stream::wrappers::ReceiverStream::new(line_rx));
-    Response::builder()
+    Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, NDJSON_CONTENT_TYPE)
         .body(body)
-        .expect("static content-type is always valid")
+        .expect("static content-type is always valid"))
 }
 
 /// `POST /v1/data/stream` — private streaming download from a caller-held
@@ -390,11 +405,11 @@ pub async fn data_stream(
     let data_map: ant_core::data::DataMap = rmp_serde::from_slice(&data_map_bytes)
         .map_err(|e| AntdError::BadRequest(format!("invalid data map: {e}")))?;
 
-    Ok(if wants_ndjson(&headers) {
-        stream_response_ndjson(state.client.clone(), data_map)
+    if wants_ndjson(&headers) {
+        stream_response_ndjson(state.client.clone(), data_map).await
     } else {
-        stream_response(state.client.clone(), data_map)
-    })
+        stream_response(state.client.clone(), data_map).await
+    }
 }
 
 /// `GET /v1/data/public/{addr}/stream` — public streaming download. Resolves
@@ -423,9 +438,9 @@ pub async fn data_stream_public(
         .await
         .map_err(AntdError::from_core)?;
 
-    Ok(if wants_ndjson(&headers) {
-        stream_response_ndjson(state.client.clone(), data_map)
+    if wants_ndjson(&headers) {
+        stream_response_ndjson(state.client.clone(), data_map).await
     } else {
-        stream_response(state.client.clone(), data_map)
-    })
+        stream_response(state.client.clone(), data_map).await
+    }
 }

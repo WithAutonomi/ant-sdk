@@ -11,6 +11,7 @@ use ant_core::data::{
 };
 
 mod config;
+mod datamap;
 mod error;
 mod evm_defaults;
 mod grpc;
