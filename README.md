@@ -124,7 +124,7 @@ All data and file upload operations accept an optional `payment_mode` parameter 
 | Language | Version | Install |
 |----------|---------|---------|
 | Go | 1.21+ | `go get github.com/WithAutonomi/ant-sdk/antd-go` |
-| Node.js / TypeScript | 18+ | `npm install antd` |
+| Node.js / TypeScript | 18+ | `npm install @withautonomi/antd` |
 | C# / .NET | 8+ | `dotnet add package Antd.Sdk` |
 | Kotlin | JDK 17+ | Gradle dependency |
 | Swift | 5.9+ / Xcode 15+ | Swift Package Manager (macOS only) |
@@ -197,7 +197,7 @@ print(data.decode())  # "Hello, Autonomi!"
 ### Write your first app (JavaScript/TypeScript)
 
 ```typescript
-import { createClient } from "antd";
+import { createClient } from "@withautonomi/antd";
 
 const client = createClient();
 

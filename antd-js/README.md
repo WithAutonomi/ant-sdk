@@ -5,7 +5,7 @@ JavaScript/TypeScript SDK for the [Autonomi](https://autonomi.com) decentralized
 ## Installation
 
 ```bash
-npm install antd
+npm install @withautonomi/antd
 ```
 
 Requires **Node.js 18+** (uses native `fetch`).
@@ -13,7 +13,7 @@ Requires **Node.js 18+** (uses native `fetch`).
 ## Quick Start
 
 ```typescript
-import { createClient } from "antd";
+import { createClient } from "@withautonomi/antd";
 
 const client = createClient(); // default: http://localhost:8082
 
@@ -32,7 +32,7 @@ console.log(data.toString()); // "Hello, Autonomi!"
 ## Client Options
 
 ```typescript
-import { createClient, RestClient } from "antd";
+import { createClient, RestClient } from "@withautonomi/antd";
 
 // Factory function
 const client = createClient();
@@ -144,7 +144,7 @@ All errors extend `AntdError`, which extends `Error` and includes a `statusCode`
 | `NetworkError` | 502 | Cannot reach network |
 
 ```typescript
-import { createClient, NotFoundError } from "antd";
+import { createClient, NotFoundError } from "@withautonomi/antd";
 
 const client = createClient();
 try {

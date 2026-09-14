@@ -1,5 +1,5 @@
 {
-  "name": "antd",
+  "name": "@withautonomi/antd",
   "version": "0.1.0",
   "description": "JavaScript/TypeScript SDK for the Autonomi network via the antd daemon",
   "type": "module",
@@ -19,7 +19,9 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
   ],
   "scripts": {
     "build": "tsup",
@@ -37,7 +39,19 @@
     "network",
     "sdk"
   ],
-  "license": "MIT",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WithAutonomi/ant-sdk.git",
+    "directory": "antd-js"
+  },
+  "homepage": "https://github.com/WithAutonomi/ant-sdk/tree/main/antd-js#readme",
+  "bugs": {
+    "url": "https://github.com/WithAutonomi/ant-sdk/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "devDependencies": {
     "@types/node": "^25.3.5",
     "ethers": "^6.13.0",

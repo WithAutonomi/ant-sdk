@@ -1,0 +1,96 @@
+name: Publish JS (@withautonomi/antd)
+
+# Builds the antd-js package (published as `@withautonomi/antd`) and publishes
+# it to npm via Trusted Publishing (OIDC) — no long-lived npm token in secrets.
+# Provenance attestations are attached automatically on that path.
+#
+# ── One-time setup required before the first trusted publish ──
+#   1. The package must already exist on npm (npm has no "pending publisher"
+#      like PyPI). The first version was pushed by hand with a granular token.
+#   2. On npmjs.com: package @withautonomi/antd > Settings > Trusted Publisher
+#      > GitHub Actions:  owner WithAutonomi   repo ant-sdk
+#      workflow publish-js.yml   environment npm
+#   3. Create the GitHub environment `npm` (Settings > Environments; optionally
+#      add reviewers as a release gate).
+#   4. Optionally flip the package's publishing access to "Require two-factor
+#      authentication or trusted publisher" so a leaked token cannot publish.
+#
+# ── How to run ──
+#   • Push a tag `js-v<version>` (e.g. js-v0.1.0) -> verifies + publishes.
+#     The tag version must match antd-js/package.json.
+#   • Or run manually (Actions > Run workflow) with `publish`:
+#       none -> typecheck, build, test, and `npm publish --dry-run` only
+#       npm  -> the above, then publish for real
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to npm after verifying?"
+        type: choice
+        options: [none, npm]
+        default: none
+  push:
+    tags:
+      - "js-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Verify and publish
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write   # OIDC token for npm Trusted Publishing
+    defaults:
+      run:
+        working-directory: antd-js
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+          cache-dependency-path: antd-js/package-lock.json
+
+      # Trusted Publishing needs npm >= 11.5.1; Node 22 ships older.
+      - name: Update npm
+        run: npm install -g npm@latest && npm --version
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Check tag matches package version
+        if: github.event_name == 'push'
+        run: |
+          pkg="$(node -p 'require("./package.json").version')"
+          tag="${GITHUB_REF_NAME#js-v}"
+          if [ "$pkg" != "$tag" ]; then
+            echo "package.json version ($pkg) does not match tag ($tag)" >&2
+            exit 1
+          fi
+
+      - name: Publish (dry run)
+        run: npm publish --dry-run
+
+      - name: Publish to npm
+        if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/js-v')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'npm')
+        run: npm publish
