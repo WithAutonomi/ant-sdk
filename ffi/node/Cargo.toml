@@ -12,7 +12,7 @@
 name = "ant-ffi-node"
 # Mirrors the released SDK version (ant-ffi crate / ant-swift tag / maven
 # version) so the exported version string tells the truth. Bump on each release.
-version = "0.0.8"
+version = "0.0.9"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 publish = false

@@ -1,4 +1,4 @@
-# @withautonomi/ant-ffi
+# @withautonomi/ant-sdk
 
 Direct-network (daemon-less) [Autonomi](https://autonomi.com) client for
 **Node.js and Electron** — a native addon over the same Rust core the Swift,
@@ -12,7 +12,7 @@ at install time: `npm install` pulls a prebuilt binary for your platform.
 ## Install
 
 ```bash
-npm install @withautonomi/ant-ffi
+npm install @withautonomi/ant-sdk
 ```
 
 The main package declares per-platform binaries as `optionalDependencies` with
@@ -23,7 +23,7 @@ platform, `require` throws a clear error at load time.
 ## Quick start
 
 ```js
-import { Client, PaymentMode } from '@withautonomi/ant-ffi'
+import { Client, PaymentMode } from '@withautonomi/ant-sdk'
 
 // One Client per process (see below). Production, read + write:
 const client = await Client.connectDefaultWithWallet(process.env.EVM_PRIVATE_KEY)

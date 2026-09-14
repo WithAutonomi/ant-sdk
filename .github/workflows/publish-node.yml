@@ -1,17 +1,18 @@
 # Build the ffi/node addon across the platform matrix and publish
-# @withautonomi/ant-ffi (+ its per-platform packages) to npm, in lockstep.
+# @withautonomi/ant-sdk (+ its per-platform packages) to npm, in lockstep.
 #
 # Mirrors publish-python.yml: the same per-target build the CI job runs, then a
-# single publish step. Platform packages (@withautonomi/ant-ffi-<platform>) are
+# single publish step. Platform packages (@withautonomi/ant-sdk-<platform>) are
 # published by napi's `prepublish` (the package.json `prepublishOnly` hook that
 # `npm publish` triggers); the main package carries them as optionalDependencies
 # with os/cpu constraints, so `npm install` pulls only the matching prebuilt.
 #
 # ── One-time setup required before the first publish ──
-#   1. Confirm publish access to a scope. NOTE: `@withautonomi` already EXISTS on
-#      npm (owned by the upstream core devs; currently holds the prior-network
-#      `@withautonomi/autonomi` client). Either get v2 publish rights to it, or
-#      point `name` in package.json at a fresh v2 scope. This is an org decision.
+#   1. Scope: `@withautonomi` is ours (org owners: b-zee, mickvandijke,
+#      maidsafe-qa). Its prior-network packages were all unpublished on
+#      2026-09-14, so the scope is a clean slate. The name mirrors the PyPI
+#      package `ant-sdk` (import `ant_ffi`) for the same bindings; the daemon
+#      client is the separate `@withautonomi/antd`.
 #   2. Create a GitHub environment named `npm` (Settings > Environments;
 #      optionally add reviewers as a release gate).
 #   3. Provide npm auth — either:
@@ -21,12 +22,12 @@
 #           enabled below via `id-token: write`.
 #
 # ── How to run ──
-#   • Push a tag `node-v<version>` (e.g. node-v0.0.8) -> builds + publishes to npm.
+#   • Push a tag `node-v<version>` (e.g. node-v0.0.9) -> builds + publishes to npm.
 #   • Or run manually (Actions > Run workflow) with `publish`:
 #       none -> build the full matrix only (matrix smoke test, no upload)
 #       npm  -> build + publish to npm
 
-name: Publish Node (ant-ffi)
+name: Publish Node (@withautonomi/ant-sdk)
 
 on:
   workflow_dispatch:
