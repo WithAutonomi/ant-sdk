@@ -1,6 +1,6 @@
 """Unit tests for the antd-mcp tool surface.
 
-These tests bypass the FastMCP transport machinery and exercise the tool
+These tests bypass the MCP transport machinery and exercise the tool
 coroutines directly. ``server._get_ctx`` is monkeypatched to return a fully
 mocked ``AsyncRestClient`` so we can verify the tool layer's wiring without a
 running daemon.
@@ -9,6 +9,7 @@ running daemon.
 from __future__ import annotations
 
 import base64
+import functools
 import json
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock
@@ -25,20 +26,19 @@ from antd_mcp import server
 
 
 def _tool_fn(tool):
-    """Return the raw coroutine function for a FastMCP-decorated tool.
+    """Return the tool's coroutine, callable without an MCP request.
 
-    FastMCP versions differ:
-    - Older releases return the original function from ``@mcp.tool()``.
-    - Newer releases wrap it in a ``FunctionTool`` exposing ``.fn``.
+    ``@mcp.tool()`` returns the original function (mcp 2.x; older releases
+    wrapped it in a ``FunctionTool`` exposing ``.fn``). Every tool declares a
+    ``ctx: Context`` parameter that the server injects per request; here
+    ``server._get_ctx`` is monkeypatched to ignore it, so pass ``None``.
     """
-    if callable(tool):
-        return tool
-    fn = getattr(tool, "fn", None)
+    fn = tool if callable(tool) else getattr(tool, "fn", None)
     if fn is None:
         raise AssertionError(
             f"Cannot extract coroutine function from MCP tool object {tool!r}"
         )
-    return fn
+    return functools.partial(fn, ctx=None)
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +50,7 @@ def _tool_fn(tool):
 def mock_client(monkeypatch):
     """Replace ``server._get_ctx`` with one that returns an AsyncMock client."""
     client = AsyncMock()
-    monkeypatch.setattr(server, "_get_ctx", lambda: (client, "test-net"))
+    monkeypatch.setattr(server, "_get_ctx", lambda ctx: (client, "test-net"))
     return client
 
 
