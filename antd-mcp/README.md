@@ -16,7 +16,10 @@ Requires the `antd` Python SDK (`pip install antd[rest]`).
 # stdio transport (default — for Claude Desktop)
 antd-mcp
 
-# SSE transport (for web-based clients)
+# Streamable HTTP transport (for web-based clients; the current MCP HTTP transport)
+antd-mcp --http
+
+# Legacy SSE transport
 antd-mcp --sse
 ```
 

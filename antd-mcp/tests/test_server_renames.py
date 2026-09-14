@@ -9,6 +9,7 @@ client methods (`data_put`, `data_get`, `file_put`, `file_get`,
 
 from __future__ import annotations
 
+import functools
 import json
 from unittest.mock import AsyncMock
 
@@ -26,18 +27,17 @@ from antd_mcp import server
 
 
 def _tool_fn(tool):
-    if callable(tool):
-        return tool
-    fn = getattr(tool, "fn", None)
+    """See ``test_server._tool_fn``: bind the server-injected ``ctx`` to None."""
+    fn = tool if callable(tool) else getattr(tool, "fn", None)
     if fn is None:
         raise AssertionError(f"Cannot extract coroutine function from MCP tool {tool!r}")
-    return fn
+    return functools.partial(fn, ctx=None)
 
 
 @pytest.fixture
 def mock_client(monkeypatch):
     client = AsyncMock()
-    monkeypatch.setattr(server, "_get_ctx", lambda: (client, "test-net"))
+    monkeypatch.setattr(server, "_get_ctx", lambda ctx: (client, "test-net"))
     return client
 
 
