@@ -1,9 +1,12 @@
 {
   "name": "@withautonomi/ant-sdk",
   "version": "0.0.9",
-  "description": "Direct-network (daemon-less) Autonomi client for Node.js and Electron \u00e2\u20ac\u201d native addon over the Rust ant-ffi core.",
+  "description": "Direct-network (daemon-less) Autonomi client for Node.js and Electron — native addon over the Rust ant-ffi core.",
   "author": "Autonomi",
   "license": "MIT OR Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "index.js",
   "types": "index.d.ts",
   "repository": {
@@ -41,13 +44,16 @@
   ],
   "scripts": {
     "artifacts": "napi artifacts",
-    "build": "napi build --platform --release",
-    "build:debug": "napi build --platform",
-    "prepublishOnly": "napi prepublish -t npm",
+    "build": "napi build --platform --release --no-const-enum",
+    "build:debug": "napi build --platform --no-const-enum",
+    "prepublishOnly": "napi prepublish -t npm --no-gh-release",
     "test": "node --test",
-    "version": "napi version"
+    "version": "napi version",
+    "typecheck": "tsc -p __test__/tsconfig.json"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^3.8.5"
+    "@napi-rs/cli": "^3.8.5",
+    "@types/node": "^22.20.2",
+    "typescript": "^5.6.0"
   }
 }

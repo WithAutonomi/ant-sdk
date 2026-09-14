@@ -54,6 +54,12 @@ const res = await client.fileUploadPublicWithProgress(
 console.log('cost:', res.storageCostAtto, 'atto +', res.gasCostWei, 'wei gas')
 ```
 
+Progress is advisory: if your callback throws, the exception is **contained** —
+it is reported as a Node warning named `AntProgressCallbackError` (visible on
+stderr, or via `process.on('warning', …)`), the operation continues, and later
+ticks are still delivered. A callback bug never rejects the operation's promise
+or terminates the process.
+
 ### External signer (WalletConnect / hardware wallets)
 
 For the pay-off-device flow, connect with `Client.connectDefaultForExternalSigner()`,

@@ -10,6 +10,7 @@ import { test } from 'node:test'
 
 import * as ant from '../index.js'
 import {
+  _emitProgressForTest,
   antFfiVersion,
   networkInfo,
   Client,
@@ -99,4 +100,34 @@ test('external-signer free functions are exported and reject on a dead RPC', asy
   await assert.rejects(
     ant.waitForReceipt('http://127.0.0.1:1', '0x' + '00'.repeat(32), 1),
   )
+})
+
+test('a throwing progress callback is contained as a warning, not a fatal exception', async () => {
+  // Regression for the napi direct-call path, where a JS exception thrown
+  // inside a ThreadsafeFunction callback is routed to napi_fatal_exception and
+  // kills the process. The bridge must report it via process.emitWarning and
+  // keep delivering later ticks.
+  const warnings = []
+  const onWarning = (w) => {
+    if (w.name === 'AntProgressCallbackError') warnings.push(w)
+  }
+  process.on('warning', onWarning)
+  let calls = 0
+  try {
+    await _emitProgressForTest((p) => {
+      calls += 1
+      assert.equal(typeof p.done, 'number')
+      if (calls === 1) throw new Error('boom from onProgress')
+    }, 3)
+    // Tick delivery and the warning are queued on the event loop behind the
+    // promise resolution; drain it before asserting.
+    for (let i = 0; i < 10 && (calls < 3 || warnings.length < 1); i++) {
+      await new Promise((r) => setImmediate(r))
+    }
+  } finally {
+    process.off('warning', onWarning)
+  }
+  assert.equal(calls, 3, 'ticks after the throwing one must still be delivered')
+  assert.equal(warnings.length, 1, 'exactly one AntProgressCallbackError warning')
+  assert.match(warnings[0].message, /boom from onProgress/)
 })

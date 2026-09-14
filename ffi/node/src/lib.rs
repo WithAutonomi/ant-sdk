@@ -22,6 +22,7 @@ pub use convert::{
 pub use wallet::Wallet;
 
 use convert::client_err;
+use progress::ProgressTsfn;
 
 /// The AntFfi SDK version (e.g. `"0.0.8"`) — matches the released SDK version
 /// shared across all bindings.
@@ -34,7 +35,9 @@ pub fn ant_ffi_version() -> String {
 /// `"arbitrum-one"` / `"arbitrum-sepolia-test"` (and their short aliases).
 #[napi]
 pub fn network_info(name: String) -> napi::Result<NetworkInfo> {
-    ant_ffi::network_info(name).map(Into::into).map_err(client_err)
+    ant_ffi::network_info(name)
+        .map(Into::into)
+        .map_err(client_err)
 }
 
 /// Poll `rpcUrl` for the receipt of `txHash`, resolving once it's mined (or
@@ -64,4 +67,31 @@ pub async fn merkle_winner_pool_hash(
     ant_ffi::merkle_winner_pool_hash(rpc_url, vault_address, tx_hash)
         .await
         .map_err(client_err)
+}
+
+/// **Test hook — not part of the public API.** Fires `ticks` synthetic
+/// `Encrypting` progress updates through the same bridge every `*WithProgress`
+/// method uses, from a background thread, then resolves. Exists so the
+/// callback-exception containment (a throwing `onProgress` becomes an
+/// `AntProgressCallbackError` warning, never a fatal exception) has an offline
+/// regression test.
+#[napi(
+    js_name = "_emitProgressForTest",
+    ts_args_type = "onProgress: (progress: ProgressUpdate) => void, ticks: number"
+)]
+pub async fn emit_progress_for_test(on_progress: ProgressTsfn, ticks: u32) -> napi::Result<()> {
+    std::thread::spawn(move || {
+        for i in 0..ticks {
+            progress::emit(
+                &on_progress,
+                ProgressUpdate {
+                    phase: ProgressPhase::Encrypting,
+                    done: i64::from(i) + 1,
+                    total: i64::from(ticks),
+                },
+            );
+        }
+    })
+    .join()
+    .map_err(|_| napi::Error::from_reason("progress test thread panicked"))
 }

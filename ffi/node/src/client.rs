@@ -215,7 +215,10 @@ impl Client {
     #[napi]
     pub async fn data_get_public(&self, address_hex: String) -> Result<Buffer> {
         let inner = self.inner.clone();
-        let bytes = inner.data_get_public(address_hex).await.map_err(client_err)?;
+        let bytes = inner
+            .data_get_public(address_hex)
+            .await
+            .map_err(client_err)?;
         Ok(bytes.into())
     }
 
@@ -541,7 +544,11 @@ impl Client {
     ) -> Result<ExternalUploadResult> {
         let inner = self.inner.clone();
         inner
-            .finalize_upload_merkle_with_progress(upload_id, winner_pool_hash, listener(on_progress))
+            .finalize_upload_merkle_with_progress(
+                upload_id,
+                winner_pool_hash,
+                listener(on_progress),
+            )
             .await
             .map(Into::into)
             .map_err(client_err)
