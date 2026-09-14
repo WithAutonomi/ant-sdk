@@ -1,7 +1,29 @@
 use clap::Parser;
 
+/// `--version` / `-V` output: the crate version, plus the short build commit
+/// when the binary was built inside a git checkout (`build.rs` leaves
+/// `ANTD_BUILD_COMMIT` empty otherwise). Matches what `GET /health` reports,
+/// so a binary on disk can be identified without booting the daemon.
+fn long_version() -> &'static str {
+    static LONG_VERSION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    LONG_VERSION.get_or_init(|| {
+        let version = env!("CARGO_PKG_VERSION");
+        let commit = env!("ANTD_BUILD_COMMIT");
+        if commit.is_empty() {
+            version.to_string()
+        } else {
+            format!("{version} (build {commit})")
+        }
+    })
+}
+
 #[derive(Parser, Debug, Clone)]
-#[command(name = "antd", about = "REST + gRPC gateway for Autonomi network")]
+#[command(
+    name = "antd",
+    about = "REST + gRPC gateway for Autonomi network",
+    version,
+    long_version = long_version()
+)]
 pub struct Config {
     /// REST API listen address. Defaults to loopback only — pass
     /// `0.0.0.0:8082` (or a specific interface) to expose on the network.
@@ -29,6 +51,15 @@ pub struct Config {
     /// Comma-separated bootstrap peer multiaddrs
     #[arg(long, env = "ANTD_PEERS", value_delimiter = ',')]
     pub peers: Option<Vec<String>>,
+
+    /// Force IPv4-only mode (disable dual-stack). Use on hosts without a
+    /// working IPv6 stack — containers and sandboxes with IPv6 disabled are
+    /// common — where the default dual-stack socket fails to bind ("Failed to
+    /// create dual-stack network nodes"), and to avoid advertising
+    /// unreachable v6 addresses to the DHT. Mirrors the `ant` CLI's
+    /// `--ipv4-only`. `--network local` always implies this.
+    #[arg(long, env = "ANTD_IPV4_ONLY")]
+    pub ipv4_only: bool,
 
     /// Enable CORS for browser pages. Pass a comma-separated list of exact
     /// origins (e.g. `--cors http://127.0.0.1:8000`), or `*` to allow any
@@ -174,6 +205,32 @@ mod tests {
     }
 
     #[test]
+    fn version_flags_render_the_crate_version() {
+        for flag in ["--version", "-V"] {
+            let err = Config::try_parse_from(["antd", flag])
+                .expect_err("--version must short-circuit parsing");
+            assert_eq!(err.kind(), clap::error::ErrorKind::DisplayVersion);
+            let rendered = err.to_string();
+            assert!(
+                rendered.contains(env!("CARGO_PKG_VERSION")),
+                "{flag} output should contain the crate version: {rendered:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn long_version_matches_health_fields() {
+        let long = long_version();
+        assert!(long.starts_with(env!("CARGO_PKG_VERSION")));
+        let commit = env!("ANTD_BUILD_COMMIT");
+        if commit.is_empty() {
+            assert_eq!(long, env!("CARGO_PKG_VERSION"));
+        } else {
+            assert!(long.contains(commit), "{long:?} should embed {commit:?}");
+        }
+    }
+
+    #[test]
     fn absent_flag_disables_cors() {
         assert_eq!(mode(&[]), Ok(CorsMode::Disabled));
     }
@@ -221,5 +278,15 @@ mod tests {
         assert!(mode(&["--cors", "127.0.0.1:8000"]).is_err());
         assert!(mode(&["--cors", "http://127.0.0.1:8000/"]).is_err());
         assert!(mode(&["--cors", "http://127.0.0.1:8000/app"]).is_err());
+    }
+
+    #[test]
+    fn ipv4_only_defaults_off_and_is_a_bare_flag() {
+        assert!(!Config::parse_from(["antd"]).ipv4_only);
+        assert!(Config::parse_from(["antd", "--ipv4-only"]).ipv4_only);
+        // Independent of --network: the flag must work against mainnet.
+        let cfg = Config::parse_from(["antd", "--network", "default", "--ipv4-only"]);
+        assert!(cfg.ipv4_only);
+        assert_eq!(cfg.network, "default");
     }
 }
