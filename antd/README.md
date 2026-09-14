@@ -54,6 +54,7 @@ All options can be set via CLI flags or environment variables:
 | `--grpc-port` | `ANTD_GRPC_PORT` | *(from addr)* | Override gRPC port (use 0 for OS-assigned) |
 | `--network` | `ANTD_NETWORK` | `default` | Network mode: `default`, `local` |
 | `--peers` | `ANTD_PEERS` | *(none)* | Comma-separated bootstrap peer multiaddrs |
+| `--ipv4-only` | `ANTD_IPV4_ONLY` | *(off)* | Bind an IPv4-only socket instead of dual-stack. Needed on hosts with no IPv6 (common in containers and sandboxes), where startup otherwise fails with `Failed to create dual-stack network nodes`. Implied by `--network local` |
 | `--cors` | `ANTD_CORS` | *(off)* | CORS for browser callers — see [CORS](#cors) |
 
 ### CORS

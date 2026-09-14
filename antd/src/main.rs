@@ -172,10 +172,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1 MiB default, and any inbound chunk response larger than 1 MiB is rejected
     // by the reader ("incoming stream exceeded read limit"), which surfaces as a
     // failed download — or, one layer up, as an all-timeout close-group sweep.
+    //
+    // `ipv6`: dual-stack by default. `--ipv4-only` binds a v4-only socket for
+    // hosts with no IPv6 (the dual-stack bind fails outright there), mirroring
+    // the `ant` CLI. Bootstrap peers are not filtered by family: neither the
+    // vendored list nor ant-client's bootstrap_peers.toml carries any /ip6/
+    // entries today, so a v6 peer can only arrive via --peers, and a failed
+    // dial to one is harmless.
+    if config.ipv4_only {
+        tracing::info!("IPv4-only mode: binding a single-stack IPv4 socket (--ipv4-only)");
+    }
     let mut builder = CoreNodeConfig::builder()
         .mode(NodeMode::Client)
         .port(0) // OS assigns ephemeral port
-        .max_message_size(MAX_WIRE_MESSAGE_SIZE);
+        .max_message_size(MAX_WIRE_MESSAGE_SIZE)
+        .ipv6(!config.ipv4_only);
 
     if config.network == "local" {
         builder = builder.local(true).allow_loopback(true).ipv6(false);
@@ -189,9 +200,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .map_err(|e| format!("failed to build node config: {e}"))?;
 
-    let node = P2PNode::new(node_config)
-        .await
-        .map_err(|e| format!("failed to create P2P node: {e}"))?;
+    let node = P2PNode::new(node_config).await.map_err(|e| {
+        let msg = e.to_string();
+        // saorsa reports a missing IPv6 stack as a dual-stack setup failure.
+        // Point operators (and agents reading the log) at the fix, as the
+        // `ant` CLI's docs do, instead of leaving an opaque transport error.
+        if msg.contains("dual-stack") && !config.ipv4_only {
+            format!(
+                "failed to create P2P node: {msg} — this host appears to have no usable IPv6; \
+                 retry with --ipv4-only (or ANTD_IPV4_ONLY=true)"
+            )
+        } else {
+            format!("failed to create P2P node: {msg}")
+        }
+    })?;
 
     node.start()
         .await
