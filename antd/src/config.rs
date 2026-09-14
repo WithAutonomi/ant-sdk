@@ -30,6 +30,15 @@ pub struct Config {
     #[arg(long, env = "ANTD_PEERS", value_delimiter = ',')]
     pub peers: Option<Vec<String>>,
 
+    /// Force IPv4-only mode (disable dual-stack). Use on hosts without a
+    /// working IPv6 stack — containers and sandboxes with IPv6 disabled are
+    /// common — where the default dual-stack socket fails to bind ("Failed to
+    /// create dual-stack network nodes"), and to avoid advertising
+    /// unreachable v6 addresses to the DHT. Mirrors the `ant` CLI's
+    /// `--ipv4-only`. `--network local` always implies this.
+    #[arg(long, env = "ANTD_IPV4_ONLY")]
+    pub ipv4_only: bool,
+
     /// Enable CORS for browser pages. Pass a comma-separated list of exact
     /// origins (e.g. `--cors http://127.0.0.1:8000`), or `*` to allow any
     /// origin (unsafe outside development: any webpage can then drive this
@@ -221,5 +230,15 @@ mod tests {
         assert!(mode(&["--cors", "127.0.0.1:8000"]).is_err());
         assert!(mode(&["--cors", "http://127.0.0.1:8000/"]).is_err());
         assert!(mode(&["--cors", "http://127.0.0.1:8000/app"]).is_err());
+    }
+
+    #[test]
+    fn ipv4_only_defaults_off_and_is_a_bare_flag() {
+        assert!(!Config::parse_from(["antd"]).ipv4_only);
+        assert!(Config::parse_from(["antd", "--ipv4-only"]).ipv4_only);
+        // Independent of --network: the flag must work against mainnet.
+        let cfg = Config::parse_from(["antd", "--network", "default", "--ipv4-only"]);
+        assert!(cfg.ipv4_only);
+        assert_eq!(cfg.network, "default");
     }
 }
