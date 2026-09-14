@@ -14,7 +14,7 @@ data = client.data_get_public(result.address)
 ## SDKs
 
 - [Go SDK](antd-go/) — `go get github.com/WithAutonomi/ant-sdk/antd-go` — REST + gRPC, context-based (Go 1.21+)
-- [JS/TS SDK](antd-js/) — `npm install antd` — REST, async (Node.js 18+)
+- [JS/TS SDK](antd-js/) — `npm install @withautonomi/antd` — REST, async (Node.js 18+)
 - [Python SDK](antd-py/) — `pip install antd` — REST + gRPC, sync + async
 - [C# SDK](antd-csharp/Antd.Sdk/) — `dotnet add package Antd.Sdk` — REST + gRPC, async
 - [Kotlin SDK](antd-kotlin/) — REST + gRPC, coroutine-based async (JDK 17+)
