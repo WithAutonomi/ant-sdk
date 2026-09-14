@@ -11,6 +11,7 @@ use ant_core::data::{
 };
 
 mod config;
+mod datamap;
 mod error;
 mod evm_defaults;
 mod grpc;
@@ -27,6 +28,7 @@ use state::AppState;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse config first so we can use --log-level for the subscriber
     let config = Config::parse();
+    let cors_mode = config.cors_mode()?;
 
     // Use --log-level / ANTD_LOG_LEVEL with "info" default
     let log_level = &config.log_level;
@@ -66,12 +68,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  REST:      http://{}", actual_rest_addr);
     println!("  gRPC:      {}", actual_grpc_addr);
     println!("  Network:   {}", config.network);
-    println!(
-        "  CORS:      {}",
-        if config.cors { "enabled" } else { "disabled" }
-    );
+    match &cors_mode {
+        config::CorsMode::Disabled => println!("  CORS:      disabled"),
+        config::CorsMode::AllowList(origins) if origins.is_empty() => println!(
+            "  CORS:      no origins allowed (pass --cors <origins> to allow web pages; \
+             the browser extension uses host permissions instead of CORS)"
+        ),
+        config::CorsMode::AllowList(origins) => {
+            println!("  CORS:      {}", origins.join(", "))
+        }
+        config::CorsMode::AllowAny => println!("  CORS:      any origin"),
+    }
     println!("  Log level: {}", log_level);
     println!();
+    if cors_mode == config::CorsMode::AllowAny {
+        println!(
+            "  WARNING: --cors '*' lets ANY webpage in a local browser drive this\n  \
+             daemon's REST API, including wallet endpoints. Use an explicit origin\n  \
+             list (--cors http://host:port) outside development.\n"
+        );
+        tracing::warn!("CORS allows any origin ('*') — unsafe outside development");
+    }
 
     // Write port file for SDK discovery
     let port_file_path = port_file::write(actual_rest_addr.port(), actual_grpc_addr.port());
@@ -155,10 +172,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1 MiB default, and any inbound chunk response larger than 1 MiB is rejected
     // by the reader ("incoming stream exceeded read limit"), which surfaces as a
     // failed download — or, one layer up, as an all-timeout close-group sweep.
+    //
+    // `ipv6`: dual-stack by default. `--ipv4-only` binds a v4-only socket for
+    // hosts with no IPv6 (the dual-stack bind fails outright there), mirroring
+    // the `ant` CLI. Bootstrap peers are not filtered by family: neither the
+    // vendored list nor ant-client's bootstrap_peers.toml carries any /ip6/
+    // entries today, so a v6 peer can only arrive via --peers, and a failed
+    // dial to one is harmless.
+    if config.ipv4_only {
+        tracing::info!("IPv4-only mode: binding a single-stack IPv4 socket (--ipv4-only)");
+    }
     let mut builder = CoreNodeConfig::builder()
         .mode(NodeMode::Client)
         .port(0) // OS assigns ephemeral port
-        .max_message_size(MAX_WIRE_MESSAGE_SIZE);
+        .max_message_size(MAX_WIRE_MESSAGE_SIZE)
+        .ipv6(!config.ipv4_only);
 
     if config.network == "local" {
         builder = builder.local(true).allow_loopback(true).ipv6(false);
@@ -172,9 +200,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .map_err(|e| format!("failed to build node config: {e}"))?;
 
-    let node = P2PNode::new(node_config)
-        .await
-        .map_err(|e| format!("failed to create P2P node: {e}"))?;
+    let node = P2PNode::new(node_config).await.map_err(|e| {
+        let msg = e.to_string();
+        // saorsa reports a missing IPv6 stack as a dual-stack setup failure.
+        // Point operators (and agents reading the log) at the fix, as the
+        // `ant` CLI's docs do, instead of leaving an opaque transport error.
+        if msg.contains("dual-stack") && !config.ipv4_only {
+            format!(
+                "failed to create P2P node: {msg} — this host appears to have no usable IPv6; \
+                 retry with --ipv4-only (or ANTD_IPV4_ONLY=true)"
+            )
+        } else {
+            format!("failed to create P2P node: {msg}")
+        }
+    })?;
 
     node.start()
         .await
@@ -305,6 +344,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         evm_preset,
         evm_token_addr,
         evm_vault_addr,
+        last_store_ok: state::StoreMarker::default(),
     });
 
     // Spawn background task to clean up stale pending prepares (1-hour TTL)
@@ -319,7 +359,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Build REST router
-    let app = rest::router(state.clone(), config.cors, actual_rest_addr.port());
+    let app = rest::router(state.clone(), &cors_mode);
 
     // Run both servers concurrently via tokio::select!.
     // If either server returns (with success or error), initiate shutdown.

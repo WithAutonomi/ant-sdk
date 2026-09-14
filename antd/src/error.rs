@@ -33,6 +33,21 @@ pub enum AntdError {
 
     #[error("Internal error: {0}")]
     Internal(String),
+
+    /// Upload partially succeeded: some chunks stored, some failed quorum
+    /// after all retries. The payment was made and the stored chunks persist —
+    /// re-preparing the same content skips already-stored chunks, so a retry
+    /// only pays for and stores the missing remainder.
+    #[error(
+        "Partial upload: {stored}/{total} chunks stored, {failed} failed after retries: {reason} \
+         (stored chunks persist; re-prepare the same content to retry only the remainder)"
+    )]
+    PartialUpload {
+        stored: u64,
+        failed: u64,
+        total: u64,
+        reason: String,
+    },
 }
 
 impl AntdError {
@@ -49,6 +64,7 @@ impl AntdError {
             AntdError::ServiceUnavailable(_) => "SERVICE_UNAVAILABLE",
             AntdError::NotImplemented(_) => "NOT_IMPLEMENTED",
             AntdError::Internal(_) => "INTERNAL_ERROR",
+            AntdError::PartialUpload { .. } => "PARTIAL_UPLOAD",
         }
     }
 
@@ -65,6 +81,21 @@ impl AntdError {
             Error::Protocol(msg) => AntdError::Internal(msg),
             Error::Encryption(msg) => AntdError::Internal(msg),
             Error::Serialization(msg) => AntdError::Internal(msg),
+            // Both finalize paths (wave and, since ant-core 0.6.0, merkle)
+            // raise this when chunks miss quorum after retries. Keep the counts
+            // structured so clients can drive a retry instead of parsing text.
+            Error::PartialUpload {
+                stored_count,
+                failed_count,
+                total_chunks,
+                reason,
+                ..
+            } => AntdError::PartialUpload {
+                stored: stored_count as u64,
+                failed: failed_count as u64,
+                total: total_chunks as u64,
+                reason,
+            },
             other => AntdError::Internal(other.to_string()),
         }
     }
@@ -74,6 +105,14 @@ impl AntdError {
 struct ErrorBody {
     error: String,
     code: String,
+    // Populated only for `PARTIAL_UPLOAD` so clients get machine-readable
+    // counts (additive fields — absent for every other code).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chunks_stored: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chunks_failed: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    total_chunks: Option<u64>,
 }
 
 impl IntoResponse for AntdError {
@@ -89,10 +128,25 @@ impl IntoResponse for AntdError {
             AntdError::ServiceUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             AntdError::NotImplemented(_) => StatusCode::NOT_IMPLEMENTED,
             AntdError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            // The upstream network failed to store part of the file; the
+            // request itself was valid, so this is a gateway-side failure.
+            AntdError::PartialUpload { .. } => StatusCode::BAD_GATEWAY,
+        };
+        let (chunks_stored, chunks_failed, total_chunks) = match &self {
+            AntdError::PartialUpload {
+                stored,
+                failed,
+                total,
+                ..
+            } => (Some(*stored), Some(*failed), Some(*total)),
+            _ => (None, None, None),
         };
         let body = serde_json::to_string(&ErrorBody {
             error: self.to_string(),
             code: self.code().to_string(),
+            chunks_stored,
+            chunks_failed,
+            total_chunks,
         })
         .unwrap_or_else(|_| r#"{"error":"internal error","code":"INTERNAL_ERROR"}"#.to_string());
         (
@@ -117,6 +171,11 @@ impl From<AntdError> for tonic::Status {
             AntdError::ServiceUnavailable(msg) => tonic::Status::unavailable(msg),
             AntdError::NotImplemented(msg) => tonic::Status::unimplemented(msg),
             AntdError::Internal(msg) => tonic::Status::internal(msg),
+            // ABORTED: the operation stopped partway and the retry lives at
+            // the application level (re-prepare, then finalize the remainder),
+            // not a blind replay of the same call. Counts stay in the message
+            // until the proto grows structured detail fields.
+            e @ AntdError::PartialUpload { .. } => tonic::Status::aborted(e.to_string()),
         }
     }
 }

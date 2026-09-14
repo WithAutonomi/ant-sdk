@@ -175,15 +175,28 @@ pub struct PrepareUploadResponse {
     pub payments: Vec<PaymentEntry>,
 
     // --- Merkle fields (present when payment_type == "merkle") ---
-    /// Merkle tree depth (1-8).
+    // The legacy singular fields mirror `merkle_batches[0]` and are present
+    // only when there is exactly one batch, so pre-multi-batch clients keep
+    // working for uploads that fit one merkle tree. Multi-batch prepares
+    // omit them — a legacy client cannot pay a fraction of the file.
+    /// Merkle tree depth (1-8). Legacy: only when exactly one batch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub depth: Option<u8>,
-    /// Pool commitments for `payForMerkleTree2()`.
+    /// Pool commitments for `payForMerkleTree2()`. Legacy: only when exactly
+    /// one batch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pool_commitments: Option<Vec<PoolCommitmentEntry>>,
-    /// Timestamp for the merkle payment (unix seconds).
+    /// Timestamp for the merkle payment (unix seconds). Legacy: only when
+    /// exactly one batch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub merkle_payment_timestamp: Option<u64>,
+    /// All merkle payment batches, in order. ant-core splits an upload larger
+    /// than one merkle tree (256 fresh chunks ≈ 1 GiB) into several batches;
+    /// the signer submits one `payForMerkleTree2()` transaction per entry and
+    /// passes the winner hashes back index-aligned in the finalize request's
+    /// `winner_pool_hashes`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub merkle_batches: Option<Vec<MerkleBatchEntry>>,
 
     // --- Common fields (always present) ---
     /// Total amount to pay (atto tokens as decimal string).
@@ -204,6 +217,18 @@ pub struct PrepareUploadResponse {
     /// self-encryption) and therefore excluded from payment + PUT. The external
     /// signer is paying for `total_chunks - already_stored_count` chunks.
     pub already_stored_count: usize,
+}
+
+/// One merkle payment batch: everything the external signer needs for a
+/// single `payForMerkleTree2()` call.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct MerkleBatchEntry {
+    /// Merkle tree depth (1-8).
+    pub depth: u8,
+    /// Pool commitments for `payForMerkleTree2()`.
+    pub pool_commitments: Vec<PoolCommitmentEntry>,
+    /// Timestamp for the merkle payment (unix seconds).
+    pub merkle_payment_timestamp: u64,
 }
 
 /// A pool commitment entry for the merkle payment contract.
@@ -241,9 +266,19 @@ pub struct FinalizeUploadRequest {
     /// Wave-batch: map of quote_hash (hex) → tx_hash (hex) from on-chain payment.
     #[serde(default)]
     pub tx_hashes: Option<HashMap<String, String>>,
-    /// Merkle: winner pool hash (hex, 32 bytes) from `MerklePaymentMade` event.
+    /// Merkle, LEGACY single-batch: winner pool hash (hex, 32 bytes) from the
+    /// `MerklePaymentMade` event. Accepted only when the prepared upload has
+    /// exactly one merkle batch; must not be combined with
+    /// `winner_pool_hashes`.
     #[serde(default)]
     pub winner_pool_hash: Option<String>,
+    /// Merkle: one winner pool hash per entry in the prepare response's
+    /// `merkle_batches`, index-aligned. `null` or `""` marks a batch the
+    /// signer never paid — paid batches store and the unpaid chunks surface
+    /// via the `PARTIAL_UPLOAD` error. Required (over `winner_pool_hash`)
+    /// when the prepared upload has more than one batch.
+    #[serde(default)]
+    pub winner_pool_hashes: Option<Vec<Option<String>>>,
     /// If true, store the DataMap on-network and return its address.
     /// If false (default), return the raw DataMap for caller-side storage.
     #[serde(default)]
@@ -447,6 +482,19 @@ pub struct HealthResponse {
     pub build_commit: String,
     pub payment_token_address: String,
     pub payment_vault_address: String,
+    /// Best-effort write-path signal: `max(routing_table_size,
+    /// connected_peers)` at or above the DHT re-bootstrap threshold.
+    /// `false` means stores are known-degraded.
+    pub write_ready: bool,
+    /// Live transport-level connection count (distinct from routing table).
+    pub connected_peers: u32,
+    /// DHT routing-table entries — the number auto-re-bootstrap keys off.
+    pub routing_table_size: u32,
+    /// Routing-table floor below which the DHT auto-re-bootstraps.
+    pub rebootstrap_threshold: u32,
+    /// Seconds since the last successful store-type operation, or `null` if
+    /// none has succeeded in this process yet.
+    pub last_store_ok_secs_ago: Option<u64>,
 }
 
 // ── Tests ──
@@ -468,6 +516,7 @@ mod tests {
             depth: None,
             pool_commitments: None,
             merkle_payment_timestamp: None,
+            merkle_batches: None,
             total_amount: "100".into(),
             payment_vault_address: "0xcc".into(),
             payment_token_address: "0xdd".into(),
@@ -503,6 +552,17 @@ mod tests {
                 }],
             }]),
             merkle_payment_timestamp: Some(1712150400),
+            merkle_batches: Some(vec![MerkleBatchEntry {
+                depth: 5,
+                pool_commitments: vec![PoolCommitmentEntry {
+                    pool_hash: "0xaabb".into(),
+                    candidates: vec![CandidateNodeEntry {
+                        rewards_address: "0x1234".into(),
+                        amount: "1000".into(),
+                    }],
+                }],
+                merkle_payment_timestamp: 1712150400,
+            }]),
             total_amount: "0".into(),
             payment_vault_address: "0xee".into(),
             payment_token_address: "0xdd".into(),
@@ -515,6 +575,11 @@ mod tests {
         assert_eq!(json["depth"], 5);
         assert_eq!(json["merkle_payment_timestamp"], 1712150400u64);
         assert_eq!(json["pool_commitments"][0]["pool_hash"], "0xaabb");
+        assert_eq!(json["merkle_batches"][0]["depth"], 5);
+        assert_eq!(
+            json["merkle_batches"][0]["pool_commitments"][0]["pool_hash"],
+            "0xaabb"
+        );
         assert_eq!(json["payment_vault_address"], "0xee");
         // Wave fields must be absent
         assert!(json.get("payments").is_none());
@@ -587,6 +652,11 @@ mod tests {
             build_commit: "abcdef123456".into(),
             payment_token_address: "0xtoken".into(),
             payment_vault_address: "0xvault".into(),
+            write_ready: true,
+            connected_peers: 7,
+            routing_table_size: 12,
+            rebootstrap_threshold: 3,
+            last_store_ok_secs_ago: Some(42),
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["status"], "ok");
@@ -597,6 +667,11 @@ mod tests {
         assert_eq!(json["build_commit"], "abcdef123456");
         assert_eq!(json["payment_token_address"], "0xtoken");
         assert_eq!(json["payment_vault_address"], "0xvault");
+        assert_eq!(json["write_ready"], true);
+        assert_eq!(json["connected_peers"], 7);
+        assert_eq!(json["routing_table_size"], 12);
+        assert_eq!(json["rebootstrap_threshold"], 3);
+        assert_eq!(json["last_store_ok_secs_ago"], 42u64);
     }
 
     #[test]
@@ -613,11 +688,27 @@ mod tests {
             build_commit: String::new(),
             payment_token_address: String::new(),
             payment_vault_address: String::new(),
+            write_ready: false,
+            connected_peers: 0,
+            routing_table_size: 0,
+            rebootstrap_threshold: 3,
+            last_store_ok_secs_ago: None,
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["build_commit"], "");
         assert_eq!(json["payment_token_address"], "");
         assert_eq!(json["payment_vault_address"], "");
+        // A degraded node must still round-trip its zero/absent signals
+        // explicitly: write_ready false, counts 0, and a JSON null (not a
+        // missing key) for never-stored.
+        assert_eq!(json["write_ready"], false);
+        assert_eq!(json["connected_peers"], 0);
+        assert_eq!(json["routing_table_size"], 0);
+        assert!(json
+            .as_object()
+            .unwrap()
+            .contains_key("last_store_ok_secs_ago"));
+        assert!(json["last_store_ok_secs_ago"].is_null());
     }
 
     #[test]

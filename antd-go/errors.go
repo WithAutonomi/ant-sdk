@@ -41,6 +41,42 @@ type NetworkError struct{ AntdError }
 // dependency such as a wallet (HTTP 503).
 type ServiceUnavailableError struct{ AntdError }
 
+// PartialUploadError indicates a finalize stored some chunks while others
+// failed quorum or belonged to unpaid batches (HTTP 502 with code
+// PARTIAL_UPLOAD; gRPC ABORTED). The on-chain payment persists and the
+// stored chunks stay on the network: re-preparing the same content skips
+// them, so a retry pays only for the missing remainder.
+//
+// The chunk counts are populated from the REST error body; over gRPC they
+// only appear in the message text and the fields stay zero.
+type PartialUploadError struct {
+	AntdError
+	ChunksStored uint64
+	ChunksFailed uint64
+	TotalChunks  uint64
+}
+
+// errorForResponse maps a REST error response onto a typed error, preferring
+// the machine-readable `code` over the bare HTTP status where they diverge
+// (PARTIAL_UPLOAD arrives as a 502 that would otherwise read as a generic
+// NetworkError). body may be nil when the response was not JSON.
+func errorForResponse(statusCode int, message string, body map[string]any) error {
+	if code, _ := body["code"].(string); code == "PARTIAL_UPLOAD" {
+		e := &PartialUploadError{AntdError: AntdError{StatusCode: statusCode, Message: message}}
+		if v, ok := body["chunks_stored"].(float64); ok {
+			e.ChunksStored = uint64(v)
+		}
+		if v, ok := body["chunks_failed"].(float64); ok {
+			e.ChunksFailed = uint64(v)
+		}
+		if v, ok := body["total_chunks"].(float64); ok {
+			e.TotalChunks = uint64(v)
+		}
+		return e
+	}
+	return errorForStatus(statusCode, message)
+}
+
 // errorForStatus returns the appropriate error type for an HTTP status code.
 func errorForStatus(statusCode int, message string) error {
 	base := AntdError{StatusCode: statusCode, Message: message}

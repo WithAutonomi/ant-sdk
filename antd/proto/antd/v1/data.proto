@@ -78,7 +78,9 @@ message DataChunk {
 // decrypted-byte delivery lands in lumps, so chunk-fetch counts are what
 // actually advance smoothly during a download.
 message DownloadProgress {
-  // One of: "resolving_map", "resolved", "fetching".
+  // One of: "resolving_map", "resolved", "fetching". Daemons that resolve a
+  // shrunk DataMap before the stream opens (V2-1104) no longer emit
+  // "resolving_map" frames; the value remains for streams from older daemons.
   string phase = 1;
   // Chunks fetched so far in the current phase.
   uint64 fetched = 2;

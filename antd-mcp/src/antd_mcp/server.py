@@ -8,7 +8,7 @@ import os
 import sys
 from contextlib import asynccontextmanager
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import Context, MCPServer
 
 from antd import AsyncAntdClient, PaymentMode
 from antd.exceptions import AntdError
@@ -23,7 +23,7 @@ _DEFAULT_BASE_URL = "http://127.0.0.1:8082"
 
 
 @asynccontextmanager
-async def lifespan(server: FastMCP):
+async def lifespan(server: MCPServer):
     # Priority: env var > port-file discovery > default
     base_url = os.environ.get("ANTD_BASE_URL") or discover_daemon_url() or _DEFAULT_BASE_URL
     client = AsyncAntdClient(transport="rest", base_url=base_url)
@@ -40,7 +40,7 @@ async def lifespan(server: FastMCP):
         await client.close()
 
 
-mcp = FastMCP(
+mcp = MCPServer(
     "antd-autonomi",
     instructions="Autonomi network operations via antd daemon",
     lifespan=lifespan,
@@ -52,9 +52,13 @@ mcp = FastMCP(
 # ---------------------------------------------------------------------------
 
 
-def _get_ctx():
-    """Return (client, network) from the lifespan context."""
-    ctx = mcp.get_context()
+def _get_ctx(ctx: Context):
+    """Return (client, network) from the lifespan context.
+
+    mcp 2.x injects ``ctx`` into any tool that declares a ``Context``-typed
+    parameter (it is stripped from the tool's input schema); the 1.x
+    ``mcp.get_context()`` accessor no longer exists.
+    """
     lc = ctx.request_context.lifespan_context
     return lc["client"], lc["network"]
 
@@ -92,6 +96,7 @@ def _pm(payment_mode: str) -> PaymentMode:
 
 @mcp.tool()
 async def store_data(
+    ctx: Context,
     text: str,
     private: bool = False,
     payment_mode: str = "auto",
@@ -113,7 +118,7 @@ async def store_data(
         DataMap when private), ``chunks_stored``, ``payment_mode_used``, or
         error details.
     """
-    client, network = _get_ctx()
+    client, network = _get_ctx(ctx)
     data = text.encode("utf-8")
     try:
         pm = _pm(payment_mode)
@@ -144,6 +149,7 @@ async def store_data(
 
 @mcp.tool()
 async def retrieve_data(
+    ctx: Context,
     address: str,
     private: bool = False,
 ) -> str:
@@ -157,7 +163,7 @@ async def retrieve_data(
     Returns:
         JSON with the retrieved text, or error details.
     """
-    client, network = _get_ctx()
+    client, network = _get_ctx(ctx)
     try:
         if private:
             raw = await client.data_get(address)
@@ -177,6 +183,7 @@ async def retrieve_data(
 
 @mcp.tool()
 async def upload_file(
+    ctx: Context,
     path: str,
     private: bool = False,
     payment_mode: str = "auto",
@@ -198,7 +205,7 @@ async def upload_file(
         DataMap when private), ``storage_cost_atto``, ``gas_cost_wei``,
         ``chunks_stored``, and ``payment_mode_used``, or error details.
     """
-    client, network = _get_ctx()
+    client, network = _get_ctx(ctx)
     try:
         pm = _pm(payment_mode)
         if private:
@@ -230,6 +237,7 @@ async def upload_file(
 
 @mcp.tool()
 async def download_file(
+    ctx: Context,
     address: str,
     dest_path: str,
     private: bool = False,
@@ -245,7 +253,7 @@ async def download_file(
     Returns:
         JSON confirming success, or error details.
     """
-    client, network = _get_ctx()
+    client, network = _get_ctx(ctx)
     try:
         if private:
             await client.file_get(address, dest_path)
@@ -265,6 +273,7 @@ async def download_file(
 
 @mcp.tool()
 async def stream_download_file(
+    ctx: Context,
     address: str,
     dest_path: str,
     private: bool = False,
@@ -288,7 +297,7 @@ async def stream_download_file(
         JSON with ``status``, ``dest_path``, and ``bytes_written``, or error
         details.
     """
-    client, network = _get_ctx()
+    client, network = _get_ctx(ctx)
     try:
         bytes_written = 0
         if private:
@@ -321,6 +330,7 @@ async def stream_download_file(
 
 @mcp.tool()
 async def get_cost(
+    ctx: Context,
     text: str | None = None,
     file_path: str | None = None,
     payment_mode: str = "auto",
@@ -338,7 +348,7 @@ async def get_cost(
     Returns:
         JSON with cost estimate in atto tokens, or error details.
     """
-    client, network = _get_ctx()
+    client, network = _get_ctx(ctx)
     try:
         pm = _pm(payment_mode)
         if text is not None:
@@ -381,7 +391,7 @@ async def get_cost(
 
 
 @mcp.tool()
-async def check_health() -> str:
+async def check_health(ctx: Context) -> str:
     """Check antd daemon health and network status.
 
     Returns:
@@ -389,7 +399,7 @@ async def check_health() -> str:
         diagnostic fields: version, evm_network, uptime_seconds,
         build_commit, payment_token_address, payment_vault_address.
     """
-    client, network = _get_ctx()
+    client, network = _get_ctx(ctx)
     try:
         status = await client.health()
         return _ok(
@@ -417,14 +427,14 @@ async def check_health() -> str:
 
 
 @mcp.tool()
-async def wallet_address() -> str:
+async def wallet_address(ctx: Context) -> str:
     """Get the wallet's public address from the antd daemon.
 
     Returns:
         JSON with the wallet address (e.g. "0x..."), or error details.
         Returns an error if no wallet is configured.
     """
-    client, network = _get_ctx()
+    client, network = _get_ctx(ctx)
     try:
         result = await client.wallet_address()
         return _ok({"address": result.address}, network)
@@ -440,14 +450,14 @@ async def wallet_address() -> str:
 
 
 @mcp.tool()
-async def wallet_balance() -> str:
+async def wallet_balance(ctx: Context) -> str:
     """Get the wallet's token and gas balances from the antd daemon.
 
     Returns:
         JSON with balance (token balance) and gas_balance (gas token balance),
         both as strings in atto units. Returns an error if no wallet is configured.
     """
-    client, network = _get_ctx()
+    client, network = _get_ctx(ctx)
     try:
         result = await client.wallet_balance()
         return _ok({"balance": result.balance, "gas_balance": result.gas_balance}, network)
@@ -464,6 +474,7 @@ async def wallet_balance() -> str:
 
 @mcp.tool()
 async def chunk_put(
+    ctx: Context,
     data: str,
 ) -> str:
     """Store a raw chunk on the Autonomi network.
@@ -474,7 +485,7 @@ async def chunk_put(
     Returns:
         JSON with chunk address and cost, or error details.
     """
-    client, network = _get_ctx()
+    client, network = _get_ctx(ctx)
     try:
         raw = base64.b64decode(data)
         result = await client.chunk_put(raw)
@@ -492,6 +503,7 @@ async def chunk_put(
 
 @mcp.tool()
 async def chunk_get(
+    ctx: Context,
     address: str,
 ) -> str:
     """Retrieve a raw chunk from the Autonomi network.
@@ -502,7 +514,7 @@ async def chunk_get(
     Returns:
         JSON with base64-encoded chunk data, or error details.
     """
-    client, network = _get_ctx()
+    client, network = _get_ctx(ctx)
     try:
         raw = await client.chunk_get(address)
         return _ok({"data": base64.b64encode(raw).decode()}, network)
@@ -518,7 +530,7 @@ async def chunk_get(
 
 
 @mcp.tool()
-async def wallet_approve() -> str:
+async def wallet_approve(ctx: Context) -> str:
     """Approve the wallet to spend tokens on payment contracts.
 
     This is a one-time operation required before any storage operations.
@@ -527,7 +539,7 @@ async def wallet_approve() -> str:
     Returns:
         JSON with approved boolean, or error details.
     """
-    client, network = _get_ctx()
+    client, network = _get_ctx(ctx)
     try:
         result = await client.wallet_approve()
         return _ok({"approved": result}, network)
@@ -582,6 +594,7 @@ def _prepare_result_to_dict(result) -> dict:
 
 @mcp.tool()
 async def prepare_upload(
+    ctx: Context,
     path: str,
     visibility: str | None = None,
 ) -> str:
@@ -605,7 +618,7 @@ async def prepare_upload(
     Returns:
         JSON with upload_id, payment_type, and type-specific payment fields.
     """
-    client, network = _get_ctx()
+    client, network = _get_ctx(ctx)
     try:
         if visibility is None:
             result = await client.prepare_upload(path)
@@ -625,6 +638,7 @@ async def prepare_upload(
 
 @mcp.tool()
 async def prepare_upload_public(
+    ctx: Context,
     path: str,
 ) -> str:
     """Prepare a *public* file upload for external signing (two-phase upload).
@@ -640,7 +654,7 @@ async def prepare_upload_public(
     Returns:
         JSON with upload_id, payment_type, and type-specific payment fields.
     """
-    client, network = _get_ctx()
+    client, network = _get_ctx(ctx)
     try:
         result = await client.prepare_upload_public(path)
         return _ok(_prepare_result_to_dict(result), network)
@@ -657,6 +671,7 @@ async def prepare_upload_public(
 
 @mcp.tool()
 async def prepare_data_upload(
+    ctx: Context,
     data: str,
 ) -> str:
     """Prepare a data upload for external signing (two-phase upload).
@@ -670,7 +685,7 @@ async def prepare_data_upload(
     Returns:
         JSON with upload_id, payment_type, and type-specific payment fields.
     """
-    client, network = _get_ctx()
+    client, network = _get_ctx(ctx)
     try:
         raw = base64.b64decode(data)
         result = await client.prepare_data_upload(raw)
@@ -688,6 +703,7 @@ async def prepare_data_upload(
 
 @mcp.tool()
 async def finalize_upload(
+    ctx: Context,
     upload_id: str,
     tx_hashes: dict[str, str],
 ) -> str:
@@ -703,7 +719,7 @@ async def finalize_upload(
         ``data_map_address`` (set when prepare used ``visibility="public"``,
         empty otherwise).
     """
-    client, network = _get_ctx()
+    client, network = _get_ctx(ctx)
     try:
         result = await client.finalize_upload(upload_id, tx_hashes)
         return _ok(
@@ -728,6 +744,7 @@ async def finalize_upload(
 
 @mcp.tool()
 async def finalize_merkle_upload(
+    ctx: Context,
     upload_id: str,
     winner_pool_hash: str,
 ) -> str:
@@ -747,7 +764,7 @@ async def finalize_merkle_upload(
         ``data_map_address`` (set when prepare used ``visibility="public"``,
         empty otherwise).
     """
-    client, network = _get_ctx()
+    client, network = _get_ctx(ctx)
     try:
         result = await client.finalize_merkle_upload(upload_id, winner_pool_hash)
         return _ok(
@@ -804,6 +821,7 @@ def _prepare_chunk_result_to_dict(result) -> dict:
 
 @mcp.tool()
 async def prepare_chunk_upload(
+    ctx: Context,
     data_base64: str,
 ) -> str:
     """Prepare a single raw chunk for external-signer publish.
@@ -821,7 +839,7 @@ async def prepare_chunk_upload(
     Returns:
         JSON with the prepare-chunk result, or error details.
     """
-    client, network = _get_ctx()
+    client, network = _get_ctx(ctx)
     try:
         raw = base64.b64decode(data_base64)
         result = await client.prepare_chunk_upload(raw)
@@ -839,6 +857,7 @@ async def prepare_chunk_upload(
 
 @mcp.tool()
 async def finalize_chunk_upload(
+    ctx: Context,
     upload_id: str,
     tx_hashes: dict[str, str],
 ) -> str:
@@ -851,7 +870,7 @@ async def finalize_chunk_upload(
     Returns:
         JSON with ``address`` (hex) — the network address of the stored chunk.
     """
-    client, network = _get_ctx()
+    client, network = _get_ctx(ctx)
     try:
         address = await client.finalize_chunk_upload(upload_id, tx_hashes)
         return _ok({"address": address}, network)
@@ -868,7 +887,9 @@ async def finalize_chunk_upload(
 
 def main():
     transport = "stdio"
-    if "--sse" in sys.argv:
+    if "--http" in sys.argv:
+        transport = "streamable-http"
+    elif "--sse" in sys.argv:
         transport = "sse"
     mcp.run(transport=transport)
 

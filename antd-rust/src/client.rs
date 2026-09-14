@@ -311,6 +311,14 @@ impl Client {
             build_commit: Self::str_field(&j, "build_commit"),
             payment_token_address: Self::str_field(&j, "payment_token_address"),
             payment_vault_address: Self::str_field(&j, "payment_vault_address"),
+            write_ready: j
+                .get("write_ready")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            connected_peers: Self::u64_field(&j, "connected_peers") as u32,
+            routing_table_size: Self::u64_field(&j, "routing_table_size") as u32,
+            rebootstrap_threshold: Self::u64_field(&j, "rebootstrap_threshold") as u32,
+            last_store_ok_secs_ago: j.get("last_store_ok_secs_ago").and_then(|v| v.as_u64()),
         })
     }
 

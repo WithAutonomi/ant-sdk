@@ -13,7 +13,7 @@ pub use payments::{merkle_winner_pool_hash, network_info, wait_for_receipt};
 
 uniffi::setup_scaffolding!();
 
-/// The AntFfi SDK version, e.g. `"0.0.8"` — matches the released SDK version
+/// The AntFfi SDK version, e.g. `"0.0.9"` — matches the released SDK version
 /// (the ant-swift tag / ant-android maven version) from 0.0.8 onward. Bump
 /// the crate version in `Cargo.toml` as part of every release cut.
 #[uniffi::export]

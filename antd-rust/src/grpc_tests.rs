@@ -26,6 +26,11 @@ impl v1::health_service_server::HealthService for MockHealthService {
             build_commit: "abcdef123456".to_string(),
             payment_token_address: "0xtoken".to_string(),
             payment_vault_address: "0xvault".to_string(),
+            write_ready: true,
+            connected_peers: 5,
+            routing_table_size: 12,
+            rebootstrap_threshold: 3,
+            last_store_ok_secs_ago: Some(42),
         }))
     }
 }
@@ -281,6 +286,7 @@ impl v1::upload_service_server::UploadService for MockUploadService {
                     }],
                 }],
                 merkle_payment_timestamp: 1_700_000_000,
+                merkle_batches: Vec::new(),
                 total_amount: "0".to_string(),
                 payment_vault_address: "0xvault".to_string(),
                 payment_token_address: "0xtoken".to_string(),
@@ -490,6 +496,11 @@ async fn test_grpc_health() {
     assert_eq!(health.build_commit, "abcdef123456");
     assert_eq!(health.payment_token_address, "0xtoken");
     assert_eq!(health.payment_vault_address, "0xvault");
+    assert!(health.write_ready);
+    assert_eq!(health.connected_peers, 5);
+    assert_eq!(health.routing_table_size, 12);
+    assert_eq!(health.rebootstrap_threshold, 3);
+    assert_eq!(health.last_store_ok_secs_ago, Some(42));
 }
 
 #[tokio::test]

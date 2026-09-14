@@ -107,7 +107,24 @@ pub(crate) fn build_payment_transactions(
             }
             Ok(txs)
         }
-        ExternalPaymentInfo::Merkle { prepared_batch, .. } => {
+        ExternalPaymentInfo::Merkle {
+            prepared_batches, ..
+        } => {
+            // `stash_prepared` rejects multi-batch prepares, so a stashed
+            // session always holds exactly one batch here; guard anyway so a
+            // core change can't silently build a payment covering only part of
+            // the file.
+            let prepared_batch = match prepared_batches.as_slice() {
+                [batch] => batch,
+                batches => {
+                    return Err(ClientError::InternalError {
+                        reason: format!(
+                            "prepared upload holds {} merkle batches; expected exactly 1",
+                            batches.len()
+                        ),
+                    });
+                }
+            };
             // Approve a safe upper bound: the max candidate price across all
             // pools times 2^depth. The contract picks the winner pool on-chain
             // (median-of-16 ≤ max), so this never under-approves and avoids an

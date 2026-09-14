@@ -60,6 +60,7 @@ pub async fn chunk_put(
         .await
         .map_err(AntdError::from_core)?;
 
+    state.mark_store_ok();
     Ok(Json(ChunkPutResponse {
         // ant-core chunk_put returns only the address; cost is pre-paid via
         // the wallet and not reported back per-chunk.
@@ -211,6 +212,7 @@ pub async fn chunk_finalize(
     .await
     .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
 
+    state.mark_store_ok();
     Ok(Json(FinalizeChunkResponse {
         address: hex::encode(address),
     }))

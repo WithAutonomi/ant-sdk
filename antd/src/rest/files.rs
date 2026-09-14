@@ -42,6 +42,7 @@ pub async fn file_put(
     let data_map_bytes = rmp_serde::to_vec(&result.data_map)
         .map_err(|e| AntdError::Internal(format!("failed to serialize data map: {e}")))?;
 
+    state.mark_store_ok();
     Ok(Json(FilePutResponse {
         data_map: hex::encode(data_map_bytes),
         storage_cost_atto: result.storage_cost_atto,
@@ -87,6 +88,7 @@ pub async fn file_put_public(
     .await
     .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
 
+    state.mark_store_ok();
     Ok(Json(FilePutPublicResponse {
         address: hex::encode(address),
         storage_cost_atto: result.storage_cost_atto,

@@ -11,7 +11,8 @@
     <key>ProgramArguments</key>
     <array>
         <string>/usr/local/bin/antd</string>
-        <!-- The cors flag is non-negotiable for the browser extension. -->
+        <!-- Kept for compatibility; the extension itself needs no CORS
+             (it uses declared localhost host permissions). -->
         <string>--cors</string>
     </array>
     <key>RunAtLoad</key>

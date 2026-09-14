@@ -48,6 +48,27 @@ pub struct HealthStatus {
     pub payment_token_address: String,
     #[serde(default)]
     pub payment_vault_address: String,
+    /// Best-effort write-path signal (antd 0.12.1+):
+    /// `max(routing_table_size, connected_peers)` at or above the DHT
+    /// re-bootstrap threshold. `false` on pre-0.12.1 daemons (which don't
+    /// report it) and on degraded nodes — pair with `routing_table_size` to
+    /// tell the two apart.
+    #[serde(default)]
+    pub write_ready: bool,
+    /// Live transport-level connection count (antd 0.12.1+).
+    #[serde(default)]
+    pub connected_peers: u32,
+    /// DHT routing-table entries (antd 0.12.1+).
+    #[serde(default)]
+    pub routing_table_size: u32,
+    /// Routing-table floor below which the DHT auto-re-bootstraps
+    /// (antd 0.12.1+; 0 on older daemons).
+    #[serde(default)]
+    pub rebootstrap_threshold: u32,
+    /// Seconds since the daemon's last successful store-type operation, or
+    /// `None` if none has succeeded this process (or pre-0.12.1 daemon).
+    #[serde(default)]
+    pub last_store_ok_secs_ago: Option<u64>,
 }
 
 /// Result of a single-chunk put (used by `chunk_put`). Data and file puts

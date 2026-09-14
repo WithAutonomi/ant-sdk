@@ -8,6 +8,10 @@ use crate::errors::AntdError;
 use crate::models::*;
 
 /// Generated protobuf types for the antd gRPC API.
+// tonic's generated client methods return Result<_, tonic::Status> (~176
+// bytes), which trips clippy::result_large_err on rustc >= 1.98; the
+// signatures aren't ours to change.
+#[allow(clippy::result_large_err)]
 pub mod proto {
     pub mod antd {
         pub mod v1 {
@@ -132,6 +136,11 @@ impl GrpcClient {
             build_commit: resp.build_commit,
             payment_token_address: resp.payment_token_address,
             payment_vault_address: resp.payment_vault_address,
+            write_ready: resp.write_ready,
+            connected_peers: resp.connected_peers,
+            routing_table_size: resp.routing_table_size,
+            rebootstrap_threshold: resp.rebootstrap_threshold,
+            last_store_ok_secs_ago: resp.last_store_ok_secs_ago,
         })
     }
 
@@ -620,6 +629,7 @@ impl GrpcClient {
                 upload_id: upload_id.to_string(),
                 tx_hashes: tx_hashes.clone(),
                 winner_pool_hash: String::new(),
+                winner_pool_hashes: Vec::new(),
                 store_data_map: false,
             })
             .await?
@@ -647,6 +657,10 @@ impl GrpcClient {
                 upload_id: upload_id.to_string(),
                 tx_hashes: std::collections::HashMap::new(),
                 winner_pool_hash: winner_pool_hash.to_string(),
+                // Legacy single-batch call shape; the multi-batch surface
+                // (winner-hash list, merkle_batches consumption) is the
+                // client-sweep follow-up.
+                winner_pool_hashes: Vec::new(),
                 store_data_map,
             })
             .await?

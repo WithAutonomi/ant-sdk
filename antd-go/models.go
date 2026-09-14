@@ -87,16 +87,24 @@ type PrepareUploadResult struct {
 	// Wave-batch fields (present when PaymentType == "wave_batch")
 	Payments []PaymentInfo `json:"payments,omitempty"` // per-quote payments for payForQuotes()
 
-	// Merkle fields (present when PaymentType == "merkle")
+	// Merkle fields (present when PaymentType == "merkle").
+	//
+	// The legacy Depth / PoolCommitments / MerklePaymentTimestamp fields
+	// mirror MerkleBatches[0] and are populated only when the upload fits a
+	// single merkle tree; antd >= 0.12.0 splits larger uploads (256 fresh
+	// chunks ≈ 1 GiB per tree) into several batches and leaves the legacy
+	// fields empty. Multi-batch uploads are paid batch-by-batch and
+	// finalized with FinalizeMerkleUploadMulti.
 	Depth                  int                   `json:"depth,omitempty"`                    // merkle tree depth (1-8)
 	PoolCommitments        []PoolCommitmentEntry `json:"pool_commitments,omitempty"`         // for payForMerkleTree()
 	MerklePaymentTimestamp uint64                `json:"merkle_payment_timestamp,omitempty"` // unix seconds
+	MerkleBatches          []MerkleBatchEntry    `json:"merkle_batches,omitempty"`           // all payment batches, in order (antd >= 0.12.0)
 
 	// Common fields (always present)
-	TotalAmount         string `json:"total_amount"`           // total atto tokens ("0" for merkle)
+	TotalAmount         string `json:"total_amount"`                    // total atto tokens ("0" for merkle)
 	PaymentVaultAddress string `json:"payment_vault_address,omitempty"` // payment vault contract address
-	PaymentTokenAddress string `json:"payment_token_address"`  // token contract address
-	RPCUrl              string `json:"rpc_url"`                // EVM RPC URL
+	PaymentTokenAddress string `json:"payment_token_address"`           // token contract address
+	RPCUrl              string `json:"rpc_url"`                         // EVM RPC URL
 
 	// Already-stored preflight (added in antd 0.10.0). Older daemons omit these
 	// and they default to 0. TotalChunks includes already-stored chunks; the
@@ -105,10 +113,20 @@ type PrepareUploadResult struct {
 	AlreadyStoredCount int `json:"already_stored_count,omitempty"` // chunks skipped (already on-network)
 }
 
+// MerkleBatchEntry describes one merkle payment batch: everything the
+// external signer needs for a single payForMerkleTree2() call. Batches are
+// index-aligned with the winner-hash list passed to
+// FinalizeMerkleUploadMulti.
+type MerkleBatchEntry struct {
+	Depth                  int                   `json:"depth"`                    // merkle tree depth (1-8)
+	PoolCommitments        []PoolCommitmentEntry `json:"pool_commitments"`         // for payForMerkleTree2()
+	MerklePaymentTimestamp uint64                `json:"merkle_payment_timestamp"` // unix seconds
+}
+
 // PoolCommitmentEntry describes a pool commitment for the merkle payment contract.
 type PoolCommitmentEntry struct {
-	PoolHash   string               `json:"pool_hash"`   // hex, 32 bytes with 0x prefix
-	Candidates []CandidateNodeEntry `json:"candidates"`  // exactly 16 nodes
+	PoolHash   string               `json:"pool_hash"`  // hex, 32 bytes with 0x prefix
+	Candidates []CandidateNodeEntry `json:"candidates"` // exactly 16 nodes
 }
 
 // CandidateNodeEntry describes a candidate node in a pool commitment.
@@ -119,10 +137,10 @@ type CandidateNodeEntry struct {
 
 // FinalizeUploadResult is the result of finalizing an externally-signed upload.
 type FinalizeUploadResult struct {
-	DataMap         string `json:"data_map"`                    // hex-encoded serialized DataMap (always returned)
-	Address         string `json:"address,omitempty"`           // legacy: set when store_data_map=true was passed (paid by daemon wallet)
-	DataMapAddress  string `json:"data_map_address,omitempty"`  // set when prepare was called with visibility="public" (paid in same external-signer batch)
-	ChunksStored    int64  `json:"chunks_stored"`               // number of chunks stored
+	DataMap        string `json:"data_map"`                   // hex-encoded serialized DataMap (always returned)
+	Address        string `json:"address,omitempty"`          // legacy: set when store_data_map=true was passed (paid by daemon wallet)
+	DataMapAddress string `json:"data_map_address,omitempty"` // set when prepare was called with visibility="public" (paid in same external-signer batch)
+	ChunksStored   int64  `json:"chunks_stored"`              // number of chunks stored
 }
 
 // PrepareChunkResult is the result of preparing a single-chunk publish for
@@ -163,11 +181,11 @@ type PrepareChunkResult struct {
 // extrapolates the storage cost. Gas is an advisory heuristic, not a live
 // gas-oracle query.
 type UploadCostEstimate struct {
-	Cost                string `json:"cost"`                    // storage cost in atto tokens
-	FileSize            uint64 `json:"file_size"`               // original file size in bytes
-	ChunkCount          uint32 `json:"chunk_count"`             // number of data chunks
-	EstimatedGasCostWei string `json:"estimated_gas_cost_wei"`  // advisory wei heuristic
-	PaymentMode         string `json:"payment_mode"`            // "auto" | "merkle" | "single"
+	Cost                string `json:"cost"`                   // storage cost in atto tokens
+	FileSize            uint64 `json:"file_size"`              // original file size in bytes
+	ChunkCount          uint32 `json:"chunk_count"`            // number of data chunks
+	EstimatedGasCostWei string `json:"estimated_gas_cost_wei"` // advisory wei heuristic
+	PaymentMode         string `json:"payment_mode"`           // "auto" | "merkle" | "single"
 }
 
 // DownloadProgress is a fetch-progress update emitted during a streaming

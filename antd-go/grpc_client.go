@@ -144,6 +144,11 @@ func errorFromGrpc(err error) error {
 	case codes.Unavailable:
 		base.StatusCode = 502
 		return &NetworkError{base}
+	case codes.Aborted:
+		// PARTIAL_UPLOAD: some chunks stored, some failed quorum or belonged
+		// to unpaid batches. The counts ride the message text over gRPC.
+		base.StatusCode = 502
+		return &PartialUploadError{AntdError: base}
 	default:
 		base.StatusCode = int(st.Code())
 		return &base
@@ -641,18 +646,34 @@ func prepareResponseToResult(resp *pb.PrepareUploadResponse) *PrepareUploadResul
 	if result.PaymentType == "merkle" {
 		result.Depth = int(resp.GetDepth())
 		result.MerklePaymentTimestamp = resp.GetMerklePaymentTimestamp()
-		for _, pc := range resp.GetPoolCommitments() {
-			entry := PoolCommitmentEntry{PoolHash: pc.GetPoolHash()}
-			for _, cand := range pc.GetCandidates() {
-				entry.Candidates = append(entry.Candidates, CandidateNodeEntry{
-					RewardsAddress: cand.GetRewardsAddress(),
-					Amount:         cand.GetAmount(),
-				})
-			}
-			result.PoolCommitments = append(result.PoolCommitments, entry)
+		result.PoolCommitments = pbPoolCommitments(resp.GetPoolCommitments())
+		// Multi-batch shape (antd >= 0.12.0). On single-batch uploads the
+		// legacy fields above mirror MerkleBatches[0]; on multi-batch
+		// uploads only this list is populated.
+		for _, b := range resp.GetMerkleBatches() {
+			result.MerkleBatches = append(result.MerkleBatches, MerkleBatchEntry{
+				Depth:                  int(b.GetDepth()),
+				PoolCommitments:        pbPoolCommitments(b.GetPoolCommitments()),
+				MerklePaymentTimestamp: b.GetMerklePaymentTimestamp(),
+			})
 		}
 	}
 	return result
+}
+
+func pbPoolCommitments(pcs []*pb.PoolCommitmentEntry) []PoolCommitmentEntry {
+	var entries []PoolCommitmentEntry
+	for _, pc := range pcs {
+		entry := PoolCommitmentEntry{PoolHash: pc.GetPoolHash()}
+		for _, cand := range pc.GetCandidates() {
+			entry.Candidates = append(entry.Candidates, CandidateNodeEntry{
+				RewardsAddress: cand.GetRewardsAddress(),
+				Amount:         cand.GetAmount(),
+			})
+		}
+		entries = append(entries, entry)
+	}
+	return entries
 }
 
 // PrepareUpload prepares a private file upload for external signing.
@@ -760,6 +781,32 @@ func (c *GrpcClient) FinalizeMerkleUpload(ctx context.Context, uploadID string, 
 		UploadId:       uploadID,
 		WinnerPoolHash: winnerPoolHash,
 		StoreDataMap:   storeDataMap,
+	})
+	if err != nil {
+		return nil, errorFromGrpc(err)
+	}
+	return &FinalizeUploadResult{
+		DataMap:        resp.GetDataMap(),
+		Address:        resp.GetAddress(),
+		DataMapAddress: resp.GetDataMapAddress(),
+		ChunksStored:   int64(resp.GetChunksStored()),
+	}, nil
+}
+
+// FinalizeMerkleUploadMulti finalizes a merkle upload paid in one or more
+// batches (antd >= 0.12.0).
+//
+// Mirrors Client.FinalizeMerkleUploadMulti over gRPC: winnerPoolHashes is
+// index-aligned with the prepare result's MerkleBatches, "" marking a batch
+// the signer never paid. Unpaid chunks surface via *PartialUploadError.
+func (c *GrpcClient) FinalizeMerkleUploadMulti(ctx context.Context, uploadID string, winnerPoolHashes []string, storeDataMap bool) (*FinalizeUploadResult, error) {
+	ctx, cancel := c.ctx(ctx)
+	defer cancel()
+
+	resp, err := c.upload.FinalizeUpload(ctx, &pb.FinalizeUploadRequest{
+		UploadId:         uploadID,
+		WinnerPoolHashes: winnerPoolHashes,
+		StoreDataMap:     storeDataMap,
 	})
 	if err != nil {
 		return nil, errorFromGrpc(err)

@@ -1,7 +1,29 @@
 use clap::Parser;
 
+/// `--version` / `-V` output: the crate version, plus the short build commit
+/// when the binary was built inside a git checkout (`build.rs` leaves
+/// `ANTD_BUILD_COMMIT` empty otherwise). Matches what `GET /health` reports,
+/// so a binary on disk can be identified without booting the daemon.
+fn long_version() -> &'static str {
+    static LONG_VERSION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    LONG_VERSION.get_or_init(|| {
+        let version = env!("CARGO_PKG_VERSION");
+        let commit = env!("ANTD_BUILD_COMMIT");
+        if commit.is_empty() {
+            version.to_string()
+        } else {
+            format!("{version} (build {commit})")
+        }
+    })
+}
+
 #[derive(Parser, Debug, Clone)]
-#[command(name = "antd", about = "REST + gRPC gateway for Autonomi network")]
+#[command(
+    name = "antd",
+    about = "REST + gRPC gateway for Autonomi network",
+    version,
+    long_version = long_version()
+)]
 pub struct Config {
     /// REST API listen address. Defaults to loopback only — pass
     /// `0.0.0.0:8082` (or a specific interface) to expose on the network.
@@ -30,9 +52,23 @@ pub struct Config {
     #[arg(long, env = "ANTD_PEERS", value_delimiter = ',')]
     pub peers: Option<Vec<String>>,
 
-    /// Enable CORS headers
-    #[arg(long, default_value_t = false, env = "ANTD_CORS")]
-    pub cors: bool,
+    /// Force IPv4-only mode (disable dual-stack). Use on hosts without a
+    /// working IPv6 stack — containers and sandboxes with IPv6 disabled are
+    /// common — where the default dual-stack socket fails to bind ("Failed to
+    /// create dual-stack network nodes"), and to avoid advertising
+    /// unreachable v6 addresses to the DHT. Mirrors the `ant` CLI's
+    /// `--ipv4-only`. `--network local` always implies this.
+    #[arg(long, env = "ANTD_IPV4_ONLY")]
+    pub ipv4_only: bool,
+
+    /// Enable CORS for browser pages. Pass a comma-separated list of exact
+    /// origins (e.g. `--cors http://127.0.0.1:8000`), or `*` to allow any
+    /// origin (unsafe outside development: any webpage can then drive this
+    /// daemon's REST API, including wallet endpoints). Bare `--cors` is
+    /// accepted for backward compatibility but allows no origins by itself
+    /// (the browser extension needs no CORS — it uses host permissions).
+    #[arg(long, env = "ANTD_CORS", value_name = "ORIGINS", num_args = 0..=1, default_missing_value = "true")]
+    pub cors: Option<String>,
 
     /// Log level: trace, debug, info, warn, error
     #[arg(long, default_value = "info", env = "ANTD_LOG_LEVEL")]
@@ -57,7 +93,81 @@ pub struct Config {
     pub store_concurrency: Option<usize>,
 }
 
+/// Parsed CORS policy derived from `--cors` / `ANTD_CORS`.
+///
+/// Extension origins get no blanket allowance: the official browser
+/// extension declares localhost host permissions, which exempt its
+/// background fetches from CORS in both Chrome and Firefox (127+ grants
+/// MV3 host permissions at install), so it never needs the CORS path.
+/// Echoing arbitrary `*-extension://` origins would instead hand every
+/// installed extension — including ones that never declared, or were
+/// denied, localhost access — a CORS grant to an unauthenticated API with
+/// wallet endpoints. A specific extension with a stable ID can still be
+/// allowed by listing its exact origin.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CorsMode {
+    /// No CORS headers at all (flag absent, or `ANTD_CORS=false`).
+    Disabled,
+    /// Exactly these origins. Bare `--cors` / `ANTD_CORS=true` yield an
+    /// empty list — accepted for backward compatibility (installers pass
+    /// bare `--cors`) but allowing nothing by itself.
+    AllowList(Vec<String>),
+    /// Any origin (`--cors '*'`). Unsafe outside development.
+    AllowAny,
+}
+
 impl Config {
+    /// Parse `--cors` / `ANTD_CORS` into a [`CorsMode`].
+    ///
+    /// Accepts bool-style values (`true`/`false`, `1`/`0`, `on`/`off`,
+    /// `yes`/`no`) for backward compatibility with the old boolean flag,
+    /// `*`, or a comma-separated list of exact origins.
+    pub fn cors_mode(&self) -> Result<CorsMode, String> {
+        let Some(raw) = &self.cors else {
+            return Ok(CorsMode::Disabled);
+        };
+        let entries: Vec<&str> = raw
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
+        if entries.is_empty() {
+            return Ok(CorsMode::Disabled);
+        }
+        if entries.len() == 1 {
+            match entries[0].to_ascii_lowercase().as_str() {
+                "true" | "1" | "on" | "yes" => return Ok(CorsMode::AllowList(Vec::new())),
+                "false" | "0" | "off" | "no" => return Ok(CorsMode::Disabled),
+                _ => {}
+            }
+        }
+        if entries.contains(&"*") {
+            if entries.len() > 1 {
+                return Err("--cors: '*' cannot be combined with other origins".into());
+            }
+            return Ok(CorsMode::AllowAny);
+        }
+        let mut origins = Vec::with_capacity(entries.len());
+        for entry in entries {
+            let Some((scheme, rest)) = entry.split_once("://") else {
+                return Err(format!(
+                    "--cors: '{entry}' is not an origin — expected scheme://host[:port], \
+                     e.g. http://127.0.0.1:8000 (or '*' to allow any origin)"
+                ));
+            };
+            if scheme.is_empty() || rest.is_empty() || rest.contains('/') {
+                return Err(format!(
+                    "--cors: '{entry}' is not an origin — origins have no path or \
+                     trailing slash, e.g. http://127.0.0.1:8000"
+                ));
+            }
+            // Scheme and host are case-insensitive; browsers serialize the
+            // Origin header lowercase, so normalize for the exact match.
+            origins.push(entry.to_ascii_lowercase());
+        }
+        Ok(CorsMode::AllowList(origins))
+    }
+
     /// Resolve the REST listen address, applying --rest-port override if set.
     pub fn resolved_rest_addr(&self) -> Result<std::net::SocketAddr, String> {
         let mut addr: std::net::SocketAddr = self
@@ -80,5 +190,103 @@ impl Config {
             addr.set_port(port);
         }
         Ok(addr)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mode(args: &[&str]) -> Result<CorsMode, String> {
+        let argv: Vec<&str> = std::iter::once("antd")
+            .chain(args.iter().copied())
+            .collect();
+        Config::parse_from(argv).cors_mode()
+    }
+
+    #[test]
+    fn version_flags_render_the_crate_version() {
+        for flag in ["--version", "-V"] {
+            let err = Config::try_parse_from(["antd", flag])
+                .expect_err("--version must short-circuit parsing");
+            assert_eq!(err.kind(), clap::error::ErrorKind::DisplayVersion);
+            let rendered = err.to_string();
+            assert!(
+                rendered.contains(env!("CARGO_PKG_VERSION")),
+                "{flag} output should contain the crate version: {rendered:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn long_version_matches_health_fields() {
+        let long = long_version();
+        assert!(long.starts_with(env!("CARGO_PKG_VERSION")));
+        let commit = env!("ANTD_BUILD_COMMIT");
+        if commit.is_empty() {
+            assert_eq!(long, env!("CARGO_PKG_VERSION"));
+        } else {
+            assert!(long.contains(commit), "{long:?} should embed {commit:?}");
+        }
+    }
+
+    #[test]
+    fn absent_flag_disables_cors() {
+        assert_eq!(mode(&[]), Ok(CorsMode::Disabled));
+    }
+
+    #[test]
+    fn bare_flag_is_accepted_but_allows_no_origins() {
+        assert_eq!(mode(&["--cors"]), Ok(CorsMode::AllowList(Vec::new())));
+    }
+
+    #[test]
+    fn bool_values_keep_old_env_contract() {
+        assert_eq!(
+            mode(&["--cors", "true"]),
+            Ok(CorsMode::AllowList(Vec::new()))
+        );
+        assert_eq!(mode(&["--cors", "1"]), Ok(CorsMode::AllowList(Vec::new())));
+        assert_eq!(mode(&["--cors", "false"]), Ok(CorsMode::Disabled));
+        assert_eq!(mode(&["--cors", "0"]), Ok(CorsMode::Disabled));
+        assert_eq!(mode(&["--cors", ""]), Ok(CorsMode::Disabled));
+    }
+
+    #[test]
+    fn star_allows_any_origin() {
+        assert_eq!(mode(&["--cors", "*"]), Ok(CorsMode::AllowAny));
+    }
+
+    #[test]
+    fn star_cannot_be_combined() {
+        assert!(mode(&["--cors", "*,http://127.0.0.1:8000"]).is_err());
+    }
+
+    #[test]
+    fn origin_list_is_parsed_and_lowercased() {
+        assert_eq!(
+            mode(&["--cors", "HTTP://Example.com, http://127.0.0.1:8000"]),
+            Ok(CorsMode::AllowList(vec![
+                "http://example.com".into(),
+                "http://127.0.0.1:8000".into(),
+            ]))
+        );
+    }
+
+    #[test]
+    fn origins_with_path_or_missing_scheme_are_rejected() {
+        assert!(mode(&["--cors", "127.0.0.1:8000"]).is_err());
+        assert!(mode(&["--cors", "http://127.0.0.1:8000/"]).is_err());
+        assert!(mode(&["--cors", "http://127.0.0.1:8000/app"]).is_err());
+    }
+
+    #[test]
+    fn ipv4_only_defaults_off_and_is_a_bare_flag() {
+        assert!(!Config::parse_from(["antd"]).ipv4_only);
+        assert!(Config::parse_from(["antd", "--ipv4-only"]).ipv4_only);
+        // Independent of --network: the flag must work against mainnet.
+        let cfg = Config::parse_from(["antd", "--network", "default", "--ipv4-only"]);
+        assert!(cfg.ipv4_only);
+        assert_eq!(cfg.network, "default");
     }
 }

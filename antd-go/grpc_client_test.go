@@ -225,6 +225,24 @@ func (m *mockUploadService) PrepareDataUpload(_ context.Context, req *pb.Prepare
 }
 
 func (m *mockUploadService) FinalizeUpload(_ context.Context, req *pb.FinalizeUploadRequest) (*pb.FinalizeUploadResponse, error) {
+	// Magic id: simulate a quorum-shortfall finalize (PARTIAL_UPLOAD).
+	if req.GetUploadId() == "partial" {
+		return nil, status.Error(codes.Aborted, "Partial upload: 300/312 chunks stored, 12 failed after retries")
+	}
+	// Merkle multi-batch: winner_pool_hashes populated. Echo the paid-batch
+	// count back as ChunksStored so tests can assert the list arrived.
+	if hashes := req.GetWinnerPoolHashes(); len(hashes) > 0 {
+		paid := 0
+		for _, h := range hashes {
+			if h != "" {
+				paid++
+			}
+		}
+		return &pb.FinalizeUploadResponse{
+			DataMap:      "dm_merkle_multi",
+			ChunksStored: uint64(paid),
+		}, nil
+	}
 	// Merkle: winner_pool_hash populated, tx_hashes empty.
 	if req.GetWinnerPoolHash() != "" {
 		address := ""
@@ -1062,5 +1080,68 @@ func TestGrpcWalletAddressUnconfiguredReturnsTypedError(t *testing.T) {
 	var perr *PaymentError
 	if !errors.As(err, &perr) {
 		t.Fatalf("expected *PaymentError (FailedPrecondition→Payment), got %T: %v", err, err)
+	}
+}
+
+func TestGrpcFinalizeMerkleUploadMulti(t *testing.T) {
+	c := startMockServer(t)
+	res, err := c.FinalizeMerkleUploadMulti(context.Background(), "mup1", []string{"0xw1", "", "0xw3"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.DataMap != "dm_merkle_multi" {
+		t.Fatalf("unexpected data_map: %s", res.DataMap)
+	}
+	// The mock echoes the count of non-empty winner hashes back.
+	if res.ChunksStored != 2 {
+		t.Fatalf("expected 2 paid batches echoed, got %d", res.ChunksStored)
+	}
+}
+
+func TestGrpcPartialUploadMapsToPartialUploadError(t *testing.T) {
+	c := startMockServer(t)
+	_, err := c.FinalizeMerkleUploadMulti(context.Background(), "partial", []string{"0xw1"}, false)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var perr *PartialUploadError
+	if !errors.As(err, &perr) {
+		t.Fatalf("expected *PartialUploadError (Aborted), got %T: %v", err, err)
+	}
+	if perr.StatusCode != 502 {
+		t.Fatalf("expected status 502, got %d", perr.StatusCode)
+	}
+}
+
+func TestPrepareResponseToResultMultiBatch(t *testing.T) {
+	resp := &pb.PrepareUploadResponse{
+		UploadId:    "mb1",
+		PaymentType: "merkle",
+		MerkleBatches: []*pb.MerkleBatchEntry{
+			{
+				Depth: 8,
+				PoolCommitments: []*pb.PoolCommitmentEntry{{
+					PoolHash:   "0xp1",
+					Candidates: []*pb.CandidateNodeEntry{{RewardsAddress: "0xr1", Amount: "7"}},
+				}},
+				MerklePaymentTimestamp: 1712150400,
+			},
+			{Depth: 6, MerklePaymentTimestamp: 1712150401},
+		},
+		TotalAmount: "0",
+	}
+	res := prepareResponseToResult(resp)
+	if len(res.MerkleBatches) != 2 {
+		t.Fatalf("expected 2 batches, got %d", len(res.MerkleBatches))
+	}
+	if res.MerkleBatches[0].Depth != 8 || res.MerkleBatches[1].Depth != 6 {
+		t.Fatalf("unexpected batch depths: %+v", res.MerkleBatches)
+	}
+	if res.MerkleBatches[0].PoolCommitments[0].Candidates[0].Amount != "7" {
+		t.Fatalf("unexpected candidate amount: %+v", res.MerkleBatches[0])
+	}
+	// Multi-batch prepares leave the legacy singular fields empty.
+	if res.Depth != 0 || len(res.PoolCommitments) != 0 {
+		t.Fatalf("legacy fields must stay empty on multi-batch: %+v", res)
 	}
 }
