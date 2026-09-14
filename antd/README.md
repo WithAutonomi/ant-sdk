@@ -28,6 +28,9 @@ cargo run -- --network local
 
 # With dynamic ports (for managed mode / port discovery)
 cargo run -- --network local --rest-port 0 --grpc-port 0
+
+# Identify a binary without starting it (version + build commit, as /health reports)
+antd --version
 ```
 
 Or use the `ant dev start` CLI to start a full local testnet automatically:
