@@ -1,0 +1,80 @@
+name: Python CI
+
+on:
+  push:
+    branches: [main]
+    # The `!**/*.md` negation skips CI when the only thing changed is a
+    # .md file anywhere in the repo. GitHub Actions only allows EITHER
+    # `paths` OR `paths-ignore`, not both, so the negation lives inside
+    # `paths`.
+    paths:
+      - "antd-py/**"
+      - "antd-mcp/**"
+      - ".github/workflows/python-ci.yml"
+      - "!**/*.md"
+  pull_request:
+    paths:
+      - "antd-py/**"
+      - "antd-mcp/**"
+      - ".github/workflows/python-ci.yml"
+      - "!**/*.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test-antd-py:
+    name: Test (antd-py)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: antd-py
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: python -m pip install -e ".[all]" pytest
+
+      - name: Run tests
+        run: python -m pytest -q tests/
+
+  # Installs antd-mcp the way the README tells users to (no extra pins), so
+  # a dependency that resolves to an incompatible major — as `mcp` 2.x did
+  # in GH #249 — fails here instead of on every fresh user install.
+  test-antd-mcp:
+    name: Test (antd-mcp)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: antd-mcp
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install (README recipe)
+        run: python -m pip install -e "../antd-py[rest]" -e ".[test]"
+
+      - name: Server imports and registers its tools
+        run: |
+          python - <<'EOF'
+          import asyncio
+          import antd_mcp.server as server
+
+          tools = asyncio.run(server.mcp.list_tools())
+          assert len(tools) == 19, f"expected 19 tools, got {len(tools)}: {sorted(t.name for t in tools)}"
+          print(f"antd-mcp OK: {len(tools)} tools")
+          EOF
+
+      - name: Run tests
+        run: python -m pytest -q
