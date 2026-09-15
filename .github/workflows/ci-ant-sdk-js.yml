@@ -20,7 +20,7 @@
 # (not `npm ci`) so npm resolves @napi-rs/cli's per-platform optional native deps
 # for the runner — a lockfile generated on one OS omits the others' binaries.
 
-name: CI (node ffi)
+name: CI (ant-sdk-js, node ffi)
 
 on:
   push:
@@ -28,12 +28,12 @@ on:
     paths:
       - "ffi/node/**"
       - "ffi/rust/**"
-      - ".github/workflows/ci-node.yml"
+      - ".github/workflows/ci-ant-sdk-js.yml"
   pull_request:
     paths:
       - "ffi/node/**"
       - "ffi/rust/**"
-      - ".github/workflows/ci-node.yml"
+      - ".github/workflows/ci-ant-sdk-js.yml"
   workflow_dispatch:
 
 permissions:
