@@ -1,0 +1,203 @@
+# Build the ffi/node addon across the platform matrix and publish
+# @withautonomi/ant-sdk (+ its per-platform packages) to npm, in lockstep.
+#
+# Mirrors publish-js.yml / publish-python.yml: real publishing happens ONLY on
+# a `node-v<version>` tag push, after the tag is verified to match both
+# ffi/node/package.json and ffi/node/Cargo.toml. A manual run
+# (workflow_dispatch) never publishes — it is the full 8-target build matrix as
+# a smoke test. Only the `publish` job references the `npm` environment, so a
+# build-only run cannot auto-create it.
+#
+# Platform packages (@withautonomi/ant-sdk-<platform>) are published by napi's
+# `prepublish` (the package.json `prepublishOnly` hook that `npm publish`
+# triggers); the root package carries them as optionalDependencies with os/cpu
+# constraints, so `npm install` pulls only the matching prebuilt. The root
+# package's publishConfig.access=public is copied into each platform package by
+# `napi create-npm-dirs` (asserted below before publishing).
+#
+# ── One-time setup required before the first publish ──
+#   1. Scope: `@withautonomi` is ours (org owners: b-zee, mickvandijke,
+#      maidsafe-qa). Its prior-network packages were all unpublished on
+#      2026-09-14, so the scope is a clean slate. The name mirrors the PyPI
+#      package `ant-sdk` (import `ant_ffi`) for the same bindings; the daemon
+#      client is the separate `@withautonomi/antd`.
+#   2. Create the GitHub environment `npm` BEFORE the first tag (Settings >
+#      Environments): add required reviewers, and under "Deployment branches
+#      and tags" allow only the tag pattern `node-v*`.
+#   3. npm auth for the FIRST release: a granular token (scoped to the
+#      @withautonomi org, write on packages, short expiry) as the environment
+#      secret `NPM_TOKEN`. npm Trusted Publishing can only be configured on
+#      packages that already exist, and this release creates nine of them.
+#      After it, configure a trusted publisher (WithAutonomi / ant-sdk /
+#      publish-node.yml / environment npm) on each of the nine, delete the
+#      secret, and drop the NODE_AUTH_TOKEN/NPM_TOKEN lines below — the
+#      `id-token: write` permission already covers the OIDC path.
+#
+# ── How to run ──
+#   • Push a tag `node-v<version>` (e.g. node-v0.0.9) -> verify, build, publish.
+#     The tag version must match ffi/node/package.json + Cargo.toml or the run
+#     fails before any build starts.
+#   • Or run manually (Actions > Run workflow) -> build matrix only, no publish.
+
+name: Publish Node (@withautonomi/ant-sdk)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "node-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-node-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    working-directory: ffi/node
+
+jobs:
+  verify:
+    name: verify release tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag matches package.json and Cargo.toml versions
+        if: github.event_name == 'push'
+        run: |
+          pkg="$(node -p 'require("./package.json").version')"
+          crate="$(grep -m1 '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')"
+          tag="${GITHUB_REF_NAME#node-v}"
+          echo "tag=$tag package.json=$pkg Cargo.toml=$crate"
+          if [ "$pkg" != "$tag" ] || [ "$crate" != "$tag" ]; then
+            echo "release tag ($tag) must match package.json ($pkg) and Cargo.toml ($crate)" >&2
+            exit 1
+          fi
+      - name: Nothing to verify on a manual (build-only) run
+        if: github.event_name != 'push'
+        run: echo "workflow_dispatch - build matrix only, no publish"
+
+  build:
+    name: build ${{ matrix.target }}
+    needs: verify
+    runs-on: ${{ matrix.host }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            host: macos-latest
+          - target: aarch64-apple-darwin
+            host: macos-latest
+          - target: x86_64-pc-windows-msvc
+            host: windows-latest
+          - target: aarch64-pc-windows-msvc
+            host: windows-latest
+          - target: x86_64-unknown-linux-gnu
+            host: ubuntu-latest
+            zig: true
+            build_args: -x
+          - target: aarch64-unknown-linux-gnu
+            host: ubuntu-latest
+            zig: true
+            build_args: -x
+          - target: x86_64-unknown-linux-musl
+            host: ubuntu-latest
+            zig: true
+            build_args: -x
+          - target: aarch64-unknown-linux-musl
+            host: ubuntu-latest
+            zig: true
+            build_args: -x
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Set up Zig + cargo-zigbuild (musl cross)
+        if: ${{ matrix.zig }}
+        run: |
+          pip3 install --break-system-packages "ziglang==0.13.0"
+          cargo install cargo-zigbuild --locked
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ffi/node/target/
+          key: publish-${{ matrix.target }}-cargo-${{ hashFiles('ffi/node/Cargo.lock') }}
+      - run: npm install
+      - name: Build ${{ matrix.target }}
+        run: npx napi build --platform --release --no-const-enum --target ${{ matrix.target }} ${{ matrix.build_args }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bindings-${{ matrix.target }}
+          path: ffi/node/*.node
+          if-no-files-found: error
+
+  publish:
+    name: publish to npm
+    needs: [verify, build]
+    # Tag push only. The event check is explicit (not just the ref prefix) so a
+    # workflow_dispatch whose selected ref happens to be a node-v* tag still
+    # cannot reach this job.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/node-v')
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write # npm provenance / OIDC trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Update npm (>= 11.5.1 for trusted publishing)
+        run: npm install -g npm@latest && npm --version
+      - run: npm install
+      - name: Download all prebuilt binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: ffi/node/artifacts
+          merge-multiple: true
+      - name: Assemble per-platform npm dirs
+        run: |
+          npx napi create-npm-dirs
+          npx napi artifacts --output-dir artifacts
+          ls -R npm
+      - name: Assert every platform package is public and carries its binary
+        run: |
+          set -e
+          n=0
+          for dir in npm/*/; do
+            n=$((n+1))
+            name="$(node -p "require('./$dir/package.json').name")"
+            access="$(node -p "require('./$dir/package.json').publishConfig?.access ?? ''")"
+            if [ "$access" != "public" ]; then
+              echo "$name: publishConfig.access is '$access', expected 'public'" >&2; exit 1
+            fi
+            if ! ls "$dir"/*.node >/dev/null 2>&1; then
+              echo "$name: no .node binary in $dir" >&2; exit 1
+            fi
+            echo "ok  $name  ($(ls "$dir"/*.node))"
+          done
+          [ "$n" -eq 8 ] || { echo "expected 8 platform packages, found $n" >&2; exit 1; }
+      - name: Root tarball ships its entry points
+        run: node --test __test__/pack.test.mjs
+      - name: Publish (root + platform packages via napi prepublish)
+        run: |
+          npm config set provenance true
+          npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
