@@ -24,14 +24,13 @@
 #   2. Create the GitHub environment `npm` BEFORE the first tag (Settings >
 #      Environments): add required reviewers, and under "Deployment branches
 #      and tags" allow only the tag pattern `ant-sdk-js-v*`.
-#   3. npm auth for the FIRST release: a granular token (scoped to the
-#      @withautonomi org, write on packages, short expiry) as the environment
-#      secret `NPM_TOKEN`. npm Trusted Publishing can only be configured on
-#      packages that already exist, and this release creates nine of them.
-#      After it, configure a trusted publisher (WithAutonomi / ant-sdk /
-#      publish-ant-sdk-js.yml / environment npm) on each of the nine, delete the
-#      secret, and drop the NODE_AUTH_TOKEN/NPM_TOKEN lines below — the
-#      `id-token: write` permission already covers the OIDC path.
+#   3. npm auth: every one of the nine packages has a trusted publisher
+#      (WithAutonomi / ant-sdk / publish-ant-sdk-js.yml / environment npm), so
+#      the Publish step authenticates purely via OIDC (`id-token: write`).
+#      There is no npm token in this workflow or in the environment. (The
+#      first release on 2026-09-15 bootstrapped with a short-lived granular
+#      token because npm can only attach a trusted publisher to a package that
+#      already exists; adding a NEW platform package needs the same one-off.)
 #
 # ── How to run ──
 #   • Push a tag `ant-sdk-js-v<version>` (e.g. ant-sdk-js-v0.0.9) -> verify, build, publish.
@@ -201,6 +200,3 @@ jobs:
         run: |
           npm config set provenance true
           npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

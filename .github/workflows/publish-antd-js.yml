@@ -11,10 +11,12 @@ name: Publish antd-js (@withautonomi/antd)
 # reviewed release ref rather than whatever branch a dispatch happens to select.
 #
 # ── One-time setup required before the first trusted publish ──
+#   (Done 2026-09-15 for @withautonomi/antd; kept for the next package.)
 #   1. The package must already exist on npm (npm has no "pending publisher"
-#      like PyPI). The first version is published by this workflow using the
-#      `npm` environment's NPM_TOKEN secret (see the Publish step); after that
-#      the token lines are removed and only Trusted Publishing remains.
+#      like PyPI). The first version is published with a short-lived granular
+#      token in the `npm` environment's NPM_TOKEN secret, passed to the Publish
+#      step as NODE_AUTH_TOKEN; once the package exists and step 2 is done, the
+#      env lines and the secret are removed and only Trusted Publishing remains.
 #   2. On npmjs.com: package @withautonomi/antd > Settings > Trusted Publisher
 #      > GitHub Actions:  owner WithAutonomi   repo ant-sdk
 #      workflow publish-antd-js.yml   environment npm
@@ -22,8 +24,8 @@ name: Publish antd-js (@withautonomi/antd)
 #      first tag: add required reviewers, and under "Deployment branches and
 #      tags" allow only the tag pattern `antd-js-v*`. Only the `publish` job below
 #      references the environment, so verify-only runs never touch it.
-#   4. Optionally flip the package's publishing access to "Require two-factor
-#      authentication or trusted publisher" so a leaked token cannot publish.
+#   4. Flip the package's publishing access to "Require two-factor
+#      authentication and disallow tokens" so a leaked token cannot publish.
 #
 # ── How to run ──
 #   • Push a tag `antd-js-v<version>` (e.g. antd-js-v0.1.0) -> verify, then publish.
@@ -122,16 +124,9 @@ jobs:
       - name: Build
         run: npm run build
 
-      # FIRST RELEASE ONLY: npm can't attach a Trusted Publisher to a package
-      # that doesn't exist yet, so the initial publish authenticates with the
-      # `npm` environment's NPM_TOKEN (granular, scoped to @withautonomi,
-      # short-lived). Once @withautonomi/antd exists and its trusted publisher
-      # is configured (see setup step 2 above), delete these two env lines and
-      # the secret — `id-token: write` already covers the OIDC path.
+      # Authenticates via OIDC (id-token: write) against the package's trusted
+      # publisher; there is no npm token anywhere in this workflow.
       - name: Publish
         run: |
           npm config set provenance true
           npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
