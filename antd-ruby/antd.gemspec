@@ -8,14 +8,24 @@ Gem::Specification.new do |spec|
   spec.authors       = ["WithAutonomi"]
   spec.email         = ["dev@autonomi.com"]
 
-  spec.summary       = "Ruby SDK for the antd daemon"
-  spec.description   = "REST client for the antd daemon — the gateway to the Autonomi decentralized network."
-  spec.homepage      = "https://github.com/WithAutonomi/ant-sdk"
-  spec.license       = "MIT"
+  spec.summary       = "Ruby client for the antd daemon (Autonomi network)"
+  spec.description   = "Store and fetch data on the Autonomi decentralized network through a running antd daemon. " +
+                       "Zero-dependency REST client; optional gRPC transport when the grpc gem is installed."
+  spec.homepage      = "https://github.com/WithAutonomi/ant-sdk/tree/main/antd-ruby"
+  spec.licenses      = ["MIT", "Apache-2.0"]
+
+  spec.metadata = {
+    "homepage_uri"          => spec.homepage,
+    "source_code_uri"       => "https://github.com/WithAutonomi/ant-sdk/tree/main/antd-ruby",
+    "documentation_uri"     => "https://github.com/WithAutonomi/ant-sdk/tree/main/antd-ruby#readme",
+    "bug_tracker_uri"       => "https://github.com/WithAutonomi/ant-sdk/issues",
+    "changelog_uri"         => "https://github.com/WithAutonomi/ant-sdk/releases",
+    "rubygems_mfa_required" => "true"
+  }
 
   spec.required_ruby_version = ">= 3.1"
 
-  spec.files         = Dir["lib/**/*.rb", "README.md", "LICENSE"]
+  spec.files         = Dir["lib/**/*.rb", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
   spec.require_paths = ["lib"]
 
   # Zero runtime deps for REST — Net::HTTP, JSON, Base64 are stdlib

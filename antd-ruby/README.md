@@ -16,6 +16,10 @@ Or install directly:
 gem install antd
 ```
 
+## Compatibility
+
+This gem talks to a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon; it does not join the network itself. Ruby 3.1+. Tested against antd 0.12.x. The REST client has no runtime dependencies; the gRPC transport (`Antd::GrpcClient`) needs the `grpc` gem, which is deliberately not a runtime dependency of this gem — add `gem "grpc"` yourself to use it.
+
 ## Quick Start
 
 ```ruby

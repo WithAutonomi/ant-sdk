@@ -83,3 +83,6 @@ out/
 # Sweep script output dirs (scripts/full-stack-sweep.sh, scripts/integration-sweep.sh)
 .full-stack-sweep-results/
 .integration-results/
+
+# built gems (publish-ruby.yml builds them in CI)
+*.gem
