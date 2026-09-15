@@ -16,6 +16,15 @@
 # Follow-up: verify the gnu glibc floor zigbuild targets is old enough for broad
 # distro support (musl is static, so unaffected).
 #
+# When the 8-target matrix runs (V2-1258): always on push to main, tags and
+# workflow_dispatch; on pull requests ONLY when a packaging input changed
+# (Cargo.toml/Cargo.lock/package.json/package-lock.json/build.rs under
+# ffi/node, any Cargo manifest/lock under ffi/rust, or this workflow) or the
+# PR carries the `full-matrix` label. The `test` job already proves the addon
+# builds and loads on each OS; the cross-compile matrix is a packaging check
+# and runs again on the release tag before anything publishes. Skipping it on
+# source-only PRs turns a ~1 h wait (macOS runner queueing) into ~10 min.
+#
 # `fail-fast: false` so every target's result is visible in one run. `npm install`
 # (not `npm ci`) so npm resolves @napi-rs/cli's per-platform optional native deps
 # for the runner — a lockfile generated on one OS omits the others' binaries.
@@ -30,6 +39,8 @@ on:
       - "ffi/rust/**"
       - ".github/workflows/ci-ant-sdk-js.yml"
   pull_request:
+    # `labeled` so adding the `full-matrix` label re-evaluates the build gate.
+    types: [opened, synchronize, reopened, labeled]
     paths:
       - "ffi/node/**"
       - "ffi/rust/**"
@@ -40,7 +51,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-node-${{ github.ref }}
+  group: ci-ant-sdk-js-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -51,6 +62,45 @@ defaults:
     working-directory: ffi/node
 
 jobs:
+  # Decides whether the 8-target build matrix is needed on a pull request.
+  # Only consulted for pull_request events; every other event runs the matrix.
+  changes:
+    name: packaging inputs changed?
+    runs-on: ubuntu-latest
+    outputs:
+      packaging: ${{ steps.filter.outputs.packaging }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            packaging:
+              - 'ffi/node/Cargo.toml'
+              - 'ffi/node/Cargo.lock'
+              - 'ffi/node/package.json'
+              - 'ffi/node/package-lock.json'
+              - 'ffi/node/build.rs'
+              - 'ffi/rust/**/Cargo.toml'
+              - 'ffi/rust/Cargo.lock'
+              - '.github/workflows/ci-ant-sdk-js.yml'
+
+  # ffi/node has its own cargo workspace + lockfile; ffi-ci.yml audits only
+  # ffi/rust, so nothing looked at this lock until an h2 advisory sat in it for
+  # a month (2026-09). Mirrors the audit job in ci.yml.
+  audit:
+    name: Security audit (ffi/node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: cargo-audit-tool
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit ffi/node dependencies
+        run: cargo audit
+
   test:
     name: test (${{ matrix.os }}, node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
@@ -91,6 +141,11 @@ jobs:
 
   build:
     name: build ${{ matrix.target }}
+    needs: changes
+    if: >-
+      github.event_name != 'pull_request' ||
+      needs.changes.outputs.packaging == 'true' ||
+      contains(github.event.pull_request.labels.*.name, 'full-matrix')
     runs-on: ${{ matrix.host }}
     strategy:
       fail-fast: false
