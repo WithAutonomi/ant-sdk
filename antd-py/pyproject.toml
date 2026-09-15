@@ -1,8 +1,34 @@
+[build-system]
+requires = ["hatchling>=1.27"]  # 1.27+: PEP 639 `license` expression + `license-files`
+build-backend = "hatchling.build"
+
 [project]
+# Distribution name == import name (`pip install antd` / `from antd import AntdClient`).
+# Decided 2026-09-04 (V2-1157). Not related to the Ant Design UI library of the
+# same name on npm — the description line disambiguates on PyPI.
 name = "antd"
-version = "0.1.0"
-description = "Python SDK for the antd daemon (Autonomi network)"
+version = "0.1.0"  # tracks the daemon-client API, independent of the antd daemon and the ant-sdk FFI package
+description = "Python client for the antd daemon: store and fetch data on the Autonomi network over REST or gRPC (not the Ant Design UI library)"
+readme = "README.md"
 requires-python = ">=3.10"
+license = "MIT OR Apache-2.0"
+license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
+authors = [{ name = "Autonomi" }]
+keywords = ["autonomi", "antd", "decentralized", "storage", "network", "sdk", "client"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: System :: Distributed Computing",
+  "Topic :: System :: Filesystems",
+]
 dependencies = []
 
 [project.optional-dependencies]
@@ -11,9 +37,18 @@ grpc = ["grpcio>=1.60", "protobuf>=4.25"]
 all = ["antd[rest,grpc]"]
 dev = ["antd[all]", "grpcio-tools>=1.60"]
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+[project.urls]
+Homepage = "https://autonomi.com"
+Repository = "https://github.com/WithAutonomi/ant-sdk"
+Documentation = "https://github.com/WithAutonomi/ant-sdk/tree/main/antd-py#readme"
+Issues = "https://github.com/WithAutonomi/ant-sdk/issues"
+Changelog = "https://github.com/WithAutonomi/ant-sdk/releases"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/antd"]
+exclude = ["**/__pycache__"]
+
+[tool.hatch.build.targets.sdist]
+# Ship what a build needs and what PyPI renders; the dev tree stays in git.
+include = ["src/antd", "README.md", "LICENSE-MIT", "LICENSE-APACHE", "pyproject.toml"]
+exclude = ["**/__pycache__"]
