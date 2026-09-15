@@ -12,7 +12,9 @@ name: Publish antd-js (@withautonomi/antd)
 #
 # ── One-time setup required before the first trusted publish ──
 #   1. The package must already exist on npm (npm has no "pending publisher"
-#      like PyPI). The first version was pushed by hand with a granular token.
+#      like PyPI). The first version is published by this workflow using the
+#      `npm` environment's NPM_TOKEN secret (see the Publish step); after that
+#      the token lines are removed and only Trusted Publishing remains.
 #   2. On npmjs.com: package @withautonomi/antd > Settings > Trusted Publisher
 #      > GitHub Actions:  owner WithAutonomi   repo ant-sdk
 #      workflow publish-antd-js.yml   environment npm
@@ -118,5 +120,16 @@ jobs:
       - name: Build
         run: npm run build
 
+      # FIRST RELEASE ONLY: npm can't attach a Trusted Publisher to a package
+      # that doesn't exist yet, so the initial publish authenticates with the
+      # `npm` environment's NPM_TOKEN (granular, scoped to @withautonomi,
+      # short-lived). Once @withautonomi/antd exists and its trusted publisher
+      # is configured (see setup step 2 above), delete these two env lines and
+      # the secret — `id-token: write` already covers the OIDC path.
       - name: Publish
-        run: npm publish
+        run: |
+          npm config set provenance true
+          npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
