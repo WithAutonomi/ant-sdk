@@ -225,7 +225,7 @@ class Program
                     $"total_amount={chunkPrep.TotalAmount}");
 
                 var chunkTxHashes = await ExternalSignerPayAsync(new PrepareUploadResult(
-                    chunkPrep.UploadId, chunkPrep.Payments, chunkPrep.TotalAmount,
+                    chunkPrep.UploadId, chunkPrep.Payments ?? [], chunkPrep.TotalAmount,
                     chunkPrep.PaymentVaultAddress, chunkPrep.PaymentTokenAddress,
                     chunkPrep.RpcUrl, chunkPrep.PaymentType));
                 var addr = await client.FinalizeChunkUploadAsync(chunkPrep.UploadId, chunkTxHashes);
