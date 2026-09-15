@@ -7,7 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsTestProject>true</IsTestProject>
-    <!-- Program.cs is the hand-written CLI runner (dotnet run -- --transport ...);
+    <!-- Program.cs is the hand-written CLI runner (dotnet run, with a transport flag);
          stop Microsoft.NET.Test.Sdk from generating a second entry point (CS7022). -->
     <GenerateProgramFile>false</GenerateProgramFile>
   </PropertyGroup>
