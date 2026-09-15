@@ -1,0 +1,143 @@
+name: Publish antd-rust (antd-client on crates.io)
+
+# Publishes the `antd-client` crate (antd-rust/) to crates.io.
+#
+# Real publishing happens ONLY on a `rust-v<version>` tag push, and only after
+# the tag is verified to match antd-rust/Cargo.toml. A manual run
+# (workflow_dispatch) never publishes: it is the same verify pass — fmt, clippy,
+# tests (including the proto-drift test that guards the committed gRPC code),
+# `cargo publish --dry-run` — for checking a branch before tagging.
+#
+# ── Auth ──
+#   Steady state: crates.io Trusted Publishing (OIDC) via
+#   rust-lang/crates-io-auth-action, configured on crates.io under the crate's
+#   Settings > Trusted Publishing (owner WithAutonomi, repo ant-sdk, workflow
+#   publish-rust.yml, environment crates-io). crates.io can only attach a
+#   trusted publisher to a crate that already exists, so the FIRST release
+#   authenticates with the `crates-io` environment's CARGO_REGISTRY_TOKEN
+#   secret (a scoped publish-new token with a short expiry). The auth step is
+#   allowed to fail and the publish step falls back to the secret; once the
+#   trusted publisher exists, delete the secret and the fallback is dead.
+#
+# ── One-time setup ──
+#   1. GitHub environment `crates-io`: required reviewers + tag rule `rust-v*`.
+#   2. First release only: environment secret CARGO_REGISTRY_TOKEN.
+#   3. After the first release: configure the trusted publisher on crates.io,
+#      then delete the secret and revoke the token.
+#
+# ── How to run ──
+#   • Push a tag `rust-v<version>` (e.g. rust-v0.1.0) -> verify, then publish
+#     (pauses for environment approval). Tag must match Cargo.toml or it fails.
+#   • Or run manually (Actions > Run workflow) -> verify only.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "rust-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify:
+    name: Verify (fmt, clippy, tests, dry-run)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: antd-rust
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: antd-rust
+
+      # Only the proto-drift test needs protoc (it regenerates from
+      # ../antd/proto and diffs); the crate itself ships generated code.
+      - uses: arduino/setup-protoc@v3
+        with:
+          version: "25.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify tag matches Cargo.toml version
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/rust-v')
+        run: |
+          expected="${GITHUB_REF#refs/tags/rust-v}"
+          actual="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="antd-client") | .version')"
+          if [ "$expected" != "$actual" ]; then
+            echo "tag version '$expected' != Cargo.toml version '$actual'" >&2
+            exit 1
+          fi
+          echo "version $actual matches tag"
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features --locked -- -D warnings
+
+      - name: Tests (includes proto-drift guard)
+        run: cargo test --locked
+
+      - name: Package contents
+        run: |
+          cargo package --list --locked | tee /tmp/pkg.txt
+          for f in src/generated/antd.v1.rs README.md LICENSE-MIT LICENSE-APACHE; do
+            grep -qx "$f" /tmp/pkg.txt || { echo "missing from package: $f" >&2; exit 1; }
+          done
+          if grep -qE '^(build\.rs|target|target-dev)' /tmp/pkg.txt; then
+            echo "unexpected file in package" >&2; exit 1
+          fi
+
+      # Builds the packaged crate in isolation — proves it compiles without
+      # the monorepo (no ../antd/proto, no protoc).
+      - name: cargo publish --dry-run
+        run: cargo publish --dry-run --locked
+
+  publish:
+    name: Publish to crates.io
+    needs: verify
+    # Tag PUSH only — a workflow_dispatch whose selected ref happens to be a
+    # rust-v* tag must not publish.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/rust-v')
+    runs-on: ubuntu-latest
+    environment: crates-io
+    permissions:
+      id-token: write   # OIDC token for crates.io Trusted Publishing
+      contents: read
+    defaults:
+      run:
+        working-directory: antd-rust
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Fails (harmlessly) until the trusted publisher exists on crates.io;
+      # the publish step then uses the bootstrap secret instead.
+      - name: crates.io trusted-publishing token
+        id: auth
+        uses: rust-lang/crates-io-auth-action@v1.0.5
+        continue-on-error: true
+
+      - name: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token || secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "no crates.io credential: trusted publishing failed and CARGO_REGISTRY_TOKEN is unset" >&2
+            exit 1
+          fi
+          cargo publish --locked

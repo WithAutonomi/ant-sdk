@@ -5,10 +5,25 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that e
 ## Installation
 
 ```bash
-pip install -e antd-mcp/
+# Run without installing (recommended for MCP client configs)
+uvx antd-mcp
+
+# Or install as a tool
+pipx install antd-mcp
+
+# Or into an environment
+pip install antd-mcp
 ```
 
-Requires the `antd` Python SDK (`pip install antd[rest]`).
+Python 3.10+. Pulls in the [`antd`](https://pypi.org/project/antd/) Python SDK (REST transport) automatically. Needs a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon (tested against antd 0.12.x).
+
+From a source checkout: `pip install -e antd-mcp/`.
+
+Add it to Claude Code in one line:
+
+```bash
+claude mcp add antd-autonomi -- uvx antd-mcp
+```
 
 ## Running
 
@@ -39,7 +54,8 @@ Add to your Claude Desktop config (`claude_desktop_config.json`):
 {
   "mcpServers": {
     "antd-autonomi": {
-      "command": "antd-mcp"
+      "command": "uvx",
+      "args": ["antd-mcp"]
     }
   }
 }

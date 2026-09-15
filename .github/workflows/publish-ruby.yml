@@ -1,0 +1,133 @@
+name: Publish antd-ruby (antd on RubyGems)
+
+# Builds the `antd` gem (antd-ruby/) and publishes it to rubygems.org via
+# RubyGems Trusted Publishing (OIDC) — no long-lived API key anywhere.
+#
+# Real publishing happens ONLY on a `ruby-v<version>` tag push, and only after
+# the tag is verified to match Antd::VERSION. A manual run (workflow_dispatch)
+# never publishes: it is the same verify + build + smoke pass.
+#
+# ── One-time setup ──
+#   1. rubygems.org: register a PENDING trusted publisher for gem `antd`
+#      (works before the gem exists): owner WithAutonomi, repo ant-sdk,
+#      workflow publish-ruby.yml, environment rubygems. The owning account
+#      needs MFA enabled (the gemspec also sets rubygems_mfa_required).
+#   2. GitHub environment `rubygems`: required reviewers + tag rule `ruby-v*`.
+#
+# ── How to run ──
+#   • Push a tag `ruby-v<version>` (e.g. ruby-v0.1.0) -> verify, build, smoke,
+#     then publish (pauses for environment approval).
+#   • Or run manually (Actions > Run workflow) -> verify + build + smoke only.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "ruby-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Verify, build, smoke
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: antd-ruby
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+          working-directory: antd-ruby
+
+      - name: Verify tag matches Antd::VERSION
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/ruby-v')
+        run: |
+          expected="${GITHUB_REF#refs/tags/ruby-v}"
+          actual="$(ruby -Ilib -e 'require "antd/version"; puts Antd::VERSION')"
+          if [ "$expected" != "$actual" ]; then
+            echo "tag version '$expected' != Antd::VERSION '$actual'" >&2
+            exit 1
+          fi
+          echo "EXPECTED_VERSION=$expected" >> "$GITHUB_ENV"
+          echo "version $actual matches tag"
+
+      - name: Tests
+        run: bundle exec ruby -Ilib -Itest -e 'Dir["test/test_*.rb"].sort.each { |f| require File.expand_path(f) }'
+
+      - name: Build gem
+        run: |
+          gem build antd.gemspec
+          ls -la ./*.gem
+
+      # The gem must carry lib/ (incl. the generated gRPC stubs), README and
+      # both licence texts, and nothing from the dev tree.
+      - name: Inspect gem contents
+        run: |
+          gem spec ./*.gem files | tee /tmp/files.txt
+          for f in lib/antd.rb lib/antd/version.rb lib/antd/v1/data_services_pb.rb README.md LICENSE-MIT LICENSE-APACHE; do
+            grep -q -- "- $f" /tmp/files.txt || { echo "missing from gem: $f" >&2; exit 1; }
+          done
+          if grep -qE -- '- (test|examples)/' /tmp/files.txt; then
+            echo "dev files leaked into the gem" >&2; exit 1
+          fi
+          gem spec ./*.gem licenses
+          gem spec ./*.gem metadata
+
+      # Install the built gem into an empty GEM_HOME and load it from there.
+      - name: Smoke-install the gem
+        run: |
+          export GEM_HOME=/tmp/smoke-gems
+          gem install --local --no-document ./*.gem
+          cd /tmp
+          ruby -e '
+            require "antd"
+            expected = ENV["EXPECTED_VERSION"]
+            abort "loaded #{Antd::VERSION}, expected #{expected}" if expected && Antd::VERSION != expected
+            client = Antd::Client.new
+            puts "antd #{Antd::VERSION}: #{client.class} loads OK"
+          '
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: antd-gem
+          path: antd-ruby/*.gem
+          if-no-files-found: error
+
+  publish:
+    name: Publish to RubyGems
+    needs: build
+    # Tag PUSH only.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/ruby-v')
+    runs-on: ubuntu-latest
+    environment: rubygems
+    permissions:
+      id-token: write   # OIDC token for RubyGems Trusted Publishing
+      contents: read
+    steps:
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: antd-gem
+          path: dist
+
+      - name: List gems to publish
+        run: ls -la dist
+
+      # Exchanges the GitHub OIDC token for a short-lived rubygems.org
+      # credential and writes it where `gem push` looks.
+      - uses: rubygems/configure-rubygems-credentials@v2.1.0
+
+      - name: gem push
+        run: gem push dist/*.gem

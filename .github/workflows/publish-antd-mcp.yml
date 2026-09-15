@@ -1,0 +1,153 @@
+name: Publish antd-mcp (antd-mcp on PyPI)
+
+# Builds the antd-mcp package (published on PyPI as `antd-mcp`, an MCP server)
+# and publishes it via PyPI Trusted Publishing (OIDC) — no API token anywhere.
+# The package is pure Python: one sdist + one py3-none-any wheel, no build
+# matrix, so this is the simplified sibling of publish-python.yml (the ant-sdk
+# FFI wheels). PyPI attaches provenance attestations on the trusted path.
+#
+# Real publishing happens ONLY on an `mcp-v<version>` tag push, and only
+# after the tag is verified to match antd-mcp/pyproject.toml. A manual run
+# (workflow_dispatch) never publishes: it is the same verify + build + smoke
+# pass, for checking a branch before tagging. There is no TestPyPI lane —
+# for a pure-Python wheel the failure surface is metadata and packaging, and
+# `twine check` plus a clean-venv install of the built wheel cover that.
+#
+# ── One-time setup (env rules done 2026-09-15; pending publisher to register) ──
+#   1. PyPI pending publisher for project `antd-mcp`: owner WithAutonomi,
+#      repo ant-sdk, workflow publish-antd-mcp.yml, environment pypi.
+#   2. GitHub environment `pypi`: required reviewers + tag rule `mcp-v*`
+#      (shared with publish-python.yml and publish-antd-py.yml). Only the `publish`
+#      job references the environment, so build-only runs never prompt.
+#
+# ── How to run ──
+#   • Push a tag `mcp-v<version>` (e.g. mcp-v0.1.0) -> verify, build,
+#     smoke, then publish (pauses for environment approval).
+#     The tag version must match antd-mcp/pyproject.toml or the run fails.
+#   • Or run manually (Actions > Run workflow) -> verify + build + smoke only.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "mcp-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Verify, build, smoke
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: antd-mcp
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # On a tag push the pyproject version must equal the tag suffix. Exported
+      # as EXPECTED_VERSION so the smoke step can also check the installed
+      # distribution reports it.
+      - name: Verify tag matches pyproject version
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/mcp-v')
+        run: |
+          expected="${GITHUB_REF#refs/tags/mcp-v}"
+          actual="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          if [ "$expected" != "$actual" ]; then
+            echo "tag version '$expected' != pyproject.toml version '$actual'" >&2
+            exit 1
+          fi
+          echo "EXPECTED_VERSION=$expected" >> "$GITHUB_ENV"
+          echo "version $actual matches tag"
+
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+          ls -la dist
+
+      - name: Check metadata renders on PyPI
+        run: python -m twine check --strict dist/*
+
+      # The wheel must carry the package and its generated gRPC stubs, and
+      # nothing from the dev tree (tests, examples, scripts, bytecode caches).
+      - name: Inspect artifact contents
+        run: |
+          echo "== wheel =="; python -m zipfile -l dist/*.whl
+          echo "== sdist =="; tar tzf dist/*.tar.gz
+          python - <<'PY'
+          import glob, tarfile, zipfile
+          whl = glob.glob("dist/*.whl")[0]; sdist = glob.glob("dist/*.tar.gz")[0]
+          wheel_files = zipfile.ZipFile(whl).namelist()
+          sdist_files = tarfile.open(sdist).getnames()
+          assert any(n.endswith("antd_mcp/server.py") for n in wheel_files), "server module missing from wheel"
+          assert any("entry_points.txt" in n for n in wheel_files), "console-script entry point missing from wheel"
+          for bad in ("__pycache__", "/tests/", "/examples/", "/scripts/", "simple-test"):
+              hits = [n for n in wheel_files + sdist_files if bad in n]
+              assert not hits, f"{bad!r} leaked into the artifacts: {hits[:3]}"
+          assert sum(n.endswith("LICENSE-MIT") for n in wheel_files) == 1, "LICENSE-MIT missing from wheel"
+          assert sum(n.endswith("LICENSE-APACHE") for n in wheel_files) == 1, "LICENSE-APACHE missing from wheel"
+          print(f"wheel: {len(wheel_files)} files, sdist: {len(sdist_files)} files — contents OK")
+          PY
+
+      # Install the built wheel (not the source tree) into a clean venv with
+      # both transports and exercise the public import surface.
+      - name: Smoke-install the wheel
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/python -m pip install --upgrade pip
+          whl=(dist/*.whl)
+          /tmp/smoke/bin/python -m pip install "${whl[0]}"
+          cd /tmp
+          test -x /tmp/smoke/bin/antd-mcp || { echo "console script antd-mcp not installed" >&2; exit 1; }
+          /tmp/smoke/bin/python - <<'PY'
+          import asyncio, importlib.metadata as md, os
+          import antd  # runtime dep pulled in via the [rest] extra
+          import httpx  # noqa: F401  (proves the extra was honoured)
+          import antd_mcp.server as server
+          v = md.version("antd-mcp")
+          expected = os.environ.get("EXPECTED_VERSION")
+          if expected:
+              assert v == expected, f"installed {v!r} != tag {expected!r}"
+          tools = asyncio.run(server.mcp.list_tools())
+          assert tools, "server registered no tools"
+          print(f"antd-mcp {v} on antd {antd.__version__}: {len(tools)} tools registered OK")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: antd-mcp-dist
+          path: antd-mcp/dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    # Tag PUSH only — a workflow_dispatch whose selected ref happens to be an
+    # mcp-v* tag must not publish.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/mcp-v')
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write   # OIDC token for PyPI Trusted Publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: antd-mcp-dist
+          path: dist
+
+      - name: List artifacts to publish
+        run: ls -la dist
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist

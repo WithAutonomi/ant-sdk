@@ -2,9 +2,15 @@
 name = "antd-client"
 version = "0.1.0"
 edition = "2021"
-description = "Rust REST client SDK for the antd daemon — the gateway to the Autonomi decentralized network"
+rust-version = "1.82"
+description = "Rust client for the antd daemon: store and fetch data on the Autonomi decentralized network over REST or gRPC"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/WithAutonomi/ant-sdk"
+homepage = "https://autonomi.com"
+documentation = "https://docs.rs/antd-client"
+readme = "README.md"
+keywords = ["autonomi", "antd", "decentralized", "storage", "client"]
+categories = ["api-bindings", "network-programming", "filesystem"]
 
 [dependencies]
 reqwest = { version = "0.12", features = ["json", "stream"] }
@@ -21,10 +27,10 @@ tokio-stream = "0.1"
 tonic = "0.12"
 prost = "0.13"
 
-[build-dependencies]
-tonic-build = "0.12"
-
 [dev-dependencies]
+# Only the proto-drift test regenerates code; the crate itself ships the
+# generated source in src/generated/, so consumers never need protoc.
+tonic-build = "0.12"
 mockito = "1"
 alloy = { version = "1", features = ["full"] }
 hex = "0.4"

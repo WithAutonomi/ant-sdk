@@ -1,25 +1,59 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]  # 1.27+: PEP 639 `license` expression + `license-files`
 build-backend = "hatchling.build"
 
 [project]
 name = "antd-mcp"
 version = "0.1.0"
-description = "MCP server exposing Autonomi network operations as tools for AI agents"
+description = "MCP server that lets AI agents store and fetch data on the Autonomi network through the antd daemon"
+readme = "README.md"
 requires-python = ">=3.10"
+license = "MIT OR Apache-2.0"
+license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
+authors = [{ name = "Autonomi" }]
+keywords = ["mcp", "model-context-protocol", "autonomi", "antd", "decentralized", "storage", "ai-agents"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: System :: Distributed Computing",
+]
 dependencies = [
-    "mcp>=2,<3",
-    "antd>=0.1.0",
+  "mcp>=2,<3",
+  # The server uses the REST transport, so the `rest` extra (httpx) is required.
+  "antd[rest]>=0.1.0,<0.2",
 ]
 
 [project.optional-dependencies]
 test = [
-    "pytest>=7.0",
-    "pytest-asyncio>=0.23",
+  "pytest>=7.0",
+  "pytest-asyncio>=0.23",
 ]
 
 [project.scripts]
 antd-mcp = "antd_mcp.server:main"
+
+[project.urls]
+Homepage = "https://autonomi.com"
+Repository = "https://github.com/WithAutonomi/ant-sdk"
+Documentation = "https://github.com/WithAutonomi/ant-sdk/tree/main/antd-mcp#readme"
+Issues = "https://github.com/WithAutonomi/ant-sdk/issues"
+Changelog = "https://github.com/WithAutonomi/ant-sdk/releases"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/antd_mcp"]
+exclude = ["**/__pycache__"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/antd_mcp", "README.md", "LICENSE-MIT", "LICENSE-APACHE", "pyproject.toml"]
+exclude = ["**/__pycache__"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
