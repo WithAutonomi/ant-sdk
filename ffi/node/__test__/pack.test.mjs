@@ -20,7 +20,12 @@ test('root tarball ships index.js + index.d.ts and no .node binary', () => {
     shell: process.platform === 'win32',
     stdio: ['ignore', 'pipe', 'ignore'],
   })
-  const [pkg] = JSON.parse(out)
+  // npm 11 prints an array of one entry; npm 12 prints an object keyed by
+  // package name. Accept both so a runner's npm major can't break the release
+  // gate (it did, on the first ant-sdk-js-v0.0.9 attempt).
+  const parsed = JSON.parse(out)
+  const pkg = Array.isArray(parsed) ? parsed[0] : Object.values(parsed)[0]
+  assert.ok(pkg && Array.isArray(pkg.files), `unexpected npm pack --json shape: ${out.slice(0, 200)}`)
   const files = pkg.files.map((f) => f.path).sort()
   for (const required of ['README.md', 'index.d.ts', 'index.js', 'package.json']) {
     assert.ok(files.includes(required), `tarball is missing ${required}; got ${files.join(', ')}`)

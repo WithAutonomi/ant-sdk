@@ -162,8 +162,11 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+      # Pinned to the 11.x line (not @latest): npm 12 landed mid-release on
+      # 2026-09-15 and changed `npm pack --json`; a major bump should be a
+      # deliberate PR.
       - name: Update npm (>= 11.5.1 for trusted publishing)
-        run: npm install -g npm@latest && npm --version
+        run: npm install -g npm@11 && npm --version
       - run: npm install
       - name: Download all prebuilt binaries
         uses: actions/download-artifact@v4
