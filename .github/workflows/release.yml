@@ -99,7 +99,8 @@ jobs:
       - name: Build .deb and .rpm
         run: |
           chmod +x bin/antd-linux-amd64
-          export PATH="$(go env GOPATH)/bin:$PATH"
+          GOPATH_BIN="$(go env GOPATH)/bin"
+          export PATH="$GOPATH_BIN:$PATH"
           ./installers/linux/build-deb-rpm.sh \
             --bin "$PWD/bin/antd-linux-amd64" \
             --version "${GITHUB_REF_NAME#v}" \
@@ -277,7 +278,7 @@ jobs:
       - name: Generate checksums
         run: |
           cd artifacts
-          sha256sum * > SHA256SUMS
+          sha256sum -- * > SHA256SUMS
 
       - uses: softprops/action-gh-release@v2
         with:

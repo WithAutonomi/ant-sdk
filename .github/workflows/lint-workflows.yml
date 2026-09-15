@@ -1,0 +1,40 @@
+name: Lint workflows
+
+# Static checks for everything under .github/workflows/. The publish-*.yml and
+# release.yml files are in no CI path filter, so before this job a broken edit
+# to one of them was first discovered on the next release tag — with a reviewer
+# already waiting on the environment approval. actionlint catches YAML and
+# ${{ }} expression errors, unknown action inputs, invalid runner labels and
+# job/needs graphs, and runs shellcheck over every `run:` block.
+#
+# Runs only when a workflow file changes; ~10 s.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Official installer script from the actionlint repo, pinned to a
+      # release. shellcheck is preinstalled on ubuntu-latest and picked up
+      # automatically.
+      - name: Install actionlint
+        run: |
+          bash <(curl -sSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12
+          ./actionlint -version
+
+      - name: Lint
+        run: ./actionlint -color
