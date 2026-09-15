@@ -125,7 +125,7 @@ All data and file upload operations accept an optional `payment_mode` parameter 
 |----------|---------|---------|
 | Go | 1.21+ | `go get github.com/WithAutonomi/ant-sdk/antd-go` |
 | Node.js / TypeScript | 18+ | `npm install @withautonomi/antd` |
-| C# / .NET | 8+ | `dotnet add package Antd.Sdk` |
+| C# / .NET | 8+ | `dotnet add package Autonomi.Antd` |
 | Kotlin | JDK 17+ | Gradle dependency |
 | Swift | 5.9+ / Xcode 15+ | Swift Package Manager (macOS only) |
 | Ruby | 3.0+ | `gem install antd` |

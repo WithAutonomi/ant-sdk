@@ -4,7 +4,7 @@ UniFFI-based foreign function interface bindings for the Autonomi network. Wraps
 
 ## Supported Languages
 
-- **C#** - Generated via [`uniffi-bindgen-cs`](https://github.com/NordSecurity/uniffi-bindgen-cs) (v0.10.0+v0.29.4); published on NuGet as [`Antd.Ffi`](https://www.nuget.org/packages/Antd.Ffi) with natives for six RIDs (see [`csharp/`](csharp/README.md))
+- **C#** - Generated via [`uniffi-bindgen-cs`](https://github.com/NordSecurity/uniffi-bindgen-cs) (v0.10.0+v0.29.4); published on NuGet as [`Autonomi.Ffi`](https://www.nuget.org/packages/Autonomi.Ffi) with natives for six RIDs (see [`csharp/`](csharp/README.md))
 - **Kotlin** - Generated via `uniffi-bindgen` (v0.29.4) with JNA
 - **Swift** - Generated via `uniffi-bindgen` (v0.29.4)
 - **Python** - Generated via UniFFI's first-party Python backend (see [`python/`](python/README.md))

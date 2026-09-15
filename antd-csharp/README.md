@@ -5,12 +5,12 @@ C# SDK for the antd daemon. Provides an async client with both REST and gRPC tra
 ## Installation
 
 ```bash
-dotnet add package Antd.Sdk
+dotnet add package Autonomi.Antd
 ```
 
 ## Compatibility
 
-This package talks to a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon; it does not join the network itself. Targets .NET 8. Tested against antd 0.12.x. The gRPC transport uses `Grpc.Net.Client`, which is a package dependency, so both transports work out of the box. For a daemon-less client see the `AntFfi` bindings in the same repository.
+This package talks to a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon; it does not join the network itself. Targets .NET 8. Tested against antd 0.12.x. The gRPC transport uses `Grpc.Net.Client`, which is a package dependency, so both transports work out of the box. For a daemon-less client see [`Autonomi.Ffi`](https://www.nuget.org/packages/Autonomi.Ffi).
 
 ## Prerequisites
 

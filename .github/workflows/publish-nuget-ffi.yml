@@ -1,6 +1,6 @@
-name: Publish ant-ffi C# (Antd.Ffi on NuGet)
+name: Publish ant-ffi C# (Autonomi.Ffi on NuGet)
 
-# Builds the Antd.Ffi package — uniffi-bindgen-cs bindings over ffi/rust/ant-ffi
+# Builds the Autonomi.Ffi package — uniffi-bindgen-cs bindings over ffi/rust/ant-ffi
 # with the native library for six RIDs bundled under runtimes/<rid>/native — and
 # publishes it to nuget.org via NuGet Trusted Publishing (OIDC).
 #
@@ -15,8 +15,8 @@ name: Publish ant-ffi C# (Antd.Ffi on NuGet)
 #
 # ── One-time setup ──
 #   nuget.org: Trusted Publishing policy owned by the WithAutonomi org for
-#   workflow publish-nuget-ffi.yml, environment nuget, scope Antd.* (a policy is
-#   per workflow file, so the Antd.Sdk policy does not cover this one).
+#   workflow publish-nuget-ffi.yml, environment nuget, scope Autonomi.* (a policy is
+#   per workflow file, so the Autonomi.Antd policy does not cover this one).
 #   GitHub environment `nuget`: tag rule `nuget-ffi-v*` + variable NUGET_USER.
 #
 # ── How to run ──
@@ -204,7 +204,7 @@ jobs:
                    runtimes/win-x64/native/ant_ffi.dll runtimes/win-arm64/native/ant_ffi.dll; do
             unzip -l "$nupkg" | grep -q " $f\$" || { echo "missing from package: $f" >&2; exit 1; }
           done
-          unzip -p "$nupkg" Antd.Ffi.nuspec | grep -q '<license type="expression">MIT OR Apache-2.0</license>' || { echo "licence expression missing" >&2; exit 1; }
+          unzip -p "$nupkg" Autonomi.Ffi.nuspec | grep -q '<license type="expression">MIT OR Apache-2.0</license>' || { echo "licence expression missing" >&2; exit 1; }
           ls dist/*.snupkg >/dev/null || { echo "symbol package missing" >&2; exit 1; }
 
       - uses: actions/upload-artifact@v4
@@ -233,8 +233,8 @@ jobs:
           name: antd-ffi-nupkg
           path: dist
 
-      # A fresh console app resolving Antd.Ffi from a local feed — exactly what
-      # `dotnet add package Antd.Ffi` does for users — then calling into the
+      # A fresh console app resolving Autonomi.Ffi from a local feed — exactly what
+      # `dotnet add package Autonomi.Ffi` does for users — then calling into the
       # native library on this OS/arch.
       - name: Consume the package
         shell: bash
@@ -244,7 +244,7 @@ jobs:
           mkdir -p smoke && cd smoke
           dotnet new console -n Smoke --framework net8.0 -o . --force >/dev/null
           cp "$GITHUB_WORKSPACE/ffi/csharp/scripts/smoke/Program.cs" Program.cs
-          dotnet add package Antd.Ffi --version "$version" --source "$feed"
+          dotnet add package Autonomi.Ffi --version "$version" --source "$feed"
           EXPECTED_VERSION="$version" dotnet run -c Release
 
   publish:

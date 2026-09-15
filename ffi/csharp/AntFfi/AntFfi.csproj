@@ -9,16 +9,16 @@
     <AssemblyName>AntFfi</AssemblyName>
   </PropertyGroup>
 
-  <!-- NuGet package metadata. Published as Antd.Ffi by publish-nuget-ffi.yml on
+  <!-- NuGet package metadata. Published as Autonomi.Ffi by publish-nuget-ffi.yml on
        nuget-ffi-v* tags. <Version> MUST equal the ant-ffi crate version
        (ffi/rust/ant-ffi/Cargo.toml): the workflow asserts tag == Version ==
        crate version == AntFfiVersion() at runtime. -->
   <PropertyGroup>
-    <PackageId>Antd.Ffi</PackageId>
+    <PackageId>Autonomi.Ffi</PackageId>
     <Version>0.0.9</Version>
     <Authors>Autonomi</Authors>
     <Company>Autonomi</Company>
-    <Description>Direct-network .NET client for the Autonomi decentralized network: UniFFI bindings over the ant-ffi Rust crate, with the native library bundled for win-x64, win-arm64, linux-x64, linux-arm64, osx-x64 and osx-arm64. No daemon required; for the daemon-backed client see Antd.Sdk.</Description>
+    <Description>Direct-network .NET client for the Autonomi decentralized network: UniFFI bindings over the ant-ffi Rust crate, with the native library bundled for win-x64, win-arm64, linux-x64, linux-arm64, osx-x64 and osx-arm64. No daemon required; for the daemon-backed client see Autonomi.Antd.</Description>
     <PackageLicenseExpression>MIT OR Apache-2.0</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageProjectUrl>https://github.com/WithAutonomi/ant-sdk/tree/main/ffi/csharp</PackageProjectUrl>
