@@ -7,6 +7,40 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!-- NuGet package metadata (published as Antd.Sdk by publish-nuget.yml on
+       nuget-v* tags; the Version below must equal the tag suffix). -->
+  <PropertyGroup>
+    <PackageId>Antd.Sdk</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Autonomi</Authors>
+    <Company>Autonomi</Company>
+    <Description>.NET client for the antd daemon: store and fetch data on the Autonomi decentralized network over REST or gRPC. Requires a running antd daemon.</Description>
+    <PackageLicenseExpression>MIT OR Apache-2.0</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/WithAutonomi/ant-sdk/tree/main/antd-csharp</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/WithAutonomi/ant-sdk</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>autonomi;antd;decentralized;storage;client;grpc</PackageTags>
+    <PackageReleaseNotes>https://github.com/WithAutonomi/ant-sdk/releases</PackageReleaseNotes>
+    <!-- Reproducible, debuggable package: SourceLink (bundled with the .NET 8
+         SDK), embedded untracked sources, portable symbols in a .snupkg. -->
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <Deterministic>true</Deterministic>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- CS1591: missing XML doc comments — public surface is documented in
+         README/llms.txt; don't fail or spam the build over undocumented members. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\LICENSE-MIT" Pack="true" PackagePath="\" />
+    <None Include="..\LICENSE-APACHE" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Google.Protobuf" Version="3.34.0" />
     <PackageReference Include="Grpc.Net.Client" Version="2.76.0" />

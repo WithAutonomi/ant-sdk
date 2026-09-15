@@ -1,0 +1,60 @@
+name: C# CI
+
+# antd-csharp (Antd.Sdk) had no CI before 2026-09-15: nothing built or tested
+# the daemon client on push. This mirrors the other per-language CI workflows.
+# The proto files are compiled into the assembly by Grpc.Tools, so a daemon
+# proto change must also build here.
+
+on:
+  push:
+    branches: [main]
+    # The `!**/*.md` negation skips CI when the only thing changed is a
+    # .md file anywhere in the repo. GitHub Actions only allows EITHER
+    # `paths` OR `paths-ignore`, not both, so the negation lives inside
+    # `paths`.
+    paths:
+      - "antd-csharp/**"
+      - "antd/proto/**"
+      - ".github/workflows/csharp-ci.yml"
+      - "!**/*.md"
+  pull_request:
+    paths:
+      - "antd-csharp/**"
+      - "antd/proto/**"
+      - ".github/workflows/csharp-ci.yml"
+      - "!**/*.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test-antd-csharp:
+    name: Build + test (antd-csharp)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: antd-csharp
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore Antd.sln
+
+      - name: Build (Release, warnings as errors)
+        run: dotnet build Antd.sln -c Release --no-restore -warnaserror
+
+      - name: Test
+        run: dotnet test Antd.Sdk.Tests -c Release --no-build
+
+      # Proves the package still packs on every change, so a broken csproj
+      # metadata edit is caught here rather than on the release tag.
+      - name: Pack (dry)
+        run: dotnet pack Antd.Sdk/Antd.Sdk.csproj -c Release --no-build -o /tmp/nupkg && ls -la /tmp/nupkg

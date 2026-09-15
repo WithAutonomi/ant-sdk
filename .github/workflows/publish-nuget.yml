@@ -1,0 +1,154 @@
+name: Publish antd-csharp (Antd.Sdk on NuGet)
+
+# Builds the Antd.Sdk package (antd-csharp/) and publishes it to nuget.org via
+# NuGet Trusted Publishing (OIDC) — no long-lived API key anywhere.
+#
+# Real publishing happens ONLY on a `nuget-v<version>` tag push, and only after
+# the tag is verified to match <Version> in Antd.Sdk.csproj. A manual run
+# (workflow_dispatch) never publishes: it is the same verify + build + test +
+# pack + smoke pass, for checking a branch before tagging.
+#
+# ── One-time setup (nuget.org, done 2026-09-15) ──
+#   1. Organisation `WithAutonomi` owns the packages (admins: individual
+#      maintainer profiles + a break-glass profile on the team mailbox).
+#   2. Trusted Publishing policy owned by the org: repository owner
+#      WithAutonomi, repository ant-sdk, workflow publish-nuget.yml,
+#      environment nuget, scope Antd.* (new packages + new versions).
+#      The policy is provisional for 7 days until a first publish supplies
+#      GitHub's repo/owner IDs; re-arm it on the Trusted Publishing page if
+#      the first tag slips past that window.
+#   3. GitHub environment `nuget`: required reviewers + tag rule `nuget-v*`,
+#      and the variable NUGET_USER = the nuget.org username of the profile
+#      that created the policy (the login step exchanges the OIDC token for a
+#      1-hour API key on behalf of that user).
+#   4. ID prefix reservation for `Antd.` (email to account@nuget.org) — not a
+#      gate for publishing, only for the "verified" badge and squat protection.
+#
+# ── How to run ──
+#   • Push a tag `nuget-v<version>` (e.g. nuget-v0.1.0) -> verify, build,
+#     test, pack, smoke, then publish (pauses for environment approval).
+#   • Or run manually (Actions > Run workflow) -> everything except publish.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "nuget-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Verify, build, test, pack, smoke
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: antd-csharp
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Verify tag matches csproj Version
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/nuget-v')
+        run: |
+          expected="${GITHUB_REF#refs/tags/nuget-v}"
+          actual="$(dotnet msbuild Antd.Sdk/Antd.Sdk.csproj -getProperty:Version -nologo)"
+          if [ "$expected" != "$actual" ]; then
+            echo "tag version '$expected' != csproj Version '$actual'" >&2
+            exit 1
+          fi
+          echo "version $actual matches tag"
+
+      - name: Restore
+        run: dotnet restore Antd.sln
+
+      - name: Build (Release, warnings as errors)
+        run: dotnet build Antd.sln -c Release --no-restore -warnaserror -p:ContinuousIntegrationBuild=true
+
+      - name: Test
+        run: dotnet test Antd.Sdk.Tests -c Release --no-build
+
+      - name: Pack
+        run: |
+          dotnet pack Antd.Sdk/Antd.Sdk.csproj -c Release --no-build -p:ContinuousIntegrationBuild=true -o dist
+          ls -la dist
+
+      # The .nupkg must carry the assembly, XML docs, README and both licence
+      # texts; the nuspec must declare the licence expression and repository.
+      - name: Inspect package contents
+        run: |
+          nupkg="$(find dist -name '*.nupkg' ! -name '*.symbols.nupkg' | head -n1)"
+          unzip -l "$nupkg"
+          for f in lib/net8.0/Antd.Sdk.dll lib/net8.0/Antd.Sdk.xml README.md LICENSE-MIT LICENSE-APACHE; do
+            unzip -l "$nupkg" | grep -q " $f\$" || { echo "missing from package: $f" >&2; exit 1; }
+          done
+          unzip -p "$nupkg" Antd.Sdk.nuspec | tee /tmp/nuspec.xml
+          grep -q '<license type="expression">MIT OR Apache-2.0</license>' /tmp/nuspec.xml || { echo "licence expression missing" >&2; exit 1; }
+          grep -q 'url="https://github.com/WithAutonomi/ant-sdk"' /tmp/nuspec.xml || { echo "repository metadata missing" >&2; exit 1; }
+          ls dist/*.snupkg >/dev/null || { echo "symbol package missing" >&2; exit 1; }
+
+      # Consume the packed .nupkg from a local feed in a fresh console app —
+      # what `dotnet add package Antd.Sdk` will do for users. Program.cs is
+      # kept in the repo (antd-csharp/scripts/smoke/Program.cs) so this step
+      # needs no inline source.
+      - name: Smoke-consume the package
+        run: |
+          version="$(dotnet msbuild Antd.Sdk/Antd.Sdk.csproj -getProperty:Version -nologo)"
+          feed="$PWD/dist"
+          mkdir -p /tmp/smoke && cd /tmp/smoke
+          dotnet new console -n Smoke --framework net8.0 -o . --force >/dev/null
+          cp "$GITHUB_WORKSPACE/antd-csharp/scripts/smoke/Program.cs" Program.cs
+          dotnet add package Antd.Sdk --version "$version" --source "$feed"
+          dotnet run -c Release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: antd-sdk-nupkg
+          path: antd-csharp/dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish to NuGet
+    needs: build
+    # Tag PUSH only — a workflow_dispatch whose selected ref happens to be a
+    # nuget-v* tag must not publish.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/nuget-v')
+    runs-on: ubuntu-latest
+    environment: nuget
+    permissions:
+      id-token: write   # OIDC token for NuGet Trusted Publishing
+      contents: read
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: antd-sdk-nupkg
+          path: dist
+
+      - name: List packages to publish
+        run: ls -la dist
+
+      # Exchanges the GitHub OIDC token for a 1-hour nuget.org API key against
+      # the trusted-publishing policy. Request it right before the push.
+      - name: NuGet login (OIDC -> temporary API key)
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+
+      # Pushing the .nupkg also pushes the matching .snupkg from the same dir.
+      - name: dotnet nuget push
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: dotnet nuget push "dist/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
