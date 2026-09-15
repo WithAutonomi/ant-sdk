@@ -15,6 +15,10 @@ Or add to your `Cargo.toml`:
 antd-client = "0.1"
 ```
 
+## Compatibility
+
+This crate talks to a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon; it does not join the network itself. Rust 1.82+. Tested against antd 0.12.x. The gRPC client code is pre-generated and committed, so consumers need neither `protoc` nor the daemon's `.proto` files. For a daemon-less client see the `ant-ffi` crate in this repository.
+
 ## Quick Start
 
 ```rust

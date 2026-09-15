@@ -15,7 +15,9 @@ use crate::models::*;
 pub mod proto {
     pub mod antd {
         pub mod v1 {
-            tonic::include_proto!("antd.v1");
+            // Committed output of tonic-build over ../antd/proto (see
+            // tests/proto_drift.rs); consumers need neither the protos nor protoc.
+            include!("generated/antd.v1.rs");
         }
     }
 }
