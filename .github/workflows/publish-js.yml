@@ -1,0 +1,122 @@
+name: Publish JS (@withautonomi/antd)
+
+# Builds the antd-js package (published as `@withautonomi/antd`) and publishes
+# it to npm via Trusted Publishing (OIDC) — no long-lived npm token in secrets.
+# Provenance attestations are attached automatically on that path.
+#
+# Real publishing happens ONLY on a `js-v<version>` tag push, and only after the
+# tag is verified to match antd-js/package.json. A manual run (workflow_dispatch)
+# never publishes: it is the same verify + `npm publish --dry-run` pass, for
+# checking a branch before tagging. This keeps the publish path bound to a
+# reviewed release ref rather than whatever branch a dispatch happens to select.
+#
+# ── One-time setup required before the first trusted publish ──
+#   1. The package must already exist on npm (npm has no "pending publisher"
+#      like PyPI). The first version was pushed by hand with a granular token.
+#   2. On npmjs.com: package @withautonomi/antd > Settings > Trusted Publisher
+#      > GitHub Actions:  owner WithAutonomi   repo ant-sdk
+#      workflow publish-js.yml   environment npm
+#   3. Create the GitHub environment `npm` (Settings > Environments) BEFORE the
+#      first tag: add required reviewers, and under "Deployment branches and
+#      tags" allow only the tag pattern `js-v*`. Only the `publish` job below
+#      references the environment, so verify-only runs never touch it.
+#   4. Optionally flip the package's publishing access to "Require two-factor
+#      authentication or trusted publisher" so a leaked token cannot publish.
+#
+# ── How to run ──
+#   • Push a tag `js-v<version>` (e.g. js-v0.1.0) -> verify, then publish.
+#     The tag version must match antd-js/package.json or the run fails.
+#   • Or run manually (Actions > Run workflow) -> verify + dry-run only.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "js-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify (typecheck, build, test, dry-run)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: antd-js
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+          cache-dependency-path: antd-js/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Check tag matches package version
+        if: github.event_name == 'push'
+        run: |
+          pkg="$(node -p 'require("./package.json").version')"
+          tag="${GITHUB_REF_NAME#js-v}"
+          if [ "$pkg" != "$tag" ]; then
+            echo "package.json version ($pkg) does not match tag ($tag)" >&2
+            exit 1
+          fi
+
+      - name: Publish (dry run)
+        run: npm publish --dry-run
+
+  publish:
+    name: Publish to npm
+    needs: verify
+    # Tag push only. The event check is explicit (not just the ref prefix) so a
+    # workflow_dispatch whose selected ref happens to be a js-v* tag still
+    # cannot reach this job.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/js-v')
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write   # OIDC token for npm Trusted Publishing
+    defaults:
+      run:
+        working-directory: antd-js
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+          cache-dependency-path: antd-js/package-lock.json
+
+      # Trusted Publishing needs npm >= 11.5.1; Node 22 ships older.
+      - name: Update npm
+        run: npm install -g npm@latest && npm --version
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish
+        run: npm publish

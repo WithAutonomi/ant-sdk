@@ -51,7 +51,7 @@ result = client.data_put_public(large_data, payment_mode="merkle")
 ```
 
 ```typescript
-import { createClient } from "antd";
+import { createClient } from "@withautonomi/antd";
 
 const client = createClient();                             // REST, localhost:8082
 const client = createClient({ baseUrl: "http://remote:8082" });
@@ -524,7 +524,7 @@ const result = await client.dataPutPublic(data, { paymentMode: "merkle" });
 ## JS/TS SDK Method Signatures
 
 ```typescript
-import { createClient } from "antd";
+import { createClient } from "@withautonomi/antd";
 
 const client = createClient();                                  // REST, localhost:8082
 const client = createClient({ baseUrl: "http://remote:8082" }); // custom URL
