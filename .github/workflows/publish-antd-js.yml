@@ -110,9 +110,11 @@ jobs:
           cache: npm
           cache-dependency-path: antd-js/package-lock.json
 
-      # Trusted Publishing needs npm >= 11.5.1; Node 22 ships older.
+      # Trusted Publishing needs npm >= 11.5.1; Node 22 ships older. Pinned to the
+      # 11.x line (not @latest): npm 12 landed mid-release on 2026-09-15 and
+      # changed `npm pack --json`; a major bump should be a deliberate PR.
       - name: Update npm
-        run: npm install -g npm@latest && npm --version
+        run: npm install -g npm@11 && npm --version
 
       - name: Install
         run: npm ci
