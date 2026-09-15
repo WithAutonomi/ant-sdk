@@ -11,6 +11,13 @@ Usage:
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version as _dist_version
+
+try:
+    __version__ = _dist_version("antd")
+except PackageNotFoundError:  # running from a source checkout that is not installed
+    __version__ = "0.0.0"
+
 from .models import (
     CandidateNodeEntry,
     DataPutPublicResult,
@@ -45,6 +52,7 @@ from .exceptions import (
 )
 
 __all__ = [
+    "__version__",
     # Discovery
     "discover_daemon_url",
     "discover_grpc_target",

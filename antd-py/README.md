@@ -18,6 +18,10 @@ pip install antd[all]
 pip install -e ".[all]"
 ```
 
+## Compatibility
+
+This package talks to a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon; it does not join the network itself. Python 3.10+. Tested against antd 0.12.x; `health()` fields such as `version`/`evm_network` need antd 0.4.0 or newer. For a daemon-less client see the `ant-sdk` package (import `ant_ffi`). Not related to the Ant Design UI library.
+
 ## Quick Start
 
 ```python
