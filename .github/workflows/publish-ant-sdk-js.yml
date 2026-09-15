@@ -1,8 +1,8 @@
-# Build the ffi/node addon across the platform matrix and publish
+# Build the ffi/node addon (the JS FFI bindings, "ant-sdk-js") across the platform matrix and publish
 # @withautonomi/ant-sdk (+ its per-platform packages) to npm, in lockstep.
 #
-# Mirrors publish-js.yml / publish-python.yml: real publishing happens ONLY on
-# a `node-v<version>` tag push, after the tag is verified to match both
+# Mirrors publish-antd-js.yml / publish-python.yml: real publishing happens ONLY on
+# an `ant-sdk-js-v<version>` tag push, after the tag is verified to match both
 # ffi/node/package.json and ffi/node/Cargo.toml. A manual run
 # (workflow_dispatch) never publishes — it is the full 8-target build matrix as
 # a smoke test. Only the `publish` job references the `npm` environment, so a
@@ -23,29 +23,29 @@
 #      client is the separate `@withautonomi/antd`.
 #   2. Create the GitHub environment `npm` BEFORE the first tag (Settings >
 #      Environments): add required reviewers, and under "Deployment branches
-#      and tags" allow only the tag pattern `node-v*`.
+#      and tags" allow only the tag pattern `ant-sdk-js-v*`.
 #   3. npm auth for the FIRST release: a granular token (scoped to the
 #      @withautonomi org, write on packages, short expiry) as the environment
 #      secret `NPM_TOKEN`. npm Trusted Publishing can only be configured on
 #      packages that already exist, and this release creates nine of them.
 #      After it, configure a trusted publisher (WithAutonomi / ant-sdk /
-#      publish-node.yml / environment npm) on each of the nine, delete the
+#      publish-ant-sdk-js.yml / environment npm) on each of the nine, delete the
 #      secret, and drop the NODE_AUTH_TOKEN/NPM_TOKEN lines below — the
 #      `id-token: write` permission already covers the OIDC path.
 #
 # ── How to run ──
-#   • Push a tag `node-v<version>` (e.g. node-v0.0.9) -> verify, build, publish.
+#   • Push a tag `ant-sdk-js-v<version>` (e.g. ant-sdk-js-v0.0.9) -> verify, build, publish.
 #     The tag version must match ffi/node/package.json + Cargo.toml or the run
 #     fails before any build starts.
 #   • Or run manually (Actions > Run workflow) -> build matrix only, no publish.
 
-name: Publish Node (@withautonomi/ant-sdk)
+name: Publish ant-sdk-js (@withautonomi/ant-sdk)
 
 on:
   workflow_dispatch:
   push:
     tags:
-      - "node-v*"
+      - "ant-sdk-js-v*"
 
 permissions:
   contents: read
@@ -72,7 +72,7 @@ jobs:
         run: |
           pkg="$(node -p 'require("./package.json").version')"
           crate="$(grep -m1 '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')"
-          tag="${GITHUB_REF_NAME#node-v}"
+          tag="${GITHUB_REF_NAME#ant-sdk-js-v}"
           echo "tag=$tag package.json=$pkg Cargo.toml=$crate"
           if [ "$pkg" != "$tag" ] || [ "$crate" != "$tag" ]; then
             echo "release tag ($tag) must match package.json ($pkg) and Cargo.toml ($crate)" >&2
@@ -148,9 +148,9 @@ jobs:
     name: publish to npm
     needs: [verify, build]
     # Tag push only. The event check is explicit (not just the ref prefix) so a
-    # workflow_dispatch whose selected ref happens to be a node-v* tag still
+    # workflow_dispatch whose selected ref happens to be a ant-sdk-js-v* tag still
     # cannot reach this job.
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/node-v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/ant-sdk-js-v')
     runs-on: ubuntu-latest
     environment: npm
     permissions:
