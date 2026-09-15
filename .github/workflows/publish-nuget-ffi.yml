@@ -1,0 +1,281 @@
+name: Publish ant-ffi C# (Antd.Ffi on NuGet)
+
+# Builds the Antd.Ffi package — uniffi-bindgen-cs bindings over ffi/rust/ant-ffi
+# with the native library for six RIDs bundled under runtimes/<rid>/native — and
+# publishes it to nuget.org via NuGet Trusted Publishing (OIDC).
+#
+# Real publishing happens ONLY on a `nuget-ffi-v<version>` tag push, and only
+# after the tag is verified to equal <Version> in AntFfi.csproj AND the ant-ffi
+# crate version. A manual run (workflow_dispatch) never publishes: it runs the
+# full native matrix + pack + three-OS smoke, for checking a branch first.
+#
+# Jobs:
+#   native (6x) -> pack (generate C#, verify, build, test, pack) -> smoke (3 OSes,
+#   consume the .nupkg from a local feed, load the native lib) -> publish.
+#
+# ── One-time setup ──
+#   nuget.org: Trusted Publishing policy owned by the WithAutonomi org for
+#   workflow publish-nuget-ffi.yml, environment nuget, scope Antd.* (a policy is
+#   per workflow file, so the Antd.Sdk policy does not cover this one).
+#   GitHub environment `nuget`: tag rule `nuget-ffi-v*` + variable NUGET_USER.
+#
+# ── How to run ──
+#   • Push a tag `nuget-ffi-v<version>` (e.g. nuget-ffi-v0.0.9) -> everything,
+#     then publish (pauses for environment approval).
+#   • Or run manually (Actions > Run workflow) -> everything except publish.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "nuget-ffi-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  BINDGEN_CS_VERSION: "0.10.0+v0.29.4"
+
+jobs:
+  native:
+    name: Native (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux: built INSIDE manylinux_2_28 containers (glibc 2.28 floor),
+          # same recipe as the Python wheels, never against the runner glibc.
+          - rid: linux-x64
+            os: ubuntu-latest
+            kind: manylinux
+            arch: x86_64
+          - rid: linux-arm64
+            os: ubuntu-24.04-arm
+            kind: manylinux
+            arch: aarch64
+          - rid: osx-arm64
+            os: macos-latest
+            kind: cargo
+            target: aarch64-apple-darwin
+            lib: libant_ffi.dylib
+          - rid: osx-x64
+            os: macos-latest
+            kind: cargo
+            target: x86_64-apple-darwin
+            lib: libant_ffi.dylib
+          - rid: win-x64
+            os: windows-latest
+            kind: cargo
+            target: x86_64-pc-windows-msvc
+            lib: ant_ffi.dll
+          - rid: win-arm64
+            os: windows-latest
+            kind: cargo
+            target: aarch64-pc-windows-msvc
+            lib: ant_ffi.dll
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build in manylinux container
+        if: matrix.kind == 'manylinux'
+        run: bash ffi/scripts/build-native-manylinux.sh "${{ matrix.arch }}" "$PWD/native-out"
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.kind == 'cargo'
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: arduino/setup-protoc@v3
+        if: matrix.kind == 'cargo'
+        with:
+          version: "25.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: cargo build (${{ matrix.target }})
+        if: matrix.kind == 'cargo'
+        shell: bash
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        run: |
+          cd ffi/rust
+          cargo build --locked --release -p ant-ffi --target "${{ matrix.target }}"
+          mkdir -p "$GITHUB_WORKSPACE/native-out"
+          cp "target/${{ matrix.target }}/release/${{ matrix.lib }}" "$GITHUB_WORKSPACE/native-out/"
+          ls -la "$GITHUB_WORKSPACE/native-out"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.rid }}
+          path: native-out/*
+          if-no-files-found: error
+
+  pack:
+    name: Generate, verify, test, pack
+    needs: native
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ffi/csharp
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Collect native libraries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: ffi/csharp/native-artifacts
+
+      - name: Lay out runtimes/<rid>/native
+        run: |
+          for d in native-artifacts/native-*; do
+            rid="${d#native-artifacts/native-}"
+            mkdir -p "AntFfi/runtimes/$rid/native"
+            cp "$d"/* "AntFfi/runtimes/$rid/native/"
+          done
+          find AntFfi/runtimes -type f -exec ls -la {} +
+          for rid in linux-x64 linux-arm64 osx-arm64 osx-x64 win-x64 win-arm64; do
+            test -n "$(ls AntFfi/runtimes/$rid/native/ 2>/dev/null)" || { echo "missing native for $rid" >&2; exit 1; }
+          done
+
+      - name: Cache uniffi-bindgen-cs
+        id: bindgen-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/uniffi-bindgen-cs
+          key: uniffi-bindgen-cs-${{ env.BINDGEN_CS_VERSION }}-${{ runner.os }}
+
+      - name: Install uniffi-bindgen-cs
+        if: steps.bindgen-cache.outputs.cache-hit != 'true'
+        # Not on crates.io: install from the NordSecurity repo at the matching tag.
+        run: cargo install --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag "v$BINDGEN_CS_VERSION" uniffi-bindgen-cs
+
+      # Bindings are platform-independent; generate from the linux-x64 library.
+      - name: Generate C# bindings
+        run: |
+          rm -rf AntFfi/Generated && mkdir -p AntFfi/Generated
+          # uniffi-bindgen-cs reads `cargo metadata` from the cwd (uniffi.toml
+          # lookup), so it must run inside the Rust workspace.
+          (cd ../rust && uniffi-bindgen-cs --library "$GITHUB_WORKSPACE/ffi/csharp/AntFfi/runtimes/linux-x64/native/libant_ffi.so" --out-dir "$GITHUB_WORKSPACE/ffi/csharp/AntFfi/Generated")
+          ls -la AntFfi/Generated
+          test -n "$(ls AntFfi/Generated/*.cs)"
+
+      - name: Verify versions agree (csproj == crate [== tag])
+        run: |
+          csproj="$(dotnet msbuild AntFfi/AntFfi.csproj -getProperty:Version -nologo)"
+          crate="$(cargo metadata --manifest-path ../rust/Cargo.toml --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="ant-ffi") | .version')"
+          echo "csproj=$csproj crate=$crate"
+          [ "$csproj" = "$crate" ] || { echo "AntFfi.csproj Version $csproj != ant-ffi crate version $crate" >&2; exit 1; }
+          if [[ "$GITHUB_REF" == refs/tags/nuget-ffi-v* ]]; then
+            tag="${GITHUB_REF#refs/tags/nuget-ffi-v}"
+            [ "$tag" = "$csproj" ] || { echo "tag $tag != Version $csproj" >&2; exit 1; }
+          fi
+          echo "EXPECTED_VERSION=$csproj" >> "$GITHUB_ENV"
+
+      - name: Build + test (loads the linux-x64 native)
+        run: |
+          dotnet restore AntFfi.sln
+          dotnet build AntFfi.sln -c Release --no-restore -p:ContinuousIntegrationBuild=true
+          dotnet test AntFfi.Tests -c Release --no-build
+
+      - name: Pack
+        run: |
+          dotnet pack AntFfi/AntFfi.csproj -c Release --no-build -p:ContinuousIntegrationBuild=true -o dist
+          ls -la dist
+
+      - name: Inspect package contents
+        run: |
+          nupkg="$(find dist -name '*.nupkg' ! -name '*.symbols.nupkg' | head -n1)"
+          unzip -l "$nupkg"
+          for f in lib/net8.0/AntFfi.dll README.md LICENSE-MIT LICENSE-APACHE \
+                   runtimes/linux-x64/native/libant_ffi.so runtimes/linux-arm64/native/libant_ffi.so \
+                   runtimes/osx-arm64/native/libant_ffi.dylib runtimes/osx-x64/native/libant_ffi.dylib \
+                   runtimes/win-x64/native/ant_ffi.dll runtimes/win-arm64/native/ant_ffi.dll; do
+            unzip -l "$nupkg" | grep -q " $f\$" || { echo "missing from package: $f" >&2; exit 1; }
+          done
+          unzip -p "$nupkg" Antd.Ffi.nuspec | grep -q '<license type="expression">MIT OR Apache-2.0</license>' || { echo "licence expression missing" >&2; exit 1; }
+          ls dist/*.snupkg >/dev/null || { echo "symbol package missing" >&2; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: antd-ffi-nupkg
+          path: ffi/csharp/dist/*
+          if-no-files-found: error
+
+  smoke:
+    name: Smoke-consume (${{ matrix.os }})
+    needs: pack
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: antd-ffi-nupkg
+          path: dist
+
+      # A fresh console app resolving Antd.Ffi from a local feed — exactly what
+      # `dotnet add package Antd.Ffi` does for users — then calling into the
+      # native library on this OS/arch.
+      - name: Consume the package
+        shell: bash
+        run: |
+          version="$(dotnet msbuild ffi/csharp/AntFfi/AntFfi.csproj -getProperty:Version -nologo)"
+          feed="$PWD/dist"
+          mkdir -p smoke && cd smoke
+          dotnet new console -n Smoke --framework net8.0 -o . --force >/dev/null
+          cp "$GITHUB_WORKSPACE/ffi/csharp/scripts/smoke/Program.cs" Program.cs
+          dotnet add package Antd.Ffi --version "$version" --source "$feed"
+          EXPECTED_VERSION="$version" dotnet run -c Release
+
+  publish:
+    name: Publish to NuGet
+    needs: [pack, smoke]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/nuget-ffi-v')
+    runs-on: ubuntu-latest
+    environment: nuget
+    permissions:
+      id-token: write   # OIDC token for NuGet Trusted Publishing
+      contents: read
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: antd-ffi-nupkg
+          path: dist
+
+      - name: List packages to publish
+        run: ls -la dist
+
+      - name: NuGet login (OIDC -> temporary API key)
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+
+      - name: dotnet nuget push
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: dotnet nuget push "dist/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate

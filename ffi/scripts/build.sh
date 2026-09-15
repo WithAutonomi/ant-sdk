@@ -32,10 +32,11 @@ echo "=== Step 2: Generate C# bindings ==="
 GENERATED_DIR="$CSHARP_DIR/AntFfi/Generated"
 mkdir -p "$GENERATED_DIR"
 
-# uniffi-bindgen-cs must be installed: cargo install uniffi-bindgen-cs --version 0.10.0+v0.29.4
+# uniffi-bindgen-cs must be installed (from git; it is not on crates.io)
 if ! command -v uniffi-bindgen-cs &> /dev/null; then
     echo "uniffi-bindgen-cs not found. Installing..."
-    cargo install uniffi-bindgen-cs --version "0.10.0+v0.29.4"
+    # Not on crates.io — install from the NordSecurity repo at the matching tag.
+    cargo install --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag "v0.10.0+v0.29.4" uniffi-bindgen-cs
 fi
 
 uniffi-bindgen-cs --library "$LIB_PATH" --out-dir "$GENERATED_DIR"

@@ -95,6 +95,62 @@ jobs:
           test -n "$(find "$out" -name '*.kt')"    || { echo "no Kotlin bindings generated"; exit 1; }
           echo "Generated Swift + Kotlin bindings OK"
 
+  # C# bindings: generate with uniffi-bindgen-cs, build, and run the offline
+  # smoke tests (version + wallet derivation) against the freshly built Linux
+  # library. Before 2026-09-15 nothing built the C# surface in CI, so drift in
+  # the async/enum surface was invisible until someone ran build.sh by hand.
+  csharp-bindings:
+    name: C# bindings (generate + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ffi/rust
+
+      - uses: arduino/setup-protoc@v3
+        with:
+          version: "25.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build ant-ffi
+        working-directory: ffi/rust
+        run: cargo build --release --locked -p ant-ffi
+
+      - name: Cache uniffi-bindgen-cs
+        id: bindgen-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/uniffi-bindgen-cs
+          key: uniffi-bindgen-cs-0.10.0+v0.29.4-${{ runner.os }}
+
+      - name: Install uniffi-bindgen-cs
+        if: steps.bindgen-cache.outputs.cache-hit != 'true'
+        # Not on crates.io: install from the NordSecurity repo at the matching tag.
+        run: cargo install --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag "v0.10.0+v0.29.4" uniffi-bindgen-cs
+
+      - name: Generate C# bindings + stage the native library
+        working-directory: ffi/csharp
+        run: |
+          rm -rf AntFfi/Generated && mkdir -p AntFfi/Generated AntFfi/runtimes/linux-x64/native
+          # uniffi-bindgen-cs reads `cargo metadata` from the cwd, so run it inside the Rust workspace.
+          (cd ../rust && uniffi-bindgen-cs --library target/release/libant_ffi.so --out-dir ../csharp/AntFfi/Generated)
+          cp ../rust/target/release/libant_ffi.so AntFfi/runtimes/linux-x64/native/
+          test -n "$(ls AntFfi/Generated/*.cs)"
+
+      - name: Build + test
+        working-directory: ffi/csharp
+        run: |
+          dotnet build AntFfi.sln -c Release
+          dotnet test AntFfi.Tests -c Release --no-build
+
   # RUSTSEC audit of the ffi dependency tree. Mirrors the `audit` job in ci.yml
   # (which only covered antd / antd-rust) — the ffi subtree previously had no
   # audit, so AntFfi releases could ship transitively-vulnerable crates (e.g.

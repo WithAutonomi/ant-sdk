@@ -4,7 +4,7 @@ UniFFI-based foreign function interface bindings for the Autonomi network. Wraps
 
 ## Supported Languages
 
-- **C#** - Generated via [`uniffi-bindgen-cs`](https://github.com/NordSecurity/uniffi-bindgen-cs) (v0.10.0+v0.29.4)
+- **C#** - Generated via [`uniffi-bindgen-cs`](https://github.com/NordSecurity/uniffi-bindgen-cs) (v0.10.0+v0.29.4); published on NuGet as [`Antd.Ffi`](https://www.nuget.org/packages/Antd.Ffi) with natives for six RIDs (see [`csharp/`](csharp/README.md))
 - **Kotlin** - Generated via `uniffi-bindgen` (v0.29.4) with JNA
 - **Swift** - Generated via `uniffi-bindgen` (v0.29.4)
 - **Python** - Generated via UniFFI's first-party Python backend (see [`python/`](python/README.md))
@@ -70,7 +70,7 @@ No UDL files needed — everything is driven by Rust proc macros in **library mo
 - .NET 8.0 SDK (for C# bindings)
 - JDK 17+ and Gradle (for Kotlin bindings)
 - Swift 5.9+ / Xcode 15+ (for Swift bindings, macOS/Linux only)
-- `uniffi-bindgen-cs`: `cargo install uniffi-bindgen-cs --version "0.10.0+v0.29.4"`
+- `uniffi-bindgen-cs` (not on crates.io): `cargo install --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.10.0+v0.29.4 uniffi-bindgen-cs`
 - `uniffi-bindgen`: `cargo install uniffi-bindgen-cli --version "0.29.4"`
 
 ### Quick Build

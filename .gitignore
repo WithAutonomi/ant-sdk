@@ -86,3 +86,6 @@ out/
 
 # built gems (publish-ruby.yml builds them in CI)
 *.gem
+
+# ffi/scripts/build-native-manylinux.sh output (per-arch libant_ffi.so for packaging)
+ffi/rust/native-out/
