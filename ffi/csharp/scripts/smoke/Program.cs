@@ -1,4 +1,4 @@
-// Smoke consumer for the packed Antd.Ffi .nupkg (run by publish-nuget-ffi.yml
+// Smoke consumer for the packed Autonomi.Ffi .nupkg (run by publish-nuget-ffi.yml
 // on Linux, Windows and macOS). Proves the package resolves, the RID-specific
 // native library loads, and an offline crypto call round-trips through the FFI.
 using AntFfi;
@@ -23,5 +23,5 @@ if (!string.Equals(address, "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", String
     return 1;
 }
 
-Console.WriteLine($"Antd.Ffi {version} on {System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier}: native loaded, wallet {address} OK");
+Console.WriteLine($"Autonomi.Ffi {version} on {System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier}: native loaded, wallet {address} OK");
 return 0;

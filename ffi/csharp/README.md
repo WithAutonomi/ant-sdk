@@ -1,13 +1,13 @@
-# Antd.Ffi — direct-network .NET client for Autonomi
+# Autonomi.Ffi — direct-network .NET client for Autonomi
 
 .NET 8 bindings over the [`ant-ffi`](https://github.com/WithAutonomi/ant-sdk/tree/main/ffi/rust/ant-ffi) Rust crate, generated with [uniffi-bindgen-cs](https://github.com/NordSecurity/uniffi-bindgen-cs). The client joins the Autonomi network directly: no daemon, no HTTP hop. The native library is bundled in the package for win-x64, win-arm64, linux-x64, linux-arm64, osx-x64 and osx-arm64 and selected automatically at restore time.
 
-For the daemon-backed client (the recommended path for most apps: the daemon holds the wallet and does the networking) see [`Antd.Sdk`](https://www.nuget.org/packages/Antd.Sdk).
+For the daemon-backed client (the recommended path for most apps: the daemon holds the wallet and does the networking) see [`Autonomi.Antd`](https://www.nuget.org/packages/Autonomi.Antd).
 
 ## Installation
 
 ```bash
-dotnet add package Antd.Ffi
+dotnet add package Autonomi.Ffi
 ```
 
 ## Quick start

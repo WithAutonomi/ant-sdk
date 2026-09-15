@@ -7,10 +7,10 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
-  <!-- NuGet package metadata (published as Antd.Sdk by publish-nuget.yml on
+  <!-- NuGet package metadata (published as Autonomi.Antd by publish-nuget.yml on
        nuget-v* tags; the Version below must equal the tag suffix). -->
   <PropertyGroup>
-    <PackageId>Antd.Sdk</PackageId>
+    <PackageId>Autonomi.Antd</PackageId>
     <Version>0.1.0</Version>
     <Authors>Autonomi</Authors>
     <Company>Autonomi</Company>

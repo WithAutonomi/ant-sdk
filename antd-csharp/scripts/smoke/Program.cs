@@ -1,4 +1,4 @@
-// Smoke consumer for the packed Antd.Sdk .nupkg (run by publish-nuget.yml).
+// Smoke consumer for the packed Autonomi.Antd .nupkg (run by publish-nuget.yml).
 // Constructs both transports against a dead endpoint — no daemon needed —
 // to prove the package resolves, loads, and exposes the public factory.
 using Antd.Sdk;

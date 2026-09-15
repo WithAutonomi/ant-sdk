@@ -25,7 +25,7 @@ For detailed API signatures and endpoint documentation, see:
 | Go | `antd-go` | `context.Context` | REST + gRPC | `go get github.com/WithAutonomi/ant-sdk/antd-go` |
 | Python | `antd-py` | sync + async | REST + gRPC | `pip install antd` |
 | TypeScript | `antd-js` | Promises | REST | `npm install antd` |
-| C# | `antd-csharp` | `Task<T>` / async-await | REST + gRPC | `dotnet add package Antd.Sdk` |
+| C# | `antd-csharp` | `Task<T>` / async-await | REST + gRPC | `dotnet add package Autonomi.Antd` |
 | Kotlin | `antd-kotlin` | `suspend` / coroutines | REST + gRPC | Gradle dependency |
 | Swift | `antd-swift` | `async throws` | REST + gRPC | Swift Package Manager |
 | Ruby | `antd-ruby` | sync | REST + gRPC | `gem install antd` |

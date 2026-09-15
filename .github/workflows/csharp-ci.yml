@@ -1,6 +1,6 @@
 name: C# CI
 
-# antd-csharp (Antd.Sdk) had no CI before 2026-09-15: nothing built or tested
+# antd-csharp (Autonomi.Antd) had no CI before 2026-09-15: nothing built or tested
 # the daemon client on push. This mirrors the other per-language CI workflows.
 # The proto files are compiled into the assembly by Grpc.Tools, so a daemon
 # proto change must also build here.
