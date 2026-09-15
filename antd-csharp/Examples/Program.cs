@@ -221,7 +221,7 @@ class Program
             {
                 Console.WriteLine(
                     $"Chunk prepare: upload_id={chunkPrep.UploadId[..16]}..., " +
-                    $"address={chunkPrep.Address}, payments={chunkPrep.Payments.Count}, " +
+                    $"address={chunkPrep.Address}, payments={chunkPrep.Payments?.Count ?? 0}, " +
                     $"total_amount={chunkPrep.TotalAmount}");
 
                 var chunkTxHashes = await ExternalSignerPayAsync(new PrepareUploadResult(
