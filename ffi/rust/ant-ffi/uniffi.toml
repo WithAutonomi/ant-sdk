@@ -1,0 +1,6 @@
+# C# (uniffi-bindgen-cs). Defaults would emit `internal` members under
+# `uniffi.ant_ffi`, unusable from a NuGet package; publish a public `AntFfi` surface.
+[bindings.csharp]
+namespace = "AntFfi"
+access_modifier = "public"
+cdylib_name = "ant_ffi"

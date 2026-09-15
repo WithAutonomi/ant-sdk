@@ -41,7 +41,8 @@ New-Item -ItemType Directory -Path $GeneratedDir -Force | Out-Null
 $bindgenCs = Get-Command uniffi-bindgen-cs -ErrorAction SilentlyContinue
 if (-not $bindgenCs) {
     Write-Host "uniffi-bindgen-cs not found. Installing..."
-    cargo install uniffi-bindgen-cs --version "0.10.0+v0.29.4"
+    # Not on crates.io: install from the NordSecurity repo at the matching tag.
+    cargo install --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag "v0.10.0+v0.29.4" uniffi-bindgen-cs
     if ($LASTEXITCODE -ne 0) { throw "Failed to install uniffi-bindgen-cs" }
 }
 
