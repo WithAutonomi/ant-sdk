@@ -2,14 +2,41 @@
     "name": "autonomi/antd",
     "description": "PHP SDK for the antd daemon — the gateway to the Autonomi decentralized network.",
     "type": "library",
-    "license": "MIT",
+    "keywords": [
+        "autonomi",
+        "antd",
+        "decentralized",
+        "storage",
+        "sdk",
+        "client"
+    ],
+    "homepage": "https://github.com/WithAutonomi/ant-sdk/tree/main/antd-php",
+    "license": [
+        "MIT",
+        "Apache-2.0"
+    ],
+    "authors": [
+        {
+            "name": "Autonomi",
+            "homepage": "https://autonomi.com"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/WithAutonomi/ant-sdk/issues",
+        "source": "https://github.com/WithAutonomi/antd-php",
+        "docs": "https://github.com/WithAutonomi/ant-sdk/blob/main/docs/quickstart-php.md"
+    },
     "require": {
         "php": ">=8.1",
+        "ext-json": "*",
         "guzzlehttp/guzzle": "^7.0"
     },
     "require-dev": {
         "phpunit/phpunit": "^10.0",
         "web3p/ethereum-tx": "^0.4"
+    },
+    "suggest": {
+        "ext-gmp": "Needed by web3p/ethereum-tx for the external-signer example (examples/07-external-signer.php)"
     },
     "autoload": {
         "psr-4": {
@@ -20,5 +47,11 @@
         "psr-4": {
             "Autonomi\\Antd\\Tests\\": "tests/"
         }
+    },
+    "scripts": {
+        "test": "phpunit tests/"
+    },
+    "config": {
+        "sort-packages": true
     }
 }
