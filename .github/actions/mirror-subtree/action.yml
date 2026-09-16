@@ -1,0 +1,147 @@
+name: Mirror a monorepo subdirectory
+description: >-
+  Splits one subdirectory of this repository into a standalone commit chain
+  (scripts/subtree-split.sh) and pushes it to a read-only mirror repository as
+  a branch and/or a tag. Used for registries that index a git repository and
+  need the package manifest at its root (Packagist, SwiftPM). With dry-run set
+  it only splits and reports.
+
+inputs:
+  prefix:
+    description: Subdirectory to mirror, e.g. antd-php
+    required: true
+  mirror-repo:
+    description: Target repository, owner/name, e.g. WithAutonomi/antd-php
+    required: true
+  ref:
+    description: Commit to split at
+    required: false
+    default: ${{ github.sha }}
+  branch:
+    description: >-
+      Mirror branch to update with the split (force-pushed when `force-branch`
+      is true, otherwise fast-forward only and a non-fast-forward is not an
+      error). Empty = do not touch any branch.
+    required: false
+    default: ""
+  force-branch:
+    description: Force-push the branch (use for the main-branch sync only)
+    required: false
+    default: "false"
+  tag:
+    description: Mirror tag to create at the split commit, e.g. v0.1.0. Empty = no tag.
+    required: false
+    default: ""
+  ssh-key:
+    description: Private deploy key with write access to the mirror (not needed for a dry run)
+    required: false
+    default: ""
+  dry-run:
+    description: Split and report only; push nothing
+    required: false
+    default: "false"
+
+outputs:
+  sha:
+    description: The split commit SHA
+    value: ${{ steps.split.outputs.sha }}
+
+runs:
+  using: composite
+  steps:
+    - name: Split ${{ inputs.prefix }}
+      id: split
+      shell: bash
+      env:
+        PREFIX: ${{ inputs.prefix }}
+        REF: ${{ inputs.ref }}
+      run: |
+        sha="$(bash scripts/subtree-split.sh "$PREFIX" "$REF")"
+        echo "sha=$sha" >> "$GITHUB_OUTPUT"
+        {
+          echo "### Split \`$PREFIX\` @ \`${REF:0:12}\` → \`${sha:0:12}\`"
+          echo
+          echo '```'
+          git log --oneline -5 "$sha"
+          echo '...'
+          echo "$(git rev-list --count "$sha") commits; root tree:"
+          git ls-tree --name-only "$sha"
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    # The mirror repository must contain the manifest at its root, otherwise
+    # the split is useless to the registry that will index it.
+    - name: Check the split root
+      shell: bash
+      env:
+        SHA: ${{ steps.split.outputs.sha }}
+        PREFIX: ${{ inputs.prefix }}
+      run: |
+        root="$(git ls-tree --name-only "$SHA")"
+        case "$PREFIX" in
+          *php*)   need=composer.json ;;
+          *swift*) need=Package.swift ;;
+          *)       need="" ;;
+        esac
+        if [ -n "$need" ] && ! grep -qx "$need" <<<"$root"; then
+          echo "split root has no $need:" >&2; echo "$root" >&2; exit 1
+        fi
+        for f in README.md LICENSE-MIT LICENSE-APACHE; do
+          grep -qx "$f" <<<"$root" || { echo "split root is missing $f" >&2; exit 1; }
+        done
+        echo "split root OK"
+
+    - name: Push to ${{ inputs.mirror-repo }}
+      if: inputs.dry-run != 'true'
+      shell: bash
+      env:
+        SHA: ${{ steps.split.outputs.sha }}
+        MIRROR: ${{ inputs.mirror-repo }}
+        BRANCH: ${{ inputs.branch }}
+        FORCE_BRANCH: ${{ inputs.force-branch }}
+        TAG: ${{ inputs.tag }}
+        SSH_KEY: ${{ inputs.ssh-key }}
+      run: |
+        set -euo pipefail
+        if [ -z "$SSH_KEY" ]; then
+          echo "ssh-key input is empty: the mirror deploy key secret is not set" >&2
+          exit 1
+        fi
+        if [ -z "$BRANCH" ] && [ -z "$TAG" ]; then
+          echo "nothing to push: neither branch nor tag given" >&2
+          exit 1
+        fi
+
+        ssh_dir="$(mktemp -d)"
+        trap 'rm -rf "$ssh_dir"' EXIT
+        printf '%s\n' "$SSH_KEY" > "$ssh_dir/key"
+        chmod 600 "$ssh_dir/key"
+        # GitHub's published host keys (https://api.github.com/meta, ssh_keys),
+        # pinned rather than ssh-keyscan'd so a MITM cannot substitute a host.
+        cat > "$ssh_dir/known_hosts" <<'KH'
+        github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+        github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
+        KH
+        export GIT_SSH_COMMAND="ssh -i $ssh_dir/key -o IdentitiesOnly=yes -o UserKnownHostsFile=$ssh_dir/known_hosts -o StrictHostKeyChecking=yes"
+        remote="git@github.com:${MIRROR}.git"
+
+        if [ -n "$TAG" ]; then
+          existing="$(git ls-remote --tags "$remote" "refs/tags/$TAG" | cut -f1 || true)"
+          if [ -n "$existing" ] && [ "$existing" != "$SHA" ]; then
+            echo "mirror tag $TAG already exists at $existing (split is $SHA); refusing to move a published tag" >&2
+            exit 1
+          fi
+          git push "$remote" "$SHA:refs/tags/$TAG"
+          echo "pushed tag $TAG -> ${SHA:0:12}"
+        fi
+
+        if [ -n "$BRANCH" ]; then
+          if [ "$FORCE_BRANCH" = "true" ]; then
+            git push --force "$remote" "$SHA:refs/heads/$BRANCH"
+            echo "force-pushed branch $BRANCH -> ${SHA:0:12}"
+          elif git push "$remote" "$SHA:refs/heads/$BRANCH"; then
+            echo "fast-forwarded branch $BRANCH -> ${SHA:0:12}"
+          else
+            echo "branch $BRANCH not fast-forwardable from ${SHA:0:12}; leaving it (mirror main is already ahead)"
+          fi
+        fi

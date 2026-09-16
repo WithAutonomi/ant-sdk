@@ -1,0 +1,177 @@
+name: Sync antd-php mirror (Packagist)
+
+# Keeps the read-only mirror repository WithAutonomi/antd-php in sync with the
+# antd-php/ subdirectory of this monorepo, and turns `php-v<version>` tags here
+# into `v<version>` tags there. Packagist indexes the MIRROR (it needs
+# composer.json at the root of a git repository, which a subdirectory cannot
+# provide) and derives package versions from its tags — so the mirror tag push
+# IS the publish step for `autonomi/antd`. There is no upload; Packagist
+# fetches the tag itself.
+#
+# ── What runs when ──
+#   • push to main touching antd-php/  -> verify, split, force-push mirror `main`
+#     (unattended: the mirror is disposable and only ever reflects main).
+#   • push of a `php-v<version>` tag    -> verify at the tag, split, push mirror
+#     tag `v<version>` (gated by the `packagist` environment's reviewers), then
+#     fast-forward mirror `main` if it is behind. The tag must point at a
+#     commit on main, and `v<version>` must not already exist at another SHA.
+#   • workflow_dispatch                 -> verify + split + report only. Pushes nothing.
+#
+# ── Auth ──
+#   Repository secret ANTD_PHP_MIRROR_SSH_KEY: the private half of a deploy
+#   key that has WRITE access on WithAutonomi/antd-php (Settings > Deploy keys
+#   on the mirror, "Allow write access"). Repository-level (not environment)
+#   because the unattended main sync needs it too; the environment `packagist`
+#   is purely the approval gate for release tags. GitHub host keys are pinned
+#   in .github/actions/mirror-subtree.
+#
+# ── One-time setup ──
+#   1. Create the empty repository WithAutonomi/antd-php (public, no README —
+#      the first sync populates it).
+#   2. `ssh-keygen -t ed25519 -N "" -C antd-php-mirror -f antd-php-mirror`;
+#      public half -> deploy key on the mirror with write access; private half
+#      -> repository secret ANTD_PHP_MIRROR_SSH_KEY on ant-sdk; delete both
+#      local files.
+#   3. GitHub environment `packagist`: required reviewers + tag rule `php-v*`.
+#   4. Push something to antd-php/ on main (or re-run the last main sync) so
+#      the mirror has content, then submit https://github.com/WithAutonomi/antd-php
+#      on packagist.org from the org account (the `autonomi` vendor name goes
+#      to whoever submits first) and install the Packagist GitHub App on the
+#      mirror so new tags are picked up automatically.
+#
+# ── How to release ──
+#   Push a tag `php-v<version>` (e.g. php-v0.1.0) at a commit on main. No
+#   version field lives in composer.json; the tag is the version.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "antd-php/**"
+      - "scripts/subtree-split.sh"
+      - ".github/actions/mirror-subtree/**"
+      - ".github/workflows/sync-php-mirror.yml"
+    tags:
+      - "php-v*"
+
+permissions:
+  contents: read
+
+# Every run pushes to the same mirror: serialize them, never cancel.
+concurrency:
+  group: sync-php-mirror
+  cancel-in-progress: false
+
+env:
+  MIRROR_REPO: WithAutonomi/antd-php
+
+jobs:
+  verify:
+    name: Verify (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        php: ["8.2", "8.4"]   # floor and latest; php-ci.yml covers the rest on PRs
+    defaults:
+      run:
+        working-directory: antd-php
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: json, gmp
+          coverage: none
+          tools: composer:v2
+
+      - name: Check the release tag
+        if: startsWith(github.ref, 'refs/tags/php-v')
+        run: |
+          v="${GITHUB_REF#refs/tags/php-v}"
+          if ! [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "tag php-v$v is not semver (expected php-vX.Y.Z or php-vX.Y.Z-rc.N)" >&2
+            exit 1
+          fi
+          if grep -q '"version"' composer.json; then
+            echo "composer.json must not carry a version field; the mirror tag is the version" >&2
+            exit 1
+          fi
+          echo "release php-v$v -> mirror tag v$v"
+
+      - name: composer validate
+        run: composer validate --strict --no-check-lock
+
+      - name: composer install
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: PHPUnit
+        run: vendor/bin/phpunit tests/
+
+  # Unattended: main is mirrored as-is on every push that touches antd-php/.
+  sync-main:
+    name: Mirror main
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/mirror-subtree
+        with:
+          prefix: antd-php
+          mirror-repo: ${{ env.MIRROR_REPO }}
+          branch: main
+          force-branch: "true"
+          ssh-key: ${{ secrets.ANTD_PHP_MIRROR_SSH_KEY }}
+
+  # Gated: the mirror tag is what Packagist publishes.
+  sync-tag:
+    name: Mirror release tag
+    needs: verify
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/php-v')
+    runs-on: ubuntu-latest
+    environment: packagist
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # A release must come from main so the mirror's tag is an ancestor of
+      # the mirror's main (subtree split is deterministic, so this holds).
+      - name: Tag must point at a commit on main
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "$GITHUB_SHA is not on main; release tags must be cut from main" >&2
+            exit 1
+          fi
+          echo "mirror_tag=v${GITHUB_REF#refs/tags/php-v}" >> "$GITHUB_ENV"
+
+      - uses: ./.github/actions/mirror-subtree
+        with:
+          prefix: antd-php
+          mirror-repo: ${{ env.MIRROR_REPO }}
+          tag: ${{ env.mirror_tag }}
+          branch: main          # fast-forward only; never rewinds the mirror
+          ssh-key: ${{ secrets.ANTD_PHP_MIRROR_SSH_KEY }}
+
+  dry-run:
+    name: Split only (dry run)
+    needs: verify
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/mirror-subtree
+        with:
+          prefix: antd-php
+          mirror-repo: ${{ env.MIRROR_REPO }}
+          dry-run: "true"

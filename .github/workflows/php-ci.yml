@@ -1,0 +1,122 @@
+name: PHP CI
+
+# antd-php (autonomi/antd) had no CI before 2026-09-16: nothing tested the PHP
+# daemon client on push. Runs the PHPUnit suite across every PHP the package
+# claims to support (composer.json `php: >=8.2`; readonly classes need 8.2), validates composer.json the
+# way Packagist will, and proves the subtree split that feeds the read-only
+# mirror (see sync-php-mirror.yml) still produces an installable package.
+
+on:
+  push:
+    branches: [main]
+    # GitHub Actions only allows EITHER `paths` OR `paths-ignore`, so the
+    # "skip when only .md files changed" negation lives inside `paths`.
+    paths:
+      - "antd-php/**"
+      - "scripts/subtree-split.sh"
+      - ".github/actions/mirror-subtree/**"
+      - ".github/workflows/php-ci.yml"
+      - "!**/*.md"
+  pull_request:
+    paths:
+      - "antd-php/**"
+      - "scripts/subtree-split.sh"
+      - ".github/actions/mirror-subtree/**"
+      - ".github/workflows/php-ci.yml"
+      - "!**/*.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test-antd-php:
+    name: Test (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["8.2", "8.3", "8.4"]
+    defaults:
+      run:
+        working-directory: antd-php
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          # gmp: needed by the web3p/ethereum-tx dev dependency (external-signer example).
+          extensions: json, gmp
+          coverage: none
+          tools: composer:v2
+
+      # No composer.lock is committed (library), so this is the same check
+      # Packagist runs on the manifest.
+      - name: composer validate
+        run: composer validate --strict --no-check-lock
+
+      - name: composer install
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Syntax-check src, tests, examples
+        run: |
+          find src tests examples -name '*.php' -print0 | xargs -0 -n1 -P4 php -l >/dev/null
+          echo "all files parse"
+
+      - name: PHPUnit
+        run: vendor/bin/phpunit tests/
+
+  # Proves the mirror split is healthy on every change: split antd-php/ from
+  # the full history, then install the split tree as a Composer path
+  # dependency in a fresh project and load the client from it. This is what a
+  # `composer require autonomi/antd` user gets from the mirror.
+  split-and-consume:
+    name: Split + consume as a Composer package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # git subtree split needs the full history
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          extensions: json
+          coverage: none
+          tools: composer:v2
+
+      - uses: ./.github/actions/mirror-subtree
+        id: split
+        with:
+          prefix: antd-php
+          mirror-repo: WithAutonomi/antd-php
+          dry-run: "true"
+
+      - name: Export the split tree
+        env:
+          SHA: ${{ steps.split.outputs.sha }}
+        run: |
+          mkdir -p /tmp/antd-php-split
+          git archive "$SHA" | tar -x -C /tmp/antd-php-split
+          ls -la /tmp/antd-php-split
+          composer validate --strict --no-check-lock /tmp/antd-php-split/composer.json
+
+      - name: Consume from a fresh project
+        working-directory: /tmp
+        run: |
+          mkdir -p consumer && cd consumer
+          composer init --no-interaction --name smoke/consumer --stability dev
+          composer config repositories.antd '{"type":"path","url":"/tmp/antd-php-split","options":{"symlink":false}}'
+          composer require --no-interaction --no-progress autonomi/antd:@dev
+          cat > smoke.php <<'PHP'
+          <?php
+          require "vendor/autoload.php";
+          $c = new Autonomi\Antd\AntdClient("http://localhost:8082", 1.0);
+          echo get_class($c), " loads from the split package\n";
+          PHP
+          php smoke.php
+          composer show autonomi/antd

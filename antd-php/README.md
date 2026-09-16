@@ -1,6 +1,11 @@
 # antd-php
 
-PHP SDK for the [antd](../antd/) daemon — the gateway to the Autonomi decentralized network.
+PHP SDK for the [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon — the gateway to the Autonomi decentralized network.
+
+> **Source of truth:** this SDK is developed in the [ant-sdk monorepo](https://github.com/WithAutonomi/ant-sdk/tree/main/antd-php).
+> [`WithAutonomi/antd-php`](https://github.com/WithAutonomi/antd-php) is a **read-only mirror** of that
+> directory, kept in sync by CI so [Packagist](https://packagist.org/packages/autonomi/antd) can index it.
+> Open issues and pull requests against `ant-sdk`; anything pushed to the mirror is overwritten.
 
 ## Installation
 
@@ -193,3 +198,15 @@ See the [examples/](examples/) directory:
 - `03-chunks.php` — Raw chunk operations
 - `04-files.php` — File and directory upload/download
 - `06-private-data.php` — Private encrypted data
+
+## Versioning and releases
+
+Releases are cut from the monorepo: a `php-vX.Y.Z` tag on `ant-sdk` is verified,
+split, and pushed to the mirror as `vX.Y.Z`, which Packagist picks up as the
+package version. There is no `version` field in `composer.json` — Composer
+derives it from the mirror's tags.
+
+## License
+
+Dual-licensed under either the [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE)
+license, at your option.
