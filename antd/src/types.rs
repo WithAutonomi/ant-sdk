@@ -414,6 +414,16 @@ pub fn adjust_for_public_upload(chunk_count: usize, storage_cost_atto: &str) -> 
     (new_chunk_count, new_total.to_string())
 }
 
+/// Chunk count to report for a public *data* upload, where ant-core has no
+/// single public-upload call and the daemon stores the `DataMap` itself
+/// (`data_upload_with_mode` + `data_map_store`). The DataMap is one more
+/// network chunk: the cost estimate (`adjust_for_public_upload`) and ant-core's
+/// public *file* upload both count it, so the actual must too or estimate and
+/// actual disagree by one for every public upload.
+pub fn public_upload_chunks_stored(data_chunks_stored: usize) -> usize {
+    data_chunks_stored.saturating_add(1)
+}
+
 /// Parse a payment mode string into ant-core's PaymentMode.
 pub fn parse_payment_mode(mode: Option<&str>) -> Result<ant_core::data::PaymentMode, String> {
     match mode {
@@ -709,6 +719,17 @@ mod tests {
             .unwrap()
             .contains_key("last_store_ok_secs_ago"));
         assert!(json["last_store_ok_secs_ago"].is_null());
+    }
+
+    #[test]
+    fn public_upload_chunks_stored_counts_the_data_map_chunk() {
+        // 3 data chunks + the DataMap chunk the daemon stores itself = 4,
+        // which is what the estimate reports for the same upload.
+        assert_eq!(public_upload_chunks_stored(3), 4);
+        assert_eq!(public_upload_chunks_stored(0), 1);
+        assert_eq!(public_upload_chunks_stored(usize::MAX), usize::MAX);
+        let (estimated, _) = adjust_for_public_upload(3, "300");
+        assert_eq!(public_upload_chunks_stored(3), estimated);
     }
 
     #[test]
