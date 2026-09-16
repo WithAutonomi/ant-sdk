@@ -46,6 +46,25 @@ pub struct PaymentEntry {
     #[prost(string, tag = "3")]
     pub amount: ::prost::alloc::string::String,
 }
+/// One `payments\[\]` quote in full signed form (V2-854 signed-quote exposure):
+/// the opaque serialized PaymentQuote plus, for commitment-bound quotes, the
+/// ADR-0004 commitment sidecar the quote pins. Consumers treat both as opaque
+/// bytes — only antd (`VerifyService.VerifyQuotes`) parses them. Shared by
+/// `UploadService` (wave-batch prepares) and `ChunkService.PrepareChunk`.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SignedQuoteEntry {
+    /// Quote hash (hex with 0x prefix, 32 bytes) — matches the `payments\[\]`
+    /// entry.
+    #[prost(string, tag = "1")]
+    pub quote_hash: ::prost::alloc::string::String,
+    /// msgpack-serialized signed PaymentQuote. Opaque.
+    #[prost(bytes = "vec", tag = "2")]
+    pub quote: ::prost::alloc::vec::Vec<u8>,
+    /// msgpack-serialized StorageCommitment the quote's commitment_pin resolves
+    /// to. Empty for baseline quotes.
+    #[prost(bytes = "vec", tag = "3")]
+    pub commitment_sidecar: ::prost::alloc::vec::Vec<u8>,
+}
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct HealthCheckRequest {}
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1310,6 +1329,9 @@ pub struct PrepareChunkRequest {
     /// Raw chunk bytes — at most one ant-protocol chunk.
     #[prost(bytes = "vec", tag = "1")]
     pub data: ::prost::alloc::vec::Vec<u8>,
+    /// Same semantics as PrepareFileUploadRequest.include_signed_quotes.
+    #[prost(bool, tag = "2")]
+    pub include_signed_quotes: bool,
 }
 /// Mirrors REST `PrepareChunkResponse`. Single-chunk publishes are always
 /// wave-batch, so there are no merkle fields. When `already_stored = true`
@@ -1353,6 +1375,10 @@ pub struct PrepareChunkResponse {
     /// `already_stored == true`.
     #[prost(string, tag = "9")]
     pub rpc_url: ::prost::alloc::string::String,
+    /// Populated only when the request set `include_signed_quotes` and payment
+    /// is required — same semantics as PrepareUploadResponse.signed_quotes.
+    #[prost(message, repeated, tag = "10")]
+    pub signed_quotes: ::prost::alloc::vec::Vec<SignedQuoteEntry>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FinalizeChunkRequest {
@@ -2572,6 +2598,13 @@ pub struct PrepareFileUploadRequest {
     /// is treated as "private".
     #[prost(string, tag = "2")]
     pub visibility: ::prost::alloc::string::String,
+    /// When true, the wave-batch response additionally carries the full signed
+    /// quotes + ADR-0004 commitment sidecars (`signed_quotes`) so a
+    /// hosted-payments gateway can verify the batch offline before paying
+    /// (V2-854). Default false: ~5–6 KB per quote plus up to 8 KB per sidecar,
+    /// and existing consumers see no change.
+    #[prost(bool, tag = "3")]
+    pub include_signed_quotes: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PrepareDataUploadRequest {
@@ -2581,6 +2614,9 @@ pub struct PrepareDataUploadRequest {
     /// Same semantics as PrepareFileUploadRequest.visibility.
     #[prost(string, tag = "2")]
     pub visibility: ::prost::alloc::string::String,
+    /// Same semantics as PrepareFileUploadRequest.include_signed_quotes.
+    #[prost(bool, tag = "3")]
+    pub include_signed_quotes: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PrepareUploadResponse {
@@ -2630,6 +2666,12 @@ pub struct PrepareUploadResponse {
     /// EVM RPC URL for submitting transactions.
     #[prost(string, tag = "10")]
     pub rpc_url: ::prost::alloc::string::String,
+    /// Populated only when the request set `include_signed_quotes` and the
+    /// payment type is wave_batch: one entry per `payments\[\]` quote for offline
+    /// verification via `VerifyService.VerifyQuotes`. Merkle prepares leave it
+    /// empty (the daemon does not retain merkle candidate commitments).
+    #[prost(message, repeated, tag = "12")]
+    pub signed_quotes: ::prost::alloc::vec::Vec<SignedQuoteEntry>,
 }
 /// One merkle payment batch: everything the external signer needs for a
 /// single `payForMerkleTree2()` call.
@@ -4045,6 +4087,406 @@ pub mod wallet_service_server {
     /// Generated gRPC service name
     pub const SERVICE_NAME: &str = "antd.v1.WalletService";
     impl<T> tonic::server::NamedService for WalletServiceServer<T> {
+        const NAME: &'static str = SERVICE_NAME;
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct VerifyQuotesRequest {
+    /// Max 1024 entries per call (each entry costs one or two ML-DSA-65
+    /// verifications).
+    #[prost(message, repeated, tag = "1")]
+    pub entries: ::prost::alloc::vec::Vec<VerifyQuoteEntry>,
+}
+/// One entry to verify: the payment triple the caller was asked to pay plus
+/// the opaque signed artifacts from the prepare response's `signed_quotes`.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct VerifyQuoteEntry {
+    /// Quote hash the payer was asked to pay (hex with 0x prefix, 32 bytes).
+    #[prost(string, tag = "1")]
+    pub quote_hash: ::prost::alloc::string::String,
+    /// Rewards address the payer was asked to pay (hex with 0x prefix).
+    #[prost(string, tag = "2")]
+    pub rewards_address: ::prost::alloc::string::String,
+    /// Amount the payer was asked to pay (atto tokens as decimal string).
+    #[prost(string, tag = "3")]
+    pub amount: ::prost::alloc::string::String,
+    /// msgpack-serialized signed PaymentQuote — from SignedQuoteEntry.quote.
+    #[prost(bytes = "vec", tag = "4")]
+    pub signed_quote: ::prost::alloc::vec::Vec<u8>,
+    /// msgpack-serialized StorageCommitment sidecar — from
+    /// SignedQuoteEntry.commitment_sidecar. Required when the quote is
+    /// commitment-bound; empty otherwise.
+    #[prost(bytes = "vec", tag = "5")]
+    pub commitment_sidecar: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct VerifyQuotesResponse {
+    /// True only when `entries` is non-empty and every entry verified.
+    #[prost(bool, tag = "1")]
+    pub valid: bool,
+    #[prost(message, repeated, tag = "2")]
+    pub entries: ::prost::alloc::vec::Vec<VerifyQuoteVerdict>,
+}
+/// Per-entry verdict. The extracted fields are populated as soon as the signed
+/// quote deserializes — even when a later check fails — so policy layers can
+/// see what the quote claimed. They are meaningless while `quote_decoded` is
+/// false.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct VerifyQuoteVerdict {
+    /// Echo of the request entry's quote_hash.
+    #[prost(string, tag = "1")]
+    pub quote_hash: ::prost::alloc::string::String,
+    /// True when every check passed.
+    #[prost(bool, tag = "2")]
+    pub valid: bool,
+    /// The first failing rule, by name. Empty when valid.
+    #[prost(string, tag = "3")]
+    pub error: ::prost::alloc::string::String,
+    /// True once the signed quote deserialized (the extracted fields below are
+    /// populated).
+    #[prost(bool, tag = "4")]
+    pub quote_decoded: bool,
+    /// Quote timestamp (unix seconds) — for the caller's expiry policy.
+    #[prost(uint64, tag = "5")]
+    pub timestamp_unix_secs: u64,
+    /// The chunk address the quote covers (hex, 32 bytes) — for the caller's
+    /// chunk-set equality policy.
+    #[prost(string, tag = "6")]
+    pub content: ::prost::alloc::string::String,
+    /// The signed price (atto tokens as decimal string).
+    #[prost(string, tag = "7")]
+    pub price: ::prost::alloc::string::String,
+    /// The signed rewards address (hex with 0x prefix).
+    #[prost(string, tag = "8")]
+    pub rewards_address: ::prost::alloc::string::String,
+    /// Claimed ADR-0004 storage-commitment key count (0 = baseline quote) — for
+    /// the caller's count-plausibility cap.
+    #[prost(uint32, tag = "9")]
+    pub committed_key_count: u32,
+    /// Whether the quote pins a storage commitment.
+    #[prost(bool, tag = "10")]
+    pub pinned: bool,
+}
+/// Generated client implementations.
+pub mod verify_service_client {
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
+    use tonic::codegen::*;
+    use tonic::codegen::http::Uri;
+    /// Stateless offline verification of signed payment quotes (hosted payments,
+    /// V2-854). Pure function of the request: no network, no wallet, no session
+    /// state. Run by "the party about to pay" — in hosted mode, the payment
+    /// gateway calls it on its own antd instance (never the customer's) before
+    /// paying a batch.
+    ///
+    /// Checks per entry: quote-hash recomputation, ML-DSA-65 signature,
+    /// paid-fields equality against the request triple, and the ADR-0004
+    /// resolve-before-pay commitment binding with exact on-curve pricing
+    /// (`price == calculate_price(committed_key_count)`; baseline quotes must
+    /// price exactly `calculate_price(0)`). Policy checks (expiry windows, replay
+    /// ledgers, chunk-set equality, count-plausibility caps) stay caller-side —
+    /// the verdicts carry the extracted fields those policies need.
+    #[derive(Debug, Clone)]
+    pub struct VerifyServiceClient<T> {
+        inner: tonic::client::Grpc<T>,
+    }
+    impl VerifyServiceClient<tonic::transport::Channel> {
+        /// Attempt to create a new client by connecting to a given endpoint.
+        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+        where
+            D: TryInto<tonic::transport::Endpoint>,
+            D::Error: Into<StdError>,
+        {
+            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+            Ok(Self::new(conn))
+        }
+    }
+    impl<T> VerifyServiceClient<T>
+    where
+        T: tonic::client::GrpcService<tonic::body::BoxBody>,
+        T::Error: Into<StdError>,
+        T::ResponseBody: Body<Data = Bytes> + std::marker::Send + 'static,
+        <T::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
+    {
+        pub fn new(inner: T) -> Self {
+            let inner = tonic::client::Grpc::new(inner);
+            Self { inner }
+        }
+        pub fn with_origin(inner: T, origin: Uri) -> Self {
+            let inner = tonic::client::Grpc::with_origin(inner, origin);
+            Self { inner }
+        }
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> VerifyServiceClient<InterceptedService<T, F>>
+        where
+            F: tonic::service::Interceptor,
+            T::ResponseBody: Default,
+            T: tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+                Response = http::Response<
+                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+                >,
+            >,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
+        {
+            VerifyServiceClient::new(InterceptedService::new(inner, interceptor))
+        }
+        /// Compress requests with the given encoding.
+        ///
+        /// This requires the server to support it otherwise it might respond with an
+        /// error.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.send_compressed(encoding);
+            self
+        }
+        /// Enable decompressing responses.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.accept_compressed(encoding);
+            self
+        }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_decoding_message_size(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_encoding_message_size(limit);
+            self
+        }
+        pub async fn verify_quotes(
+            &mut self,
+            request: impl tonic::IntoRequest<super::VerifyQuotesRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::VerifyQuotesResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/antd.v1.VerifyService/VerifyQuotes",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("antd.v1.VerifyService", "VerifyQuotes"));
+            self.inner.unary(req, path, codec).await
+        }
+    }
+}
+/// Generated server implementations.
+pub mod verify_service_server {
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
+    use tonic::codegen::*;
+    /// Generated trait containing gRPC methods that should be implemented for use with VerifyServiceServer.
+    #[async_trait]
+    pub trait VerifyService: std::marker::Send + std::marker::Sync + 'static {
+        async fn verify_quotes(
+            &self,
+            request: tonic::Request<super::VerifyQuotesRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::VerifyQuotesResponse>,
+            tonic::Status,
+        >;
+    }
+    /// Stateless offline verification of signed payment quotes (hosted payments,
+    /// V2-854). Pure function of the request: no network, no wallet, no session
+    /// state. Run by "the party about to pay" — in hosted mode, the payment
+    /// gateway calls it on its own antd instance (never the customer's) before
+    /// paying a batch.
+    ///
+    /// Checks per entry: quote-hash recomputation, ML-DSA-65 signature,
+    /// paid-fields equality against the request triple, and the ADR-0004
+    /// resolve-before-pay commitment binding with exact on-curve pricing
+    /// (`price == calculate_price(committed_key_count)`; baseline quotes must
+    /// price exactly `calculate_price(0)`). Policy checks (expiry windows, replay
+    /// ledgers, chunk-set equality, count-plausibility caps) stay caller-side —
+    /// the verdicts carry the extracted fields those policies need.
+    #[derive(Debug)]
+    pub struct VerifyServiceServer<T> {
+        inner: Arc<T>,
+        accept_compression_encodings: EnabledCompressionEncodings,
+        send_compression_encodings: EnabledCompressionEncodings,
+        max_decoding_message_size: Option<usize>,
+        max_encoding_message_size: Option<usize>,
+    }
+    impl<T> VerifyServiceServer<T> {
+        pub fn new(inner: T) -> Self {
+            Self::from_arc(Arc::new(inner))
+        }
+        pub fn from_arc(inner: Arc<T>) -> Self {
+            Self {
+                inner,
+                accept_compression_encodings: Default::default(),
+                send_compression_encodings: Default::default(),
+                max_decoding_message_size: None,
+                max_encoding_message_size: None,
+            }
+        }
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
+        where
+            F: tonic::service::Interceptor,
+        {
+            InterceptedService::new(Self::new(inner), interceptor)
+        }
+        /// Enable decompressing requests with the given encoding.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.accept_compression_encodings.enable(encoding);
+            self
+        }
+        /// Compress responses with the given encoding, if the client supports it.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.send_compression_encodings.enable(encoding);
+            self
+        }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.max_decoding_message_size = Some(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.max_encoding_message_size = Some(limit);
+            self
+        }
+    }
+    impl<T, B> tonic::codegen::Service<http::Request<B>> for VerifyServiceServer<T>
+    where
+        T: VerifyService,
+        B: Body + std::marker::Send + 'static,
+        B::Error: Into<StdError> + std::marker::Send + 'static,
+    {
+        type Response = http::Response<tonic::body::BoxBody>;
+        type Error = std::convert::Infallible;
+        type Future = BoxFuture<Self::Response, Self::Error>;
+        fn poll_ready(
+            &mut self,
+            _cx: &mut Context<'_>,
+        ) -> Poll<std::result::Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn call(&mut self, req: http::Request<B>) -> Self::Future {
+            match req.uri().path() {
+                "/antd.v1.VerifyService/VerifyQuotes" => {
+                    #[allow(non_camel_case_types)]
+                    struct VerifyQuotesSvc<T: VerifyService>(pub Arc<T>);
+                    impl<
+                        T: VerifyService,
+                    > tonic::server::UnaryService<super::VerifyQuotesRequest>
+                    for VerifyQuotesSvc<T> {
+                        type Response = super::VerifyQuotesResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::VerifyQuotesRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as VerifyService>::verify_quotes(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = VerifyQuotesSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                _ => {
+                    Box::pin(async move {
+                        let mut response = http::Response::new(empty_body());
+                        let headers = response.headers_mut();
+                        headers
+                            .insert(
+                                tonic::Status::GRPC_STATUS,
+                                (tonic::Code::Unimplemented as i32).into(),
+                            );
+                        headers
+                            .insert(
+                                http::header::CONTENT_TYPE,
+                                tonic::metadata::GRPC_CONTENT_TYPE,
+                            );
+                        Ok(response)
+                    })
+                }
+            }
+        }
+    }
+    impl<T> Clone for VerifyServiceServer<T> {
+        fn clone(&self) -> Self {
+            let inner = self.inner.clone();
+            Self {
+                inner,
+                accept_compression_encodings: self.accept_compression_encodings,
+                send_compression_encodings: self.send_compression_encodings,
+                max_decoding_message_size: self.max_decoding_message_size,
+                max_encoding_message_size: self.max_encoding_message_size,
+            }
+        }
+    }
+    /// Generated gRPC service name
+    pub const SERVICE_NAME: &str = "antd.v1.VerifyService";
+    impl<T> tonic::server::NamedService for VerifyServiceServer<T> {
         const NAME: &'static str = SERVICE_NAME;
     }
 }
