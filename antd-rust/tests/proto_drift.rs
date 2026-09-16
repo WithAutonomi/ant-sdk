@@ -23,6 +23,7 @@ const PROTOS: &[&str] = &[
     "antd/v1/upload.proto",
     "antd/v1/events.proto",
     "antd/v1/wallet.proto",
+    "antd/v1/verify.proto",
 ];
 
 fn normalize(s: &str) -> String {

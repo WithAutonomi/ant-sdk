@@ -111,6 +111,22 @@ type PrepareUploadResult struct {
 	// external signer pays for (TotalChunks - AlreadyStoredCount) chunks.
 	TotalChunks        int `json:"total_chunks,omitempty"`         // total chunks incl. already-stored
 	AlreadyStoredCount int `json:"already_stored_count,omitempty"` // chunks skipped (already on-network)
+
+	// Signed-quote exposure (antd >= 0.13.0, V2-854). Populated only when the
+	// prepare was made with IncludeSignedQuotes and PaymentType is wave_batch:
+	// one entry per Payments quote carrying the full signed quote (and its
+	// ADR-0004 commitment sidecar when pinned) as opaque bytes for offline
+	// verification via VerifyQuotes.
+	SignedQuotes []SignedQuoteEntry `json:"signed_quotes,omitempty"`
+}
+
+// SignedQuoteEntry is one Payments quote in full signed form. Quote and
+// CommitmentSidecar are opaque base64 blobs — pass them to VerifyQuotes
+// unchanged; only antd parses them.
+type SignedQuoteEntry struct {
+	QuoteHash         string `json:"quote_hash"`                   // hex with 0x prefix — matches Payments
+	Quote             string `json:"quote"`                        // base64(msgpack signed PaymentQuote), opaque
+	CommitmentSidecar string `json:"commitment_sidecar,omitempty"` // base64(msgpack StorageCommitment), empty for baseline quotes
 }
 
 // MerkleBatchEntry describes one merkle payment batch: everything the
@@ -172,6 +188,42 @@ type PrepareChunkResult struct {
 	PaymentTokenAddress string `json:"payment_token_address,omitempty"`
 	// EVM RPC URL for submitting transactions.
 	RPCUrl string `json:"rpc_url,omitempty"`
+	// Same semantics as PrepareUploadResult.SignedQuotes (antd >= 0.13.0).
+	SignedQuotes []SignedQuoteEntry `json:"signed_quotes,omitempty"`
+}
+
+// VerifyQuoteEntry is one entry for VerifyQuotes: the payment triple the
+// caller was asked to pay plus the opaque signed artifacts from the prepare
+// response's SignedQuotes.
+type VerifyQuoteEntry struct {
+	QuoteHash         string `json:"quote_hash"`                   // hex, 32 bytes
+	RewardsAddress    string `json:"rewards_address"`              // hex with 0x prefix
+	Amount            string `json:"amount"`                       // atto tokens, decimal string
+	SignedQuote       string `json:"signed_quote"`                 // SignedQuoteEntry.Quote, opaque
+	CommitmentSidecar string `json:"commitment_sidecar,omitempty"` // SignedQuoteEntry.CommitmentSidecar, opaque
+}
+
+// VerifyQuoteVerdict is the per-entry result of VerifyQuotes. The extracted
+// fields (Timestamp, Content, …) are populated as soon as the signed quote
+// deserializes — even when a later check fails — so policy layers can see
+// what the quote claimed.
+type VerifyQuoteVerdict struct {
+	QuoteHash         string `json:"quote_hash"`                    // echo of the request entry
+	Valid             bool   `json:"valid"`                         // every check passed
+	Error             string `json:"error,omitempty"`               // first failing rule, by name
+	TimestampUnixSecs uint64 `json:"timestamp_unix_secs,omitempty"` // for expiry policy
+	Content           string `json:"content,omitempty"`             // chunk address (hex, 32 bytes)
+	Price             string `json:"price,omitempty"`               // signed price (atto tokens)
+	RewardsAddress    string `json:"rewards_address,omitempty"`     // signed rewards address
+	CommittedKeyCount uint32 `json:"committed_key_count,omitempty"` // for count-plausibility caps (0 = baseline)
+	Pinned            bool   `json:"pinned,omitempty"`              // quote pins a storage commitment
+}
+
+// VerifyQuotesResult is the result of VerifyQuotes.
+type VerifyQuotesResult struct {
+	// Valid is true only when Entries is non-empty and every entry verified.
+	Valid   bool                 `json:"valid"`
+	Entries []VerifyQuoteVerdict `json:"entries"`
 }
 
 // UploadCostEstimate is the result of an estimate (EstimateDataCost / EstimateFileCost).

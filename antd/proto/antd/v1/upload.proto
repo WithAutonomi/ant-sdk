@@ -52,6 +52,12 @@ message PrepareFileUploadRequest {
   // stored on-network; its address is returned on finalize). Empty string
   // is treated as "private".
   string visibility = 2;
+  // When true, the wave-batch response additionally carries the full signed
+  // quotes + ADR-0004 commitment sidecars (`signed_quotes`) so a
+  // hosted-payments gateway can verify the batch offline before paying
+  // (V2-854). Default false: ~5–6 KB per quote plus up to 8 KB per sidecar,
+  // and existing consumers see no change.
+  bool include_signed_quotes = 3;
 }
 
 message PrepareDataUploadRequest {
@@ -59,6 +65,8 @@ message PrepareDataUploadRequest {
   bytes data = 1;
   // Same semantics as PrepareFileUploadRequest.visibility.
   string visibility = 2;
+  // Same semantics as PrepareFileUploadRequest.include_signed_quotes.
+  bool include_signed_quotes = 3;
 }
 
 // --- Prepare response (shared by both prepares) ---
@@ -102,6 +110,12 @@ message PrepareUploadResponse {
   string payment_token_address = 9;
   // EVM RPC URL for submitting transactions.
   string rpc_url = 10;
+
+  // Populated only when the request set `include_signed_quotes` and the
+  // payment type is wave_batch: one entry per `payments[]` quote for offline
+  // verification via `VerifyService.VerifyQuotes`. Merkle prepares leave it
+  // empty (the daemon does not retain merkle candidate commitments).
+  repeated SignedQuoteEntry signed_quotes = 12;
 }
 
 // One merkle payment batch: everything the external signer needs for a

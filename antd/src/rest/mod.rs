@@ -20,6 +20,7 @@ pub mod data;
 pub mod events;
 pub mod files;
 pub mod upload;
+pub mod verify;
 pub mod wallet;
 
 /// Generates a short random hex request ID (8 bytes = 16 hex chars).
@@ -112,6 +113,7 @@ pub fn router(state: Arc<AppState>, cors: &CorsMode) -> Router {
         .route("/v1/upload/prepare", post(upload::prepare_upload))
         .route("/v1/data/prepare", post(upload::prepare_data_upload))
         .route("/v1/upload/finalize", post(upload::finalize_upload))
+        .route("/v1/verify/quotes", post(verify::verify_quotes))
         // Wallet
         .route("/v1/wallet/address", get(wallet::wallet_address))
         .route("/v1/wallet/balance", get(wallet::wallet_balance))

@@ -208,9 +208,11 @@ func (x *PutChunkResponse) GetAddress() string {
 type PrepareChunkRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Raw chunk bytes — at most one ant-protocol chunk.
-	Data          []byte `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Data []byte `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	// Same semantics as PrepareFileUploadRequest.include_signed_quotes.
+	IncludeSignedQuotes bool `protobuf:"varint,2,opt,name=include_signed_quotes,json=includeSignedQuotes,proto3" json:"include_signed_quotes,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *PrepareChunkRequest) Reset() {
@@ -250,6 +252,13 @@ func (x *PrepareChunkRequest) GetData() []byte {
 	return nil
 }
 
+func (x *PrepareChunkRequest) GetIncludeSignedQuotes() bool {
+	if x != nil {
+		return x.IncludeSignedQuotes
+	}
+	return false
+}
+
 // Mirrors REST `PrepareChunkResponse`. Single-chunk publishes are always
 // wave-batch, so there are no merkle fields. When `already_stored = true`
 // the payment fields are empty / zero and the caller can skip FinalizeChunk
@@ -282,7 +291,10 @@ type PrepareChunkResponse struct {
 	PaymentTokenAddress string `protobuf:"bytes,8,opt,name=payment_token_address,json=paymentTokenAddress,proto3" json:"payment_token_address,omitempty"`
 	// EVM RPC URL for submitting transactions. Empty when
 	// `already_stored == true`.
-	RpcUrl        string `protobuf:"bytes,9,opt,name=rpc_url,json=rpcUrl,proto3" json:"rpc_url,omitempty"`
+	RpcUrl string `protobuf:"bytes,9,opt,name=rpc_url,json=rpcUrl,proto3" json:"rpc_url,omitempty"`
+	// Populated only when the request set `include_signed_quotes` and payment
+	// is required — same semantics as PrepareUploadResponse.signed_quotes.
+	SignedQuotes  []*SignedQuoteEntry `protobuf:"bytes,10,rep,name=signed_quotes,json=signedQuotes,proto3" json:"signed_quotes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -378,6 +390,13 @@ func (x *PrepareChunkResponse) GetRpcUrl() string {
 		return x.RpcUrl
 	}
 	return ""
+}
+
+func (x *PrepareChunkResponse) GetSignedQuotes() []*SignedQuoteEntry {
+	if x != nil {
+		return x.SignedQuotes
+	}
+	return nil
 }
 
 type FinalizeChunkRequest struct {
@@ -492,9 +511,10 @@ const file_antd_v1_chunks_proto_rawDesc = "" +
 	"\x04data\x18\x01 \x01(\fR\x04data\"O\n" +
 	"\x10PutChunkResponse\x12!\n" +
 	"\x04cost\x18\x01 \x01(\v2\r.antd.v1.CostR\x04cost\x12\x18\n" +
-	"\aaddress\x18\x02 \x01(\tR\aaddress\")\n" +
+	"\aaddress\x18\x02 \x01(\tR\aaddress\"]\n" +
 	"\x13PrepareChunkRequest\x12\x12\n" +
-	"\x04data\x18\x01 \x01(\fR\x04data\"\xee\x02\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\x122\n" +
+	"\x15include_signed_quotes\x18\x02 \x01(\bR\x13includeSignedQuotes\"\xae\x03\n" +
 	"\x14PrepareChunkResponse\x12\x18\n" +
 	"\aaddress\x18\x01 \x01(\tR\aaddress\x12%\n" +
 	"\x0ealready_stored\x18\x02 \x01(\bR\ralreadyStored\x12\x1b\n" +
@@ -504,7 +524,9 @@ const file_antd_v1_chunks_proto_rawDesc = "" +
 	"\ftotal_amount\x18\x06 \x01(\tR\vtotalAmount\x122\n" +
 	"\x15payment_vault_address\x18\a \x01(\tR\x13paymentVaultAddress\x122\n" +
 	"\x15payment_token_address\x18\b \x01(\tR\x13paymentTokenAddress\x12\x17\n" +
-	"\arpc_url\x18\t \x01(\tR\x06rpcUrl\"\xba\x01\n" +
+	"\arpc_url\x18\t \x01(\tR\x06rpcUrl\x12>\n" +
+	"\rsigned_quotes\x18\n" +
+	" \x03(\v2\x19.antd.v1.SignedQuoteEntryR\fsignedQuotes\"\xba\x01\n" +
 	"\x14FinalizeChunkRequest\x12\x1b\n" +
 	"\tupload_id\x18\x01 \x01(\tR\buploadId\x12H\n" +
 	"\ttx_hashes\x18\x02 \x03(\v2+.antd.v1.FinalizeChunkRequest.TxHashesEntryR\btxHashes\x1a;\n" +
@@ -544,24 +566,26 @@ var file_antd_v1_chunks_proto_goTypes = []any{
 	nil,                           // 8: antd.v1.FinalizeChunkRequest.TxHashesEntry
 	(*Cost)(nil),                  // 9: antd.v1.Cost
 	(*PaymentEntry)(nil),          // 10: antd.v1.PaymentEntry
+	(*SignedQuoteEntry)(nil),      // 11: antd.v1.SignedQuoteEntry
 }
 var file_antd_v1_chunks_proto_depIdxs = []int32{
 	9,  // 0: antd.v1.PutChunkResponse.cost:type_name -> antd.v1.Cost
 	10, // 1: antd.v1.PrepareChunkResponse.payments:type_name -> antd.v1.PaymentEntry
-	8,  // 2: antd.v1.FinalizeChunkRequest.tx_hashes:type_name -> antd.v1.FinalizeChunkRequest.TxHashesEntry
-	0,  // 3: antd.v1.ChunkService.Get:input_type -> antd.v1.GetChunkRequest
-	2,  // 4: antd.v1.ChunkService.Put:input_type -> antd.v1.PutChunkRequest
-	4,  // 5: antd.v1.ChunkService.PrepareChunk:input_type -> antd.v1.PrepareChunkRequest
-	6,  // 6: antd.v1.ChunkService.FinalizeChunk:input_type -> antd.v1.FinalizeChunkRequest
-	1,  // 7: antd.v1.ChunkService.Get:output_type -> antd.v1.GetChunkResponse
-	3,  // 8: antd.v1.ChunkService.Put:output_type -> antd.v1.PutChunkResponse
-	5,  // 9: antd.v1.ChunkService.PrepareChunk:output_type -> antd.v1.PrepareChunkResponse
-	7,  // 10: antd.v1.ChunkService.FinalizeChunk:output_type -> antd.v1.FinalizeChunkResponse
-	7,  // [7:11] is the sub-list for method output_type
-	3,  // [3:7] is the sub-list for method input_type
-	3,  // [3:3] is the sub-list for extension type_name
-	3,  // [3:3] is the sub-list for extension extendee
-	0,  // [0:3] is the sub-list for field type_name
+	11, // 2: antd.v1.PrepareChunkResponse.signed_quotes:type_name -> antd.v1.SignedQuoteEntry
+	8,  // 3: antd.v1.FinalizeChunkRequest.tx_hashes:type_name -> antd.v1.FinalizeChunkRequest.TxHashesEntry
+	0,  // 4: antd.v1.ChunkService.Get:input_type -> antd.v1.GetChunkRequest
+	2,  // 5: antd.v1.ChunkService.Put:input_type -> antd.v1.PutChunkRequest
+	4,  // 6: antd.v1.ChunkService.PrepareChunk:input_type -> antd.v1.PrepareChunkRequest
+	6,  // 7: antd.v1.ChunkService.FinalizeChunk:input_type -> antd.v1.FinalizeChunkRequest
+	1,  // 8: antd.v1.ChunkService.Get:output_type -> antd.v1.GetChunkResponse
+	3,  // 9: antd.v1.ChunkService.Put:output_type -> antd.v1.PutChunkResponse
+	5,  // 10: antd.v1.ChunkService.PrepareChunk:output_type -> antd.v1.PrepareChunkResponse
+	7,  // 11: antd.v1.ChunkService.FinalizeChunk:output_type -> antd.v1.FinalizeChunkResponse
+	8,  // [8:12] is the sub-list for method output_type
+	4,  // [4:8] is the sub-list for method input_type
+	4,  // [4:4] is the sub-list for extension type_name
+	4,  // [4:4] is the sub-list for extension extendee
+	0,  // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_antd_v1_chunks_proto_init() }

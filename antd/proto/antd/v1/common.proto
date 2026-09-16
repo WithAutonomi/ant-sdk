@@ -35,3 +35,19 @@ message PaymentEntry {
   // Amount to pay (atto tokens as decimal string).
   string amount = 3;
 }
+
+// One `payments[]` quote in full signed form (V2-854 signed-quote exposure):
+// the opaque serialized PaymentQuote plus, for commitment-bound quotes, the
+// ADR-0004 commitment sidecar the quote pins. Consumers treat both as opaque
+// bytes — only antd (`VerifyService.VerifyQuotes`) parses them. Shared by
+// `UploadService` (wave-batch prepares) and `ChunkService.PrepareChunk`.
+message SignedQuoteEntry {
+  // Quote hash (hex with 0x prefix, 32 bytes) — matches the `payments[]`
+  // entry.
+  string quote_hash = 1;
+  // msgpack-serialized signed PaymentQuote. Opaque.
+  bytes quote = 2;
+  // msgpack-serialized StorageCommitment the quote's commitment_pin resolves
+  // to. Empty for baseline quotes.
+  bytes commitment_sidecar = 3;
+}

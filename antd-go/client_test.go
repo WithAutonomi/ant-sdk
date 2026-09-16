@@ -1137,3 +1137,89 @@ func TestPlain502StillMapsToNetworkError(t *testing.T) {
 		t.Fatalf("expected *NetworkError for plain 502, got %T: %v", err, err)
 	}
 }
+
+func TestPrepareUploadWithOptionsSendsFlagAndParsesSignedQuotes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/upload/prepare" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body["include_signed_quotes"] != true {
+			t.Fatalf("include_signed_quotes not sent: %+v", body)
+		}
+		_, _ = io.WriteString(w, `{
+			"upload_id": "up9", "payment_type": "wave_batch",
+			"payments": [{"quote_hash": "qh9", "rewards_address": "ra9", "amount": "5"}],
+			"signed_quotes": [{"quote_hash": "qh9", "quote": "b3BhcXVl", "commitment_sidecar": "c2lkZQ=="}],
+			"total_amount": "5", "payment_vault_address": "dp", "payment_token_address": "pt",
+			"rpc_url": "http://localhost:1"
+		}`)
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL)
+	res, err := c.PrepareUploadWithOptions(context.Background(), "/tmp/x", PrepareOptions{IncludeSignedQuotes: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.SignedQuotes) != 1 {
+		t.Fatalf("unexpected signed_quotes: %+v", res.SignedQuotes)
+	}
+	sq := res.SignedQuotes[0]
+	if sq.QuoteHash != "qh9" || sq.Quote != "b3BhcXVl" || sq.CommitmentSidecar != "c2lkZQ==" {
+		t.Fatalf("unexpected entry: %+v", sq)
+	}
+}
+
+func TestVerifyQuotes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/verify/quotes" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		var body struct {
+			Entries []VerifyQuoteEntry `json:"entries"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.Entries) != 2 || body.Entries[0].SignedQuote != "b3BhcXVl" {
+			t.Fatalf("unexpected entries: %+v", body.Entries)
+		}
+		if body.Entries[1].CommitmentSidecar != "" {
+			t.Fatalf("baseline entry should have no sidecar: %+v", body.Entries[1])
+		}
+		_, _ = io.WriteString(w, `{
+			"valid": false,
+			"entries": [
+				{"quote_hash": "qh1", "valid": true, "timestamp_unix_secs": 1756000000,
+				 "content": "aa", "price": "5", "rewards_address": "ra1",
+				 "committed_key_count": 42, "pinned": true},
+				{"quote_hash": "qh2", "valid": false, "error": "price 6 does not equal calculate_price(committed_key_count=0)"}
+			]
+		}`)
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL)
+	res, err := c.VerifyQuotes(context.Background(), []VerifyQuoteEntry{
+		{QuoteHash: "qh1", RewardsAddress: "ra1", Amount: "5", SignedQuote: "b3BhcXVl", CommitmentSidecar: "c2lkZQ=="},
+		{QuoteHash: "qh2", RewardsAddress: "ra2", Amount: "6", SignedQuote: "b3BhcXVlMg=="},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Valid {
+		t.Fatal("expected overall valid=false")
+	}
+	if len(res.Entries) != 2 {
+		t.Fatalf("unexpected entries: %+v", res.Entries)
+	}
+	if !res.Entries[0].Valid || res.Entries[0].CommittedKeyCount != 42 || !res.Entries[0].Pinned ||
+		res.Entries[0].TimestampUnixSecs != 1756000000 {
+		t.Fatalf("unexpected first verdict: %+v", res.Entries[0])
+	}
+	if res.Entries[1].Valid || res.Entries[1].Error == "" {
+		t.Fatalf("unexpected second verdict: %+v", res.Entries[1])
+	}
+}

@@ -294,6 +294,76 @@ func (x *PaymentEntry) GetAmount() string {
 	return ""
 }
 
+// One `payments[]` quote in full signed form (V2-854 signed-quote exposure):
+// the opaque serialized PaymentQuote plus, for commitment-bound quotes, the
+// ADR-0004 commitment sidecar the quote pins. Consumers treat both as opaque
+// bytes — only antd (`VerifyService.VerifyQuotes`) parses them. Shared by
+// `UploadService` (wave-batch prepares) and `ChunkService.PrepareChunk`.
+type SignedQuoteEntry struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Quote hash (hex with 0x prefix, 32 bytes) — matches the `payments[]`
+	// entry.
+	QuoteHash string `protobuf:"bytes,1,opt,name=quote_hash,json=quoteHash,proto3" json:"quote_hash,omitempty"`
+	// msgpack-serialized signed PaymentQuote. Opaque.
+	Quote []byte `protobuf:"bytes,2,opt,name=quote,proto3" json:"quote,omitempty"`
+	// msgpack-serialized StorageCommitment the quote's commitment_pin resolves
+	// to. Empty for baseline quotes.
+	CommitmentSidecar []byte `protobuf:"bytes,3,opt,name=commitment_sidecar,json=commitmentSidecar,proto3" json:"commitment_sidecar,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *SignedQuoteEntry) Reset() {
+	*x = SignedQuoteEntry{}
+	mi := &file_antd_v1_common_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SignedQuoteEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SignedQuoteEntry) ProtoMessage() {}
+
+func (x *SignedQuoteEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_antd_v1_common_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SignedQuoteEntry.ProtoReflect.Descriptor instead.
+func (*SignedQuoteEntry) Descriptor() ([]byte, []int) {
+	return file_antd_v1_common_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *SignedQuoteEntry) GetQuoteHash() string {
+	if x != nil {
+		return x.QuoteHash
+	}
+	return ""
+}
+
+func (x *SignedQuoteEntry) GetQuote() []byte {
+	if x != nil {
+		return x.Quote
+	}
+	return nil
+}
+
+func (x *SignedQuoteEntry) GetCommitmentSidecar() []byte {
+	if x != nil {
+		return x.CommitmentSidecar
+	}
+	return nil
+}
+
 var File_antd_v1_common_proto protoreflect.FileDescriptor
 
 const file_antd_v1_common_proto_rawDesc = "" +
@@ -317,7 +387,12 @@ const file_antd_v1_common_proto_rawDesc = "" +
 	"\n" +
 	"quote_hash\x18\x01 \x01(\tR\tquoteHash\x12'\n" +
 	"\x0frewards_address\x18\x02 \x01(\tR\x0erewardsAddress\x12\x16\n" +
-	"\x06amount\x18\x03 \x01(\tR\x06amountBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\aAntd.V1b\x06proto3"
+	"\x06amount\x18\x03 \x01(\tR\x06amount\"v\n" +
+	"\x10SignedQuoteEntry\x12\x1d\n" +
+	"\n" +
+	"quote_hash\x18\x01 \x01(\tR\tquoteHash\x12\x14\n" +
+	"\x05quote\x18\x02 \x01(\fR\x05quote\x12-\n" +
+	"\x12commitment_sidecar\x18\x03 \x01(\fR\x11commitmentSidecarBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\aAntd.V1b\x06proto3"
 
 var (
 	file_antd_v1_common_proto_rawDescOnce sync.Once
@@ -331,13 +406,14 @@ func file_antd_v1_common_proto_rawDescGZIP() []byte {
 	return file_antd_v1_common_proto_rawDescData
 }
 
-var file_antd_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_antd_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_antd_v1_common_proto_goTypes = []any{
-	(*Cost)(nil),           // 0: antd.v1.Cost
-	(*Address)(nil),        // 1: antd.v1.Address
-	(*PublicKeyProto)(nil), // 2: antd.v1.PublicKeyProto
-	(*SecretKeyProto)(nil), // 3: antd.v1.SecretKeyProto
-	(*PaymentEntry)(nil),   // 4: antd.v1.PaymentEntry
+	(*Cost)(nil),             // 0: antd.v1.Cost
+	(*Address)(nil),          // 1: antd.v1.Address
+	(*PublicKeyProto)(nil),   // 2: antd.v1.PublicKeyProto
+	(*SecretKeyProto)(nil),   // 3: antd.v1.SecretKeyProto
+	(*PaymentEntry)(nil),     // 4: antd.v1.PaymentEntry
+	(*SignedQuoteEntry)(nil), // 5: antd.v1.SignedQuoteEntry
 }
 var file_antd_v1_common_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
@@ -358,7 +434,7 @@ func file_antd_v1_common_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_antd_v1_common_proto_rawDesc), len(file_antd_v1_common_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

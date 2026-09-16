@@ -8,6 +8,7 @@ license = "MIT OR Apache-2.0"
 ant-core = { git = "https://github.com/WithAutonomi/ant-client", tag = "ant-cli-v0.3.5" }  # ant-core 0.8.0 release; NetworkHealth helper (V2-1037) + ant-protocol 2.3.4 line. Lock pins saorsa-core 0.27.3: the FIRST release containing the runtime re-bootstrap recovery (V2-1036, saorsa-core#153) that /health's write_ready semantics depend on — 0.27.2 predates it despite its tag date (was 0.6.0 / ant-cli-v0.3.3)
 self_encryption = "0.36.0"
 evmlib = "0.9.1" # must track ant-core's transitive evmlib (via ant-protocol) to avoid a second copy in the graph
+ant-protocol = "=2.3.4" # pinned exactly to ant-core's transitive ant-protocol (ant-cli-v0.3.5 / ant-core 0.8.0 line; was =2.3.2 on 0.6.0) — a different version would fork PaymentQuote/StorageCommitment in the graph
 axum = { version = "0.8", features = ["macros"] }
 tower-http = { version = "0.6", features = ["cors", "limit", "trace"] }
 tonic = "0.12"
@@ -33,6 +34,7 @@ toml = "0.8"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
+xor_name = "5"
 
 [build-dependencies]
 tonic-build = "0.12"

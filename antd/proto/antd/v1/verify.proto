@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package antd.v1;
+
+option csharp_namespace = "Antd.V1";
+option go_package = "github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1";
+
+// Stateless offline verification of signed payment quotes (hosted payments,
+// V2-854). Pure function of the request: no network, no wallet, no session
+// state. Run by "the party about to pay" — in hosted mode, the payment
+// gateway calls it on its own antd instance (never the customer's) before
+// paying a batch.
+//
+// Checks per entry: quote-hash recomputation, ML-DSA-65 signature,
+// paid-fields equality against the request triple, and the ADR-0004
+// resolve-before-pay commitment binding with exact on-curve pricing
+// (`price == calculate_price(committed_key_count)`; baseline quotes must
+// price exactly `calculate_price(0)`). Policy checks (expiry windows, replay
+// ledgers, chunk-set equality, count-plausibility caps) stay caller-side —
+// the verdicts carry the extracted fields those policies need.
+service VerifyService {
+  rpc VerifyQuotes(VerifyQuotesRequest) returns (VerifyQuotesResponse);
+}
+
+message VerifyQuotesRequest {
+  // Max 1024 entries per call (each entry costs one or two ML-DSA-65
+  // verifications).
+  repeated VerifyQuoteEntry entries = 1;
+}
+
+// One entry to verify: the payment triple the caller was asked to pay plus
+// the opaque signed artifacts from the prepare response's `signed_quotes`.
+message VerifyQuoteEntry {
+  // Quote hash the payer was asked to pay (hex with 0x prefix, 32 bytes).
+  string quote_hash = 1;
+  // Rewards address the payer was asked to pay (hex with 0x prefix).
+  string rewards_address = 2;
+  // Amount the payer was asked to pay (atto tokens as decimal string).
+  string amount = 3;
+  // msgpack-serialized signed PaymentQuote — from SignedQuoteEntry.quote.
+  bytes signed_quote = 4;
+  // msgpack-serialized StorageCommitment sidecar — from
+  // SignedQuoteEntry.commitment_sidecar. Required when the quote is
+  // commitment-bound; empty otherwise.
+  bytes commitment_sidecar = 5;
+}
+
+message VerifyQuotesResponse {
+  // True only when `entries` is non-empty and every entry verified.
+  bool valid = 1;
+  repeated VerifyQuoteVerdict entries = 2;
+}
+
+// Per-entry verdict. The extracted fields are populated as soon as the signed
+// quote deserializes — even when a later check fails — so policy layers can
+// see what the quote claimed. They are meaningless while `quote_decoded` is
+// false.
+message VerifyQuoteVerdict {
+  // Echo of the request entry's quote_hash.
+  string quote_hash = 1;
+  // True when every check passed.
+  bool valid = 2;
+  // The first failing rule, by name. Empty when valid.
+  string error = 3;
+  // True once the signed quote deserialized (the extracted fields below are
+  // populated).
+  bool quote_decoded = 4;
+  // Quote timestamp (unix seconds) — for the caller's expiry policy.
+  uint64 timestamp_unix_secs = 5;
+  // The chunk address the quote covers (hex, 32 bytes) — for the caller's
+  // chunk-set equality policy.
+  string content = 6;
+  // The signed price (atto tokens as decimal string).
+  string price = 7;
+  // The signed rewards address (hex with 0x prefix).
+  string rewards_address = 8;
+  // Claimed ADR-0004 storage-commitment key count (0 = baseline quote) — for
+  // the caller's count-plausibility cap.
+  uint32 committed_key_count = 9;
+  // Whether the quote pins a storage commitment.
+  bool pinned = 10;
+}
