@@ -56,7 +56,7 @@ runs:
         PREFIX: ${{ inputs.prefix }}
         REF: ${{ inputs.ref }}
       run: |
-        sha="$(scripts/subtree-split.sh "$PREFIX" "$REF")"
+        sha="$(bash scripts/subtree-split.sh "$PREFIX" "$REF")"
         echo "sha=$sha" >> "$GITHUB_OUTPUT"
         {
           echo "### Split \`$PREFIX\` @ \`${REF:0:12}\` → \`${sha:0:12}\`"

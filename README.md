@@ -129,7 +129,7 @@ All data and file upload operations accept an optional `payment_mode` parameter 
 | Kotlin | JDK 17+ | Gradle dependency |
 | Swift | 5.9+ / Xcode 15+ | Swift Package Manager (macOS only) |
 | Ruby | 3.0+ | `gem install antd` |
-| PHP | 8.1+ | `composer require autonomi/antd` |
+| PHP | 8.2+ | `composer require autonomi/antd` |
 | Dart | 3.0+ | `dart pub add antd` |
 | Lua | 5.1+ / LuaRocks | `luarocks install antd` |
 | Elixir | 1.14+ | `{:antd, "~> 0.1"}` in mix.exs |
