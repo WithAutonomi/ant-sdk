@@ -1,0 +1,253 @@
+name: Installers CI
+
+# installers/** had no CI before 2026-09-16: release.yml only runs on a tag
+# push, so every installer or licence change merged unvalidated and a real
+# release tag was its first execution (the MSI once shipped WiX's lorem-ipsum
+# placeholder EULA that way). This builds all three packages on PRs from a
+# STUB binary — the packaging structure is what breaks, not the daemon — and
+# asserts the things a tag run would otherwise be the first to prove:
+#   • the package builds and carries the expected version,
+#   • the payload holds the binary + autostart unit/plist/Run-key,
+#   • the embedded MSI licence is the real one (no "Lorem ipsum"),
+#   • no .wixpdb is produced,
+#   • ANTD_REQUIRE_SIGNING=1 with no signing configured FAILS the build
+#     (the stable-release guard, release.yml) — negative test, on both
+#     macOS and Windows.
+# Signing itself cannot run here (secrets, forks); the unsigned build is enough
+# to catch structural breakage, which is the actual failure mode.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "installers/**"
+      - ".github/workflows/installers-ci.yml"
+  pull_request:
+    paths:
+      - "installers/**"
+      - ".github/workflows/installers-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CI_VERSION: "0.0.0"
+
+jobs:
+  lint:
+    name: Lint (shellcheck + PSScriptAnalyzer)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck
+        run: |
+          set -euo pipefail
+          files=$(find installers -type f \( -name '*.sh' -o -path '*/macos/scripts/postinstall' \))
+          echo "$files"
+          # -x follows the `. ../common/metadata.env` source lines.
+          echo "$files" | xargs shellcheck -x
+
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          $results = Invoke-ScriptAnalyzer -Path installers/windows -Recurse -Severity Warning,Error -ExcludeRule PSAvoidUsingWriteHost
+          $results | Format-Table -AutoSize | Out-String -Width 200 | Write-Host
+          $errors = @($results | Where-Object Severity -eq 'Error')
+          if ($errors.Count -gt 0) { throw "PSScriptAnalyzer reported $($errors.Count) error(s)" }
+
+  linux:
+    name: Build .deb + .rpm (stub binary)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Install nfpm + rpm
+        run: |
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+          sudo apt-get update -q && sudo apt-get install -y -q rpm
+
+      - name: Stub binary
+        run: |
+          mkdir -p bin
+          printf '#!/bin/sh\necho "antd stub %s"\n' "$CI_VERSION" > bin/antd
+          chmod +x bin/antd
+
+      - name: Build
+        run: |
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          ./installers/linux/build-deb-rpm.sh --bin "$PWD/bin/antd" --version "$CI_VERSION" --out "$PWD/out"
+          ls -la out
+
+      - name: Assert .deb
+        run: |
+          set -euo pipefail
+          deb=out/antd-linux-x64.deb
+          dpkg-deb --info "$deb"
+          v="$(dpkg-deb -f "$deb" Version)"
+          [ "$v" = "$CI_VERSION" ] || { echo "deb Version '$v' != $CI_VERSION" >&2; exit 1; }
+          [ "$(dpkg-deb -f "$deb" Architecture)" = "amd64" ]
+          dpkg-deb --contents "$deb" | tee /tmp/deb-files.txt
+          grep -q ' ./usr/bin/antd$' /tmp/deb-files.txt
+          grep -q ' ./usr/lib/systemd/user/antd.service$' /tmp/deb-files.txt
+          # Maintainer scripts must be present and executable.
+          dpkg-deb --ctrl-tarfile "$deb" | tar -tv | tee /tmp/deb-ctrl.txt
+          for s in postinst prerm postrm; do grep -qE "^-rwxr-xr-x .* \./$s$" /tmp/deb-ctrl.txt || { echo "missing/non-exec $s" >&2; exit 1; }; done
+          echo "deb OK"
+
+      - name: Assert .rpm
+        run: |
+          set -euo pipefail
+          rpm=out/antd-linux-x64.rpm
+          rpm -qpi "$rpm"
+          v="$(rpm -qp --qf '%{VERSION}' "$rpm")"
+          [ "$v" = "$CI_VERSION" ] || { echo "rpm VERSION '$v' != $CI_VERSION" >&2; exit 1; }
+          [ "$(rpm -qp --qf '%{ARCH}' "$rpm")" = "x86_64" ]
+          rpm -qpl "$rpm" | tee /tmp/rpm-files.txt
+          grep -qx '/usr/bin/antd' /tmp/rpm-files.txt
+          grep -qx '/usr/lib/systemd/user/antd.service' /tmp/rpm-files.txt
+          rpm -qp --scripts "$rpm" | grep -q 'systemctl' || { echo "rpm scriptlets missing" >&2; exit 1; }
+          echo "rpm OK"
+
+      - name: install.sh parses and prints help
+        run: bash -n installers/linux/install.sh && bash installers/linux/install.sh --help | head -5
+
+  macos:
+    name: Build .pkg (stub binary, unsigned)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stub binary
+        run: |
+          mkdir -p bin
+          printf '#!/bin/sh\necho "antd stub %s"\n' "$CI_VERSION" > bin/antd
+          chmod +x bin/antd
+
+      - name: Build (no signing env -> warns, continues)
+        run: |
+          ./installers/macos/build-pkg.sh --bin "$PWD/bin/antd" --version "$CI_VERSION" --arch arm64 --out "$PWD/out" 2> >(tee /tmp/build.err >&2)
+          grep -c 'WARNING:' /tmp/build.err
+          ls -la out
+
+      - name: Assert .pkg
+        run: |
+          set -euo pipefail
+          pkg=out/antd-macos.pkg
+          # Unsigned: check-signature exits non-zero and says so.
+          pkgutil --check-signature "$pkg" && { echo "expected an unsigned pkg" >&2; exit 1; } || true
+          pkgutil --expand-full "$pkg" /tmp/pkg
+          find /tmp/pkg -maxdepth 2 | sort
+          grep -q "version=\"$CI_VERSION\"" /tmp/pkg/Distribution
+          grep -q 'hostArchitectures="arm64"' /tmp/pkg/Distribution
+          comp=/tmp/pkg/antd-component.pkg
+          grep -q "version=\"$CI_VERSION\"" "$comp/PackageInfo"
+          grep -q 'identifier="com.autonomi.antd"' "$comp/PackageInfo"
+          test -x "$comp/Payload/usr/local/bin/antd"
+          test -f "$comp/Payload/Library/LaunchAgents/com.autonomi.antd.plist"
+          test -x "$comp/Scripts/postinstall"
+          plutil -lint "$comp/Payload/Library/LaunchAgents/com.autonomi.antd.plist"
+          echo "pkg OK"
+
+      # The stable-release guard: with ANTD_REQUIRE_SIGNING=1 and no identities
+      # the script must stop at the first signing step, not produce a .pkg.
+      - name: Negative — ANTD_REQUIRE_SIGNING=1 without signing must fail
+        env:
+          ANTD_REQUIRE_SIGNING: "1"
+        run: |
+          set +e
+          ./installers/macos/build-pkg.sh --bin "$PWD/bin/antd" --version "$CI_VERSION" --arch arm64 --out "$PWD/out-neg" > /tmp/neg.log 2>&1
+          rc=$?
+          set -e
+          cat /tmp/neg.log
+          [ "$rc" -ne 0 ] || { echo "build succeeded but should have refused" >&2; exit 1; }
+          grep -q 'ANTD_REQUIRE_SIGNING=1' /tmp/neg.log
+          [ ! -e out-neg/antd-macos.pkg ] || { echo "a .pkg was produced despite the refusal" >&2; exit 1; }
+          echo "refused as expected (rc=$rc)"
+
+  windows:
+    name: Build .msi (stub binary, unsigned)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stub binary (a real PE so WiX is happy)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path msibin | Out-Null
+          Copy-Item "$env:SystemRoot\System32\whoami.exe" msibin\antd.exe
+
+      - name: Build (no smctl -> warns, continues)
+        shell: pwsh
+        run: |
+          ./installers/windows/build-msi.ps1 -BinDir msibin -Version $env:CI_VERSION -OutDir out 3>&1 | Tee-Object -FilePath build.log
+          Get-ChildItem out
+
+      - name: Assert .msi
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = (Resolve-Path out\antd-windows-x64-setup.msi).Path
+          if (Get-ChildItem out -Filter *.wixpdb) { throw "a .wixpdb was produced (V2-677)" }
+          if (-not (Select-String -Path build.log -Pattern 'NOT signing' -Quiet)) { throw "expected the unsigned warning in the build log" }
+
+          $wi = New-Object -ComObject WindowsInstaller.Installer
+          $db = $wi.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $wi, @([string]$msi, [int]0))
+          function Query($sql) {
+            $view = $db.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $db, @($sql))
+            $view.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $view, $null) | Out-Null
+            $rec = $view.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $view, $null)
+            if ($null -eq $rec) { return $null }
+            return $rec.GetType().InvokeMember('StringData', 'GetProperty', $null, $rec, @(1))
+          }
+          $ver = Query "SELECT Value FROM Property WHERE Property='ProductVersion'"
+          $man = Query "SELECT Value FROM Property WHERE Property='Manufacturer'"
+          $name = Query "SELECT Value FROM Property WHERE Property='ProductName'"
+          Write-Host "ProductVersion=$ver Manufacturer=$man ProductName=$name"
+          if ($ver -ne $env:CI_VERSION) { throw "ProductVersion '$ver' != $env:CI_VERSION" }
+          if ($man -ne 'Autonomi') { throw "Manufacturer '$man'" }
+          if ($name -ne 'Autonomi antd') { throw "ProductName '$name'" }
+
+          # Payload: the daemon, the hidden launcher, and the HKLM Run autostart.
+          $exe = Query "SELECT FileName FROM File WHERE File='AntdExe'"
+          $vbs = Query "SELECT FileName FROM File WHERE File='AntdLaunchVbs'"
+          Write-Host "files: $exe, $vbs"
+          if ($exe -notmatch 'antd\.exe') { throw "antd.exe missing from File table ($exe)" }
+          if ($vbs -notmatch 'antd-launch\.vbs') { throw "antd-launch.vbs missing from File table ($vbs)" }
+          $run = Query "SELECT Value FROM Registry WHERE Name='Autonomi antd' AND Root=2"
+          Write-Host "Run value: $run"
+          if ($run -notmatch 'antd-launch\.vbs') { throw "HKLM Run autostart value missing" }
+
+          # The licence shown by WixUI_Minimal (its WelcomeEulaDlg) must be ours,
+          # not WiX's lorem-ipsum default. The RTF is inlined into the Control table.
+          $lic = Query "SELECT Text FROM Control WHERE Dialog_='WelcomeEulaDlg' AND Control='LicenseText'"
+          if ([string]::IsNullOrWhiteSpace($lic)) { throw "no licence text embedded in WelcomeEulaDlg" }
+          if ($lic -match 'Lorem ipsum') { throw "MSI embeds WiX's placeholder licence (Lorem ipsum)" }
+          if ($lic -notmatch 'MIT' -or $lic -notmatch 'Apache') { throw "embedded licence does not mention MIT + Apache" }
+          Write-Host "licence OK ($($lic.Length) chars)"
+          Write-Host "msi OK"
+
+      # The stable-release guard: with ANTD_REQUIRE_SIGNING=1 and no smctl the
+      # script must stop before building, not produce an MSI.
+      - name: Negative — ANTD_REQUIRE_SIGNING=1 without smctl must fail
+        shell: pwsh
+        env:
+          ANTD_REQUIRE_SIGNING: "1"
+        run: |
+          $ErrorActionPreference = 'Continue'
+          pwsh -NoProfile -File ./installers/windows/build-msi.ps1 -BinDir msibin -Version $env:CI_VERSION -OutDir out-neg *> neg.log
+          $rc = $LASTEXITCODE
+          Get-Content neg.log
+          if ($rc -eq 0) { throw "build succeeded but should have refused" }
+          if (-not (Select-String -Path neg.log -Pattern 'ANTD_REQUIRE_SIGNING=1' -Quiet)) { throw "refusal message missing" }
+          if (Test-Path out-neg\antd-windows-x64-setup.msi) { throw "an MSI was produced despite the refusal" }
+          Write-Host "refused as expected (rc=$rc)"
