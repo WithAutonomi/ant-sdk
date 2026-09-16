@@ -49,6 +49,10 @@ fn build_grpc_prepare_response(
     let rpc_url = evm_cfg.rpc_url;
     let payment_token_address = evm_cfg.token_addr;
     let payment_vault_address = evm_cfg.vault_addr;
+    // Already-stored preflight, same derivation as REST (V2-455): the signer
+    // pays for `total_chunks - already_stored_count` chunks.
+    let total_chunks = prepared.total_chunks as u64;
+    let already_stored_count = prepared.already_stored_addresses.len() as u64;
 
     match &prepared.payment_info {
         ant_core::data::ExternalPaymentInfo::WaveBatch {
@@ -89,6 +93,8 @@ fn build_grpc_prepare_response(
                 payment_token_address,
                 rpc_url,
                 signed_quotes,
+                total_chunks,
+                already_stored_count,
             })
         }
         ant_core::data::ExternalPaymentInfo::Merkle {
@@ -128,6 +134,8 @@ fn build_grpc_prepare_response(
                 // Merkle candidate exposure is blocked upstream (V2-854 open
                 // question 1) — mirrors the REST arm.
                 signed_quotes: Vec::new(),
+                total_chunks,
+                already_stored_count,
             })
         }
     }

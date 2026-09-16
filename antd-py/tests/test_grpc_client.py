@@ -83,6 +83,8 @@ class MockUploadServicer(upload_pb2_grpc.UploadServiceServicer):
             payment_vault_address="0xvault",
             payment_token_address="0xtoken",
             rpc_url="http://localhost:8545",
+            total_chunks=3,
+            already_stored_count=1,
         )
 
     def PrepareDataUpload(self, request, context):
@@ -210,6 +212,8 @@ class TestSyncPrepareUpload:
     def test_omits_visibility_when_none(self, sync_client):
         r = sync_client.prepare_upload("/tmp/x.bin")
         assert r.upload_id == "upid_file_"
+        assert r.total_chunks == 3
+        assert r.already_stored_count == 1
         assert r.payment_type == "wave_batch"
         assert len(r.payments) == 1
         assert r.payments[0].quote_hash == "0xqa"

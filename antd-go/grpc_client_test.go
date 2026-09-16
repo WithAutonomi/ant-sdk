@@ -184,6 +184,8 @@ func (m *mockUploadService) PrepareFileUpload(_ context.Context, req *pb.Prepare
 		PaymentVaultAddress: "0xvault",
 		PaymentTokenAddress: "0xtoken",
 		RpcUrl:              "http://localhost:8545",
+		TotalChunks:         3,
+		AlreadyStoredCount:  1,
 	}, nil
 }
 
@@ -678,6 +680,9 @@ func TestGrpcPrepareUploadOmitsVisibilityWhenPrivate(t *testing.T) {
 	// the mock echoes that into upload_id.
 	if r.UploadID != "upid_file_" {
 		t.Fatalf("expected default visibility echoed: got %q", r.UploadID)
+	}
+	if r.TotalChunks != 3 || r.AlreadyStoredCount != 1 {
+		t.Fatalf("preflight fields not mapped: total=%d already=%d", r.TotalChunks, r.AlreadyStoredCount)
 	}
 	if r.PaymentType != "wave_batch" {
 		t.Fatalf("expected wave_batch, got %q", r.PaymentType)

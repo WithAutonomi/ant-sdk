@@ -432,6 +432,10 @@ PrepareUploadResult map_prepare_upload_response(const antd::v1::PrepareUploadRes
     r.payment_vault_address = resp.payment_vault_address();
     r.payment_token_address = resp.payment_token_address();
     r.rpc_url = resp.rpc_url();
+    // Already-stored preflight (parity with REST): the external signer
+    // pays for (total_chunks - already_stored_count) chunks.
+    r.total_chunks = resp.total_chunks();
+    r.already_stored_count = resp.already_stored_count();
 
     for (const auto& p : resp.payments()) {
         r.payments.push_back(PaymentInfo{

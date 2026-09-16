@@ -280,6 +280,8 @@ module FakeGrpc
         payment_vault_address: "0xvault",
         payment_token_address: "0xtoken",
         rpc_url: "http://localhost:8545",
+        total_chunks: 3,
+        already_stored_count: 1,
       )
     end
 
@@ -663,6 +665,8 @@ class TestGrpcClient < Minitest::Test
     r = @client.prepare_upload("/tmp/x.bin")
     # Empty visibility = proto3 default; the mock echoes that into upload_id.
     assert_equal "upid_file_", r.upload_id
+    assert_equal 3, r.total_chunks
+    assert_equal 1, r.already_stored_count
     assert_equal "wave_batch", r.payment_type
     assert_equal 1, r.payments.length
     assert_equal "0xqa", r.payments.first.quote_hash

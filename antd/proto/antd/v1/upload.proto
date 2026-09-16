@@ -116,6 +116,15 @@ message PrepareUploadResponse {
   // verification via `VerifyService.VerifyQuotes`. Merkle prepares leave it
   // empty (the daemon does not retain merkle candidate commitments).
   repeated SignedQuoteEntry signed_quotes = 12;
+
+  // --- Already-stored preflight (REST has carried these since antd 0.10.0;
+  // gRPC from the first release after 0.13.0) ---
+  // Total number of chunks in this upload, including any already on-network.
+  uint64 total_chunks = 13;
+  // How many of `total_chunks` were already stored on-network (deterministic
+  // self-encryption) and therefore excluded from payment + PUT. The external
+  // signer is paying for `total_chunks - already_stored_count` chunks.
+  uint64 already_stored_count = 14;
 }
 
 // One merkle payment batch: everything the external signer needs for a

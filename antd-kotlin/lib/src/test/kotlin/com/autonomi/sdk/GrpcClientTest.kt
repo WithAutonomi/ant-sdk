@@ -168,6 +168,8 @@ class GrpcClientTest {
                 paymentVaultAddress = "0xvault"
                 paymentTokenAddress = "0xtoken"
                 rpcUrl = "http://localhost:8545"
+                totalChunks = 3
+                alreadyStoredCount = 1
             }
         }
 
@@ -234,6 +236,8 @@ class GrpcClientTest {
     fun prepareUploadOmitsVisibilityWhenNull() = runTest {
         val r = client.prepareUpload("/tmp/x.bin")
         assertEquals("upid_file_", r.uploadId)
+        assertEquals(3L, r.totalChunks)
+        assertEquals(1L, r.alreadyStoredCount)
         assertEquals("wave_batch", r.paymentType)
         assertEquals(1, r.payments.size)
         assertEquals("0xqa", r.payments[0].quoteHash)

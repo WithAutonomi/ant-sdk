@@ -724,6 +724,10 @@ class GrpcAntdClient {
           : null,
       merklePaymentTimestamp:
           isMerkle ? resp.merklePaymentTimestamp.toInt() : null,
+      // Already-stored preflight (parity with REST): the external signer
+      // pays for (totalChunks - alreadyStoredCount) chunks.
+      totalChunks: resp.totalChunks.toInt(),
+      alreadyStoredCount: resp.alreadyStoredCount.toInt(),
     );
   }
 }

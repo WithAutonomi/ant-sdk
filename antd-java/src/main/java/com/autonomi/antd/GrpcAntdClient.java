@@ -850,10 +850,10 @@ public class GrpcAntdClient implements AutoCloseable {
                 depth,
                 poolCommitments,
                 merkleTs,
-                // Already-stored preflight not yet on the gRPC proto (tracked
-                // separately for gRPC parity); default to 0. REST surfaces it.
-                0L,
-                0L);
+                // Already-stored preflight (parity with REST): the external
+                // signer pays for (totalChunks - alreadyStoredCount) chunks.
+                resp.getTotalChunks(),
+                resp.getAlreadyStoredCount());
     }
 
     private static FinalizeUploadResult finalizeResponseToResult(FinalizeUploadResponse resp) {

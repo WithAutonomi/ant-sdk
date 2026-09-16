@@ -635,6 +635,10 @@ func prepareResponseToResult(resp *pb.PrepareUploadResponse) *PrepareUploadResul
 		PaymentVaultAddress: resp.GetPaymentVaultAddress(),
 		PaymentTokenAddress: resp.GetPaymentTokenAddress(),
 		RPCUrl:              resp.GetRpcUrl(),
+		// Already-stored preflight (parity with REST): the external signer
+		// pays for (TotalChunks - AlreadyStoredCount) chunks.
+		TotalChunks:        int(resp.GetTotalChunks()),
+		AlreadyStoredCount: int(resp.GetAlreadyStoredCount()),
 	}
 	for _, p := range resp.GetPayments() {
 		result.Payments = append(result.Payments, PaymentInfo{

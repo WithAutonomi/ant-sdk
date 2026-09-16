@@ -520,7 +520,11 @@ module Antd
         payment_type: resp.payment_type,
         depth: is_merkle ? resp.depth : nil,
         pool_commitments: pool_commitments,
-        merkle_payment_timestamp: is_merkle ? resp.merkle_payment_timestamp.to_i : nil
+        merkle_payment_timestamp: is_merkle ? resp.merkle_payment_timestamp.to_i : nil,
+        # Already-stored preflight (parity with REST): the external signer
+        # pays for total_chunks - already_stored_count chunks.
+        total_chunks: resp.total_chunks,
+        already_stored_count: resp.already_stored_count
       )
     end
 

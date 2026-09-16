@@ -90,6 +90,8 @@ public sealed class GrpcClientTests
                 PaymentVaultAddress = "0xvault",
                 PaymentTokenAddress = "0xtoken",
                 RpcUrl = "http://localhost:8545",
+                TotalChunks = 3,
+                AlreadyStoredCount = 1,
             };
             resp.Payments.Add(new PaymentEntry
             {
@@ -257,6 +259,8 @@ public sealed class GrpcClientTests
         var client = MakeClient();
         var r = await client.PrepareUploadAsync("/tmp/x.bin");
         Assert.Equal("upid_file_", r.UploadId);
+        Assert.Equal(3L, r.TotalChunks);
+        Assert.Equal(1L, r.AlreadyStoredCount);
         Assert.Equal("wave_batch", r.PaymentType);
         Assert.Single(r.Payments);
         Assert.Equal("0xqa", r.Payments[0].QuoteHash);

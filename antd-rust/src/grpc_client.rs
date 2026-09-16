@@ -765,11 +765,10 @@ fn prepare_response_to_result(resp: proto::antd::v1::PrepareUploadResponse) -> P
                 .collect()
         }),
         merkle_payment_timestamp: is_merkle.then_some(resp.merkle_payment_timestamp),
-        // The already-stored preflight fields are not yet on the gRPC proto
-        // (tracked separately for gRPC parity); default to 0 here. REST
-        // already surfaces them.
-        total_chunks: 0,
-        already_stored_count: 0,
+        // Already-stored preflight (parity with REST): the external signer
+        // pays for `total_chunks - already_stored_count` chunks.
+        total_chunks: resp.total_chunks,
+        already_stored_count: resp.already_stored_count,
     }
 }
 

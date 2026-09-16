@@ -850,7 +850,11 @@ defmodule Antd.GrpcClient do
       payment_type: payment_type,
       depth: depth,
       pool_commitments: pool_commitments,
-      merkle_payment_timestamp: merkle_ts
+      merkle_payment_timestamp: merkle_ts,
+      # Already-stored preflight (parity with REST): the external signer
+      # pays for total_chunks - already_stored_count chunks.
+      total_chunks: resp.total_chunks,
+      already_stored_count: resp.already_stored_count
     }
   end
 
