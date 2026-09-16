@@ -10,6 +10,14 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # Stable tags (vX.Y.Z) MUST ship signed installers: the macOS and Windows
+  # build scripts refuse to fall through unsigned when this is 1, and the
+  # package jobs fail early if the signing secrets are absent. RC tags
+  # (vX.Y.Z-rc.N) keep warn-and-continue so the pipeline can be exercised
+  # without secrets. Rationale: the DigiCert cert expiring (2026-10-17) or a
+  # rotated-out secret must break the release, not silently publish an
+  # unsigned MSI/pkg that SmartScreen/Gatekeeper then blocks for every user.
+  ANTD_REQUIRE_SIGNING: ${{ contains(github.ref_name, '-') && '0' || '1' }}
 
 jobs:
   build:
@@ -70,8 +78,9 @@ jobs:
   # Installer packaging + binary signing. Each job consumes the bare binaries the
   # build job produced, signs them where applicable, builds the OS installer, and
   # uploads the signed binaries + installer for the release job to publish.
-  # Signing steps are gated on the relevant secrets being present, so a run
-  # without them still produces (unsigned) artifacts for pipeline testing.
+  # Signing steps are gated on the relevant secrets being present: an RC run
+  # without them still produces (unsigned) artifacts for pipeline testing, a
+  # stable run without them FAILS (ANTD_REQUIRE_SIGNING above).
   # ---------------------------------------------------------------------------
   package-linux:
     name: Package Linux (deb/rpm/script)
@@ -124,6 +133,12 @@ jobs:
     env:
       SIGNING_AVAILABLE: ${{ secrets.APPLE_TEAM_ID != '' }}
     steps:
+      - name: Stable tags require signing secrets
+        if: env.ANTD_REQUIRE_SIGNING == '1' && env.SIGNING_AVAILABLE != 'true'
+        run: |
+          echo "::error::stable tag ${GITHUB_REF_NAME} but the Apple signing secrets are not configured; refusing to build an unsigned .pkg" >&2
+          exit 1
+
       - uses: actions/checkout@v4
 
       - uses: actions/download-artifact@v4
@@ -198,6 +213,13 @@ jobs:
       SM_CLIENT_CERT_PASSWORD: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
       SM_KEYPAIR_ALIAS: ${{ secrets.SM_KEYPAIR_ALIAS }}
     steps:
+      - name: Stable tags require signing secrets
+        if: env.ANTD_REQUIRE_SIGNING == '1' && env.SIGNING_AVAILABLE != 'true'
+        shell: bash
+        run: |
+          echo "::error::stable tag ${GITHUB_REF_NAME} but the DigiCert signing secrets are not configured; refusing to build an unsigned MSI" >&2
+          exit 1
+
       - uses: actions/checkout@v4
 
       - uses: actions/download-artifact@v4
@@ -248,7 +270,13 @@ jobs:
       - name: Sign standalone binary
         if: env.SIGNING_AVAILABLE == 'true'
         shell: pwsh
-        run: smctl sign --keypair-alias "$env:SM_KEYPAIR_ALIAS" --input "bin\antd-windows-amd64.exe"
+        run: |
+          smctl sign --keypair-alias "$env:SM_KEYPAIR_ALIAS" --input "bin\antd-windows-amd64.exe"
+          # smctl can report FAILED and still exit 0 (see build-msi.ps1), so
+          # verify the signature rather than trusting the exit code.
+          $sig = Get-AuthenticodeSignature "bin\antd-windows-amd64.exe"
+          Write-Host "signature status: $($sig.Status)"
+          if ($sig.Status -ne 'Valid') { Write-Error "antd-windows-amd64.exe is not validly signed (status=$($sig.Status))" }
 
       - name: Build (sign) MSI
         shell: pwsh
@@ -259,10 +287,15 @@ jobs:
         shell: pwsh
         run: Copy-Item bin\antd-windows-amd64.exe out\
 
+      # Only the assets we mean to ship. build-msi.ps1 no longer emits a
+      # .wixpdb, and this list would keep it out of the release even if it did.
       - uses: actions/upload-artifact@v4
         with:
           name: pkg-windows
-          path: out/*
+          path: |
+            out/*.msi
+            out/*.exe
+          if-no-files-found: error
 
   release:
     name: Create Release

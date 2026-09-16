@@ -62,7 +62,7 @@ installers/linux/build-deb-rpm.sh --bin path/to/antd --version 0.10.0 --out dist
 installers/macos/build-pkg.sh --bin path/to/antd --version 0.10.0 --out dist
 ```
 
-**Windows** (on Windows; .NET SDK; signing skipped if smctl/SM_KEYPAIR_ALIAS absent):
+**Windows** (on Windows; .NET SDK; signing skipped if smctl/SM_KEYPAIR_ALIAS absent; no `.wixpdb` is emitted):
 ```powershell
 installers\windows\build-msi.ps1 -BinDir path\to\dir-with-antd.exe -Version 0.10.0 -OutDir dist
 ```
@@ -84,8 +84,23 @@ Triggered by pushing a `v*` tag. After the existing `build` matrix:
   (`vX.Y.Z-rc.N`) publish as a GitHub pre-release** — the channel for testing the
   signing + installer pipeline before a stable release.
 
-Signing steps are **gated on the relevant secrets being present**, so a run
-without secrets still produces unsigned artifacts for pipeline testing.
+Signing steps are **gated on the relevant secrets being present**. On an **RC
+tag** a run without secrets still produces unsigned artifacts for pipeline
+testing. On a **stable tag** the workflow exports `ANTD_REQUIRE_SIGNING=1`: the
+macOS and Windows package jobs fail before building if the secrets are absent,
+and `build-pkg.sh` / `build-msi.ps1` refuse to fall through unsigned at any
+codesign / productsign / notarize / smctl step. An expired certificate (the
+DigiCert EV cert is valid to 2026-10-17) therefore breaks the release instead
+of silently shipping installers that SmartScreen / Gatekeeper will block.
+Locally, leave `ANTD_REQUIRE_SIGNING` unset to build unsigned.
+
+## PR CI (`.github/workflows/installers-ci.yml`)
+
+Every PR touching `installers/**` builds all three packages from a **stub
+binary** (no Rust build) and asserts version, payload, autostart wiring, the
+embedded MSI licence (no `Lorem ipsum`), that no `.wixpdb` is produced, and
+that `ANTD_REQUIRE_SIGNING=1` without signing configured **fails** on macOS and
+Windows. shellcheck + PSScriptAnalyzer run over the scripts.
 
 ### Required GitHub secrets (repo/org: `WithAutonomi/ant-sdk`)
 

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Build (and optionally sign) the antd Windows MSI.
 
@@ -6,9 +6,16 @@
   Adapted from maidsafe/autonomi build-windows-msi.yml. Signs antd.exe FIRST so
   the signed binary is embedded in the MSI, builds the MSI with WiX v5 (x64),
   then signs the MSI. Signing uses DigiCert Software Trust Manager (smctl /
-  Azure Trusted Signing) and is skipped with a warning if smctl is unavailable
-  or SM_KEYPAIR_ALIAS is unset — the CI job is responsible for installing and
-  authenticating smctl (digicert/ssm-code-signing action) before calling this.
+  Azure Trusted Signing). If smctl is unavailable or SM_KEYPAIR_ALIAS is unset
+  the build continues UNSIGNED with a warning — unless ANTD_REQUIRE_SIGNING=1,
+  in which case it stops: release CI sets that on stable tags so an expired
+  cert or a rotated-out secret can never silently ship an unsigned installer
+  (RC tags and local builds keep warn-and-continue). The CI job is
+  responsible for installing and authenticating smctl
+  (digicert/ssm-code-signing action) before calling this.
+
+  WiX's .wixpdb (debug symbols) is not produced (-pdbtype none), so OutDir only
+  ever contains the .msi.
 
 .PARAMETER BinDir
   Directory containing the built antd.exe (passed to WiX as ArtifactsDir).
@@ -34,7 +41,6 @@ $repoRoot = (Resolve-Path (Join-Path $scriptDir "..\..")).Path
 
 # Fixed asset name (keep in sync with installers/common/metadata.env).
 $AssetName = "antd-windows-x64-setup.msi"
-$TaskName = "Autonomi antd"
 
 if (-not $Version) {
     $cargo = Get-Content (Join-Path $repoRoot "antd\Cargo.toml")
@@ -74,6 +80,9 @@ function Invoke-Sign([string] $Path) {
         if ($LASTEXITCODE -ne 0 -or $sig.Status -ne 'Valid') {
             Write-Error "Signing did not produce a valid signature for $Path (exit=$LASTEXITCODE, status=$($sig.Status))"
         }
+    } elseif ($env:ANTD_REQUIRE_SIGNING -eq '1') {
+        # Stable-release builds must never fall through unsigned.
+        Write-Error "ANTD_REQUIRE_SIGNING=1 but smctl is unavailable or SM_KEYPAIR_ALIAS is unset — refusing to build an unsigned $Path"
     } else {
         Write-Warning "smctl unavailable or SM_KEYPAIR_ALIAS unset — NOT signing $Path"
     }
@@ -92,6 +101,7 @@ $wxsFile = Join-Path $scriptDir "antd.wxs"
 Write-Host "Building MSI -> $outputMsi"
 wix build `
     -arch x64 `
+    -pdbtype none `
     -d ProductVersion=$msiVersion `
     -d ArtifactsDir=$artifactsPath `
     -bindpath $scriptDir `
@@ -99,6 +109,9 @@ wix build `
     -o $outputMsi `
     $wxsFile
 if ($LASTEXITCODE -ne 0) { Write-Error "WiX build failed" }
+# Belt and braces: the release job uploads OutDir, and a .wixpdb here would be
+# published as a release asset (that is what v0.11.1 and earlier shipped).
+Get-ChildItem -Path $OutDir -Filter *.wixpdb -ErrorAction SilentlyContinue | Remove-Item -Force
 
 # 4) Sign the MSI.
 Invoke-Sign $outputMsi

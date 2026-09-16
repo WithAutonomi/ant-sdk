@@ -6,13 +6,24 @@
 # Usage:
 #   build-pkg.sh --bin <path/to/antd> [--version X.Y.Z] [--arch arm64] [--out <dir>]
 #
-# Signing/notarization (all optional — skipped with a warning if unset):
+# Signing/notarization (skipped with a warning if unset — unless
+# ANTD_REQUIRE_SIGNING=1, in which case a missing step is fatal; release CI sets
+# that on stable tags so an unsigned/un-notarized .pkg can never ship silently):
 #   Binary codesign : APP_SIGNING_IDENTITY  (Developer ID Application) + KEYCHAIN_PATH
 #   Package sign    : INSTALLER_SIGNING_IDENTITY (Developer ID Installer) + KEYCHAIN_PATH
 #   Notarization    : APPLE_ID, APPLE_NOTARIZATION_PASSWORD, APPLE_TEAM_ID
 # The CI job is responsible for creating the keychain and importing the certs
 # (same as autonomi) and exporting the *_SIGNING_IDENTITY / KEYCHAIN_PATH vars.
 set -euo pipefail
+
+# Warn-and-continue by default; fatal when ANTD_REQUIRE_SIGNING=1.
+skip_or_die() {
+    if [ "${ANTD_REQUIRE_SIGNING:-0}" = "1" ]; then
+        echo "ERROR: ANTD_REQUIRE_SIGNING=1 — $1. Refusing to build an unsigned release." >&2
+        exit 1
+    fi
+    echo "WARNING: $1." >&2
+}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -62,7 +73,7 @@ if [ -n "${APP_SIGNING_IDENTITY:-}" ] && [ -n "${KEYCHAIN_PATH:-}" ]; then
         --options runtime --timestamp --force "$WORK/pkg-root$ANTD_MACOS_BIN"
     codesign --verify --verbose "$WORK/pkg-root$ANTD_MACOS_BIN"
 else
-    echo "WARNING: APP_SIGNING_IDENTITY/KEYCHAIN_PATH unset — binary NOT codesigned." >&2
+    skip_or_die "APP_SIGNING_IDENTITY/KEYCHAIN_PATH unset — binary NOT codesigned"
 fi
 
 # 3) Component package.
@@ -105,7 +116,7 @@ if [ -n "${INSTALLER_SIGNING_IDENTITY:-}" ] && [ -n "${KEYCHAIN_PATH:-}" ]; then
         "$WORK/antd-unsigned.pkg" "$FINAL"
     pkgutil --check-signature "$FINAL"
 else
-    echo "WARNING: INSTALLER_SIGNING_IDENTITY/KEYCHAIN_PATH unset — package NOT signed." >&2
+    skip_or_die "INSTALLER_SIGNING_IDENTITY/KEYCHAIN_PATH unset — package NOT signed"
     cp "$WORK/antd-unsigned.pkg" "$FINAL"
 fi
 
@@ -126,7 +137,7 @@ if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_NOTARIZATION_PASSWORD:-}" ] && [ -n "
     xcrun stapler validate "$FINAL"
     spctl -a -vv -t install "$FINAL" || true
 else
-    echo "WARNING: APPLE_ID/APPLE_NOTARIZATION_PASSWORD/APPLE_TEAM_ID unset — NOT notarized." >&2
+    skip_or_die "APPLE_ID/APPLE_NOTARIZATION_PASSWORD/APPLE_TEAM_ID unset — NOT notarized"
 fi
 
 echo "Done: $FINAL"
