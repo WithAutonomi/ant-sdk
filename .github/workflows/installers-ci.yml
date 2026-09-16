@@ -49,8 +49,9 @@ jobs:
           set -euo pipefail
           files=$(find installers -type f \( -name '*.sh' -o -path '*/macos/scripts/postinstall' \))
           echo "$files"
-          # -x follows the `. ../common/metadata.env` source lines.
-          echo "$files" | xargs shellcheck -x
+          # -x -P SCRIPTDIR follows the `. ../common/metadata.env` source lines
+          # relative to each script; -S warning ignores info-level style notes.
+          echo "$files" | xargs shellcheck -x -P SCRIPTDIR -S warning
 
       - name: PSScriptAnalyzer
         shell: pwsh
@@ -84,7 +85,8 @@ jobs:
 
       - name: Build
         run: |
-          export PATH="$(go env GOPATH)/bin:$PATH"
+          gopath_bin="$(go env GOPATH)/bin"
+          export PATH="$gopath_bin:$PATH"
           ./installers/linux/build-deb-rpm.sh --bin "$PWD/bin/antd" --version "$CI_VERSION" --out "$PWD/out"
           ls -la out
 
@@ -144,7 +146,9 @@ jobs:
           set -euo pipefail
           pkg=out/antd-macos.pkg
           # Unsigned: check-signature exits non-zero and says so.
-          pkgutil --check-signature "$pkg" && { echo "expected an unsigned pkg" >&2; exit 1; } || true
+          if pkgutil --check-signature "$pkg"; then
+            echo "expected an unsigned pkg" >&2; exit 1
+          fi
           pkgutil --expand-full "$pkg" /tmp/pkg
           find /tmp/pkg -maxdepth 2 | sort
           grep -q "version=\"$CI_VERSION\"" /tmp/pkg/Distribution
@@ -251,3 +255,6 @@ jobs:
           if (-not (Select-String -Path neg.log -Pattern 'ANTD_REQUIRE_SIGNING=1' -Quiet)) { throw "refusal message missing" }
           if (Test-Path out-neg\antd-windows-x64-setup.msi) { throw "an MSI was produced despite the refusal" }
           Write-Host "refused as expected (rc=$rc)"
+          # The pwsh step wrapper exits with the last native exit code, which
+          # is the intentional 1 from the refused build; this step passed.
+          exit 0
