@@ -57,6 +57,11 @@ class HealthCheckResponse extends $pb.GeneratedMessage {
     $core.String? buildCommit,
     $core.String? paymentTokenAddress,
     $core.String? paymentVaultAddress,
+    $core.bool? writeReady,
+    $core.int? connectedPeers,
+    $core.int? routingTableSize,
+    $core.int? rebootstrapThreshold,
+    $fixnum.Int64? lastStoreOkSecsAgo,
   }) {
     final result = create();
     if (status != null) result.status = status;
@@ -67,6 +72,11 @@ class HealthCheckResponse extends $pb.GeneratedMessage {
     if (buildCommit != null) result.buildCommit = buildCommit;
     if (paymentTokenAddress != null) result.paymentTokenAddress = paymentTokenAddress;
     if (paymentVaultAddress != null) result.paymentVaultAddress = paymentVaultAddress;
+    if (writeReady != null) result.writeReady = writeReady;
+    if (connectedPeers != null) result.connectedPeers = connectedPeers;
+    if (routingTableSize != null) result.routingTableSize = routingTableSize;
+    if (rebootstrapThreshold != null) result.rebootstrapThreshold = rebootstrapThreshold;
+    if (lastStoreOkSecsAgo != null) result.lastStoreOkSecsAgo = lastStoreOkSecsAgo;
     return result;
   }
 
@@ -84,6 +94,11 @@ class HealthCheckResponse extends $pb.GeneratedMessage {
     ..aOS(6, _omitFieldNames ? '' : 'buildCommit')
     ..aOS(7, _omitFieldNames ? '' : 'paymentTokenAddress')
     ..aOS(8, _omitFieldNames ? '' : 'paymentVaultAddress')
+    ..aOB(9, _omitFieldNames ? '' : 'writeReady')
+    ..a<$core.int>(10, _omitFieldNames ? '' : 'connectedPeers', $pb.PbFieldType.OU3)
+    ..a<$core.int>(11, _omitFieldNames ? '' : 'routingTableSize', $pb.PbFieldType.OU3)
+    ..a<$core.int>(12, _omitFieldNames ? '' : 'rebootstrapThreshold', $pb.PbFieldType.OU3)
+    ..a<$fixnum.Int64>(13, _omitFieldNames ? '' : 'lastStoreOkSecsAgo', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
     ..hasRequiredFields = false
   ;
 
@@ -175,6 +190,51 @@ class HealthCheckResponse extends $pb.GeneratedMessage {
   $core.bool hasPaymentVaultAddress() => $_has(7);
   @$pb.TagNumber(8)
   void clearPaymentVaultAddress() => $_clearField(8);
+
+  @$pb.TagNumber(9)
+  $core.bool get writeReady => $_getBF(8);
+  @$pb.TagNumber(9)
+  set writeReady($core.bool value) => $_setBool(8, value);
+  @$pb.TagNumber(9)
+  $core.bool hasWriteReady() => $_has(8);
+  @$pb.TagNumber(9)
+  void clearWriteReady() => $_clearField(9);
+
+  @$pb.TagNumber(10)
+  $core.int get connectedPeers => $_getIZ(9);
+  @$pb.TagNumber(10)
+  set connectedPeers($core.int value) => $_setUnsignedInt32(9, value);
+  @$pb.TagNumber(10)
+  $core.bool hasConnectedPeers() => $_has(9);
+  @$pb.TagNumber(10)
+  void clearConnectedPeers() => $_clearField(10);
+
+  @$pb.TagNumber(11)
+  $core.int get routingTableSize => $_getIZ(10);
+  @$pb.TagNumber(11)
+  set routingTableSize($core.int value) => $_setUnsignedInt32(10, value);
+  @$pb.TagNumber(11)
+  $core.bool hasRoutingTableSize() => $_has(10);
+  @$pb.TagNumber(11)
+  void clearRoutingTableSize() => $_clearField(11);
+
+  @$pb.TagNumber(12)
+  $core.int get rebootstrapThreshold => $_getIZ(11);
+  @$pb.TagNumber(12)
+  set rebootstrapThreshold($core.int value) => $_setUnsignedInt32(11, value);
+  @$pb.TagNumber(12)
+  $core.bool hasRebootstrapThreshold() => $_has(11);
+  @$pb.TagNumber(12)
+  void clearRebootstrapThreshold() => $_clearField(12);
+
+  @$pb.TagNumber(13)
+  $fixnum.Int64 get lastStoreOkSecsAgo => $_getI64(12);
+  @$pb.TagNumber(13)
+  set lastStoreOkSecsAgo($fixnum.Int64 value) => $_setInt64(12, value);
+  @$pb.TagNumber(13)
+  $core.bool hasLastStoreOkSecsAgo() => $_has(12);
+  @$pb.TagNumber(13)
+  void clearLastStoreOkSecsAgo() => $_clearField(13);
 }
 
 

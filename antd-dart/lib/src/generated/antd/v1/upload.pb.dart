@@ -23,10 +23,12 @@ class PrepareFileUploadRequest extends $pb.GeneratedMessage {
   factory PrepareFileUploadRequest({
     $core.String? path,
     $core.String? visibility,
+    $core.bool? includeSignedQuotes,
   }) {
     final result = create();
     if (path != null) result.path = path;
     if (visibility != null) result.visibility = visibility;
+    if (includeSignedQuotes != null) result.includeSignedQuotes = includeSignedQuotes;
     return result;
   }
 
@@ -38,6 +40,7 @@ class PrepareFileUploadRequest extends $pb.GeneratedMessage {
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'PrepareFileUploadRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'path')
     ..aOS(2, _omitFieldNames ? '' : 'visibility')
+    ..aOB(3, _omitFieldNames ? '' : 'includeSignedQuotes')
     ..hasRequiredFields = false
   ;
 
@@ -80,16 +83,32 @@ class PrepareFileUploadRequest extends $pb.GeneratedMessage {
   $core.bool hasVisibility() => $_has(1);
   @$pb.TagNumber(2)
   void clearVisibility() => $_clearField(2);
+
+  /// When true, the wave-batch response additionally carries the full signed
+  /// quotes + ADR-0004 commitment sidecars (`signed_quotes`) so a
+  /// hosted-payments gateway can verify the batch offline before paying
+  /// (V2-854). Default false: ~5–6 KB per quote plus up to 8 KB per sidecar,
+  /// and existing consumers see no change.
+  @$pb.TagNumber(3)
+  $core.bool get includeSignedQuotes => $_getBF(2);
+  @$pb.TagNumber(3)
+  set includeSignedQuotes($core.bool value) => $_setBool(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasIncludeSignedQuotes() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearIncludeSignedQuotes() => $_clearField(3);
 }
 
 class PrepareDataUploadRequest extends $pb.GeneratedMessage {
   factory PrepareDataUploadRequest({
     $core.List<$core.int>? data,
     $core.String? visibility,
+    $core.bool? includeSignedQuotes,
   }) {
     final result = create();
     if (data != null) result.data = data;
     if (visibility != null) result.visibility = visibility;
+    if (includeSignedQuotes != null) result.includeSignedQuotes = includeSignedQuotes;
     return result;
   }
 
@@ -101,6 +120,7 @@ class PrepareDataUploadRequest extends $pb.GeneratedMessage {
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'PrepareDataUploadRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
     ..a<$core.List<$core.int>>(1, _omitFieldNames ? '' : 'data', $pb.PbFieldType.OY)
     ..aOS(2, _omitFieldNames ? '' : 'visibility')
+    ..aOB(3, _omitFieldNames ? '' : 'includeSignedQuotes')
     ..hasRequiredFields = false
   ;
 
@@ -140,6 +160,16 @@ class PrepareDataUploadRequest extends $pb.GeneratedMessage {
   $core.bool hasVisibility() => $_has(1);
   @$pb.TagNumber(2)
   void clearVisibility() => $_clearField(2);
+
+  /// Same semantics as PrepareFileUploadRequest.include_signed_quotes.
+  @$pb.TagNumber(3)
+  $core.bool get includeSignedQuotes => $_getBF(2);
+  @$pb.TagNumber(3)
+  set includeSignedQuotes($core.bool value) => $_setBool(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasIncludeSignedQuotes() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearIncludeSignedQuotes() => $_clearField(3);
 }
 
 class PrepareUploadResponse extends $pb.GeneratedMessage {
@@ -154,6 +184,10 @@ class PrepareUploadResponse extends $pb.GeneratedMessage {
     $core.String? paymentVaultAddress,
     $core.String? paymentTokenAddress,
     $core.String? rpcUrl,
+    $core.Iterable<MerkleBatchEntry>? merkleBatches,
+    $core.Iterable<$2.SignedQuoteEntry>? signedQuotes,
+    $fixnum.Int64? totalChunks,
+    $fixnum.Int64? alreadyStoredCount,
   }) {
     final result = create();
     if (uploadId != null) result.uploadId = uploadId;
@@ -166,6 +200,10 @@ class PrepareUploadResponse extends $pb.GeneratedMessage {
     if (paymentVaultAddress != null) result.paymentVaultAddress = paymentVaultAddress;
     if (paymentTokenAddress != null) result.paymentTokenAddress = paymentTokenAddress;
     if (rpcUrl != null) result.rpcUrl = rpcUrl;
+    if (merkleBatches != null) result.merkleBatches.addAll(merkleBatches);
+    if (signedQuotes != null) result.signedQuotes.addAll(signedQuotes);
+    if (totalChunks != null) result.totalChunks = totalChunks;
+    if (alreadyStoredCount != null) result.alreadyStoredCount = alreadyStoredCount;
     return result;
   }
 
@@ -185,6 +223,10 @@ class PrepareUploadResponse extends $pb.GeneratedMessage {
     ..aOS(8, _omitFieldNames ? '' : 'paymentVaultAddress')
     ..aOS(9, _omitFieldNames ? '' : 'paymentTokenAddress')
     ..aOS(10, _omitFieldNames ? '' : 'rpcUrl')
+    ..pc<MerkleBatchEntry>(11, _omitFieldNames ? '' : 'merkleBatches', $pb.PbFieldType.PM, subBuilder: MerkleBatchEntry.create)
+    ..pc<$2.SignedQuoteEntry>(12, _omitFieldNames ? '' : 'signedQuotes', $pb.PbFieldType.PM, subBuilder: $2.SignedQuoteEntry.create)
+    ..a<$fixnum.Int64>(13, _omitFieldNames ? '' : 'totalChunks', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
+    ..a<$fixnum.Int64>(14, _omitFieldNames ? '' : 'alreadyStoredCount', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
     ..hasRequiredFields = false
   ;
 
@@ -232,6 +274,10 @@ class PrepareUploadResponse extends $pb.GeneratedMessage {
   $pb.PbList<$2.PaymentEntry> get payments => $_getList(2);
 
   /// --- Merkle fields (populated when payment_type == "merkle") ---
+  /// LEGACY single-batch fields: populated only when `merkle_batches` has
+  /// exactly one entry (mirroring that entry), so pre-multi-batch clients
+  /// keep working for uploads that fit one merkle tree. Multi-batch prepares
+  /// leave them empty — a legacy client cannot pay a fraction of the file.
   /// Merkle tree depth (1..=8).
   @$pb.TagNumber(4)
   $core.int get depth => $_getIZ(3);
@@ -297,6 +343,114 @@ class PrepareUploadResponse extends $pb.GeneratedMessage {
   $core.bool hasRpcUrl() => $_has(9);
   @$pb.TagNumber(10)
   void clearRpcUrl() => $_clearField(10);
+
+  /// All merkle payment batches, in order. ant-core splits an upload larger
+  /// than one merkle tree (256 fresh chunks ≈ 1 GiB) into several batches;
+  /// the signer submits one `payForMerkleTree2()` transaction per entry and
+  /// passes the winner hashes back index-aligned in
+  /// `FinalizeUploadRequest.winner_pool_hashes`.
+  @$pb.TagNumber(11)
+  $pb.PbList<MerkleBatchEntry> get merkleBatches => $_getList(10);
+
+  /// Populated only when the request set `include_signed_quotes` and the
+  /// payment type is wave_batch: one entry per `payments[]` quote for offline
+  /// verification via `VerifyService.VerifyQuotes`. Merkle prepares leave it
+  /// empty (the daemon does not retain merkle candidate commitments).
+  @$pb.TagNumber(12)
+  $pb.PbList<$2.SignedQuoteEntry> get signedQuotes => $_getList(11);
+
+  /// --- Already-stored preflight (REST has carried these since antd 0.10.0;
+  /// gRPC from the first release after 0.13.0) ---
+  /// Total number of chunks in this upload, including any already on-network.
+  @$pb.TagNumber(13)
+  $fixnum.Int64 get totalChunks => $_getI64(12);
+  @$pb.TagNumber(13)
+  set totalChunks($fixnum.Int64 value) => $_setInt64(12, value);
+  @$pb.TagNumber(13)
+  $core.bool hasTotalChunks() => $_has(12);
+  @$pb.TagNumber(13)
+  void clearTotalChunks() => $_clearField(13);
+
+  /// How many of `total_chunks` were already stored on-network (deterministic
+  /// self-encryption) and therefore excluded from payment + PUT. The external
+  /// signer is paying for `total_chunks - already_stored_count` chunks.
+  @$pb.TagNumber(14)
+  $fixnum.Int64 get alreadyStoredCount => $_getI64(13);
+  @$pb.TagNumber(14)
+  set alreadyStoredCount($fixnum.Int64 value) => $_setInt64(13, value);
+  @$pb.TagNumber(14)
+  $core.bool hasAlreadyStoredCount() => $_has(13);
+  @$pb.TagNumber(14)
+  void clearAlreadyStoredCount() => $_clearField(14);
+}
+
+/// One merkle payment batch: everything the external signer needs for a
+/// single `payForMerkleTree2()` call.
+class MerkleBatchEntry extends $pb.GeneratedMessage {
+  factory MerkleBatchEntry({
+    $core.int? depth,
+    $core.Iterable<PoolCommitmentEntry>? poolCommitments,
+    $fixnum.Int64? merklePaymentTimestamp,
+  }) {
+    final result = create();
+    if (depth != null) result.depth = depth;
+    if (poolCommitments != null) result.poolCommitments.addAll(poolCommitments);
+    if (merklePaymentTimestamp != null) result.merklePaymentTimestamp = merklePaymentTimestamp;
+    return result;
+  }
+
+  MerkleBatchEntry._();
+
+  factory MerkleBatchEntry.fromBuffer($core.List<$core.int> data, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(data, registry);
+  factory MerkleBatchEntry.fromJson($core.String json, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'MerkleBatchEntry', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
+    ..a<$core.int>(1, _omitFieldNames ? '' : 'depth', $pb.PbFieldType.OU3)
+    ..pc<PoolCommitmentEntry>(2, _omitFieldNames ? '' : 'poolCommitments', $pb.PbFieldType.PM, subBuilder: PoolCommitmentEntry.create)
+    ..a<$fixnum.Int64>(3, _omitFieldNames ? '' : 'merklePaymentTimestamp', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  MerkleBatchEntry clone() => MerkleBatchEntry()..mergeFromMessage(this);
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  MerkleBatchEntry copyWith(void Function(MerkleBatchEntry) updates) => super.copyWith((message) => updates(message as MerkleBatchEntry)) as MerkleBatchEntry;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static MerkleBatchEntry create() => MerkleBatchEntry._();
+  @$core.override
+  MerkleBatchEntry createEmptyInstance() => create();
+  static $pb.PbList<MerkleBatchEntry> createRepeated() => $pb.PbList<MerkleBatchEntry>();
+  @$core.pragma('dart2js:noInline')
+  static MerkleBatchEntry getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<MerkleBatchEntry>(create);
+  static MerkleBatchEntry? _defaultInstance;
+
+  /// Merkle tree depth (1..=8).
+  @$pb.TagNumber(1)
+  $core.int get depth => $_getIZ(0);
+  @$pb.TagNumber(1)
+  set depth($core.int value) => $_setUnsignedInt32(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasDepth() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearDepth() => $_clearField(1);
+
+  /// Pool commitments for `payForMerkleTree2()`.
+  @$pb.TagNumber(2)
+  $pb.PbList<PoolCommitmentEntry> get poolCommitments => $_getList(1);
+
+  /// Timestamp for the merkle payment (unix seconds).
+  @$pb.TagNumber(3)
+  $fixnum.Int64 get merklePaymentTimestamp => $_getI64(2);
+  @$pb.TagNumber(3)
+  set merklePaymentTimestamp($fixnum.Int64 value) => $_setInt64(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasMerklePaymentTimestamp() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearMerklePaymentTimestamp() => $_clearField(3);
 }
 
 /// A pool commitment entry for the merkle payment contract.
@@ -421,12 +575,14 @@ class FinalizeUploadRequest extends $pb.GeneratedMessage {
     $core.Iterable<$core.MapEntry<$core.String, $core.String>>? txHashes,
     $core.String? winnerPoolHash,
     $core.bool? storeDataMap,
+    $core.Iterable<$core.String>? winnerPoolHashes,
   }) {
     final result = create();
     if (uploadId != null) result.uploadId = uploadId;
     if (txHashes != null) result.txHashes.addEntries(txHashes);
     if (winnerPoolHash != null) result.winnerPoolHash = winnerPoolHash;
     if (storeDataMap != null) result.storeDataMap = storeDataMap;
+    if (winnerPoolHashes != null) result.winnerPoolHashes.addAll(winnerPoolHashes);
     return result;
   }
 
@@ -440,6 +596,7 @@ class FinalizeUploadRequest extends $pb.GeneratedMessage {
     ..m<$core.String, $core.String>(2, _omitFieldNames ? '' : 'txHashes', entryClassName: 'FinalizeUploadRequest.TxHashesEntry', keyFieldType: $pb.PbFieldType.OS, valueFieldType: $pb.PbFieldType.OS, packageName: const $pb.PackageName('antd.v1'))
     ..aOS(3, _omitFieldNames ? '' : 'winnerPoolHash')
     ..aOB(4, _omitFieldNames ? '' : 'storeDataMap')
+    ..pPS(5, _omitFieldNames ? '' : 'winnerPoolHashes')
     ..hasRequiredFields = false
   ;
 
@@ -471,14 +628,17 @@ class FinalizeUploadRequest extends $pb.GeneratedMessage {
   void clearUploadId() => $_clearField(1);
 
   /// Wave-batch: map of quote_hash (hex) → tx_hash (hex) from the on-chain
-  /// payment. Required when the prepared upload was wave-batch, must be
-  /// empty otherwise.
+  /// payment. Required when the prepared upload was wave-batch and prepare
+  /// reported payments; may be empty when prepare reported none (every chunk
+  /// already stored — no on-chain payment is needed). Must be empty for
+  /// merkle uploads.
   @$pb.TagNumber(2)
   $pb.PbMap<$core.String, $core.String> get txHashes => $_getMap(1);
 
-  /// Merkle: winner pool hash (hex with 0x prefix, 32 bytes) from the
-  /// `MerklePaymentMade` event. Required when the prepared upload was
-  /// merkle, must be empty otherwise.
+  /// Merkle, LEGACY single-batch: winner pool hash (hex with 0x prefix,
+  /// 32 bytes) from the `MerklePaymentMade` event. Accepted only when the
+  /// prepared upload has exactly one merkle batch; must be empty otherwise
+  /// (and must not be combined with `winner_pool_hashes`).
   @$pb.TagNumber(3)
   $core.String get winnerPoolHash => $_getSZ(2);
   @$pb.TagNumber(3)
@@ -500,6 +660,14 @@ class FinalizeUploadRequest extends $pb.GeneratedMessage {
   $core.bool hasStoreDataMap() => $_has(3);
   @$pb.TagNumber(4)
   void clearStoreDataMap() => $_clearField(4);
+
+  /// Merkle: one winner pool hash per entry in the prepare response's
+  /// `merkle_batches`, index-aligned. An empty string marks a batch the
+  /// signer never paid — paid batches store and the unpaid chunks surface
+  /// via the PARTIAL_UPLOAD error. Required (over `winner_pool_hash`) when
+  /// the prepared upload has more than one batch.
+  @$pb.TagNumber(5)
+  $pb.PbList<$core.String> get winnerPoolHashes => $_getList(4);
 }
 
 class FinalizeUploadResponse extends $pb.GeneratedMessage {

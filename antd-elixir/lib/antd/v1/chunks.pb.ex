@@ -52,6 +52,7 @@ defmodule Antd.V1.PrepareChunkRequest do
     syntax: :proto3
 
   field :data, 1, type: :bytes
+  field :include_signed_quotes, 2, type: :bool, json_name: "includeSignedQuotes"
 end
 
 defmodule Antd.V1.PrepareChunkResponse do
@@ -71,6 +72,11 @@ defmodule Antd.V1.PrepareChunkResponse do
   field :payment_vault_address, 7, type: :string, json_name: "paymentVaultAddress"
   field :payment_token_address, 8, type: :string, json_name: "paymentTokenAddress"
   field :rpc_url, 9, type: :string, json_name: "rpcUrl"
+
+  field :signed_quotes, 10,
+    repeated: true,
+    type: Antd.V1.SignedQuoteEntry,
+    json_name: "signedQuotes"
 end
 
 defmodule Antd.V1.FinalizeChunkRequest.TxHashesEntry do

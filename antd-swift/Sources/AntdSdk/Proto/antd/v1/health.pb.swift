@@ -59,9 +59,33 @@ public struct Antd_V1_HealthCheckResponse: Sendable {
   /// payment vault contract, or "" if unconfigured
   public var paymentVaultAddress: String = String()
 
+  /// best-effort write-path signal: max(routing_table_size, connected_peers) >= rebootstrap_threshold; false = stores known-degraded
+  public var writeReady: Bool = false
+
+  /// live transport-level connection count (distinct from routing_table_size)
+  public var connectedPeers: UInt32 = 0
+
+  /// DHT routing-table entries — the number auto-re-bootstrap keys off
+  public var routingTableSize: UInt32 = 0
+
+  /// routing-table floor below which the DHT auto-re-bootstraps
+  public var rebootstrapThreshold: UInt32 = 0
+
+  /// seconds since the last successful store-type operation; absent if none this process
+  public var lastStoreOkSecsAgo: UInt64 {
+    get {_lastStoreOkSecsAgo ?? 0}
+    set {_lastStoreOkSecsAgo = newValue}
+  }
+  /// Returns true if `lastStoreOkSecsAgo` has been explicitly set.
+  public var hasLastStoreOkSecsAgo: Bool {self._lastStoreOkSecsAgo != nil}
+  /// Clears the value of `lastStoreOkSecsAgo`. Subsequent reads from it will return its default value.
+  public mutating func clearLastStoreOkSecsAgo() {self._lastStoreOkSecsAgo = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
+
+  fileprivate var _lastStoreOkSecsAgo: UInt64? = nil
 }
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
@@ -89,7 +113,7 @@ extension Antd_V1_HealthCheckRequest: SwiftProtobuf.Message, SwiftProtobuf._Mess
 
 extension Antd_V1_HealthCheckResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".HealthCheckResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}status\0\u{1}network\0\u{1}version\0\u{3}evm_network\0\u{3}uptime_seconds\0\u{3}build_commit\0\u{3}payment_token_address\0\u{3}payment_vault_address\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}status\0\u{1}network\0\u{1}version\0\u{3}evm_network\0\u{3}uptime_seconds\0\u{3}build_commit\0\u{3}payment_token_address\0\u{3}payment_vault_address\0\u{3}write_ready\0\u{3}connected_peers\0\u{3}routing_table_size\0\u{3}rebootstrap_threshold\0\u{3}last_store_ok_secs_ago\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -105,12 +129,21 @@ extension Antd_V1_HealthCheckResponse: SwiftProtobuf.Message, SwiftProtobuf._Mes
       case 6: try { try decoder.decodeSingularStringField(value: &self.buildCommit) }()
       case 7: try { try decoder.decodeSingularStringField(value: &self.paymentTokenAddress) }()
       case 8: try { try decoder.decodeSingularStringField(value: &self.paymentVaultAddress) }()
+      case 9: try { try decoder.decodeSingularBoolField(value: &self.writeReady) }()
+      case 10: try { try decoder.decodeSingularUInt32Field(value: &self.connectedPeers) }()
+      case 11: try { try decoder.decodeSingularUInt32Field(value: &self.routingTableSize) }()
+      case 12: try { try decoder.decodeSingularUInt32Field(value: &self.rebootstrapThreshold) }()
+      case 13: try { try decoder.decodeSingularUInt64Field(value: &self._lastStoreOkSecsAgo) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
     if !self.status.isEmpty {
       try visitor.visitSingularStringField(value: self.status, fieldNumber: 1)
     }
@@ -135,6 +168,21 @@ extension Antd_V1_HealthCheckResponse: SwiftProtobuf.Message, SwiftProtobuf._Mes
     if !self.paymentVaultAddress.isEmpty {
       try visitor.visitSingularStringField(value: self.paymentVaultAddress, fieldNumber: 8)
     }
+    if self.writeReady != false {
+      try visitor.visitSingularBoolField(value: self.writeReady, fieldNumber: 9)
+    }
+    if self.connectedPeers != 0 {
+      try visitor.visitSingularUInt32Field(value: self.connectedPeers, fieldNumber: 10)
+    }
+    if self.routingTableSize != 0 {
+      try visitor.visitSingularUInt32Field(value: self.routingTableSize, fieldNumber: 11)
+    }
+    if self.rebootstrapThreshold != 0 {
+      try visitor.visitSingularUInt32Field(value: self.rebootstrapThreshold, fieldNumber: 12)
+    }
+    try { if let v = self._lastStoreOkSecsAgo {
+      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 13)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -147,6 +195,11 @@ extension Antd_V1_HealthCheckResponse: SwiftProtobuf.Message, SwiftProtobuf._Mes
     if lhs.buildCommit != rhs.buildCommit {return false}
     if lhs.paymentTokenAddress != rhs.paymentTokenAddress {return false}
     if lhs.paymentVaultAddress != rhs.paymentVaultAddress {return false}
+    if lhs.writeReady != rhs.writeReady {return false}
+    if lhs.connectedPeers != rhs.connectedPeers {return false}
+    if lhs.routingTableSize != rhs.routingTableSize {return false}
+    if lhs.rebootstrapThreshold != rhs.rebootstrapThreshold {return false}
+    if lhs._lastStoreOkSecsAgo != rhs._lastStoreOkSecsAgo {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -34,13 +34,15 @@ class PutChunkResponse(_message.Message):
     def __init__(self, cost: _Optional[_Union[_common_pb2.Cost, _Mapping]] = ..., address: _Optional[str] = ...) -> None: ...
 
 class PrepareChunkRequest(_message.Message):
-    __slots__ = ("data",)
+    __slots__ = ("data", "include_signed_quotes")
     DATA_FIELD_NUMBER: _ClassVar[int]
+    INCLUDE_SIGNED_QUOTES_FIELD_NUMBER: _ClassVar[int]
     data: bytes
-    def __init__(self, data: _Optional[bytes] = ...) -> None: ...
+    include_signed_quotes: bool
+    def __init__(self, data: _Optional[bytes] = ..., include_signed_quotes: bool = ...) -> None: ...
 
 class PrepareChunkResponse(_message.Message):
-    __slots__ = ("address", "already_stored", "upload_id", "payment_type", "payments", "total_amount", "payment_vault_address", "payment_token_address", "rpc_url")
+    __slots__ = ("address", "already_stored", "upload_id", "payment_type", "payments", "total_amount", "payment_vault_address", "payment_token_address", "rpc_url", "signed_quotes")
     ADDRESS_FIELD_NUMBER: _ClassVar[int]
     ALREADY_STORED_FIELD_NUMBER: _ClassVar[int]
     UPLOAD_ID_FIELD_NUMBER: _ClassVar[int]
@@ -50,6 +52,7 @@ class PrepareChunkResponse(_message.Message):
     PAYMENT_VAULT_ADDRESS_FIELD_NUMBER: _ClassVar[int]
     PAYMENT_TOKEN_ADDRESS_FIELD_NUMBER: _ClassVar[int]
     RPC_URL_FIELD_NUMBER: _ClassVar[int]
+    SIGNED_QUOTES_FIELD_NUMBER: _ClassVar[int]
     address: str
     already_stored: bool
     upload_id: str
@@ -59,7 +62,8 @@ class PrepareChunkResponse(_message.Message):
     payment_vault_address: str
     payment_token_address: str
     rpc_url: str
-    def __init__(self, address: _Optional[str] = ..., already_stored: bool = ..., upload_id: _Optional[str] = ..., payment_type: _Optional[str] = ..., payments: _Optional[_Iterable[_Union[_common_pb2.PaymentEntry, _Mapping]]] = ..., total_amount: _Optional[str] = ..., payment_vault_address: _Optional[str] = ..., payment_token_address: _Optional[str] = ..., rpc_url: _Optional[str] = ...) -> None: ...
+    signed_quotes: _containers.RepeatedCompositeFieldContainer[_common_pb2.SignedQuoteEntry]
+    def __init__(self, address: _Optional[str] = ..., already_stored: bool = ..., upload_id: _Optional[str] = ..., payment_type: _Optional[str] = ..., payments: _Optional[_Iterable[_Union[_common_pb2.PaymentEntry, _Mapping]]] = ..., total_amount: _Optional[str] = ..., payment_vault_address: _Optional[str] = ..., payment_token_address: _Optional[str] = ..., rpc_url: _Optional[str] = ..., signed_quotes: _Optional[_Iterable[_Union[_common_pb2.SignedQuoteEntry, _Mapping]]] = ...) -> None: ...
 
 class FinalizeChunkRequest(_message.Message):
     __slots__ = ("upload_id", "tx_hashes")

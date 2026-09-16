@@ -150,8 +150,10 @@ extension Antd_V1_UploadService {
         /// >
         /// > Phase 2: finalize an upload after the external EVM payment has landed.
         /// > For wave-batch uploads pass `tx_hashes`; for merkle uploads pass
-        /// > `winner_pool_hash` from the `MerklePaymentMade` event. The server-side
-        /// > stored upload state is consumed (one-shot).
+        /// > `winner_pool_hashes` — one `MerklePaymentMade` winner hash per entry in
+        /// > the prepare response's `merkle_batches` (`winner_pool_hash` remains
+        /// > accepted when there is exactly one batch). The server-side stored upload
+        /// > state is consumed (one-shot) once inputs validate.
         ///
         /// - Parameters:
         ///   - request: A streaming request of `Antd_V1_FinalizeUploadRequest` messages.
@@ -238,8 +240,10 @@ extension Antd_V1_UploadService {
         /// >
         /// > Phase 2: finalize an upload after the external EVM payment has landed.
         /// > For wave-batch uploads pass `tx_hashes`; for merkle uploads pass
-        /// > `winner_pool_hash` from the `MerklePaymentMade` event. The server-side
-        /// > stored upload state is consumed (one-shot).
+        /// > `winner_pool_hashes` — one `MerklePaymentMade` winner hash per entry in
+        /// > the prepare response's `merkle_batches` (`winner_pool_hash` remains
+        /// > accepted when there is exactly one batch). The server-side stored upload
+        /// > state is consumed (one-shot) once inputs validate.
         ///
         /// - Parameters:
         ///   - request: A request containing a single `Antd_V1_FinalizeUploadRequest` message.
@@ -324,8 +328,10 @@ extension Antd_V1_UploadService {
         /// >
         /// > Phase 2: finalize an upload after the external EVM payment has landed.
         /// > For wave-batch uploads pass `tx_hashes`; for merkle uploads pass
-        /// > `winner_pool_hash` from the `MerklePaymentMade` event. The server-side
-        /// > stored upload state is consumed (one-shot).
+        /// > `winner_pool_hashes` — one `MerklePaymentMade` winner hash per entry in
+        /// > the prepare response's `merkle_batches` (`winner_pool_hash` remains
+        /// > accepted when there is exactly one batch). The server-side stored upload
+        /// > state is consumed (one-shot) once inputs validate.
         ///
         /// - Parameters:
         ///   - request: A `Antd_V1_FinalizeUploadRequest` message.
@@ -544,8 +550,10 @@ extension Antd_V1_UploadService {
         /// >
         /// > Phase 2: finalize an upload after the external EVM payment has landed.
         /// > For wave-batch uploads pass `tx_hashes`; for merkle uploads pass
-        /// > `winner_pool_hash` from the `MerklePaymentMade` event. The server-side
-        /// > stored upload state is consumed (one-shot).
+        /// > `winner_pool_hashes` — one `MerklePaymentMade` winner hash per entry in
+        /// > the prepare response's `merkle_batches` (`winner_pool_hash` remains
+        /// > accepted when there is exactly one batch). The server-side stored upload
+        /// > state is consumed (one-shot) once inputs validate.
         ///
         /// - Parameters:
         ///   - request: A request containing a single `Antd_V1_FinalizeUploadRequest` message.
@@ -677,8 +685,10 @@ extension Antd_V1_UploadService {
         /// >
         /// > Phase 2: finalize an upload after the external EVM payment has landed.
         /// > For wave-batch uploads pass `tx_hashes`; for merkle uploads pass
-        /// > `winner_pool_hash` from the `MerklePaymentMade` event. The server-side
-        /// > stored upload state is consumed (one-shot).
+        /// > `winner_pool_hashes` — one `MerklePaymentMade` winner hash per entry in
+        /// > the prepare response's `merkle_batches` (`winner_pool_hash` remains
+        /// > accepted when there is exactly one batch). The server-side stored upload
+        /// > state is consumed (one-shot) once inputs validate.
         ///
         /// - Parameters:
         ///   - request: A request containing a single `Antd_V1_FinalizeUploadRequest` message.
@@ -782,8 +792,10 @@ extension Antd_V1_UploadService.ClientProtocol {
     /// >
     /// > Phase 2: finalize an upload after the external EVM payment has landed.
     /// > For wave-batch uploads pass `tx_hashes`; for merkle uploads pass
-    /// > `winner_pool_hash` from the `MerklePaymentMade` event. The server-side
-    /// > stored upload state is consumed (one-shot).
+    /// > `winner_pool_hashes` — one `MerklePaymentMade` winner hash per entry in
+    /// > the prepare response's `merkle_batches` (`winner_pool_hash` remains
+    /// > accepted when there is exactly one batch). The server-side stored upload
+    /// > state is consumed (one-shot) once inputs validate.
     ///
     /// - Parameters:
     ///   - request: A request containing a single `Antd_V1_FinalizeUploadRequest` message.
@@ -889,8 +901,10 @@ extension Antd_V1_UploadService.ClientProtocol {
     /// >
     /// > Phase 2: finalize an upload after the external EVM payment has landed.
     /// > For wave-batch uploads pass `tx_hashes`; for merkle uploads pass
-    /// > `winner_pool_hash` from the `MerklePaymentMade` event. The server-side
-    /// > stored upload state is consumed (one-shot).
+    /// > `winner_pool_hashes` — one `MerklePaymentMade` winner hash per entry in
+    /// > the prepare response's `merkle_batches` (`winner_pool_hash` remains
+    /// > accepted when there is exactly one batch). The server-side stored upload
+    /// > state is consumed (one-shot) once inputs validate.
     ///
     /// - Parameters:
     ///   - message: request message to send.

@@ -45,3 +45,13 @@ class PaymentEntry(_message.Message):
     rewards_address: str
     amount: str
     def __init__(self, quote_hash: _Optional[str] = ..., rewards_address: _Optional[str] = ..., amount: _Optional[str] = ...) -> None: ...
+
+class SignedQuoteEntry(_message.Message):
+    __slots__ = ("quote_hash", "quote", "commitment_sidecar")
+    QUOTE_HASH_FIELD_NUMBER: _ClassVar[int]
+    QUOTE_FIELD_NUMBER: _ClassVar[int]
+    COMMITMENT_SIDECAR_FIELD_NUMBER: _ClassVar[int]
+    quote_hash: str
+    quote: bytes
+    commitment_sidecar: bytes
+    def __init__(self, quote_hash: _Optional[str] = ..., quote: _Optional[bytes] = ..., commitment_sidecar: _Optional[bytes] = ...) -> None: ...

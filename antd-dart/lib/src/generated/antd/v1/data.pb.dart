@@ -448,7 +448,9 @@ class DownloadProgress extends $pb.GeneratedMessage {
   static DownloadProgress getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<DownloadProgress>(create);
   static DownloadProgress? _defaultInstance;
 
-  /// One of: "resolving_map", "resolved", "fetching".
+  /// One of: "resolving_map", "resolved", "fetching". Daemons that resolve a
+  /// shrunk DataMap before the stream opens (V2-1104) no longer emit
+  /// "resolving_map" frames; the value remains for streams from older daemons.
   @$pb.TagNumber(1)
   $core.String get phase => $_getSZ(0);
   @$pb.TagNumber(1)

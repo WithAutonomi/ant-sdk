@@ -20,13 +20,15 @@ const PrepareFileUploadRequest$json = {
   '2': [
     {'1': 'path', '3': 1, '4': 1, '5': 9, '10': 'path'},
     {'1': 'visibility', '3': 2, '4': 1, '5': 9, '10': 'visibility'},
+    {'1': 'include_signed_quotes', '3': 3, '4': 1, '5': 8, '10': 'includeSignedQuotes'},
   ],
 };
 
 /// Descriptor for `PrepareFileUploadRequest`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List prepareFileUploadRequestDescriptor = $convert.base64Decode(
     'ChhQcmVwYXJlRmlsZVVwbG9hZFJlcXVlc3QSEgoEcGF0aBgBIAEoCVIEcGF0aBIeCgp2aXNpYm'
-    'lsaXR5GAIgASgJUgp2aXNpYmlsaXR5');
+    'lsaXR5GAIgASgJUgp2aXNpYmlsaXR5EjIKFWluY2x1ZGVfc2lnbmVkX3F1b3RlcxgDIAEoCFIT'
+    'aW5jbHVkZVNpZ25lZFF1b3Rlcw==');
 
 @$core.Deprecated('Use prepareDataUploadRequestDescriptor instead')
 const PrepareDataUploadRequest$json = {
@@ -34,13 +36,15 @@ const PrepareDataUploadRequest$json = {
   '2': [
     {'1': 'data', '3': 1, '4': 1, '5': 12, '10': 'data'},
     {'1': 'visibility', '3': 2, '4': 1, '5': 9, '10': 'visibility'},
+    {'1': 'include_signed_quotes', '3': 3, '4': 1, '5': 8, '10': 'includeSignedQuotes'},
   ],
 };
 
 /// Descriptor for `PrepareDataUploadRequest`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List prepareDataUploadRequestDescriptor = $convert.base64Decode(
     'ChhQcmVwYXJlRGF0YVVwbG9hZFJlcXVlc3QSEgoEZGF0YRgBIAEoDFIEZGF0YRIeCgp2aXNpYm'
-    'lsaXR5GAIgASgJUgp2aXNpYmlsaXR5');
+    'lsaXR5GAIgASgJUgp2aXNpYmlsaXR5EjIKFWluY2x1ZGVfc2lnbmVkX3F1b3RlcxgDIAEoCFIT'
+    'aW5jbHVkZVNpZ25lZFF1b3Rlcw==');
 
 @$core.Deprecated('Use prepareUploadResponseDescriptor instead')
 const PrepareUploadResponse$json = {
@@ -52,10 +56,14 @@ const PrepareUploadResponse$json = {
     {'1': 'depth', '3': 4, '4': 1, '5': 13, '10': 'depth'},
     {'1': 'pool_commitments', '3': 5, '4': 3, '5': 11, '6': '.antd.v1.PoolCommitmentEntry', '10': 'poolCommitments'},
     {'1': 'merkle_payment_timestamp', '3': 6, '4': 1, '5': 4, '10': 'merklePaymentTimestamp'},
+    {'1': 'merkle_batches', '3': 11, '4': 3, '5': 11, '6': '.antd.v1.MerkleBatchEntry', '10': 'merkleBatches'},
     {'1': 'total_amount', '3': 7, '4': 1, '5': 9, '10': 'totalAmount'},
     {'1': 'payment_vault_address', '3': 8, '4': 1, '5': 9, '10': 'paymentVaultAddress'},
     {'1': 'payment_token_address', '3': 9, '4': 1, '5': 9, '10': 'paymentTokenAddress'},
     {'1': 'rpc_url', '3': 10, '4': 1, '5': 9, '10': 'rpcUrl'},
+    {'1': 'signed_quotes', '3': 12, '4': 3, '5': 11, '6': '.antd.v1.SignedQuoteEntry', '10': 'signedQuotes'},
+    {'1': 'total_chunks', '3': 13, '4': 1, '5': 4, '10': 'totalChunks'},
+    {'1': 'already_stored_count', '3': 14, '4': 1, '5': 4, '10': 'alreadyStoredCount'},
   ],
 };
 
@@ -66,10 +74,31 @@ final $typed_data.Uint8List prepareUploadResponseDescriptor = $convert.base64Dec
     'ZC52MS5QYXltZW50RW50cnlSCHBheW1lbnRzEhQKBWRlcHRoGAQgASgNUgVkZXB0aBJHChBwb2'
     '9sX2NvbW1pdG1lbnRzGAUgAygLMhwuYW50ZC52MS5Qb29sQ29tbWl0bWVudEVudHJ5Ug9wb29s'
     'Q29tbWl0bWVudHMSOAoYbWVya2xlX3BheW1lbnRfdGltZXN0YW1wGAYgASgEUhZtZXJrbGVQYX'
-    'ltZW50VGltZXN0YW1wEiEKDHRvdGFsX2Ftb3VudBgHIAEoCVILdG90YWxBbW91bnQSMgoVcGF5'
-    'bWVudF92YXVsdF9hZGRyZXNzGAggASgJUhNwYXltZW50VmF1bHRBZGRyZXNzEjIKFXBheW1lbn'
-    'RfdG9rZW5fYWRkcmVzcxgJIAEoCVITcGF5bWVudFRva2VuQWRkcmVzcxIXCgdycGNfdXJsGAog'
-    'ASgJUgZycGNVcmw=');
+    'ltZW50VGltZXN0YW1wEkAKDm1lcmtsZV9iYXRjaGVzGAsgAygLMhkuYW50ZC52MS5NZXJrbGVC'
+    'YXRjaEVudHJ5Ug1tZXJrbGVCYXRjaGVzEiEKDHRvdGFsX2Ftb3VudBgHIAEoCVILdG90YWxBbW'
+    '91bnQSMgoVcGF5bWVudF92YXVsdF9hZGRyZXNzGAggASgJUhNwYXltZW50VmF1bHRBZGRyZXNz'
+    'EjIKFXBheW1lbnRfdG9rZW5fYWRkcmVzcxgJIAEoCVITcGF5bWVudFRva2VuQWRkcmVzcxIXCg'
+    'dycGNfdXJsGAogASgJUgZycGNVcmwSPgoNc2lnbmVkX3F1b3RlcxgMIAMoCzIZLmFudGQudjEu'
+    'U2lnbmVkUXVvdGVFbnRyeVIMc2lnbmVkUXVvdGVzEiEKDHRvdGFsX2NodW5rcxgNIAEoBFILdG'
+    '90YWxDaHVua3MSMAoUYWxyZWFkeV9zdG9yZWRfY291bnQYDiABKARSEmFscmVhZHlTdG9yZWRD'
+    'b3VudA==');
+
+@$core.Deprecated('Use merkleBatchEntryDescriptor instead')
+const MerkleBatchEntry$json = {
+  '1': 'MerkleBatchEntry',
+  '2': [
+    {'1': 'depth', '3': 1, '4': 1, '5': 13, '10': 'depth'},
+    {'1': 'pool_commitments', '3': 2, '4': 3, '5': 11, '6': '.antd.v1.PoolCommitmentEntry', '10': 'poolCommitments'},
+    {'1': 'merkle_payment_timestamp', '3': 3, '4': 1, '5': 4, '10': 'merklePaymentTimestamp'},
+  ],
+};
+
+/// Descriptor for `MerkleBatchEntry`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List merkleBatchEntryDescriptor = $convert.base64Decode(
+    'ChBNZXJrbGVCYXRjaEVudHJ5EhQKBWRlcHRoGAEgASgNUgVkZXB0aBJHChBwb29sX2NvbW1pdG'
+    '1lbnRzGAIgAygLMhwuYW50ZC52MS5Qb29sQ29tbWl0bWVudEVudHJ5Ug9wb29sQ29tbWl0bWVu'
+    'dHMSOAoYbWVya2xlX3BheW1lbnRfdGltZXN0YW1wGAMgASgEUhZtZXJrbGVQYXltZW50VGltZX'
+    'N0YW1w');
 
 @$core.Deprecated('Use poolCommitmentEntryDescriptor instead')
 const PoolCommitmentEntry$json = {
@@ -106,6 +135,7 @@ const FinalizeUploadRequest$json = {
     {'1': 'upload_id', '3': 1, '4': 1, '5': 9, '10': 'uploadId'},
     {'1': 'tx_hashes', '3': 2, '4': 3, '5': 11, '6': '.antd.v1.FinalizeUploadRequest.TxHashesEntry', '10': 'txHashes'},
     {'1': 'winner_pool_hash', '3': 3, '4': 1, '5': 9, '10': 'winnerPoolHash'},
+    {'1': 'winner_pool_hashes', '3': 5, '4': 3, '5': 9, '10': 'winnerPoolHashes'},
     {'1': 'store_data_map', '3': 4, '4': 1, '5': 8, '10': 'storeDataMap'},
   ],
   '3': [FinalizeUploadRequest_TxHashesEntry$json],
@@ -126,8 +156,9 @@ final $typed_data.Uint8List finalizeUploadRequestDescriptor = $convert.base64Dec
     'ChVGaW5hbGl6ZVVwbG9hZFJlcXVlc3QSGwoJdXBsb2FkX2lkGAEgASgJUgh1cGxvYWRJZBJJCg'
     'l0eF9oYXNoZXMYAiADKAsyLC5hbnRkLnYxLkZpbmFsaXplVXBsb2FkUmVxdWVzdC5UeEhhc2hl'
     'c0VudHJ5Ugh0eEhhc2hlcxIoChB3aW5uZXJfcG9vbF9oYXNoGAMgASgJUg53aW5uZXJQb29sSG'
-    'FzaBIkCg5zdG9yZV9kYXRhX21hcBgEIAEoCFIMc3RvcmVEYXRhTWFwGjsKDVR4SGFzaGVzRW50'
-    'cnkSEAoDa2V5GAEgASgJUgNrZXkSFAoFdmFsdWUYAiABKAlSBXZhbHVlOgI4AQ==');
+    'FzaBIsChJ3aW5uZXJfcG9vbF9oYXNoZXMYBSADKAlSEHdpbm5lclBvb2xIYXNoZXMSJAoOc3Rv'
+    'cmVfZGF0YV9tYXAYBCABKAhSDHN0b3JlRGF0YU1hcBo7Cg1UeEhhc2hlc0VudHJ5EhAKA2tleR'
+    'gBIAEoCVIDa2V5EhQKBXZhbHVlGAIgASgJUgV2YWx1ZToCOAE=');
 
 @$core.Deprecated('Use finalizeUploadResponseDescriptor instead')
 const FinalizeUploadResponse$json = {

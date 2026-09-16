@@ -84,3 +84,19 @@ final $typed_data.Uint8List paymentEntryDescriptor = $convert.base64Decode(
     'CgxQYXltZW50RW50cnkSHQoKcXVvdGVfaGFzaBgBIAEoCVIJcXVvdGVIYXNoEicKD3Jld2FyZH'
     'NfYWRkcmVzcxgCIAEoCVIOcmV3YXJkc0FkZHJlc3MSFgoGYW1vdW50GAMgASgJUgZhbW91bnQ=');
 
+@$core.Deprecated('Use signedQuoteEntryDescriptor instead')
+const SignedQuoteEntry$json = {
+  '1': 'SignedQuoteEntry',
+  '2': [
+    {'1': 'quote_hash', '3': 1, '4': 1, '5': 9, '10': 'quoteHash'},
+    {'1': 'quote', '3': 2, '4': 1, '5': 12, '10': 'quote'},
+    {'1': 'commitment_sidecar', '3': 3, '4': 1, '5': 12, '10': 'commitmentSidecar'},
+  ],
+};
+
+/// Descriptor for `SignedQuoteEntry`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List signedQuoteEntryDescriptor = $convert.base64Decode(
+    'ChBTaWduZWRRdW90ZUVudHJ5Eh0KCnF1b3RlX2hhc2gYASABKAlSCXF1b3RlSGFzaBIUCgVxdW'
+    '90ZRgCIAEoDFIFcXVvdGUSLQoSY29tbWl0bWVudF9zaWRlY2FyGAMgASgMUhFjb21taXRtZW50'
+    'U2lkZWNhcg==');
+

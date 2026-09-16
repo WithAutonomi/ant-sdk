@@ -219,9 +219,11 @@ class PutChunkResponse extends $pb.GeneratedMessage {
 class PrepareChunkRequest extends $pb.GeneratedMessage {
   factory PrepareChunkRequest({
     $core.List<$core.int>? data,
+    $core.bool? includeSignedQuotes,
   }) {
     final result = create();
     if (data != null) result.data = data;
+    if (includeSignedQuotes != null) result.includeSignedQuotes = includeSignedQuotes;
     return result;
   }
 
@@ -232,6 +234,7 @@ class PrepareChunkRequest extends $pb.GeneratedMessage {
 
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'PrepareChunkRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
     ..a<$core.List<$core.int>>(1, _omitFieldNames ? '' : 'data', $pb.PbFieldType.OY)
+    ..aOB(2, _omitFieldNames ? '' : 'includeSignedQuotes')
     ..hasRequiredFields = false
   ;
 
@@ -261,6 +264,16 @@ class PrepareChunkRequest extends $pb.GeneratedMessage {
   $core.bool hasData() => $_has(0);
   @$pb.TagNumber(1)
   void clearData() => $_clearField(1);
+
+  /// Same semantics as PrepareFileUploadRequest.include_signed_quotes.
+  @$pb.TagNumber(2)
+  $core.bool get includeSignedQuotes => $_getBF(1);
+  @$pb.TagNumber(2)
+  set includeSignedQuotes($core.bool value) => $_setBool(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasIncludeSignedQuotes() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearIncludeSignedQuotes() => $_clearField(2);
 }
 
 /// Mirrors REST `PrepareChunkResponse`. Single-chunk publishes are always
@@ -278,6 +291,7 @@ class PrepareChunkResponse extends $pb.GeneratedMessage {
     $core.String? paymentVaultAddress,
     $core.String? paymentTokenAddress,
     $core.String? rpcUrl,
+    $core.Iterable<$2.SignedQuoteEntry>? signedQuotes,
   }) {
     final result = create();
     if (address != null) result.address = address;
@@ -289,6 +303,7 @@ class PrepareChunkResponse extends $pb.GeneratedMessage {
     if (paymentVaultAddress != null) result.paymentVaultAddress = paymentVaultAddress;
     if (paymentTokenAddress != null) result.paymentTokenAddress = paymentTokenAddress;
     if (rpcUrl != null) result.rpcUrl = rpcUrl;
+    if (signedQuotes != null) result.signedQuotes.addAll(signedQuotes);
     return result;
   }
 
@@ -307,6 +322,7 @@ class PrepareChunkResponse extends $pb.GeneratedMessage {
     ..aOS(7, _omitFieldNames ? '' : 'paymentVaultAddress')
     ..aOS(8, _omitFieldNames ? '' : 'paymentTokenAddress')
     ..aOS(9, _omitFieldNames ? '' : 'rpcUrl')
+    ..pc<$2.SignedQuoteEntry>(10, _omitFieldNames ? '' : 'signedQuotes', $pb.PbFieldType.PM, subBuilder: $2.SignedQuoteEntry.create)
     ..hasRequiredFields = false
   ;
 
@@ -419,6 +435,11 @@ class PrepareChunkResponse extends $pb.GeneratedMessage {
   $core.bool hasRpcUrl() => $_has(8);
   @$pb.TagNumber(9)
   void clearRpcUrl() => $_clearField(9);
+
+  /// Populated only when the request set `include_signed_quotes` and payment
+  /// is required — same semantics as PrepareUploadResponse.signed_quotes.
+  @$pb.TagNumber(10)
+  $pb.PbList<$2.SignedQuoteEntry> get signedQuotes => $_getList(9);
 }
 
 class FinalizeChunkRequest extends $pb.GeneratedMessage {

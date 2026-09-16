@@ -166,7 +166,9 @@ public struct Antd_V1_DownloadProgress: Sendable {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  /// One of: "resolving_map", "resolved", "fetching".
+  /// One of: "resolving_map", "resolved", "fetching". Daemons that resolve a
+  /// shrunk DataMap before the stream opens (V2-1104) no longer emit
+  /// "resolving_map" frames; the value remains for streams from older daemons.
   public var phase: String = String()
 
   /// Chunks fetched so far in the current phase.

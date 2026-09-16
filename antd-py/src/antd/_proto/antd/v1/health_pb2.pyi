@@ -9,7 +9,7 @@ class HealthCheckRequest(_message.Message):
     def __init__(self) -> None: ...
 
 class HealthCheckResponse(_message.Message):
-    __slots__ = ("status", "network", "version", "evm_network", "uptime_seconds", "build_commit", "payment_token_address", "payment_vault_address")
+    __slots__ = ("status", "network", "version", "evm_network", "uptime_seconds", "build_commit", "payment_token_address", "payment_vault_address", "write_ready", "connected_peers", "routing_table_size", "rebootstrap_threshold", "last_store_ok_secs_ago")
     STATUS_FIELD_NUMBER: _ClassVar[int]
     NETWORK_FIELD_NUMBER: _ClassVar[int]
     VERSION_FIELD_NUMBER: _ClassVar[int]
@@ -18,6 +18,11 @@ class HealthCheckResponse(_message.Message):
     BUILD_COMMIT_FIELD_NUMBER: _ClassVar[int]
     PAYMENT_TOKEN_ADDRESS_FIELD_NUMBER: _ClassVar[int]
     PAYMENT_VAULT_ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    WRITE_READY_FIELD_NUMBER: _ClassVar[int]
+    CONNECTED_PEERS_FIELD_NUMBER: _ClassVar[int]
+    ROUTING_TABLE_SIZE_FIELD_NUMBER: _ClassVar[int]
+    REBOOTSTRAP_THRESHOLD_FIELD_NUMBER: _ClassVar[int]
+    LAST_STORE_OK_SECS_AGO_FIELD_NUMBER: _ClassVar[int]
     status: str
     network: str
     version: str
@@ -26,4 +31,9 @@ class HealthCheckResponse(_message.Message):
     build_commit: str
     payment_token_address: str
     payment_vault_address: str
-    def __init__(self, status: _Optional[str] = ..., network: _Optional[str] = ..., version: _Optional[str] = ..., evm_network: _Optional[str] = ..., uptime_seconds: _Optional[int] = ..., build_commit: _Optional[str] = ..., payment_token_address: _Optional[str] = ..., payment_vault_address: _Optional[str] = ...) -> None: ...
+    write_ready: bool
+    connected_peers: int
+    routing_table_size: int
+    rebootstrap_threshold: int
+    last_store_ok_secs_ago: int
+    def __init__(self, status: _Optional[str] = ..., network: _Optional[str] = ..., version: _Optional[str] = ..., evm_network: _Optional[str] = ..., uptime_seconds: _Optional[int] = ..., build_commit: _Optional[str] = ..., payment_token_address: _Optional[str] = ..., payment_vault_address: _Optional[str] = ..., write_ready: bool = ..., connected_peers: _Optional[int] = ..., routing_table_size: _Optional[int] = ..., rebootstrap_threshold: _Optional[int] = ..., last_store_ok_secs_ago: _Optional[int] = ...) -> None: ...

@@ -324,6 +324,86 @@ class PaymentEntry extends $pb.GeneratedMessage {
   void clearAmount() => $_clearField(3);
 }
 
+/// One `payments[]` quote in full signed form (V2-854 signed-quote exposure):
+/// the opaque serialized PaymentQuote plus, for commitment-bound quotes, the
+/// ADR-0004 commitment sidecar the quote pins. Consumers treat both as opaque
+/// bytes — only antd (`VerifyService.VerifyQuotes`) parses them. Shared by
+/// `UploadService` (wave-batch prepares) and `ChunkService.PrepareChunk`.
+class SignedQuoteEntry extends $pb.GeneratedMessage {
+  factory SignedQuoteEntry({
+    $core.String? quoteHash,
+    $core.List<$core.int>? quote,
+    $core.List<$core.int>? commitmentSidecar,
+  }) {
+    final result = create();
+    if (quoteHash != null) result.quoteHash = quoteHash;
+    if (quote != null) result.quote = quote;
+    if (commitmentSidecar != null) result.commitmentSidecar = commitmentSidecar;
+    return result;
+  }
+
+  SignedQuoteEntry._();
+
+  factory SignedQuoteEntry.fromBuffer($core.List<$core.int> data, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(data, registry);
+  factory SignedQuoteEntry.fromJson($core.String json, [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'SignedQuoteEntry', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'quoteHash')
+    ..a<$core.List<$core.int>>(2, _omitFieldNames ? '' : 'quote', $pb.PbFieldType.OY)
+    ..a<$core.List<$core.int>>(3, _omitFieldNames ? '' : 'commitmentSidecar', $pb.PbFieldType.OY)
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SignedQuoteEntry clone() => SignedQuoteEntry()..mergeFromMessage(this);
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SignedQuoteEntry copyWith(void Function(SignedQuoteEntry) updates) => super.copyWith((message) => updates(message as SignedQuoteEntry)) as SignedQuoteEntry;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static SignedQuoteEntry create() => SignedQuoteEntry._();
+  @$core.override
+  SignedQuoteEntry createEmptyInstance() => create();
+  static $pb.PbList<SignedQuoteEntry> createRepeated() => $pb.PbList<SignedQuoteEntry>();
+  @$core.pragma('dart2js:noInline')
+  static SignedQuoteEntry getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<SignedQuoteEntry>(create);
+  static SignedQuoteEntry? _defaultInstance;
+
+  /// Quote hash (hex with 0x prefix, 32 bytes) — matches the `payments[]`
+  /// entry.
+  @$pb.TagNumber(1)
+  $core.String get quoteHash => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set quoteHash($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasQuoteHash() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearQuoteHash() => $_clearField(1);
+
+  /// msgpack-serialized signed PaymentQuote. Opaque.
+  @$pb.TagNumber(2)
+  $core.List<$core.int> get quote => $_getN(1);
+  @$pb.TagNumber(2)
+  set quote($core.List<$core.int> value) => $_setBytes(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasQuote() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearQuote() => $_clearField(2);
+
+  /// msgpack-serialized StorageCommitment the quote's commitment_pin resolves
+  /// to. Empty for baseline quotes.
+  @$pb.TagNumber(3)
+  $core.List<$core.int> get commitmentSidecar => $_getN(2);
+  @$pb.TagNumber(3)
+  set commitmentSidecar($core.List<$core.int> value) => $_setBytes(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasCommitmentSidecar() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearCommitmentSidecar() => $_clearField(3);
+}
+
 
 const $core.bool _omitFieldNames = $core.bool.fromEnvironment('protobuf.omit_field_names');
 const $core.bool _omitMessageNames = $core.bool.fromEnvironment('protobuf.omit_message_names');
