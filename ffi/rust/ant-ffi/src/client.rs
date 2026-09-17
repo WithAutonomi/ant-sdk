@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use bytes::Bytes;
 use tokio::sync::mpsc;
@@ -10,14 +10,15 @@ use zeroize::Zeroize;
 
 use ant_core::data::{
     Client as CoreClient, ClientConfig, CoreNodeConfig, DevnetManifest, DownloadEvent, EvmNetwork,
-    ExternalPaymentInfo, FileUploadResult, MultiAddr, NodeMode, P2PNode, PreparedUpload,
-    UploadEvent, Wallet as CoreWallet, MAX_WIRE_MESSAGE_SIZE,
+    ExternalPaymentInfo, FileUploadResult, FinalizeOutcome, FinalizeResume, MultiAddr, NodeMode,
+    P2PNode, PreparedUpload, UploadEvent, Wallet as CoreWallet, MAX_WIRE_MESSAGE_SIZE,
 };
 use ant_protocol::evm::{QuoteHash, TxHash};
 
 use crate::data::{
     from_core_confidence, from_core_payment_mode, to_core_payment_mode, to_core_visibility,
 };
+use crate::session::{PaymentKind, PaymentShape, Session, SessionStore};
 use crate::wallet::build_custom_network;
 use crate::{
     CandidateNodeEntry, ChunkPutResult, ClientError, CostEstimate, DataPutPrivateResult,
@@ -174,21 +175,13 @@ fn download_progress_bridge(
 #[derive(uniffi::Object)]
 pub struct Client {
     inner: CoreClient,
-    /// External-signer prepared uploads awaiting finalize, keyed by upload_id.
-    ///
-    /// Each `PreparedUpload` holds the upload's chunk content **in memory** so
-    /// finalize can store it after the external wallet pays. Lifecycle &
-    /// memory cost the caller must know:
-    ///   - An entry is created by every successful `prepare_*` call and removed
-    ///     only by a successful `finalize_upload*` or an explicit
-    ///     `cancel_upload`. There is no TTL or automatic eviction.
-    ///   - So a caller that prepares repeatedly without finalizing (e.g. the
-    ///     user backs out of the confirm sheet) retains one payload-sized buffer
-    ///     per abandoned upload for the life of the `Client`. Call
-    ///     `cancel_upload` to release one, or drop the whole `Client`.
-    ///
-    /// A bounded cache / TTL is a possible follow-up if this proves a problem.
-    sessions: Mutex<HashMap<String, PreparedUpload>>,
+    /// External-signer sessions keyed by upload_id: a `PreparedUpload`
+    /// awaiting payment + finalize, or — after a finalize that stored only
+    /// some chunks — the `FinalizeResume` handle that lets the same
+    /// `upload_id` be finalized again against the same payment. Each entry
+    /// holds chunk content **in memory** (wave) or an on-disk spill (merkle);
+    /// see [`SessionStore`] for the lifecycle and memory-cost contract.
+    sessions: SessionStore<PreparedUpload, FinalizeResume>,
     /// Monotonic source of unique upload_ids for this client instance.
     next_id: AtomicU64,
     /// EVM network this client pays on, retained for the external-signer path so
@@ -208,7 +201,7 @@ impl Client {
     fn wrap_with_network(inner: CoreClient, evm_network: Option<EvmNetwork>) -> Arc<Self> {
         Arc::new(Self {
             inner,
-            sessions: Mutex::new(HashMap::new()),
+            sessions: SessionStore::new(),
             next_id: AtomicU64::new(1),
             evm_network,
         })
@@ -1089,13 +1082,9 @@ impl Client {
             .evm_network
             .as_ref()
             .ok_or(ClientError::WalletNotConfigured)?;
-        let map = self.sessions.lock().expect("sessions mutex poisoned");
-        let prepared = map
-            .get(&upload_id)
-            .ok_or_else(|| ClientError::InvalidInput {
-                reason: format!("unknown or already-finalized upload_id: {upload_id}"),
-            })?;
-        crate::payments::build_payment_transactions(network, prepared)
+        self.sessions.with_prepared(&upload_id, |prepared| {
+            crate::payments::build_payment_transactions(network, prepared)
+        })
     }
 
     /// Phase 2 (external signer): after the external wallet has paid
@@ -1106,17 +1095,25 @@ impl Client {
     ///
     /// # Retry / failure contract (IMPORTANT for paid uploads)
     ///
-    /// - **Bad input** (a malformed `quote_hash`/`tx_hash`) is validated before
-    ///   any state is touched, so it errors with the upload left intact — safe
-    ///   to call again with a corrected map.
-    /// - **A storage/network failure *after* payment is currently NOT
-    ///   retryable.** ant-core consumes the prepared upload (and the paid
-    ///   proofs) by value, so on such a failure the paid attempt is stranded:
-    ///   a fresh `prepare_*` collects new quotes with different quote hashes
-    ///   that will not match the already-paid tx map. Do not tell the user the
-    ///   payment can simply be reused. Fixing this needs an ant-core retry-state
-    ///   API — tracked in WithAutonomi/ant-client#140 (core) and
-    ///   WithAutonomi/ant-sdk#201 (this surface).
+    /// - **Bad input** (a malformed `quote_hash`/`tx_hash`, or a map missing
+    ///   the tx hash for a quote that needs one) is validated before any state
+    ///   is touched, so it errors with the upload left intact — safe to call
+    ///   again with a corrected map.
+    /// - **A storage shortfall *after* payment is retryable against the same
+    ///   payment.** If some chunks are still unstored after ant-core's own
+    ///   retries, this returns [`ClientError::PartialUpload`] and keeps the
+    ///   paid proofs plus the unstored chunks under the same `upload_id`.
+    ///   Call `finalize_upload` again with the same `upload_id` (the tx map is
+    ///   ignored on a resume) to store the remainder — no re-prepare, no
+    ///   second signature, no double payment. Each call stores what it can
+    ///   and either succeeds or returns another `PartialUpload`.
+    /// - **Bound that retry loop.** A persistent failure (e.g. a chunk whose
+    ///   close group stays unreachable) surfaces as `PartialUpload` on every
+    ///   call. Cap the attempts or back off between them, and treat a
+    ///   `chunks_failed` count that stops shrinking as stuck. `cancel_upload`
+    ///   abandons the retained attempt and frees its memory.
+    /// - Any other error (e.g. a payment-side failure) is not retryable: the
+    ///   session is consumed and a fresh `prepare_*` is required.
     pub async fn finalize_upload(
         &self,
         upload_id: String,
@@ -1148,8 +1145,10 @@ impl Client {
     /// vice versa, without consuming the prepared upload).
     ///
     /// The same retry/failure contract as [`Self::finalize_upload`] applies: a
-    /// storage failure after payment is currently not retryable
-    /// (WithAutonomi/ant-client#140).
+    /// storage shortfall after payment returns [`ClientError::PartialUpload`]
+    /// and keeps the paid attempt under the same `upload_id`; call this method
+    /// again with the same `upload_id` to store the remainder against the same
+    /// payment (`winner_pool_hash` is ignored on a resume).
     pub async fn finalize_upload_merkle(
         &self,
         upload_id: String,
@@ -1171,16 +1170,13 @@ impl Client {
             .await
     }
 
-    /// Discard a prepared upload that will not be finalized, freeing the chunk
-    /// content it holds in memory (see the `sessions` field docs on lifecycle).
+    /// Discard a prepared upload that will not be finalized — or abandon a
+    /// paid-but-partially-stored one that will not be retried — freeing the
+    /// chunk content it holds (see the `sessions` field docs on lifecycle).
     /// Returns `true` if an upload with this id was present. Safe to call with
     /// an unknown or already-finalized id — it simply returns `false`.
     pub fn cancel_upload(&self, upload_id: String) -> bool {
-        self.sessions
-            .lock()
-            .expect("sessions mutex poisoned")
-            .remove(&upload_id)
-            .is_some()
+        self.sessions.cancel(&upload_id)
     }
 
     /// Download public data by address straight to a file on disk, reporting
@@ -1218,11 +1214,10 @@ impl Client {
         tx_hashes: HashMap<String, String>,
         listener: Option<Box<dyn ProgressListener>>,
     ) -> Result<ExternalUploadResult, ClientError> {
-        // Parse & validate ALL tx hashes BEFORE removing the prepared upload
-        // from the session map. The caller has already paid on-chain, so a
-        // malformed hash must NOT destroy the only in-memory copy of the
-        // prepared chunks — with this ordering, bad input returns an error and
-        // leaves the upload intact and retryable.
+        // Parse & validate ALL tx hashes BEFORE removing the session from the
+        // map. The caller has already paid on-chain, so a malformed hash must
+        // NOT destroy the only copy of the prepared chunks — with this
+        // ordering, bad input returns an error and leaves the upload intact.
         let mut tx_hash_map: HashMap<QuoteHash, TxHash> = HashMap::with_capacity(tx_hashes.len());
         for (quote_hex, tx_hex) in &tx_hashes {
             let quote_bytes = decode_hash(quote_hex, "quote hash")?;
@@ -1230,15 +1225,20 @@ impl Client {
             tx_hash_map.insert(QuoteHash::from(quote_bytes), TxHash::from(tx_bytes));
         }
 
-        // Take ownership of the prepared upload only now that the input is
-        // known-good, so bad-input retries stay lossless. WARNING: ant-core's
-        // `finalize_upload_with_progress` consumes the `PreparedUpload` (and the
-        // paid proofs) by value and does not hand them back on error, so a
-        // *network* store failure below strands the paid attempt — it is NOT
-        // safely retryable, because a re-prepare yields fresh quote hashes that
-        // won't match the already-paid tx map. See the `finalize_upload` docs
-        // and WithAutonomi/ant-client#140 + WithAutonomi/ant-sdk#201 for the fix.
-        let prepared = self.take_session(&upload_id, PaymentKind::Wave)?;
+        // Same for completeness: ant-core's finalize consumes the prepared
+        // upload by value and errors on the first quote without a tx hash, so
+        // check every paid quote has one while the session is still ours. A
+        // resume already carries its payment and ignores the map.
+        self.sessions.peek(&upload_id, |session| match session {
+            Session::Prepared(prepared) => check_tx_hashes_complete(prepared, &tx_hash_map),
+            Session::Resume(_) => Ok(()),
+        })?;
+
+        // Take ownership only now that the input is known-good, so bad-input
+        // retries stay lossless. From here a store-side shortfall comes back
+        // as `FinalizeOutcome::Partial` with a resume handle (never an error),
+        // which `settle_finalize` puts back under the same upload_id.
+        let session = self.sessions.take(&upload_id, PaymentKind::Wave)?;
 
         let (sender, handle) = match listener {
             Some(l) => {
@@ -1248,22 +1248,30 @@ impl Client {
             None => (None, None),
         };
 
-        let result = self
-            .inner
-            .finalize_upload_with_progress(prepared, &tx_hash_map, sender)
-            .await?;
+        let outcome = match session {
+            Session::Prepared(prepared) => {
+                self.inner
+                    .finalize_upload_resumable_with_progress(prepared, &tx_hash_map, sender)
+                    .await
+            }
+            Session::Resume(resume) => {
+                self.inner
+                    .finalize_resume_with_progress(resume, sender)
+                    .await
+            }
+        };
 
         if let Some(h) = handle {
             let _ = h.await;
         }
 
-        Self::to_external_result(result)
+        self.settle_finalize(upload_id, outcome?)
     }
 
     /// Shared finalize path for MERKLE uploads. Validates `winner_pool_hash`
-    /// before taking the session (bad input is lossless), then consumes the
-    /// prepared upload via ant-core's merkle finalize. Same post-payment
-    /// non-retryability caveat as [`Self::finalize_inner`] applies.
+    /// before taking the session (bad input is lossless), then drives
+    /// ant-core's resumable merkle finalize. Same partial/resume contract as
+    /// [`Self::finalize_inner`].
     async fn finalize_merkle_inner(
         &self,
         upload_id: String,
@@ -1271,7 +1279,7 @@ impl Client {
         listener: Option<Box<dyn ProgressListener>>,
     ) -> Result<ExternalUploadResult, ClientError> {
         let winner = decode_hash(&winner_pool_hash, "winner pool hash")?;
-        let prepared = self.take_session(&upload_id, PaymentKind::Merkle)?;
+        let session = self.sessions.take(&upload_id, PaymentKind::Merkle)?;
 
         let (sender, handle) = match listener {
             Some(l) => {
@@ -1281,51 +1289,64 @@ impl Client {
             None => (None, None),
         };
 
-        let result = self
-            .inner
-            .finalize_upload_merkle_with_progress(prepared, winner, sender)
-            .await?;
+        let outcome = match session {
+            // This surface speaks single-batch merkle (`stash_prepared` refuses
+            // multi-batch prepares), so the one winner hash pays the one batch.
+            Session::Prepared(prepared) => {
+                self.inner
+                    .finalize_upload_merkle_multi_resumable_with_progress(
+                        prepared,
+                        vec![Some(winner)],
+                        sender,
+                    )
+                    .await
+            }
+            Session::Resume(resume) => {
+                self.inner
+                    .finalize_resume_with_progress(resume, sender)
+                    .await
+            }
+        };
 
         if let Some(h) = handle {
             let _ = h.await;
         }
 
-        Self::to_external_result(result)
+        self.settle_finalize(upload_id, outcome?)
     }
 
-    /// Remove the prepared upload for `upload_id`, but only if it matches the
-    /// expected payment shape. An unknown id, or a call routed to the wrong
-    /// finalize method, errors WITHOUT removing anything — so a mis-routed
-    /// finalize is lossless and retryable via the correct method.
-    fn take_session(
+    /// Turn a resumable-finalize outcome into the FFI result. `Complete`
+    /// converts as before (the session stays removed). `Partial` puts the
+    /// resume handle — the paid proofs plus the still-unstored chunks — back
+    /// under the same `upload_id` and surfaces the money-visible summary as
+    /// [`ClientError::PartialUpload`], so the caller can finalize again
+    /// without re-paying.
+    fn settle_finalize(
         &self,
-        upload_id: &str,
-        expect: PaymentKind,
-    ) -> Result<PreparedUpload, ClientError> {
-        let mut map = self.sessions.lock().expect("sessions mutex poisoned");
-        let actual = match map.get(upload_id) {
-            None => {
-                return Err(ClientError::InvalidInput {
-                    reason: format!("unknown or already-finalized upload_id: {upload_id}"),
-                });
+        upload_id: String,
+        outcome: FinalizeOutcome,
+    ) -> Result<ExternalUploadResult, ClientError> {
+        match outcome {
+            FinalizeOutcome::Complete(result) => Self::to_external_result(result),
+            FinalizeOutcome::Partial { result, resume } => {
+                let reason = format!(
+                    "{failed} of {total} chunks still unstored after retries; the payment is \
+                     retained — call the same finalize method again with upload_id {upload_id} \
+                     to store the remainder (no re-payment), or cancel_upload to abandon it",
+                    failed = result.chunks_failed,
+                    total = result.total_chunks,
+                );
+                self.sessions.retain_resume(upload_id, resume);
+                Err(ClientError::PartialUpload {
+                    chunks_stored: result.chunks_stored as u64,
+                    chunks_failed: result.chunks_failed as u64,
+                    total_chunks: result.total_chunks as u64,
+                    storage_cost_atto: result.storage_cost_atto,
+                    gas_cost_wei: result.gas_cost_wei.to_string(),
+                    reason,
+                })
             }
-            Some(p) => match p.payment_info {
-                ExternalPaymentInfo::Merkle { .. } => PaymentKind::Merkle,
-                ExternalPaymentInfo::WaveBatch { .. } => PaymentKind::Wave,
-            },
-        };
-        if actual != expect {
-            let (used, want) = match actual {
-                PaymentKind::Merkle => ("merkle", "finalize_upload_merkle"),
-                PaymentKind::Wave => ("wave-batch", "finalize_upload"),
-            };
-            return Err(ClientError::InvalidInput {
-                reason: format!("upload {upload_id} used {used} payment; call {want} instead"),
-            });
         }
-        Ok(map
-            .remove(upload_id)
-            .expect("session entry present while holding the lock"))
     }
 
     /// Convert ant-core's [`FileUploadResult`] into the FFI
@@ -1476,10 +1497,7 @@ impl Client {
             }
         };
         let upload_id = format!("upl-{}", self.next_id.fetch_add(1, Ordering::Relaxed));
-        self.sessions
-            .lock()
-            .expect("sessions mutex poisoned")
-            .insert(upload_id.clone(), prepared);
+        self.sessions.insert_prepared(upload_id.clone(), prepared);
         Ok(PreparedUploadInfo {
             upload_id,
             payment_type,
@@ -1494,12 +1512,60 @@ impl Client {
     }
 }
 
-/// Which external-signer payment shape a finalize call targets. Used to route
-/// `finalize_upload` (wave) vs `finalize_upload_merkle` and reject mismatches.
-#[derive(Clone, Copy, PartialEq)]
-enum PaymentKind {
-    Wave,
-    Merkle,
+impl PaymentShape for PreparedUpload {
+    fn payment_kind(&self) -> Option<PaymentKind> {
+        match self.payment_info {
+            ExternalPaymentInfo::Merkle { .. } => Some(PaymentKind::Merkle),
+            ExternalPaymentInfo::WaveBatch { .. } => Some(PaymentKind::Wave),
+        }
+    }
+}
+
+impl PaymentShape for FinalizeResume {
+    fn payment_kind(&self) -> Option<PaymentKind> {
+        match self {
+            FinalizeResume::Merkle(_) => Some(PaymentKind::Merkle),
+            FinalizeResume::Wave(_) => Some(PaymentKind::Wave),
+            // `#[non_exhaustive]` upstream: a variant this SDK does not know
+            // is refused by `SessionStore::take` rather than mis-routed.
+            _ => None,
+        }
+    }
+}
+
+/// Reject a wave-batch tx map that is syntactically fine but incomplete —
+/// missing the tx hash for a quote that carries a non-zero amount — before
+/// the prepared upload is handed to ant-core, which would consume it and then
+/// fail on the first missing entry. Zero-amount quotes need no tx hash
+/// (mirrors ant-core's `build_paid_chunks`). Merkle sessions carry no
+/// per-quote map, so they pass trivially.
+fn check_tx_hashes_complete(
+    prepared: &PreparedUpload,
+    tx_hash_map: &HashMap<QuoteHash, TxHash>,
+) -> Result<(), ClientError> {
+    let ExternalPaymentInfo::WaveBatch {
+        prepared_chunks, ..
+    } = &prepared.payment_info
+    else {
+        return Ok(());
+    };
+    let missing: Vec<String> = prepared_chunks
+        .iter()
+        .flat_map(|chunk| chunk.payment.quotes.iter())
+        .filter(|q| !q.amount.is_zero() && !tx_hash_map.contains_key(&q.quote_hash))
+        .map(|q| format!("0x{}", hex::encode(q.quote_hash)))
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(ClientError::InvalidInput {
+        reason: format!(
+            "tx_hashes is missing the tx hash for {} paid quote(s): {}; the upload is \
+             left intact — supply the receipt for every entry in payment_transactions()",
+            missing.len(),
+            missing.join(", "),
+        ),
+    })
 }
 
 /// Decode a 0x-prefixed (or bare) hex string into a 32-byte hash.

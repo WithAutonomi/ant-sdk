@@ -210,21 +210,53 @@ val result = if (info.paymentType == "merkle") {
 
 ## ⚠️ Retry / failure contract (read before shipping)
 
-- **Bad input** to finalize (a malformed `quoteHash`/`txHash`) is validated
-  *before* any state changes — it errors with the upload left intact, so you can
-  fix the map and call finalize again.
-- **A storage/network failure *after* payment is currently NOT retryable.**
-  ant-core consumes the prepared upload and the paid proofs by value, so a
-  post-payment finalize failure strands the payment: a fresh `prepare*` collects
-  new quotes with different quote hashes that won't match the already-paid tx
-  map. **Do not tell the user the payment can simply be reused.** Surface it as a
-  paid-but-not-stored state and escalate. Tracked in
-  [ant-client#140](https://github.com/WithAutonomi/ant-client/issues/140) /
-  ant-sdk#201.
+- **Bad input** to finalize (a malformed `quoteHash`/`txHash`, or a map that is
+  missing the receipt for a paid quote) is validated *before* any state
+  changes — it errors with the upload left intact, so you can fix the map and
+  call finalize again.
+- **A storage shortfall *after* payment is retryable against the same
+  payment.** If some chunks are still unstored after the SDK's own retries,
+  finalize throws `ClientError.PartialUpload` and **keeps the paid attempt**
+  (the payment proofs plus the unstored chunks) under the same `uploadId`.
+  Call the *same* finalize method again with the same `uploadId` — the
+  `txHashes` / `winnerPoolHash` argument is ignored on a resume — to store the
+  remainder. No re-prepare, no second signature, no double payment.
+- **Bound your retry loop.** A persistent failure (a chunk whose close group
+  stays unreachable, the device going offline) comes back as `PartialUpload` on
+  every call, never as a different error. Cap the attempts or back off between
+  them, and treat a `chunksFailed` count that stops shrinking as stuck — show
+  the money-visible fields (`storageCostAtto`, `gasCostWei`) and let the user
+  decide. `cancelUpload(uploadId)` abandons the retained attempt and frees its
+  memory; the on-chain payment cannot be recovered after that.
+- **Any other finalize error** (e.g. `PaymentError` from a bad receipt) is not
+  retryable: the session is consumed and you must `prepare*` and pay again.
+
+```swift
+var attempts = 0
+var lastFailed: UInt64 = .max
+while true {
+    do {
+        let r = try await client.finalizeUpload(uploadId: info.uploadId, txHashes: txHashes)
+        break                                   // every chunk stored — done
+    } catch ClientError.PartialUpload(_, let chunksFailed, _, _, _, _) {
+        attempts += 1
+        if attempts >= 5 || chunksFailed >= lastFailed {
+            // Stuck: paid but partly stored. Keep the uploadId so the user can
+            // retry later (or cancelUpload to give up); show the spend fields.
+            break
+        }
+        lastFailed = chunksFailed
+        try await Task.sleep(for: .seconds(2 << attempts))   // back off, then resume
+    }
+}
+```
 
 ## Errors
 
 Client calls throw `ClientError` — switch on it: `NotFound` (address not on the
 network), `NetworkError` (transient, safe to retry), `PaymentError`,
 `WalletNotConfigured` (you called `paymentTransactions` on a non-external-signer
-client), `InvalidInput`. Each carries a `reason` string.
+client), `InvalidInput`, `PartialUpload` (paid, partly stored, resumable — see
+the retry contract above). Each carries a `reason` string; `PartialUpload` also
+carries `chunksStored` / `chunksFailed` / `totalChunks` / `storageCostAtto` /
+`gasCostWei`.
