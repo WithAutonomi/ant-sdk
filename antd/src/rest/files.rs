@@ -54,8 +54,11 @@ pub async fn file_put(
 
 /// `POST /v1/files/public` — public file upload.
 ///
-/// Uploads chunks, then stores the `DataMap` on-network as an additional
-/// chunk (extra payment). Returns the chunk address of the stored DataMap.
+/// Uploads the data chunks AND the serialized `DataMap` as one payment batch
+/// (ant-core `file_upload_public_with_mode`), so `chunks_stored`,
+/// `storage_cost_atto` and `gas_cost_wei` include the DataMap chunk and agree
+/// with `POST /v1/files/cost` (`is_public=true`) and the FFI. Returns the chunk
+/// address of the stored DataMap.
 pub async fn file_put_public(
     State(state): State<Arc<AppState>>,
     Json(req): Json<FilePutRequest>,
@@ -74,19 +77,20 @@ pub async fn file_put_public(
     let mode = parse_payment_mode(req.payment_mode.as_deref()).map_err(AntdError::BadRequest)?;
 
     let client = state.client.clone();
-    let (result, address) = tokio::spawn(async move {
-        let result = client
-            .file_upload_with_mode(&path, mode)
+    let result = tokio::spawn(async move {
+        client
+            .file_upload_public_with_mode(&path, mode)
             .await
-            .map_err(AntdError::from_core)?;
-        let address = client
-            .data_map_store(&result.data_map)
-            .await
-            .map_err(AntdError::from_core)?;
-        Ok::<_, AntdError>((result, address))
+            .map_err(AntdError::from_core)
     })
     .await
     .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
+
+    // Set for every `Visibility::Public` upload; `None` here would be an
+    // ant-core contract break, not a user error.
+    let address = result
+        .data_map_address
+        .ok_or_else(|| AntdError::Internal("public upload returned no data_map_address".into()))?;
 
     state.mark_store_ok();
     Ok(Json(FilePutPublicResponse {

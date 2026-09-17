@@ -73,6 +73,9 @@ impl AntdError {
         use ant_core::data::Error;
         match e {
             Error::AlreadyStored => AntdError::AlreadyExists("already stored".into()),
+            // e.g. `data_map_fetch` on an address nothing was ever stored at:
+            // a 404 / NOT_FOUND for the caller, not a daemon-internal error.
+            Error::NotFound(msg) => AntdError::NotFound(msg),
             Error::InvalidData(msg) => AntdError::BadRequest(msg),
             Error::Payment(msg) => AntdError::Payment(msg),
             Error::Network(msg) => AntdError::Network(msg),
@@ -177,5 +180,40 @@ impl From<AntdError> for tonic::Status {
             // until the proto grows structured detail fields.
             e @ AntdError::PartialUpload { .. } => tonic::Status::aborted(e.to_string()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn core_not_found_maps_to_not_found() {
+        // A public fetch at an address nothing was stored at used to fall
+        // into the catch-all `Internal` arm and surface as HTTP 500 / gRPC
+        // INTERNAL, so clients raised InternalError instead of NotFoundError.
+        let e = AntdError::from_core(ant_core::data::Error::NotFound(
+            "DataMap chunk not found at abcd".into(),
+        ));
+        assert!(matches!(e, AntdError::NotFound(ref m) if m.contains("abcd")));
+        assert_eq!(e.code(), "NOT_FOUND");
+    }
+
+    #[test]
+    fn not_found_is_http_404() {
+        let resp = AntdError::NotFound("gone".into()).into_response();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn not_found_is_grpc_not_found() {
+        let status = tonic::Status::from(AntdError::NotFound("gone".into()));
+        assert_eq!(status.code(), tonic::Code::NotFound);
+    }
+
+    #[test]
+    fn unknown_core_errors_still_map_to_internal() {
+        let e = AntdError::from_core(ant_core::data::Error::Protocol("boom".into()));
+        assert!(matches!(e, AntdError::Internal(_)));
     }
 }

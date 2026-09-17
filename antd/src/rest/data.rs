@@ -47,7 +47,9 @@ pub async fn data_put_public(
     state.mark_store_ok();
     Ok(Json(DataPutPublicResponse {
         address: hex::encode(address),
-        chunks_stored,
+        // The DataMap stored above is one more network chunk; the cost
+        // estimate and the public file path both count it, so must this.
+        chunks_stored: public_upload_chunks_stored(chunks_stored),
         payment_mode_used: format_payment_mode(payment_mode_used),
     }))
 }

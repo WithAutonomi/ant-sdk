@@ -446,7 +446,9 @@ impl pb::data_service_server::DataService for DataServiceImpl {
                 ..Default::default()
             }),
             address: hex::encode(address),
-            chunks_stored: chunks_stored as u64,
+            // The DataMap stored above is one more network chunk (see the
+            // REST handler); count it so estimate and actual agree.
+            chunks_stored: crate::types::public_upload_chunks_stored(chunks_stored) as u64,
             payment_mode_used: format_payment_mode(payment_mode_used),
         }))
     }
@@ -933,20 +935,21 @@ impl pb::file_service_server::FileService for FileServiceImpl {
         })?;
 
         let client = self.state.client.clone();
-        let (result, address) = tokio::spawn(async move {
-            let result = client
-                .file_upload_with_mode(&path, mode)
+        // One payment batch including the DataMap chunk, so the reported
+        // count/costs include it (mirrors `rest::files::file_put_public`).
+        let result = tokio::spawn(async move {
+            client
+                .file_upload_public_with_mode(&path, mode)
                 .await
-                .map_err(AntdError::from_core)?;
-            let address = client
-                .data_map_store(&result.data_map)
-                .await
-                .map_err(AntdError::from_core)?;
-            Ok::<_, AntdError>((result, address))
+                .map_err(AntdError::from_core)
         })
         .await
         .map_err(|e| Status::internal(format!("task failed: {e}")))?
         .map_err(tonic::Status::from)?;
+
+        let address = result
+            .data_map_address
+            .ok_or_else(|| Status::internal("public upload returned no data_map_address"))?;
 
         self.state.mark_store_ok();
         Ok(Response::new(pb::PutFilePublicResponse {
