@@ -48,6 +48,58 @@ const MAX_SIGNED_QUOTE_BYTES: usize = 16 * 1024;
 /// ML-DSA-65 verification or two).
 pub(crate) const MAX_VERIFY_ENTRIES: usize = 1024;
 
+/// Longest standard (padded) base64 text that can encode `max_decoded`
+/// bytes. Checking the *encoded* length first bounds the work a caller can
+/// force before any decode allocation happens — otherwise the byte caps only
+/// bite after a transient buffer the size of the field has been built.
+const fn base64_len_bound(max_decoded: usize) -> usize {
+    max_decoded.div_ceil(3) * 4
+}
+
+/// Pre-decode ceiling on the base64 `signed_quote` text.
+pub(crate) const MAX_SIGNED_QUOTE_B64_CHARS: usize = base64_len_bound(MAX_SIGNED_QUOTE_BYTES);
+
+/// Pre-decode ceiling on the base64 `commitment_sidecar` text.
+pub(crate) const MAX_COMMITMENT_SIDECAR_B64_CHARS: usize =
+    base64_len_bound(MAX_COMMITMENT_SIDECAR_BYTES);
+
+/// Allowance per entry for everything that is not the two blobs: quote hash
+/// (66 chars), rewards address (42), a decimal u256 amount (≤ 78), field
+/// names, quoting and punctuation.
+const VERIFY_ENTRY_OVERHEAD_BYTES: usize = 512;
+
+/// Body limit for `POST /v1/verify/quotes`: what [`MAX_VERIFY_ENTRIES`]
+/// maximal entries occupy as JSON, rounded up (≈ 34 MB → 40 MB). Applied
+/// route-level so the entry/byte caps bound the work they are meant to
+/// bound rather than the daemon-wide 100 MB default. Checked against the
+/// per-entry constants by a unit test.
+pub(crate) const MAX_VERIFY_BODY_BYTES: usize = 40 * 1024 * 1024;
+
+/// Decode ceiling for gRPC `VerifyService` messages, which carry the raw
+/// (not base64) blobs: [`MAX_VERIFY_ENTRIES`] × (quote + sidecar + overhead)
+/// ≈ 24.5 MiB → 32 MiB. tonic's 4 MiB default would cap a batch at roughly
+/// 600 real entries where REST accepts 1024.
+pub(crate) const MAX_VERIFY_GRPC_MESSAGE_BYTES: usize = 32 * 1024 * 1024;
+
+// Both transport ceilings must admit a full batch of maximal entries — the
+// caps above are only meaningful if the transport lets a legitimate maximal
+// batch through. Checked at compile time so a cap change cannot silently
+// starve one transport.
+const _: () = assert!(
+    MAX_VERIFY_ENTRIES
+        * (MAX_SIGNED_QUOTE_B64_CHARS
+            + MAX_COMMITMENT_SIDECAR_B64_CHARS
+            + VERIFY_ENTRY_OVERHEAD_BYTES)
+        <= MAX_VERIFY_BODY_BYTES,
+    "REST body limit must fit MAX_VERIFY_ENTRIES maximal JSON entries"
+);
+const _: () = assert!(
+    MAX_VERIFY_ENTRIES
+        * (MAX_SIGNED_QUOTE_BYTES + MAX_COMMITMENT_SIDECAR_BYTES + VERIFY_ENTRY_OVERHEAD_BYTES)
+        <= MAX_VERIFY_GRPC_MESSAGE_BYTES,
+    "gRPC decode limit must fit MAX_VERIFY_ENTRIES maximal raw entries"
+);
+
 /// The wave-batch paid amount is the signed quote price times this
 /// multiplier: single-quote payments (V2-619) pay only the median quote of
 /// the close group, at 3x, keeping per-chunk node economics equivalent to
@@ -156,8 +208,16 @@ pub(crate) fn verify_entry(entry: &VerifyQuoteEntry) -> VerifyQuoteVerdict {
 }
 
 fn verify_inner(entry: &VerifyQuoteEntry, verdict: &mut VerifyQuoteVerdict) -> Result<(), String> {
-    // Decode the opaque quote. Cap before parsing: bound the deserialize work
-    // a malicious caller can force.
+    // Decode the opaque quote. Cap the encoded text before decoding and the
+    // bytes before parsing: bound the allocation and deserialize work a
+    // malicious caller can force.
+    if entry.signed_quote.len() > MAX_SIGNED_QUOTE_B64_CHARS {
+        return Err(format!(
+            "signed_quote is {} base64 chars, exceeds the {MAX_SIGNED_QUOTE_B64_CHARS} that can \
+             encode a {MAX_SIGNED_QUOTE_BYTES}-byte quote",
+            entry.signed_quote.len()
+        ));
+    }
     let bytes = BASE64
         .decode(&entry.signed_quote)
         .map_err(|e| format!("signed_quote is not valid base64: {e}"))?;
@@ -268,6 +328,13 @@ fn binding_is_valid(quote: &PaymentQuote, sidecar_b64: Option<&str>) -> Result<(
                 .into(),
         );
     };
+    if b64.len() > MAX_COMMITMENT_SIDECAR_B64_CHARS {
+        return Err(format!(
+            "commitment_sidecar is {} base64 chars, exceeds the {MAX_COMMITMENT_SIDECAR_B64_CHARS} \
+             that can encode MAX_COMMITMENT_SIDECAR_BYTES={MAX_COMMITMENT_SIDECAR_BYTES}",
+            b64.len()
+        ));
+    }
     let blob = BASE64
         .decode(b64)
         .map_err(|e| format!("commitment_sidecar is not valid base64: {e}"))?;
@@ -519,6 +586,77 @@ mod tests {
         let verdict = verify_entry(&entry_for(&quote, None));
         assert!(!verdict.valid);
         assert!(verdict.error.unwrap().contains("calculate_price"));
+    }
+
+    #[test]
+    fn oversized_signed_quote_text_is_rejected_before_decode() {
+        let (quote, _, _) = signed_quote(0, None, calculate_price(0));
+        let mut entry = entry_for(&quote, None);
+        // One char over the encoded bound: valid base64 alphabet, so only the
+        // length check can be what rejects it.
+        entry.signed_quote = "A".repeat(MAX_SIGNED_QUOTE_B64_CHARS + 1);
+        let verdict = verify_entry(&entry);
+        assert!(!verdict.valid);
+        let err = verdict.error.unwrap();
+        assert!(err.contains("base64 chars"), "unexpected error: {err}");
+        assert!(verdict.content.is_none(), "nothing must have been decoded");
+    }
+
+    #[test]
+    fn oversized_sidecar_text_is_rejected_before_decode() {
+        let (pk, sk) = ml_dsa_65().generate_keypair().unwrap();
+        let commitment = signed_commitment(7, &pk.to_bytes(), &sk);
+        let pin = commitment_hash(&commitment).unwrap();
+        let content = XorName([7u8; 32]);
+        let timestamp = SystemTime::UNIX_EPOCH + Duration::from_secs(1_756_000_000);
+        let rewards_address: RewardsAddress = "0x1111111111111111111111111111111111111111"
+            .parse()
+            .unwrap();
+        let price = calculate_price(7);
+        let bytes = PaymentQuote::bytes_for_signing(
+            content,
+            timestamp,
+            &price,
+            &rewards_address,
+            7,
+            &Some(pin),
+        );
+        let sig = ml_dsa_65().sign(&sk, &bytes).unwrap();
+        let quote = PaymentQuote {
+            content,
+            timestamp,
+            price,
+            rewards_address,
+            pub_key: pk.to_bytes(),
+            signature: sig.to_bytes(),
+            committed_key_count: 7,
+            commitment_pin: Some(pin),
+        };
+        let mut entry = entry_for(&quote, Some(&commitment));
+        entry.commitment_sidecar = Some("A".repeat(MAX_COMMITMENT_SIDECAR_B64_CHARS + 1));
+        let verdict = verify_entry(&entry);
+        assert!(!verdict.valid);
+        let err = verdict.error.unwrap();
+        assert!(err.contains("base64 chars"), "unexpected error: {err}");
+        // The quote itself decoded fine; only the sidecar was refused.
+        assert!(verdict.content.is_some());
+    }
+
+    #[test]
+    fn encoded_length_bound_admits_real_quotes_and_sidecars() {
+        assert_eq!(base64_len_bound(0), 0);
+        assert_eq!(base64_len_bound(1), 4);
+        assert_eq!(base64_len_bound(3), 4);
+        assert_eq!(base64_len_bound(4), 8);
+        // Real quotes are ~5.5 KB (≈7.4 KB base64); real sidecars ~4 KB. The
+        // pre-decode bounds must admit both, or the check would reject
+        // legitimate traffic before the byte caps ever ran.
+        let (quote, _, _) = signed_quote(0, None, calculate_price(0));
+        assert!(entry_for(&quote, None).signed_quote.len() <= MAX_SIGNED_QUOTE_B64_CHARS);
+        let (pk, sk) = ml_dsa_65().generate_keypair().unwrap();
+        let commitment = signed_commitment(7, &pk.to_bytes(), &sk);
+        let sidecar_b64 = BASE64.encode(rmp_serde::to_vec(&commitment).unwrap());
+        assert!(sidecar_b64.len() <= MAX_COMMITMENT_SIDECAR_B64_CHARS);
     }
 
     #[test]
