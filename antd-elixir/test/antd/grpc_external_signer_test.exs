@@ -26,6 +26,8 @@ defmodule Antd.GrpcExternalSignerTest do
         payment_vault_address: "0xvault",
         payment_token_address: "0xtoken",
         rpc_url: "http://localhost:8545",
+        total_chunks: 3,
+        already_stored_count: 1,
         payments: [
           %Antd.V1.PaymentEntry{quote_hash: "0xqa", rewards_address: "0xra", amount: "1"}
         ]
@@ -178,6 +180,8 @@ defmodule Antd.GrpcExternalSignerTest do
     # Empty visibility = proto3 default → mock echoes that into upload_id.
     {:ok, r} = GrpcClient.prepare_upload(client, "/tmp/x.bin")
     assert r.upload_id == "upid_file_"
+    assert r.total_chunks == 3
+    assert r.already_stored_count == 1
     assert r.payment_type == "wave_batch"
     assert length(r.payments) == 1
     assert hd(r.payments).quote_hash == "0xqa"

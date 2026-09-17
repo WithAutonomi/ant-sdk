@@ -260,6 +260,8 @@ impl v1::upload_service_server::UploadService for MockUploadService {
             payment_vault_address: "0xvault".to_string(),
             payment_token_address: "0xtoken".to_string(),
             rpc_url: "http://localhost:8545".to_string(),
+            total_chunks: 3,
+            already_stored_count: 1,
             ..Default::default()
         }))
     }
@@ -292,6 +294,8 @@ impl v1::upload_service_server::UploadService for MockUploadService {
                 payment_vault_address: "0xvault".to_string(),
                 payment_token_address: "0xtoken".to_string(),
                 rpc_url: "http://localhost:8545".to_string(),
+                total_chunks: 3,
+                already_stored_count: 1,
                 signed_quotes: Vec::new(),
             }));
         }
@@ -307,6 +311,8 @@ impl v1::upload_service_server::UploadService for MockUploadService {
             payment_vault_address: "0xvault".to_string(),
             payment_token_address: "0xtoken".to_string(),
             rpc_url: "http://localhost:8545".to_string(),
+            total_chunks: 3,
+            already_stored_count: 1,
             ..Default::default()
         }))
     }
@@ -673,6 +679,8 @@ async fn test_grpc_prepare_upload_omits_visibility_when_none() {
     let result = client.prepare_upload("/tmp/x.bin", None).await.unwrap();
     // Empty visibility = proto3 default; the mock echoes it into upload_id.
     assert_eq!(result.upload_id, "upid_file_");
+    assert_eq!(result.total_chunks, 3);
+    assert_eq!(result.already_stored_count, 1);
     assert_eq!(result.payment_type, "wave_batch");
     assert_eq!(result.payments.len(), 1);
     assert_eq!(result.payments[0].quote_hash, "0xqa");

@@ -2672,6 +2672,16 @@ pub struct PrepareUploadResponse {
     /// empty (the daemon does not retain merkle candidate commitments).
     #[prost(message, repeated, tag = "12")]
     pub signed_quotes: ::prost::alloc::vec::Vec<SignedQuoteEntry>,
+    /// --- Already-stored preflight (REST has carried these since antd 0.10.0;
+    /// gRPC from the first release after 0.13.0) ---
+    /// Total number of chunks in this upload, including any already on-network.
+    #[prost(uint64, tag = "13")]
+    pub total_chunks: u64,
+    /// How many of `total_chunks` were already stored on-network (deterministic
+    /// self-encryption) and therefore excluded from payment + PUT. The external
+    /// signer is paying for `total_chunks - already_stored_count` chunks.
+    #[prost(uint64, tag = "14")]
+    pub already_stored_count: u64,
 }
 /// One merkle payment batch: everything the external signer needs for a
 /// single `payForMerkleTree2()` call.

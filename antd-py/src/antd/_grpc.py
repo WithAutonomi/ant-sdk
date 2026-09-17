@@ -157,6 +157,10 @@ def _prepare_upload_result_from_resp(resp) -> PrepareUploadResult:
         depth=depth,
         pool_commitments=pool_commitments,
         merkle_payment_timestamp=merkle_ts,
+        # Already-stored preflight (parity with REST): the external signer
+        # pays for total_chunks - already_stored_count chunks.
+        total_chunks=int(resp.total_chunks),
+        already_stored_count=int(resp.already_stored_count),
     )
 
 

@@ -38,6 +38,8 @@ void main() {
       final r = await client.prepareUpload('/tmp/x.bin');
       // Empty visibility = proto3 default; the mock echoes that into upload_id.
       expect(r.uploadId, equals('upid_file_'));
+      expect(r.totalChunks, equals(3));
+      expect(r.alreadyStoredCount, equals(1));
       expect(r.paymentType, equals('wave_batch'));
       expect(r.payments.length, equals(1));
       expect(r.payments.first.quoteHash, equals('0xqa'));
@@ -198,7 +200,9 @@ class _MockUploadService extends upload_pb.UploadServiceBase {
       ..totalAmount = '1'
       ..paymentVaultAddress = '0xvault'
       ..paymentTokenAddress = '0xtoken'
-      ..rpcUrl = 'http://localhost:8545';
+      ..rpcUrl = 'http://localhost:8545'
+      ..totalChunks = Int64(3)
+      ..alreadyStoredCount = Int64(1);
     resp.payments.add(common_msg.PaymentEntry()
       ..quoteHash = '0xqa'
       ..rewardsAddress = '0xra'

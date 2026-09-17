@@ -39,6 +39,13 @@ public struct Antd_V1_PrepareFileUploadRequest: Sendable {
   /// is treated as "private".
   public var visibility: String = String()
 
+  /// When true, the wave-batch response additionally carries the full signed
+  /// quotes + ADR-0004 commitment sidecars (`signed_quotes`) so a
+  /// hosted-payments gateway can verify the batch offline before paying
+  /// (V2-854). Default false: ~5–6 KB per quote plus up to 8 KB per sidecar,
+  /// and existing consumers see no change.
+  public var includeSignedQuotes: Bool = false
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -54,6 +61,9 @@ public struct Antd_V1_PrepareDataUploadRequest: Sendable {
 
   /// Same semantics as PrepareFileUploadRequest.visibility.
   public var visibility: String = String()
+
+  /// Same semantics as PrepareFileUploadRequest.include_signed_quotes.
+  public var includeSignedQuotes: Bool = false
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -77,6 +87,10 @@ public struct Antd_V1_PrepareUploadResponse: Sendable {
   public var payments: [Antd_V1_PaymentEntry] = []
 
   /// --- Merkle fields (populated when payment_type == "merkle") ---
+  /// LEGACY single-batch fields: populated only when `merkle_batches` has
+  /// exactly one entry (mirroring that entry), so pre-multi-batch clients
+  /// keep working for uploads that fit one merkle tree. Multi-batch prepares
+  /// leave them empty — a legacy client cannot pay a fraction of the file.
   /// Merkle tree depth (1..=8).
   public var depth: UInt32 = 0
 
@@ -85,6 +99,13 @@ public struct Antd_V1_PrepareUploadResponse: Sendable {
 
   /// Timestamp for the merkle payment (unix seconds).
   public var merklePaymentTimestamp: UInt64 = 0
+
+  /// All merkle payment batches, in order. ant-core splits an upload larger
+  /// than one merkle tree (256 fresh chunks ≈ 1 GiB) into several batches;
+  /// the signer submits one `payForMerkleTree2()` transaction per entry and
+  /// passes the winner hashes back index-aligned in
+  /// `FinalizeUploadRequest.winner_pool_hashes`.
+  public var merkleBatches: [Antd_V1_MerkleBatchEntry] = []
 
   /// --- Common fields (always populated) ---
   /// Total amount to pay in atto tokens as a decimal string. For merkle this
@@ -99,6 +120,43 @@ public struct Antd_V1_PrepareUploadResponse: Sendable {
 
   /// EVM RPC URL for submitting transactions.
   public var rpcURL: String = String()
+
+  /// Populated only when the request set `include_signed_quotes` and the
+  /// payment type is wave_batch: one entry per `payments[]` quote for offline
+  /// verification via `VerifyService.VerifyQuotes`. Merkle prepares leave it
+  /// empty (the daemon does not retain merkle candidate commitments).
+  public var signedQuotes: [Antd_V1_SignedQuoteEntry] = []
+
+  /// --- Already-stored preflight (REST has carried these since antd 0.10.0;
+  /// gRPC from the first release after 0.13.0) ---
+  /// Total number of chunks in this upload, including any already on-network.
+  public var totalChunks: UInt64 = 0
+
+  /// How many of `total_chunks` were already stored on-network (deterministic
+  /// self-encryption) and therefore excluded from payment + PUT. The external
+  /// signer is paying for `total_chunks - already_stored_count` chunks.
+  public var alreadyStoredCount: UInt64 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// One merkle payment batch: everything the external signer needs for a
+/// single `payForMerkleTree2()` call.
+public struct Antd_V1_MerkleBatchEntry: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// Merkle tree depth (1..=8).
+  public var depth: UInt32 = 0
+
+  /// Pool commitments for `payForMerkleTree2()`.
+  public var poolCommitments: [Antd_V1_PoolCommitmentEntry] = []
+
+  /// Timestamp for the merkle payment (unix seconds).
+  public var merklePaymentTimestamp: UInt64 = 0
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -148,14 +206,24 @@ public struct Antd_V1_FinalizeUploadRequest: Sendable {
   public var uploadID: String = String()
 
   /// Wave-batch: map of quote_hash (hex) → tx_hash (hex) from the on-chain
-  /// payment. Required when the prepared upload was wave-batch, must be
-  /// empty otherwise.
+  /// payment. Required when the prepared upload was wave-batch and prepare
+  /// reported payments; may be empty when prepare reported none (every chunk
+  /// already stored — no on-chain payment is needed). Must be empty for
+  /// merkle uploads.
   public var txHashes: Dictionary<String,String> = [:]
 
-  /// Merkle: winner pool hash (hex with 0x prefix, 32 bytes) from the
-  /// `MerklePaymentMade` event. Required when the prepared upload was
-  /// merkle, must be empty otherwise.
+  /// Merkle, LEGACY single-batch: winner pool hash (hex with 0x prefix,
+  /// 32 bytes) from the `MerklePaymentMade` event. Accepted only when the
+  /// prepared upload has exactly one merkle batch; must be empty otherwise
+  /// (and must not be combined with `winner_pool_hashes`).
   public var winnerPoolHash: String = String()
+
+  /// Merkle: one winner pool hash per entry in the prepare response's
+  /// `merkle_batches`, index-aligned. An empty string marks a batch the
+  /// signer never paid — paid batches store and the unpaid chunks surface
+  /// via the PARTIAL_UPLOAD error. Required (over `winner_pool_hash`) when
+  /// the prepared upload has more than one batch.
+  public var winnerPoolHashes: [String] = []
 
   /// If true, store the DataMap on-network via the daemon's internal wallet
   /// and return its address. If false (default), return the raw DataMap
@@ -202,7 +270,7 @@ fileprivate let _protobuf_package = "antd.v1"
 
 extension Antd_V1_PrepareFileUploadRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PrepareFileUploadRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}visibility\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}visibility\0\u{3}include_signed_quotes\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -212,6 +280,7 @@ extension Antd_V1_PrepareFileUploadRequest: SwiftProtobuf.Message, SwiftProtobuf
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.path) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.visibility) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self.includeSignedQuotes) }()
       default: break
       }
     }
@@ -224,12 +293,16 @@ extension Antd_V1_PrepareFileUploadRequest: SwiftProtobuf.Message, SwiftProtobuf
     if !self.visibility.isEmpty {
       try visitor.visitSingularStringField(value: self.visibility, fieldNumber: 2)
     }
+    if self.includeSignedQuotes != false {
+      try visitor.visitSingularBoolField(value: self.includeSignedQuotes, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Antd_V1_PrepareFileUploadRequest, rhs: Antd_V1_PrepareFileUploadRequest) -> Bool {
     if lhs.path != rhs.path {return false}
     if lhs.visibility != rhs.visibility {return false}
+    if lhs.includeSignedQuotes != rhs.includeSignedQuotes {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -237,7 +310,7 @@ extension Antd_V1_PrepareFileUploadRequest: SwiftProtobuf.Message, SwiftProtobuf
 
 extension Antd_V1_PrepareDataUploadRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PrepareDataUploadRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}data\0\u{1}visibility\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}data\0\u{1}visibility\0\u{3}include_signed_quotes\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -247,6 +320,7 @@ extension Antd_V1_PrepareDataUploadRequest: SwiftProtobuf.Message, SwiftProtobuf
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularBytesField(value: &self.data) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.visibility) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self.includeSignedQuotes) }()
       default: break
       }
     }
@@ -259,12 +333,16 @@ extension Antd_V1_PrepareDataUploadRequest: SwiftProtobuf.Message, SwiftProtobuf
     if !self.visibility.isEmpty {
       try visitor.visitSingularStringField(value: self.visibility, fieldNumber: 2)
     }
+    if self.includeSignedQuotes != false {
+      try visitor.visitSingularBoolField(value: self.includeSignedQuotes, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Antd_V1_PrepareDataUploadRequest, rhs: Antd_V1_PrepareDataUploadRequest) -> Bool {
     if lhs.data != rhs.data {return false}
     if lhs.visibility != rhs.visibility {return false}
+    if lhs.includeSignedQuotes != rhs.includeSignedQuotes {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -272,7 +350,7 @@ extension Antd_V1_PrepareDataUploadRequest: SwiftProtobuf.Message, SwiftProtobuf
 
 extension Antd_V1_PrepareUploadResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PrepareUploadResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}upload_id\0\u{3}payment_type\0\u{1}payments\0\u{1}depth\0\u{3}pool_commitments\0\u{3}merkle_payment_timestamp\0\u{3}total_amount\0\u{3}payment_vault_address\0\u{3}payment_token_address\0\u{3}rpc_url\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}upload_id\0\u{3}payment_type\0\u{1}payments\0\u{1}depth\0\u{3}pool_commitments\0\u{3}merkle_payment_timestamp\0\u{3}total_amount\0\u{3}payment_vault_address\0\u{3}payment_token_address\0\u{3}rpc_url\0\u{3}merkle_batches\0\u{3}signed_quotes\0\u{3}total_chunks\0\u{3}already_stored_count\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -290,6 +368,10 @@ extension Antd_V1_PrepareUploadResponse: SwiftProtobuf.Message, SwiftProtobuf._M
       case 8: try { try decoder.decodeSingularStringField(value: &self.paymentVaultAddress) }()
       case 9: try { try decoder.decodeSingularStringField(value: &self.paymentTokenAddress) }()
       case 10: try { try decoder.decodeSingularStringField(value: &self.rpcURL) }()
+      case 11: try { try decoder.decodeRepeatedMessageField(value: &self.merkleBatches) }()
+      case 12: try { try decoder.decodeRepeatedMessageField(value: &self.signedQuotes) }()
+      case 13: try { try decoder.decodeSingularUInt64Field(value: &self.totalChunks) }()
+      case 14: try { try decoder.decodeSingularUInt64Field(value: &self.alreadyStoredCount) }()
       default: break
       }
     }
@@ -326,6 +408,18 @@ extension Antd_V1_PrepareUploadResponse: SwiftProtobuf.Message, SwiftProtobuf._M
     if !self.rpcURL.isEmpty {
       try visitor.visitSingularStringField(value: self.rpcURL, fieldNumber: 10)
     }
+    if !self.merkleBatches.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.merkleBatches, fieldNumber: 11)
+    }
+    if !self.signedQuotes.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.signedQuotes, fieldNumber: 12)
+    }
+    if self.totalChunks != 0 {
+      try visitor.visitSingularUInt64Field(value: self.totalChunks, fieldNumber: 13)
+    }
+    if self.alreadyStoredCount != 0 {
+      try visitor.visitSingularUInt64Field(value: self.alreadyStoredCount, fieldNumber: 14)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -336,10 +430,54 @@ extension Antd_V1_PrepareUploadResponse: SwiftProtobuf.Message, SwiftProtobuf._M
     if lhs.depth != rhs.depth {return false}
     if lhs.poolCommitments != rhs.poolCommitments {return false}
     if lhs.merklePaymentTimestamp != rhs.merklePaymentTimestamp {return false}
+    if lhs.merkleBatches != rhs.merkleBatches {return false}
     if lhs.totalAmount != rhs.totalAmount {return false}
     if lhs.paymentVaultAddress != rhs.paymentVaultAddress {return false}
     if lhs.paymentTokenAddress != rhs.paymentTokenAddress {return false}
     if lhs.rpcURL != rhs.rpcURL {return false}
+    if lhs.signedQuotes != rhs.signedQuotes {return false}
+    if lhs.totalChunks != rhs.totalChunks {return false}
+    if lhs.alreadyStoredCount != rhs.alreadyStoredCount {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Antd_V1_MerkleBatchEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".MerkleBatchEntry"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}depth\0\u{3}pool_commitments\0\u{3}merkle_payment_timestamp\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt32Field(value: &self.depth) }()
+      case 2: try { try decoder.decodeRepeatedMessageField(value: &self.poolCommitments) }()
+      case 3: try { try decoder.decodeSingularUInt64Field(value: &self.merklePaymentTimestamp) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.depth != 0 {
+      try visitor.visitSingularUInt32Field(value: self.depth, fieldNumber: 1)
+    }
+    if !self.poolCommitments.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.poolCommitments, fieldNumber: 2)
+    }
+    if self.merklePaymentTimestamp != 0 {
+      try visitor.visitSingularUInt64Field(value: self.merklePaymentTimestamp, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Antd_V1_MerkleBatchEntry, rhs: Antd_V1_MerkleBatchEntry) -> Bool {
+    if lhs.depth != rhs.depth {return false}
+    if lhs.poolCommitments != rhs.poolCommitments {return false}
+    if lhs.merklePaymentTimestamp != rhs.merklePaymentTimestamp {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -417,7 +555,7 @@ extension Antd_V1_CandidateNodeEntry: SwiftProtobuf.Message, SwiftProtobuf._Mess
 
 extension Antd_V1_FinalizeUploadRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FinalizeUploadRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}upload_id\0\u{3}tx_hashes\0\u{3}winner_pool_hash\0\u{3}store_data_map\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}upload_id\0\u{3}tx_hashes\0\u{3}winner_pool_hash\0\u{3}store_data_map\0\u{3}winner_pool_hashes\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -429,6 +567,7 @@ extension Antd_V1_FinalizeUploadRequest: SwiftProtobuf.Message, SwiftProtobuf._M
       case 2: try { try decoder.decodeMapField(fieldType: SwiftProtobuf._ProtobufMap<SwiftProtobuf.ProtobufString,SwiftProtobuf.ProtobufString>.self, value: &self.txHashes) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.winnerPoolHash) }()
       case 4: try { try decoder.decodeSingularBoolField(value: &self.storeDataMap) }()
+      case 5: try { try decoder.decodeRepeatedStringField(value: &self.winnerPoolHashes) }()
       default: break
       }
     }
@@ -447,6 +586,9 @@ extension Antd_V1_FinalizeUploadRequest: SwiftProtobuf.Message, SwiftProtobuf._M
     if self.storeDataMap != false {
       try visitor.visitSingularBoolField(value: self.storeDataMap, fieldNumber: 4)
     }
+    if !self.winnerPoolHashes.isEmpty {
+      try visitor.visitRepeatedStringField(value: self.winnerPoolHashes, fieldNumber: 5)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -454,6 +596,7 @@ extension Antd_V1_FinalizeUploadRequest: SwiftProtobuf.Message, SwiftProtobuf._M
     if lhs.uploadID != rhs.uploadID {return false}
     if lhs.txHashes != rhs.txHashes {return false}
     if lhs.winnerPoolHash != rhs.winnerPoolHash {return false}
+    if lhs.winnerPoolHashes != rhs.winnerPoolHashes {return false}
     if lhs.storeDataMap != rhs.storeDataMap {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true

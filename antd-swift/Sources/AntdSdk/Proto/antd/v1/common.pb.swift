@@ -8,6 +8,11 @@
 // For information on using the generated types, please see the documentation:
 //   https://github.com/apple/swift-protobuf/
 
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
+import Foundation
+#endif
 import SwiftProtobuf
 
 // If the compiler emits an error on this type, it is because this file
@@ -96,6 +101,32 @@ public struct Antd_V1_PaymentEntry: Sendable {
 
   /// Amount to pay (atto tokens as decimal string).
   public var amount: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// One `payments[]` quote in full signed form (V2-854 signed-quote exposure):
+/// the opaque serialized PaymentQuote plus, for commitment-bound quotes, the
+/// ADR-0004 commitment sidecar the quote pins. Consumers treat both as opaque
+/// bytes — only antd (`VerifyService.VerifyQuotes`) parses them. Shared by
+/// `UploadService` (wave-batch prepares) and `ChunkService.PrepareChunk`.
+public struct Antd_V1_SignedQuoteEntry: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// Quote hash (hex with 0x prefix, 32 bytes) — matches the `payments[]`
+  /// entry.
+  public var quoteHash: String = String()
+
+  /// msgpack-serialized signed PaymentQuote. Opaque.
+  public var quote: Data = Data()
+
+  /// msgpack-serialized StorageCommitment the quote's commitment_pin resolves
+  /// to. Empty for baseline quotes.
+  public var commitmentSidecar: Data = Data()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -281,6 +312,46 @@ extension Antd_V1_PaymentEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
     if lhs.quoteHash != rhs.quoteHash {return false}
     if lhs.rewardsAddress != rhs.rewardsAddress {return false}
     if lhs.amount != rhs.amount {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Antd_V1_SignedQuoteEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".SignedQuoteEntry"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}quote_hash\0\u{1}quote\0\u{3}commitment_sidecar\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.quoteHash) }()
+      case 2: try { try decoder.decodeSingularBytesField(value: &self.quote) }()
+      case 3: try { try decoder.decodeSingularBytesField(value: &self.commitmentSidecar) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.quoteHash.isEmpty {
+      try visitor.visitSingularStringField(value: self.quoteHash, fieldNumber: 1)
+    }
+    if !self.quote.isEmpty {
+      try visitor.visitSingularBytesField(value: self.quote, fieldNumber: 2)
+    }
+    if !self.commitmentSidecar.isEmpty {
+      try visitor.visitSingularBytesField(value: self.commitmentSidecar, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Antd_V1_SignedQuoteEntry, rhs: Antd_V1_SignedQuoteEntry) -> Bool {
+    if lhs.quoteHash != rhs.quoteHash {return false}
+    if lhs.quote != rhs.quote {return false}
+    if lhs.commitmentSidecar != rhs.commitmentSidecar {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

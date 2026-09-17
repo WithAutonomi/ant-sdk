@@ -8,6 +8,7 @@ defmodule Antd.V1.PrepareFileUploadRequest do
 
   field :path, 1, type: :string
   field :visibility, 2, type: :string
+  field :include_signed_quotes, 3, type: :bool, json_name: "includeSignedQuotes"
 end
 
 defmodule Antd.V1.PrepareDataUploadRequest do
@@ -20,6 +21,7 @@ defmodule Antd.V1.PrepareDataUploadRequest do
 
   field :data, 1, type: :bytes
   field :visibility, 2, type: :string
+  field :include_signed_quotes, 3, type: :bool, json_name: "includeSignedQuotes"
 end
 
 defmodule Antd.V1.PrepareUploadResponse do
@@ -41,10 +43,42 @@ defmodule Antd.V1.PrepareUploadResponse do
     json_name: "poolCommitments"
 
   field :merkle_payment_timestamp, 6, type: :uint64, json_name: "merklePaymentTimestamp"
+
+  field :merkle_batches, 11,
+    repeated: true,
+    type: Antd.V1.MerkleBatchEntry,
+    json_name: "merkleBatches"
+
   field :total_amount, 7, type: :string, json_name: "totalAmount"
   field :payment_vault_address, 8, type: :string, json_name: "paymentVaultAddress"
   field :payment_token_address, 9, type: :string, json_name: "paymentTokenAddress"
   field :rpc_url, 10, type: :string, json_name: "rpcUrl"
+
+  field :signed_quotes, 12,
+    repeated: true,
+    type: Antd.V1.SignedQuoteEntry,
+    json_name: "signedQuotes"
+
+  field :total_chunks, 13, type: :uint64, json_name: "totalChunks"
+  field :already_stored_count, 14, type: :uint64, json_name: "alreadyStoredCount"
+end
+
+defmodule Antd.V1.MerkleBatchEntry do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "antd.v1.MerkleBatchEntry",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :depth, 1, type: :uint32
+
+  field :pool_commitments, 2,
+    repeated: true,
+    type: Antd.V1.PoolCommitmentEntry,
+    json_name: "poolCommitments"
+
+  field :merkle_payment_timestamp, 3, type: :uint64, json_name: "merklePaymentTimestamp"
 end
 
 defmodule Antd.V1.PoolCommitmentEntry do
@@ -101,6 +135,7 @@ defmodule Antd.V1.FinalizeUploadRequest do
     map: true
 
   field :winner_pool_hash, 3, type: :string, json_name: "winnerPoolHash"
+  field :winner_pool_hashes, 5, repeated: true, type: :string, json_name: "winnerPoolHashes"
   field :store_data_map, 4, type: :bool, json_name: "storeDataMap"
 end
 

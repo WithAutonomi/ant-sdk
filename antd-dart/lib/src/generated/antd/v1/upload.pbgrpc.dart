@@ -76,8 +76,10 @@ class UploadServiceClient extends $grpc.Client {
 
   /// Phase 2: finalize an upload after the external EVM payment has landed.
   /// For wave-batch uploads pass `tx_hashes`; for merkle uploads pass
-  /// `winner_pool_hash` from the `MerklePaymentMade` event. The server-side
-  /// stored upload state is consumed (one-shot).
+  /// `winner_pool_hashes` — one `MerklePaymentMade` winner hash per entry in
+  /// the prepare response's `merkle_batches` (`winner_pool_hash` remains
+  /// accepted when there is exactly one batch). The server-side stored upload
+  /// state is consumed (one-shot) once inputs validate.
   $grpc.ResponseFuture<$6.FinalizeUploadResponse> finalizeUpload($6.FinalizeUploadRequest request, {$grpc.CallOptions? options}) {
     return $createUnaryCall(_$finalizeUpload, request, options: options);
   }

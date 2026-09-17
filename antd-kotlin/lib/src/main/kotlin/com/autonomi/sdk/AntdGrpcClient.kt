@@ -403,6 +403,10 @@ class AntdGrpcClient internal constructor(
                 }
             } else null,
             merklePaymentTimestamp = if (isMerkle) resp.merklePaymentTimestamp else null,
+            // Already-stored preflight (parity with REST): the external signer
+            // pays for (totalChunks - alreadyStoredCount) chunks.
+            totalChunks = resp.totalChunks,
+            alreadyStoredCount = resp.alreadyStoredCount,
         )
     }
 

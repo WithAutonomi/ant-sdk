@@ -25,7 +25,7 @@ _sym_db = _symbol_database.Default()
 from antd._proto.antd.v1 import common_pb2 as antd_dot_v1_dot_common__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14\x61ntd/v1/upload.proto\x12\x07\x61ntd.v1\x1a\x14\x61ntd/v1/common.proto\"<\n\x18PrepareFileUploadRequest\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\x12\n\nvisibility\x18\x02 \x01(\t\"<\n\x18PrepareDataUploadRequest\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\x12\x12\n\nvisibility\x18\x02 \x01(\t\"\xb7\x02\n\x15PrepareUploadResponse\x12\x11\n\tupload_id\x18\x01 \x01(\t\x12\x14\n\x0cpayment_type\x18\x02 \x01(\t\x12\'\n\x08payments\x18\x03 \x03(\x0b\x32\x15.antd.v1.PaymentEntry\x12\r\n\x05\x64\x65pth\x18\x04 \x01(\r\x12\x36\n\x10pool_commitments\x18\x05 \x03(\x0b\x32\x1c.antd.v1.PoolCommitmentEntry\x12 \n\x18merkle_payment_timestamp\x18\x06 \x01(\x04\x12\x14\n\x0ctotal_amount\x18\x07 \x01(\t\x12\x1d\n\x15payment_vault_address\x18\x08 \x01(\t\x12\x1d\n\x15payment_token_address\x18\t \x01(\t\x12\x0f\n\x07rpc_url\x18\n \x01(\t\"Y\n\x13PoolCommitmentEntry\x12\x11\n\tpool_hash\x18\x01 \x01(\t\x12/\n\ncandidates\x18\x02 \x03(\x0b\x32\x1b.antd.v1.CandidateNodeEntry\"=\n\x12\x43\x61ndidateNodeEntry\x12\x17\n\x0frewards_address\x18\x01 \x01(\t\x12\x0e\n\x06\x61mount\x18\x02 \x01(\t\"\xce\x01\n\x15\x46inalizeUploadRequest\x12\x11\n\tupload_id\x18\x01 \x01(\t\x12?\n\ttx_hashes\x18\x02 \x03(\x0b\x32,.antd.v1.FinalizeUploadRequest.TxHashesEntry\x12\x18\n\x10winner_pool_hash\x18\x03 \x01(\t\x12\x16\n\x0estore_data_map\x18\x04 \x01(\x08\x1a/\n\rTxHashesEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"l\n\x16\x46inalizeUploadResponse\x12\x10\n\x08\x64\x61ta_map\x18\x01 \x01(\t\x12\x0f\n\x07\x61\x64\x64ress\x18\x02 \x01(\t\x12\x18\n\x10\x64\x61ta_map_address\x18\x03 \x01(\t\x12\x15\n\rchunks_stored\x18\x04 \x01(\x04\x32\x92\x02\n\rUploadService\x12V\n\x11PrepareFileUpload\x12!.antd.v1.PrepareFileUploadRequest\x1a\x1e.antd.v1.PrepareUploadResponse\x12V\n\x11PrepareDataUpload\x12!.antd.v1.PrepareDataUploadRequest\x1a\x1e.antd.v1.PrepareUploadResponse\x12Q\n\x0e\x46inalizeUpload\x12\x1e.antd.v1.FinalizeUploadRequest\x1a\x1f.antd.v1.FinalizeUploadResponseBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\x07\x41ntd.V1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14\x61ntd/v1/upload.proto\x12\x07\x61ntd.v1\x1a\x14\x61ntd/v1/common.proto\"[\n\x18PrepareFileUploadRequest\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\x12\n\nvisibility\x18\x02 \x01(\t\x12\x1d\n\x15include_signed_quotes\x18\x03 \x01(\x08\"[\n\x18PrepareDataUploadRequest\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\x12\x12\n\nvisibility\x18\x02 \x01(\t\x12\x1d\n\x15include_signed_quotes\x18\x03 \x01(\x08\"\xd0\x03\n\x15PrepareUploadResponse\x12\x11\n\tupload_id\x18\x01 \x01(\t\x12\x14\n\x0cpayment_type\x18\x02 \x01(\t\x12\'\n\x08payments\x18\x03 \x03(\x0b\x32\x15.antd.v1.PaymentEntry\x12\r\n\x05\x64\x65pth\x18\x04 \x01(\r\x12\x36\n\x10pool_commitments\x18\x05 \x03(\x0b\x32\x1c.antd.v1.PoolCommitmentEntry\x12 \n\x18merkle_payment_timestamp\x18\x06 \x01(\x04\x12\x31\n\x0emerkle_batches\x18\x0b \x03(\x0b\x32\x19.antd.v1.MerkleBatchEntry\x12\x14\n\x0ctotal_amount\x18\x07 \x01(\t\x12\x1d\n\x15payment_vault_address\x18\x08 \x01(\t\x12\x1d\n\x15payment_token_address\x18\t \x01(\t\x12\x0f\n\x07rpc_url\x18\n \x01(\t\x12\x30\n\rsigned_quotes\x18\x0c \x03(\x0b\x32\x19.antd.v1.SignedQuoteEntry\x12\x14\n\x0ctotal_chunks\x18\r \x01(\x04\x12\x1c\n\x14\x61lready_stored_count\x18\x0e \x01(\x04\"{\n\x10MerkleBatchEntry\x12\r\n\x05\x64\x65pth\x18\x01 \x01(\r\x12\x36\n\x10pool_commitments\x18\x02 \x03(\x0b\x32\x1c.antd.v1.PoolCommitmentEntry\x12 \n\x18merkle_payment_timestamp\x18\x03 \x01(\x04\"Y\n\x13PoolCommitmentEntry\x12\x11\n\tpool_hash\x18\x01 \x01(\t\x12/\n\ncandidates\x18\x02 \x03(\x0b\x32\x1b.antd.v1.CandidateNodeEntry\"=\n\x12\x43\x61ndidateNodeEntry\x12\x17\n\x0frewards_address\x18\x01 \x01(\t\x12\x0e\n\x06\x61mount\x18\x02 \x01(\t\"\xea\x01\n\x15\x46inalizeUploadRequest\x12\x11\n\tupload_id\x18\x01 \x01(\t\x12?\n\ttx_hashes\x18\x02 \x03(\x0b\x32,.antd.v1.FinalizeUploadRequest.TxHashesEntry\x12\x18\n\x10winner_pool_hash\x18\x03 \x01(\t\x12\x1a\n\x12winner_pool_hashes\x18\x05 \x03(\t\x12\x16\n\x0estore_data_map\x18\x04 \x01(\x08\x1a/\n\rTxHashesEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"l\n\x16\x46inalizeUploadResponse\x12\x10\n\x08\x64\x61ta_map\x18\x01 \x01(\t\x12\x0f\n\x07\x61\x64\x64ress\x18\x02 \x01(\t\x12\x18\n\x10\x64\x61ta_map_address\x18\x03 \x01(\t\x12\x15\n\rchunks_stored\x18\x04 \x01(\x04\x32\x92\x02\n\rUploadService\x12V\n\x11PrepareFileUpload\x12!.antd.v1.PrepareFileUploadRequest\x1a\x1e.antd.v1.PrepareUploadResponse\x12V\n\x11PrepareDataUpload\x12!.antd.v1.PrepareDataUploadRequest\x1a\x1e.antd.v1.PrepareUploadResponse\x12Q\n\x0e\x46inalizeUpload\x12\x1e.antd.v1.FinalizeUploadRequest\x1a\x1f.antd.v1.FinalizeUploadResponseBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\x07\x41ntd.V1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -36,21 +36,23 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_FINALIZEUPLOADREQUEST_TXHASHESENTRY']._loaded_options = None
   _globals['_FINALIZEUPLOADREQUEST_TXHASHESENTRY']._serialized_options = b'8\001'
   _globals['_PREPAREFILEUPLOADREQUEST']._serialized_start=55
-  _globals['_PREPAREFILEUPLOADREQUEST']._serialized_end=115
-  _globals['_PREPAREDATAUPLOADREQUEST']._serialized_start=117
-  _globals['_PREPAREDATAUPLOADREQUEST']._serialized_end=177
-  _globals['_PREPAREUPLOADRESPONSE']._serialized_start=180
-  _globals['_PREPAREUPLOADRESPONSE']._serialized_end=491
-  _globals['_POOLCOMMITMENTENTRY']._serialized_start=493
-  _globals['_POOLCOMMITMENTENTRY']._serialized_end=582
-  _globals['_CANDIDATENODEENTRY']._serialized_start=584
-  _globals['_CANDIDATENODEENTRY']._serialized_end=645
-  _globals['_FINALIZEUPLOADREQUEST']._serialized_start=648
-  _globals['_FINALIZEUPLOADREQUEST']._serialized_end=854
-  _globals['_FINALIZEUPLOADREQUEST_TXHASHESENTRY']._serialized_start=807
-  _globals['_FINALIZEUPLOADREQUEST_TXHASHESENTRY']._serialized_end=854
-  _globals['_FINALIZEUPLOADRESPONSE']._serialized_start=856
-  _globals['_FINALIZEUPLOADRESPONSE']._serialized_end=964
-  _globals['_UPLOADSERVICE']._serialized_start=967
-  _globals['_UPLOADSERVICE']._serialized_end=1241
+  _globals['_PREPAREFILEUPLOADREQUEST']._serialized_end=146
+  _globals['_PREPAREDATAUPLOADREQUEST']._serialized_start=148
+  _globals['_PREPAREDATAUPLOADREQUEST']._serialized_end=239
+  _globals['_PREPAREUPLOADRESPONSE']._serialized_start=242
+  _globals['_PREPAREUPLOADRESPONSE']._serialized_end=706
+  _globals['_MERKLEBATCHENTRY']._serialized_start=708
+  _globals['_MERKLEBATCHENTRY']._serialized_end=831
+  _globals['_POOLCOMMITMENTENTRY']._serialized_start=833
+  _globals['_POOLCOMMITMENTENTRY']._serialized_end=922
+  _globals['_CANDIDATENODEENTRY']._serialized_start=924
+  _globals['_CANDIDATENODEENTRY']._serialized_end=985
+  _globals['_FINALIZEUPLOADREQUEST']._serialized_start=988
+  _globals['_FINALIZEUPLOADREQUEST']._serialized_end=1222
+  _globals['_FINALIZEUPLOADREQUEST_TXHASHESENTRY']._serialized_start=1175
+  _globals['_FINALIZEUPLOADREQUEST_TXHASHESENTRY']._serialized_end=1222
+  _globals['_FINALIZEUPLOADRESPONSE']._serialized_start=1224
+  _globals['_FINALIZEUPLOADRESPONSE']._serialized_end=1332
+  _globals['_UPLOADSERVICE']._serialized_start=1335
+  _globals['_UPLOADSERVICE']._serialized_end=1609
 # @@protoc_insertion_point(module_scope)

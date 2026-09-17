@@ -311,6 +311,8 @@ class GrpcAntdClientTest {
                             .setPaymentVaultAddress("0xvault")
                             .setPaymentTokenAddress("0xtoken")
                             .setRpcUrl("http://localhost:8545")
+                            .setTotalChunks(3)
+                            .setAlreadyStoredCount(1)
                             .build());
             responseObserver.onCompleted();
         }
@@ -807,6 +809,8 @@ class GrpcAntdClientTest {
     void testPrepareUploadOmitsVisibilityWhenNull() {
         PrepareUploadResult r = client.prepareUpload("/tmp/x.bin");
         assertEquals("upid_file_", r.uploadId());
+        assertEquals(3L, r.totalChunks());
+        assertEquals(1L, r.alreadyStoredCount());
         assertEquals("wave_batch", r.paymentType());
         assertEquals(1, r.payments().size());
         assertEquals("0xqa", r.payments().get(0).quoteHash());

@@ -48,6 +48,8 @@ public:
         resp->set_payment_vault_address("0xvault");
         resp->set_payment_token_address("0xtoken");
         resp->set_rpc_url("http://localhost:8545");
+        resp->set_total_chunks(3);
+        resp->set_already_stored_count(1);
         auto* p = resp->add_payments();
         p->set_quote_hash("0xqa");
         p->set_rewards_address("0xra");
@@ -189,6 +191,8 @@ TEST_CASE("V2-284: prepare_upload omits visibility when nullopt") {
     auto r = f.client().prepare_upload("/tmp/x.bin");
     // Empty visibility = proto3 default → mock echoes that into upload_id.
     CHECK(r.upload_id == "upid_file_");
+    CHECK(r.total_chunks == 3);
+    CHECK(r.already_stored_count == 1);
     CHECK(r.payment_type == "wave_batch");
     REQUIRE(r.payments.size() == 1);
     CHECK(r.payments[0].quote_hash == "0xqa");

@@ -501,7 +501,11 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
             paymentType: resp.paymentType.isEmpty ? "wave_batch" : resp.paymentType,
             depth: depth,
             poolCommitments: pools,
-            merklePaymentTimestamp: merkleTs
+            merklePaymentTimestamp: merkleTs,
+            // Already-stored preflight (parity with REST): the external signer
+            // pays for (totalChunks - alreadyStoredCount) chunks.
+            totalChunks: resp.totalChunks,
+            alreadyStoredCount: resp.alreadyStoredCount
         )
     }
 

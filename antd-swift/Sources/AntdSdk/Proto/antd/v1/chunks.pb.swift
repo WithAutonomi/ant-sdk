@@ -94,6 +94,9 @@ public struct Antd_V1_PrepareChunkRequest: Sendable {
   /// Raw chunk bytes — at most one ant-protocol chunk.
   public var data: Data = Data()
 
+  /// Same semantics as PrepareFileUploadRequest.include_signed_quotes.
+  public var includeSignedQuotes: Bool = false
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -143,6 +146,10 @@ public struct Antd_V1_PrepareChunkResponse: Sendable {
   /// EVM RPC URL for submitting transactions. Empty when
   /// `already_stored == true`.
   public var rpcURL: String = String()
+
+  /// Populated only when the request set `include_signed_quotes` and payment
+  /// is required — same semantics as PrepareUploadResponse.signed_quotes.
+  public var signedQuotes: [Antd_V1_SignedQuoteEntry] = []
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -313,7 +320,7 @@ extension Antd_V1_PutChunkResponse: SwiftProtobuf.Message, SwiftProtobuf._Messag
 
 extension Antd_V1_PrepareChunkRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PrepareChunkRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}data\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}data\0\u{3}include_signed_quotes\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -322,6 +329,7 @@ extension Antd_V1_PrepareChunkRequest: SwiftProtobuf.Message, SwiftProtobuf._Mes
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularBytesField(value: &self.data) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self.includeSignedQuotes) }()
       default: break
       }
     }
@@ -331,11 +339,15 @@ extension Antd_V1_PrepareChunkRequest: SwiftProtobuf.Message, SwiftProtobuf._Mes
     if !self.data.isEmpty {
       try visitor.visitSingularBytesField(value: self.data, fieldNumber: 1)
     }
+    if self.includeSignedQuotes != false {
+      try visitor.visitSingularBoolField(value: self.includeSignedQuotes, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Antd_V1_PrepareChunkRequest, rhs: Antd_V1_PrepareChunkRequest) -> Bool {
     if lhs.data != rhs.data {return false}
+    if lhs.includeSignedQuotes != rhs.includeSignedQuotes {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -343,7 +355,7 @@ extension Antd_V1_PrepareChunkRequest: SwiftProtobuf.Message, SwiftProtobuf._Mes
 
 extension Antd_V1_PrepareChunkResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PrepareChunkResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}address\0\u{3}already_stored\0\u{3}upload_id\0\u{3}payment_type\0\u{1}payments\0\u{3}total_amount\0\u{3}payment_vault_address\0\u{3}payment_token_address\0\u{3}rpc_url\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}address\0\u{3}already_stored\0\u{3}upload_id\0\u{3}payment_type\0\u{1}payments\0\u{3}total_amount\0\u{3}payment_vault_address\0\u{3}payment_token_address\0\u{3}rpc_url\0\u{3}signed_quotes\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -360,6 +372,7 @@ extension Antd_V1_PrepareChunkResponse: SwiftProtobuf.Message, SwiftProtobuf._Me
       case 7: try { try decoder.decodeSingularStringField(value: &self.paymentVaultAddress) }()
       case 8: try { try decoder.decodeSingularStringField(value: &self.paymentTokenAddress) }()
       case 9: try { try decoder.decodeSingularStringField(value: &self.rpcURL) }()
+      case 10: try { try decoder.decodeRepeatedMessageField(value: &self.signedQuotes) }()
       default: break
       }
     }
@@ -393,6 +406,9 @@ extension Antd_V1_PrepareChunkResponse: SwiftProtobuf.Message, SwiftProtobuf._Me
     if !self.rpcURL.isEmpty {
       try visitor.visitSingularStringField(value: self.rpcURL, fieldNumber: 9)
     }
+    if !self.signedQuotes.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.signedQuotes, fieldNumber: 10)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -406,6 +422,7 @@ extension Antd_V1_PrepareChunkResponse: SwiftProtobuf.Message, SwiftProtobuf._Me
     if lhs.paymentVaultAddress != rhs.paymentVaultAddress {return false}
     if lhs.paymentTokenAddress != rhs.paymentTokenAddress {return false}
     if lhs.rpcURL != rhs.rpcURL {return false}
+    if lhs.signedQuotes != rhs.signedQuotes {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

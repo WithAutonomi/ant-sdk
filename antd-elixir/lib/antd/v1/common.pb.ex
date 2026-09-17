@@ -52,3 +52,16 @@ defmodule Antd.V1.PaymentEntry do
   field :rewards_address, 2, type: :string, json_name: "rewardsAddress"
   field :amount, 3, type: :string
 end
+
+defmodule Antd.V1.SignedQuoteEntry do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "antd.v1.SignedQuoteEntry",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :quote_hash, 1, type: :string, json_name: "quoteHash"
+  field :quote, 2, type: :bytes
+  field :commitment_sidecar, 3, type: :bytes, json_name: "commitmentSidecar"
+end

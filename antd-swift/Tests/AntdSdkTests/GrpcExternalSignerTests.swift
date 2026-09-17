@@ -49,6 +49,8 @@ final class GrpcExternalSignerTests: XCTestCase {
         try await withMockServer { client in
             let r = try await client.prepareUpload(path: "/tmp/x.bin")
             XCTAssertEqual(r.uploadId, "upid_file_")
+            XCTAssertEqual(r.totalChunks, 3)
+            XCTAssertEqual(r.alreadyStoredCount, 1)
             XCTAssertEqual(r.paymentType, "wave_batch")
             XCTAssertEqual(r.payments.count, 1)
             XCTAssertEqual(r.payments[0].quoteHash, "0xqa")
@@ -191,6 +193,8 @@ final class MockUploadService: Antd_V1_UploadService.SimpleServiceProtocol, @unc
         resp.paymentVaultAddress = "0xvault"
         resp.paymentTokenAddress = "0xtoken"
         resp.rpcURL = "http://localhost:8545"
+        resp.totalChunks = 3
+        resp.alreadyStoredCount = 1
         var payment = Antd_V1_PaymentEntry()
         payment.quoteHash = "0xqa"
         payment.rewardsAddress = "0xra"

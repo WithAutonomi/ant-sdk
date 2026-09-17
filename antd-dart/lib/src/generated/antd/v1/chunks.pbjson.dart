@@ -69,12 +69,14 @@ const PrepareChunkRequest$json = {
   '1': 'PrepareChunkRequest',
   '2': [
     {'1': 'data', '3': 1, '4': 1, '5': 12, '10': 'data'},
+    {'1': 'include_signed_quotes', '3': 2, '4': 1, '5': 8, '10': 'includeSignedQuotes'},
   ],
 };
 
 /// Descriptor for `PrepareChunkRequest`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List prepareChunkRequestDescriptor = $convert.base64Decode(
-    'ChNQcmVwYXJlQ2h1bmtSZXF1ZXN0EhIKBGRhdGEYASABKAxSBGRhdGE=');
+    'ChNQcmVwYXJlQ2h1bmtSZXF1ZXN0EhIKBGRhdGEYASABKAxSBGRhdGESMgoVaW5jbHVkZV9zaW'
+    'duZWRfcXVvdGVzGAIgASgIUhNpbmNsdWRlU2lnbmVkUXVvdGVz');
 
 @$core.Deprecated('Use prepareChunkResponseDescriptor instead')
 const PrepareChunkResponse$json = {
@@ -89,6 +91,7 @@ const PrepareChunkResponse$json = {
     {'1': 'payment_vault_address', '3': 7, '4': 1, '5': 9, '10': 'paymentVaultAddress'},
     {'1': 'payment_token_address', '3': 8, '4': 1, '5': 9, '10': 'paymentTokenAddress'},
     {'1': 'rpc_url', '3': 9, '4': 1, '5': 9, '10': 'rpcUrl'},
+    {'1': 'signed_quotes', '3': 10, '4': 3, '5': 11, '6': '.antd.v1.SignedQuoteEntry', '10': 'signedQuotes'},
   ],
 };
 
@@ -100,7 +103,8 @@ final $typed_data.Uint8List prepareChunkResponseDescriptor = $convert.base64Deco
     'MoCzIVLmFudGQudjEuUGF5bWVudEVudHJ5UghwYXltZW50cxIhCgx0b3RhbF9hbW91bnQYBiAB'
     'KAlSC3RvdGFsQW1vdW50EjIKFXBheW1lbnRfdmF1bHRfYWRkcmVzcxgHIAEoCVITcGF5bWVudF'
     'ZhdWx0QWRkcmVzcxIyChVwYXltZW50X3Rva2VuX2FkZHJlc3MYCCABKAlSE3BheW1lbnRUb2tl'
-    'bkFkZHJlc3MSFwoHcnBjX3VybBgJIAEoCVIGcnBjVXJs');
+    'bkFkZHJlc3MSFwoHcnBjX3VybBgJIAEoCVIGcnBjVXJsEj4KDXNpZ25lZF9xdW90ZXMYCiADKA'
+    'syGS5hbnRkLnYxLlNpZ25lZFF1b3RlRW50cnlSDHNpZ25lZFF1b3Rlcw==');
 
 @$core.Deprecated('Use finalizeChunkRequestDescriptor instead')
 const FinalizeChunkRequest$json = {

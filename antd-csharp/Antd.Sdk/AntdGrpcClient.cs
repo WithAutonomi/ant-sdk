@@ -466,7 +466,11 @@ public sealed class AntdGrpcClient : IAntdClient
             PaymentType: resp.PaymentType,
             Depth: depth,
             PoolCommitments: poolCommitments,
-            MerklePaymentTimestamp: merkleTs);
+            MerklePaymentTimestamp: merkleTs,
+            // Already-stored preflight (parity with REST): the external signer
+            // pays for (TotalChunks - AlreadyStoredCount) chunks.
+            TotalChunks: (long)resp.TotalChunks,
+            AlreadyStoredCount: (long)resp.AlreadyStoredCount);
     }
 
     private static FinalizeUploadResult MapFinalizeResponse(FinalizeUploadResponse resp) =>
