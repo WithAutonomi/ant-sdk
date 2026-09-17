@@ -40,7 +40,10 @@ pub async fn serve(
     let health_svc = HealthServiceServer::new(service::HealthServiceImpl {
         state: state.clone(),
     });
-    let verify_svc = VerifyServiceServer::new(service::VerifyServiceImpl);
+    // Entries carry raw quote/sidecar bytes; tonic's 4 MiB default would cap
+    // a batch at ~600 entries where REST accepts MAX_VERIFY_ENTRIES.
+    let verify_svc = VerifyServiceServer::new(service::VerifyServiceImpl)
+        .max_decoding_message_size(crate::signed_quotes::MAX_VERIFY_GRPC_MESSAGE_BYTES);
 
     let addr = listener.local_addr()?;
     tracing::info!("gRPC server listening on {addr}");

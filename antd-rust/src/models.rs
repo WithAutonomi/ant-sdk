@@ -181,6 +181,107 @@ pub struct PoolCommitmentEntry {
     pub candidates: Vec<CandidateNodeEntry>,
 }
 
+/// Options for the external-signer prepare calls (file, data, chunk) on
+/// both transports.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PrepareOptions {
+    /// `Some("public")` bundles the serialized DataMap chunk into the same
+    /// external-signer payment batch so finalize can publish it on-network;
+    /// `None` / `Some("private")` keep the DataMap caller-held. Ignored by
+    /// the single-chunk prepare.
+    pub visibility: Option<String>,
+    /// Ask the daemon to carry the full signed quotes plus ADR-0004
+    /// commitment sidecars (`signed_quotes`, wave-batch only) for offline
+    /// verification via `verify_quotes`. Requires antd >= 0.13.0; older
+    /// daemons ignore the flag and `signed_quotes` stays empty.
+    pub include_signed_quotes: bool,
+}
+
+/// One signed wave-batch quote from a prepare response, as opaque
+/// base64(msgpack) blobs — identical on REST and gRPC, so an entry obtained
+/// over either transport feeds `verify_quotes` on either transport.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SignedQuoteEntry {
+    /// Quote hash (hex with 0x prefix) — matches the `payments[]` entry.
+    pub quote_hash: String,
+    /// base64(msgpack) signed `PaymentQuote`. Opaque.
+    pub quote: String,
+    /// base64(msgpack) `StorageCommitment` sidecar the quote's commitment
+    /// pin resolves to. `None` for baseline quotes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commitment_sidecar: Option<String>,
+}
+
+/// One entry for `verify_quotes`: the payment triple the caller was asked
+/// to pay plus the opaque signed artifacts from the prepare response's
+/// `signed_quotes`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VerifyQuoteEntry {
+    /// Quote hash the payer was asked to pay (hex, 32 bytes).
+    pub quote_hash: String,
+    /// Rewards address the payer was asked to pay (hex with 0x prefix).
+    pub rewards_address: String,
+    /// Amount the payer was asked to pay (atto tokens, decimal string).
+    pub amount: String,
+    /// `SignedQuoteEntry::quote`, opaque.
+    pub signed_quote: String,
+    /// `SignedQuoteEntry::commitment_sidecar`, opaque. Required when the
+    /// quote is commitment-bound.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commitment_sidecar: Option<String>,
+}
+
+/// Per-entry verdict from `verify_quotes`. The extracted fields are `Some`
+/// as soon as the signed quote deserialized — even when a later check
+/// failed — so policy layers can see what the quote claimed.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VerifyQuoteVerdict {
+    /// Echo of the request entry's `quote_hash`.
+    pub quote_hash: String,
+    /// True when every check passed: hash recomputation, ML-DSA-65
+    /// signature, paid-fields equality, and the ADR-0004 commitment binding
+    /// with exact on-curve pricing.
+    pub valid: bool,
+    /// The first failing rule, by name. `None` when valid.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// Quote timestamp (unix seconds) — for the caller's expiry policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp_unix_secs: Option<u64>,
+    /// The chunk address the quote covers (hex, 32 bytes).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    /// The signed price (atto tokens, decimal string).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub price: Option<String>,
+    /// The signed rewards address (hex with 0x prefix).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rewards_address: Option<String>,
+    /// Claimed ADR-0004 storage-commitment key count (0 = baseline quote).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub committed_key_count: Option<u32>,
+    /// Whether the quote pins a storage commitment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned: Option<bool>,
+}
+
+impl VerifyQuoteVerdict {
+    /// True once the signed quote deserialized (the extracted fields are
+    /// populated). Mirrors the gRPC `quote_decoded` flag.
+    pub fn quote_decoded(&self) -> bool {
+        self.content.is_some()
+    }
+}
+
+/// Result of `verify_quotes`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VerifyQuotesResult {
+    /// True only when `entries` is non-empty and every entry verified.
+    pub valid: bool,
+    #[serde(default)]
+    pub entries: Vec<VerifyQuoteVerdict>,
+}
+
 /// Result of preparing an upload for external signing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrepareUploadResult {
@@ -207,6 +308,13 @@ pub struct PrepareUploadResult {
     /// Added in antd 0.10.0; defaults to 0 against older daemons.
     #[serde(default)]
     pub already_stored_count: u64,
+    /// Populated only when the request set
+    /// [`PrepareOptions::include_signed_quotes`] and the payment type is
+    /// `wave_batch`: one entry per `payments[]` quote for offline
+    /// verification via `verify_quotes`. Merkle prepares leave it empty.
+    /// Added in antd 0.13.0.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub signed_quotes: Vec<SignedQuoteEntry>,
 }
 
 /// Result of finalizing an externally-signed upload.
@@ -242,6 +350,9 @@ pub struct PrepareChunkResult {
     pub payment_token_address: String,
     #[serde(default)]
     pub rpc_url: String,
+    /// Same semantics as [`PrepareUploadResult::signed_quotes`] (antd >= 0.13.0).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub signed_quotes: Vec<SignedQuoteEntry>,
 }
 
 /// Pre-upload cost breakdown returned by `data_cost` / `file_cost`.

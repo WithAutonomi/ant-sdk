@@ -739,6 +739,39 @@ impl Client {
                 .get("already_stored_count")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0),
+            signed_quotes: Self::parse_signed_quotes(j),
+        }
+    }
+
+    /// Parses a prepare response's optional `signed_quotes` array (antd >= 0.13.0).
+    fn parse_signed_quotes(j: &Value) -> Vec<SignedQuoteEntry> {
+        j.get("signed_quotes")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .map(|e| SignedQuoteEntry {
+                        quote_hash: Self::str_field(e, "quote_hash"),
+                        quote: Self::str_field(e, "quote"),
+                        commitment_sidecar: e
+                            .get("commitment_sidecar")
+                            .and_then(|v| v.as_str())
+                            .filter(|s| !s.is_empty())
+                            .map(str::to_string),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Serialises [`PrepareOptions`] onto a prepare request body, omitting
+    /// each field when it is at its default so the wire shape against older
+    /// daemons is unchanged.
+    fn apply_prepare_options(body: &mut Value, opts: &PrepareOptions) {
+        if let Some(v) = &opts.visibility {
+            body["visibility"] = json!(v);
+        }
+        if opts.include_signed_quotes {
+            body["include_signed_quotes"] = json!(true);
         }
     }
 
@@ -760,10 +793,31 @@ impl Client {
         path: &str,
         visibility: Option<&str>,
     ) -> Result<PrepareUploadResult, AntdError> {
+        self.prepare_upload_with_options(
+            path,
+            &PrepareOptions {
+                visibility: visibility.map(str::to_string),
+                include_signed_quotes: false,
+            },
+        )
+        .await
+    }
+
+    /// [`prepare_upload`](Self::prepare_upload) with explicit
+    /// [`PrepareOptions`] — in particular
+    /// [`include_signed_quotes`](PrepareOptions::include_signed_quotes),
+    /// which populates [`PrepareUploadResult::signed_quotes`] for offline
+    /// verification via [`verify_quotes`](Self::verify_quotes).
+    ///
+    /// Requires antd >= 0.13.0 for the signed quotes; older daemons ignore
+    /// the flag.
+    pub async fn prepare_upload_with_options(
+        &self,
+        path: &str,
+        opts: &PrepareOptions,
+    ) -> Result<PrepareUploadResult, AntdError> {
         let mut body = json!({ "path": path });
-        if let Some(v) = visibility {
-            body["visibility"] = json!(v);
-        }
+        Self::apply_prepare_options(&mut body, opts);
         let (j, _) = self
             .do_json(reqwest::Method::POST, "/v1/upload/prepare", Some(body))
             .await?;
@@ -803,15 +857,59 @@ impl Client {
         data: &[u8],
         visibility: Option<&str>,
     ) -> Result<PrepareUploadResult, AntdError> {
+        self.prepare_data_upload_with_options(
+            data,
+            &PrepareOptions {
+                visibility: visibility.map(str::to_string),
+                include_signed_quotes: false,
+            },
+        )
+        .await
+    }
+
+    /// [`prepare_data_upload`](Self::prepare_data_upload) with explicit
+    /// [`PrepareOptions`]; see
+    /// [`prepare_upload_with_options`](Self::prepare_upload_with_options).
+    pub async fn prepare_data_upload_with_options(
+        &self,
+        data: &[u8],
+        opts: &PrepareOptions,
+    ) -> Result<PrepareUploadResult, AntdError> {
         let mut body = json!({ "data": Self::b64_encode(data) });
-        if let Some(v) = visibility {
-            body["visibility"] = json!(v);
-        }
+        Self::apply_prepare_options(&mut body, opts);
         let (j, _) = self
             .do_json(reqwest::Method::POST, "/v1/data/prepare", Some(body))
             .await?;
         let j = j.unwrap_or_default();
         Ok(Self::parse_prepare_response(&j))
+    }
+
+    /// Verifies a batch of signed quotes offline via `POST /v1/verify/quotes`:
+    /// quote-hash recomputation, ML-DSA-65 signature, paid-fields equality
+    /// against each entry's triple, and the ADR-0004 commitment binding with
+    /// exact on-curve pricing. Stateless and offline — call it on a daemon
+    /// you trust (your own), never the counterparty's. Policy checks (expiry
+    /// windows, replay ledgers, chunk-set equality, count-plausibility caps)
+    /// remain the caller's job; the verdicts carry the extracted fields those
+    /// policies need.
+    ///
+    /// Malformed entries yield per-entry `valid: false` verdicts, not
+    /// errors. The daemon accepts at most 1024 entries per call and (antd >=
+    /// 0.13.1) caps the request body at 40 MB on this route.
+    ///
+    /// Requires antd >= 0.13.0.
+    pub async fn verify_quotes(
+        &self,
+        entries: &[VerifyQuoteEntry],
+    ) -> Result<VerifyQuotesResult, AntdError> {
+        let (j, _) = self
+            .do_json(
+                reqwest::Method::POST,
+                "/v1/verify/quotes",
+                Some(json!({ "entries": entries })),
+            )
+            .await?;
+        Ok(serde_json::from_value(j.unwrap_or_default())?)
     }
 
     /// Parses a `/v1/upload/finalize` JSON response into a
@@ -891,12 +989,25 @@ impl Client {
     ///
     /// Requires antd >= 0.7.0.
     pub async fn prepare_chunk_upload(&self, data: &[u8]) -> Result<PrepareChunkResult, AntdError> {
+        self.prepare_chunk_upload_with_options(data, &PrepareOptions::default())
+            .await
+    }
+
+    /// [`prepare_chunk_upload`](Self::prepare_chunk_upload) with explicit
+    /// [`PrepareOptions`]. `visibility` does not apply to single-chunk
+    /// publishes and is ignored; `include_signed_quotes` populates
+    /// [`PrepareChunkResult::signed_quotes`] (antd >= 0.13.0).
+    pub async fn prepare_chunk_upload_with_options(
+        &self,
+        data: &[u8],
+        opts: &PrepareOptions,
+    ) -> Result<PrepareChunkResult, AntdError> {
+        let mut body = json!({ "data": Self::b64_encode(data) });
+        if opts.include_signed_quotes {
+            body["include_signed_quotes"] = json!(true);
+        }
         let (j, _) = self
-            .do_json(
-                reqwest::Method::POST,
-                "/v1/chunks/prepare",
-                Some(json!({ "data": Self::b64_encode(data) })),
-            )
+            .do_json(reqwest::Method::POST, "/v1/chunks/prepare", Some(body))
             .await?;
         let j = j.unwrap_or_default();
         let payments = j
@@ -925,6 +1036,7 @@ impl Client {
             payment_vault_address: Self::str_field(&j, "payment_vault_address"),
             payment_token_address: Self::str_field(&j, "payment_token_address"),
             rpc_url: Self::str_field(&j, "rpc_url"),
+            signed_quotes: Self::parse_signed_quotes(&j),
         })
     }
 

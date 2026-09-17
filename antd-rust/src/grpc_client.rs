@@ -1,3 +1,5 @@
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
 use bytes::Bytes;
 use futures_core::Stream;
 use tokio_stream::StreamExt;
@@ -25,7 +27,8 @@ pub mod proto {
 use proto::antd::v1::{
     chunk_service_client::ChunkServiceClient, data_service_client::DataServiceClient,
     file_service_client::FileServiceClient, health_service_client::HealthServiceClient,
-    upload_service_client::UploadServiceClient, wallet_service_client::WalletServiceClient,
+    upload_service_client::UploadServiceClient, verify_service_client::VerifyServiceClient,
+    wallet_service_client::WalletServiceClient,
 };
 
 /// Default gRPC endpoint of the antd daemon.
@@ -83,6 +86,7 @@ pub struct GrpcClient {
     files: FileServiceClient<Channel>,
     upload: UploadServiceClient<Channel>,
     wallet: WalletServiceClient<Channel>,
+    verify: VerifyServiceClient<Channel>,
 }
 
 impl GrpcClient {
@@ -114,7 +118,8 @@ impl GrpcClient {
             chunks: ChunkServiceClient::new(channel.clone()),
             files: FileServiceClient::new(channel.clone()),
             upload: UploadServiceClient::new(channel.clone()),
-            wallet: WalletServiceClient::new(channel),
+            wallet: WalletServiceClient::new(channel.clone()),
+            verify: VerifyServiceClient::new(channel),
         })
     }
 
@@ -395,12 +400,24 @@ impl GrpcClient {
     ///
     /// Requires antd >= 0.9.0.
     pub async fn prepare_chunk_upload(&self, data: &[u8]) -> Result<PrepareChunkResult, AntdError> {
+        self.prepare_chunk_upload_with_options(data, &PrepareOptions::default())
+            .await
+    }
+
+    /// [`prepare_chunk_upload`](Self::prepare_chunk_upload) with explicit
+    /// [`PrepareOptions`]. Mirrors
+    /// [`crate::Client::prepare_chunk_upload_with_options`].
+    pub async fn prepare_chunk_upload_with_options(
+        &self,
+        data: &[u8],
+        opts: &PrepareOptions,
+    ) -> Result<PrepareChunkResult, AntdError> {
         let resp = self
             .chunks
             .clone()
             .prepare_chunk(proto::antd::v1::PrepareChunkRequest {
                 data: data.to_vec(),
-                include_signed_quotes: false,
+                include_signed_quotes: opts.include_signed_quotes,
             })
             .await?
             .into_inner();
@@ -419,6 +436,11 @@ impl GrpcClient {
             payment_vault_address: resp.payment_vault_address,
             payment_token_address: resp.payment_token_address,
             rpc_url: resp.rpc_url,
+            signed_quotes: resp
+                .signed_quotes
+                .into_iter()
+                .map(signed_quote_entry_to_model)
+                .collect(),
         })
     }
 
@@ -565,13 +587,34 @@ impl GrpcClient {
         path: &str,
         visibility: Option<&str>,
     ) -> Result<PrepareUploadResult, AntdError> {
+        self.prepare_upload_with_options(
+            path,
+            &PrepareOptions {
+                visibility: visibility.map(str::to_string),
+                include_signed_quotes: false,
+            },
+        )
+        .await
+    }
+
+    /// [`prepare_upload`](Self::prepare_upload) with explicit
+    /// [`PrepareOptions`]. Mirrors
+    /// [`crate::Client::prepare_upload_with_options`]:
+    /// `include_signed_quotes` populates
+    /// [`PrepareUploadResult::signed_quotes`] for offline verification via
+    /// [`verify_quotes`](Self::verify_quotes) (antd >= 0.13.0).
+    pub async fn prepare_upload_with_options(
+        &self,
+        path: &str,
+        opts: &PrepareOptions,
+    ) -> Result<PrepareUploadResult, AntdError> {
         let resp = self
             .upload
             .clone()
             .prepare_file_upload(proto::antd::v1::PrepareFileUploadRequest {
                 path: path.to_string(),
-                visibility: visibility.unwrap_or("").to_string(),
-                include_signed_quotes: false,
+                visibility: opts.visibility.clone().unwrap_or_default(),
+                include_signed_quotes: opts.include_signed_quotes,
             })
             .await?
             .into_inner();
@@ -602,18 +645,94 @@ impl GrpcClient {
         data: &[u8],
         visibility: Option<&str>,
     ) -> Result<PrepareUploadResult, AntdError> {
+        self.prepare_data_upload_with_options(
+            data,
+            &PrepareOptions {
+                visibility: visibility.map(str::to_string),
+                include_signed_quotes: false,
+            },
+        )
+        .await
+    }
+
+    /// [`prepare_data_upload`](Self::prepare_data_upload) with explicit
+    /// [`PrepareOptions`]. Mirrors
+    /// [`crate::Client::prepare_data_upload_with_options`].
+    pub async fn prepare_data_upload_with_options(
+        &self,
+        data: &[u8],
+        opts: &PrepareOptions,
+    ) -> Result<PrepareUploadResult, AntdError> {
         let resp = self
             .upload
             .clone()
             .prepare_data_upload(proto::antd::v1::PrepareDataUploadRequest {
                 data: data.to_vec(),
-                visibility: visibility.unwrap_or("").to_string(),
-                include_signed_quotes: false,
+                visibility: opts.visibility.clone().unwrap_or_default(),
+                include_signed_quotes: opts.include_signed_quotes,
             })
             .await?
             .into_inner();
 
         Ok(prepare_response_to_result(resp))
+    }
+
+    /// Verifies a batch of signed quotes offline via `VerifyService`.
+    ///
+    /// Mirrors [`crate::Client::verify_quotes`]. Entries carry the base64
+    /// strings from [`SignedQuoteEntry`] (either transport); they are
+    /// decoded to the raw bytes the proto expects here, and an entry whose
+    /// `signed_quote` or `commitment_sidecar` is not valid base64 fails the
+    /// call with [`AntdError::BadRequest`] before anything is sent (on REST
+    /// the daemon would return a per-entry invalid verdict for the same
+    /// input).
+    ///
+    /// The daemon accepts at most 1024 entries per call. antd >= 0.13.1 sets
+    /// the gRPC decode ceiling to admit a full batch; on 0.13.0 the gRPC
+    /// side tops out around 600 real entries.
+    ///
+    /// Requires antd >= 0.13.0.
+    pub async fn verify_quotes(
+        &self,
+        entries: &[VerifyQuoteEntry],
+    ) -> Result<VerifyQuotesResult, AntdError> {
+        let mut wire = Vec::with_capacity(entries.len());
+        for (i, e) in entries.iter().enumerate() {
+            let signed_quote = BASE64.decode(&e.signed_quote).map_err(|err| {
+                AntdError::BadRequest(format!(
+                    "verify_quotes entry {i} ({}): signed_quote is not valid base64: {err}",
+                    e.quote_hash
+                ))
+            })?;
+            let commitment_sidecar = match &e.commitment_sidecar {
+                Some(b64) if !b64.is_empty() => BASE64.decode(b64).map_err(|err| {
+                    AntdError::BadRequest(format!(
+                        "verify_quotes entry {i} ({}): commitment_sidecar is not valid base64: {err}",
+                        e.quote_hash
+                    ))
+                })?,
+                _ => Vec::new(),
+            };
+            wire.push(proto::antd::v1::VerifyQuoteEntry {
+                quote_hash: e.quote_hash.clone(),
+                rewards_address: e.rewards_address.clone(),
+                amount: e.amount.clone(),
+                signed_quote,
+                commitment_sidecar,
+            });
+        }
+
+        let resp = self
+            .verify
+            .clone()
+            .verify_quotes(proto::antd::v1::VerifyQuotesRequest { entries: wire })
+            .await?
+            .into_inner();
+
+        Ok(VerifyQuotesResult {
+            valid: resp.valid,
+            entries: resp.entries.into_iter().map(verdict_to_model).collect(),
+        })
     }
 
     /// Finalizes a wave-batch upload after the external signer has submitted
@@ -728,6 +847,35 @@ fn payment_entry_to_info(p: proto::antd::v1::PaymentEntry) -> PaymentInfo {
     }
 }
 
+/// The proto carries the opaque msgpack blobs as raw bytes; the shared model
+/// (also fed by REST, where they travel as JSON strings) carries them base64
+/// so an entry obtained here feeds `verify_quotes` on either transport.
+fn signed_quote_entry_to_model(e: proto::antd::v1::SignedQuoteEntry) -> SignedQuoteEntry {
+    SignedQuoteEntry {
+        quote_hash: e.quote_hash,
+        quote: BASE64.encode(&e.quote),
+        commitment_sidecar: (!e.commitment_sidecar.is_empty())
+            .then(|| BASE64.encode(&e.commitment_sidecar)),
+    }
+}
+
+/// proto3 scalars → the REST-shaped `Option` fields: the extracted fields are
+/// meaningful only once the quote decoded, exactly as REST omits them.
+fn verdict_to_model(v: proto::antd::v1::VerifyQuoteVerdict) -> VerifyQuoteVerdict {
+    let decoded = v.quote_decoded;
+    VerifyQuoteVerdict {
+        quote_hash: v.quote_hash,
+        valid: v.valid,
+        error: (!v.error.is_empty()).then_some(v.error),
+        timestamp_unix_secs: decoded.then_some(v.timestamp_unix_secs),
+        content: decoded.then_some(v.content),
+        price: decoded.then_some(v.price),
+        rewards_address: decoded.then_some(v.rewards_address),
+        committed_key_count: decoded.then_some(v.committed_key_count),
+        pinned: decoded.then_some(v.pinned),
+    }
+}
+
 fn prepare_response_to_result(resp: proto::antd::v1::PrepareUploadResponse) -> PrepareUploadResult {
     // gRPC proto3 uses scalar defaults rather than optional fields, so map
     // the merkle-only fields onto Option via "zero means absent" heuristic
@@ -769,6 +917,11 @@ fn prepare_response_to_result(resp: proto::antd::v1::PrepareUploadResponse) -> P
         // pays for `total_chunks - already_stored_count` chunks.
         total_chunks: resp.total_chunks,
         already_stored_count: resp.already_stored_count,
+        signed_quotes: resp
+            .signed_quotes
+            .into_iter()
+            .map(signed_quote_entry_to_model)
+            .collect(),
     }
 }
 

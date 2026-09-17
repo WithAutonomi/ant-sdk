@@ -411,8 +411,51 @@ upload, count-plausibility caps, and spend ceilings are the gateway's job —
 are free to mint; only economic caps and spot-check re-quoting bound a
 self-consistent fabrication).
 
-Go client: `PrepareUploadWithOptions(ctx, path, PrepareOptions{IncludeSignedQuotes: true})`
-then `VerifyQuotes(ctx, entries)`.
+#### SDK calls
+
+Both transports expose the same three pieces: a prepare option that asks for
+the signed quotes, `signed_quotes` on the prepare result, and a verify call.
+The blobs are base64 strings in every SDK model on both transports, so an
+entry obtained over gRPC can be verified over REST and vice versa.
+
+| SDK | Prepare with quotes | Verify |
+|---|---|---|
+| antd-go REST | `PrepareUploadWithOptions(ctx, path, PrepareOptions{IncludeSignedQuotes: true})` (also `PrepareDataUploadWithOptions`, `PrepareChunkUploadWithOptions`) | `VerifyQuotes(ctx, entries)` |
+| antd-go gRPC | same method names on `GrpcClient` | `GrpcClient.VerifyQuotes(ctx, entries)` |
+| antd-rust REST | `prepare_upload_with_options(path, &PrepareOptions { include_signed_quotes: true, ..Default::default() })` (also `prepare_data_upload_with_options`, `prepare_chunk_upload_with_options`) | `verify_quotes(&entries)` |
+| antd-rust gRPC | same method names on `GrpcClient` | `GrpcClient::verify_quotes(&entries)` |
+
+`signed_quotes` is populated only for wave-batch prepares (merkle prepares
+leave it empty — the daemon does not retain merkle candidate commitments) and
+only when the flag was set; older daemons ignore the flag.
+
+#### Limits
+
+- **Entries:** at most 1024 per call on both transports (`MAX_VERIFY_ENTRIES`;
+  a 256-chunk wave batch fits comfortably). More is a REST 400 / gRPC
+  `INVALID_ARGUMENT`.
+- **REST body:** `/v1/verify/quotes` has its own 40 MB body cap (antd 0.13.1+),
+  sized to a full batch of maximal entries; larger bodies are a 413 before any
+  parsing. Per entry, `signed_quote` text over 21,848 base64 characters
+  (16 KiB decoded) or `commitment_sidecar` over 10,924 (8 KiB decoded) yields a
+  `valid: false` verdict without being decoded.
+- **gRPC message:** `VerifyService` accepts 32 MiB per message (antd 0.13.1+),
+  enough for the same 1024 entries as raw bytes. On antd 0.13.0 tonic's 4 MiB
+  default applies, which tops out around 600 real entries — batch smaller or
+  use REST against that version.
+- The gRPC SDK wrappers decode the model's base64 strings to bytes before
+  sending; a malformed string fails the call client-side, where REST would
+  have returned a per-entry invalid verdict.
+
+#### Trust boundary
+
+antd applies no authentication and no rate limiting to `VerifyQuotes` — the
+same loopback-trust posture as the wallet endpoints. Each entry costs one or
+two ML-DSA-65 verifications, so an exposed endpoint is a CPU-burn target.
+Keep the daemon on loopback (the default bind) or put your own access control
+in front of it before exposing it beyond the host, and remember the
+verification only proves internal consistency: run it on **your** daemon,
+never the counterparty's.
 
 ## References
 

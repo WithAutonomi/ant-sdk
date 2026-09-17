@@ -9,6 +9,7 @@ use axum::{Json, Router};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use crate::config::CorsMode;
+use crate::signed_quotes;
 use crate::state::AppState;
 use crate::types::HealthResponse;
 
@@ -113,7 +114,14 @@ pub fn router(state: Arc<AppState>, cors: &CorsMode) -> Router {
         .route("/v1/upload/prepare", post(upload::prepare_upload))
         .route("/v1/data/prepare", post(upload::prepare_data_upload))
         .route("/v1/upload/finalize", post(upload::finalize_upload))
-        .route("/v1/verify/quotes", post(verify::verify_quotes))
+        // Route-level body cap sized to a full batch of maximal entries, so
+        // the entry/byte caps in `verify` bound the work they are meant to
+        // bound instead of the daemon-wide MAX_BODY_SIZE below.
+        .route(
+            "/v1/verify/quotes",
+            post(verify::verify_quotes)
+                .layer(DefaultBodyLimit::max(signed_quotes::MAX_VERIFY_BODY_BYTES)),
+        )
         // Wallet
         .route("/v1/wallet/address", get(wallet::wallet_address))
         .route("/v1/wallet/balance", get(wallet::wallet_balance))
@@ -184,6 +192,53 @@ mod tests {
 
     const WEB: &str = "http://127.0.0.1:8000";
     const EXT: &str = "moz-extension://c0ffee00-1234-5678-9abc-def012345678";
+
+    /// The verify route's own body cap sits under the daemon-wide default,
+    /// exactly as layered in the real router; the handler reads the body so
+    /// the limit is enforced.
+    fn body_limit_app() -> Router {
+        Router::new()
+            .route(
+                "/v1/verify/quotes",
+                // `Bytes` goes through the extractor path that honours
+                // `DefaultBodyLimit` (as `Json` does in the real handler);
+                // a raw `Body` would bypass it.
+                post(|body: axum::body::Bytes| async move { body.len().to_string() })
+                    .layer(DefaultBodyLimit::max(signed_quotes::MAX_VERIFY_BODY_BYTES)),
+            )
+            .layer(DefaultBodyLimit::max(MAX_BODY_SIZE))
+    }
+
+    async fn post_verify_body(len: usize) -> StatusCode {
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/verify/quotes")
+            .body(Body::from(vec![b'x'; len]))
+            .unwrap();
+        body_limit_app().oneshot(req).await.unwrap().status()
+    }
+
+    #[tokio::test]
+    async fn verify_route_accepts_bodies_up_to_its_own_limit() {
+        assert_eq!(
+            post_verify_body(signed_quotes::MAX_VERIFY_BODY_BYTES).await,
+            StatusCode::OK
+        );
+    }
+
+    // The route cap must sit strictly under the daemon-wide default, or the
+    // test below would be exercising the wrong layer.
+    const _: () = assert!(signed_quotes::MAX_VERIFY_BODY_BYTES + 1 < MAX_BODY_SIZE);
+
+    #[tokio::test]
+    async fn verify_route_rejects_bodies_over_its_own_limit_below_the_daemon_default() {
+        // One byte over the route cap but far under MAX_BODY_SIZE: the
+        // route-level layer, not the daemon-wide one, must be what rejects.
+        assert_eq!(
+            post_verify_body(signed_quotes::MAX_VERIFY_BODY_BYTES + 1).await,
+            StatusCode::PAYLOAD_TOO_LARGE
+        );
+    }
 
     #[tokio::test]
     async fn disabled_sets_no_cors_headers() {

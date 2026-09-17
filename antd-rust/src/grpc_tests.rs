@@ -4,9 +4,65 @@ use tonic::{Request, Response, Status};
 use crate::errors::AntdError;
 use crate::grpc_client::proto::antd::v1;
 use crate::grpc_client::GrpcClient;
-use crate::models::PaymentMode;
+use crate::models::{PaymentMode, PrepareOptions, VerifyQuoteEntry};
 
 // --- Mock service implementations ---
+
+/// The daemon's shape for one signed wave-batch quote when the request set
+/// `include_signed_quotes`: raw msgpack bytes on the wire ("opaque" / "side"
+/// stand in), which the client must base64-encode into the shared model.
+fn mock_signed_quotes(include: bool, quote_hash: &str) -> Vec<v1::SignedQuoteEntry> {
+    if !include {
+        return Vec::new();
+    }
+    vec![v1::SignedQuoteEntry {
+        quote_hash: quote_hash.to_string(),
+        quote: b"opaque".to_vec(),
+        commitment_sidecar: b"side".to_vec(),
+    }]
+}
+
+/// Verifies "opaque" quotes only, treats a present sidecar as a pinned
+/// commitment of 42 keys, and reports the batch valid when every entry is.
+#[derive(Default)]
+struct MockVerifyService;
+
+#[tonic::async_trait]
+impl v1::verify_service_server::VerifyService for MockVerifyService {
+    async fn verify_quotes(
+        &self,
+        request: Request<v1::VerifyQuotesRequest>,
+    ) -> Result<Response<v1::VerifyQuotesResponse>, Status> {
+        let req = request.into_inner();
+        let mut valid = !req.entries.is_empty();
+        let entries = req
+            .entries
+            .into_iter()
+            .map(|e| {
+                let ok = e.signed_quote == b"opaque";
+                valid &= ok;
+                let pinned = !e.commitment_sidecar.is_empty();
+                v1::VerifyQuoteVerdict {
+                    quote_hash: e.quote_hash,
+                    valid: ok,
+                    error: if ok {
+                        String::new()
+                    } else {
+                        "signed_quote did not deserialize as a PaymentQuote".to_string()
+                    },
+                    quote_decoded: ok,
+                    timestamp_unix_secs: 1_756_000_000,
+                    content: "aa".to_string(),
+                    price: "5".to_string(),
+                    rewards_address: e.rewards_address,
+                    committed_key_count: if pinned { 42 } else { 0 },
+                    pinned,
+                }
+            })
+            .collect();
+        Ok(Response::new(v1::VerifyQuotesResponse { valid, entries }))
+    }
+}
 
 #[derive(Default)]
 struct MockHealthService;
@@ -195,9 +251,9 @@ impl v1::chunk_service_server::ChunkService for MockChunkService {
         &self,
         request: Request<v1::PrepareChunkRequest>,
     ) -> Result<Response<v1::PrepareChunkResponse>, Status> {
-        let data = request.into_inner().data;
+        let req = request.into_inner();
         // Inputs starting with "EXISTS" are treated as already-stored.
-        if data.starts_with(b"EXISTS") {
+        if req.data.starts_with(b"EXISTS") {
             return Ok(Response::new(v1::PrepareChunkResponse {
                 address: "0xabc".to_string(),
                 already_stored: true,
@@ -218,7 +274,7 @@ impl v1::chunk_service_server::ChunkService for MockChunkService {
             payment_vault_address: "0xvault".to_string(),
             payment_token_address: "0xtoken".to_string(),
             rpc_url: "http://localhost:8545".to_string(),
-            signed_quotes: Vec::new(),
+            signed_quotes: mock_signed_quotes(req.include_signed_quotes, "0xq1"),
         }))
     }
 
@@ -250,6 +306,7 @@ impl v1::upload_service_server::UploadService for MockUploadService {
         let upload_id = format!("upid_file_{}", req.visibility);
         Ok(Response::new(v1::PrepareUploadResponse {
             upload_id,
+            signed_quotes: mock_signed_quotes(req.include_signed_quotes, "0xqa"),
             payment_type: "wave_batch".to_string(),
             payments: vec![v1::PaymentEntry {
                 quote_hash: "0xqa".to_string(),
@@ -301,6 +358,7 @@ impl v1::upload_service_server::UploadService for MockUploadService {
         }
         Ok(Response::new(v1::PrepareUploadResponse {
             upload_id,
+            signed_quotes: mock_signed_quotes(req.include_signed_quotes, "0xqb"),
             payment_type: "wave_batch".to_string(),
             payments: vec![v1::PaymentEntry {
                 quote_hash: "0xqb".to_string(),
@@ -452,6 +510,9 @@ async fn start_mock_server() -> GrpcClient {
             ))
             .add_service(v1::upload_service_server::UploadServiceServer::new(
                 MockUploadService,
+            ))
+            .add_service(v1::verify_service_server::VerifyServiceServer::new(
+                MockVerifyService,
             ))
             .serve_with_incoming(incoming)
             .await
@@ -794,6 +855,182 @@ async fn test_grpc_prepare_chunk_upload_new_chunk() {
     assert_eq!(result.payments[0].quote_hash, "0xq1");
     assert_eq!(result.total_amount, "100");
     assert_eq!(result.rpc_url, "http://localhost:8545");
+}
+
+#[tokio::test]
+async fn test_grpc_prepare_upload_with_options_sends_flag_and_maps_signed_quotes() {
+    let client = start_mock_server().await;
+    let opts = PrepareOptions {
+        visibility: None,
+        include_signed_quotes: true,
+    };
+    let r = client
+        .prepare_upload_with_options("/tmp/x.bin", &opts)
+        .await
+        .unwrap();
+    // Raw proto bytes must land base64-encoded, exactly as REST delivers them.
+    assert_eq!(r.signed_quotes.len(), 1);
+    assert_eq!(r.signed_quotes[0].quote_hash, "0xqa");
+    assert_eq!(r.signed_quotes[0].quote, "b3BhcXVl");
+    assert_eq!(
+        r.signed_quotes[0].commitment_sidecar.as_deref(),
+        Some("c2lkZQ==")
+    );
+    // Options must not disturb the rest of the mapping.
+    assert_eq!(r.upload_id, "upid_file_");
+    assert_eq!(r.total_chunks, 3);
+    assert_eq!(r.already_stored_count, 1);
+}
+
+#[tokio::test]
+async fn test_grpc_prepare_without_flag_carries_no_signed_quotes() {
+    let client = start_mock_server().await;
+    let file = client.prepare_upload("/tmp/x.bin", None).await.unwrap();
+    assert!(file.signed_quotes.is_empty());
+    let data = client.prepare_data_upload(b"small", None).await.unwrap();
+    assert!(data.signed_quotes.is_empty());
+    let chunk = client.prepare_chunk_upload(b"newchunk").await.unwrap();
+    assert!(chunk.signed_quotes.is_empty());
+}
+
+#[tokio::test]
+async fn test_grpc_prepare_data_upload_with_options_sends_flag_and_visibility() {
+    let client = start_mock_server().await;
+    let opts = PrepareOptions {
+        visibility: Some("public".to_string()),
+        include_signed_quotes: true,
+    };
+    let r = client
+        .prepare_data_upload_with_options(b"small", &opts)
+        .await
+        .unwrap();
+    assert_eq!(r.upload_id, "upid_data_public");
+    assert_eq!(r.signed_quotes.len(), 1);
+    assert_eq!(r.signed_quotes[0].quote_hash, "0xqb");
+    assert_eq!(r.signed_quotes[0].quote, "b3BhcXVl");
+}
+
+#[tokio::test]
+async fn test_grpc_prepare_chunk_upload_with_options_maps_signed_quotes() {
+    let client = start_mock_server().await;
+    let opts = PrepareOptions {
+        visibility: None,
+        include_signed_quotes: true,
+    };
+    let r = client
+        .prepare_chunk_upload_with_options(b"newchunk", &opts)
+        .await
+        .unwrap();
+    assert_eq!(r.upload_id, "upid_chunk_42");
+    assert_eq!(r.signed_quotes.len(), 1);
+    assert_eq!(r.signed_quotes[0].quote_hash, "0xq1");
+    assert_eq!(r.signed_quotes[0].quote, "b3BhcXVl");
+}
+
+#[tokio::test]
+async fn test_grpc_verify_quotes_maps_verdicts() {
+    let client = start_mock_server().await;
+    // Base64 strings in, decoded to raw bytes on the wire ("opaque"
+    // verifies, "opaque2" does not).
+    let res = client
+        .verify_quotes(&[
+            VerifyQuoteEntry {
+                quote_hash: "qh1".into(),
+                rewards_address: "ra1".into(),
+                amount: "5".into(),
+                signed_quote: "b3BhcXVl".into(),
+                commitment_sidecar: Some("c2lkZQ==".into()),
+            },
+            VerifyQuoteEntry {
+                quote_hash: "qh2".into(),
+                rewards_address: "ra2".into(),
+                amount: "6".into(),
+                signed_quote: "b3BhcXVlMg==".into(),
+                commitment_sidecar: None,
+            },
+        ])
+        .await
+        .unwrap();
+    assert!(!res.valid);
+    assert_eq!(res.entries.len(), 2);
+    let first = &res.entries[0];
+    assert!(first.valid);
+    assert!(first.quote_decoded());
+    assert_eq!(first.error, None);
+    assert_eq!(first.committed_key_count, Some(42));
+    assert_eq!(first.pinned, Some(true));
+    assert_eq!(first.timestamp_unix_secs, Some(1_756_000_000));
+    assert_eq!(first.rewards_address.as_deref(), Some("ra1"));
+    let second = &res.entries[1];
+    assert!(!second.valid);
+    assert!(!second.quote_decoded());
+    assert!(second
+        .error
+        .as_deref()
+        .unwrap()
+        .contains("did not deserialize"));
+    // Nothing decoded: the extracted fields are absent, as on REST.
+    assert_eq!(second.content, None);
+    assert_eq!(second.pinned, None);
+}
+
+#[tokio::test]
+async fn test_grpc_verify_quotes_round_trips_prepared_entries() {
+    // A signed quote obtained over gRPC (base64-encoded into the model) must
+    // feed verify_quotes unchanged and verify.
+    let client = start_mock_server().await;
+    let opts = PrepareOptions {
+        visibility: None,
+        include_signed_quotes: true,
+    };
+    let prep = client
+        .prepare_upload_with_options("/tmp/x.bin", &opts)
+        .await
+        .unwrap();
+    let sq = &prep.signed_quotes[0];
+    let res = client
+        .verify_quotes(&[VerifyQuoteEntry {
+            quote_hash: sq.quote_hash.clone(),
+            rewards_address: prep.payments[0].rewards_address.clone(),
+            amount: prep.payments[0].amount.clone(),
+            signed_quote: sq.quote.clone(),
+            commitment_sidecar: sq.commitment_sidecar.clone(),
+        }])
+        .await
+        .unwrap();
+    assert!(res.valid);
+    assert_eq!(res.entries.len(), 1);
+    assert_eq!(res.entries[0].pinned, Some(true));
+}
+
+#[tokio::test]
+async fn test_grpc_verify_quotes_rejects_malformed_base64_before_sending() {
+    let client = start_mock_server().await;
+    let err = client
+        .verify_quotes(&[VerifyQuoteEntry {
+            quote_hash: "qh1".into(),
+            signed_quote: "not base64!".into(),
+            ..Default::default()
+        }])
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&err, AntdError::BadRequest(m) if m.contains("signed_quote is not valid base64")),
+        "got {err:?}"
+    );
+    let err = client
+        .verify_quotes(&[VerifyQuoteEntry {
+            quote_hash: "qh1".into(),
+            signed_quote: "b3BhcXVl".into(),
+            commitment_sidecar: Some("%%%".into()),
+            ..Default::default()
+        }])
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&err, AntdError::BadRequest(m) if m.contains("commitment_sidecar is not valid base64")),
+        "got {err:?}"
+    );
 }
 
 #[tokio::test]
