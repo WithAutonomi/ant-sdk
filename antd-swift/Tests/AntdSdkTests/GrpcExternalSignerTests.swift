@@ -210,6 +210,22 @@ final class GrpcExternalSignerTests: XCTestCase {
             }
         }
     }
+
+    /// 14. ABORTED whose message lacks the daemon's "Partial upload:" prefix
+    /// is not a partial upload: it keeps the pre-existing ForkError mapping.
+    func testFinalizeUploadAbortedWithoutPartialPrefixIsForkError() async throws {
+        try await withMockServer { client in
+            do {
+                _ = try await client.finalizeUpload(uploadId: "aborted-conflict", txHashes: ["0xq1": "0xtx1"])
+                XCTFail("expected ForkError")
+            } catch let error as ForkError {
+                XCTAssertEqual(error.statusCode, 409)
+                XCTAssertEqual(error.message, "conflicting update")
+            } catch {
+                XCTFail("expected ForkError, got \(error)")
+            }
+        }
+    }
 }
 
 // MARK: - Mock services
@@ -300,6 +316,10 @@ final class MockUploadService: Antd_V1_UploadService.SimpleServiceProtocol, @unc
                 code: .aborted,
                 message: "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (stored chunks persist; re-prepare the same content to retry only the remainder)"
             )
+        }
+        // An ABORTED that is not a partial upload: no "Partial upload:" prefix.
+        if request.uploadID == "aborted-conflict" {
+            throw RPCError(code: .aborted, message: "conflicting update")
         }
         var resp = Antd_V1_FinalizeUploadResponse()
         if !request.winnerPoolHash.isEmpty {

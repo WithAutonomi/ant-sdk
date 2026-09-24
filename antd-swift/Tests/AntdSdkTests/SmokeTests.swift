@@ -149,9 +149,10 @@ final class SmokeTests: XCTestCase {
         XCTAssertTrue(ErrorMapping.fromHTTPStatus(404, body: #"{"error":"nf","code":"NOT_FOUND"}"#) is NotFoundError)
     }
 
-    /// gRPC ABORTED carries the counts and the retained hint in the status
-    /// message; the mapping parses them so both transports throw the same
-    /// typed error with a 502 status.
+    /// gRPC ABORTED whose message carries the daemon's `Partial upload:`
+    /// prefix has the counts and the retained hint parsed from the status
+    /// message, so both transports throw the same typed error with a 502
+    /// status. Any other ABORTED keeps the pre-existing `ForkError` mapping.
     func testErrorMappingGRPCAbortedParsesPartialUploadMessage() throws {
         let retained = try XCTUnwrap(
             ErrorMapping.fromGRPCStatus(code: 10, detail: "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)") as? PartialUploadError
@@ -168,15 +169,31 @@ final class SmokeTests: XCTestCase {
         XCTAssertEqual(notRetained.chunksStored, 300)
         XCTAssertFalse(notRetained.retryable)
 
-        // Unrecognised ABORTED message: still typed, counts zero, not retryable.
-        let unknown = try XCTUnwrap(
-            ErrorMapping.fromGRPCStatus(code: 10, detail: "something else entirely") as? PartialUploadError
+        // The prefix with garbled counts: still typed, counts zero, not retryable.
+        let garbled = try XCTUnwrap(
+            ErrorMapping.fromGRPCStatus(code: 10, detail: "Partial upload: counts unavailable") as? PartialUploadError
         )
-        XCTAssertEqual(unknown.chunksStored, 0)
-        XCTAssertEqual(unknown.chunksFailed, 0)
-        XCTAssertEqual(unknown.totalChunks, 0)
-        XCTAssertFalse(unknown.retryable)
-        XCTAssertEqual(unknown.message, "something else entirely")
+        XCTAssertEqual(garbled.statusCode, 502)
+        XCTAssertEqual(garbled.chunksStored, 0)
+        XCTAssertEqual(garbled.chunksFailed, 0)
+        XCTAssertEqual(garbled.totalChunks, 0)
+        XCTAssertFalse(garbled.retryable)
+        XCTAssertEqual(garbled.message, "Partial upload: counts unavailable")
+
+        // The prefix need not be at the very start of the message.
+        XCTAssertTrue(
+            ErrorMapping.fromGRPCStatus(code: 10, detail: "finalize failed: Partial upload: 1/2 chunks stored, 1 failed") is PartialUploadError
+        )
+
+        // Any other ABORTED keeps the pre-existing ForkError mapping and is
+        // never misreported as a partial upload.
+        let fork = try XCTUnwrap(
+            ErrorMapping.fromGRPCStatus(code: 10, detail: "something else entirely") as? ForkError
+        )
+        XCTAssertEqual(fork.statusCode, 409)
+        XCTAssertEqual(fork.message, "something else entirely")
+        XCTAssertFalse(ErrorMapping.fromGRPCStatus(code: 10, detail: "") is PartialUploadError)
+        XCTAssertTrue(ErrorMapping.fromGRPCStatus(code: 10, detail: "") is ForkError)
     }
 
     /// The message parser recovers (stored, failed, total, retryable) from

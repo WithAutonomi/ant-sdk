@@ -89,8 +89,11 @@ public final class ServiceUnavailableError: AntdError {
 /// Over REST the counts and `retryable` come from the structured error body.
 /// Over gRPC they are parsed best-effort from the status message (`Partial
 /// upload: S/T chunks stored, F failed ...`, with a `paid attempt retained`
-/// hint when retryable); an unrecognised message leaves the counts zero and
-/// `retryable` false. See `docs/external-signer-flow.md` §6.
+/// hint when retryable). Only an ABORTED whose message carries the daemon's
+/// fixed `Partial upload:` prefix maps here; a message with the prefix but
+/// unparseable counts leaves the counts zero and `retryable` false. Any other
+/// ABORTED keeps the ``ForkError`` mapping. See
+/// `docs/external-signer-flow.md` §6.
 ///
 /// This is a sibling of ``NetworkError`` (not a subclass) so that a
 /// `catch let e as NetworkError` clause never swallows a paid, partly stored
@@ -121,6 +124,11 @@ enum ErrorMapping {
 
     /// Machine-readable `code` the daemon sends for a partial store.
     static let partialUploadCode = "PARTIAL_UPLOAD"
+
+    /// Fixed opening text of every `PARTIAL_UPLOAD` message the daemon emits.
+    /// Over gRPC (where the status carries no structured `code`) this is what
+    /// distinguishes a partial upload from any other ABORTED.
+    static let partialUploadMessagePrefix = "Partial upload:"
 
     /// Message tail the daemon appends when it kept the paid attempt for a
     /// same-`upload_id` retry.
@@ -190,20 +198,27 @@ enum ErrorMapping {
         case 5: return NotFoundError(detail)
         case 6: return AlreadyExistsError(detail)
         case 10:
-            // ABORTED is the daemon's PARTIAL_UPLOAD: some chunks stored, some
-            // still unstored after retries. The counts and the "paid attempt
-            // retained" hint ride the message text over gRPC (no structured
-            // detail yet), so parse them best-effort to match the REST
-            // client's typed error. Status 502 mirrors the REST mapping.
-            let parsed = parsePartialUploadMessage(detail)
-            return PartialUploadError(
-                detail,
-                chunksStored: parsed.chunksStored,
-                chunksFailed: parsed.chunksFailed,
-                totalChunks: parsed.totalChunks,
-                retryable: parsed.retryable,
-                statusCode: 502
-            )
+            // The daemon's PARTIAL_UPLOAD rides gRPC as ABORTED: some chunks
+            // stored, some still unstored after retries. The counts and the
+            // "paid attempt retained" hint ride the message text (no
+            // structured detail yet), so parse them best-effort to match the
+            // REST client's typed error. Status 502 mirrors the REST mapping.
+            // Every such message opens with the daemon's fixed "Partial
+            // upload:" prefix, so gate on it: any other ABORTED keeps the
+            // pre-existing ForkError mapping rather than being misreported
+            // as a partial upload.
+            if detail.contains(partialUploadMessagePrefix) {
+                let parsed = parsePartialUploadMessage(detail)
+                return PartialUploadError(
+                    detail,
+                    chunksStored: parsed.chunksStored,
+                    chunksFailed: parsed.chunksFailed,
+                    totalChunks: parsed.totalChunks,
+                    retryable: parsed.retryable,
+                    statusCode: 502
+                )
+            }
+            return ForkError(detail)
         case 3: return BadRequestError(detail)
         case 9: return PaymentError(detail)
         case 14: return NetworkError(detail)
@@ -215,8 +230,10 @@ enum ErrorMapping {
 
     /// Recovers the chunk counts and the retryable hint from a
     /// `PARTIAL_UPLOAD` message. Used for gRPC, where the status carries no
-    /// structured detail; REST callers get the body fields instead. An
-    /// unrecognised message yields zero counts and `retryable == false`.
+    /// structured detail; REST callers get the body fields instead. A message
+    /// whose counts do not parse yields zero counts and `retryable == false`.
+    /// Callers decide whether the message is a partial upload at all (see
+    /// ``partialUploadMessagePrefix``); this parser does not.
     static func parsePartialUploadMessage(
         _ message: String
     ) -> (chunksStored: UInt64, chunksFailed: UInt64, totalChunks: UInt64, retryable: Bool) {

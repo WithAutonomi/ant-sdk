@@ -102,11 +102,11 @@ do {
 |---|---|---|---|
 | `NotFoundError` | 404 | NOT_FOUND | Resource not found |
 | `AlreadyExistsError` | 409 | ALREADY_EXISTS | Resource already exists |
-| `ForkError` | 409 | — | Conflicting update |
+| `ForkError` | 409 | ABORTED (non-partial-upload) | Conflicting update |
 | `BadRequestError` | 400 | INVALID_ARGUMENT | Invalid input |
 | `PaymentError` | 402 | FAILED_PRECONDITION | Insufficient funds |
 | `NetworkError` | 502 | UNAVAILABLE | Network unreachable |
-| `PartialUploadError` | 502 (`code: "PARTIAL_UPLOAD"`) | ABORTED | Finalize stored some chunks but not all (see below) |
+| `PartialUploadError` | 502 (`code: "PARTIAL_UPLOAD"`) | ABORTED (message carries `Partial upload:`) | Finalize stored some chunks but not all (see below) |
 | `TooLargeError` | 413 | RESOURCE_EXHAUSTED | Data too large |
 | `InternalError` | 500 | INTERNAL | Server error |
 
@@ -117,7 +117,7 @@ A `finalizeUpload` / `finalizeMerkleUpload` where some chunks stayed unstored af
 - **`retryable == true`** (antd ≥ 0.14.0): the daemon kept the paid attempt under the same `uploadId`. Call the **same** finalize method again with the same arguments to store the remainder against the same payment — no re-prepare, no second signature, no double payment. Bound that loop: a persistent failure throws `PartialUploadError` on every call, so cap the attempts and treat a `chunksFailed` that stops shrinking as stuck.
 - **`retryable == false`** (older daemon, or a merkle finalize with deliberately unpaid batches): nothing was retained. Re-preparing the same content skips already-stored chunks, so a retry pays only for the remainder.
 
-Over REST the counts and the flag come from the structured error body (`retryable` is absent on daemons older than 0.14.0 and reads `false`). Over gRPC they are parsed from the ABORTED status message. Catch `PartialUploadError` *before* the generic `AntdError` clause:
+Over REST the counts and the flag come from the structured error body (`retryable` is absent on daemons older than 0.14.0 and reads `false`). Over gRPC an ABORTED status whose message carries the daemon's fixed `Partial upload:` prefix is parsed for the counts and the flag; any other ABORTED stays a `ForkError`. Catch `PartialUploadError` *before* the generic `AntdError` clause:
 
 ```swift
 var lastFailed: UInt64 = 0
