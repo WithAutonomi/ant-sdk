@@ -313,6 +313,11 @@ func (m *mockUploadService) FinalizeUpload(_ context.Context, req *pb.FinalizeUp
 	if req.GetUploadId() == "partial" {
 		return nil, status.Error(codes.Aborted, "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)")
 	}
+	// Magic id: an ABORTED that is not a partial upload at all (nothing
+	// emits this today; guards the message-prefix gate).
+	if req.GetUploadId() == "aborted-other" {
+		return nil, status.Error(codes.Aborted, "operation aborted for some other reason")
+	}
 	// Magic id: a partial upload the daemon did NOT retain (unpaid merkle
 	// batches, or an older daemon's message).
 	if req.GetUploadId() == "partial-final" {
@@ -1400,6 +1405,17 @@ func TestGrpcPartialUploadMapsToPartialUploadError(t *testing.T) {
 	}
 	if perr.Retryable {
 		t.Fatalf("no retained hint must read as not retryable: %+v", perr)
+	}
+
+	// An ABORTED without the daemon's "Partial upload:" prefix is not a
+	// partial upload and must not be reported as one.
+	_, err = c.FinalizeMerkleUploadMulti(context.Background(), "aborted-other", []string{"0xw1"}, false)
+	if errors.As(err, &perr) {
+		t.Fatalf("non-partial ABORTED must not map to PartialUploadError: %v", err)
+	}
+	var base *AntdError
+	if !errors.As(err, &base) || base.StatusCode != int(codes.Aborted) {
+		t.Fatalf("expected the generic mapping with the gRPC code, got %T: %v", err, err)
 	}
 }
 

@@ -68,10 +68,11 @@ type ServiceUnavailableError struct{ AntdError }
 //     retry pays only for the missing remainder.
 //
 // Over REST the counts and Retryable come from the structured error body.
-// Over gRPC they are parsed best-effort from the status message ("Partial
-// upload: S/T chunks stored, F failed ...", with a "paid attempt retained"
-// hint when retryable); an unrecognised message leaves the counts zero and
-// Retryable false.
+// Over gRPC an ABORTED status is treated as a partial upload only when its
+// message carries the daemon's fixed "Partial upload:" prefix (any other
+// ABORTED maps to the generic AntdError); the counts and the "paid attempt
+// retained" hint are then parsed best-effort from that message, and a
+// garbled message leaves the counts zero and Retryable false.
 type PartialUploadError struct {
 	AntdError
 	ChunksStored uint64
@@ -80,9 +81,21 @@ type PartialUploadError struct {
 	Retryable    bool
 }
 
+// partialUploadPrefix opens every PARTIAL_UPLOAD message the daemon emits;
+// over gRPC it is the only way to tell a partial upload from any other
+// ABORTED status.
+const partialUploadPrefix = "Partial upload:"
+
+// isPartialUploadMessage reports whether a gRPC status message is the
+// daemon's PARTIAL_UPLOAD text (some transports prepend their own code
+// decoration, so this is a containment check, not a strict prefix).
+func isPartialUploadMessage(msg string) bool {
+	return strings.Contains(msg, partialUploadPrefix)
+}
+
 // partialUploadCounts matches the fixed prefix of the daemon's PARTIAL_UPLOAD
 // message: "Partial upload: <stored>/<total> chunks stored, <failed> failed".
-var partialUploadCounts = regexp.MustCompile(`Partial upload: (\d+)/(\d+) chunks stored, (\d+) failed`)
+var partialUploadCounts = regexp.MustCompile(partialUploadPrefix + ` (\d+)/(\d+) chunks stored, (\d+) failed`)
 
 // partialUploadRetainedHint is the message tail the daemon appends when it
 // kept the paid attempt for a same-upload_id retry.

@@ -178,11 +178,18 @@ func errorFromGrpc(err error) error {
 		// PARTIAL_UPLOAD: some chunks stored, some still unstored after
 		// retries. The counts and the "paid attempt retained" hint ride
 		// the message text over gRPC (no structured detail yet), so parse
-		// them best-effort to match the REST client's typed error.
-		base.StatusCode = 502
-		e := &PartialUploadError{AntdError: base}
-		e.ChunksStored, e.ChunksFailed, e.TotalChunks, e.Retryable = parsePartialUploadMessage(msg)
-		return e
+		// them best-effort to match the REST client's typed error. Only a
+		// message carrying the daemon's "Partial upload:" prefix is a
+		// partial upload — any other ABORTED (none exist today) falls
+		// through to the generic mapping rather than being misreported.
+		if isPartialUploadMessage(msg) {
+			base.StatusCode = 502
+			e := &PartialUploadError{AntdError: base}
+			e.ChunksStored, e.ChunksFailed, e.TotalChunks, e.Retryable = parsePartialUploadMessage(msg)
+			return e
+		}
+		base.StatusCode = int(st.Code())
+		return &base
 	default:
 		base.StatusCode = int(st.Code())
 		return &base
