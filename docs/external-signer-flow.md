@@ -437,8 +437,12 @@ only when the flag was set; older daemons ignore the flag.
 - **REST body:** `/v1/verify/quotes` has its own 40 MB body cap (antd 0.13.1+),
   sized to a full batch of maximal entries; larger bodies are a 413 before any
   parsing. Per entry, `signed_quote` text over 21,848 base64 characters
-  (16 KiB decoded) or `commitment_sidecar` over 10,924 (8 KiB decoded) yields a
-  `valid: false` verdict without being decoded.
+  (16 KiB decoded) yields a `valid: false` verdict without being decoded. The
+  matching `commitment_sidecar` cap (10,924 characters, 8 KiB decoded) applies
+  on the commitment-bound path only: a quote whose decoded `commitment_pin` is
+  set has its sidecar length-checked before decoding. A baseline quote (no
+  pin) is fully resolved before the sidecar is examined, so an extraneous
+  sidecar on it, oversized or not, is ignored rather than failing the entry.
 - **gRPC message:** `VerifyService` accepts 32 MiB per message (antd 0.13.1+),
   enough for the same 1024 entries as raw bytes. On antd 0.13.0 tonic's 4 MiB
   default applies, which tops out around 600 real entries — batch smaller or
@@ -446,6 +450,20 @@ only when the flag was set; older daemons ignore the flag.
 - The gRPC SDK wrappers decode the model's base64 strings to bytes before
   sending; a malformed string fails the call client-side, where REST would
   have returned a per-entry invalid verdict.
+- **SDK receive ceiling (prepare responses):** the limits above bound what
+  the daemon *accepts*; the prepare response that carries `signed_quotes`
+  flows the other way and is bounded by the *client's* decode limit. grpc-go
+  and tonic both default to 4 MiB, which a large wave-batch prepare exceeds
+  (~600 real entries; ant-core's merkle-to-wave fallback on
+  `InsufficientPeers` can hand over the whole pending chunk set). The antd-go
+  and antd-rust gRPC clients therefore set their own 32 MiB receive ceiling,
+  matching the daemon's `VerifyService` limit, on every call: Go
+  `DefaultGrpcMaxRecvMsgSize` (override with `WithGrpcMaxRecvMsgSize`), Rust
+  `DEFAULT_MAX_RECV_MESSAGE_BYTES` (override with
+  `GrpcClient::connect_with_max_message_size`). A response over the ceiling
+  fails the call (Go: `TooLargeError`/413; Rust: `AntdError::Grpc` with
+  `OutOfRange`) rather than being truncated. REST has no equivalent client
+  limit.
 
 #### Trust boundary
 

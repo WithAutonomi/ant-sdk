@@ -22,6 +22,24 @@ fn mock_signed_quotes(include: bool, quote_hash: &str) -> Vec<v1::SignedQuoteEnt
     }]
 }
 
+/// Requesting this path with `include_signed_quotes` makes the mock return
+/// [`big_signed_quotes`]: a full-size wave-batch prepare whose signed quotes
+/// push the response well past tonic's 4 MiB default receive limit.
+const BIG_PREPARE_PATH: &str = "/big";
+
+/// 1024 entries (the daemon's `MAX_VERIFY_ENTRIES`) with 8,000-byte quote
+/// blobs, about 8.3 MB on the wire. Synthetic transport fixture only; the
+/// bytes are not real quotes.
+fn big_signed_quotes() -> Vec<v1::SignedQuoteEntry> {
+    (0..1024)
+        .map(|i| v1::SignedQuoteEntry {
+            quote_hash: format!("0xq{i:04}"),
+            quote: vec![b'q'; 8000],
+            commitment_sidecar: b"side".to_vec(),
+        })
+        .collect()
+}
+
 /// Verifies "opaque" quotes only, treats a present sidecar as a pinned
 /// commitment of 42 keys, and reports the batch valid when every entry is.
 #[derive(Default)]
@@ -304,9 +322,14 @@ impl v1::upload_service_server::UploadService for MockUploadService {
         // Encode the visibility into the upload_id so the test can verify
         // the field is forwarded over the wire.
         let upload_id = format!("upid_file_{}", req.visibility);
+        let signed_quotes = if req.include_signed_quotes && req.path == BIG_PREPARE_PATH {
+            big_signed_quotes()
+        } else {
+            mock_signed_quotes(req.include_signed_quotes, "0xqa")
+        };
         Ok(Response::new(v1::PrepareUploadResponse {
             upload_id,
-            signed_quotes: mock_signed_quotes(req.include_signed_quotes, "0xqa"),
+            signed_quotes,
             payment_type: "wave_batch".to_string(),
             payments: vec![v1::PaymentEntry {
                 quote_hash: "0xqa".to_string(),
@@ -490,6 +513,13 @@ impl v1::health_service_server::HealthService for ErrorHealthService {
 
 /// Starts a mock gRPC server on a random port and returns a connected GrpcClient.
 async fn start_mock_server() -> GrpcClient {
+    let addr = spawn_mock_server().await;
+    GrpcClient::new(&format!("http://{addr}")).await.unwrap()
+}
+
+/// Starts the full mock server and returns its address, so a test can connect
+/// with a non-default client configuration.
+async fn spawn_mock_server() -> std::net::SocketAddr {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
@@ -522,7 +552,79 @@ async fn start_mock_server() -> GrpcClient {
     // Give the server a moment to start.
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-    GrpcClient::new(&format!("http://{addr}")).await.unwrap()
+    addr
+}
+
+/// A full-size signed-quote prepare response (>4 MiB, tonic's default
+/// receive limit) must decode on a default client: the SDK sets its own
+/// receive ceiling, sized like the daemon's, on every service client.
+#[tokio::test]
+async fn grpc_prepare_upload_large_signed_quote_response_fits_default_recv_limit() {
+    use prost::Message;
+    let fixture = v1::PrepareUploadResponse {
+        signed_quotes: big_signed_quotes(),
+        ..Default::default()
+    };
+    assert!(
+        fixture.encoded_len() > 4 * 1024 * 1024,
+        "fixture must exceed tonic's 4 MiB default to be a regression test, got {} bytes",
+        fixture.encoded_len()
+    );
+
+    let client = start_mock_server().await;
+    let r = client
+        .prepare_upload_with_options(
+            BIG_PREPARE_PATH,
+            &PrepareOptions {
+                include_signed_quotes: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("large signed-quote response rejected on a default client");
+    assert_eq!(r.signed_quotes.len(), 1024);
+    assert_eq!(r.signed_quotes[1023].quote_hash, "0xq1023");
+    // 8000 raw bytes -> 10668 base64 chars.
+    assert_eq!(r.signed_quotes[1023].quote.len(), 10668);
+}
+
+/// The ceiling is a real bound, not a no-op: a caller-set limit below the
+/// response size is enforced and surfaces as a gRPC status, not a hang or a
+/// truncated result.
+#[tokio::test]
+async fn grpc_prepare_upload_recv_limit_is_enforced_and_configurable() {
+    let addr = spawn_mock_server().await;
+    let client = GrpcClient::connect_with_max_message_size(&format!("http://{addr}"), 1024 * 1024)
+        .await
+        .unwrap();
+    let opts = PrepareOptions {
+        include_signed_quotes: true,
+        ..Default::default()
+    };
+    let err = client
+        .prepare_upload_with_options(BIG_PREPARE_PATH, &opts)
+        .await
+        .expect_err("expected the 1 MiB receive limit to reject an 8 MB response");
+    match &err {
+        AntdError::Grpc(status) => {
+            assert_eq!(
+                status.code(),
+                tonic::Code::OutOfRange,
+                "unexpected status: {status:?}"
+            );
+            assert!(
+                status.message().contains("message length too large"),
+                "unexpected message: {}",
+                status.message()
+            );
+        }
+        other => panic!("expected AntdError::Grpc, got {other:?}"),
+    }
+    // A small response on the same client is unaffected.
+    client
+        .prepare_upload("/tmp/x.bin", None)
+        .await
+        .expect("small response failed under the lowered limit");
 }
 
 /// Starts a mock gRPC server that returns an error for the HealthService.

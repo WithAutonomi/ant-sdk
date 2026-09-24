@@ -23,6 +23,16 @@ const DefaultGrpcTarget = "localhost:50051"
 // DefaultGrpcTimeout is the default per-call timeout for gRPC requests.
 const DefaultGrpcTimeout = 5 * time.Minute
 
+// DefaultGrpcMaxRecvMsgSize is the default ceiling on a single gRPC response
+// message the client will decode (32 MiB). grpc-go's own default is 4 MiB,
+// which a prepare response carrying signed quotes can exceed: each entry is
+// ~5-6 KB of quote plus up to 8 KB of commitment sidecar, so a large
+// wave-batch prepare (ant-core falls back from merkle to wave on
+// InsufficientPeers with the whole pending chunk set) can be 8 MiB or more.
+// The ceiling matches the daemon's own VerifyService message limit, which is
+// sized to 1024 maximal entries. Override with WithGrpcMaxRecvMsgSize.
+const DefaultGrpcMaxRecvMsgSize = 32 * 1024 * 1024
+
 // GrpcOption configures a GrpcClient.
 type GrpcOption func(*GrpcClient)
 
@@ -31,9 +41,18 @@ func WithGrpcTimeout(d time.Duration) GrpcOption {
 	return func(c *GrpcClient) { c.timeout = d }
 }
 
-// WithDialOptions appends gRPC dial options.
+// WithDialOptions appends gRPC dial options. They are applied after the
+// client's own defaults, so a grpc.WithDefaultCallOptions here overrides them.
 func WithDialOptions(opts ...grpc.DialOption) GrpcOption {
 	return func(c *GrpcClient) { c.dialOpts = append(c.dialOpts, opts...) }
+}
+
+// WithGrpcMaxRecvMsgSize sets the ceiling, in bytes, on a single response
+// message the client will decode. Defaults to DefaultGrpcMaxRecvMsgSize.
+// Responses over the ceiling fail with a ResourceExhausted status (mapped to
+// a 413 TooLargeError) rather than being truncated.
+func WithGrpcMaxRecvMsgSize(bytes int) GrpcOption {
+	return func(c *GrpcClient) { c.maxRecvMsgSize = bytes }
 }
 
 // GrpcClient is a gRPC client for the antd daemon. It exposes the same
@@ -42,7 +61,8 @@ type GrpcClient struct {
 	conn    *grpc.ClientConn
 	timeout time.Duration
 
-	dialOpts []grpc.DialOption
+	dialOpts       []grpc.DialOption
+	maxRecvMsgSize int
 
 	health pb.HealthServiceClient
 	data   pb.DataServiceClient
@@ -69,18 +89,25 @@ func NewGrpcClientAutoDiscover(opts ...GrpcOption) (*GrpcClient, string, error) 
 // (e.g. "localhost:50051"). The connection is established lazily on first use.
 func NewGrpcClient(target string, opts ...GrpcOption) (*GrpcClient, error) {
 	c := &GrpcClient{
-		timeout: DefaultGrpcTimeout,
+		timeout:        DefaultGrpcTimeout,
+		maxRecvMsgSize: DefaultGrpcMaxRecvMsgSize,
 	}
 	for _, o := range opts {
 		o(c)
 	}
 
+	// The receive ceiling goes first so a caller's own
+	// grpc.WithDefaultCallOptions (via WithDialOptions) still wins.
+	dialOpts := []grpc.DialOption{
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(c.maxRecvMsgSize)),
+	}
 	// Default to insecure transport if no dial options are provided.
 	if len(c.dialOpts) == 0 {
-		c.dialOpts = append(c.dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
+	dialOpts = append(dialOpts, c.dialOpts...)
 
-	conn, err := grpc.NewClient(target, c.dialOpts...)
+	conn, err := grpc.NewClient(target, dialOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("grpc dial: %w", err)
 	}

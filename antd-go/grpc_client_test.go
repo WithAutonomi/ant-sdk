@@ -1,8 +1,11 @@
 package antd
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"strings"
@@ -14,6 +17,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/proto"
 
 	pb "github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1"
 )
@@ -236,8 +240,31 @@ func (m *mockUploadService) PrepareFileUpload(_ context.Context, req *pb.Prepare
 	}
 	if req.GetIncludeSignedQuotes() {
 		resp.SignedQuotes = mockSignedQuotes("0xqa")
+		if req.GetPath() == bigPreparePath {
+			resp.SignedQuotes = bigSignedQuotes()
+		}
 	}
 	return resp, nil
+}
+
+// bigPreparePath makes the mock return bigSignedQuotes: a full-size
+// wave-batch prepare whose signed quotes push the response well past
+// grpc-go's 4 MiB default receive limit.
+const bigPreparePath = "/big"
+
+// bigSignedQuotes is 1024 entries (the daemon's MAX_VERIFY_ENTRIES) with
+// 8,000-byte quote blobs, about 8.3 MB on the wire. Synthetic transport
+// fixture only; the bytes are not real quotes.
+func bigSignedQuotes() []*pb.SignedQuoteEntry {
+	entries := make([]*pb.SignedQuoteEntry, 1024)
+	for i := range entries {
+		entries[i] = &pb.SignedQuoteEntry{
+			QuoteHash:         fmt.Sprintf("0xq%04d", i),
+			Quote:             bytes.Repeat([]byte{'q'}, 8000),
+			CommitmentSidecar: []byte("side"),
+		}
+	}
+	return entries
 }
 
 func (m *mockUploadService) PrepareDataUpload(_ context.Context, req *pb.PrepareDataUploadRequest) (*pb.PrepareUploadResponse, error) {
@@ -391,6 +418,13 @@ func (m *errorHealthService) Check(_ context.Context, _ *pb.HealthCheckRequest) 
 // and returns a connected GrpcClient.
 func startMockServer(t *testing.T) *GrpcClient {
 	t.Helper()
+	return startMockServerWith(t)
+}
+
+// startMockServerWith is startMockServer with extra client options applied
+// after the bufconn dialer.
+func startMockServerWith(t *testing.T, extra ...GrpcOption) *GrpcClient {
+	t.Helper()
 	lis := bufconn.Listen(bufSize)
 
 	s := grpc.NewServer()
@@ -412,12 +446,13 @@ func startMockServer(t *testing.T) *GrpcClient {
 		return lis.Dial()
 	}
 
-	c, err := NewGrpcClient("passthrough:///bufconn",
+	opts := append([]GrpcOption{
 		WithDialOptions(
 			grpc.WithContextDialer(dialer),
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 		),
-	)
+	}, extra...)
+	c, err := NewGrpcClient("passthrough:///bufconn", opts...)
 	if err != nil {
 		t.Fatalf("failed to create grpc client: %v", err)
 	}
@@ -814,6 +849,47 @@ func TestGrpcPrepareChunkUploadWithOptionsMapsSignedQuotes(t *testing.T) {
 	}
 	if len(plain.SignedQuotes) != 0 {
 		t.Fatalf("signed_quotes populated without the flag: %+v", plain.SignedQuotes)
+	}
+}
+
+// A full-size signed-quote prepare response (>4 MiB, grpc-go's default
+// receive limit) must decode on a default client: the SDK sets its own
+// receive ceiling, sized like the daemon's, on every call.
+func TestGrpcPrepareUploadLargeSignedQuoteResponseFitsDefaultRecvLimit(t *testing.T) {
+	fixture := &pb.PrepareUploadResponse{SignedQuotes: bigSignedQuotes()}
+	if n := proto.Size(fixture); n <= 4*1024*1024 {
+		t.Fatalf("fixture must exceed grpc-go's 4 MiB default to be a regression test, got %d bytes", n)
+	}
+
+	c := startMockServer(t)
+	r, err := c.PrepareUploadWithOptions(context.Background(), bigPreparePath, PrepareOptions{IncludeSignedQuotes: true})
+	if err != nil {
+		t.Fatalf("large signed-quote response rejected on a default client: %v", err)
+	}
+	if len(r.SignedQuotes) != 1024 {
+		t.Fatalf("expected 1024 signed quotes, got %d", len(r.SignedQuotes))
+	}
+	if r.SignedQuotes[1023].QuoteHash != "0xq1023" || len(r.SignedQuotes[1023].Quote) != base64.StdEncoding.EncodedLen(8000) {
+		t.Fatalf("last entry mangled: %+v", r.SignedQuotes[1023])
+	}
+}
+
+// The ceiling is a real bound, not a no-op: a caller-set limit below the
+// response size is enforced and surfaces as the mapped 413, not a hang or a
+// truncated result.
+func TestGrpcPrepareUploadRecvLimitIsEnforcedAndConfigurable(t *testing.T) {
+	c := startMockServerWith(t, WithGrpcMaxRecvMsgSize(1024*1024))
+	_, err := c.PrepareUploadWithOptions(context.Background(), bigPreparePath, PrepareOptions{IncludeSignedQuotes: true})
+	if err == nil {
+		t.Fatal("expected the 1 MiB receive limit to reject an 8 MB response")
+	}
+	var tooLarge *TooLargeError
+	if !errors.As(err, &tooLarge) || !strings.Contains(err.Error(), "larger than max") {
+		t.Fatalf("expected a TooLargeError carrying the receive-limit message, got: %v", err)
+	}
+	// A small response on the same client is unaffected.
+	if _, err := c.PrepareUpload(context.Background(), "/tmp/x.bin"); err != nil {
+		t.Fatalf("small response failed under the lowered limit: %v", err)
 	}
 }
 

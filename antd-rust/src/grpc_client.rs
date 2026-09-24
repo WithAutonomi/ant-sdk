@@ -34,6 +34,16 @@ use proto::antd::v1::{
 /// Default gRPC endpoint of the antd daemon.
 pub const DEFAULT_GRPC_ENDPOINT: &str = "http://localhost:50051";
 
+/// Default ceiling on a single gRPC response message the client will decode
+/// (32 MiB). tonic's own default is 4 MiB, which a prepare response carrying
+/// signed quotes can exceed: each entry is ~5-6 KB of quote plus up to 8 KB
+/// of commitment sidecar, so a large wave-batch prepare (ant-core falls back
+/// from merkle to wave on `InsufficientPeers` with the whole pending chunk
+/// set) can be 8 MiB or more. The ceiling matches the daemon's own
+/// `VerifyService` message limit, which is sized to 1024 maximal entries.
+/// Override with [`GrpcClient::connect_with_max_message_size`].
+pub const DEFAULT_MAX_RECV_MESSAGE_BYTES: usize = 32 * 1024 * 1024;
+
 /// Extract the plaintext bytes of a `DataChunk`, or `None` if the frame is a
 /// progress update (or empty). Used by the non-progress stream methods to drop
 /// any stray progress frames and yield only data bytes.
@@ -104,22 +114,35 @@ impl GrpcClient {
         Self::connect(&endpoint).await
     }
 
-    /// Connects to the antd gRPC server at the given endpoint.
+    /// Connects to the antd gRPC server at the given endpoint with the
+    /// [`DEFAULT_MAX_RECV_MESSAGE_BYTES`] response ceiling.
     pub async fn connect(endpoint: &str) -> Result<Self, AntdError> {
+        Self::connect_with_max_message_size(endpoint, DEFAULT_MAX_RECV_MESSAGE_BYTES).await
+    }
+
+    /// [`connect`](Self::connect) with an explicit ceiling, in bytes, on a
+    /// single response message. Responses over the ceiling fail with an
+    /// `OutOfRange` status ([`AntdError::Grpc`]) rather than being
+    /// truncated. Applied to every service client so the bound is uniform.
+    pub async fn connect_with_max_message_size(
+        endpoint: &str,
+        max_recv_message_bytes: usize,
+    ) -> Result<Self, AntdError> {
         let channel = Endpoint::from_shared(endpoint.to_string())
             .map_err(|e| AntdError::Internal(format!("invalid endpoint: {e}")))?
             .connect()
             .await
             .map_err(|e| AntdError::Internal(format!("grpc connect: {e}")))?;
 
+        let n = max_recv_message_bytes;
         Ok(Self {
-            health: HealthServiceClient::new(channel.clone()),
-            data: DataServiceClient::new(channel.clone()),
-            chunks: ChunkServiceClient::new(channel.clone()),
-            files: FileServiceClient::new(channel.clone()),
-            upload: UploadServiceClient::new(channel.clone()),
-            wallet: WalletServiceClient::new(channel.clone()),
-            verify: VerifyServiceClient::new(channel),
+            health: HealthServiceClient::new(channel.clone()).max_decoding_message_size(n),
+            data: DataServiceClient::new(channel.clone()).max_decoding_message_size(n),
+            chunks: ChunkServiceClient::new(channel.clone()).max_decoding_message_size(n),
+            files: FileServiceClient::new(channel.clone()).max_decoding_message_size(n),
+            upload: UploadServiceClient::new(channel.clone()).max_decoding_message_size(n),
+            wallet: WalletServiceClient::new(channel.clone()).max_decoding_message_size(n),
+            verify: VerifyServiceClient::new(channel).max_decoding_message_size(n),
         })
     }
 
