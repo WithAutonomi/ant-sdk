@@ -286,7 +286,6 @@ fn dupeU64(v: std.json.Value) u64 {
     };
 }
 
-
 // --- JSON body construction helpers ---
 // These use manual string building to avoid std.json.writeStream API differences
 // across Zig versions.
@@ -639,5 +638,59 @@ pub fn parseErrorMessage(allocator: Allocator, body: []const u8) ?[]const u8 {
     return switch (err_val) {
         .string => |s| allocator.dupe(u8, s) catch null,
         else => null,
+    };
+}
+
+/// Structured fields of a daemon error body
+/// `{"error":"...","code":"...",...}`. `code` is empty when the body carried
+/// none. The chunk counts and `retryable` are sent only with
+/// `code: "PARTIAL_UPLOAD"` (`retryable` by antd >= 0.14.0) and read zero /
+/// false otherwise.
+pub const ErrorBody = struct {
+    message: []const u8,
+    code: []const u8,
+    chunks_stored: u64 = 0,
+    chunks_failed: u64 = 0,
+    total_chunks: u64 = 0,
+    retryable: bool = false,
+
+    pub fn deinit(self: ErrorBody, allocator: Allocator) void {
+        allocator.free(self.message);
+        allocator.free(self.code);
+    }
+};
+
+/// Parse a JSON error response body into an ErrorBody. Returns null when the
+/// body is not a JSON object with a string "error" field, exactly like
+/// `parseErrorMessage`, so callers can fall back to the raw body text.
+pub fn parseErrorBody(allocator: Allocator, body: []const u8) ?ErrorBody {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch return null;
+    defer parsed.deinit();
+    const obj = switch (parsed.value) {
+        .object => |o| o,
+        else => return null,
+    };
+    const err_val = obj.get("error") orelse return null;
+    const message = switch (err_val) {
+        .string => |s| allocator.dupe(u8, s) catch return null,
+        else => return null,
+    };
+    const code = dupeString(allocator, obj.get("code") orelse .null) catch {
+        allocator.free(message);
+        return null;
+    };
+
+    const retryable = switch (obj.get("retryable") orelse .null) {
+        .bool => |b| b,
+        else => false,
+    };
+
+    return .{
+        .message = message,
+        .code = code,
+        .chunks_stored = dupeU64(obj.get("chunks_stored") orelse .null),
+        .chunks_failed = dupeU64(obj.get("chunks_failed") orelse .null),
+        .total_chunks = dupeU64(obj.get("total_chunks") orelse .null),
+        .retryable = retryable,
     };
 }
