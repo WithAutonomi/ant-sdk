@@ -94,6 +94,21 @@ public:
     grpc::Status FinalizeUpload(grpc::ServerContext*,
                                 const antd::v1::FinalizeUploadRequest* req,
                                 antd::v1::FinalizeUploadResponse* resp) override {
+        // PARTIAL_UPLOAD rides ABORTED; the daemon's message carries the
+        // counts and, when it kept the paid attempt, the retained hint.
+        if (req->upload_id() == "partial") {
+            return grpc::Status(
+                grpc::StatusCode::ABORTED,
+                "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
+                "(paid attempt retained: call finalize again with the same upload_id to "
+                "store the remainder against the same payment)");
+        }
+        if (req->upload_id() == "partial-final") {
+            return grpc::Status(
+                grpc::StatusCode::ABORTED,
+                "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
+                "(stored chunks persist; re-prepare the same content to retry only the remainder)");
+        }
         if (!req->winner_pool_hash().empty()) {
             resp->set_data_map("dm_merkle");
             resp->set_address(req->store_data_map() ? "stored_on_network" : "");
@@ -247,6 +262,33 @@ TEST_CASE("V2-284: finalize_upload wave-batch public returns data_map_address") 
     ExternalSignerFixture f;
     auto r = f.client().finalize_upload("upid_file_public", {{"0xq1", "0xtx1"}});
     CHECK(r.data_map_address == "addr_public_dm");
+}
+
+TEST_CASE("finalize_upload maps ABORTED to PartialUploadError with counts parsed from the message") {
+    ExternalSignerFixture f;
+    try {
+        f.client().finalize_upload("partial", {{"0xqa", "0xtx"}});
+        FAIL("should have thrown");
+    } catch (const antd::PartialUploadError& e) {
+        CHECK(e.status_code == 502);
+        CHECK(e.chunks_stored == 300);
+        CHECK(e.chunks_failed == 12);
+        CHECK(e.total_chunks == 312);
+        CHECK(e.retryable);
+    }
+}
+
+TEST_CASE("finalize_merkle_upload ABORTED without the retained hint is not retryable") {
+    ExternalSignerFixture f;
+    try {
+        f.client().finalize_merkle_upload("partial-final", "0xwinner");
+        FAIL("should have thrown");
+    } catch (const antd::PartialUploadError& e) {
+        CHECK(e.chunks_stored == 300);
+        CHECK(e.chunks_failed == 12);
+        CHECK(e.total_chunks == 312);
+        CHECK_FALSE(e.retryable);
+    }
 }
 
 TEST_CASE("V2-284: finalize_merkle_upload store_data_map=true") {

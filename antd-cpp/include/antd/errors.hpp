@@ -1,7 +1,10 @@
 #pragma once
 
+#include <cstdint>
+#include <regex>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 namespace antd {
 
@@ -68,6 +71,82 @@ class ServiceUnavailableError : public AntdError {
 public:
     ServiceUnavailableError(const std::string& msg) : AntdError(503, msg) {}
 };
+
+/// A finalize stored some chunks while others remained unstored after the
+/// daemon's retries (HTTP 502 with `code: "PARTIAL_UPLOAD"`; gRPC ABORTED).
+/// The on-chain payment persists and the stored chunks stay on the network.
+///
+/// Derives from NetworkError because a 502 mapped to NetworkError before this
+/// type existed, so `catch (const NetworkError&)` blocks keep catching it —
+/// catch PartialUploadError first to handle the partial case specifically.
+///
+/// How to finish the upload depends on `retryable`:
+///
+///   - `true`: the daemon kept the paid attempt (payment proofs + unstored
+///     chunks) under the same `upload_id`. Call the same finalize method
+///     again with the same arguments to store the remainder against the same
+///     payment — no re-prepare, no second signature, no double payment.
+///     Bound the loop: a persistent failure throws this on every call, so cap
+///     the attempts and treat a `chunks_failed` that stops shrinking as
+///     stuck. The retained attempt expires with the daemon's pending-upload
+///     TTL. (antd >= 0.14.0; older daemons never send the flag, so it reads
+///     false and the re-prepare path applies.)
+///   - `false`: nothing was retained (a merkle finalize with deliberately
+///     unpaid batches, or an older daemon). Re-preparing the same content
+///     skips already-stored chunks, so a retry pays only for the remainder.
+///
+/// Over REST the counts and `retryable` come from the structured error body.
+/// Over gRPC they are parsed best-effort from the status message (see
+/// parse_partial_upload_message); an unrecognised message leaves the counts
+/// zero and `retryable` false. See docs/external-signer-flow.md §6.
+class PartialUploadError : public NetworkError {
+public:
+    std::uint64_t chunks_stored;
+    std::uint64_t chunks_failed;
+    std::uint64_t total_chunks;
+    bool retryable;
+
+    PartialUploadError(const std::string& msg,
+                       std::uint64_t chunks_stored,
+                       std::uint64_t chunks_failed,
+                       std::uint64_t total_chunks,
+                       bool retryable)
+        : NetworkError(msg),
+          chunks_stored(chunks_stored),
+          chunks_failed(chunks_failed),
+          total_chunks(total_chunks),
+          retryable(retryable) {}
+};
+
+/// Counts and retry hint recovered from a PARTIAL_UPLOAD message.
+struct PartialUploadCounts {
+    std::uint64_t chunks_stored{0};
+    std::uint64_t chunks_failed{0};
+    std::uint64_t total_chunks{0};
+    bool retryable{false};
+};
+
+/// Recover the chunk counts and the retryable hint from a PARTIAL_UPLOAD
+/// message. Used for gRPC, where the status carries no structured detail;
+/// REST callers get the body fields instead.
+///
+/// Matches the fixed prefix "Partial upload: <stored>/<total> chunks stored,
+/// <failed> failed" and reads `retryable` from the "paid attempt retained"
+/// hint the daemon appends when it kept the paid attempt. An unrecognised
+/// message yields zero counts and `retryable == false`.
+inline PartialUploadCounts parse_partial_upload_message(std::string_view message) {
+    static const std::regex kCounts(
+        R"(Partial upload: (\d+)/(\d+) chunks stored, (\d+) failed)");
+    PartialUploadCounts out;
+    std::match_results<std::string_view::const_iterator> m;
+    if (std::regex_search(message.begin(), message.end(), m, kCounts)) {
+        out.chunks_stored = std::stoull(m[1].str());
+        out.total_chunks = std::stoull(m[2].str());
+        out.chunks_failed = std::stoull(m[3].str());
+    }
+    out.retryable = message.find("paid attempt retained") != std::string_view::npos;
+    return out;
+}
 
 /// Throw the appropriate AntdError subclass for an HTTP status code.
 [[noreturn]] inline void error_for_status(int code, const std::string& message) {

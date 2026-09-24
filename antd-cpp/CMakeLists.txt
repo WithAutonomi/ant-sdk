@@ -125,6 +125,7 @@ if(ANTD_BUILD_EXAMPLES)
         03-chunks
         04-files
         06-private-data
+        07-external-signer
     )
         add_executable(${example} examples/${example}.cpp)
         target_link_libraries(${example} PRIVATE antd)

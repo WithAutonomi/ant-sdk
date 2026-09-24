@@ -274,6 +274,46 @@ try {
 | `TooLargeError` | 413 | Payload too large |
 | `InternalError` | 500 | Server error |
 | `NetworkError` | 502 | Network unreachable |
+| `PartialUploadError` | 502 (`code: PARTIAL_UPLOAD`) | Finalize paid and stored some chunks, others missed quorum — see below |
+
+### Partial uploads
+
+`finalize_upload` / `finalize_merkle_upload` can fail *after* the wallet has
+paid: some chunks store, others miss quorum after the daemon's own retries.
+That surfaces as `antd::PartialUploadError` (HTTP 502 with
+`code: "PARTIAL_UPLOAD"`; gRPC `ABORTED`, where the fields are parsed from the
+status message). It derives from `NetworkError`, so existing 502 handlers
+keep working — catch it first to handle the partial case specifically. The
+on-chain payment persists and the stored chunks stay on the network; the
+`retryable` flag says how to finish:
+
+- **`retryable == true`** (sent by antd >= 0.14.0): the daemon kept the paid
+  attempt under the same `upload_id`. Call the **same finalize method again
+  with the same arguments** to store the remainder against the same payment —
+  no re-prepare, no second signature, no double payment. Bound the loop: a
+  persistent failure throws on every call, so cap attempts and treat a
+  `chunks_failed` that stops shrinking as stuck.
+- **`retryable == false`** (older daemon, or a merkle finalize with
+  deliberately unpaid batches): nothing was retained. Re-prepare the same
+  content — already-stored chunks are skipped, so the retry pays only for the
+  remainder.
+
+```cpp
+for (int attempt = 1;; ++attempt) {
+    try {
+        auto fin = client.finalize_upload(upload_id, tx_hashes);
+        break;  // every chunk stored
+    } catch (const antd::PartialUploadError& e) {
+        if (!e.retryable || attempt >= 5) throw;  // re-prepare, or give up
+        std::cerr << e.chunks_stored << "/" << e.total_chunks << " stored, "
+                  << e.chunks_failed << " unstored — retrying same upload_id\n";
+    }
+}
+```
+
+`examples/07-external-signer.cpp` has a complete `finalize_with_retry` with
+backoff and stuck detection. Contract reference:
+[`docs/external-signer-flow.md` §6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment).
 
 ## Building
 
@@ -297,3 +337,4 @@ See the [examples/](examples/) directory:
 - `03-chunks` — Raw chunk operations
 - `04-files` — File and directory upload/download
 - `06-private-data` — Private encrypted data storage
+- `07-external-signer` — Two-phase upload paid by an external signer (shells out to foundry's `cast`), with a bounded `finalize_with_retry` for partial stores

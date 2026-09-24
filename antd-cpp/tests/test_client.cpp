@@ -582,6 +582,44 @@ struct StubServer {
             } catch (...) {
                 last_finalize_body = json::object();
             }
+            // PARTIAL_UPLOAD (502): the daemon paid and stored some chunks
+            // but others missed quorum after retries. Keyed on upload_id so
+            // the same route can serve the retained (retryable) shape, the
+            // pre-0.14.0 shape with no `retryable` field, and a plain 502.
+            const std::string uid = last_finalize_body.value("upload_id", "");
+            if (uid == "up_partial_retained") {
+                res.status = 502;
+                json err = {
+                    {"error", "Partial upload: 300/312 chunks stored, 12 failed after retries: "
+                              "quorum (paid attempt retained: call finalize again with the same "
+                              "upload_id to store the remainder against the same payment)"},
+                    {"code", "PARTIAL_UPLOAD"},
+                    {"chunks_stored", 300},
+                    {"chunks_failed", 12},
+                    {"total_chunks", 312},
+                    {"retryable", true},
+                };
+                res.set_content(err.dump(), "application/json");
+                return;
+            }
+            if (uid == "up_partial_legacy") {
+                res.status = 502;
+                json err = {
+                    {"error", "Partial upload: 300/312 chunks stored, 12 failed after retries"},
+                    {"code", "PARTIAL_UPLOAD"},
+                    {"chunks_stored", 300},
+                    {"chunks_failed", 12},
+                    {"total_chunks", 312},
+                };
+                res.set_content(err.dump(), "application/json");
+                return;
+            }
+            if (uid == "up_network_error") {
+                res.status = 502;
+                json err = {{"error", "upstream unreachable"}, {"code", "NETWORK_ERROR"}};
+                res.set_content(err.dump(), "application/json");
+                return;
+            }
             json resp = {
                 {"data_map", "deadbeef"},
                 {"address", "0xFINAL"},
@@ -956,6 +994,66 @@ TEST_CASE("prepare_upload_public forwards visibility=public and finalize surface
     CHECK(fin.address == "0xFINAL");
     CHECK(fin.data_map_address == "0xDMAP");
     CHECK(fin.chunks_stored == 42);
+}
+
+TEST_CASE("finalize_upload maps a PARTIAL_UPLOAD 502 to PartialUploadError with counts + retryable") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    try {
+        c.finalize_upload("up_partial_retained", {{"qh1", "tx1"}});
+        FAIL("should have thrown");
+    } catch (const antd::PartialUploadError& e) {
+        CHECK(e.status_code == 502);
+        CHECK(e.chunks_stored == 300);
+        CHECK(e.chunks_failed == 12);
+        CHECK(e.total_chunks == 312);
+        CHECK(e.retryable);
+        CHECK(std::string(e.what()).find("Partial upload: 300/312") != std::string::npos);
+    }
+}
+
+TEST_CASE("finalize_upload PartialUploadError retryable defaults to false without the body flag") {
+    // An older daemon (< 0.14.0) never sends `retryable`; the flag must read
+    // false so callers fall back to the re-prepare path rather than looping
+    // on an upload_id the daemon has already dropped.
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    try {
+        c.finalize_merkle_upload("up_partial_legacy", "0xwinner");
+        FAIL("should have thrown");
+    } catch (const antd::PartialUploadError& e) {
+        CHECK(e.chunks_stored == 300);
+        CHECK(e.chunks_failed == 12);
+        CHECK(e.total_chunks == 312);
+        CHECK_FALSE(e.retryable);
+    }
+}
+
+TEST_CASE("PartialUploadError is still catchable as NetworkError (502 compatibility)") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    CHECK_THROWS_AS(c.finalize_upload("up_partial_retained", {{"qh1", "tx1"}}),
+                    antd::NetworkError);
+    CHECK_THROWS_AS(c.finalize_upload("up_partial_retained", {{"qh1", "tx1"}}),
+                    antd::AntdError);
+}
+
+TEST_CASE("plain 502 without code PARTIAL_UPLOAD still maps to NetworkError") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    try {
+        c.finalize_upload("up_network_error", {});
+        FAIL("should have thrown");
+    } catch (const antd::PartialUploadError&) {
+        FAIL("a plain 502 must not become PartialUploadError");
+    } catch (const antd::NetworkError& e) {
+        CHECK(e.status_code == 502);
+        CHECK(std::string(e.what()).find("upstream unreachable") != std::string::npos);
+    }
 }
 
 TEST_CASE("prepare_upload omits visibility when nullopt and finalize leaves data_map_address empty") {

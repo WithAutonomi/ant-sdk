@@ -227,6 +227,19 @@ public:
                                             std::optional<std::string> visibility = std::nullopt);
 
     /// Finalize a wave-batch upload after an external signer has submitted payment transactions.
+    ///
+    /// Throws PartialUploadError when the payment settled but some chunks
+    /// missed quorum after the daemon's retries (HTTP 502, code
+    /// `PARTIAL_UPLOAD`). The stored chunks and the on-chain payment persist:
+    ///   - `retryable == true` (antd >= 0.14.0): the daemon kept the paid
+    ///     attempt under this `upload_id`; call `finalize_upload` again with
+    ///     the same arguments to store the remainder against the same
+    ///     payment. Bound the loop: cap attempts and treat a `chunks_failed`
+    ///     that stops shrinking as stuck.
+    ///   - `retryable == false` (older daemon, nothing retained): re-prepare
+    ///     the same content; already-stored chunks are skipped so only the
+    ///     remainder is paid for.
+    /// See docs/external-signer-flow.md section 6.
     FinalizeUploadResult finalize_upload(std::string_view upload_id,
                                           const std::map<std::string, std::string>& tx_hashes,
                                           bool store_data_map = false);
@@ -236,6 +249,13 @@ public:
     /// @param upload_id      The upload ID from prepare_upload.
     /// @param winner_pool_hash  The bytes32 value from the MerklePaymentMade event (hex with 0x prefix).
     /// @param store_data_map Whether to store the data map on-network.
+    ///
+    /// Throws PartialUploadError on a post-payment storage shortfall, exactly
+    /// as `finalize_upload` does. A merkle finalize that deliberately left
+    /// some sub-batches unpaid is reported with `retryable == false` (a
+    /// resume can never acquire proofs for unpaid chunks): re-prepare the
+    /// same content to pay for and store only the remainder. See
+    /// docs/external-signer-flow.md section 6.
     FinalizeUploadResult finalize_merkle_upload(std::string_view upload_id,
                                                  std::string_view winner_pool_hash,
                                                  bool store_data_map = false);

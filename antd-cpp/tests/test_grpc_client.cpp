@@ -42,6 +42,7 @@ enum StatusCode {
     ALREADY_EXISTS      = 6,
     FAILED_PRECONDITION = 9,
     RESOURCE_EXHAUSTED  = 8,
+    ABORTED             = 10,
     INTERNAL            = 13,
     UNAVAILABLE         = 14,
     UNIMPLEMENTED       = 12,
@@ -66,6 +67,14 @@ enum StatusCode {
             throw antd::NetworkError(message);
         case FAILED_PRECONDITION:
             throw antd::PaymentError(message);
+        case ABORTED: {
+            const auto counts = antd::parse_partial_upload_message(message);
+            throw antd::PartialUploadError(message,
+                                           counts.chunks_stored,
+                                           counts.chunks_failed,
+                                           counts.total_chunks,
+                                           counts.retryable);
+        }
         default:
             throw antd::AntdError(static_cast<int>(code), message);
     }
@@ -117,6 +126,82 @@ TEST_CASE("grpc UNAVAILABLE -> NetworkError") {
     CHECK_THROWS_AS(
         test_grpc::check_status(test_grpc::UNAVAILABLE, "down"),
         antd::NetworkError);
+}
+
+// ---------------------------------------------------------------------------
+// PARTIAL_UPLOAD rides gRPC ABORTED. The status carries no structured detail,
+// so the counts and the "paid attempt retained" hint are parsed from the
+// message text (parse_partial_upload_message) to match the REST client's
+// typed error.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("grpc ABORTED -> PartialUploadError with counts and retryable from the retained hint") {
+    const std::string msg =
+        "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
+        "(paid attempt retained: call finalize again with the same upload_id to "
+        "store the remainder against the same payment)";
+    try {
+        test_grpc::check_status(test_grpc::ABORTED, msg);
+        FAIL("should have thrown");
+    } catch (const antd::PartialUploadError& e) {
+        CHECK(e.status_code == 502);
+        CHECK(e.chunks_stored == 300);
+        CHECK(e.chunks_failed == 12);
+        CHECK(e.total_chunks == 312);
+        CHECK(e.retryable);
+        CHECK(std::string(e.what()).find("Partial upload") != std::string::npos);
+    }
+}
+
+TEST_CASE("grpc ABORTED without the retained hint reads as not retryable") {
+    const std::string msg =
+        "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
+        "(stored chunks persist; re-prepare the same content to retry only the remainder)";
+    try {
+        test_grpc::check_status(test_grpc::ABORTED, msg);
+        FAIL("should have thrown");
+    } catch (const antd::PartialUploadError& e) {
+        CHECK(e.chunks_stored == 300);
+        CHECK(e.chunks_failed == 12);
+        CHECK(e.total_chunks == 312);
+        CHECK_FALSE(e.retryable);
+    }
+}
+
+TEST_CASE("grpc ABORTED is still catchable as NetworkError and AntdError") {
+    // A 502 mapped to NetworkError before PartialUploadError existed, so
+    // existing catch blocks must keep working.
+    CHECK_THROWS_AS(test_grpc::check_status(test_grpc::ABORTED, "Partial upload: 1/2 chunks stored, 1 failed"),
+                    antd::NetworkError);
+    CHECK_THROWS_AS(test_grpc::check_status(test_grpc::ABORTED, "Partial upload: 1/2 chunks stored, 1 failed"),
+                    antd::AntdError);
+}
+
+TEST_CASE("parse_partial_upload_message recovers counts and the retryable hint") {
+    struct Case {
+        const char* msg;
+        std::uint64_t stored, failed, total;
+        bool retryable;
+    };
+    const Case cases[] = {
+        {"Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
+         "(paid attempt retained: call finalize again with the same upload_id to "
+         "store the remainder against the same payment)",
+         300, 12, 312, true},
+        {"Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
+         "(stored chunks persist; re-prepare the same content to retry only the remainder)",
+         300, 12, 312, false},
+        {"Partial upload: 300/312 chunks stored, 12 failed after retries", 300, 12, 312, false},
+        {"something else entirely", 0, 0, 0, false},
+    };
+    for (const auto& tc : cases) {
+        CAPTURE(tc.msg);
+        const auto c = antd::parse_partial_upload_message(tc.msg);
+        CHECK(c.chunks_stored == tc.stored);
+        CHECK(c.chunks_failed == tc.failed);
+        CHECK(c.total_chunks == tc.total);
+        CHECK(c.retryable == tc.retryable);
+    }
 }
 
 TEST_CASE("grpc unknown code -> AntdError with code preserved") {
