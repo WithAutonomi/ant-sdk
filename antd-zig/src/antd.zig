@@ -472,7 +472,24 @@ pub const Client = struct {
         return resp;
     }
 
-    /// Finalize an upload after an external signer has submitted payment transactions.
+    /// Finalize an upload after an external signer has submitted payment
+    /// transactions, via POST /v1/upload/finalize.
+    ///
+    /// Parameters:
+    ///   - `upload_id`: the `upload_id` returned by `prepareUpload` /
+    ///     `prepareDataUpload` (or by a previous finalize that returned a
+    ///     retryable `error.PartialUpload`).
+    ///   - `tx_hashes_json`: the quote-hash -> tx-hash map as a JSON object
+    ///     string, e.g. `{"<quote_hash>":"<tx_hash>",...}`, built from the
+    ///     `payments` of the prepare response and the `payForQuotes()`
+    ///     transaction. Pass `{}` when prepare reported no payments (every
+    ///     chunk already stored). Only the map: the SDK builds the request
+    ///     (`upload_id`, `tx_hashes`, `store_data_map: false`) itself and
+    ///     returns `error.JsonError` before any request when the string is
+    ///     not a JSON object.
+    ///
+    /// Returns the raw finalize response body (caller frees); see
+    /// `json_helpers.parseFinalizeUploadResult` for the typed shape.
     ///
     /// Returns `error.PartialUpload` when some chunks stored and others did
     /// not after the daemon's retries. The payment persists and the stored
@@ -489,8 +506,9 @@ pub const Client = struct {
     /// See docs/external-signer-flow.md, section 6, and the README's
     /// "Partial uploads" section for a bounded retry helper.
     pub fn finalizeUpload(self: *Client, upload_id: []const u8, tx_hashes_json: []const u8) ![]const u8 {
-        const resp = try self.doRequest(.POST, "/v1/upload/finalize", tx_hashes_json) orelse return error.JsonError;
-        _ = upload_id;
+        const req_body = try json_helpers.buildFinalizeUploadBody(self.allocator, upload_id, tx_hashes_json);
+        defer self.allocator.free(req_body);
+        const resp = try self.doRequest(.POST, "/v1/upload/finalize", req_body) orelse return error.JsonError;
         return resp;
     }
 
@@ -507,7 +525,15 @@ pub const Client = struct {
     }
 
     /// Submit a prepared chunk to the network after external payment via
-    /// POST /v1/chunks/finalize.
+    /// POST /v1/chunks/finalize. Returns the stored chunk's address (caller
+    /// frees).
+    ///
+    /// Parameters:
+    ///   - `upload_id`: the `upload_id` from `prepareChunkUpload`.
+    ///   - `tx_hashes_json`: the quote-hash -> tx-hash map as a JSON object
+    ///     string, exactly as for `finalizeUpload`; the SDK wraps it into the
+    ///     `{"upload_id","tx_hashes"}` request and returns `error.JsonError`
+    ///     when it is not a JSON object.
     ///
     /// A store that fails after payment is reported as `error.PartialUpload`
     /// with the same `getLastError()` fields and retry rules as
