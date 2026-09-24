@@ -1,4 +1,10 @@
 #![deny(unsafe_code)]
+// ant-core 0.10's download engine nests async closures deeply enough
+// (client_engine::files::download -> rolling_unordered -> fetch) that rustc's
+// default limit of 128 overflows while proving the future `Send` for
+// `tokio::spawn` in the gRPC service. Raising the limit is the documented
+// remedy for E0275 here; the future is Send.
+#![recursion_limit = "256"]
 
 use std::sync::Arc;
 
@@ -135,17 +141,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Last-resort fallback: peers vendored into the binary at compile time.
-    // Lets a fresh release binary reach mainnet without any prior ant-client
-    // installer step. CLI/env/file all take precedence over this.
+    // Last-resort fallback: the mainnet seed list bundled into the pinned
+    // ant-core (the same resource the `ant` CLI ships). Lets a fresh release
+    // binary reach mainnet without any prior ant-client installer step.
+    // CLI/env/file all take precedence over this.
     if bootstrap_peers.is_empty() && config.network != "local" {
-        let compiled_in = peers::compiled_in_default_peers();
-        if !compiled_in.is_empty() {
+        let bundled = peers::bundled_default_peers();
+        if !bundled.is_empty() {
             tracing::info!(
-                count = compiled_in.len(),
-                "loaded compiled-in default bootstrap peers (no CLI/env/file peers were supplied)"
+                count = bundled.len(),
+                "loaded ant-core's bundled default bootstrap peers (no CLI/env/file peers were supplied)"
             );
-            bootstrap_peers = compiled_in;
+            bootstrap_peers = bundled;
         }
     }
 
@@ -176,10 +183,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //
     // `ipv6`: dual-stack by default. `--ipv4-only` binds a v4-only socket for
     // hosts with no IPv6 (the dual-stack bind fails outright there), mirroring
-    // the `ant` CLI. Bootstrap peers are not filtered by family: neither the
-    // vendored list nor ant-client's bootstrap_peers.toml carries any /ip6/
-    // entries today, so a v6 peer can only arrive via --peers, and a failed
-    // dial to one is harmless.
+    // the `ant` CLI. Bootstrap peers are not filtered by family: neither
+    // ant-core's bundled seed list nor the installed bootstrap_peers.toml
+    // carries any /ip6/ entries today, so a v6 peer can only arrive via
+    // --peers, and a failed dial to one is harmless.
     if config.ipv4_only {
         tracing::info!("IPv4-only mode: binding a single-stack IPv4 socket (--ipv4-only)");
     }
