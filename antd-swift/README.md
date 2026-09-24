@@ -102,12 +102,41 @@ do {
 |---|---|---|---|
 | `NotFoundError` | 404 | NOT_FOUND | Resource not found |
 | `AlreadyExistsError` | 409 | ALREADY_EXISTS | Resource already exists |
-| `ForkError` | 409 | ABORTED | Conflicting update |
+| `ForkError` | 409 | — | Conflicting update |
 | `BadRequestError` | 400 | INVALID_ARGUMENT | Invalid input |
 | `PaymentError` | 402 | FAILED_PRECONDITION | Insufficient funds |
 | `NetworkError` | 502 | UNAVAILABLE | Network unreachable |
+| `PartialUploadError` | 502 (`code: "PARTIAL_UPLOAD"`) | ABORTED | Finalize stored some chunks but not all (see below) |
 | `TooLargeError` | 413 | RESOURCE_EXHAUSTED | Data too large |
 | `InternalError` | 500 | INTERNAL | Server error |
+
+### Partial uploads (external-signer finalize)
+
+A `finalizeUpload` / `finalizeMerkleUpload` where some chunks stayed unstored after the daemon's retries throws `PartialUploadError` with `chunksStored` / `chunksFailed` / `totalChunks` and a `retryable` flag. The on-chain payment persists and the stored chunks stay on the network:
+
+- **`retryable == true`** (antd ≥ 0.14.0): the daemon kept the paid attempt under the same `uploadId`. Call the **same** finalize method again with the same arguments to store the remainder against the same payment — no re-prepare, no second signature, no double payment. Bound that loop: a persistent failure throws `PartialUploadError` on every call, so cap the attempts and treat a `chunksFailed` that stops shrinking as stuck.
+- **`retryable == false`** (older daemon, or a merkle finalize with deliberately unpaid batches): nothing was retained. Re-preparing the same content skips already-stored chunks, so a retry pays only for the remainder.
+
+Over REST the counts and the flag come from the structured error body (`retryable` is absent on daemons older than 0.14.0 and reads `false`). Over gRPC they are parsed from the ABORTED status message. Catch `PartialUploadError` *before* the generic `AntdError` clause:
+
+```swift
+var lastFailed: UInt64 = 0
+for attempt in 1...5 {
+    do {
+        let result = try await client.finalizeUpload(uploadId: prep.uploadId, txHashes: txHashes)
+        print("stored \(result.chunksStored) chunks")
+        break                                   // every chunk stored — done
+    } catch let partial as PartialUploadError where partial.retryable {
+        if attempt == 5 || (attempt > 1 && partial.chunksFailed >= lastFailed) {
+            throw partial                       // stuck: paid, partly stored — retry later or re-prepare
+        }
+        lastFailed = partial.chunksFailed
+        try await Task.sleep(nanoseconds: UInt64(attempt) * 2_000_000_000)   // back off, then resume
+    }
+}
+```
+
+See `finalizeWithRetry` in `Sources/AntdExamples/Main.swift` and the contract in [`docs/external-signer-flow.md`](../docs/external-signer-flow.md) §6.
 
 ## Examples
 

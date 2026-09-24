@@ -101,7 +101,7 @@ struct Examples {
             payments: filePrep.payments
         )
 
-        let fileFin = try await client.finalizeUpload(uploadId: filePrep.uploadId, txHashes: fileTxHashes)
+        let fileFin = try await finalizeWithRetry(client: client, uploadId: filePrep.uploadId, txHashes: fileTxHashes)
         print("File finalize: data_map_address=\(fileFin.dataMapAddress), chunks_stored=\(fileFin.chunksStored)")
 
         let dstURL = srcURL.appendingPathExtension("downloaded")
@@ -139,6 +139,47 @@ struct Examples {
         print("Chunk round-trip OK!")
 
         print("\n07_external_signer OK!\n")
+    }
+
+    /// Bounded same-payment retry around `finalizeUpload`.
+    ///
+    /// A finalize that stored some chunks but not all throws
+    /// `PartialUploadError`. When `retryable` is set (antd >= 0.14.0) the
+    /// daemon kept the paid attempt under the same upload_id, so calling the
+    /// same finalize again with the same arguments stores the remainder
+    /// against the same payment — no re-prepare, no second signature, no
+    /// double payment. A persistent failure (a chunk whose close group stays
+    /// unreachable) throws `PartialUploadError` on every call, never a
+    /// different error, so this caps the attempts and treats a `chunksFailed`
+    /// that stops shrinking as stuck. A non-retryable partial upload (older
+    /// daemon, or a merkle upload with unpaid batches) is rethrown untouched:
+    /// the recovery there is to re-prepare the same content, which skips the
+    /// chunks already stored.
+    static func finalizeWithRetry(
+        client: AntdClientProtocol, uploadId: String, txHashes: [String: String]
+    ) async throws -> FinalizeUploadResult {
+        let maxAttempts = 5
+        var lastFailed: UInt64 = 0
+        for attempt in 1...maxAttempts {
+            do {
+                return try await client.finalizeUpload(uploadId: uploadId, txHashes: txHashes)
+            } catch let partial as PartialUploadError where partial.retryable {
+                let stuck = attempt > 1 && partial.chunksFailed >= lastFailed
+                if attempt >= maxAttempts || stuck {
+                    throw AntdError(
+                        "finalize stuck after \(attempt) attempt(s): \(partial.chunksStored)/\(partial.totalChunks) chunks stored, "
+                            + "\(partial.chunksFailed) still unstored (paid attempt retained under upload_id \(uploadId) "
+                            + "— retry later or re-prepare): \(partial.message)",
+                        statusCode: partial.statusCode
+                    )
+                }
+                lastFailed = partial.chunksFailed
+                print("finalize stored \(partial.chunksStored)/\(partial.totalChunks) chunks, \(partial.chunksFailed) still unstored — retrying against the same payment (attempt \(attempt + 1)/\(maxAttempts))")
+                try await Task.sleep(nanoseconds: UInt64(attempt) * 2_000_000_000)
+            }
+        }
+        // Unreachable: the last attempt either returns or throws above.
+        throw AntdError("finalize retry loop exhausted for upload_id \(uploadId)")
     }
 
     /// Run approve + payForQuotes on-chain for a daemon prepare response.

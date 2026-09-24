@@ -38,6 +38,32 @@ public protocol AntdClientProtocol: Sendable {
     func prepareUpload(path: String, visibility: String?) async throws -> PrepareUploadResult
     func prepareUploadPublic(path: String) async throws -> PrepareUploadResult
     func prepareDataUpload(_ data: Data) async throws -> PrepareUploadResult
+
+    /// Finalizes a wave-batch upload after the external signer has paid.
+    ///
+    /// Throws ``PartialUploadError`` when some chunks stayed unstored after the
+    /// daemon's retries. The on-chain payment persists and the stored chunks
+    /// stay on the network; how to finish depends on
+    /// ``PartialUploadError/retryable``:
+    ///
+    /// - `true` (antd >= 0.14.0): the daemon kept the paid attempt under the
+    ///   same `uploadId`. Call this method again with the **same** arguments to
+    ///   store the remainder against the same payment — no re-prepare, no
+    ///   second signature, no double payment. Bound that loop: a persistent
+    ///   failure throws on every call, so cap the attempts and treat a
+    ///   ``PartialUploadError/chunksFailed`` that stops shrinking as stuck.
+    /// - `false` (older daemon, or a merkle finalize with deliberately unpaid
+    ///   batches): nothing was retained. Re-prepare the same content; already
+    ///   stored chunks are skipped, so the retry pays only for the remainder.
+    ///
+    /// See `docs/external-signer-flow.md` §6.
     func finalizeUpload(uploadId: String, txHashes: [String: String]) async throws -> FinalizeUploadResult
+
+    /// Finalizes a merkle batch upload after the external signer has paid.
+    /// Same partial-upload contract as ``finalizeUpload(uploadId:txHashes:)``:
+    /// a ``PartialUploadError`` with `retryable == true` is resumed by calling
+    /// this method again with the same arguments; `retryable == false` means
+    /// re-prepare (a merkle finalize with deliberately unpaid batches never
+    /// retains the attempt).
     func finalizeMerkleUpload(uploadId: String, winnerPoolHash: String) async throws -> FinalizeMerkleUploadResult
 }

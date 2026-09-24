@@ -553,6 +553,23 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
     }
 
     /// Finalizes a wave-batch upload after an external signer has submitted payment transactions.
+    ///
+    /// Throws ``PartialUploadError`` when some chunks stayed unstored after the
+    /// daemon's retries. The on-chain payment persists and the stored chunks
+    /// stay on the network; how to finish depends on
+    /// ``PartialUploadError/retryable``:
+    ///
+    /// - `true` (antd >= 0.14.0): the daemon kept the paid attempt under the
+    ///   same `uploadId`. Call this method again with the **same** arguments to
+    ///   store the remainder against the same payment — no re-prepare, no
+    ///   second signature, no double payment. Bound that loop: a persistent
+    ///   failure throws on every call, so cap the attempts and treat a
+    ///   ``PartialUploadError/chunksFailed`` that stops shrinking as stuck.
+    /// - `false` (older daemon, or a merkle finalize with deliberately unpaid
+    ///   batches): nothing was retained. Re-prepare the same content; already
+    ///   stored chunks are skipped, so the retry pays only for the remainder.
+    ///
+    /// See `docs/external-signer-flow.md` §6.
     public func finalizeUpload(uploadId: String, txHashes: [String: String]) async throws -> FinalizeUploadResult {
         let body: [String: Any] = ["upload_id": uploadId, "tx_hashes": txHashes]
         let resp: FinalizeUploadDTO = try await postJSON("/v1/upload/finalize", body: body)
@@ -567,6 +584,23 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
     /// Finalizes a merkle batch upload after the external signer has submitted
     /// the `payForMerkleTree` transaction. `winnerPoolHash` is the bytes32 value
     /// from the `MerklePaymentMade` event (hex with 0x prefix).
+    ///
+    /// Throws ``PartialUploadError`` when some chunks stayed unstored after the
+    /// daemon's retries. The on-chain payment persists and the stored chunks
+    /// stay on the network; how to finish depends on
+    /// ``PartialUploadError/retryable``:
+    ///
+    /// - `true` (antd >= 0.14.0): the daemon kept the paid attempt under the
+    ///   same `uploadId`. Call this method again with the **same** arguments to
+    ///   store the remainder against the same payment — no re-prepare, no
+    ///   second signature, no double payment. Bound that loop: a persistent
+    ///   failure throws on every call, so cap the attempts and treat a
+    ///   ``PartialUploadError/chunksFailed`` that stops shrinking as stuck.
+    /// - `false` (older daemon, or a merkle finalize with deliberately unpaid
+    ///   batches): nothing was retained. Re-prepare the same content; already
+    ///   stored chunks are skipped, so the retry pays only for the remainder.
+    ///
+    /// See `docs/external-signer-flow.md` §6.
     public func finalizeMerkleUpload(uploadId: String, winnerPoolHash: String) async throws -> FinalizeMerkleUploadResult {
         let body: [String: Any] = ["upload_id": uploadId, "winner_pool_hash": winnerPoolHash]
         let resp: FinalizeUploadDTO = try await postJSON("/v1/upload/finalize", body: body)

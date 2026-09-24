@@ -171,6 +171,45 @@ final class GrpcExternalSignerTests: XCTestCase {
             XCTAssertEqual(addr, "addr_for_upid_chunk_42")
         }
     }
+
+    // MARK: - partial upload (ABORTED)
+
+    /// 12. ABORTED with the "paid attempt retained" hint → PartialUploadError
+    /// with the counts parsed from the status message and retryable == true,
+    /// so the gRPC client matches the REST client's typed error.
+    func testFinalizeMerkleUploadPartialRetryable() async throws {
+        try await withMockServer { client in
+            do {
+                _ = try await client.finalizeMerkleUpload(uploadId: "partial", winnerPoolHash: "0xw1")
+                XCTFail("expected PartialUploadError")
+            } catch let error as PartialUploadError {
+                XCTAssertEqual(error.statusCode, 502)
+                XCTAssertEqual(error.chunksStored, 300)
+                XCTAssertEqual(error.chunksFailed, 12)
+                XCTAssertEqual(error.totalChunks, 312)
+                XCTAssertTrue(error.retryable)
+            } catch {
+                XCTFail("expected PartialUploadError, got \(error)")
+            }
+        }
+    }
+
+    /// 13. ABORTED without the retained hint → counts parsed, retryable == false.
+    func testFinalizeUploadPartialNotRetryable() async throws {
+        try await withMockServer { client in
+            do {
+                _ = try await client.finalizeUpload(uploadId: "partial-final", txHashes: ["0xq1": "0xtx1"])
+                XCTFail("expected PartialUploadError")
+            } catch let error as PartialUploadError {
+                XCTAssertEqual(error.chunksStored, 300)
+                XCTAssertEqual(error.chunksFailed, 12)
+                XCTAssertEqual(error.totalChunks, 312)
+                XCTAssertFalse(error.retryable)
+            } catch {
+                XCTFail("expected PartialUploadError, got \(error)")
+            }
+        }
+    }
 }
 
 // MARK: - Mock services
@@ -247,6 +286,21 @@ final class MockUploadService: Antd_V1_UploadService.SimpleServiceProtocol, @unc
         request: Antd_V1_FinalizeUploadRequest,
         context: ServerContext
     ) async throws -> Antd_V1_FinalizeUploadResponse {
+        // PARTIAL_UPLOAD rides gRPC as ABORTED with the counts (and, when the
+        // daemon kept the paid attempt, the "paid attempt retained" hint) in
+        // the status message.
+        if request.uploadID == "partial" {
+            throw RPCError(
+                code: .aborted,
+                message: "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)"
+            )
+        }
+        if request.uploadID == "partial-final" {
+            throw RPCError(
+                code: .aborted,
+                message: "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (stored chunks persist; re-prepare the same content to retry only the remainder)"
+            )
+        }
         var resp = Antd_V1_FinalizeUploadResponse()
         if !request.winnerPoolHash.isEmpty {
             resp.dataMap = "dm_merkle"
