@@ -9,7 +9,15 @@
 //!
 //! * legacy (ant-cli <= 0.3.7): `peers = ["<ip>:<port>", ...]`
 //! * current (ant-cli >= 0.3.8, ADR-0005): `quic = ["/ip4/<ip>/udp/<port>/quic[/p2p/<id>]", ...]`
-//!   plus a `webrtc = [...]` list that a native QUIC client ignores.
+//!   plus a `webrtc = [...]` list for browser clients.
+//!
+//! The parser validates the whole file, both lists, before handing back the
+//! QUIC seeds: a malformed or duplicate entry in either list rejects the file
+//! as a unit rather than skipping that entry. Valid WebRTC entries are
+//! accepted and then simply not dialled by this native client. A rejected
+//! on-disk file is logged with the path and the daemon continues with the
+//! bundled seeds (on non-local networks), so a bad file degrades to
+//! defaults instead of failing closed.
 //!
 //! `/p2p/<peer-id>` pins survive into the dialled [`MultiAddr`]. The daemon
 //! used to carry its own copy of the file and its own `peers`-only parser;
@@ -25,8 +33,10 @@ use ant_core::network_defaults::{bundled_bootstrap_seeds, parse_bootstrap_seeds}
 
 /// Parse the text of a `bootstrap_peers.toml` in either the legacy `peers`
 /// shape or the current `quic`/`webrtc` shape and return the native QUIC
-/// seeds. Only the WebRTC list is dropped; everything else, including
-/// `/p2p/` pins, is preserved. Errors carry ant-core's message.
+/// seeds, `/p2p/` pins included. The WebRTC list is validated with the rest
+/// of the file (an invalid entry there is an error for the whole file) and
+/// then not returned, since this client never dials WebRTC. Errors carry
+/// ant-core's message.
 pub fn parse_peers_file(text: &str) -> Result<Vec<MultiAddr>, String> {
     parse_bootstrap_seeds(text)
         .map(|seeds| seeds.quic)
@@ -112,6 +122,68 @@ mod tests {
             format!("/ip4/66.135.23.83/udp/10000/quic/p2p/{pin}")
         );
         assert!(peers[1].peer_id().is_some(), "the /p2p/ pin must survive");
+    }
+
+    /// A syntactically valid WebRTC Direct seed as the browser SDK would
+    /// publish it: certhash multihash (sha2-256, 0x12 0x20) base64url-encoded
+    /// with the `u` multibase prefix, plus a peer pin.
+    fn valid_webrtc_seed() -> String {
+        use base64::Engine;
+        let mut hash = vec![0x12, 0x20];
+        hash.extend([0xbb; 32]);
+        let cert = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hash);
+        format!(
+            "/ip4/127.0.0.1/udp/24000/webrtc-direct/certhash/u{cert}/p2p/{}",
+            "cd".repeat(32)
+        )
+    }
+
+    #[test]
+    fn valid_webrtc_entries_are_accepted_but_not_returned() {
+        // Once mainnet WebRTC seeds are published the installed file will
+        // carry them alongside the QUIC list; the native client must keep
+        // reading such a file and dial only the QUIC seeds.
+        let text = format!(
+            "quic = [\"/ip4/45.77.50.10/udp/10000/quic\"]
+webrtc = [\"{}\"]
+",
+            valid_webrtc_seed()
+        );
+        let peers = parse_peers_file(&text).expect("file with a valid WebRTC seed must parse");
+        assert_eq!(peers.len(), 1, "only the QUIC seed is dialled");
+        assert_eq!(peers[0].to_string(), "/ip4/45.77.50.10/udp/10000/quic");
+    }
+
+    #[test]
+    fn malformed_webrtc_entry_rejects_the_whole_file() {
+        // The shared parser validates both lists before returning either, so
+        // a bad WebRTC entry is a file-level error even though this client
+        // would never dial it. main.rs then warns and falls back to the
+        // bundled seeds; the QUIC entries in the bad file are NOT salvaged.
+        let quic_only = "quic = [\"/ip4/45.77.50.10/udp/10000/quic\"]
+";
+        assert!(parse_peers_file(quic_only).is_ok());
+        for bad in [
+            "webrtc = [\"/ip4/127.0.0.1/udp/10000/quic\"]", // wrong transport
+            "webrtc = [\"127.0.0.1:24000\"]",               // bare socket
+            "webrtc = [\"/ip4/127.0.0.1/udp/24000/webrtc-direct\"]", // no certhash / pin
+        ] {
+            let text = format!(
+                "{quic_only}{bad}
+"
+            );
+            assert!(parse_peers_file(&text).is_err(), "should reject: {bad}");
+        }
+        // Duplicates in the WebRTC list are also a file-level error.
+        let dup = format!(
+            "{quic_only}webrtc = [\"{0}\", \"{0}\"]
+",
+            valid_webrtc_seed()
+        );
+        assert!(
+            parse_peers_file(&dup).is_err(),
+            "duplicate WebRTC seed must reject the file"
+        );
     }
 
     #[test]
