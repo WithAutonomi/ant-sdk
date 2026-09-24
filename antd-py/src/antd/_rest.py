@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from .exceptions import InternalError, raise_for_http_status
+from .exceptions import InternalError, raise_for_http_error
 from .models import (
     CandidateNodeEntry,
     DataPutPublicResult,
@@ -111,12 +111,13 @@ def _unb64(s: str) -> bytes:
 def _check(resp: httpx.Response) -> None:
     if resp.is_success:
         return
+    body = None
     try:
         body = resp.json()
         msg = body.get("error", resp.text)
     except Exception:
         msg = resp.text
-    raise_for_http_status(resp.status_code, msg)
+    raise_for_http_error(resp.status_code, msg, body)
 
 
 def _check_streamed(resp: httpx.Response) -> None:
@@ -125,11 +126,13 @@ def _check_streamed(resp: httpx.Response) -> None:
     if resp.is_success:
         return
     resp.read()
+    body = None
     try:
-        msg = resp.json().get("error", resp.text)
+        body = resp.json()
+        msg = body.get("error", resp.text)
     except Exception:
         msg = resp.text
-    raise_for_http_status(resp.status_code, msg)
+    raise_for_http_error(resp.status_code, msg, body)
 
 
 async def _acheck_streamed(resp: httpx.Response) -> None:
@@ -137,11 +140,13 @@ async def _acheck_streamed(resp: httpx.Response) -> None:
     if resp.is_success:
         return
     await resp.aread()
+    body = None
     try:
-        msg = resp.json().get("error", resp.text)
+        body = resp.json()
+        msg = body.get("error", resp.text)
     except Exception:
         msg = resp.text
-    raise_for_http_status(resp.status_code, msg)
+    raise_for_http_error(resp.status_code, msg, body)
 
 
 # Media type that opts the stream endpoints into NDJSON progress framing.
@@ -547,6 +552,17 @@ class RestClient:
         Args:
             upload_id: The upload ID returned by prepare_upload.
             tx_hashes: Map of quote_hash to tx_hash for each payment.
+
+        Raises:
+            PartialUploadError: some chunks stored, others still unstored
+                after the daemon's retries (HTTP 502 ``PARTIAL_UPLOAD`` /
+                gRPC ``ABORTED``). The payment persists. If ``retryable`` is
+                True the daemon kept the paid attempt (antd >= 0.14.0): call
+                this method again with the same arguments to store the
+                remainder against the same payment, bounding the loop. If
+                False, re-prepare the same content; already-stored chunks
+                are skipped so only the remainder is paid for. See
+                ``docs/external-signer-flow.md`` section 6.
         """
         resp = self._http.post("/v1/upload/finalize", json={
             "upload_id": upload_id,
@@ -567,6 +583,17 @@ class RestClient:
                 backward compat — for visibility="public" prepares the DataMap
                 is already bundled in the external-signer batch and
                 ``data_map_address`` on the result is the shareable handle.
+
+        Raises:
+            PartialUploadError: some chunks stored, others still unstored
+                after the daemon's retries (HTTP 502 ``PARTIAL_UPLOAD`` /
+                gRPC ``ABORTED``). The payment persists. If ``retryable`` is
+                True the daemon kept the paid attempt (antd >= 0.14.0): call
+                this method again with the same arguments to store the
+                remainder against the same payment, bounding the loop. If
+                False, re-prepare the same content; already-stored chunks
+                are skipped so only the remainder is paid for. See
+                ``docs/external-signer-flow.md`` section 6.
         """
         resp = self._http.post("/v1/upload/finalize", json={
             "upload_id": upload_id,
@@ -840,7 +867,19 @@ class AsyncRestClient:
         return _parse_prepare_result(resp.json())
 
     async def finalize_upload(self, upload_id: str, tx_hashes: dict[str, str]) -> FinalizeUploadResult:
-        """Finalize an upload after an external signer has submitted payment transactions."""
+        """Finalize an upload after an external signer has submitted payment transactions.
+
+        Raises:
+            PartialUploadError: some chunks stored, others still unstored
+                after the daemon's retries (HTTP 502 ``PARTIAL_UPLOAD`` /
+                gRPC ``ABORTED``). The payment persists. If ``retryable`` is
+                True the daemon kept the paid attempt (antd >= 0.14.0): call
+                this method again with the same arguments to store the
+                remainder against the same payment, bounding the loop. If
+                False, re-prepare the same content; already-stored chunks
+                are skipped so only the remainder is paid for. See
+                ``docs/external-signer-flow.md`` section 6.
+        """
         resp = await self._http.post("/v1/upload/finalize", json={
             "upload_id": upload_id,
             "tx_hashes": tx_hashes,
@@ -851,7 +890,19 @@ class AsyncRestClient:
     async def finalize_merkle_upload(
         self, upload_id: str, winner_pool_hash: str, store_data_map: bool = False,
     ) -> FinalizeUploadResult:
-        """Finalize a merkle-batch upload after selecting a winning pool."""
+        """Finalize a merkle-batch upload after selecting a winning pool.
+
+        Raises:
+            PartialUploadError: some chunks stored, others still unstored
+                after the daemon's retries (HTTP 502 ``PARTIAL_UPLOAD`` /
+                gRPC ``ABORTED``). The payment persists. If ``retryable`` is
+                True the daemon kept the paid attempt (antd >= 0.14.0): call
+                this method again with the same arguments to store the
+                remainder against the same payment, bounding the loop. If
+                False, re-prepare the same content; already-stored chunks
+                are skipped so only the remainder is paid for. See
+                ``docs/external-signer-flow.md`` section 6.
+        """
         resp = await self._http.post("/v1/upload/finalize", json={
             "upload_id": upload_id,
             "winner_pool_hash": winner_pool_hash,

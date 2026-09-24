@@ -11,12 +11,13 @@ from .exceptions import (
     AntdError,
     AlreadyExistsError,
     BadRequestError,
-    ForkError,
     InternalError,
     NetworkError,
     NotFoundError,
+    PartialUploadError,
     PaymentError,
     TooLargeError,
+    parse_partial_upload_message,
 )
 from .models import (
     CandidateNodeEntry,
@@ -206,7 +207,6 @@ from antd._proto.antd.v1 import wallet_pb2, wallet_pb2_grpc
 _GRPC_CODE_MAP: dict[grpc.StatusCode, type[AntdError]] = {
     grpc.StatusCode.NOT_FOUND: NotFoundError,
     grpc.StatusCode.ALREADY_EXISTS: AlreadyExistsError,
-    grpc.StatusCode.ABORTED: ForkError,
     grpc.StatusCode.INVALID_ARGUMENT: BadRequestError,
     grpc.StatusCode.FAILED_PRECONDITION: PaymentError,
     grpc.StatusCode.UNAVAILABLE: NetworkError,
@@ -218,6 +218,20 @@ _GRPC_CODE_MAP: dict[grpc.StatusCode, type[AntdError]] = {
 def _handle_rpc_error(e: grpc.RpcError) -> None:
     code = e.code()
     details = e.details() or str(e)
+    if code == grpc.StatusCode.ABORTED:
+        # PARTIAL_UPLOAD: some chunks stored, some still unstored after
+        # retries. The counts and the "paid attempt retained" hint ride the
+        # status message over gRPC (no structured detail yet), so parse them
+        # best-effort to match the REST client's typed error.
+        stored, failed, total, retryable = parse_partial_upload_message(details)
+        raise PartialUploadError(
+            details,
+            code.value[0],
+            chunks_stored=stored,
+            chunks_failed=failed,
+            total_chunks=total,
+            retryable=retryable,
+        ) from e
     exc_class = _GRPC_CODE_MAP.get(code, AntdError)
     raise exc_class(details, code.value[0]) from e
 
@@ -491,7 +505,19 @@ class GrpcClient:
             _handle_rpc_error(e)
 
     def finalize_upload(self, upload_id: str, tx_hashes: dict[str, str]) -> FinalizeUploadResult:
-        """Finalize a wave-batch upload after external payment."""
+        """Finalize a wave-batch upload after external payment.
+
+        Raises:
+            PartialUploadError: some chunks stored, others still unstored
+                after the daemon's retries (HTTP 502 ``PARTIAL_UPLOAD`` /
+                gRPC ``ABORTED``). The payment persists. If ``retryable`` is
+                True the daemon kept the paid attempt (antd >= 0.14.0): call
+                this method again with the same arguments to store the
+                remainder against the same payment, bounding the loop. If
+                False, re-prepare the same content; already-stored chunks
+                are skipped so only the remainder is paid for. See
+                ``docs/external-signer-flow.md`` section 6.
+        """
         try:
             resp = self._upload.FinalizeUpload(upload_pb2.FinalizeUploadRequest(
                 upload_id=upload_id, tx_hashes=tx_hashes,
@@ -503,7 +529,19 @@ class GrpcClient:
     def finalize_merkle_upload(
         self, upload_id: str, winner_pool_hash: str, store_data_map: bool = False,
     ) -> FinalizeUploadResult:
-        """Finalize a merkle-batch upload after selecting a winning pool."""
+        """Finalize a merkle-batch upload after selecting a winning pool.
+
+        Raises:
+            PartialUploadError: some chunks stored, others still unstored
+                after the daemon's retries (HTTP 502 ``PARTIAL_UPLOAD`` /
+                gRPC ``ABORTED``). The payment persists. If ``retryable`` is
+                True the daemon kept the paid attempt (antd >= 0.14.0): call
+                this method again with the same arguments to store the
+                remainder against the same payment, bounding the loop. If
+                False, re-prepare the same content; already-stored chunks
+                are skipped so only the remainder is paid for. See
+                ``docs/external-signer-flow.md`` section 6.
+        """
         try:
             resp = self._upload.FinalizeUpload(upload_pb2.FinalizeUploadRequest(
                 upload_id=upload_id,
@@ -787,7 +825,19 @@ class AsyncGrpcClient:
             _handle_rpc_error(e)
 
     async def finalize_upload(self, upload_id: str, tx_hashes: dict[str, str]) -> FinalizeUploadResult:
-        """Async: finalize a wave-batch upload after external payment."""
+        """Async: finalize a wave-batch upload after external payment.
+
+        Raises:
+            PartialUploadError: some chunks stored, others still unstored
+                after the daemon's retries (HTTP 502 ``PARTIAL_UPLOAD`` /
+                gRPC ``ABORTED``). The payment persists. If ``retryable`` is
+                True the daemon kept the paid attempt (antd >= 0.14.0): call
+                this method again with the same arguments to store the
+                remainder against the same payment, bounding the loop. If
+                False, re-prepare the same content; already-stored chunks
+                are skipped so only the remainder is paid for. See
+                ``docs/external-signer-flow.md`` section 6.
+        """
         try:
             resp = await self._upload.FinalizeUpload(upload_pb2.FinalizeUploadRequest(
                 upload_id=upload_id, tx_hashes=tx_hashes,
@@ -799,7 +849,19 @@ class AsyncGrpcClient:
     async def finalize_merkle_upload(
         self, upload_id: str, winner_pool_hash: str, store_data_map: bool = False,
     ) -> FinalizeUploadResult:
-        """Async: finalize a merkle-batch upload after selecting a winning pool."""
+        """Async: finalize a merkle-batch upload after selecting a winning pool.
+
+        Raises:
+            PartialUploadError: some chunks stored, others still unstored
+                after the daemon's retries (HTTP 502 ``PARTIAL_UPLOAD`` /
+                gRPC ``ABORTED``). The payment persists. If ``retryable`` is
+                True the daemon kept the paid attempt (antd >= 0.14.0): call
+                this method again with the same arguments to store the
+                remainder against the same payment, bounding the loop. If
+                False, re-prepare the same content; already-stored chunks
+                are skipped so only the remainder is paid for. See
+                ``docs/external-signer-flow.md`` section 6.
+        """
         try:
             resp = await self._upload.FinalizeUpload(upload_pb2.FinalizeUploadRequest(
                 upload_id=upload_id,

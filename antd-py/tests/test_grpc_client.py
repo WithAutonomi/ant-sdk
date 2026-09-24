@@ -15,6 +15,7 @@ import pytest
 import pytest_asyncio
 
 from antd._grpc import AsyncGrpcClient, GrpcClient
+from antd.exceptions import NetworkError, PartialUploadError
 from antd._proto.antd.v1 import (
     chunks_pb2,
     chunks_pb2_grpc,
@@ -129,6 +130,22 @@ class MockUploadServicer(upload_pb2_grpc.UploadServiceServicer):
         )
 
     def FinalizeUpload(self, request, context):
+        # PARTIAL_UPLOAD rides gRPC ABORTED with the counts in the message.
+        # "partial" carries the daemon's "paid attempt retained" hint
+        # (antd >= 0.14.0); "partial-final" carries the re-prepare hint.
+        if request.upload_id in ("partial", "partial-final"):
+            hint = (
+                "paid attempt retained: call finalize again with the same "
+                "upload_id to store the remainder against the same payment"
+                if request.upload_id == "partial" else
+                "stored chunks persist; re-prepare the same content to retry "
+                "only the remainder"
+            )
+            context.set_code(grpc.StatusCode.ABORTED)
+            context.set_details(
+                f"Partial upload: 300/312 chunks stored, 12 failed after retries: quorum ({hint})"
+            )
+            return upload_pb2.FinalizeUploadResponse()
         # Merkle: winner_pool_hash populated, tx_hashes empty.
         if request.winner_pool_hash:
             return upload_pb2.FinalizeUploadResponse(
@@ -274,6 +291,29 @@ class TestSyncFinalizeMerkleUpload:
         assert r.address == ""
 
 
+class TestSyncFinalizePartialUpload:
+    """ABORTED maps to PartialUploadError with counts parsed from the message."""
+
+    def test_retained_hint_reads_retryable(self, sync_client):
+        with pytest.raises(PartialUploadError) as exc_info:
+            sync_client.finalize_merkle_upload("partial", "0xwinpool")
+        err = exc_info.value
+        assert (err.chunks_stored, err.chunks_failed, err.total_chunks) == (300, 12, 312)
+        assert err.retryable is True
+        assert err.status_code == grpc.StatusCode.ABORTED.value[0]
+
+    def test_no_retained_hint_reads_not_retryable(self, sync_client):
+        with pytest.raises(PartialUploadError) as exc_info:
+            sync_client.finalize_upload("partial-final", {"0xq1": "0xtx1"})
+        err = exc_info.value
+        assert (err.chunks_stored, err.chunks_failed, err.total_chunks) == (300, 12, 312)
+        assert err.retryable is False
+
+    def test_is_a_network_error(self, sync_client):
+        with pytest.raises(NetworkError):
+            sync_client.finalize_upload("partial", {"0xq1": "0xtx1"})
+
+
 class TestSyncChunkPrepareFinalize:
     def test_prepare_new_chunk(self, sync_client):
         r = sync_client.prepare_chunk_upload(b"newchunk")
@@ -343,6 +383,23 @@ class TestAsyncFinalizeUpload:
         )
         assert r.address == "stored_on_network"
         assert r.chunks_stored == 64
+
+
+class TestAsyncFinalizePartialUpload:
+    @pytest.mark.asyncio
+    async def test_retained_hint_reads_retryable(self, async_client):
+        with pytest.raises(PartialUploadError) as exc_info:
+            await async_client.finalize_upload("partial", {"0xq1": "0xtx1"})
+        err = exc_info.value
+        assert (err.chunks_stored, err.chunks_failed, err.total_chunks) == (300, 12, 312)
+        assert err.retryable is True
+
+    @pytest.mark.asyncio
+    async def test_no_retained_hint_reads_not_retryable(self, async_client):
+        with pytest.raises(PartialUploadError) as exc_info:
+            await async_client.finalize_merkle_upload("partial-final", "0xwinpool")
+        assert exc_info.value.retryable is False
+        assert exc_info.value.chunks_failed == 12
 
 
 class TestAsyncChunkPrepareFinalize:

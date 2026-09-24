@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 
 from antd._rest import RestClient
-from antd.exceptions import BadRequestError, NetworkError, NotFoundError
+from antd.exceptions import BadRequestError, NetworkError, NotFoundError, PartialUploadError
 from antd.models import (
     CandidateNodeEntry,
     DataPutPublicResult,
@@ -100,6 +100,10 @@ class _MockHandler(BaseHTTPRequestHandler):
 
         elif path == "/error/502":
             self._json_response(502, {"error": "bad gateway"})
+
+        elif path == "/error/502-network":
+            # A 502 with a non-partial code keeps the plain NetworkError mapping.
+            self._json_response(502, {"error": "upstream unreachable", "code": "NETWORK_ERROR"})
 
         else:
             self._json_response(404, {"error": f"unknown route: {path}"})
@@ -253,6 +257,30 @@ class _MockHandler(BaseHTTPRequestHandler):
             req = json.loads(body) if body else {}
             # Store the request so tests can inspect it
             self.server._last_finalize_request = req
+            # PARTIAL_UPLOAD: 502 whose body carries the machine-readable code
+            # and counts. "partial" mimics antd >= 0.14.0 (paid attempt
+            # retained, `retryable: true`); "partial-legacy" mimics an older
+            # daemon that never sends `retryable`.
+            if req.get("upload_id") in ("partial", "partial-legacy"):
+                retained = req["upload_id"] == "partial"
+                hint = (
+                    "paid attempt retained: call finalize again with the same "
+                    "upload_id to store the remainder against the same payment"
+                    if retained else
+                    "stored chunks persist; re-prepare the same content to retry "
+                    "only the remainder"
+                )
+                err = {
+                    "error": f"Partial upload: 300/312 chunks stored, 12 failed after retries: quorum ({hint})",
+                    "code": "PARTIAL_UPLOAD",
+                    "chunks_stored": 300,
+                    "chunks_failed": 12,
+                    "total_chunks": 312,
+                }
+                if retained:
+                    err["retryable"] = True
+                self._json_response(502, err)
+                return
             # Echo a data_map_address when the prior prepare was public.
             last_prepare = getattr(self.server, "_last_prepare_request", {}) or {}
             resp_body: dict = {
@@ -646,6 +674,53 @@ class TestErrorMapping:
             _check(resp)
         assert exc_info.value.status_code == 502
         assert "bad gateway" in str(exc_info.value)
+
+    def test_502_with_other_code_still_raises_network_error(self, client: RestClient):
+        from antd._rest import _check
+        resp = client._http.get("/error/502-network")
+        with pytest.raises(NetworkError) as exc_info:
+            _check(resp)
+        assert not isinstance(exc_info.value, PartialUploadError)
+        assert exc_info.value.status_code == 502
+
+    def test_502_partial_upload_via_streamed_check(self, client: RestClient):
+        from antd._rest import _check_streamed
+        with client._http.stream(
+            "POST", "/v1/upload/finalize", json={"upload_id": "partial", "tx_hashes": {}},
+        ) as resp:
+            with pytest.raises(PartialUploadError) as exc_info:
+                _check_streamed(resp)
+        assert exc_info.value.chunks_failed == 12
+        assert exc_info.value.retryable is True
+
+
+class TestPartialUpload:
+    """PARTIAL_UPLOAD (502 + `code`) surfaces as a typed error with counts."""
+
+    def test_finalize_upload_carries_counts_and_retryable(self, client: RestClient):
+        with pytest.raises(PartialUploadError) as exc_info:
+            client.finalize_upload("partial", {"0xq1": "0xtx1"})
+        err = exc_info.value
+        assert err.status_code == 502
+        assert (err.chunks_stored, err.chunks_failed, err.total_chunks) == (300, 12, 312)
+        assert err.retryable is True
+        assert str(err).startswith("Partial upload: 300/312 chunks stored, 12 failed")
+
+    def test_finalize_merkle_upload_retryable_defaults_false(self, client: RestClient):
+        # An older daemon (< 0.14.0) never sends `retryable`; the flag must
+        # read False so callers fall back to the re-prepare path rather than
+        # looping on an upload_id the daemon has already dropped.
+        with pytest.raises(PartialUploadError) as exc_info:
+            client.finalize_merkle_upload("partial-legacy", "0xw1")
+        err = exc_info.value
+        assert (err.chunks_stored, err.chunks_failed, err.total_chunks) == (300, 12, 312)
+        assert err.retryable is False
+
+    def test_is_a_network_error(self, client: RestClient):
+        # Existing `except NetworkError` / `except AntdError` blocks keep
+        # catching the 502 -- the subclass only adds detail.
+        with pytest.raises(NetworkError):
+            client.finalize_upload("partial", {})
 
 
 class TestDataStreamWithProgress:

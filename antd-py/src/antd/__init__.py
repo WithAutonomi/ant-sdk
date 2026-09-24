@@ -47,6 +47,7 @@ from .exceptions import (
     InternalError,
     NetworkError,
     NotFoundError,
+    PartialUploadError,
     PaymentError,
     TooLargeError,
 )
@@ -86,6 +87,7 @@ __all__ = [
     "InternalError",
     "NetworkError",
     "NotFoundError",
+    "PartialUploadError",
     "PaymentError",
     "TooLargeError",
 ]
