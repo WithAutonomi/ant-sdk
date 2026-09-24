@@ -179,9 +179,10 @@ public:
     /// resulting tx hash.
     ///
     /// Throws PartialUploadError when the payment settled but some chunks
-    /// missed quorum after the daemon's retries (gRPC ABORTED; the counts and
-    /// the `retryable` hint are parsed from the status message). The stored
-    /// chunks and the on-chain payment persist:
+    /// missed quorum after the daemon's retries (gRPC ABORTED whose message
+    /// starts with `Partial upload:`; the counts and the `retryable` hint
+    /// are parsed from the status message, and any other ABORTED stays a
+    /// plain AntdError). The stored chunks and the on-chain payment persist:
     ///   - `retryable == true` (antd >= 0.14.0): the daemon kept the paid
     ///     attempt under this `upload_id`; call `finalize_upload` again with
     ///     the same arguments to store the remainder against the same

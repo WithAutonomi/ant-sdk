@@ -281,8 +281,9 @@ try {
 `finalize_upload` / `finalize_merkle_upload` can fail *after* the wallet has
 paid: some chunks store, others miss quorum after the daemon's own retries.
 That surfaces as `antd::PartialUploadError` (HTTP 502 with
-`code: "PARTIAL_UPLOAD"`; gRPC `ABORTED`, where the fields are parsed from the
-status message). It derives from `NetworkError`, so existing 502 handlers
+`code: "PARTIAL_UPLOAD"`; gRPC `ABORTED` whose message starts with
+`Partial upload:`, where the fields are parsed from the status message; any
+other `ABORTED` stays a plain `AntdError`). It derives from `NetworkError`, so existing 502 handlers
 keep working — catch it first to handle the partial case specifically. The
 on-chain payment persists and the stored chunks stay on the network; the
 `retryable` flag says how to finish:

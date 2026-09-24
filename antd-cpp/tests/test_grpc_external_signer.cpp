@@ -96,6 +96,12 @@ public:
                                 antd::v1::FinalizeUploadResponse* resp) override {
         // PARTIAL_UPLOAD rides ABORTED; the daemon's message carries the
         // counts and, when it kept the paid attempt, the retained hint.
+        // Only the fixed "Partial upload:" prefix marks a partial store;
+        // any other ABORTED keeps the generic mapping ("aborted-other").
+        if (req->upload_id() == "aborted-other") {
+            return grpc::Status(grpc::StatusCode::ABORTED,
+                                "transaction aborted: something else entirely");
+        }
         if (req->upload_id() == "partial") {
             return grpc::Status(
                 grpc::StatusCode::ABORTED,
@@ -288,6 +294,21 @@ TEST_CASE("finalize_merkle_upload ABORTED without the retained hint is not retry
         CHECK(e.chunks_failed == 12);
         CHECK(e.total_chunks == 312);
         CHECK_FALSE(e.retryable);
+    }
+}
+
+TEST_CASE("finalize_upload ABORTED without the Partial upload prefix keeps the generic AntdError mapping") {
+    ExternalSignerFixture f;
+    try {
+        f.client().finalize_upload("aborted-other", {{"0xqa", "0xtx"}});
+        FAIL("should have thrown");
+    } catch (const antd::PartialUploadError&) {
+        FAIL("an ABORTED without the prefix must not become PartialUploadError");
+    } catch (const antd::NetworkError&) {
+        FAIL("an ABORTED without the prefix must not become NetworkError");
+    } catch (const antd::AntdError& e) {
+        CHECK(e.status_code == static_cast<int>(grpc::StatusCode::ABORTED));
+        CHECK(std::string(e.what()).find("something else entirely") != std::string::npos);
     }
 }
 

@@ -73,8 +73,9 @@ public:
 };
 
 /// A finalize stored some chunks while others remained unstored after the
-/// daemon's retries (HTTP 502 with `code: "PARTIAL_UPLOAD"`; gRPC ABORTED).
-/// The on-chain payment persists and the stored chunks stay on the network.
+/// daemon's retries (HTTP 502 with `code: "PARTIAL_UPLOAD"`; gRPC ABORTED
+/// whose message starts with `Partial upload:`). The on-chain payment
+/// persists and the stored chunks stay on the network.
 ///
 /// Derives from NetworkError because a 502 mapped to NetworkError before this
 /// type existed, so `catch (const NetworkError&)` blocks keep catching it —
@@ -96,9 +97,12 @@ public:
 ///     skips already-stored chunks, so a retry pays only for the remainder.
 ///
 /// Over REST the counts and `retryable` come from the structured error body.
-/// Over gRPC they are parsed best-effort from the status message (see
-/// parse_partial_upload_message); an unrecognised message leaves the counts
-/// zero and `retryable` false. See docs/external-signer-flow.md §6.
+/// Over gRPC only an ABORTED whose message carries the daemon's fixed
+/// `Partial upload:` prefix becomes this type (see is_partial_upload_message);
+/// any other ABORTED keeps the generic AntdError mapping. The counts are then
+/// parsed best-effort from the message (see parse_partial_upload_message); a
+/// prefixed message with garbled counts leaves them zero and `retryable`
+/// false. See docs/external-signer-flow.md §6.
 class PartialUploadError : public NetworkError {
 public:
     std::uint64_t chunks_stored;
@@ -126,9 +130,22 @@ struct PartialUploadCounts {
     bool retryable{false};
 };
 
+/// The fixed text every PARTIAL_UPLOAD message from the daemon opens with
+/// (antd's `Error::PartialUpload` Display impl). gRPC ABORTED is a generic
+/// code, so this prefix is what identifies a partial store there.
+inline constexpr std::string_view kPartialUploadPrefix = "Partial upload:";
+
+/// Whether a gRPC ABORTED status message is the daemon's PARTIAL_UPLOAD
+/// report. Matched by containment rather than a strict prefix so a transport
+/// or interceptor that prepends its own text does not hide the partial case.
+inline bool is_partial_upload_message(std::string_view message) {
+    return message.find(kPartialUploadPrefix) != std::string_view::npos;
+}
+
 /// Recover the chunk counts and the retryable hint from a PARTIAL_UPLOAD
 /// message. Used for gRPC, where the status carries no structured detail;
-/// REST callers get the body fields instead.
+/// REST callers get the body fields instead. Callers gate on
+/// is_partial_upload_message first: this parser only reads the counts.
 ///
 /// Matches the fixed prefix "Partial upload: <stored>/<total> chunks stored,
 /// <failed> failed" and reads `retryable` from the "paid attempt retained"

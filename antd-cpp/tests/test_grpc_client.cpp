@@ -68,6 +68,11 @@ enum StatusCode {
         case FAILED_PRECONDITION:
             throw antd::PaymentError(message);
         case ABORTED: {
+            // Same gate as grpc_client.cpp: only the daemon's "Partial
+            // upload:" prefix turns ABORTED into PartialUploadError.
+            if (!antd::is_partial_upload_message(message)) {
+                throw antd::AntdError(static_cast<int>(code), message);
+            }
             const auto counts = antd::parse_partial_upload_message(message);
             throw antd::PartialUploadError(message,
                                            counts.chunks_stored,
@@ -129,10 +134,11 @@ TEST_CASE("grpc UNAVAILABLE -> NetworkError") {
 }
 
 // ---------------------------------------------------------------------------
-// PARTIAL_UPLOAD rides gRPC ABORTED. The status carries no structured detail,
-// so the counts and the "paid attempt retained" hint are parsed from the
-// message text (parse_partial_upload_message) to match the REST client's
-// typed error.
+// PARTIAL_UPLOAD rides gRPC ABORTED, gated on the daemon's fixed "Partial
+// upload:" prefix (is_partial_upload_message). The status carries no
+// structured detail, so the counts and the "paid attempt retained" hint are
+// parsed from the message text (parse_partial_upload_message) to match the
+// REST client's typed error. Any other ABORTED keeps the generic mapping.
 // ---------------------------------------------------------------------------
 
 TEST_CASE("grpc ABORTED -> PartialUploadError with counts and retryable from the retained hint") {
@@ -175,6 +181,49 @@ TEST_CASE("grpc ABORTED is still catchable as NetworkError and AntdError") {
                     antd::NetworkError);
     CHECK_THROWS_AS(test_grpc::check_status(test_grpc::ABORTED, "Partial upload: 1/2 chunks stored, 1 failed"),
                     antd::AntdError);
+}
+
+TEST_CASE("grpc ABORTED without the Partial upload prefix keeps the generic AntdError mapping") {
+    // ABORTED is a generic gRPC code; only the daemon's fixed prefix marks a
+    // partial store. Anything else must map exactly as before this type
+    // existed: AntdError with the raw code preserved.
+    const std::string msg = "transaction aborted: something else entirely";
+    try {
+        test_grpc::check_status(test_grpc::ABORTED, msg);
+        FAIL("should have thrown");
+    } catch (const antd::PartialUploadError&) {
+        FAIL("an ABORTED without the prefix must not become PartialUploadError");
+    } catch (const antd::NetworkError&) {
+        FAIL("an ABORTED without the prefix must not become NetworkError");
+    } catch (const antd::AntdError& e) {
+        CHECK(e.status_code == static_cast<int>(test_grpc::ABORTED));
+        CHECK(std::string(e.what()).find(msg) != std::string::npos);
+    }
+}
+
+TEST_CASE("grpc ABORTED with the prefix but garbled counts -> PartialUploadError with zeros, not retryable") {
+    const std::string msg = "Partial upload: counts unavailable";
+    try {
+        test_grpc::check_status(test_grpc::ABORTED, msg);
+        FAIL("should have thrown");
+    } catch (const antd::PartialUploadError& e) {
+        CHECK(e.status_code == 502);
+        CHECK(e.chunks_stored == 0);
+        CHECK(e.chunks_failed == 0);
+        CHECK(e.total_chunks == 0);
+        CHECK_FALSE(e.retryable);
+        CHECK(std::string(e.what()).find(msg) != std::string::npos);
+    }
+}
+
+TEST_CASE("is_partial_upload_message matches the daemon prefix by containment") {
+    CHECK(antd::is_partial_upload_message("Partial upload: 1/2 chunks stored, 1 failed"));
+    CHECK(antd::is_partial_upload_message("rpc error: Partial upload: 1/2 chunks stored, 1 failed"));
+    CHECK(antd::is_partial_upload_message("Partial upload:"));
+    CHECK_FALSE(antd::is_partial_upload_message("partial upload: 1/2 chunks stored"));  // case-sensitive
+    CHECK_FALSE(antd::is_partial_upload_message("Partial upload 1/2 chunks stored"));   // no colon
+    CHECK_FALSE(antd::is_partial_upload_message("something else entirely"));
+    CHECK_FALSE(antd::is_partial_upload_message(""));
 }
 
 TEST_CASE("parse_partial_upload_message recovers counts and the retryable hint") {
