@@ -258,7 +258,9 @@ stored chunks stay on the network:
   only for the remainder.
 
 Over REST the fields come from the structured error body; over gRPC (status
-`ABORTED`) they are parsed best-effort from the status message. See
+`ABORTED` whose message starts with `Partial upload:` — any other `ABORTED`
+stays a plain `Antd.AntdError`) they are parsed best-effort from the status
+message. See
 `finalize_with_retry/3` in [`examples/07_external_signer.exs`](examples/07_external_signer.exs)
 and [`docs/external-signer-flow.md`](../docs/external-signer-flow.md) §6
 ("Retry a partial store — same `upload_id`, same payment").

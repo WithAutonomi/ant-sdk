@@ -99,6 +99,13 @@ defmodule Antd.GrpcExternalSignerTest do
               "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " <>
                 "(stored chunks persist; re-prepare the same content to retry only the remainder)"
 
+        # Any other ABORTED (no "Partial upload:" prefix) is not a partial
+        # upload and must keep the generic error mapping.
+        req.upload_id == "aborted_other" ->
+          raise GRPC.RPCError,
+            status: GRPC.Status.aborted(),
+            message: "Upload aborted: another finalize is already in progress"
+
         req.winner_pool_hash != "" ->
           %Antd.V1.FinalizeUploadResponse{
             data_map: "dm_merkle",
@@ -291,6 +298,15 @@ defmodule Antd.GrpcExternalSignerTest do
              err
 
     refute err.retryable
+  end
+
+  test "finalize_upload ABORTED without the partial-upload prefix stays a generic AntdError",
+       %{client: client} do
+    {:error, err} = GrpcClient.finalize_upload(client, "aborted_other", %{"0xq1" => "0xtx1"})
+
+    refute match?(%Antd.PartialUploadError{}, err)
+    assert %Antd.AntdError{status_code: 10} = err
+    assert err.message =~ "another finalize is already in progress"
   end
 
   # --- prepare/finalize chunks ---

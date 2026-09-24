@@ -700,10 +700,12 @@ defmodule Antd.GrpcClient do
   from the prepare result to its on-chain `tx_hash`.
 
   A finalize that stored only part of the upload returns
-  `{:error, %Antd.PartialUploadError{}}` (gRPC `ABORTED`) carrying
-  `chunks_stored`, `chunks_failed`, `total_chunks` and `retryable`, parsed
-  from the status message. The payment persists and the stored chunks stay
-  on the network. When `retryable` is `true` (antd >= 0.14.0) the daemon
+  `{:error, %Antd.PartialUploadError{}}` (gRPC `ABORTED` whose message
+  starts with `Partial upload:`; any other `ABORTED` stays a plain
+  `Antd.AntdError`) carrying `chunks_stored`, `chunks_failed`,
+  `total_chunks` and `retryable`, parsed from the status message. The
+  payment persists and the stored chunks stay on the network. When
+  `retryable` is `true` (antd >= 0.14.0) the daemon
   kept the paid attempt under the same `upload_id`: call this function again
   with the same arguments to store the remainder against the same payment —
   bound that loop (cap the attempts; a `chunks_failed` that stops shrinking
@@ -924,10 +926,18 @@ defmodule Antd.GrpcClient do
       8 -> %Antd.TooLargeError{message: message, status_code: 413}
       9 -> %Antd.PaymentError{message: message, status_code: 402}
       # ABORTED carries PARTIAL_UPLOAD: some chunks stored, some still
-      # unstored after retries. The counts and the "paid attempt retained"
-      # hint ride the message text (no structured detail over gRPC yet), so
-      # they are parsed best-effort to match the REST client's typed error.
-      10 -> Antd.Errors.partial_upload_error_from_message(502, message)
+      # unstored after retries. Every such message opens with the daemon's
+      # fixed "Partial upload:" prefix, so gate on it: the counts and the
+      # "paid attempt retained" hint ride the message text (no structured
+      # detail over gRPC yet) and are parsed best-effort to match the REST
+      # client's typed error. Any other ABORTED keeps the generic mapping.
+      10 ->
+        if Antd.Errors.partial_upload_message?(message) do
+          Antd.Errors.partial_upload_error_from_message(502, message)
+        else
+          %Antd.AntdError{message: message, status_code: status}
+        end
+
       13 -> %Antd.InternalError{message: message, status_code: 500}
       14 -> %Antd.NetworkError{message: message, status_code: 502}
       _ -> %Antd.AntdError{message: message, status_code: status}

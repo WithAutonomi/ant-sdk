@@ -86,7 +86,13 @@ defmodule Antd.GrpcClientTest do
       13 -> %Antd.InternalError{message: message, status_code: 500}
       14 -> %Antd.NetworkError{message: message, status_code: 502}
       9 -> %Antd.PaymentError{message: message, status_code: 402}
-      10 -> Antd.Errors.partial_upload_error_from_message(502, message)
+      10 ->
+        if Antd.Errors.partial_upload_message?(message) do
+          Antd.Errors.partial_upload_error_from_message(502, message)
+        else
+          %Antd.AntdError{message: message, status_code: status}
+        end
+
       _ -> %Antd.AntdError{message: message, status_code: status}
     end
   end
@@ -378,6 +384,41 @@ defmodule Antd.GrpcClientTest do
              err
 
     refute err.retryable
+  end
+
+  test "ABORTED with an unrelated message keeps the generic AntdError mapping" do
+    msg = "Upload aborted: another finalize is already in progress for this upload_id"
+
+    {:error, err} = simulate_grpc_call(:error, %GRPC.RPCError{status: 10, message: msg})
+
+    # No "Partial upload:" prefix, so this is exactly the pre-existing
+    # catch-all mapping (status_code is the raw gRPC code).
+    refute match?(%Antd.PartialUploadError{}, err)
+    assert %Antd.AntdError{status_code: 10, message: ^msg} = err
+  end
+
+  test "ABORTED with the Partial upload: prefix but garbled counts -> zeros, not retryable" do
+    msg = "Partial upload: counts unavailable"
+
+    {:error, err} = simulate_grpc_call(:error, %GRPC.RPCError{status: 10, message: msg})
+
+    assert %Antd.PartialUploadError{
+             status_code: 502,
+             chunks_stored: 0,
+             chunks_failed: 0,
+             total_chunks: 0,
+             retryable: false
+           } = err
+
+    assert err.message == msg
+  end
+
+  test "partial_upload_message?/1 gates on the daemon's fixed prefix" do
+    assert Antd.Errors.partial_upload_message?("Partial upload: 1/2 chunks stored, 1 failed")
+    assert Antd.Errors.partial_upload_message?("Partial upload: counts unavailable")
+    refute Antd.Errors.partial_upload_message?("something else entirely")
+    refute Antd.Errors.partial_upload_message?("")
+    refute Antd.Errors.partial_upload_message?(nil)
   end
 
   test "parse_partial_upload_message/1 recovers counts and the retained hint" do

@@ -111,7 +111,8 @@ end
 defmodule Antd.PartialUploadError do
   @moduledoc """
   A finalize stored some chunks while others stayed unstored after the
-  daemon's retries (HTTP 502 with `code: "PARTIAL_UPLOAD"`; gRPC `ABORTED`).
+  daemon's retries (HTTP 502 with `code: "PARTIAL_UPLOAD"`; gRPC `ABORTED`
+  whose message starts with `Partial upload:`).
 
   The on-chain payment persists and the stored chunks stay on the network.
   How to finish the upload depends on `retryable`:
@@ -163,6 +164,11 @@ end
 defmodule Antd.Errors do
   @moduledoc false
 
+  # Fixed prefix of every `PARTIAL_UPLOAD` message the daemon emits (see
+  # `antd/src/error.rs`). The gRPC client gates on it before treating an
+  # `ABORTED` status as a partial upload.
+  @partial_upload_prefix "Partial upload:"
+
   # Message tail the daemon appends to a `PARTIAL_UPLOAD` error when it kept
   # the paid attempt for a same-`upload_id` retry.
   @partial_upload_retained_hint "paid attempt retained"
@@ -201,9 +207,25 @@ defmodule Antd.Errors do
   end
 
   @doc """
-  Builds an `Antd.PartialUploadError` from a gRPC `ABORTED` status message.
-  The status carries no structured detail, so the counts and the retained
-  hint are recovered from the text via `parse_partial_upload_message/1`.
+  Whether `message` is a daemon `PARTIAL_UPLOAD` message: every one opens
+  with the fixed `Partial upload:` prefix. The gRPC client checks this
+  before mapping an `ABORTED` status to `Antd.PartialUploadError`, so any
+  other `ABORTED` keeps its generic `Antd.AntdError` mapping. A non-binary
+  message is never a partial upload.
+  """
+  @spec partial_upload_message?(term()) :: boolean()
+  def partial_upload_message?(message) when is_binary(message),
+    do: String.contains?(message, @partial_upload_prefix)
+
+  def partial_upload_message?(_), do: false
+
+  @doc """
+  Builds an `Antd.PartialUploadError` from a gRPC `ABORTED` status message
+  that carries the `Partial upload:` prefix (check with
+  `partial_upload_message?/1` first). The status carries no structured
+  detail, so the counts and the retained hint are recovered from the text
+  via `parse_partial_upload_message/1`; a prefixed message whose counts do
+  not parse still builds the error, with zero counts and `retryable: false`.
   """
   @spec partial_upload_error_from_message(integer(), String.t()) ::
           Antd.PartialUploadError.t()
