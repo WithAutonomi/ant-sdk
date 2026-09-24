@@ -130,7 +130,7 @@ All data and file upload operations accept an optional `payment_mode` parameter 
 | Swift | 5.9+ / Xcode 15+ | Swift Package Manager (macOS only) |
 | Ruby | 3.0+ | `gem install antd` |
 | PHP | 8.2+ | `composer require autonomi/antd` |
-| Dart | 3.0+ | `dart pub add antd` |
+| Dart | 3.0+ | `dart pub add antd_client` |
 | Lua | 5.1+ / LuaRocks | `luarocks install antd` |
 | Elixir | 1.14+ | `{:antd, "~> 0.1"}` in mix.exs |
 | Zig | 0.14+ | build.zig.zon dependency |
@@ -345,7 +345,7 @@ echo $data . "\n"; // "Hello, Autonomi!"
 ### Write your first app (Dart)
 
 ```dart
-import 'package:antd/antd.dart';
+import 'package:antd_client/antd_client.dart';
 
 void main() async {
   final client = AntdClient();

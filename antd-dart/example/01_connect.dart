@@ -1,4 +1,4 @@
-import 'package:antd/antd.dart';
+import 'package:antd_client/antd_client.dart';
 
 /// Demonstrates connecting to the antd daemon and checking health.
 void main() async {

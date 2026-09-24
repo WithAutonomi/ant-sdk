@@ -1,7 +1,7 @@
-import 'package:antd/src/grpc_client.dart';
-import 'package:antd/src/errors.dart';
-import 'package:antd/src/generated/antd/v1/wallet.pb.dart' as wallet_msg;
-import 'package:antd/src/generated/antd/v1/wallet.pbgrpc.dart' as wallet_pb;
+import 'package:antd_client/src/grpc_client.dart';
+import 'package:antd_client/src/errors.dart';
+import 'package:antd_client/src/generated/antd/v1/wallet.pb.dart' as wallet_msg;
+import 'package:antd_client/src/generated/antd/v1/wallet.pbgrpc.dart' as wallet_pb;
 import 'package:grpc/grpc.dart';
 import 'package:test/test.dart';
 

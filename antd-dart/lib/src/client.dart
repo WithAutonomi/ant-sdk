@@ -173,14 +173,6 @@ class AntdClient {
     return response.stream;
   }
 
-  Future<int> _doHead(String path) async {
-    final uri = Uri.parse(_url(path));
-    final response = await _httpClient
-        .head(uri)
-        .timeout(_timeout);
-    return response.statusCode;
-  }
-
   Map<String, String> _headers(bool hasBody) {
     if (hasBody) {
       return {'Content-Type': 'application/json'};

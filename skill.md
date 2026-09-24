@@ -30,7 +30,7 @@ For detailed API signatures and endpoint documentation, see:
 | Swift | `antd-swift` | `async throws` | REST + gRPC | Swift Package Manager |
 | Ruby | `antd-ruby` | sync | REST + gRPC | `gem install antd` |
 | PHP | `antd-php` | sync + async | REST | `composer require autonomi/antd` |
-| Dart | `antd-dart` | `Future<T>` / async-await | REST + gRPC | `dart pub add antd` |
+| Dart | `antd-dart` | `Future<T>` / async-await | REST + gRPC | `dart pub add antd_client` |
 | Lua | `antd-lua` | sync | REST | `luarocks install antd` |
 | Elixir | `antd-elixir` | `{:ok, result}` / GenServer | REST + gRPC | `{:antd, "~> 0.1"}` in mix.exs deps |
 | Zig | `antd-zig` | error unions / async | REST | Add dependency in build.zig.zon |

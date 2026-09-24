@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:antd/antd.dart';
+import 'package:antd_client/antd_client.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:test/test.dart';
@@ -129,7 +129,7 @@ MockClient mockDaemon() {
     }
 
     return http.Response(
-      body != null ? jsonEncode(body) : '',
+      jsonEncode(body),
       statusCode,
       headers: {'content-type': 'application/json'},
     );
@@ -933,12 +933,12 @@ class _ExternalSignerMockServer {
         lastChunkPrepareBody = body;
         if (chunkAlreadyStored) {
           _send(req, 200, {
-            'address': 'bb' + ('11' * 31),
+            'address': 'bb${'11' * 31}',
             'already_stored': true,
           });
         } else {
           _send(req, 200, {
-            'address': 'aa' + ('00' * 31),
+            'address': 'aa${'00' * 31}',
             'already_stored': false,
             'upload_id': 'chunk-1',
             'payment_type': 'wave_batch',
@@ -957,7 +957,7 @@ class _ExternalSignerMockServer {
       case 'POST /v1/chunks/finalize':
         lastChunkFinalizeBody = body;
         _send(req, 200, {
-          'address': 'cc' + ('22' * 31),
+          'address': 'cc${'22' * 31}',
         });
         break;
 

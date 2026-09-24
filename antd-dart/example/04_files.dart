@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:antd/antd.dart';
+import 'package:antd_client/antd_client.dart';
 
 /// Demonstrates file upload/download with a real tempfile + round-trip assertion.
 Future<void> main() async {

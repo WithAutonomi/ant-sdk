@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
-import 'package:antd/src/errors.dart';
-import 'package:antd/src/models.dart';
+import 'package:antd_client/src/errors.dart';
+import 'package:antd_client/src/models.dart';
 import 'package:test/test.dart';
 
 // ---------------------------------------------------------------------------
@@ -144,7 +144,7 @@ class _FakeGrpcClient {
   Future<void> close() async {}
 }
 
-_FakeGrpcClient errorClient(int grpcCode, String message) {
+_FakeGrpcClient _errorClient(int grpcCode, String message) {
   return _FakeGrpcClient(
     errorToThrow: FakeGrpcError(grpcCode, message),
   );
@@ -317,7 +317,7 @@ void main() {
 
   group('Error Mapping (gRPC -> AntdError)', () {
     test('INVALID_ARGUMENT -> BadRequestError', () async {
-      final client = errorClient(3, 'bad arg');
+      final client = _errorClient(3, 'bad arg');
       expect(
         () => client.health(),
         throwsA(isA<BadRequestError>().having((e) => e.message, 'message', 'bad arg')),
@@ -325,7 +325,7 @@ void main() {
     });
 
     test('NOT_FOUND -> NotFoundError', () async {
-      final client = errorClient(5, 'not found');
+      final client = _errorClient(5, 'not found');
       expect(
         () => client.health(),
         throwsA(isA<NotFoundError>().having((e) => e.statusCode, 'statusCode', 404)),
@@ -333,7 +333,7 @@ void main() {
     });
 
     test('ALREADY_EXISTS -> AlreadyExistsError', () async {
-      final client = errorClient(6, 'exists');
+      final client = _errorClient(6, 'exists');
       expect(
         () => client.health(),
         throwsA(isA<AlreadyExistsError>()),
@@ -341,7 +341,7 @@ void main() {
     });
 
     test('RESOURCE_EXHAUSTED -> TooLargeError', () async {
-      final client = errorClient(8, 'too big');
+      final client = _errorClient(8, 'too big');
       expect(
         () => client.health(),
         throwsA(isA<TooLargeError>()),
@@ -349,7 +349,7 @@ void main() {
     });
 
     test('INTERNAL -> InternalError', () async {
-      final client = errorClient(13, 'crash');
+      final client = _errorClient(13, 'crash');
       expect(
         () => client.health(),
         throwsA(isA<InternalError>()),
@@ -357,7 +357,7 @@ void main() {
     });
 
     test('UNAVAILABLE -> NetworkError', () async {
-      final client = errorClient(14, 'down');
+      final client = _errorClient(14, 'down');
       expect(
         () => client.health(),
         throwsA(isA<NetworkError>()),
@@ -365,7 +365,7 @@ void main() {
     });
 
     test('FAILED_PRECONDITION -> PaymentError', () async {
-      final client = errorClient(9, 'no funds');
+      final client = _errorClient(9, 'no funds');
       expect(
         () => client.health(),
         throwsA(isA<PaymentError>()),
@@ -373,7 +373,7 @@ void main() {
     });
 
     test('unknown gRPC code -> AntdError with code', () async {
-      final client = errorClient(15, 'data loss');
+      final client = _errorClient(15, 'data loss');
       expect(
         () => client.health(),
         throwsA(isA<AntdError>().having(
@@ -382,7 +382,7 @@ void main() {
     });
 
     test('error propagates from dataPutPublic', () async {
-      final client = errorClient(5, 'missing data');
+      final client = _errorClient(5, 'missing data');
       expect(
         () => client.dataPutPublic(Uint8List.fromList([1])),
         throwsA(isA<NotFoundError>()),
@@ -390,7 +390,7 @@ void main() {
     });
 
     test('error propagates from chunkGet', () async {
-      final client = errorClient(13, 'boom');
+      final client = _errorClient(13, 'boom');
       expect(
         () => client.chunkGet('addr'),
         throwsA(isA<InternalError>()),
@@ -398,7 +398,7 @@ void main() {
     });
 
     test('error propagates from filePutPublic', () async {
-      final client = errorClient(8, 'too large');
+      final client = _errorClient(8, 'too large');
       expect(
         () => client.filePutPublic('/tmp/big.bin'),
         throwsA(isA<TooLargeError>()),

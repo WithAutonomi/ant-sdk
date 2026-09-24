@@ -14,7 +14,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:antd/antd.dart';
+import 'package:antd_client/antd_client.dart';
 import 'package:web3dart/web3dart.dart';
 import 'package:http/http.dart' as http;
 
