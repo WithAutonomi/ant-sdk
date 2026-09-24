@@ -5,10 +5,10 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-ant-core = { git = "https://github.com/WithAutonomi/ant-client", tag = "ant-cli-v0.3.5" }  # ant-core 0.8.0 release; NetworkHealth helper (V2-1037) + ant-protocol 2.3.4 line. Lock pins saorsa-core 0.27.3: the FIRST release containing the runtime re-bootstrap recovery (V2-1036, saorsa-core#153) that /health's write_ready semantics depend on — 0.27.2 predates it despite its tag date (was 0.6.0 / ant-cli-v0.3.3)
+ant-core = { git = "https://github.com/WithAutonomi/ant-client", tag = "ant-cli-v0.3.8" }  # ant-core 0.10.0 release (2026-09-15): bootstrap_peers.toml moved to ant-core/resources and became `quic`/`webrtc` multiaddr arrays (ADR-0005); the loader reads both that and the legacy `peers = ["ip:port"]` shape. Also ant-protocol 3.0.0 / evmlib 0.10.0 / saorsa-core 0.28.0 / saorsa-transport 0.37.0. Previous pin ant-cli-v0.3.5 (ant-core 0.8.0) could not parse the new file and silently fell back to the compiled-in list.
 self_encryption = "0.36.0"
-evmlib = "0.9.1" # must track ant-core's transitive evmlib (via ant-protocol) to avoid a second copy in the graph
-ant-protocol = "=2.3.4" # pinned exactly to ant-core's transitive ant-protocol (ant-cli-v0.3.5 / ant-core 0.8.0 line; was =2.3.2 on 0.6.0) — a different version would fork PaymentQuote/StorageCommitment in the graph
+evmlib = "0.10.0" # must track ant-core's transitive evmlib (via ant-protocol) to avoid a second copy in the graph
+ant-protocol = "=3.0.0" # pinned exactly to ant-core's transitive ant-protocol (ant-cli-v0.3.8 / ant-core 0.10.0 line; was =2.3.4 on 0.8.0) — a different version would fork PaymentQuote/StorageCommitment in the graph
 axum = { version = "0.8", features = ["macros"] }
 tower-http = { version = "0.6", features = ["cors", "limit", "trace"] }
 tonic = "0.12"
