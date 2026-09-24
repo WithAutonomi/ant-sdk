@@ -4,7 +4,7 @@ use mockito::{Matcher, Mock, ServerGuard};
 use serde_json::json;
 
 use crate::errors::AntdError;
-use crate::models::PaymentMode;
+use crate::models::{PaymentMode, PrepareOptions, VerifyQuoteEntry};
 use crate::Client;
 
 async fn mock_server() -> ServerGuard {
@@ -838,6 +838,196 @@ async fn test_finalize_upload_data_map_address_empty_when_absent() {
     assert_eq!(result.address, "0xFINAL");
     assert_eq!(result.data_map, "deadbeef");
     assert_eq!(result.data_map_address, "");
+}
+
+#[tokio::test]
+async fn test_prepare_upload_with_options_sends_flag_and_parses_signed_quotes() {
+    let mut server = mock_server().await;
+    let _m = server
+        .mock("POST", "/v1/upload/prepare")
+        .match_body(Matcher::Json(json!({
+            "path": "/tmp/x",
+            "include_signed_quotes": true
+        })))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{
+            "upload_id": "up9", "payment_type": "wave_batch",
+            "payments": [{"quote_hash": "qh9", "rewards_address": "ra9", "amount": "5"}],
+            "signed_quotes": [{"quote_hash": "qh9", "quote": "b3BhcXVl", "commitment_sidecar": "c2lkZQ=="}],
+            "total_amount": "5", "payment_vault_address": "dp", "payment_token_address": "pt",
+            "rpc_url": "http://localhost:1"
+        }"#,
+        )
+        .create();
+    let client = Client::new(&server.url());
+
+    let opts = PrepareOptions {
+        visibility: None,
+        include_signed_quotes: true,
+    };
+    let res = client
+        .prepare_upload_with_options("/tmp/x", &opts)
+        .await
+        .unwrap();
+    assert_eq!(res.upload_id, "up9");
+    assert_eq!(res.signed_quotes.len(), 1);
+    let sq = &res.signed_quotes[0];
+    assert_eq!(sq.quote_hash, "qh9");
+    assert_eq!(sq.quote, "b3BhcXVl");
+    assert_eq!(sq.commitment_sidecar.as_deref(), Some("c2lkZQ=="));
+}
+
+#[tokio::test]
+async fn test_prepare_upload_without_flag_omits_field_and_has_no_signed_quotes() {
+    // The exact-match body proves neither `visibility` nor
+    // `include_signed_quotes` is sent when at their defaults.
+    let mut server = mock_server().await;
+    let _m = server
+        .mock("POST", "/v1/upload/prepare")
+        .match_body(Matcher::Json(json!({ "path": "/tmp/x" })))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"upload_id": "up1", "payment_type": "wave_batch", "payments": []}"#)
+        .create();
+    let client = Client::new(&server.url());
+
+    let res = client.prepare_upload("/tmp/x", None).await.unwrap();
+    assert_eq!(res.upload_id, "up1");
+    assert!(res.signed_quotes.is_empty());
+}
+
+#[tokio::test]
+async fn test_prepare_data_upload_with_options_sends_flag_and_visibility() {
+    let mut server = mock_server().await;
+    let _m = server
+        .mock("POST", "/v1/data/prepare")
+        .match_body(Matcher::Json(json!({
+            "data": BASE64.encode(b"hello"),
+            "visibility": "public",
+            "include_signed_quotes": true
+        })))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{
+            "upload_id": "up2", "payment_type": "wave_batch",
+            "payments": [{"quote_hash": "qh2", "rewards_address": "ra2", "amount": "7"}],
+            "signed_quotes": [{"quote_hash": "qh2", "quote": "b3BhcXVl"}]
+        }"#,
+        )
+        .create();
+    let client = Client::new(&server.url());
+
+    let opts = PrepareOptions {
+        visibility: Some("public".to_string()),
+        include_signed_quotes: true,
+    };
+    let res = client
+        .prepare_data_upload_with_options(b"hello", &opts)
+        .await
+        .unwrap();
+    assert_eq!(res.upload_id, "up2");
+    assert_eq!(res.signed_quotes.len(), 1);
+    // Baseline quote: no sidecar on the wire → None in the model.
+    assert_eq!(res.signed_quotes[0].commitment_sidecar, None);
+}
+
+#[tokio::test]
+async fn test_prepare_chunk_upload_with_options_parses_signed_quotes() {
+    let mut server = mock_server().await;
+    let _m = server
+        .mock("POST", "/v1/chunks/prepare")
+        .match_body(Matcher::Json(json!({
+            "data": BASE64.encode(b"chunk"),
+            "include_signed_quotes": true
+        })))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{
+            "address": "addr_new", "already_stored": false, "upload_id": "upc1",
+            "payment_type": "wave_batch",
+            "payments": [{"quote_hash": "qhc", "rewards_address": "rac", "amount": "3"}],
+            "signed_quotes": [{"quote_hash": "qhc", "quote": "b3BhcXVl", "commitment_sidecar": "c2lkZQ=="}]
+        }"#,
+        )
+        .create();
+    let client = Client::new(&server.url());
+
+    let opts = PrepareOptions {
+        visibility: None,
+        include_signed_quotes: true,
+    };
+    let res = client
+        .prepare_chunk_upload_with_options(b"chunk", &opts)
+        .await
+        .unwrap();
+    assert_eq!(res.upload_id, "upc1");
+    assert_eq!(res.signed_quotes.len(), 1);
+    assert_eq!(res.signed_quotes[0].quote_hash, "qhc");
+}
+
+#[tokio::test]
+async fn test_verify_quotes() {
+    let mut server = mock_server().await;
+    let _m = server
+        .mock("POST", "/v1/verify/quotes")
+        .match_body(Matcher::Json(json!({
+            "entries": [
+                {"quote_hash": "qh1", "rewards_address": "ra1", "amount": "5",
+                 "signed_quote": "b3BhcXVl", "commitment_sidecar": "c2lkZQ=="},
+                {"quote_hash": "qh2", "rewards_address": "ra2", "amount": "6",
+                 "signed_quote": "b3BhcXVlMg=="}
+            ]
+        })))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{
+            "valid": false,
+            "entries": [
+                {"quote_hash": "qh1", "valid": true, "timestamp_unix_secs": 1756000000,
+                 "content": "aa", "price": "5", "rewards_address": "ra1",
+                 "committed_key_count": 42, "pinned": true},
+                {"quote_hash": "qh2", "valid": false,
+                 "error": "price 6 does not equal calculate_price(committed_key_count=0)"}
+            ]
+        }"#,
+        )
+        .create();
+    let client = Client::new(&server.url());
+
+    let res = client
+        .verify_quotes(&[
+            VerifyQuoteEntry {
+                quote_hash: "qh1".into(),
+                rewards_address: "ra1".into(),
+                amount: "5".into(),
+                signed_quote: "b3BhcXVl".into(),
+                commitment_sidecar: Some("c2lkZQ==".into()),
+            },
+            VerifyQuoteEntry {
+                quote_hash: "qh2".into(),
+                rewards_address: "ra2".into(),
+                amount: "6".into(),
+                signed_quote: "b3BhcXVlMg==".into(),
+                commitment_sidecar: None,
+            },
+        ])
+        .await
+        .unwrap();
+    assert!(!res.valid);
+    assert_eq!(res.entries.len(), 2);
+    let first = &res.entries[0];
+    assert!(first.valid && first.quote_decoded());
+    assert_eq!(first.committed_key_count, Some(42));
+    assert_eq!(first.pinned, Some(true));
+    assert_eq!(first.timestamp_unix_secs, Some(1_756_000_000));
+    let second = &res.entries[1];
+    assert!(!second.valid && !second.quote_decoded());
+    assert!(second.error.as_deref().unwrap().contains("calculate_price"));
 }
 
 #[tokio::test]

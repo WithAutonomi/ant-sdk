@@ -1,10 +1,14 @@
 package antd
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"net"
+	"strings"
 	"testing"
 
 	"google.golang.org/grpc"
@@ -13,6 +17,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/proto"
 
 	pb "github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1"
 )
@@ -145,7 +150,7 @@ func (m *mockChunkService) PrepareChunk(_ context.Context, req *pb.PrepareChunkR
 			AlreadyStored: true,
 		}, nil
 	}
-	return &pb.PrepareChunkResponse{
+	resp := &pb.PrepareChunkResponse{
 		Address:       "0xnewchunk",
 		AlreadyStored: false,
 		UploadId:      "upid_chunk_42",
@@ -157,7 +162,53 @@ func (m *mockChunkService) PrepareChunk(_ context.Context, req *pb.PrepareChunkR
 		PaymentVaultAddress: "0xvault",
 		PaymentTokenAddress: "0xtoken",
 		RpcUrl:              "http://localhost:8545",
-	}, nil
+	}
+	if req.GetIncludeSignedQuotes() {
+		resp.SignedQuotes = mockSignedQuotes("0xq1")
+	}
+	return resp, nil
+}
+
+// mockSignedQuotes is the daemon's shape for one signed wave-batch quote:
+// raw msgpack bytes on the wire ("opaque" / "side" stand in), which the
+// client must base64-encode into the shared model.
+func mockSignedQuotes(quoteHash string) []*pb.SignedQuoteEntry {
+	return []*pb.SignedQuoteEntry{
+		{QuoteHash: quoteHash, Quote: []byte("opaque"), CommitmentSidecar: []byte("side")},
+	}
+}
+
+// mockVerifyService verifies "opaque" quotes only, treats a present sidecar
+// as a pinned commitment of 42 keys, and reports the batch valid when every
+// entry is.
+type mockVerifyService struct {
+	pb.UnimplementedVerifyServiceServer
+}
+
+func (m *mockVerifyService) VerifyQuotes(_ context.Context, req *pb.VerifyQuotesRequest) (*pb.VerifyQuotesResponse, error) {
+	resp := &pb.VerifyQuotesResponse{Valid: len(req.GetEntries()) > 0}
+	for _, e := range req.GetEntries() {
+		v := &pb.VerifyQuoteVerdict{
+			QuoteHash:         e.GetQuoteHash(),
+			QuoteDecoded:      true,
+			TimestampUnixSecs: 1756000000,
+			Content:           "aa",
+			Price:             "5",
+			RewardsAddress:    e.GetRewardsAddress(),
+		}
+		if string(e.GetSignedQuote()) == "opaque" {
+			v.Valid = true
+		} else {
+			v.Error = "signed_quote did not deserialize as a PaymentQuote"
+			resp.Valid = false
+		}
+		if len(e.GetCommitmentSidecar()) > 0 {
+			v.CommittedKeyCount = 42
+			v.Pinned = true
+		}
+		resp.Entries = append(resp.Entries, v)
+	}
+	return resp, nil
 }
 
 func (m *mockChunkService) FinalizeChunk(_ context.Context, req *pb.FinalizeChunkRequest) (*pb.FinalizeChunkResponse, error) {
@@ -174,7 +225,7 @@ type mockUploadService struct {
 
 func (m *mockUploadService) PrepareFileUpload(_ context.Context, req *pb.PrepareFileUploadRequest) (*pb.PrepareUploadResponse, error) {
 	// Encode visibility into upload_id so the test can verify forwarding.
-	return &pb.PrepareUploadResponse{
+	resp := &pb.PrepareUploadResponse{
 		UploadId:    "upid_file_" + req.GetVisibility(),
 		PaymentType: "wave_batch",
 		Payments: []*pb.PaymentEntry{
@@ -186,7 +237,34 @@ func (m *mockUploadService) PrepareFileUpload(_ context.Context, req *pb.Prepare
 		RpcUrl:              "http://localhost:8545",
 		TotalChunks:         3,
 		AlreadyStoredCount:  1,
-	}, nil
+	}
+	if req.GetIncludeSignedQuotes() {
+		resp.SignedQuotes = mockSignedQuotes("0xqa")
+		if req.GetPath() == bigPreparePath {
+			resp.SignedQuotes = bigSignedQuotes()
+		}
+	}
+	return resp, nil
+}
+
+// bigPreparePath makes the mock return bigSignedQuotes: a full-size
+// wave-batch prepare whose signed quotes push the response well past
+// grpc-go's 4 MiB default receive limit.
+const bigPreparePath = "/big"
+
+// bigSignedQuotes is 1024 entries (the daemon's MAX_VERIFY_ENTRIES) with
+// 8,000-byte quote blobs, about 8.3 MB on the wire. Synthetic transport
+// fixture only; the bytes are not real quotes.
+func bigSignedQuotes() []*pb.SignedQuoteEntry {
+	entries := make([]*pb.SignedQuoteEntry, 1024)
+	for i := range entries {
+		entries[i] = &pb.SignedQuoteEntry{
+			QuoteHash:         fmt.Sprintf("0xq%04d", i),
+			Quote:             bytes.Repeat([]byte{'q'}, 8000),
+			CommitmentSidecar: []byte("side"),
+		}
+	}
+	return entries
 }
 
 func (m *mockUploadService) PrepareDataUpload(_ context.Context, req *pb.PrepareDataUploadRequest) (*pb.PrepareUploadResponse, error) {
@@ -213,7 +291,7 @@ func (m *mockUploadService) PrepareDataUpload(_ context.Context, req *pb.Prepare
 			RpcUrl:                 "http://localhost:8545",
 		}, nil
 	}
-	return &pb.PrepareUploadResponse{
+	resp := &pb.PrepareUploadResponse{
 		UploadId:    uploadID,
 		PaymentType: "wave_batch",
 		Payments: []*pb.PaymentEntry{
@@ -223,7 +301,11 @@ func (m *mockUploadService) PrepareDataUpload(_ context.Context, req *pb.Prepare
 		PaymentVaultAddress: "0xvault",
 		PaymentTokenAddress: "0xtoken",
 		RpcUrl:              "http://localhost:8545",
-	}, nil
+	}
+	if req.GetIncludeSignedQuotes() {
+		resp.SignedQuotes = mockSignedQuotes("0xqb")
+	}
+	return resp, nil
 }
 
 func (m *mockUploadService) FinalizeUpload(_ context.Context, req *pb.FinalizeUploadRequest) (*pb.FinalizeUploadResponse, error) {
@@ -336,6 +418,13 @@ func (m *errorHealthService) Check(_ context.Context, _ *pb.HealthCheckRequest) 
 // and returns a connected GrpcClient.
 func startMockServer(t *testing.T) *GrpcClient {
 	t.Helper()
+	return startMockServerWith(t)
+}
+
+// startMockServerWith is startMockServer with extra client options applied
+// after the bufconn dialer.
+func startMockServerWith(t *testing.T, extra ...GrpcOption) *GrpcClient {
+	t.Helper()
 	lis := bufconn.Listen(bufSize)
 
 	s := grpc.NewServer()
@@ -345,6 +434,7 @@ func startMockServer(t *testing.T) *GrpcClient {
 	pb.RegisterFileServiceServer(s, &mockFileService{})
 	pb.RegisterUploadServiceServer(s, &mockUploadService{})
 	pb.RegisterWalletServiceServer(s, &mockWalletService{})
+	pb.RegisterVerifyServiceServer(s, &mockVerifyService{})
 
 	go func() {
 		// Server stop on test cleanup is expected, swallow the error.
@@ -356,12 +446,13 @@ func startMockServer(t *testing.T) *GrpcClient {
 		return lis.Dial()
 	}
 
-	c, err := NewGrpcClient("passthrough:///bufconn",
+	opts := append([]GrpcOption{
 		WithDialOptions(
 			grpc.WithContextDialer(dialer),
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 		),
-	)
+	}, extra...)
+	c, err := NewGrpcClient("passthrough:///bufconn", opts...)
 	if err != nil {
 		t.Fatalf("failed to create grpc client: %v", err)
 	}
@@ -692,6 +783,179 @@ func TestGrpcPrepareUploadOmitsVisibilityWhenPrivate(t *testing.T) {
 	}
 	if r.Depth != 0 || len(r.PoolCommitments) != 0 {
 		t.Fatalf("merkle fields populated on wave-batch: %+v", r)
+	}
+}
+
+func TestGrpcPrepareUploadWithOptionsSendsFlagAndMapsSignedQuotes(t *testing.T) {
+	c := startMockServer(t)
+	r, err := c.PrepareUploadWithOptions(context.Background(), "/tmp/x.bin", PrepareOptions{IncludeSignedQuotes: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.SignedQuotes) != 1 {
+		t.Fatalf("unexpected signed_quotes: %+v", r.SignedQuotes)
+	}
+	// Raw proto bytes must land base64-encoded, exactly as REST delivers them.
+	sq := r.SignedQuotes[0]
+	if sq.QuoteHash != "0xqa" || sq.Quote != "b3BhcXVl" || sq.CommitmentSidecar != "c2lkZQ==" {
+		t.Fatalf("unexpected entry: %+v", sq)
+	}
+	// Options must not disturb the rest of the mapping.
+	if r.UploadID != "upid_file_" || r.TotalChunks != 3 || r.AlreadyStoredCount != 1 {
+		t.Fatalf("unexpected result: %+v", r)
+	}
+}
+
+func TestGrpcPrepareUploadWithoutFlagCarriesNoSignedQuotes(t *testing.T) {
+	c := startMockServer(t)
+	r, err := c.PrepareUpload(context.Background(), "/tmp/x.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.SignedQuotes) != 0 {
+		t.Fatalf("signed_quotes populated without the flag: %+v", r.SignedQuotes)
+	}
+}
+
+func TestGrpcPrepareDataUploadWithOptionsSendsFlagAndVisibility(t *testing.T) {
+	c := startMockServer(t)
+	r, err := c.PrepareDataUploadWithOptions(context.Background(), []byte("small"), PrepareOptions{
+		Visibility:          "public",
+		IncludeSignedQuotes: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.UploadID != "upid_data_public" {
+		t.Fatalf("visibility not forwarded: %q", r.UploadID)
+	}
+	if len(r.SignedQuotes) != 1 || r.SignedQuotes[0].Quote != "b3BhcXVl" {
+		t.Fatalf("unexpected signed_quotes: %+v", r.SignedQuotes)
+	}
+}
+
+func TestGrpcPrepareChunkUploadWithOptionsMapsSignedQuotes(t *testing.T) {
+	c := startMockServer(t)
+	r, err := c.PrepareChunkUploadWithOptions(context.Background(), []byte("fresh chunk"), PrepareOptions{IncludeSignedQuotes: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.SignedQuotes) != 1 || r.SignedQuotes[0].QuoteHash != "0xq1" || r.SignedQuotes[0].Quote != "b3BhcXVl" {
+		t.Fatalf("unexpected signed_quotes: %+v", r.SignedQuotes)
+	}
+	plain, err := c.PrepareChunkUpload(context.Background(), []byte("fresh chunk"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plain.SignedQuotes) != 0 {
+		t.Fatalf("signed_quotes populated without the flag: %+v", plain.SignedQuotes)
+	}
+}
+
+// A full-size signed-quote prepare response (>4 MiB, grpc-go's default
+// receive limit) must decode on a default client: the SDK sets its own
+// receive ceiling, sized like the daemon's, on every call.
+func TestGrpcPrepareUploadLargeSignedQuoteResponseFitsDefaultRecvLimit(t *testing.T) {
+	fixture := &pb.PrepareUploadResponse{SignedQuotes: bigSignedQuotes()}
+	if n := proto.Size(fixture); n <= 4*1024*1024 {
+		t.Fatalf("fixture must exceed grpc-go's 4 MiB default to be a regression test, got %d bytes", n)
+	}
+
+	c := startMockServer(t)
+	r, err := c.PrepareUploadWithOptions(context.Background(), bigPreparePath, PrepareOptions{IncludeSignedQuotes: true})
+	if err != nil {
+		t.Fatalf("large signed-quote response rejected on a default client: %v", err)
+	}
+	if len(r.SignedQuotes) != 1024 {
+		t.Fatalf("expected 1024 signed quotes, got %d", len(r.SignedQuotes))
+	}
+	if r.SignedQuotes[1023].QuoteHash != "0xq1023" || len(r.SignedQuotes[1023].Quote) != base64.StdEncoding.EncodedLen(8000) {
+		t.Fatalf("last entry mangled: %+v", r.SignedQuotes[1023])
+	}
+}
+
+// The ceiling is a real bound, not a no-op: a caller-set limit below the
+// response size is enforced and surfaces as the mapped 413, not a hang or a
+// truncated result.
+func TestGrpcPrepareUploadRecvLimitIsEnforcedAndConfigurable(t *testing.T) {
+	c := startMockServerWith(t, WithGrpcMaxRecvMsgSize(1024*1024))
+	_, err := c.PrepareUploadWithOptions(context.Background(), bigPreparePath, PrepareOptions{IncludeSignedQuotes: true})
+	if err == nil {
+		t.Fatal("expected the 1 MiB receive limit to reject an 8 MB response")
+	}
+	var tooLarge *TooLargeError
+	if !errors.As(err, &tooLarge) || !strings.Contains(err.Error(), "larger than max") {
+		t.Fatalf("expected a TooLargeError carrying the receive-limit message, got: %v", err)
+	}
+	// A small response on the same client is unaffected.
+	if _, err := c.PrepareUpload(context.Background(), "/tmp/x.bin"); err != nil {
+		t.Fatalf("small response failed under the lowered limit: %v", err)
+	}
+}
+
+func TestGrpcVerifyQuotes(t *testing.T) {
+	c := startMockServer(t)
+	// Same inputs as the REST TestVerifyQuotes: base64 strings in, decoded
+	// to raw bytes on the wire ("opaque" verifies, "opaque2" does not).
+	res, err := c.VerifyQuotes(context.Background(), []VerifyQuoteEntry{
+		{QuoteHash: "qh1", RewardsAddress: "ra1", Amount: "5", SignedQuote: "b3BhcXVl", CommitmentSidecar: "c2lkZQ=="},
+		{QuoteHash: "qh2", RewardsAddress: "ra2", Amount: "6", SignedQuote: "b3BhcXVlMg=="},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Valid {
+		t.Fatal("expected overall valid=false")
+	}
+	if len(res.Entries) != 2 {
+		t.Fatalf("unexpected entries: %+v", res.Entries)
+	}
+	if !res.Entries[0].Valid || res.Entries[0].CommittedKeyCount != 42 || !res.Entries[0].Pinned ||
+		res.Entries[0].TimestampUnixSecs != 1756000000 || res.Entries[0].RewardsAddress != "ra1" {
+		t.Fatalf("unexpected first verdict: %+v", res.Entries[0])
+	}
+	if res.Entries[1].Valid || res.Entries[1].Error == "" || res.Entries[1].Pinned {
+		t.Fatalf("unexpected second verdict: %+v", res.Entries[1])
+	}
+}
+
+func TestGrpcVerifyQuotesRoundTripsPreparedEntries(t *testing.T) {
+	// A signed quote obtained over gRPC (base64-encoded into the model) must
+	// feed VerifyQuotes unchanged and verify.
+	c := startMockServer(t)
+	prep, err := c.PrepareUploadWithOptions(context.Background(), "/tmp/x.bin", PrepareOptions{IncludeSignedQuotes: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sq := prep.SignedQuotes[0]
+	res, err := c.VerifyQuotes(context.Background(), []VerifyQuoteEntry{{
+		QuoteHash:         sq.QuoteHash,
+		RewardsAddress:    prep.Payments[0].RewardsAddress,
+		Amount:            prep.Payments[0].Amount,
+		SignedQuote:       sq.Quote,
+		CommitmentSidecar: sq.CommitmentSidecar,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Valid || len(res.Entries) != 1 || !res.Entries[0].Pinned {
+		t.Fatalf("round-tripped entry did not verify: %+v", res)
+	}
+}
+
+func TestGrpcVerifyQuotesRejectsMalformedBase64BeforeSending(t *testing.T) {
+	c := startMockServer(t)
+	_, err := c.VerifyQuotes(context.Background(), []VerifyQuoteEntry{
+		{QuoteHash: "qh1", SignedQuote: "not base64!"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "signed_quote is not valid base64") {
+		t.Fatalf("expected a base64 error, got %v", err)
+	}
+	_, err = c.VerifyQuotes(context.Background(), []VerifyQuoteEntry{
+		{QuoteHash: "qh1", SignedQuote: "b3BhcXVl", CommitmentSidecar: "%%%"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "commitment_sidecar is not valid base64") {
+		t.Fatalf("expected a base64 error, got %v", err)
 	}
 }
 

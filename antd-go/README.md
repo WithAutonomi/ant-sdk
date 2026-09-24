@@ -219,6 +219,12 @@ client, _ := antd.NewGrpcClient("localhost:50051",
 // Custom dial options (e.g. TLS)
 client, _ := antd.NewGrpcClient("secure-host:443",
     antd.WithDialOptions(grpc.WithTransportCredentials(creds)))
+
+// Response size ceiling (default antd.DefaultGrpcMaxRecvMsgSize, 32 MiB —
+// sized so a full wave-batch prepare with signed quotes decodes; grpc-go's
+// own 4 MiB default would reject it with a 413 TooLargeError)
+client, _ := antd.NewGrpcClient("localhost:50051",
+    antd.WithGrpcMaxRecvMsgSize(64 * 1024 * 1024))
 ```
 
 > **Note:** Wallet operations (address, balance, approve) and payment_mode are available via REST only.

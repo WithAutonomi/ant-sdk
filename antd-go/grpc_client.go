@@ -2,6 +2,7 @@ package antd
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"strconv"
@@ -22,6 +23,16 @@ const DefaultGrpcTarget = "localhost:50051"
 // DefaultGrpcTimeout is the default per-call timeout for gRPC requests.
 const DefaultGrpcTimeout = 5 * time.Minute
 
+// DefaultGrpcMaxRecvMsgSize is the default ceiling on a single gRPC response
+// message the client will decode (32 MiB). grpc-go's own default is 4 MiB,
+// which a prepare response carrying signed quotes can exceed: each entry is
+// ~5-6 KB of quote plus up to 8 KB of commitment sidecar, so a large
+// wave-batch prepare (ant-core falls back from merkle to wave on
+// InsufficientPeers with the whole pending chunk set) can be 8 MiB or more.
+// The ceiling matches the daemon's own VerifyService message limit, which is
+// sized to 1024 maximal entries. Override with WithGrpcMaxRecvMsgSize.
+const DefaultGrpcMaxRecvMsgSize = 32 * 1024 * 1024
+
 // GrpcOption configures a GrpcClient.
 type GrpcOption func(*GrpcClient)
 
@@ -30,9 +41,18 @@ func WithGrpcTimeout(d time.Duration) GrpcOption {
 	return func(c *GrpcClient) { c.timeout = d }
 }
 
-// WithDialOptions appends gRPC dial options.
+// WithDialOptions appends gRPC dial options. They are applied after the
+// client's own defaults, so a grpc.WithDefaultCallOptions here overrides them.
 func WithDialOptions(opts ...grpc.DialOption) GrpcOption {
 	return func(c *GrpcClient) { c.dialOpts = append(c.dialOpts, opts...) }
+}
+
+// WithGrpcMaxRecvMsgSize sets the ceiling, in bytes, on a single response
+// message the client will decode. Defaults to DefaultGrpcMaxRecvMsgSize.
+// Responses over the ceiling fail with a ResourceExhausted status (mapped to
+// a 413 TooLargeError) rather than being truncated.
+func WithGrpcMaxRecvMsgSize(bytes int) GrpcOption {
+	return func(c *GrpcClient) { c.maxRecvMsgSize = bytes }
 }
 
 // GrpcClient is a gRPC client for the antd daemon. It exposes the same
@@ -41,7 +61,8 @@ type GrpcClient struct {
 	conn    *grpc.ClientConn
 	timeout time.Duration
 
-	dialOpts []grpc.DialOption
+	dialOpts       []grpc.DialOption
+	maxRecvMsgSize int
 
 	health pb.HealthServiceClient
 	data   pb.DataServiceClient
@@ -49,6 +70,7 @@ type GrpcClient struct {
 	file   pb.FileServiceClient
 	upload pb.UploadServiceClient
 	wallet pb.WalletServiceClient
+	verify pb.VerifyServiceClient
 }
 
 // NewGrpcClientAutoDiscover creates a gRPC client that discovers the daemon target
@@ -67,18 +89,25 @@ func NewGrpcClientAutoDiscover(opts ...GrpcOption) (*GrpcClient, string, error) 
 // (e.g. "localhost:50051"). The connection is established lazily on first use.
 func NewGrpcClient(target string, opts ...GrpcOption) (*GrpcClient, error) {
 	c := &GrpcClient{
-		timeout: DefaultGrpcTimeout,
+		timeout:        DefaultGrpcTimeout,
+		maxRecvMsgSize: DefaultGrpcMaxRecvMsgSize,
 	}
 	for _, o := range opts {
 		o(c)
 	}
 
+	// The receive ceiling goes first so a caller's own
+	// grpc.WithDefaultCallOptions (via WithDialOptions) still wins.
+	dialOpts := []grpc.DialOption{
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(c.maxRecvMsgSize)),
+	}
 	// Default to insecure transport if no dial options are provided.
 	if len(c.dialOpts) == 0 {
-		c.dialOpts = append(c.dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
+	dialOpts = append(dialOpts, c.dialOpts...)
 
-	conn, err := grpc.NewClient(target, c.dialOpts...)
+	conn, err := grpc.NewClient(target, dialOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("grpc dial: %w", err)
 	}
@@ -90,6 +119,7 @@ func NewGrpcClient(target string, opts ...GrpcOption) (*GrpcClient, error) {
 	c.file = pb.NewFileServiceClient(conn)
 	c.upload = pb.NewUploadServiceClient(conn)
 	c.wallet = pb.NewWalletServiceClient(conn)
+	c.verify = pb.NewVerifyServiceClient(conn)
 
 	return c, nil
 }
@@ -574,10 +604,23 @@ func (c *GrpcClient) FileCost(ctx context.Context, path string, isPublic bool, p
 //
 // Requires antd >= 0.9.0.
 func (c *GrpcClient) PrepareChunkUpload(ctx context.Context, content []byte) (*PrepareChunkResult, error) {
+	return c.PrepareChunkUploadWithOptions(ctx, content, PrepareOptions{})
+}
+
+// PrepareChunkUploadWithOptions is PrepareChunkUpload with explicit options.
+// Visibility is not applicable to single-chunk publishes and is ignored.
+//
+// Mirrors Client.PrepareChunkUploadWithOptions over gRPC. IncludeSignedQuotes
+// requires antd >= 0.13.0; older daemons ignore the flag and SignedQuotes
+// stays empty.
+func (c *GrpcClient) PrepareChunkUploadWithOptions(ctx context.Context, content []byte, opts PrepareOptions) (*PrepareChunkResult, error) {
 	ctx, cancel := c.ctx(ctx)
 	defer cancel()
 
-	resp, err := c.chunk.PrepareChunk(ctx, &pb.PrepareChunkRequest{Data: content})
+	resp, err := c.chunk.PrepareChunk(ctx, &pb.PrepareChunkRequest{
+		Data:                content,
+		IncludeSignedQuotes: opts.IncludeSignedQuotes,
+	})
 	if err != nil {
 		return nil, errorFromGrpc(err)
 	}
@@ -599,6 +642,7 @@ func (c *GrpcClient) PrepareChunkUpload(ctx context.Context, content []byte) (*P
 			Amount:         p.GetAmount(),
 		})
 	}
+	r.SignedQuotes = pbSignedQuotes(resp.GetSignedQuotes())
 	return r, nil
 }
 
@@ -639,6 +683,9 @@ func prepareResponseToResult(resp *pb.PrepareUploadResponse) *PrepareUploadResul
 		// pays for (TotalChunks - AlreadyStoredCount) chunks.
 		TotalChunks:        int(resp.GetTotalChunks()),
 		AlreadyStoredCount: int(resp.GetAlreadyStoredCount()),
+		// Populated only when the request set IncludeSignedQuotes and the
+		// payment type is wave_batch (parity with REST).
+		SignedQuotes: pbSignedQuotes(resp.GetSignedQuotes()),
 	}
 	for _, p := range resp.GetPayments() {
 		result.Payments = append(result.Payments, PaymentInfo{
@@ -665,6 +712,25 @@ func prepareResponseToResult(resp *pb.PrepareUploadResponse) *PrepareUploadResul
 	return result
 }
 
+// pbSignedQuotes maps proto signed-quote entries onto the shared model. The
+// proto carries the opaque msgpack blobs as raw bytes; the model (shared with
+// REST, where they travel as JSON strings) carries them base64-encoded, so a
+// gRPC-obtained entry feeds VerifyQuotes on either transport unchanged.
+func pbSignedQuotes(entries []*pb.SignedQuoteEntry) []SignedQuoteEntry {
+	var out []SignedQuoteEntry
+	for _, e := range entries {
+		sq := SignedQuoteEntry{
+			QuoteHash: e.GetQuoteHash(),
+			Quote:     base64.StdEncoding.EncodeToString(e.GetQuote()),
+		}
+		if sc := e.GetCommitmentSidecar(); len(sc) > 0 {
+			sq.CommitmentSidecar = base64.StdEncoding.EncodeToString(sc)
+		}
+		out = append(out, sq)
+	}
+	return out
+}
+
 func pbPoolCommitments(pcs []*pb.PoolCommitmentEntry) []PoolCommitmentEntry {
 	var entries []PoolCommitmentEntry
 	for _, pc := range pcs {
@@ -686,11 +752,22 @@ func pbPoolCommitments(pcs []*pb.PoolCommitmentEntry) []PoolCommitmentEntry {
 //
 // Requires antd >= 0.9.0.
 func (c *GrpcClient) PrepareUpload(ctx context.Context, path string) (*PrepareUploadResult, error) {
+	return c.PrepareUploadWithOptions(ctx, path, PrepareOptions{})
+}
+
+// PrepareUploadWithOptions is PrepareUpload with explicit options.
+//
+// Mirrors Client.PrepareUploadWithOptions over gRPC. IncludeSignedQuotes
+// requires antd >= 0.13.0; older daemons ignore the flag and SignedQuotes
+// stays empty.
+func (c *GrpcClient) PrepareUploadWithOptions(ctx context.Context, path string, opts PrepareOptions) (*PrepareUploadResult, error) {
 	ctx, cancel := c.ctx(ctx)
 	defer cancel()
 
 	resp, err := c.upload.PrepareFileUpload(ctx, &pb.PrepareFileUploadRequest{
-		Path: path,
+		Path:                path,
+		Visibility:          opts.Visibility,
+		IncludeSignedQuotes: opts.IncludeSignedQuotes,
 	})
 	if err != nil {
 		return nil, errorFromGrpc(err)
@@ -707,17 +784,7 @@ func (c *GrpcClient) PrepareUpload(ctx context.Context, path string) (*PrepareUp
 //
 // Requires antd >= 0.9.0.
 func (c *GrpcClient) PrepareUploadPublic(ctx context.Context, path string) (*PrepareUploadResult, error) {
-	ctx, cancel := c.ctx(ctx)
-	defer cancel()
-
-	resp, err := c.upload.PrepareFileUpload(ctx, &pb.PrepareFileUploadRequest{
-		Path:       path,
-		Visibility: "public",
-	})
-	if err != nil {
-		return nil, errorFromGrpc(err)
-	}
-	return prepareResponseToResult(resp), nil
+	return c.PrepareUploadWithOptions(ctx, path, PrepareOptions{Visibility: "public"})
 }
 
 // PrepareDataUpload prepares a private in-memory data upload for external
@@ -727,16 +794,90 @@ func (c *GrpcClient) PrepareUploadPublic(ctx context.Context, path string) (*Pre
 //
 // Requires antd >= 0.9.0.
 func (c *GrpcClient) PrepareDataUpload(ctx context.Context, data []byte) (*PrepareUploadResult, error) {
+	return c.PrepareDataUploadWithOptions(ctx, data, PrepareOptions{})
+}
+
+// PrepareDataUploadWithOptions is PrepareDataUpload with explicit options.
+//
+// Mirrors Client.PrepareDataUploadWithOptions over gRPC. IncludeSignedQuotes
+// requires antd >= 0.13.0; older daemons ignore the flag and SignedQuotes
+// stays empty.
+func (c *GrpcClient) PrepareDataUploadWithOptions(ctx context.Context, data []byte, opts PrepareOptions) (*PrepareUploadResult, error) {
 	ctx, cancel := c.ctx(ctx)
 	defer cancel()
 
 	resp, err := c.upload.PrepareDataUpload(ctx, &pb.PrepareDataUploadRequest{
-		Data: data,
+		Data:                data,
+		Visibility:          opts.Visibility,
+		IncludeSignedQuotes: opts.IncludeSignedQuotes,
 	})
 	if err != nil {
 		return nil, errorFromGrpc(err)
 	}
 	return prepareResponseToResult(resp), nil
+}
+
+// VerifyQuotes verifies a batch of signed quotes offline via
+// VerifyService.VerifyQuotes — the same checks as Client.VerifyQuotes
+// (quote-hash recomputation, ML-DSA-65 signature, paid-fields equality,
+// ADR-0004 commitment binding with exact on-curve pricing). Stateless and
+// offline — call it on a daemon you trust (your own), never the
+// counterparty's. Policy checks remain the caller's job.
+//
+// Entries carry the base64 strings from SignedQuoteEntry (either transport);
+// they are decoded to the raw bytes the proto expects here. An entry whose
+// SignedQuote or CommitmentSidecar is not valid base64 fails the call with a
+// descriptive error before anything is sent — on REST the daemon would
+// return a per-entry invalid verdict for the same input.
+//
+// The daemon accepts at most 1024 entries per call on both transports
+// (antd >= 0.13.1 sets the gRPC decode ceiling to match REST; on 0.13.0 the
+// gRPC side tops out around 600 real entries). Requires antd >= 0.13.0.
+func (c *GrpcClient) VerifyQuotes(ctx context.Context, entries []VerifyQuoteEntry) (*VerifyQuotesResult, error) {
+	req := &pb.VerifyQuotesRequest{}
+	for i, e := range entries {
+		quote, err := base64.StdEncoding.DecodeString(e.SignedQuote)
+		if err != nil {
+			return nil, fmt.Errorf("antd: VerifyQuotes entry %d (%s): signed_quote is not valid base64: %w", i, e.QuoteHash, err)
+		}
+		var sidecar []byte
+		if e.CommitmentSidecar != "" {
+			sidecar, err = base64.StdEncoding.DecodeString(e.CommitmentSidecar)
+			if err != nil {
+				return nil, fmt.Errorf("antd: VerifyQuotes entry %d (%s): commitment_sidecar is not valid base64: %w", i, e.QuoteHash, err)
+			}
+		}
+		req.Entries = append(req.Entries, &pb.VerifyQuoteEntry{
+			QuoteHash:         e.QuoteHash,
+			RewardsAddress:    e.RewardsAddress,
+			Amount:            e.Amount,
+			SignedQuote:       quote,
+			CommitmentSidecar: sidecar,
+		})
+	}
+
+	ctx, cancel := c.ctx(ctx)
+	defer cancel()
+
+	resp, err := c.verify.VerifyQuotes(ctx, req)
+	if err != nil {
+		return nil, errorFromGrpc(err)
+	}
+	result := &VerifyQuotesResult{Valid: resp.GetValid()}
+	for _, v := range resp.GetEntries() {
+		result.Entries = append(result.Entries, VerifyQuoteVerdict{
+			QuoteHash:         v.GetQuoteHash(),
+			Valid:             v.GetValid(),
+			Error:             v.GetError(),
+			TimestampUnixSecs: v.GetTimestampUnixSecs(),
+			Content:           v.GetContent(),
+			Price:             v.GetPrice(),
+			RewardsAddress:    v.GetRewardsAddress(),
+			CommittedKeyCount: v.GetCommittedKeyCount(),
+			Pinned:            v.GetPinned(),
+		})
+	}
+	return result, nil
 }
 
 // FinalizeUpload finalizes a wave-batch upload after the external signer has
