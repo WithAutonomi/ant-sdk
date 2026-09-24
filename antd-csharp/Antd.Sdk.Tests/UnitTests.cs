@@ -951,4 +951,103 @@ public sealed class AntdRestClientTests : IDisposable
         Assert.Single(result.Payments);
         Assert.Equal("qh1", result.Payments[0].QuoteHash);
     }
+
+    // ── Partial upload (PARTIAL_UPLOAD) ──
+
+    [Fact]
+    public async Task FinalizeUploadAsync_PartialUpload_CarriesCountsAndRetryable()
+    {
+        _server.Route("POST", "/v1/upload/finalize", 502, JsonSerializer.Serialize(new
+        {
+            error = "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)",
+            code = "PARTIAL_UPLOAD",
+            chunks_stored = 300,
+            chunks_failed = 12,
+            total_chunks = 312,
+            retryable = true,
+        }));
+        _server.Start();
+
+        var ex = await Assert.ThrowsAsync<PartialUploadException>(
+            () => _client.FinalizeUploadAsync("up_partial", new Dictionary<string, string> { ["qh1"] = "tx1" }));
+
+        Assert.Equal(300UL, ex.ChunksStored);
+        Assert.Equal(12UL, ex.ChunksFailed);
+        Assert.Equal(312UL, ex.TotalChunks);
+        Assert.True(ex.Retryable);
+        Assert.Equal(502, ex.StatusCode);
+        Assert.StartsWith("Partial upload: 300/312", ex.Message);
+        // A partial upload has always arrived as a 502, so existing
+        // catch (NetworkException) blocks must keep matching.
+        Assert.IsAssignableFrom<NetworkException>(ex);
+    }
+
+    [Fact]
+    public async Task FinalizeMerkleUploadAsync_PartialUpload_RetryableDefaultsFalse()
+    {
+        // An older daemon (< 0.14.0) never sends `retryable`; the flag must
+        // read false so callers fall back to the re-prepare path rather than
+        // looping on an upload_id the daemon has already dropped.
+        _server.Route("POST", "/v1/upload/finalize", 502, JsonSerializer.Serialize(new
+        {
+            error = "Partial upload: 300/312 chunks stored, 12 failed after retries",
+            code = "PARTIAL_UPLOAD",
+            chunks_stored = 300,
+            chunks_failed = 12,
+            total_chunks = 312,
+        }));
+        _server.Start();
+
+        var ex = await Assert.ThrowsAsync<PartialUploadException>(
+            () => _client.FinalizeMerkleUploadAsync("up_merkle_partial", "pool_abc"));
+
+        Assert.False(ex.Retryable);
+        Assert.Equal(300UL, ex.ChunksStored);
+        Assert.Equal(12UL, ex.ChunksFailed);
+        Assert.Equal(312UL, ex.TotalChunks);
+    }
+
+    [Fact]
+    public async Task ErrorMapping_502_WithOtherCode_StaysNetworkException()
+    {
+        // Only code == "PARTIAL_UPLOAD" is special-cased; any other JSON
+        // error body keeps the status-based mapping.
+        _server.Route("POST", "/v1/upload/finalize", 502,
+            JsonSerializer.Serialize(new { error = "peer unreachable", code = "NETWORK" }));
+        _server.Start();
+
+        var ex = await Assert.ThrowsAsync<NetworkException>(
+            () => _client.FinalizeUploadAsync("up_net", new Dictionary<string, string>()));
+
+        Assert.IsNotType<PartialUploadException>(ex);
+        Assert.Equal(502, ex.StatusCode);
+    }
+}
+
+/// <summary>
+/// Cases for the gRPC-side message parser shared by both transports' mapping
+/// of the daemon's PARTIAL_UPLOAD text.
+/// </summary>
+public sealed class PartialUploadMessageParserTests
+{
+    [Theory]
+    [InlineData(
+        "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)",
+        300UL, 12UL, 312UL, true)]
+    [InlineData(
+        "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (stored chunks persist; re-prepare the same content to retry only the remainder)",
+        300UL, 12UL, 312UL, false)]
+    [InlineData("Partial upload: 300/312 chunks stored, 12 failed after retries", 300UL, 12UL, 312UL, false)]
+    [InlineData("something else entirely", 0UL, 0UL, 0UL, false)]
+    [InlineData("", 0UL, 0UL, 0UL, false)]
+    public void ParsePartialUploadMessage_RecoversCountsAndRetainedHint(
+        string message, ulong stored, ulong failed, ulong total, bool retryable)
+    {
+        var parsed = ExceptionMapping.ParsePartialUploadMessage(message);
+
+        Assert.Equal(stored, parsed.Stored);
+        Assert.Equal(failed, parsed.Failed);
+        Assert.Equal(total, parsed.Total);
+        Assert.Equal(retryable, parsed.Retryable);
+    }
 }
