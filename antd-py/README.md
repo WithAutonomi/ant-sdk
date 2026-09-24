@@ -155,11 +155,11 @@ except AntdError as e:
 | `PaymentError` | 402 | `FAILED_PRECONDITION` | Wallet/payment issue |
 | `NotFoundError` | 404 | `NOT_FOUND` | Resource not found |
 | `AlreadyExistsError` | 409 | `ALREADY_EXISTS` | Resource already exists |
-| `ForkError` | 409 | — | Version conflict |
+| `ForkError` | 409 | `ABORTED` (non-partial-upload) | Version conflict |
 | `TooLargeError` | 413 | `RESOURCE_EXHAUSTED` | Payload too large |
 | `InternalError` | 500 | `INTERNAL` | Server error |
 | `NetworkError` | 502 | `UNAVAILABLE` | Network unreachable |
-| `PartialUploadError` | 502 (`code: "PARTIAL_UPLOAD"`) | `ABORTED` | Finalize stored some chunks, not all — subclass of `NetworkError`; carries `chunks_stored`, `chunks_failed`, `total_chunks`, `retryable` |
+| `PartialUploadError` | 502 (`code: "PARTIAL_UPLOAD"`) | `ABORTED` (message starts `Partial upload:`) | Finalize stored some chunks, not all — subclass of `NetworkError`; carries `chunks_stored`, `chunks_failed`, `total_chunks`, `retryable` |
 
 ### Partial uploads
 
@@ -168,7 +168,7 @@ except AntdError as e:
 - **`retryable == True`** — the daemon kept the paid attempt (payment proofs + unstored chunks) under the same `upload_id`. Call the **same** finalize method again with the **same arguments** to store the remainder against the same payment: no re-prepare, no second signature, no double payment. Bound the loop — a persistent failure raises again on every call, so cap the attempts and treat a `chunks_failed` that stops shrinking as stuck. The retained attempt expires with the daemon's pending-upload TTL (one hour). Sent by antd ≥ 0.14.0; older daemons never send the flag, so it reads `False`.
 - **`retryable == False`** — nothing was retained (older daemon, or a merkle finalize whose signer deliberately left some sub-batches unpaid). Re-prepare the same content: already-stored chunks are skipped, so the retry pays only for the remainder.
 
-Over REST the counts and flag come from the structured error body; over gRPC they are parsed from the `ABORTED` status message (an unrecognised message leaves the counts at zero and `retryable` False). Full contract: `docs/external-signer-flow.md` §6.
+Over REST the counts and flag come from the structured error body; over gRPC a partial upload is an `ABORTED` status whose message carries the daemon's fixed `Partial upload:` prefix, and the counts and flag are parsed from that message (a prefixed message whose counts cannot be parsed leaves them at zero and `retryable` False). An `ABORTED` without the prefix is not a partial upload and raises `ForkError` as before. Full contract: `docs/external-signer-flow.md` §6.
 
 ```python
 import time

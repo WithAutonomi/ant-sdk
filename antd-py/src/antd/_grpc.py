@@ -11,9 +11,11 @@ from .exceptions import (
     AntdError,
     AlreadyExistsError,
     BadRequestError,
+    ForkError,
     InternalError,
     NetworkError,
     NotFoundError,
+    PARTIAL_UPLOAD_MESSAGE_PREFIX,
     PartialUploadError,
     PaymentError,
     TooLargeError,
@@ -207,6 +209,7 @@ from antd._proto.antd.v1 import wallet_pb2, wallet_pb2_grpc
 _GRPC_CODE_MAP: dict[grpc.StatusCode, type[AntdError]] = {
     grpc.StatusCode.NOT_FOUND: NotFoundError,
     grpc.StatusCode.ALREADY_EXISTS: AlreadyExistsError,
+    grpc.StatusCode.ABORTED: ForkError,
     grpc.StatusCode.INVALID_ARGUMENT: BadRequestError,
     grpc.StatusCode.FAILED_PRECONDITION: PaymentError,
     grpc.StatusCode.UNAVAILABLE: NetworkError,
@@ -218,11 +221,14 @@ _GRPC_CODE_MAP: dict[grpc.StatusCode, type[AntdError]] = {
 def _handle_rpc_error(e: grpc.RpcError) -> None:
     code = e.code()
     details = e.details() or str(e)
-    if code == grpc.StatusCode.ABORTED:
+    if code == grpc.StatusCode.ABORTED and PARTIAL_UPLOAD_MESSAGE_PREFIX in details:
         # PARTIAL_UPLOAD: some chunks stored, some still unstored after
         # retries. The counts and the "paid attempt retained" hint ride the
         # status message over gRPC (no structured detail yet), so parse them
-        # best-effort to match the REST client's typed error.
+        # best-effort to match the REST client's typed error. Only the
+        # daemon's fixed "Partial upload:" prefix identifies it (a containment
+        # check, since some transports decorate the message); any other
+        # ABORTED keeps the ForkError mapping below.
         stored, failed, total, retryable = parse_partial_upload_message(details)
         raise PartialUploadError(
             details,

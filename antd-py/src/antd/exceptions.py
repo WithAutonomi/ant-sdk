@@ -134,7 +134,13 @@ PARTIAL_UPLOAD_CODE = "PARTIAL_UPLOAD"
 
 # Fixed prefix of the daemon's PARTIAL_UPLOAD message:
 # "Partial upload: <stored>/<total> chunks stored, <failed> failed ...".
-_PARTIAL_UPLOAD_COUNTS = re.compile(r"Partial upload: (\d+)/(\d+) chunks stored, (\d+) failed")
+# Over gRPC (no structured detail) this prefix is what tells a PARTIAL_UPLOAD
+# ``ABORTED`` apart from any other ``ABORTED`` the daemon may send.
+PARTIAL_UPLOAD_MESSAGE_PREFIX = "Partial upload:"
+
+_PARTIAL_UPLOAD_COUNTS = re.compile(
+    re.escape(PARTIAL_UPLOAD_MESSAGE_PREFIX) + r" (\d+)/(\d+) chunks stored, (\d+) failed"
+)
 
 # Message tail the daemon appends when it kept the paid attempt for a
 # same-upload_id retry.
