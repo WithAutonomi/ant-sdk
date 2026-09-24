@@ -1315,9 +1315,28 @@ async fn test_grpc_error_aborted_unrecognised_message() {
 }
 
 #[tokio::test]
+async fn test_grpc_error_aborted_embedded_marker_stays_grpc() {
+    // The gate is anchored at the start of the message: a `Partial upload:`
+    // marker quoted inside some other ABORTED text — even one carrying the
+    // retained hint — must not select paid-attempt recovery with zero counts.
+    let embedded = "operation aborted; previous error: Partial upload: 3/5 chunks stored, \
+                    2 failed (paid attempt retained)";
+    let client = start_error_server(tonic::Code::Aborted, embedded).await;
+    let err = client.health().await.unwrap_err();
+    match err {
+        AntdError::Grpc(status) => {
+            assert_eq!(status.code(), tonic::Code::Aborted);
+            assert_eq!(status.message(), embedded);
+        }
+        other => panic!("expected AntdError::Grpc, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn test_grpc_error_aborted_partial_prefix_garbled_counts() {
     // The prefix alone is enough to classify the status as a partial store;
-    // counts that fail to parse read as zero and not retryable.
+    // counts that fail to parse read as zero. `retryable` is decided by the
+    // retained hint independently of the counts (absent here, so false).
     let client = start_error_server(tonic::Code::Aborted, "Partial upload: n/a chunks").await;
     let err = client.health().await.unwrap_err();
     match err {

@@ -62,10 +62,11 @@ pub enum AntdError {
     /// Over REST the counts and `retryable` come from the structured error
     /// body. Over gRPC they are parsed best-effort from the status message
     /// (`Partial upload: S/T chunks stored, F failed ...`, with a
-    /// `paid attempt retained` hint when retryable); a message that carries
-    /// the `Partial upload:` prefix but garbled counts leaves the counts zero
-    /// and `retryable` false. An `ABORTED` status without that prefix is not
-    /// a partial store and stays [`AntdError::Grpc`].
+    /// `paid attempt retained` hint when retryable). Counts and the hint are
+    /// parsed independently: a message that starts with the `Partial upload:`
+    /// prefix but has garbled counts leaves the counts zero, while `retryable`
+    /// still follows the hint. An `ABORTED` status that does not start with
+    /// that prefix is not a partial store and stays [`AntdError::Grpc`].
     ///
     /// See `docs/external-signer-flow.md` §6 ("Retry a partial store") in the
     /// [ant-sdk repository](https://github.com/WithAutonomi/ant-sdk/blob/main/docs/external-signer-flow.md).
@@ -111,7 +112,10 @@ impl From<tonic::Status> for AntdError {
             // store. The counts and the "paid attempt retained" hint ride the
             // message text over gRPC (no structured detail yet), so parse
             // them best-effort to match the REST client's typed error.
-            tonic::Code::Aborted if status.message().contains(PARTIAL_UPLOAD_PREFIX) => {
+            // Anchored at the start of the message, matching the count parser:
+            // a `Partial upload:` marker embedded in some other ABORTED text
+            // must not select paid-attempt recovery with zero counts.
+            tonic::Code::Aborted if status.message().starts_with(PARTIAL_UPLOAD_PREFIX) => {
                 let message = status.message().to_string();
                 let (chunks_stored, chunks_failed, total_chunks, retryable) =
                     parse_partial_upload_message(&message);
@@ -129,7 +133,7 @@ impl From<tonic::Status> for AntdError {
 }
 
 /// Fixed text the daemon opens every `PARTIAL_UPLOAD` message with; a gRPC
-/// `ABORTED` status is a partial store only when its message carries it.
+/// `ABORTED` status is a partial store only when its message starts with it.
 const PARTIAL_UPLOAD_PREFIX: &str = "Partial upload:";
 
 /// Message tail the daemon appends when it kept the paid attempt for a
@@ -141,8 +145,10 @@ const PARTIAL_UPLOAD_RETAINED_HINT: &str = "paid attempt retained";
 /// REST callers get the body fields instead.
 ///
 /// Matches the fixed prefix `Partial upload: <stored>/<total> chunks stored,
-/// <failed> failed`; anything else yields zero counts. `retryable` is the
-/// presence of the retained hint anywhere in the message.
+/// <failed> failed`; anything else yields zero counts. `retryable` is decided
+/// independently, by the presence of the retained hint anywhere in the
+/// message — so a message with unparseable counts but the hint still reads
+/// as retryable (the safe direction: the daemon says it kept the attempt).
 pub(crate) fn parse_partial_upload_message(msg: &str) -> (u64, u64, u64, bool) {
     let retryable = msg.contains(PARTIAL_UPLOAD_RETAINED_HINT);
     let counts = (|| {

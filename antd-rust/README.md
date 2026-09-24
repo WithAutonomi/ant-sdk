@@ -192,7 +192,8 @@ network; `retryable` says how to finish the upload:
 Over REST the counts and flag come from the daemon's error body; over gRPC they are parsed
 from the `ABORTED` status message. Only an `ABORTED` whose message starts with the daemon's
 fixed `Partial upload:` prefix maps to `PartialUpload` (garbled counts after the prefix read
-as zero, not retryable); any other `ABORTED` is the generic `Grpc` error. See
+as zero; `retryable` is decided separately by the retained hint); any other `ABORTED` — even
+one quoting that text further in — is the generic `Grpc` error. See
 `finalize_with_retry` in [`examples/07-external-signer.rs`](examples/07-external-signer.rs)
 and §6 of [`docs/external-signer-flow.md`](../docs/external-signer-flow.md).
 
