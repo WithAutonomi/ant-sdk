@@ -236,6 +236,47 @@ end
 | `Antd.TooLargeError` | 413 | Payload too large |
 | `Antd.InternalError` | 500 | Server error |
 | `Antd.NetworkError` | 502 | Network unreachable |
+| `Antd.PartialUploadError` | 502 | Finalize stored only part of the upload (`code: "PARTIAL_UPLOAD"`) — carries `chunks_stored`, `chunks_failed`, `total_chunks`, `retryable` |
+
+### Partial uploads (external-signer finalize)
+
+`finalize_upload/3` and `finalize_merkle_upload/4` (REST and gRPC) can fail
+*after* the wallet has paid: some chunks store, others miss quorum after the
+daemon's own retries. That comes back as `{:error, %Antd.PartialUploadError{}}`
+with the counts and a `retryable` flag. The on-chain payment persists and the
+stored chunks stay on the network:
+
+- **`retryable: true`** (antd ≥ 0.14.0) — the daemon kept the paid attempt
+  under the same `upload_id`. Call the **same** finalize function again with
+  the same arguments to store the remainder against the same payment — no
+  re-prepare, no second signature, no double payment. Bound that loop: a
+  persistent failure returns this error on every call, so cap the attempts and
+  treat a `chunks_failed` that stops shrinking as stuck.
+- **`retryable: false`** — nothing was retained (a merkle finalize with
+  deliberately unpaid batches, or an older daemon that never sends the flag).
+  Re-preparing the same content skips already-stored chunks, so a retry pays
+  only for the remainder.
+
+Over REST the fields come from the structured error body; over gRPC (status
+`ABORTED`) they are parsed best-effort from the status message. See
+`finalize_with_retry/3` in [`examples/07_external_signer.exs`](examples/07_external_signer.exs)
+and [`docs/external-signer-flow.md`](../docs/external-signer-flow.md) §6
+("Retry a partial store — same `upload_id`, same payment").
+
+```elixir
+case Antd.Client.finalize_upload(client, upload_id, tx_hashes) do
+  {:ok, result} ->
+    result
+
+  {:error, %Antd.PartialUploadError{retryable: true} = e} ->
+    # paid attempt retained: the same call again stores the remainder
+    IO.puts("#{e.chunks_stored}/#{e.total_chunks} stored, #{e.chunks_failed} to retry")
+
+  {:error, %Antd.PartialUploadError{retryable: false}} ->
+    # nothing retained: re-prepare the same content (stored chunks are skipped)
+    :re_prepare
+end
+```
 
 ## Examples
 
@@ -246,3 +287,4 @@ See the [examples/](examples/) directory:
 - `03_chunks.exs` — Raw chunk operations
 - `04_files.exs` — File upload/download (public and private)
 - `06_private_data.exs` — Private encrypted data
+- `07_external_signer.exs` — External-signer two-phase upload with a bounded partial-upload retry

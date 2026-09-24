@@ -86,6 +86,7 @@ defmodule Antd.GrpcClientTest do
       13 -> %Antd.InternalError{message: message, status_code: 500}
       14 -> %Antd.NetworkError{message: message, status_code: 502}
       9 -> %Antd.PaymentError{message: message, status_code: 402}
+      10 -> Antd.Errors.partial_upload_error_from_message(502, message)
       _ -> %Antd.AntdError{message: message, status_code: status}
     end
   end
@@ -351,6 +352,55 @@ defmodule Antd.GrpcClientTest do
     assert err.message == "data loss"
   end
 
+  test "ABORTED -> PartialUploadError with counts and retryable parsed from the message" do
+    msg =
+      "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " <>
+        "(paid attempt retained: call finalize again with the same upload_id to " <>
+        "store the remainder against the same payment)"
+
+    {:error, err} = simulate_grpc_call(:error, %GRPC.RPCError{status: 10, message: msg})
+    assert %Antd.PartialUploadError{} = err
+    assert err.status_code == 502
+    assert err.message == msg
+    assert err.chunks_stored == 300
+    assert err.chunks_failed == 12
+    assert err.total_chunks == 312
+    assert err.retryable
+  end
+
+  test "ABORTED without the retained hint -> PartialUploadError retryable false" do
+    msg =
+      "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " <>
+        "(stored chunks persist; re-prepare the same content to retry only the remainder)"
+
+    {:error, err} = simulate_grpc_call(:error, %GRPC.RPCError{status: 10, message: msg})
+    assert %Antd.PartialUploadError{chunks_stored: 300, chunks_failed: 12, total_chunks: 312} =
+             err
+
+    refute err.retryable
+  end
+
+  test "parse_partial_upload_message/1 recovers counts and the retained hint" do
+    retained =
+      "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " <>
+        "(paid attempt retained: call finalize again with the same upload_id to " <>
+        "store the remainder against the same payment)"
+
+    final =
+      "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " <>
+        "(stored chunks persist; re-prepare the same content to retry only the remainder)"
+
+    assert Antd.Errors.parse_partial_upload_message(retained) == {300, 12, 312, true}
+    assert Antd.Errors.parse_partial_upload_message(final) == {300, 12, 312, false}
+
+    assert Antd.Errors.parse_partial_upload_message(
+             "Partial upload: 300/312 chunks stored, 12 failed after retries"
+           ) == {300, 12, 312, false}
+
+    assert Antd.Errors.parse_partial_upload_message("something else entirely") ==
+             {0, 0, 0, false}
+  end
+
   # ---------------------------------------------------------------------------
   # Bang variants raise on error
   # ---------------------------------------------------------------------------
@@ -393,6 +443,13 @@ defmodule Antd.GrpcClientTest do
   test "bang variant raises AntdError for unknown code" do
     {:error, err} = simulate_grpc_call(:error, %GRPC.RPCError{status: 99, message: "???"})
     assert_raise Antd.AntdError, fn -> raise err end
+  end
+
+  test "bang variant raises PartialUploadError" do
+    {:error, err} =
+      simulate_grpc_call(:error, %GRPC.RPCError{status: 10, message: "Partial upload: 1/2"})
+
+    assert_raise Antd.PartialUploadError, fn -> raise err end
   end
 
   # ---------------------------------------------------------------------------

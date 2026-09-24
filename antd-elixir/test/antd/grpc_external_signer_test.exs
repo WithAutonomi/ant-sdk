@@ -80,6 +80,25 @@ defmodule Antd.GrpcExternalSignerTest do
             Antd.V1.FinalizeUploadResponse.t()
     def finalize_upload(req, _stream) do
       cond do
+        # PARTIAL_UPLOAD after the daemon retained the paid attempt: ABORTED
+        # with the counts and the "paid attempt retained" hint in the message.
+        req.upload_id == "partial_retained" ->
+          raise GRPC.RPCError,
+            status: GRPC.Status.aborted(),
+            message:
+              "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " <>
+                "(paid attempt retained: call finalize again with the same upload_id to " <>
+                "store the remainder against the same payment)"
+
+        # PARTIAL_UPLOAD with nothing retained (unpaid merkle batches / older
+        # daemon): same status, re-prepare hint instead.
+        req.upload_id == "partial_final" ->
+          raise GRPC.RPCError,
+            status: GRPC.Status.aborted(),
+            message:
+              "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " <>
+                "(stored chunks persist; re-prepare the same content to retry only the remainder)"
+
         req.winner_pool_hash != "" ->
           %Antd.V1.FinalizeUploadResponse{
             data_map: "dm_merkle",
@@ -245,6 +264,33 @@ defmodule Antd.GrpcExternalSignerTest do
     {:ok, r} = GrpcClient.finalize_merkle_upload(client, "upid_data_", "0xwinpool")
     assert r.data_map == "dm_merkle"
     assert r.address == ""
+  end
+
+  test "finalize_upload ABORTED maps to PartialUploadError with parsed counts",
+       %{client: client} do
+    {:error, err} = GrpcClient.finalize_upload(client, "partial_retained", %{"0xq1" => "0xtx1"})
+
+    # Counts and the retained hint are parsed from the status message, so
+    # the gRPC client matches the REST client's typed error.
+    assert %Antd.PartialUploadError{
+             status_code: 502,
+             chunks_stored: 300,
+             chunks_failed: 12,
+             total_chunks: 312,
+             retryable: true
+           } = err
+
+    assert String.starts_with?(err.message, "Partial upload: 300/312 chunks stored")
+  end
+
+  test "finalize_merkle_upload ABORTED without the retained hint is not retryable",
+       %{client: client} do
+    {:error, err} = GrpcClient.finalize_merkle_upload(client, "partial_final", "0xwinpool")
+
+    assert %Antd.PartialUploadError{chunks_stored: 300, chunks_failed: 12, total_chunks: 312} =
+             err
+
+    refute err.retryable
   end
 
   # --- prepare/finalize chunks ---

@@ -714,7 +714,22 @@ defmodule Antd.Client do
   def prepare_data_upload!(client, data, opts \\ []),
     do: unwrap!(prepare_data_upload(client, data, opts))
 
-  @doc "Finalizes an upload after an external signer has submitted payment transactions."
+  @doc """
+  Finalizes an upload after an external signer has submitted payment
+  transactions.
+
+  A finalize that stored only part of the upload returns
+  `{:error, %Antd.PartialUploadError{}}` carrying `chunks_stored`,
+  `chunks_failed`, `total_chunks` and `retryable`. The payment persists and
+  the stored chunks stay on the network. When `retryable` is `true` (antd
+  >= 0.14.0) the daemon kept the paid attempt under the same `upload_id`:
+  call this function again with the same arguments to store the remainder
+  against the same payment — bound that loop (cap the attempts; a
+  `chunks_failed` that stops shrinking means stuck). When `false` (older
+  daemon), re-prepare the same content: already-stored chunks are skipped, so
+  the retry pays only for the remainder. See `docs/external-signer-flow.md`
+  §6 and `examples/07_external_signer.exs`.
+  """
   @spec finalize_upload(t(), String.t(), map()) ::
           {:ok, Antd.FinalizeUploadResult.t()} | {:error, Exception.t()}
   def finalize_upload(%__MODULE__{} = client, upload_id, tx_hashes) do
@@ -732,7 +747,15 @@ defmodule Antd.Client do
     unwrap!(finalize_upload(client, upload_id, tx_hashes))
   end
 
-  @doc "Finalizes a merkle-batch upload after selecting a winning pool."
+  @doc """
+  Finalizes a merkle-batch upload after selecting a winning pool.
+
+  A partial store surfaces as `{:error, %Antd.PartialUploadError{}}` exactly
+  as for `finalize_upload/3`: retry the same call while `retryable` is
+  `true`; a merkle finalize with deliberately unpaid batches (or an older
+  daemon) is never retryable — re-prepare the same content to pay only for
+  the remainder.
+  """
   @spec finalize_merkle_upload(t(), String.t(), String.t(), keyword()) ::
           {:ok, Antd.FinalizeUploadResult.t()} | {:error, Exception.t()}
   def finalize_merkle_upload(%__MODULE__{} = client, upload_id, winner_pool_hash, opts \\ []) do
@@ -881,13 +904,39 @@ defmodule Antd.Client do
         {:ok, parsed}
 
       {:ok, %Req.Response{status: status, body: resp_body}} ->
-        message = extract_error_message(resp_body)
-        {:error, Antd.Errors.error_for_status(status, message)}
+        {:error, error_for_response(status, resp_body)}
 
       {:error, exception} ->
         {:error, %Antd.AntdError{message: Exception.message(exception), status_code: 0}}
     end
   end
+
+  # Maps a non-2xx response onto the SDK error struct. The structured
+  # `PARTIAL_UPLOAD` body (a 502 that would otherwise read as a generic
+  # `Antd.NetworkError`) is recognised by its `code`; every other response
+  # keeps the status-based mapping.
+  defp error_for_response(status, resp_body) do
+    case decode_error_body(resp_body) do
+      %{"code" => "PARTIAL_UPLOAD"} = body ->
+        Antd.Errors.partial_upload_error(status, body)
+
+      body ->
+        Antd.Errors.error_for_status(status, extract_error_message(body))
+    end
+  end
+
+  # Req hands a JSON error body back already decoded (map) or, when the
+  # response was not tagged as JSON, as a raw binary that may still be JSON.
+  defp decode_error_body(body) when is_map(body), do: body
+
+  defp decode_error_body(body) when is_binary(body) do
+    case Jason.decode(body) do
+      {:ok, decoded} when is_map(decoded) -> decoded
+      _ -> body
+    end
+  end
+
+  defp decode_error_body(_), do: "unknown error"
 
   # Streams a response body chunk-by-chunk with constant memory.
   #
@@ -919,8 +968,7 @@ defmodule Antd.Client do
         {:ok, async_to_stream(async)}
 
       {:ok, %Req.Response{status: status, body: async}} ->
-        message = drain_error_body(async)
-        {:error, Antd.Errors.error_for_status(status, message)}
+        {:error, error_for_response(status, drain_error_body(async))}
 
       {:error, exception} ->
         {:error, %Antd.AntdError{message: Exception.message(exception), status_code: 0}}
@@ -936,14 +984,10 @@ defmodule Antd.Client do
   end
 
   defp drain_error_body(%Req.Response.Async{} = async) do
-    async
-    |> Enum.reduce("", fn chunk, acc -> acc <> chunk end)
-    |> extract_error_message()
+    Enum.reduce(async, "", fn chunk, acc -> acc <> chunk end)
   end
 
-  defp drain_error_body(body) when is_binary(body), do: extract_error_message(body)
-  defp drain_error_body(body) when is_map(body), do: extract_error_message(body)
-  defp drain_error_body(_), do: "unknown error"
+  defp drain_error_body(body), do: body
 
   defp extract_error_message(body) when is_map(body) do
     Map.get(body, "error", Jason.encode!(body))

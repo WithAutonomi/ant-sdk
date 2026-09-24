@@ -698,6 +698,19 @@ defmodule Antd.GrpcClient do
   Finalizes a wave-batch upload after an external signer has submitted
   the `payForQuotes()` transactions. `tx_hashes` maps each `quote_hash`
   from the prepare result to its on-chain `tx_hash`.
+
+  A finalize that stored only part of the upload returns
+  `{:error, %Antd.PartialUploadError{}}` (gRPC `ABORTED`) carrying
+  `chunks_stored`, `chunks_failed`, `total_chunks` and `retryable`, parsed
+  from the status message. The payment persists and the stored chunks stay
+  on the network. When `retryable` is `true` (antd >= 0.14.0) the daemon
+  kept the paid attempt under the same `upload_id`: call this function again
+  with the same arguments to store the remainder against the same payment —
+  bound that loop (cap the attempts; a `chunks_failed` that stops shrinking
+  means stuck). When `false` (older daemon), re-prepare the same content:
+  already-stored chunks are skipped, so the retry pays only for the
+  remainder. See `docs/external-signer-flow.md` §6 and
+  `examples/07_external_signer.exs`.
   """
   @spec finalize_upload(t(), String.t(), map()) ::
           {:ok, Antd.FinalizeUploadResult.t()} | {:error, Exception.t()}
@@ -723,6 +736,12 @@ defmodule Antd.GrpcClient do
   Finalizes a merkle-batch upload after the external signer has submitted
   the `payForMerkleTree2()` transaction. `winner_pool_hash` is the
   bytes32 from the `MerklePaymentMade` event (hex with `0x` prefix).
+
+  A partial store surfaces as `{:error, %Antd.PartialUploadError{}}` exactly
+  as for `finalize_upload/3`: retry the same call while `retryable` is
+  `true`; a merkle finalize with deliberately unpaid batches (or an older
+  daemon) is never retryable — re-prepare the same content to pay only for
+  the remainder.
 
   ## Options
 
@@ -904,6 +923,11 @@ defmodule Antd.GrpcClient do
       6 -> %Antd.AlreadyExistsError{message: message, status_code: 409}
       8 -> %Antd.TooLargeError{message: message, status_code: 413}
       9 -> %Antd.PaymentError{message: message, status_code: 402}
+      # ABORTED carries PARTIAL_UPLOAD: some chunks stored, some still
+      # unstored after retries. The counts and the "paid attempt retained"
+      # hint ride the message text (no structured detail over gRPC yet), so
+      # they are parsed best-effort to match the REST client's typed error.
+      10 -> Antd.Errors.partial_upload_error_from_message(502, message)
       13 -> %Antd.InternalError{message: message, status_code: 500}
       14 -> %Antd.NetworkError{message: message, status_code: 502}
       _ -> %Antd.AntdError{message: message, status_code: status}
