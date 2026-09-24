@@ -1,6 +1,9 @@
 mod client;
 mod data;
+#[cfg(test)]
+mod devnet_tests;
 mod payments;
+mod session;
 mod wallet;
 
 pub use client::Client;
@@ -244,7 +247,7 @@ pub struct PreparedUploadInfo {
 }
 
 /// Result of finalizing an external-signer upload.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct ExternalUploadResult {
     /// Hex-encoded serialized data map (for private retrieval; always present).
     pub data_map: String,
@@ -366,10 +369,19 @@ pub enum ClientError {
     InsufficientDiskSpace { reason: String },
     /// The upload stopped partway: some chunks stored and some on-chain spend
     /// already occurred. Money has been spent — show `storage_cost_atto` /
-    /// `gas_cost_wei` to the user rather than a generic failure, and retry the
-    /// upload (chunks already on the network are skipped, not re-paid).
-    /// Per-chunk address lists are not exposed — resume-from-partial needs
-    /// upstream retryable finalize (tracked as V2-571).
+    /// `gas_cost_wei` to the user rather than a generic failure.
+    ///
+    /// How to retry depends on where it came from:
+    /// - **External-signer finalize** (`finalize_upload*`): the paid attempt
+    ///   is retained under the same `upload_id`. Call the same finalize method
+    ///   again to store the remainder against the same payment — no
+    ///   re-prepare, no second signature. Bound the retries and treat a
+    ///   `chunks_failed` that stops shrinking as stuck; `cancel_upload`
+    ///   abandons it.
+    /// - **Wallet-paid uploads** (`file_put_*` / `data_put_*`): retry the
+    ///   upload; chunks already on the network are skipped, not re-paid.
+    ///
+    /// Per-chunk address lists are not exposed.
     #[error("Partial upload: {reason} ({chunks_stored}/{total_chunks} chunks stored)")]
     PartialUpload {
         chunks_stored: u64,
@@ -412,8 +424,10 @@ impl From<ant_core::data::Error> for ClientError {
                 }
             }
             // Keep the money-visible summary (counts + on-chain spend) as
-            // structured fields; the per-chunk address lists are dropped —
-            // resume-from-partial needs upstream retryable finalize (V2-571).
+            // structured fields; the per-chunk address lists are dropped. The
+            // external-signer finalize path never produces this variant — it
+            // uses ant-core's resumable finalize and builds its own
+            // `PartialUpload` with the resume handle retained (client.rs).
             Error::PartialUpload {
                 stored_count,
                 failed_count,
