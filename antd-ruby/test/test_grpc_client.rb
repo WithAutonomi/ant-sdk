@@ -94,6 +94,7 @@ rescue LoadError
       rescue GRPC::Internal => e; raise InternalError, e.message
       rescue GRPC::Unavailable => e; raise NetworkError, e.message
       rescue GRPC::FailedPrecondition => e; raise PaymentError, e.message
+      rescue GRPC::Aborted => e; raise PartialUploadError.new(e.message, **Antd.parse_partial_upload_message(e.message))
       rescue GRPC::BadStatus => e; raise AntdError.new(e.message, status_code: e.code)
       end
     end
@@ -119,6 +120,7 @@ unless defined?(GRPC)
     class AlreadyExists < BadStatus; def initialize(msg = ""); super(msg, code: 6); end; end
     class ResourceExhausted < BadStatus; def initialize(msg = ""); super(msg, code: 8); end; end
     class FailedPrecondition < BadStatus; def initialize(msg = ""); super(msg, code: 9); end; end
+    class Aborted < BadStatus; def initialize(msg = ""); super(msg, code: 10); end; end
     class Internal < BadStatus; def initialize(msg = ""); super(msg, code: 13); end; end
     class Unavailable < BadStatus; def initialize(msg = ""); super(msg, code: 14); end; end
     class DataLoss < BadStatus; def initialize(msg = ""); super(msg, code: 15); end; end
@@ -643,6 +645,44 @@ class TestGrpcClient < Minitest::Test
     assert_includes err.message, "data gone"
   end
 
+  # ABORTED carries PARTIAL_UPLOAD. Counts and the retained hint are parsed
+  # from the status message, so the gRPC client matches the REST client's
+  # typed error.
+  def test_error_aborted_maps_to_partial_upload_error
+    msg = "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " \
+          "(paid attempt retained: call finalize again with the same upload_id " \
+          "to store the remainder against the same payment)"
+    client = build_error_client(grpc_error(:ABORTED, msg))
+    err = assert_raises(Antd::PartialUploadError) { client.health }
+    assert_equal 502, err.status_code
+    assert_equal 300, err.chunks_stored
+    assert_equal 12, err.chunks_failed
+    assert_equal 312, err.total_chunks
+    assert err.retryable, "expected retryable from the retained hint"
+    assert_kind_of Antd::NetworkError, err
+  end
+
+  def test_error_aborted_without_retained_hint_is_not_retryable
+    msg = "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " \
+          "(stored chunks persist; re-prepare the same content to retry only the remainder)"
+    client = build_error_client(grpc_error(:ABORTED, msg))
+    err = assert_raises(Antd::PartialUploadError) { client.chunk_put("x") }
+    refute err.retryable, "no retained hint must read as not retryable"
+    assert_equal 300, err.chunks_stored
+    assert_equal 12, err.chunks_failed
+    assert_equal 312, err.total_chunks
+  end
+
+  def test_error_aborted_unrecognised_message_leaves_counts_zero
+    client = build_error_client(grpc_error(:ABORTED, "something else entirely"))
+    err = assert_raises(Antd::PartialUploadError) { client.health }
+    assert_equal 0, err.chunks_stored
+    assert_equal 0, err.chunks_failed
+    assert_equal 0, err.total_chunks
+    refute err.retryable
+    assert_includes err.message, "something else entirely"
+  end
+
   # Verify errors propagate from non-health methods too.
   def test_error_propagates_from_data_put
     client = build_error_client(grpc_error(:NOT_FOUND, "missing"))
@@ -767,6 +807,7 @@ class TestGrpcClient < Minitest::Test
       INTERNAL: GRPC::Internal,
       UNAVAILABLE: GRPC::Unavailable,
       FAILED_PRECONDITION: GRPC::FailedPrecondition,
+      ABORTED: GRPC::Aborted,
       DATA_LOSS: GRPC::DataLoss,
     }.fetch(code_sym)
 

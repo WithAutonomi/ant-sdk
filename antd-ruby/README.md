@@ -87,7 +87,10 @@ puts "Retrieved: #{data}"
 ```
 
 The `GrpcClient` raises the same `Antd::AntdError` hierarchy as the REST
-client, translating gRPC status codes to the appropriate error subclass.
+client, translating gRPC status codes to the appropriate error subclass
+(`ABORTED` becomes `Antd::PartialUploadError`, with the chunk counts and the
+`retryable` flag parsed from the status message — see
+[Partial uploads](#partial-uploads)).
 
 > **Note:** Wallet operations (address, balance, approve) and payment_mode are available via REST only.
 
@@ -172,6 +175,54 @@ end
 | `TooLargeError` | 413 | Payload too large |
 | `InternalError` | 500 | Server error |
 | `NetworkError` | 502 | Network unreachable |
+| `PartialUploadError` | 502 (`code: "PARTIAL_UPLOAD"`) | Finalize stored some chunks but not all — subclass of `NetworkError` |
+
+### Partial uploads
+
+A `finalize_upload` / `finalize_merkle_upload` / `finalize_chunk_upload` call
+can fail *after* the external signer has paid: some chunks store, others miss
+quorum after the daemon's own retries. The daemon reports this as HTTP `502`
+with `code: "PARTIAL_UPLOAD"` (gRPC `ABORTED`), and the SDK raises
+`Antd::PartialUploadError` carrying `chunks_stored`, `chunks_failed`,
+`total_chunks` and `retryable`. The on-chain payment persists and the stored
+chunks stay on the network; what to do next depends on `retryable`:
+
+- **`retryable == true`** (antd >= 0.14.0) — the daemon kept the paid attempt
+  under the same `upload_id`. Call the **same finalize method again with the
+  same arguments** to store the remainder against the same payment: no
+  re-prepare, no second signature, no double payment. Bound the loop — a
+  persistent failure raises this error on every call — so cap the attempts
+  and treat a `chunks_failed` that stops shrinking as stuck. The retained
+  attempt expires with the daemon's pending-upload TTL.
+- **`retryable == false`** — nothing was retained (a merkle finalize with
+  deliberately unpaid batches, or a daemon older than 0.14.0, which never
+  sends the flag). Re-prepare the same content: already-stored chunks are
+  skipped, so the retry pays only for the remainder.
+
+`PartialUploadError` subclasses `NetworkError` (the 502 mapping), so existing
+`rescue Antd::NetworkError` blocks keep catching it; rescue the subclass first
+to handle it specifically.
+
+```ruby
+MAX_ATTEMPTS = 5
+last_failed = nil
+attempt = 0
+begin
+  attempt += 1
+  result = client.finalize_upload(prep.upload_id, tx_hashes)
+rescue Antd::PartialUploadError => e
+  raise unless e.retryable                     # not resumable: re-prepare
+  stuck = !last_failed.nil? && e.chunks_failed >= last_failed
+  raise if attempt >= MAX_ATTEMPTS || stuck    # bounded: same payment, same upload_id
+  last_failed = e.chunks_failed
+  sleep(2 * attempt)
+  retry
+end
+```
+
+See [`docs/external-signer-flow.md` section 6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment)
+for the daemon contract and `examples/07_external_signer.rb` for a
+`finalize_with_retry` helper.
 
 ## Examples
 
@@ -182,3 +233,4 @@ See the [examples/](examples/) directory:
 - `03_chunks.rb` — Chunk put/get
 - `04_files.rb` — File upload and download
 - `06_private_data.rb` — Private data put/get
+- `07_external_signer.rb` — External-signer prepare/pay/finalize with a bounded partial-upload retry

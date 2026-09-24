@@ -674,4 +674,103 @@ class TestClient < Minitest::Test
     err = assert_raises(Antd::AntdError) { @client.health }
     assert_equal 503, err.status_code
   end
+
+  # --- Partial upload (502 + code PARTIAL_UPLOAD) ---
+
+  PARTIAL_RETAINED_MSG = "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " \
+                         "(paid attempt retained: call finalize again with the same upload_id " \
+                         "to store the remainder against the same payment)"
+  PARTIAL_REPREPARE_MSG = "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " \
+                          "(stored chunks persist; re-prepare the same content to retry only the remainder)"
+
+  def test_error_partial_upload_carries_counts_and_retryable
+    stub_request(:post, "#{BASE}/v1/upload/finalize")
+      .to_return(status: 502,
+                 body: JSON.generate(
+                   error: PARTIAL_RETAINED_MSG, code: "PARTIAL_UPLOAD",
+                   chunks_stored: 300, chunks_failed: 12, total_chunks: 312, retryable: true
+                 ),
+                 headers: { "Content-Type" => "application/json" })
+
+    err = assert_raises(Antd::PartialUploadError) do
+      @client.finalize_merkle_upload("mb1", "0xw1")
+    end
+    assert_equal 300, err.chunks_stored
+    assert_equal 12, err.chunks_failed
+    assert_equal 312, err.total_chunks
+    assert err.retryable, "expected retryable from the body flag"
+    assert err.retryable?
+    assert_equal 502, err.status_code
+    assert_includes err.message, "Partial upload: 300/312 chunks stored"
+  end
+
+  # An older daemon (< 0.14.0) never sends `retryable`; the flag must read
+  # false so callers fall back to the re-prepare path rather than looping on
+  # an upload_id the daemon has already dropped.
+  def test_error_partial_upload_retryable_defaults_false
+    stub_request(:post, "#{BASE}/v1/upload/finalize")
+      .to_return(status: 502,
+                 body: '{"error":"Partial upload: 300/312 chunks stored, 12 failed after retries",' \
+                       '"code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":12,"total_chunks":312}',
+                 headers: { "Content-Type" => "application/json" })
+
+    err = assert_raises(Antd::PartialUploadError) do
+      @client.finalize_upload("u1", { "0xq" => "0xt" })
+    end
+    refute err.retryable, "retryable must default to false without the body flag"
+    assert_equal 300, err.chunks_stored
+    assert_equal 12, err.chunks_failed
+    assert_equal 312, err.total_chunks
+  end
+
+  # Subclass of NetworkError: an existing `rescue Antd::NetworkError` keeps
+  # catching a 502 partial upload.
+  def test_error_partial_upload_is_a_network_error
+    stub_request(:post, "#{BASE}/v1/chunks/finalize")
+      .to_return(status: 502,
+                 body: '{"error":"Partial upload: 0/1 chunks stored, 1 failed after retries",' \
+                       '"code":"PARTIAL_UPLOAD","chunks_stored":0,"chunks_failed":1,"total_chunks":1,"retryable":false}',
+                 headers: { "Content-Type" => "application/json" })
+
+    err = assert_raises(Antd::NetworkError) do
+      @client.finalize_chunk_upload("c1", { "0xq" => "0xt" })
+    end
+    assert_instance_of Antd::PartialUploadError, err
+    assert_equal 1, err.chunks_failed
+  end
+
+  # Only code == PARTIAL_UPLOAD is special-cased; a plain 502 keeps mapping
+  # to NetworkError.
+  def test_error_plain_502_still_maps_to_network_error
+    stub_request(:post, "#{BASE}/v1/upload/finalize")
+      .to_return(status: 502, body: '{"error":"upstream unreachable","code":"NETWORK_ERROR"}',
+                 headers: { "Content-Type" => "application/json" })
+
+    err = assert_raises(Antd::NetworkError) { @client.finalize_upload("up1", {}) }
+    refute_instance_of Antd::PartialUploadError, err
+    assert_includes err.message, "upstream unreachable"
+  end
+
+  def test_error_non_json_body_uses_raw_message
+    stub_request(:get, "#{BASE}/health")
+      .to_return(status: 502, body: "bad gateway", headers: { "Content-Type" => "text/plain" })
+
+    err = assert_raises(Antd::NetworkError) { @client.health }
+    refute_instance_of Antd::PartialUploadError, err
+    assert_includes err.message, "bad gateway"
+  end
+
+  def test_parse_partial_upload_message
+    cases = {
+      PARTIAL_RETAINED_MSG => [300, 12, 312, true],
+      PARTIAL_REPREPARE_MSG => [300, 12, 312, false],
+      "Partial upload: 300/312 chunks stored, 12 failed after retries" => [300, 12, 312, false],
+      "something else entirely" => [0, 0, 0, false]
+    }
+    cases.each do |msg, (stored, failed, total, retryable)|
+      parsed = Antd.parse_partial_upload_message(msg)
+      assert_equal({ chunks_stored: stored, chunks_failed: failed, total_chunks: total, retryable: retryable },
+                   parsed, msg)
+    end
+  end
 end

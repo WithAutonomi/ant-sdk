@@ -324,6 +324,12 @@ module Antd
     # @param upload_id [String]
     # @param tx_hashes [Hash<String, String>]
     # @return [String] hex chunk address
+    # @raise [PartialUploadError] when some chunks stored and others did not
+    #   (gRPC ABORTED, message prefixed +Partial upload:+). The payment
+    #   persists. If +retryable+ is true, call this method again with the same
+    #   arguments to store the remainder against the same payment
+    #   (antd >= 0.14.0); otherwise re-prepare the same content, which skips
+    #   stored chunks. See docs/external-signer-flow.md section 6.
     def finalize_chunk_upload(upload_id, tx_hashes)
       req = Antd::V1::FinalizeChunkRequest.new(
         upload_id: upload_id,
@@ -378,6 +384,12 @@ module Antd
     # @param upload_id [String]
     # @param tx_hashes [Hash<String, String>]
     # @return [FinalizeUploadResult]
+    # @raise [PartialUploadError] when some chunks stored and others did not
+    #   (gRPC ABORTED, message prefixed +Partial upload:+). The payment
+    #   persists. If +retryable+ is true, call this method again with the same
+    #   arguments to store the remainder against the same payment
+    #   (antd >= 0.14.0); otherwise re-prepare the same content, which skips
+    #   stored chunks. See docs/external-signer-flow.md section 6.
     def finalize_upload(upload_id, tx_hashes)
       req = Antd::V1::FinalizeUploadRequest.new(
         upload_id: upload_id,
@@ -399,6 +411,12 @@ module Antd
     # @param winner_pool_hash [String]
     # @param store_data_map [Boolean]
     # @return [FinalizeUploadResult]
+    # @raise [PartialUploadError] when some chunks stored and others did not
+    #   (gRPC ABORTED, message prefixed +Partial upload:+). The payment
+    #   persists. If +retryable+ is true, call this method again with the same
+    #   arguments to store the remainder against the same payment
+    #   (antd >= 0.14.0); otherwise re-prepare the same content, which skips
+    #   stored chunks. See docs/external-signer-flow.md section 6.
     def finalize_merkle_upload(upload_id, winner_pool_hash, store_data_map: false)
       req = Antd::V1::FinalizeUploadRequest.new(
         upload_id: upload_id,
@@ -546,6 +564,12 @@ module Antd
       raise NetworkError, e.message
     rescue GRPC::FailedPrecondition => e
       raise PaymentError, e.message
+    rescue GRPC::Aborted => e
+      # PARTIAL_UPLOAD: some chunks stored, some still unstored after
+      # retries. The counts and the "paid attempt retained" hint ride the
+      # message text over gRPC (no structured detail yet), so parse them
+      # best-effort to match the REST client's typed error.
+      raise PartialUploadError.new(e.message, **Antd.parse_partial_upload_message(e.message))
     rescue GRPC::BadStatus => e
       raise AntdError.new(e.message, status_code: e.code)
     end
