@@ -596,10 +596,26 @@ paths:
       summary: Finalize externally-signed upload
       description: >-
         Phase 2 of two-phase upload. Takes the upload_id from a prepare
-        call and either tx_hashes (wave_batch) or winner_pool_hash (merkle)
-        from the on-chain payment. The server detects the payment type
-        from the stored prepared upload and validates the request fields
-        accordingly. Optionally stores the DataMap on-network.
+        call and either tx_hashes (wave_batch) or winner_pool_hash(es)
+        (merkle) from the on-chain payment. The server detects the payment
+        type from the stored prepared upload and validates the request
+        fields accordingly, before consuming the stored upload — a bad
+        request leaves the paid-for upload in place. Optionally stores the
+        DataMap on-network.
+
+
+        A storage shortfall AFTER payment is retryable against the same
+        payment: the response is 502 with code PARTIAL_UPLOAD and
+        `retryable: true`, the daemon keeps the payment proofs plus the
+        unstored chunks under the same upload_id, and repeating this call
+        with that upload_id stores the remainder — no re-prepare, no second
+        signature, no double payment (the payment fields are ignored on
+        such a resume). Bound the retry loop: a persistent failure comes
+        back as PARTIAL_UPLOAD on every call, and the retained attempt
+        expires with the pending-upload TTL. `retryable: false` means
+        nothing was retained (a merkle finalize with unpaid sub-batches);
+        re-prepare the same content to pay for and store only the
+        remainder.
       requestBody:
         required: true
         content:
@@ -615,10 +631,14 @@ paths:
                 $ref: "#/components/schemas/FinalizeUploadResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "402":
+          $ref: "#/components/responses/PaymentError"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/PartialUpload"
 
 components:
   schemas:
@@ -1356,11 +1376,38 @@ components:
 
     ErrorResponse:
       type: object
-      required: [error]
+      required: [error, code]
       properties:
         error:
           type: string
           description: Error message
+        code:
+          type: string
+          description: >-
+            Machine-readable error code (NOT_FOUND, BAD_REQUEST,
+            PAYMENT_REQUIRED, NETWORK_ERROR, PARTIAL_UPLOAD, ...). Prefer it
+            over the HTTP status where they diverge (PARTIAL_UPLOAD arrives
+            as a 502).
+        chunks_stored:
+          type: integer
+          format: int64
+          description: PARTIAL_UPLOAD only — chunks stored by this attempt.
+        chunks_failed:
+          type: integer
+          format: int64
+          description: PARTIAL_UPLOAD only — chunks still unstored.
+        total_chunks:
+          type: integer
+          format: int64
+          description: PARTIAL_UPLOAD only — total chunks in the upload.
+        retryable:
+          type: boolean
+          description: >-
+            PARTIAL_UPLOAD only. `true`: the paid attempt is retained under
+            the same upload_id — repeat the same finalize call to store the
+            remainder against the same payment. `false`: nothing was
+            retained — re-prepare the same content to retry only the
+            remainder.
 
   responses:
     BadRequest:
@@ -1407,6 +1454,16 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
     NetworkError:
       description: Network unreachable (502)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    PartialUpload:
+      description: >-
+        Some chunks stored, some still unstored after retries (502, code
+        PARTIAL_UPLOAD). Carries chunks_stored / chunks_failed /
+        total_chunks and `retryable`. Also the shape of a 502 on a network
+        error (code NETWORK_ERROR) for this endpoint.
       content:
         application/json:
           schema:

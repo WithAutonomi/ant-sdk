@@ -35,19 +35,42 @@ pub enum AntdError {
     Internal(String),
 
     /// Upload partially succeeded: some chunks stored, some failed quorum
-    /// after all retries. The payment was made and the stored chunks persist —
-    /// re-preparing the same content skips already-stored chunks, so a retry
-    /// only pays for and stores the missing remainder.
+    /// after all retries. The payment was made and the stored chunks persist.
+    ///
+    /// `retryable` says how to finish the upload:
+    ///
+    /// - `true` — an external-signer finalize kept the paid attempt (payment
+    ///   proofs + unstored chunks) under the same `upload_id`. Call the same
+    ///   finalize endpoint again with that `upload_id` to store the remainder
+    ///   against the **same** on-chain payment — no re-prepare, no second
+    ///   signature, no double payment. Bound the retry loop: a persistent
+    ///   failure comes back as `PARTIAL_UPLOAD` on every call.
+    /// - `false` — nothing was retained (daemon-wallet uploads, or a merkle
+    ///   finalize that deliberately left some sub-batches unpaid).
+    ///   Re-preparing the same content skips already-stored chunks, so a
+    ///   retry only pays for and stores the missing remainder.
     #[error(
         "Partial upload: {stored}/{total} chunks stored, {failed} failed after retries: {reason} \
-         (stored chunks persist; re-prepare the same content to retry only the remainder)"
+         ({})",
+        partial_upload_hint(.retryable)
     )]
     PartialUpload {
         stored: u64,
         failed: u64,
         total: u64,
         reason: String,
+        retryable: bool,
     },
+}
+
+/// Tail of the `PARTIAL_UPLOAD` message: how the caller finishes the upload.
+fn partial_upload_hint(retryable: &bool) -> &'static str {
+    if *retryable {
+        "paid attempt retained: call finalize again with the same upload_id to store the \
+         remainder against the same payment"
+    } else {
+        "stored chunks persist; re-prepare the same content to retry only the remainder"
+    }
 }
 
 impl AntdError {
@@ -84,9 +107,14 @@ impl AntdError {
             Error::Protocol(msg) => AntdError::Internal(msg),
             Error::Encryption(msg) => AntdError::Internal(msg),
             Error::Serialization(msg) => AntdError::Internal(msg),
-            // Both finalize paths (wave and, since ant-core 0.6.0, merkle)
-            // raise this when chunks miss quorum after retries. Keep the counts
-            // structured so clients can drive a retry instead of parsing text.
+            // The daemon-wallet upload paths and the non-resumable external
+            // finalize raise this when chunks miss quorum after retries;
+            // nothing is retained on this path, so the retry is a re-prepare.
+            // (The resumable external finalize never returns this error — it
+            // reports a shortfall through `FinalizeOutcome::Partial`, which
+            // the upload handlers turn into a `retryable: true` error after
+            // retaining the resume handle.) Keep the counts structured so
+            // clients can drive a retry instead of parsing text.
             Error::PartialUpload {
                 stored_count,
                 failed_count,
@@ -98,6 +126,7 @@ impl AntdError {
                 failed: failed_count as u64,
                 total: total_chunks as u64,
                 reason,
+                retryable: false,
             },
             other => AntdError::Internal(other.to_string()),
         }
@@ -116,6 +145,11 @@ struct ErrorBody {
     chunks_failed: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     total_chunks: Option<u64>,
+    /// `PARTIAL_UPLOAD` only: `true` when the paid attempt was retained and
+    /// the same finalize call (same `upload_id`) stores the remainder against
+    /// the same payment; `false` when the retry is a re-prepare.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    retryable: Option<bool>,
 }
 
 impl IntoResponse for AntdError {
@@ -135,14 +169,15 @@ impl IntoResponse for AntdError {
             // request itself was valid, so this is a gateway-side failure.
             AntdError::PartialUpload { .. } => StatusCode::BAD_GATEWAY,
         };
-        let (chunks_stored, chunks_failed, total_chunks) = match &self {
+        let (chunks_stored, chunks_failed, total_chunks, retryable) = match &self {
             AntdError::PartialUpload {
                 stored,
                 failed,
                 total,
+                retryable,
                 ..
-            } => (Some(*stored), Some(*failed), Some(*total)),
-            _ => (None, None, None),
+            } => (Some(*stored), Some(*failed), Some(*total), Some(*retryable)),
+            _ => (None, None, None, None),
         };
         let body = serde_json::to_string(&ErrorBody {
             error: self.to_string(),
@@ -150,6 +185,7 @@ impl IntoResponse for AntdError {
             chunks_stored,
             chunks_failed,
             total_chunks,
+            retryable,
         })
         .unwrap_or_else(|_| r#"{"error":"internal error","code":"INTERNAL_ERROR"}"#.to_string());
         (
@@ -175,9 +211,11 @@ impl From<AntdError> for tonic::Status {
             AntdError::NotImplemented(msg) => tonic::Status::unimplemented(msg),
             AntdError::Internal(msg) => tonic::Status::internal(msg),
             // ABORTED: the operation stopped partway and the retry lives at
-            // the application level (re-prepare, then finalize the remainder),
-            // not a blind replay of the same call. Counts stay in the message
-            // until the proto grows structured detail fields.
+            // the application level — a repeat FinalizeUpload with the same
+            // upload_id when the paid attempt was retained (`retryable`), or
+            // a re-prepare otherwise — not a blind replay of the same call.
+            // Counts and the retryable hint stay in the message until the
+            // proto grows structured detail fields.
             e @ AntdError::PartialUpload { .. } => tonic::Status::aborted(e.to_string()),
         }
     }
@@ -209,6 +247,88 @@ mod tests {
     fn not_found_is_grpc_not_found() {
         let status = tonic::Status::from(AntdError::NotFound("gone".into()));
         assert_eq!(status.code(), tonic::Code::NotFound);
+    }
+
+    #[test]
+    fn core_partial_upload_is_not_retryable_and_says_re_prepare() {
+        // Nothing is retained on the non-resumable paths, so the error must
+        // steer the caller to re-prepare (which skips stored chunks).
+        let e = AntdError::from_core(ant_core::data::Error::PartialUpload {
+            stored_count: 3,
+            failed_count: 2,
+            total_chunks: 5,
+            reason: "quorum".into(),
+            stored: vec![],
+            failed: vec![],
+            spend: Box::new(ant_core::data::error::PartialUploadSpend {
+                storage_cost_atto: "0".into(),
+                gas_cost_wei: 0,
+            }),
+        });
+        assert!(
+            matches!(
+                e,
+                AntdError::PartialUpload {
+                    retryable: false,
+                    ..
+                }
+            ),
+            "got {e:?}"
+        );
+        let msg = e.to_string();
+        assert!(msg.contains("3/5 chunks stored, 2 failed"), "{msg}");
+        assert!(msg.contains("re-prepare"), "{msg}");
+        assert!(!msg.contains("same upload_id"), "{msg}");
+    }
+
+    #[test]
+    fn retryable_partial_upload_says_finalize_again() {
+        let e = AntdError::PartialUpload {
+            stored: 3,
+            failed: 2,
+            total: 5,
+            reason: "2 chunk(s) short of quorum".into(),
+            retryable: true,
+        };
+        let msg = e.to_string();
+        assert!(msg.contains("same upload_id"), "{msg}");
+        assert!(!msg.contains("re-prepare"), "{msg}");
+        assert_eq!(e.code(), "PARTIAL_UPLOAD");
+
+        let status = tonic::Status::from(e);
+        assert_eq!(status.code(), tonic::Code::Aborted);
+        assert!(status.message().contains("same upload_id"));
+    }
+
+    #[tokio::test]
+    async fn partial_upload_body_carries_counts_and_retryable() {
+        for retryable in [true, false] {
+            let resp = AntdError::PartialUpload {
+                stored: 3,
+                failed: 2,
+                total: 5,
+                reason: "x".into(),
+                retryable,
+            }
+            .into_response();
+            assert_eq!(resp.status(), StatusCode::BAD_GATEWAY);
+            let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(body["code"], "PARTIAL_UPLOAD");
+            assert_eq!(body["chunks_stored"], 3);
+            assert_eq!(body["chunks_failed"], 2);
+            assert_eq!(body["total_chunks"], 5);
+            assert_eq!(body["retryable"], retryable);
+        }
+        // Other codes never carry the partial-upload fields.
+        let resp = AntdError::NotFound("gone".into()).into_response();
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(body.get("retryable").is_none());
     }
 
     #[test]

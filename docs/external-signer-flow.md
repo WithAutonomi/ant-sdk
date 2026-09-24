@@ -184,6 +184,35 @@ If `payments` came back empty from prepare (every chunk already stored — e.g. 
 
 Returns `FinalizeUploadResult { data_map_address, data_map, chunks_stored, address }`. The `data_map_address` is what other clients use to retrieve the file via `file_download_public(data_map_address)`.
 
+### 6. Retry a partial store — same `upload_id`, same payment
+
+Finalize can fail *after* the wallet has paid: some chunks store, others miss quorum after the daemon's own retries. That comes back as HTTP **502** with `code: "PARTIAL_UPLOAD"` (gRPC **ABORTED**, message prefixed `Partial upload:`) and the structured counts `chunks_stored` / `chunks_failed` / `total_chunks`, plus a `retryable` flag:
+
+- **`retryable: true`** — the daemon kept the paid attempt (the payment proofs plus the still-unstored chunks) under the same `upload_id`. Call `POST /v1/upload/finalize` again with that `upload_id`; the payment fields are ignored on a resume, so pass the same body. Each call stores what it can and either succeeds or returns another `PARTIAL_UPLOAD`. No re-prepare, no second signature, no double payment.
+- **`retryable: false`** — nothing was retained. This is the merkle case where the signer deliberately left some sub-batches unpaid (a resume can never acquire proofs for unpaid chunks), and the daemon-wallet upload paths. Re-preparing the same content skips already-stored chunks, so a retry pays for and stores only the remainder.
+
+**Bound the retry loop.** A persistent failure (a chunk whose close group stays unreachable) returns `PARTIAL_UPLOAD` on every call, never a different error. Cap the attempts or back off between them, and treat a `chunks_failed` count that stops shrinking as stuck. The retained attempt expires with the daemon's pending-upload TTL (one hour); after that the `upload_id` is `404` and the on-chain payment cannot be recovered.
+
+```python
+attempts, last_failed = 0, None
+while True:
+    fin = requests.post(f"{ANTD}/v1/upload/finalize",
+                        json={"upload_id": upload_id, "tx_hashes": tx_hashes})
+    if fin.ok:
+        break                                   # every chunk stored
+    body = fin.json()
+    if body.get("code") != "PARTIAL_UPLOAD" or not body.get("retryable"):
+        raise RuntimeError(body["error"])       # not resumable: re-prepare
+    attempts += 1
+    failed = body["chunks_failed"]
+    if attempts >= 5 or (last_failed is not None and failed >= last_failed):
+        raise RuntimeError(f"stuck: {failed} chunk(s) unstored after {attempts} attempts")
+    last_failed = failed
+    time.sleep(2 ** attempts)
+```
+
+Up to antd 0.13.x a post-payment shortfall consumed the `upload_id`, so the only recovery was to re-prepare — which yields new quote hashes the already-paid transaction cannot satisfy, i.e. a second payment.
+
 ## Single-chunk publish
 
 Same shape, different daemon endpoints:
