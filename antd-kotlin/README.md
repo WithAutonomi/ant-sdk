@@ -89,12 +89,22 @@ try {
 |---|---|---|---|
 | `NotFoundException` | 404 | NOT_FOUND | Resource not found |
 | `AlreadyExistsException` | 409 | ALREADY_EXISTS | Resource already exists |
-| `ForkException` | 409 | ABORTED | Conflicting update |
+| `ForkException` | 409 | — | Conflicting update |
 | `BadRequestException` | 400 | INVALID_ARGUMENT | Invalid input |
 | `PaymentException` | 402 | FAILED_PRECONDITION | Insufficient funds |
 | `NetworkException` | 502 | UNAVAILABLE | Network unreachable |
+| `PartialUploadException` | 502 (`code: "PARTIAL_UPLOAD"`) | ABORTED | Finalize stored some chunks, others stayed unstored (extends `NetworkException`) |
 | `TooLargeException` | 413 | RESOURCE_EXHAUSTED | Data too large |
 | `InternalException` | 500 | INTERNAL | Server error |
+
+### Partial uploads
+
+An external-signer finalize (`finalizeUpload`, `finalizeMerkleUpload`, `finalizeChunkUpload`) can fail *after* the wallet has paid: some chunks store, others miss quorum after the daemon's own retries. That surfaces as `PartialUploadException` carrying `chunksStored` / `chunksFailed` / `totalChunks` and a `retryable` flag. The on-chain payment persists and the stored chunks stay on the network; `retryable` says how to finish:
+
+- **`retryable == true`** (flag sent by antd ≥ 0.14.0) — the daemon kept the paid attempt under the same `uploadId`. Call the **same** finalize method again with the same arguments to store the remainder against the same payment — no re-prepare, no second signature, no double payment. Bound that loop: a persistent failure throws on every call, so cap the attempts and treat a `chunksFailed` that stops shrinking as stuck. The retained attempt expires with the daemon's pending-upload TTL.
+- **`retryable == false`** — nothing was retained: an older daemon (the flag is absent and defaults to `false`), or a merkle finalize with deliberately unpaid batches. Re-preparing the same content skips already-stored chunks, so a retry pays only for the remainder.
+
+`PartialUploadException` extends `NetworkException` because the daemon reports it as a 502, so existing `catch (e: NetworkException)` blocks keep working; narrow with `is PartialUploadException` to read the counts. Over gRPC the counts and flag are parsed from the ABORTED status message (`Partial upload: S/T chunks stored, F failed …`, with a "paid attempt retained" hint when retryable). See `finalizeWithRetry` in `examples/src/main/kotlin/com/autonomi/examples/Example07ExternalSigner.kt` for a bounded retry loop, and [`docs/external-signer-flow.md` §6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment) for the daemon-side contract.
 
 ## Examples
 

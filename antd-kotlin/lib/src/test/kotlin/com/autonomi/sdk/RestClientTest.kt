@@ -620,6 +620,120 @@ class RestClientTest {
     }
 
     // -------------------------------------------------------------------------
+    // PARTIAL_UPLOAD: typed exception with counts + retryable
+    // -------------------------------------------------------------------------
+
+    private fun partialUploadServer(body: String): MockWebServer {
+        val errServer = MockWebServer()
+        errServer.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) = MockResponse()
+                .setResponseCode(502)
+                .setHeader("Content-Type", "application/json")
+                .setBody(body)
+        }
+        errServer.start()
+        return errServer
+    }
+
+    @Test
+    fun `502 PARTIAL_UPLOAD maps to PartialUploadException with counts and retryable`() = runTest {
+        val errServer = partialUploadServer(
+            """{"error":"Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)","code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":12,"total_chunks":312,"retryable":true}""",
+        )
+        val errClient = AntdRestClient(baseUrl = errServer.url("/").toString())
+        try {
+            val ex = assertFailsWith<PartialUploadException> {
+                errClient.finalizeUpload("up-1", mapOf("qh1" to "tx1"))
+            }
+            assertEquals(300L, ex.chunksStored)
+            assertEquals(12L, ex.chunksFailed)
+            assertEquals(312L, ex.totalChunks)
+            assertTrue(ex.retryable, "retryable must come from the body flag")
+            assertEquals(502, ex.statusCode)
+            assertTrue(ex.message!!.startsWith("Partial upload: 300/312"), "message must be the body's error field; got ${ex.message}")
+            // A 502 has always been a NetworkException; existing catch blocks keep working.
+            assertIs<NetworkException>(ex)
+        } finally {
+            errClient.close()
+            errServer.shutdown()
+        }
+    }
+
+    @Test
+    fun `502 PARTIAL_UPLOAD without retryable flag defaults to false`() = runTest {
+        // An older daemon (< 0.14.0) never sends `retryable`; the flag must
+        // read false so callers fall back to the re-prepare path rather than
+        // looping on an upload_id the daemon has already dropped.
+        val errServer = partialUploadServer(
+            """{"error":"Partial upload: 300/312 chunks stored, 12 failed after retries","code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":12,"total_chunks":312}""",
+        )
+        val errClient = AntdRestClient(baseUrl = errServer.url("/").toString())
+        try {
+            val ex = assertFailsWith<PartialUploadException> {
+                errClient.finalizeMerkleUpload("up-1", "0xwinner")
+            }
+            assertEquals(300L, ex.chunksStored)
+            assertEquals(12L, ex.chunksFailed)
+            assertEquals(312L, ex.totalChunks)
+            assertFalse(ex.retryable, "retryable must default to false without the body flag")
+        } finally {
+            errClient.close()
+            errServer.shutdown()
+        }
+    }
+
+    @Test
+    fun `502 PARTIAL_UPLOAD on chunk finalize maps to PartialUploadException`() = runTest {
+        val errServer = partialUploadServer(
+            """{"error":"Partial upload: 0/1 chunks stored, 1 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)","code":"PARTIAL_UPLOAD","chunks_stored":0,"chunks_failed":1,"total_chunks":1,"retryable":true}""",
+        )
+        val errClient = AntdRestClient(baseUrl = errServer.url("/").toString())
+        try {
+            val ex = assertFailsWith<PartialUploadException> {
+                errClient.finalizeChunkUpload("chunk-1", mapOf("qh1" to "tx1"))
+            }
+            assertEquals(0L, ex.chunksStored)
+            assertEquals(1L, ex.chunksFailed)
+            assertEquals(1L, ex.totalChunks)
+            assertTrue(ex.retryable)
+        } finally {
+            errClient.close()
+            errServer.shutdown()
+        }
+    }
+
+    @Test
+    fun `502 with another code still maps to plain NetworkException`() = runTest {
+        val errServer = partialUploadServer("""{"error":"upstream unreachable","code":"NETWORK_ERROR"}""")
+        val errClient = AntdRestClient(baseUrl = errServer.url("/").toString())
+        try {
+            val ex = assertFailsWith<NetworkException> {
+                errClient.finalizeUpload("up-1", mapOf("qh1" to "tx1"))
+            }
+            assertFalse(ex is PartialUploadException, "only code=PARTIAL_UPLOAD is special-cased")
+        } finally {
+            errClient.close()
+            errServer.shutdown()
+        }
+    }
+
+    @Test
+    fun `502 with non-JSON body still maps to plain NetworkException`() = runTest {
+        val errServer = partialUploadServer("bad gateway")
+        val errClient = AntdRestClient(baseUrl = errServer.url("/").toString())
+        try {
+            val ex = assertFailsWith<NetworkException> {
+                errClient.dataPutPublic("data".toByteArray())
+            }
+            assertFalse(ex is PartialUploadException)
+            assertEquals("bad gateway", ex.message)
+        } finally {
+            errClient.close()
+            errServer.shutdown()
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // V2-274: public-prepare visibility forwarding + chunk external-signer
     // -------------------------------------------------------------------------
 

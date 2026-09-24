@@ -1,7 +1,10 @@
 package com.autonomi.examples
 
 import com.autonomi.sdk.AntdClient
+import com.autonomi.sdk.PartialUploadException
 import com.autonomi.sdk.PaymentInfo
+
+import kotlinx.coroutines.delay
 
 import org.web3j.abi.FunctionEncoder
 import org.web3j.abi.datatypes.Address
@@ -71,7 +74,9 @@ suspend fun example07ExternalSigner() {
             filePrep.rpcUrl, filePrep.paymentVaultAddress, filePrep.paymentTokenAddress,
             filePrep.payments, credentials
         )
-        val fileFin = client.finalizeUpload(filePrep.uploadId, fileTxHashes)
+        val fileFin = finalizeWithRetry(filePrep.uploadId) {
+            client.finalizeUpload(filePrep.uploadId, fileTxHashes)
+        }
         println(
             "File finalize: data_map_address=${fileFin.dataMapAddress}, " +
                 "chunks_stored=${fileFin.chunksStored}"
@@ -99,7 +104,9 @@ suspend fun example07ExternalSigner() {
                 chunkPrep.rpcUrl, chunkPrep.paymentVaultAddress, chunkPrep.paymentTokenAddress,
                 chunkPrep.payments, credentials
             )
-            val addr = client.finalizeChunkUpload(chunkPrep.uploadId, chunkTxHashes)
+            val addr = finalizeWithRetry(chunkPrep.uploadId) {
+                client.finalizeChunkUpload(chunkPrep.uploadId, chunkTxHashes)
+            }
             if (addr != chunkPrep.address) {
                 throw RuntimeException("chunk address mismatch: $addr != ${chunkPrep.address}")
             }
@@ -116,6 +123,51 @@ suspend fun example07ExternalSigner() {
     } finally {
         client.close()
         tmpDir.deleteRecursively()
+    }
+}
+
+/**
+ * Runs an external-signer finalize, retrying against the SAME payment when
+ * the daemon reports a retryable partial store.
+ *
+ * A [PartialUploadException] with `retryable == true` means the daemon kept
+ * the paid attempt (payment proofs + unstored chunks) under [uploadId], so
+ * calling the same finalize again with the same arguments stores the
+ * remainder without a re-prepare, a second signature, or a double payment.
+ * The loop is bounded: a persistent failure (a chunk whose close group stays
+ * unreachable) throws [PartialUploadException] on every call, never a
+ * different error, so it caps the attempts and treats a `chunksFailed` that
+ * stops shrinking as stuck. A non-retryable partial upload (older daemon, or
+ * a merkle upload with unpaid batches) is rethrown untouched: the recovery
+ * there is to re-prepare the same content, which skips the chunks already
+ * stored.
+ */
+private suspend fun <T> finalizeWithRetry(uploadId: String, finalize: suspend () -> T): T {
+    val maxAttempts = 5
+    var lastFailed = 0L
+    var attempt = 1
+    while (true) {
+        try {
+            return finalize() // every chunk stored
+        } catch (e: PartialUploadException) {
+            if (!e.retryable) throw e
+            val stuck = attempt > 1 && e.chunksFailed >= lastFailed
+            if (attempt >= maxAttempts || stuck) {
+                throw RuntimeException(
+                    "finalize stuck after $attempt attempt(s): ${e.chunksStored}/${e.totalChunks} chunks " +
+                        "stored, ${e.chunksFailed} still unstored (paid attempt retained under upload_id " +
+                        "$uploadId — retry later or re-prepare)",
+                    e,
+                )
+            }
+            lastFailed = e.chunksFailed
+            println(
+                "finalize stored ${e.chunksStored}/${e.totalChunks} chunks, ${e.chunksFailed} still unstored " +
+                    "— retrying against the same payment (attempt ${attempt + 1}/$maxAttempts)"
+            )
+            delay(attempt * 2_000L)
+            attempt++
+        }
     }
 }
 

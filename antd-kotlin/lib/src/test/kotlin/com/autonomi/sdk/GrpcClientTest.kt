@@ -10,6 +10,7 @@ import io.grpc.ServerCallHandler
 import io.grpc.ServerInterceptor
 import io.grpc.ServerInterceptors
 import io.grpc.ForwardingServerCall
+import io.grpc.Status
 import io.grpc.inprocess.InProcessChannelBuilder
 import io.grpc.inprocess.InProcessServerBuilder
 import kotlinx.coroutines.flow.Flow
@@ -20,7 +21,9 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -58,6 +61,18 @@ class GrpcClientTest {
         client.close()
         channel.shutdownNow()
         server.shutdownNow()
+    }
+
+    companion object {
+        // The daemon's PARTIAL_UPLOAD status descriptions: counts in the fixed
+        // prefix, and a "paid attempt retained" hint when the same-upload_id
+        // retry applies.
+        const val PARTIAL_RETAINED_MSG =
+            "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " +
+                "(paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)"
+        const val PARTIAL_NOT_RETAINED_MSG =
+            "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " +
+                "(stored chunks persist; re-prepare the same content to retry only the remainder)"
     }
 
     // --- Mock servicers ---
@@ -146,6 +161,13 @@ class GrpcClientTest {
         }
 
         override suspend fun finalizeChunk(request: Chunks.FinalizeChunkRequest): Chunks.FinalizeChunkResponse {
+            // Magic id: simulate a quorum-shortfall finalize (PARTIAL_UPLOAD)
+            // where the daemon retained the paid attempt.
+            if (request.uploadId == "partial") {
+                throw Status.ABORTED
+                    .withDescription(PARTIAL_RETAINED_MSG)
+                    .asRuntimeException()
+            }
             // Echo upload_id into address so the test can verify forwarding.
             return finalizeChunkResponse {
                 address = "addr_for_${request.uploadId}"
@@ -211,6 +233,16 @@ class GrpcClientTest {
         }
 
         override suspend fun finalizeUpload(request: Upload.FinalizeUploadRequest): Upload.FinalizeUploadResponse {
+            // Magic id: simulate a quorum-shortfall finalize (PARTIAL_UPLOAD)
+            // where the daemon retained the paid attempt.
+            if (request.uploadId == "partial") {
+                throw Status.ABORTED.withDescription(PARTIAL_RETAINED_MSG).asRuntimeException()
+            }
+            // Magic id: a partial upload the daemon did NOT retain (unpaid
+            // merkle batches, or an older daemon's message).
+            if (request.uploadId == "partial-final") {
+                throw Status.ABORTED.withDescription(PARTIAL_NOT_RETAINED_MSG).asRuntimeException()
+            }
             // Merkle: winner_pool_hash populated.
             if (request.winnerPoolHash.isNotEmpty()) {
                 return finalizeUploadResponse {
@@ -327,6 +359,65 @@ class GrpcClientTest {
     fun finalizeChunkUploadReturnsAddressAndForwardsBody() = runTest {
         val addr = client.finalizeChunkUpload("upid_chunk_42", mapOf("0xq1" to "0xtxabc"))
         assertEquals("addr_for_upid_chunk_42", addr)
+    }
+
+    // --- PARTIAL_UPLOAD (ABORTED) → PartialUploadException ---
+
+    @Test
+    fun finalizeUploadPartialRetainedMapsToPartialUploadException() = runTest {
+        val ex = assertFailsWith<PartialUploadException> {
+            client.finalizeUpload("partial", mapOf("0xq1" to "0xtx1"))
+        }
+        // Counts and the retained hint are parsed from the status message, so
+        // the gRPC client matches the REST client's typed exception.
+        assertEquals(300L, ex.chunksStored)
+        assertEquals(12L, ex.chunksFailed)
+        assertEquals(312L, ex.totalChunks)
+        assertTrue(ex.retryable, "expected retryable from the retained hint")
+        assertEquals(502, ex.statusCode)
+        assertEquals(PARTIAL_RETAINED_MSG, ex.message)
+        // A 502 has always been a NetworkException; existing catch blocks keep working.
+        assertIs<NetworkException>(ex)
+    }
+
+    @Test
+    fun finalizeMerkleUploadPartialNotRetainedIsNotRetryable() = runTest {
+        val ex = assertFailsWith<PartialUploadException> {
+            client.finalizeMerkleUpload("partial-final", "0xwinpool")
+        }
+        assertEquals(300L, ex.chunksStored)
+        assertEquals(12L, ex.chunksFailed)
+        assertEquals(312L, ex.totalChunks)
+        assertFalse(ex.retryable, "no retained hint must read as not retryable")
+    }
+
+    @Test
+    fun finalizeChunkUploadPartialMapsToPartialUploadException() = runTest {
+        val ex = assertFailsWith<PartialUploadException> {
+            client.finalizeChunkUpload("partial", mapOf("0xq1" to "0xtxabc"))
+        }
+        assertEquals(300L, ex.chunksStored)
+        assertTrue(ex.retryable)
+    }
+
+    @Test
+    fun partialUploadMessageParserCases() {
+        data class Case(val msg: String, val stored: Long, val failed: Long, val total: Long, val retryable: Boolean)
+        val cases = listOf(
+            Case(PARTIAL_RETAINED_MSG, 300, 12, 312, true),
+            Case(PARTIAL_NOT_RETAINED_MSG, 300, 12, 312, false),
+            Case("Partial upload: 300/312 chunks stored, 12 failed after retries", 300, 12, 312, false),
+            // Unrecognised message: zero counts, not retryable.
+            Case("something else entirely", 0, 0, 0, false),
+        )
+        for (c in cases) {
+            val ex = ExceptionMapping.partialUploadFromMessage(c.msg)
+            assertEquals(c.stored, ex.chunksStored, c.msg)
+            assertEquals(c.failed, ex.chunksFailed, c.msg)
+            assertEquals(c.total, ex.totalChunks, c.msg)
+            assertEquals(c.retryable, ex.retryable, c.msg)
+            assertEquals(c.msg, ex.message)
+        }
     }
 
     @Test
