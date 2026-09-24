@@ -131,6 +131,34 @@ void main() {
             .having((e) => e.retryable, 'retryable', isFalse)),
       );
     });
+
+    test('ABORTED finalize with the prefix but garbled counts -> zeros',
+        () async {
+      await expectLater(
+        client.finalizeUpload('partial-garbled', {'0xq1': '0xtx1'}),
+        throwsA(isA<PartialUploadError>()
+            .having((e) => e.chunksStored, 'chunksStored', 0)
+            .having((e) => e.chunksFailed, 'chunksFailed', 0)
+            .having((e) => e.totalChunks, 'totalChunks', 0)
+            .having((e) => e.retryable, 'retryable', isFalse)),
+      );
+    });
+
+    test('ABORTED finalize without the Partial upload prefix stays AntdError',
+        () async {
+      // An ABORTED that is not the daemon's partial-upload message keeps the
+      // generic mapping rather than being misreported as a partial upload.
+      await expectLater(
+        client.finalizeUpload('aborted-other', {'0xq1': '0xtx1'}),
+        throwsA(allOf(
+          isA<AntdError>()
+              .having((e) => e.statusCode, 'statusCode', 10)
+              .having((e) => e.message, 'message',
+                  'upload aborted: daemon shutting down'),
+          isNot(isA<PartialUploadError>()),
+        )),
+      );
+    });
   });
 
   group('External signer (V2-284) — prepare/finalize chunks', () {
@@ -289,6 +317,12 @@ class _MockUploadService extends upload_pb.UploadServiceBase {
           'Partial upload: 300/312 chunks stored, 12 failed after retries: '
           'quorum (stored chunks persist; re-prepare the same content to '
           'retry only the remainder)');
+    }
+    if (request.uploadId == 'partial-garbled') {
+      throw GrpcError.aborted('Partial upload: counts unavailable');
+    }
+    if (request.uploadId == 'aborted-other') {
+      throw GrpcError.aborted('upload aborted: daemon shutting down');
     }
     if (request.winnerPoolHash.isNotEmpty) {
       return upload_msg.FinalizeUploadResponse()

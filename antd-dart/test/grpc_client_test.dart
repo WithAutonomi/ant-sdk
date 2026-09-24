@@ -29,7 +29,11 @@ Exception mapGrpcError(FakeGrpcError e) {
     case 6: return AlreadyExistsError(e.message);
     case 8: return TooLargeError(e.message);
     case 9: return PaymentError(e.message);
-    case 10: return PartialUploadError.fromMessage(e.message);
+    case 10:
+      if (PartialUploadError.isPartialUploadMessage(e.message)) {
+        return PartialUploadError.fromMessage(e.message);
+      }
+      return AntdError(e.code, e.message);
     case 13: return InternalError(e.message);
     case 14: return NetworkError(e.message);
     default: return AntdError(e.code, e.message);
@@ -402,6 +406,38 @@ void main() {
         throwsA(isA<PartialUploadError>()
             .having((e) => e.chunksFailed, 'chunksFailed', 12)
             .having((e) => e.retryable, 'retryable', isFalse)),
+      );
+    });
+
+    test('ABORTED with the prefix but garbled counts -> zeros, not retryable',
+        () async {
+      final client = _errorClient(10, 'Partial upload: counts unavailable');
+      expect(
+        () => client.health(),
+        throwsA(isA<PartialUploadError>()
+            .having((e) => e.message, 'message',
+                'Partial upload: counts unavailable')
+            .having((e) => e.chunksStored, 'chunksStored', 0)
+            .having((e) => e.chunksFailed, 'chunksFailed', 0)
+            .having((e) => e.totalChunks, 'totalChunks', 0)
+            .having((e) => e.retryable, 'retryable', isFalse)),
+      );
+    });
+
+    test('ABORTED without the Partial upload prefix -> plain AntdError',
+        () async {
+      // Only the daemon's partial-upload ABORTED is typed; any other ABORTED
+      // keeps the pre-existing generic mapping.
+      final client = _errorClient(10, 'upload aborted: daemon shutting down');
+      expect(
+        () => client.health(),
+        throwsA(allOf(
+          isA<AntdError>()
+              .having((e) => e.statusCode, 'statusCode', 10)
+              .having((e) => e.message, 'message',
+                  'upload aborted: daemon shutting down'),
+          isNot(isA<PartialUploadError>()),
+        )),
       );
     });
 

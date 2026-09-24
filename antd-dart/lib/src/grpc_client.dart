@@ -178,8 +178,16 @@ class GrpcAntdClient {
         // PARTIAL_UPLOAD: some chunks stored, some still unstored after
         // retries. The counts and the "paid attempt retained" hint ride the
         // message text over gRPC (no structured detail yet), so parse them
-        // best-effort to match the REST client's typed error.
-        throw PartialUploadError.fromMessage(e.message ?? 'aborted');
+        // best-effort to match the REST client's typed error. Every such
+        // message opens with the daemon's fixed "Partial upload:" prefix;
+        // an ABORTED without it is something else and keeps the generic
+        // mapping so it is not misreported as a partial upload.
+        final message = e.message;
+        if (message != null &&
+            PartialUploadError.isPartialUploadMessage(message)) {
+          throw PartialUploadError.fromMessage(message);
+        }
+        throw AntdError(e.code, e.message ?? 'gRPC error');
       default:
         throw AntdError(e.code, e.message ?? 'gRPC error');
     }

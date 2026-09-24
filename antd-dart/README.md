@@ -244,7 +244,7 @@ try {
 }
 ```
 
-Over gRPC the error arrives as status `ABORTED`; the counts and the flag are parsed from the status message. See `finalizeWithRetry` in [`example/07_external_signer.dart`](example/07_external_signer.dart) for a bounded retry loop and [`docs/external-signer-flow.md`](../docs/external-signer-flow.md) §6 for the daemon contract.
+Over gRPC the error arrives as status `ABORTED` whose message starts with `Partial upload:`; the counts and the flag are parsed from that message. Any other `ABORTED` is not a partial upload and surfaces as a plain `AntdError`. See `finalizeWithRetry` in [`example/07_external_signer.dart`](example/07_external_signer.dart) for a bounded retry loop and [`docs/external-signer-flow.md`](../docs/external-signer-flow.md) §6 for the daemon contract.
 
 ## Examples
 

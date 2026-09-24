@@ -58,7 +58,8 @@ class ServiceUnavailableError extends AntdError {
 }
 
 /// A finalize stored some chunks while others stayed unstored after the
-/// daemon's retries (HTTP 502 with `code: "PARTIAL_UPLOAD"`; gRPC ABORTED).
+/// daemon's retries (HTTP 502 with `code: "PARTIAL_UPLOAD"`; gRPC ABORTED
+/// whose message carries the daemon's `Partial upload:` prefix).
 ///
 /// The on-chain payment persists and the stored chunks stay on the network.
 /// How to finish the upload depends on [retryable]:
@@ -82,7 +83,10 @@ class ServiceUnavailableError extends AntdError {
 ///
 /// Over REST the counts and [retryable] come from the structured error body.
 /// Over gRPC they are parsed best-effort from the status message by
-/// [PartialUploadError.fromMessage]. See `docs/external-signer-flow.md` §6
+/// [PartialUploadError.fromMessage], and only an ABORTED whose message
+/// passes [PartialUploadError.isPartialUploadMessage] is mapped to this
+/// type; any other ABORTED stays a plain [AntdError]. See
+/// `docs/external-signer-flow.md` §6
 /// ("Retry a partial store") for the daemon contract.
 class PartialUploadError extends NetworkError {
   /// Chunks the daemon stored before giving up on the remainder.
@@ -113,8 +117,10 @@ class PartialUploadError extends NetworkError {
   ///
   /// The daemon formats the message as `Partial upload: <stored>/<total>
   /// chunks stored, <failed> failed after retries: <reason> (<hint>)`, with
-  /// the hint `paid attempt retained: ...` when retryable. An unrecognised
-  /// message leaves the counts zero and [retryable] false.
+  /// the hint `paid attempt retained: ...` when retryable. A message that
+  /// carries the prefix but not the counts leaves them zero and [retryable]
+  /// false. Callers gate on [isPartialUploadMessage] first so that an
+  /// unrelated ABORTED is not misreported as a partial upload.
   factory PartialUploadError.fromMessage(String message) {
     final m = _partialUploadCounts.firstMatch(message);
     return PartialUploadError(
@@ -125,7 +131,16 @@ class PartialUploadError extends NetworkError {
       retryable: message.contains(_partialUploadRetainedHint),
     );
   }
+
+  /// Whether [message] is the daemon's `PARTIAL_UPLOAD` message: every one
+  /// it emits opens with the fixed text `Partial upload:`. Used to decide
+  /// whether a gRPC ABORTED status is a partial upload at all.
+  static bool isPartialUploadMessage(String message) =>
+      message.contains(_partialUploadPrefix);
 }
+
+/// Fixed opening text of every `PARTIAL_UPLOAD` message the daemon emits.
+const _partialUploadPrefix = 'Partial upload:';
 
 /// Matches the fixed prefix of the daemon's `PARTIAL_UPLOAD` message:
 /// `Partial upload: <stored>/<total> chunks stored, <failed> failed`.
