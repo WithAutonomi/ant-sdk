@@ -157,9 +157,62 @@ const result = client.health() catch |err| {
 | `TooLarge` | 413 | Payload too large |
 | `Internal` | 500 | Server error |
 | `Network` | 502 | Network unreachable |
+| `PartialUpload` | 502 (`code: PARTIAL_UPLOAD`) | Finalize stored some chunks but not all -- see [Partial uploads](#partial-uploads) |
 | `UnexpectedStatus` | other | Unmapped status code |
 | `HttpError` | -- | Connection/transport failure |
 | `JsonError` | -- | JSON parse/encode failure |
+
+### Partial uploads
+
+An external-signer finalize (`finalizeUpload`, `finalizeChunkUpload`) can fail *after* the wallet has paid: some chunks store, others miss quorum after the daemon's own retries. The daemon reports this as HTTP 502 with `code: "PARTIAL_UPLOAD"`, which the SDK returns as `error.PartialUpload` (a plain 502 stays `error.Network`). The on-chain payment persists and the stored chunks stay on the network. `getLastError()` carries the structured detail:
+
+| `ErrorInfo` field | Meaning |
+|-------------------|---------|
+| `chunks_stored` | Chunks the daemon stored before giving up |
+| `chunks_failed` | Chunks still unstored after the daemon's retries |
+| `total_chunks` | Chunks in the upload |
+| `retryable` | How to finish the upload (see below). Sent by antd >= 0.14.0; absent on older daemons, where it reads `false` |
+
+These fields are zero / `false` for every other error.
+
+- **`retryable == true`** -- the daemon kept the paid attempt (payment proofs plus the unstored chunks) under the same `upload_id`. Call the **same finalize function again with the same arguments**; the remainder is stored against the same payment -- no re-prepare, no second signature, no double payment. Bound the loop: a persistent failure returns `error.PartialUpload` on every call, so cap the attempts and treat a `chunks_failed` that stops shrinking as stuck. The retained attempt expires with the daemon's pending-upload TTL (one hour).
+- **`retryable == false`** -- nothing was retained (an older daemon, or a merkle finalize with deliberately unpaid batches). Re-prepare the same content: already-stored chunks are skipped, so the retry pays only for the remainder.
+
+The contract is specified in [docs/external-signer-flow.md, section 6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment). A bounded retry helper around `finalizeUpload` -- five attempts, linear backoff, stuck detection -- that only retries when `retryable` and returns a non-retryable partial upload untouched:
+
+```zig
+/// Finalize with a bounded retry against the same payment. Returns the
+/// finalize response body (caller frees) or the finalize error; a
+/// non-retryable `error.PartialUpload` is returned untouched (re-prepare).
+fn finalizeWithRetry(client: *antd.Client, upload_id: []const u8, tx_hashes_json: []const u8) ![]const u8 {
+    const max_attempts = 5;
+    var last_failed: ?u64 = null;
+    var attempt: u32 = 1;
+    while (true) : (attempt += 1) {
+        return client.finalizeUpload(upload_id, tx_hashes_json) catch |err| {
+            if (err != error.PartialUpload) return err;
+            const info = client.getLastError() orelse return err;
+            if (!info.retryable) return err; // nothing retained: re-prepare instead
+
+            const stuck = if (last_failed) |prev| info.chunks_failed >= prev else false;
+            if (attempt >= max_attempts or stuck) {
+                std.debug.print(
+                    "finalize stuck after {d} attempt(s): {d}/{d} chunks stored, {d} still unstored (paid attempt retained under upload_id {s} -- retry later or re-prepare)\n",
+                    .{ attempt, info.chunks_stored, info.total_chunks, info.chunks_failed, upload_id },
+                );
+                return err;
+            }
+            last_failed = info.chunks_failed;
+            std.debug.print(
+                "finalize stored {d}/{d} chunks, {d} still unstored -- retrying against the same payment (attempt {d}/{d})\n",
+                .{ info.chunks_stored, info.total_chunks, info.chunks_failed, attempt + 1, max_attempts },
+            );
+            std.Thread.sleep(@as(u64, attempt) * 2 * std.time.ns_per_s);
+            continue;
+        };
+    }
+}
+```
 
 ## Memory Management
 

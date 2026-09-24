@@ -1116,9 +1116,11 @@ impl pb::file_service_server::FileService for FileServiceImpl {
 // External-signer two-phase upload flow. Mirrors the REST handlers in
 // `antd/src/rest/upload.rs` exactly — same `pending_uploads` state, same
 // `file_prepare_upload_with_visibility` / `data_prepare_upload_with_visibility`
-// / `finalize_upload` / `finalize_upload_merkle_multi` call shapes, and the
-// same shared winner-hash resolver. Helper `build_grpc_prepare_response`
-// (above) is the gRPC counterpart of REST's `build_prepare_response`.
+// call shapes, the same shared resolvers, and the same `finalize_pending`
+// routine (resumable finalize: a post-payment storage shortfall retains the
+// paid attempt under the same upload_id and comes back as ABORTED with a
+// retryable hint). Helper `build_grpc_prepare_response` (above) is the gRPC
+// counterpart of REST's `build_prepare_response`.
 
 pub struct UploadServiceImpl {
     pub state: Arc<AppState>,
@@ -1161,10 +1163,7 @@ impl pb::upload_service_server::UploadService for UploadServiceImpl {
 
         self.state.pending_uploads.lock().await.insert(
             upload_id,
-            crate::state::TimestampedUpload {
-                prepared,
-                created_at: std::time::Instant::now(),
-            },
+            crate::state::TimestampedUpload::prepared(prepared),
         );
 
         Ok(Response::new(response))
@@ -1202,10 +1201,7 @@ impl pb::upload_service_server::UploadService for UploadServiceImpl {
 
         self.state.pending_uploads.lock().await.insert(
             upload_id,
-            crate::state::TimestampedUpload {
-                prepared,
-                created_at: std::time::Instant::now(),
-            },
+            crate::state::TimestampedUpload::prepared(prepared),
         );
 
         Ok(Response::new(response))
@@ -1215,55 +1211,23 @@ impl pb::upload_service_server::UploadService for UploadServiceImpl {
         &self,
         request: Request<pb::FinalizeUploadRequest>,
     ) -> Result<Response<pb::FinalizeUploadResponse>, Status> {
-        use evmlib::common::{QuoteHash, TxHash};
-        use std::collections::HashMap;
-
-        enum PaymentShape {
-            Wave { expected_quotes: Vec<QuoteHash> },
-            Merkle { batch_count: usize },
-        }
-        enum PaymentArtefacts {
-            Wave(HashMap<QuoteHash, TxHash>),
-            Merkle(Vec<Option<[u8; 32]>>),
-        }
-        let not_found = |id: &str| {
-            Status::not_found(format!(
-                "upload_id {id} not found — it may have expired or already been finalized"
-            ))
+        use crate::rest::upload::{
+            finalize_pending, pending_shape, resolve_wave_tx_hashes, resolve_winner_pool_hashes,
+            PaymentArtefacts, PendingShape,
         };
+        use crate::state::PaymentKind;
 
         let req = request.into_inner();
 
         // Peek at the stored upload's payment shape without consuming it, so
         // bad input below errors while the already paid-for upload stays
         // present and retryable (mirrors the REST handler).
-        let shape = {
-            let pending = self.state.pending_uploads.lock().await;
-            match &pending
-                .get(&req.upload_id)
-                .ok_or_else(|| not_found(&req.upload_id))?
-                .prepared
-                .payment_info
-            {
-                ant_core::data::ExternalPaymentInfo::WaveBatch { payment_intent, .. } => {
-                    PaymentShape::Wave {
-                        expected_quotes: payment_intent
-                            .payments
-                            .iter()
-                            .map(|(quote_hash, _, _)| *quote_hash)
-                            .collect(),
-                    }
-                }
-                ant_core::data::ExternalPaymentInfo::Merkle {
-                    prepared_batches, ..
-                } => PaymentShape::Merkle {
-                    batch_count: prepared_batches.len(),
-                },
-            }
-        };
+        let shape = pending_shape(&self.state, &req.upload_id)
+            .await
+            .map_err(Status::from)?;
 
         let artefacts = match shape {
-            PaymentShape::Wave { expected_quotes } => {
+            PendingShape::PreparedWave { expected_quotes } => {
                 if !req.winner_pool_hash.is_empty() || !req.winner_pool_hashes.is_empty() {
                     return Err(Status::invalid_argument(
                         "winner_pool_hash(es) not applicable for wave-batch upload",
@@ -1273,12 +1237,11 @@ impl pb::upload_service_server::UploadService for UploadServiceImpl {
                 // so an empty tx_hashes is valid here exactly when prepare
                 // reported no payments (every chunk already stored) — the
                 // shared resolver checks that against the stored upload.
-                let tx_hash_map =
-                    crate::rest::upload::resolve_wave_tx_hashes(&expected_quotes, &req.tx_hashes)
-                        .map_err(tonic::Status::from)?;
+                let tx_hash_map = resolve_wave_tx_hashes(&expected_quotes, &req.tx_hashes)
+                    .map_err(Status::from)?;
                 PaymentArtefacts::Wave(tx_hash_map)
             }
-            PaymentShape::Merkle { batch_count } => {
+            PendingShape::PreparedMerkle { batch_count } => {
                 if !req.tx_hashes.is_empty() {
                     return Err(Status::invalid_argument(
                         "tx_hashes not applicable for merkle upload",
@@ -1296,73 +1259,48 @@ impl pb::upload_service_server::UploadService for UploadServiceImpl {
                             .map(|hash| (!hash.is_empty()).then(|| hash.clone()))
                             .collect()
                     });
-                let winners = crate::rest::upload::resolve_winner_pool_hashes(
-                    batch_count,
-                    single,
-                    list.as_deref(),
-                )
-                .map_err(tonic::Status::from)?;
+                let winners = resolve_winner_pool_hashes(batch_count, single, list.as_deref())
+                    .map_err(Status::from)?;
                 PaymentArtefacts::Merkle(winners)
+            }
+            PendingShape::Resume(kind) => {
+                // Already paid: the retained attempt owns the proofs, so the
+                // payment fields are ignored — but a call routed with the
+                // other shape's fields is still rejected, losslessly.
+                match kind {
+                    PaymentKind::WaveBatch
+                        if !req.winner_pool_hash.is_empty()
+                            || !req.winner_pool_hashes.is_empty() =>
+                    {
+                        return Err(Status::invalid_argument(
+                            "winner_pool_hash(es) not applicable for wave-batch upload",
+                        ));
+                    }
+                    PaymentKind::Merkle if !req.tx_hashes.is_empty() => {
+                        return Err(Status::invalid_argument(
+                            "tx_hashes not applicable for merkle upload",
+                        ));
+                    }
+                    _ => {}
+                }
+                PaymentArtefacts::Resume
             }
         };
 
-        // Input is known-good: consume the stored upload and finalize.
-        let timestamped = self
-            .state
-            .pending_uploads
-            .lock()
-            .await
-            .remove(&req.upload_id)
-            .ok_or_else(|| not_found(&req.upload_id))?;
-        let prepared = timestamped.prepared;
-        let store_on_network = req.store_data_map;
-        let client = self.state.client.clone();
-
-        let (data_map_hex, address, data_map_address, chunks_stored) = tokio::spawn(async move {
-            let result = match artefacts {
-                PaymentArtefacts::Wave(tx_hash_map) => client
-                    .finalize_upload(prepared, &tx_hash_map)
-                    .await
-                    .map_err(AntdError::from_core)?,
-                PaymentArtefacts::Merkle(winner_pool_hashes) => client
-                    .finalize_upload_merkle_multi(prepared, winner_pool_hashes)
-                    .await
-                    .map_err(AntdError::from_core)?,
-            };
-
-            let data_map_bytes = rmp_serde::to_vec(&result.data_map)
-                .map_err(|e| AntdError::Internal(format!("serialize data map: {e}")))?;
-            let data_map_hex = hex::encode(data_map_bytes);
-
-            let address = if store_on_network {
-                let addr = client
-                    .data_map_store(&result.data_map)
-                    .await
-                    .map_err(AntdError::from_core)?;
-                Some(hex::encode(addr))
-            } else {
-                None
-            };
-
-            let data_map_address = result.data_map_address.map(hex::encode);
-
-            Ok::<_, AntdError>((
-                data_map_hex,
-                address,
-                data_map_address,
-                result.chunks_stored,
-            ))
-        })
+        let done = finalize_pending(
+            self.state.clone(),
+            req.upload_id,
+            artefacts,
+            req.store_data_map,
+        )
         .await
-        .map_err(|e| Status::internal(format!("task failed: {e}")))?
-        .map_err(tonic::Status::from)?;
+        .map_err(Status::from)?;
 
-        self.state.mark_store_ok();
         Ok(Response::new(pb::FinalizeUploadResponse {
-            data_map: data_map_hex,
-            address: address.unwrap_or_default(),
-            data_map_address: data_map_address.unwrap_or_default(),
-            chunks_stored: chunks_stored as u64,
+            data_map: done.data_map_hex,
+            address: done.address.unwrap_or_default(),
+            data_map_address: done.data_map_address.unwrap_or_default(),
+            chunks_stored: done.chunks_stored,
         }))
     }
 }
