@@ -1,5 +1,5 @@
 import { discoverDaemonUrl } from "./discover.js";
-import { fromHttpStatus, InternalError, NetworkError } from "./errors.js";
+import { fromErrorBody, InternalError, NetworkError } from "./errors.js";
 import { PaymentMode } from "./models.js";
 import type {
   DataPutPublicResult,
@@ -203,13 +203,19 @@ export class RestClient {
   private async check(resp: Response): Promise<void> {
     if (resp.ok) return;
     let msg: string;
+    let body: Record<string, unknown> | undefined;
     try {
-      const body = await resp.json();
-      msg = (body as Record<string, string>).error ?? resp.statusText;
+      const parsed: unknown = await resp.json();
+      if (parsed !== null && typeof parsed === "object") {
+        body = parsed as Record<string, unknown>;
+      }
+      const err = body?.error;
+      msg = typeof err === "string" ? err : resp.statusText;
     } catch {
       msg = resp.statusText;
     }
-    throw fromHttpStatus(resp.status, msg);
+    // The body's `code` (e.g. PARTIAL_UPLOAD) refines the status-based mapping.
+    throw fromErrorBody(resp.status, msg, body);
   }
 
   /**
@@ -674,7 +680,26 @@ export class RestClient {
     return result;
   }
 
-  /** Finalize an upload after an external signer has submitted payment transactions. */
+  /**
+   * Finalize an upload after an external signer has submitted payment
+   * transactions.
+   *
+   * Throws {@link PartialUploadError} (HTTP 502, `code: "PARTIAL_UPLOAD"`)
+   * when some chunks stayed unstored after the daemon's retries. The payment
+   * persists and the stored chunks stay on the network:
+   *
+   *   - `retryable === true` (antd >= 0.14.0): the daemon kept the paid
+   *     attempt under this `uploadId`. Call `finalizeUpload` again with the
+   *     same `uploadId` and `txHashes` to store the remainder against the
+   *     same payment. Bound the loop — cap the attempts and treat a
+   *     `chunksFailed` that stops shrinking as stuck.
+   *   - `retryable === false`: nothing was retained. Re-prepare the same
+   *     content; already-stored chunks are skipped, so the retry pays only
+   *     for the remainder.
+   *
+   * See `docs/external-signer-flow.md` §6 and `finalizeWithRetry` in
+   * `examples/07-external-signer.ts`.
+   */
   async finalizeUpload(
     uploadId: string,
     txHashes: Record<string, string>,
@@ -693,7 +718,14 @@ export class RestClient {
     };
   }
 
-  /** Finalize a merkle batch upload after selecting a winning pool. */
+  /**
+   * Finalize a merkle batch upload after selecting a winning pool.
+   *
+   * Throws {@link PartialUploadError} when some chunks stayed unstored after
+   * the daemon's retries; see {@link finalizeUpload} for the two recovery
+   * paths. A merkle finalize with deliberately unpaid batches is never
+   * retryable (nothing is retained) — re-prepare to store the remainder.
+   */
   async finalizeMerkleUpload(
     uploadId: string,
     winnerPoolHash: string,
@@ -770,6 +802,11 @@ export class RestClient {
   /**
    * Submit a single chunk to the network after the external signer has paid
    * via `POST /v1/chunks/finalize`.
+   *
+   * Throws {@link PartialUploadError} when the chunk could not be stored
+   * after the daemon's retries; see {@link finalizeUpload} for the two
+   * recovery paths (`retryable` → repeat this call with the same arguments;
+   * otherwise re-prepare the same chunk).
    *
    * Requires antd >= 0.7.0.
    */
