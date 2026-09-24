@@ -71,10 +71,17 @@ internal object ExceptionMapping {
     private const val PARTIAL_UPLOAD_CODE = "PARTIAL_UPLOAD"
 
     /**
+     * Fixed text every PARTIAL_UPLOAD message opens with (`antd/src/error.rs`).
+     * Over gRPC it is the only thing that distinguishes a partial upload from
+     * any other ABORTED status, so [fromGrpcStatus] gates on it.
+     */
+    private const val PARTIAL_UPLOAD_PREFIX = "Partial upload:"
+
+    /**
      * Fixed prefix of the daemon's PARTIAL_UPLOAD message:
      * `Partial upload: <stored>/<total> chunks stored, <failed> failed`.
      */
-    private val partialUploadCounts = Regex("Partial upload: (\\d+)/(\\d+) chunks stored, (\\d+) failed")
+    private val partialUploadCounts = Regex("$PARTIAL_UPLOAD_PREFIX (\\d+)/(\\d+) chunks stored, (\\d+) failed")
 
     /**
      * Message tail the daemon appends when it kept the paid attempt for a
@@ -116,11 +123,15 @@ internal object ExceptionMapping {
         )
     }
 
+    /** True when [message] carries the daemon's fixed PARTIAL_UPLOAD prefix. */
+    fun isPartialUploadMessage(message: String): Boolean = message.contains(PARTIAL_UPLOAD_PREFIX)
+
     /**
      * Recovers the chunk counts and the retryable hint from a PARTIAL_UPLOAD
      * message. Used for gRPC, where the status carries no structured detail;
-     * REST callers get the body fields instead. An unrecognised message
-     * yields zero counts and `retryable = false`.
+     * REST callers get the body fields instead. A message whose counts do not
+     * parse yields zero counts and `retryable = false`; whether the message is
+     * a partial upload at all is decided by [isPartialUploadMessage].
      */
     fun partialUploadFromMessage(message: String): PartialUploadException {
         val m = partialUploadCounts.find(message)
@@ -154,8 +165,12 @@ internal object ExceptionMapping {
             // retries. The counts and the "paid attempt retained" hint ride
             // the status description over gRPC (no structured detail yet),
             // so parse them best-effort to match the REST client's typed
-            // exception. The daemon emits ABORTED for nothing else.
-            Status.Code.ABORTED -> partialUploadFromMessage(detail)
+            // exception. The daemon's message always opens with the fixed
+            // "Partial upload:" prefix, so gate on it; any other ABORTED keeps
+            // the pre-existing conflicting-update mapping instead of being
+            // misreported as a partial upload.
+            Status.Code.ABORTED ->
+                if (isPartialUploadMessage(detail)) partialUploadFromMessage(detail) else ForkException(detail)
             Status.Code.INVALID_ARGUMENT -> BadRequestException(detail)
             Status.Code.FAILED_PRECONDITION -> PaymentException(detail)
             Status.Code.UNAVAILABLE -> NetworkException(detail)

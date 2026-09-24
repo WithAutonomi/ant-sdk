@@ -73,6 +73,11 @@ class GrpcClientTest {
         const val PARTIAL_NOT_RETAINED_MSG =
             "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " +
                 "(stored chunks persist; re-prepare the same content to retry only the remainder)"
+        // Carries the fixed prefix but not the count layout: still a partial
+        // upload, just one whose counts cannot be recovered.
+        const val PARTIAL_GARBLED_MSG = "Partial upload: counts unavailable"
+        // An ABORTED that is not a partial upload at all.
+        const val OTHER_ABORTED_MSG = "register fork: concurrent update detected"
     }
 
     // --- Mock servicers ---
@@ -243,6 +248,14 @@ class GrpcClientTest {
             if (request.uploadId == "partial-final") {
                 throw Status.ABORTED.withDescription(PARTIAL_NOT_RETAINED_MSG).asRuntimeException()
             }
+            // Magic id: the prefix is present but the counts are garbled.
+            if (request.uploadId == "partial-garbled") {
+                throw Status.ABORTED.withDescription(PARTIAL_GARBLED_MSG).asRuntimeException()
+            }
+            // Magic id: an ABORTED that is not a partial upload.
+            if (request.uploadId == "aborted-other") {
+                throw Status.ABORTED.withDescription(OTHER_ABORTED_MSG).asRuntimeException()
+            }
             // Merkle: winner_pool_hash populated.
             if (request.winnerPoolHash.isNotEmpty()) {
                 return finalizeUploadResponse {
@@ -401,13 +414,51 @@ class GrpcClientTest {
     }
 
     @Test
+    fun finalizeUploadPartialPrefixWithGarbledCountsStillMapsToPartialUpload() = runTest {
+        val ex = assertFailsWith<PartialUploadException> {
+            client.finalizeUpload("partial-garbled", mapOf("0xq1" to "0xtx1"))
+        }
+        // The prefix alone decides the type; unparseable counts read as zero
+        // and never as retryable.
+        assertEquals(0L, ex.chunksStored)
+        assertEquals(0L, ex.chunksFailed)
+        assertEquals(0L, ex.totalChunks)
+        assertFalse(ex.retryable)
+        assertEquals(PARTIAL_GARBLED_MSG, ex.message)
+    }
+
+    @Test
+    fun finalizeUploadUnrelatedAbortedStaysForkException() = runTest {
+        // An ABORTED without the daemon's "Partial upload:" prefix keeps the
+        // pre-existing mapping rather than being misreported as a partial upload.
+        val ex = assertFailsWith<ForkException> {
+            client.finalizeUpload("aborted-other", mapOf("0xq1" to "0xtx1"))
+        }
+        assertEquals(OTHER_ABORTED_MSG, ex.message)
+    }
+
+    @Test
+    fun abortedMappingGatesOnPartialUploadPrefix() {
+        fun map(msg: String) = ExceptionMapping.fromGrpcStatus(Status.ABORTED.withDescription(msg).asRuntimeException())
+        assertIs<PartialUploadException>(map(PARTIAL_RETAINED_MSG))
+        assertIs<PartialUploadException>(map(PARTIAL_GARBLED_MSG))
+        // Containment, not startsWith: a wrapped message still counts.
+        assertIs<PartialUploadException>(map("finalize failed: $PARTIAL_NOT_RETAINED_MSG"))
+        assertIs<ForkException>(map(OTHER_ABORTED_MSG))
+        assertIs<ForkException>(map("something else entirely"))
+    }
+
+    @Test
     fun partialUploadMessageParserCases() {
         data class Case(val msg: String, val stored: Long, val failed: Long, val total: Long, val retryable: Boolean)
         val cases = listOf(
             Case(PARTIAL_RETAINED_MSG, 300, 12, 312, true),
             Case(PARTIAL_NOT_RETAINED_MSG, 300, 12, 312, false),
             Case("Partial upload: 300/312 chunks stored, 12 failed after retries", 300, 12, 312, false),
-            // Unrecognised message: zero counts, not retryable.
+            // Prefix present, counts garbled: zero counts, not retryable.
+            Case(PARTIAL_GARBLED_MSG, 0, 0, 0, false),
+            // The parser itself never decides the exception type; the
+            // mapping-level gate does (see abortedMappingGatesOnPartialUploadPrefix).
             Case("something else entirely", 0, 0, 0, false),
         )
         for (c in cases) {
