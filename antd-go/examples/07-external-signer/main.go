@@ -147,6 +147,10 @@ func externalSignerPay(ctx context.Context, rpcURL string, vaultAddr, tokenAddr 
 // shrinking as stuck. A non-retryable partial upload (older daemon, or a
 // merkle upload with unpaid batches) is returned as-is: the recovery there is
 // to re-prepare the same content, which skips the chunks already stored.
+// retryBackoffUnit scales the linear backoff between attempts (attempt N
+// waits N units). A variable so the tests can shrink it.
+var retryBackoffUnit = 2 * time.Second
+
 func finalizeWithRetry(ctx context.Context, client *antd.Client, uploadID string, txHashes map[string]string, storeDataMap bool) (*antd.FinalizeUploadResult, error) {
 	const maxAttempts = 5
 	var lastFailed uint64
@@ -169,8 +173,13 @@ func finalizeWithRetry(ctx context.Context, client *antd.Client, uploadID string
 			perr.ChunksStored, perr.TotalChunks, perr.ChunksFailed, attempt+1, maxAttempts)
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(time.Duration(attempt) * 2 * time.Second):
+			// Keep both the cancellation (errors.Is(err, context.Canceled)
+			// still works) and the paid-attempt context: the daemon still
+			// holds the retained upload, so the caller should resume with
+			// the same upload_id later, not re-prepare and pay again.
+			return nil, fmt.Errorf("finalize retry cancelled after %d attempt(s) with %d/%d chunks stored (paid attempt retained under upload_id %s — resume later with the same finalize call): %w (last partial: %v)",
+				attempt, perr.ChunksStored, perr.TotalChunks, uploadID, ctx.Err(), perr)
+		case <-time.After(time.Duration(attempt) * retryBackoffUnit):
 		}
 	}
 }

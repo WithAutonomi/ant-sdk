@@ -61,10 +61,11 @@ type ServiceUnavailableError struct{ AntdError }
 //     shrinking as stuck. The retained attempt expires with the daemon's
 //     pending-upload TTL. (antd >= 0.14.0; older daemons never set the
 //     flag, so Retryable reads false and the re-prepare path applies.)
-//   - Retryable == false: nothing was retained (a merkle finalize with
-//     deliberately unpaid batches, or an older daemon). Re-preparing the
-//     same content skips already-stored chunks, so a retry pays only for
-//     the missing remainder.
+//   - Retryable == false: nothing was retained — a daemon-wallet upload
+//     (UploadFile / UploadData, where the daemon pays), a merkle finalize
+//     with deliberately unpaid batches, or an older daemon. Re-preparing
+//     (or re-uploading) the same content skips already-stored chunks, so a
+//     retry pays only for the missing remainder.
 //
 // Over REST the counts and Retryable come from the structured error body.
 // Over gRPC they are parsed best-effort from the status message ("Partial
