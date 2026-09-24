@@ -129,8 +129,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 The `GrpcClient` has identical method signatures to the REST `Client`, so switching
 transports requires only changing the constructor. gRPC status codes are surfaced through
-the `Grpc` error variant, except `ABORTED`, which is a partial store and maps to
-`AntdError::PartialUpload` (see [Error Handling](#error-handling)).
+the `Grpc` error variant, except an `ABORTED` whose message starts with `Partial upload:`,
+which is a partial store and maps to `AntdError::PartialUpload`; any other `ABORTED` stays
+the generic `Grpc` error (see [Error Handling](#error-handling)).
 
 `GrpcClient::connect` decodes responses up to `DEFAULT_MAX_RECV_MESSAGE_BYTES` (32 MiB,
 sized so a full wave-batch prepare with `include_signed_quotes` fits; tonic's own 4 MiB
@@ -164,7 +165,7 @@ match client.data_get_public("some_address").await {
 | `TooLarge` | 413 | Payload too large |
 | `Internal` | 500 | Server error |
 | `Network` | 502 | Network unreachable |
-| `PartialUpload` | 502 (`code: PARTIAL_UPLOAD`) / gRPC `ABORTED` | A finalize stored some chunks but not all; carries counts and `retryable` |
+| `PartialUpload` | 502 (`code: PARTIAL_UPLOAD`) / gRPC `ABORTED` with a `Partial upload:` message | A finalize stored some chunks but not all; carries counts and `retryable` |
 | `ServiceUnavailable` | 503 | Wallet not configured |
 | `Http` | - | REST transport error |
 | `Json` | - | Serialization error |
@@ -189,8 +190,10 @@ network; `retryable` says how to finish the upload:
   skips already-stored chunks, so a retry pays only for the remainder.
 
 Over REST the counts and flag come from the daemon's error body; over gRPC they are parsed
-from the `ABORTED` status message (an unrecognised message reads as zero counts, not
-retryable). See `finalize_with_retry` in [`examples/07-external-signer.rs`](examples/07-external-signer.rs)
+from the `ABORTED` status message. Only an `ABORTED` whose message starts with the daemon's
+fixed `Partial upload:` prefix maps to `PartialUpload` (garbled counts after the prefix read
+as zero, not retryable); any other `ABORTED` is the generic `Grpc` error. See
+`finalize_with_retry` in [`examples/07-external-signer.rs`](examples/07-external-signer.rs)
 and §6 of [`docs/external-signer-flow.md`](../docs/external-signer-flow.md).
 
 ```rust

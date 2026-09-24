@@ -473,10 +473,11 @@ impl GrpcClient {
     /// address of the stored chunk (matches
     /// [`PrepareChunkResult::address`]).
     ///
-    /// A partial store (gRPC `ABORTED`) surfaces as
-    /// [`AntdError::PartialUpload`] with the counts and `retryable` flag
-    /// parsed from the status message; the retry contract is the same as
-    /// over REST.
+    /// A partial store (gRPC `ABORTED` whose message starts with
+    /// `Partial upload:`) surfaces as [`AntdError::PartialUpload`] with the
+    /// counts and `retryable` flag parsed from the status message; the
+    /// retry contract is the same as over REST. Any other `ABORTED` stays
+    /// [`AntdError::Grpc`].
     ///
     /// Requires antd >= 0.9.0.
     pub async fn finalize_chunk_upload(
@@ -768,10 +769,11 @@ impl GrpcClient {
     ///
     /// Mirrors [`crate::Client::finalize_upload`].
     ///
-    /// A partial store (gRPC `ABORTED`) surfaces as
-    /// [`AntdError::PartialUpload`] with the counts and `retryable` flag
-    /// parsed from the status message; the retry contract is the same as
-    /// over REST.
+    /// A partial store (gRPC `ABORTED` whose message starts with
+    /// `Partial upload:`) surfaces as [`AntdError::PartialUpload`] with the
+    /// counts and `retryable` flag parsed from the status message; the
+    /// retry contract is the same as over REST. Any other `ABORTED` stays
+    /// [`AntdError::Grpc`].
     ///
     /// Requires antd >= 0.9.0.
     pub async fn finalize_upload(
@@ -800,10 +802,11 @@ impl GrpcClient {
     ///
     /// Mirrors [`crate::Client::finalize_merkle_upload`].
     ///
-    /// A partial store (gRPC `ABORTED`) surfaces as
-    /// [`AntdError::PartialUpload`] with the counts and `retryable` flag
-    /// parsed from the status message; the retry contract is the same as
-    /// over REST.
+    /// A partial store (gRPC `ABORTED` whose message starts with
+    /// `Partial upload:`) surfaces as [`AntdError::PartialUpload`] with the
+    /// counts and `retryable` flag parsed from the status message; the
+    /// retry contract is the same as over REST. Any other `ABORTED` stays
+    /// [`AntdError::Grpc`].
     ///
     /// Requires antd >= 0.9.0.
     pub async fn finalize_merkle_upload(

@@ -1300,9 +1300,25 @@ async fn test_grpc_partial_upload_maps_to_partial_upload() {
 
 #[tokio::test]
 async fn test_grpc_error_aborted_unrecognised_message() {
-    // ABORTED is always a partial store; a message without the fixed prefix
-    // still maps, with zero counts and not retryable.
+    // ABORTED is a partial store only when the message carries the daemon's
+    // fixed `Partial upload:` prefix; any other ABORTED keeps the generic
+    // gRPC mapping instead of being misreported as a partial upload.
     let client = start_error_server(tonic::Code::Aborted, "aborted").await;
+    let err = client.health().await.unwrap_err();
+    match err {
+        AntdError::Grpc(status) => {
+            assert_eq!(status.code(), tonic::Code::Aborted);
+            assert_eq!(status.message(), "aborted");
+        }
+        other => panic!("expected AntdError::Grpc, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_grpc_error_aborted_partial_prefix_garbled_counts() {
+    // The prefix alone is enough to classify the status as a partial store;
+    // counts that fail to parse read as zero and not retryable.
+    let client = start_error_server(tonic::Code::Aborted, "Partial upload: n/a chunks").await;
     let err = client.health().await.unwrap_err();
     match err {
         AntdError::PartialUpload {
@@ -1314,7 +1330,7 @@ async fn test_grpc_error_aborted_unrecognised_message() {
         } => {
             assert_eq!((chunks_stored, chunks_failed, total_chunks), (0, 0, 0));
             assert!(!retryable);
-            assert_eq!(message, "aborted");
+            assert_eq!(message, "Partial upload: n/a chunks");
         }
         other => panic!("expected AntdError::PartialUpload, got: {other:?}"),
     }
