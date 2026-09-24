@@ -1,0 +1,60 @@
+name: Dart CI
+
+# antd-dart (antd_client) had no CI before 2026-09-24: nothing analyzed or
+# tested the Dart daemon client on push. Runs the analyzer and the unit-test
+# suite (REST client against a mock HTTP client, gRPC client against in-process
+# stubs — no daemon needed) and the same `dart pub publish --dry-run` that
+# publish-dart.yml runs, so pub.dev packaging problems surface on the PR
+# rather than at release time.
+
+on:
+  push:
+    branches: [main]
+    # GitHub Actions only allows EITHER `paths` OR `paths-ignore`, so the
+    # "skip when only .md files changed" negation lives inside `paths`.
+    paths:
+      - "antd-dart/**"
+      - ".github/workflows/dart-ci.yml"
+      - "!**/*.md"
+  pull_request:
+    paths:
+      - "antd-dart/**"
+      - ".github/workflows/dart-ci.yml"
+      - "!**/*.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test-antd-dart:
+    name: Analyze + test (Dart ${{ matrix.sdk }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: [stable]
+    defaults:
+      run:
+        working-directory: antd-dart
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ matrix.sdk }}
+
+      - name: dart pub get
+        run: dart pub get
+
+      - name: dart analyze
+        run: dart analyze --fatal-infos
+
+      - name: dart test
+        run: dart test
+
+      - name: dart pub publish --dry-run
+        run: dart pub publish --dry-run

@@ -6,11 +6,11 @@ A comprehensive guide to using the Autonomi network with the Dart SDK.
 
 ```bash
 # Add the dependency
-dart pub add antd
+dart pub add antd_client
 
 # Or add to pubspec.yaml:
 # dependencies:
-#   antd: ^0.1.0
+#   antd_client: ^0.1.0
 
 # Start local testnet
 ant dev start
@@ -19,7 +19,7 @@ ant dev start
 ## Connecting
 
 ```dart
-import 'package:antd/antd.dart';
+import 'package:antd_client/antd_client.dart';
 
 // REST transport (default)
 final client = AntdClient();
@@ -94,7 +94,7 @@ final est = await client.fileCost('/path/to/file.txt');
 ## Error Handling
 
 ```dart
-import 'package:antd/antd.dart';
+import 'package:antd_client/antd_client.dart';
 
 try {
   await client.dataGetPublic('nonexistent');
@@ -131,8 +131,8 @@ ant dev example data -l dart
 ant dev example all -l dart
 
 # Or directly
-dart run antd-dart/examples/01_connect.dart
-dart run antd-dart/examples/02_data.dart
+dart run antd-dart/example/01_connect.dart
+dart run antd-dart/example/02_data.dart
 ```
 
-See `antd-dart/examples/` for the complete set of examples.
+See `antd-dart/example/` for the complete set of examples.
