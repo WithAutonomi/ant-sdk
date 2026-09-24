@@ -147,6 +147,27 @@ MockClient errorDaemon(int statusCode, String errorMessage) {
   });
 }
 
+/// Creates a MockClient that always answers with the daemon's structured
+/// `PARTIAL_UPLOAD` body (HTTP 502). [retryable] `null` omits the flag, as an
+/// antd < 0.14.0 daemon does.
+MockClient partialUploadDaemon({bool? retryable}) {
+  return MockClient((request) async {
+    final body = <String, dynamic>{
+      'error': 'Partial upload: 300/312 chunks stored, 12 failed after retries',
+      'code': 'PARTIAL_UPLOAD',
+      'chunks_stored': 300,
+      'chunks_failed': 12,
+      'total_chunks': 312,
+    };
+    if (retryable != null) body['retryable'] = retryable;
+    return http.Response(
+      jsonEncode(body),
+      502,
+      headers: {'content-type': 'application/json'},
+    );
+  });
+}
+
 void main() {
   setUp(() {
     lastRequestBodies = {};
@@ -452,6 +473,96 @@ void main() {
         throwsA(isA<AntdError>().having((e) => e.statusCode, 'statusCode', 503)),
       );
       client.close();
+    });
+  });
+
+  group('Partial upload (PARTIAL_UPLOAD)', () {
+    test('502 with code PARTIAL_UPLOAD carries counts and retryable', () async {
+      final client = AntdClient(httpClient: partialUploadDaemon(retryable: true));
+      expect(
+        () => client.finalizeMerkleUpload('mb1', '0xw1'),
+        throwsA(isA<PartialUploadError>()
+            .having((e) => e.statusCode, 'statusCode', 502)
+            .having((e) => e.chunksStored, 'chunksStored', 300)
+            .having((e) => e.chunksFailed, 'chunksFailed', 12)
+            .having((e) => e.totalChunks, 'totalChunks', 312)
+            .having((e) => e.retryable, 'retryable', isTrue)),
+      );
+      client.close();
+    });
+
+    test('retryable defaults to false without the body flag', () async {
+      // An older daemon (< 0.14.0) never sends `retryable`; the flag must
+      // read false so callers fall back to the re-prepare path rather than
+      // looping on an upload_id the daemon has already dropped.
+      final client = AntdClient(httpClient: partialUploadDaemon());
+      expect(
+        () => client.finalizeUpload('u1', {'0xq': '0xt'}),
+        throwsA(isA<PartialUploadError>()
+            .having((e) => e.chunksFailed, 'chunksFailed', 12)
+            .having((e) => e.retryable, 'retryable', isFalse)),
+      );
+      client.close();
+    });
+
+    test('PartialUploadError is still a NetworkError', () async {
+      // Existing `on NetworkError` clauses keep catching the 502.
+      final client = AntdClient(httpClient: partialUploadDaemon(retryable: true));
+      expect(
+        () => client.finalizeChunkUpload('chunk-1', {'qh1': 'tx1'}),
+        throwsA(isA<NetworkError>()),
+      );
+      client.close();
+    });
+
+    test('stream path maps PARTIAL_UPLOAD the same way', () async {
+      final client = AntdClient(httpClient: partialUploadDaemon(retryable: true));
+      expect(
+        () => client.dataStream('dm123'),
+        throwsA(isA<PartialUploadError>()
+            .having((e) => e.retryable, 'retryable', isTrue)),
+      );
+      client.close();
+    });
+
+    test('plain 502 still maps to NetworkError', () async {
+      final client = AntdClient(httpClient: MockClient((request) async {
+        return http.Response(
+          jsonEncode({'error': 'upstream unreachable', 'code': 'NETWORK_ERROR'}),
+          502,
+          headers: {'content-type': 'application/json'},
+        );
+      }));
+      expect(
+        () => client.finalizeUpload('up1', {}),
+        throwsA(allOf(isA<NetworkError>(), isNot(isA<PartialUploadError>()))),
+      );
+      client.close();
+    });
+
+    test('fromMessage parses counts and the retained hint', () {
+      final cases = <String, List<Object>>{
+        // message: [stored, failed, total, retryable]
+        'Partial upload: 300/312 chunks stored, 12 failed after retries: quorum '
+                '(paid attempt retained: call finalize again with the same '
+                'upload_id to store the remainder against the same payment)':
+            [300, 12, 312, true],
+        'Partial upload: 300/312 chunks stored, 12 failed after retries: quorum '
+                '(stored chunks persist; re-prepare the same content to retry '
+                'only the remainder)':
+            [300, 12, 312, false],
+        'Partial upload: 300/312 chunks stored, 12 failed after retries':
+            [300, 12, 312, false],
+        'something else entirely': [0, 0, 0, false],
+      };
+      cases.forEach((msg, want) {
+        final e = PartialUploadError.fromMessage(msg);
+        expect(e.message, equals(msg));
+        expect(e.chunksStored, equals(want[0]), reason: msg);
+        expect(e.chunksFailed, equals(want[1]), reason: msg);
+        expect(e.totalChunks, equals(want[2]), reason: msg);
+        expect(e.retryable, equals(want[3]), reason: msg);
+      });
     });
   });
 

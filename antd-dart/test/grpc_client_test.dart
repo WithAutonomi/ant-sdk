@@ -29,6 +29,7 @@ Exception mapGrpcError(FakeGrpcError e) {
     case 6: return AlreadyExistsError(e.message);
     case 8: return TooLargeError(e.message);
     case 9: return PaymentError(e.message);
+    case 10: return PartialUploadError.fromMessage(e.message);
     case 13: return InternalError(e.message);
     case 14: return NetworkError(e.message);
     default: return AntdError(e.code, e.message);
@@ -369,6 +370,38 @@ void main() {
       expect(
         () => client.health(),
         throwsA(isA<PaymentError>()),
+      );
+    });
+
+    test('ABORTED -> PartialUploadError with counts parsed from message',
+        () async {
+      final client = _errorClient(
+          10,
+          'Partial upload: 300/312 chunks stored, 12 failed after retries: '
+          'quorum (paid attempt retained: call finalize again with the same '
+          'upload_id to store the remainder against the same payment)');
+      expect(
+        () => client.health(),
+        throwsA(isA<PartialUploadError>()
+            .having((e) => e.statusCode, 'statusCode', 502)
+            .having((e) => e.chunksStored, 'chunksStored', 300)
+            .having((e) => e.chunksFailed, 'chunksFailed', 12)
+            .having((e) => e.totalChunks, 'totalChunks', 312)
+            .having((e) => e.retryable, 'retryable', isTrue)),
+      );
+    });
+
+    test('ABORTED without the retained hint -> not retryable', () async {
+      final client = _errorClient(
+          10,
+          'Partial upload: 300/312 chunks stored, 12 failed after retries: '
+          'quorum (stored chunks persist; re-prepare the same content to '
+          'retry only the remainder)');
+      expect(
+        () => client.health(),
+        throwsA(isA<PartialUploadError>()
+            .having((e) => e.chunksFailed, 'chunksFailed', 12)
+            .having((e) => e.retryable, 'retryable', isFalse)),
       );
     });
 

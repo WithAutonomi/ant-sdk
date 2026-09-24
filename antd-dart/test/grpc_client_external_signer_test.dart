@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:antd_client/src/errors.dart';
 import 'package:antd_client/src/grpc_client.dart';
 import 'package:antd_client/src/generated/antd/v1/chunks.pb.dart' as chunks_msg;
 import 'package:antd_client/src/generated/antd/v1/chunks.pbgrpc.dart' as chunks_pb;
@@ -104,6 +105,31 @@ void main() {
       final r = await client.finalizeMerkleUpload('upid_data_', '0xwinpool');
       expect(r.dataMap, equals('dm_merkle'));
       expect(r.address, equals(''));
+    });
+
+    test('ABORTED finalize maps to PartialUploadError with parsed counts',
+        () async {
+      // Counts and the retained hint are parsed from the status message, so
+      // the gRPC client matches the REST client's typed error.
+      await expectLater(
+        client.finalizeMerkleUpload('partial', '0xw1'),
+        throwsA(isA<PartialUploadError>()
+            .having((e) => e.statusCode, 'statusCode', 502)
+            .having((e) => e.chunksStored, 'chunksStored', 300)
+            .having((e) => e.chunksFailed, 'chunksFailed', 12)
+            .having((e) => e.totalChunks, 'totalChunks', 312)
+            .having((e) => e.retryable, 'retryable', isTrue)),
+      );
+    });
+
+    test('ABORTED finalize without the retained hint is not retryable',
+        () async {
+      await expectLater(
+        client.finalizeUpload('partial-final', {'0xq1': '0xtx1'}),
+        throwsA(isA<PartialUploadError>()
+            .having((e) => e.chunksFailed, 'chunksFailed', 12)
+            .having((e) => e.retryable, 'retryable', isFalse)),
+      );
     });
   });
 
@@ -250,6 +276,20 @@ class _MockUploadService extends upload_pb.UploadServiceBase {
   @override
   Future<upload_msg.FinalizeUploadResponse> finalizeUpload(
       ServiceCall call, upload_msg.FinalizeUploadRequest request) async {
+    // PARTIAL_UPLOAD arrives as ABORTED with the counts and the retained
+    // hint in the message text (no structured detail on the proto yet).
+    if (request.uploadId == 'partial') {
+      throw GrpcError.aborted(
+          'Partial upload: 300/312 chunks stored, 12 failed after retries: '
+          'quorum (paid attempt retained: call finalize again with the same '
+          'upload_id to store the remainder against the same payment)');
+    }
+    if (request.uploadId == 'partial-final') {
+      throw GrpcError.aborted(
+          'Partial upload: 300/312 chunks stored, 12 failed after retries: '
+          'quorum (stored chunks persist; re-prepare the same content to '
+          'retry only the remainder)');
+    }
     if (request.winnerPoolHash.isNotEmpty) {
       return upload_msg.FinalizeUploadResponse()
         ..dataMap = 'dm_merkle'
