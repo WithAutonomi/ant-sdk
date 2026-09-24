@@ -119,6 +119,29 @@ All methods return `!T` (error union) using Zig's standard error handling.
 | `fileGetPublic` | `fn (self: *Client, address: []const u8, dest_path: []const u8) !void` | Download a public file by address |
 | `fileCost` | `fn (self: *Client, path: []const u8, is_public: bool, payment_mode: PaymentMode) !UploadCostEstimate` | Estimate upload cost — size, chunks, gas, payment mode |
 
+### External signer (two-phase upload)
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `prepareUpload` | `fn (self: *Client, path: []const u8, visibility: ?[]const u8) ![]const u8` | Prepare a file upload for external payment — returns the raw prepare response (`upload_id`, `payments`, ...) |
+| `prepareUploadPublic` | `fn (self: *Client, path: []const u8) ![]const u8` | `prepareUpload` with `visibility: "public"` |
+| `prepareDataUpload` | `fn (self: *Client, data: []const u8, visibility: ?[]const u8) ![]const u8` | Prepare an in-memory data upload for external payment |
+| `finalizeUpload` | `fn (self: *Client, upload_id: []const u8, tx_hashes_json: []const u8) ![]const u8` | Store the prepared upload after payment — returns the raw finalize response (`data_map`, `data_map_address`) |
+| `prepareChunkUpload` | `fn (self: *Client, data: []const u8) !PrepareChunkResult` | Prepare a single chunk for external payment |
+| `finalizeChunkUpload` | `fn (self: *Client, upload_id: []const u8, tx_hashes_json: []const u8) ![]const u8` | Store the prepared chunk after payment — returns its address |
+
+Both finalize methods take the same two arguments: the `upload_id` from the prepare response and `tx_hashes_json`, the quote-hash → tx-hash map from the on-chain `payForQuotes()` payment as a JSON object string — only the map, not a request object. The SDK builds the request body itself (`{"upload_id": ..., "tx_hashes": {...}}`, plus `"store_data_map": false` for `finalizeUpload`) and returns `error.JsonError` without sending anything if the string is not a JSON object. Pass `{}` when prepare reported no payments (every chunk was already stored). The flow is specified in [docs/external-signer-flow.md](../docs/external-signer-flow.md).
+
+```zig
+// After payForQuotes() confirmed with tx_hash, for every payment p in the
+// prepare response: tx_hashes[p.quote_hash] = tx_hash
+const tx_hashes_json = "{\"<quote_hash_0>\":\"<tx_hash>\",\"<quote_hash_1>\":\"<tx_hash>\"}";
+const body = try client.finalizeUpload(upload_id, tx_hashes_json);
+defer allocator.free(body);
+const result = try antd.json_helpers.parseFinalizeUploadResult(allocator, body);
+defer result.deinit(allocator);
+```
+
 ## Error Handling
 
 Methods return errors from the `AntdError` error set. Use Zig's error handling patterns:
@@ -175,13 +198,15 @@ An external-signer finalize (`finalizeUpload`, `finalizeChunkUpload`) can fail *
 
 These fields are zero / `false` for every other error.
 
-- **`retryable == true`** -- the daemon kept the paid attempt (payment proofs plus the unstored chunks) under the same `upload_id`. Call the **same finalize function again with the same arguments**; the remainder is stored against the same payment -- no re-prepare, no second signature, no double payment. Bound the loop: a persistent failure returns `error.PartialUpload` on every call, so cap the attempts and treat a `chunks_failed` that stops shrinking as stuck. The retained attempt expires with the daemon's pending-upload TTL (one hour).
+- **`retryable == true`** -- the daemon kept the paid attempt (payment proofs plus the unstored chunks) under the same `upload_id`. Call the **same finalize function again with the same arguments** (the same `upload_id` and the same `tx_hashes_json` map); the remainder is stored against the same payment -- no re-prepare, no second signature, no double payment. Bound the loop: a persistent failure returns `error.PartialUpload` on every call, so cap the attempts and treat a `chunks_failed` that stops shrinking as stuck. The retained attempt expires with the daemon's pending-upload TTL (one hour).
 - **`retryable == false`** -- nothing was retained (an older daemon, or a merkle finalize with deliberately unpaid batches). Re-prepare the same content: already-stored chunks are skipped, so the retry pays only for the remainder.
 
 The contract is specified in [docs/external-signer-flow.md, section 6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment). A bounded retry helper around `finalizeUpload` -- five attempts, linear backoff, stuck detection -- that only retries when `retryable` and returns a non-retryable partial upload untouched:
 
 ```zig
-/// Finalize with a bounded retry against the same payment. Returns the
+/// Finalize with a bounded retry against the same payment. `upload_id` and
+/// `tx_hashes_json` (the quote-hash -> tx-hash map as a JSON object string)
+/// are passed to `finalizeUpload` unchanged on every attempt. Returns the
 /// finalize response body (caller frees) or the finalize error; a
 /// non-retryable `error.PartialUpload` is returned untouched (re-prepare).
 fn finalizeWithRetry(client: *antd.Client, upload_id: []const u8, tx_hashes_json: []const u8) ![]const u8 {

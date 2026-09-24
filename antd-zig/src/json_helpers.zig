@@ -432,16 +432,67 @@ pub fn buildPrepareDataBody(allocator: Allocator, data: []const u8, visibility: 
     });
 }
 
-/// Build a /v1/chunks/finalize request body from a pre-built `tx_hashes` JSON
-/// object literal (e.g. `"{\"qh1\":\"tx1\"}"`).
+/// Build a /v1/upload/finalize request body:
+/// `{"upload_id":"...","tx_hashes":{...},"store_data_map":false}`.
+///
+/// `tx_hashes_json` is the caller's quote-hash -> tx-hash map as a JSON
+/// object string (e.g. `"{\"qh1\":\"tx1\"}"`, or `"{}"` when prepare
+/// reported no payments). It is parsed and re-serialised into the request,
+/// so the caller never builds the request object itself. Returns
+/// `error.JsonError` when it is not valid JSON or not an object.
+///
+/// `store_data_map` is always `false`: the SDK never asks the daemon's own
+/// wallet to publish the DataMap. A public upload bundles the DataMap chunk
+/// into the externally paid batch via `visibility:"public"` on prepare and
+/// reports it as `data_map_address` on finalize.
+pub fn buildFinalizeUploadBody(allocator: Allocator, upload_id: []const u8, tx_hashes_json: []const u8) ![]const u8 {
+    return buildFinalizeBody(allocator, upload_id, tx_hashes_json, .{ .store_data_map = false });
+}
+
+/// Build a /v1/chunks/finalize request body:
+/// `{"upload_id":"...","tx_hashes":{...}}`.
+///
+/// `tx_hashes_json` follows the same contract as in `buildFinalizeUploadBody`:
+/// a JSON object string mapping quote_hash to tx_hash, validated before it is
+/// embedded (`error.JsonError` for invalid JSON or a non-object).
 pub fn buildFinalizeChunkBody(allocator: Allocator, upload_id: []const u8, tx_hashes_json: []const u8) ![]const u8 {
-    const escaped_id = jsonEscapeString(allocator, upload_id) catch return error.JsonError;
-    defer allocator.free(escaped_id);
-    return std.fmt.allocPrint(
-        allocator,
-        "{{\"upload_id\":{s},\"tx_hashes\":{s}}}",
-        .{ escaped_id, tx_hashes_json },
-    ) catch return error.JsonError;
+    return buildFinalizeBody(allocator, upload_id, tx_hashes_json, .{ .store_data_map = null });
+}
+
+const FinalizeBodyOptions = struct {
+    /// `null` omits the field (chunk finalize has no such field).
+    store_data_map: ?bool,
+};
+
+/// Shared builder for the two finalize endpoints. The caller's `tx_hashes`
+/// map is parsed with `std.json` (rejecting anything but an object) and the
+/// request is serialised as a whole, so a stray or malformed map can never
+/// be sent as the request body.
+fn buildFinalizeBody(
+    allocator: Allocator,
+    upload_id: []const u8,
+    tx_hashes_json: []const u8,
+    options: FinalizeBodyOptions,
+) ![]const u8 {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, tx_hashes_json, .{}) catch
+        return error.JsonError;
+    defer parsed.deinit();
+    const tx_hashes = switch (parsed.value) {
+        .object => parsed.value,
+        else => return error.JsonError,
+    };
+
+    // ObjectMap keeps insertion order, so the serialised field order is fixed.
+    var body = std.json.ObjectMap.init(allocator);
+    defer body.deinit();
+    body.put("upload_id", .{ .string = upload_id }) catch return error.JsonError;
+    body.put("tx_hashes", tx_hashes) catch return error.JsonError;
+    if (options.store_data_map) |flag| {
+        body.put("store_data_map", .{ .bool = flag }) catch return error.JsonError;
+    }
+
+    return std.json.stringifyAlloc(allocator, std.json.Value{ .object = body }, .{}) catch
+        return error.JsonError;
 }
 
 /// Parse a /v1/chunks/prepare response body into a PrepareChunkResult.

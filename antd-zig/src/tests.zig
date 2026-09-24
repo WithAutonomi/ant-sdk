@@ -428,7 +428,96 @@ test "parsePrepareChunkResult parses wave-batch branch with payments" {
     try testing.expectEqualStrings("http://localhost:8545", result.rpc_url);
 }
 
-test "buildFinalizeChunkBody embeds upload_id and tx_hashes literal" {
+// finalizeUpload takes the upload_id and the quote-hash -> tx-hash map (as a
+// JSON object string) and builds the /v1/upload/finalize request itself:
+// {"upload_id":"...","tx_hashes":{...},"store_data_map":false}. Before this
+// builder existed the map argument was POSTed verbatim as the whole body and
+// upload_id was discarded, so the documented call shape returned 400.
+test "buildFinalizeUploadBody round-trips upload_id and the tx_hashes map" {
+    const body = try json_helpers.buildFinalizeUploadBody(
+        testing.allocator,
+        "upload-42",
+        "{\"qh1\":\"0xtx1\",\"qh2\":\"0xtx2\"}",
+    );
+    defer testing.allocator.free(body);
+
+    const parsed = try std.json.parseFromSlice(std.json.Value, testing.allocator, body, .{});
+    defer parsed.deinit();
+    const obj = getJsonObject(parsed.value) orelse return error.JsonError;
+    try testing.expectEqual(@as(usize, 3), obj.count());
+
+    const id_val = getJsonString(obj.get("upload_id") orelse return error.JsonError) orelse return error.JsonError;
+    try testing.expectEqualStrings("upload-42", id_val);
+
+    const tx_obj = getJsonObject(obj.get("tx_hashes") orelse return error.JsonError) orelse return error.JsonError;
+    try testing.expectEqual(@as(usize, 2), tx_obj.count());
+    const tx1 = getJsonString(tx_obj.get("qh1") orelse return error.JsonError) orelse return error.JsonError;
+    const tx2 = getJsonString(tx_obj.get("qh2") orelse return error.JsonError) orelse return error.JsonError;
+    try testing.expectEqualStrings("0xtx1", tx1);
+    try testing.expectEqualStrings("0xtx2", tx2);
+
+    const store = getJsonBool(obj.get("store_data_map") orelse return error.JsonError) orelse return error.JsonError;
+    try testing.expect(!store);
+}
+
+test "buildFinalizeUploadBody serialises the documented wire shape" {
+    // Field order is fixed (upload_id, tx_hashes, store_data_map) and the
+    // upload_id is JSON-escaped rather than spliced in.
+    const body = try json_helpers.buildFinalizeUploadBody(
+        testing.allocator,
+        "id\"quoted",
+        "{ \"qh1\" : \"tx1\" }",
+    );
+    defer testing.allocator.free(body);
+    try testing.expectEqualStrings(
+        "{\"upload_id\":\"id\\\"quoted\",\"tx_hashes\":{\"qh1\":\"tx1\"},\"store_data_map\":false}",
+        body,
+    );
+}
+
+test "buildFinalizeUploadBody accepts an empty map for an already-stored upload" {
+    // Prepare reported no payments: finalize with {} and no on-chain payment.
+    const body = try json_helpers.buildFinalizeUploadBody(testing.allocator, "upload-42", "{}");
+    defer testing.allocator.free(body);
+
+    const parsed = try std.json.parseFromSlice(std.json.Value, testing.allocator, body, .{});
+    defer parsed.deinit();
+    const obj = getJsonObject(parsed.value) orelse return error.JsonError;
+    const id_val = getJsonString(obj.get("upload_id") orelse return error.JsonError) orelse return error.JsonError;
+    try testing.expectEqualStrings("upload-42", id_val);
+    const tx_obj = getJsonObject(obj.get("tx_hashes") orelse return error.JsonError) orelse return error.JsonError;
+    try testing.expectEqual(@as(usize, 0), tx_obj.count());
+}
+
+test "buildFinalizeUploadBody rejects invalid JSON and non-object maps" {
+    const bad_inputs = [_][]const u8{
+        "",
+        "not json",
+        "{\"qh1\":\"tx1\"", // truncated
+        "[\"tx1\"]", // array
+        "\"tx1\"", // bare string
+        "42",
+        "null",
+    };
+    for (bad_inputs) |input| {
+        try testing.expectError(
+            error.JsonError,
+            json_helpers.buildFinalizeUploadBody(testing.allocator, "upload-42", input),
+        );
+    }
+}
+
+test "buildFinalizeChunkBody rejects invalid JSON and non-object maps" {
+    const bad_inputs = [_][]const u8{ "", "[\"tx1\"]", "\"tx1\"", "{\"qh1\":" };
+    for (bad_inputs) |input| {
+        try testing.expectError(
+            error.JsonError,
+            json_helpers.buildFinalizeChunkBody(testing.allocator, "chunk-1", input),
+        );
+    }
+}
+
+test "buildFinalizeChunkBody embeds upload_id and the tx_hashes map" {
     const body = try json_helpers.buildFinalizeChunkBody(
         testing.allocator,
         "chunk-1",
@@ -448,6 +537,9 @@ test "buildFinalizeChunkBody embeds upload_id and tx_hashes literal" {
     const tx2 = getJsonString(tx_obj.get("qh2") orelse return error.JsonError) orelse return error.JsonError;
     try testing.expectEqualStrings("tx1", tx1);
     try testing.expectEqualStrings("tx2", tx2);
+    // Chunk finalize has no store_data_map field.
+    try testing.expectEqual(@as(usize, 2), obj.count());
+    try testing.expect(obj.get("store_data_map") == null);
 }
 
 // =============================================================================
