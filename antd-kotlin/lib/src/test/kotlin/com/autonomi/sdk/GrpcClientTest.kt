@@ -37,14 +37,18 @@ class GrpcClientTest {
     private lateinit var server: Server
     private lateinit var channel: ManagedChannel
     private lateinit var client: AntdGrpcClient
+    private lateinit var healthService: MockHealthService
 
     @BeforeTest
     fun setUp() {
         val name = InProcessServerBuilder.generateName()
+        healthService = MockHealthService()
         server = InProcessServerBuilder.forName(name)
             .directExecutor()
+            .addService(healthService)
             .addService(MockChunkService())
             .addService(MockUploadService())
+            .addService(MockFileService())
             // The daemon attaches the total plaintext size as the
             // x-content-length response header so the consumer can surface a
             // byte denominator (V2-510); mimic it with a server interceptor.
@@ -82,9 +86,39 @@ class GrpcClientTest {
 
     // --- Mock servicers ---
 
+    // The failing unary mocks below throw StatusException (`asException()`),
+    // which is also what grpc-kotlin's coroutine stubs surface client-side
+    // for any failed unary call; the client must map it, never leak it.
+
+    class MockHealthService : HealthServiceGrpcKt.HealthServiceCoroutineImplBase() {
+        // When set, every check() fails with this status.
+        var failWith: Status? = null
+
+        override suspend fun check(request: Health.HealthCheckRequest): Health.HealthCheckResponse {
+            failWith?.let { throw it.asException() }
+            return healthCheckResponse {
+                status = "ok"
+                network = "testnet"
+                version = "0.0.0-test"
+            }
+        }
+    }
+
     // Server-streams the payload in two chunks so the client's chunk-by-chunk
     // collection is exercised, not just a single message.
     class MockDataService : DataServiceGrpcKt.DataServiceCoroutineImplBase() {
+        override suspend fun getPublic(request: Data.GetPublicDataRequest): Data.GetPublicDataResponse {
+            throw Status.NOT_FOUND.withDescription("no data at ${request.address}").asException()
+        }
+
+        override suspend fun put(request: Data.PutDataRequest): Data.PutDataResponse {
+            throw Status.UNAVAILABLE.withDescription("network unreachable").asException()
+        }
+
+        override suspend fun cost(request: Data.DataCostRequest): Common.Cost {
+            throw Status.INTERNAL.withDescription("cost estimation failed").asException()
+        }
+
         // When include_progress is set, interleave a progress frame between the
         // data chunks so the oneof mapping is exercised; otherwise emit a pure
         // data-frame stream (the pre-progress behaviour).
@@ -139,6 +173,14 @@ class GrpcClientTest {
     }
 
     class MockChunkService : ChunkServiceGrpcKt.ChunkServiceCoroutineImplBase() {
+        override suspend fun get(request: Chunks.GetChunkRequest): Chunks.GetChunkResponse {
+            throw Status.NOT_FOUND.withDescription("no chunk at ${request.address}").asException()
+        }
+
+        override suspend fun put(request: Chunks.PutChunkRequest): Chunks.PutChunkResponse {
+            throw Status.RESOURCE_EXHAUSTED.withDescription("chunk too large").asException()
+        }
+
         override suspend fun prepareChunk(request: Chunks.PrepareChunkRequest): Chunks.PrepareChunkResponse {
             val d = request.data
             // Inputs starting with "EXISTS" → already-stored short-circuit.
@@ -180,8 +222,22 @@ class GrpcClientTest {
         }
     }
 
+    class MockFileService : FileServiceGrpcKt.FileServiceCoroutineImplBase() {
+        override suspend fun get(request: Files.GetFileRequest): Files.GetFileResponse {
+            throw Status.NOT_FOUND.withDescription("no file for ${request.dataMap}").asException()
+        }
+
+        override suspend fun putPublic(request: Files.PutFileRequest): Files.PutFilePublicResponse {
+            throw Status.INVALID_ARGUMENT.withDescription("path is not a file: ${request.path}").asException()
+        }
+    }
+
     class MockUploadService : UploadServiceGrpcKt.UploadServiceCoroutineImplBase() {
         override suspend fun prepareFileUpload(request: Upload.PrepareFileUploadRequest): Upload.PrepareUploadResponse {
+            // Magic path: the daemon could not read the file.
+            if (request.path == "/missing") {
+                throw Status.NOT_FOUND.withDescription("file not found: /missing").asException()
+            }
             // Encode visibility into upload_id for the test.
             return prepareUploadResponse {
                 uploadId = "upid_file_${request.visibility}"
@@ -203,6 +259,10 @@ class GrpcClientTest {
         override suspend fun prepareDataUpload(request: Upload.PrepareDataUploadRequest): Upload.PrepareUploadResponse {
             val uid = "upid_data_${request.visibility}"
             val d = request.data
+            // Inputs starting with "NOFUNDS" → the daemon refuses to quote.
+            if (d.size() >= 7 && d.substring(0, 7).toStringUtf8() == "NOFUNDS") {
+                throw Status.FAILED_PRECONDITION.withDescription("insufficient funds").asException()
+            }
             if (d.size() >= 6 && d.substring(0, 6).toStringUtf8() == "MERKLE") {
                 return prepareUploadResponse {
                     uploadId = uid
@@ -478,6 +538,93 @@ class GrpcClientTest {
             assertEquals(c.retryable, ex.retryable, c.msg)
             assertEquals(c.msg, ex.message)
         }
+    }
+
+    // --- gRPC StatusException → typed AntdException on every method group ---
+    //
+    // grpc-kotlin's coroutine stubs throw StatusException on a failed unary
+    // call. Only the wallet and finalize methods used to catch it; every other
+    // method leaked the raw gRPC exception. Each group below asserts the typed
+    // exception the REST client would throw for the same daemon error.
+
+    @Test
+    fun dataGetPublicNotFoundMapsToNotFoundException() = runTest {
+        val ex = assertFailsWith<NotFoundException> { client.dataGetPublic("0xmissing") }
+        assertEquals("no data at 0xmissing", ex.message)
+        assertEquals(404, ex.statusCode)
+    }
+
+    @Test
+    fun dataPutUnavailableMapsToNetworkException() = runTest {
+        val ex = assertFailsWith<NetworkException> { client.dataPut(byteArrayOf(1, 2, 3), PaymentMode.AUTO) }
+        assertEquals("network unreachable", ex.message)
+    }
+
+    @Test
+    fun dataCostInternalMapsToInternalException() = runTest {
+        assertFailsWith<InternalException> { client.dataCost(byteArrayOf(1), PaymentMode.AUTO) }
+    }
+
+    @Test
+    fun chunkGetNotFoundMapsToNotFoundException() = runTest {
+        val ex = assertFailsWith<NotFoundException> { client.chunkGet("0xnochunk") }
+        assertEquals("no chunk at 0xnochunk", ex.message)
+    }
+
+    @Test
+    fun chunkPutResourceExhaustedMapsToTooLargeException() = runTest {
+        assertFailsWith<TooLargeException> { client.chunkPut(byteArrayOf(9)) }
+    }
+
+    @Test
+    fun fileGetNotFoundMapsToNotFoundException() = runTest {
+        val ex = assertFailsWith<NotFoundException> { client.fileGet("dm_missing", "/tmp/out") }
+        assertEquals("no file for dm_missing", ex.message)
+    }
+
+    @Test
+    fun filePutPublicInvalidArgumentMapsToBadRequestException() = runTest {
+        val ex = assertFailsWith<BadRequestException> { client.filePutPublic("/dev/null", PaymentMode.AUTO) }
+        assertEquals("path is not a file: /dev/null", ex.message)
+    }
+
+    @Test
+    fun prepareUploadNotFoundMapsToNotFoundException() = runTest {
+        val ex = assertFailsWith<NotFoundException> { client.prepareUpload("/missing", null) }
+        assertEquals("file not found: /missing", ex.message)
+    }
+
+    @Test
+    fun prepareDataUploadFailedPreconditionMapsToPaymentException() = runTest {
+        val ex = assertFailsWith<PaymentException> { client.prepareDataUpload("NOFUNDS".toByteArray(), null) }
+        assertEquals("insufficient funds", ex.message)
+    }
+
+    @Test
+    fun healthOkParsesResponse() = runTest {
+        val h = client.health()
+        assertTrue(h.ok)
+        assertEquals("testnet", h.network)
+        assertEquals("0.0.0-test", h.version)
+    }
+
+    @Test
+    fun healthUnavailableReportsDaemonDown() = runTest {
+        healthService.failWith = Status.UNAVAILABLE.withDescription("connection refused")
+        val h = client.health()
+        assertFalse(h.ok)
+        assertEquals("unknown", h.network)
+    }
+
+    @Test
+    fun healthOtherStatusReportsDaemonUp() = runTest {
+        // Any non-UNAVAILABLE status still came from the daemon, so it is
+        // reachable; before the shared helper a StatusException here fell
+        // through to the generic catch and read as down.
+        healthService.failWith = Status.INTERNAL.withDescription("degraded")
+        val h = client.health()
+        assertTrue(h.ok)
+        assertEquals("unknown", h.network)
     }
 
     @Test
