@@ -1096,11 +1096,12 @@ func TestPartialUploadErrorCarriesCounts(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
 		writeJSON(w, map[string]any{
-			"error":         "Partial upload: 300/312 chunks stored, 12 failed after retries",
+			"error":         "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)",
 			"code":          "PARTIAL_UPLOAD",
 			"chunks_stored": float64(300),
 			"chunks_failed": float64(12),
 			"total_chunks":  float64(312),
+			"retryable":     true,
 		})
 	}))
 	defer srv.Close()
@@ -1117,8 +1118,58 @@ func TestPartialUploadErrorCarriesCounts(t *testing.T) {
 	if perr.ChunksStored != 300 || perr.ChunksFailed != 12 || perr.TotalChunks != 312 {
 		t.Fatalf("unexpected counts: %+v", perr)
 	}
+	if !perr.Retryable {
+		t.Fatalf("expected Retryable from the body flag, got %+v", perr)
+	}
 	if perr.StatusCode != http.StatusBadGateway {
 		t.Fatalf("expected 502, got %d", perr.StatusCode)
+	}
+}
+
+func TestPartialUploadErrorRetryableDefaultsFalse(t *testing.T) {
+	// An older daemon (< 0.14.0) never sends `retryable`; the flag must read
+	// false so callers fall back to the re-prepare path rather than looping
+	// on an upload_id the daemon has already dropped.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		writeJSON(w, map[string]any{
+			"error":         "Partial upload: 300/312 chunks stored, 12 failed after retries",
+			"code":          "PARTIAL_UPLOAD",
+			"chunks_stored": float64(300),
+			"chunks_failed": float64(12),
+			"total_chunks":  float64(312),
+		})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	_, err := c.FinalizeUpload(context.Background(), "u1", map[string]string{"0xq": "0xt"}, false)
+	var perr *PartialUploadError
+	if !errors.As(err, &perr) {
+		t.Fatalf("expected *PartialUploadError, got %T: %v", err, err)
+	}
+	if perr.Retryable {
+		t.Fatalf("Retryable must default to false without the body flag: %+v", perr)
+	}
+}
+
+func TestParsePartialUploadMessage(t *testing.T) {
+	cases := []struct {
+		msg                   string
+		stored, failed, total uint64
+		retryable             bool
+	}{
+		{"Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)", 300, 12, 312, true},
+		{"Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (stored chunks persist; re-prepare the same content to retry only the remainder)", 300, 12, 312, false},
+		{"Partial upload: 300/312 chunks stored, 12 failed after retries", 300, 12, 312, false},
+		{"something else entirely", 0, 0, 0, false},
+	}
+	for _, tc := range cases {
+		stored, failed, total, retryable := parsePartialUploadMessage(tc.msg)
+		if stored != tc.stored || failed != tc.failed || total != tc.total || retryable != tc.retryable {
+			t.Errorf("%q: got (%d,%d,%d,%v), want (%d,%d,%d,%v)", tc.msg, stored, failed, total, retryable, tc.stored, tc.failed, tc.total, tc.retryable)
+		}
 	}
 }
 

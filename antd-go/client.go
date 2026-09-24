@@ -887,6 +887,12 @@ func (c *Client) PrepareDataUpload(ctx context.Context, data []byte) (*PrepareUp
 // FinalizeUpload finalizes a wave-batch upload after an external signer has submitted payment transactions.
 // txHashes maps quote_hash to tx_hash for each payment.
 // If storeDataMap is true, the DataMap is also stored on-network and Address is returned (requires a daemon wallet).
+//
+// A storage shortfall after the payment settled returns *PartialUploadError.
+// If its Retryable field is true (antd >= 0.14.0), the daemon kept the paid
+// attempt under the same uploadID: call FinalizeUpload again with the same
+// arguments to store the remainder against the same payment — no
+// re-prepare, no second payment. Bound that loop (see PartialUploadError).
 func (c *Client) FinalizeUpload(ctx context.Context, uploadID string, txHashes map[string]string, storeDataMap bool) (*FinalizeUploadResult, error) {
 	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/upload/finalize", map[string]any{
 		"upload_id":      uploadID,
@@ -932,8 +938,12 @@ func (c *Client) FinalizeMerkleUpload(ctx context.Context, uploadID string, winn
 // prepare result's MerkleBatches: entry i is the MerklePaymentMade winner
 // hash of batch i's payForMerkleTree2 transaction, or "" for a batch the
 // signer never paid. Paid batches store; the chunks of unpaid batches
-// surface via *PartialUploadError, and re-preparing the same content skips
-// already-stored chunks so a retry pays only for the missing remainder.
+// surface via *PartialUploadError with Retryable == false (nothing is
+// retained for a partially paid upload), and re-preparing the same content
+// skips already-stored chunks so a retry pays only for the missing
+// remainder. When every batch is paid, a post-payment storage shortfall is
+// instead Retryable == true: call this method again with the same
+// arguments to store the remainder against the same payment.
 func (c *Client) FinalizeMerkleUploadMulti(ctx context.Context, uploadID string, winnerPoolHashes []string, storeDataMap bool) (*FinalizeUploadResult, error) {
 	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/upload/finalize", map[string]any{
 		"upload_id":          uploadID,
