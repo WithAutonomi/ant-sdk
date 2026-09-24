@@ -175,10 +175,14 @@ func errorFromGrpc(err error) error {
 		base.StatusCode = 502
 		return &NetworkError{base}
 	case codes.Aborted:
-		// PARTIAL_UPLOAD: some chunks stored, some failed quorum or belonged
-		// to unpaid batches. The counts ride the message text over gRPC.
+		// PARTIAL_UPLOAD: some chunks stored, some still unstored after
+		// retries. The counts and the "paid attempt retained" hint ride
+		// the message text over gRPC (no structured detail yet), so parse
+		// them best-effort to match the REST client's typed error.
 		base.StatusCode = 502
-		return &PartialUploadError{AntdError: base}
+		e := &PartialUploadError{AntdError: base}
+		e.ChunksStored, e.ChunksFailed, e.TotalChunks, e.Retryable = parsePartialUploadMessage(msg)
+		return e
 	default:
 		base.StatusCode = int(st.Code())
 		return &base

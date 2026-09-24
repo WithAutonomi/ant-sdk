@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"math/big"
@@ -133,6 +134,47 @@ func externalSignerPay(ctx context.Context, rpcURL string, vaultAddr, tokenAddr 
 	return out, nil
 }
 
+// finalizeWithRetry finalizes a wave-batch upload and, when the daemon
+// reports a storage shortfall AFTER the payment settled, retries the same
+// call against the same payment. antd >= 0.14.0 keeps the paid attempt
+// (payment proofs + unstored chunks) under the same upload_id and flags the
+// error Retryable, so repeating FinalizeUpload stores only the remainder — no
+// re-prepare, no second signature, no double payment.
+//
+// The loop is bounded: a persistent failure (a chunk whose close group stays
+// unreachable) returns *PartialUploadError on every call, never a different
+// error, so it caps the attempts and treats a ChunksFailed that stops
+// shrinking as stuck. A non-retryable partial upload (older daemon, or a
+// merkle upload with unpaid batches) is returned as-is: the recovery there is
+// to re-prepare the same content, which skips the chunks already stored.
+func finalizeWithRetry(ctx context.Context, client *antd.Client, uploadID string, txHashes map[string]string, storeDataMap bool) (*antd.FinalizeUploadResult, error) {
+	const maxAttempts = 5
+	var lastFailed uint64
+	for attempt := 1; ; attempt++ {
+		res, err := client.FinalizeUpload(ctx, uploadID, txHashes, storeDataMap)
+		if err == nil {
+			return res, nil // every chunk stored
+		}
+		var perr *antd.PartialUploadError
+		if !errors.As(err, &perr) || !perr.Retryable {
+			return nil, err
+		}
+		stuck := attempt > 1 && perr.ChunksFailed >= lastFailed
+		if attempt >= maxAttempts || stuck {
+			return nil, fmt.Errorf("finalize stuck after %d attempt(s): %d/%d chunks stored, %d still unstored (paid attempt retained under upload_id %s — retry later or re-prepare): %w",
+				attempt, perr.ChunksStored, perr.TotalChunks, perr.ChunksFailed, uploadID, err)
+		}
+		lastFailed = perr.ChunksFailed
+		fmt.Printf("finalize stored %d/%d chunks, %d still unstored — retrying against the same payment (attempt %d/%d)\n",
+			perr.ChunksStored, perr.TotalChunks, perr.ChunksFailed, attempt+1, maxAttempts)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(time.Duration(attempt) * 2 * time.Second):
+		}
+	}
+}
+
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -179,7 +221,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("file external signer pay: %v", err)
 	}
-	fileFin, err := client.FinalizeUpload(ctx, filePrep.UploadID, txHashes, false)
+	fileFin, err := finalizeWithRetry(ctx, client, filePrep.UploadID, txHashes, false)
 	if err != nil {
 		log.Fatalf("finalize upload: %v", err)
 	}

@@ -311,7 +311,12 @@ func (m *mockUploadService) PrepareDataUpload(_ context.Context, req *pb.Prepare
 func (m *mockUploadService) FinalizeUpload(_ context.Context, req *pb.FinalizeUploadRequest) (*pb.FinalizeUploadResponse, error) {
 	// Magic id: simulate a quorum-shortfall finalize (PARTIAL_UPLOAD).
 	if req.GetUploadId() == "partial" {
-		return nil, status.Error(codes.Aborted, "Partial upload: 300/312 chunks stored, 12 failed after retries")
+		return nil, status.Error(codes.Aborted, "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)")
+	}
+	// Magic id: a partial upload the daemon did NOT retain (unpaid merkle
+	// batches, or an older daemon's message).
+	if req.GetUploadId() == "partial-final" {
+		return nil, status.Error(codes.Aborted, "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (stored chunks persist; re-prepare the same content to retry only the remainder)")
 	}
 	// Merkle multi-batch: winner_pool_hashes populated. Echo the paid-batch
 	// count back as ChunksStored so tests can assert the list arrived.
@@ -1379,6 +1384,22 @@ func TestGrpcPartialUploadMapsToPartialUploadError(t *testing.T) {
 	}
 	if perr.StatusCode != 502 {
 		t.Fatalf("expected status 502, got %d", perr.StatusCode)
+	}
+	// Counts and the retained hint are parsed from the status message, so
+	// the gRPC client matches the REST client's typed error.
+	if perr.ChunksStored != 300 || perr.ChunksFailed != 12 || perr.TotalChunks != 312 {
+		t.Fatalf("unexpected counts parsed from message: %+v", perr)
+	}
+	if !perr.Retryable {
+		t.Fatalf("expected Retryable from the retained hint: %+v", perr)
+	}
+
+	_, err = c.FinalizeMerkleUploadMulti(context.Background(), "partial-final", []string{"0xw1"}, false)
+	if !errors.As(err, &perr) {
+		t.Fatalf("expected *PartialUploadError, got %T: %v", err, err)
+	}
+	if perr.Retryable {
+		t.Fatalf("no retained hint must read as not retryable: %+v", perr)
 	}
 }
 

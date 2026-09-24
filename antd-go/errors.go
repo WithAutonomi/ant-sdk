@@ -1,7 +1,12 @@
 // Package antd provides a Go client for the antd daemon REST API.
 package antd
 
-import "fmt"
+import (
+	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
+)
 
 // AntdError is the base error type for all antd errors.
 type AntdError struct {
@@ -42,18 +47,57 @@ type NetworkError struct{ AntdError }
 type ServiceUnavailableError struct{ AntdError }
 
 // PartialUploadError indicates a finalize stored some chunks while others
-// failed quorum or belonged to unpaid batches (HTTP 502 with code
+// remained unstored after the daemon's retries (HTTP 502 with code
 // PARTIAL_UPLOAD; gRPC ABORTED). The on-chain payment persists and the
-// stored chunks stay on the network: re-preparing the same content skips
-// them, so a retry pays only for the missing remainder.
+// stored chunks stay on the network. How to finish the upload depends on
+// Retryable:
 //
-// The chunk counts are populated from the REST error body; over gRPC they
-// only appear in the message text and the fields stay zero.
+//   - Retryable == true: the daemon kept the paid attempt (payment proofs +
+//     unstored chunks) under the same upload_id. Call the same Finalize*
+//     method again with the same arguments to store the remainder against
+//     the same payment — no re-prepare, no second signature, no double
+//     payment. Bound the loop: a persistent failure returns this error on
+//     every call, so cap the attempts and treat a ChunksFailed that stops
+//     shrinking as stuck. The retained attempt expires with the daemon's
+//     pending-upload TTL. (antd >= 0.14.0; older daemons never set the
+//     flag, so Retryable reads false and the re-prepare path applies.)
+//   - Retryable == false: nothing was retained (a merkle finalize with
+//     deliberately unpaid batches, or an older daemon). Re-preparing the
+//     same content skips already-stored chunks, so a retry pays only for
+//     the missing remainder.
+//
+// Over REST the counts and Retryable come from the structured error body.
+// Over gRPC they are parsed best-effort from the status message ("Partial
+// upload: S/T chunks stored, F failed ...", with a "paid attempt retained"
+// hint when retryable); an unrecognised message leaves the counts zero and
+// Retryable false.
 type PartialUploadError struct {
 	AntdError
 	ChunksStored uint64
 	ChunksFailed uint64
 	TotalChunks  uint64
+	Retryable    bool
+}
+
+// partialUploadCounts matches the fixed prefix of the daemon's PARTIAL_UPLOAD
+// message: "Partial upload: <stored>/<total> chunks stored, <failed> failed".
+var partialUploadCounts = regexp.MustCompile(`Partial upload: (\d+)/(\d+) chunks stored, (\d+) failed`)
+
+// partialUploadRetainedHint is the message tail the daemon appends when it
+// kept the paid attempt for a same-upload_id retry.
+const partialUploadRetainedHint = "paid attempt retained"
+
+// parsePartialUploadMessage recovers the chunk counts and the retryable hint
+// from a PARTIAL_UPLOAD message. Used for gRPC, where the status carries no
+// structured detail; REST callers get the body fields instead.
+func parsePartialUploadMessage(msg string) (stored, failed, total uint64, retryable bool) {
+	if m := partialUploadCounts.FindStringSubmatch(msg); m != nil {
+		stored, _ = strconv.ParseUint(m[1], 10, 64)
+		total, _ = strconv.ParseUint(m[2], 10, 64)
+		failed, _ = strconv.ParseUint(m[3], 10, 64)
+	}
+	retryable = strings.Contains(msg, partialUploadRetainedHint)
+	return stored, failed, total, retryable
 }
 
 // errorForResponse maps a REST error response onto a typed error, preferring
@@ -71,6 +115,9 @@ func errorForResponse(statusCode int, message string, body map[string]any) error
 		}
 		if v, ok := body["total_chunks"].(float64); ok {
 			e.TotalChunks = uint64(v)
+		}
+		if v, ok := body["retryable"].(bool); ok {
+			e.Retryable = v
 		}
 		return e
 	}
