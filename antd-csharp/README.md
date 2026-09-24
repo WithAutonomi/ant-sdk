@@ -153,11 +153,11 @@ catch (AntdException ex)
 | `PaymentException` | 402 | `FAILED_PRECONDITION` | Payment issue |
 | `NotFoundException` | 404 | `NOT_FOUND` | Not found |
 | `AlreadyExistsException` | 409 | `ALREADY_EXISTS` | Already exists |
-| `ForkException` | 409 | — | Version conflict |
+| `ForkException` | 409 | `ABORTED` (non-partial-upload) | Version conflict |
 | `TooLargeException` | 413 | `RESOURCE_EXHAUSTED` | Too large |
 | `InternalException` | 500 | `INTERNAL` | Server error |
 | `NetworkException` | 502 | `UNAVAILABLE` | Unreachable |
-| `PartialUploadException` | 502 (`code: "PARTIAL_UPLOAD"`) | `ABORTED` | Finalize stored some chunks, not all; extends `NetworkException` |
+| `PartialUploadException` | 502 (`code: "PARTIAL_UPLOAD"`) | `ABORTED` (detail carries `Partial upload:`) | Finalize stored some chunks, not all; extends `NetworkException` |
 
 ### Partial uploads
 
@@ -166,7 +166,7 @@ A finalize (`FinalizeUploadAsync`, `FinalizeMerkleUploadAsync`, `FinalizeChunkUp
 - **`Retryable == true`** — the daemon kept the paid attempt (payment proofs plus the unstored chunks) under the same `upload_id`. Call the **same finalize method again with the same arguments** to store the remainder against the same payment: no re-prepare, no second signature, no double payment. Bound the loop: a persistent failure throws on every call, so cap the attempts and treat a `ChunksFailed` that stops shrinking as stuck. The retained attempt expires with the daemon's pending-upload TTL. The flag is sent by antd ≥ 0.14.0; older daemons omit it and it reads `false`.
 - **`Retryable == false`** — nothing was retained (older daemon, or a merkle finalize with deliberately unpaid batches). Re-preparing the same content skips already-stored chunks, so a retry pays only for the remainder.
 
-`PartialUploadException` extends `NetworkException` because a partial upload has always arrived as a 502, so existing `catch (NetworkException)` blocks keep matching; catch the derived type first to branch on the counts. Over REST the fields come from the structured error body; over gRPC they are parsed from the `ABORTED` status message (an unrecognised message leaves the counts at zero and `Retryable` false).
+`PartialUploadException` extends `NetworkException` because a partial upload has always arrived as a 502, so existing `catch (NetworkException)` blocks keep matching; catch the derived type first to branch on the counts. Over REST the fields come from the structured error body; over gRPC an `ABORTED` status maps to `PartialUploadException` only when its message carries the daemon's fixed `Partial upload:` prefix, with the counts and `Retryable` parsed from the rest of the message (a prefixed message whose counts fail to parse leaves them at zero and `Retryable` false). Any other `ABORTED` keeps the `ForkException` mapping.
 
 ```csharp
 var lastFailed = 0UL;

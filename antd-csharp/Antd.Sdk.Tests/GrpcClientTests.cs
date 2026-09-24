@@ -179,6 +179,13 @@ public sealed class GrpcClientTests
                     "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " +
                     "(stored chunks persist; re-prepare the same content to retry only the remainder)"));
             }
+            // An ABORTED without the daemon's "Partial upload:" prefix is not
+            // a partial upload and must keep the ForkException mapping.
+            if (request.UploadId == "fork")
+            {
+                return Fail<FinalizeUploadResponse>(new Status(StatusCode.Aborted,
+                    "version conflict: expected v3, found v4"));
+            }
             // Merkle: winner_pool_hash populated.
             if (!string.IsNullOrEmpty(request.WinnerPoolHash))
             {
@@ -496,5 +503,17 @@ public sealed class GrpcClientTests
         Assert.Equal(300UL, ex.ChunksStored);
         Assert.Equal(12UL, ex.ChunksFailed);
         Assert.Equal(312UL, ex.TotalChunks);
+    }
+
+    [Fact]
+    public async Task FinalizeUpload_Aborted_WithoutPartialUploadPrefixIsForkException()
+    {
+        var client = MakeClient();
+        var ex = await Assert.ThrowsAsync<ForkException>(
+            () => client.FinalizeUploadAsync("fork", new() { ["0xq1"] = "0xtx1" }));
+
+        Assert.IsNotType<PartialUploadException>(ex);
+        Assert.Equal(409, ex.StatusCode);
+        Assert.Equal("version conflict: expected v3, found v4", ex.Message);
     }
 }

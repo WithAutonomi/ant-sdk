@@ -52,8 +52,10 @@ public class NetworkException : AntdException
 /// <summary>
 /// A finalize stored some chunks while others remained unstored after the
 /// daemon's retries (HTTP 502 with <c>code: "PARTIAL_UPLOAD"</c>; gRPC
-/// <c>ABORTED</c>). The on-chain payment persists and the stored chunks stay
-/// on the network. How to finish the upload depends on <see cref="Retryable"/>:
+/// <c>ABORTED</c> whose message carries the daemon's fixed
+/// <c>Partial upload:</c> prefix). The on-chain payment persists and the
+/// stored chunks stay on the network. How to finish the upload depends on
+/// <see cref="Retryable"/>:
 /// <list type="bullet">
 /// <item><description>
 /// <see cref="Retryable"/> is <c>true</c>: the daemon kept the paid attempt
@@ -80,8 +82,10 @@ public class NetworkException : AntdException
 /// Over REST the counts and flag come from the structured error body. Over
 /// gRPC they are parsed best-effort from the status message
 /// (<c>Partial upload: S/T chunks stored, F failed ...</c>, with a
-/// <c>paid attempt retained</c> hint when retryable); an unrecognised
-/// message leaves the counts zero and <see cref="Retryable"/> false.
+/// <c>paid attempt retained</c> hint when retryable); a prefixed message
+/// whose counts fail to parse leaves them zero and <see cref="Retryable"/>
+/// false. An <c>ABORTED</c> without the prefix is a
+/// <see cref="ForkException"/>, as before.
 /// See docs/external-signer-flow.md, section 6.
 /// </summary>
 public class PartialUploadException : NetworkException
@@ -149,7 +153,14 @@ internal static partial class ExceptionMapping
     private const string PartialUploadRetainedHint = "paid attempt retained";
 
     /// <summary>
-    /// Fixed prefix of the daemon's PARTIAL_UPLOAD message:
+    /// Fixed text every PARTIAL_UPLOAD message from the daemon opens with.
+    /// Over gRPC it is the only marker that distinguishes a partial upload
+    /// from any other <c>ABORTED</c> status, so the mapping gates on it.
+    /// </summary>
+    private const string PartialUploadPrefix = "Partial upload:";
+
+    /// <summary>
+    /// Count layout of the daemon's PARTIAL_UPLOAD message:
     /// <c>Partial upload: &lt;stored&gt;/&lt;total&gt; chunks stored, &lt;failed&gt; failed</c>.
     /// </summary>
     [GeneratedRegex(@"Partial upload: (\d+)/(\d+) chunks stored, (\d+) failed")]
@@ -252,12 +263,14 @@ internal static partial class ExceptionMapping
         {
             Grpc.Core.StatusCode.NotFound => new NotFoundException(detail),
             Grpc.Core.StatusCode.AlreadyExists => new AlreadyExistsException(detail),
-            // ABORTED is the daemon's PARTIAL_UPLOAD: some chunks stored, some
-            // still unstored after retries. The counts and the "paid attempt
-            // retained" hint ride the message text over gRPC (no structured
-            // detail yet), so parse them best-effort to match the REST
-            // client's typed exception.
-            Grpc.Core.StatusCode.Aborted => PartialUploadFromGrpc(detail),
+            // ABORTED carries the daemon's PARTIAL_UPLOAD (some chunks stored,
+            // some still unstored after retries) when the message opens with
+            // the fixed "Partial upload:" prefix. The counts and the "paid
+            // attempt retained" hint ride the message text over gRPC (no
+            // structured detail yet), so parse them best-effort to match the
+            // REST client's typed exception. Any other ABORTED keeps the
+            // pre-existing version-conflict mapping.
+            Grpc.Core.StatusCode.Aborted => AbortedFromGrpc(detail),
             Grpc.Core.StatusCode.InvalidArgument => new BadRequestException(detail),
             Grpc.Core.StatusCode.FailedPrecondition => new PaymentException(detail),
             Grpc.Core.StatusCode.Unavailable => new NetworkException(detail),
@@ -267,9 +280,20 @@ internal static partial class ExceptionMapping
         };
     }
 
-    private static PartialUploadException PartialUploadFromGrpc(string detail)
+    private static AntdException AbortedFromGrpc(string detail)
     {
+        if (!IsPartialUploadMessage(detail))
+            return new ForkException(detail);
         var (stored, failed, total, retryable) = ParsePartialUploadMessage(detail);
         return new PartialUploadException(detail, stored, failed, total, retryable);
     }
+
+    /// <summary>
+    /// <c>true</c> when the message carries the daemon's fixed PARTIAL_UPLOAD
+    /// prefix. Containment rather than a strict prefix match, so a transport
+    /// or daemon wrapper that prepends context still routes correctly; the
+    /// counts may still fail to parse, which leaves them at zero.
+    /// </summary>
+    internal static bool IsPartialUploadMessage(string? message) =>
+        message?.Contains(PartialUploadPrefix, StringComparison.Ordinal) == true;
 }

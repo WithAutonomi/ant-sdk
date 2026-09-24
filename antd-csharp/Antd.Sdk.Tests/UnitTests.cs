@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using Antd.Sdk;
+using Grpc.Core;
 using Xunit;
 
 namespace Antd.Sdk.Tests;
@@ -1038,6 +1039,7 @@ public sealed class PartialUploadMessageParserTests
         "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (stored chunks persist; re-prepare the same content to retry only the remainder)",
         300UL, 12UL, 312UL, false)]
     [InlineData("Partial upload: 300/312 chunks stored, 12 failed after retries", 300UL, 12UL, 312UL, false)]
+    [InlineData("Partial upload: counts missing", 0UL, 0UL, 0UL, false)]
     [InlineData("something else entirely", 0UL, 0UL, 0UL, false)]
     [InlineData("", 0UL, 0UL, 0UL, false)]
     public void ParsePartialUploadMessage_RecoversCountsAndRetainedHint(
@@ -1049,5 +1051,55 @@ public sealed class PartialUploadMessageParserTests
         Assert.Equal(failed, parsed.Failed);
         Assert.Equal(total, parsed.Total);
         Assert.Equal(retryable, parsed.Retryable);
+    }
+}
+
+/// <summary>
+/// The gRPC <c>ABORTED</c> arm: the daemon's PARTIAL_UPLOAD only when the
+/// detail carries the fixed "Partial upload:" prefix; every other ABORTED
+/// keeps the pre-existing version-conflict mapping.
+/// </summary>
+public sealed class GrpcAbortedMappingTests
+{
+    private static AntdException Map(string detail) =>
+        ExceptionMapping.FromGrpcStatus(new RpcException(new Status(Grpc.Core.StatusCode.Aborted, detail)));
+
+    [Fact]
+    public void Aborted_WithPartialUploadPrefix_MapsToPartialUploadException()
+    {
+        var ex = Assert.IsType<PartialUploadException>(Map(
+            "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)"));
+
+        Assert.Equal(300UL, ex.ChunksStored);
+        Assert.Equal(12UL, ex.ChunksFailed);
+        Assert.Equal(312UL, ex.TotalChunks);
+        Assert.True(ex.Retryable);
+    }
+
+    [Fact]
+    public void Aborted_WithPrefixButGarbledCounts_MapsToPartialUploadExceptionWithZeros()
+    {
+        // The prefix alone routes to the typed exception; unparseable counts
+        // degrade to zero and Retryable false rather than to a wrong type.
+        var ex = Assert.IsType<PartialUploadException>(Map("wrapped: Partial upload: n/a chunks stored"));
+
+        Assert.Equal(0UL, ex.ChunksStored);
+        Assert.Equal(0UL, ex.ChunksFailed);
+        Assert.Equal(0UL, ex.TotalChunks);
+        Assert.False(ex.Retryable);
+    }
+
+    [Theory]
+    [InlineData("version conflict: expected v3, found v4")]
+    [InlineData("something else entirely")]
+    [InlineData("")]
+    public void Aborted_WithoutPartialUploadPrefix_MapsToForkException(string detail)
+    {
+        var ex = Map(detail);
+
+        Assert.IsType<ForkException>(ex);
+        Assert.IsNotType<PartialUploadException>(ex);
+        Assert.Equal(409, ex.StatusCode);
+        Assert.Equal(detail, ex.Message);
     }
 }
