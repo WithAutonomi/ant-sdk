@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from antd.exceptions import NetworkError, PartialUploadError
 from antd.models import (
     FinalizeUploadResult,
     PaymentInfo,
@@ -222,6 +223,80 @@ async def test_finalize_upload_includes_data_map_fields(mock_client):
     assert payload["data_map"] == "aabbccddee"
     assert payload["data_map_address"] == "0xdmapaddr"
     assert payload["network"] == "test-net"
+
+
+# ---------------------------------------------------------------------------
+# finalize_* — PARTIAL_UPLOAD surfaces counts + retryable
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_finalize_upload_partial_upload_surfaces_counts_and_retryable(mock_client):
+    mock_client.finalize_upload.side_effect = PartialUploadError(
+        "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
+        "(paid attempt retained: call finalize again with the same upload_id to "
+        "store the remainder against the same payment)",
+        502,
+        chunks_stored=300,
+        chunks_failed=12,
+        total_chunks=312,
+        retryable=True,
+    )
+
+    raw = await _tool_fn(server.finalize_upload)(
+        upload_id="upload-abc",
+        tx_hashes={"0xquote1": "0xtx1"},
+    )
+    payload = json.loads(raw)
+
+    assert payload["error"] == "PARTIAL_UPLOAD"
+    assert payload["status_code"] == 502
+    assert payload["chunks_stored"] == 300
+    assert payload["chunks_failed"] == 12
+    assert payload["total_chunks"] == 312
+    assert payload["retryable"] is True
+    assert payload["message"].startswith("Partial upload: 300/312")
+    assert payload["network"] == "test-net"
+
+
+@pytest.mark.asyncio
+async def test_finalize_merkle_upload_partial_upload_not_retryable(mock_client):
+    # No `retryable` from the daemon (< 0.14.0, or unpaid merkle batches):
+    # the flag reads False so the agent takes the re-prepare path.
+    mock_client.finalize_merkle_upload.side_effect = PartialUploadError(
+        "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
+        "(stored chunks persist; re-prepare the same content to retry only the remainder)",
+        502,
+        chunks_stored=300,
+        chunks_failed=12,
+        total_chunks=312,
+    )
+
+    raw = await _tool_fn(server.finalize_merkle_upload)(
+        upload_id="upload-abc",
+        winner_pool_hash="0xwinner",
+    )
+    payload = json.loads(raw)
+
+    assert payload["error"] == "PARTIAL_UPLOAD"
+    assert payload["retryable"] is False
+    assert payload["chunks_failed"] == 12
+
+
+@pytest.mark.asyncio
+async def test_finalize_upload_plain_network_error_has_no_partial_fields(mock_client):
+    mock_client.finalize_upload.side_effect = NetworkError("upstream unreachable", 502)
+
+    raw = await _tool_fn(server.finalize_upload)(
+        upload_id="upload-abc",
+        tx_hashes={},
+    )
+    payload = json.loads(raw)
+
+    assert payload["error"] == "NETWORK_ERROR"
+    assert payload["status_code"] == 502
+    assert "retryable" not in payload
+    assert "chunks_failed" not in payload
 
 
 # ---------------------------------------------------------------------------
