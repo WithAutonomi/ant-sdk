@@ -10,6 +10,8 @@
  *
  * See docs/external-signer-flow.md for the full reference; the IPaymentVault
  * function selector and tuple ABI are encoded inline via web3p/ethereum-abi.
+ * finalizeWithRetry() shows the bounded same-payment retry for a partial
+ * store (docs/external-signer-flow.md, "6. Retry a partial store").
  *
  * Requires:
  *   - web3p/ethereum-tx   (EIP-1559 tx signing)
@@ -20,6 +22,8 @@
 require_once __DIR__ . '/../vendor/autoload.php';
 
 use Autonomi\Antd\AntdClient;
+use Autonomi\Antd\Errors\PartialUploadError;
+use Autonomi\Antd\Models\FinalizeUploadResult;
 use Web3p\EthereumTx\EIP1559Transaction;
 use GuzzleHttp\Client as HttpClient;
 
@@ -87,6 +91,60 @@ function externalSignerPay(string $rpcUrl, string $vaultAddr, string $tokenAddr,
         $out[$p->quoteHash] = $payTxHash;
     }
     return $out;
+}
+
+/**
+ * Finalize a wave-batch upload and, when the daemon reports a storage
+ * shortfall AFTER the payment settled, retry the same call against the same
+ * payment. antd >= 0.14.0 keeps the paid attempt (payment proofs + unstored
+ * chunks) under the same upload_id and flags the error retryable, so
+ * repeating finalizeUpload() stores only the remainder — no re-prepare, no
+ * second signature, no double payment.
+ *
+ * The loop is bounded: a persistent failure (a chunk whose close group stays
+ * unreachable) throws PartialUploadError on every call, never a different
+ * error, so it caps the attempts and treats a chunksFailed that stops
+ * shrinking as stuck. A non-retryable partial upload (older daemon, or a
+ * merkle upload with unpaid batches) is rethrown untouched: the recovery
+ * there is to re-prepare the same content, which skips the chunks already
+ * stored.
+ *
+ * @param  array<string,string>  $txHashes
+ */
+function finalizeWithRetry(AntdClient $client, string $uploadId, array $txHashes): FinalizeUploadResult
+{
+    $maxAttempts = 5;
+    $lastFailed = null;
+    for ($attempt = 1; ; $attempt++) {
+        try {
+            return $client->finalizeUpload($uploadId, $txHashes);  // every chunk stored
+        } catch (PartialUploadError $e) {
+            if (!$e->retryable) {
+                throw $e;
+            }
+            $stuck = $lastFailed !== null && $e->chunksFailed >= $lastFailed;
+            if ($attempt >= $maxAttempts || $stuck) {
+                throw new \RuntimeException(sprintf(
+                    'finalize stuck after %d attempt(s): %d/%d chunks stored, %d still unstored (paid attempt retained under upload_id %s — retry later or re-prepare)',
+                    $attempt,
+                    $e->chunksStored,
+                    $e->totalChunks,
+                    $e->chunksFailed,
+                    $uploadId
+                ), 0, $e);
+            }
+            $lastFailed = $e->chunksFailed;
+            printf(
+                "finalize stored %d/%d chunks, %d still unstored — retrying against the same payment (attempt %d/%d)\n",
+                $e->chunksStored,
+                $e->totalChunks,
+                $e->chunksFailed,
+                $attempt + 1,
+                $maxAttempts
+            );
+            sleep($attempt * 2);
+        }
+    }
 }
 
 function rpcCall(HttpClient $http, string $method, array $params): array
@@ -180,7 +238,7 @@ try {
         $filePrep->paymentTokenAddress,
         $filePrep->payments
     );
-    $fileFin = $client->finalizeUpload($filePrep->uploadId, $fileTxHashes);
+    $fileFin = finalizeWithRetry($client, $filePrep->uploadId, $fileTxHashes);
     printf(
         "File finalize: data_map_address=%s, chunks_stored=%d\n",
         $fileFin->dataMapAddress,
