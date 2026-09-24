@@ -1,21 +1,25 @@
-# antd-dart
+# antd_client (antd-dart)
 
-Dart SDK for the [antd](../antd/) daemon — the gateway to the Autonomi decentralized network.
+Dart SDK for the [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon — the gateway to the Autonomi decentralized network.
+
+Published on pub.dev as [`antd_client`](https://pub.dev/packages/antd_client).
 
 ## Installation
 
-Add to your `pubspec.yaml`:
+```bash
+dart pub add antd_client
+```
+
+Or add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  antd: ^0.1.0
+  antd_client: ^0.1.0
 ```
 
-Or install via command line:
+## Compatibility
 
-```bash
-dart pub add antd
-```
+This package talks to a running antd daemon; it does not join the network itself. Dart 3.0+. Tested against antd 0.13.x. Both the REST client (`AntdClient`) and the gRPC client (`GrpcAntdClient`) are included; the gRPC stubs are pre-generated, so `protoc` is only needed if you regenerate them.
 
 ## Quick Start
 
@@ -23,7 +27,7 @@ dart pub add antd
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:antd/antd.dart';
+import 'package:antd_client/antd_client.dart';
 
 void main() async {
   final client = AntdClient();
@@ -97,7 +101,7 @@ dart pub global activate protoc_plugin 22.3.0
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:antd/src/grpc_client.dart';
+import 'package:antd_client/src/grpc_client.dart';
 
 void main() async {
   final client = GrpcAntdClient.withChannel();

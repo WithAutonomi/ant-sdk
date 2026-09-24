@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:antd/src/grpc_client.dart';
-import 'package:antd/src/generated/antd/v1/chunks.pb.dart' as chunks_msg;
-import 'package:antd/src/generated/antd/v1/chunks.pbgrpc.dart' as chunks_pb;
-import 'package:antd/src/generated/antd/v1/common.pb.dart' as common_msg;
-import 'package:antd/src/generated/antd/v1/upload.pb.dart' as upload_msg;
-import 'package:antd/src/generated/antd/v1/upload.pbgrpc.dart' as upload_pb;
+import 'package:antd_client/src/grpc_client.dart';
+import 'package:antd_client/src/generated/antd/v1/chunks.pb.dart' as chunks_msg;
+import 'package:antd_client/src/generated/antd/v1/chunks.pbgrpc.dart' as chunks_pb;
+import 'package:antd_client/src/generated/antd/v1/common.pb.dart' as common_msg;
+import 'package:antd_client/src/generated/antd/v1/upload.pb.dart' as upload_msg;
+import 'package:antd_client/src/generated/antd/v1/upload.pbgrpc.dart' as upload_pb;
 import 'package:fixnum/fixnum.dart';
 import 'package:grpc/grpc.dart';
 import 'package:test/test.dart';

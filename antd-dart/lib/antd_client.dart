@@ -1,5 +1,5 @@
 /// Dart SDK for the antd daemon — the gateway to the Autonomi decentralized network.
-library antd;
+library;
 
 export 'src/client.dart';
 export 'src/discover.dart';

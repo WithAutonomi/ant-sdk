@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:antd/antd.dart';
+import 'package:antd_client/antd_client.dart';
 
 /// Demonstrates storing and retrieving public immutable data.
 void main() async {

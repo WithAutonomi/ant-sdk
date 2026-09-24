@@ -1,0 +1,7 @@
+# Example scripts are numbered (01_connect.dart …) to match every other SDK's
+# example set and the `ant dev example` runner; that convention trips the
+# file_names lint, so it is switched off for this directory only.
+include: ../analysis_options.yaml
+linter:
+  rules:
+    file_names: false
