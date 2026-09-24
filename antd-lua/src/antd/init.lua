@@ -48,7 +48,9 @@ M.new_finalize_upload_result = models.new_finalize_upload_result
 -- Re-export errors
 M.errors = errors
 M.error_for_status = errors.error_for_status
+M.error_for_response = errors.error_for_response
 M.is_antd_error = errors.is_antd_error
+M.is_partial_upload = errors.is_partial_upload
 
 -- Re-export Client class
 M.Client = Client
