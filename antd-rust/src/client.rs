@@ -10,7 +10,7 @@ use reqwest;
 use serde_json::{json, Value};
 
 use crate::discover::discover_daemon_url;
-use crate::errors::{error_for_status, AntdError};
+use crate::errors::{error_for_body, AntdError};
 use crate::models::*;
 
 /// Default base URL of the antd daemon.
@@ -189,16 +189,7 @@ impl Client {
         let bytes = resp.bytes().await?;
 
         if !(200..300).contains(&status) {
-            let msg = if let Ok(parsed) = serde_json::from_slice::<Value>(&bytes) {
-                parsed
-                    .get("error")
-                    .and_then(|e| e.as_str())
-                    .unwrap_or_default()
-                    .to_string()
-            } else {
-                String::from_utf8_lossy(&bytes).to_string()
-            };
-            return Err(error_for_status(status, msg));
+            return Err(error_for_body(status, &bytes));
         }
 
         if bytes.is_empty() {
@@ -212,8 +203,8 @@ impl Client {
     /// Sends a request and, on a 2xx response, returns the [`reqwest::Response`]
     /// for streaming consumption via [`reqwest::Response::bytes_stream`].
     ///
-    /// On a non-2xx response the JSON error body (`{"error":"..."}`) is read
-    /// and parsed into an [`AntdError`] — mirroring [`do_json`](Self::do_json).
+    /// On a non-2xx response the JSON error body (`{"error":"...","code":"..."}`)
+    /// is read and parsed into an [`AntdError`] — mirroring [`do_json`](Self::do_json).
     /// This lets callers consume the body incrementally (constant memory)
     /// instead of buffering the whole object.
     async fn do_stream(
@@ -250,16 +241,7 @@ impl Client {
             // Error responses are small JSON bodies sent before any stream
             // body, so it is safe to buffer them fully.
             let bytes = resp.bytes().await?;
-            let msg = if let Ok(parsed) = serde_json::from_slice::<Value>(&bytes) {
-                parsed
-                    .get("error")
-                    .and_then(|e| e.as_str())
-                    .unwrap_or_default()
-                    .to_string()
-            } else {
-                String::from_utf8_lossy(&bytes).to_string()
-            };
-            return Err(error_for_status(status, msg));
+            return Err(error_for_body(status, &bytes));
         }
 
         Ok(resp)
@@ -928,6 +910,18 @@ impl Client {
     }
 
     /// Finalizes an upload after an external signer has submitted payment transactions.
+    ///
+    /// # Partial stores
+    ///
+    /// When some chunks stay unstored after the daemon's retries this returns
+    /// [`AntdError::PartialUpload`] with the counts and a `retryable` flag.
+    /// The payment persists and the stored chunks stay on the network. With
+    /// `retryable == true` (antd >= 0.14.0) the daemon kept the paid attempt
+    /// under the same `upload_id`: call this method again with the same
+    /// arguments to store the remainder against the same payment — bound
+    /// that loop. With `retryable == false` nothing was retained: re-prepare
+    /// the same content, which skips already-stored chunks. See
+    /// `docs/external-signer-flow.md` §6 and `examples/07-external-signer.rs`.
     pub async fn finalize_upload(
         &self,
         upload_id: &str,
@@ -948,6 +942,18 @@ impl Client {
     }
 
     /// Finalizes a merkle batch upload after the winning pool has been determined.
+    ///
+    /// # Partial stores
+    ///
+    /// When some chunks stay unstored after the daemon's retries this returns
+    /// [`AntdError::PartialUpload`] with the counts and a `retryable` flag.
+    /// The payment persists and the stored chunks stay on the network. With
+    /// `retryable == true` (antd >= 0.14.0) the daemon kept the paid attempt
+    /// under the same `upload_id`: call this method again with the same
+    /// arguments to store the remainder against the same payment — bound
+    /// that loop. With `retryable == false` nothing was retained: re-prepare
+    /// the same content, which skips already-stored chunks. See
+    /// `docs/external-signer-flow.md` §6 and `examples/07-external-signer.rs`.
     pub async fn finalize_merkle_upload(
         &self,
         upload_id: &str,
@@ -1048,6 +1054,10 @@ impl Client {
     /// corresponding `tx_hash` returned by `payForQuotes()`. Returns the
     /// hex-encoded network address of the stored chunk (matches
     /// [`PrepareChunkResult::address`]).
+    ///
+    /// A store that misses quorum after the daemon's retries returns
+    /// [`AntdError::PartialUpload`]; see
+    /// [`finalize_upload`](Self::finalize_upload) for the retry contract.
     ///
     /// Requires antd >= 0.7.0.
     pub async fn finalize_chunk_upload(

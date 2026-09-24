@@ -3,7 +3,7 @@ use base64::Engine;
 use mockito::{Matcher, Mock, ServerGuard};
 use serde_json::json;
 
-use crate::errors::AntdError;
+use crate::errors::{parse_partial_upload_message, AntdError};
 use crate::models::{PaymentMode, PrepareOptions, VerifyQuoteEntry};
 use crate::Client;
 
@@ -620,6 +620,140 @@ async fn test_error_mapping_network() {
     match err {
         AntdError::Network(msg) => assert_eq!(msg, "network unreachable"),
         other => panic!("expected Network, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_partial_upload_error_carries_counts_and_retryable() {
+    let mut server = mock_server().await;
+    let _m = server
+        .mock("POST", "/v1/upload/finalize")
+        .with_status(502)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{
+            "error": "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)",
+            "code": "PARTIAL_UPLOAD",
+            "chunks_stored": 300,
+            "chunks_failed": 12,
+            "total_chunks": 312,
+            "retryable": true
+        }"#,
+        )
+        .create();
+    let client = Client::new(&server.url());
+
+    let err = client
+        .finalize_merkle_upload("mb1", "0xw1", false)
+        .await
+        .unwrap_err();
+    match err {
+        AntdError::PartialUpload {
+            chunks_stored,
+            chunks_failed,
+            total_chunks,
+            retryable,
+            message,
+        } => {
+            assert_eq!(chunks_stored, 300);
+            assert_eq!(chunks_failed, 12);
+            assert_eq!(total_chunks, 312);
+            assert!(retryable, "expected retryable from the body flag");
+            assert!(message.starts_with("Partial upload: 300/312"), "{message}");
+        }
+        other => panic!("expected PartialUpload, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_partial_upload_error_retryable_defaults_false() {
+    // An older daemon (< 0.14.0) never sends `retryable`; the flag must read
+    // false so callers fall back to the re-prepare path rather than looping
+    // on an upload_id the daemon has already dropped.
+    let mut server = mock_server().await;
+    let _m = server
+        .mock("POST", "/v1/upload/finalize")
+        .with_status(502)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{
+            "error": "Partial upload: 300/312 chunks stored, 12 failed after retries",
+            "code": "PARTIAL_UPLOAD",
+            "chunks_stored": 300,
+            "chunks_failed": 12,
+            "total_chunks": 312
+        }"#,
+        )
+        .create();
+    let client = Client::new(&server.url());
+
+    let mut tx_hashes = std::collections::HashMap::new();
+    tx_hashes.insert("0xq".to_string(), "0xt".to_string());
+    let err = client.finalize_upload("u1", &tx_hashes).await.unwrap_err();
+    match err {
+        AntdError::PartialUpload {
+            chunks_stored,
+            chunks_failed,
+            total_chunks,
+            retryable,
+            ..
+        } => {
+            assert_eq!((chunks_stored, chunks_failed, total_chunks), (300, 12, 312));
+            assert!(
+                !retryable,
+                "retryable must default to false without the body flag"
+            );
+        }
+        other => panic!("expected PartialUpload, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_plain_502_still_maps_to_network() {
+    // Only `code: PARTIAL_UPLOAD` is special-cased; a 502 with any other
+    // code keeps the status-based mapping.
+    let mut server = mock_server().await;
+    let _m = server
+        .mock("POST", "/v1/upload/finalize")
+        .with_status(502)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"error":"upstream unreachable","code":"NETWORK_ERROR"}"#)
+        .create();
+    let client = Client::new(&server.url());
+
+    let tx_hashes = std::collections::HashMap::new();
+    let err = client.finalize_upload("up1", &tx_hashes).await.unwrap_err();
+    match err {
+        AntdError::Network(msg) => assert_eq!(msg, "upstream unreachable"),
+        other => panic!("expected Network for plain 502, got: {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_partial_upload_message() {
+    let cases = [
+        (
+            "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)",
+            (300, 12, 312, true),
+        ),
+        (
+            "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (stored chunks persist; re-prepare the same content to retry only the remainder)",
+            (300, 12, 312, false),
+        ),
+        (
+            "Partial upload: 300/312 chunks stored, 12 failed after retries",
+            (300, 12, 312, false),
+        ),
+        ("Partial upload: 0/1 chunks stored, 1 failed", (0, 1, 1, false)),
+        // A truncated prefix yields zero counts; the hint is still honoured.
+        (
+            "Partial upload: 300/312 chunks (paid attempt retained)",
+            (0, 0, 0, true),
+        ),
+        ("something else entirely", (0, 0, 0, false)),
+    ];
+    for (msg, want) in cases {
+        assert_eq!(parse_partial_upload_message(msg), want, "{msg:?}");
     }
 }
 
