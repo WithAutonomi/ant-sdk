@@ -197,12 +197,24 @@ public struct Antd_V1_CandidateNodeEntry: Sendable {
   public init() {}
 }
 
+/// Phase 2 of the external-signer upload. Validation happens before the
+/// stored upload is consumed, so a bad request leaves the paid-for upload in
+/// place. A storage shortfall AFTER payment is retryable against the same
+/// payment: the call fails with ABORTED (message prefixed "Partial upload:",
+/// carrying the stored/failed/total counts and a "paid attempt retained"
+/// hint), the daemon keeps the payment proofs plus the unstored chunks under
+/// the same upload_id, and repeating FinalizeUpload with that upload_id stores
+/// the remainder — no re-prepare, no second signature, no double payment. The
+/// payment fields are ignored on such a resume. Bound the retry loop: a
+/// persistent failure comes back as ABORTED on every call, and the retained
+/// attempt expires with the daemon's pending-upload TTL.
 public struct Antd_V1_FinalizeUploadRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  /// The upload_id returned from a Prepare* call.
+  /// The upload_id returned from a Prepare* call — or from a previous
+  /// FinalizeUpload that failed with ABORTED after payment (see above).
   public var uploadID: String = String()
 
   /// Wave-batch: map of quote_hash (hex) → tx_hash (hex) from the on-chain
@@ -222,7 +234,10 @@ public struct Antd_V1_FinalizeUploadRequest: Sendable {
   /// `merkle_batches`, index-aligned. An empty string marks a batch the
   /// signer never paid — paid batches store and the unpaid chunks surface
   /// via the PARTIAL_UPLOAD error. Required (over `winner_pool_hash`) when
-  /// the prepared upload has more than one batch.
+  /// the prepared upload has more than one batch. Only a fully paid list
+  /// (no empty entries) takes the resumable path: with unpaid batches the
+  /// shortfall is NOT retryable under the same upload_id (nothing is
+  /// retained), because a resume can never acquire proofs for unpaid chunks.
   public var winnerPoolHashes: [String] = []
 
   /// If true, store the DataMap on-network via the daemon's internal wallet
