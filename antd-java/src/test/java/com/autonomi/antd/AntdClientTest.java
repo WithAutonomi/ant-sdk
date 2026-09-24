@@ -1,7 +1,9 @@
 package com.autonomi.antd;
 
 import com.autonomi.antd.errors.AntdException;
+import com.autonomi.antd.errors.NetworkException;
 import com.autonomi.antd.errors.NotFoundException;
+import com.autonomi.antd.errors.PartialUploadException;
 import com.autonomi.antd.models.*;
 import okhttp3.mockwebserver.Dispatcher;
 import okhttp3.mockwebserver.MockResponse;
@@ -808,5 +810,130 @@ class AntdClientTest {
                 assertNull(res.merklePaymentTimestamp());
             }
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // PARTIAL_UPLOAD: typed exception with counts + retryable
+    // -------------------------------------------------------------------------
+
+    /** A daemon whose finalize always answers 502 with the given JSON body. */
+    private static MockWebServer startFinalize502Daemon(String body) throws IOException {
+        MockWebServer srv = new MockWebServer();
+        srv.setDispatcher(new Dispatcher() {
+            @Override
+            public MockResponse dispatch(RecordedRequest request) {
+                if ("POST".equals(request.getMethod()) && "/v1/upload/finalize".equals(request.getPath())) {
+                    return new MockResponse()
+                            .setResponseCode(502)
+                            .setHeader("Content-Type", "application/json")
+                            .setBody(body);
+                }
+                return new MockResponse().setResponseCode(404);
+            }
+        });
+        srv.start();
+        return srv;
+    }
+
+    @Test
+    void testPartialUploadExceptionCarriesCounts() throws IOException {
+        try (MockWebServer srv = startFinalize502Daemon(
+                "{\"error\":\"Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
+                        + "(paid attempt retained: call finalize again with the same upload_id to store "
+                        + "the remainder against the same payment)\","
+                        + "\"code\":\"PARTIAL_UPLOAD\","
+                        + "\"chunks_stored\":300,"
+                        + "\"chunks_failed\":12,"
+                        + "\"total_chunks\":312,"
+                        + "\"retryable\":true}")) {
+            try (AntdClient c = new AntdClient(srv.url("/").toString(), Duration.ofSeconds(10))) {
+                PartialUploadException ex = assertThrows(PartialUploadException.class,
+                        () -> c.finalizeMerkleUpload("mb1", "0xw1"));
+                assertEquals(300L, ex.getChunksStored());
+                assertEquals(12L, ex.getChunksFailed());
+                assertEquals(312L, ex.getTotalChunks());
+                assertTrue(ex.isRetryable(), "expected retryable from the body flag");
+                assertEquals(502, ex.getStatusCode());
+                // Existing catch blocks keep working: a partial upload is still
+                // the 502 family.
+                assertInstanceOf(NetworkException.class, ex);
+                assertTrue(ex.getMessage().contains("300/312 chunks stored"));
+            }
+        }
+    }
+
+    @Test
+    void testPartialUploadRetryableDefaultsFalse() throws IOException {
+        // An older daemon (< 0.14.0) never sends `retryable`; the flag must read
+        // false so callers fall back to the re-prepare path rather than looping
+        // on an upload_id the daemon has already dropped.
+        try (MockWebServer srv = startFinalize502Daemon(
+                "{\"error\":\"Partial upload: 300/312 chunks stored, 12 failed after retries\","
+                        + "\"code\":\"PARTIAL_UPLOAD\","
+                        + "\"chunks_stored\":300,"
+                        + "\"chunks_failed\":12,"
+                        + "\"total_chunks\":312}")) {
+            try (AntdClient c = new AntdClient(srv.url("/").toString(), Duration.ofSeconds(10))) {
+                PartialUploadException ex = assertThrows(PartialUploadException.class,
+                        () -> c.finalizeUpload("u1", Map.of("0xq", "0xt")));
+                assertEquals(300L, ex.getChunksStored());
+                assertEquals(12L, ex.getChunksFailed());
+                assertEquals(312L, ex.getTotalChunks());
+                assertFalse(ex.isRetryable(), "retryable must default to false without the body flag");
+            }
+        }
+    }
+
+    @Test
+    void testPlain502StillMapsToNetworkException() throws IOException {
+        try (MockWebServer srv = startFinalize502Daemon(
+                "{\"error\":\"upstream unreachable\",\"code\":\"NETWORK_ERROR\"}")) {
+            try (AntdClient c = new AntdClient(srv.url("/").toString(), Duration.ofSeconds(10))) {
+                AntdException ex = assertThrows(AntdException.class,
+                        () -> c.finalizeUpload("up1", Map.of()));
+                assertEquals(NetworkException.class, ex.getClass(),
+                        "a 502 without code PARTIAL_UPLOAD must stay a plain NetworkException");
+            }
+        }
+    }
+
+    @Test
+    void testParsePartialUploadMessage() {
+        String retained = "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
+                + "(paid attempt retained: call finalize again with the same upload_id to store the "
+                + "remainder against the same payment)";
+        String rePrepare = "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
+                + "(stored chunks persist; re-prepare the same content to retry only the remainder)";
+        String bare = "Partial upload: 300/312 chunks stored, 12 failed after retries";
+        String garbage = "something else entirely";
+
+        PartialUploadException ex = PartialUploadException.fromMessage(retained);
+        assertEquals(300L, ex.getChunksStored());
+        assertEquals(12L, ex.getChunksFailed());
+        assertEquals(312L, ex.getTotalChunks());
+        assertTrue(ex.isRetryable());
+
+        ex = PartialUploadException.fromMessage(rePrepare);
+        assertEquals(300L, ex.getChunksStored());
+        assertEquals(12L, ex.getChunksFailed());
+        assertEquals(312L, ex.getTotalChunks());
+        assertFalse(ex.isRetryable());
+
+        ex = PartialUploadException.fromMessage(bare);
+        assertEquals(300L, ex.getChunksStored());
+        assertEquals(12L, ex.getChunksFailed());
+        assertEquals(312L, ex.getTotalChunks());
+        assertFalse(ex.isRetryable());
+
+        ex = PartialUploadException.fromMessage(garbage);
+        assertEquals(0L, ex.getChunksStored());
+        assertEquals(0L, ex.getChunksFailed());
+        assertEquals(0L, ex.getTotalChunks());
+        assertFalse(ex.isRetryable());
+
+        ex = PartialUploadException.fromMessage(null);
+        assertEquals(0L, ex.getTotalChunks());
+        assertFalse(ex.isRetryable());
+        assertEquals(502, ex.getStatusCode());
     }
 }

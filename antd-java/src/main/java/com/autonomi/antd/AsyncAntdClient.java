@@ -83,12 +83,15 @@ public class AsyncAntdClient implements AutoCloseable {
 
                     if (status < 200 || status >= 300) {
                         String msg = respBody;
+                        Map<String, Object> parsed = null;
                         try {
-                            Map<String, Object> parsed = Json.parseObject(respBody);
+                            parsed = Json.parseObject(respBody);
                             Object err = parsed.get("error");
                             if (err != null) msg = err.toString();
                         } catch (Exception ignored) {}
-                        throw ExceptionFactory.fromHttpStatus(status, msg);
+                        // Same body-aware mapping as AntdClient: a 502 with
+                        // code PARTIAL_UPLOAD becomes PartialUploadException.
+                        throw ExceptionFactory.fromErrorBody(status, msg, parsed);
                     }
 
                     if (respBody == null || respBody.isBlank()) return null;

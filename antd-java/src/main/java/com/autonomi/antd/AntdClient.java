@@ -109,13 +109,7 @@ public class AntdClient implements AutoCloseable {
             String respBody = resp.body();
 
             if (status < 200 || status >= 300) {
-                String msg = respBody;
-                try {
-                    Map<String, Object> parsed = Json.parseObject(respBody);
-                    Object err = parsed.get("error");
-                    if (err != null) msg = err.toString();
-                } catch (Exception ignored) {}
-                throw ExceptionFactory.fromHttpStatus(status, msg);
+                throw errorForResponse(status, respBody);
             }
 
             if (respBody == null || respBody.isBlank()) return null;
@@ -170,13 +164,7 @@ public class AntdClient implements AutoCloseable {
                 try (InputStream in = resp.body()) {
                     respBody = new String(in.readAllBytes());
                 }
-                String msg = respBody;
-                try {
-                    Map<String, Object> parsed = Json.parseObject(respBody);
-                    Object err = parsed.get("error");
-                    if (err != null) msg = err.toString();
-                } catch (Exception ignored) {}
-                throw ExceptionFactory.fromHttpStatus(status, msg);
+                throw errorForResponse(status, respBody);
             }
 
             return resp.body();
@@ -187,6 +175,26 @@ public class AntdClient implements AutoCloseable {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             throw new AntdException(0, "HTTP request failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * Maps a non-2xx response onto the matching {@link AntdException}. The body
+     * is parsed for a {@code {"error":"..."}} message; when it is not JSON the
+     * raw body is the message. The parsed body is handed to
+     * {@link ExceptionFactory#fromErrorBody} so a 502 with
+     * {@code "code":"PARTIAL_UPLOAD"} becomes a
+     * {@link com.autonomi.antd.errors.PartialUploadException} carrying the
+     * chunk counts and {@code retryable} flag.
+     */
+    private static AntdException errorForResponse(int status, String respBody) {
+        String msg = respBody;
+        Map<String, Object> parsed = null;
+        try {
+            parsed = Json.parseObject(respBody);
+            Object err = parsed.get("error");
+            if (err != null) msg = err.toString();
+        } catch (Exception ignored) {}
+        return ExceptionFactory.fromErrorBody(status, msg, parsed);
     }
 
     private static String str(Map<String, Object> m, String key) {
@@ -480,6 +488,10 @@ public class AntdClient implements AutoCloseable {
     /**
      * Submit a single chunk after external payment.
      * Requires antd &gt;= 0.7.0.
+     *
+     * @throws com.autonomi.antd.errors.PartialUploadException when the chunk
+     *         could not be stored after the daemon's retries; see
+     *         {@link #finalizeUpload(String, Map)} for the retry contract
      */
     public String finalizeChunkUpload(String uploadId, Map<String, String> txHashes) {
         String body = Json.object("upload_id", uploadId, "tx_hashes", txHashes);
@@ -677,12 +689,47 @@ public class AntdClient implements AutoCloseable {
                 str(j, "data_map_address"));
     }
 
+    /**
+     * Finalize a wave-batch upload after external payment.
+     *
+     * <p>A finalize where some chunks stayed unstored after the daemon's
+     * retries throws {@link com.autonomi.antd.errors.PartialUploadException}
+     * with {@code chunksStored} / {@code chunksFailed} / {@code totalChunks}
+     * and a {@code retryable} flag. The on-chain payment persists and the
+     * stored chunks stay on the network:
+     * <ul>
+     *   <li>{@code isRetryable() == true} (antd &gt;= 0.14.0): the daemon kept
+     *       the paid attempt under the same {@code uploadId} — call this
+     *       method again with the same arguments to store the remainder
+     *       against the same payment (no re-prepare, no second signature, no
+     *       double payment). Bound that loop: cap the attempts and treat a
+     *       {@code chunksFailed} that stops shrinking as stuck.</li>
+     *   <li>{@code isRetryable() == false} (older daemon, or a merkle finalize
+     *       with deliberately unpaid batches): nothing was retained —
+     *       re-prepare the same content; already-stored chunks are skipped so
+     *       the retry pays only for the remainder.</li>
+     * </ul>
+     * See {@code docs/external-signer-flow.md} §6 and {@code finalizeWithRetry}
+     * in {@code examples/.../Example07ExternalSigner.java}.
+     *
+     * @param uploadId the upload_id returned from a prepare call
+     * @param txHashes map of quote_hash hex → tx_hash hex
+     * @throws com.autonomi.antd.errors.PartialUploadException on a partial store
+     */
     public FinalizeUploadResult finalizeUpload(String uploadId, Map<String, String> txHashes) {
         String body = Json.object("upload_id", uploadId, "tx_hashes", txHashes);
         Map<String, Object> j = doJson("POST", "/v1/upload/finalize", body);
         return parseFinalizeUploadResult(j);
     }
 
+    /**
+     * Finalize a merkle-batch upload after the winning pool has been
+     * determined.
+     *
+     * @throws com.autonomi.antd.errors.PartialUploadException on a partial
+     *         store; see {@link #finalizeUpload(String, Map)} for the retry
+     *         contract
+     */
     public FinalizeUploadResult finalizeMerkleUpload(String uploadId, String winnerPoolHash) {
         String body = Json.object("upload_id", uploadId, "winner_pool_hash", winnerPoolHash);
         Map<String, Object> j = doJson("POST", "/v1/upload/finalize", body);

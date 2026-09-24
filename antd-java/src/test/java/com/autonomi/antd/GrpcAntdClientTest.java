@@ -998,4 +998,75 @@ class GrpcAntdClientTest {
         }
     }
 
+    // --- PARTIAL_UPLOAD (gRPC ABORTED) ---
+
+    /**
+     * An upload service whose finalize always fails ABORTED with the given
+     * description — the daemon's PARTIAL_UPLOAD wire form over gRPC.
+     */
+    private static GrpcAntdClient abortedFinalizeClient(String description) throws Exception {
+        String serverName = InProcessServerBuilder.generateName();
+        InProcessServerBuilder.forName(serverName)
+                        .directExecutor()
+                        .addService(new UploadServiceGrpc.UploadServiceImplBase() {
+                            @Override
+                            public void finalizeUpload(FinalizeUploadRequest request,
+                                                       StreamObserver<FinalizeUploadResponse> obs) {
+                                obs.onError(Status.ABORTED
+                                        .withDescription(description).asRuntimeException());
+                            }
+                        })
+                        .build()
+                        .start();
+        ManagedChannel ch = InProcessChannelBuilder.forName(serverName).directExecutor().build();
+        return new GrpcAntdClient(ch);
+    }
+
+    @Test
+    void testAbortedThrowsPartialUploadExceptionRetryable() throws Exception {
+        try (GrpcAntdClient c = abortedFinalizeClient(
+                "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
+                        + "(paid attempt retained: call finalize again with the same upload_id to "
+                        + "store the remainder against the same payment)")) {
+            PartialUploadException ex = assertThrows(PartialUploadException.class,
+                    () -> c.finalizeMerkleUpload("partial", "0xw1"));
+            // Counts and the retained hint are parsed from the status
+            // description, so the gRPC client matches the REST client's typed
+            // exception.
+            assertEquals(300L, ex.getChunksStored());
+            assertEquals(12L, ex.getChunksFailed());
+            assertEquals(312L, ex.getTotalChunks());
+            assertTrue(ex.isRetryable(), "expected retryable from the retained hint");
+            assertEquals(502, ex.getStatusCode());
+            assertInstanceOf(NetworkException.class, ex);
+        }
+    }
+
+    @Test
+    void testAbortedWithoutRetainedHintIsNotRetryable() throws Exception {
+        try (GrpcAntdClient c = abortedFinalizeClient(
+                "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
+                        + "(stored chunks persist; re-prepare the same content to retry only the "
+                        + "remainder)")) {
+            PartialUploadException ex = assertThrows(PartialUploadException.class,
+                    () -> c.finalizeUpload("partial-final", Map.of("0xq", "0xt")));
+            assertEquals(300L, ex.getChunksStored());
+            assertEquals(12L, ex.getChunksFailed());
+            assertEquals(312L, ex.getTotalChunks());
+            assertFalse(ex.isRetryable(), "no retained hint must read as not retryable");
+        }
+    }
+
+    @Test
+    void testAbortedWithUnrecognisedMessageHasZeroCounts() throws Exception {
+        try (GrpcAntdClient c = abortedFinalizeClient("something else entirely")) {
+            PartialUploadException ex = assertThrows(PartialUploadException.class,
+                    () -> c.finalizeUpload("partial-odd", Map.of()));
+            assertEquals(0L, ex.getChunksStored());
+            assertEquals(0L, ex.getChunksFailed());
+            assertEquals(0L, ex.getTotalChunks());
+            assertFalse(ex.isRetryable());
+        }
+    }
+
 }
