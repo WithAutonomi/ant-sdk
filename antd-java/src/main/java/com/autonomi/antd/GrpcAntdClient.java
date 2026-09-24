@@ -156,8 +156,12 @@ public class GrpcAntdClient implements AutoCloseable {
             // retries. The counts and the "paid attempt retained" hint ride
             // the status description over gRPC (no structured detail yet),
             // so parse them best-effort to match the REST client's typed
-            // exception.
-            case ABORTED -> PartialUploadException.fromMessage(msg);
+            // exception. Every such message opens with the daemon's fixed
+            // "Partial upload:" prefix; an ABORTED without it is not a
+            // partial upload and keeps the generic mapping below.
+            case ABORTED -> PartialUploadException.isPartialUploadMessage(msg)
+                    ? PartialUploadException.fromMessage(msg)
+                    : new AntdException(e.getStatus().getCode().value(), msg);
             default -> new AntdException(e.getStatus().getCode().value(), msg);
         };
     }

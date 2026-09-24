@@ -1058,14 +1058,43 @@ class GrpcAntdClientTest {
     }
 
     @Test
-    void testAbortedWithUnrecognisedMessageHasZeroCounts() throws Exception {
-        try (GrpcAntdClient c = abortedFinalizeClient("something else entirely")) {
+    void testAbortedWithPrefixButGarbledCountsHasZeroCounts() throws Exception {
+        // The daemon's fixed prefix is present, so it is a partial upload,
+        // but the counts cannot be parsed: typed exception, zero counts,
+        // not retryable.
+        try (GrpcAntdClient c = abortedFinalizeClient("Partial upload: ??? chunks, no idea")) {
             PartialUploadException ex = assertThrows(PartialUploadException.class,
                     () -> c.finalizeUpload("partial-odd", Map.of()));
             assertEquals(0L, ex.getChunksStored());
             assertEquals(0L, ex.getChunksFailed());
             assertEquals(0L, ex.getTotalChunks());
             assertFalse(ex.isRetryable());
+        }
+    }
+
+    @Test
+    void testAbortedWithUnrelatedMessageFallsBackToGenericException() throws Exception {
+        // An ABORTED whose description lacks the "Partial upload:" prefix is
+        // not a partial upload: it keeps the pre-existing generic mapping
+        // (status code = the gRPC code value) rather than being misreported.
+        try (GrpcAntdClient c = abortedFinalizeClient("something else entirely")) {
+            AntdException ex = assertThrows(AntdException.class,
+                    () -> c.finalizeUpload("aborted-other", Map.of()));
+            assertFalse(ex instanceof PartialUploadException,
+                    "unrelated ABORTED must not map to PartialUploadException");
+            assertFalse(ex instanceof NetworkException);
+            assertEquals(Status.Code.ABORTED.value(), ex.getStatusCode());
+            assertEquals("antd error 10: something else entirely", ex.getMessage());
+        }
+    }
+
+    @Test
+    void testAbortedWithNullDescriptionFallsBackToGenericException() throws Exception {
+        try (GrpcAntdClient c = abortedFinalizeClient(null)) {
+            AntdException ex = assertThrows(AntdException.class,
+                    () -> c.finalizeUpload("aborted-null", Map.of()));
+            assertFalse(ex instanceof PartialUploadException);
+            assertEquals(Status.Code.ABORTED.value(), ex.getStatusCode());
         }
     }
 

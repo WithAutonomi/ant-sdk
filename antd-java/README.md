@@ -203,7 +203,7 @@ The gRPC client uses `io.grpc` blocking stubs and maps gRPC status codes to the 
 | `RESOURCE_EXHAUSTED` | `TooLargeException` |
 | `INTERNAL` | `InternalException` |
 | `UNAVAILABLE` | `NetworkException` |
-| `ABORTED` | `PartialUploadException` (counts and `retryable` parsed from the status message) |
+| `ABORTED` whose message starts with `Partial upload:` | `PartialUploadException` (counts and `retryable` parsed from the status message); any other `ABORTED` maps to the generic `AntdException` |
 
 ### Proto compilation
 
@@ -270,7 +270,7 @@ try {
 }
 ```
 
-Over REST the counts and flag come from the structured error body; over gRPC (status `ABORTED`) they are parsed from the status message, and an unrecognised message yields zero counts and `isRetryable() == false`. See `finalizeWithRetry` in [`examples/.../Example07ExternalSigner.java`](examples/src/main/java/com/autonomi/examples/Example07ExternalSigner.java) for a bounded retry helper, and [`docs/external-signer-flow.md` §6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment) for the daemon-side contract.
+Over REST the counts and flag come from the structured error body; over gRPC (status `ABORTED` whose message starts with the daemon's fixed `Partial upload:` prefix) they are parsed from the status message, and a message with the prefix but unparseable counts yields zero counts and `isRetryable() == false`. An `ABORTED` without that prefix is not a partial upload and maps to the generic `AntdException`. See `finalizeWithRetry` in [`examples/.../Example07ExternalSigner.java`](examples/src/main/java/com/autonomi/examples/Example07ExternalSigner.java) for a bounded retry helper, and [`docs/external-signer-flow.md` §6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment) for the daemon-side contract.
 
 ## Examples
 
