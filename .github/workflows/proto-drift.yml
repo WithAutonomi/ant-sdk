@@ -1,0 +1,137 @@
+name: Proto drift
+
+# The daemon's protos in antd/proto are the source of truth. Two consumers
+# carry copies that nothing verified before 2026-09-24:
+#
+# - antd-swift ships pre-generated stubs (Sources/AntdSdk/Proto/*.pb.swift +
+#   *.grpc.swift) so `swift package resolve` works without protoc or the
+#   codegen plugins. Their doc comments are baked in at generation time, so a
+#   comment-only proto change silently leaves the Swift docs describing an old
+#   contract (that is exactly what happened with the resumable-finalize
+#   wording on FinalizeUploadRequest).
+# - antd-kotlin carries a *source* copy of the protos and compiles them at
+#   build time; the copy has to match the daemon's file for file.
+#
+# antd-rust already guards its committed code with tests/proto_drift.rs. This
+# workflow does the same for the other two: regenerate / compare, fail on a
+# diff, and on failure (or on manual dispatch) upload the freshly generated
+# Swift stubs as an artifact so they can be committed without a local Swift
+# toolchain.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "antd/proto/**"
+      - "antd-swift/Sources/AntdSdk/Proto/**"
+      - "antd-swift/scripts/generate-protos.sh"
+      - "antd-swift/Package.swift"
+      - "antd-swift/Package.resolved"
+      - "antd-kotlin/lib/src/main/proto/**"
+      - ".github/workflows/proto-drift.yml"
+  pull_request:
+    paths:
+      - "antd/proto/**"
+      - "antd-swift/Sources/AntdSdk/Proto/**"
+      - "antd-swift/scripts/generate-protos.sh"
+      - "antd-swift/Package.swift"
+      - "antd-swift/Package.resolved"
+      - "antd-kotlin/lib/src/main/proto/**"
+      - ".github/workflows/proto-drift.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  kotlin-proto-copy:
+    name: antd-kotlin proto copy matches antd/proto
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Only the files the Kotlin copy carries are compared: it is allowed to
+      # lag behind on *new* services (it has no verify.proto yet), but a file
+      # it does ship must be byte-identical to the daemon's.
+      - name: Compare each copied proto with the daemon's
+        run: |
+          set -euo pipefail
+          src=antd/proto/antd/v1
+          copy=antd-kotlin/lib/src/main/proto/antd/v1
+          rc=0
+          for f in "$copy"/*.proto; do
+            name=$(basename "$f")
+            if [ ! -f "$src/$name" ]; then
+              echo "::error file=$f::$name has no counterpart in $src"
+              rc=1
+              continue
+            fi
+            if ! diff -u "$src/$name" "$f"; then
+              echo "::error file=$f::$name differs from $src/$name — copy the daemon's file over it"
+              rc=1
+            fi
+          done
+          exit $rc
+
+  swift-proto-stubs:
+    name: antd-swift generated stubs match antd/proto
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: antd-swift
+    steps:
+      - uses: actions/checkout@v4
+
+      # grpc-swift 2.x (Package.swift) needs Swift 6; the generate script
+      # builds protoc-gen-swift + protoc-gen-grpc-swift from the package's own
+      # dependencies, so the plugin versions always match Package.resolved.
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.0"
+
+      - uses: arduino/setup-protoc@v3
+        with:
+          version: "25.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # The plugin build is the slow part (~minutes); cache it on the
+      # resolved dependency graph.
+      - uses: actions/cache@v4
+        with:
+          path: antd-swift/.build
+          key: swift-proto-plugins-${{ runner.os }}-${{ hashFiles('antd-swift/Package.resolved', 'antd-swift/Package.swift') }}
+          restore-keys: |
+            swift-proto-plugins-${{ runner.os }}-
+
+      - name: Regenerate stubs from antd/proto
+        run: scripts/generate-protos.sh
+
+      - name: Fail on drift
+        id: drift
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- Sources/AntdSdk/Proto && [ -z "$(git ls-files --others --exclude-standard Sources/AntdSdk/Proto)" ]; then
+            echo "Swift stubs are up to date."
+            exit 0
+          fi
+          echo "::error::antd-swift/Sources/AntdSdk/Proto is stale relative to antd/proto. Run antd-swift/scripts/generate-protos.sh (Linux + Swift 6 + protoc) and commit, or download the 'antd-swift-proto-stubs' artifact of this run."
+          git --no-pager diff --stat -- Sources/AntdSdk/Proto
+          git --no-pager diff -- Sources/AntdSdk/Proto | head -200
+          git ls-files --others --exclude-standard Sources/AntdSdk/Proto
+          exit 1
+
+      # Always publish the regenerated stubs on a manual run, and whenever
+      # drift was detected, so a maintainer without a Swift toolchain can
+      # commit the artifact's contents verbatim.
+      - name: Upload regenerated stubs
+        if: always() && (github.event_name == 'workflow_dispatch' || steps.drift.outcome == 'failure')
+        uses: actions/upload-artifact@v4
+        with:
+          name: antd-swift-proto-stubs
+          path: antd-swift/Sources/AntdSdk/Proto
+          if-no-files-found: error
+          retention-days: 7
