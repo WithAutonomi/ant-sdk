@@ -10,10 +10,19 @@ from antd.exceptions import (
     InternalError,
     NetworkError,
     NotFoundError,
-    PartialUploadError,
     PaymentError,
     TooLargeError,
 )
+
+# ``PartialUploadError`` arrived in the antd SDK together with the daemon's
+# resumable finalize. The MCP server's dependency floor still admits older SDK
+# releases that predate it, so the import is guarded: against such an SDK the
+# server keeps starting and serving, and a partial upload simply surfaces as
+# the ``NETWORK_ERROR`` it always was (with the daemon's message text).
+try:
+    from antd.exceptions import PartialUploadError
+except ImportError:  # antd SDK without the typed partial-upload error
+    PartialUploadError = None  # type: ignore[assignment,misc]
 
 _CODE_MAP: dict[type[AntdError], str] = {
     NotFoundError: "NOT_FOUND",
@@ -22,10 +31,11 @@ _CODE_MAP: dict[type[AntdError], str] = {
     BadRequestError: "BAD_REQUEST",
     PaymentError: "PAYMENT_FAILED",
     NetworkError: "NETWORK_ERROR",
-    PartialUploadError: "PARTIAL_UPLOAD",
     TooLargeError: "TOO_LARGE",
     InternalError: "INTERNAL_ERROR",
 }
+if PartialUploadError is not None:
+    _CODE_MAP[PartialUploadError] = "PARTIAL_UPLOAD"
 
 
 def format_error(exc: AntdError) -> dict:
@@ -43,7 +53,7 @@ def format_error(exc: AntdError) -> dict:
         "message": str(exc),
         "status_code": exc.status_code,
     }
-    if isinstance(exc, PartialUploadError):
+    if PartialUploadError is not None and isinstance(exc, PartialUploadError):
         d["chunks_stored"] = exc.chunks_stored
         d["chunks_failed"] = exc.chunks_failed
         d["total_chunks"] = exc.total_chunks
