@@ -372,9 +372,15 @@ pub struct PaymentEntry {
     pub amount: String,
 }
 
+/// Phase 2 of the external-signer upload. A storage shortfall *after* payment
+/// is retryable against the same payment: the response is `PARTIAL_UPLOAD`
+/// (502) with `retryable: true`, the daemon keeps the paid attempt under the
+/// same `upload_id`, and repeating this request with that `upload_id` stores
+/// the remainder — the payment fields are ignored on such a resume.
 #[derive(Deserialize)]
 pub struct FinalizeUploadRequest {
-    /// The upload_id returned from prepare.
+    /// The upload_id returned from prepare — or from a previous finalize that
+    /// returned a retryable `PARTIAL_UPLOAD`.
     pub upload_id: String,
     /// Wave-batch: map of quote_hash (hex) → tx_hash (hex) from on-chain payment.
     #[serde(default)]
@@ -389,7 +395,10 @@ pub struct FinalizeUploadRequest {
     /// `merkle_batches`, index-aligned. `null` or `""` marks a batch the
     /// signer never paid — paid batches store and the unpaid chunks surface
     /// via the `PARTIAL_UPLOAD` error. Required (over `winner_pool_hash`)
-    /// when the prepared upload has more than one batch.
+    /// when the prepared upload has more than one batch. Only a fully paid
+    /// list takes the resumable path: with unpaid batches the shortfall is
+    /// reported with `retryable: false` (nothing is retained), because a
+    /// resume can never acquire proofs for unpaid chunks.
     #[serde(default)]
     pub winner_pool_hashes: Option<Vec<Option<String>>>,
     /// If true, store the DataMap on-network and return its address.

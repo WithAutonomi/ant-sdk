@@ -6,7 +6,7 @@ use axum::Json;
 
 use crate::error::AntdError;
 use crate::evm_defaults;
-use crate::state::AppState;
+use crate::state::{AppState, PaymentKind, UploadSession};
 use crate::types::*;
 
 /// Build a [`PrepareUploadResponse`] from a prepared upload, matching on the
@@ -315,10 +315,7 @@ pub async fn prepare_upload(
 
     state.pending_uploads.lock().await.insert(
         upload_id,
-        crate::state::TimestampedUpload {
-            prepared,
-            created_at: std::time::Instant::now(),
-        },
+        crate::state::TimestampedUpload::prepared(prepared),
     );
 
     Ok(Json(response))
@@ -361,13 +358,249 @@ pub async fn prepare_data_upload(
 
     state.pending_uploads.lock().await.insert(
         upload_id,
-        crate::state::TimestampedUpload {
-            prepared,
-            created_at: std::time::Instant::now(),
-        },
+        crate::state::TimestampedUpload::prepared(prepared),
     );
 
     Ok(Json(response))
+}
+
+/// What the finalize handlers need to know about a pending session, read
+/// under the lock without consuming it, so bad input errors while the
+/// already paid-for upload stays present.
+pub(crate) enum PendingShape {
+    /// Not yet paid: the request's payment artefacts are validated against
+    /// these before the session is consumed.
+    PreparedWave {
+        expected_quotes: Vec<evmlib::common::QuoteHash>,
+    },
+    PreparedMerkle {
+        batch_count: usize,
+    },
+    /// Paid and partly stored: the retained resume handle already owns the
+    /// payment proofs, so the request's artefacts are ignored and only the
+    /// wrong-shape fields are rejected.
+    Resume(PaymentKind),
+}
+
+/// Payment artefacts a finalize request resolved to, matched to the session
+/// shape by the handler.
+pub(crate) enum PaymentArtefacts {
+    Wave(HashMap<evmlib::common::QuoteHash, evmlib::common::TxHash>),
+    Merkle(Vec<Option<[u8; 32]>>),
+    /// Resume a retained partial attempt; nothing new to hand to ant-core.
+    Resume,
+}
+
+/// The fields a successful finalize returns, shared by the REST and gRPC
+/// response shapes.
+pub(crate) struct FinalizeSuccess {
+    pub data_map_hex: String,
+    pub address: Option<String>,
+    pub data_map_address: Option<String>,
+    pub chunks_stored: u64,
+}
+
+pub(crate) fn upload_not_found(upload_id: &str) -> AntdError {
+    AntdError::NotFound(format!(
+        "upload_id {upload_id} not found — it may have expired, been finalized, or been \
+         abandoned after a partial store"
+    ))
+}
+
+/// Peek at the pending session's shape without consuming it.
+pub(crate) async fn pending_shape(
+    state: &AppState,
+    upload_id: &str,
+) -> Result<PendingShape, AntdError> {
+    let pending = state.pending_uploads.lock().await;
+    let entry = pending
+        .get(upload_id)
+        .ok_or_else(|| upload_not_found(upload_id))?;
+    match &entry.session {
+        UploadSession::Prepared(prepared) => match &prepared.payment_info {
+            ant_core::data::ExternalPaymentInfo::WaveBatch { payment_intent, .. } => {
+                Ok(PendingShape::PreparedWave {
+                    expected_quotes: payment_intent
+                        .payments
+                        .iter()
+                        .map(|(quote_hash, _, _)| *quote_hash)
+                        .collect(),
+                })
+            }
+            ant_core::data::ExternalPaymentInfo::Merkle {
+                prepared_batches, ..
+            } => Ok(PendingShape::PreparedMerkle {
+                batch_count: prepared_batches.len(),
+            }),
+            #[allow(unreachable_patterns)]
+            _ => Err(AntdError::Internal(
+                "pending upload has a payment shape this daemon cannot finalize".into(),
+            )),
+        },
+        UploadSession::Resume(_) => entry
+            .session
+            .payment_kind()
+            .map(PendingShape::Resume)
+            .ok_or_else(|| {
+                AntdError::Internal(
+                    "retained upload has a payment shape this daemon cannot resume".into(),
+                )
+            }),
+    }
+}
+
+/// Whether a merkle finalize can go through the resumable path: ant-core's
+/// resumable finalize requires every sub-batch to be paid, because a resume
+/// handle cannot acquire proofs for unpaid chunks and would never drain to
+/// completion. A deliberately partial payment stays on the non-resumable
+/// path, whose unpaid chunks surface through a non-retryable `PARTIAL_UPLOAD`.
+pub(crate) fn merkle_fully_paid(winner_pool_hashes: &[Option<[u8; 32]>]) -> bool {
+    winner_pool_hashes.iter().all(Option::is_some)
+}
+
+/// Consume the pending session for `upload_id` and drive the finalize.
+///
+/// Validation against the request must already have happened (see
+/// [`pending_shape`]); this only checks that the session still exists and
+/// still matches the artefacts' shape, so a mis-routed call is lossless.
+///
+/// The whole store runs on a detached task: an HTTP client that disconnects
+/// mid-finalize must not cancel a store the signer has already paid for,
+/// and — just as important — must not lose the retained resume handle.
+///
+/// Outcomes:
+/// - every chunk stored → `Ok`; the entry is gone.
+/// - some chunks unstored after ant-core's retries → the resume handle is
+///   re-inserted under the same `upload_id` (fresh TTL) and the call returns
+///   [`AntdError::PartialUpload`] with `retryable: true`. Repeating the same
+///   finalize call stores the remainder against the same payment.
+/// - a merkle finalize with unpaid sub-batches → non-resumable path; a
+///   shortfall is `PartialUpload` with `retryable: false` (nothing retained).
+/// - any other error (bad receipt, payment-side failure) → the session is
+///   consumed; a fresh prepare is required.
+pub(crate) async fn finalize_pending(
+    state: Arc<AppState>,
+    upload_id: String,
+    artefacts: PaymentArtefacts,
+    store_data_map: bool,
+) -> Result<FinalizeSuccess, AntdError> {
+    // Input is known-good: consume the stored session and finalize.
+    let timestamped = state
+        .pending_uploads
+        .lock()
+        .await
+        .remove(&upload_id)
+        .ok_or_else(|| upload_not_found(&upload_id))?;
+
+    tokio::spawn(async move {
+        let client = state.client.clone();
+        let outcome = match (timestamped.session, artefacts) {
+            (UploadSession::Prepared(prepared), PaymentArtefacts::Wave(tx_hash_map)) => client
+                .finalize_upload_resumable(*prepared, &tx_hash_map)
+                .await
+                .map_err(AntdError::from_core)?,
+            (UploadSession::Prepared(prepared), PaymentArtefacts::Merkle(winner_pool_hashes)) => {
+                if merkle_fully_paid(&winner_pool_hashes) {
+                    client
+                        .finalize_upload_merkle_multi_resumable(*prepared, winner_pool_hashes)
+                        .await
+                        .map_err(AntdError::from_core)?
+                } else {
+                    tracing::info!(
+                        upload_id = %upload_id,
+                        "merkle finalize with unpaid sub-batches: non-resumable path"
+                    );
+                    let result = client
+                        .finalize_upload_merkle_multi(*prepared, winner_pool_hashes)
+                        .await
+                        .map_err(AntdError::from_core)?;
+                    ant_core::data::FinalizeOutcome::Complete(result)
+                }
+            }
+            (UploadSession::Resume(resume), PaymentArtefacts::Resume) => client
+                .finalize_resume(resume)
+                .await
+                .map_err(AntdError::from_core)?,
+            // The handler validated the request against `pending_shape`
+            // moments ago; the entry cannot have changed shape since (the
+            // only transition, Prepared → Resume, happens inside this task).
+            (session, _) => {
+                let kind = session.payment_kind();
+                state.pending_uploads.lock().await.insert(
+                    upload_id.clone(),
+                    crate::state::TimestampedUpload {
+                        session,
+                        created_at: timestamped.created_at,
+                    },
+                );
+                return Err(AntdError::Internal(format!(
+                    "finalize artefacts do not match the pending upload's shape ({kind:?})"
+                )));
+            }
+        };
+
+        let result = match outcome {
+            ant_core::data::FinalizeOutcome::Complete(result) => result,
+            ant_core::data::FinalizeOutcome::Partial { result, resume } => {
+                let stored = result.chunks_stored as u64;
+                let failed = result.chunks_failed as u64;
+                let total = result.total_chunks as u64;
+                tracing::warn!(
+                    upload_id = %upload_id,
+                    stored,
+                    failed,
+                    total,
+                    "finalize stored only some chunks; retaining the paid attempt for a retry"
+                );
+                state.pending_uploads.lock().await.insert(
+                    upload_id.clone(),
+                    crate::state::TimestampedUpload::resume(resume),
+                );
+                return Err(AntdError::PartialUpload {
+                    stored,
+                    failed,
+                    total,
+                    reason: format!(
+                        "{failed} chunk(s) still unstored after retries; upload_id {upload_id} \
+                         keeps the paid attempt"
+                    ),
+                    retryable: true,
+                });
+            }
+            #[allow(unreachable_patterns)]
+            _ => {
+                return Err(AntdError::Internal(
+                    "finalize returned an outcome this daemon does not understand".into(),
+                ))
+            }
+        };
+
+        let data_map_bytes = rmp_serde::to_vec(&result.data_map)
+            .map_err(|e| AntdError::Internal(format!("serialize data map: {e}")))?;
+        let data_map_hex = hex::encode(data_map_bytes);
+
+        let address = if store_data_map {
+            let addr = client
+                .data_map_store(&result.data_map)
+                .await
+                .map_err(AntdError::from_core)?;
+            Some(hex::encode(addr))
+        } else {
+            None
+        };
+
+        let data_map_address = result.data_map_address.map(hex::encode);
+
+        state.mark_store_ok();
+        Ok::<_, AntdError>(FinalizeSuccess {
+            data_map_hex,
+            address,
+            data_map_address,
+            chunks_stored: result.chunks_stored as u64,
+        })
+    })
+    .await
+    .map_err(|e| AntdError::Internal(format!("task failed: {e}")))?
 }
 
 /// Phase 2: Finalize an upload after external payment.
@@ -386,57 +619,22 @@ pub async fn prepare_data_upload(
 /// validates the request against it BEFORE consuming the stored state, so a
 /// bad request (typo'd hash, miscounted list) errors while the already
 /// paid-for upload stays present and retryable.
+///
+/// A storage shortfall *after* payment is retryable against the same
+/// payment: the response is `PARTIAL_UPLOAD` with `retryable: true`, the paid
+/// attempt stays under the same `upload_id`, and calling this endpoint again
+/// with that `upload_id` stores the remainder (the payment fields are
+/// ignored on a resume — the retained attempt already owns the proofs). See
+/// [`finalize_pending`].
 pub async fn finalize_upload(
     State(state): State<Arc<AppState>>,
     Json(req): Json<FinalizeUploadRequest>,
 ) -> Result<Json<FinalizeUploadResponse>, AntdError> {
-    enum PaymentShape {
-        Wave {
-            expected_quotes: Vec<evmlib::common::QuoteHash>,
-        },
-        Merkle {
-            batch_count: usize,
-        },
-    }
-    enum PaymentArtefacts {
-        Wave(HashMap<evmlib::common::QuoteHash, evmlib::common::TxHash>),
-        Merkle(Vec<Option<[u8; 32]>>),
-    }
-    let not_found = |id: &str| {
-        AntdError::NotFound(format!(
-            "upload_id {id} not found — it may have expired or already been finalized"
-        ))
-    };
-
-    // Peek at the stored upload's payment shape without consuming it.
-    let shape = {
-        let pending = state.pending_uploads.lock().await;
-        match &pending
-            .get(&req.upload_id)
-            .ok_or_else(|| not_found(&req.upload_id))?
-            .prepared
-            .payment_info
-        {
-            ant_core::data::ExternalPaymentInfo::WaveBatch { payment_intent, .. } => {
-                PaymentShape::Wave {
-                    expected_quotes: payment_intent
-                        .payments
-                        .iter()
-                        .map(|(quote_hash, _, _)| *quote_hash)
-                        .collect(),
-                }
-            }
-            ant_core::data::ExternalPaymentInfo::Merkle {
-                prepared_batches, ..
-            } => PaymentShape::Merkle {
-                batch_count: prepared_batches.len(),
-            },
-        }
-    };
+    let shape = pending_shape(&state, &req.upload_id).await?;
 
     // Validate + parse the payment artefacts against that shape.
     let artefacts = match shape {
-        PaymentShape::Wave { expected_quotes } => {
+        PendingShape::PreparedWave { expected_quotes } => {
             let tx_hashes_raw = req.tx_hashes.ok_or_else(|| {
                 AntdError::BadRequest(
                     "tx_hashes required for wave-batch upload (this upload used wave_batch \
@@ -453,7 +651,7 @@ pub async fn finalize_upload(
 
             PaymentArtefacts::Wave(resolve_wave_tx_hashes(&expected_quotes, &tx_hashes_raw)?)
         }
-        PaymentShape::Merkle { batch_count } => {
+        PendingShape::PreparedMerkle { batch_count } => {
             if req.tx_hashes.is_some() {
                 return Err(AntdError::BadRequest(
                     "tx_hashes not applicable for merkle upload".into(),
@@ -465,63 +663,35 @@ pub async fn finalize_upload(
                 req.winner_pool_hashes.as_deref(),
             )?)
         }
+        PendingShape::Resume(kind) => {
+            // Already paid: the retained attempt owns the proofs, so the
+            // payment fields are ignored — but a call routed with the other
+            // shape's fields is still rejected, losslessly.
+            match kind {
+                PaymentKind::WaveBatch
+                    if req.winner_pool_hash.is_some() || req.winner_pool_hashes.is_some() =>
+                {
+                    return Err(AntdError::BadRequest(
+                        "winner_pool_hash(es) not applicable for wave-batch upload".into(),
+                    ));
+                }
+                PaymentKind::Merkle if req.tx_hashes.is_some() => {
+                    return Err(AntdError::BadRequest(
+                        "tx_hashes not applicable for merkle upload".into(),
+                    ));
+                }
+                _ => {}
+            }
+            PaymentArtefacts::Resume
+        }
     };
 
-    // Input is known-good: consume the stored upload and finalize.
-    let timestamped = state
-        .pending_uploads
-        .lock()
-        .await
-        .remove(&req.upload_id)
-        .ok_or_else(|| not_found(&req.upload_id))?;
-    let prepared = timestamped.prepared;
-    let store_on_network = req.store_data_map;
-    let client = state.client.clone();
-
-    let (data_map_hex, address, data_map_address, chunks_stored) = tokio::spawn(async move {
-        let result = match artefacts {
-            PaymentArtefacts::Wave(tx_hash_map) => client
-                .finalize_upload(prepared, &tx_hash_map)
-                .await
-                .map_err(AntdError::from_core)?,
-            PaymentArtefacts::Merkle(winner_pool_hashes) => client
-                .finalize_upload_merkle_multi(prepared, winner_pool_hashes)
-                .await
-                .map_err(AntdError::from_core)?,
-        };
-
-        let data_map_bytes = rmp_serde::to_vec(&result.data_map)
-            .map_err(|e| AntdError::Internal(format!("serialize data map: {e}")))?;
-        let data_map_hex = hex::encode(data_map_bytes);
-
-        let address = if store_on_network {
-            let addr = client
-                .data_map_store(&result.data_map)
-                .await
-                .map_err(AntdError::from_core)?;
-            Some(hex::encode(addr))
-        } else {
-            None
-        };
-
-        let data_map_address = result.data_map_address.map(hex::encode);
-
-        Ok::<_, AntdError>((
-            data_map_hex,
-            address,
-            data_map_address,
-            result.chunks_stored,
-        ))
-    })
-    .await
-    .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
-
-    state.mark_store_ok();
+    let done = finalize_pending(state, req.upload_id, artefacts, req.store_data_map).await?;
     Ok(Json(FinalizeUploadResponse {
-        data_map: data_map_hex,
-        address,
-        data_map_address,
-        chunks_stored: chunks_stored as u64,
+        data_map: done.data_map_hex,
+        address: done.address,
+        data_map_address: done.data_map_address,
+        chunks_stored: done.chunks_stored,
     }))
 }
 
@@ -650,6 +820,18 @@ mod tests {
         let map = resolve_wave_tx_hashes(&[quote(0x11), quote(0x22)], &provided).unwrap();
         assert_eq!(map.len(), 3);
         assert_eq!(map.get(&quote(0x11)), Some(&[0x22u8; 32].into()));
+    }
+
+    #[test]
+    fn merkle_fully_paid_requires_every_winner() {
+        // Only an all-paid winner list may take the resumable path; a
+        // deliberately unpaid sub-batch stays on the non-resumable finalize.
+        assert!(merkle_fully_paid(&[Some([0x11u8; 32])]));
+        assert!(merkle_fully_paid(&[Some([0x11u8; 32]), Some([0x22u8; 32])]));
+        assert!(!merkle_fully_paid(&[Some([0x11u8; 32]), None]));
+        assert!(!merkle_fully_paid(&[None]));
+        // Vacuously paid: nothing to pay for, nothing to leave unpaid.
+        assert!(merkle_fully_paid(&[]));
     }
 
     #[test]
