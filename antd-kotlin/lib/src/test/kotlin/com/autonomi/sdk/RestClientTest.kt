@@ -733,6 +733,60 @@ class RestClientTest {
         }
     }
 
+    @Test
+    fun `502 whose code is not a string falls back to NetworkException instead of throwing`() = runTest {
+        // Regression: `obj["code"]?.jsonPrimitive` threw IllegalArgumentException
+        // for an object or array value, escaping the typed-exception contract.
+        // Every non-string `code` must fall back to the status-based mapping.
+        val bodies = listOf(
+            """{"code":{}}""",
+            """{"code":["PARTIAL_UPLOAD"]}""",
+            """{"code":null,"error":"x"}""",
+            """{"code":502,"error":"x"}""",
+            """[{"code":"PARTIAL_UPLOAD"}]""",
+        )
+        for (body in bodies) {
+            val errServer = partialUploadServer(body)
+            val errClient = AntdRestClient(baseUrl = errServer.url("/").toString())
+            try {
+                val ex = assertFailsWith<NetworkException>("body $body must map, not throw") {
+                    errClient.finalizeUpload("up-1", mapOf("qh1" to "tx1"))
+                }
+                assertFalse(ex is PartialUploadException, "body $body is not a partial upload")
+                assertEquals(502, ex.statusCode)
+                assertEquals(body, ex.message, "fallback keeps the raw body as the message")
+            } finally {
+                errClient.close()
+                errServer.shutdown()
+            }
+        }
+    }
+
+    @Test
+    fun `502 PARTIAL_UPLOAD with non-primitive count and flag fields reads them as absent`() = runTest {
+        // Same regression on the count side: an object or array where a number
+        // belongs used to throw. The body is still a PARTIAL_UPLOAD, so the
+        // typed exception is thrown, with the unreadable fields at their
+        // defaults (zero counts, retryable false, raw body as the message).
+        val body = """{"error":{"nested":true},"code":"PARTIAL_UPLOAD","chunks_stored":{"n":300},"chunks_failed":[],"total_chunks":true,"retryable":"yes"}"""
+        val errServer = partialUploadServer(body)
+        val errClient = AntdRestClient(baseUrl = errServer.url("/").toString())
+        try {
+            val ex = assertFailsWith<PartialUploadException> {
+                errClient.finalizeUpload("up-1", mapOf("qh1" to "tx1"))
+            }
+            assertEquals(0L, ex.chunksStored)
+            assertEquals(0L, ex.chunksFailed)
+            assertEquals(0L, ex.totalChunks)
+            assertFalse(ex.retryable, "a non-boolean retryable must read false, never true")
+            assertEquals(body, ex.message, "a non-string error field falls back to the raw body")
+            assertEquals(502, ex.statusCode)
+        } finally {
+            errClient.close()
+            errServer.shutdown()
+        }
+    }
+
     // -------------------------------------------------------------------------
     // V2-274: public-prepare visibility forwarding + chunk external-signer
     // -------------------------------------------------------------------------

@@ -442,8 +442,12 @@ class GrpcClientTest {
         fun map(msg: String) = ExceptionMapping.fromGrpcStatus(Status.ABORTED.withDescription(msg).asRuntimeException())
         assertIs<PartialUploadException>(map(PARTIAL_RETAINED_MSG))
         assertIs<PartialUploadException>(map(PARTIAL_GARBLED_MSG))
-        // Containment, not startsWith: a wrapped message still counts.
-        assertIs<PartialUploadException>(map("finalize failed: $PARTIAL_NOT_RETAINED_MSG"))
+        // Anchored at the start of the description, matching antd-rust: an
+        // ABORTED that merely quotes the phrase further in is not a partial
+        // upload (the daemon never wraps its own message).
+        assertIs<ForkException>(map("finalize failed: $PARTIAL_NOT_RETAINED_MSG"))
+        assertIs<ForkException>(map("conflict while handling \"$PARTIAL_RETAINED_MSG\""))
+        assertIs<ForkException>(map(" $PARTIAL_RETAINED_MSG"))
         assertIs<ForkException>(map(OTHER_ABORTED_MSG))
         assertIs<ForkException>(map("something else entirely"))
     }
@@ -457,6 +461,11 @@ class GrpcClientTest {
             Case("Partial upload: 300/312 chunks stored, 12 failed after retries", 300, 12, 312, false),
             // Prefix present, counts garbled: zero counts, not retryable.
             Case(PARTIAL_GARBLED_MSG, 0, 0, 0, false),
+            // Counts garbled AND the retained hint present: still not
+            // retryable — a loop that cannot watch chunksFailed shrink
+            // cannot tell progress from a stuck upload, so the documented
+            // conservative fallback applies.
+            Case("$PARTIAL_GARBLED_MSG (paid attempt retained: call finalize again with the same upload_id)", 0, 0, 0, false),
             // The parser itself never decides the exception type; the
             // mapping-level gate does (see abortedMappingGatesOnPartialUploadPrefix).
             Case("something else entirely", 0, 0, 0, false),

@@ -5,9 +5,8 @@ import io.grpc.StatusRuntimeException
 import io.grpc.Status
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 
 open class AntdException(message: String, val statusCode: Int = 0) : Exception(message)
@@ -50,8 +49,11 @@ class ServiceUnavailableException(message: String, statusCode: Int = 503) : Antd
  * Over REST the counts and [retryable] come from the structured error body.
  * Over gRPC they are parsed best-effort from the status description
  * (`Partial upload: S/T chunks stored, F failed ...`, with a "paid attempt
- * retained" hint when retryable); an unrecognised description leaves the
- * counts at zero and [retryable] false.
+ * retained" hint when retryable); a description whose counts do not parse
+ * leaves the counts at zero and [retryable] false even if the hint is
+ * present, so a caller never loops on a message the SDK could not read.
+ * Over REST a body field that is missing or not a JSON primitive of the
+ * expected kind reads the same way (zero / `false`); the mapper never throws.
  *
  * See `docs/external-signer-flow.md` §6 ("Retry a partial store") for the
  * daemon-side contract.
@@ -73,7 +75,8 @@ internal object ExceptionMapping {
     /**
      * Fixed text every PARTIAL_UPLOAD message opens with (`antd/src/error.rs`).
      * Over gRPC it is the only thing that distinguishes a partial upload from
-     * any other ABORTED status, so [fromGrpcStatus] gates on it.
+     * any other ABORTED status, so [fromGrpcStatus] gates on the description
+     * starting with it (anchored, matching the antd-rust client).
      */
     private const val PARTIAL_UPLOAD_PREFIX = "Partial upload:"
 
@@ -102,9 +105,16 @@ internal object ExceptionMapping {
 
     /**
      * Returns a [PartialUploadException] when [body] is a JSON error object
-     * with `code == "PARTIAL_UPLOAD"`, carrying its counts; `retryable` is
-     * absent on daemons < 0.14.0 and defaults to `false`. Returns null for
-     * every other body (including non-JSON bodies).
+     * whose `code` is the string `"PARTIAL_UPLOAD"`, carrying its counts;
+     * `retryable` is absent on daemons < 0.14.0 and defaults to `false`.
+     * Returns null for every other body (non-JSON, non-object, or a `code`
+     * that is missing, another value, or not a string), so the caller's
+     * status-based mapping applies. A count or flag field that is not a
+     * primitive of the expected kind (an object, an array, a string where a
+     * number belongs) reads as absent — zero or `false` — rather than
+     * escaping as a serialization error: the daemon's error body is input
+     * from the network and must never turn a typed [AntdException] into an
+     * [IllegalArgumentException].
      */
     private fun partialUploadFromBody(statusCode: Int, body: String): PartialUploadException? {
         val obj = try {
@@ -112,26 +122,43 @@ internal object ExceptionMapping {
         } catch (_: Exception) {
             null
         } ?: return null
-        if (obj["code"]?.jsonPrimitive?.contentOrNull != PARTIAL_UPLOAD_CODE) return null
+        val code = obj.primitive("code")
+        if (code == null || !code.isString || code.content != PARTIAL_UPLOAD_CODE) return null
         return PartialUploadException(
-            message = obj["error"]?.jsonPrimitive?.contentOrNull ?: body,
-            chunksStored = obj["chunks_stored"]?.jsonPrimitive?.longOrNull ?: 0,
-            chunksFailed = obj["chunks_failed"]?.jsonPrimitive?.longOrNull ?: 0,
-            totalChunks = obj["total_chunks"]?.jsonPrimitive?.longOrNull ?: 0,
-            retryable = obj["retryable"]?.jsonPrimitive?.booleanOrNull ?: false,
+            message = obj.primitive("error")?.takeIf { it.isString }?.content ?: body,
+            chunksStored = obj.primitive("chunks_stored")?.longOrNull ?: 0,
+            chunksFailed = obj.primitive("chunks_failed")?.longOrNull ?: 0,
+            totalChunks = obj.primitive("total_chunks")?.longOrNull ?: 0,
+            retryable = obj.primitive("retryable")?.booleanOrNull ?: false,
             statusCode = statusCode,
         )
     }
 
-    /** True when [message] carries the daemon's fixed PARTIAL_UPLOAD prefix. */
-    fun isPartialUploadMessage(message: String): Boolean = message.contains(PARTIAL_UPLOAD_PREFIX)
+    /**
+     * The value at [key] when it is a JSON primitive (string, number, boolean
+     * or null); `null` when the key is absent or holds an object or array.
+     * Unlike `JsonElement.jsonPrimitive`, never throws.
+     */
+    private fun JsonObject.primitive(key: String): JsonPrimitive? = this[key] as? JsonPrimitive
+
+    /**
+     * True when [message] starts with the daemon's fixed PARTIAL_UPLOAD
+     * prefix. Anchored rather than a containment check so an unrelated
+     * ABORTED that merely quotes the phrase is not misreported as a partial
+     * upload; the daemon never wraps its own message, so the prefix is
+     * always at offset zero when it is a partial upload.
+     */
+    fun isPartialUploadMessage(message: String): Boolean = message.startsWith(PARTIAL_UPLOAD_PREFIX)
 
     /**
      * Recovers the chunk counts and the retryable hint from a PARTIAL_UPLOAD
      * message. Used for gRPC, where the status carries no structured detail;
      * REST callers get the body fields instead. A message whose counts do not
-     * parse yields zero counts and `retryable = false`; whether the message is
-     * a partial upload at all is decided by [isPartialUploadMessage].
+     * parse yields zero counts and `retryable = false` — even when the
+     * "paid attempt retained" hint is present, because a retry loop that
+     * cannot see [PartialUploadException.chunksFailed] shrinking has no way to
+     * tell progress from a stuck upload. Whether the message is a partial
+     * upload at all is decided by [isPartialUploadMessage].
      */
     fun partialUploadFromMessage(message: String): PartialUploadException {
         val m = partialUploadCounts.find(message)
@@ -140,7 +167,7 @@ internal object ExceptionMapping {
             chunksStored = m?.groupValues?.get(1)?.toLongOrNull() ?: 0,
             totalChunks = m?.groupValues?.get(2)?.toLongOrNull() ?: 0,
             chunksFailed = m?.groupValues?.get(3)?.toLongOrNull() ?: 0,
-            retryable = message.contains(PARTIAL_UPLOAD_RETAINED_HINT),
+            retryable = m != null && message.contains(PARTIAL_UPLOAD_RETAINED_HINT),
         )
     }
 
@@ -166,9 +193,10 @@ internal object ExceptionMapping {
             // the status description over gRPC (no structured detail yet),
             // so parse them best-effort to match the REST client's typed
             // exception. The daemon's message always opens with the fixed
-            // "Partial upload:" prefix, so gate on it; any other ABORTED keeps
-            // the pre-existing conflicting-update mapping instead of being
-            // misreported as a partial upload.
+            // "Partial upload:" prefix, so gate on the description starting
+            // with it; any other ABORTED keeps the pre-existing
+            // conflicting-update mapping instead of being misreported as a
+            // partial upload.
             Status.Code.ABORTED ->
                 if (isPartialUploadMessage(detail)) partialUploadFromMessage(detail) else ForkException(detail)
             Status.Code.INVALID_ARGUMENT -> BadRequestException(detail)
