@@ -23,6 +23,8 @@ pub const FinalizeUploadResult = models.FinalizeUploadResult;
 pub const AntdError = errors.AntdError;
 pub const ErrorInfo = errors.ErrorInfo;
 pub const errorForStatus = errors.errorForStatus;
+pub const errorForResponse = errors.errorForResponse;
+pub const ErrorBody = json_helpers.ErrorBody;
 pub const JsonValue = json_helpers.JsonValue;
 pub const discoverDaemonUrl = discover.discoverDaemonUrl;
 pub const discoverGrpcTarget = discover.discoverGrpcTarget;
@@ -73,7 +75,10 @@ pub const Client = struct {
         }
     }
 
-    /// Get the last error info, if any.
+    /// Get the last error info, if any. After `error.PartialUpload` it also
+    /// carries `chunks_stored` / `chunks_failed` / `total_chunks` and the
+    /// `retryable` flag (see `ErrorInfo`); those read zero / false for every
+    /// other error.
     pub fn getLastError(self: *const Client) ?ErrorInfo {
         return self.last_error;
     }
@@ -81,15 +86,40 @@ pub const Client = struct {
     // --- Internal helpers ---
 
     fn setLastError(self: *Client, status_code: u16, message: []const u8) void {
-        if (self.last_error) |info| {
-            if (info.message.len > 0) {
-                self.allocator.free(info.message);
+        self.setLastErrorInfo(.{ .status_code = status_code, .message = message });
+    }
+
+    /// Record `info` as the last error, taking an owned copy of its message.
+    fn setLastErrorInfo(self: *Client, info: ErrorInfo) void {
+        if (self.last_error) |old| {
+            if (old.message.len > 0) {
+                self.allocator.free(old.message);
             }
         }
-        self.last_error = .{
-            .status_code = status_code,
-            .message = self.allocator.dupe(u8, message) catch "",
-        };
+        var owned = info;
+        owned.message = self.allocator.dupe(u8, info.message) catch "";
+        self.last_error = owned;
+    }
+
+    /// Map a non-2xx response body onto an AntdError and record it in
+    /// `last_error`. A JSON `{"error":"..."}` body supplies the message and,
+    /// when its `code` is `PARTIAL_UPLOAD`, the chunk counts and `retryable`
+    /// flag; any other body is recorded verbatim and mapped by status alone.
+    fn errorFromBody(self: *Client, status_code: u16, body: []const u8) AntdError {
+        if (json_helpers.parseErrorBody(self.allocator, body)) |parsed| {
+            defer parsed.deinit(self.allocator);
+            self.setLastErrorInfo(.{
+                .status_code = status_code,
+                .message = parsed.message,
+                .chunks_stored = parsed.chunks_stored,
+                .chunks_failed = parsed.chunks_failed,
+                .total_chunks = parsed.total_chunks,
+                .retryable = parsed.retryable,
+            });
+            return errors.errorForResponse(status_code, parsed.code);
+        }
+        self.setLastError(status_code, body);
+        return errors.errorForStatus(status_code);
     }
 
     fn buildUrl(self: *const Client, path: []const u8) ![]const u8 {
@@ -162,13 +192,9 @@ pub const Client = struct {
         const resp_bytes = resp_body.toOwnedSlice() catch return error.HttpError;
 
         if (status_code < 200 or status_code >= 300) {
-            // Try to extract error message from JSON
-            const msg = json_helpers.parseErrorMessage(self.allocator, resp_bytes) orelse
-                self.allocator.dupe(u8, resp_bytes) catch "";
-            defer if (msg.len > 0) self.allocator.free(msg);
-            self.allocator.free(resp_bytes);
-            self.setLastError(@intCast(status_code), msg);
-            return errors.errorForStatus(@intCast(status_code));
+            // Map the JSON error body (message, code, partial-upload counts)
+            defer self.allocator.free(resp_bytes);
+            return self.errorFromBody(@intCast(status_code), resp_bytes);
         }
 
         if (resp_bytes.len == 0) {
@@ -234,11 +260,7 @@ pub const Client = struct {
                 if (n == 0) break;
                 resp_body.appendSlice(buf[0..n]) catch return error.HttpError;
             }
-            const msg = json_helpers.parseErrorMessage(self.allocator, resp_body.items) orelse
-                self.allocator.dupe(u8, resp_body.items) catch "";
-            defer if (msg.len > 0) self.allocator.free(msg);
-            self.setLastError(@intCast(status_code), msg);
-            return errors.errorForStatus(@intCast(status_code));
+            return self.errorFromBody(@intCast(status_code), resp_body.items);
         }
 
         // 2xx: stream the body straight to the caller's writer in fixed-size
@@ -451,6 +473,21 @@ pub const Client = struct {
     }
 
     /// Finalize an upload after an external signer has submitted payment transactions.
+    ///
+    /// Returns `error.PartialUpload` when some chunks stored and others did
+    /// not after the daemon's retries. The payment persists and the stored
+    /// chunks stay on the network; `getLastError()` carries the counts and
+    /// the `retryable` flag (antd >= 0.14.0):
+    ///
+    ///   - `retryable == true`: the paid attempt is retained under the same
+    ///     `upload_id`. Call `finalizeUpload` again with the same arguments to
+    ///     store the remainder against the same payment. Bound the loop (cap
+    ///     attempts, treat a `chunks_failed` that stops shrinking as stuck).
+    ///   - `retryable == false`: nothing was retained; re-prepare the same
+    ///     content, which skips the already-stored chunks.
+    ///
+    /// See docs/external-signer-flow.md, section 6, and the README's
+    /// "Partial uploads" section for a bounded retry helper.
     pub fn finalizeUpload(self: *Client, upload_id: []const u8, tx_hashes_json: []const u8) ![]const u8 {
         const resp = try self.doRequest(.POST, "/v1/upload/finalize", tx_hashes_json) orelse return error.JsonError;
         _ = upload_id;
@@ -471,6 +508,10 @@ pub const Client = struct {
 
     /// Submit a prepared chunk to the network after external payment via
     /// POST /v1/chunks/finalize.
+    ///
+    /// A store that fails after payment is reported as `error.PartialUpload`
+    /// with the same `getLastError()` fields and retry rules as
+    /// `finalizeUpload`.
     pub fn finalizeChunkUpload(self: *Client, upload_id: []const u8, tx_hashes_json: []const u8) ![]const u8 {
         const req_body = try json_helpers.buildFinalizeChunkBody(self.allocator, upload_id, tx_hashes_json);
         defer self.allocator.free(req_body);

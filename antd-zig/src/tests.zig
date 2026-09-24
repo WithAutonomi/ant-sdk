@@ -493,6 +493,101 @@ test "streaming non-2xx error body parses into the SDK {\"error\"} contract" {
     try testing.expectEqualStrings("data map not found", msg.?);
 }
 
+// =============================================================================
+// Partial upload (#275): PARTIAL_UPLOAD error bodies.
+//
+// The daemon reports a finalize that stored some chunks but not all as HTTP
+// 502 with `code: "PARTIAL_UPLOAD"`, structured counts, and (antd >= 0.14.0)
+// a `retryable` flag. Client.doRequest/doStream feed the body through
+// parseErrorBody + errorForResponse and record the counts in last_error. As
+// elsewhere in this file, no mock HTTP server: the parser and the mapping are
+// unit-tested directly.
+// =============================================================================
+
+test "parseErrorBody extracts PARTIAL_UPLOAD counts and the retryable flag" {
+    const body =
+        \\{"error":"Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)","code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":12,"total_chunks":312,"retryable":true}
+    ;
+    const parsed = json_helpers.parseErrorBody(testing.allocator, body) orelse return error.JsonError;
+    defer parsed.deinit(testing.allocator);
+
+    try testing.expect(std.mem.startsWith(u8, parsed.message, "Partial upload: 300/312 chunks stored"));
+    try testing.expectEqualStrings("PARTIAL_UPLOAD", parsed.code);
+    try testing.expectEqual(@as(u64, 300), parsed.chunks_stored);
+    try testing.expectEqual(@as(u64, 12), parsed.chunks_failed);
+    try testing.expectEqual(@as(u64, 312), parsed.total_chunks);
+    try testing.expect(parsed.retryable);
+}
+
+test "parseErrorBody defaults retryable to false when the flag is absent (pre-0.14.0 daemon)" {
+    // An older daemon never sends `retryable`; it must read false so callers
+    // fall back to the re-prepare path rather than looping on an upload_id
+    // the daemon has already dropped.
+    const body =
+        \\{"error":"Partial upload: 300/312 chunks stored, 12 failed after retries","code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":12,"total_chunks":312}
+    ;
+    const parsed = json_helpers.parseErrorBody(testing.allocator, body) orelse return error.JsonError;
+    defer parsed.deinit(testing.allocator);
+
+    try testing.expectEqualStrings("PARTIAL_UPLOAD", parsed.code);
+    try testing.expectEqual(@as(u64, 300), parsed.chunks_stored);
+    try testing.expectEqual(@as(u64, 12), parsed.chunks_failed);
+    try testing.expectEqual(@as(u64, 312), parsed.total_chunks);
+    try testing.expect(!parsed.retryable);
+}
+
+test "parseErrorBody leaves counts zero for other error codes" {
+    const body =
+        \\{"error":"upstream unreachable","code":"NETWORK_ERROR"}
+    ;
+    const parsed = json_helpers.parseErrorBody(testing.allocator, body) orelse return error.JsonError;
+    defer parsed.deinit(testing.allocator);
+
+    try testing.expectEqualStrings("upstream unreachable", parsed.message);
+    try testing.expectEqualStrings("NETWORK_ERROR", parsed.code);
+    try testing.expectEqual(@as(u64, 0), parsed.chunks_stored);
+    try testing.expectEqual(@as(u64, 0), parsed.chunks_failed);
+    try testing.expectEqual(@as(u64, 0), parsed.total_chunks);
+    try testing.expect(!parsed.retryable);
+}
+
+test "parseErrorBody defaults code to empty and returns null without an error field" {
+    // Pre-`code` daemons: {"error":"..."} alone still parses.
+    const body =
+        \\{"error":"not found"}
+    ;
+    const parsed = json_helpers.parseErrorBody(testing.allocator, body) orelse return error.JsonError;
+    defer parsed.deinit(testing.allocator);
+    try testing.expectEqualStrings("not found", parsed.message);
+    try testing.expectEqualStrings("", parsed.code);
+
+    // No "error" string -> null, so Client falls back to the raw body text,
+    // exactly like parseErrorMessage.
+    try testing.expect(json_helpers.parseErrorBody(testing.allocator, "{\"status\":\"ok\"}") == null);
+    try testing.expect(json_helpers.parseErrorBody(testing.allocator, "Bad Gateway") == null);
+}
+
+test "errorForResponse maps code PARTIAL_UPLOAD to PartialUpload" {
+    try testing.expectEqual(error.PartialUpload, errors.errorForResponse(502, "PARTIAL_UPLOAD"));
+}
+
+test "errorForResponse keeps the status mapping for every other code" {
+    // A plain 502 (with or without a code) is still a generic Network error.
+    try testing.expectEqual(error.Network, errors.errorForResponse(502, "NETWORK_ERROR"));
+    try testing.expectEqual(error.Network, errors.errorForResponse(502, ""));
+    try testing.expectEqual(error.NotFound, errors.errorForResponse(404, "NOT_FOUND"));
+    try testing.expectEqual(error.Payment, errors.errorForResponse(402, ""));
+    try testing.expectEqual(error.UnexpectedStatus, errors.errorForResponse(418, ""));
+}
+
+test "ErrorInfo partial-upload fields default to zero and false" {
+    const info = errors.ErrorInfo{ .status_code = 404, .message = "not found" };
+    try testing.expectEqual(@as(u64, 0), info.chunks_stored);
+    try testing.expectEqual(@as(u64, 0), info.chunks_failed);
+    try testing.expectEqual(@as(u64, 0), info.total_chunks);
+    try testing.expect(!info.retryable);
+}
+
 // Note: Integration tests that exercise the full Client against a running antd
 // daemon are not included here. To run integration tests, start the daemon with
 // `ant dev start` and write tests that create a Client pointing at the daemon URL.
