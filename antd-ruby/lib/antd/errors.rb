@@ -106,6 +106,11 @@ module Antd
     alias retryable? retryable
   end
 
+  # Fixed text every PARTIAL_UPLOAD message from the daemon opens with. Over
+  # gRPC the status carries no structured code, so this prefix is what tells
+  # a partial upload apart from any other ABORTED status.
+  PARTIAL_UPLOAD_PREFIX = "Partial upload:"
+
   # Fixed prefix of the daemon's PARTIAL_UPLOAD message:
   # "Partial upload: <stored>/<total> chunks stored, <failed> failed".
   PARTIAL_UPLOAD_COUNTS = %r{Partial upload: (\d+)/(\d+) chunks stored, (\d+) failed}
@@ -114,10 +119,20 @@ module Antd
   # same-upload_id retry.
   PARTIAL_UPLOAD_RETAINED_HINT = "paid attempt retained"
 
+  # Whether a gRPC status message is the daemon's PARTIAL_UPLOAD message.
+  # Containment, not +start_with?+: grpc-ruby decorates the message with the
+  # numeric code ("10:Partial upload: ...").
+  #
+  # @param message [String]
+  # @return [Boolean]
+  def self.partial_upload_message?(message)
+    message.to_s.include?(PARTIAL_UPLOAD_PREFIX)
+  end
+
   # Recovers the chunk counts and the retryable hint from a PARTIAL_UPLOAD
   # message. Used for gRPC, where the status carries no structured detail;
-  # REST callers get the body fields instead. An unrecognised message yields
-  # zero counts and +retryable: false+.
+  # REST callers get the body fields instead. A message carrying the prefix
+  # but unrecognised counts yields zero counts and +retryable: false+.
   #
   # @param message [String]
   # @return [Hash] +:chunks_stored+, +:chunks_failed+, +:total_chunks+,

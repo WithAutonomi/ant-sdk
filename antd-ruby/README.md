@@ -88,9 +88,10 @@ puts "Retrieved: #{data}"
 
 The `GrpcClient` raises the same `Antd::AntdError` hierarchy as the REST
 client, translating gRPC status codes to the appropriate error subclass
-(`ABORTED` becomes `Antd::PartialUploadError`, with the chunk counts and the
-`retryable` flag parsed from the status message — see
-[Partial uploads](#partial-uploads)).
+(an `ABORTED` whose message starts with `Partial upload:` becomes
+`Antd::PartialUploadError`, with the chunk counts and the `retryable` flag
+parsed from the status message — see [Partial uploads](#partial-uploads);
+any other `ABORTED` stays a generic `Antd::AntdError`).
 
 > **Note:** Wallet operations (address, balance, approve) and payment_mode are available via REST only.
 

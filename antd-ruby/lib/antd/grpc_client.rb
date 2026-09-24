@@ -566,9 +566,14 @@ module Antd
       raise PaymentError, e.message
     rescue GRPC::Aborted => e
       # PARTIAL_UPLOAD: some chunks stored, some still unstored after
-      # retries. The counts and the "paid attempt retained" hint ride the
-      # message text over gRPC (no structured detail yet), so parse them
-      # best-effort to match the REST client's typed error.
+      # retries. The daemon's message always opens with "Partial upload:";
+      # only that becomes the typed error, so any other ABORTED keeps the
+      # generic mapping instead of masquerading as a partial upload. The
+      # counts and the "paid attempt retained" hint ride the message text
+      # over gRPC (no structured detail yet), so parse them best-effort to
+      # match the REST client's typed error.
+      raise AntdError.new(e.message, status_code: e.code) unless Antd.partial_upload_message?(e.message)
+
       raise PartialUploadError.new(e.message, **Antd.parse_partial_upload_message(e.message))
     rescue GRPC::BadStatus => e
       raise AntdError.new(e.message, status_code: e.code)

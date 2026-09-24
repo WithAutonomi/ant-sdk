@@ -94,7 +94,10 @@ rescue LoadError
       rescue GRPC::Internal => e; raise InternalError, e.message
       rescue GRPC::Unavailable => e; raise NetworkError, e.message
       rescue GRPC::FailedPrecondition => e; raise PaymentError, e.message
-      rescue GRPC::Aborted => e; raise PartialUploadError.new(e.message, **Antd.parse_partial_upload_message(e.message))
+      rescue GRPC::Aborted => e
+        raise AntdError.new(e.message, status_code: e.code) unless Antd.partial_upload_message?(e.message)
+
+        raise PartialUploadError.new(e.message, **Antd.parse_partial_upload_message(e.message))
       rescue GRPC::BadStatus => e; raise AntdError.new(e.message, status_code: e.code)
       end
     end
@@ -645,9 +648,9 @@ class TestGrpcClient < Minitest::Test
     assert_includes err.message, "data gone"
   end
 
-  # ABORTED carries PARTIAL_UPLOAD. Counts and the retained hint are parsed
-  # from the status message, so the gRPC client matches the REST client's
-  # typed error.
+  # ABORTED whose message carries the daemon's "Partial upload:" prefix is
+  # PARTIAL_UPLOAD. Counts and the retained hint are parsed from the status
+  # message, so the gRPC client matches the REST client's typed error.
   def test_error_aborted_maps_to_partial_upload_error
     msg = "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " \
           "(paid attempt retained: call finalize again with the same upload_id " \
@@ -673,14 +676,27 @@ class TestGrpcClient < Minitest::Test
     assert_equal 312, err.total_chunks
   end
 
-  def test_error_aborted_unrecognised_message_leaves_counts_zero
+  # The prefix is the gate: an ABORTED that is not a partial upload keeps
+  # the generic mapping it had before PartialUploadError existed.
+  def test_error_aborted_without_partial_upload_prefix_maps_to_generic_error
     client = build_error_client(grpc_error(:ABORTED, "something else entirely"))
+    err = assert_raises(Antd::AntdError) { client.health }
+    refute_kind_of Antd::PartialUploadError, err
+    refute_kind_of Antd::NetworkError, err
+    assert_equal 10, err.status_code
+    assert_includes err.message, "something else entirely"
+  end
+
+  # The prefix alone decides the type; counts the parser cannot read are
+  # reported as zeros with +retryable == false+, never as the generic error.
+  def test_error_aborted_with_prefix_but_garbled_counts_leaves_counts_zero
+    client = build_error_client(grpc_error(:ABORTED, "Partial upload: counts unreadable"))
     err = assert_raises(Antd::PartialUploadError) { client.health }
     assert_equal 0, err.chunks_stored
     assert_equal 0, err.chunks_failed
     assert_equal 0, err.total_chunks
     refute err.retryable
-    assert_includes err.message, "something else entirely"
+    assert_includes err.message, "Partial upload: counts unreadable"
   end
 
   # Verify errors propagate from non-health methods too.
