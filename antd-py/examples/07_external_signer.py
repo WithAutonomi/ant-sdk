@@ -6,7 +6,8 @@ to live in the antd daemon. This example uses anvil deterministic account #0
 as the external signer and exercises both round-trips end-to-end.
 
 See `docs/external-signer-flow.md` for the full reference; the contract ABI
-loaded below is committed at `docs/abi/IPaymentVault.json`.
+loaded below is committed at `docs/abi/IPaymentVault.json`. Section 6 of that
+doc covers the partial-store case that `finalize_with_retry` below handles.
 
 Requires `web3` and `eth-account` (pip install web3 eth-account).
 """
@@ -14,9 +15,10 @@ Requires `web3` and `eth-account` (pip install web3 eth-account).
 import json
 import os
 import tempfile
+import time
 from pathlib import Path
 
-from antd import AntdClient
+from antd import AntdClient, PartialUploadError
 from eth_account import Account
 from web3 import Web3
 
@@ -105,6 +107,51 @@ def external_signer_pay(prep, acct):
     return {p.quote_hash: pay_tx for p in prep.payments}
 
 
+def finalize_with_retry(client, upload_id, tx_hashes, max_attempts=5):
+    """Finalize, resuming a partial store against the same payment.
+
+    A finalize can fail *after* the wallet has paid: some chunks store,
+    others miss quorum after the daemon's own retries. That raises
+    `PartialUploadError`; the on-chain payment persists and the stored
+    chunks stay on the network.
+
+    - `retryable` (antd >= 0.14.0): the daemon kept the paid attempt under
+      the same `upload_id`, so the same call with the same arguments stores
+      the remainder against the same payment -- no re-prepare, no second
+      signature, no double payment. The loop is bounded: at most
+      `max_attempts` calls, and a `chunks_failed` that stops shrinking
+      counts as stuck.
+    - not retryable (older daemon, or a merkle finalize with deliberately
+      unpaid batches): nothing was retained, so the error propagates as-is.
+      Re-preparing the same content skips already-stored chunks and pays
+      only for the remainder.
+
+    See `docs/external-signer-flow.md` section 6.
+    """
+    last_failed = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return client.finalize_upload(upload_id, tx_hashes)  # every chunk stored
+        except PartialUploadError as e:
+            if not e.retryable:
+                raise
+            stuck = last_failed is not None and e.chunks_failed >= last_failed
+            if attempt == max_attempts or stuck:
+                raise RuntimeError(
+                    f"finalize stuck after {attempt} attempt(s): "
+                    f"{e.chunks_stored}/{e.total_chunks} chunks stored, "
+                    f"{e.chunks_failed} still unstored (paid attempt retained "
+                    f"under upload_id {upload_id} -- retry later or re-prepare)"
+                ) from e
+            last_failed = e.chunks_failed
+            print(
+                f"finalize stored {e.chunks_stored}/{e.total_chunks} chunks, "
+                f"{e.chunks_failed} still unstored -- retrying against the same "
+                f"payment (attempt {attempt + 1}/{max_attempts})"
+            )
+            time.sleep(2 * attempt)
+
+
 client = AntdClient()
 acct = Account.from_key(ANVIL_KEY)
 
@@ -121,7 +168,7 @@ try:
     )
 
     tx_hashes = external_signer_pay(prep, acct)
-    fin = client.finalize_upload(prep.upload_id, tx_hashes)
+    fin = finalize_with_retry(client, prep.upload_id, tx_hashes)
     print(
         f"File finalize: data_map_address={fin.data_map_address}, "
         f"chunks_stored={fin.chunks_stored}"

@@ -28,6 +28,10 @@ classifiers = [
 dependencies = [
   "mcp>=2,<3",
   # The server uses the REST transport, so the `rest` extra (httpx) is required.
+  # The floor admits SDK releases that predate `PartialUploadError`; errors.py
+  # guards that import so the server still starts against them (partial
+  # uploads then surface as NETWORK_ERROR). Raise the floor to the first antd
+  # release that ships the typed error once it is published.
   "antd[rest]>=0.1.0,<0.2",
 ]
 

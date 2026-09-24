@@ -99,8 +99,8 @@ The server will auto-discover the daemon via the port file. Add `"env": {"ANTD_B
 | 13 | `prepare_upload(path, visibility?)` | Prepare a file upload for external signing. Pass `visibility="public"` to bundle the DataMap chunk into the same payment batch (the `data_map_address` on finalize is the shareable retrieval handle). |
 | 14 | `prepare_upload_public(path)` | Convenience wrapper for `prepare_upload(path, visibility="public")`. |
 | 15 | `prepare_data_upload(text)` | Prepare a data upload for external signing |
-| 16 | `finalize_upload(upload_id, tx_hashes)` | Finalize a wave-batch upload. Returns `address`, `chunks_stored`, `data_map`, and (for public uploads) `data_map_address`. |
-| 17 | `finalize_merkle_upload(upload_id, winner_pool_hash)` | Finalize a merkle-batch upload. Returns the same fields as `finalize_upload`. |
+| 16 | `finalize_upload(upload_id, tx_hashes)` | Finalize a wave-batch upload. Returns `address`, `chunks_stored`, `data_map`, and (for public uploads) `data_map_address`. A partial store returns a `PARTIAL_UPLOAD` error (see [Partial uploads](#partial-uploads)). |
+| 17 | `finalize_merkle_upload(upload_id, winner_pool_hash)` | Finalize a merkle-batch upload. Returns the same fields as `finalize_upload`; same `PARTIAL_UPLOAD` behaviour. |
 | 18 | `prepare_chunk_upload(data_base64)` | Prepare a single raw chunk for external-signer publish. Returns either `already_stored=True` (no payment needed) or a wave-batch payment intent. |
 | 19 | `finalize_chunk_upload(upload_id, tx_hashes)` | Submit a prepared chunk to the network after external payment. Returns `address`. |
 
@@ -136,6 +136,30 @@ Errors return structured error objects:
   "network": "local"
 }
 ```
+
+### Partial uploads
+
+`finalize_upload` / `finalize_merkle_upload` can fail *after* the payment went through: some chunks store, others miss quorum after the daemon's own retries. The error object then carries the counts and a `retryable` flag so the agent can decide what to do:
+
+```json
+{
+  "error": "PARTIAL_UPLOAD",
+  "message": "Partial upload: 300/312 chunks stored, 12 failed after retries: ...",
+  "status_code": 502,
+  "chunks_stored": 300,
+  "chunks_failed": 12,
+  "total_chunks": 312,
+  "retryable": true,
+  "network": "local"
+}
+```
+
+The payment and the stored chunks persist either way.
+
+- **`retryable: true`** — the daemon kept the paid attempt under the same `upload_id` (antd ≥ 0.14.0). Call the **same** finalize tool again with the **same arguments**; it stores the remainder against the same payment — no re-prepare, no second payment. Bound the retries: stop after a few attempts, or when `chunks_failed` stops shrinking. The retained attempt expires with the daemon's pending-upload TTL (one hour).
+- **`retryable: false`** — nothing was retained (older daemon, or a merkle finalize with deliberately unpaid batches). Run the prepare step again for the same content; already-stored chunks are skipped, so only the remainder is paid for.
+
+Full contract: `docs/external-signer-flow.md` §6 in the ant-sdk repo.
 
 ## Project Structure
 

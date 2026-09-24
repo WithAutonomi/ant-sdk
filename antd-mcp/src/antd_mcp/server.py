@@ -718,6 +718,18 @@ async def finalize_upload(
         (hex-encoded msgpack DataMap — always returned), and
         ``data_map_address`` (set when prepare used ``visibility="public"``,
         empty otherwise).
+
+    Errors:
+        ``error: "PARTIAL_UPLOAD"`` means the payment went through but only
+        some chunks stored (``chunks_stored`` / ``chunks_failed`` /
+        ``total_chunks``). The stored chunks and the payment persist. When
+        ``retryable`` is true the daemon kept the paid attempt under this
+        ``upload_id``: call this same tool again with the same arguments to
+        store the remainder against the same payment (no re-prepare, no
+        second payment). Bound the retries -- stop after a few attempts or
+        when ``chunks_failed`` stops shrinking. When ``retryable`` is false
+        (or absent), re-run the prepare step for the same content; already
+        stored chunks are skipped, so only the remainder is paid for.
     """
     client, network = _get_ctx(ctx)
     try:
@@ -763,6 +775,18 @@ async def finalize_merkle_upload(
         (hex-encoded msgpack DataMap — always returned), and
         ``data_map_address`` (set when prepare used ``visibility="public"``,
         empty otherwise).
+
+    Errors:
+        ``error: "PARTIAL_UPLOAD"`` means the payment went through but only
+        some chunks stored (``chunks_stored`` / ``chunks_failed`` /
+        ``total_chunks``). The stored chunks and the payment persist. When
+        ``retryable`` is true the daemon kept the paid attempt under this
+        ``upload_id``: call this same tool again with the same arguments to
+        store the remainder against the same payment (no re-prepare, no
+        second payment). Bound the retries -- stop after a few attempts or
+        when ``chunks_failed`` stops shrinking. When ``retryable`` is false
+        (or absent), re-run the prepare step for the same content; already
+        stored chunks are skipped, so only the remainder is paid for.
     """
     client, network = _get_ctx(ctx)
     try:
