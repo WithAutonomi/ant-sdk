@@ -403,6 +403,24 @@ impl v1::upload_service_server::UploadService for MockUploadService {
         request: Request<v1::FinalizeUploadRequest>,
     ) -> Result<Response<v1::FinalizeUploadResponse>, Status> {
         let req = request.into_inner();
+        // Magic id: a quorum-shortfall finalize (PARTIAL_UPLOAD) whose paid
+        // attempt the daemon retained for a same-upload_id retry.
+        if req.upload_id == "partial" {
+            return Err(Status::aborted(
+                "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum \
+                 (paid attempt retained: call finalize again with the same upload_id to \
+                 store the remainder against the same payment)",
+            ));
+        }
+        // Magic id: a partial upload the daemon did NOT retain (unpaid merkle
+        // batches, or an older daemon's message).
+        if req.upload_id == "partial-final" {
+            return Err(Status::aborted(
+                "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum \
+                 (stored chunks persist; re-prepare the same content to retry only the \
+                 remainder)",
+            ));
+        }
         // Wave-batch: tx_hashes populated, winner_pool_hash empty.
         // Merkle:     winner_pool_hash populated, tx_hashes empty.
         if !req.winner_pool_hash.is_empty() {
@@ -1234,6 +1252,106 @@ async fn test_grpc_error_internal() {
             assert_eq!(status.message(), "server error");
         }
         other => panic!("expected AntdError::Grpc, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_grpc_partial_upload_maps_to_partial_upload() {
+    let client = start_mock_server().await;
+    let err = client
+        .finalize_merkle_upload("partial", "0xw1", false)
+        .await
+        .unwrap_err();
+    // Counts and the retained hint are parsed from the status message, so
+    // the gRPC client matches the REST client's typed error.
+    match err {
+        AntdError::PartialUpload {
+            chunks_stored,
+            chunks_failed,
+            total_chunks,
+            retryable,
+            message,
+        } => {
+            assert_eq!((chunks_stored, chunks_failed, total_chunks), (300, 12, 312));
+            assert!(retryable, "expected retryable from the retained hint");
+            assert!(message.starts_with("Partial upload: 300/312"), "{message}");
+        }
+        other => panic!("expected AntdError::PartialUpload, got: {other:?}"),
+    }
+
+    let err = client
+        .finalize_merkle_upload("partial-final", "0xw1", false)
+        .await
+        .unwrap_err();
+    match err {
+        AntdError::PartialUpload {
+            chunks_stored,
+            chunks_failed,
+            total_chunks,
+            retryable,
+            ..
+        } => {
+            assert_eq!((chunks_stored, chunks_failed, total_chunks), (300, 12, 312));
+            assert!(!retryable, "no retained hint must read as not retryable");
+        }
+        other => panic!("expected AntdError::PartialUpload, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_grpc_error_aborted_unrecognised_message() {
+    // ABORTED is a partial store only when the message carries the daemon's
+    // fixed `Partial upload:` prefix; any other ABORTED keeps the generic
+    // gRPC mapping instead of being misreported as a partial upload.
+    let client = start_error_server(tonic::Code::Aborted, "aborted").await;
+    let err = client.health().await.unwrap_err();
+    match err {
+        AntdError::Grpc(status) => {
+            assert_eq!(status.code(), tonic::Code::Aborted);
+            assert_eq!(status.message(), "aborted");
+        }
+        other => panic!("expected AntdError::Grpc, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_grpc_error_aborted_embedded_marker_stays_grpc() {
+    // The gate is anchored at the start of the message: a `Partial upload:`
+    // marker quoted inside some other ABORTED text — even one carrying the
+    // retained hint — must not select paid-attempt recovery with zero counts.
+    let embedded = "operation aborted; previous error: Partial upload: 3/5 chunks stored, \
+                    2 failed (paid attempt retained)";
+    let client = start_error_server(tonic::Code::Aborted, embedded).await;
+    let err = client.health().await.unwrap_err();
+    match err {
+        AntdError::Grpc(status) => {
+            assert_eq!(status.code(), tonic::Code::Aborted);
+            assert_eq!(status.message(), embedded);
+        }
+        other => panic!("expected AntdError::Grpc, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_grpc_error_aborted_partial_prefix_garbled_counts() {
+    // The prefix alone is enough to classify the status as a partial store;
+    // counts that fail to parse read as zero. `retryable` is decided by the
+    // retained hint independently of the counts (absent here, so false).
+    let client = start_error_server(tonic::Code::Aborted, "Partial upload: n/a chunks").await;
+    let err = client.health().await.unwrap_err();
+    match err {
+        AntdError::PartialUpload {
+            chunks_stored,
+            chunks_failed,
+            total_chunks,
+            retryable,
+            message,
+        } => {
+            assert_eq!((chunks_stored, chunks_failed, total_chunks), (0, 0, 0));
+            assert!(!retryable);
+            assert_eq!(message, "Partial upload: n/a chunks");
+        }
+        other => panic!("expected AntdError::PartialUpload, got: {other:?}"),
     }
 }
 

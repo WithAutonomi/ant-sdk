@@ -128,8 +128,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 The `GrpcClient` has identical method signatures to the REST `Client`, so switching
-transports requires only changing the constructor. gRPC status codes are automatically
-mapped to `AntdError` variants via the `Grpc` error variant.
+transports requires only changing the constructor. gRPC status codes are surfaced through
+the `Grpc` error variant, except an `ABORTED` whose message starts with `Partial upload:`,
+which is a partial store and maps to `AntdError::PartialUpload`; any other `ABORTED` stays
+the generic `Grpc` error (see [Error Handling](#error-handling)).
 
 `GrpcClient::connect` decodes responses up to `DEFAULT_MAX_RECV_MESSAGE_BYTES` (32 MiB,
 sized so a full wave-batch prepare with `include_signed_quotes` fits; tonic's own 4 MiB
@@ -163,9 +165,53 @@ match client.data_get_public("some_address").await {
 | `TooLarge` | 413 | Payload too large |
 | `Internal` | 500 | Server error |
 | `Network` | 502 | Network unreachable |
+| `PartialUpload` | 502 (`code: PARTIAL_UPLOAD`) / gRPC `ABORTED` with a `Partial upload:` message | A finalize stored some chunks but not all; carries counts and `retryable` |
+| `ServiceUnavailable` | 503 | Wallet not configured |
 | `Http` | - | REST transport error |
 | `Json` | - | Serialization error |
 | `Grpc` | - | gRPC transport/status error |
+
+### Partial stores (external-signer finalize)
+
+`finalize_upload`, `finalize_merkle_upload` and `finalize_chunk_upload` can fail *after*
+the signer has paid: some chunks store, others miss quorum after the daemon's own retries.
+That comes back as `AntdError::PartialUpload { chunks_stored, chunks_failed, total_chunks,
+retryable, message }`. The on-chain payment persists and the stored chunks stay on the
+network; `retryable` says how to finish the upload:
+
+- `retryable == true` — antd ≥ 0.14.0 kept the paid attempt under the same `upload_id`.
+  Call the **same** finalize method again with the same arguments to store the remainder
+  against the same payment — no re-prepare, no second signature, no double payment. Bound
+  that loop: a persistent failure returns `PartialUpload` on every call, so cap the
+  attempts and treat a `chunks_failed` that stops shrinking as stuck. The retained attempt
+  expires with the daemon's pending-upload TTL.
+- `retryable == false` — nothing was retained (a merkle finalize with deliberately unpaid
+  batches, or an older daemon that never sends the flag). Re-preparing the same content
+  skips already-stored chunks, so a retry pays only for the remainder.
+
+Over REST the counts and flag come from the daemon's error body; over gRPC they are parsed
+from the `ABORTED` status message. Only an `ABORTED` whose message starts with the daemon's
+fixed `Partial upload:` prefix maps to `PartialUpload` (garbled counts after the prefix read
+as zero; `retryable` is decided separately by the retained hint); any other `ABORTED` — even
+one quoting that text further in — is the generic `Grpc` error. See
+`finalize_with_retry` in [`examples/07-external-signer.rs`](examples/07-external-signer.rs)
+and §6 of [`docs/external-signer-flow.md`](../docs/external-signer-flow.md).
+
+```rust
+use antd_client::AntdError;
+
+match client.finalize_upload(&upload_id, &tx_hashes).await {
+    Ok(fin) => println!("stored {} chunks", fin.chunks_stored),
+    Err(AntdError::PartialUpload { chunks_stored, chunks_failed, retryable: true, .. }) => {
+        // Same upload_id, same payment: call finalize_upload again (bounded).
+        println!("{chunks_stored} stored, {chunks_failed} to retry against the same payment");
+    }
+    Err(AntdError::PartialUpload { retryable: false, .. }) => {
+        // Nothing retained: re-prepare the same content to pay for the remainder only.
+    }
+    Err(e) => return Err(e.into()),
+}
+```
 
 ## Examples
 
@@ -176,6 +222,7 @@ See the [examples/](examples/) directory:
 - `03-chunks` — Raw chunk operations
 - `04-files` — File and directory upload/download
 - `06-private-data` — Private encrypted data storage
+- `07-external-signer` — Prepare / pay externally / finalize, with a bounded retry on `PartialUpload`
 - `08-grpc` — gRPC transport (instead of REST)
 
 Run an example:

@@ -9,16 +9,19 @@
 //! See `docs/external-signer-flow.md` for the full reference; the
 //! `IPaymentVault` contract bindings are baked in via alloy's `sol!`
 //! macro from the JSON ABI committed at `docs/abi/IPaymentVault.json`.
+//! `finalize_with_retry` shows the bounded same-`upload_id` retry §6 of
+//! that doc asks for when a finalize stores only part of the file.
 
 use std::collections::HashMap;
 use std::fs;
+use std::time::Duration;
 
 use alloy::network::EthereumWallet;
 use alloy::primitives::{Address, FixedBytes, U256};
 use alloy::providers::ProviderBuilder;
 use alloy::signers::local::PrivateKeySigner;
 use alloy::sol;
-use antd_client::{Client, DEFAULT_BASE_URL};
+use antd_client::{AntdError, Client, FinalizeUploadResult, DEFAULT_BASE_URL};
 
 // Anvil deterministic account #0. Pre-funded with ETH (gas) and antToken
 // (storage payment) by `ant dev start --enable-evm` devnet genesis. Never
@@ -114,6 +117,56 @@ async fn external_signer_pay(
     Ok(tx_hashes)
 }
 
+/// Finalizes a wave-batch upload and, when the daemon reports a partial
+/// store it retained (`AntdError::PartialUpload { retryable: true, .. }`,
+/// antd >= 0.14.0), calls finalize again with the same `upload_id` so the
+/// remainder is stored against the same payment. Bounded: at most
+/// `MAX_ATTEMPTS` calls, with a linear backoff, and it gives up as stuck as
+/// soon as `chunks_failed` stops shrinking. A non-retryable partial (nothing
+/// retained: re-prepare to pay only for the remainder) and every other error
+/// are returned untouched.
+async fn finalize_with_retry(
+    client: &Client,
+    upload_id: &str,
+    tx_hashes: &HashMap<String, String>,
+) -> Result<FinalizeUploadResult, Box<dyn std::error::Error>> {
+    const MAX_ATTEMPTS: u32 = 5;
+    let mut last_failed: Option<u64> = None;
+    for attempt in 1..=MAX_ATTEMPTS {
+        let err = match client.finalize_upload(upload_id, tx_hashes).await {
+            Ok(res) => return Ok(res), // every chunk stored
+            Err(err) => err,
+        };
+        let (stored, failed, total) = match &err {
+            AntdError::PartialUpload {
+                chunks_stored,
+                chunks_failed,
+                total_chunks,
+                retryable: true,
+                ..
+            } => (*chunks_stored, *chunks_failed, *total_chunks),
+            _ => return Err(err.into()),
+        };
+        let stuck = last_failed.is_some_and(|prev| failed >= prev);
+        if attempt >= MAX_ATTEMPTS || stuck {
+            return Err(format!(
+                "finalize stuck after {attempt} attempt(s): {stored}/{total} chunks stored, \
+                 {failed} still unstored (paid attempt retained under upload_id {upload_id} \
+                 -- retry later or re-prepare): {err}"
+            )
+            .into());
+        }
+        last_failed = Some(failed);
+        println!(
+            "finalize stored {stored}/{total} chunks, {failed} still unstored -- retrying \
+             against the same payment (attempt {}/{MAX_ATTEMPTS})",
+            attempt + 1
+        );
+        tokio::time::sleep(Duration::from_secs(2 * u64::from(attempt))).await;
+    }
+    unreachable!("loop returns on success, a non-retryable error, or the attempt cap")
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::new(DEFAULT_BASE_URL);
@@ -145,9 +198,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &signer,
     )
     .await?;
-    let fin = client
-        .finalize_upload(&file_prep.upload_id, &tx_hashes)
-        .await?;
+    let fin = finalize_with_retry(&client, &file_prep.upload_id, &tx_hashes).await?;
     println!(
         "File finalize: data_map_address={}, chunks_stored={}",
         fin.data_map_address, fin.chunks_stored,
