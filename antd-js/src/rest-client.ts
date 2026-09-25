@@ -688,17 +688,21 @@ export class RestClient {
    * when some chunks stayed unstored after the daemon's retries. The payment
    * persists and the stored chunks stay on the network:
    *
-   *   - `retryable === true` (antd >= 0.14.0): the daemon kept the paid
-   *     attempt under this `uploadId`. Call `finalizeUpload` again with the
-   *     same `uploadId` and `txHashes` to store the remainder against the
-   *     same payment. Bound the loop — cap the attempts and treat a
-   *     `chunksFailed` that stops shrinking as stuck.
-   *   - `retryable === false`: nothing was retained. Re-prepare the same
-   *     content; already-stored chunks are skipped, so the retry pays only
-   *     for the remainder.
+   *   - `retryable` (antd >= 0.14.0): the daemon kept the paid attempt under
+   *     this `uploadId`. Call `finalizeUpload` again with the same `uploadId`
+   *     and `txHashes` to store the remainder against the same payment.
+   *     Bound the loop: cap the attempts and treat a `chunksFailed` that
+   *     stops shrinking as stuck.
+   *   - `retentionKnown && !retryable`: the daemon confirmed nothing was
+   *     retained. Re-prepare the same content; already-stored chunks are
+   *     skipped, so the new payment covers only the chunks still missing.
+   *   - `!retentionKnown`: retention is unknown (e.g. a daemon older than
+   *     0.14.0). The daemon may still hold the paid attempt: stop automatic
+   *     recovery, keep `uploadId` and `txHashes`, and reconcile before
+   *     re-preparing or paying again.
    *
    * See `docs/external-signer-flow.md` §6 and `finalizeWithRetry` in
-   * `examples/07-external-signer.ts`.
+   * `examples/finalize-with-retry.ts`.
    */
   async finalizeUpload(
     uploadId: string,
@@ -722,9 +726,11 @@ export class RestClient {
    * Finalize a merkle batch upload after selecting a winning pool.
    *
    * Throws {@link PartialUploadError} when some chunks stayed unstored after
-   * the daemon's retries; see {@link finalizeUpload} for the two recovery
-   * paths. A merkle finalize with deliberately unpaid batches is never
-   * retryable (nothing is retained) — re-prepare to store the remainder.
+   * the daemon's retries; see {@link finalizeUpload} for the three recovery
+   * cases. On antd >= 0.14.0 a fully paid merkle finalize keeps the attempt
+   * (`retryable`), while one with deliberately unpaid batches reports
+   * confirmed non-retention (`retentionKnown && !retryable`): re-prepare to
+   * store the remainder.
    */
   async finalizeMerkleUpload(
     uploadId: string,
@@ -804,9 +810,11 @@ export class RestClient {
    * via `POST /v1/chunks/finalize`.
    *
    * Throws {@link PartialUploadError} when the chunk could not be stored
-   * after the daemon's retries; see {@link finalizeUpload} for the two
-   * recovery paths (`retryable` → repeat this call with the same arguments;
-   * otherwise re-prepare the same chunk).
+   * after the daemon's retries; see {@link finalizeUpload} for the three
+   * recovery cases (`retryable`: repeat this call with the same arguments;
+   * `retentionKnown && !retryable`: re-prepare the same chunk;
+   * `!retentionKnown`: stop, keep `uploadId` and `txHashes`, and reconcile
+   * before re-preparing or paying again).
    *
    * Requires antd >= 0.7.0.
    */

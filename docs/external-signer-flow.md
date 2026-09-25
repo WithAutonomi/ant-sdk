@@ -186,14 +186,57 @@ Returns `FinalizeUploadResult { data_map_address, data_map, chunks_stored, addre
 
 ### 6. Retry a partial store — same `upload_id`, same payment
 
-Finalize can fail *after* the wallet has paid: some chunks store, others miss quorum after the daemon's own retries. That comes back as HTTP **502** with `code: "PARTIAL_UPLOAD"` (gRPC **ABORTED**, message prefixed `Partial upload:`) and the structured counts `chunks_stored` / `chunks_failed` / `total_chunks`, plus a `retryable` flag:
+Finalize can fail *after* the wallet has paid: some chunks store, others miss quorum after the daemon's own retries. The payment persists and the stored chunks stay on the network. Over REST that comes back as HTTP **502** with `code: "PARTIAL_UPLOAD"`, the structured counts `chunks_stored` / `chunks_failed` / `total_chunks`, and (antd ≥ 0.14.0) a boolean `retryable`. Over gRPC it is **ABORTED**, and the same facts ride the message text: `Partial upload: <stored>/<total> chunks stored, <failed> failed after retries: <reason> (<hint>)`, where the hint starts `paid attempt retained` when the daemon kept the attempt and `stored chunks persist; re-prepare the same content` when it did not.
 
-- **`retryable: true`** — the daemon kept the paid attempt (the payment proofs plus the still-unstored chunks) under the same `upload_id`. Call `POST /v1/upload/finalize` again with that `upload_id`; the payment fields are ignored on a resume, so pass the same body. Each call stores what it can and either succeeds or returns another `PARTIAL_UPLOAD`. No re-prepare, no second signature, no double payment.
-- **`retryable: false`** — nothing was retained. This is the merkle case where the signer deliberately left some sub-batches unpaid (a resume can never acquire proofs for unpaid chunks), and the daemon-wallet upload paths. Re-preparing the same content skips already-stored chunks, so a retry pays for and stores only the remainder.
+Each SDK's typed partial-upload error carries two flags:
 
-**Bound the retry loop.** A persistent failure (a chunk whose close group stays unreachable) returns `PARTIAL_UPLOAD` on every call, never a different error. Cap the attempts or back off between them, and treat a `chunks_failed` count that stops shrinking as stuck. The retained attempt expires with the daemon's pending-upload TTL (one hour); after that the `upload_id` is `404` and the on-chain payment cannot be recovered.
+- **`retryable`**: the daemon confirmed it kept the paid attempt under the same `upload_id`.
+- **`retention_known`** (spelled `retentionKnown` or `RetentionKnown` where that is the SDK's naming convention): the daemon said whether it kept the paid attempt. `retryable` implies `retention_known`.
+
+How the SDKs set them:
+
+| Transport | `retryable` | `retention_known` |
+| --- | --- | --- |
+| REST | the body's `retryable` is `true` | the body's `retryable` is present and a JSON boolean (`true` or `false`) |
+| gRPC | `retention_known` **and** the closing hint is `(paid attempt retained…)` | the message was fully parsed: the `ABORTED` status passed the `Partial upload:` gate, the counts pattern matched at the start, all three counts converted, **and** the message ends with one of the daemon's two hints |
+
+Over gRPC the answer on retention is the hint that closes the message, not the counts. The hint must be the message's last text: a parenthesised group at the very end (`\((paid attempt retained|stored chunks persist; re-prepare the same content)[^()]*\)` followed by end of input, with no trailing newline). A closing `(stored chunks persist; re-prepare the same content…)` is confirmed non-retention, the same as an explicit REST `retryable: false`.
+
+**Retention unknown** means the SDK could not read the daemon's answer:
+- a REST body whose `retryable` is missing, `null` or not a boolean;
+- a gRPC `Partial upload:` message whose counts pattern missed or whose counts failed to convert (the counts read 0);
+- a gRPC message whose counts read but whose closing hint is missing, cut short, unrecognised or followed by other text (the counts are kept). Readable counts alone never mean "nothing retained".
+
+Daemons older than 0.14.0 never send `retryable`, so their REST partials read as unknown. Over gRPC, their well-formed message always ends with the `(stored chunks persist; re-prepare the same content…)` hint, so it reads as known and not retryable. That is correct, because those daemons discarded the `upload_id` on the failed finalize.
+
+Recover by case:
+
+1. **`retryable`**: the daemon kept the paid attempt (the payment proofs plus the still-unstored chunks) under the same `upload_id`. Call the same finalize (`POST /v1/upload/finalize`, gRPC `FinalizeUpload`) again with the same `upload_id` and the original payment artefacts. On a resume the daemon ignores the payment fields (the retained attempt already owns the proofs), so resending the original request is correct. Each call stores what it can and either succeeds or returns another `PARTIAL_UPLOAD`. No re-prepare, no second signature, no double payment. Bound the loop (below).
+2. **`retention_known` and not `retryable`**: the daemon confirmed nothing was retained. This is the merkle finalize where the signer deliberately left some sub-batches unpaid (a resume can never acquire proofs for unpaid chunks), the daemon-wallet upload paths, and a well-formed gRPC partial from a daemon older than 0.14.0. Re-prepare the same content. Already-stored chunks are skipped, so the new payment covers only the chunks still missing, which includes any the failed attempt paid for but did not store.
+3. **Retention unknown** (`retention_known` false): the SDK could not establish whether the daemon kept the paid attempt, and it may well have: the daemon re-inserts the paid resume handle under the same `upload_id` *before* it returns the error (`finalize_pending` in `antd/src/rest/upload.rs`), and nothing on the client side undoes that. Stop automatic recovery. Keep the `upload_id` and the original payment artefacts (the `tx_hashes` map, or the merkle winner pool hashes). Reconcile before you re-prepare or pay again, and never pay again on this signal alone: re-preparing skips only chunks that are already *stored*, so it would pay a second time for chunks the retained attempt has already paid for.
+
+**Reconciling an unknown partial.** One deliberate finalize with the same `upload_id` and the original artefacts is safe and shows which state the daemon is in, because the daemon looks the `upload_id` up before it touches any state:
+
+- if it still holds the retained attempt, the call resumes it against the original payment, as in case 1;
+- if it holds nothing under that `upload_id`, the call changes nothing and returns **404** `NOT_FOUND` (gRPC `NOT_FOUND`): `upload_id … not found — it may have expired, been finalized, or been abandoned after a partial store`.
+
+A 404 says only that the daemon holds nothing *now*. It does not mean the payment went unused: a retained attempt also disappears when the pending-upload TTL runs out or the daemon restarts (pending uploads live in memory). If you then re-prepare, the chunks the original payment covered but that never stored are paid for again, so account for the original transaction first.
+
+A 404 can also be transient. A finalize takes the `upload_id` out of the pending map for as long as its store runs: `finalize_pending` removes it before the detached store task starts and puts a retained attempt back only when that task ends. A check that overlaps a finalize still in flight (for example one whose HTTP client timed out while the daemon kept storing) therefore also returns 404. Make sure no other finalize for that `upload_id` is running, and repeat the check before acting on a 404.
+
+**Bound the retry loop.** A persistent failure (a chunk whose close group stays unreachable) returns `PARTIAL_UPLOAD` on every call, never a different error. Cap the attempts or back off between them, and treat a `chunks_failed` count that stops shrinking as stuck. When the loop stops in case 1 the attempt is still retained, so retry the same finalize later rather than re-preparing. The retained attempt expires with the daemon's pending-upload TTL (one hour, restarted by each partial) and is lost if the daemon restarts; after that the `upload_id` is `404` and the on-chain payment cannot be recovered.
+
+Whenever the loop stops, surface the original partial-upload error rather than a generic one, so the caller can still tell the three cases apart:
 
 ```python
+class PartialUpload(Exception):
+    """A PARTIAL_UPLOAD response, kept whole so the caller can pick the recovery case."""
+    def __init__(self, body):
+        super().__init__(body.get("error"))
+        self.body = body
+        self.retryable = body.get("retryable") is True
+        self.retention_known = isinstance(body.get("retryable"), bool)
+
 attempts, last_failed = 0, None
 while True:
     fin = requests.post(f"{ANTD}/v1/upload/finalize",
@@ -201,12 +244,17 @@ while True:
     if fin.ok:
         break                                   # every chunk stored
     body = fin.json()
-    if body.get("code") != "PARTIAL_UPLOAD" or not body.get("retryable"):
-        raise RuntimeError(body["error"])       # not resumable: re-prepare
+    if body.get("code") != "PARTIAL_UPLOAD":
+        fin.raise_for_status()                  # some other failure
+    err = PartialUpload(body)
+    if not err.retention_known:
+        raise err   # unknown: keep upload_id + tx_hashes and reconcile; don't re-prepare or pay
+    if not err.retryable:
+        raise err   # confirmed not retained: re-prepare the same content
     attempts += 1
     failed = body["chunks_failed"]
     if attempts >= 5 or (last_failed is not None and failed >= last_failed):
-        raise RuntimeError(f"stuck: {failed} chunk(s) unstored after {attempts} attempts")
+        raise err   # stuck but still retained: retry the same finalize later
     last_failed = failed
     time.sleep(2 ** attempts)
 ```
