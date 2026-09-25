@@ -153,10 +153,42 @@ catch (AntdException ex)
 | `PaymentException` | 402 | `FAILED_PRECONDITION` | Payment issue |
 | `NotFoundException` | 404 | `NOT_FOUND` | Not found |
 | `AlreadyExistsException` | 409 | `ALREADY_EXISTS` | Already exists |
-| `ForkException` | 409 | `ABORTED` | Version conflict |
+| `ForkException` | 409 | `ABORTED` (non-partial-upload) | Version conflict |
 | `TooLargeException` | 413 | `RESOURCE_EXHAUSTED` | Too large |
 | `InternalException` | 500 | `INTERNAL` | Server error |
 | `NetworkException` | 502 | `UNAVAILABLE` | Unreachable |
+| `PartialUploadException` | 502 (`code: "PARTIAL_UPLOAD"`) | `ABORTED` (detail starts with `Partial upload:`) | Finalize stored some chunks, not all; extends `NetworkException` |
+
+### Partial uploads
+
+A finalize (`FinalizeUploadAsync`, `FinalizeMerkleUploadAsync`, `FinalizeChunkUploadAsync`) can fail *after* the wallet has paid: some chunks store, others miss quorum after the daemon's own retries. The SDK surfaces that as `PartialUploadException` with `ChunksStored`, `ChunksFailed`, `TotalChunks` and `Retryable`. The on-chain payment persists and the stored chunks stay on the network; `Retryable` says how to finish:
+
+- **`Retryable == true`** — the daemon kept the paid attempt (payment proofs plus the unstored chunks) under the same `upload_id`. Call the **same finalize method again with the same arguments** to store the remainder against the same payment: no re-prepare, no second signature, no double payment. Bound the loop: a persistent failure throws on every call, so cap the attempts and treat a `ChunksFailed` that stops shrinking as stuck. The retained attempt expires with the daemon's pending-upload TTL. The flag is sent by antd ≥ 0.14.0; older daemons omit it and it reads `false`.
+- **`Retryable == false`** — nothing was retained (older daemon, or a merkle finalize with deliberately unpaid batches). Re-preparing the same content skips already-stored chunks, so a retry pays only for the remainder.
+
+`PartialUploadException` extends `NetworkException` because a partial upload has always arrived as a 502, so existing `catch (NetworkException)` blocks keep matching; catch the derived type first to branch on the counts. Over REST the fields come from the structured error body; over gRPC an `ABORTED` status maps to `PartialUploadException` only when its status detail starts with the daemon's fixed `Partial upload:` prefix, with the counts and `Retryable` parsed from the rest of the detail. `Retryable` is `true` only when all three counts parse and the `paid attempt retained` hint is present; if the counts do not match the daemon's layout or do not convert (an overflow, non-ASCII digits), all three read as zero and `Retryable` is `false` even with the hint, so a retry loop never runs on counts it cannot watch shrink. Any other `ABORTED`, including one that quotes `Partial upload:` further into its detail, keeps the `ForkException` mapping.
+
+```csharp
+var lastFailed = 0UL;
+for (var attempt = 1; ; attempt++)
+{
+    try
+    {
+        return await client.FinalizeUploadAsync(uploadId, txHashes); // every chunk stored
+    }
+    catch (PartialUploadException ex) when (ex.Retryable)
+    {
+        var stuck = attempt > 1 && ex.ChunksFailed >= lastFailed;
+        if (attempt >= 5 || stuck)
+            throw; // paid attempt still retained under uploadId: retry later or re-prepare
+        lastFailed = ex.ChunksFailed;
+        await Task.Delay(TimeSpan.FromSeconds(attempt * 2));
+    }
+    // a non-retryable PartialUploadException propagates: re-prepare the same content
+}
+```
+
+See `Examples/Program.cs` (`FinalizeWithRetryAsync`) and [docs/external-signer-flow.md §6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment).
 
 ## Examples
 
@@ -168,6 +200,7 @@ dotnet run -- 2     # Public data
 dotnet run -- 3     # Chunks
 dotnet run -- 4     # Files
 dotnet run -- 6     # Private data
+dotnet run -- 7     # External signer (bounded partial-upload retry)
 dotnet run -- all   # Run all
 ```
 

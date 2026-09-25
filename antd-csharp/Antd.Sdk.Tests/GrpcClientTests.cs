@@ -27,6 +27,16 @@ public sealed class GrpcClientTests
             () => new Metadata(),
             () => { });
 
+    /// <summary>A canned unary call that faults with the given gRPC status,
+    /// so the client's <c>catch (RpcException)</c> mapping is exercised.</summary>
+    private static AsyncUnaryCall<T> Fail<T>(Status status) =>
+        TestCalls.AsyncUnaryCall(
+            Task.FromException<T>(new RpcException(status)),
+            Task.FromResult(new Metadata()),
+            () => status,
+            () => new Metadata(),
+            () => { });
+
     private sealed class MockChunkServiceClient : ChunkService.ChunkServiceClient
     {
         public override AsyncUnaryCall<PrepareChunkResponse> PrepareChunkAsync(
@@ -153,6 +163,37 @@ public sealed class GrpcClientTests
             FinalizeUploadRequest request, Metadata? headers = null,
             DateTime? deadline = null, CancellationToken cancellationToken = default)
         {
+            // PARTIAL_UPLOAD: the daemon reports a post-payment storage
+            // shortfall as ABORTED with counts and the retained hint in the
+            // message text. "partial" carries the hint; "partial-final" does
+            // not (a merkle finalize with unpaid batches, or an older daemon).
+            if (request.UploadId == "partial")
+            {
+                return Fail<FinalizeUploadResponse>(new Status(StatusCode.Aborted,
+                    "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " +
+                    "(paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)"));
+            }
+            if (request.UploadId == "partial-final")
+            {
+                return Fail<FinalizeUploadResponse>(new Status(StatusCode.Aborted,
+                    "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " +
+                    "(stored chunks persist; re-prepare the same content to retry only the remainder)"));
+            }
+            // An ABORTED without the daemon's "Partial upload:" prefix is not
+            // a partial upload and must keep the ForkException mapping.
+            if (request.UploadId == "fork")
+            {
+                return Fail<FinalizeUploadResponse>(new Status(StatusCode.Aborted,
+                    "version conflict: expected v3, found v4"));
+            }
+            // The gate is anchored: a "Partial upload:" marker quoted after
+            // other text is not a partial upload, even with counts and the
+            // retained hint, and must keep the ForkException mapping too.
+            if (request.UploadId == "embedded")
+            {
+                return Fail<FinalizeUploadResponse>(new Status(StatusCode.Aborted,
+                    "upstream error: Partial upload: 1/3 chunks stored, 2 failed (paid attempt retained)"));
+            }
             // Merkle: winner_pool_hash populated.
             if (!string.IsNullOrEmpty(request.WinnerPoolHash))
             {
@@ -438,5 +479,61 @@ public sealed class GrpcClientTests
         Assert.True(sawProgress);
         // hel+lo = 5 bytes surfaced from x-content-length.
         Assert.Equal(5UL, totalSize);
+    }
+
+    // --- Partial upload (ABORTED) ---
+
+    [Fact]
+    public async Task FinalizeUpload_Aborted_MapsToPartialUploadExceptionWithRetainedHint()
+    {
+        var client = MakeClient();
+        var ex = await Assert.ThrowsAsync<PartialUploadException>(
+            () => client.FinalizeUploadAsync("partial", new() { ["0xq1"] = "0xtx1" }));
+
+        // Counts and the retained hint are parsed from the status message, so
+        // the gRPC client matches the REST client's typed exception.
+        Assert.Equal(300UL, ex.ChunksStored);
+        Assert.Equal(12UL, ex.ChunksFailed);
+        Assert.Equal(312UL, ex.TotalChunks);
+        Assert.True(ex.Retryable);
+        Assert.Equal(502, ex.StatusCode);
+        Assert.IsAssignableFrom<NetworkException>(ex);
+    }
+
+    [Fact]
+    public async Task FinalizeMerkleUpload_Aborted_WithoutRetainedHintIsNotRetryable()
+    {
+        var client = MakeClient();
+        var ex = await Assert.ThrowsAsync<PartialUploadException>(
+            () => client.FinalizeMerkleUploadAsync("partial-final", "0xwinpool"));
+
+        Assert.False(ex.Retryable);
+        Assert.Equal(300UL, ex.ChunksStored);
+        Assert.Equal(12UL, ex.ChunksFailed);
+        Assert.Equal(312UL, ex.TotalChunks);
+    }
+
+    [Fact]
+    public async Task FinalizeUpload_Aborted_WithoutPartialUploadPrefixIsForkException()
+    {
+        var client = MakeClient();
+        var ex = await Assert.ThrowsAsync<ForkException>(
+            () => client.FinalizeUploadAsync("fork", new() { ["0xq1"] = "0xtx1" }));
+
+        Assert.IsNotType<PartialUploadException>(ex);
+        Assert.Equal(409, ex.StatusCode);
+        Assert.Equal("version conflict: expected v3, found v4", ex.Message);
+    }
+
+    [Fact]
+    public async Task FinalizeUpload_Aborted_WithEmbeddedPartialUploadMarkerIsForkException()
+    {
+        var client = MakeClient();
+        var ex = await Assert.ThrowsAsync<ForkException>(
+            () => client.FinalizeUploadAsync("embedded", new() { ["0xq1"] = "0xtx1" }));
+
+        Assert.IsNotType<PartialUploadException>(ex);
+        Assert.Equal(409, ex.StatusCode);
+        Assert.Equal("upstream error: Partial upload: 1/3 chunks stored, 2 failed (paid attempt retained)", ex.Message);
     }
 }
