@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 # Decided 2026-09-04 (V2-1157). Not related to the Ant Design UI library of the
 # same name on npm — the description line disambiguates on PyPI.
 name = "antd"
-version = "0.1.0"  # tracks the daemon-client API, independent of the antd daemon and the ant-sdk FFI package
+version = "0.2.0"  # tracks the daemon-client API, independent of the antd daemon and the ant-sdk FFI package
 description = "Python client for the antd daemon: store and fetch data on the Autonomi network over REST or gRPC (not the Ant Design UI library)"
 readme = "README.md"
 requires-python = ">=3.10"

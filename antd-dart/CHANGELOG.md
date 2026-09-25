@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 - `PartialUploadError` (a `NetworkError` subclass) for a finalize that stored
   some chunks but not all: carries `chunksStored` / `chunksFailed` /

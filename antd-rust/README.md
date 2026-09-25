@@ -12,7 +12,7 @@ Or add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-antd-client = "0.1"
+antd-client = "0.2"
 ```
 
 ## Compatibility

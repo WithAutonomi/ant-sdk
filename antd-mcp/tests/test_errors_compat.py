@@ -1,8 +1,9 @@
 """antd-mcp must import and serve against an antd SDK that predates
 ``PartialUploadError``.
 
-The MCP server's dependency floor admits older ``antd`` releases than the
-one it is developed against. Both packages live in this checkout, so the
+The dependency floor requires antd >= 0.2.0, but an install that bypasses it
+(e.g. --no-deps) can still pair the server with an older SDK, so the import
+guard stays and is tested here. Both packages live in this checkout, so the
 regular suite always runs head against head and cannot see an incompatible
 allowed dependency. These tests simulate the older SDK by removing the
 symbol before importing the error module. ``monkeypatch.undo()`` restores
