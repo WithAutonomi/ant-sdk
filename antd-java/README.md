@@ -203,7 +203,7 @@ The gRPC client uses `io.grpc` blocking stubs and maps gRPC status codes to the 
 | `RESOURCE_EXHAUSTED` | `TooLargeException` |
 | `INTERNAL` | `InternalException` |
 | `UNAVAILABLE` | `NetworkException` |
-| `ABORTED` whose message starts with `Partial upload:` | `PartialUploadException` (counts and `retryable` parsed from the status message); any other `ABORTED` maps to the generic `AntdException` |
+| `ABORTED` whose message starts with `Partial upload:` | `PartialUploadException` (counts, `retryable` and `retentionKnown` parsed from the status message); any other `ABORTED` maps to the generic `AntdException` |
 
 ### Proto compilation
 
@@ -253,10 +253,13 @@ try {
 
 ### Partial uploads
 
-A `finalizeUpload` / `finalizeMerkleUpload` / `finalizeChunkUpload` where some chunks stayed unstored after the daemon's retries throws `PartialUploadException` (a subclass of `NetworkException`, so existing `catch (NetworkException e)` blocks keep working) with `getChunksStored()` / `getChunksFailed()` / `getTotalChunks()` and an `isRetryable()` flag. The on-chain payment persists and the stored chunks stay on the network.
+A `finalizeUpload` / `finalizeMerkleUpload` / `finalizeChunkUpload` where some chunks stayed unstored after the daemon's retries throws `PartialUploadException` (a subclass of `NetworkException`, so existing `catch (NetworkException e)` blocks keep working) with `getChunksStored()` / `getChunksFailed()` / `getTotalChunks()`, an `isRetryable()` flag and an `isRetentionKnown()` flag. The on-chain payment persists and the stored chunks stay on the network. There are three cases:
 
-- `isRetryable() == true` (sent by antd ≥ 0.14.0) means the daemon kept the paid attempt under the same `upload_id`: call the **same** finalize method again with the same arguments to store the remainder against the same payment — no re-prepare, no second signature, no double payment. Bound that loop: cap the attempts, and treat a `getChunksFailed()` that stops shrinking as stuck.
-- `isRetryable() == false` — an older daemon (which never sends the flag, so it defaults to `false`), or a merkle finalize with deliberately unpaid batches — means nothing was retained: re-preparing the same content skips already-stored chunks, so a retry pays only for the remainder.
+1. `isRetryable()` (antd ≥ 0.14.0): the daemon kept the paid attempt under the same `upload_id`. Call the **same** finalize method again with the same `upload_id` and the same payment artefacts (tx hashes, or the winner pool hash) to store the remainder against the same payment: no re-prepare, no second signature, no double payment. Bound that loop: cap the attempts, and treat a `getChunksFailed()` that stops shrinking as stuck.
+2. `isRetentionKnown() && !isRetryable()`: the daemon confirmed nothing was retained (for example a merkle finalize with deliberately unpaid batches). Re-prepare the same content; already-stored chunks are skipped.
+3. `!isRetentionKnown()`: retention is unknown. The daemon may still hold the paid attempt, because it records the resume handle before it returns the error. Stop automatic recovery, keep the `upload_id` and the original payment artefacts, and reconcile before re-preparing or paying again. Never pay again on this signal alone: re-preparing skips chunks that are already stored, not chunks that were paid for and are still unstored. Daemons older than 0.14.0 never send `retryable`, so their REST partial uploads read as unknown.
+
+`isRetryable()` always implies `isRetentionKnown()`.
 
 ```java
 try {
@@ -264,13 +267,15 @@ try {
 } catch (PartialUploadException e) {
     if (e.isRetryable()) {
         // same upload_id, same payment: retry finalizeUpload(uploadId, txHashes) with a cap
+    } else if (e.isRetentionKnown()) {
+        // the daemon confirmed nothing was retained: re-prepare the same content
     } else {
-        // re-prepare the same content; already-stored chunks are skipped
+        // retention unknown: stop, keep uploadId + txHashes, reconcile before paying again
     }
 }
 ```
 
-Over REST the counts and flag come from the structured error body; over gRPC (status `ABORTED` whose message starts with the daemon's fixed `Partial upload:` prefix) they are parsed from the status message. `isRetryable()` is `true` only when all three counts parse and the "paid attempt retained" hint is present: a message whose counts do not match the layout, or overflow a `long`, yields zero counts and `isRetryable() == false` even with the hint, since a retry loop that cannot watch `getChunksFailed()` shrink cannot tell progress from a stuck upload. The match is anchored at the start of the message, as in antd-rust: an `ABORTED` that does not start with the prefix, including one that merely quotes it further in, is not a partial upload and maps to the generic `AntdException`. On the REST side a malformed error body never escapes as a parse error: a count that is not a JSON number, or a `retryable` that is not a JSON boolean, reads as zero / `false`, and a `code` that is not the string `PARTIAL_UPLOAD` keeps the plain `NetworkException`. See `finalizeWithRetry` in [`examples/.../Example07ExternalSigner.java`](examples/src/main/java/com/autonomi/examples/Example07ExternalSigner.java) for a bounded retry helper, and [`docs/external-signer-flow.md` §6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment) for the daemon-side contract.
+Over REST the counts and flags come from the structured error body: `isRetentionKnown()` is `true` only when the body carries `retryable` as a JSON boolean, and `isRetryable()` is that boolean. Over gRPC (status `ABORTED` whose message starts with the daemon's fixed `Partial upload:` prefix) they are parsed from the status message (`Partial upload: <stored>/<total> chunks stored, <failed> failed after retries: <reason> (<hint>)`). `isRetentionKnown()` is `true` only when the message starts with that count layout, all three counts convert to a `long`, and the message ends with one of the daemon's two hints: `(paid attempt retained...)` sets `isRetryable()`, and `(stored chunks persist; re-prepare the same content...)` means the daemon confirmed nothing was retained (daemons older than 0.14.0 write only this one). A layout miss or an overflowing count reads 0 and leaves both flags `false`, even with the hint. Readable counts with a missing, truncated or unrecognised hint, or with text after it, keep the counts, but both flags stay `false`. In both cases retention is unknown, so stop and reconcile rather than re-prepare. The prefix match is anchored at the start of the message, as in antd-rust: an `ABORTED` that does not start with the prefix, including one that merely quotes it further in, is not a partial upload and maps to the generic `AntdException`. On the REST side a malformed error body never escapes as a parse error: a count that is not a JSON number reads as zero, a `retryable` that is not a JSON boolean reads as not retryable with retention unknown, and a `code` that is not the string `PARTIAL_UPLOAD` keeps the plain `NetworkException`. See `finalizeWithRetry` in [`examples/.../Example07ExternalSigner.java`](examples/src/main/java/com/autonomi/examples/Example07ExternalSigner.java) for a bounded retry helper, and [`docs/external-signer-flow.md` §6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment) for the daemon-side contract.
 
 ## Examples
 

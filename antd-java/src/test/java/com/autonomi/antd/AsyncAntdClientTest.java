@@ -367,6 +367,7 @@ class AsyncAntdClientTest {
         assertEquals(0L, pe.getChunksFailed());
         assertEquals(3L, pe.getTotalChunks());
         assertFalse(pe.isRetryable());
+        assertFalse(pe.isRetentionKnown());
     }
 
     @Test

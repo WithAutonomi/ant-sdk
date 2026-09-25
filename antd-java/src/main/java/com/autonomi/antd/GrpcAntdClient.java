@@ -153,10 +153,12 @@ public class GrpcAntdClient implements AutoCloseable {
             case INTERNAL -> new InternalException(msg);
             case UNAVAILABLE -> new NetworkException(msg);
             // PARTIAL_UPLOAD: some chunks stored, some still unstored after
-            // retries. The counts and the "paid attempt retained" hint ride
-            // the status description over gRPC (no structured detail yet),
-            // so parse them best-effort to match the REST client's typed
-            // exception. The daemon starts every such description with the
+            // retries. The counts and the closing retention hint ride the
+            // status description over gRPC (no structured detail yet), so
+            // parse them to match the REST client's typed exception:
+            // retentionKnown needs the counts and one of the daemon's two
+            // hints at the very end, and retryable needs the "paid attempt
+            // retained" one. The daemon starts every such description with the
             // fixed "Partial upload:" prefix and never wraps it, so gate on
             // the description starting with it (anchored, as antd-rust does):
             // an ABORTED that lacks the prefix, or merely quotes it further
@@ -740,20 +742,28 @@ public class GrpcAntdClient implements AutoCloseable {
      * <p>A finalize where some chunks stayed unstored after the daemon's
      * retries surfaces as gRPC {@code ABORTED} and throws
      * {@link PartialUploadException}, with {@code chunksStored} /
-     * {@code chunksFailed} / {@code totalChunks} and the {@code retryable}
-     * flag parsed from the status description. The on-chain payment persists
-     * and the stored chunks stay on the network:
+     * {@code chunksFailed} / {@code totalChunks} and the {@code retryable} /
+     * {@code retentionKnown} flags parsed from the status description (a
+     * description whose counts cannot be read, or that does not end with one
+     * of the daemon's two retention hints, reads as retention unknown).
+     * The on-chain payment persists and the stored chunks stay on the network:
      * <ul>
-     *   <li>{@code isRetryable() == true} (antd &gt;= 0.14.0): the daemon kept
-     *       the paid attempt under the same {@code uploadId} — call this
-     *       method again with the same arguments to store the remainder
-     *       against the same payment (no re-prepare, no second signature, no
-     *       double payment). Bound that loop: cap the attempts and treat a
-     *       {@code chunksFailed} that stops shrinking as stuck.</li>
-     *   <li>{@code isRetryable() == false} (older daemon, or a merkle finalize
-     *       with deliberately unpaid batches): nothing was retained —
-     *       re-prepare the same content; already-stored chunks are skipped so
-     *       the retry pays only for the remainder.</li>
+     *   <li>{@code isRetryable()} (antd &gt;= 0.14.0): the daemon kept the
+     *       paid attempt under the same {@code uploadId} — call this method
+     *       again with the same {@code uploadId} and payment artefacts to store
+     *       the remainder against the same payment (no re-prepare, no second
+     *       signature, no double payment). Bound that loop: cap the attempts
+     *       and treat a {@code chunksFailed} that stops shrinking as
+     *       stuck.</li>
+     *   <li>{@code isRetentionKnown() && !isRetryable()}: the daemon confirmed
+     *       nothing was retained (e.g. a merkle finalize with deliberately
+     *       unpaid batches) — re-prepare the same content; already-stored
+     *       chunks are skipped.</li>
+     *   <li>{@code !isRetentionKnown()}: retention is unknown and the daemon
+     *       may still hold the paid attempt — stop automatic recovery, keep
+     *       the {@code uploadId} and the original payment artefacts, and
+     *       reconcile before re-preparing or paying again. Never pay again on
+     *       this signal alone.</li>
      * </ul>
      * See {@code docs/external-signer-flow.md} §6 and {@code finalizeWithRetry}
      * in {@code examples/.../Example07ExternalSigner.java}.
