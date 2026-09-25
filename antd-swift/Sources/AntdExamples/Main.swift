@@ -162,9 +162,11 @@ struct Examples {
     ///   Rethrown at once; the caller re-prepares the same content, which
     ///   skips the chunks already stored.
     /// - `!retentionKnown`: retention is unknown and the daemon may still
-    ///   hold the paid attempt. Rethrown at once: this helper never
-    ///   re-prepares or pays, and the caller must keep the upload_id and
-    ///   payment artefacts and reconcile before re-preparing or paying again.
+    ///   hold the paid attempt. Over gRPC this includes a status message
+    ///   whose counts read but whose closing retention hint is missing or
+    ///   cut short. Rethrown at once: this helper never re-prepares or pays,
+    ///   and the caller must keep the upload_id and payment artefacts and
+    ///   reconcile before re-preparing or paying again.
     ///
     /// Any other error propagates untouched on the first failure.
     static func finalizeWithRetry<T>(
@@ -182,11 +184,7 @@ struct Examples {
                 return try await finalize()
             } catch let partial as PartialUploadError {
                 guard partial.retryable else {
-                    if partial.retentionKnown {
-                        print("finalize stored \(partial.chunksStored)/\(partial.totalChunks) chunks; the daemon kept nothing for upload_id \(uploadId) — re-prepare the same content to store the remainder")
-                    } else {
-                        print("finalize stored \(partial.chunksStored)/\(partial.totalChunks) chunks; retention unknown for upload_id \(uploadId) — stopping: keep the upload_id and payment artefacts and reconcile before re-preparing or paying again")
-                    }
+                    print(nonRetryableAdvice(partial, uploadId: uploadId))
                     throw partial
                 }
                 let stuck = attempt > 1 && partial.chunksFailed >= lastFailed
@@ -200,6 +198,17 @@ struct Examples {
                 attempt += 1
             }
         }
+    }
+
+    /// The advice `finalizeWithRetry` prints when it stops on a
+    /// non-retryable `PartialUploadError`. Re-preparing is advised only when
+    /// the daemon confirmed it kept nothing (`retentionKnown`); unknown
+    /// retention always gets "stop and reconcile".
+    static func nonRetryableAdvice(_ partial: PartialUploadError, uploadId: String) -> String {
+        if partial.retentionKnown {
+            return "finalize stored \(partial.chunksStored)/\(partial.totalChunks) chunks; the daemon kept nothing for upload_id \(uploadId) — re-prepare the same content to store the remainder"
+        }
+        return "finalize stored \(partial.chunksStored)/\(partial.totalChunks) chunks; retention unknown for upload_id \(uploadId) — stopping: keep the upload_id and payment artefacts and reconcile before re-preparing or paying again"
     }
 
     /// Run approve + payForQuotes on-chain for a daemon prepare response.

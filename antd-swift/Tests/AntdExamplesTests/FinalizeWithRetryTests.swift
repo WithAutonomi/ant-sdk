@@ -1,5 +1,5 @@
 import XCTest
-import AntdSdk
+@testable import AntdSdk
 @testable import AntdExamples
 
 /// Tests for the example's bounded same-payment retry helper
@@ -118,6 +118,60 @@ final class FinalizeWithRetryTests: XCTestCase {
         }
         XCTAssertEqual(calls, 1)
         XCTAssertEqual(backoffs, 0)
+    }
+
+    /// End to end from the gRPC status text: the SDK's ABORTED mapping must
+    /// steer the helper to stop at once and advise reconciling, never to
+    /// retry and never to "kept nothing", whenever the daemon's closing
+    /// retention hint cannot be read. Only the explicit not-retained hint
+    /// gets the re-prepare advice.
+    func testGrpcPartialWithoutAReadableHintStopsAndReconciles() async throws {
+        let counts = "Partial upload: 6/10 chunks stored, 4 failed after retries: quorum"
+        let cases: [(name: String, tail: String, known: Bool)] = [
+            ("not-retained hint", " (stored chunks persist; re-prepare the same content to retry only the remainder)", true),
+            ("no hint", "", false),
+            // The review's reproducer: the retained hint cut short.
+            ("truncated retained hint", " (paid attempt retai", false),
+            ("unclosed retained hint", " (paid attempt retained: call finalize again", false),
+            ("truncated not-retained hint", " (stored chunks persist; re-prepare the same con", false),
+            ("newline after the retained hint", " (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)\n", false),
+        ]
+        for c in cases {
+            let mapped = try XCTUnwrap(
+                ErrorMapping.fromGRPCStatus(code: 10, detail: counts + c.tail) as? PartialUploadError,
+                c.name
+            )
+            var calls = 0
+            var backoffs = 0
+            do {
+                _ = try await Examples.finalizeWithRetry(uploadId: "u1", backoff: { _ in backoffs += 1 }) { () async throws -> Done in
+                    calls += 1
+                    throw mapped
+                }
+                XCTFail("\(c.name): expected PartialUploadError")
+            } catch let error as PartialUploadError {
+                XCTAssertTrue(error === mapped, c.name)
+                XCTAssertEqual(error.chunksStored, 6, c.name)
+                XCTAssertEqual(error.chunksFailed, 4, c.name)
+                XCTAssertEqual(error.totalChunks, 10, c.name)
+                XCTAssertFalse(error.retryable, c.name)
+                XCTAssertEqual(error.retentionKnown, c.known, c.name)
+            }
+            XCTAssertEqual(calls, 1, c.name)
+            XCTAssertEqual(backoffs, 0, c.name)
+
+            let advice = Examples.nonRetryableAdvice(mapped, uploadId: "u1")
+            XCTAssertTrue(advice.contains("6/10 chunks"), c.name)
+            if c.known {
+                XCTAssertTrue(advice.contains("kept nothing"), c.name)
+                XCTAssertFalse(advice.contains("retention unknown"), c.name)
+            } else {
+                XCTAssertTrue(advice.contains("retention unknown"), c.name)
+                XCTAssertTrue(advice.contains("reconcile"), c.name)
+                XCTAssertFalse(advice.contains("kept nothing"), c.name)
+                XCTAssertFalse(advice.contains("re-prepare the same content"), c.name)
+            }
+        }
     }
 
     /// Any other error propagates untouched on the first failure.

@@ -95,7 +95,9 @@ public final class ServiceUnavailableError: AntdError {
 ///   and the original payment artefacts (transaction hashes or winner pool
 ///   hash), and reconcile before re-preparing or paying again. Never pay
 ///   again on this signal alone. Daemons older than 0.14.0 never send
-///   `retryable`, so their REST partial uploads read as unknown.
+///   `retryable`, so their REST partial uploads read as unknown. Over gRPC,
+///   a status message without a readable closing retention hint also reads
+///   as unknown.
 ///
 /// ``retryable`` implies ``retentionKnown``.
 ///
@@ -109,16 +111,24 @@ public final class ServiceUnavailableError: AntdError {
 /// absent or `null` `retryable` reads as unknown retention, not retryable.
 ///
 /// Over gRPC they are parsed from the status message (`Partial upload: S/T
-/// chunks stored, F failed ...`, with a `paid attempt retained` hint when
-/// retryable). Only an ABORTED whose message **starts with** the daemon's
+/// chunks stored, F failed after retries: <reason> (<hint>)`). The daemon
+/// closes the message with one of two hints: `(paid attempt retained...)`
+/// when it kept the paid attempt, `(stored chunks persist; re-prepare the
+/// same content...)` when it did not (daemons older than 0.14.0 write only
+/// the second). Only an ABORTED whose message **starts with** the daemon's
 /// fixed `Partial upload:` prefix maps here; any other ABORTED, including one
 /// that merely mentions the prefix later in its text, keeps the
 /// ``ForkError`` mapping. ``retentionKnown`` is `true` only when the counts
-/// pattern matched and all three counts converted to `UInt64`; the hint then
-/// decides ``retryable``. On a pattern miss or a failed conversion the
-/// counts read zero, retention is unknown and ``retryable`` is `false`, so a
-/// garbled message neither enables the same-`upload_id` retry nor reads as
-/// a confirmed "nothing retained". SDK releases up to 0.13.x mapped every
+/// pattern matched at the start of the message, all three counts converted
+/// to `UInt64`, and the message ends with one of the two hints; the hint
+/// then decides ``retryable``. On a pattern miss or a failed conversion the
+/// counts read zero, retention is unknown and ``retryable`` is `false`.
+/// Readable counts with a missing, truncated or unrecognised hint, or with
+/// text after it, keep the counts, but retention is still unknown and
+/// ``retryable`` is `false`: the daemon's answer was not read, so stop and
+/// reconcile rather than re-prepare. A garbled message therefore neither
+/// enables the same-`upload_id` retry nor reads as a confirmed "nothing
+/// retained". SDK releases up to 0.13.x mapped every
 /// gRPC ABORTED to ``ForkError``; a partial-upload ABORTED now maps here
 /// (the daemon emits ABORTED only for `PARTIAL_UPLOAD`). See
 /// `docs/external-signer-flow.md` §6.
@@ -175,9 +185,24 @@ enum ErrorMapping {
     /// distinguishes a partial upload from any other ABORTED.
     static let partialUploadMessagePrefix = "Partial upload:"
 
-    /// Message tail the daemon appends when it kept the paid attempt for a
-    /// same-`upload_id` retry.
+    /// The daemon closes every `PARTIAL_UPLOAD` message with one of two
+    /// parenthesised hints (`partial_upload_hint` in antd/src/error.rs): the
+    /// retained hint when it kept the paid attempt for a same-`upload_id`
+    /// retry, the not-retained hint when it did not. Daemons older than
+    /// 0.14.0 write only the not-retained hint.
     static let partialUploadRetainedHint = "paid attempt retained"
+    static let partialUploadNotRetainedHint = "stored chunks persist; re-prepare the same content"
+
+    /// The hint that closes the message: `(<hint>...)` at the very end. The
+    /// end anchor is `\z`, not `$`, which in ICU also matches before a
+    /// trailing line terminator. A hint quoted inside the failure reason, a
+    /// truncated or unclosed tail, or text after the hint does not match.
+    private static let partialUploadRetentionTailPattern =
+        #"\(("#
+        + NSRegularExpression.escapedPattern(for: partialUploadRetainedHint)
+        + "|"
+        + NSRegularExpression.escapedPattern(for: partialUploadNotRetainedHint)
+        + #")[^()]*\)\z"#
 
     /// Fixed prefix of the daemon's `PARTIAL_UPLOAD` message:
     /// `Partial upload: <stored>/<total> chunks stored, <failed> failed`.
@@ -261,7 +286,7 @@ enum ErrorMapping {
         case 10:
             // The daemon's PARTIAL_UPLOAD rides gRPC as ABORTED: some chunks
             // stored, some still unstored after retries. The counts and the
-            // "paid attempt retained" hint ride the message text (no
+            // daemon's closing retention hint ride the message text (no
             // structured detail yet), so parse them to match the REST
             // client's typed error. Status 502 mirrors the REST mapping.
             // Every such message opens with the daemon's fixed "Partial
@@ -294,17 +319,22 @@ enum ErrorMapping {
         }
     }
 
-    /// Recovers the chunk counts and the retryable hint from a
+    /// Recovers the chunk counts and the retention flags from a
     /// `PARTIAL_UPLOAD` message. Used for gRPC, where the status carries no
     /// structured detail; REST callers get the body fields instead.
     ///
-    /// All or nothing: the counts pattern must match at the start of the
-    /// message and all three counts must convert to `UInt64` (a value past
-    /// `UInt64.max` does not). Only then are the counts returned and
-    /// `retentionKnown` `true`, and the `paid attempt retained` hint then
-    /// decides `retryable`. On a pattern miss or any failed conversion every
-    /// count is zero, `retentionKnown` is `false` and `retryable` is `false`,
-    /// even when the hint is present, so a garbled message never enables the
+    /// The counts are all or nothing: the counts pattern must match at the
+    /// start of the message and all three counts must convert to `UInt64` (a
+    /// value past `UInt64.max` does not). On a pattern miss or any failed
+    /// conversion every count is zero and both flags are `false`, even when
+    /// a hint is present. With the counts read, `retentionKnown` is `true`
+    /// only when the message ends with one of the daemon's two hints (see
+    /// `partialUploadRetentionTailPattern`), and `retryable` only when that
+    /// hint is ``partialUploadRetainedHint``. Readable counts with a missing,
+    /// truncated or unrecognised tail, or text after it, keep the counts but
+    /// leave both flags `false`: the daemon's answer on retention was not
+    /// read, so retention is unknown, never "nothing retained". A message
+    /// the SDK could not fully read therefore never enables the
     /// same-`upload_id` retry and never reads as a confirmed "nothing
     /// retained" either. Callers decide whether the message is a partial
     /// upload at all (see ``partialUploadMessagePrefix``); this parser does
@@ -328,6 +358,15 @@ enum ErrorMapping {
         else {
             return (0, 0, 0, false, false)
         }
-        return (stored, failed, total, message.contains(partialUploadRetainedHint), true)
+        guard let tailRegex = try? NSRegularExpression(pattern: partialUploadRetentionTailPattern),
+              let tail = tailRegex.firstMatch(
+                  in: message,
+                  range: NSRange(message.startIndex..., in: message)
+              ),
+              let hintRange = Range(tail.range(at: 1), in: message)
+        else {
+            return (stored, failed, total, false, false)
+        }
+        return (stored, failed, total, message[hintRange] == partialUploadRetainedHint, true)
     }
 }

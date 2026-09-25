@@ -63,7 +63,9 @@ public protocol AntdClientProtocol: Sendable {
     ///   and the original payment artefacts, and reconcile before
     ///   re-preparing or paying again. Never pay again on this signal alone.
     ///   Daemons older than 0.14.0 never send `retryable`, so their REST
-    ///   partial uploads read as unknown.
+    ///   partial uploads read as unknown. Over gRPC, a status message
+    ///   without a readable closing retention hint (missing, truncated or
+    ///   unrecognised) also reads as unknown.
     ///
     /// See `docs/external-signer-flow.md` §6.
     func finalizeUpload(uploadId: String, txHashes: [String: String]) async throws -> FinalizeUploadResult

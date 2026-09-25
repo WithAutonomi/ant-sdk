@@ -431,9 +431,13 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
     ///
     /// See `docs/external-signer-flow.md` §6.
     ///
-    /// Over gRPC the partial-upload counts and the retryable hint are parsed
-    /// from the ABORTED status message (see `ErrorMapping`); a message whose
-    /// counts do not parse reads as unknown retention.
+    /// Over gRPC the partial-upload counts and the retention hint are parsed
+    /// from the ABORTED status message (see ``PartialUploadError``).
+    /// Retention is known only when the counts parse and the message ends
+    /// with one of the daemon's two hints: `(paid attempt retained...)`
+    /// (`retryable`) or `(stored chunks persist; re-prepare the same
+    /// content...)` (nothing retained). Counts that do not parse, or a
+    /// missing, truncated or unrecognised hint, read as unknown retention.
     public func finalizeUpload(uploadId: String, txHashes: [String: String]) async throws -> FinalizeUploadResult {
         try await withGRPC { client in
             var req = Antd_V1_FinalizeUploadRequest()
@@ -480,9 +484,13 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
     ///
     /// See `docs/external-signer-flow.md` §6.
     ///
-    /// Over gRPC the partial-upload counts and the retryable hint are parsed
-    /// from the ABORTED status message (see `ErrorMapping`); a message whose
-    /// counts do not parse reads as unknown retention.
+    /// Over gRPC the partial-upload counts and the retention hint are parsed
+    /// from the ABORTED status message (see ``PartialUploadError``).
+    /// Retention is known only when the counts parse and the message ends
+    /// with one of the daemon's two hints: `(paid attempt retained...)`
+    /// (`retryable`) or `(stored chunks persist; re-prepare the same
+    /// content...)` (nothing retained). Counts that do not parse, or a
+    /// missing, truncated or unrecognised hint, read as unknown retention.
     public func finalizeMerkleUpload(uploadId: String, winnerPoolHash: String) async throws -> FinalizeMerkleUploadResult {
         try await withGRPC { client in
             var req = Antd_V1_FinalizeUploadRequest()
