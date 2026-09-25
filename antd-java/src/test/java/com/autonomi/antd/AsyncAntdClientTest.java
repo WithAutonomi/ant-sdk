@@ -1,5 +1,7 @@
 package com.autonomi.antd;
 
+import com.autonomi.antd.errors.NetworkException;
+import com.autonomi.antd.errors.PartialUploadException;
 import com.autonomi.antd.models.*;
 import okhttp3.mockwebserver.Dispatcher;
 import okhttp3.mockwebserver.MockResponse;
@@ -323,6 +325,49 @@ class AsyncAntdClientTest {
     // -------------------------------------------------------------------------
     // Errors propagate through the future (404 → AntdException via .get())
     // -------------------------------------------------------------------------
+
+    /**
+     * Runs {@code finalizeUploadAsync} against a daemon that answers 502 with
+     * {@code body} and returns the exception the future failed with.
+     */
+    private static Throwable finalize502Cause(String body) throws IOException {
+        try (MockWebServer srv = new MockWebServer()) {
+            srv.enqueue(new MockResponse()
+                    .setResponseCode(502)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody(body));
+            srv.start();
+            try (AsyncAntdClient c = new AsyncAntdClient(srv.url("/").toString(), Duration.ofSeconds(10))) {
+                ExecutionException ee = assertThrows(ExecutionException.class,
+                        () -> c.finalizeUploadAsync("up1", Map.of("0xq", "0xt")).get(), body);
+                return ee.getCause();
+            }
+        }
+    }
+
+    @Test
+    void malformedErrorBodiesMapToTypedExceptions() throws IOException {
+        // AsyncAntdClient duplicates AntdClient's error-body block, so pin the
+        // same malformed-body contract here (exhaustive cases live in
+        // AntdClientTest): nothing escapes as a raw parse or cast exception.
+        String[] notPartial = {
+                "{\"code\":{}}",
+                "{\"code\":502,\"error\":\"x\"}",
+                "[{\"code\":\"PARTIAL_UPLOAD\"}]",
+                "{\"error\":{\"detail\":\"x\"}}",
+        };
+        for (String body : notPartial) {
+            assertEquals(NetworkException.class, finalize502Cause(body).getClass(), body);
+        }
+
+        String body = "{\"error\":{\"detail\":\"x\"},\"code\":\"PARTIAL_UPLOAD\","
+                + "\"chunks_stored\":\"1\",\"chunks_failed\":[],\"total_chunks\":3,\"retryable\":\"true\"}";
+        PartialUploadException pe = assertInstanceOf(PartialUploadException.class, finalize502Cause(body));
+        assertEquals(0L, pe.getChunksStored());
+        assertEquals(0L, pe.getChunksFailed());
+        assertEquals(3L, pe.getTotalChunks());
+        assertFalse(pe.isRetryable());
+    }
 
     @Test
     void notFoundPropagatesAsAntdException() {

@@ -152,6 +152,18 @@ public class GrpcAntdClient implements AutoCloseable {
             case RESOURCE_EXHAUSTED -> new TooLargeException(msg);
             case INTERNAL -> new InternalException(msg);
             case UNAVAILABLE -> new NetworkException(msg);
+            // PARTIAL_UPLOAD: some chunks stored, some still unstored after
+            // retries. The counts and the "paid attempt retained" hint ride
+            // the status description over gRPC (no structured detail yet),
+            // so parse them best-effort to match the REST client's typed
+            // exception. The daemon starts every such description with the
+            // fixed "Partial upload:" prefix and never wraps it, so gate on
+            // the description starting with it (anchored, as antd-rust does):
+            // an ABORTED that lacks the prefix, or merely quotes it further
+            // in, is not a partial upload and keeps the generic mapping below.
+            case ABORTED -> PartialUploadException.isPartialUploadMessage(msg)
+                    ? PartialUploadException.fromMessage(msg)
+                    : new AntdException(e.getStatus().getCode().value(), msg);
             default -> new AntdException(e.getStatus().getCode().value(), msg);
         };
     }
@@ -725,8 +737,30 @@ public class GrpcAntdClient implements AutoCloseable {
     /**
      * Finalize a wave-batch upload after external payment.
      *
+     * <p>A finalize where some chunks stayed unstored after the daemon's
+     * retries surfaces as gRPC {@code ABORTED} and throws
+     * {@link PartialUploadException}, with {@code chunksStored} /
+     * {@code chunksFailed} / {@code totalChunks} and the {@code retryable}
+     * flag parsed from the status description. The on-chain payment persists
+     * and the stored chunks stay on the network:
+     * <ul>
+     *   <li>{@code isRetryable() == true} (antd &gt;= 0.14.0): the daemon kept
+     *       the paid attempt under the same {@code uploadId} — call this
+     *       method again with the same arguments to store the remainder
+     *       against the same payment (no re-prepare, no second signature, no
+     *       double payment). Bound that loop: cap the attempts and treat a
+     *       {@code chunksFailed} that stops shrinking as stuck.</li>
+     *   <li>{@code isRetryable() == false} (older daemon, or a merkle finalize
+     *       with deliberately unpaid batches): nothing was retained —
+     *       re-prepare the same content; already-stored chunks are skipped so
+     *       the retry pays only for the remainder.</li>
+     * </ul>
+     * See {@code docs/external-signer-flow.md} §6 and {@code finalizeWithRetry}
+     * in {@code examples/.../Example07ExternalSigner.java}.
+     *
      * @param uploadId the upload_id returned from a prepare call
      * @param txHashes map of quote_hash hex → tx_hash hex
+     * @throws PartialUploadException on a partial store
      */
     public FinalizeUploadResult finalizeUpload(String uploadId, Map<String, String> txHashes) {
         try {
@@ -744,6 +778,9 @@ public class GrpcAntdClient implements AutoCloseable {
     /**
      * Finalize a merkle-batch upload after the winning pool has been
      * determined.
+     *
+     * @throws PartialUploadException on a partial store; see
+     *         {@link #finalizeUpload(String, Map)} for the retry contract
      */
     public FinalizeUploadResult finalizeMerkleUpload(
             String uploadId, String winnerPoolHash, boolean storeDataMap) {
@@ -799,6 +836,10 @@ public class GrpcAntdClient implements AutoCloseable {
     /**
      * Submit a prepared chunk after external payment. Returns the network
      * address of the stored chunk (matches {@link PrepareChunkResult#address()}).
+     *
+     * @throws PartialUploadException when the chunk could not be stored after
+     *         the daemon's retries; see {@link #finalizeUpload(String, Map)}
+     *         for the retry contract
      */
     public String finalizeChunkUpload(String uploadId, Map<String, String> txHashes) {
         try {

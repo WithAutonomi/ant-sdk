@@ -998,4 +998,172 @@ class GrpcAntdClientTest {
         }
     }
 
+    // --- PARTIAL_UPLOAD (gRPC ABORTED) ---
+
+    /**
+     * An upload service whose finalize always fails ABORTED with the given
+     * description — the daemon's PARTIAL_UPLOAD wire form over gRPC.
+     */
+    private static GrpcAntdClient abortedFinalizeClient(String description) throws Exception {
+        String serverName = InProcessServerBuilder.generateName();
+        InProcessServerBuilder.forName(serverName)
+                        .directExecutor()
+                        .addService(new UploadServiceGrpc.UploadServiceImplBase() {
+                            @Override
+                            public void finalizeUpload(FinalizeUploadRequest request,
+                                                       StreamObserver<FinalizeUploadResponse> obs) {
+                                obs.onError(Status.ABORTED
+                                        .withDescription(description).asRuntimeException());
+                            }
+                        })
+                        .build()
+                        .start();
+        ManagedChannel ch = InProcessChannelBuilder.forName(serverName).directExecutor().build();
+        return new GrpcAntdClient(ch);
+    }
+
+    @Test
+    void testAbortedThrowsPartialUploadExceptionRetryable() throws Exception {
+        try (GrpcAntdClient c = abortedFinalizeClient(
+                "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
+                        + "(paid attempt retained: call finalize again with the same upload_id to "
+                        + "store the remainder against the same payment)")) {
+            PartialUploadException ex = assertThrows(PartialUploadException.class,
+                    () -> c.finalizeMerkleUpload("partial", "0xw1"));
+            // Counts and the retained hint are parsed from the status
+            // description, so the gRPC client matches the REST client's typed
+            // exception.
+            assertEquals(300L, ex.getChunksStored());
+            assertEquals(12L, ex.getChunksFailed());
+            assertEquals(312L, ex.getTotalChunks());
+            assertTrue(ex.isRetryable(), "expected retryable from the retained hint");
+            assertEquals(502, ex.getStatusCode());
+            assertInstanceOf(NetworkException.class, ex);
+        }
+    }
+
+    @Test
+    void testAbortedWithoutRetainedHintIsNotRetryable() throws Exception {
+        try (GrpcAntdClient c = abortedFinalizeClient(
+                "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
+                        + "(stored chunks persist; re-prepare the same content to retry only the "
+                        + "remainder)")) {
+            PartialUploadException ex = assertThrows(PartialUploadException.class,
+                    () -> c.finalizeUpload("partial-final", Map.of("0xq", "0xt")));
+            assertEquals(300L, ex.getChunksStored());
+            assertEquals(12L, ex.getChunksFailed());
+            assertEquals(312L, ex.getTotalChunks());
+            assertFalse(ex.isRetryable(), "no retained hint must read as not retryable");
+        }
+    }
+
+    @Test
+    void testAbortedWithPrefixButGarbledCountsHasZeroCounts() throws Exception {
+        // The daemon's fixed prefix is present, so it is a partial upload,
+        // but the counts cannot be parsed: typed exception, zero counts,
+        // not retryable.
+        try (GrpcAntdClient c = abortedFinalizeClient("Partial upload: ??? chunks, no idea")) {
+            PartialUploadException ex = assertThrows(PartialUploadException.class,
+                    () -> c.finalizeUpload("partial-odd", Map.of()));
+            assertEquals(0L, ex.getChunksStored());
+            assertEquals(0L, ex.getChunksFailed());
+            assertEquals(0L, ex.getTotalChunks());
+            assertFalse(ex.isRetryable());
+        }
+    }
+
+    @Test
+    void testAbortedWithUnreadableCountsAndRetainedHintIsNotRetryable() throws Exception {
+        // Through the real gRPC client: a "Partial upload:" description whose
+        // counts overflow a long, or do not match the layout, is still a
+        // PartialUploadException, but with zero counts and retryable == false
+        // even though the retained hint is present.
+        String[] descriptions = {
+                "Partial upload: 0/9223372036854775808 chunks stored, 9223372036854775808 failed "
+                        + "(paid attempt retained)",
+                "Partial upload: 9223372036854775808/10 chunks stored, 1 failed (paid attempt retained)",
+                "Partial upload: ??? chunks, no idea (paid attempt retained)",
+        };
+        for (String description : descriptions) {
+            try (GrpcAntdClient c = abortedFinalizeClient(description)) {
+                PartialUploadException ex = assertThrows(PartialUploadException.class,
+                        () -> c.finalizeUpload("partial-unreadable", Map.of()), description);
+                assertEquals(0L, ex.getChunksStored(), description);
+                assertEquals(0L, ex.getChunksFailed(), description);
+                assertEquals(0L, ex.getTotalChunks(), description);
+                assertFalse(ex.isRetryable(), description);
+            }
+        }
+    }
+
+    @Test
+    void testAbortedWithUnrelatedMessageFallsBackToGenericException() throws Exception {
+        // An ABORTED whose description lacks the "Partial upload:" prefix is
+        // not a partial upload: it keeps the pre-existing generic mapping
+        // (status code = the gRPC code value) rather than being misreported.
+        try (GrpcAntdClient c = abortedFinalizeClient("something else entirely")) {
+            AntdException ex = assertThrows(AntdException.class,
+                    () -> c.finalizeUpload("aborted-other", Map.of()));
+            assertFalse(ex instanceof PartialUploadException,
+                    "unrelated ABORTED must not map to PartialUploadException");
+            assertFalse(ex instanceof NetworkException);
+            assertEquals(Status.Code.ABORTED.value(), ex.getStatusCode());
+            assertEquals("antd error 10: something else entirely", ex.getMessage());
+        }
+    }
+
+    @Test
+    void testAbortedWithNullDescriptionFallsBackToGenericException() throws Exception {
+        try (GrpcAntdClient c = abortedFinalizeClient(null)) {
+            AntdException ex = assertThrows(AntdException.class,
+                    () -> c.finalizeUpload("aborted-null", Map.of()));
+            assertFalse(ex instanceof PartialUploadException);
+            assertEquals(Status.Code.ABORTED.value(), ex.getStatusCode());
+        }
+    }
+
+    @Test
+    void testAbortedWithEmbeddedPartialUploadMarkerFallsBackToGenericException() throws Exception {
+        // The gate is anchored at the start of the description, as in
+        // antd-rust: the daemon never wraps its own PARTIAL_UPLOAD message, so
+        // an ABORTED that merely quotes "Partial upload:" further in is not a
+        // partial upload. A containment check would misreport these as
+        // PartialUploadException (the second one as retryable, steering a
+        // caller into the paid-attempt retry loop).
+        String[] embedded = {
+                "upstream error: Partial upload: 1/3 chunks stored, 2 failed",
+                "wrapped (Partial upload: 0/1 chunks stored, 1 failed; paid attempt retained)",
+                " Partial upload: 1/3 chunks stored, 2 failed",
+        };
+        for (String description : embedded) {
+            try (GrpcAntdClient c = abortedFinalizeClient(description)) {
+                AntdException ex = assertThrows(AntdException.class,
+                        () -> c.finalizeUpload("aborted-embedded", Map.of()), description);
+                assertFalse(ex instanceof PartialUploadException,
+                        "embedded marker must not map to PartialUploadException: " + description);
+                assertFalse(ex instanceof NetworkException, description);
+                assertEquals(Status.Code.ABORTED.value(), ex.getStatusCode(), description);
+                assertEquals("antd error 10: " + description, ex.getMessage());
+            }
+        }
+    }
+
+    @Test
+    void testIsPartialUploadMessageIsAnchoredAtStart() {
+        assertTrue(PartialUploadException.isPartialUploadMessage(
+                "Partial upload: 1/3 chunks stored, 2 failed"));
+        assertTrue(PartialUploadException.isPartialUploadMessage(
+                "Partial upload: ??? chunks, no idea"));
+        assertFalse(PartialUploadException.isPartialUploadMessage(
+                "upstream error: Partial upload: 1/3 chunks stored, 2 failed"));
+        assertFalse(PartialUploadException.isPartialUploadMessage(
+                "wrapped (Partial upload: 0/1 chunks stored, 1 failed; paid attempt retained)"));
+        assertFalse(PartialUploadException.isPartialUploadMessage(
+                " Partial upload: 1/3 chunks stored, 2 failed"));
+        assertFalse(PartialUploadException.isPartialUploadMessage(
+                "partial upload: 1/3 chunks stored, 2 failed"));
+        assertFalse(PartialUploadException.isPartialUploadMessage(""));
+        assertFalse(PartialUploadException.isPartialUploadMessage(null));
+    }
+
 }

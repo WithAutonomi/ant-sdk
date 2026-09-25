@@ -203,6 +203,7 @@ The gRPC client uses `io.grpc` blocking stubs and maps gRPC status codes to the 
 | `RESOURCE_EXHAUSTED` | `TooLargeException` |
 | `INTERNAL` | `InternalException` |
 | `UNAVAILABLE` | `NetworkException` |
+| `ABORTED` whose message starts with `Partial upload:` | `PartialUploadException` (counts and `retryable` parsed from the status message); any other `ABORTED` maps to the generic `AntdException` |
 
 ### Proto compilation
 
@@ -248,6 +249,28 @@ try {
 | `TooLargeException` | 413 | Payload too large |
 | `InternalException` | 500 | Server error |
 | `NetworkException` | 502 | Network unreachable |
+| `PartialUploadException` | 502 (`code: PARTIAL_UPLOAD`) | Finalize stored some chunks but not all — see below |
+
+### Partial uploads
+
+A `finalizeUpload` / `finalizeMerkleUpload` / `finalizeChunkUpload` where some chunks stayed unstored after the daemon's retries throws `PartialUploadException` (a subclass of `NetworkException`, so existing `catch (NetworkException e)` blocks keep working) with `getChunksStored()` / `getChunksFailed()` / `getTotalChunks()` and an `isRetryable()` flag. The on-chain payment persists and the stored chunks stay on the network.
+
+- `isRetryable() == true` (sent by antd ≥ 0.14.0) means the daemon kept the paid attempt under the same `upload_id`: call the **same** finalize method again with the same arguments to store the remainder against the same payment — no re-prepare, no second signature, no double payment. Bound that loop: cap the attempts, and treat a `getChunksFailed()` that stops shrinking as stuck.
+- `isRetryable() == false` — an older daemon (which never sends the flag, so it defaults to `false`), or a merkle finalize with deliberately unpaid batches — means nothing was retained: re-preparing the same content skips already-stored chunks, so a retry pays only for the remainder.
+
+```java
+try {
+    result = client.finalizeUpload(uploadId, txHashes);
+} catch (PartialUploadException e) {
+    if (e.isRetryable()) {
+        // same upload_id, same payment: retry finalizeUpload(uploadId, txHashes) with a cap
+    } else {
+        // re-prepare the same content; already-stored chunks are skipped
+    }
+}
+```
+
+Over REST the counts and flag come from the structured error body; over gRPC (status `ABORTED` whose message starts with the daemon's fixed `Partial upload:` prefix) they are parsed from the status message. `isRetryable()` is `true` only when all three counts parse and the "paid attempt retained" hint is present: a message whose counts do not match the layout, or overflow a `long`, yields zero counts and `isRetryable() == false` even with the hint, since a retry loop that cannot watch `getChunksFailed()` shrink cannot tell progress from a stuck upload. The match is anchored at the start of the message, as in antd-rust: an `ABORTED` that does not start with the prefix, including one that merely quotes it further in, is not a partial upload and maps to the generic `AntdException`. On the REST side a malformed error body never escapes as a parse error: a count that is not a JSON number, or a `retryable` that is not a JSON boolean, reads as zero / `false`, and a `code` that is not the string `PARTIAL_UPLOAD` keeps the plain `NetworkException`. See `finalizeWithRetry` in [`examples/.../Example07ExternalSigner.java`](examples/src/main/java/com/autonomi/examples/Example07ExternalSigner.java) for a bounded retry helper, and [`docs/external-signer-flow.md` §6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment) for the daemon-side contract.
 
 ## Examples
 

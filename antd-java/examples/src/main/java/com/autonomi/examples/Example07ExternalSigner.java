@@ -1,6 +1,7 @@
 package com.autonomi.examples;
 
 import com.autonomi.antd.AntdClient;
+import com.autonomi.antd.errors.PartialUploadException;
 import com.autonomi.antd.models.FinalizeUploadResult;
 import com.autonomi.antd.models.PaymentInfo;
 import com.autonomi.antd.models.PrepareChunkResult;
@@ -46,9 +47,14 @@ import java.util.stream.Stream;
  *
  * <p>See docs/external-signer-flow.md for the full reference; the IPaymentVault
  * function selector and ABI layout are baked into the {@link DataPayment}
- * struct and the {@code payForQuotes} {@link Function} declaration.
+ * struct and the {@code payForQuotes} {@link Function} declaration. The file
+ * finalize goes through {@link #finalizeWithRetry}, which shows how to resume
+ * a partial store against the same payment (docs/external-signer-flow.md §6).
  */
 public class Example07ExternalSigner {
+
+    /** Attempts {@link #finalizeWithRetry} makes before declaring the upload stuck. */
+    private static final int FINALIZE_MAX_ATTEMPTS = 5;
 
     // Anvil deterministic account #0. Pre-funded with ETH (gas) and antToken
     // (storage payment) by `ant dev start --enable-evm` devnet genesis. Never
@@ -93,7 +99,7 @@ public class Example07ExternalSigner {
             Map<String, String> fileTxHashes = externalSignerPay(
                     filePrep.rpcUrl(), filePrep.paymentVaultAddress(),
                     filePrep.paymentTokenAddress(), filePrep.payments(), credentials);
-            FinalizeUploadResult fileFin = client.finalizeUpload(filePrep.uploadId(), fileTxHashes);
+            FinalizeUploadResult fileFin = finalizeWithRetry(client, filePrep.uploadId(), fileTxHashes);
             System.out.printf("File finalize: data_map_address=%s, chunks_stored=%d%n",
                     fileFin.dataMapAddress(), fileFin.chunksStored());
 
@@ -142,6 +148,52 @@ public class Example07ExternalSigner {
                     try { Files.deleteIfExists(p); } catch (Exception ignored) {}
                 });
             }
+        }
+    }
+
+    /**
+     * Finalize, resuming a partial store against the same payment.
+     *
+     * <p>When some chunks stay unstored after the daemon's own retries,
+     * {@code finalizeUpload} throws {@link PartialUploadException}. With
+     * {@code isRetryable()} the daemon (antd &gt;= 0.14.0) has kept the paid
+     * attempt under the same upload_id, so calling finalize again with the
+     * <b>same</b> arguments stores the remainder against the same payment —
+     * no re-prepare, no second signature, no double payment. The loop is
+     * bounded: a persistent failure (say, a node that stays unreachable)
+     * throws {@code PartialUploadException} on every call, never a different
+     * error, so it caps the attempts and treats a {@code chunksFailed} that
+     * stops shrinking as stuck. A non-retryable partial upload (older daemon,
+     * or a merkle upload with unpaid batches) is rethrown untouched: the
+     * recovery there is to re-prepare the same content, which skips the
+     * chunks already stored.
+     */
+    static FinalizeUploadResult finalizeWithRetry(
+            AntdClient client, String uploadId, Map<String, String> txHashes) throws InterruptedException {
+        long lastFailed = 0;
+        for (int attempt = 1; ; attempt++) {
+            PartialUploadException partial;
+            try {
+                return client.finalizeUpload(uploadId, txHashes); // every chunk stored
+            } catch (PartialUploadException e) {
+                if (!e.isRetryable()) throw e;
+                partial = e;
+            }
+            boolean stuck = attempt > 1 && partial.getChunksFailed() >= lastFailed;
+            if (attempt >= FINALIZE_MAX_ATTEMPTS || stuck) {
+                throw new RuntimeException(String.format(
+                        "finalize stuck after %d attempt(s): %d/%d chunks stored, %d still unstored "
+                                + "(paid attempt retained under upload_id %s — retry later or re-prepare)",
+                        attempt, partial.getChunksStored(), partial.getTotalChunks(),
+                        partial.getChunksFailed(), uploadId), partial);
+            }
+            lastFailed = partial.getChunksFailed();
+            System.out.printf(
+                    "finalize stored %d/%d chunks, %d still unstored — retrying against the same payment "
+                            + "(attempt %d/%d)%n",
+                    partial.getChunksStored(), partial.getTotalChunks(), partial.getChunksFailed(),
+                    attempt + 1, FINALIZE_MAX_ATTEMPTS);
+            Thread.sleep(attempt * 2_000L);
         }
     }
 
