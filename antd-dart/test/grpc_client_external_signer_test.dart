@@ -118,7 +118,8 @@ void main() {
             .having((e) => e.chunksStored, 'chunksStored', 300)
             .having((e) => e.chunksFailed, 'chunksFailed', 12)
             .having((e) => e.totalChunks, 'totalChunks', 312)
-            .having((e) => e.retryable, 'retryable', isTrue)),
+            .having((e) => e.retryable, 'retryable', isTrue)
+            .having((e) => e.retentionKnown, 'retentionKnown', isTrue)),
       );
     });
 
@@ -128,7 +129,8 @@ void main() {
         client.finalizeUpload('partial-final', {'0xq1': '0xtx1'}),
         throwsA(isA<PartialUploadError>()
             .having((e) => e.chunksFailed, 'chunksFailed', 12)
-            .having((e) => e.retryable, 'retryable', isFalse)),
+            .having((e) => e.retryable, 'retryable', isFalse)
+            .having((e) => e.retentionKnown, 'retentionKnown', isTrue)),
       );
     });
 
@@ -140,7 +142,8 @@ void main() {
             .having((e) => e.chunksStored, 'chunksStored', 0)
             .having((e) => e.chunksFailed, 'chunksFailed', 0)
             .having((e) => e.totalChunks, 'totalChunks', 0)
-            .having((e) => e.retryable, 'retryable', isFalse)),
+            .having((e) => e.retryable, 'retryable', isFalse)
+            .having((e) => e.retentionKnown, 'retentionKnown', isFalse)),
       );
     });
 
@@ -176,7 +179,8 @@ void main() {
                 .having((e) => e.chunksStored, 'chunksStored', 0)
                 .having((e) => e.chunksFailed, 'chunksFailed', 0)
                 .having((e) => e.totalChunks, 'totalChunks', 0)
-                .having((e) => e.retryable, 'retryable', isFalse),
+                .having((e) => e.retryable, 'retryable', isFalse)
+                .having((e) => e.retentionKnown, 'retentionKnown', isFalse),
           )),
           reason: entry.key,
         );

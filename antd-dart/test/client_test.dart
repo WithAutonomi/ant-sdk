@@ -498,23 +498,65 @@ void main() {
             .having((e) => e.chunksStored, 'chunksStored', 300)
             .having((e) => e.chunksFailed, 'chunksFailed', 12)
             .having((e) => e.totalChunks, 'totalChunks', 312)
-            .having((e) => e.retryable, 'retryable', isTrue)),
+            .having((e) => e.retryable, 'retryable', isTrue)
+            .having((e) => e.retentionKnown, 'retentionKnown', isTrue)),
       );
       client.close();
     });
 
-    test('retryable defaults to false without the body flag', () async {
-      // An older daemon (< 0.14.0) never sends `retryable`; the flag must
-      // read false so callers fall back to the re-prepare path rather than
-      // looping on an upload_id the daemon has already dropped.
+    test('no retryable flag in the body -> retention unknown', () async {
+      // An older daemon (< 0.14.0) never sends `retryable`. The SDK cannot
+      // tell whether the paid attempt was kept, so the error is neither
+      // retryable nor a confirmed re-prepare.
       final client = AntdClient(httpClient: partialUploadDaemon());
       expect(
         () => client.finalizeUpload('u1', {'0xq': '0xt'}),
         throwsA(isA<PartialUploadError>()
             .having((e) => e.chunksFailed, 'chunksFailed', 12)
-            .having((e) => e.retryable, 'retryable', isFalse)),
+            .having((e) => e.retryable, 'retryable', isFalse)
+            .having((e) => e.retentionKnown, 'retentionKnown', isFalse)),
       );
       client.close();
+    });
+
+    test('retentionKnown only when the body has a JSON boolean retryable',
+        () async {
+      // true / false: the daemon said whether it kept the paid attempt.
+      // Missing (every daemon before 0.14.0), null or any other type:
+      // retention unknown, and never retryable.
+      const cases = <String, List<bool>>{
+        // retryable as JSON ('' = absent): [retentionKnown, retryable]
+        'true': [true, true],
+        'false': [true, false],
+        '': [false, false],
+        'null': [false, false],
+        '"true"': [false, false],
+        '1': [false, false],
+      };
+      for (final entry in cases.entries) {
+        final [known, retryable] = entry.value;
+        final flag = entry.key.isEmpty ? '' : ',"retryable":${entry.key}';
+        final body = '{"error":"partial","code":"PARTIAL_UPLOAD",'
+            '"chunks_stored":300,"chunks_failed":12,"total_chunks":312$flag}';
+        final client = AntdClient(httpClient: rawBodyDaemon(502, body));
+        await expectLater(
+          client.finalizeUpload('u1', {'0xq': '0xt'}),
+          throwsA(isA<PartialUploadError>()
+              .having((e) => e.chunksFailed, 'chunksFailed', 12)
+              .having((e) => e.retentionKnown, 'retentionKnown', known)
+              .having((e) => e.retryable, 'retryable', retryable)),
+          reason: body,
+        );
+        client.close();
+      }
+    });
+
+    test('retryable implies retentionKnown', () {
+      expect(const PartialUploadError('x', retryable: true).retentionKnown,
+          isTrue);
+      expect(const PartialUploadError('x').retentionKnown, isFalse);
+      expect(const PartialUploadError('x', retentionKnown: true).retryable,
+          isFalse);
     });
 
     test('PartialUploadError is still a NetworkError', () async {
@@ -532,7 +574,8 @@ void main() {
       expect(
         () => client.dataStream('dm123'),
         throwsA(isA<PartialUploadError>()
-            .having((e) => e.retryable, 'retryable', isTrue)),
+            .having((e) => e.retryable, 'retryable', isTrue)
+            .having((e) => e.retentionKnown, 'retentionKnown', isTrue)),
       );
       client.close();
     });
@@ -622,6 +665,7 @@ void main() {
               .having((e) => e.chunksFailed, 'chunksFailed', 0)
               .having((e) => e.totalChunks, 'totalChunks', 0)
               .having((e) => e.retryable, 'retryable', isFalse)
+              .having((e) => e.retentionKnown, 'retentionKnown', isFalse)
               .having((e) => e.message, 'message', body)),
           reason: body,
         );
@@ -640,6 +684,7 @@ void main() {
             .having((e) => e.chunksFailed, 'chunksFailed', 0)
             .having((e) => e.totalChunks, 'totalChunks', 312)
             .having((e) => e.retryable, 'retryable', isFalse)
+            .having((e) => e.retentionKnown, 'retentionKnown', isFalse)
             .having((e) => e.message, 'message', 'partial')),
       );
       client.close();
@@ -665,6 +710,7 @@ void main() {
         throwsA(isA<PartialUploadError>()
             .having((e) => e.chunksFailed, 'chunksFailed', 0)
             .having((e) => e.retryable, 'retryable', isFalse)
+            .having((e) => e.retentionKnown, 'retentionKnown', isFalse)
             .having((e) => e.message, 'message', body)),
       );
       client.close();
@@ -715,6 +761,8 @@ void main() {
         msg('300', over, '12', hint),
         msg('300', '312', over, hint),
         'Partial upload: counts unavailable $hint',
+        // Counts quoted further in are never read: the pattern is anchored.
+        'wrapped (Partial upload: 0/1 chunks stored, 1 failed; $hint)',
       ]) {
         final e = PartialUploadError.fromMessage(m);
         expect(e.message, equals(m));
@@ -722,17 +770,20 @@ void main() {
         expect(e.totalChunks, equals(0), reason: m);
         expect(e.chunksFailed, equals(0), reason: m);
         expect(e.retryable, isFalse, reason: m);
+        expect(e.retentionKnown, isFalse, reason: m);
       }
 
       // Well-formed with the hint: retryable, with its counts.
       var e = PartialUploadError.fromMessage(msg('300', '312', '12', hint));
       expect([e.chunksStored, e.totalChunks, e.chunksFailed], [300, 312, 12]);
       expect(e.retryable, isTrue);
+      expect(e.retentionKnown, isTrue);
 
       // Well-formed without the hint: counts, not retryable.
       e = PartialUploadError.fromMessage(msg('300', '312', '12', noHint));
       expect([e.chunksStored, e.totalChunks, e.chunksFailed], [300, 312, 12]);
       expect(e.retryable, isFalse);
+      expect(e.retentionKnown, isTrue);
 
       // The int max itself still converts.
       const max = '9223372036854775807';
@@ -740,6 +791,7 @@ void main() {
       expect(e.chunksStored, equals(9223372036854775807));
       expect(e.totalChunks, equals(9223372036854775807));
       expect(e.retryable, isTrue);
+      expect(e.retentionKnown, isTrue);
     });
   });
 

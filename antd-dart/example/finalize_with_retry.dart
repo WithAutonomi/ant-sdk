@@ -8,26 +8,27 @@ import 'package:antd_client/antd_client.dart';
 /// Finalizes a wave-batch upload, resuming a partial store against the same
 /// payment when the daemon kept the paid attempt.
 ///
-/// A [PartialUploadError] with `retryable == true` (antd >= 0.14.0) means the
-/// daemon retained the payment proofs and the unstored chunks under the same
-/// upload_id, so calling finalize again with the same arguments stores the
-/// remainder: no re-prepare, no second signature, no double payment.
+/// On a [PartialUploadError]:
 ///
-/// The loop is bounded: at most [maxAttempts] finalize calls, [backoff]
-/// between them (linear by default), and a `chunksFailed` that does not
-/// shrink from one attempt to the next counts as stuck. When the attempts
-/// run out or progress stalls, the last [PartialUploadError] is rethrown
-/// unchanged, with its original stack trace, so the caller still has the
-/// counts and `retryable` when deciding how to resume. The paid attempt stays
-/// retained until the daemon's pending-upload TTL expires.
+///   * `retryable` (antd >= 0.14.0): the daemon retained the payment proofs
+///     and the unstored chunks under the same upload_id, so finalize is
+///     called again with the same arguments to store the remainder: no
+///     re-prepare, no second signature, no double payment. The loop is
+///     bounded: at most [maxAttempts] finalize calls, [backoff] between them
+///     (linear by default), and a `chunksFailed` that does not shrink from
+///     one attempt to the next counts as stuck.
+///   * `retentionKnown` but not `retryable`: the daemon confirmed nothing
+///     was retained. The error is rethrown after that call, and the caller
+///     re-prepares the same content, paying only for the remainder.
+///   * not `retentionKnown`: retention is unknown and the daemon may still
+///     hold the paid attempt. The helper stops at once and rethrows; it never
+///     re-prepares or pays. Keep the upload_id and the original payment
+///     artefacts, and reconcile before re-preparing or paying again.
 ///
-/// A partial with `retryable == false`, and every other error, is rethrown
-/// untouched after the first call. `false` means the daemon did not report
-/// the attempt as retained, and re-preparing the same content pays only for
-/// the remainder. When that `false` is the SDK's fallback for an error it
-/// could not read (a gRPC message whose counts did not parse), retention is
-/// unconfirmed rather than ruled out: do not treat it alone as permission to
-/// pay again.
+/// Whenever it gives up (attempts exhausted, progress stalled, or either of
+/// the last two cases) the helper rethrows the [PartialUploadError]
+/// unchanged, with its original stack trace, so the caller keeps the counts
+/// and both flags. Every other error is rethrown untouched.
 Future<FinalizeUploadResult> finalizeWithRetry(
   AntdClient client,
   String uploadId,
@@ -44,6 +45,13 @@ Future<FinalizeUploadResult> finalizeWithRetry(
     try {
       return await client.finalizeUpload(uploadId, txHashes);
     } on PartialUploadError catch (e) {
+      if (!e.retentionKnown) {
+        log('finalize left chunks unstored and retention is unknown; '
+            'stopping without re-preparing or paying. Keep upload_id '
+            '$uploadId and the payment artefacts, and reconcile before '
+            're-preparing or paying again');
+        rethrow;
+      }
       if (!e.retryable) rethrow;
       final stalled = lastFailed != null && e.chunksFailed >= lastFailed;
       if (attempt >= maxAttempts || stalled) {

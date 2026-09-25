@@ -7,10 +7,13 @@ import 'package:test/test.dart';
 
 import '../example/finalize_with_retry.dart';
 
+/// Leaves `retryable` out of the body, as an antd < 0.14.0 daemon does.
+const _absent = Object();
+
 /// The daemon's structured `PARTIAL_UPLOAD` 502 body for a 312-chunk upload
-/// with [failed] chunks still unstored. [retryable] `null` omits the flag, as
-/// an antd < 0.14.0 daemon does.
-http.Response _partial(int failed, {bool? retryable = true}) {
+/// with [failed] chunks still unstored. [retryable] is written as given (any
+/// JSON value, null included), or left out when it is [_absent].
+http.Response _partial(int failed, {Object? retryable = true}) {
   final stored = 312 - failed;
   return http.Response(
     jsonEncode({
@@ -20,7 +23,7 @@ http.Response _partial(int failed, {bool? retryable = true}) {
       'chunks_stored': stored,
       'chunks_failed': failed,
       'total_chunks': 312,
-      if (retryable != null) 'retryable': retryable,
+      if (!identical(retryable, _absent)) 'retryable': retryable,
     }),
     502,
     headers: {'content-type': 'application/json'},
@@ -51,6 +54,7 @@ class _FinalizeDaemon {
 
   final List<http.Response Function()> responses;
   final backoffs = <int>[];
+  final logs = <String>[];
   var calls = 0;
 
   Future<FinalizeUploadResult> run({int maxAttempts = 5}) {
@@ -72,7 +76,7 @@ class _FinalizeDaemon {
         backoffs.add(attempt);
         return Duration.zero;
       },
-      log: (_) {},
+      log: logs.add,
     );
   }
 }
@@ -88,13 +92,18 @@ Future<(Object, StackTrace)> _thrown(_FinalizeDaemon daemon,
   throw TestFailure('finalizeWithRetry returned instead of throwing');
 }
 
-Matcher _partialError({required int failed, required bool retryable}) =>
+Matcher _partialError({
+  required int failed,
+  required bool retryable,
+  bool retentionKnown = true,
+}) =>
     isA<PartialUploadError>()
         .having((e) => e.statusCode, 'statusCode', 502)
         .having((e) => e.chunksStored, 'chunksStored', 312 - failed)
         .having((e) => e.chunksFailed, 'chunksFailed', failed)
         .having((e) => e.totalChunks, 'totalChunks', 312)
-        .having((e) => e.retryable, 'retryable', retryable);
+        .having((e) => e.retryable, 'retryable', retryable)
+        .having((e) => e.retentionKnown, 'retentionKnown', retentionKnown);
 
 void main() {
   group('finalizeWithRetry', () {
@@ -162,15 +171,35 @@ void main() {
       expect(daemon.backoffs, equals([1, 2]));
     });
 
-    test('a partial that is not retryable is rethrown after one call',
+    test('nothing retained (retryable false) is rethrown after one call',
         () async {
-      for (final retryable in [false, null]) {
+      // The daemon confirmed it kept nothing: the caller re-prepares.
+      final daemon = _FinalizeDaemon([() => _partial(12, retryable: false)]);
+      final (error, _) = await _thrown(daemon);
+      expect(error, _partialError(failed: 12, retryable: false));
+      expect(daemon.calls, equals(1));
+      expect(daemon.backoffs, isEmpty);
+    });
+
+    test('retention unknown stops at once and rethrows the typed error',
+        () async {
+      // No boolean retryable (a daemon before 0.14.0, or a mistyped flag):
+      // the daemon may still hold the paid attempt, so the helper makes one
+      // finalize call and hands the typed error back without retrying,
+      // re-preparing or paying.
+      for (final retryable in [_absent, null, 'true', 1]) {
+        final label = identical(retryable, _absent) ? 'absent' : '$retryable';
         final daemon =
             _FinalizeDaemon([() => _partial(12, retryable: retryable)]);
         final (error, _) = await _thrown(daemon);
-        expect(error, _partialError(failed: 12, retryable: false),
-            reason: 'retryable: $retryable');
-        expect(daemon.calls, equals(1), reason: 'retryable: $retryable');
+        expect(error,
+            _partialError(failed: 12, retryable: false, retentionKnown: false),
+            reason: label);
+        expect(error, isA<Exception>(), reason: label);
+        expect(daemon.calls, equals(1), reason: label);
+        expect(daemon.backoffs, isEmpty, reason: label);
+        expect(daemon.logs.single, contains('retention is unknown'),
+            reason: label);
       }
     });
 

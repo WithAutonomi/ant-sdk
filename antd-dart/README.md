@@ -19,7 +19,7 @@ dependencies:
 
 ## Compatibility
 
-This package talks to a running antd daemon; it does not join the network itself. Dart 3.0+. Tested against antd 0.13.x; the `PartialUploadError.retryable` flag is sent by antd 0.14.0 and later (older daemons report `false`). Both the REST client (`AntdClient`) and the gRPC client (`GrpcAntdClient`) are included; the gRPC stubs are pre-generated, so `protoc` is only needed if you regenerate them.
+This package talks to a running antd daemon; it does not join the network itself. Dart 3.0+. Tested against antd 0.13.x; the `retryable` field behind `PartialUploadError.retryable` / `retentionKnown` is sent by antd 0.14.0 and later (over REST, partial uploads from older daemons read as retention unknown). Both the REST client (`AntdClient`) and the gRPC client (`GrpcAntdClient`) are included; the gRPC stubs are pre-generated, so `protoc` is only needed if you regenerate them.
 
 ## Quick Start
 
@@ -227,10 +227,11 @@ try {
 
 ### Partial uploads
 
-A `finalizeUpload` / `finalizeMerkleUpload` / `finalizeChunkUpload` call can fail *after* the wallet has paid: some chunks store, others miss quorum after the daemon's own retries. That is a `PartialUploadError` (a `NetworkError` subclass, so existing `on NetworkError` clauses still catch it) carrying `chunksStored`, `chunksFailed`, `totalChunks` and a `retryable` flag. The on-chain payment persists and the stored chunks stay on the network.
+A `finalizeUpload` / `finalizeMerkleUpload` / `finalizeChunkUpload` call can fail *after* the wallet has paid: some chunks store, others miss quorum after the daemon's own retries. That is a `PartialUploadError` (a `NetworkError` subclass, so existing `on NetworkError` clauses still catch it) carrying `chunksStored`, `chunksFailed`, `totalChunks` and two flags, `retryable` and `retentionKnown`. The on-chain payment persists and the stored chunks stay on the network.
 
-- **`retryable == true`** (antd ≥ 0.14.0) — the daemon kept the paid attempt under the same `upload_id`. Call the **same** finalize method again with the same arguments to store the remainder against the same payment: no re-prepare, no second signature, no double payment. Bound that loop — a persistent failure throws this error on every call, so cap the attempts and treat a `chunksFailed` that stops shrinking as stuck. The retained attempt expires with the daemon's pending-upload TTL.
-- **`retryable == false`** — nothing was retained (a merkle finalize with deliberately unpaid batches, or an older daemon that never sends the flag). Re-preparing the same content skips already-stored chunks, so a retry pays only for the remainder. A `false` that is the SDK's fallback for an error it could not read (a gRPC message whose counts did not parse, or a REST flag of the wrong type) only means retention is unconfirmed, not that the paid attempt was discarded: don't treat it alone as permission to pay again.
+- **`retryable`** (antd ≥ 0.14.0) — the daemon kept the paid attempt under the same `upload_id`. Call the **same** finalize method again with the same `upload_id` and payment artefacts to store the remainder against the same payment: no re-prepare, no second signature, no double payment. Bound that loop — a persistent failure throws this error on every call, so cap the attempts and treat a `chunksFailed` that stops shrinking as stuck. The retained attempt expires with the daemon's pending-upload TTL.
+- **`retentionKnown && !retryable`** — the daemon confirmed that nothing was retained (for example a merkle finalize with deliberately unpaid batches). Re-prepare the same content: already-stored chunks are skipped, so the retry pays only for the remainder.
+- **`!retentionKnown`** — retention is unknown: the SDK could not read whether the daemon kept the attempt (a REST body without a boolean `retryable`, which includes every daemon before 0.14.0, or a gRPC message whose counts did not parse). The daemon may still hold the paid attempt, because it records the resume handle before it returns the error. Stop automatic recovery, keep the `upload_id` and the original payment artefacts, and reconcile before re-preparing or paying again. Never pay again on this signal alone.
 
 ```dart
 try {
@@ -238,13 +239,15 @@ try {
 } on PartialUploadError catch (e) {
   if (e.retryable) {
     // same upload_id, same payment — see finalizeWithRetry in example/finalize_with_retry.dart
+  } else if (e.retentionKnown) {
+    // nothing retained: re-prepare the same content; only the remainder is paid for
   } else {
-    // re-prepare the same content; only the remainder is paid for
+    // retention unknown: stop, keep upload_id + payment artefacts, reconcile before paying again
   }
 }
 ```
 
-Over gRPC the error arrives as status `ABORTED` whose message starts with `Partial upload:`; the counts and the flag are parsed from that message, and `retryable` is `true` only when all three counts parse and the `paid attempt retained` hint is present (otherwise the counts read as zero and the flag as `false`). Any other `ABORTED` is not a partial upload and surfaces as a plain `AntdError`. See `finalizeWithRetry` in [`example/finalize_with_retry.dart`](example/finalize_with_retry.dart) (used by `07_external_signer.dart`) for a bounded retry loop that rethrows the last `PartialUploadError` unchanged when it gives up, and [`docs/external-signer-flow.md`](../docs/external-signer-flow.md) §6 for the daemon contract.
+Over gRPC the error arrives as status `ABORTED` whose message starts with `Partial upload:`; the counts and flags are parsed from that message: `retentionKnown` is `true` only when all three counts parse, and the `paid attempt retained` hint then decides `retryable`. Otherwise the counts read as zero and both flags as `false` (retention unknown). Any other `ABORTED` is not a partial upload and surfaces as a plain `AntdError`. See `finalizeWithRetry` in [`example/finalize_with_retry.dart`](example/finalize_with_retry.dart) (used by `07_external_signer.dart`) for a bounded retry loop that stops at once when retention is unknown and rethrows the `PartialUploadError` unchanged whenever it gives up, and [`docs/external-signer-flow.md`](../docs/external-signer-flow.md) §6 for the daemon contract.
 
 ## Examples
 

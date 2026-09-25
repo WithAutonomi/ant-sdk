@@ -672,12 +672,14 @@ class GrpcAntdClient {
   /// [uploadId]: call this method again with the same arguments to store the
   /// remainder against the same payment, bounding the loop (cap attempts; a
   /// [PartialUploadError.chunksFailed] that stops shrinking means stuck).
-  /// When `false`, nothing was retained: re-prepare the same content, which
-  /// skips already-stored chunks so the retry pays only for the remainder. A
-  /// `false` that is the fallback for an unreadable error means retention is
-  /// unconfirmed, not ruled out; see [PartialUploadError]. See
-  /// `docs/external-signer-flow.md` §6 and `example/finalize_with_retry.dart`
-  /// (`finalizeWithRetry`).
+  /// When [PartialUploadError.retentionKnown] is `true` but `retryable` is
+  /// not, the daemon confirmed nothing was retained: re-prepare the same
+  /// content, which skips already-stored chunks so the retry pays only for
+  /// the remainder. When `retentionKnown` is `false`, retention is unknown
+  /// and the daemon may still hold the paid attempt: stop, keep [uploadId]
+  /// and the payment artefacts, and reconcile before re-preparing or paying
+  /// again. See [PartialUploadError], `docs/external-signer-flow.md` §6 and
+  /// `example/finalize_with_retry.dart` (`finalizeWithRetry`).
   Future<FinalizeUploadResult> finalizeUpload(
     String uploadId,
     Map<String, String> txHashes,
@@ -703,8 +705,9 @@ class GrpcAntdClient {
   /// Throws [PartialUploadError] when some chunks stayed unstored after the
   /// daemon's retries; see [finalizeUpload] for the retry contract. A merkle
   /// finalize that deliberately left sub-batches unpaid reports
-  /// [PartialUploadError.retryable] = `false`, so that case is always a
-  /// re-prepare.
+  /// [PartialUploadError.retryable] = `false` (with
+  /// [PartialUploadError.retentionKnown] = `true` when the message's counts
+  /// parse), so that case is a re-prepare.
   Future<FinalizeUploadResult> finalizeMerkleUpload(
     String uploadId,
     String winnerPoolHash, {

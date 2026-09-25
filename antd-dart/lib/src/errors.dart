@@ -62,39 +62,41 @@ class ServiceUnavailableError extends AntdError {
 /// whose message starts with the daemon's `Partial upload:` prefix).
 ///
 /// The on-chain payment persists and the stored chunks stay on the network.
-/// How to finish the upload depends on [retryable]:
+/// How to finish the upload depends on [retryable] and [retentionKnown]:
 ///
-///   * `true` — the daemon kept the paid attempt (payment proofs + unstored
-///     chunks) under the same `upload_id`. Call the **same** finalize method
-///     again with the same arguments to store the remainder against the same
-///     payment — no re-prepare, no second signature, no double payment.
-///     Bound the loop: a persistent failure throws this error on every call,
-///     so cap the attempts and treat a [chunksFailed] that stops shrinking as
+///   * [retryable] — the daemon kept the paid attempt (payment proofs +
+///     unstored chunks) under the same `upload_id` (antd >= 0.14.0). Call
+///     the **same** finalize method again with the same `upload_id` and
+///     payment artefacts to store the remainder against the same payment:
+///     no re-prepare, no second signature, no double payment. Bound the
+///     loop: a persistent failure throws this error on every call, so cap
+///     the attempts and treat a [chunksFailed] that stops shrinking as
 ///     stuck. The retained attempt expires with the daemon's pending-upload
-///     TTL. Sent by antd >= 0.14.0; older daemons never send the flag, so
-///     [retryable] reads `false` and the re-prepare path applies.
-///   * `false` — nothing was retained (a merkle finalize with deliberately
-///     unpaid batches, or an older daemon). Re-preparing the same content
-///     skips already-stored chunks, so a retry pays only for the remainder.
-///     A `false` that is the SDK's fallback for an error it could not read
-///     (a gRPC message whose counts did not parse, or a REST flag of the
-///     wrong type) only means retention is unconfirmed, not that the daemon
-///     discarded the paid attempt: do not treat it alone as permission to
-///     pay again.
+///     TTL.
+///   * [retentionKnown] but not [retryable] — the daemon confirmed that
+///     nothing was retained (for example a merkle finalize with deliberately
+///     unpaid batches). Re-prepare the same content: already-stored chunks
+///     are skipped, so the retry pays only for the remainder.
+///   * not [retentionKnown] — retention is unknown: the SDK could not read
+///     whether the daemon kept the attempt (a REST body without a boolean
+///     `retryable`, which includes every daemon before 0.14.0, or a gRPC
+///     message whose counts did not parse). The daemon may still hold the
+///     paid attempt, because it records the resume handle before it returns
+///     the error. Stop automatic recovery, keep the `upload_id` and the
+///     original payment artefacts, and reconcile before re-preparing or
+///     paying again. Never pay again on this signal alone.
 ///
 /// Extends [NetworkError] because the daemon reports the shortfall as a 502:
 /// an existing `on NetworkError` clause keeps catching it, while a dedicated
 /// `on PartialUploadError` clause (listed first) gets the counts.
 ///
-/// Over REST the counts and [retryable] come from the structured error body;
-/// a field that is missing or not of the expected JSON type reads as 0 /
-/// `false` (see [errorForResponse]). Over gRPC they are parsed best-effort
-/// from the status message by [PartialUploadError.fromMessage]; [retryable]
-/// is `true` there only when all three counts parse and the retained hint
-/// is present. Only an ABORTED whose message starts with `Partial upload:`
-/// (see [PartialUploadError.isPartialUploadMessage]) is mapped to this
-/// type; any other ABORTED, including one that quotes the phrase further
-/// in, stays a plain [AntdError]. See `docs/external-signer-flow.md` §6
+/// Over REST the fields come from the structured error body (see
+/// [errorForResponse]); over gRPC they are parsed from the status message
+/// (see [PartialUploadError.fromMessage]). Only an ABORTED whose message
+/// starts with `Partial upload:` (see
+/// [PartialUploadError.isPartialUploadMessage]) is mapped to this type; any
+/// other ABORTED, including one that quotes the phrase further in, stays a
+/// plain [AntdError]. See `docs/external-signer-flow.md` §6
 /// ("Retry a partial store") for the daemon contract.
 class PartialUploadError extends NetworkError {
   /// Chunks the daemon stored before giving up on the remainder.
@@ -106,34 +108,46 @@ class PartialUploadError extends NetworkError {
   /// Chunks in the upload.
   final int totalChunks;
 
-  /// `true` when the paid attempt was retained under the same `upload_id`
-  /// and the same finalize call stores the remainder against the same
-  /// payment; `false` when the daemon did not report it retained, including
-  /// the fallback for an unreadable error (see the class doc before paying
-  /// again).
+  /// `true` when the daemon retained the paid attempt under the same
+  /// `upload_id`, so the same finalize call stores the remainder against the
+  /// same payment. `false` both when the daemon confirmed nothing was
+  /// retained and when retention is unknown; [retentionKnown] tells the two
+  /// apart. Implies [retentionKnown].
   final bool retryable;
 
+  /// `true` when the SDK read the daemon's answer on retention: over REST a
+  /// JSON boolean `retryable` in the body, over gRPC a message whose counts
+  /// parsed. `false` means retention is unknown and the daemon may still
+  /// hold the paid attempt, so neither re-prepare nor pay again on this
+  /// error alone (see the class doc).
+  final bool retentionKnown;
+
+  /// Passing [retryable] `true` also makes [retentionKnown] `true`: an
+  /// attempt the daemon retained is by definition a known one.
   const PartialUploadError(
     String message, {
     this.chunksStored = 0,
     this.chunksFailed = 0,
     this.totalChunks = 0,
     this.retryable = false,
-  }) : super(message);
+    bool retentionKnown = false,
+  })  : retentionKnown = retentionKnown || retryable,
+        super(message);
 
-  /// Recovers the counts and the retryable hint from a `PARTIAL_UPLOAD`
-  /// message. Used for gRPC, where the ABORTED status carries no structured
-  /// detail; REST callers get the body fields instead.
+  /// Recovers the counts, [retryable] and [retentionKnown] from a
+  /// `PARTIAL_UPLOAD` message. Used for gRPC, where the ABORTED status
+  /// carries no structured detail; REST callers get the body fields instead.
   ///
   /// The daemon formats the message as `Partial upload: <stored>/<total>
   /// chunks stored, <failed> failed after retries: <reason> (<hint>)`, with
-  /// the hint `paid attempt retained: ...` when retryable.
+  /// the hint `paid attempt retained: ...` when it kept the attempt.
   ///
-  /// [retryable] is `true` only when the counts match that pattern, all
-  /// three convert to an `int`, and the hint is present. When the pattern
-  /// does not match or a count does not fit an `int` (the Dart VM's limit
-  /// is 2^63 - 1), all three counts read as zero and [retryable] is `false`
-  /// even if the hint is there: a retry loop that cannot watch
+  /// [retentionKnown] is `true` only when [message] starts with that pattern
+  /// and all three counts convert to an `int`; the hint then decides
+  /// [retryable]. Otherwise (the pattern does not match at the start, or a
+  /// count does not fit an `int`, whose Dart VM limit is 2^63 - 1) all three
+  /// counts read as zero and both flags are `false`, even if the hint is
+  /// present: retention is unknown, and a retry loop that cannot watch
   /// [chunksFailed] shrink cannot tell progress from a stuck upload. Never
   /// throws. Callers gate on [isPartialUploadMessage] first so that an
   /// unrelated ABORTED is not misreported as a partial upload.
@@ -151,6 +165,7 @@ class PartialUploadError extends NetworkError {
       totalChunks: total,
       chunksFailed: failed,
       retryable: message.contains(_partialUploadRetainedHint),
+      retentionKnown: true,
     );
   }
 
@@ -171,8 +186,10 @@ const _partialUploadPrefix = 'Partial upload:';
 
 /// Matches the fixed prefix of the daemon's `PARTIAL_UPLOAD` message:
 /// `Partial upload: <stored>/<total> chunks stored, <failed> failed`.
+/// Anchored at the start, like [PartialUploadError.isPartialUploadMessage],
+/// so counts quoted further into a message are never read.
 final _partialUploadCounts =
-    RegExp(r'Partial upload: (\d+)/(\d+) chunks stored, (\d+) failed');
+    RegExp(r'^Partial upload: (\d+)/(\d+) chunks stored, (\d+) failed');
 
 /// Message tail the daemon appends when it kept the paid attempt for a
 /// same-`upload_id` retry.
@@ -188,9 +205,11 @@ const _partialUploadRetainedHint = 'paid attempt retained';
 /// the string `PARTIAL_UPLOAD` (missing, another string, or an object,
 /// array, number or null) keeps the [errorForStatus] mapping. In a
 /// `PARTIAL_UPLOAD` body a count that is not a finite JSON number reads as
-/// 0, and a `retryable` that is not the JSON boolean `true` reads as
-/// `false`. `retryable` is absent from daemons before 0.14.0, so it
-/// defaults to `false` there.
+/// 0. [PartialUploadError.retentionKnown] is `true` only when `retryable` is
+/// present and a JSON boolean, whose value then sets
+/// [PartialUploadError.retryable]. A missing, null or mistyped `retryable`
+/// (daemons before 0.14.0 never send it) means retention is unknown, and
+/// `retryable` reads `false`.
 AntdError errorForResponse(
   int statusCode,
   String message,
@@ -198,12 +217,14 @@ AntdError errorForResponse(
 ) {
   final code = body?['code'];
   if (body != null && code is String && code == 'PARTIAL_UPLOAD') {
+    final retryable = body['retryable'];
     return PartialUploadError(
       message,
       chunksStored: _countField(body['chunks_stored']),
       chunksFailed: _countField(body['chunks_failed']),
       totalChunks: _countField(body['total_chunks']),
-      retryable: body['retryable'] == true,
+      retryable: retryable == true,
+      retentionKnown: retryable is bool,
     );
   }
   return errorForStatus(statusCode, message);
