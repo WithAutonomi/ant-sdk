@@ -7,8 +7,11 @@
 //
 // See docs/external-signer-flow.md for the full reference. C++ has no
 // small, drift-proof EVM library for EIP-1559 + tuple ABI encoding +
-// secp256k1 signing, so (like the Elixir example) this shells out to `cast`
-// (foundry CLI), which `ant dev start --enable-evm` already depends on.
+// secp256k1 signing, so (like the Elixir example) this runs `cast` (foundry
+// CLI), which `ant dev start --enable-evm` already depends on. `cast` is
+// started with an argument vector, never through a shell, and every
+// daemon-provided field is validated before it becomes an argument (see
+// external_signer_util.hpp).
 //
 // Requires:
 //   - a running antd daemon against a devnet with EVM enabled
@@ -16,7 +19,7 @@
 //   - `cast` on PATH
 
 #include <chrono>
-#include <cstdio>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -32,6 +35,7 @@
 #include <nlohmann/json.hpp>
 
 #include "antd/antd.hpp"
+#include "external_signer_util.hpp"
 
 namespace {
 
@@ -43,45 +47,22 @@ constexpr const char* kAnvilKey =
 constexpr const char* kMaxUint256 =
     "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 
-// Run a command line and return its stdout; throws on a non-zero exit.
-std::string run_capture(const std::string& cmd) {
-#ifdef _WIN32
-    FILE* pipe = _popen(cmd.c_str(), "r");
-#else
-    FILE* pipe = popen(cmd.c_str(), "r");
-#endif
-    if (!pipe) {
-        throw std::runtime_error("failed to spawn: " + cmd);
-    }
-    std::string out;
-    char buf[4096];
-    while (std::fgets(buf, sizeof buf, pipe)) {
-        out += buf;
-    }
-#ifdef _WIN32
-    const int rc = _pclose(pipe);
-#else
-    const int rc = pclose(pipe);
-#endif
-    if (rc != 0) {
-        throw std::runtime_error("command failed (exit " + std::to_string(rc) + "): " + cmd);
-    }
-    return out;
-}
-
-// Quote one argv element for the shell. None of the values we pass contain
-// double quotes, so wrapping is enough on both cmd.exe and sh.
-std::string q(const std::string& s) { return "\"" + s + "\""; }
-
-// `cast send ... --json` and return the transactionHash.
+// `cast send ... --json` and return the transactionHash. `cast` is started
+// directly with this argument vector (antd_example::run_capture), so no
+// argument is ever parsed by a shell; the daemon-provided ones have also
+// passed validate_signing_request before this is called.
 std::string cast_send(const std::string& rpc_url, const std::vector<std::string>& args,
                       const std::string& gas_limit) {
-    std::string cmd = "cast send";
-    for (const auto& a : args) cmd += " " + q(a);
-    cmd += " --rpc-url " + q(rpc_url) + " --private-key " + kAnvilKey +
-           " --gas-limit " + gas_limit + " --json";
-    const auto receipt = nlohmann::json::parse(run_capture(cmd));
-    return receipt.at("transactionHash").get<std::string>();
+    std::vector<std::string> argv{"cast", "send"};
+    argv.insert(argv.end(), args.begin(), args.end());
+    argv.insert(argv.end(), {"--rpc-url", rpc_url, "--private-key", kAnvilKey,
+                             "--gas-limit", gas_limit, "--json"});
+    const auto receipt = nlohmann::json::parse(antd_example::run_capture(argv));
+    std::string tx_hash = receipt.at("transactionHash").get<std::string>();
+    if (!antd_example::is_bytes32_hex(tx_hash)) {
+        throw std::runtime_error("cast returned a transactionHash that is not 32 bytes of hex");
+    }
+    return tx_hash;
 }
 
 // Run approve + payForQuotes on-chain for a daemon prepare response.
@@ -94,6 +75,10 @@ std::map<std::string, std::string> external_signer_pay(
     std::map<std::string, std::string> out;
     // No on-chain work when every quoted chunk is already on-network.
     if (payments.empty()) return out;
+
+    // Reject a malformed or hostile prepare response before any of its
+    // fields reaches a process.
+    antd_example::validate_signing_request(rpc_url, vault_addr, token_addr, payments);
 
     // Idempotent unlimited approval so subsequent runs in the same devnet
     // session skip a fresh approve.
@@ -130,7 +115,10 @@ std::map<std::string, std::string> external_signer_pay(
 // shrinking as stuck. A non-retryable partial upload (older daemon, or a
 // merkle upload with unpaid batches) is rethrown untouched: the recovery
 // there is to re-prepare the same content, which skips the chunks already
-// stored. See docs/external-signer-flow.md section 6.
+// stored. Over gRPC, `retryable == false` can also mean the SDK could not
+// read the daemon's message: retention is then unconfirmed, not proof the
+// paid attempt was discarded, so do not treat it alone as permission to pay
+// again. See docs/external-signer-flow.md section 6.
 antd::FinalizeUploadResult finalize_with_retry(
     antd::Client& client, const std::string& upload_id,
     const std::map<std::string, std::string>& tx_hashes, bool store_data_map) {
@@ -141,7 +129,7 @@ antd::FinalizeUploadResult finalize_with_retry(
             return client.finalize_upload(upload_id, tx_hashes, store_data_map);
         } catch (const antd::PartialUploadError& e) {
             if (!e.retryable) {
-                throw;  // nothing retained: the caller must re-prepare
+                throw;  // retention not confirmed: the caller decides (see above)
             }
             const bool stuck = attempt > 1 && e.chunks_failed >= last_failed;
             if (attempt >= kMaxAttempts || stuck) {
@@ -245,9 +233,11 @@ int main() {
 
         std::cout << "\n07-external-signer OK!\n";
     } catch (const antd::PartialUploadError& e) {
-        // Payment settled, some chunks unstored. retryable == false here
-        // means nothing was retained: re-prepare the same content and only
-        // the remainder is paid for.
+        // Payment settled, some chunks unstored. retryable == false means
+        // retention is not confirmed: re-preparing pays only for the
+        // remainder, but (over gRPC) a false from an unreadable message is
+        // not proof the paid attempt was discarded, so don't treat it alone
+        // as permission to pay again.
         std::cerr << "Partial upload (" << e.chunks_stored << "/" << e.total_chunks
                   << " stored, " << e.chunks_failed << " failed, retryable="
                   << (e.retryable ? "true" : "false") << "): " << e.what() << "\n";

@@ -108,8 +108,10 @@ public:
 /// (see parse_partial_upload_message). `retryable` requires parsed counts:
 /// when the counts do not match or do not convert, all three read as zero
 /// and `retryable` is false even if the "paid attempt retained" hint is
-/// present, so the caller takes the re-prepare path rather than a retry loop
-/// it cannot bound. See docs/external-signer-flow.md §6.
+/// present, so the caller never enters a retry loop it cannot bound. That
+/// false means retention is unconfirmed, not that the daemon discarded the
+/// paid attempt: do not treat it alone as permission to pay again. See
+/// docs/external-signer-flow.md §6.
 class PartialUploadError : public NetworkError {
 public:
     std::uint64_t chunks_stored;

@@ -302,10 +302,12 @@ on-chain payment persists and the stored chunks stay on the network; the
   no re-prepare, no second signature, no double payment. Bound the loop: a
   persistent failure throws on every call, so cap attempts and treat a
   `chunks_failed` that stops shrinking as stuck.
-- **`retryable == false`** (older daemon, a merkle finalize with
-  deliberately unpaid batches, or a gRPC message whose counts did not parse):
-  treat it as not retained. Re-prepare the same content — already-stored
-  chunks are skipped, so the retry pays only for the remainder.
+- **`retryable == false`** (older daemon, or a merkle finalize with
+  deliberately unpaid batches): nothing was retained. Re-prepare the same
+  content — already-stored chunks are skipped, so the retry pays only for the
+  remainder. Over gRPC, `false` also comes from a message whose counts did not
+  parse; retention is then unconfirmed, not proof the paid attempt was
+  discarded, so don't treat that alone as permission to pay again.
 
 ```cpp
 for (int attempt = 1;; ++attempt) {
@@ -313,7 +315,7 @@ for (int attempt = 1;; ++attempt) {
         auto fin = client.finalize_upload(upload_id, tx_hashes);
         break;  // every chunk stored
     } catch (const antd::PartialUploadError& e) {
-        if (!e.retryable || attempt >= 5) throw;  // re-prepare, or give up
+        if (!e.retryable || attempt >= 5) throw;  // not confirmed retained, or out of attempts
         std::cerr << e.chunks_stored << "/" << e.total_chunks << " stored, "
                   << e.chunks_failed << " unstored — retrying same upload_id\n";
     }
@@ -346,4 +348,4 @@ See the [examples/](examples/) directory:
 - `03-chunks` — Raw chunk operations
 - `04-files` — File and directory upload/download
 - `06-private-data` — Private encrypted data storage
-- `07-external-signer` — Two-phase upload paid by an external signer (shells out to foundry's `cast`), with a bounded `finalize_with_retry` for partial stores
+- `07-external-signer` — Two-phase upload paid by an external signer (runs foundry's `cast` without a shell, after validating the daemon's payment fields), with a bounded `finalize_with_retry` for partial stores

@@ -191,7 +191,10 @@ public:
     ///     that stops shrinking as stuck.
     ///   - `retryable == false` (older daemon, nothing retained): re-prepare
     ///     the same content; already-stored chunks are skipped so only the
-    ///     remainder is paid for.
+    ///     remainder is paid for. A false that comes from a status message
+    ///     the SDK could not read means retention is unconfirmed, not that
+    ///     the paid attempt was discarded: do not treat it alone as
+    ///     permission to pay again.
     /// See docs/external-signer-flow.md section 6.
     FinalizeUploadResult finalize_upload(std::string_view upload_id,
                                           const std::map<std::string, std::string>& tx_hashes,
