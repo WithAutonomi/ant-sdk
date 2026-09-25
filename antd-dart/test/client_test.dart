@@ -694,6 +694,53 @@ void main() {
         expect(e.retryable, equals(want[3]), reason: msg);
       });
     });
+
+    test('fromMessage is retryable only when all three counts parse', () {
+      // retryable needs the counts to match the pattern, all three to fit an
+      // int, and the retained hint. 9223372036854775808 is one past the VM's
+      // int max; int.parse used to throw a FormatException on it.
+      const hint = '(paid attempt retained: call finalize again with the '
+          'same upload_id to store the remainder against the same payment)';
+      const noHint = '(stored chunks persist; re-prepare the same content to '
+          'retry only the remainder)';
+      const over = '9223372036854775808';
+      String msg(String stored, String total, String failed, String tail) =>
+          'Partial upload: $stored/$total chunks stored, $failed failed '
+          'after retries: quorum $tail';
+
+      // Overflow in each position, hint present: zeros, not retryable.
+      // Counts that do not match the pattern, hint present: the same.
+      for (final m in [
+        msg(over, '312', '12', hint),
+        msg('300', over, '12', hint),
+        msg('300', '312', over, hint),
+        'Partial upload: counts unavailable $hint',
+      ]) {
+        final e = PartialUploadError.fromMessage(m);
+        expect(e.message, equals(m));
+        expect(e.chunksStored, equals(0), reason: m);
+        expect(e.totalChunks, equals(0), reason: m);
+        expect(e.chunksFailed, equals(0), reason: m);
+        expect(e.retryable, isFalse, reason: m);
+      }
+
+      // Well-formed with the hint: retryable, with its counts.
+      var e = PartialUploadError.fromMessage(msg('300', '312', '12', hint));
+      expect([e.chunksStored, e.totalChunks, e.chunksFailed], [300, 312, 12]);
+      expect(e.retryable, isTrue);
+
+      // Well-formed without the hint: counts, not retryable.
+      e = PartialUploadError.fromMessage(msg('300', '312', '12', noHint));
+      expect([e.chunksStored, e.totalChunks, e.chunksFailed], [300, 312, 12]);
+      expect(e.retryable, isFalse);
+
+      // The int max itself still converts.
+      const max = '9223372036854775807';
+      e = PartialUploadError.fromMessage(msg(max, max, '0', hint));
+      expect(e.chunksStored, equals(9223372036854775807));
+      expect(e.totalChunks, equals(9223372036854775807));
+      expect(e.retryable, isTrue);
+    });
   });
 
   group('Data Stream (V2-289 Phase 1)', () {

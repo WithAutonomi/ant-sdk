@@ -441,6 +441,39 @@ void main() {
       );
     });
 
+    test('ABORTED with unparseable counts + hint -> zeros, not retryable',
+        () async {
+      // A count one past the VM's int max, in each position, used to escape
+      // as a raw FormatException. It, and counts that do not match at all,
+      // must map to a PartialUploadError with zero counts that is not
+      // retryable even though the retained hint is present.
+      const hint = '(paid attempt retained: call finalize again with the '
+          'same upload_id to store the remainder against the same payment)';
+      const over = '9223372036854775808';
+      const messages = [
+        'Partial upload: $over/312 chunks stored, 12 failed: quorum $hint',
+        'Partial upload: 300/$over chunks stored, 12 failed: quorum $hint',
+        'Partial upload: 300/312 chunks stored, $over failed: quorum $hint',
+        'Partial upload: counts unavailable $hint',
+      ];
+      for (final msg in messages) {
+        final client = _errorClient(10, msg);
+        await expectLater(
+          client.health(),
+          throwsA(allOf(
+            isNot(isA<FormatException>()),
+            isA<PartialUploadError>()
+                .having((e) => e.message, 'message', msg)
+                .having((e) => e.chunksStored, 'chunksStored', 0)
+                .having((e) => e.chunksFailed, 'chunksFailed', 0)
+                .having((e) => e.totalChunks, 'totalChunks', 0)
+                .having((e) => e.retryable, 'retryable', isFalse),
+          )),
+          reason: msg,
+        );
+      }
+    });
+
     test('ABORTED that only embeds the Partial upload marker -> AntdError',
         () async {
       // The gate is anchored at the start of the message, as in antd-rust: a

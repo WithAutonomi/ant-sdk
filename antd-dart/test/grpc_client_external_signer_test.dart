@@ -160,6 +160,29 @@ void main() {
       );
     });
 
+    test('ABORTED finalize with unparseable counts is never retryable',
+        () async {
+      // Through the real client: a count past int max used to escape
+      // _handleError as a raw FormatException. Retry requires all three
+      // counts to convert, so these read as zeros and not retryable even
+      // though the retained hint is present.
+      for (final entry in _unparseableCountMessages.entries) {
+        await expectLater(
+          client.finalizeUpload(entry.key, {'0xq1': '0xtx1'}),
+          throwsA(allOf(
+            isNot(isA<FormatException>()),
+            isA<PartialUploadError>()
+                .having((e) => e.message, 'message', entry.value)
+                .having((e) => e.chunksStored, 'chunksStored', 0)
+                .having((e) => e.chunksFailed, 'chunksFailed', 0)
+                .having((e) => e.totalChunks, 'totalChunks', 0)
+                .having((e) => e.retryable, 'retryable', isFalse),
+          )),
+          reason: entry.key,
+        );
+      }
+    });
+
     test('ABORTED finalize quoting the marker further in stays AntdError',
         () async {
       // The gate is anchored: only a message that starts with
@@ -269,6 +292,22 @@ class _MockChunkService extends chunks_pb.ChunkServiceBase {
   }
 }
 
+/// ABORTED partial-upload messages, each with the retained hint, whose
+/// counts cannot all be converted (one past the VM's int max, in each
+/// position) or do not match the pattern at all. None may surface as
+/// retryable, and none may escape as a FormatException.
+const _unparseableCountMessages = {
+  'partial-overflow-stored': 'Partial upload: 9223372036854775808/312 chunks '
+      'stored, 12 failed after retries: quorum (paid attempt retained)',
+  'partial-overflow-total': 'Partial upload: 300/9223372036854775808 chunks '
+      'stored, 12 failed after retries: quorum (paid attempt retained)',
+  'partial-overflow-failed': 'Partial upload: 300/312 chunks stored, '
+      '9223372036854775808 failed after retries: quorum (paid attempt '
+      'retained)',
+  'partial-garbled-retained':
+      'Partial upload: counts unavailable (paid attempt retained)',
+};
+
 /// Mock UploadService with the V2-284 RPCs.
 class _MockUploadService extends upload_pb.UploadServiceBase {
   @override
@@ -346,6 +385,10 @@ class _MockUploadService extends upload_pb.UploadServiceBase {
     }
     if (request.uploadId == 'partial-garbled') {
       throw GrpcError.aborted('Partial upload: counts unavailable');
+    }
+    final unparseable = _unparseableCountMessages[request.uploadId];
+    if (unparseable != null) {
+      throw GrpcError.aborted(unparseable);
     }
     if (request.uploadId == 'aborted-other') {
       throw GrpcError.aborted('upload aborted: daemon shutting down');

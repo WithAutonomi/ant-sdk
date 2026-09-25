@@ -84,11 +84,12 @@ class ServiceUnavailableError extends AntdError {
 /// Over REST the counts and [retryable] come from the structured error body;
 /// a field that is missing or not of the expected JSON type reads as 0 /
 /// `false` (see [errorForResponse]). Over gRPC they are parsed best-effort
-/// from the status message by [PartialUploadError.fromMessage], and only an
-/// ABORTED whose message starts with `Partial upload:` (see
-/// [PartialUploadError.isPartialUploadMessage]) is mapped to this type; any
-/// other ABORTED, including one that quotes the phrase further in, stays a
-/// plain [AntdError]. See `docs/external-signer-flow.md` §6
+/// from the status message by [PartialUploadError.fromMessage]; [retryable]
+/// is `true` there only when all three counts parse and the retained hint
+/// is present. Only an ABORTED whose message starts with `Partial upload:`
+/// (see [PartialUploadError.isPartialUploadMessage]) is mapped to this
+/// type; any other ABORTED, including one that quotes the phrase further
+/// in, stays a plain [AntdError]. See `docs/external-signer-flow.md` §6
 /// ("Retry a partial store") for the daemon contract.
 class PartialUploadError extends NetworkError {
   /// Chunks the daemon stored before giving up on the remainder.
@@ -119,18 +120,29 @@ class PartialUploadError extends NetworkError {
   ///
   /// The daemon formats the message as `Partial upload: <stored>/<total>
   /// chunks stored, <failed> failed after retries: <reason> (<hint>)`, with
-  /// the hint `paid attempt retained: ...` when retryable. The counts and
-  /// the hint are parsed independently, as in antd-rust: counts that do not
-  /// parse read as zero, while [retryable] follows the hint alone. Callers
-  /// gate on [isPartialUploadMessage] first so that an unrelated ABORTED is
-  /// not misreported as a partial upload.
+  /// the hint `paid attempt retained: ...` when retryable.
+  ///
+  /// [retryable] is `true` only when the counts match that pattern, all
+  /// three convert to an `int`, and the hint is present. When the pattern
+  /// does not match or a count does not fit an `int` (the Dart VM's limit
+  /// is 2^63 - 1), all three counts read as zero and [retryable] is `false`
+  /// even if the hint is there: a retry loop that cannot watch
+  /// [chunksFailed] shrink cannot tell progress from a stuck upload. Never
+  /// throws. Callers gate on [isPartialUploadMessage] first so that an
+  /// unrelated ABORTED is not misreported as a partial upload.
   factory PartialUploadError.fromMessage(String message) {
     final m = _partialUploadCounts.firstMatch(message);
+    final stored = m == null ? null : int.tryParse(m.group(1)!);
+    final total = m == null ? null : int.tryParse(m.group(2)!);
+    final failed = m == null ? null : int.tryParse(m.group(3)!);
+    if (stored == null || total == null || failed == null) {
+      return PartialUploadError(message);
+    }
     return PartialUploadError(
       message,
-      chunksStored: m == null ? 0 : int.parse(m.group(1)!),
-      totalChunks: m == null ? 0 : int.parse(m.group(2)!),
-      chunksFailed: m == null ? 0 : int.parse(m.group(3)!),
+      chunksStored: stored,
+      totalChunks: total,
+      chunksFailed: failed,
       retryable: message.contains(_partialUploadRetainedHint),
     );
   }

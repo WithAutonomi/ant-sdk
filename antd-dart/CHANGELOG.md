@@ -6,8 +6,9 @@
   some chunks but not all: carries `chunksStored` / `chunksFailed` /
   `totalChunks` and `retryable`. REST maps the daemon's 502
   `code: "PARTIAL_UPLOAD"` body; gRPC maps status `ABORTED` whose message
-  starts with `Partial upload:`, parsing the counts from the message (any
-  other `ABORTED` stays a plain `AntdError`). `retryable == true`
+  starts with `Partial upload:`, parsing the counts from the message
+  (`retryable` only when all three counts parse and the retained hint is
+  present; any other `ABORTED` stays a plain `AntdError`). `retryable == true`
   (antd ≥ 0.14.0) means the same finalize call with the same `upload_id`
   stores the remainder against the
   same payment; older daemons never send the flag, so it reads `false`.
