@@ -196,7 +196,7 @@ An external-signer finalize (`finalizeUpload`, `finalizeChunkUpload`) can fail *
 | `total_chunks` | Chunks in the upload |
 | `retryable` | How to finish the upload (see below). Sent by antd >= 0.14.0; absent on older daemons, where it reads `false` |
 
-These fields are zero / `false` for every other error.
+These fields are zero / `false` for every other error. A malformed body never panics: a count that is not a JSON non-negative integer below 2^64 reads as 0, a `retryable` that is not the JSON boolean `true` reads as `false`, and a body whose `code` is not the string `"PARTIAL_UPLOAD"` maps by HTTP status alone.
 
 - **`retryable == true`** -- the daemon kept the paid attempt (payment proofs plus the unstored chunks) under the same `upload_id`. Call the **same finalize function again with the same arguments** (the same `upload_id` and the same `tx_hashes_json` map); the remainder is stored against the same payment -- no re-prepare, no second signature, no double payment. Bound the loop: a persistent failure returns `error.PartialUpload` on every call, so cap the attempts and treat a `chunks_failed` that stops shrinking as stuck. The retained attempt expires with the daemon's pending-upload TTL (one hour).
 - **`retryable == false`** -- nothing was retained (an older daemon, or a merkle finalize with deliberately unpaid batches). Re-prepare the same content: already-stored chunks are skipped, so the retry pays only for the remainder.
