@@ -174,6 +174,25 @@ class GrpcAntdClient {
         throw NetworkError(e.message ?? 'unavailable');
       case StatusCode.failedPrecondition:
         throw PaymentError(e.message ?? 'failed precondition');
+      case StatusCode.aborted:
+        // PARTIAL_UPLOAD: some chunks stored, some still unstored after
+        // retries. The counts and the daemon's closing retention hint ride
+        // the message text over gRPC (no structured detail yet), so parse
+        // them best-effort to match the REST client's typed error:
+        // retentionKnown needs the counts to convert and the message to end
+        // with one of the daemon's two hints, and retryable needs the "paid
+        // attempt retained" one (see PartialUploadError.fromMessage). Every
+        // such message opens with the daemon's fixed "Partial upload:"
+        // prefix, so gate on the message starting with it (anchored, as
+        // antd-rust does): any other ABORTED, including one that quotes the
+        // phrase further in, keeps the generic mapping so it is not
+        // misreported as a partial upload.
+        final message = e.message;
+        if (message != null &&
+            PartialUploadError.isPartialUploadMessage(message)) {
+          throw PartialUploadError.fromMessage(message);
+        }
+        throw AntdError(e.code, e.message ?? 'gRPC error');
       default:
         throw AntdError(e.code, e.message ?? 'gRPC error');
     }
@@ -565,6 +584,9 @@ class GrpcAntdClient {
   /// Submits a prepared chunk after external payment. Returns the chunk
   /// address (matches [PrepareChunkResult.address]).
   ///
+  /// Throws [PartialUploadError] when the chunk stayed unstored after the
+  /// daemon's retries; see [finalizeUpload] for the retry contract.
+  ///
   /// Requires antd >= 0.9.0.
   Future<String> finalizeChunkUpload(
     String uploadId,
@@ -645,6 +667,22 @@ class GrpcAntdClient {
 
   /// Finalizes a wave-batch upload after the external signer has submitted
   /// the on-chain payment transactions.
+  ///
+  /// Throws [PartialUploadError] (gRPC ABORTED) when some chunks stayed
+  /// unstored after the daemon's retries. The payment persists and the stored
+  /// chunks stay on the network. When [PartialUploadError.retryable] is
+  /// `true` (antd >= 0.14.0) the daemon kept the paid attempt under the same
+  /// [uploadId]: call this method again with the same arguments to store the
+  /// remainder against the same payment, bounding the loop (cap attempts; a
+  /// [PartialUploadError.chunksFailed] that stops shrinking means stuck).
+  /// When [PartialUploadError.retentionKnown] is `true` but `retryable` is
+  /// not, the daemon confirmed nothing was retained: re-prepare the same
+  /// content, which skips already-stored chunks so the retry pays only for
+  /// the remainder. When `retentionKnown` is `false`, retention is unknown
+  /// and the daemon may still hold the paid attempt: stop, keep [uploadId]
+  /// and the payment artefacts, and reconcile before re-preparing or paying
+  /// again. See [PartialUploadError], `docs/external-signer-flow.md` §6 and
+  /// `example/finalize_with_retry.dart` (`finalizeWithRetry`).
   Future<FinalizeUploadResult> finalizeUpload(
     String uploadId,
     Map<String, String> txHashes,
@@ -666,6 +704,14 @@ class GrpcAntdClient {
 
   /// Finalizes a merkle-batch upload after the winning pool has been
   /// determined.
+  ///
+  /// Throws [PartialUploadError] when some chunks stayed unstored after the
+  /// daemon's retries; see [finalizeUpload] for the retry contract. A merkle
+  /// finalize that deliberately left sub-batches unpaid reports
+  /// [PartialUploadError.retryable] = `false` (with
+  /// [PartialUploadError.retentionKnown] = `true` when the message's counts
+  /// parse and it ends with the daemon's not-retained hint), so that case is
+  /// a re-prepare.
   Future<FinalizeUploadResult> finalizeMerkleUpload(
     String uploadId,
     String winnerPoolHash, {

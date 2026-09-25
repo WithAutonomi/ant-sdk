@@ -29,6 +29,11 @@ Exception mapGrpcError(FakeGrpcError e) {
     case 6: return AlreadyExistsError(e.message);
     case 8: return TooLargeError(e.message);
     case 9: return PaymentError(e.message);
+    case 10:
+      if (PartialUploadError.isPartialUploadMessage(e.message)) {
+        return PartialUploadError.fromMessage(e.message);
+      }
+      return AntdError(e.code, e.message);
     case 13: return InternalError(e.message);
     case 14: return NetworkError(e.message);
     default: return AntdError(e.code, e.message);
@@ -370,6 +375,183 @@ void main() {
         () => client.health(),
         throwsA(isA<PaymentError>()),
       );
+    });
+
+    test('ABORTED -> PartialUploadError with counts parsed from message',
+        () async {
+      final client = _errorClient(
+          10,
+          'Partial upload: 300/312 chunks stored, 12 failed after retries: '
+          'quorum (paid attempt retained: call finalize again with the same '
+          'upload_id to store the remainder against the same payment)');
+      expect(
+        () => client.health(),
+        throwsA(isA<PartialUploadError>()
+            .having((e) => e.statusCode, 'statusCode', 502)
+            .having((e) => e.chunksStored, 'chunksStored', 300)
+            .having((e) => e.chunksFailed, 'chunksFailed', 12)
+            .having((e) => e.totalChunks, 'totalChunks', 312)
+            .having((e) => e.retryable, 'retryable', isTrue)
+            .having((e) => e.retentionKnown, 'retentionKnown', isTrue)),
+      );
+    });
+
+    test('ABORTED with the not-retained hint -> known, not retryable',
+        () async {
+      final client = _errorClient(
+          10,
+          'Partial upload: 300/312 chunks stored, 12 failed after retries: '
+          'quorum (stored chunks persist; re-prepare the same content to '
+          'retry only the remainder)');
+      expect(
+        () => client.health(),
+        throwsA(isA<PartialUploadError>()
+            .having((e) => e.chunksFailed, 'chunksFailed', 12)
+            .having((e) => e.retryable, 'retryable', isFalse)
+            .having((e) => e.retentionKnown, 'retentionKnown', isTrue)),
+      );
+    });
+
+    // Readable counts whose closing retention hint is missing or cut short
+    // (the review's reproducer): the daemon's answer was not read, so the
+    // counts are kept but retention is unknown, never "nothing retained".
+    const countsWithoutHint = {
+      'no hint':
+          'Partial upload: 1/3 chunks stored, 2 failed after retries: quorum',
+      'a truncated hint': 'Partial upload: 1/3 chunks stored, 2 failed after '
+          'retries: quorum (paid attempt retai',
+    };
+    countsWithoutHint.forEach((label, msg) {
+      test('ABORTED with readable counts but $label -> retention unknown',
+          () async {
+        final client = _errorClient(10, msg);
+        await expectLater(
+          client.health(),
+          throwsA(isA<PartialUploadError>()
+              .having((e) => e.message, 'message', msg)
+              .having((e) => e.chunksStored, 'chunksStored', 1)
+              .having((e) => e.chunksFailed, 'chunksFailed', 2)
+              .having((e) => e.totalChunks, 'totalChunks', 3)
+              .having((e) => e.retryable, 'retryable', isFalse)
+              .having((e) => e.retentionKnown, 'retentionKnown', isFalse)),
+        );
+      });
+    });
+
+    test('ABORTED with the prefix but garbled counts -> zeros, not retryable',
+        () async {
+      final client = _errorClient(10, 'Partial upload: counts unavailable');
+      expect(
+        () => client.health(),
+        throwsA(isA<PartialUploadError>()
+            .having((e) => e.message, 'message',
+                'Partial upload: counts unavailable')
+            .having((e) => e.chunksStored, 'chunksStored', 0)
+            .having((e) => e.chunksFailed, 'chunksFailed', 0)
+            .having((e) => e.totalChunks, 'totalChunks', 0)
+            .having((e) => e.retryable, 'retryable', isFalse)
+            .having((e) => e.retentionKnown, 'retentionKnown', isFalse)),
+      );
+    });
+
+    test('ABORTED without the Partial upload prefix -> plain AntdError',
+        () async {
+      // Only the daemon's partial-upload ABORTED is typed; any other ABORTED
+      // keeps the pre-existing generic mapping.
+      final client = _errorClient(10, 'upload aborted: daemon shutting down');
+      expect(
+        () => client.health(),
+        throwsA(allOf(
+          isA<AntdError>()
+              .having((e) => e.statusCode, 'statusCode', 10)
+              .having((e) => e.message, 'message',
+                  'upload aborted: daemon shutting down'),
+          isNot(isA<PartialUploadError>()),
+        )),
+      );
+    });
+
+    test('ABORTED with unparseable counts + hint -> zeros, not retryable',
+        () async {
+      // A count one past the VM's int max, in each position, used to escape
+      // as a raw FormatException. It, and counts that do not match at all,
+      // must map to a PartialUploadError with zero counts that is not
+      // retryable even though the retained hint is present.
+      const hint = '(paid attempt retained: call finalize again with the '
+          'same upload_id to store the remainder against the same payment)';
+      const over = '9223372036854775808';
+      const messages = [
+        'Partial upload: $over/312 chunks stored, 12 failed: quorum $hint',
+        'Partial upload: 300/$over chunks stored, 12 failed: quorum $hint',
+        'Partial upload: 300/312 chunks stored, $over failed: quorum $hint',
+        'Partial upload: counts unavailable $hint',
+      ];
+      for (final msg in messages) {
+        final client = _errorClient(10, msg);
+        await expectLater(
+          client.health(),
+          throwsA(allOf(
+            isNot(isA<FormatException>()),
+            isA<PartialUploadError>()
+                .having((e) => e.message, 'message', msg)
+                .having((e) => e.chunksStored, 'chunksStored', 0)
+                .having((e) => e.chunksFailed, 'chunksFailed', 0)
+                .having((e) => e.totalChunks, 'totalChunks', 0)
+                .having((e) => e.retryable, 'retryable', isFalse)
+                .having((e) => e.retentionKnown, 'retentionKnown', isFalse),
+          )),
+          reason: msg,
+        );
+      }
+    });
+
+    test('ABORTED that only embeds the Partial upload marker -> AntdError',
+        () async {
+      // The gate is anchored at the start of the message, as in antd-rust: a
+      // status that quotes the daemon's phrase further in is not a partial
+      // upload and must not come back with zero counts or retryable set.
+      const messages = [
+        'upstream error: Partial upload: 1/3 chunks stored, 2 failed',
+        'wrapped (Partial upload: 0/1 chunks stored, 1 failed; '
+            'paid attempt retained)',
+      ];
+      for (final msg in messages) {
+        final client = _errorClient(10, msg);
+        await expectLater(
+          client.health(),
+          throwsA(allOf(
+            isA<AntdError>()
+                .having((e) => e.statusCode, 'statusCode', 10)
+                .having((e) => e.message, 'message', msg),
+            isNot(isA<PartialUploadError>()),
+          )),
+          reason: msg,
+        );
+      }
+    });
+
+    test('isPartialUploadMessage is anchored at the start', () {
+      expect(
+          PartialUploadError.isPartialUploadMessage(
+              'Partial upload: 300/312 chunks stored, 12 failed after retries'),
+          isTrue);
+      expect(
+          PartialUploadError.isPartialUploadMessage(
+              'Partial upload: counts unavailable'),
+          isTrue);
+      const negatives = [
+        'upstream error: Partial upload: 1/3 chunks stored, 2 failed',
+        'wrapped (Partial upload: 0/1 chunks stored, 1 failed; '
+            'paid attempt retained)',
+        ' Partial upload: 1/3 chunks stored, 2 failed',
+        'partial upload: 1/3 chunks stored, 2 failed',
+        'upload aborted: daemon shutting down',
+        '',
+      ];
+      for (final msg in negatives) {
+        expect(PartialUploadError.isPartialUploadMessage(msg), isFalse,
+            reason: msg);
+      }
     });
 
     test('unknown gRPC code -> AntdError with code', () async {

@@ -16,6 +16,26 @@ const defaultTimeout = Duration(minutes: 5);
 /// Media type that opts the stream endpoints into NDJSON progress framing.
 const _ndjsonContentType = 'application/x-ndjson';
 
+/// Maps a non-2xx REST response onto a typed [AntdError] from its status
+/// code and raw body; shared by the JSON and the streaming request paths.
+///
+/// Never throws: the body is input from the network. A body that is not
+/// JSON, or JSON that is not an object (a top-level array, a string, ...),
+/// maps by status alone; an `error` field that is missing or not a string
+/// leaves the raw body as the message. [errorForResponse] then reads the
+/// `PARTIAL_UPLOAD` fields without casting.
+AntdError _errorForBody(int statusCode, String raw) {
+  Map<String, dynamic>? body;
+  try {
+    final decoded = jsonDecode(raw);
+    if (decoded is Map<String, dynamic>) body = decoded;
+  } catch (_) {
+    // Not JSON: the raw body is the message.
+  }
+  final error = body?['error'];
+  return errorForResponse(statusCode, error is String ? error : raw, body);
+}
+
 /// REST client for the antd daemon.
 class AntdClient {
   final String _baseUrl;
@@ -101,16 +121,7 @@ class AntdClient {
     }
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      var msg = response.body;
-      try {
-        final parsed = jsonDecode(response.body) as Map<String, dynamic>;
-        if (parsed.containsKey('error')) {
-          msg = parsed['error'] as String;
-        }
-      } catch (_) {
-        // Use raw body as message
-      }
-      throw errorForStatus(response.statusCode, msg);
+      throw _errorForBody(response.statusCode, response.body);
     }
 
     if (response.body.isEmpty) {
@@ -156,18 +167,9 @@ class AntdClient {
         await _httpClient.send(request).timeout(_timeout);
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      // Drain the (short) error body so we can parse {"error"} like _doJson.
+      // Drain the (short) error body so it maps exactly like _doJson's.
       final raw = await response.stream.bytesToString();
-      var msg = raw;
-      try {
-        final parsed = jsonDecode(raw) as Map<String, dynamic>;
-        if (parsed.containsKey('error')) {
-          msg = parsed['error'] as String;
-        }
-      } catch (_) {
-        // Use raw body as message.
-      }
-      throw errorForStatus(response.statusCode, msg);
+      throw _errorForBody(response.statusCode, raw);
     }
 
     return response.stream;
@@ -405,6 +407,9 @@ class AntdClient {
   /// `payForQuotes()`. Returns the hex-encoded network address of the stored
   /// chunk (matches [PrepareChunkResult.address]).
   ///
+  /// Throws [PartialUploadError] when the chunk stayed unstored after the
+  /// daemon's retries; see [finalizeUpload] for the retry contract.
+  ///
   /// Requires antd >= 0.7.0.
   Future<String> finalizeChunkUpload(
     String uploadId,
@@ -544,6 +549,22 @@ class AntdClient {
   }
 
   /// Finalizes an upload after an external signer has submitted payment transactions.
+  ///
+  /// Throws [PartialUploadError] when some chunks stayed unstored after the
+  /// daemon's retries. The payment persists and the stored chunks stay on the
+  /// network. When [PartialUploadError.retryable] is `true` (antd >= 0.14.0)
+  /// the daemon kept the paid attempt under the same [uploadId]: call this
+  /// method again with the same arguments to store the remainder against the
+  /// same payment, bounding the loop (cap attempts; a
+  /// [PartialUploadError.chunksFailed] that stops shrinking means stuck).
+  /// When [PartialUploadError.retentionKnown] is `true` but `retryable` is
+  /// not, the daemon confirmed nothing was retained: re-prepare the same
+  /// content, which skips already-stored chunks so the retry pays only for
+  /// the remainder. When `retentionKnown` is `false`, retention is unknown
+  /// and the daemon may still hold the paid attempt: stop, keep [uploadId]
+  /// and the payment artefacts, and reconcile before re-preparing or paying
+  /// again. See [PartialUploadError], `docs/external-signer-flow.md` §6 and
+  /// `example/finalize_with_retry.dart` (`finalizeWithRetry`).
   Future<FinalizeUploadResult> finalizeUpload(
     String uploadId,
     Map<String, String> txHashes,
@@ -560,6 +581,13 @@ class AntdClient {
   /// [uploadId] is the hex upload identifier from [prepareUpload].
   /// [winnerPoolHash] is the 0x-prefixed pool hash selected by the signer.
   /// [storeDataMap] if true, stores the data map on the network (default false).
+  ///
+  /// Throws [PartialUploadError] when some chunks stayed unstored after the
+  /// daemon's retries; see [finalizeUpload] for the retry contract. A merkle
+  /// finalize that deliberately left sub-batches unpaid reports
+  /// [PartialUploadError.retryable] = `false` with
+  /// [PartialUploadError.retentionKnown] = `true` (a resume can never
+  /// acquire proofs for unpaid chunks), so that case is a re-prepare.
   Future<FinalizeUploadResult> finalizeMerkleUpload(
     String uploadId,
     String winnerPoolHash, {

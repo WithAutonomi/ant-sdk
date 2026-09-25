@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:antd_client/src/errors.dart';
 import 'package:antd_client/src/grpc_client.dart';
 import 'package:antd_client/src/generated/antd/v1/chunks.pb.dart' as chunks_msg;
 import 'package:antd_client/src/generated/antd/v1/chunks.pbgrpc.dart' as chunks_pb;
@@ -105,6 +106,131 @@ void main() {
       expect(r.dataMap, equals('dm_merkle'));
       expect(r.address, equals(''));
     });
+
+    test('ABORTED finalize maps to PartialUploadError with parsed counts',
+        () async {
+      // Counts and the retained hint are parsed from the status message, so
+      // the gRPC client matches the REST client's typed error.
+      await expectLater(
+        client.finalizeMerkleUpload('partial', '0xw1'),
+        throwsA(isA<PartialUploadError>()
+            .having((e) => e.statusCode, 'statusCode', 502)
+            .having((e) => e.chunksStored, 'chunksStored', 300)
+            .having((e) => e.chunksFailed, 'chunksFailed', 12)
+            .having((e) => e.totalChunks, 'totalChunks', 312)
+            .having((e) => e.retryable, 'retryable', isTrue)
+            .having((e) => e.retentionKnown, 'retentionKnown', isTrue)),
+      );
+    });
+
+    test('ABORTED finalize with the not-retained hint is known, not retryable',
+        () async {
+      await expectLater(
+        client.finalizeUpload('partial-final', {'0xq1': '0xtx1'}),
+        throwsA(isA<PartialUploadError>()
+            .having((e) => e.chunksFailed, 'chunksFailed', 12)
+            .having((e) => e.retryable, 'retryable', isFalse)
+            .having((e) => e.retentionKnown, 'retentionKnown', isTrue)),
+      );
+    });
+
+    _countsWithoutHintMessages.forEach((uploadId, msg) {
+      test('ABORTED finalize $uploadId: counts kept, retention unknown',
+          () async {
+        // Readable counts, but the daemon's closing retention hint is
+        // missing or cut short (the review's reproducer): its answer was not
+        // read, so retention is unknown, never "nothing retained".
+        await expectLater(
+          client.finalizeUpload(uploadId, {'0xq1': '0xtx1'}),
+          throwsA(isA<PartialUploadError>()
+              .having((e) => e.message, 'message', msg)
+              .having((e) => e.chunksStored, 'chunksStored', 1)
+              .having((e) => e.chunksFailed, 'chunksFailed', 2)
+              .having((e) => e.totalChunks, 'totalChunks', 3)
+              .having((e) => e.retryable, 'retryable', isFalse)
+              .having((e) => e.retentionKnown, 'retentionKnown', isFalse)),
+        );
+      });
+    });
+
+    test('ABORTED finalize with the prefix but garbled counts -> zeros',
+        () async {
+      await expectLater(
+        client.finalizeUpload('partial-garbled', {'0xq1': '0xtx1'}),
+        throwsA(isA<PartialUploadError>()
+            .having((e) => e.chunksStored, 'chunksStored', 0)
+            .having((e) => e.chunksFailed, 'chunksFailed', 0)
+            .having((e) => e.totalChunks, 'totalChunks', 0)
+            .having((e) => e.retryable, 'retryable', isFalse)
+            .having((e) => e.retentionKnown, 'retentionKnown', isFalse)),
+      );
+    });
+
+    test('ABORTED finalize without the Partial upload prefix stays AntdError',
+        () async {
+      // An ABORTED that is not the daemon's partial-upload message keeps the
+      // generic mapping rather than being misreported as a partial upload.
+      await expectLater(
+        client.finalizeUpload('aborted-other', {'0xq1': '0xtx1'}),
+        throwsA(allOf(
+          isA<AntdError>()
+              .having((e) => e.statusCode, 'statusCode', 10)
+              .having((e) => e.message, 'message',
+                  'upload aborted: daemon shutting down'),
+          isNot(isA<PartialUploadError>()),
+        )),
+      );
+    });
+
+    test('ABORTED finalize with unparseable counts is never retryable',
+        () async {
+      // Through the real client: a count past int max used to escape
+      // _handleError as a raw FormatException. Retry requires all three
+      // counts to convert, so these read as zeros and not retryable even
+      // though the retained hint is present.
+      for (final entry in _unparseableCountMessages.entries) {
+        await expectLater(
+          client.finalizeUpload(entry.key, {'0xq1': '0xtx1'}),
+          throwsA(allOf(
+            isNot(isA<FormatException>()),
+            isA<PartialUploadError>()
+                .having((e) => e.message, 'message', entry.value)
+                .having((e) => e.chunksStored, 'chunksStored', 0)
+                .having((e) => e.chunksFailed, 'chunksFailed', 0)
+                .having((e) => e.totalChunks, 'totalChunks', 0)
+                .having((e) => e.retryable, 'retryable', isFalse)
+                .having((e) => e.retentionKnown, 'retentionKnown', isFalse),
+          )),
+          reason: entry.key,
+        );
+      }
+    });
+
+    test('ABORTED finalize quoting the marker further in stays AntdError',
+        () async {
+      // The gate is anchored: only a message that starts with
+      // "Partial upload:" is a partial upload. One that embeds the marker
+      // after other text keeps the generic mapping instead of surfacing as
+      // a PartialUploadError with made-up counts or retryable set.
+      const cases = {
+        'aborted-embedded':
+            'upstream error: Partial upload: 1/3 chunks stored, 2 failed',
+        'aborted-wrapped': 'wrapped (Partial upload: 0/1 chunks stored, '
+            '1 failed; paid attempt retained)',
+      };
+      for (final entry in cases.entries) {
+        await expectLater(
+          client.finalizeUpload(entry.key, {'0xq1': '0xtx1'}),
+          throwsA(allOf(
+            isA<AntdError>()
+                .having((e) => e.statusCode, 'statusCode', 10)
+                .having((e) => e.message, 'message', entry.value),
+            isNot(isA<PartialUploadError>()),
+          )),
+          reason: entry.key,
+        );
+      }
+    });
   });
 
   group('External signer (V2-284) — prepare/finalize chunks', () {
@@ -189,6 +315,31 @@ class _MockChunkService extends chunks_pb.ChunkServiceBase {
   }
 }
 
+/// ABORTED partial-upload messages, each with the retained hint, whose
+/// counts cannot all be converted (one past the VM's int max, in each
+/// position) or do not match the pattern at all. None may surface as
+/// retryable, and none may escape as a FormatException.
+const _unparseableCountMessages = {
+  'partial-overflow-stored': 'Partial upload: 9223372036854775808/312 chunks '
+      'stored, 12 failed after retries: quorum (paid attempt retained)',
+  'partial-overflow-total': 'Partial upload: 300/9223372036854775808 chunks '
+      'stored, 12 failed after retries: quorum (paid attempt retained)',
+  'partial-overflow-failed': 'Partial upload: 300/312 chunks stored, '
+      '9223372036854775808 failed after retries: quorum (paid attempt '
+      'retained)',
+  'partial-garbled-retained':
+      'Partial upload: counts unavailable (paid attempt retained)',
+};
+
+/// ABORTED partial-upload messages whose counts read (1 stored, 2 failed, 3
+/// total) but whose closing retention hint is missing or cut short.
+const _countsWithoutHintMessages = {
+  'partial-no-hint':
+      'Partial upload: 1/3 chunks stored, 2 failed after retries: quorum',
+  'partial-truncated-hint': 'Partial upload: 1/3 chunks stored, 2 failed '
+      'after retries: quorum (paid attempt retai',
+};
+
 /// Mock UploadService with the V2-284 RPCs.
 class _MockUploadService extends upload_pb.UploadServiceBase {
   @override
@@ -250,6 +401,44 @@ class _MockUploadService extends upload_pb.UploadServiceBase {
   @override
   Future<upload_msg.FinalizeUploadResponse> finalizeUpload(
       ServiceCall call, upload_msg.FinalizeUploadRequest request) async {
+    // PARTIAL_UPLOAD arrives as ABORTED with the counts and the retained
+    // hint in the message text (no structured detail on the proto yet).
+    if (request.uploadId == 'partial') {
+      throw GrpcError.aborted(
+          'Partial upload: 300/312 chunks stored, 12 failed after retries: '
+          'quorum (paid attempt retained: call finalize again with the same '
+          'upload_id to store the remainder against the same payment)');
+    }
+    if (request.uploadId == 'partial-final') {
+      throw GrpcError.aborted(
+          'Partial upload: 300/312 chunks stored, 12 failed after retries: '
+          'quorum (stored chunks persist; re-prepare the same content to '
+          'retry only the remainder)');
+    }
+    if (request.uploadId == 'partial-garbled') {
+      throw GrpcError.aborted('Partial upload: counts unavailable');
+    }
+    final unparseable = _unparseableCountMessages[request.uploadId];
+    if (unparseable != null) {
+      throw GrpcError.aborted(unparseable);
+    }
+    final withoutHint = _countsWithoutHintMessages[request.uploadId];
+    if (withoutHint != null) {
+      throw GrpcError.aborted(withoutHint);
+    }
+    if (request.uploadId == 'aborted-other') {
+      throw GrpcError.aborted('upload aborted: daemon shutting down');
+    }
+    // ABORTED statuses that quote the daemon's marker after other text: not
+    // partial uploads, since the gate is anchored at the start.
+    if (request.uploadId == 'aborted-embedded') {
+      throw GrpcError.aborted(
+          'upstream error: Partial upload: 1/3 chunks stored, 2 failed');
+    }
+    if (request.uploadId == 'aborted-wrapped') {
+      throw GrpcError.aborted('wrapped (Partial upload: 0/1 chunks stored, '
+          '1 failed; paid attempt retained)');
+    }
     if (request.winnerPoolHash.isNotEmpty) {
       return upload_msg.FinalizeUploadResponse()
         ..dataMap = 'dm_merkle'

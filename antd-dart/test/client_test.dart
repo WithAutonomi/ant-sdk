@@ -147,6 +147,39 @@ MockClient errorDaemon(int statusCode, String errorMessage) {
   });
 }
 
+/// Creates a MockClient that always answers with the daemon's structured
+/// `PARTIAL_UPLOAD` body (HTTP 502). [retryable] `null` omits the flag, as an
+/// antd < 0.14.0 daemon does.
+MockClient partialUploadDaemon({bool? retryable}) {
+  return MockClient((request) async {
+    final body = <String, dynamic>{
+      'error': 'Partial upload: 300/312 chunks stored, 12 failed after retries',
+      'code': 'PARTIAL_UPLOAD',
+      'chunks_stored': 300,
+      'chunks_failed': 12,
+      'total_chunks': 312,
+    };
+    if (retryable != null) body['retryable'] = retryable;
+    return http.Response(
+      jsonEncode(body),
+      502,
+      headers: {'content-type': 'application/json'},
+    );
+  });
+}
+
+/// Creates a MockClient that always answers [statusCode] with [body]
+/// verbatim, for malformed-error-body tests.
+MockClient rawBodyDaemon(int statusCode, String body) {
+  return MockClient((request) async {
+    return http.Response(
+      body,
+      statusCode,
+      headers: {'content-type': 'application/json'},
+    );
+  });
+}
+
 void main() {
   setUp(() {
     lastRequestBodies = {};
@@ -455,6 +488,351 @@ void main() {
     });
   });
 
+  group('Partial upload (PARTIAL_UPLOAD)', () {
+    test('502 with code PARTIAL_UPLOAD carries counts and retryable', () async {
+      final client = AntdClient(httpClient: partialUploadDaemon(retryable: true));
+      expect(
+        () => client.finalizeMerkleUpload('mb1', '0xw1'),
+        throwsA(isA<PartialUploadError>()
+            .having((e) => e.statusCode, 'statusCode', 502)
+            .having((e) => e.chunksStored, 'chunksStored', 300)
+            .having((e) => e.chunksFailed, 'chunksFailed', 12)
+            .having((e) => e.totalChunks, 'totalChunks', 312)
+            .having((e) => e.retryable, 'retryable', isTrue)
+            .having((e) => e.retentionKnown, 'retentionKnown', isTrue)),
+      );
+      client.close();
+    });
+
+    test('no retryable flag in the body -> retention unknown', () async {
+      // An older daemon (< 0.14.0) never sends `retryable`. The SDK cannot
+      // tell whether the paid attempt was kept, so the error is neither
+      // retryable nor a confirmed re-prepare.
+      final client = AntdClient(httpClient: partialUploadDaemon());
+      expect(
+        () => client.finalizeUpload('u1', {'0xq': '0xt'}),
+        throwsA(isA<PartialUploadError>()
+            .having((e) => e.chunksFailed, 'chunksFailed', 12)
+            .having((e) => e.retryable, 'retryable', isFalse)
+            .having((e) => e.retentionKnown, 'retentionKnown', isFalse)),
+      );
+      client.close();
+    });
+
+    test('retentionKnown only when the body has a JSON boolean retryable',
+        () async {
+      // true / false: the daemon said whether it kept the paid attempt.
+      // Missing (every daemon before 0.14.0), null or any other type:
+      // retention unknown, and never retryable.
+      const cases = <String, List<bool>>{
+        // retryable as JSON ('' = absent): [retentionKnown, retryable]
+        'true': [true, true],
+        'false': [true, false],
+        '': [false, false],
+        'null': [false, false],
+        '"true"': [false, false],
+        '1': [false, false],
+      };
+      for (final entry in cases.entries) {
+        final [known, retryable] = entry.value;
+        final flag = entry.key.isEmpty ? '' : ',"retryable":${entry.key}';
+        final body = '{"error":"partial","code":"PARTIAL_UPLOAD",'
+            '"chunks_stored":300,"chunks_failed":12,"total_chunks":312$flag}';
+        final client = AntdClient(httpClient: rawBodyDaemon(502, body));
+        await expectLater(
+          client.finalizeUpload('u1', {'0xq': '0xt'}),
+          throwsA(isA<PartialUploadError>()
+              .having((e) => e.chunksFailed, 'chunksFailed', 12)
+              .having((e) => e.retentionKnown, 'retentionKnown', known)
+              .having((e) => e.retryable, 'retryable', retryable)),
+          reason: body,
+        );
+        client.close();
+      }
+    });
+
+    test('retryable implies retentionKnown', () {
+      expect(const PartialUploadError('x', retryable: true).retentionKnown,
+          isTrue);
+      expect(const PartialUploadError('x').retentionKnown, isFalse);
+      expect(const PartialUploadError('x', retentionKnown: true).retryable,
+          isFalse);
+    });
+
+    test('PartialUploadError is still a NetworkError', () async {
+      // Existing `on NetworkError` clauses keep catching the 502.
+      final client = AntdClient(httpClient: partialUploadDaemon(retryable: true));
+      expect(
+        () => client.finalizeChunkUpload('chunk-1', {'qh1': 'tx1'}),
+        throwsA(isA<NetworkError>()),
+      );
+      client.close();
+    });
+
+    test('stream path maps PARTIAL_UPLOAD the same way', () async {
+      final client = AntdClient(httpClient: partialUploadDaemon(retryable: true));
+      expect(
+        () => client.dataStream('dm123'),
+        throwsA(isA<PartialUploadError>()
+            .having((e) => e.retryable, 'retryable', isTrue)
+            .having((e) => e.retentionKnown, 'retentionKnown', isTrue)),
+      );
+      client.close();
+    });
+
+    test('plain 502 still maps to NetworkError', () async {
+      final client = AntdClient(httpClient: MockClient((request) async {
+        return http.Response(
+          jsonEncode({'error': 'upstream unreachable', 'code': 'NETWORK_ERROR'}),
+          502,
+          headers: {'content-type': 'application/json'},
+        );
+      }));
+      expect(
+        () => client.finalizeUpload('up1', {}),
+        throwsA(allOf(isA<NetworkError>(), isNot(isA<PartialUploadError>()))),
+      );
+      client.close();
+    });
+
+    test('502 whose code is not the string PARTIAL_UPLOAD maps by status',
+        () async {
+      // The error body is input from the network. A `code` that is an
+      // object, array, null or number, or a body that is not a JSON object
+      // at all, must fall back to the status mapping (a plain NetworkError
+      // for a 502) instead of throwing a TypeError out of the client. A
+      // non-string `error` leaves the raw body as the message.
+      const cases = <String, String>{
+        // body: expected message
+        '{"code":{}}': '{"code":{}}',
+        '{"code":[],"error":"x"}': 'x',
+        '{"code":["PARTIAL_UPLOAD"]}': '{"code":["PARTIAL_UPLOAD"]}',
+        '{"code":null,"error":"x"}': 'x',
+        '{"code":1,"error":"x"}': 'x',
+        '{"code":"NETWORK_ERROR","error":{}}':
+            '{"code":"NETWORK_ERROR","error":{}}',
+        '[]': '[]',
+        '[{"code":"PARTIAL_UPLOAD"}]': '[{"code":"PARTIAL_UPLOAD"}]',
+        '"PARTIAL_UPLOAD"': '"PARTIAL_UPLOAD"',
+      };
+      for (final entry in cases.entries) {
+        final client = AntdClient(httpClient: rawBodyDaemon(502, entry.key));
+        await expectLater(
+          client.finalizeUpload('u1', {'0xq': '0xt'}),
+          throwsA(allOf(
+            isA<NetworkError>()
+                .having((e) => e.statusCode, 'statusCode', 502)
+                .having((e) => e.message, 'message', entry.value),
+            isNot(isA<PartialUploadError>()),
+          )),
+          reason: entry.key,
+        );
+        client.close();
+      }
+    });
+
+    test('non-502 with a non-string error keeps the status mapping', () async {
+      final client =
+          AntdClient(httpClient: rawBodyDaemon(400, '{"error":{"a":1}}'));
+      await expectLater(
+        client.health(),
+        throwsA(isA<BadRequestError>()
+            .having((e) => e.message, 'message', '{"error":{"a":1}}')),
+      );
+      client.close();
+    });
+
+    test('PARTIAL_UPLOAD with mistyped fields reads them as 0 / false',
+        () async {
+      // The code is right, so it is still a PartialUploadError, but no field
+      // may throw: a count that is not a finite JSON number reads as 0, a
+      // retryable that is not the JSON boolean true reads as false, and a
+      // non-string `error` leaves the raw body as the message.
+      const bodies = [
+        '{"error":{},"code":"PARTIAL_UPLOAD","chunks_stored":[],'
+            '"chunks_failed":{},"total_chunks":"3","retryable":"true"}',
+        '{"error":["x"],"code":"PARTIAL_UPLOAD","chunks_stored":null,'
+            '"chunks_failed":true,"total_chunks":1e999,"retryable":{}}',
+        '{"code":"PARTIAL_UPLOAD","retryable":1}',
+      ];
+      for (final body in bodies) {
+        final client = AntdClient(httpClient: rawBodyDaemon(502, body));
+        await expectLater(
+          client.finalizeUpload('u1', {'0xq': '0xt'}),
+          throwsA(isA<PartialUploadError>()
+              .having((e) => e.statusCode, 'statusCode', 502)
+              .having((e) => e.chunksStored, 'chunksStored', 0)
+              .having((e) => e.chunksFailed, 'chunksFailed', 0)
+              .having((e) => e.totalChunks, 'totalChunks', 0)
+              .having((e) => e.retryable, 'retryable', isFalse)
+              .having((e) => e.retentionKnown, 'retentionKnown', isFalse)
+              .having((e) => e.message, 'message', body)),
+          reason: body,
+        );
+        client.close();
+      }
+
+      // Well-typed fields next to mistyped ones are still read.
+      const mixed = '{"error":"partial","code":"PARTIAL_UPLOAD",'
+          '"chunks_stored":300,"chunks_failed":"12","total_chunks":312.0,'
+          '"retryable":"yes"}';
+      final client = AntdClient(httpClient: rawBodyDaemon(502, mixed));
+      await expectLater(
+        client.finalizeUpload('u1', {'0xq': '0xt'}),
+        throwsA(isA<PartialUploadError>()
+            .having((e) => e.chunksStored, 'chunksStored', 300)
+            .having((e) => e.chunksFailed, 'chunksFailed', 0)
+            .having((e) => e.totalChunks, 'totalChunks', 312)
+            .having((e) => e.retryable, 'retryable', isFalse)
+            .having((e) => e.retentionKnown, 'retentionKnown', isFalse)
+            .having((e) => e.message, 'message', 'partial')),
+      );
+      client.close();
+    });
+
+    test('stream path never throws on a malformed error body', () async {
+      var client = AntdClient(httpClient: rawBodyDaemon(502, '{"code":{}}'));
+      await expectLater(
+        client.dataStream('dm123'),
+        throwsA(allOf(
+          isA<NetworkError>()
+              .having((e) => e.message, 'message', '{"code":{}}'),
+          isNot(isA<PartialUploadError>()),
+        )),
+      );
+      client.close();
+
+      const body = '{"error":{},"code":"PARTIAL_UPLOAD","chunks_failed":[],'
+          '"retryable":"true"}';
+      client = AntdClient(httpClient: rawBodyDaemon(502, body));
+      await expectLater(
+        client.dataStream('dm123'),
+        throwsA(isA<PartialUploadError>()
+            .having((e) => e.chunksFailed, 'chunksFailed', 0)
+            .having((e) => e.retryable, 'retryable', isFalse)
+            .having((e) => e.retentionKnown, 'retentionKnown', isFalse)
+            .having((e) => e.message, 'message', body)),
+      );
+      client.close();
+    });
+
+    test('fromMessage parses counts and the retention hint', () {
+      final cases = <String, List<Object>>{
+        // message: [stored, failed, total, retryable, retentionKnown]
+        'Partial upload: 300/312 chunks stored, 12 failed after retries: quorum '
+                '(paid attempt retained: call finalize again with the same '
+                'upload_id to store the remainder against the same payment)':
+            [300, 12, 312, true, true],
+        'Partial upload: 300/312 chunks stored, 12 failed after retries: quorum '
+                '(stored chunks persist; re-prepare the same content to retry '
+                'only the remainder)':
+            [300, 12, 312, false, true],
+        // Readable counts but no retention hint: retention unknown.
+        'Partial upload: 300/312 chunks stored, 12 failed after retries':
+            [300, 12, 312, false, false],
+        'something else entirely': [0, 0, 0, false, false],
+      };
+      cases.forEach((msg, want) {
+        final e = PartialUploadError.fromMessage(msg);
+        expect(e.message, equals(msg));
+        expect(e.chunksStored, equals(want[0]), reason: msg);
+        expect(e.chunksFailed, equals(want[1]), reason: msg);
+        expect(e.totalChunks, equals(want[2]), reason: msg);
+        expect(e.retryable, equals(want[3]), reason: msg);
+        expect(e.retentionKnown, equals(want[4]), reason: msg);
+      });
+    });
+
+    test('fromMessage is retryable only when all three counts parse', () {
+      // retryable needs the counts to match the pattern, all three to fit an
+      // int, and the retained hint. 9223372036854775808 is one past the VM's
+      // int max; int.parse used to throw a FormatException on it.
+      const hint = '(paid attempt retained: call finalize again with the '
+          'same upload_id to store the remainder against the same payment)';
+      const notRetained = '(stored chunks persist; re-prepare the same '
+          'content to retry only the remainder)';
+      const over = '9223372036854775808';
+      String msg(String stored, String total, String failed, String tail) =>
+          'Partial upload: $stored/$total chunks stored, $failed failed '
+          'after retries: quorum $tail';
+
+      // Overflow in each position, hint present: zeros, not retryable.
+      // Counts that do not match the pattern, hint present: the same.
+      for (final m in [
+        msg(over, '312', '12', hint),
+        msg('300', over, '12', hint),
+        msg('300', '312', over, hint),
+        'Partial upload: counts unavailable $hint',
+        // Counts quoted further in are never read: the pattern is anchored.
+        'wrapped (Partial upload: 0/1 chunks stored, 1 failed; $hint)',
+      ]) {
+        final e = PartialUploadError.fromMessage(m);
+        expect(e.message, equals(m));
+        expect(e.chunksStored, equals(0), reason: m);
+        expect(e.totalChunks, equals(0), reason: m);
+        expect(e.chunksFailed, equals(0), reason: m);
+        expect(e.retryable, isFalse, reason: m);
+        expect(e.retentionKnown, isFalse, reason: m);
+      }
+
+      // Well-formed with the hint: retryable, with its counts.
+      var e = PartialUploadError.fromMessage(msg('300', '312', '12', hint));
+      expect([e.chunksStored, e.totalChunks, e.chunksFailed], [300, 312, 12]);
+      expect(e.retryable, isTrue);
+      expect(e.retentionKnown, isTrue);
+
+      // Well-formed with the not-retained hint: counts, known, not
+      // retryable.
+      e = PartialUploadError.fromMessage(msg('300', '312', '12', notRetained));
+      expect([e.chunksStored, e.totalChunks, e.chunksFailed], [300, 312, 12]);
+      expect(e.retryable, isFalse);
+      expect(e.retentionKnown, isTrue);
+
+      // The int max itself still converts.
+      const max = '9223372036854775807';
+      e = PartialUploadError.fromMessage(msg(max, max, '0', hint));
+      expect(e.chunksStored, equals(9223372036854775807));
+      expect(e.totalChunks, equals(9223372036854775807));
+      expect(e.retryable, isTrue);
+      expect(e.retentionKnown, isTrue);
+    });
+
+    // Retention is read only from the hint that closes the message
+    // (partial_upload_hint in antd/src/error.rs), never from readable counts
+    // alone or from a hint quoted inside the failure reason.
+    _knownRetentionMessages.forEach((label, want) {
+      final (message, retryable) = want;
+      test('fromMessage: $label -> retention known', () {
+        final e = PartialUploadError.fromMessage(message);
+        expect([e.chunksStored, e.chunksFailed, e.totalChunks], [1, 2, 3],
+            reason: message);
+        expect(e.retryable, equals(retryable), reason: message);
+        expect(e.retentionKnown, isTrue, reason: message);
+      });
+    });
+
+    _unreadableRetentionMessages.forEach((label, message) {
+      test('fromMessage: $label -> counts kept, retention unknown', () {
+        // The daemon's answer was not read: unknown (stop and reconcile),
+        // never "nothing retained" (re-prepare). The counts still read.
+        final e = PartialUploadError.fromMessage(message);
+        expect([e.chunksStored, e.chunksFailed, e.totalChunks], [1, 2, 3],
+            reason: message);
+        expect(e.retryable, isFalse, reason: message);
+        expect(e.retentionKnown, isFalse, reason: message);
+      });
+    });
+
+    test('fromMessage: counts quoted after a garbled prefix are not read', () {
+      const message = 'Partial upload: garbled; was Partial upload: 1/3 '
+          'chunks stored, 2 failed (paid attempt retained)';
+      final e = PartialUploadError.fromMessage(message);
+      expect([e.chunksStored, e.chunksFailed, e.totalChunks], [0, 0, 0]);
+      expect(e.retryable, isFalse);
+      expect(e.retentionKnown, isFalse);
+    });
+  });
+
   group('Data Stream (V2-289 Phase 1)', () {
     test('dataStream streams private bytes and forwards data_map', () async {
       final harness = await _StreamMockServer.start();
@@ -735,6 +1113,44 @@ void main() {
 }
 
 /// Drains a `Stream<List<int>>` into a single byte list.
+/// Counts prefix of a well-formed gRPC PARTIAL_UPLOAD message: 1 stored,
+/// 2 failed, 3 total.
+const _counts123 = 'Partial upload: 1/3 chunks stored, 2 failed after retries';
+
+/// The daemon's two closing hints (partial_upload_hint in antd/src/error.rs).
+const _retainedHint = '(paid attempt retained: call finalize again with the '
+    'same upload_id to store the remainder against the same payment)';
+const _notRetainedHint = '(stored chunks persist; re-prepare the same content '
+    'to retry only the remainder)';
+
+/// Messages whose closing hint is readable: label -> (message, retryable).
+const _knownRetentionMessages = {
+  'retained hint': ('$_counts123: quorum $_retainedHint', true),
+  'short retained hint': ('$_counts123: quorum (paid attempt retained)', true),
+  'not-retained hint': ('$_counts123: quorum $_notRetainedHint', false),
+  'parenthesised reason before the hint':
+      ('$_counts123: quorum (2 of 5 peers) $_notRetainedHint', false),
+  'retained hint quoted in the reason':
+      ('$_counts123: peer said (paid attempt retained) $_notRetainedHint', false),
+};
+
+/// Messages with readable counts whose closing hint is missing, cut short,
+/// unrecognised or followed by more text: label -> message.
+const _unreadableRetentionMessages = {
+  'no hint': '$_counts123: quorum',
+  // The review's reproducer: the retained hint cut short.
+  'truncated retained hint': '$_counts123: quorum (paid attempt retai',
+  'unclosed retained hint':
+      '$_counts123: quorum (paid attempt retained: call finalize again',
+  'truncated not-retained hint':
+      '$_counts123: quorum (stored chunks persist; re-prepare the same con',
+  'unrecognised hint': '$_counts123: quorum (something else)',
+  'trailing text': '$_counts123: quorum $_retainedHint trailing',
+  'trailing newline': '$_counts123: quorum $_retainedHint\n',
+  'hint only in the reason':
+      '$_counts123: peer said (paid attempt retained) (connection reset)',
+};
+
 Future<List<int>> _collect(Stream<List<int>> stream) async {
   final out = <int>[];
   await for (final chunk in stream) {

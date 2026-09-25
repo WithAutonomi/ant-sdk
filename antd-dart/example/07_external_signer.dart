@@ -7,7 +7,9 @@
 //
 // See docs/external-signer-flow.md for the full reference; the IPaymentVault
 // function selector and tuple ABI are baked into the ContractAbi declaration
-// below.
+// below. Finalize goes through finalizeWithRetry (finalize_with_retry.dart),
+// which resumes a partial store against the same payment when the daemon
+// retained the paid attempt (docs/external-signer-flow.md §6).
 //
 // Requires web3dart (added as a dev_dependency).
 
@@ -17,6 +19,8 @@ import 'dart:typed_data';
 import 'package:antd_client/antd_client.dart';
 import 'package:web3dart/web3dart.dart';
 import 'package:http/http.dart' as http;
+
+import 'finalize_with_retry.dart';
 
 // Anvil deterministic account #0. Pre-funded with ETH (gas) and antToken
 // (storage payment) by `ant dev start --enable-evm` devnet genesis. Never
@@ -84,7 +88,8 @@ Future<void> main() async {
       filePrep.payments,
       credentials,
     );
-    final fileFin = await client.finalizeUpload(filePrep.uploadId, fileTxHashes);
+    final fileFin =
+        await finalizeWithRetry(client, filePrep.uploadId, fileTxHashes);
     print('File finalize: data_map_address=${fileFin.dataMapAddress}, '
         'chunks_stored=${fileFin.chunksStored}');
 

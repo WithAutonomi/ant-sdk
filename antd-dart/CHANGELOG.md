@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+- `PartialUploadError` (a `NetworkError` subclass) for a finalize that stored
+  some chunks but not all: carries `chunksStored` / `chunksFailed` /
+  `totalChunks`, `retryable` and `retentionKnown`. REST maps the daemon's 502
+  `code: "PARTIAL_UPLOAD"` body (`retentionKnown` only when the body's
+  `retryable` is a JSON boolean; daemons before 0.14.0 never send it). gRPC
+  maps status `ABORTED` whose message starts with `Partial upload:`, parsing
+  the counts from the message (`retentionKnown` only when all three counts
+  parse and the message ends with one of the daemon's two retention hints:
+  `(paid attempt retained...)` sets `retryable`, `(stored chunks persist;
+  re-prepare the same content...)` means nothing was retained; readable
+  counts with a missing, truncated or unrecognised hint keep the counts but
+  read as retention unknown; any other `ABORTED` stays a plain `AntdError`).
+  `retryable`: call the same finalize with the same `upload_id` to store the
+  remainder against the same payment.
+  `retentionKnown && !retryable`: nothing was retained, so re-prepare.
+  `!retentionKnown`: retention is unknown, so keep the `upload_id` and
+  payment artefacts and reconcile before re-preparing or paying again.
+- `example/finalize_with_retry.dart` (used by `07_external_signer.dart`):
+  `finalizeWithRetry`, a bounded retry loop around `finalizeUpload` that
+  resumes only when `retryable`, stops at once when retention is unknown,
+  stops when `chunksFailed` stops shrinking, and rethrows the
+  `PartialUploadError` unchanged whenever it gives up.
+
 ## 0.1.0
 
 Initial release on pub.dev as `antd_client`.
