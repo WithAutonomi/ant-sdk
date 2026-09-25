@@ -1120,8 +1120,8 @@ func TestPartialUploadErrorCarriesCounts(t *testing.T) {
 	if perr.ChunksStored != 300 || perr.ChunksFailed != 12 || perr.TotalChunks != 312 {
 		t.Fatalf("unexpected counts: %+v", perr)
 	}
-	if !perr.Retryable {
-		t.Fatalf("expected Retryable from the body flag, got %+v", perr)
+	if !perr.Retryable || !perr.RetentionKnown {
+		t.Fatalf("expected known retention + Retryable from the body flag, got %+v", perr)
 	}
 	if perr.StatusCode != http.StatusBadGateway {
 		t.Fatalf("expected 502, got %d", perr.StatusCode)
@@ -1129,9 +1129,10 @@ func TestPartialUploadErrorCarriesCounts(t *testing.T) {
 }
 
 func TestPartialUploadErrorRetryableDefaultsFalse(t *testing.T) {
-	// An older daemon (< 0.14.0) never sends `retryable`; the flag must read
-	// false so callers fall back to the re-prepare path rather than looping
-	// on an upload_id the daemon has already dropped.
+	// An older daemon (< 0.14.0) never sends `retryable`. Retryable must
+	// read false (no same-payment retry loop) and RetentionKnown false: the
+	// SDK cannot tell whether the paid attempt was kept, so callers stop and
+	// reconcile rather than re-prepare and pay again.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
@@ -1151,8 +1152,8 @@ func TestPartialUploadErrorRetryableDefaultsFalse(t *testing.T) {
 	if !errors.As(err, &perr) {
 		t.Fatalf("expected *PartialUploadError, got %T: %v", err, err)
 	}
-	if perr.Retryable {
-		t.Fatalf("Retryable must default to false without the body flag: %+v", perr)
+	if perr.Retryable || perr.RetentionKnown {
+		t.Fatalf("a missing flag must read as unknown retention, not retryable: %+v", perr)
 	}
 }
 
@@ -1160,30 +1161,31 @@ func TestParsePartialUploadMessage(t *testing.T) {
 	cases := []struct {
 		msg                   string
 		stored, failed, total uint64
-		retryable             bool
+		retryable, known      bool
 	}{
-		{"Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)", 300, 12, 312, true},
-		{"Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (stored chunks persist; re-prepare the same content to retry only the remainder)", 300, 12, 312, false},
-		{"Partial upload: 300/312 chunks stored, 12 failed after retries", 300, 12, 312, false},
-		{"something else entirely", 0, 0, 0, false},
-		// The counts gate the retry: an overflow in any position voids the
-		// counts AND the hint (ParseUint's MaxUint64-on-overflow must not
-		// leak through).
-		{"Partial upload: 18446744073709551616/312 chunks stored, 12 failed after retries (paid attempt retained)", 0, 0, 0, false},
-		{"Partial upload: 300/18446744073709551616 chunks stored, 12 failed after retries (paid attempt retained)", 0, 0, 0, false},
-		{"Partial upload: 300/312 chunks stored, 18446744073709551616 failed after retries (paid attempt retained)", 0, 0, 0, false},
+		{"Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)", 300, 12, 312, true, true},
+		{"Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (stored chunks persist; re-prepare the same content to retry only the remainder)", 300, 12, 312, false, true},
+		{"Partial upload: 300/312 chunks stored, 12 failed after retries", 300, 12, 312, false, true},
+		{"something else entirely", 0, 0, 0, false, false},
+		// The counts gate retention: an overflow in any position voids the
+		// counts and both flags, hint or not (ParseUint's
+		// MaxUint64-on-overflow must not leak through).
+		{"Partial upload: 18446744073709551616/312 chunks stored, 12 failed after retries (paid attempt retained)", 0, 0, 0, false, false},
+		{"Partial upload: 300/18446744073709551616 chunks stored, 12 failed after retries (paid attempt retained)", 0, 0, 0, false, false},
+		{"Partial upload: 300/312 chunks stored, 18446744073709551616 failed after retries (paid attempt retained)", 0, 0, 0, false, false},
 		// The uint64 boundary itself still parses.
-		{"Partial upload: 18446744073709551615/18446744073709551615 chunks stored, 0 failed (paid attempt retained)", math.MaxUint64, 0, math.MaxUint64, true},
-		// A pattern miss with the hint: no counts, so no retry.
-		{"Partial upload: chunks missing (paid attempt retained: call finalize again)", 0, 0, 0, false},
-		{"Partial upload: -1/312 chunks stored, 12 failed (paid attempt retained)", 0, 0, 0, false},
+		{"Partial upload: 18446744073709551615/18446744073709551615 chunks stored, 0 failed (paid attempt retained)", math.MaxUint64, 0, math.MaxUint64, true, true},
+		// A pattern miss with the hint: retention unknown, no retry.
+		{"Partial upload: chunks missing (paid attempt retained: call finalize again)", 0, 0, 0, false, false},
+		{"Partial upload: -1/312 chunks stored, 12 failed (paid attempt retained)", 0, 0, 0, false, false},
 		// The pattern is anchored: embedded text does not match.
-		{"upstream error: Partial upload: 1/3 chunks stored, 2 failed (paid attempt retained)", 0, 0, 0, false},
+		{"upstream error: Partial upload: 1/3 chunks stored, 2 failed (paid attempt retained)", 0, 0, 0, false, false},
 	}
 	for _, tc := range cases {
-		stored, failed, total, retryable := parsePartialUploadMessage(tc.msg)
-		if stored != tc.stored || failed != tc.failed || total != tc.total || retryable != tc.retryable {
-			t.Errorf("%q: got (%d,%d,%d,%v), want (%d,%d,%d,%v)", tc.msg, stored, failed, total, retryable, tc.stored, tc.failed, tc.total, tc.retryable)
+		stored, failed, total, retryable, known := parsePartialUploadMessage(tc.msg)
+		if stored != tc.stored || failed != tc.failed || total != tc.total || retryable != tc.retryable || known != tc.known {
+			t.Errorf("%q: got (%d,%d,%d,retryable=%v,known=%v), want (%d,%d,%d,retryable=%v,known=%v)",
+				tc.msg, stored, failed, total, retryable, known, tc.stored, tc.failed, tc.total, tc.retryable, tc.known)
 		}
 	}
 }
@@ -1342,8 +1344,8 @@ func TestPartialUploadMalformedCountReadsZero(t *testing.T) {
 				if got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
 					t.Fatalf("counts (stored, failed, total) = %v, want %v", got, want)
 				}
-				if !perr.Retryable {
-					t.Fatalf("a malformed count must not change the body's retryable flag: %+v", perr)
+				if !perr.Retryable || !perr.RetentionKnown {
+					t.Fatalf("a malformed count must not change the body's retention flags: %+v", perr)
 				}
 			})
 		}
@@ -1376,24 +1378,34 @@ func TestPartialUploadCountRange(t *testing.T) {
 	}
 }
 
-func TestPartialUploadRetryableMustBeJSONTrue(t *testing.T) {
+func TestPartialUploadRetentionFromRetryableField(t *testing.T) {
+	// RetentionKnown is set only when the body's retryable is present and a
+	// JSON bool, whose value then sets Retryable. Missing, null or any other
+	// type reads as unknown retention, and never as retryable.
 	cases := []struct {
-		raw  string
-		want bool
+		name             string
+		raw              string // "" omits the field
+		retryable, known bool
 	}{
-		{`true`, true},
-		{`false`, false},
-		{`"true"`, false},
-		{`1`, false},
-		{`null`, false},
-		{`{}`, false},
-		{`[true]`, false},
+		{"true", `true`, true, true},
+		{"false", `false`, false, true},
+		{"missing", ``, false, false},
+		{"null", `null`, false, false},
+		{"string", `"true"`, false, false},
+		{"number", `1`, false, false},
+		{"object", `{}`, false, false},
+		{"array", `[true]`, false, false},
 	}
 	for _, tc := range cases {
-		t.Run(tc.raw, func(t *testing.T) {
-			perr := finalizePartial(t, partialBodyJSON("300", "12", "312", tc.raw))
-			if perr.Retryable != tc.want {
-				t.Fatalf("retryable %s: got %v, want %v", tc.raw, perr.Retryable, tc.want)
+		t.Run(tc.name, func(t *testing.T) {
+			body := `{"error":"Partial upload: 300/312 chunks stored, 12 failed","code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":12,"total_chunks":312}`
+			if tc.raw != "" {
+				body = partialBodyJSON("300", "12", "312", tc.raw)
+			}
+			perr := finalizePartial(t, body)
+			if perr.Retryable != tc.retryable || perr.RetentionKnown != tc.known {
+				t.Fatalf("retryable %s: got (retryable=%v, known=%v), want (%v, %v)",
+					tc.name, perr.Retryable, perr.RetentionKnown, tc.retryable, tc.known)
 			}
 			if perr.ChunksStored != 300 || perr.ChunksFailed != 12 || perr.TotalChunks != 312 {
 				t.Fatalf("counts must be unaffected by the flag: %+v", perr)
@@ -1430,7 +1442,7 @@ func TestPartialUploadNonStringErrorKeepsRawBody(t *testing.T) {
 	if perr.Message != body {
 		t.Fatalf("expected the raw body as the message, got %q", perr.Message)
 	}
-	if perr.ChunksStored != 1 || perr.ChunksFailed != 2 || perr.TotalChunks != 3 || !perr.Retryable {
+	if perr.ChunksStored != 1 || perr.ChunksFailed != 2 || perr.TotalChunks != 3 || !perr.Retryable || !perr.RetentionKnown {
 		t.Fatalf("typed fields must still decode: %+v", perr)
 	}
 
@@ -1479,7 +1491,7 @@ func TestStreamErrorSharesStrictDecoding(t *testing.T) {
 	if !errors.As(err, &perr) {
 		t.Fatalf("expected *PartialUploadError, got %T: %v", err, err)
 	}
-	if perr.ChunksStored != math.MaxUint64 || perr.ChunksFailed != 0 || perr.TotalChunks != math.MaxUint64 || !perr.Retryable {
+	if perr.ChunksStored != math.MaxUint64 || perr.ChunksFailed != 0 || perr.TotalChunks != math.MaxUint64 || !perr.Retryable || !perr.RetentionKnown {
 		t.Fatalf("unexpected fields: %+v", perr)
 	}
 }

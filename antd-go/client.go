@@ -879,6 +879,10 @@ func (c *Client) PrepareDataUpload(ctx context.Context, data []byte) (*PrepareUp
 // attempt under the same uploadID: call FinalizeUpload again with the same
 // arguments to store the remainder against the same payment — no
 // re-prepare, no second payment. Bound that loop (see PartialUploadError).
+// Re-prepare only when RetentionKnown is true and Retryable false (the
+// daemon confirmed nothing was retained). RetentionKnown == false means
+// retention is unknown (for example a daemon older than 0.14.0): stop, keep
+// uploadID and txHashes, and reconcile before re-preparing or paying again.
 func (c *Client) FinalizeUpload(ctx context.Context, uploadID string, txHashes map[string]string, storeDataMap bool) (*FinalizeUploadResult, error) {
 	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/upload/finalize", map[string]any{
 		"upload_id":      uploadID,
@@ -924,12 +928,15 @@ func (c *Client) FinalizeMerkleUpload(ctx context.Context, uploadID string, winn
 // prepare result's MerkleBatches: entry i is the MerklePaymentMade winner
 // hash of batch i's payForMerkleTree2 transaction, or "" for a batch the
 // signer never paid. Paid batches store; the chunks of unpaid batches
-// surface via *PartialUploadError with Retryable == false (nothing is
-// retained for a partially paid upload), and re-preparing the same content
-// skips already-stored chunks so a retry pays only for the missing
-// remainder. When every batch is paid, a post-payment storage shortfall is
-// instead Retryable == true: call this method again with the same
-// arguments to store the remainder against the same payment.
+// surface via *PartialUploadError with RetentionKnown == true and
+// Retryable == false (the daemon confirms nothing is retained for a
+// partially paid upload), and re-preparing the same content skips
+// already-stored chunks so a retry pays only for the missing remainder.
+// When every batch is paid, a post-payment storage shortfall is instead
+// Retryable == true: call this method again with the same arguments to
+// store the remainder against the same payment. RetentionKnown == false
+// means retention is unknown: stop and reconcile before re-preparing or
+// paying again (see PartialUploadError).
 func (c *Client) FinalizeMerkleUploadMulti(ctx context.Context, uploadID string, winnerPoolHashes []string, storeDataMap bool) (*FinalizeUploadResult, error) {
 	j, _, err := c.doJSON(ctx, http.MethodPost, "/v1/upload/finalize", map[string]any{
 		"upload_id":          uploadID,

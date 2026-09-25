@@ -1400,16 +1400,16 @@ func TestGrpcPartialUploadMapsToPartialUploadError(t *testing.T) {
 	if perr.ChunksStored != 300 || perr.ChunksFailed != 12 || perr.TotalChunks != 312 {
 		t.Fatalf("unexpected counts parsed from message: %+v", perr)
 	}
-	if !perr.Retryable {
-		t.Fatalf("expected Retryable from the retained hint: %+v", perr)
+	if !perr.Retryable || !perr.RetentionKnown {
+		t.Fatalf("expected known retention + Retryable from the retained hint: %+v", perr)
 	}
 
 	_, err = c.FinalizeMerkleUploadMulti(context.Background(), "partial-final", []string{"0xw1"}, false)
 	if !errors.As(err, &perr) {
 		t.Fatalf("expected *PartialUploadError, got %T: %v", err, err)
 	}
-	if perr.Retryable {
-		t.Fatalf("no retained hint must read as not retryable: %+v", perr)
+	if perr.Retryable || !perr.RetentionKnown {
+		t.Fatalf("well-formed counts without the retained hint: retention known, not retryable: %+v", perr)
 	}
 
 	// An ABORTED without the daemon's "Partial upload:" prefix is not a
@@ -1493,16 +1493,16 @@ func TestErrorFromGrpcPartialUploadContract(t *testing.T) {
 		msg                   string
 		partial               bool
 		stored, failed, total uint64
-		retryable             bool
+		retryable, known      bool
 	}{
-		{"well-formed with hint", "Partial upload: 300/312 chunks stored, 12 failed" + hint, true, 300, 12, 312, true},
-		{"well-formed without hint", "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum", true, 300, 12, 312, false},
-		{"stored overflow with hint", "Partial upload: " + over + "/312 chunks stored, 12 failed" + hint, true, 0, 0, 0, false},
-		{"total overflow with hint", "Partial upload: 300/" + over + " chunks stored, 12 failed" + hint, true, 0, 0, 0, false},
-		{"failed overflow with hint", "Partial upload: 300/312 chunks stored, " + over + " failed" + hint, true, 0, 0, 0, false},
-		{"pattern miss with hint", "Partial upload: chunks missing" + hint, true, 0, 0, 0, false},
-		{"embedded marker", "upstream error: Partial upload: 1/3 chunks stored, 2 failed", false, 0, 0, 0, false},
-		{"embedded marker with hint", "upstream error: Partial upload: 1/3 chunks stored, 2 failed" + hint, false, 0, 0, 0, false},
+		{"well-formed with hint", "Partial upload: 300/312 chunks stored, 12 failed" + hint, true, 300, 12, 312, true, true},
+		{"well-formed without hint", "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum", true, 300, 12, 312, false, true},
+		{"stored overflow with hint", "Partial upload: " + over + "/312 chunks stored, 12 failed" + hint, true, 0, 0, 0, false, false},
+		{"total overflow with hint", "Partial upload: 300/" + over + " chunks stored, 12 failed" + hint, true, 0, 0, 0, false, false},
+		{"failed overflow with hint", "Partial upload: 300/312 chunks stored, " + over + " failed" + hint, true, 0, 0, 0, false, false},
+		{"pattern miss with hint", "Partial upload: chunks missing" + hint, true, 0, 0, 0, false, false},
+		{"embedded marker", "upstream error: Partial upload: 1/3 chunks stored, 2 failed", false, 0, 0, 0, false, false},
+		{"embedded marker with hint", "upstream error: Partial upload: 1/3 chunks stored, 2 failed" + hint, false, 0, 0, 0, false, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1524,10 +1524,11 @@ func TestErrorFromGrpcPartialUploadContract(t *testing.T) {
 			if perr.StatusCode != 502 || perr.Message != tc.msg {
 				t.Fatalf("unexpected status/message: %+v", perr)
 			}
-			if perr.ChunksStored != tc.stored || perr.ChunksFailed != tc.failed || perr.TotalChunks != tc.total || perr.Retryable != tc.retryable {
-				t.Fatalf("got (%d, %d, %d, %v), want (%d, %d, %d, %v)",
-					perr.ChunksStored, perr.ChunksFailed, perr.TotalChunks, perr.Retryable,
-					tc.stored, tc.failed, tc.total, tc.retryable)
+			if perr.ChunksStored != tc.stored || perr.ChunksFailed != tc.failed || perr.TotalChunks != tc.total ||
+				perr.Retryable != tc.retryable || perr.RetentionKnown != tc.known {
+				t.Fatalf("got (%d, %d, %d, retryable=%v, known=%v), want (%d, %d, %d, retryable=%v, known=%v)",
+					perr.ChunksStored, perr.ChunksFailed, perr.TotalChunks, perr.Retryable, perr.RetentionKnown,
+					tc.stored, tc.failed, tc.total, tc.retryable, tc.known)
 			}
 		})
 	}

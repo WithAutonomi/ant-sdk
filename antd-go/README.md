@@ -140,7 +140,15 @@ Two-phase upload — daemon prepares the payment intent, caller signs + submits 
 | `FinalizeMerkleUploadMulti(ctx, uploadID, winnerPoolHashes, storeDataMap)` | Submit a merkle upload paid in one or more batches (antd ≥ 0.12.0) — one winner hash per `MerkleBatches` entry, `""` for an unpaid batch |
 | `FinalizeChunkUpload(ctx, uploadID, txHashes)` | Submit a prepared chunk after external payment; returns the chunk address |
 
-Merkle uploads larger than one merkle tree (256 fresh chunks ≈ 1 GiB) arrive as multiple entries in `PrepareUploadResult.MerkleBatches`; pay one `payForMerkleTree2()` transaction per entry and finalize with `FinalizeMerkleUploadMulti`. A finalize where some chunks stayed unstored after the daemon's retries returns `*PartialUploadError` with `ChunksStored` / `ChunksFailed` / `TotalChunks` and a `Retryable` flag. `Retryable == true` (antd ≥ 0.14.0) means the daemon kept the paid attempt under the same `upload_id`: call the **same** finalize method again with the same arguments to store the remainder against the same payment — no re-prepare, no second signature, no double payment. Bound that loop (cap the attempts; a `ChunksFailed` that stops shrinking means stuck). `Retryable == false` — a daemon-wallet upload, a merkle finalize with deliberately unpaid batches, or an older daemon — means nothing was retained: re-preparing the same content skips stored chunks, so a retry pays only for the remainder. The fields are read conservatively: over REST a count that is not a JSON non-negative integer (≤ 2^64−1) reads as 0 and only the JSON boolean `true` sets `Retryable`; over gRPC `Retryable` is set only when all three counts parse from the status message (see [gRPC Error Mapping](#grpc-error-mapping)). See `finalizeWithRetry` in `examples/07-external-signer/main.go`.
+Merkle uploads larger than one merkle tree (256 fresh chunks ≈ 1 GiB) arrive as multiple entries in `PrepareUploadResult.MerkleBatches`; pay one `payForMerkleTree2()` transaction per entry and finalize with `FinalizeMerkleUploadMulti`.
+
+A finalize where some chunks stayed unstored after the daemon's retries returns `*PartialUploadError` with `ChunksStored` / `ChunksFailed` / `TotalChunks` and two flags, `Retryable` and `RetentionKnown` (`Retryable` implies `RetentionKnown`). `PartialUploadError` embeds `AntdError`, not `NetworkError`, so match it with `var perr *antd.PartialUploadError; errors.As(err, &perr)` — an `errors.As` check for `*antd.NetworkError` does not catch it. Recovery depends on the flags:
+
+- `Retryable` (antd ≥ 0.14.0): the daemon kept the paid attempt under the same `upload_id`. Call the **same** finalize method again with the same `upload_id` and payment artefacts to store the remainder against the same payment — no re-prepare, no second signature, no double payment. Bound that loop (cap the attempts; a `ChunksFailed` that stops shrinking means stuck).
+- `RetentionKnown && !Retryable`: the daemon confirmed nothing was retained (a daemon-wallet upload, or a merkle finalize with deliberately unpaid batches). Re-preparing the same content skips stored chunks, so a retry pays only for the remainder.
+- `!RetentionKnown`: retention is unknown. The daemon may still hold the paid attempt (it records the resume handle before returning the error), so stop automatic recovery, keep the `upload_id` and the original payment artefacts, and reconcile before re-preparing or paying again. Never pay again on this signal alone. Daemons older than 0.14.0 never send `retryable`, so their REST partial uploads read as unknown.
+
+The fields are read conservatively: over REST a count that is not a JSON non-negative integer (≤ 2^64−1) reads as 0, and `RetentionKnown` is set only when the body's `retryable` is a JSON bool (whose value then sets `Retryable`); over gRPC both flags depend on the counts parsing from the status message (see [gRPC Error Mapping](#grpc-error-mapping)). See `finalizeWithRetry` in `examples/07-external-signer/main.go`.
 
 ## gRPC Transport
 
@@ -245,7 +253,7 @@ gRPC status codes are mapped to the same typed errors as the REST client:
 | `Aborted` (message starts with `Partial upload:`) | `PartialUploadError` |
 | `Aborted` (any other message) | `AntdError` |
 
-A partial upload's counts are parsed from the status message (`Partial upload: <stored>/<total> chunks stored, <failed> failed ...`). `Retryable` is true only when that pattern matched, all three counts fit a `uint64`, and the daemon's `paid attempt retained` hint is present; otherwise the counts read 0 and `Retryable` is false, so a malformed message falls back to the re-prepare path.
+A partial upload's counts are parsed from the status message (`Partial upload: <stored>/<total> chunks stored, <failed> failed ...`). `RetentionKnown` is true only when that pattern matched and all three counts fit a `uint64`; `Retryable` is then true only when the daemon's `paid attempt retained` hint is present. Otherwise the counts read 0 and both flags are false: retention is unknown, so stop and reconcile rather than re-prepare.
 
 ## Error Handling
 
