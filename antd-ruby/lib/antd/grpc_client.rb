@@ -584,10 +584,13 @@ module Antd
       # quotes the marker further in -- keeps the generic mapping instead of
       # masquerading as a partial upload with zero counts. Gate and parse on
       # +e.details+ (the message as the daemon sent it), not +e.message+,
-      # which grpc-ruby decorates as "10:<details>". The counts and the "paid
-      # attempt retained" hint ride that text over gRPC (no structured detail
-      # yet), so parse them best-effort to match the REST client's typed
-      # error. The raised message stays +e.message+, like every other branch.
+      # which grpc-ruby decorates as "10:<details>". The counts and the
+      # daemon's closing retention hint ride that text over gRPC (no
+      # structured detail yet), so parse them best-effort to match the REST
+      # client's typed error: retention is known only when the counts parse
+      # and the text ends with one of the daemon's two hints (see
+      # Antd.parse_partial_upload_message). The raised message stays
+      # +e.message+, like every other branch.
       raise AntdError.new(e.message, status_code: e.code) unless Antd.partial_upload_message?(e.details)
 
       raise PartialUploadError.new(e.message, **Antd.parse_partial_upload_message(e.details))

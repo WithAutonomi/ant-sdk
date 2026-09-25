@@ -135,10 +135,11 @@ end
 #   untouched; the recovery is to re-prepare the same content, which skips
 #   the chunks already stored.
 # - not +retention_known+: the error did not say whether the paid attempt
-#   was kept (a daemon older than 0.14.0, or a response the SDK could not
-#   read), and the daemon may still hold it. The helper stops without
-#   retrying, re-preparing or paying: keep the upload_id and tx hashes and
-#   reconcile before doing either.
+#   was kept (a REST response from a daemon older than 0.14.0, or an error
+#   the SDK could not fully read, such as a gRPC message without a readable
+#   closing hint), and the daemon may still hold it. The helper stops
+#   without retrying, re-preparing or paying: keep the upload_id and tx
+#   hashes and reconcile before doing either.
 #
 # The helper never prepares or pays; it only repeats the same finalize call.
 # An interruption during the backoff (Ctrl-C, say) is re-raised as is, after

@@ -89,11 +89,17 @@ module Antd
   # count of the wrong JSON type reads as 0, and +retention_known+ is true
   # only when the body's +retryable+ is a JSON boolean. Over gRPC they are
   # parsed best-effort from the status details ("Partial upload: S/T chunks
-  # stored, F failed ...", with a "paid attempt retained" hint when
-  # retryable); only an ABORTED whose details start with "Partial upload:" is
-  # a partial upload. +retention_known+ is true there only when all three
-  # counts parse, and the hint then decides +retryable+; counts that do not
-  # parse leave all three zero and both flags false.
+  # stored, F failed after retries: <reason> (<hint>)"); only an ABORTED
+  # whose details start with "Partial upload:" is a partial upload.
+  # +retention_known+ is true there only when the details start with the
+  # counts, all three parse, and the details end with one of the daemon's two
+  # hints: "(paid attempt retained...)" sets +retryable+, and "(stored chunks
+  # persist; re-prepare the same content...)" means the daemon confirmed
+  # nothing was retained (daemons older than 0.14.0 write only this one).
+  # Counts that do not parse leave all three zero and both flags false.
+  # Readable counts with a missing, truncated or unrecognised hint keep the
+  # counts, but both flags stay false: retention unknown, not "nothing
+  # retained".
   #
   # Subclasses +NetworkError+ because the daemon reports it as a 502: existing
   # +rescue Antd::NetworkError+ blocks keep catching it, and +status_code+ is
@@ -131,11 +137,27 @@ module Antd
 
   # Fixed prefix of the daemon's PARTIAL_UPLOAD message:
   # "Partial upload: <stored>/<total> chunks stored, <failed> failed".
-  PARTIAL_UPLOAD_COUNTS = %r{Partial upload: (\d+)/(\d+) chunks stored, (\d+) failed}
+  # Anchored with +\A+ (start of input; +^+ would also match after a
+  # newline), so counts quoted later in a garbled message are never read.
+  PARTIAL_UPLOAD_COUNTS = %r{\APartial upload: (\d+)/(\d+) chunks stored, (\d+) failed}
 
-  # Message tail the daemon appends when it kept the paid attempt for a
-  # same-upload_id retry.
+  # The daemon closes every PARTIAL_UPLOAD message with one of two
+  # parenthesised hints (partial_upload_hint in antd/src/error.rs). This one
+  # opens the hint when it kept the paid attempt for a same-upload_id retry.
   PARTIAL_UPLOAD_RETAINED_HINT = "paid attempt retained"
+
+  # This one opens the hint when it did not. Daemons older than 0.14.0 write
+  # only this one.
+  PARTIAL_UPLOAD_NOT_RETAINED_HINT = "stored chunks persist; re-prepare the same content"
+  private_constant :PARTIAL_UPLOAD_NOT_RETAINED_HINT
+
+  # The hint that closes the message: "(<hint>...)" at the very end. +\z+ is
+  # the end of the input; Ruby's +$+ is the end of a LINE and +\Z+ allows a
+  # trailing newline. A hint quoted inside the failure reason, a truncated
+  # or unclosed tail, or any text after the hint does not match.
+  PARTIAL_UPLOAD_RETENTION_TAIL =
+    /\((#{Regexp.union(PARTIAL_UPLOAD_RETAINED_HINT, PARTIAL_UPLOAD_NOT_RETAINED_HINT).source})[^()]*\)\z/
+  private_constant :PARTIAL_UPLOAD_RETENTION_TAIL
 
   # Largest count the daemon can send (its counts are u64). Ruby integers are
   # unbounded, so a larger digit run is treated as a failed conversion.
@@ -159,17 +181,23 @@ module Antd
     details.to_s.start_with?(PARTIAL_UPLOAD_PREFIX)
   end
 
-  # Recovers the chunk counts and the retryable hint from a PARTIAL_UPLOAD
+  # Recovers the chunk counts and the retention flags from a PARTIAL_UPLOAD
   # message (over gRPC, the status details). Used for gRPC, where the status
   # carries no structured detail; REST callers get the body fields instead.
   #
   # Conservative: +retention_known+ is true only when the message starts
-  # with "Partial upload:", the counts pattern matched and all three counts
-  # converted (each at most u64::MAX, the daemon's count type). The
-  # "paid attempt retained" hint then decides +retryable+. On a prefix or
-  # pattern miss, or a count out of range, all three counts are 0 and both
-  # flags are false: a message the parser cannot fully read never selects
-  # the same-upload_id retry, and never reads as confirmed non-retention.
+  # with the counts pattern ("Partial upload: <stored>/<total> chunks
+  # stored, <failed> failed"), all three counts converted (each at most
+  # u64::MAX, the daemon's count type), and the message ends with one of the
+  # daemon's two hints, "(paid attempt retained...)" or "(stored chunks
+  # persist; re-prepare the same content...)"; +retryable+ is then true only
+  # for the first. On a prefix or pattern miss, or a count out of range, all
+  # three counts are 0 and both flags are false. Readable counts with a
+  # missing, truncated or unrecognised tail, or text after it, keep the
+  # counts but leave both flags false: the daemon's answer on retention was
+  # not read, so retention is unknown, never "nothing retained". A message
+  # the parser cannot fully read never selects the same-upload_id retry, and
+  # never reads as confirmed non-retention.
   #
   # @param message [String]
   # @return [Hash] +:chunks_stored+, +:chunks_failed+, +:total_chunks+,
@@ -183,12 +211,14 @@ module Antd
       return { chunks_stored: 0, chunks_failed: 0, total_chunks: 0, retryable: false, retention_known: false }
     end
 
+    # Only the hint that closes the message is the daemon's answer.
+    tail = PARTIAL_UPLOAD_RETENTION_TAIL.match(text)
     {
       chunks_stored: stored,
       chunks_failed: failed,
       total_chunks: total,
-      retryable: text.include?(PARTIAL_UPLOAD_RETAINED_HINT),
-      retention_known: true
+      retryable: !tail.nil? && tail[1] == PARTIAL_UPLOAD_RETAINED_HINT,
+      retention_known: !tail.nil?
     }
   end
 

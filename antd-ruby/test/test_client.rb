@@ -770,9 +770,10 @@ class TestClient < Minitest::Test
     cases = {
       # Well-formed with the hint: known and retryable.
       PARTIAL_RETAINED_MSG => [300, 12, 312, true, true],
-      # Well-formed without the hint: known, confirmed not retained.
+      # Well-formed with the not-retained hint: known, confirmed not retained.
       PARTIAL_REPREPARE_MSG => [300, 12, 312, false, true],
-      "Partial upload: 300/312 chunks stored, 12 failed after retries" => [300, 12, 312, false, true],
+      # Readable counts but no retention hint: the counts read, retention is unknown.
+      "Partial upload: 300/312 chunks stored, 12 failed after retries" => [300, 12, 312, false, false],
       "something else entirely" => [0, 0, 0, false, false],
       # Pattern miss with the hint: unknown, and never retryable.
       "Partial upload: counts unreadable (#{RETAINED})" => [0, 0, 0, false, false],
@@ -807,6 +808,68 @@ class TestClient < Minitest::Test
       assert_equal({ chunks_stored: 0, chunks_failed: 0, total_chunks: 0, retryable: false,
                      retention_known: false },
                    Antd.parse_partial_upload_message(msg), msg)
+    end
+  end
+
+  # The daemon's two closing hints (partial_upload_hint in antd/src/error.rs).
+  RETAINED_TAIL = " (paid attempt retained: call finalize again with the same upload_id " \
+                  "to store the remainder against the same payment)"
+  NOT_RETAINED_TAIL = " (stored chunks persist; re-prepare the same content to retry only the remainder)"
+  COUNTS_1_OF_3 = "Partial upload: 1/3 chunks stored, 2 failed after retries: "
+
+  # Retention comes only from the hint that closes the message.
+  # [retryable, retention_known]
+  def test_parse_partial_upload_message_retention_comes_from_the_closing_hint
+    {
+      "quorum#{RETAINED_TAIL}" => [true, true],
+      "quorum (paid attempt retained)" => [true, true],
+      "quorum#{NOT_RETAINED_TAIL}" => [false, true],
+      # A parenthesised reason before the real hint does not hide it.
+      "quorum (2 of 5 peers)#{NOT_RETAINED_TAIL}" => [false, true],
+      # The retained hint quoted in the reason is not the daemon's answer;
+      # the not-retained tail is.
+      "peer said (paid attempt retained)#{NOT_RETAINED_TAIL}" => [false, true]
+    }.each do |rest, (retryable, known)|
+      msg = COUNTS_1_OF_3 + rest
+      assert_equal({ chunks_stored: 1, chunks_failed: 2, total_chunks: 3, retryable: retryable,
+                     retention_known: known },
+                   Antd.parse_partial_upload_message(msg), msg)
+    end
+  end
+
+  # Readable counts without a readable closing hint: the daemon's answer on
+  # retention was not read, so it is unknown (stop and reconcile), never
+  # "nothing retained" (re-prepare). The counts still read.
+  def test_parse_partial_upload_message_without_a_readable_hint_is_unknown
+    [
+      "quorum", # no hint
+      "quorum (paid attempt retai", # the review's reproducer: the retained hint cut short
+      "quorum (paid attempt retained: call finalize again", # the retained hint, unclosed
+      "quorum (stored chunks persist; re-prepare the same con", # the not-retained hint cut short
+      "quorum (something else)", # an unrecognised hint
+      "quorum#{RETAINED_TAIL} trailing", # text after the hint
+      "quorum#{RETAINED_TAIL}\n", # a newline after the hint: \z, not $
+      "quorum#{NOT_RETAINED_TAIL}\n",
+      "peer said (paid attempt retained) (connection reset)" # the hint only in the reason
+    ].each do |rest|
+      msg = COUNTS_1_OF_3 + rest
+      assert_equal({ chunks_stored: 1, chunks_failed: 2, total_chunks: 3, retryable: false,
+                     retention_known: false },
+                   Antd.parse_partial_upload_message(msg), msg.inspect)
+    end
+  end
+
+  # The counts pattern is anchored at the start of the message (\A, not ^):
+  # counts quoted later in a garbled message, on the same line or after a
+  # newline, are never read.
+  def test_parse_partial_upload_message_counts_are_anchored
+    [
+      "Partial upload: garbled; was Partial upload: 1/3 chunks stored, 2 failed (paid attempt retained)",
+      "Partial upload: garbled\nPartial upload: 1/3 chunks stored, 2 failed (paid attempt retained)"
+    ].each do |msg|
+      assert_equal({ chunks_stored: 0, chunks_failed: 0, total_chunks: 0, retryable: false,
+                     retention_known: false },
+                   Antd.parse_partial_upload_message(msg), msg.inspect)
     end
   end
 

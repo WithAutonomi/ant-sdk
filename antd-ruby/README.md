@@ -216,11 +216,17 @@ on what the daemon said about the paid attempt:
 Over REST, `retention_known` is true only when the body's `retryable` is a
 JSON boolean (`true` or `false`); absent, `null` or any other type reads as
 unknown. Over gRPC there is no structured body, so the counts and flags are
-parsed from the status text: `retention_known` is true only when the text
-starts with `Partial upload:` and all three counts parse (each within the
-daemon's u64 range), and the `paid attempt retained` hint then decides
-`retryable`. If the counts cannot be read, all three are `0` and both flags
-are `false`.
+parsed from the status text,
+`Partial upload: <stored>/<total> chunks stored, <failed> failed after retries: <reason> (<hint>)`.
+`retention_known` is true only when the text starts with that counts
+pattern, all three counts parse (each within the daemon's u64 range), and the
+text ends with one of the daemon's two hints: `(paid attempt retained...)`
+sets `retryable`, and `(stored chunks persist; re-prepare the same content...)`
+means the daemon confirmed nothing was retained (daemons older than 0.14.0
+write only this one). If the counts cannot be read, all three are `0` and
+both flags are `false`. Readable counts with a missing, truncated or
+unrecognised hint keep the counts, but both flags stay `false`: retention is
+unknown, so stop and reconcile rather than re-prepare.
 
 `PartialUploadError` subclasses `NetworkError` (the 502 mapping), so existing
 `rescue Antd::NetworkError` blocks keep catching it; rescue the subclass first

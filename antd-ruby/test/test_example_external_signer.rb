@@ -7,7 +7,8 @@ require_relative "../examples/07_external_signer"
 
 # Direct tests for the example's finalize_with_retry helper against a scripted
 # client: resume with unchanged arguments, exhaustion, stalled progress,
-# confirmed vs unknown retention, and interruption.
+# confirmed vs unknown retention (including from gRPC status text), and
+# interruption.
 class TestExampleFinalizeWithRetry < Minitest::Test
   TX = { "0xq1" => "0xt1" }.freeze
   NO_WAIT = ->(_attempt) {}
@@ -133,6 +134,50 @@ class TestExampleFinalizeWithRetry < Minitest::Test
     assert_includes stderr, "upload_id u1"
     assert_includes stderr, "300/312"
     assert_includes stderr, "do not re-prepare or pay again"
+  end
+
+  GRPC_COUNTS = "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum"
+
+  # End to end from the gRPC status text: the SDK parser's flags must steer
+  # the helper to stop and reconcile, never to the caller's re-prepare path,
+  # whenever the daemon's answer on retention could not be read.
+  def test_grpc_message_without_a_readable_hint_stops_to_reconcile
+    [
+      "", # no hint
+      " (paid attempt retai", # the review's reproducer: the retained hint cut short
+      " (stored chunks persist; re-prepare the same con" # the not-retained hint cut short
+    ].each do |tail|
+      msg = GRPC_COUNTS + tail
+      unreadable = Antd::PartialUploadError.new(msg, **Antd.parse_partial_upload_message(msg))
+      client = ScriptedClient.new(unreadable, Object.new)
+      err = assert_raises(Antd::PartialUploadError, msg) do
+        finalize_with_retry(client, "u1", TX, backoff: ->(_) { flunk "must not wait" })
+      end
+
+      assert_equal 1, client.calls.length, msg
+      refute_same unreadable, err, "#{msg}: must not be re-raised as confirmed non-retention"
+      refute err.retryable, msg
+      refute err.retention_known, msg
+      assert_includes err.message, "retention of the paid attempt is unknown", msg
+      assert_includes err.message, "reconcile", msg
+      assert_equal [300, 12, 312], [err.chunks_stored, err.chunks_failed, err.total_chunks], msg
+    end
+  end
+
+  # Only the daemon's explicit not-retained hint reaches the caller's
+  # re-prepare path (the error re-raised untouched).
+  def test_grpc_message_with_the_not_retained_hint_is_confirmed_non_retention
+    msg = "#{GRPC_COUNTS} (stored chunks persist; re-prepare the same content to retry only the remainder)"
+    not_kept = Antd::PartialUploadError.new(msg, **Antd.parse_partial_upload_message(msg))
+    client = ScriptedClient.new(not_kept, Object.new)
+    err = assert_raises(Antd::PartialUploadError) do
+      finalize_with_retry(client, "u1", TX, backoff: ->(_) { flunk "must not wait" })
+    end
+
+    assert_same not_kept, err
+    assert err.retention_known
+    refute err.retryable
+    assert_equal 1, client.calls.length
   end
 
   def test_other_errors_pass_through_untouched
