@@ -148,7 +148,7 @@ A finalize where some chunks stayed unstored after the daemon's retries returns 
 - `RetentionKnown && !Retryable`: the daemon confirmed nothing was retained (a daemon-wallet upload, or a merkle finalize with deliberately unpaid batches). Re-preparing the same content skips stored chunks, so a retry pays only for the remainder.
 - `!RetentionKnown`: retention is unknown. The daemon may still hold the paid attempt (it records the resume handle before returning the error), so stop automatic recovery, keep the `upload_id` and the original payment artefacts, and reconcile before re-preparing or paying again. Never pay again on this signal alone. Daemons older than 0.14.0 never send `retryable`, so their REST partial uploads read as unknown.
 
-The fields are read conservatively: over REST a count that is not a JSON non-negative integer (≤ 2^64−1) reads as 0, and `RetentionKnown` is set only when the body's `retryable` is a JSON bool (whose value then sets `Retryable`); over gRPC both flags depend on the counts parsing from the status message (see [gRPC Error Mapping](#grpc-error-mapping)). See `finalizeWithRetry` in `examples/07-external-signer/main.go`.
+The fields are read conservatively: over REST a count that is not a JSON non-negative integer (≤ 2^64−1) reads as 0, and `RetentionKnown` is set only when the body's `retryable` is a JSON bool (whose value then sets `Retryable`); over gRPC both flags depend on the counts and the closing retention hint parsing from the status message (see [gRPC Error Mapping](#grpc-error-mapping)). See `finalizeWithRetry` in `examples/07-external-signer/main.go`.
 
 ## gRPC Transport
 
@@ -253,7 +253,7 @@ gRPC status codes are mapped to the same typed errors as the REST client:
 | `Aborted` (message starts with `Partial upload:`) | `PartialUploadError` |
 | `Aborted` (any other message) | `AntdError` |
 
-A partial upload's counts are parsed from the status message (`Partial upload: <stored>/<total> chunks stored, <failed> failed ...`). `RetentionKnown` is true only when that pattern matched and all three counts fit a `uint64`; `Retryable` is then true only when the daemon's `paid attempt retained` hint is present. Otherwise the counts read 0 and both flags are false: retention is unknown, so stop and reconcile rather than re-prepare.
+A partial upload's counts and retention are parsed from the status message (`Partial upload: <stored>/<total> chunks stored, <failed> failed after retries: <reason> (<hint>)`). `RetentionKnown` is true only when that counts pattern matched, all three counts fit a `uint64`, and the message ends with one of the daemon's two hints: `(paid attempt retained...)` sets `Retryable`, and `(stored chunks persist; re-prepare the same content...)` means the daemon confirmed nothing was retained (daemons older than 0.14.0 write only this one). A garbled or out-of-range count reads 0 and leaves both flags false. Readable counts with a missing, truncated or unrecognised hint keep the counts, but both flags stay false. In both cases retention is unknown, so stop and reconcile rather than re-prepare.
 
 ## Error Handling
 

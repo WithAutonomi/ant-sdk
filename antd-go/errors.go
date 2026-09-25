@@ -89,10 +89,13 @@ type ServiceUnavailableError struct{ AntdError }
 // message starts with the daemon's fixed "Partial upload:" prefix (any
 // other ABORTED, including one that merely embeds that text, maps to the
 // generic AntdError). The counts are then parsed from the message:
-// RetentionKnown is true only when the counts pattern matched and all three
-// counts converted, and Retryable is then set by the "paid attempt
-// retained" hint. A garbled or out-of-range count leaves the counts zero
-// and both flags false (retention unknown).
+// RetentionKnown is true only when the counts pattern matched, all three
+// counts converted, and the message ends with one of the daemon's two
+// retention hints, "(paid attempt retained...)" or "(stored chunks persist;
+// re-prepare the same content...)"; Retryable is then true only for the
+// first. A garbled or out-of-range count leaves the counts zero and both
+// flags false. A missing, truncated or unrecognised tail keeps the counts
+// but leaves both flags false: retention unknown, not "nothing retained".
 type PartialUploadError struct {
 	AntdError
 	ChunksStored uint64
@@ -125,21 +128,35 @@ func isPartialUploadMessage(msg string) bool {
 // message: "Partial upload: <stored>/<total> chunks stored, <failed> failed".
 var partialUploadCounts = regexp.MustCompile(`^` + regexp.QuoteMeta(partialUploadPrefix) + ` (\d+)/(\d+) chunks stored, (\d+) failed`)
 
-// partialUploadRetainedHint is the message tail the daemon appends when it
-// kept the paid attempt for a same-upload_id retry.
-const partialUploadRetainedHint = "paid attempt retained"
+// The daemon closes every PARTIAL_UPLOAD message with one of two
+// parenthesised hints (partial_upload_hint in antd/src/error.rs): the
+// retained hint when it kept the paid attempt for a same-upload_id retry,
+// the not-retained hint when it did not. Daemons older than 0.14.0 write
+// only the not-retained hint.
+const (
+	partialUploadRetainedHint    = "paid attempt retained"
+	partialUploadNotRetainedHint = "stored chunks persist; re-prepare the same content"
+)
+
+// partialUploadRetentionTail matches the hint that closes the message:
+// "(<hint>...)" at the very end. The group must be the message's last text,
+// so a hint quoted inside the failure reason, a truncated tail, or trailing
+// text after the hint is not read as the daemon's answer.
+var partialUploadRetentionTail = regexp.MustCompile(`\((` + regexp.QuoteMeta(partialUploadRetainedHint) + `|` + regexp.QuoteMeta(partialUploadNotRetainedHint) + `)[^()]*\)$`)
 
 // parsePartialUploadMessage recovers the chunk counts and the retention
 // flags from a PARTIAL_UPLOAD message. Used for gRPC, where the status
 // carries no structured detail; REST callers get the body fields instead.
 //
-// The counts gate retention: known is true only when the message matched
-// the counts pattern and all three counts fit a uint64, and retryable is
-// then true only when the "paid attempt retained" hint is present. A
+// known is true only when the message matched the counts pattern, all three
+// counts fit a uint64, and the message ends with one of the daemon's two
+// retention hints; retryable is then true only for the retained hint. A
 // pattern miss or an out-of-range count yields zero counts and both flags
-// false (retention unknown). (strconv.ParseUint returns math.MaxUint64
-// alongside ErrRange on overflow, so its error is checked rather than
-// discarded.)
+// false. Readable counts with a missing, truncated or unrecognised tail keep
+// the counts but leave both flags false: the daemon's answer on retention
+// was not read, so retention is unknown, never "nothing retained".
+// (strconv.ParseUint returns math.MaxUint64 alongside ErrRange on overflow,
+// so its error is checked rather than discarded.)
 func parsePartialUploadMessage(msg string) (stored, failed, total uint64, retryable, known bool) {
 	m := partialUploadCounts.FindStringSubmatch(msg)
 	if m == nil {
@@ -155,7 +172,11 @@ func parsePartialUploadMessage(msg string) (stored, failed, total uint64, retrya
 	if failed, err = strconv.ParseUint(m[3], 10, 64); err != nil {
 		return 0, 0, 0, false, false
 	}
-	return stored, failed, total, strings.Contains(msg, partialUploadRetainedHint), true
+	tail := partialUploadRetentionTail.FindStringSubmatch(msg)
+	if tail == nil {
+		return stored, failed, total, false, false
+	}
+	return stored, failed, total, tail[1] == partialUploadRetainedHint, true
 }
 
 // errorFromBody maps a non-2xx REST response body onto a typed error. The

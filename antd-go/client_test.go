@@ -1165,7 +1165,10 @@ func TestParsePartialUploadMessage(t *testing.T) {
 	}{
 		{"Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)", 300, 12, 312, true, true},
 		{"Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (stored chunks persist; re-prepare the same content to retry only the remainder)", 300, 12, 312, false, true},
-		{"Partial upload: 300/312 chunks stored, 12 failed after retries", 300, 12, 312, false, true},
+		// Readable counts but no readable retention hint (missing or cut
+		// short): retention unknown, never "nothing retained".
+		{"Partial upload: 300/312 chunks stored, 12 failed after retries", 300, 12, 312, false, false},
+		{"Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (paid attempt retai", 1, 2, 3, false, false},
 		{"something else entirely", 0, 0, 0, false, false},
 		// The counts gate retention: an overflow in any position voids the
 		// counts and both flags, hint or not (ParseUint's
