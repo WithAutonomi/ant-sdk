@@ -814,5 +814,251 @@ describe("antd client", function()
             assert.are.equal("partial_upload", e.type)
             assert.is_false(e.retryable)
         end)
+
+        it("keeps the status mapping when code is not the string PARTIAL_UPLOAD", function()
+            for _, c in ipairs({ {}, 1, true, cjson.null, "partial_upload", { "PARTIAL_UPLOAD" } }) do
+                local e = errors.error_for_response(502, "x",
+                    { code = c, chunks_failed = 1, retryable = true })
+                assert.are.equal("network", e.type, "code " .. tostring(c))
+                assert.is_false(errors.is_partial_upload(e))
+                assert.is_nil(e.retryable)
+            end
+        end)
+
+        it("keeps the status mapping when the body is not a table", function()
+            for _, body in ipairs({ "PARTIAL_UPLOAD", 42, true, cjson.null }) do
+                local e = errors.error_for_response(502, "x", body)
+                assert.are.equal("network", e.type, "body " .. tostring(body))
+            end
+        end)
+    end)
+
+    -- ── errors.partial_upload reads fields strictly, never coerces ──
+
+    describe("errors.partial_upload field parsing", function()
+        it("reads a count that is not a finite non-negative integral number as 0", function()
+            local bad = {
+                "1", "0x10", " 1e3 ", "", true, false, {}, cjson.null,
+                -1, 1.5, -0.5, 1e20, 2 ^ 64, math.huge, -math.huge, 0 / 0,
+            }
+            for _, v in ipairs(bad) do
+                local e = errors.partial_upload("m",
+                    { chunks_stored = v, chunks_failed = v, total_chunks = v })
+                local label = type(v) .. " " .. tostring(v)
+                assert.are.equal(0, e.chunks_stored, "chunks_stored for " .. label)
+                assert.are.equal(0, e.chunks_failed, "chunks_failed for " .. label)
+                assert.are.equal(0, e.total_chunks, "total_chunks for " .. label)
+            end
+        end)
+
+        it("accepts integral counts up to the largest double below 2^64", function()
+            local top = 2 ^ 64 - 2 ^ 11
+            local e = errors.partial_upload("m",
+                { chunks_stored = 0, chunks_failed = 12, total_chunks = top })
+            assert.are.equal(0, e.chunks_stored)
+            assert.are.equal(12, e.chunks_failed)
+            assert.are.equal(top, e.total_chunks)
+        end)
+
+        it("normalises -0 to 0", function()
+            local e = errors.partial_upload("m", { chunks_failed = -0.0 })
+            assert.are.equal("0", tostring(e.chunks_failed))
+        end)
+
+        it("only treats the boolean true as retryable", function()
+            for _, v in ipairs({ "true", 1, {}, cjson.null, false, "false" }) do
+                local e = errors.partial_upload("m", { retryable = v })
+                assert.is_false(e.retryable, "retryable " .. tostring(v))
+            end
+            assert.is_true(errors.partial_upload("m", { retryable = true }).retryable)
+        end)
+
+        it("does not raise when fields is not a table", function()
+            for _, v in ipairs({ "PARTIAL_UPLOAD", 42, true, cjson.null }) do
+                local e = errors.partial_upload("m", v)
+                assert.is_true(errors.is_partial_upload(e))
+                assert.are.equal(0, e.chunks_stored)
+                assert.are.equal(0, e.chunks_failed)
+                assert.are.equal(0, e.total_chunks)
+                assert.is_false(e.retryable)
+            end
+        end)
+    end)
+
+    -- ── Malformed REST error bodies, end to end through the client ──
+    -- Each value is spliced verbatim into the JSON the mock daemon returns,
+    -- so '"1"' is the JSON string "1" and 'null' is JSON null (cjson.null
+    -- once decoded).
+
+    describe("malformed PARTIAL_UPLOAD bodies", function()
+        local function finalize_with_body(raw)
+            register_route("POST", "/v1/upload/finalize", 502, raw)
+            local result, err = client:finalize_upload("u1", { ["0xq"] = "0xt" })
+            assert.is_nil(result)
+            assert.is_true(errors.is_antd_error(err))
+            assert.are.equal(502, err.status_code)
+            return err
+        end
+
+        local bad_counts = {
+            { "a quoted integer", '"1"' },
+            { "a quoted hex literal", '"0x10"' },
+            { "a quoted exponent with spaces", '" 1e3 "' },
+            { "true", "true" },
+            { "a negative integer", "-1" },
+            { "a fraction", "1.5" },
+            { "an object", "{}" },
+            { "an array", "[1]" },
+            { "null", "null" },
+            { "1e20 (not below 2^64)", "1e20" },
+            { "2^64", "18446744073709551616" },
+            { "an exponent that overflows to inf", "1e400" },
+            { "an exponent that overflows to -inf", "-1e400" },
+        }
+        for _, case in ipairs(bad_counts) do
+            local label, value = case[1], case[2]
+            it("reads a count given as " .. label .. " as 0, in each position", function()
+                for _, field in ipairs({ "chunks_stored", "chunks_failed", "total_chunks" }) do
+                    local wire = { chunks_stored = "300", chunks_failed = "12", total_chunks = "312" }
+                    wire[field] = value
+                    local err = finalize_with_body(string.format(
+                        '{"error":"Partial upload","code":"PARTIAL_UPLOAD",'
+                            .. '"chunks_stored":%s,"chunks_failed":%s,"total_chunks":%s,'
+                            .. '"retryable":true}',
+                        wire.chunks_stored, wire.chunks_failed, wire.total_chunks))
+                    assert.is_true(errors.is_partial_upload(err))
+                    assert.are.equal("Partial upload", err.message)
+                    local want = { chunks_stored = 300, chunks_failed = 12, total_chunks = 312 }
+                    want[field] = 0
+                    assert.are.equal(want.chunks_stored, err.chunks_stored, field)
+                    assert.are.equal(want.chunks_failed, err.chunks_failed, field)
+                    assert.are.equal(want.total_chunks, err.total_chunks, field)
+                    assert.is_true(err.retryable)
+                end
+            end)
+        end
+
+        -- Not JSON at all: the strict decoder rejects the body, so it keeps
+        -- the status mapping instead of smuggling in a count.
+        for _, literal in ipairs({ "0x10", "NaN", "Infinity", "-Infinity" }) do
+            it("treats a body with a bare " .. literal .. " count as non-JSON", function()
+                local raw = '{"error":"Partial upload","code":"PARTIAL_UPLOAD","chunks_failed":'
+                    .. literal .. ',"retryable":true}'
+                local err = finalize_with_body(raw)
+                assert.are.equal("network", err.type)
+                assert.is_false(errors.is_partial_upload(err))
+                assert.are.equal(raw, err.message)
+            end)
+        end
+
+        local bad_flags = {
+            { 'the string "true"', '"true"' },
+            { "the number 1", "1" },
+            { "an object", "{}" },
+            { "null", "null" },
+        }
+        for _, case in ipairs(bad_flags) do
+            local label, value = case[1], case[2]
+            it("reads retryable given as " .. label .. " as false", function()
+                local err = finalize_with_body(
+                    '{"error":"Partial upload","code":"PARTIAL_UPLOAD",'
+                        .. '"chunks_stored":300,"chunks_failed":12,"total_chunks":312,'
+                        .. '"retryable":' .. value .. '}')
+                assert.is_true(errors.is_partial_upload(err))
+                assert.is_false(err.retryable)
+                assert.are.equal(300, err.chunks_stored)
+                assert.are.equal(12, err.chunks_failed)
+                assert.are.equal(312, err.total_chunks)
+            end)
+        end
+
+        local bad_codes = {
+            { "an object", "{}" },
+            { "a number", "1" },
+            { "true", "true" },
+            { "null", "null" },
+            { "an array", '["PARTIAL_UPLOAD"]' },
+            { "a different case", '"partial_upload"' },
+        }
+        for _, case in ipairs(bad_codes) do
+            local label, value = case[1], case[2]
+            it("keeps a 502 whose code is " .. label .. " mapped to network", function()
+                local err = finalize_with_body(
+                    '{"error":"Partial upload","code":' .. value .. ','
+                        .. '"chunks_stored":300,"chunks_failed":12,"total_chunks":312,'
+                        .. '"retryable":true}')
+                assert.are.equal("network", err.type)
+                assert.is_false(errors.is_partial_upload(err))
+                assert.are.equal("Partial upload", err.message)
+                assert.is_nil(err.retryable)
+                assert.is_nil(err.chunks_failed)
+            end)
+        end
+
+        it("keeps a top-level JSON array body mapped to network", function()
+            local raw = '[{"error":"Partial upload","code":"PARTIAL_UPLOAD","retryable":true}]'
+            local err = finalize_with_body(raw)
+            assert.are.equal("network", err.type)
+            assert.are.equal(raw, err.message)
+        end)
+
+        local bad_messages = {
+            { "an object", "{}" },
+            { "a number", "1" },
+            { "true", "true" },
+            { "null", "null" },
+            { "an array", '["Partial upload"]' },
+        }
+        for _, case in ipairs(bad_messages) do
+            local label, value = case[1], case[2]
+            it("falls back to the raw body when error is " .. label, function()
+                local raw = '{"error":' .. value .. ',"code":"PARTIAL_UPLOAD",'
+                    .. '"chunks_stored":3,"chunks_failed":1,"total_chunks":4,"retryable":true}'
+                local err = finalize_with_body(raw)
+                assert.is_true(errors.is_partial_upload(err))
+                assert.are.equal("string", type(err.message))
+                assert.are.equal(raw, err.message)
+                assert.are.equal(3, err.chunks_stored)
+                assert.are.equal(1, err.chunks_failed)
+                assert.are.equal(4, err.total_chunks)
+                assert.is_true(err.retryable)
+            end)
+
+            it("falls back to the raw body when a plain error body's error is " .. label, function()
+                local raw = '{"error":' .. value .. ',"code":"NOT_FOUND"}'
+                register_route("GET", "/v1/chunks/missing", 404, raw)
+                local data, err = client:chunk_get("missing")
+                assert.is_nil(data)
+                assert.are.equal("not_found", err.type)
+                assert.are.equal(raw, err.message)
+            end)
+        end
+
+        it("applies the same parsing to a streaming error body", function()
+            local raw = '{"error":{},"code":"PARTIAL_UPLOAD","chunks_stored":"3",'
+                .. '"chunks_failed":1,"total_chunks":null,"retryable":"true"}'
+            register_route("POST", "/v1/data/stream", 502, raw)
+            local got = {}
+            local ok, err = client:data_stream("dm123", function(chunk)
+                got[#got + 1] = chunk
+            end)
+            assert.is_nil(ok)
+            assert.is_true(errors.is_partial_upload(err))
+            assert.are.equal(raw, err.message)
+            assert.are.equal(0, err.chunks_stored)
+            assert.are.equal(1, err.chunks_failed)
+            assert.are.equal(0, err.total_chunks)
+            assert.is_false(err.retryable)
+            assert.are.equal(0, #got)
+        end)
+
+        it("keeps a streaming 404 with a non-string error mapped to not_found", function()
+            local raw = '{"error":1,"code":"NOT_FOUND"}'
+            register_route("GET", "/v1/data/public/missing/stream", 404, raw)
+            local ok, err = client:data_stream_public("missing", function() end)
+            assert.is_nil(ok)
+            assert.are.equal("not_found", err.type)
+            assert.are.equal(raw, err.message)
+        end)
     end)
 end)

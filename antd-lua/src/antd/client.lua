@@ -45,6 +45,33 @@ function Client:_url(path)
     return self.base_url .. path
 end
 
+-- Error bodies are decoded with a private, strict cjson instance. The
+-- default instance accepts number literals that are not JSON (NaN, Infinity
+-- and hex such as 0x10), which would let a malformed body slip a count past
+-- the JSON-number check in antd.errors. A private instance leaves the
+-- caller's global cjson configuration untouched.
+local error_json = cjson.new()
+error_json.decode_invalid_numbers(false)
+
+--- Map a non-2xx response body onto an antd error without raising.
+-- The body's `error` field becomes the message only when it is a JSON
+-- string; any other `error` (a table, number, boolean or JSON null), or a
+-- body that is not strict JSON, falls back to the raw body text.
+-- @param status number HTTP status code
+-- @param resp_body string raw response body
+-- @return table error object
+local function error_from_body(status, resp_body)
+    local ok, parsed = pcall(error_json.decode, resp_body)
+    if not ok then
+        parsed = nil
+    end
+    local msg = resp_body
+    if type(parsed) == "table" and type(parsed.error) == "string" then
+        msg = parsed.error
+    end
+    return errors.error_for_response(status, msg, parsed)
+end
+
 --- Perform an HTTP request that sends/receives JSON.
 function Client:_do_json(method, path, body)
     local req_body
@@ -78,12 +105,7 @@ function Client:_do_json(method, path, body)
     local resp_body = table.concat(resp_parts)
 
     if status < 200 or status >= 300 then
-        local msg = resp_body
-        local ok, parsed = pcall(cjson.decode, resp_body)
-        if ok and type(parsed) == "table" and parsed.error then
-            msg = parsed.error
-        end
-        return nil, status, errors.error_for_response(status, msg, ok and parsed or nil)
+        return nil, status, error_from_body(status, resp_body)
     end
 
     if resp_body == "" or resp_body == nil then
@@ -189,13 +211,7 @@ function Client:_do_stream(method, path, body, sink_cb)
     end
 
     if status < 200 or status >= 300 then
-        local resp_body = head_chunk or ""
-        local msg = resp_body
-        local ok, parsed = pcall(cjson.decode, resp_body)
-        if ok and type(parsed) == "table" and parsed.error then
-            msg = parsed.error
-        end
-        return nil, errors.error_for_response(status, msg, ok and parsed or nil)
+        return nil, error_from_body(status, head_chunk or "")
     end
 
     -- 2xx: flush any still-buffered head chunk (single-chunk responses never

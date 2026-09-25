@@ -81,6 +81,31 @@ function M.service_unavailable(message)
     return new_error("service_unavailable", 503, message)
 end
 
+-- Exclusive upper bound for a PARTIAL_UPLOAD count (a u64 on the daemon
+-- side). 2^64 is exactly representable as a double.
+local COUNT_LIMIT = 2 ^ 64
+
+--- Read one PARTIAL_UPLOAD count without coercion.
+-- Only a Lua number (a JSON number once decoded) that is a finite,
+-- non-negative integer below 2^64 is accepted; anything else reads as 0.
+-- `tonumber` is deliberately avoided: it turns the strings "1", "0x10" and
+-- " 1e3 " into 1, 16 and 1000.
+-- @param v any decoded field value
+-- @return number
+local function count_field(v)
+    if type(v) ~= "number" then
+        return 0
+    end
+    -- v ~= v is NaN; v >= COUNT_LIMIT also rejects +inf, v < 0 rejects -inf.
+    if v ~= v or v < 0 or v >= COUNT_LIMIT or v ~= math.floor(v) then
+        return 0
+    end
+    if v == 0 then
+        return 0 -- normalise -0
+    end
+    return v
+end
+
 --- Create a partial_upload error (HTTP 502, code PARTIAL_UPLOAD).
 --
 -- A finalize stored some chunks while others stayed unstored after the
@@ -103,16 +128,26 @@ end
 --
 -- See docs/external-signer-flow.md §6.
 --
+-- Fields are read strictly, never coerced. A count is taken only from a
+-- JSON number that is a finite, non-negative integer below 2^64; anything
+-- else (a quoted number such as "1", a boolean, a table, JSON null, or a
+-- negative, fractional, NaN or infinite number) reads as 0. `retryable` is
+-- true only for the JSON boolean `true`: a string "true" or the number 1
+-- reads false. A malformed `fields` never raises.
+--
 -- @param message string
 -- @param fields table|nil { chunks_stored, chunks_failed, total_chunks,
---   retryable } — counts default to 0, retryable defaults to false
+--   retryable } as decoded from the response body; absent or malformed
+--   counts read as 0, an absent or malformed retryable reads as false
 -- @return table
 function M.partial_upload(message, fields)
-    fields = fields or {}
+    if type(fields) ~= "table" then
+        fields = {}
+    end
     local err = new_error("partial_upload", 502, message)
-    err.chunks_stored = tonumber(fields.chunks_stored) or 0
-    err.chunks_failed = tonumber(fields.chunks_failed) or 0
-    err.total_chunks = tonumber(fields.total_chunks) or 0
+    err.chunks_stored = count_field(fields.chunks_stored)
+    err.chunks_failed = count_field(fields.chunks_failed)
+    err.total_chunks = count_field(fields.total_chunks)
     err.retryable = fields.retryable == true
     return err
 end
@@ -137,9 +172,12 @@ end
 -- machine-readable `code` over the bare HTTP status where they diverge.
 -- PARTIAL_UPLOAD arrives as a 502 that would otherwise read as a generic
 -- `network` error; every other code keeps the status-based mapping.
+-- `code` must be the string "PARTIAL_UPLOAD" (Lua's `==` never coerces, so a
+-- table, number, boolean or JSON null `code` keeps the status mapping), and
+-- a `body` that is not a table does too.
 -- @param code number HTTP status code
 -- @param message string error message
--- @param body table|nil decoded JSON error body (nil when not JSON)
+-- @param body any decoded JSON error body (nil when not JSON)
 -- @return table error object
 function M.error_for_response(code, message, body)
     if type(body) == "table" and body.code == "PARTIAL_UPLOAD" then
