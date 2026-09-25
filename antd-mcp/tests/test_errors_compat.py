@@ -57,3 +57,27 @@ def test_normal_import_still_maps_partial_upload():
     errors = importlib.import_module("antd_mcp.errors")
     assert errors.PartialUploadError is antd_exceptions.PartialUploadError
     assert errors._CODE_MAP[errors.PartialUploadError] == "PARTIAL_UPLOAD"
+
+
+def test_format_error_without_retention_known_attribute():
+    # An antd release that has PartialUploadError but predates the retention
+    # flag: the payload reads retention as unknown, except that retryable
+    # implies a known retention.
+    errors = importlib.import_module("antd_mcp.errors")
+
+    old = antd_exceptions.PartialUploadError(
+        "Partial upload: 1/3 chunks stored, 2 failed", 502,
+        chunks_stored=1, chunks_failed=2, total_chunks=3,
+    )
+    del old.retention_known
+    payload = errors.format_error(old)
+    assert payload["error"] == "PARTIAL_UPLOAD"
+    assert (payload["retryable"], payload["retention_known"]) == (False, False)
+
+    old_retryable = antd_exceptions.PartialUploadError(
+        "Partial upload: 1/3 chunks stored, 2 failed (paid attempt retained)", 502,
+        chunks_stored=1, chunks_failed=2, total_chunks=3, retryable=True,
+    )
+    del old_retryable.retention_known
+    payload = errors.format_error(old_retryable)
+    assert (payload["retryable"], payload["retention_known"]) == (True, True)

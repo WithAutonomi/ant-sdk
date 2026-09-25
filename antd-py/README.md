@@ -163,12 +163,20 @@ except AntdError as e:
 
 ### Partial uploads
 
-`finalize_upload` / `finalize_merkle_upload` can fail *after* the wallet has paid: some chunks store, others miss quorum after the daemon's own retries. That surfaces as `PartialUploadError` (a `NetworkError` subclass, so existing `except NetworkError` / `except AntdError` blocks still catch it). The on-chain payment persists and the stored chunks stay on the network; `retryable` says how to finish:
+`finalize_upload` / `finalize_merkle_upload` can fail *after* the wallet has paid: some chunks store, others miss quorum after the daemon's own retries. That surfaces as `PartialUploadError` (a `NetworkError` subclass, so existing `except NetworkError` / `except AntdError` blocks still catch it). The on-chain payment persists and the stored chunks stay on the network. `retryable` and `retention_known` say how to finish (`retryable` implies `retention_known`):
 
-- **`retryable == True`** — the daemon kept the paid attempt (payment proofs + unstored chunks) under the same `upload_id`. Call the **same** finalize method again with the **same arguments** to store the remainder against the same payment: no re-prepare, no second signature, no double payment. Bound the loop — a persistent failure raises again on every call, so cap the attempts and treat a `chunks_failed` that stops shrinking as stuck. The retained attempt expires with the daemon's pending-upload TTL (one hour). Sent by antd ≥ 0.14.0; older daemons never send the flag, so it reads `False`.
-- **`retryable == False`** — nothing was retained (older daemon, or a merkle finalize whose signer deliberately left some sub-batches unpaid). Re-prepare the same content: already-stored chunks are skipped, so the retry pays only for the remainder.
+- **`retryable`** — the daemon kept the paid attempt (payment proofs + unstored chunks) under the same `upload_id`. Call the **same** finalize method again with the **same arguments** (the same `upload_id` and payment artefacts) to store the remainder against the same payment: no re-prepare, no second signature, no double payment. Bound the loop — a persistent failure raises again on every call, so cap the attempts and treat a `chunks_failed` that stops shrinking as stuck. The retained attempt expires with the daemon's pending-upload TTL (one hour). Sent by antd ≥ 0.14.0.
+- **`retention_known and not retryable`** — the daemon confirmed it kept nothing (e.g. a merkle finalize whose signer deliberately left some sub-batches unpaid). Re-prepare the same content: already-stored chunks are skipped, so the retry pays only for the remainder.
+- **`not retention_known`** — retention is unknown. The daemon may still hold the paid attempt: it records the resume handle before it returns the error. Stop automatic recovery, keep the `upload_id` and the original payment artefacts (`tx_hashes` / `winner_pool_hash`), and reconcile before re-preparing or paying again. Never pay again on this signal alone. Daemons older than 0.14.0 never send `retryable`, so their REST partial uploads read as unknown.
 
-Over REST the counts and flag come from the structured error body; over gRPC a partial upload is an `ABORTED` status whose message carries the daemon's fixed `Partial upload:` prefix, and the counts and flag are parsed from that message (a prefixed message whose counts cannot be parsed leaves them at zero and `retryable` False). An `ABORTED` without the prefix is not a partial upload and raises `ForkError` as before. Full contract: `docs/external-signer-flow.md` §6.
+Over gRPC a partial upload used to raise `ForkError`; it now raises `PartialUploadError`. The daemon sends `ABORTED` only for PARTIAL_UPLOAD, so code that caught `ForkError` around a finalize should catch `PartialUploadError`.
+
+Over REST the counts and flags come from the structured error body. Over gRPC a partial upload is an `ABORTED` status whose message **starts with** the daemon's fixed `Partial upload:` prefix, and the counts and flags are parsed from that message. An `ABORTED` that does not start with the prefix (including one that only embeds it, e.g. `upstream error: Partial upload: ...`) is not a partial upload and raises `ForkError` as before. Full contract: `docs/external-signer-flow.md` §6.
+
+Malformed input is read conservatively and never escapes as a raw `ValueError` / `TypeError` / `OverflowError`:
+
+- **REST.** Each count must be a JSON integer from 0 to 2^64−1. A quoted number (`"1"`), bool, float (including `Infinity`), array, object, negative or larger value reads as `0`. `retryable` is `True` only for the JSON literal `true`; `"true"`, `1` and everything else read as `False`. `retention_known` is `True` only when `retryable` is a JSON bool (`true` or `false`); absent, `null` or any other type reads as unknown. Only a string `code` of exactly `"PARTIAL_UPLOAD"` selects `PartialUploadError`. A body that is not a JSON object, or has any other `code`, keeps the plain 502 → `NetworkError` mapping, as does a body Python cannot decode at all. A non-string `error` makes the raw response body the message.
+- **gRPC.** The message reads `Partial upload: S/T chunks stored, F failed after retries: <reason> (<hint>)`. `retention_known` is `True` only when the message starts with that counts pattern, all three counts fit in a u64, and it ends with one of the daemon's two hints. A `(paid attempt retained...)` hint sets `retryable`. A `(stored chunks persist; re-prepare the same content...)` hint means the daemon confirmed nothing was retained; daemons older than 0.14.0 write only this one. A pattern miss or an out-of-range count reads the counts as `0` with both flags `False`. Readable counts with a missing, truncated or unrecognised hint keep the counts, but both flags stay `False`: retention is unknown, not "nothing retained".
 
 ```python
 import time
@@ -181,10 +189,13 @@ def finalize_with_retry(client, upload_id, tx_hashes, max_attempts=5):
             return client.finalize_upload(upload_id, tx_hashes)  # every chunk stored
         except PartialUploadError as e:
             if not e.retryable:
-                raise  # re-prepare the same content; only the remainder is paid for
+                # retention_known: the daemon kept nothing, so re-prepare.
+                # Otherwise retention is unknown: stop, keep upload_id and
+                # tx_hashes, and reconcile. Never pay again on this alone.
+                raise
             stuck = last_failed is not None and e.chunks_failed >= last_failed
             if attempt == max_attempts or stuck:
-                raise  # paid attempt still retained under upload_id: retry later or re-prepare
+                raise  # paid attempt still retained under upload_id: retry the same finalize later
             last_failed = e.chunks_failed
             time.sleep(2 * attempt)
 ```
