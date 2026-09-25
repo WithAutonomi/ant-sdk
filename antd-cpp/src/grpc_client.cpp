@@ -41,6 +41,33 @@ static void check_status(const grpc::Status& status) {
             throw NetworkError(status.error_message());
         case grpc::StatusCode::FAILED_PRECONDITION:
             throw PaymentError(status.error_message());
+        case grpc::StatusCode::ABORTED: {
+            // PARTIAL_UPLOAD rides ABORTED, but ABORTED is a generic code:
+            // only a raw status message that starts with the daemon's fixed
+            // "Partial upload:" prefix is a partial store. The match is
+            // anchored, so an ABORTED that quotes the phrase further into its
+            // message is not misreported. Any other ABORTED keeps the mapping
+            // it had before PartialUploadError existed (the default arm below).
+            if (!is_partial_upload_message(status.error_message())) {
+                throw AntdError(static_cast<int>(status.error_code()),
+                                status.error_message());
+            }
+            // Some chunks stored, some still unstored after retries. The
+            // counts and the daemon's closing retention hint ride the message
+            // text over gRPC (no structured detail yet), so parse them
+            // best-effort to match the REST client's typed error: retention
+            // is known only when the counts parsed and the message ends with
+            // one of the daemon's two hints, and retryable only when that
+            // hint is "paid attempt retained". Readable counts with a
+            // missing or damaged hint keep the counts, retention unknown.
+            const auto counts = parse_partial_upload_message(status.error_message());
+            throw PartialUploadError(status.error_message(),
+                                     counts.chunks_stored,
+                                     counts.chunks_failed,
+                                     counts.total_chunks,
+                                     counts.retryable,
+                                     counts.retention_known);
+        }
         default:
             throw AntdError(static_cast<int>(status.error_code()),
                             status.error_message());

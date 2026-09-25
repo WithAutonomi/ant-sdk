@@ -126,11 +126,15 @@ public:
                                                          std::optional<std::string> visibility = std::nullopt);
 
     /// Finalize a wave-batch upload after external signer submits payments.
+    /// See Client::finalize_upload: a post-payment storage shortfall
+    /// surfaces as PartialUploadError when the future's `.get()` rethrows;
+    /// when `retryable` is set, call again with the same arguments.
     std::future<FinalizeUploadResult> finalize_upload(std::string upload_id,
                                                      std::map<std::string, std::string> tx_hashes,
                                                      bool store_data_map = false);
 
     /// Finalize a merkle upload after external signer submits payForMerkleTree.
+    /// See Client::finalize_merkle_upload for the PartialUploadError contract.
     std::future<FinalizeUploadResult> finalize_merkle_upload(std::string upload_id,
                                                             std::string winner_pool_hash,
                                                             bool store_data_map = false);

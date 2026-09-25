@@ -94,6 +94,48 @@ public:
     grpc::Status FinalizeUpload(grpc::ServerContext*,
                                 const antd::v1::FinalizeUploadRequest* req,
                                 antd::v1::FinalizeUploadResponse* resp) override {
+        // PARTIAL_UPLOAD rides ABORTED; the daemon's message carries the
+        // counts and closes with a retention hint: "paid attempt retained"
+        // when it kept the paid attempt, "stored chunks persist" when not.
+        // Only a message that starts with the fixed "Partial upload:"
+        // prefix marks a partial store; any other ABORTED keeps the generic
+        // mapping ("aborted-other"), including one that quotes the prefix
+        // further into its message ("aborted-embedded").
+        if (req->upload_id() == "aborted-other") {
+            return grpc::Status(grpc::StatusCode::ABORTED,
+                                "transaction aborted: something else entirely");
+        }
+        if (req->upload_id() == "aborted-embedded") {
+            return grpc::Status(
+                grpc::StatusCode::ABORTED,
+                "wrapped (Partial upload: 0/1 chunks stored, 1 failed; paid attempt retained)");
+        }
+        if (req->upload_id() == "partial") {
+            return grpc::Status(
+                grpc::StatusCode::ABORTED,
+                "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
+                "(paid attempt retained: call finalize again with the same upload_id to "
+                "store the remainder against the same payment)");
+        }
+        if (req->upload_id() == "partial-final") {
+            return grpc::Status(
+                grpc::StatusCode::ABORTED,
+                "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
+                "(stored chunks persist; re-prepare the same content to retry only the remainder)");
+        }
+        // Readable counts whose retention hint is missing or cut short:
+        // retention must read as unknown, with the counts kept.
+        if (req->upload_id() == "partial-no-hint") {
+            return grpc::Status(
+                grpc::StatusCode::ABORTED,
+                "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum");
+        }
+        if (req->upload_id() == "partial-truncated-hint") {
+            return grpc::Status(
+                grpc::StatusCode::ABORTED,
+                "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum "
+                "(paid attempt retai");
+        }
         if (!req->winner_pool_hash().empty()) {
             resp->set_data_map("dm_merkle");
             resp->set_address(req->store_data_map() ? "stored_on_network" : "");
@@ -247,6 +289,85 @@ TEST_CASE("V2-284: finalize_upload wave-batch public returns data_map_address") 
     ExternalSignerFixture f;
     auto r = f.client().finalize_upload("upid_file_public", {{"0xq1", "0xtx1"}});
     CHECK(r.data_map_address == "addr_public_dm");
+}
+
+TEST_CASE("finalize_upload maps ABORTED to PartialUploadError with counts parsed from the message") {
+    ExternalSignerFixture f;
+    try {
+        f.client().finalize_upload("partial", {{"0xqa", "0xtx"}});
+        FAIL("should have thrown");
+    } catch (const antd::PartialUploadError& e) {
+        CHECK(e.status_code == 502);
+        CHECK(e.chunks_stored == 300);
+        CHECK(e.chunks_failed == 12);
+        CHECK(e.total_chunks == 312);
+        CHECK(e.retryable);
+        CHECK(e.retention_known);
+    }
+}
+
+TEST_CASE("finalize_merkle_upload ABORTED with the not-retained hint reads as known, not retryable") {
+    ExternalSignerFixture f;
+    try {
+        f.client().finalize_merkle_upload("partial-final", "0xwinner");
+        FAIL("should have thrown");
+    } catch (const antd::PartialUploadError& e) {
+        CHECK(e.chunks_stored == 300);
+        CHECK(e.chunks_failed == 12);
+        CHECK(e.total_chunks == 312);
+        CHECK_FALSE(e.retryable);
+        CHECK(e.retention_known);
+    }
+}
+
+TEST_CASE("finalize_upload ABORTED with readable counts but no readable retention hint keeps the counts, retention unknown") {
+    // The daemon's answer on retention was not read: stop and reconcile,
+    // never "nothing retained" (re-prepare).
+    ExternalSignerFixture f;
+    for (const std::string id : {"partial-no-hint", "partial-truncated-hint"}) {
+        CAPTURE(id);
+        try {
+            f.client().finalize_upload(id, {{"0xqa", "0xtx"}});
+            FAIL("should have thrown");
+        } catch (const antd::PartialUploadError& e) {
+            CHECK(e.status_code == 502);
+            CHECK(e.chunks_stored == 1);
+            CHECK(e.chunks_failed == 2);
+            CHECK(e.total_chunks == 3);
+            CHECK_FALSE(e.retryable);
+            CHECK_FALSE(e.retention_known);
+        }
+    }
+}
+
+TEST_CASE("finalize_upload ABORTED without the Partial upload prefix keeps the generic AntdError mapping") {
+    ExternalSignerFixture f;
+    try {
+        f.client().finalize_upload("aborted-other", {{"0xqa", "0xtx"}});
+        FAIL("should have thrown");
+    } catch (const antd::PartialUploadError&) {
+        FAIL("an ABORTED without the prefix must not become PartialUploadError");
+    } catch (const antd::NetworkError&) {
+        FAIL("an ABORTED without the prefix must not become NetworkError");
+    } catch (const antd::AntdError& e) {
+        CHECK(e.status_code == static_cast<int>(grpc::StatusCode::ABORTED));
+        CHECK(std::string(e.what()).find("something else entirely") != std::string::npos);
+    }
+}
+
+TEST_CASE("finalize_upload ABORTED that quotes the Partial upload prefix mid-message keeps the generic AntdError mapping") {
+    ExternalSignerFixture f;
+    try {
+        f.client().finalize_upload("aborted-embedded", {{"0xqa", "0xtx"}});
+        FAIL("should have thrown");
+    } catch (const antd::PartialUploadError&) {
+        FAIL("an embedded prefix must not become PartialUploadError");
+    } catch (const antd::NetworkError&) {
+        FAIL("an embedded prefix must not become NetworkError");
+    } catch (const antd::AntdError& e) {
+        CHECK(e.status_code == static_cast<int>(grpc::StatusCode::ABORTED));
+        CHECK(std::string(e.what()).find("wrapped (Partial upload:") != std::string::npos);
+    }
 }
 
 TEST_CASE("V2-284: finalize_merkle_upload store_data_map=true") {

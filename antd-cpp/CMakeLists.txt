@@ -125,6 +125,7 @@ if(ANTD_BUILD_EXAMPLES)
         03-chunks
         04-files
         06-private-data
+        07-external-signer
     )
         add_executable(${example} examples/${example}.cpp)
         target_link_libraries(${example} PRIVATE antd)
@@ -166,6 +167,16 @@ if(ANTD_BUILD_TESTS)
     )
 
     add_test(NAME antd_grpc_tests COMMAND antd_grpc_tests)
+
+    # Support code of examples/07-external-signer.cpp: the shell-free process
+    # runner, Windows command-line quoting and the payment-field validators.
+    add_executable(antd_external_signer_util_tests tests/test_external_signer_util.cpp)
+    target_link_libraries(antd_external_signer_util_tests PRIVATE doctest::doctest)
+    target_include_directories(antd_external_signer_util_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/examples
+    )
+    add_test(NAME antd_external_signer_util_tests COMMAND antd_external_signer_util_tests)
 
     # V2-284 external-signer + V2-286 WalletService wire-mapping tests —
     # gated on ANTD_BUILD_GRPC=ON since they spin up a real grpc++ server

@@ -177,6 +177,27 @@ public:
     /// submitted the per-quote `payForQuotes()` transactions. `tx_hashes`
     /// maps each `quote_hash` from `PrepareUploadResult::payments` to its
     /// resulting tx hash.
+    ///
+    /// Throws PartialUploadError when the payment settled but some chunks
+    /// missed quorum after the daemon's retries (gRPC ABORTED whose message
+    /// starts with `Partial upload:`; the counts, and the retention hint
+    /// that closes the message and sets `retention_known` and `retryable`,
+    /// are parsed from the status message, and any other ABORTED stays a
+    /// plain AntdError). The stored chunks and the on-chain payment persist:
+    ///   - `retryable` (antd >= 0.14.0): the daemon kept the paid attempt
+    ///     under this `upload_id`; call `finalize_upload` again with the same
+    ///     arguments to store the remainder against the same payment. Bound
+    ///     the loop: cap attempts and treat a `chunks_failed` that stops
+    ///     shrinking as stuck.
+    ///   - `retention_known && !retryable`: the daemon confirmed nothing was
+    ///     retained; re-prepare the same content (already-stored chunks are
+    ///     skipped, so only the remainder is paid for).
+    ///   - `!retention_known` (the counts, or the retention hint that must
+    ///     close the status message, could not be read): retention is
+    ///     unknown and the daemon may still hold the paid attempt. Stop, keep
+    ///     the `upload_id` and `tx_hashes`, and reconcile before re-preparing
+    ///     or paying again; never pay again on this alone.
+    /// See docs/external-signer-flow.md section 6.
     FinalizeUploadResult finalize_upload(std::string_view upload_id,
                                           const std::map<std::string, std::string>& tx_hashes,
                                           bool store_data_map = false);
@@ -184,6 +205,13 @@ public:
     /// Phase 2 (merkle): finalize an upload after the external signer has
     /// submitted the `payForMerkleTree2()` transaction. `winner_pool_hash` is
     /// the bytes32 from the `MerklePaymentMade` event (hex with 0x prefix).
+    ///
+    /// Throws PartialUploadError on a post-payment storage shortfall, exactly
+    /// as `finalize_upload` does. A merkle finalize that deliberately left
+    /// some sub-batches unpaid is reported with `retention_known == true`
+    /// and `retryable == false`: re-prepare the same content to pay for and
+    /// store only the remainder.
+    /// See docs/external-signer-flow.md section 6.
     FinalizeUploadResult finalize_merkle_upload(std::string_view upload_id,
                                                  std::string_view winner_pool_hash,
                                                  bool store_data_map = false);

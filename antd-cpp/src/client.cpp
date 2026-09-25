@@ -54,6 +54,63 @@ bool parse_ndjson_frame(std::string_view line, DownloadFrame& out) {
     return false;
 }
 
+/// Throw the typed error for a non-2xx response body.
+///
+/// Parses the daemon's `{"error", "code", ...}` JSON body (falling back to the
+/// raw body as the message when it is not JSON) and prefers the machine-
+/// readable `code` over the bare HTTP status where they diverge: a
+/// PARTIAL_UPLOAD arrives as a 502 that would otherwise read as a generic
+/// NetworkError, so it is thrown as PartialUploadError carrying the body's
+/// `chunks_stored` / `chunks_failed` / `total_chunks` and `retryable`.
+/// `retention_known` is true only when `retryable` is present and a JSON
+/// boolean; absent (daemons < 0.14.0), null or any other type leaves
+/// retention unknown and `retryable` false. Every other code keeps the
+/// status mapping.
+///
+/// The body is network input, so a malformed one never escapes as anything
+/// but an AntdError subclass: a non-JSON or non-object body, or a `code`
+/// that is missing, another value, or not a string, takes the status mapping
+/// (NetworkError for a 502); a count of the wrong JSON type reads as zero; a
+/// non-string `error` falls back to the raw body.
+[[noreturn]] void throw_error_response(int status, const std::string& body) {
+    std::string msg = body;
+    try {
+        auto err_json = json::parse(body);
+        if (err_json.contains("error") && err_json["error"].is_string()) {
+            msg = err_json["error"].get<std::string>();
+        }
+        // find() returns end() on a non-object, and the string check keeps a
+        // `code` of any other JSON type on the status mapping.
+        const auto code = err_json.find("code");
+        if (code != err_json.end() && code->is_string() &&
+            code->get_ref<const std::string&>() == "PARTIAL_UPLOAD") {
+            // Tolerate a missing or mistyped field (zero / false) rather than
+            // degrading the whole error to a generic NetworkError. Counts must
+            // be non-negative JSON integers: get<uint64_t> would wrap a
+            // negative value and truncate (or, out of range, misconvert) a
+            // floating-point one.
+            auto u64 = [&](const char* key) -> std::uint64_t {
+                auto it = err_json.find(key);
+                return it != err_json.end() && it->is_number_unsigned()
+                           ? it->get<std::uint64_t>()
+                           : 0;
+            };
+            // The daemon's answer about retention counts only when
+            // `retryable` is a JSON boolean; anything else leaves it unknown.
+            const auto retry = err_json.find("retryable");
+            const bool retention_known = retry != err_json.end() && retry->is_boolean();
+            const bool retryable = retention_known && retry->get<bool>();
+            throw PartialUploadError(msg, u64("chunks_stored"), u64("chunks_failed"),
+                                     u64("total_chunks"), retryable, retention_known);
+        }
+    } catch (const AntdError&) {
+        throw;
+    } catch (...) {
+        // Not JSON (or unexpected shape): use the raw body as the message.
+    }
+    error_for_status(status, msg);
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -98,16 +155,7 @@ struct Client::Impl {
         }
 
         if (res->status < 200 || res->status >= 300) {
-            std::string msg = res->body;
-            try {
-                auto err_json = json::parse(res->body);
-                if (err_json.contains("error") && err_json["error"].is_string()) {
-                    msg = err_json["error"].get<std::string>();
-                }
-            } catch (...) {
-                // Use raw body as message.
-            }
-            error_for_status(res->status, msg);
+            throw_error_response(res->status, res->body);
         }
 
         if (res->body.empty()) {
@@ -119,7 +167,8 @@ struct Client::Impl {
 
     /// Perform a streaming request, forwarding each chunk of a 2xx response
     /// body to `sink` as it arrives (constant memory). Mirrors do_json's
-    /// non-2xx handling: the error body is buffered and parsed for {"error"}.
+    /// non-2xx handling: the error body is buffered and handed to
+    /// throw_error_response.
     ///
     /// httplib's high-level Client has no Post(..., ContentReceiver) overload,
     /// so we build a Request directly and use Client::send — this works
@@ -171,16 +220,7 @@ struct Client::Impl {
         }
 
         if (!success) {
-            std::string msg = error_body;
-            try {
-                auto err_json = json::parse(error_body);
-                if (err_json.contains("error") && err_json["error"].is_string()) {
-                    msg = err_json["error"].get<std::string>();
-                }
-            } catch (...) {
-                // Use raw body as message.
-            }
-            error_for_status(status, msg);
+            throw_error_response(status, error_body);
         }
     }
 

@@ -67,6 +67,14 @@ struct StubServer {
         });
         svr.Post("/v1/upload/finalize", [this](const httplib::Request& req, httplib::Response& res) {
             try { last_finalize_body = json::parse(req.body); } catch (...) {}
+            if (last_finalize_body.value("upload_id", "") == "up_partial") {
+                res.status = 502;
+                res.set_content(R"({"error":"Partial upload: 2/3 chunks stored, 1 failed after retries: quorum",
+                                  "code":"PARTIAL_UPLOAD","chunks_stored":2,"chunks_failed":1,
+                                  "total_chunks":3,"retryable":true})",
+                                "application/json");
+                return;
+            }
             res.set_content(R"({"address":"addrfin","chunks_stored":3,
                               "data_map":"dm","data_map_address":"dma"})",
                             "application/json");
@@ -237,6 +245,22 @@ TEST_CASE("async finalize_upload returns data_map + data_map_address") {
     CHECK(r.data_map == "dm");
     CHECK(r.data_map_address == "dma");
     CHECK(s.last_finalize_body["upload_id"] == "up1");
+}
+
+TEST_CASE("async finalize_upload rethrows PartialUploadError through the future") {
+    StubServer s;
+    antd::AsyncClient c(s.base_url());
+    auto fut = c.finalize_upload("up_partial", {{"qh1", "tx1"}});
+    try {
+        fut.get();
+        FAIL("should have thrown");
+    } catch (const antd::PartialUploadError& e) {
+        CHECK(e.chunks_stored == 2);
+        CHECK(e.chunks_failed == 1);
+        CHECK(e.total_chunks == 3);
+        CHECK(e.retryable);
+        CHECK(e.retention_known);
+    }
 }
 
 TEST_CASE("async finalize_merkle_upload forwards winner_pool_hash") {

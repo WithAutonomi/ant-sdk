@@ -274,6 +274,74 @@ try {
 | `TooLargeError` | 413 | Payload too large |
 | `InternalError` | 500 | Server error |
 | `NetworkError` | 502 | Network unreachable |
+| `PartialUploadError` | 502 (`code: PARTIAL_UPLOAD`) | Finalize paid and stored some chunks, others missed quorum — see below |
+
+### Partial uploads
+
+`finalize_upload` / `finalize_merkle_upload` can fail *after* the wallet has
+paid: some chunks store, others miss quorum after the daemon's own retries.
+That surfaces as `antd::PartialUploadError` (HTTP 502 with
+`code: "PARTIAL_UPLOAD"`; gRPC `ABORTED` whose message starts with
+`Partial upload:`, where the fields are parsed from the status message). The
+gRPC match is anchored at the start of the message: any other `ABORTED`,
+including one that only quotes `Partial upload:` further into its text, stays
+a plain `AntdError`. Over REST, a count of the wrong JSON type reads as zero,
+and a body whose `code` is not the string `PARTIAL_UPLOAD` keeps the plain
+status mapping; the error mapping never throws anything but an `AntdError`
+subclass. It derives from `NetworkError`, so existing 502 handlers keep
+working — catch it first to handle the partial case specifically. The
+on-chain payment persists and the stored chunks stay on the network. Two
+flags say how to finish, `retryable` and `retention_known` (`retryable`
+implies `retention_known`):
+
+- **`retryable`**: the daemon kept the paid attempt under the same
+  `upload_id`. Call the **same finalize method again with the same `upload_id`
+  and payment artefacts** to store the remainder against the same payment —
+  no re-prepare, no second signature, no double payment. Bound the loop: a
+  persistent failure throws on every call, so cap attempts and treat a
+  `chunks_failed` that stops shrinking as stuck.
+- **`retention_known && !retryable`**: the daemon confirmed nothing was
+  retained (for example a merkle finalize with deliberately unpaid batches).
+  Re-prepare the same content — already-stored chunks are skipped, so the
+  retry pays only for the remainder.
+- **`!retention_known`**: retention is unknown, and the daemon may still hold
+  the paid attempt (it records the resume handle before it returns the
+  error). Stop automatic recovery, keep the `upload_id` and the original
+  payment artefacts, and reconcile before re-preparing or paying again; never
+  pay again on this signal alone. Daemons older than 0.14.0 never send
+  `retryable`, so their REST partials read as unknown.
+
+`retention_known` is true over REST only when the body's `retryable` is
+present and a JSON boolean. Over gRPC the status message reads
+`Partial upload: <stored>/<total> chunks stored, <failed> failed after retries: <reason> (<hint>)`,
+and `retention_known` is true only when the counts right after the
+`Partial upload:` prefix parse (all three) and the message ends with one of
+the daemon's two hints: `(paid attempt retained...)` sets `retryable`, and
+`(stored chunks persist; re-prepare the same content...)` means the daemon
+confirmed nothing was retained (daemons older than 0.14.0 write only this
+one). A message whose counts do not parse reads as zero counts with
+retention unknown, even with a hint. Readable counts with a missing,
+truncated or unrecognised hint, or text after it, keep the counts but read
+as retention unknown: stop and reconcile, not "nothing retained".
+
+```cpp
+for (int attempt = 1;; ++attempt) {
+    try {
+        auto fin = client.finalize_upload(upload_id, tx_hashes);
+        break;  // every chunk stored
+    } catch (const antd::PartialUploadError& e) {
+        if (!e.retention_known) throw;  // unknown: stop, keep upload_id + tx_hashes, reconcile
+        if (!e.retryable) throw;        // confirmed not retained: re-prepare the same content
+        if (attempt >= 5) throw;        // still retained: retry the same finalize later
+        std::cerr << e.chunks_stored << "/" << e.total_chunks << " stored, "
+                  << e.chunks_failed << " unstored — retrying same upload_id\n";
+    }
+}
+```
+
+`examples/07-external-signer.cpp` has a complete `finalize_with_retry` with
+backoff and stuck detection. Contract reference:
+[`docs/external-signer-flow.md` §6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment).
 
 ## Building
 
@@ -297,3 +365,4 @@ See the [examples/](examples/) directory:
 - `03-chunks` — Raw chunk operations
 - `04-files` — File and directory upload/download
 - `06-private-data` — Private encrypted data storage
+- `07-external-signer` — Two-phase upload paid by an external signer (runs foundry's `cast` without a shell, after validating the daemon's payment fields), with a bounded `finalize_with_retry` for partial stores
