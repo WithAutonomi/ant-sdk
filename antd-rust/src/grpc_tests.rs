@@ -1335,8 +1335,7 @@ async fn test_grpc_error_aborted_embedded_marker_stays_grpc() {
 #[tokio::test]
 async fn test_grpc_error_aborted_partial_prefix_garbled_counts() {
     // The prefix alone is enough to classify the status as a partial store;
-    // counts that fail to parse read as zero. `retryable` is decided by the
-    // retained hint independently of the counts (absent here, so false).
+    // counts that fail to parse read as zero and `retryable` as false.
     let client = start_error_server(tonic::Code::Aborted, "Partial upload: n/a chunks").await;
     let err = client.health().await.unwrap_err();
     match err {
@@ -1352,6 +1351,41 @@ async fn test_grpc_error_aborted_partial_prefix_garbled_counts() {
             assert_eq!(message, "Partial upload: n/a chunks");
         }
         other => panic!("expected AntdError::PartialUpload, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_grpc_error_aborted_partial_invalid_counts_with_hint_not_retryable() {
+    // The counts gate the retry: a `Partial upload:` status whose counts do
+    // not parse, or overflow u64 in any position, is still a partial store,
+    // but reads as zero counts and not retryable even with the retained hint.
+    let over = "18446744073709551616"; // u64::MAX + 1
+    let msgs = [
+        "Partial upload: 300/312 chunks (paid attempt retained)".to_string(),
+        format!("Partial upload: {over}/312 chunks stored, 12 failed (paid attempt retained)"),
+        format!("Partial upload: 300/{over} chunks stored, 12 failed (paid attempt retained)"),
+        format!("Partial upload: 300/312 chunks stored, {over} failed (paid attempt retained)"),
+    ];
+    for msg in msgs {
+        let client = start_error_server(tonic::Code::Aborted, &msg).await;
+        match client.health().await.unwrap_err() {
+            AntdError::PartialUpload {
+                chunks_stored,
+                chunks_failed,
+                total_chunks,
+                retryable,
+                message,
+            } => {
+                assert_eq!(
+                    (chunks_stored, chunks_failed, total_chunks),
+                    (0, 0, 0),
+                    "{msg}"
+                );
+                assert!(!retryable, "invalid counts must not enable retry: {msg}");
+                assert_eq!(message, msg);
+            }
+            other => panic!("expected AntdError::PartialUpload for {msg}, got: {other:?}"),
+        }
     }
 }
 

@@ -3,7 +3,7 @@ use base64::Engine;
 use mockito::{Matcher, Mock, ServerGuard};
 use serde_json::json;
 
-use crate::errors::{parse_partial_upload_message, AntdError};
+use crate::errors::{error_for_body, parse_partial_upload_message, AntdError};
 use crate::models::{PaymentMode, PrepareOptions, VerifyQuoteEntry};
 use crate::Client;
 
@@ -708,6 +708,39 @@ async fn test_partial_upload_error_retryable_defaults_false() {
     }
 }
 
+#[test]
+fn test_partial_upload_body_mistyped_fields_read_zero_and_false() {
+    // REST reads typed JSON: a count is a non-negative integer that fits a
+    // u64 and `retryable` is a JSON bool. Anything else (a quoted number, a
+    // quoted "true", a negative, a fraction, an overflow, null) reads as
+    // 0 / false rather than being coerced, so a malformed body never selects
+    // paid-attempt recovery.
+    let bodies = [
+        r#"{"error":"Partial upload: 300/312 chunks stored, 12 failed","code":"PARTIAL_UPLOAD","chunks_stored":"300","chunks_failed":"12","total_chunks":"312","retryable":"true"}"#,
+        r#"{"error":"Partial upload: 300/312 chunks stored, 12 failed","code":"PARTIAL_UPLOAD","chunks_stored":-1,"chunks_failed":12.5,"total_chunks":18446744073709551616,"retryable":1}"#,
+        r#"{"error":"Partial upload: 300/312 chunks stored, 12 failed","code":"PARTIAL_UPLOAD","chunks_stored":null,"chunks_failed":null,"total_chunks":null,"retryable":null}"#,
+    ];
+    for body in bodies {
+        match error_for_body(502, body.as_bytes()) {
+            AntdError::PartialUpload {
+                chunks_stored,
+                chunks_failed,
+                total_chunks,
+                retryable,
+                ..
+            } => {
+                assert_eq!(
+                    (chunks_stored, chunks_failed, total_chunks),
+                    (0, 0, 0),
+                    "{body}"
+                );
+                assert!(!retryable, "mistyped retryable must read false: {body}");
+            }
+            other => panic!("expected PartialUpload for {body}, got: {other:?}"),
+        }
+    }
+}
+
 #[tokio::test]
 async fn test_plain_502_still_maps_to_network() {
     // Only `code: PARTIAL_UPLOAD` is special-cased; a 502 with any other
@@ -745,15 +778,55 @@ fn test_parse_partial_upload_message() {
             (300, 12, 312, false),
         ),
         ("Partial upload: 0/1 chunks stored, 1 failed", (0, 1, 1, false)),
-        // A truncated prefix yields zero counts; the hint is still honoured.
+        // The largest u64 still converts, so the hint is honoured.
+        (
+            "Partial upload: 18446744073709551615/18446744073709551615 chunks stored, 18446744073709551615 failed (paid attempt retained)",
+            (u64::MAX, u64::MAX, u64::MAX, true),
+        ),
+        // Pattern misses: the counts gate the flag, so the hint alone never
+        // makes the error retryable.
         (
             "Partial upload: 300/312 chunks (paid attempt retained)",
-            (0, 0, 0, true),
+            (0, 0, 0, false),
         ),
+        (
+            "Partial upload: n/a chunks stored, 12 failed (paid attempt retained)",
+            (0, 0, 0, false),
+        ),
+        (
+            "Partial upload: -1/312 chunks stored, 12 failed (paid attempt retained)",
+            (0, 0, 0, false),
+        ),
+        ("something else (paid attempt retained)", (0, 0, 0, false)),
         ("something else entirely", (0, 0, 0, false)),
     ];
     for (msg, want) in cases {
         assert_eq!(parse_partial_upload_message(msg), want, "{msg:?}");
+    }
+}
+
+#[test]
+fn test_parse_partial_upload_message_overflow_disables_retry() {
+    // 2^64, one past u64::MAX. A count that fails to convert, in any
+    // position, zeroes every count and disables retry even though the
+    // retained hint is present: fields the client could not read must not
+    // select paid-attempt recovery.
+    const OVER: &str = "18446744073709551616";
+    const TAIL: &str = "after retries: quorum (paid attempt retained: call finalize again \
+                        with the same upload_id to store the remainder against the same payment)";
+    let msgs = [
+        format!("Partial upload: {OVER}/312 chunks stored, 12 failed {TAIL}"),
+        format!("Partial upload: 300/{OVER} chunks stored, 12 failed {TAIL}"),
+        format!("Partial upload: 300/312 chunks stored, {OVER} failed {TAIL}"),
+        format!("Partial upload: {OVER}/{OVER} chunks stored, {OVER} failed {TAIL}"),
+    ];
+    for msg in &msgs {
+        assert!(msg.contains("paid attempt retained"), "{msg:?}");
+        assert_eq!(
+            parse_partial_upload_message(msg),
+            (0, 0, 0, false),
+            "{msg:?}"
+        );
     }
 }
 

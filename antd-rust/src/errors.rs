@@ -60,13 +60,16 @@ pub enum AntdError {
     ///   skips already-stored chunks, so a retry pays only for the remainder.
     ///
     /// Over REST the counts and `retryable` come from the structured error
-    /// body. Over gRPC they are parsed best-effort from the status message
+    /// body. Over gRPC they are parsed from the status message
     /// (`Partial upload: S/T chunks stored, F failed ...`, with a
-    /// `paid attempt retained` hint when retryable). Counts and the hint are
-    /// parsed independently: a message that starts with the `Partial upload:`
-    /// prefix but has garbled counts leaves the counts zero, while `retryable`
-    /// still follows the hint. An `ABORTED` status that does not start with
-    /// that prefix is not a partial store and stays [`AntdError::Grpc`].
+    /// `paid attempt retained` hint when retryable), and the counts gate the
+    /// flag: `retryable` is `true` only when the message matches that pattern,
+    /// all three counts convert to `u64`, and the hint is present. A message
+    /// that starts with the `Partial upload:` prefix but whose counts are
+    /// garbled or overflow `u64` reads as zero counts with `retryable ==
+    /// false`, hint or not, so the caller takes the re-prepare path. An
+    /// `ABORTED` status that does not start with that prefix is not a partial
+    /// store and stays [`AntdError::Grpc`].
     ///
     /// See `docs/external-signer-flow.md` §6 ("Retry a partial store") in the
     /// [ant-sdk repository](https://github.com/WithAutonomi/ant-sdk/blob/main/docs/external-signer-flow.md).
@@ -111,7 +114,8 @@ impl From<tonic::Status> for AntdError {
             // the generic mapping rather than being misreported as a partial
             // store. The counts and the "paid attempt retained" hint ride the
             // message text over gRPC (no structured detail yet), so parse
-            // them best-effort to match the REST client's typed error.
+            // them to match the REST client's typed error; the hint enables
+            // retry only when the counts parse too.
             // Anchored at the start of the message, matching the count parser:
             // a `Partial upload:` marker embedded in some other ABORTED text
             // must not select paid-attempt recovery with zero counts.
@@ -145,12 +149,16 @@ const PARTIAL_UPLOAD_RETAINED_HINT: &str = "paid attempt retained";
 /// REST callers get the body fields instead.
 ///
 /// Matches the fixed prefix `Partial upload: <stored>/<total> chunks stored,
-/// <failed> failed`; anything else yields zero counts. `retryable` is decided
-/// independently, by the presence of the retained hint anywhere in the
-/// message — so a message with unparseable counts but the hint still reads
-/// as retryable (the safe direction: the daemon says it kept the attempt).
+/// <failed> failed`, and every count must convert to a `u64`. `retryable` is
+/// `true` only when that match succeeds **and** the retained hint is present.
+/// Any miss (a message that does not fit the pattern, or a count that is not
+/// a plain `u64`, such as one that overflows) yields `(0, 0, 0, false)` even
+/// when the hint is there. Invalid fields must not enable recovery: a
+/// same-`upload_id` retry acts on these counts (a bounded loop watches
+/// `chunks_failed` shrink), so it is offered only for a message the client
+/// fully understood. A miss falls back to re-preparing, which skips
+/// already-stored chunks and so pays only for the remainder.
 pub(crate) fn parse_partial_upload_message(msg: &str) -> (u64, u64, u64, bool) {
-    let retryable = msg.contains(PARTIAL_UPLOAD_RETAINED_HINT);
     let counts = (|| {
         let rest = msg.strip_prefix(PARTIAL_UPLOAD_PREFIX)?.strip_prefix(' ')?;
         let (stored, rest) = take_u64(rest)?;
@@ -158,11 +166,17 @@ pub(crate) fn parse_partial_upload_message(msg: &str) -> (u64, u64, u64, bool) {
         let (failed, _) = take_u64(rest.strip_prefix(" chunks stored, ")?)?;
         Some((stored, failed, total))
     })();
-    let (stored, failed, total) = counts.unwrap_or((0, 0, 0));
-    (stored, failed, total, retryable)
+    match counts {
+        Some((stored, failed, total)) => {
+            let retryable = msg.contains(PARTIAL_UPLOAD_RETAINED_HINT);
+            (stored, failed, total, retryable)
+        }
+        None => (0, 0, 0, false),
+    }
 }
 
-/// Splits a leading run of ASCII digits off `s` as a `u64`.
+/// Splits a leading run of ASCII digits off `s` as a `u64`; `None` when the
+/// run is empty or overflows `u64`.
 fn take_u64(s: &str) -> Option<(u64, &str)> {
     let end = s.bytes().take_while(u8::is_ascii_digit).count();
     let n = s[..end].parse().ok()?;
