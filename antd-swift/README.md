@@ -106,18 +106,25 @@ do {
 | `BadRequestError` | 400 | INVALID_ARGUMENT | Invalid input |
 | `PaymentError` | 402 | FAILED_PRECONDITION | Insufficient funds |
 | `NetworkError` | 502 | UNAVAILABLE | Network unreachable |
-| `PartialUploadError` | 502 (`code: "PARTIAL_UPLOAD"`) | ABORTED (message carries `Partial upload:`) | Finalize stored some chunks but not all (see below) |
+| `PartialUploadError` | 502 (`code: "PARTIAL_UPLOAD"`) | ABORTED (message starts with `Partial upload:`) | Finalize stored some chunks but not all; a `NetworkError` subclass (see below) |
 | `TooLargeError` | 413 | RESOURCE_EXHAUSTED | Data too large |
 | `InternalError` | 500 | INTERNAL | Server error |
 
 ### Partial uploads (external-signer finalize)
 
-A `finalizeUpload` / `finalizeMerkleUpload` where some chunks stayed unstored after the daemon's retries throws `PartialUploadError` with `chunksStored` / `chunksFailed` / `totalChunks` and a `retryable` flag. The on-chain payment persists and the stored chunks stay on the network:
+A `finalizeUpload` / `finalizeMerkleUpload` where some chunks stayed unstored after the daemon's retries throws `PartialUploadError` with `chunksStored` / `chunksFailed` / `totalChunks` and two flags, `retryable` and `retentionKnown`. The on-chain payment persists and the stored chunks stay on the network. There are three cases:
 
-- **`retryable == true`** (antd ≥ 0.14.0): the daemon kept the paid attempt under the same `uploadId`. Call the **same** finalize method again with the same arguments to store the remainder against the same payment — no re-prepare, no second signature, no double payment. Bound that loop: a persistent failure throws `PartialUploadError` on every call, so cap the attempts and treat a `chunksFailed` that stops shrinking as stuck.
-- **`retryable == false`** (older daemon, or a merkle finalize with deliberately unpaid batches): nothing was retained. Re-preparing the same content skips already-stored chunks, so a retry pays only for the remainder.
+- **`retryable`** (antd ≥ 0.14.0): the daemon kept the paid attempt under the same `uploadId`. Call the **same** finalize method again with the same `uploadId` and payment artefacts to store the remainder against the same payment — no re-prepare, no second signature, no double payment. Bound that loop: a persistent failure throws `PartialUploadError` on every call, so cap the attempts and treat a `chunksFailed` that stops shrinking as stuck.
+- **`retentionKnown && !retryable`**: the daemon confirmed it kept nothing (for example a merkle finalize with deliberately unpaid batches). Re-preparing the same content skips already-stored chunks, so a retry pays only for the remainder.
+- **`!retentionKnown`**: retention is unknown, and the daemon may still hold the paid attempt. Stop automatic recovery, keep the `uploadId` and the original payment artefacts (transaction hashes or winner pool hash), and reconcile before re-preparing or paying again. Never pay again on this signal alone. Daemons older than 0.14.0 never send `retryable`, so their REST partial uploads read as unknown. Over gRPC, a status message without a readable closing retention hint also reads as unknown (see below).
 
-Over REST the counts and the flag come from the structured error body (`retryable` is absent on daemons older than 0.14.0 and reads `false`). Over gRPC an ABORTED status whose message carries the daemon's fixed `Partial upload:` prefix is parsed for the counts and the flag; any other ABORTED stays a `ForkError`. Catch `PartialUploadError` *before* the generic `AntdError` clause:
+`retryable` implies `retentionKnown`.
+
+Over REST the counts and `retryable` come from the structured error body. The counts must be JSON non-negative integers and `retryable` a JSON boolean: a body where any of them has another JSON type (a quoted `"1"` or `"true"`, a negative number, an array) is not trusted as a partial upload and keeps the status-based mapping, so a 502 stays a plain `NetworkError`. `retentionKnown` is `true` only when the body carries `retryable` as a JSON boolean; an absent or `null` `retryable` reads as unknown.
+
+Over gRPC only an ABORTED status whose message *starts with* the daemon's fixed `Partial upload:` prefix is a partial upload; any other ABORTED, including one that mentions the prefix further in, stays a `ForkError`. The counts and retention are parsed from that message (`Partial upload: <stored>/<total> chunks stored, <failed> failed after retries: <reason> (<hint>)`). `retentionKnown` is `true` only when all three counts parsed and the message ends with one of the daemon's two hints: `(paid attempt retained...)` sets `retryable`, and `(stored chunks persist; re-prepare the same content...)` means the daemon confirmed nothing was retained (daemons older than 0.14.0 write only this one). A message whose counts do not parse reads zero counts, unknown retention and `retryable == false`. Readable counts with a missing, truncated or unrecognised hint, or with text after it, keep the counts but also read unknown retention and `retryable == false`: stop and reconcile rather than re-prepare. SDK releases up to 0.13.x mapped every gRPC ABORTED to `ForkError`; a partial-upload ABORTED now maps to `PartialUploadError` (the daemon emits ABORTED only for `PARTIAL_UPLOAD`).
+
+`PartialUploadError` subclasses `NetworkError`, so an existing `catch let e as NetworkError` still catches a partial upload. Catch `PartialUploadError` *before* `NetworkError` and the generic `AntdError` clause:
 
 ```swift
 var lastFailed: UInt64 = 0
@@ -128,11 +135,14 @@ for attempt in 1...5 {
         break                                   // every chunk stored — done
     } catch let partial as PartialUploadError where partial.retryable {
         if attempt == 5 || (attempt > 1 && partial.chunksFailed >= lastFailed) {
-            throw partial                       // stuck: paid, partly stored — retry later or re-prepare
+            throw partial                       // stuck, but the paid attempt is retained: resume later with the same uploadId + txHashes
         }
         lastFailed = partial.chunksFailed
         try await Task.sleep(nanoseconds: UInt64(attempt) * 2_000_000_000)   // back off, then resume
     }
+    // A non-retryable PartialUploadError propagates untouched:
+    //   partial.retentionKnown  → the daemon kept nothing; re-prepare the same content
+    //   !partial.retentionKnown → unknown; stop, keep prep.uploadId + txHashes, reconcile. Do not pay again.
 }
 ```
 

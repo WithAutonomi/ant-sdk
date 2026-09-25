@@ -188,13 +188,15 @@ final class GrpcExternalSignerTests: XCTestCase {
                 XCTAssertEqual(error.chunksFailed, 12)
                 XCTAssertEqual(error.totalChunks, 312)
                 XCTAssertTrue(error.retryable)
+                XCTAssertTrue(error.retentionKnown)
             } catch {
                 XCTFail("expected PartialUploadError, got \(error)")
             }
         }
     }
 
-    /// 13. ABORTED without the retained hint → counts parsed, retryable == false.
+    /// 13. ABORTED with the daemon's not-retained hint → counts parsed,
+    /// retention known, retryable == false (the daemon kept nothing).
     func testFinalizeUploadPartialNotRetryable() async throws {
         try await withMockServer { client in
             do {
@@ -205,6 +207,7 @@ final class GrpcExternalSignerTests: XCTestCase {
                 XCTAssertEqual(error.chunksFailed, 12)
                 XCTAssertEqual(error.totalChunks, 312)
                 XCTAssertFalse(error.retryable)
+                XCTAssertTrue(error.retentionKnown)
             } catch {
                 XCTFail("expected PartialUploadError, got \(error)")
             }
@@ -223,6 +226,70 @@ final class GrpcExternalSignerTests: XCTestCase {
                 XCTAssertEqual(error.message, "conflicting update")
             } catch {
                 XCTFail("expected ForkError, got \(error)")
+            }
+        }
+    }
+
+    /// 15. ABORTED whose message only mentions "Partial upload:" further in
+    /// (not at the start) keeps the ForkError mapping over the wire.
+    func testFinalizeUploadAbortedEmbeddedPartialMarkerIsForkError() async throws {
+        try await withMockServer { client in
+            do {
+                _ = try await client.finalizeUpload(uploadId: "aborted-embedded-partial", txHashes: ["0xq1": "0xtx1"])
+                XCTFail("expected ForkError")
+            } catch let error as PartialUploadError {
+                XCTFail("embedded marker must not map to PartialUploadError: \(error)")
+            } catch let error as ForkError {
+                XCTAssertEqual(error.statusCode, 409)
+                XCTAssertEqual(error.message, "upstream error: Partial upload: 1/3 chunks stored, 2 failed")
+            } catch {
+                XCTFail("expected ForkError, got \(error)")
+            }
+        }
+    }
+
+    /// 16. ABORTED "Partial upload:" with an out-of-range count and the
+    /// retained hint → PartialUploadError with zero counts, unknown retention
+    /// and retryable == false over the wire.
+    func testFinalizeUploadPartialOverflowCountIsNotRetryable() async throws {
+        try await withMockServer { client in
+            do {
+                _ = try await client.finalizeUpload(uploadId: "partial-overflow", txHashes: ["0xq1": "0xtx1"])
+                XCTFail("expected PartialUploadError")
+            } catch let error as PartialUploadError {
+                XCTAssertEqual(error.statusCode, 502)
+                XCTAssertEqual(error.chunksStored, 0)
+                XCTAssertEqual(error.chunksFailed, 0)
+                XCTAssertEqual(error.totalChunks, 0)
+                XCTAssertFalse(error.retryable)
+                XCTAssertFalse(error.retentionKnown)
+            } catch {
+                XCTFail("expected PartialUploadError, got \(error)")
+            }
+        }
+    }
+
+    /// 17. ABORTED "Partial upload:" with readable counts but no readable
+    /// retention hint (none, or the review's truncated "(paid attempt
+    /// retai") → the counts still read, but retention is unknown and
+    /// retryable == false over the wire: stop and reconcile, never
+    /// "nothing retained".
+    func testFinalizeUploadPartialWithoutReadableHintIsUnknown() async throws {
+        try await withMockServer { client in
+            for id in ["partial-no-hint", "partial-truncated-hint"] {
+                do {
+                    _ = try await client.finalizeUpload(uploadId: id, txHashes: ["0xq1": "0xtx1"])
+                    XCTFail("\(id): expected PartialUploadError")
+                } catch let error as PartialUploadError {
+                    XCTAssertEqual(error.statusCode, 502, id)
+                    XCTAssertEqual(error.chunksStored, 1, id)
+                    XCTAssertEqual(error.chunksFailed, 2, id)
+                    XCTAssertEqual(error.totalChunks, 3, id)
+                    XCTAssertFalse(error.retryable, id)
+                    XCTAssertFalse(error.retentionKnown, id)
+                } catch {
+                    XCTFail("\(id): expected PartialUploadError, got \(error)")
+                }
             }
         }
     }
@@ -302,9 +369,8 @@ final class MockUploadService: Antd_V1_UploadService.SimpleServiceProtocol, @unc
         request: Antd_V1_FinalizeUploadRequest,
         context: ServerContext
     ) async throws -> Antd_V1_FinalizeUploadResponse {
-        // PARTIAL_UPLOAD rides gRPC as ABORTED with the counts (and, when the
-        // daemon kept the paid attempt, the "paid attempt retained" hint) in
-        // the status message.
+        // PARTIAL_UPLOAD rides gRPC as ABORTED with the counts and the
+        // daemon's closing retention hint in the status message.
         if request.uploadID == "partial" {
             throw RPCError(
                 code: .aborted,
@@ -320,6 +386,25 @@ final class MockUploadService: Antd_V1_UploadService.SimpleServiceProtocol, @unc
         // An ABORTED that is not a partial upload: no "Partial upload:" prefix.
         if request.uploadID == "aborted-conflict" {
             throw RPCError(code: .aborted, message: "conflicting update")
+        }
+        // An ABORTED that mentions "Partial upload:" but does not start with it.
+        if request.uploadID == "aborted-embedded-partial" {
+            throw RPCError(code: .aborted, message: "upstream error: Partial upload: 1/3 chunks stored, 2 failed")
+        }
+        // A "Partial upload:" message whose failed count overflows UInt64,
+        // with the retained hint.
+        if request.uploadID == "partial-overflow" {
+            throw RPCError(
+                code: .aborted,
+                message: "Partial upload: 1/3 chunks stored, 18446744073709551616 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)"
+            )
+        }
+        // Readable counts whose retention hint is missing or cut short.
+        if request.uploadID == "partial-no-hint" {
+            throw RPCError(code: .aborted, message: "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum")
+        }
+        if request.uploadID == "partial-truncated-hint" {
+            throw RPCError(code: .aborted, message: "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (paid attempt retai")
         }
         var resp = Antd_V1_FinalizeUploadResponse()
         if !request.winnerPoolHash.isEmpty {

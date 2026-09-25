@@ -36,5 +36,9 @@ let package = Package(
             name: "AntdSdkTests",
             dependencies: ["AntdSdk"]
         ),
+        .testTarget(
+            name: "AntdExamplesTests",
+            dependencies: ["AntdExamples", "AntdSdk"]
+        ),
     ]
 )

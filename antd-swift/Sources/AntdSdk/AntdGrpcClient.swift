@@ -408,22 +408,36 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
     /// Throws ``PartialUploadError`` when some chunks stayed unstored after the
     /// daemon's retries. The on-chain payment persists and the stored chunks
     /// stay on the network; how to finish depends on
-    /// ``PartialUploadError/retryable``:
+    /// ``PartialUploadError/retryable`` and
+    /// ``PartialUploadError/retentionKnown``:
     ///
-    /// - `true` (antd >= 0.14.0): the daemon kept the paid attempt under the
-    ///   same `uploadId`. Call this method again with the **same** arguments to
-    ///   store the remainder against the same payment — no re-prepare, no
-    ///   second signature, no double payment. Bound that loop: a persistent
-    ///   failure throws on every call, so cap the attempts and treat a
+    /// - `retryable` (antd >= 0.14.0): the daemon kept the paid attempt under
+    ///   the same `uploadId`. Call this method again with the **same**
+    ///   arguments (same `uploadId`, same payment artefacts) to store the
+    ///   remainder against the same payment — no re-prepare, no second
+    ///   signature, no double payment. Bound that loop: a persistent failure
+    ///   throws on every call, so cap the attempts and treat a
     ///   ``PartialUploadError/chunksFailed`` that stops shrinking as stuck.
-    /// - `false` (older daemon, or a merkle finalize with deliberately unpaid
-    ///   batches): nothing was retained. Re-prepare the same content; already
-    ///   stored chunks are skipped, so the retry pays only for the remainder.
+    /// - `retentionKnown && !retryable`: the daemon confirmed nothing was
+    ///   retained (for example a merkle finalize with deliberately unpaid
+    ///   batches). Re-prepare the same content; already stored chunks are
+    ///   skipped, so the retry pays only for the remainder.
+    /// - `!retentionKnown`: retention is unknown, and the daemon may still
+    ///   hold the paid attempt. Stop automatic recovery, keep the `uploadId`
+    ///   and the original payment artefacts, and reconcile before
+    ///   re-preparing or paying again. Never pay again on this signal alone.
+    ///   Daemons older than 0.14.0 never send `retryable`, so their REST
+    ///   partial uploads read as unknown.
     ///
     /// See `docs/external-signer-flow.md` §6.
     ///
-    /// Over gRPC the partial-upload counts and the retryable hint are parsed
-    /// from the ABORTED status message (see `ErrorMapping`).
+    /// Over gRPC the partial-upload counts and the retention hint are parsed
+    /// from the ABORTED status message (see ``PartialUploadError``).
+    /// Retention is known only when the counts parse and the message ends
+    /// with one of the daemon's two hints: `(paid attempt retained...)`
+    /// (`retryable`) or `(stored chunks persist; re-prepare the same
+    /// content...)` (nothing retained). Counts that do not parse, or a
+    /// missing, truncated or unrecognised hint, read as unknown retention.
     public func finalizeUpload(uploadId: String, txHashes: [String: String]) async throws -> FinalizeUploadResult {
         try await withGRPC { client in
             var req = Antd_V1_FinalizeUploadRequest()
@@ -447,22 +461,36 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
     /// Throws ``PartialUploadError`` when some chunks stayed unstored after the
     /// daemon's retries. The on-chain payment persists and the stored chunks
     /// stay on the network; how to finish depends on
-    /// ``PartialUploadError/retryable``:
+    /// ``PartialUploadError/retryable`` and
+    /// ``PartialUploadError/retentionKnown``:
     ///
-    /// - `true` (antd >= 0.14.0): the daemon kept the paid attempt under the
-    ///   same `uploadId`. Call this method again with the **same** arguments to
-    ///   store the remainder against the same payment — no re-prepare, no
-    ///   second signature, no double payment. Bound that loop: a persistent
-    ///   failure throws on every call, so cap the attempts and treat a
+    /// - `retryable` (antd >= 0.14.0): the daemon kept the paid attempt under
+    ///   the same `uploadId`. Call this method again with the **same**
+    ///   arguments (same `uploadId`, same payment artefacts) to store the
+    ///   remainder against the same payment — no re-prepare, no second
+    ///   signature, no double payment. Bound that loop: a persistent failure
+    ///   throws on every call, so cap the attempts and treat a
     ///   ``PartialUploadError/chunksFailed`` that stops shrinking as stuck.
-    /// - `false` (older daemon, or a merkle finalize with deliberately unpaid
-    ///   batches): nothing was retained. Re-prepare the same content; already
-    ///   stored chunks are skipped, so the retry pays only for the remainder.
+    /// - `retentionKnown && !retryable`: the daemon confirmed nothing was
+    ///   retained (for example a merkle finalize with deliberately unpaid
+    ///   batches). Re-prepare the same content; already stored chunks are
+    ///   skipped, so the retry pays only for the remainder.
+    /// - `!retentionKnown`: retention is unknown, and the daemon may still
+    ///   hold the paid attempt. Stop automatic recovery, keep the `uploadId`
+    ///   and the original payment artefacts, and reconcile before
+    ///   re-preparing or paying again. Never pay again on this signal alone.
+    ///   Daemons older than 0.14.0 never send `retryable`, so their REST
+    ///   partial uploads read as unknown.
     ///
     /// See `docs/external-signer-flow.md` §6.
     ///
-    /// Over gRPC the partial-upload counts and the retryable hint are parsed
-    /// from the ABORTED status message (see `ErrorMapping`).
+    /// Over gRPC the partial-upload counts and the retention hint are parsed
+    /// from the ABORTED status message (see ``PartialUploadError``).
+    /// Retention is known only when the counts parse and the message ends
+    /// with one of the daemon's two hints: `(paid attempt retained...)`
+    /// (`retryable`) or `(stored chunks persist; re-prepare the same
+    /// content...)` (nothing retained). Counts that do not parse, or a
+    /// missing, truncated or unrecognised hint, read as unknown retention.
     public func finalizeMerkleUpload(uploadId: String, winnerPoolHash: String) async throws -> FinalizeMerkleUploadResult {
         try await withGRPC { client in
             var req = Antd_V1_FinalizeUploadRequest()

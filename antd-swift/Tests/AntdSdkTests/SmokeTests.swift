@@ -81,7 +81,7 @@ final class SmokeTests: XCTestCase {
             NetworkError("net"),
             TooLargeError("big"),
             InternalError("err"),
-            PartialUploadError("partial", chunksStored: 1, chunksFailed: 1, totalChunks: 2, retryable: true),
+            PartialUploadError("partial", chunksStored: 1, chunksFailed: 1, totalChunks: 2, retryable: true, retentionKnown: true),
         ]
 
         for error in errors {
@@ -96,7 +96,7 @@ final class SmokeTests: XCTestCase {
         XCTAssertEqual(TooLargeError("x").statusCode, 413)
         XCTAssertEqual(InternalError("x").statusCode, 500)
         XCTAssertEqual(
-            PartialUploadError("x", chunksStored: 1, chunksFailed: 1, totalChunks: 2, retryable: false).statusCode,
+            PartialUploadError("x", chunksStored: 1, chunksFailed: 1, totalChunks: 2, retryable: false, retentionKnown: true).statusCode,
             502
         )
     }
@@ -124,12 +124,14 @@ final class SmokeTests: XCTestCase {
         XCTAssertEqual(partial.chunksFailed, 12)
         XCTAssertEqual(partial.totalChunks, 312)
         XCTAssertTrue(partial.retryable)
+        XCTAssertTrue(partial.retentionKnown)
         XCTAssertTrue(partial.message.hasPrefix("Partial upload: 300/312 chunks stored, 12 failed"))
     }
 
-    /// An older daemon (< 0.14.0) never sends `retryable`; the flag must read
-    /// false so callers fall back to the re-prepare path rather than looping
-    /// on an upload_id the daemon has already dropped.
+    /// An older daemon (< 0.14.0) never sends `retryable`. The counts still
+    /// map, but retention reads as unknown and `retryable` as false: the
+    /// caller neither loops on the upload_id nor treats it as a confirmed
+    /// "nothing retained" and pays again.
     func testErrorMappingPartialUploadRetryableDefaultsFalse() throws {
         let body = #"{"error":"Partial upload: 300/312 chunks stored, 12 failed after retries","code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":12,"total_chunks":312}"#
         let partial = try XCTUnwrap(ErrorMapping.fromHTTPStatus(502, body: body) as? PartialUploadError)
@@ -137,6 +139,7 @@ final class SmokeTests: XCTestCase {
         XCTAssertEqual(partial.chunksFailed, 12)
         XCTAssertEqual(partial.totalChunks, 312)
         XCTAssertFalse(partial.retryable)
+        XCTAssertFalse(partial.retentionKnown)
     }
 
     /// A plain 502 (any other `code`, or a non-JSON body) keeps the
@@ -162,14 +165,17 @@ final class SmokeTests: XCTestCase {
         XCTAssertEqual(retained.chunksFailed, 12)
         XCTAssertEqual(retained.totalChunks, 312)
         XCTAssertTrue(retained.retryable)
+        XCTAssertTrue(retained.retentionKnown)
 
         let notRetained = try XCTUnwrap(
             ErrorMapping.fromGRPCStatus(code: 10, detail: "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (stored chunks persist; re-prepare the same content to retry only the remainder)") as? PartialUploadError
         )
         XCTAssertEqual(notRetained.chunksStored, 300)
         XCTAssertFalse(notRetained.retryable)
+        XCTAssertTrue(notRetained.retentionKnown)
 
-        // The prefix with garbled counts: still typed, counts zero, not retryable.
+        // The prefix with garbled counts: still typed, counts zero, retention
+        // unknown, not retryable.
         let garbled = try XCTUnwrap(
             ErrorMapping.fromGRPCStatus(code: 10, detail: "Partial upload: counts unavailable") as? PartialUploadError
         )
@@ -178,11 +184,13 @@ final class SmokeTests: XCTestCase {
         XCTAssertEqual(garbled.chunksFailed, 0)
         XCTAssertEqual(garbled.totalChunks, 0)
         XCTAssertFalse(garbled.retryable)
+        XCTAssertFalse(garbled.retentionKnown)
         XCTAssertEqual(garbled.message, "Partial upload: counts unavailable")
 
-        // The prefix need not be at the very start of the message.
+        // The gate is anchored: a message that only mentions the prefix
+        // further in is not a partial upload.
         XCTAssertTrue(
-            ErrorMapping.fromGRPCStatus(code: 10, detail: "finalize failed: Partial upload: 1/2 chunks stored, 1 failed") is PartialUploadError
+            ErrorMapping.fromGRPCStatus(code: 10, detail: "finalize failed: Partial upload: 1/2 chunks stored, 1 failed") is ForkError
         )
 
         // Any other ABORTED keeps the pre-existing ForkError mapping and is
@@ -196,16 +204,33 @@ final class SmokeTests: XCTestCase {
         XCTAssertTrue(ErrorMapping.fromGRPCStatus(code: 10, detail: "") is ForkError)
     }
 
-    /// The message parser recovers (stored, failed, total, retryable) from
-    /// the daemon's `PARTIAL_UPLOAD` text and degrades to zeros otherwise.
+    /// The message parser recovers (stored, failed, total, retryable,
+    /// retentionKnown) from the daemon's `PARTIAL_UPLOAD` text and degrades
+    /// to zeros, unknown retention and not retryable otherwise.
     func testParsePartialUploadMessage() {
-        let cases: [(message: String, stored: UInt64, failed: UInt64, total: UInt64, retryable: Bool)] = [
-            ("Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)", 300, 12, 312, true),
-            ("Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (stored chunks persist; re-prepare the same content to retry only the remainder)", 300, 12, 312, false),
-            ("Partial upload: 300/312 chunks stored, 12 failed after retries", 300, 12, 312, false),
-            ("Partial upload: 0/1 chunks stored, 1 failed after retries: timeout (paid attempt retained: ...)", 0, 1, 1, true),
-            ("something else entirely", 0, 0, 0, false),
-            ("", 0, 0, 0, false),
+        let cases: [(message: String, stored: UInt64, failed: UInt64, total: UInt64, retryable: Bool, known: Bool)] = [
+            ("Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)", 300, 12, 312, true, true),
+            ("Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (stored chunks persist; re-prepare the same content to retry only the remainder)", 300, 12, 312, false, true),
+            // Readable counts but no retention hint: retention unknown, not
+            // "nothing retained".
+            ("Partial upload: 300/312 chunks stored, 12 failed after retries", 300, 12, 312, false, false),
+            ("Partial upload: 0/1 chunks stored, 1 failed after retries: timeout (paid attempt retained: ...)", 0, 1, 1, true, true),
+            ("something else entirely", 0, 0, 0, false, false),
+            ("", 0, 0, 0, false, false),
+            // The hint alone never makes a message retryable: the counts must
+            // match and convert first, and until they do retention is unknown.
+            ("Partial upload: counts unavailable (paid attempt retained: ...)", 0, 0, 0, false, false),
+            ("Partial upload: 18446744073709551616/3 chunks stored, 2 failed (paid attempt retained: ...)", 0, 0, 0, false, false),
+            ("Partial upload: 1/18446744073709551616 chunks stored, 2 failed (paid attempt retained: ...)", 0, 0, 0, false, false),
+            ("Partial upload: 1/3 chunks stored, 18446744073709551616 failed (paid attempt retained: ...)", 0, 0, 0, false, false),
+            // UInt64.max itself converts.
+            ("Partial upload: 18446744073709551615/18446744073709551615 chunks stored, 0 failed (paid attempt retained: ...)", UInt64.max, 0, UInt64.max, true, true),
+            // Non-ASCII decimal digits match the pattern but do not convert.
+            ("Partial upload: \u{0661}/\u{0663} chunks stored, \u{0662} failed (paid attempt retained: ...)", 0, 0, 0, false, false),
+            // The counts pattern is anchored at the start of the message.
+            ("upstream error: Partial upload: 1/3 chunks stored, 2 failed (paid attempt retained: ...)", 0, 0, 0, false, false),
+            // Counts quoted later in a garbled message are not read.
+            ("Partial upload: garbled; was Partial upload: 1/3 chunks stored, 2 failed (paid attempt retained)", 0, 0, 0, false, false),
         ]
         for c in cases {
             let parsed = ErrorMapping.parsePartialUploadMessage(c.message)
@@ -213,7 +238,301 @@ final class SmokeTests: XCTestCase {
             XCTAssertEqual(parsed.chunksFailed, c.failed, c.message)
             XCTAssertEqual(parsed.totalChunks, c.total, c.message)
             XCTAssertEqual(parsed.retryable, c.retryable, c.message)
+            XCTAssertEqual(parsed.retentionKnown, c.known, c.message)
         }
+    }
+
+    // MARK: - PARTIAL_UPLOAD malformed input
+
+    /// The retained hint enables a retry only when the counts parsed in
+    /// full. A count past `UInt64.max` in any position, with the hint
+    /// present, still maps to the typed error, but with zero counts,
+    /// unknown retention and `retryable == false`.
+    func testErrorMappingGRPCOverflowCountDisablesRetry() throws {
+        let overflow = "18446744073709551616" // UInt64.max + 1
+        let hint = " after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)"
+        let messages = [
+            "Partial upload: \(overflow)/3 chunks stored, 2 failed" + hint,
+            "Partial upload: 1/\(overflow) chunks stored, 2 failed" + hint,
+            "Partial upload: 1/3 chunks stored, \(overflow) failed" + hint,
+        ]
+        for message in messages {
+            let partial = try XCTUnwrap(
+                ErrorMapping.fromGRPCStatus(code: 10, detail: message) as? PartialUploadError,
+                message
+            )
+            XCTAssertEqual(partial.statusCode, 502, message)
+            XCTAssertEqual(partial.chunksStored, 0, message)
+            XCTAssertEqual(partial.chunksFailed, 0, message)
+            XCTAssertEqual(partial.totalChunks, 0, message)
+            XCTAssertFalse(partial.retryable, message)
+            XCTAssertFalse(partial.retentionKnown, message)
+            XCTAssertEqual(partial.message, message)
+        }
+    }
+
+    /// A `Partial upload:` message whose counts do not match the pattern
+    /// reads as unknown retention and is not retryable, even with the hint.
+    func testErrorMappingGRPCRegexMissWithHintIsNotRetryable() throws {
+        let message = "Partial upload: counts unavailable (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)"
+        let partial = try XCTUnwrap(ErrorMapping.fromGRPCStatus(code: 10, detail: message) as? PartialUploadError)
+        XCTAssertEqual(partial.chunksStored, 0)
+        XCTAssertEqual(partial.chunksFailed, 0)
+        XCTAssertEqual(partial.totalChunks, 0)
+        XCTAssertFalse(partial.retryable)
+        XCTAssertFalse(partial.retentionKnown)
+    }
+
+    /// Well-formed counts: the closing hint decides retention. The retained
+    /// hint gives known and retryable; no hint gives unknown retention and
+    /// not retryable, with the counts still read.
+    func testErrorMappingGRPCWellFormedRetryableFollowsHint() throws {
+        let withHint = try XCTUnwrap(
+            ErrorMapping.fromGRPCStatus(code: 10, detail: "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)") as? PartialUploadError
+        )
+        XCTAssertEqual(withHint.chunksStored, 1)
+        XCTAssertEqual(withHint.chunksFailed, 2)
+        XCTAssertEqual(withHint.totalChunks, 3)
+        XCTAssertTrue(withHint.retryable)
+        XCTAssertTrue(withHint.retentionKnown)
+
+        let withoutHint = try XCTUnwrap(
+            ErrorMapping.fromGRPCStatus(code: 10, detail: "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum") as? PartialUploadError
+        )
+        XCTAssertEqual(withoutHint.chunksStored, 1)
+        XCTAssertEqual(withoutHint.chunksFailed, 2)
+        XCTAssertEqual(withoutHint.totalChunks, 3)
+        XCTAssertFalse(withoutHint.retryable)
+        XCTAssertFalse(withoutHint.retentionKnown)
+    }
+
+    /// Only an ABORTED whose message starts with `Partial upload:` is a
+    /// partial upload. One that embeds the marker further in (a wrapped
+    /// upstream error, say) keeps the ForkError mapping, hint or not.
+    func testErrorMappingGRPCEmbeddedMarkerIsNotPartialUpload() throws {
+        for message in [
+            "upstream error: Partial upload: 1/3 chunks stored, 2 failed",
+            "upstream error: Partial upload: 1/3 chunks stored, 2 failed (paid attempt retained: call finalize again with the same upload_id)",
+            " Partial upload: 1/3 chunks stored, 2 failed",
+            "partial upload: 1/3 chunks stored, 2 failed",
+        ] {
+            let mapped = ErrorMapping.fromGRPCStatus(code: 10, detail: message)
+            XCTAssertFalse(mapped is PartialUploadError, message)
+            let fork = try XCTUnwrap(mapped as? ForkError, message)
+            XCTAssertEqual(fork.statusCode, 409, message)
+            XCTAssertEqual(fork.message, message)
+        }
+        // The prefix on a non-ABORTED status is not a partial upload either.
+        XCTAssertTrue(
+            ErrorMapping.fromGRPCStatus(code: 13, detail: "Partial upload: 1/3 chunks stored, 2 failed") is InternalError
+        )
+    }
+
+    /// REST: a `PARTIAL_UPLOAD` envelope whose counts, `retryable`, `code`
+    /// or `error` carry the wrong JSON type is not trusted. The typed
+    /// envelope fails to decode and the status-based mapping applies, so
+    /// the caller gets a typed ``AntdError`` (never a `DecodingError`) and
+    /// never a `retryable == true` built from a quoted or coerced value.
+    func testErrorMappingRESTMalformedPartialUploadFieldsFallBackToStatus() {
+        let counts: [(label: String, json: String)] = [
+            ("quoted number", #""1""#),
+            ("boolean", "true"),
+            ("negative", "-1"),
+            ("array", "[]"),
+            ("object", "{}"),
+            ("past UInt64.max", "18446744073709551616"),
+        ]
+        var bodies: [(label: String, body: String)] = []
+        for field in ["chunks_stored", "chunks_failed", "total_chunks"] {
+            for c in counts {
+                let stored = field == "chunks_stored" ? c.json : "1"
+                let failed = field == "chunks_failed" ? c.json : "2"
+                let total = field == "total_chunks" ? c.json : "3"
+                let body = #"{"error":"Partial upload: 1/3 chunks stored, 2 failed (paid attempt retained)","code":"PARTIAL_UPLOAD","chunks_stored":\#(stored),"chunks_failed":\#(failed),"total_chunks":\#(total),"retryable":true}"#
+                bodies.append(("\(field) as \(c.label)", body))
+            }
+        }
+        bodies += [
+            ("retryable as quoted true", #"{"error":"Partial upload: 1/3 chunks stored, 2 failed (paid attempt retained)","code":"PARTIAL_UPLOAD","chunks_stored":1,"chunks_failed":2,"total_chunks":3,"retryable":"true"}"#),
+            ("retryable as number", #"{"error":"Partial upload: 1/3 chunks stored, 2 failed (paid attempt retained)","code":"PARTIAL_UPLOAD","chunks_stored":1,"chunks_failed":2,"total_chunks":3,"retryable":1}"#),
+            ("code as object", #"{"error":"Partial upload: 1/3 chunks stored, 2 failed","code":{},"chunks_stored":1,"chunks_failed":2,"total_chunks":3,"retryable":true}"#),
+            ("code as array", #"{"error":"Partial upload: 1/3 chunks stored, 2 failed","code":["PARTIAL_UPLOAD"],"retryable":true}"#),
+            ("error as number", #"{"error":42,"code":"PARTIAL_UPLOAD","chunks_stored":1,"chunks_failed":2,"total_chunks":3,"retryable":true}"#),
+            ("error as object", #"{"error":{"msg":"x"},"code":"PARTIAL_UPLOAD","chunks_stored":1,"chunks_failed":2,"total_chunks":3,"retryable":true}"#),
+            ("top-level array", #"[{"code":"PARTIAL_UPLOAD","retryable":true}]"#),
+        ]
+        for (label, body) in bodies {
+            let mapped = ErrorMapping.fromHTTPStatus(502, body: body)
+            XCTAssertFalse(mapped is PartialUploadError, label)
+            XCTAssertTrue(mapped is NetworkError, "\(label): got \(mapped)")
+            XCTAssertEqual(mapped.statusCode, 502, label)
+            XCTAssertEqual(mapped.message, body, label)
+        }
+        // The same malformed envelope on another status keeps that status's
+        // mapping.
+        XCTAssertTrue(
+            ErrorMapping.fromHTTPStatus(500, body: #"{"error":"x","code":"PARTIAL_UPLOAD","chunks_failed":"1","retryable":"true"}"#) is InternalError
+        )
+    }
+
+    /// REST: absent or `null` counts read zero, and an absent or `null`
+    /// `retryable` reads as unknown retention and not retryable, on an
+    /// otherwise well-typed `PARTIAL_UPLOAD` envelope.
+    func testErrorMappingRESTPartialUploadMissingOrNullFieldsReadZeroFalse() throws {
+        for body in [
+            #"{"error":"Partial upload","code":"PARTIAL_UPLOAD"}"#,
+            #"{"error":"Partial upload","code":"PARTIAL_UPLOAD","chunks_stored":null,"chunks_failed":null,"total_chunks":null,"retryable":null}"#,
+        ] {
+            let partial = try XCTUnwrap(ErrorMapping.fromHTTPStatus(502, body: body) as? PartialUploadError, body)
+            XCTAssertEqual(partial.chunksStored, 0, body)
+            XCTAssertEqual(partial.chunksFailed, 0, body)
+            XCTAssertEqual(partial.totalChunks, 0, body)
+            XCTAssertFalse(partial.retryable, body)
+            XCTAssertFalse(partial.retentionKnown, body)
+            XCTAssertEqual(partial.message, "Partial upload", body)
+        }
+        // A missing `error` falls back to the raw body as the message.
+        let noError = try XCTUnwrap(
+            ErrorMapping.fromHTTPStatus(502, body: #"{"code":"PARTIAL_UPLOAD","chunks_stored":1,"chunks_failed":2,"total_chunks":3,"retryable":true}"#) as? PartialUploadError
+        )
+        XCTAssertEqual(noError.chunksFailed, 2)
+        XCTAssertTrue(noError.retryable)
+        XCTAssertTrue(noError.retentionKnown)
+    }
+
+    // MARK: - PARTIAL_UPLOAD retention
+
+    /// REST: `retentionKnown` follows the presence of `retryable` as a JSON
+    /// boolean. `true` → known and retryable; `false` → known, not retryable
+    /// (the daemon kept nothing); absent or `null` → unknown, not retryable.
+    func testErrorMappingRESTRetentionKnownFollowsRetryableField() throws {
+        let prefix = #"{"error":"Partial upload: 1/3 chunks stored, 2 failed","code":"PARTIAL_UPLOAD","chunks_stored":1,"chunks_failed":2,"total_chunks":3"#
+        let cases: [(tail: String, retryable: Bool, known: Bool)] = [
+            (#","retryable":true}"#, true, true),
+            (#","retryable":false}"#, false, true),
+            ("}", false, false),
+            (#","retryable":null}"#, false, false),
+        ]
+        for c in cases {
+            let body = prefix + c.tail
+            let partial = try XCTUnwrap(ErrorMapping.fromHTTPStatus(502, body: body) as? PartialUploadError, body)
+            XCTAssertEqual(partial.chunksStored, 1, body)
+            XCTAssertEqual(partial.chunksFailed, 2, body)
+            XCTAssertEqual(partial.totalChunks, 3, body)
+            XCTAssertEqual(partial.retryable, c.retryable, body)
+            XCTAssertEqual(partial.retentionKnown, c.known, body)
+        }
+    }
+
+    /// gRPC: well-formed with the retained hint → known and retryable;
+    /// well-formed with the not-retained hint → known, not retryable;
+    /// well-formed with no hint or a truncated one → unknown, not retryable;
+    /// overflow or pattern miss with the hint → unknown, not retryable.
+    func testErrorMappingGRPCRetentionKnownRequiresParsedCountsAndHint() throws {
+        let hint = " after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)"
+        let cases: [(message: String, retryable: Bool, known: Bool)] = [
+            ("Partial upload: 1/3 chunks stored, 2 failed" + hint, true, true),
+            ("Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (stored chunks persist; re-prepare the same content to retry only the remainder)", false, true),
+            ("Partial upload: 1/3 chunks stored, 2 failed after retries: quorum", false, false),
+            ("Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (paid attempt retai", false, false),
+            ("Partial upload: 1/3 chunks stored, 18446744073709551616 failed" + hint, false, false),
+            ("Partial upload: counts unavailable" + hint, false, false),
+        ]
+        for c in cases {
+            let partial = try XCTUnwrap(ErrorMapping.fromGRPCStatus(code: 10, detail: c.message) as? PartialUploadError, c.message)
+            XCTAssertEqual(partial.retryable, c.retryable, c.message)
+            XCTAssertEqual(partial.retentionKnown, c.known, c.message)
+        }
+    }
+
+    /// The daemon's two closing hints (`partial_upload_hint` in
+    /// antd/src/error.rs).
+    private static let retainedTail = " (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)"
+    private static let notRetainedTail = " (stored chunks persist; re-prepare the same content to retry only the remainder)"
+
+    /// Only the hint that closes the message decides retention. Every case
+    /// has readable counts (1 stored, 2 failed, 3 total), which read
+    /// whatever the tail.
+    private static let retentionTailCases: [(name: String, message: String, retryable: Bool, known: Bool)] = [
+        ("retained hint", "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum" + retainedTail, true, true),
+        ("short retained hint", "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (paid attempt retained)", true, true),
+        ("not-retained hint", "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum" + notRetainedTail, false, true),
+        ("parenthesised reason before the hint", "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (2 of 5 peers)" + notRetainedTail, false, true),
+        ("retained hint in the reason, not-retained tail", "Partial upload: 1/3 chunks stored, 2 failed after retries: peer said (paid attempt retained)" + notRetainedTail, false, true),
+        // Readable counts but no readable answer on retention: unknown (stop
+        // and reconcile), never "nothing retained" (re-prepare).
+        ("no hint", "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum", false, false),
+        ("truncated retained hint", "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (paid attempt retai", false, false),
+        ("retained hint without its closing paren", "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (paid attempt retained: call finalize again", false, false),
+        ("truncated not-retained hint", "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (stored chunks persist; re-prepare the same con", false, false),
+        ("unrecognised hint", "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (something else)", false, false),
+        ("text after the hint", "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum" + retainedTail + " trailing", false, false),
+        ("newline after the hint", "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum" + retainedTail + "\n", false, false),
+        ("CRLF after the not-retained hint", "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum" + notRetainedTail + "\r\n", false, false),
+        ("retained hint only in the reason", "Partial upload: 1/3 chunks stored, 2 failed after retries: peer said (paid attempt retained) (connection reset)", false, false),
+    ]
+
+    /// Parser: the counts read for every tail, and only a closing hint the
+    /// daemon writes makes retention known.
+    func testParsePartialUploadMessageRetentionTail() {
+        for c in Self.retentionTailCases {
+            let parsed = ErrorMapping.parsePartialUploadMessage(c.message)
+            XCTAssertEqual(parsed.chunksStored, 1, c.name)
+            XCTAssertEqual(parsed.chunksFailed, 2, c.name)
+            XCTAssertEqual(parsed.totalChunks, 3, c.name)
+            XCTAssertEqual(parsed.retryable, c.retryable, c.name)
+            XCTAssertEqual(parsed.retentionKnown, c.known, c.name)
+        }
+    }
+
+    /// Mapping: the same table through a gRPC ABORTED status.
+    func testErrorMappingGRPCRetentionTail() throws {
+        for c in Self.retentionTailCases {
+            let partial = try XCTUnwrap(
+                ErrorMapping.fromGRPCStatus(code: 10, detail: c.message) as? PartialUploadError,
+                c.name
+            )
+            XCTAssertEqual(partial.statusCode, 502, c.name)
+            XCTAssertEqual(partial.chunksStored, 1, c.name)
+            XCTAssertEqual(partial.chunksFailed, 2, c.name)
+            XCTAssertEqual(partial.totalChunks, 3, c.name)
+            XCTAssertEqual(partial.retryable, c.retryable, c.name)
+            XCTAssertEqual(partial.retentionKnown, c.known, c.name)
+            XCTAssertEqual(partial.message, c.message, c.name)
+        }
+    }
+
+    /// `retryable` implies `retentionKnown`, even for a hand-built error.
+    func testPartialUploadErrorRetryableImpliesRetentionKnown() {
+        let unknown = PartialUploadError("x", chunksStored: 1, chunksFailed: 2, totalChunks: 3, retryable: true, retentionKnown: false)
+        XCTAssertFalse(unknown.retryable)
+        XCTAssertFalse(unknown.retentionKnown)
+        let known = PartialUploadError("x", chunksStored: 1, chunksFailed: 2, totalChunks: 3, retryable: true, retentionKnown: true)
+        XCTAssertTrue(known.retryable)
+        XCTAssertTrue(known.retentionKnown)
+    }
+
+    // MARK: - PARTIAL_UPLOAD error-type compatibility
+
+    /// `PartialUploadError` subclasses `NetworkError`, so a
+    /// `catch let e as NetworkError` written before the typed error existed
+    /// still catches a partial upload from either transport.
+    func testCatchNetworkErrorStillCatchesPartialUpload() {
+        let rest = ErrorMapping.fromHTTPStatus(502, body: #"{"error":"Partial upload: 1/3 chunks stored, 2 failed","code":"PARTIAL_UPLOAD","chunks_stored":1,"chunks_failed":2,"total_chunks":3,"retryable":true}"#)
+        let grpc = ErrorMapping.fromGRPCStatus(code: 10, detail: "Partial upload: 1/3 chunks stored, 2 failed")
+        for mapped in [rest, grpc] {
+            XCTAssertTrue(mapped is PartialUploadError, "\(mapped)")
+            do {
+                throw mapped
+            } catch let e as NetworkError {
+                XCTAssertEqual(e.statusCode, 502)
+                XCTAssertTrue(e is PartialUploadError)
+            } catch {
+                XCTFail("expected a NetworkError catch, got \(error)")
+            }
+        }
+        // A plain NetworkError is not a partial upload.
+        XCTAssertFalse(NetworkError("net") is PartialUploadError)
     }
 }
 
@@ -626,14 +945,16 @@ final class PreparePublicAndChunkTests: XCTestCase {
             XCTAssertEqual(error.chunksFailed, 12)
             XCTAssertEqual(error.totalChunks, 312)
             XCTAssertTrue(error.retryable)
+            XCTAssertTrue(error.retentionKnown)
             XCTAssertTrue(error.message.hasPrefix("Partial upload: 300/312"))
         } catch {
             XCTFail("expected PartialUploadError, got \(error)")
         }
     }
 
-    /// An older daemon (< 0.14.0) omits `retryable`; it must read false so the
-    /// caller re-prepares instead of looping on a dropped upload_id.
+    /// An older daemon (< 0.14.0) omits `retryable`; retention reads as
+    /// unknown and `retryable` as false, so the caller stops and reconciles
+    /// instead of looping on the upload_id or paying again.
     func testFinalizePartialUploadRetryableDefaultsFalse() async throws {
         StubURLProtocol.statuses["/v1/upload/finalize"] = 502
         StubURLProtocol.routes["/v1/upload/finalize"] = jsonBody([
@@ -653,8 +974,37 @@ final class PreparePublicAndChunkTests: XCTestCase {
             XCTAssertEqual(error.chunksFailed, 12)
             XCTAssertEqual(error.totalChunks, 312)
             XCTAssertFalse(error.retryable)
+            XCTAssertFalse(error.retentionKnown)
         } catch {
             XCTFail("expected PartialUploadError, got \(error)")
+        }
+    }
+
+    /// Code written before `PartialUploadError` existed caught a finalize 502
+    /// as `NetworkError`; it still does, now with the typed error inside.
+    func testFinalizePartialUploadIsCaughtAsNetworkError() async throws {
+        StubURLProtocol.statuses["/v1/upload/finalize"] = 502
+        StubURLProtocol.routes["/v1/upload/finalize"] = jsonBody([
+            "error": "Partial upload: 300/312 chunks stored, 12 failed after retries",
+            "code": "PARTIAL_UPLOAD",
+            "chunks_stored": 300,
+            "chunks_failed": 12,
+            "total_chunks": 312,
+            "retryable": false,
+        ])
+
+        let client = makeClient()
+        do {
+            _ = try await client.finalizeUpload(uploadId: "u1", txHashes: ["0xq": "0xt"])
+            XCTFail("expected NetworkError")
+        } catch let error as NetworkError {
+            XCTAssertEqual(error.statusCode, 502)
+            let partial = try XCTUnwrap(error as? PartialUploadError)
+            XCTAssertEqual(partial.chunksFailed, 12)
+            XCTAssertFalse(partial.retryable)
+            XCTAssertTrue(partial.retentionKnown)
+        } catch {
+            XCTFail("expected NetworkError, got \(error)")
         }
     }
 
@@ -674,6 +1024,30 @@ final class PreparePublicAndChunkTests: XCTestCase {
             XCTAssertEqual(error.statusCode, 502)
         } catch {
             XCTFail("expected NetworkError, got \(error)")
+        }
+    }
+
+    /// A `PARTIAL_UPLOAD` body whose fields carry the wrong JSON types
+    /// (quoted count, quoted `retryable`) surfaces as a typed
+    /// `NetworkError` on a real finalize call: never a `PartialUploadError`
+    /// with a coerced `retryable`, and never a `DecodingError` escaping to
+    /// the caller.
+    func testFinalizeMalformedPartialUploadBodyMapsToNetworkError() async throws {
+        let body = #"{"error":"Partial upload: 1/3 chunks stored, 2 failed (paid attempt retained)","code":"PARTIAL_UPLOAD","chunks_stored":1,"chunks_failed":"2","total_chunks":3,"retryable":"true"}"#
+        StubURLProtocol.statuses["/v1/upload/finalize"] = 502
+        StubURLProtocol.routes["/v1/upload/finalize"] = Data(body.utf8)
+
+        let client = makeClient()
+        do {
+            _ = try await client.finalizeUpload(uploadId: "u1", txHashes: ["0xq": "0xt"])
+            XCTFail("expected NetworkError")
+        } catch let error as PartialUploadError {
+            XCTFail("malformed body must not map to PartialUploadError: \(error)")
+        } catch let error as NetworkError {
+            XCTAssertEqual(error.statusCode, 502)
+            XCTAssertEqual(error.message, body)
+        } catch {
+            XCTFail("expected NetworkError, got \(type(of: error)): \(error)")
         }
     }
 
