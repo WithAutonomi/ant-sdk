@@ -914,14 +914,19 @@ impl Client {
     /// # Partial stores
     ///
     /// When some chunks stay unstored after the daemon's retries this returns
-    /// [`AntdError::PartialUpload`] with the counts and a `retryable` flag.
-    /// The payment persists and the stored chunks stay on the network. With
-    /// `retryable == true` (antd >= 0.14.0) the daemon kept the paid attempt
-    /// under the same `upload_id`: call this method again with the same
-    /// arguments to store the remainder against the same payment — bound
-    /// that loop. With `retryable == false` nothing was retained: re-prepare
-    /// the same content, which skips already-stored chunks. See
-    /// `docs/external-signer-flow.md` §6 and `examples/07-external-signer.rs`.
+    /// [`AntdError::PartialUpload`] with the counts, `retryable` and
+    /// `retention_known`. The payment persists and the stored chunks stay on
+    /// the network. With `retryable == true` (antd >= 0.14.0) the daemon kept
+    /// the paid attempt under the same `upload_id`: call this method again
+    /// with the same arguments to store the remainder against the same
+    /// payment — bound that loop. With `retention_known && !retryable` the
+    /// daemon confirmed nothing was retained: re-prepare the same content,
+    /// which skips already-stored chunks. With `!retention_known` (antd older
+    /// than 0.14.0 never sends the flag) retention is unknown and the daemon
+    /// may still hold the paid attempt: stop, keep the `upload_id` and the
+    /// payment artefacts, and reconcile before re-preparing or paying again.
+    /// See `docs/external-signer-flow.md` §6 and
+    /// `examples/07-external-signer.rs`.
     pub async fn finalize_upload(
         &self,
         upload_id: &str,
@@ -946,14 +951,19 @@ impl Client {
     /// # Partial stores
     ///
     /// When some chunks stay unstored after the daemon's retries this returns
-    /// [`AntdError::PartialUpload`] with the counts and a `retryable` flag.
-    /// The payment persists and the stored chunks stay on the network. With
-    /// `retryable == true` (antd >= 0.14.0) the daemon kept the paid attempt
-    /// under the same `upload_id`: call this method again with the same
-    /// arguments to store the remainder against the same payment — bound
-    /// that loop. With `retryable == false` nothing was retained: re-prepare
-    /// the same content, which skips already-stored chunks. See
-    /// `docs/external-signer-flow.md` §6 and `examples/07-external-signer.rs`.
+    /// [`AntdError::PartialUpload`] with the counts, `retryable` and
+    /// `retention_known`. The payment persists and the stored chunks stay on
+    /// the network. With `retryable == true` (antd >= 0.14.0) the daemon kept
+    /// the paid attempt under the same `upload_id`: call this method again
+    /// with the same arguments to store the remainder against the same
+    /// payment — bound that loop. With `retention_known && !retryable` the
+    /// daemon confirmed nothing was retained: re-prepare the same content,
+    /// which skips already-stored chunks. With `!retention_known` (antd older
+    /// than 0.14.0 never sends the flag) retention is unknown and the daemon
+    /// may still hold the paid attempt: stop, keep the `upload_id` and the
+    /// payment artefacts, and reconcile before re-preparing or paying again.
+    /// See `docs/external-signer-flow.md` §6 and
+    /// `examples/07-external-signer.rs`.
     pub async fn finalize_merkle_upload(
         &self,
         upload_id: &str,

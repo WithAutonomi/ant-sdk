@@ -165,7 +165,7 @@ match client.data_get_public("some_address").await {
 | `TooLarge` | 413 | Payload too large |
 | `Internal` | 500 | Server error |
 | `Network` | 502 | Network unreachable |
-| `PartialUpload` | 502 (`code: PARTIAL_UPLOAD`) / gRPC `ABORTED` with a `Partial upload:` message | A finalize stored some chunks but not all; carries counts and `retryable` |
+| `PartialUpload` | 502 (`code: PARTIAL_UPLOAD`) / gRPC `ABORTED` with a `Partial upload:` message | A finalize stored some chunks but not all; carries counts, `retryable` and `retention_known` (new in 0.2.0) |
 | `ServiceUnavailable` | 503 | Wallet not configured |
 | `Http` | - | REST transport error |
 | `Json` | - | Serialization error |
@@ -176,26 +176,46 @@ match client.data_get_public("some_address").await {
 `finalize_upload`, `finalize_merkle_upload` and `finalize_chunk_upload` can fail *after*
 the signer has paid: some chunks store, others miss quorum after the daemon's own retries.
 That comes back as `AntdError::PartialUpload { chunks_stored, chunks_failed, total_chunks,
-retryable, message }`. The on-chain payment persists and the stored chunks stay on the
-network; `retryable` says how to finish the upload:
+retryable, retention_known, message }`. The on-chain payment persists and the stored chunks
+stay on the network. Two flags say how to finish the upload (`retryable` implies
+`retention_known`):
 
-- `retryable == true` — antd ≥ 0.14.0 kept the paid attempt under the same `upload_id`.
-  Call the **same** finalize method again with the same arguments to store the remainder
-  against the same payment — no re-prepare, no second signature, no double payment. Bound
-  that loop: a persistent failure returns `PartialUpload` on every call, so cap the
-  attempts and treat a `chunks_failed` that stops shrinking as stuck. The retained attempt
-  expires with the daemon's pending-upload TTL.
-- `retryable == false` — nothing was retained (a merkle finalize with deliberately unpaid
-  batches, or an older daemon that never sends the flag). Re-preparing the same content
-  skips already-stored chunks, so a retry pays only for the remainder.
+- `retryable` — antd ≥ 0.14.0 kept the paid attempt under the same `upload_id`. Call the
+  **same** finalize method again with the same `upload_id` and payment artefacts
+  (`tx_hashes`, or the winning pool hash of a merkle upload) to store the remainder against
+  the same payment — no re-prepare, no second signature, no double payment. Bound that
+  loop: a persistent failure returns `PartialUpload` on every call, so cap the attempts and
+  treat a `chunks_failed` that stops shrinking as stuck. The retained attempt expires with
+  the daemon's pending-upload TTL.
+- `retention_known && !retryable` — the daemon confirmed it kept nothing (a merkle finalize
+  with deliberately unpaid batches). Re-prepare the same content: already-stored chunks are
+  skipped, so the new payment covers only the remainder.
+- `!retention_known` — retention is unknown. The daemon may still hold the paid attempt, so
+  this does **not** mean nothing was retained. Stop automatic recovery, keep the
+  `upload_id` and the original payment artefacts, and reconcile the retained attempt before
+  deciding to re-prepare or pay again. Never pay again on this signal alone: re-preparing
+  skips already-stored chunks, but it can still pay a second time for chunks that were paid
+  for and not stored. Daemons older than 0.14.0 never send `retryable`, so their REST
+  partials read as unknown.
 
-Over REST the counts and flag come from the daemon's error body; over gRPC they are parsed
-from the `ABORTED` status message. Only an `ABORTED` whose message starts with the daemon's
-fixed `Partial upload:` prefix maps to `PartialUpload` (garbled counts after the prefix read
-as zero; `retryable` is decided separately by the retained hint); any other `ABORTED` — even
-one quoting that text further in — is the generic `Grpc` error. See
-`finalize_with_retry` in [`examples/07-external-signer.rs`](examples/07-external-signer.rs)
-and §6 of [`docs/external-signer-flow.md`](../docs/external-signer-flow.md).
+Over REST the fields come from the daemon's error body: counts must be JSON non-negative
+integers (anything else reads as 0), and retention is known only when `retryable` is a JSON
+bool. Over gRPC they are parsed from the `ABORTED` status message. Only an `ABORTED` whose
+message starts with the daemon's fixed `Partial upload:` prefix maps to `PartialUpload`; any
+other `ABORTED` — even one quoting that text further in — is the generic `Grpc` error.
+The daemon writes that message as
+`Partial upload: <stored>/<total> chunks stored, <failed> failed after retries: <reason> (<hint>)`.
+Retention is known only when the counts pattern opens the message, all three counts parse
+as `u64`, and the message ends with one of the daemon's two hints: `(paid attempt
+retained...)` sets `retryable`, and `(stored chunks persist; re-prepare the same
+content...)` means the daemon confirmed it kept nothing (daemons older than 0.14.0 write
+only this one). Garbled or overflowing counts read as zero with retention unknown, hint or
+not. Readable counts with a missing, truncated or unrecognised hint, or text after it, keep
+the counts but also read as retention unknown: stop and reconcile, do not re-prepare. See
+`finalize_with_retry` in
+[`examples/07-external-signer.rs`](examples/07-external-signer.rs), which stops and returns
+the typed error whenever it cannot safely retry, and §6 of
+[`docs/external-signer-flow.md`](../docs/external-signer-flow.md).
 
 ```rust
 use antd_client::AntdError;
@@ -203,12 +223,38 @@ use antd_client::AntdError;
 match client.finalize_upload(&upload_id, &tx_hashes).await {
     Ok(fin) => println!("stored {} chunks", fin.chunks_stored),
     Err(AntdError::PartialUpload { chunks_stored, chunks_failed, retryable: true, .. }) => {
-        // Same upload_id, same payment: call finalize_upload again (bounded).
+        // Retained: call finalize_upload again with the same upload_id and tx_hashes (bounded).
         println!("{chunks_stored} stored, {chunks_failed} to retry against the same payment");
     }
-    Err(AntdError::PartialUpload { retryable: false, .. }) => {
-        // Nothing retained: re-prepare the same content to pay for the remainder only.
+    Err(AntdError::PartialUpload { retention_known: true, .. }) => {
+        // Confirmed nothing retained: re-prepare the same content to pay for the remainder only.
     }
+    Err(AntdError::PartialUpload { .. }) => {
+        // Retention unknown: stop. Keep upload_id and tx_hashes, and reconcile before
+        // re-preparing or paying again.
+    }
+    Err(e) => return Err(e.into()),
+}
+```
+
+### Upgrading from 0.1.x: partial stores are a new error variant
+
+`AntdError::PartialUpload` is new in 0.2.0, an intentional breaking change. In 0.1.x a
+partial store surfaced as `AntdError::Network(String)` over REST (a plain 502) and as
+`AntdError::Grpc(status)` with code `ABORTED` over gRPC. It now arrives as
+`PartialUpload { .. }`, so an arm on `Network` or `Grpc` no longer sees it. `AntdError` is not
+`#[non_exhaustive]`: a `match` without a catch-all arm stops compiling until it handles the new
+variant, and one with a catch-all compiles but routes partial stores into it. Add a
+`PartialUpload { .. }` arm before `Network` and any catch-all, and bind its fields with `..`:
+
+```rust
+match client.finalize_upload(&upload_id, &tx_hashes).await {
+    Ok(fin) => println!("stored {} chunks", fin.chunks_stored),
+    // New in 0.2.0: a partial store used to arrive as `Network` (REST) or `Grpc` (gRPC).
+    Err(AntdError::PartialUpload { .. }) => {
+        // Handle as in "Partial stores" above.
+    }
+    Err(AntdError::Network(msg)) => eprintln!("daemon cannot reach the network: {msg}"),
     Err(e) => return Err(e.into()),
 }
 ```

@@ -3,7 +3,7 @@ use base64::Engine;
 use mockito::{Matcher, Mock, ServerGuard};
 use serde_json::json;
 
-use crate::errors::{parse_partial_upload_message, AntdError};
+use crate::errors::{error_for_body, parse_partial_upload_message, AntdError};
 use crate::models::{PaymentMode, PrepareOptions, VerifyQuoteEntry};
 use crate::Client;
 
@@ -653,12 +653,17 @@ async fn test_partial_upload_error_carries_counts_and_retryable() {
             chunks_failed,
             total_chunks,
             retryable,
+            retention_known,
             message,
         } => {
             assert_eq!(chunks_stored, 300);
             assert_eq!(chunks_failed, 12);
             assert_eq!(total_chunks, 312);
             assert!(retryable, "expected retryable from the body flag");
+            assert!(
+                retention_known,
+                "a JSON bool retryable establishes retention"
+            );
             assert!(message.starts_with("Partial upload: 300/312"), "{message}");
         }
         other => panic!("expected PartialUpload, got: {other:?}"),
@@ -666,10 +671,11 @@ async fn test_partial_upload_error_carries_counts_and_retryable() {
 }
 
 #[tokio::test]
-async fn test_partial_upload_error_retryable_defaults_false() {
-    // An older daemon (< 0.14.0) never sends `retryable`; the flag must read
-    // false so callers fall back to the re-prepare path rather than looping
-    // on an upload_id the daemon has already dropped.
+async fn test_partial_upload_error_missing_retryable_is_unknown_retention() {
+    // An older daemon (< 0.14.0) never sends `retryable`. The flag reads
+    // false, so callers do not loop on the upload_id, and retention reads as
+    // unknown rather than "nothing retained", so callers stop and reconcile
+    // instead of paying again.
     let mut server = mock_server().await;
     let _m = server
         .mock("POST", "/v1/upload/finalize")
@@ -696,6 +702,7 @@ async fn test_partial_upload_error_retryable_defaults_false() {
             chunks_failed,
             total_chunks,
             retryable,
+            retention_known,
             ..
         } => {
             assert_eq!((chunks_stored, chunks_failed, total_chunks), (300, 12, 312));
@@ -703,8 +710,102 @@ async fn test_partial_upload_error_retryable_defaults_false() {
                 !retryable,
                 "retryable must default to false without the body flag"
             );
+            assert!(
+                !retention_known,
+                "a missing retryable must leave retention unknown"
+            );
         }
         other => panic!("expected PartialUpload, got: {other:?}"),
+    }
+}
+
+#[test]
+fn test_partial_upload_body_mistyped_fields_read_zero_and_false() {
+    // REST reads typed JSON: a count is a non-negative integer that fits a
+    // u64 and `retryable` is a JSON bool. Anything else (a quoted number, a
+    // quoted "true", a negative, a fraction, an overflow, null) reads as
+    // 0 / false rather than being coerced, and a mistyped `retryable` leaves
+    // retention unknown, so a malformed body never selects paid-attempt
+    // recovery and never reads as "nothing retained".
+    let bodies = [
+        r#"{"error":"Partial upload: 300/312 chunks stored, 12 failed","code":"PARTIAL_UPLOAD","chunks_stored":"300","chunks_failed":"12","total_chunks":"312","retryable":"true"}"#,
+        r#"{"error":"Partial upload: 300/312 chunks stored, 12 failed","code":"PARTIAL_UPLOAD","chunks_stored":-1,"chunks_failed":12.5,"total_chunks":18446744073709551616,"retryable":1}"#,
+        r#"{"error":"Partial upload: 300/312 chunks stored, 12 failed","code":"PARTIAL_UPLOAD","chunks_stored":null,"chunks_failed":null,"total_chunks":null,"retryable":null}"#,
+    ];
+    for body in bodies {
+        match error_for_body(502, body.as_bytes()) {
+            AntdError::PartialUpload {
+                chunks_stored,
+                chunks_failed,
+                total_chunks,
+                retryable,
+                retention_known,
+                ..
+            } => {
+                assert_eq!(
+                    (chunks_stored, chunks_failed, total_chunks),
+                    (0, 0, 0),
+                    "{body}"
+                );
+                assert!(!retryable, "mistyped retryable must read false: {body}");
+                assert!(
+                    !retention_known,
+                    "mistyped retryable must leave retention unknown: {body}"
+                );
+            }
+            other => panic!("expected PartialUpload for {body}, got: {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn test_partial_upload_body_retention_known() {
+    // Only a JSON bool `retryable` establishes retention: `true` is a
+    // retained attempt, `false` a confirmed non-retention. Missing, null or
+    // any other type is unknown retention, never "nothing retained".
+    let cases = [
+        (Some(json!(true)), (true, true)),
+        (Some(json!(false)), (false, true)),
+        (None, (false, false)),
+        (Some(json!(null)), (false, false)),
+        (Some(json!("true")), (false, false)),
+        (Some(json!("false")), (false, false)),
+        (Some(json!(1)), (false, false)),
+        (Some(json!(0)), (false, false)),
+    ];
+    for (flag, (want_retryable, want_known)) in cases {
+        let mut body = json!({
+            "error": "Partial upload: 300/312 chunks stored, 12 failed after retries",
+            "code": "PARTIAL_UPLOAD",
+            "chunks_stored": 300,
+            "chunks_failed": 12,
+            "total_chunks": 312,
+        });
+        if let Some(flag) = &flag {
+            body["retryable"] = flag.clone();
+        }
+        match error_for_body(502, body.to_string().as_bytes()) {
+            AntdError::PartialUpload {
+                chunks_stored,
+                chunks_failed,
+                total_chunks,
+                retryable,
+                retention_known,
+                ..
+            } => {
+                assert_eq!(
+                    (chunks_stored, chunks_failed, total_chunks),
+                    (300, 12, 312),
+                    "{flag:?}"
+                );
+                assert_eq!(
+                    (retryable, retention_known),
+                    (want_retryable, want_known),
+                    "retryable = {flag:?}"
+                );
+            }
+            other => panic!("expected PartialUpload for {flag:?}, got: {other:?}"),
+        }
     }
 }
 
@@ -731,30 +832,231 @@ async fn test_plain_502_still_maps_to_network() {
 
 #[test]
 fn test_parse_partial_upload_message() {
+    // (stored, failed, total, retryable, retention_known)
     let cases = [
+        // Well-formed with the hint: retention known, retryable.
         (
             "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)",
-            (300, 12, 312, true),
+            (300, 12, 312, true, true),
         ),
+        // Well-formed with the not-retained hint: retention known, nothing
+        // retained.
         (
             "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (stored chunks persist; re-prepare the same content to retry only the remainder)",
-            (300, 12, 312, false),
+            (300, 12, 312, false, true),
         ),
+        // Readable counts but no retention hint: the daemon's answer was not
+        // read, so retention is unknown, never "nothing retained".
         (
             "Partial upload: 300/312 chunks stored, 12 failed after retries",
-            (300, 12, 312, false),
+            (300, 12, 312, false, false),
         ),
-        ("Partial upload: 0/1 chunks stored, 1 failed", (0, 1, 1, false)),
-        // A truncated prefix yields zero counts; the hint is still honoured.
+        (
+            "Partial upload: 0/1 chunks stored, 1 failed",
+            (0, 1, 1, false, false),
+        ),
+        // The largest u64 still converts, so the hint is honoured.
+        (
+            "Partial upload: 18446744073709551615/18446744073709551615 chunks stored, 18446744073709551615 failed (paid attempt retained)",
+            (u64::MAX, u64::MAX, u64::MAX, true, true),
+        ),
+        // Pattern misses: the counts gate retention, so the hint alone never
+        // makes the error retryable, and retention reads as unknown.
         (
             "Partial upload: 300/312 chunks (paid attempt retained)",
-            (0, 0, 0, true),
+            (0, 0, 0, false, false),
         ),
-        ("something else entirely", (0, 0, 0, false)),
+        (
+            "Partial upload: n/a chunks stored, 12 failed (paid attempt retained)",
+            (0, 0, 0, false, false),
+        ),
+        (
+            "Partial upload: -1/312 chunks stored, 12 failed (paid attempt retained)",
+            (0, 0, 0, false, false),
+        ),
+        (
+            "something else (paid attempt retained)",
+            (0, 0, 0, false, false),
+        ),
+        ("something else entirely", (0, 0, 0, false, false)),
     ];
     for (msg, want) in cases {
-        assert_eq!(parse_partial_upload_message(msg), want, "{msg:?}");
+        let got = parse_partial_upload_message(msg);
+        assert_eq!(got, want, "{msg:?}");
+        // Invariant: retryable implies retention_known.
+        assert!(
+            !got.3 || got.4,
+            "retryable without known retention: {msg:?}"
+        );
     }
+}
+
+#[test]
+fn test_parse_partial_upload_message_overflow_disables_retry() {
+    // 2^64, one past u64::MAX. A count that fails to convert, in any
+    // position, zeroes every count, disables retry and leaves retention
+    // unknown even though the retained hint is present: fields the client
+    // could not read must not select paid-attempt recovery, nor read as
+    // "nothing retained".
+    const OVER: &str = "18446744073709551616";
+    const TAIL: &str = "after retries: quorum (paid attempt retained: call finalize again \
+                        with the same upload_id to store the remainder against the same payment)";
+    let msgs = [
+        format!("Partial upload: {OVER}/312 chunks stored, 12 failed {TAIL}"),
+        format!("Partial upload: 300/{OVER} chunks stored, 12 failed {TAIL}"),
+        format!("Partial upload: 300/312 chunks stored, {OVER} failed {TAIL}"),
+        format!("Partial upload: {OVER}/{OVER} chunks stored, {OVER} failed {TAIL}"),
+    ];
+    for msg in &msgs {
+        assert!(msg.contains("paid attempt retained"), "{msg:?}");
+        assert_eq!(
+            parse_partial_upload_message(msg),
+            (0, 0, 0, false, false),
+            "{msg:?}"
+        );
+    }
+}
+
+/// The daemon's two closing hints (`partial_upload_hint` in
+/// `antd/src/error.rs`), with the space before them.
+const RETAINED_TAIL: &str = " (paid attempt retained: call finalize again with the same \
+                             upload_id to store the remainder against the same payment)";
+const NOT_RETAINED_TAIL: &str =
+    " (stored chunks persist; re-prepare the same content to retry only the remainder)";
+
+#[test]
+fn test_parse_partial_upload_message_retention_needs_the_closing_hint() {
+    // Readable counts alone do not establish retention: the message must end
+    // with one of the daemon's two hints. Every case runs through the parser
+    // and through the gRPC mapping (`From<tonic::Status>` for an ABORTED).
+    // Mismatches are collected so a regression reports every failing case.
+    const COUNTS: &str = "Partial upload: 1/3 chunks stored, 2 failed after retries:";
+    let cases = [
+        // Known: the message ends with one of the daemon's hints.
+        (
+            "retained hint",
+            format!("{COUNTS} quorum{RETAINED_TAIL}"),
+            (1, 2, 3, true, true),
+        ),
+        (
+            "short retained hint",
+            format!("{COUNTS} quorum (paid attempt retained)"),
+            (1, 2, 3, true, true),
+        ),
+        (
+            "not-retained hint",
+            format!("{COUNTS} quorum{NOT_RETAINED_TAIL}"),
+            (1, 2, 3, false, true),
+        ),
+        // Only the closing hint decides.
+        (
+            "parenthesised reason before the hint",
+            format!("{COUNTS} quorum (2 of 5 peers){NOT_RETAINED_TAIL}"),
+            (1, 2, 3, false, true),
+        ),
+        (
+            "retained hint in the reason, not-retained tail",
+            format!("{COUNTS} peer said (paid attempt retained){NOT_RETAINED_TAIL}"),
+            (1, 2, 3, false, true),
+        ),
+        // Unknown: the counts still read, but the daemon's answer on
+        // retention was not read, so both flags stay false (stop and
+        // reconcile, never "nothing retained").
+        ("no hint", format!("{COUNTS} quorum"), (1, 2, 3, false, false)),
+        (
+            // The review's reproducer: the retained hint cut short.
+            "truncated retained hint",
+            format!("{COUNTS} quorum (paid attempt retai"),
+            (1, 2, 3, false, false),
+        ),
+        (
+            "retained hint without its closing paren",
+            format!("{COUNTS} quorum (paid attempt retained: call finalize again"),
+            (1, 2, 3, false, false),
+        ),
+        (
+            "truncated not-retained hint",
+            format!("{COUNTS} quorum (stored chunks persist; re-prepare the same con"),
+            (1, 2, 3, false, false),
+        ),
+        (
+            "unrecognised hint",
+            format!("{COUNTS} quorum (something else)"),
+            (1, 2, 3, false, false),
+        ),
+        (
+            "text after the hint",
+            format!("{COUNTS} quorum{RETAINED_TAIL} trailing"),
+            (1, 2, 3, false, false),
+        ),
+        (
+            "newline after the retained hint",
+            format!("{COUNTS} quorum{RETAINED_TAIL}\n"),
+            (1, 2, 3, false, false),
+        ),
+        (
+            "newline after the not-retained hint",
+            format!("{COUNTS} quorum{NOT_RETAINED_TAIL}\n"),
+            (1, 2, 3, false, false),
+        ),
+        (
+            "retained hint quoted in the reason only",
+            format!("{COUNTS} peer said (paid attempt retained) (connection reset)"),
+            (1, 2, 3, false, false),
+        ),
+        // The counts pattern is anchored at the start of the message, and the
+        // failed count must be followed by ` failed`: counts quoted later in
+        // a garbled message are not read, hint or not.
+        (
+            "embedded counts",
+            format!(
+                "Partial upload: garbled; was Partial upload: 1/3 chunks stored, 2 failed{RETAINED_TAIL}"
+            ),
+            (0, 0, 0, false, false),
+        ),
+        (
+            "failed count not followed by ` failed`",
+            format!("Partial upload: 1/3 chunks stored, 2x failed after retries: quorum{RETAINED_TAIL}"),
+            (0, 0, 0, false, false),
+        ),
+    ];
+    let mut mismatches = Vec::new();
+    for (name, msg, want) in &cases {
+        let parsed = parse_partial_upload_message(msg);
+        if parsed != *want {
+            mismatches.push(format!("{name}: parser gave {parsed:?}, want {want:?}"));
+        }
+        match AntdError::from(tonic::Status::aborted(msg.clone())) {
+            AntdError::PartialUpload {
+                chunks_stored,
+                chunks_failed,
+                total_chunks,
+                retryable,
+                retention_known,
+                message,
+            } => {
+                let mapped = (
+                    chunks_stored,
+                    chunks_failed,
+                    total_chunks,
+                    retryable,
+                    retention_known,
+                );
+                if mapped != *want || message != *msg {
+                    mismatches.push(format!(
+                        "{name}: gRPC mapping gave {mapped:?} / {message:?}, want {want:?}"
+                    ));
+                }
+            }
+            other => mismatches.push(format!("{name}: expected PartialUpload, got {other:?}")),
+        }
+    }
+    assert!(
+        mismatches.is_empty(),
+        "{} mismatch(es):\n{}",
+        mismatches.len(),
+        mismatches.join("\n")
+    );
 }
 
 #[tokio::test]
