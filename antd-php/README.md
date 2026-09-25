@@ -222,6 +222,11 @@ try {
 }
 ```
 
+The body is read strictly: a count comes only from a non-negative JSON integer (anything else
+reads `0`), `retryable` is `true` only for the JSON boolean `true`, and a `code` other than the
+string `"PARTIAL_UPLOAD"` keeps the plain `NetworkError`. A malformed error body never escapes
+as a PHP `TypeError`; the message falls back to the raw body when `error` is not a string.
+
 `PartialUploadError` extends `NetworkError`, so a pre-existing `catch (NetworkError $e)` still
 catches it; catch the subclass first when you need the counts. The full contract is in
 [docs/external-signer-flow.md](https://github.com/WithAutonomi/ant-sdk/blob/main/docs/external-signer-flow.md)
