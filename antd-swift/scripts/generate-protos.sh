@@ -14,11 +14,18 @@ PKG_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROTO_DIR="$(cd "$PKG_DIR/../antd/proto" && pwd)"
 OUT_DIR="$PKG_DIR/Sources/AntdSdk/Proto"
 
-PLUGIN_DIR="$PKG_DIR/.build/$(uname -m)-unknown-linux-gnu/debug"
-if [[ ! -x "$PLUGIN_DIR/protoc-gen-swift" || ! -x "$PLUGIN_DIR/protoc-gen-grpc-swift" ]]; then
-  echo "Building codegen plugins..."
-  (cd "$PKG_DIR" && swift build --product protoc-gen-swift --product protoc-gen-grpc-swift)
-fi
+# Ask SwiftPM where it puts binaries instead of hard-coding the Linux
+# triple, so the script also works on macOS. Build the two plugins one at a
+# time: `swift build` honours only the last `--product` flag, so the old
+# combined invocation built protoc-gen-grpc-swift and silently skipped
+# protoc-gen-swift ("protoc-gen-swift: program not found").
+PLUGIN_DIR="$(cd "$PKG_DIR" && swift build --show-bin-path)"
+for plugin in protoc-gen-swift protoc-gen-grpc-swift; do
+  if [[ ! -x "$PLUGIN_DIR/$plugin" ]]; then
+    echo "Building $plugin..."
+    (cd "$PKG_DIR" && swift build --product "$plugin")
+  fi
+done
 
 export PATH="$PLUGIN_DIR:$PATH"
 
