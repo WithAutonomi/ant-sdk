@@ -375,7 +375,7 @@ defmodule Antd.GrpcClientTest do
     assert err.retention_known
   end
 
-  test "ABORTED without the retained hint -> PartialUploadError retryable false" do
+  test "ABORTED with the not-retained hint -> PartialUploadError known, retryable false" do
     msg =
       "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " <>
         "(stored chunks persist; re-prepare the same content to retry only the remainder)"
@@ -431,6 +431,24 @@ defmodule Antd.GrpcClientTest do
     assert err.message == msg
   end
 
+  test "ABORTED with counts but no readable closing hint -> counts kept, retention unknown" do
+    # The daemon's answer on retention was not read: unknown (stop and
+    # reconcile), never "nothing retained" (re-prepare). The counts still read.
+    for msg <- [
+          "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum",
+          # The review's reproducer: the retained hint cut short.
+          "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (paid attempt retai"
+        ] do
+      {:error, err} = simulate_grpc_call(:error, %GRPC.RPCError{status: 10, message: msg})
+
+      assert %Antd.PartialUploadError{status_code: 502, message: ^msg} = err
+
+      assert {err.chunks_stored, err.chunks_failed, err.total_chunks, err.retryable,
+              err.retention_known} == {1, 2, 3, false, false},
+             inspect(msg)
+    end
+  end
+
   test "partial_upload_message?/1 matches the daemon's fixed prefix only at the start" do
     assert Antd.Errors.partial_upload_message?("Partial upload: 1/2 chunks stored, 1 failed")
     assert Antd.Errors.partial_upload_message?("Partial upload: counts unavailable")
@@ -462,9 +480,10 @@ defmodule Antd.GrpcClientTest do
     assert Antd.Errors.parse_partial_upload_message(retained) == {300, 12, 312, true, true}
     assert Antd.Errors.parse_partial_upload_message(final) == {300, 12, 312, false, true}
 
+    # Readable counts but no closing retention hint: retention unknown.
     assert Antd.Errors.parse_partial_upload_message(
              "Partial upload: 300/312 chunks stored, 12 failed after retries"
-           ) == {300, 12, 312, false, true}
+           ) == {300, 12, 312, false, false}
 
     # Garbled counts read as zero and are never retryable, even with the hint.
     assert Antd.Errors.parse_partial_upload_message(
@@ -480,6 +499,15 @@ defmodule Antd.GrpcClientTest do
   @u64_max "18446744073709551615"
   @u64_over "18446744073709551616"
 
+  # The daemon closes every PARTIAL_UPLOAD message with one of two hints
+  # (`partial_upload_hint` in antd/src/error.rs). Retention is known only when
+  # one of them closes the message; readable counts are kept either way.
+  @partial_prefix "Partial upload: 1/3 chunks stored, 2 failed after retries:"
+  @retained_hint "(paid attempt retained: call finalize again with the same upload_id to " <>
+                   "store the remainder against the same payment)"
+  @not_retained_hint "(stored chunks persist; re-prepare the same content to retry only " <>
+                       "the remainder)"
+
   test "parse_partial_upload_message/1 is retryable only with parsed counts and the hint" do
     parse = &Antd.Errors.parse_partial_upload_message/1
 
@@ -487,9 +515,9 @@ defmodule Antd.GrpcClientTest do
     assert parse.("Partial upload: 1/3 chunks stored, 2 failed (paid attempt retained)") ==
              {1, 2, 3, true, true}
 
-    # Well-formed without the hint -> counts, not retryable.
+    # Well-formed without a closing hint -> counts, retention unknown.
     assert parse.("Partial upload: 1/3 chunks stored, 2 failed after retries") ==
-             {1, 2, 3, false, true}
+             {1, 2, 3, false, false}
 
     # Pattern miss with the hint -> zeros, not retryable.
     assert parse.("Partial upload: x/y chunks stored, z failed (paid attempt retained)") ==
@@ -521,8 +549,12 @@ defmodule Antd.GrpcClientTest do
     cases = [
       # well-formed with the hint -> known, retryable
       {hinted.("1/3 chunks stored, 2 failed"), true, true},
-      # well-formed without the hint -> known, not retryable
-      {"Partial upload: 1/3 chunks stored, 2 failed after retries", false, true},
+      # well-formed with the not-retained hint -> known, not retryable
+      {"#{@partial_prefix} quorum #{@not_retained_hint}", false, true},
+      # well-formed without a closing hint -> unknown, not retryable
+      {"Partial upload: 1/3 chunks stored, 2 failed after retries", false, false},
+      # well-formed with the review's truncated hint -> unknown, not retryable
+      {"#{@partial_prefix} quorum (paid attempt retai", false, false},
       # pattern miss with the hint -> unknown, not retryable
       {hinted.("x/y chunks stored, z failed"), false, false},
       # over u64::MAX in each position with the hint -> unknown, not retryable
@@ -537,6 +569,80 @@ defmodule Antd.GrpcClientTest do
       # retryable implies retention_known
       assert not err.retryable or err.retention_known
     end
+  end
+
+  test "parse_partial_upload_message/1 reads retention from the daemon's closing hint" do
+    parse = &Antd.Errors.parse_partial_upload_message/1
+
+    # the daemon's full retained hint -> known, retryable
+    assert parse.("#{@partial_prefix} quorum #{@retained_hint}") == {1, 2, 3, true, true}
+    # the short retained hint -> known, retryable
+    assert parse.("#{@partial_prefix} quorum (paid attempt retained)") == {1, 2, 3, true, true}
+    # the daemon's full not-retained hint -> known, not retryable
+    assert parse.("#{@partial_prefix} quorum #{@not_retained_hint}") == {1, 2, 3, false, true}
+
+    # a parenthesised reason before the real hint -> the closing hint decides
+    assert parse.("#{@partial_prefix} quorum (2 of 5 peers) #{@not_retained_hint}") ==
+             {1, 2, 3, false, true}
+
+    # the retained hint quoted in the reason, the not-retained hint closing the
+    # message -> known, NOT retryable
+    assert parse.("#{@partial_prefix} peer said (paid attempt retained) #{@not_retained_hint}") ==
+             {1, 2, 3, false, true}
+  end
+
+  test "parse_partial_upload_message/1 reads counts without a readable closing hint as unknown" do
+    for msg <- [
+          # no hint
+          "#{@partial_prefix} quorum",
+          # the review's reproducer: the retained hint cut short
+          "#{@partial_prefix} quorum (paid attempt retai",
+          # the retained hint without its closing paren
+          "#{@partial_prefix} quorum (paid attempt retained: call finalize again",
+          # the not-retained hint cut short
+          "#{@partial_prefix} quorum (stored chunks persist; re-prepare the same con",
+          # an unrecognised hint
+          "#{@partial_prefix} quorum (something else)",
+          # text after a valid hint
+          "#{@partial_prefix} quorum #{@retained_hint} trailing",
+          # a newline after a valid hint (PCRE `$` would still match; `\z` does not)
+          "#{@partial_prefix} quorum #{@retained_hint}\n",
+          "#{@partial_prefix} quorum #{@not_retained_hint}\n",
+          # a hint only in the reason
+          "#{@partial_prefix} peer said (paid attempt retained) (connection reset)"
+        ] do
+      # The daemon's answer was not read: unknown (stop and reconcile), never
+      # "nothing retained" (re-prepare). The counts still read.
+      assert Antd.Errors.parse_partial_upload_message(msg) == {1, 2, 3, false, false},
+             inspect(msg)
+
+      err = Antd.Errors.partial_upload_error_from_message(502, msg)
+
+      assert {err.chunks_stored, err.chunks_failed, err.total_chunks, err.retryable,
+              err.retention_known} == {1, 2, 3, false, false},
+             inspect(msg)
+    end
+  end
+
+  test "parse_partial_upload_message/1 reads counts only at the start of the message" do
+    # Counts quoted later in a garbled message are not read, even though the
+    # message passes the prefix gate and ends with a valid hint.
+    msg =
+      "Partial upload: garbled; was Partial upload: 1/3 chunks stored, 2 failed " <>
+        "(paid attempt retained)"
+
+    assert Antd.Errors.partial_upload_message?(msg)
+    assert Antd.Errors.parse_partial_upload_message(msg) == {0, 0, 0, false, false}
+
+    {:error, err} = simulate_grpc_call(:error, %GRPC.RPCError{status: 10, message: msg})
+
+    assert %Antd.PartialUploadError{
+             chunks_stored: 0,
+             chunks_failed: 0,
+             total_chunks: 0,
+             retryable: false,
+             retention_known: false
+           } = err
   end
 
   test "ABORTED with an overflowing count and the hint -> zero counts, not retryable" do

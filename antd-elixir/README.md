@@ -271,11 +271,17 @@ Over REST the counts come from the structured error body, and
 (missing, `null` or any other type reads as unknown). Over gRPC (status
 `ABORTED` whose message starts with `Partial upload:` — any other `ABORTED`,
 including one that only quotes that phrase further into its message, stays a
-plain `Antd.AntdError`) they are parsed from the status message:
-`retention_known` is `true` only when the counts parse (each within the
-daemon's `u64` range), and the daemon's `paid attempt retained` hint then
-decides `retryable`; a message whose counts do not parse reads as zero counts
-with retention unknown. See
+plain `Antd.AntdError`) they are parsed from the status message,
+`Partial upload: S/T chunks stored, F failed after retries: <reason> (<hint>)`.
+`retention_known` is `true` only when the message starts with those counts,
+all three parse (each within the daemon's `u64` range), and the message ends
+with one of the daemon's two hints. A `(paid attempt retained...)` hint sets
+`retryable`. A `(stored chunks persist; re-prepare the same content...)` hint
+means the daemon confirmed nothing was retained; daemons older than 0.14.0
+write only this one. A message whose counts do not parse reads as zero counts
+with retention unknown. Readable counts with a missing, truncated or
+unrecognised hint keep the counts, but both flags stay `false`: retention is
+unknown (stop and reconcile), not "nothing retained". See
 `finalize_with_retry/3` in [`examples/07_external_signer.exs`](examples/07_external_signer.exs)
 and [`docs/external-signer-flow.md`](../docs/external-signer-flow.md) §6
 ("Retry a partial store — same `upload_id`, same payment").

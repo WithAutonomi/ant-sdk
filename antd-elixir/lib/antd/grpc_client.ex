@@ -704,10 +704,13 @@ defmodule Antd.GrpcClient do
   starts with `Partial upload:`; this used to be a plain `Antd.AntdError`,
   as any other `ABORTED` still is) carrying `chunks_stored`, `chunks_failed`,
   `total_chunks`, `retryable` and `retention_known`, parsed from the status
-  message: `retention_known` is `true` only when the counts parse, and the
-  daemon's "paid attempt retained" hint then decides `retryable`. The
-  payment persists and the stored chunks stay on the network. Recovery has
-  three cases:
+  message: `retention_known` is `true` only when the counts parse and the
+  message ends with one of the daemon's two closing hints, which then
+  decides `retryable` ("paid attempt retained" sets it; "stored chunks
+  persist; re-prepare the same content" means nothing was retained).
+  Readable counts with a missing, truncated or unrecognised hint keep the
+  counts but read as retention unknown. The payment persists and the stored
+  chunks stay on the network. Recovery has three cases:
 
     * `retryable: true` (antd >= 0.14.0) — the daemon kept the paid attempt
       under the same `upload_id`: call this function again with the same
@@ -717,10 +720,10 @@ defmodule Antd.GrpcClient do
     * `retention_known: true, retryable: false` — the daemon confirmed it
       kept nothing: re-prepare the same content (already-stored chunks are
       skipped, so the retry pays only for the remainder).
-    * `retention_known: false` — the status message could not be fully
-      parsed, so retention is unknown and the daemon may still hold the paid
-      attempt. Stop automatic recovery, keep `upload_id` and `tx_hashes`, and
-      reconcile before re-preparing or paying again.
+    * `retention_known: false` — the status message's counts or closing
+      hint could not be read, so retention is unknown and the daemon may
+      still hold the paid attempt. Stop automatic recovery, keep `upload_id`
+      and `tx_hashes`, and reconcile before re-preparing or paying again.
 
   See `Antd.PartialUploadError`, `docs/external-signer-flow.md` §6 and
   `examples/07_external_signer.exs`.
@@ -943,12 +946,12 @@ defmodule Antd.GrpcClient do
       # fixed "Partial upload:" prefix, so gate on the message starting with
       # it (anchored, not containment: an ABORTED that merely quotes the
       # phrase further in is not a partial upload). The counts and the
-      # "paid attempt retained" hint ride the message text (no structured
-      # detail over gRPC yet) and are parsed best-effort to match the REST
-      # client's typed error. This applies to every RPC through this
-      # translator (ordinary uploads included) and replaces the generic
-      # Antd.AntdError these statuses used to map to; any other ABORTED keeps
-      # that generic mapping.
+      # daemon's closing retention hint ride the message text (no structured
+      # detail over gRPC yet) and are parsed to match the REST client's typed
+      # error; retention is known only when both read. This applies to every
+      # RPC through this translator (ordinary uploads included) and replaces
+      # the generic Antd.AntdError these statuses used to map to; any other
+      # ABORTED keeps that generic mapping.
       10 ->
         if Antd.Errors.partial_upload_message?(message) do
           Antd.Errors.partial_upload_error_from_message(502, message)

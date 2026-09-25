@@ -159,14 +159,20 @@ defmodule Antd.PartialUploadError do
   Over REST the counts come from the structured error body, and
   `retention_known` is `true` only when the body's `retryable` is a JSON
   boolean (missing, `null` or any other type reads as unknown). Over gRPC
-  they are parsed from the status message (`Partial upload: S/T chunks
-  stored, F failed ...`, with a `paid attempt retained` hint when
-  retryable). Only a message that starts with that prefix is a partial
-  upload; an `ABORTED` that merely quotes it further in keeps the generic
-  `Antd.AntdError` mapping. `retention_known` is `true` only when the counts
-  pattern matches and all three counts convert (each within the daemon's
-  `u64` range); the hint then decides `retryable`. Otherwise the counts read
-  as `0` and both flags are `false`.
+  they are parsed from the status message, `Partial upload: S/T chunks
+  stored, F failed after retries: <reason> (<hint>)`, where the closing hint
+  starts `paid attempt retained` when the daemon kept the attempt and
+  `stored chunks persist; re-prepare the same content` when it did not
+  (daemons older than 0.14.0 write only the second). Only a message that
+  starts with the `Partial upload:` prefix is a partial upload; an `ABORTED`
+  that merely quotes it further in keeps the generic `Antd.AntdError`
+  mapping. `retention_known` is `true` only when the message starts with the
+  counts pattern, all three counts convert (each within the daemon's `u64`
+  range), and the message ends with one of the two hints; the hint then
+  decides `retryable`. A pattern miss or a count that does not convert reads
+  as `0` counts with both flags `false`. Readable counts with a missing,
+  truncated or unrecognised hint keep the counts, but both flags stay
+  `false`: retention unknown (stop and reconcile), not "nothing retained".
 
   See `docs/external-signer-flow.md` §6 ("Retry a partial store — same
   `upload_id`, same payment") and `finalize_with_retry/3` in
@@ -202,9 +208,13 @@ defmodule Antd.Errors do
   # partial upload only when its message starts with it.
   @partial_upload_prefix "Partial upload:"
 
-  # Message tail the daemon appends to a `PARTIAL_UPLOAD` error when it kept
-  # the paid attempt for a same-`upload_id` retry.
+  # The daemon closes every `PARTIAL_UPLOAD` message with one of two
+  # parenthesised hints (`partial_upload_hint` in `antd/src/error.rs`): the
+  # retained hint when it kept the paid attempt for a same-`upload_id` retry,
+  # the not-retained hint when it did not. Daemons older than 0.14.0 write
+  # only the not-retained hint. `retention_tail/1` matches exactly these two.
   @partial_upload_retained_hint "paid attempt retained"
+  @partial_upload_not_retained_hint "stored chunks persist; re-prepare the same content"
 
   # The daemon's chunk counts are `u64`; a larger parsed value is not a count
   # it could have sent, so it fails the conversion (Elixir integers are
@@ -273,9 +283,11 @@ defmodule Antd.Errors do
   that starts with the `Partial upload:` prefix (check with
   `partial_upload_message?/1` first). The status carries no structured
   detail, so the counts, `retryable` and `retention_known` are recovered from
-  the text via `parse_partial_upload_message/1`; a prefixed message whose
+  the text via `parse_partial_upload_message/1`. A prefixed message whose
   counts do not parse still builds the error, with zero counts and both
-  flags `false` (retention unknown), even when the retained hint is present.
+  flags `false` (retention unknown), even when the retained hint is present;
+  readable counts without one of the daemon's two closing hints keep the
+  counts, again with both flags `false`.
   """
   @spec partial_upload_error_from_message(integer(), String.t()) ::
           Antd.PartialUploadError.t()
@@ -294,29 +306,54 @@ defmodule Antd.Errors do
   end
 
   @doc """
-  Parses the chunk counts and the retained hint out of a `PARTIAL_UPLOAD`
-  message (`Partial upload: <stored>/<total> chunks stored, <failed> failed
-  ...`). Returns
+  Parses the chunk counts and the daemon's retention hint out of a
+  `PARTIAL_UPLOAD` message (`Partial upload: <stored>/<total> chunks stored,
+  <failed> failed after retries: <reason> (<hint>)`). Returns
   `{chunks_stored, chunks_failed, total_chunks, retryable, retention_known}`.
 
-  `retention_known` is `true` only when the counts pattern matches and all
-  three counts convert (each at most `u64::MAX`, the daemon's count type);
-  the `paid attempt retained` hint then decides `retryable`. On a pattern
-  miss or any failed conversion the result is `{0, 0, 0, false, false}`,
-  hint or not: retention is unknown, not ruled out, so a retry against the
-  same `upload_id` is only advertised when the whole message parsed.
+  `retention_known` is `true` only when the message starts with the counts
+  pattern, all three counts convert (each at most `u64::MAX`, the daemon's
+  count type), and the message ends with one of the daemon's two hints,
+  `(paid attempt retained...)` or `(stored chunks persist; re-prepare the
+  same content...)`; `retryable` is then `true` only for the first. On a
+  pattern miss or any failed conversion the result is
+  `{0, 0, 0, false, false}`, hint or not. Readable counts with a missing,
+  truncated or unrecognised tail, or text or a newline after it, keep the
+  counts but leave both flags `false`; a hint quoted inside the failure
+  reason is not the daemon's answer. A message the SDK could not fully read
+  never advertises a retry against the same `upload_id`, nor that nothing
+  was kept.
   """
   @spec parse_partial_upload_message(String.t()) ::
           {non_neg_integer(), non_neg_integer(), non_neg_integer(), boolean(), boolean()}
   def parse_partial_upload_message(message) when is_binary(message) do
     with [_, stored, total, failed] <-
-           Regex.run(~r/Partial upload: (\d+)\/(\d+) chunks stored, (\d+) failed/, message),
+           Regex.run(~r/\APartial upload: (\d+)\/(\d+) chunks stored, (\d+) failed/, message),
          {:ok, stored} <- to_count(stored),
          {:ok, total} <- to_count(total),
          {:ok, failed} <- to_count(failed) do
-      {stored, failed, total, String.contains?(message, @partial_upload_retained_hint), true}
+      case retention_tail(message) do
+        {:ok, retryable} -> {stored, failed, total, retryable, true}
+        :unknown -> {stored, failed, total, false, false}
+      end
     else
       _ -> {0, 0, 0, false, false}
+    end
+  end
+
+  # Reads the daemon's retention hint, which must close the message:
+  # `(<hint>...)` at the very end of the input. `\z`, not `$`: in PCRE `$`
+  # also matches before a trailing newline. A hint quoted inside the failure
+  # reason, a truncated, unclosed or unrecognised tail, or anything after the
+  # closing paren does not match. Returns `{:ok, retryable}` or `:unknown`.
+  defp retention_tail(message) do
+    case Regex.run(
+           ~r/\((paid attempt retained|stored chunks persist; re-prepare the same content)[^()]*\)\z/,
+           message
+         ) do
+      [_, @partial_upload_retained_hint] -> {:ok, true}
+      [_, @partial_upload_not_retained_hint] -> {:ok, false}
+      _ -> :unknown
     end
   end
 

@@ -99,6 +99,21 @@ defmodule Antd.GrpcExternalSignerTest do
               "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " <>
                 "(stored chunks persist; re-prepare the same content to retry only the remainder)"
 
+        # Readable counts but no closing retention hint: retention unknown.
+        req.upload_id == "partial_no_hint" ->
+          raise GRPC.RPCError,
+            status: GRPC.Status.aborted(),
+            message: "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum"
+
+        # Readable counts with the retained hint cut short (the review's
+        # reproducer): retention unknown.
+        req.upload_id == "partial_truncated_hint" ->
+          raise GRPC.RPCError,
+            status: GRPC.Status.aborted(),
+            message:
+              "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum " <>
+                "(paid attempt retai"
+
         # A prefixed message whose counts do not parse: retention unknown,
         # even though it carries the retained hint.
         req.upload_id == "partial_unparsed" ->
@@ -324,7 +339,7 @@ defmodule Antd.GrpcExternalSignerTest do
     assert String.starts_with?(err.message, "Partial upload: 300/312 chunks stored")
   end
 
-  test "finalize_merkle_upload ABORTED without the retained hint is not retryable",
+  test "finalize_merkle_upload ABORTED with the not-retained hint is known, not retryable",
        %{client: client} do
     {:error, err} = GrpcClient.finalize_merkle_upload(client, "partial_final", "0xwinpool")
 
@@ -333,6 +348,43 @@ defmodule Antd.GrpcExternalSignerTest do
 
     refute err.retryable
     assert err.retention_known
+  end
+
+  # Readable counts without a readable closing hint: the counts are kept but
+  # neither flag is set, so a caller stops and reconciles instead of
+  # re-preparing or repeating a paid finalize.
+  defp assert_counts_kept_retention_unknown(result) do
+    assert {:error,
+            %Antd.PartialUploadError{
+              status_code: 502,
+              chunks_stored: 1,
+              chunks_failed: 2,
+              total_chunks: 3,
+              retryable: false,
+              retention_known: false
+            }} = result
+  end
+
+  test "finalize ABORTED with counts but no retention hint reads as retention unknown",
+       %{client: client} do
+    assert_counts_kept_retention_unknown(
+      GrpcClient.finalize_upload(client, "partial_no_hint", %{"0xq1" => "0xtx1"})
+    )
+
+    assert_counts_kept_retention_unknown(
+      GrpcClient.finalize_merkle_upload(client, "partial_no_hint", "0xwinpool")
+    )
+  end
+
+  test "finalize ABORTED with a truncated retention hint reads as retention unknown",
+       %{client: client} do
+    assert_counts_kept_retention_unknown(
+      GrpcClient.finalize_upload(client, "partial_truncated_hint", %{"0xq1" => "0xtx1"})
+    )
+
+    assert_counts_kept_retention_unknown(
+      GrpcClient.finalize_merkle_upload(client, "partial_truncated_hint", "0xwinpool")
+    )
   end
 
   test "finalize_upload ABORTED with unparseable counts reads as retention unknown",
