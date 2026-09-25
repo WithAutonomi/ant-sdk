@@ -226,6 +226,44 @@ final class GrpcExternalSignerTests: XCTestCase {
             }
         }
     }
+
+    /// 15. ABORTED whose message only mentions "Partial upload:" further in
+    /// (not at the start) keeps the ForkError mapping over the wire.
+    func testFinalizeUploadAbortedEmbeddedPartialMarkerIsForkError() async throws {
+        try await withMockServer { client in
+            do {
+                _ = try await client.finalizeUpload(uploadId: "aborted-embedded-partial", txHashes: ["0xq1": "0xtx1"])
+                XCTFail("expected ForkError")
+            } catch let error as PartialUploadError {
+                XCTFail("embedded marker must not map to PartialUploadError: \(error)")
+            } catch let error as ForkError {
+                XCTAssertEqual(error.statusCode, 409)
+                XCTAssertEqual(error.message, "upstream error: Partial upload: 1/3 chunks stored, 2 failed")
+            } catch {
+                XCTFail("expected ForkError, got \(error)")
+            }
+        }
+    }
+
+    /// 16. ABORTED "Partial upload:" with an out-of-range count and the
+    /// retained hint → PartialUploadError with zero counts and
+    /// retryable == false over the wire.
+    func testFinalizeUploadPartialOverflowCountIsNotRetryable() async throws {
+        try await withMockServer { client in
+            do {
+                _ = try await client.finalizeUpload(uploadId: "partial-overflow", txHashes: ["0xq1": "0xtx1"])
+                XCTFail("expected PartialUploadError")
+            } catch let error as PartialUploadError {
+                XCTAssertEqual(error.statusCode, 502)
+                XCTAssertEqual(error.chunksStored, 0)
+                XCTAssertEqual(error.chunksFailed, 0)
+                XCTAssertEqual(error.totalChunks, 0)
+                XCTAssertFalse(error.retryable)
+            } catch {
+                XCTFail("expected PartialUploadError, got \(error)")
+            }
+        }
+    }
 }
 
 // MARK: - Mock services
@@ -320,6 +358,18 @@ final class MockUploadService: Antd_V1_UploadService.SimpleServiceProtocol, @unc
         // An ABORTED that is not a partial upload: no "Partial upload:" prefix.
         if request.uploadID == "aborted-conflict" {
             throw RPCError(code: .aborted, message: "conflicting update")
+        }
+        // An ABORTED that mentions "Partial upload:" but does not start with it.
+        if request.uploadID == "aborted-embedded-partial" {
+            throw RPCError(code: .aborted, message: "upstream error: Partial upload: 1/3 chunks stored, 2 failed")
+        }
+        // A "Partial upload:" message whose failed count overflows UInt64,
+        // with the retained hint.
+        if request.uploadID == "partial-overflow" {
+            throw RPCError(
+                code: .aborted,
+                message: "Partial upload: 1/3 chunks stored, 18446744073709551616 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)"
+            )
         }
         var resp = Antd_V1_FinalizeUploadResponse()
         if !request.winnerPoolHash.isEmpty {
