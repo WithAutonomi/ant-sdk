@@ -14,7 +14,11 @@ import io.grpc.ForwardingServerCall
 import io.grpc.Status
 import io.grpc.inprocess.InProcessChannelBuilder
 import io.grpc.inprocess.InProcessServerBuilder
+import java.util.concurrent.Callable
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.awaitCancellation
@@ -30,6 +34,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -109,8 +114,11 @@ class GrpcClientTest {
         var failWith: Status? = null
         // When set, every check() hangs until the call is cancelled.
         var hang = false
+        // Released when a check() starts, i.e. the request reached the server.
+        val arrived = CountDownLatch(1)
 
         override suspend fun check(request: Health.HealthCheckRequest): Health.HealthCheckResponse {
+            arrived.countDown()
             if (hang) awaitCancellation()
             failWith?.let { throw it.asException() }
             return healthCheckResponse {
@@ -158,6 +166,22 @@ class GrpcClientTest {
                 dataChunk { data = ByteString.copyFromUtf8("hel") },
                 dataChunk { data = ByteString.copyFromUtf8("lo") },
             )
+    }
+
+    // A deadline scheduler that holds the expiry task a Context deadline
+    // schedules instead of running it on a clock, so a test decides when the
+    // deadline passes. Everything else delegates to [backing].
+    class ManualDeadlineScheduler(
+        private val backing: ScheduledExecutorService,
+    ) : ScheduledExecutorService by backing {
+        @Volatile var expiry: Runnable? = null
+
+        override fun schedule(command: Runnable, delay: Long, unit: TimeUnit): ScheduledFuture<*> {
+            expiry = command
+            // A placeholder that never comes due during the test; the
+            // Context cancels it once the deadline has fired.
+            return backing.schedule({}, 1, TimeUnit.HOURS)
+        }
     }
 
     class RequestCountingInterceptor : ServerInterceptor {
@@ -728,16 +752,33 @@ class GrpcClientTest {
         // The daemon takes the request but never answers; the client's
         // deadline expires and gRPC fails the call with DEADLINE_EXCEEDED,
         // which is not an answer from the daemon.
+        //
+        // No clock decides the ordering: the deadline is far off (so the call
+        // cannot fail locally at start) and its expiry task is held until the
+        // server has the request, then run. A slow dispatch can therefore
+        // never expire the call before it is sent and turn this into the
+        // zero-request case.
         healthService.hang = true
-        val scheduler = Executors.newSingleThreadScheduledExecutor()
+        val backing = Executors.newSingleThreadScheduledExecutor()
+        val deadlines = ManualDeadlineScheduler(backing)
+        val caller = Executors.newSingleThreadExecutor()
         try {
-            val ctx = Context.current().withDeadlineAfter(100, TimeUnit.MILLISECONDS, scheduler)
-            val h = ctx.call { runBlocking { client.health() } }
+            val ctx = Context.current().withDeadlineAfter(1, TimeUnit.HOURS, deadlines)
+            val pending = caller.submit(Callable { ctx.call { runBlocking { client.health() } } })
+            assertTrue(
+                healthService.arrived.await(10, TimeUnit.SECONDS),
+                "the health check never reached the server",
+            )
+            assertEquals(1, healthRequests.count.get())
+            // The deadline passes now, after the server has the request.
+            assertNotNull(deadlines.expiry, "the Context deadline scheduled no expiry").run()
+            val h = pending.get(10, TimeUnit.SECONDS)
             assertFalse(h.ok)
             assertEquals("unknown", h.network)
             assertEquals(1, healthRequests.count.get())
         } finally {
-            scheduler.shutdownNow()
+            caller.shutdownNow()
+            backing.shutdownNow()
         }
     }
 
