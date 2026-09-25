@@ -773,4 +773,113 @@ class TestClient < Minitest::Test
                    parsed, msg)
     end
   end
+
+  # --- Malformed error bodies never escape the typed contract ---
+  #
+  # Every body field is type-checked, not coerced: a malformed body must
+  # still produce a typed AntdError, never a NoMethodError (Array#to_i,
+  # Hash#to_i, true.to_i) from inside the error mapping.
+
+  MALFORMED_CODE_BODIES = [
+    '{"error":"boom","code":{}}',
+    '{"error":"boom","code":[]}',
+    '{"error":"boom","code":null}',
+    '{"error":"boom","code":1}',
+    "[]",
+    '["PARTIAL_UPLOAD"]'
+  ].freeze
+
+  # Only the *string* "PARTIAL_UPLOAD" selects the typed error; any other
+  # code shape, or a body that is not a JSON object, keeps the 502 mapping.
+  def test_error_partial_upload_non_string_code_keeps_network_error
+    MALFORMED_CODE_BODIES.each do |body|
+      stub_request(:post, "#{BASE}/v1/upload/finalize")
+        .to_return(status: 502, body: body, headers: { "Content-Type" => "application/json" })
+
+      err = assert_raises(Antd::NetworkError, body) { @client.finalize_upload("u1", {}) }
+      refute_instance_of Antd::PartialUploadError, err, body
+      assert_equal 502, err.status_code, body
+    end
+  end
+
+  # Counts and the flag of the wrong JSON type read as absent (zero / false);
+  # a non-string `error` falls back to the raw body as the message.
+  def test_error_partial_upload_malformed_fields_read_as_absent
+    body = '{"error":{},"code":"PARTIAL_UPLOAD","chunks_stored":"3","chunks_failed":[],' \
+           '"total_chunks":{},"retryable":"true"}'
+    stub_request(:post, "#{BASE}/v1/upload/finalize")
+      .to_return(status: 502, body: body, headers: { "Content-Type" => "application/json" })
+
+    err = assert_raises(Antd::PartialUploadError) { @client.finalize_upload("u1", {}) }
+    assert_equal 0, err.chunks_stored
+    assert_equal 0, err.chunks_failed
+    assert_equal 0, err.total_chunks
+    refute err.retryable
+    assert_equal "antd error 502: #{body}", err.message
+  end
+
+  def test_error_partial_upload_boolean_count_and_object_flag
+    body = '{"error":"Partial upload: 1/3 chunks stored, 2 failed","code":"PARTIAL_UPLOAD",' \
+           '"chunks_stored":true,"chunks_failed":2,"total_chunks":3,"retryable":{}}'
+    stub_request(:post, "#{BASE}/v1/chunks/finalize")
+      .to_return(status: 502, body: body, headers: { "Content-Type" => "application/json" })
+
+    err = assert_raises(Antd::PartialUploadError) { @client.finalize_chunk_upload("c1", {}) }
+    assert_equal 0, err.chunks_stored
+    assert_equal 2, err.chunks_failed
+    assert_equal 3, err.total_chunks
+    refute err.retryable
+    assert_includes err.message, "Partial upload: 1/3 chunks stored"
+  end
+
+  # The streaming paths share the mapping: a non-string `error` there falls
+  # back to the raw body too.
+  def test_data_stream_error_non_string_error_uses_raw_body
+    body = '{"error":{"detail":"gone"},"code":"NOT_FOUND"}'
+    stub_request(:get, "#{BASE}/v1/data/public/missing/stream")
+      .to_return(status: 404, body: body, headers: { "Content-Type" => "application/json" })
+
+    err = assert_raises(Antd::NotFoundError) { @client.data_stream_public("missing") { |_c| } }
+    assert_equal "antd error 404: #{body}", err.message
+  end
+
+  def test_error_for_response_non_string_code_keeps_status_mapping
+    (MALFORMED_CODE_BODIES + ['"PARTIAL_UPLOAD"', "null", "1", '{"code":"partial_upload"}']).each do |body|
+      err = Antd.error_for_response(502, body)
+      assert_instance_of Antd::NetworkError, err, body
+    end
+  end
+
+  def test_error_for_response_malformed_counts_read_as_zero
+    [[], {}, "3", true, false, nil, 1.5, 3.0, -1].each do |bad|
+      body = JSON.generate(error: "Partial upload: x", code: "PARTIAL_UPLOAD",
+                           chunks_stored: bad, chunks_failed: bad, total_chunks: bad, retryable: true)
+      err = Antd.error_for_response(502, body)
+      assert_instance_of Antd::PartialUploadError, err, body
+      assert_equal [0, 0, 0], [err.chunks_stored, err.chunks_failed, err.total_chunks], body
+      assert err.retryable, body
+      assert_equal "antd error 502: Partial upload: x", err.message, body
+    end
+  end
+
+  def test_error_for_response_retryable_only_for_json_true
+    [[true, true], ["true", false], [{}, false], [[], false], [1, false], [false, false], [nil, false]]
+      .each do |flag, expected|
+        body = JSON.generate(error: "Partial upload: x", code: "PARTIAL_UPLOAD",
+                             chunks_stored: 1, chunks_failed: 2, total_chunks: 3, retryable: flag)
+        err = Antd.error_for_response(502, body)
+        assert_instance_of Antd::PartialUploadError, err, body
+        assert_equal expected, err.retryable, body
+        assert_equal [1, 2, 3], [err.chunks_stored, err.chunks_failed, err.total_chunks], body
+      end
+  end
+
+  def test_error_for_response_non_string_error_uses_raw_body
+    [{}, [], 1, true, nil].each do |bad|
+      body = JSON.generate(error: bad, code: "PARTIAL_UPLOAD", chunks_stored: 1, chunks_failed: 2, total_chunks: 3)
+      err = Antd.error_for_response(502, body)
+      assert_instance_of Antd::PartialUploadError, err, body
+      assert_equal "antd error 502: #{body}", err.message, body
+    end
+  end
 end

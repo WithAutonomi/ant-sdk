@@ -325,7 +325,7 @@ module Antd
     # @param tx_hashes [Hash<String, String>]
     # @return [String] hex chunk address
     # @raise [PartialUploadError] when some chunks stored and others did not
-    #   (gRPC ABORTED, message prefixed +Partial upload:+). The payment
+    #   (gRPC ABORTED, details prefixed +Partial upload:+). The payment
     #   persists. If +retryable+ is true, call this method again with the same
     #   arguments to store the remainder against the same payment
     #   (antd >= 0.14.0); otherwise re-prepare the same content, which skips
@@ -385,7 +385,7 @@ module Antd
     # @param tx_hashes [Hash<String, String>]
     # @return [FinalizeUploadResult]
     # @raise [PartialUploadError] when some chunks stored and others did not
-    #   (gRPC ABORTED, message prefixed +Partial upload:+). The payment
+    #   (gRPC ABORTED, details prefixed +Partial upload:+). The payment
     #   persists. If +retryable+ is true, call this method again with the same
     #   arguments to store the remainder against the same payment
     #   (antd >= 0.14.0); otherwise re-prepare the same content, which skips
@@ -412,7 +412,7 @@ module Antd
     # @param store_data_map [Boolean]
     # @return [FinalizeUploadResult]
     # @raise [PartialUploadError] when some chunks stored and others did not
-    #   (gRPC ABORTED, message prefixed +Partial upload:+). The payment
+    #   (gRPC ABORTED, details prefixed +Partial upload:+). The payment
     #   persists. If +retryable+ is true, call this method again with the same
     #   arguments to store the remainder against the same payment
     #   (antd >= 0.14.0); otherwise re-prepare the same content, which skips
@@ -566,15 +566,19 @@ module Antd
       raise PaymentError, e.message
     rescue GRPC::Aborted => e
       # PARTIAL_UPLOAD: some chunks stored, some still unstored after
-      # retries. The daemon's message always opens with "Partial upload:";
-      # only that becomes the typed error, so any other ABORTED keeps the
-      # generic mapping instead of masquerading as a partial upload. The
-      # counts and the "paid attempt retained" hint ride the message text
-      # over gRPC (no structured detail yet), so parse them best-effort to
-      # match the REST client's typed error.
-      raise AntdError.new(e.message, status_code: e.code) unless Antd.partial_upload_message?(e.message)
+      # retries. The daemon's status message always opens with "Partial
+      # upload:", so only an ABORTED whose details *start* with it becomes
+      # the typed error. Any other ABORTED -- including one that merely
+      # quotes the marker further in -- keeps the generic mapping instead of
+      # masquerading as a partial upload with zero counts. Gate and parse on
+      # +e.details+ (the message as the daemon sent it), not +e.message+,
+      # which grpc-ruby decorates as "10:<details>". The counts and the "paid
+      # attempt retained" hint ride that text over gRPC (no structured detail
+      # yet), so parse them best-effort to match the REST client's typed
+      # error. The raised message stays +e.message+, like every other branch.
+      raise AntdError.new(e.message, status_code: e.code) unless Antd.partial_upload_message?(e.details)
 
-      raise PartialUploadError.new(e.message, **Antd.parse_partial_upload_message(e.message))
+      raise PartialUploadError.new(e.message, **Antd.parse_partial_upload_message(e.details))
     rescue GRPC::BadStatus => e
       raise AntdError.new(e.message, status_code: e.code)
     end

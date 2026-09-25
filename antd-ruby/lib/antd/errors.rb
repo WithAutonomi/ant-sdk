@@ -77,11 +77,12 @@ module Antd
   #   content skips already-stored chunks, so a retry pays only for the
   #   missing remainder.
   #
-  # Over REST the counts and +retryable+ come from the structured error body.
-  # Over gRPC they are parsed best-effort from the status message ("Partial
-  # upload: S/T chunks stored, F failed ...", with a "paid attempt retained"
-  # hint when retryable); an unrecognised message leaves the counts zero and
-  # +retryable+ false.
+  # Over REST the counts and +retryable+ come from the structured error body;
+  # a field of the wrong JSON type reads as absent (zero / +false+). Over gRPC
+  # they are parsed best-effort from the status details ("Partial upload: S/T
+  # chunks stored, F failed ...", with a "paid attempt retained" hint when
+  # retryable): only an ABORTED whose details start with "Partial upload:" is
+  # a partial upload, and counts the parser cannot read are left zero.
   #
   # Subclasses +NetworkError+ because the daemon reports it as a 502: existing
   # +rescue Antd::NetworkError+ blocks keep catching it, and +status_code+ is
@@ -107,8 +108,8 @@ module Antd
   end
 
   # Fixed text every PARTIAL_UPLOAD message from the daemon opens with. Over
-  # gRPC the status carries no structured code, so this prefix is what tells
-  # a partial upload apart from any other ABORTED status.
+  # gRPC the status carries no structured code, so an ABORTED status is a
+  # partial upload only when its details start with this prefix.
   PARTIAL_UPLOAD_PREFIX = "Partial upload:"
 
   # Fixed prefix of the daemon's PARTIAL_UPLOAD message:
@@ -119,20 +120,29 @@ module Antd
   # same-upload_id retry.
   PARTIAL_UPLOAD_RETAINED_HINT = "paid attempt retained"
 
-  # Whether a gRPC status message is the daemon's PARTIAL_UPLOAD message.
-  # Containment, not +start_with?+: grpc-ruby decorates the message with the
-  # numeric code ("10:Partial upload: ...").
+  # Whether a gRPC status's details are the daemon's PARTIAL_UPLOAD message.
+  # Anchored: the details must start with +PARTIAL_UPLOAD_PREFIX+. A status
+  # that merely quotes "Partial upload:" further into its text (an upstream
+  # error wrapping one, say) is not a partial upload and must not select the
+  # paid-attempt recovery path with zero counts.
   #
-  # @param message [String]
+  # Pass +GRPC::BadStatus#details+ -- the status message exactly as the
+  # daemon sent it -- not +#message+, which grpc-ruby decorates as
+  # "<code>:<details>" ("10:Partial upload: ...") and so never starts with
+  # the prefix.
+  #
+  # @param details [String, nil] gRPC status details
   # @return [Boolean]
-  def self.partial_upload_message?(message)
-    message.to_s.include?(PARTIAL_UPLOAD_PREFIX)
+  def self.partial_upload_message?(details)
+    details.to_s.start_with?(PARTIAL_UPLOAD_PREFIX)
   end
 
   # Recovers the chunk counts and the retryable hint from a PARTIAL_UPLOAD
-  # message. Used for gRPC, where the status carries no structured detail;
-  # REST callers get the body fields instead. A message carrying the prefix
-  # but unrecognised counts yields zero counts and +retryable: false+.
+  # message (over gRPC, the status details). Used for gRPC, where the status
+  # carries no structured detail; REST callers get the body fields instead.
+  # Counts and hint are read independently: unrecognised counts yield zeros,
+  # and +retryable+ is true only when the "paid attempt retained" hint is
+  # present.
   #
   # @param message [String]
   # @return [Hash] +:chunks_stored+, +:chunks_failed+, +:total_chunks+,
@@ -152,8 +162,14 @@ module Antd
   # machine-readable +code+ over the bare HTTP status where they diverge:
   # +PARTIAL_UPLOAD+ arrives as a 502 that would otherwise read as a generic
   # +NetworkError+. Every other code keeps the status-based mapping of
-  # +error_for_status+. A JSON body's +error+ field becomes the message; a
-  # non-JSON body is used as the message verbatim.
+  # +error_for_status+. A JSON object body's +error+ field becomes the
+  # message when it is a string; otherwise (non-JSON body, a JSON value that
+  # is not an object, a non-string +error+) the raw body is the message.
+  #
+  # Never raises on a malformed body: every field is type-checked, not
+  # coerced. Only a +code+ that is exactly the string "PARTIAL_UPLOAD"
+  # selects +PartialUploadError+; a count that is not a non-negative JSON
+  # integer reads as 0; +retryable+ is true only for JSON +true+.
   #
   # @param code [Integer] HTTP status
   # @param body [String, nil] raw response body
@@ -168,13 +184,13 @@ module Antd
     parsed = nil unless parsed.is_a?(Hash)
 
     if parsed
-      message = parsed["error"] if parsed["error"]
+      message = parsed["error"] if parsed["error"].is_a?(String)
       if parsed["code"] == "PARTIAL_UPLOAD"
         return PartialUploadError.new(
           message,
-          chunks_stored: parsed["chunks_stored"].to_i,
-          chunks_failed: parsed["chunks_failed"].to_i,
-          total_chunks: parsed["total_chunks"].to_i,
+          chunks_stored: body_count(parsed["chunks_stored"]),
+          chunks_failed: body_count(parsed["chunks_failed"]),
+          total_chunks: body_count(parsed["total_chunks"]),
           # Absent on daemons < 0.14.0 -> not retryable (re-prepare path).
           retryable: parsed["retryable"] == true
         )
@@ -183,6 +199,17 @@ module Antd
 
     error_for_status(code, message)
   end
+
+  # A chunk count from a PARTIAL_UPLOAD body: a non-negative JSON integer is
+  # taken as is; anything else (absent, null, string, float, boolean, array,
+  # object, negative) reads as 0 rather than raising or being coerced.
+  #
+  # @param value [Object] parsed JSON value
+  # @return [Integer]
+  def self.body_count(value)
+    value.is_a?(Integer) && value >= 0 ? value : 0
+  end
+  private_class_method :body_count
 
   # Returns the appropriate error type for an HTTP status code.
   def self.error_for_status(code, message)

@@ -95,9 +95,9 @@ rescue LoadError
       rescue GRPC::Unavailable => e; raise NetworkError, e.message
       rescue GRPC::FailedPrecondition => e; raise PaymentError, e.message
       rescue GRPC::Aborted => e
-        raise AntdError.new(e.message, status_code: e.code) unless Antd.partial_upload_message?(e.message)
+        raise AntdError.new(e.message, status_code: e.code) unless Antd.partial_upload_message?(e.details)
 
-        raise PartialUploadError.new(e.message, **Antd.parse_partial_upload_message(e.message))
+        raise PartialUploadError.new(e.message, **Antd.parse_partial_upload_message(e.details))
       rescue GRPC::BadStatus => e; raise AntdError.new(e.message, status_code: e.code)
       end
     end
@@ -648,9 +648,9 @@ class TestGrpcClient < Minitest::Test
     assert_includes err.message, "data gone"
   end
 
-  # ABORTED whose message carries the daemon's "Partial upload:" prefix is
-  # PARTIAL_UPLOAD. Counts and the retained hint are parsed from the status
-  # message, so the gRPC client matches the REST client's typed error.
+  # ABORTED whose details start with the daemon's "Partial upload:" prefix
+  # is PARTIAL_UPLOAD. Counts and the retained hint are parsed from the
+  # status details, so the gRPC client matches the REST client's typed error.
   def test_error_aborted_maps_to_partial_upload_error
     msg = "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " \
           "(paid attempt retained: call finalize again with the same upload_id " \
@@ -697,6 +697,55 @@ class TestGrpcClient < Minitest::Test
     assert_equal 0, err.total_chunks
     refute err.retryable
     assert_includes err.message, "Partial upload: counts unreadable"
+  end
+
+  # grpc-ruby's BadStatus#message is "10:<details>"; the gate reads the
+  # undecorated #details, so a real GRPC::Aborted from the daemon maps.
+  def test_error_aborted_gate_reads_status_details
+    msg = "Partial upload: 1/3 chunks stored, 2 failed after retries"
+    status = grpc_error(:ABORTED, msg)
+    assert_equal msg, status.details
+    assert_equal "10:#{msg}", status.message if defined?(GRPC::Core) # the real grpc gem
+    client = build_error_client(status)
+    err = assert_raises(Antd::PartialUploadError) { client.health }
+    assert_equal 1, err.chunks_stored
+    assert_equal 2, err.chunks_failed
+    assert_equal 3, err.total_chunks
+    refute err.retryable
+  end
+
+  # Anchored, not containment: an ABORTED that quotes "Partial upload:"
+  # after other text is not a partial upload. It must not surface as one
+  # (zero counts, or a retryable read from an embedded hint), so it keeps
+  # the generic mapping.
+  def test_error_aborted_with_embedded_partial_upload_marker_maps_to_generic_error
+    [
+      "upstream error: Partial upload: 1/3 chunks stored, 2 failed",
+      "wrapped (Partial upload: 0/1 chunks stored, 1 failed; paid attempt retained)"
+    ].each do |msg|
+      client = build_error_client(grpc_error(:ABORTED, msg))
+      err = assert_raises(Antd::AntdError, msg) { client.chunk_put("x") }
+      refute_kind_of Antd::PartialUploadError, err, msg
+      refute_kind_of Antd::NetworkError, err, msg
+      assert_equal 10, err.status_code, msg
+      assert_includes err.message, msg, msg
+    end
+  end
+
+  def test_partial_upload_message_gate_is_anchored
+    [
+      ["Partial upload: 1/3 chunks stored, 2 failed", true],
+      ["Partial upload: counts unreadable", true],
+      ["10:Partial upload: 1/3 chunks stored, 2 failed", false], # BadStatus#message, not #details
+      ["upstream error: Partial upload: 1/3 chunks stored, 2 failed", false],
+      ["wrapped (Partial upload: 0/1 chunks stored, 1 failed; paid attempt retained)", false],
+      [" Partial upload: 1/3 chunks stored, 2 failed", false],
+      ["partial upload: 1/3 chunks stored, 2 failed", false],
+      ["", false],
+      [nil, false]
+    ].each do |details, expected|
+      assert_equal expected, Antd.partial_upload_message?(details), details.inspect
+    end
   end
 
   # Verify errors propagate from non-health methods too.
