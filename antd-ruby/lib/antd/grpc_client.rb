@@ -324,6 +324,12 @@ module Antd
     # @param upload_id [String]
     # @param tx_hashes [Hash<String, String>]
     # @return [String] hex chunk address
+    # @raise [PartialUploadError] when some chunks stored and others did not
+    #   (gRPC ABORTED, details prefixed +Partial upload:+). The payment
+    #   persists. If +retryable+ is true, call this method again with the same
+    #   arguments to store the remainder against the same payment
+    #   (antd >= 0.14.0); otherwise re-prepare the same content, which skips
+    #   stored chunks. See docs/external-signer-flow.md section 6.
     def finalize_chunk_upload(upload_id, tx_hashes)
       req = Antd::V1::FinalizeChunkRequest.new(
         upload_id: upload_id,
@@ -378,6 +384,12 @@ module Antd
     # @param upload_id [String]
     # @param tx_hashes [Hash<String, String>]
     # @return [FinalizeUploadResult]
+    # @raise [PartialUploadError] when some chunks stored and others did not
+    #   (gRPC ABORTED, details prefixed +Partial upload:+). The payment
+    #   persists. If +retryable+ is true, call this method again with the same
+    #   arguments to store the remainder against the same payment
+    #   (antd >= 0.14.0); otherwise re-prepare the same content, which skips
+    #   stored chunks. See docs/external-signer-flow.md section 6.
     def finalize_upload(upload_id, tx_hashes)
       req = Antd::V1::FinalizeUploadRequest.new(
         upload_id: upload_id,
@@ -399,6 +411,12 @@ module Antd
     # @param winner_pool_hash [String]
     # @param store_data_map [Boolean]
     # @return [FinalizeUploadResult]
+    # @raise [PartialUploadError] when some chunks stored and others did not
+    #   (gRPC ABORTED, details prefixed +Partial upload:+). The payment
+    #   persists. If +retryable+ is true, call this method again with the same
+    #   arguments to store the remainder against the same payment
+    #   (antd >= 0.14.0); otherwise re-prepare the same content, which skips
+    #   stored chunks. See docs/external-signer-flow.md section 6.
     def finalize_merkle_upload(upload_id, winner_pool_hash, store_data_map: false)
       req = Antd::V1::FinalizeUploadRequest.new(
         upload_id: upload_id,
@@ -546,6 +564,21 @@ module Antd
       raise NetworkError, e.message
     rescue GRPC::FailedPrecondition => e
       raise PaymentError, e.message
+    rescue GRPC::Aborted => e
+      # PARTIAL_UPLOAD: some chunks stored, some still unstored after
+      # retries. The daemon's status message always opens with "Partial
+      # upload:", so only an ABORTED whose details *start* with it becomes
+      # the typed error. Any other ABORTED -- including one that merely
+      # quotes the marker further in -- keeps the generic mapping instead of
+      # masquerading as a partial upload with zero counts. Gate and parse on
+      # +e.details+ (the message as the daemon sent it), not +e.message+,
+      # which grpc-ruby decorates as "10:<details>". The counts and the "paid
+      # attempt retained" hint ride that text over gRPC (no structured detail
+      # yet), so parse them best-effort to match the REST client's typed
+      # error. The raised message stays +e.message+, like every other branch.
+      raise AntdError.new(e.message, status_code: e.code) unless Antd.partial_upload_message?(e.details)
+
+      raise PartialUploadError.new(e.message, **Antd.parse_partial_upload_message(e.details))
     rescue GRPC::BadStatus => e
       raise AntdError.new(e.message, status_code: e.code)
     end

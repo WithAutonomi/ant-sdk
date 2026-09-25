@@ -10,6 +10,12 @@
 #
 # See docs/external-signer-flow.md for the full reference; the IPaymentVault
 # function selector and tuple ABI are encoded inline via the +eth+ gem.
+#
+# The file finalize goes through +finalize_with_retry+: a finalize can fail
+# *after* the signer has paid (some chunks stored, some not), and on antd
+# >= 0.14.0 the daemon keeps the paid attempt so the same call can be
+# repeated to store the remainder against the same payment (section 6 of
+# docs/external-signer-flow.md).
 
 require "eth"
 require "fileutils"
@@ -111,6 +117,49 @@ def external_signer_pay(rpc_url, vault_addr, token_addr, payments, key)
   payments.each_with_object({}) { |p, h| h[p.quote_hash] = pay_tx }
 end
 
+# Finalize with a bounded retry against the same payment.
+#
+# +finalize_upload+ can raise +Antd::PartialUploadError+ after the wallet has
+# paid: some chunks stored, others missed quorum after the daemon's own
+# retries. When +retryable+ is true the daemon retained the paid attempt under
+# the same upload_id, so calling finalize again with the same arguments stores
+# the remainder against the same payment — no re-prepare, no second
+# signature, no double payment. A persistent failure (a close group that
+# stays unreachable) raises the same error on every call, never a different
+# one, so the loop caps the attempts and treats a +chunks_failed+ that stops
+# shrinking as stuck. A non-retryable partial upload (older daemon, or a
+# merkle upload with unpaid batches) is re-raised untouched: the recovery
+# there is to re-prepare the same content, which skips the chunks already
+# stored.
+def finalize_with_retry(client, upload_id, tx_hashes, max_attempts: 5)
+  last_failed = nil
+  attempt = 0
+  begin
+    attempt += 1
+    client.finalize_upload(upload_id, tx_hashes) # every chunk stored
+  rescue Antd::PartialUploadError => e
+    raise unless e.retryable
+
+    stuck = !last_failed.nil? && e.chunks_failed >= last_failed
+    if attempt >= max_attempts || stuck
+      raise Antd::PartialUploadError.new(
+        "finalize stuck after #{attempt} attempt(s): #{e.chunks_stored}/#{e.total_chunks} " \
+        "chunks stored, #{e.chunks_failed} still unstored (paid attempt retained under " \
+        "upload_id #{upload_id} — retry later or re-prepare): #{e.message}",
+        chunks_stored: e.chunks_stored, chunks_failed: e.chunks_failed,
+        total_chunks: e.total_chunks, retryable: e.retryable
+      )
+    end
+
+    last_failed = e.chunks_failed
+    puts "finalize stored #{e.chunks_stored}/#{e.total_chunks} chunks, " \
+         "#{e.chunks_failed} still unstored — retrying against the same payment " \
+         "(attempt #{attempt + 1}/#{max_attempts})"
+    sleep(attempt * 2)
+    retry
+  end
+end
+
 client = Antd::Client.new
 key = Eth::Key.new(priv: ANVIL_KEY)
 
@@ -128,7 +177,7 @@ Dir.mktmpdir("antd-ruby-07-extsig-") do |tmp|
     file_prep.rpc_url, file_prep.payment_vault_address,
     file_prep.payment_token_address, file_prep.payments, key
   )
-  file_fin = client.finalize_upload(file_prep.upload_id, file_tx_hashes)
+  file_fin = finalize_with_retry(client, file_prep.upload_id, file_tx_hashes)
   puts "File finalize: data_map_address=#{file_fin.data_map_address}, " \
        "chunks_stored=#{file_fin.chunks_stored}"
 

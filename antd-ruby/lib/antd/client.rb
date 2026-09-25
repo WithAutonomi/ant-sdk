@@ -217,6 +217,12 @@ module Antd
     # @param tx_hashes [Hash<String, String>] map of quote_hash to tx_hash
     # @return [String] network address of the stored chunk
     #   (matches +PrepareChunkResult#address+)
+    # @raise [PartialUploadError] when some chunks stored and others did not
+    #   (HTTP 502, +code: "PARTIAL_UPLOAD"+). The payment persists. If
+    #   +retryable+ is true, call this method again with the same arguments
+    #   to store the remainder against the same payment (antd >= 0.14.0);
+    #   otherwise re-prepare the same content, which skips stored chunks.
+    #   See docs/external-signer-flow.md section 6.
     def finalize_chunk_upload(upload_id, tx_hashes)
       j = do_json(:post, "/v1/chunks/finalize", {
         upload_id: upload_id,
@@ -365,6 +371,12 @@ module Antd
     # @param upload_id [String] the upload ID from prepare_upload
     # @param tx_hashes [Hash<String, String>] map of quote_hash to tx_hash
     # @return [FinalizeUploadResult]
+    # @raise [PartialUploadError] when some chunks stored and others did not
+    #   (HTTP 502, +code: "PARTIAL_UPLOAD"+). The payment persists. If
+    #   +retryable+ is true, call this method again with the same arguments
+    #   to store the remainder against the same payment (antd >= 0.14.0);
+    #   otherwise re-prepare the same content, which skips stored chunks.
+    #   See docs/external-signer-flow.md section 6.
     def finalize_upload(upload_id, tx_hashes)
       j = do_json(:post, "/v1/upload/finalize", {
         upload_id: upload_id,
@@ -378,6 +390,12 @@ module Antd
     # @param winner_pool_hash [String] hash of the winning pool commitment
     # @param store_data_map [Boolean] whether to store the data map on-network
     # @return [FinalizeUploadResult]
+    # @raise [PartialUploadError] when some chunks stored and others did not
+    #   (HTTP 502, +code: "PARTIAL_UPLOAD"+). The payment persists. If
+    #   +retryable+ is true, call this method again with the same arguments
+    #   to store the remainder against the same payment (antd >= 0.14.0);
+    #   otherwise re-prepare the same content, which skips stored chunks.
+    #   See docs/external-signer-flow.md section 6.
     def finalize_merkle_upload(upload_id, winner_pool_hash, store_data_map: false)
       j = do_json(:post, "/v1/upload/finalize", {
         upload_id: upload_id,
@@ -483,6 +501,10 @@ module Antd
     end
 
     # Perform a JSON HTTP request and return the parsed response body.
+    #
+    # A non-2xx response is raised via +Antd.error_for_response+, which maps
+    # the body's +code+ / +error+ (and the PARTIAL_UPLOAD counts) onto the
+    # typed +AntdError+ hierarchy.
     def do_json(method, path, body = nil)
       uri = build_uri(path)
       http = Net::HTTP.new(uri.host, uri.port)
@@ -505,14 +527,7 @@ module Antd
       code = response.code.to_i
 
       unless (200...300).cover?(code)
-        msg = response.body.to_s
-        begin
-          parsed = JSON.parse(msg)
-          msg = parsed["error"] if parsed["error"]
-        rescue JSON::ParserError
-          # use raw body as message
-        end
-        raise Antd.error_for_status(code, msg)
+        raise Antd.error_for_response(code, response.body)
       end
 
       return {} if response.body.nil? || response.body.empty?
@@ -524,9 +539,9 @@ module Antd
     # they arrive. Reuses the same base-URL / timeout / error-mapping plumbing
     # as +do_json+, but never buffers the success body in memory.
     #
-    # On a non-2xx response the (short) body is read fully, parsed for an
-    # +{"error":...}+ field, and raised via +Antd.error_for_status+ — mirroring
-    # +do_json+. On 2xx, chunks are streamed straight to the block.
+    # On a non-2xx response the (short) body is read fully and raised via
+    # +Antd.error_for_response+ — mirroring +do_json+. On 2xx, chunks are
+    # streamed straight to the block.
     def do_stream(method, path, body = nil)
       uri = build_uri(path)
       http = Net::HTTP.new(uri.host, uri.port)
@@ -550,14 +565,7 @@ module Antd
           code = response.code.to_i
 
           unless (200...300).cover?(code)
-            msg = response.body.to_s
-            begin
-              parsed = JSON.parse(msg)
-              msg = parsed["error"] if parsed["error"]
-            rescue JSON::ParserError
-              # use raw body as message
-            end
-            raise Antd.error_for_status(code, msg)
+            raise Antd.error_for_response(code, response.body)
           end
 
           response.read_body do |chunk|
@@ -599,14 +607,7 @@ module Antd
           code = response.code.to_i
 
           unless (200...300).cover?(code)
-            msg = response.body.to_s
-            begin
-              parsed = JSON.parse(msg)
-              msg = parsed["error"] if parsed["error"]
-            rescue JSON::ParserError
-              # use raw body as message
-            end
-            raise Antd.error_for_status(code, msg)
+            raise Antd.error_for_response(code, response.body)
           end
 
           buffer = +""
