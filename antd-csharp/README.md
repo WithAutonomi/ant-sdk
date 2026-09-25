@@ -161,12 +161,15 @@ catch (AntdException ex)
 
 ### Partial uploads
 
-A finalize (`FinalizeUploadAsync`, `FinalizeMerkleUploadAsync`, `FinalizeChunkUploadAsync`) can fail *after* the wallet has paid: some chunks store, others miss quorum after the daemon's own retries. The SDK surfaces that as `PartialUploadException` with `ChunksStored`, `ChunksFailed`, `TotalChunks` and `Retryable`. The on-chain payment persists and the stored chunks stay on the network; `Retryable` says how to finish:
+A finalize (`FinalizeUploadAsync`, `FinalizeMerkleUploadAsync`, `FinalizeChunkUploadAsync`) can fail *after* the wallet has paid: some chunks store, others miss quorum after the daemon's own retries. The SDK surfaces that as `PartialUploadException` with `ChunksStored`, `ChunksFailed`, `TotalChunks`, `Retryable` and `RetentionKnown`. The on-chain payment persists and the stored chunks stay on the network; the two flags say how to finish:
 
-- **`Retryable == true`** — the daemon kept the paid attempt (payment proofs plus the unstored chunks) under the same `upload_id`. Call the **same finalize method again with the same arguments** to store the remainder against the same payment: no re-prepare, no second signature, no double payment. Bound the loop: a persistent failure throws on every call, so cap the attempts and treat a `ChunksFailed` that stops shrinking as stuck. The retained attempt expires with the daemon's pending-upload TTL. The flag is sent by antd ≥ 0.14.0; older daemons omit it and it reads `false`.
-- **`Retryable == false`** — nothing was retained (older daemon, or a merkle finalize with deliberately unpaid batches). Re-preparing the same content skips already-stored chunks, so a retry pays only for the remainder.
+- **`Retryable`**: the daemon kept the paid attempt (payment proofs plus the unstored chunks) under the same `upload_id`. Call the **same finalize method again with the same arguments** (same `upload_id`, same payment artefacts) to store the remainder against the same payment: no re-prepare, no second signature, no double payment. Bound the loop: a persistent failure throws on every call, so cap the attempts and treat a `ChunksFailed` that stops shrinking as stuck. The retained attempt expires with the daemon's pending-upload TTL.
+- **`RetentionKnown && !Retryable`**: the daemon confirmed it kept nothing (for example a merkle finalize that deliberately left sub-batches unpaid). Re-prepare the same content; already-stored chunks are skipped, so the retry pays only for the remainder.
+- **`!RetentionKnown`**: retention is unknown, because a daemon before antd 0.14.0 answered over REST (it never sends `retryable`) or the SDK could not fully read the error. The daemon may still hold the paid attempt, since it records the resume handle before it returns the error. Stop automatic recovery, keep the `upload_id` and the original payment artefacts, and reconcile before re-preparing or paying again. Never pay again on this signal alone.
 
-`PartialUploadException` extends `NetworkException` because a partial upload has always arrived as a 502, so existing `catch (NetworkException)` blocks keep matching; catch the derived type first to branch on the counts. Over REST the fields come from the structured error body; over gRPC an `ABORTED` status maps to `PartialUploadException` only when its status detail starts with the daemon's fixed `Partial upload:` prefix, with the counts and `Retryable` parsed from the rest of the detail. `Retryable` is `true` only when all three counts parse and the `paid attempt retained` hint is present; if the counts do not match the daemon's layout or do not convert (an overflow, non-ASCII digits), all three read as zero and `Retryable` is `false` even with the hint, so a retry loop never runs on counts it cannot watch shrink. Any other `ABORTED`, including one that quotes `Partial upload:` further into its detail, keeps the `ForkException` mapping.
+`Retryable` implies `RetentionKnown`. `PartialUploadException` extends `NetworkException` because a partial upload has always arrived as a 502, so existing `catch (NetworkException)` blocks keep matching; catch the derived type first to branch on the counts. Over REST the counts come from the structured error body, and `RetentionKnown` is `true` only when `retryable` is a JSON boolean (missing, `null`, `"true"` or `1` read as unknown). Over gRPC an `ABORTED` status maps to `PartialUploadException` only when its status detail starts with the daemon's fixed `Partial upload:` prefix; any other `ABORTED`, including one that quotes `Partial upload:` further into its detail, keeps the `ForkException` mapping. The detail reads `Partial upload: <stored>/<total> chunks stored, <failed> failed after retries: <reason> (<hint>)`. `RetentionKnown` is `true` only when the detail starts with those counts, all three parse, and it ends with one of the daemon's two hints: `(paid attempt retained...)` sets `Retryable`, and `(stored chunks persist; re-prepare the same content...)` means the daemon confirmed it kept nothing (daemons before antd 0.14.0 write only this one). If the counts do not match the daemon's layout or do not convert (an overflow, non-ASCII digits), all three read as zero and both flags are `false`, even with a hint. Readable counts with a missing, truncated or unrecognised hint, or text after it, keep the counts, but both flags stay `false`: retention is unknown (stop and reconcile), not "nothing retained".
+
+**Behaviour change over gRPC:** a partial-upload `ABORTED` used to surface as `ForkException`; it is now `PartialUploadException`. The daemon emits `ABORTED` only for `PARTIAL_UPLOAD`, so a `catch (ForkException)` around a gRPC finalize should become `catch (PartialUploadException)`.
 
 ```csharp
 var lastFailed = 0UL;
@@ -178,17 +181,18 @@ for (var attempt = 1; ; attempt++)
     }
     catch (PartialUploadException ex) when (ex.Retryable)
     {
-        var stuck = attempt > 1 && ex.ChunksFailed >= lastFailed;
-        if (attempt >= 5 || stuck)
-            throw; // paid attempt still retained under uploadId: retry later or re-prepare
+        var stalled = attempt > 1 && ex.ChunksFailed >= lastFailed;
+        if (attempt >= 5 || stalled)
+            throw; // still retained under uploadId until the daemon's TTL: finalize again later
         lastFailed = ex.ChunksFailed;
-        await Task.Delay(TimeSpan.FromSeconds(attempt * 2));
+        await Task.Delay(TimeSpan.FromSeconds(attempt * 2), cancellationToken);
     }
-    // a non-retryable PartialUploadException propagates: re-prepare the same content
+    // RetentionKnown && !Retryable propagates: the daemon kept nothing, so re-prepare the same content.
+    // !RetentionKnown propagates: retention unknown, so keep uploadId + txHashes and reconcile before paying again.
 }
 ```
 
-See `Examples/Program.cs` (`FinalizeWithRetryAsync`) and [docs/external-signer-flow.md §6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment).
+See `Examples/FinalizeRetry.cs` (`FinalizeWithRetryAsync`, used by example 7) and [docs/external-signer-flow.md §6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment).
 
 ## Examples
 

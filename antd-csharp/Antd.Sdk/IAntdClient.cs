@@ -32,8 +32,14 @@ public interface IAntdClient : IDisposable, IAsyncDisposable
     /// 0.14.0 and later) the paid attempt is retained under the same
     /// <paramref name="uploadId"/>: call this method again with the same
     /// arguments to store it against the same payment, bounding the loop.
-    /// When <c>false</c>, re-prepare the same content; already-stored chunks
-    /// are skipped. See docs/external-signer-flow.md, section 6.
+    /// When <see cref="PartialUploadException.RetentionKnown"/> is
+    /// <c>true</c> but <c>Retryable</c> is <c>false</c>, the daemon kept
+    /// nothing: re-prepare the same content. When <c>RetentionKnown</c> is
+    /// <c>false</c> (an older daemon over REST, or an error the SDK could
+    /// not fully read), the daemon may still hold the paid attempt: stop, keep
+    /// <paramref name="uploadId"/> and <paramref name="txHashes"/>, and
+    /// reconcile before re-preparing or paying again. See
+    /// docs/external-signer-flow.md, section 6.
     /// </exception>
     Task<string> FinalizeChunkUploadAsync(string uploadId, IDictionary<string, string> txHashes);
 
@@ -71,9 +77,16 @@ public interface IAntdClient : IDisposable, IAsyncDisposable
     /// re-prepare, no second signature and no double payment. Bound that
     /// loop: cap the attempts and treat a
     /// <see cref="PartialUploadException.ChunksFailed"/> that stops
-    /// shrinking as stuck. When <c>false</c> (older daemon) nothing was
-    /// retained: re-prepare the same content, which skips already-stored
-    /// chunks so the retry pays only for the remainder. See
+    /// shrinking as stuck. When
+    /// <see cref="PartialUploadException.RetentionKnown"/> is <c>true</c> but
+    /// <c>Retryable</c> is <c>false</c>, the daemon kept nothing: re-prepare
+    /// the same content, which skips already-stored chunks so the retry pays
+    /// only for the remainder. When <c>RetentionKnown</c> is <c>false</c> (a
+    /// daemon before antd 0.14.0 over REST, or an error the SDK could not
+    /// fully read),
+    /// retention is unknown and the daemon may still hold the paid attempt:
+    /// stop, keep <paramref name="uploadId"/> and <paramref name="txHashes"/>,
+    /// and reconcile before re-preparing or paying again. See
     /// docs/external-signer-flow.md, section 6.
     /// </exception>
     Task<FinalizeUploadResult> FinalizeUploadAsync(string uploadId, Dictionary<string, string> txHashes);
@@ -87,10 +100,15 @@ public interface IAntdClient : IDisposable, IAsyncDisposable
     /// settled. When <see cref="PartialUploadException.Retryable"/> is
     /// <c>true</c> the daemon kept the paid attempt under the same
     /// <paramref name="uploadId"/>: call this method again with the same
-    /// arguments, bounding the loop. When <c>false</c> (a finalize that
-    /// deliberately left sub-batches unpaid, or an older daemon) nothing was
-    /// retained: re-prepare the same content to retry only the remainder.
-    /// See docs/external-signer-flow.md, section 6.
+    /// arguments, bounding the loop. When
+    /// <see cref="PartialUploadException.RetentionKnown"/> is <c>true</c> but
+    /// <c>Retryable</c> is <c>false</c> (a finalize that deliberately left
+    /// sub-batches unpaid), the daemon kept nothing: re-prepare the same
+    /// content to retry only the remainder. When <c>RetentionKnown</c> is
+    /// <c>false</c>, retention is unknown and the daemon may still hold the
+    /// paid attempt: stop, keep <paramref name="uploadId"/> and the payment
+    /// artefacts, and reconcile before re-preparing or paying again. See
+    /// docs/external-signer-flow.md, section 6.
     /// </exception>
     Task<FinalizeMerkleUploadResult> FinalizeMerkleUploadAsync(string uploadId, string winnerPoolHash);
 }

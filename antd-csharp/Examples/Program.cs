@@ -170,15 +170,20 @@ class Program
     /// never has to live in the antd daemon. This example uses anvil
     /// deterministic account #0 as the external signer.
     ///
-    /// Both finalize calls go through FinalizeWithRetryAsync, which resumes a
-    /// partial store against the same payment when the daemon retained the
-    /// paid attempt (PartialUploadException.Retryable, antd 0.14.0 and later).
+    /// Both finalize calls go through FinalizeRetry.FinalizeWithRetryAsync
+    /// (FinalizeRetry.cs), which resumes a partial store against the same
+    /// payment only when the daemon retained the paid attempt
+    /// (PartialUploadException.Retryable, antd 0.14.0 and later). Otherwise it
+    /// stops and rethrows the typed exception without re-preparing or paying:
+    /// re-prepare only when RetentionKnown says the daemon kept nothing, and
+    /// reconcile first when retention is unknown. The token cancels the
+    /// backoff between attempts.
     ///
     /// See docs/external-signer-flow.md for the full reference (section 6
     /// covers the partial-upload retry); the IPaymentVault contract ABI is
     /// loaded from docs/abi/IPaymentVault.json.
     /// </summary>
-    static async Task Example07_ExternalSigner()
+    static async Task Example07_ExternalSigner(CancellationToken cancellationToken = default)
     {
         Console.WriteLine("=== Example 07: External Signer ===");
         using var client = AntdClient.CreateRest();
@@ -202,8 +207,9 @@ class Program
                 $"payments={filePrep.Payments.Count}, total_amount={filePrep.TotalAmount}");
 
             var fileTxHashes = await ExternalSignerPayAsync(filePrep);
-            var fileFin = await FinalizeWithRetryAsync(
-                filePrep.UploadId, () => client.FinalizeUploadAsync(filePrep.UploadId, fileTxHashes));
+            var fileFin = await FinalizeRetry.FinalizeWithRetryAsync(
+                filePrep.UploadId, () => client.FinalizeUploadAsync(filePrep.UploadId, fileTxHashes),
+                cancellationToken: cancellationToken);
             Console.WriteLine(
                 $"File finalize: data_map_address={fileFin.DataMapAddress}, " +
                 $"chunks_stored={fileFin.ChunksStored}");
@@ -234,8 +240,9 @@ class Program
                     chunkPrep.UploadId, chunkPrep.Payments ?? [], chunkPrep.TotalAmount,
                     chunkPrep.PaymentVaultAddress, chunkPrep.PaymentTokenAddress,
                     chunkPrep.RpcUrl, chunkPrep.PaymentType));
-                var addr = await FinalizeWithRetryAsync(
-                    chunkPrep.UploadId, () => client.FinalizeChunkUploadAsync(chunkPrep.UploadId, chunkTxHashes));
+                var addr = await FinalizeRetry.FinalizeWithRetryAsync(
+                    chunkPrep.UploadId, () => client.FinalizeChunkUploadAsync(chunkPrep.UploadId, chunkTxHashes),
+                    cancellationToken: cancellationToken);
                 if (addr != chunkPrep.Address)
                     throw new Exception($"chunk address mismatch: {addr} != {chunkPrep.Address}");
                 Console.WriteLine($"Chunk finalize: address={addr}");
@@ -252,53 +259,6 @@ class Program
         }
 
         Console.WriteLine("\n07_external_signer OK!\n");
-    }
-
-    /// <summary>
-    /// Runs a finalize and, when the daemon reports a storage shortfall AFTER
-    /// the payment settled, retries the same call against the same payment.
-    /// antd 0.14.0 and later keep the paid attempt (payment proofs plus the
-    /// unstored chunks) under the same upload_id and flag the exception
-    /// Retryable, so repeating the finalize stores only the remainder: no
-    /// re-prepare, no second signature, no double payment.
-    ///
-    /// The loop is bounded: a persistent failure (a chunk whose close group
-    /// stays unreachable) throws PartialUploadException on every call, never
-    /// a different error, so it caps the attempts and treats a ChunksFailed
-    /// that stops shrinking as stuck. A non-retryable partial upload (older
-    /// daemon, or a merkle upload with unpaid batches) is rethrown untouched:
-    /// the recovery there is to re-prepare the same content, which skips the
-    /// chunks already stored.
-    /// </summary>
-    static async Task<T> FinalizeWithRetryAsync<T>(string uploadId, Func<Task<T>> finalize)
-    {
-        const int maxAttempts = 5;
-        ulong lastFailed = 0;
-        for (var attempt = 1; ; attempt++)
-        {
-            try
-            {
-                return await finalize(); // every chunk stored
-            }
-            catch (PartialUploadException ex) when (ex.Retryable)
-            {
-                var stuck = attempt > 1 && ex.ChunksFailed >= lastFailed;
-                if (attempt >= maxAttempts || stuck)
-                {
-                    throw new Exception(
-                        $"finalize stuck after {attempt} attempt(s): {ex.ChunksStored}/{ex.TotalChunks} chunks stored, " +
-                        $"{ex.ChunksFailed} still unstored (paid attempt retained under upload_id {uploadId}; " +
-                        "retry later or re-prepare)", ex);
-                }
-                lastFailed = ex.ChunksFailed;
-                Console.WriteLine(
-                    $"finalize stored {ex.ChunksStored}/{ex.TotalChunks} chunks, {ex.ChunksFailed} still unstored; " +
-                    $"retrying against the same payment (attempt {attempt + 1}/{maxAttempts})");
-                await Task.Delay(TimeSpan.FromSeconds(attempt * 2));
-            }
-            // A non-retryable PartialUploadException (or any other error)
-            // propagates untouched: nothing was retained, so re-prepare.
-        }
     }
 
     // Anvil deterministic account #0. Pre-funded with ETH (gas) and antToken

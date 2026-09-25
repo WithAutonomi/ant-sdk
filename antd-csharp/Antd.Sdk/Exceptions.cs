@@ -56,44 +56,60 @@ public class NetworkException : AntdException
 /// <c>ABORTED</c> whose status detail starts with the daemon's fixed
 /// <c>Partial upload:</c> prefix). The on-chain payment persists and the
 /// stored chunks stay on the network. How to finish the upload depends on
-/// <see cref="Retryable"/>:
+/// <see cref="Retryable"/> and <see cref="RetentionKnown"/>:
 /// <list type="bullet">
 /// <item><description>
 /// <see cref="Retryable"/> is <c>true</c>: the daemon kept the paid attempt
 /// (payment proofs plus the unstored chunks) under the same <c>upload_id</c>.
-/// Call the same finalize method again with the same arguments to store the
-/// remainder against the same payment: no re-prepare, no second signature,
-/// no double payment. Bound that loop: a persistent failure throws this
-/// exception on every call, so cap the attempts and treat a
-/// <see cref="ChunksFailed"/> that stops shrinking as stuck. The retained
-/// attempt expires with the daemon's pending-upload TTL. (antd 0.14.0 and
-/// later; older daemons never send the flag, so it reads <c>false</c> and the
-/// re-prepare path applies.)
+/// Call the same finalize method again with the same arguments (the same
+/// <c>upload_id</c> and payment artefacts) to store the remainder against the
+/// same payment: no re-prepare, no second signature, no double payment.
+/// Bound that loop: a persistent failure throws this exception on every
+/// call, so cap the attempts and treat a <see cref="ChunksFailed"/> that
+/// stops shrinking as stuck. The retained attempt expires with the daemon's
+/// pending-upload TTL.
 /// </description></item>
 /// <item><description>
-/// <see cref="Retryable"/> is <c>false</c>: nothing was retained (a merkle
-/// finalize with deliberately unpaid batches, or an older daemon).
-/// Re-preparing the same content skips already-stored chunks, so a retry
-/// pays only for the missing remainder.
+/// <see cref="RetentionKnown"/> is <c>true</c> and <see cref="Retryable"/> is
+/// <c>false</c>: the daemon confirmed it kept nothing (for example a merkle
+/// finalize that deliberately left sub-batches unpaid). Re-prepare the same
+/// content; already-stored chunks are skipped, so the retry pays only for
+/// the remainder.
+/// </description></item>
+/// <item><description>
+/// <see cref="RetentionKnown"/> is <c>false</c>: retention is unknown. The
+/// daemon may still hold the paid attempt, because it records the resume
+/// handle before it returns the error. Stop automatic recovery, keep the
+/// <c>upload_id</c> and the original payment artefacts, and reconcile before
+/// re-preparing or paying again; never pay again on this signal alone.
+/// Daemons before antd 0.14.0 never send <c>retryable</c>, so their REST
+/// partial uploads read as unknown.
 /// </description></item>
 /// </list>
 /// Extends <see cref="NetworkException"/> because a partial upload has
 /// always arrived as a 502, so existing <c>catch (NetworkException)</c>
 /// blocks keep matching; catch this type first to branch on the counts.
-/// Over REST the counts and flag come from the structured error body; a
-/// field that is missing or not of the expected JSON kind reads as zero or
-/// <c>false</c>. Over gRPC they are parsed best-effort from the status
-/// detail (<c>Partial upload: S/T chunks stored, F failed ...</c>, with a
-/// <c>paid attempt retained</c> hint when retryable). <see cref="Retryable"/>
-/// is <c>true</c> only when all three counts parse and the hint is present:
-/// a prefixed detail whose counts do not match or do not convert (an
-/// overflow, non-ASCII digits) leaves all three counts zero and
-/// <see cref="Retryable"/> <c>false</c>, even with the hint, because a retry
-/// loop that cannot watch <see cref="ChunksFailed"/> shrink cannot tell
-/// progress from a stuck upload.
-/// An <c>ABORTED</c> whose detail does not start with the prefix (including
-/// one that quotes it further in) is a <see cref="ForkException"/>, as
-/// before.
+/// Over REST the counts come from the structured error body (a count that
+/// is missing or not a JSON number reads as zero), and
+/// <see cref="RetentionKnown"/> is <c>true</c> only when <c>retryable</c> is
+/// a JSON boolean. Over gRPC they are parsed from the status detail
+/// (<c>Partial upload: S/T chunks stored, F failed after retries: &lt;reason&gt; (&lt;hint&gt;)</c>,
+/// where the closing hint starts <c>paid attempt retained</c> when the daemon
+/// kept the attempt and <c>stored chunks persist; re-prepare the same
+/// content</c> when it did not; daemons before antd 0.14.0 write only the
+/// second): <see cref="RetentionKnown"/> is <c>true</c> only when the detail
+/// starts with the counts, all three convert, and the detail ends with one
+/// of those two hints; the hint then decides <see cref="Retryable"/>. A
+/// detail whose counts do not match or do not convert (an overflow,
+/// non-ASCII digits) leaves all three counts zero and both flags
+/// <c>false</c>, even with a hint. Readable counts with a missing, truncated
+/// or unrecognised closing hint, or text after it, keep the counts, but both
+/// flags stay <c>false</c>: retention unknown, not "nothing retained".
+/// Over gRPC a partial-upload <c>ABORTED</c> used to map to
+/// <see cref="ForkException"/> and now maps to this exception (the daemon
+/// emits <c>ABORTED</c> only for PARTIAL_UPLOAD); an <c>ABORTED</c> whose
+/// detail does not start with the prefix (including one that quotes it
+/// further in) is still a <see cref="ForkException"/>.
 /// See docs/external-signer-flow.md, section 6.
 /// </summary>
 public class PartialUploadException : NetworkException
@@ -110,13 +126,38 @@ public class PartialUploadException : NetworkException
     /// <summary>
     /// <c>true</c> when the daemon retained the paid attempt under the same
     /// <c>upload_id</c>, so the same finalize call can be repeated to store
-    /// the remainder against the same payment. Defaults to <c>false</c> when
-    /// the daemon did not send the flag (antd before 0.14.0). Over gRPC it is
-    /// also <c>false</c> whenever the counts in the status detail could not
-    /// be parsed.
+    /// the remainder against the same payment. Implies
+    /// <see cref="RetentionKnown"/>. <c>false</c> alone does not mean nothing
+    /// was retained: check <see cref="RetentionKnown"/> before re-preparing.
     /// </summary>
     public bool Retryable { get; }
 
+    /// <summary>
+    /// <c>true</c> when the error said whether the daemon retained the paid
+    /// attempt, so <see cref="Retryable"/> is the daemon's answer rather than
+    /// a fallback. REST: the 502 body carried <c>retryable</c> as a JSON
+    /// boolean. gRPC: the status detail started with the
+    /// <c>Partial upload:</c> counts, all three parsed, and the detail ended
+    /// with one of the daemon's two retention hints,
+    /// <c>(paid attempt retained...)</c> or
+    /// <c>(stored chunks persist; re-prepare the same content...)</c>; that
+    /// hint then decides <see cref="Retryable"/>. <c>false</c> means
+    /// retention is unknown (a daemon before antd 0.14.0 answering over REST,
+    /// or an error the SDK could not fully read, such as a gRPC detail whose
+    /// closing hint is missing or cut short):
+    /// the daemon may still hold the paid attempt, so keep the
+    /// <c>upload_id</c> and payment artefacts and reconcile before
+    /// re-preparing or paying again.
+    /// </summary>
+    public bool RetentionKnown { get; }
+
+    /// <summary>
+    /// Creates a partial-upload exception whose retention is known only when
+    /// <paramref name="retryable"/> is <c>true</c>; a <c>false</c>
+    /// <paramref name="retryable"/> reads as unknown retention, the
+    /// conservative reading. Kept for source compatibility: the overload
+    /// taking <c>retentionKnown</c> states it explicitly.
+    /// </summary>
     public PartialUploadException(
         string message,
         ulong chunksStored,
@@ -124,12 +165,31 @@ public class PartialUploadException : NetworkException
         ulong totalChunks,
         bool retryable,
         int statusCode = 502)
+        : this(message, chunksStored, chunksFailed, totalChunks, retryable, retentionKnown: retryable, statusCode)
+    {
+    }
+
+    /// <summary>
+    /// Creates a partial-upload exception. <paramref name="retryable"/>
+    /// implies <paramref name="retentionKnown"/>: a <c>true</c>
+    /// <paramref name="retryable"/> sets <see cref="RetentionKnown"/>
+    /// whatever <paramref name="retentionKnown"/> says.
+    /// </summary>
+    public PartialUploadException(
+        string message,
+        ulong chunksStored,
+        ulong chunksFailed,
+        ulong totalChunks,
+        bool retryable,
+        bool retentionKnown,
+        int statusCode = 502)
         : base(message, statusCode)
     {
         ChunksStored = chunksStored;
         ChunksFailed = chunksFailed;
         TotalChunks = totalChunks;
         Retryable = retryable;
+        RetentionKnown = retentionKnown || retryable;
     }
 }
 
@@ -157,10 +217,18 @@ internal static partial class ExceptionMapping
     private const string PartialUploadCode = "PARTIAL_UPLOAD";
 
     /// <summary>
-    /// Message tail the daemon appends when it kept the paid attempt for a
-    /// same-<c>upload_id</c> retry.
+    /// Opening words of the hint that closes a PARTIAL_UPLOAD message when
+    /// the daemon kept the paid attempt for a same-<c>upload_id</c> retry
+    /// (<c>partial_upload_hint</c> in antd/src/error.rs).
     /// </summary>
     private const string PartialUploadRetainedHint = "paid attempt retained";
+
+    /// <summary>
+    /// Opening words of the hint that closes a PARTIAL_UPLOAD message when
+    /// the daemon did not keep the paid attempt. Daemons before antd 0.14.0
+    /// close every PARTIAL_UPLOAD message with this hint, in this wording.
+    /// </summary>
+    private const string PartialUploadNotRetainedHint = "stored chunks persist; re-prepare the same content";
 
     /// <summary>
     /// Fixed text every PARTIAL_UPLOAD message from the daemon opens with.
@@ -178,6 +246,18 @@ internal static partial class ExceptionMapping
     /// </summary>
     [GeneratedRegex(@"\APartial upload: ([0-9]+)/([0-9]+) chunks stored, ([0-9]+) failed")]
     private static partial Regex PartialUploadCounts();
+
+    /// <summary>
+    /// The retention hint that closes the message: <c>(&lt;hint&gt;...)</c>
+    /// at the very end, where the hint opens with one of the two phrases
+    /// above and the rest holds no parenthesis. Anchored with <c>\z</c>, not
+    /// <c>$</c>, which would also match before a trailing newline. A hint
+    /// quoted inside the failure reason, a truncated or unclosed tail, or
+    /// text after the hint does not match. Neither phrase holds a regex
+    /// metacharacter, so both are spliced in unescaped.
+    /// </summary>
+    [GeneratedRegex(@"\((" + PartialUploadRetainedHint + "|" + PartialUploadNotRetainedHint + @")[^()]*\)\z")]
+    private static partial Regex PartialUploadRetentionTail();
 
     public static AntdException FromHttpStatus(HttpStatusCode status, string body)
     {
@@ -205,8 +285,10 @@ internal static partial class ExceptionMapping
     /// <summary>
     /// Recognises the daemon's structured PARTIAL_UPLOAD body
     /// (<c>error</c>, <c>code</c>, <c>chunks_stored</c>, <c>chunks_failed</c>,
-    /// <c>total_chunks</c>, <c>retryable</c>). <c>retryable</c> is absent on
-    /// daemons before 0.14.0 and then reads <c>false</c>. A body that is not
+    /// <c>total_chunks</c>, <c>retryable</c>). Retention is known only when
+    /// <c>retryable</c> is a JSON boolean; absent (daemons before 0.14.0),
+    /// <c>null</c> or any other kind reads as unknown and not retryable. A
+    /// body that is not
     /// a readable JSON object, or whose <c>code</c> is not the string
     /// <c>"PARTIAL_UPLOAD"</c>, is left to the status-based mapping. A count
     /// or flag of the wrong JSON kind reads as zero / <c>false</c>, and an
@@ -228,13 +310,15 @@ internal static partial class ExceptionMapping
                 return false;
 
             var message = ReadString(root, "error") ?? body!;
-            var retryable = root.TryGetProperty("retryable", out var r) && r.ValueKind == JsonValueKind.True;
+            var retentionKnown = root.TryGetProperty("retryable", out var r)
+                && r.ValueKind is JsonValueKind.True or JsonValueKind.False;
             partial = new PartialUploadException(
                 message,
                 ReadCount(root, "chunks_stored"),
                 ReadCount(root, "chunks_failed"),
                 ReadCount(root, "total_chunks"),
-                retryable,
+                retryable: retentionKnown && r.ValueKind == JsonValueKind.True,
+                retentionKnown,
                 statusCode);
             return true;
         }
@@ -276,18 +360,26 @@ internal static partial class ExceptionMapping
             : 0UL;
 
     /// <summary>
-    /// Recovers the chunk counts and the retryable hint from a PARTIAL_UPLOAD
-    /// message. Used for gRPC, where the status carries no structured detail;
-    /// REST callers get the body fields instead. <c>Retryable</c> is
-    /// <c>true</c> only when the message matches the count layout, all three
-    /// counts convert to <see cref="ulong"/>, and the retained hint is
-    /// present. On a layout miss or any failed conversion (an overflow) all
-    /// three counts are zero and <c>Retryable</c> is <c>false</c> whatever
-    /// the hint says: a retry loop that cannot watch the failed count shrink
-    /// cannot tell progress from a stuck upload. Whether the message is a
-    /// partial upload at all is decided by <see cref="IsPartialUploadMessage"/>.
+    /// Recovers the chunk counts, the retention verdict and the retryable
+    /// hint from a PARTIAL_UPLOAD message. Used for gRPC, where the status
+    /// carries no structured detail; REST callers get the body fields
+    /// instead. <c>RetentionKnown</c> is <c>true</c> only when the message
+    /// opens with the count layout, all three counts convert to
+    /// <see cref="ulong"/>, and the message ends with one of the daemon's
+    /// two retention hints; <c>Retryable</c> is then <c>true</c> only for
+    /// the retained hint. On a layout miss or any failed conversion (an
+    /// overflow) all three counts are zero and both flags are <c>false</c>
+    /// whatever the hint says: a retry loop that cannot watch the failed
+    /// count shrink cannot tell progress from a stuck upload, and an
+    /// unreadable message says nothing reliable about what the daemon kept.
+    /// Readable counts with a missing, truncated or unrecognised closing
+    /// hint, or text after it, keep the counts but leave both flags
+    /// <c>false</c>: the daemon's answer on retention was not read, so
+    /// retention is unknown, never "nothing retained". Whether the message
+    /// is a partial upload at all is decided by
+    /// <see cref="IsPartialUploadMessage"/>.
     /// </summary>
-    internal static (ulong Stored, ulong Failed, ulong Total, bool Retryable) ParsePartialUploadMessage(string? message)
+    internal static (ulong Stored, ulong Failed, ulong Total, bool Retryable, bool RetentionKnown) ParsePartialUploadMessage(string? message)
     {
         var msg = message ?? "";
         var m = PartialUploadCounts().Match(msg);
@@ -296,10 +388,12 @@ internal static partial class ExceptionMapping
             || !TryParseCount(m.Groups[2].Value, out var total)
             || !TryParseCount(m.Groups[3].Value, out var failed))
         {
-            return (0, 0, 0, false);
+            return (0, 0, 0, false, false);
         }
-        var retryable = msg.Contains(PartialUploadRetainedHint, StringComparison.Ordinal);
-        return (stored, failed, total, retryable);
+        var tail = PartialUploadRetentionTail().Match(msg);
+        if (!tail.Success)
+            return (stored, failed, total, false, false);
+        return (stored, failed, total, tail.Groups[1].Value == PartialUploadRetainedHint, true);
     }
 
     /// <summary>
@@ -322,9 +416,13 @@ internal static partial class ExceptionMapping
             // ABORTED carries the daemon's PARTIAL_UPLOAD (some chunks stored,
             // some still unstored after retries) when the status detail
             // starts with the fixed "Partial upload:" prefix. The counts and
-            // the "paid attempt retained" hint ride the detail text over gRPC
-            // (no structured detail yet), so parse them best-effort to match
-            // the REST client's typed exception. Any other ABORTED, including
+            // the closing retention hint ride the detail text over gRPC (no
+            // structured detail yet), so parse them best-effort to match the
+            // REST client's typed exception: RetentionKnown needs the counts
+            // and one of the daemon's two hints at the very end of the
+            // detail, and only "paid attempt retained" sets Retryable. Such
+            // an ABORTED used to map to ForkException; the daemon emits
+            // ABORTED only for PARTIAL_UPLOAD. Any other ABORTED, including
             // one that quotes the prefix further into its detail, keeps the
             // pre-existing version-conflict mapping.
             Grpc.Core.StatusCode.Aborted => AbortedFromGrpc(detail),
@@ -341,8 +439,8 @@ internal static partial class ExceptionMapping
     {
         if (!IsPartialUploadMessage(detail))
             return new ForkException(detail);
-        var (stored, failed, total, retryable) = ParsePartialUploadMessage(detail);
-        return new PartialUploadException(detail, stored, failed, total, retryable);
+        var (stored, failed, total, retryable, retentionKnown) = ParsePartialUploadMessage(detail);
+        return new PartialUploadException(detail, stored, failed, total, retryable, retentionKnown);
     }
 
     /// <summary>

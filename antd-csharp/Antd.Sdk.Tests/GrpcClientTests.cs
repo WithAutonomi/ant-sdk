@@ -164,9 +164,10 @@ public sealed class GrpcClientTests
             DateTime? deadline = null, CancellationToken cancellationToken = default)
         {
             // PARTIAL_UPLOAD: the daemon reports a post-payment storage
-            // shortfall as ABORTED with counts and the retained hint in the
-            // message text. "partial" carries the hint; "partial-final" does
-            // not (a merkle finalize with unpaid batches, or an older daemon).
+            // shortfall as ABORTED with the counts and a closing retention
+            // hint in the message text. "partial" carries the retained hint;
+            // "partial-final" the not-retained one (a merkle finalize with
+            // unpaid batches, or an older daemon).
             if (request.UploadId == "partial")
             {
                 return Fail<FinalizeUploadResponse>(new Status(StatusCode.Aborted,
@@ -178,6 +179,18 @@ public sealed class GrpcClientTests
                 return Fail<FinalizeUploadResponse>(new Status(StatusCode.Aborted,
                     "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " +
                     "(stored chunks persist; re-prepare the same content to retry only the remainder)"));
+            }
+            // Readable counts whose retention hint is missing or cut short:
+            // retention must read as unknown.
+            if (request.UploadId == "partial-no-hint")
+            {
+                return Fail<FinalizeUploadResponse>(new Status(StatusCode.Aborted,
+                    "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum"));
+            }
+            if (request.UploadId == "partial-truncated-hint")
+            {
+                return Fail<FinalizeUploadResponse>(new Status(StatusCode.Aborted,
+                    "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (paid attempt retai"));
             }
             // An ABORTED without the daemon's "Partial upload:" prefix is not
             // a partial upload and must keep the ForkException mapping.
@@ -496,21 +509,44 @@ public sealed class GrpcClientTests
         Assert.Equal(12UL, ex.ChunksFailed);
         Assert.Equal(312UL, ex.TotalChunks);
         Assert.True(ex.Retryable);
+        Assert.True(ex.RetentionKnown);
         Assert.Equal(502, ex.StatusCode);
         Assert.IsAssignableFrom<NetworkException>(ex);
     }
 
     [Fact]
-    public async Task FinalizeMerkleUpload_Aborted_WithoutRetainedHintIsNotRetryable()
+    public async Task FinalizeMerkleUpload_Aborted_WithNotRetainedHintIsKnownAndNotRetryable()
     {
         var client = MakeClient();
         var ex = await Assert.ThrowsAsync<PartialUploadException>(
             () => client.FinalizeMerkleUploadAsync("partial-final", "0xwinpool"));
 
+        // The not-retained hint: the daemon said it kept nothing, so
+        // retention is known and the recovery is a re-prepare.
         Assert.False(ex.Retryable);
+        Assert.True(ex.RetentionKnown);
         Assert.Equal(300UL, ex.ChunksStored);
         Assert.Equal(12UL, ex.ChunksFailed);
         Assert.Equal(312UL, ex.TotalChunks);
+    }
+
+    [Theory]
+    [InlineData("partial-no-hint")]
+    [InlineData("partial-truncated-hint")]
+    public async Task FinalizeUpload_Aborted_WithoutAReadableRetentionHint_KeepsCountsButRetentionUnknown(string uploadId)
+    {
+        var client = MakeClient();
+        var ex = await Assert.ThrowsAsync<PartialUploadException>(
+            () => client.FinalizeUploadAsync(uploadId, new() { ["0xq1"] = "0xtx1" }));
+
+        // Readable counts without a readable retention hint: the daemon's
+        // answer was not read, so retention is unknown (stop and reconcile),
+        // never "nothing retained" (re-prepare).
+        Assert.Equal(1UL, ex.ChunksStored);
+        Assert.Equal(2UL, ex.ChunksFailed);
+        Assert.Equal(3UL, ex.TotalChunks);
+        Assert.False(ex.Retryable);
+        Assert.False(ex.RetentionKnown);
     }
 
     [Fact]
