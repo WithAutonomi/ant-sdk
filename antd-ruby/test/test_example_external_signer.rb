@@ -60,6 +60,8 @@ class TestExampleFinalizeWithRetry < Minitest::Test
     assert_equal 2, client.calls.length
     assert_includes err.message, "stuck after 2 attempt(s)"
     assert_includes err.message, "upload_id u1"
+    # The daemon still holds the paid attempt: re-preparing would pay again.
+    assert_includes err.message, "retry the same finalize later (don't re-prepare, which would pay again)"
     assert err.retryable
     assert err.retention_known
     assert_equal [300, 12, 312], [err.chunks_stored, err.chunks_failed, err.total_chunks]

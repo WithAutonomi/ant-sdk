@@ -168,7 +168,8 @@ def finalize_with_retry(client, upload_id, tx_hashes, max_attempts: 5,
       raise Antd::PartialUploadError.new(
         "finalize stuck after #{attempt} attempt(s): #{e.chunks_stored}/#{e.total_chunks} " \
         "chunks stored, #{e.chunks_failed} still unstored (paid attempt retained under " \
-        "upload_id #{upload_id} — retry later or re-prepare): #{e.message}",
+        "upload_id #{upload_id} — retry the same finalize later (don't re-prepare, which would pay again)): " \
+        "#{e.message}",
         chunks_stored: e.chunks_stored, chunks_failed: e.chunks_failed,
         total_chunks: e.total_chunks, retryable: e.retryable,
         retention_known: e.retention_known
