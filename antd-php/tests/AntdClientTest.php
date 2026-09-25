@@ -12,6 +12,8 @@ use Autonomi\Antd\Errors\InternalError;
 use Autonomi\Antd\Errors\NetworkError;
 use Autonomi\Antd\Errors\TooLargeError;
 use Autonomi\Antd\Errors\AlreadyExistsError;
+use Autonomi\Antd\Errors\ErrorFactory;
+use Autonomi\Antd\Errors\PartialUploadError;
 use Autonomi\Antd\Models\PaymentMode;
 use GuzzleHttp\Client;
 use GuzzleHttp\Handler\MockHandler;
@@ -496,6 +498,131 @@ class AntdClientTest extends TestCase
             $this->assertSame(404, $e->statusCode);
             $this->assertStringContainsString('not found', $e->getMessage());
         }
+    }
+
+    // --- Partial upload (PARTIAL_UPLOAD on a 502) ---
+
+    public function testPartialUploadErrorCarriesCounts(): void
+    {
+        $mock = new MockHandler([
+            $this->jsonResponse(502, [
+                'error' => 'Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)',
+                'code' => 'PARTIAL_UPLOAD',
+                'chunks_stored' => 300,
+                'chunks_failed' => 12,
+                'total_chunks' => 312,
+                'retryable' => true,
+            ]),
+        ]);
+        $client = $this->createClient($mock);
+        try {
+            $client->finalizeUpload('up1', ['qh1' => 'tx1']);
+            $this->fail('Expected PartialUploadError');
+        } catch (PartialUploadError $e) {
+            $this->assertSame(300, $e->chunksStored);
+            $this->assertSame(12, $e->chunksFailed);
+            $this->assertSame(312, $e->totalChunks);
+            $this->assertTrue($e->retryable, 'retryable must come from the body flag');
+            $this->assertSame(502, $e->statusCode);
+            $this->assertStringContainsString('Partial upload: 300/312 chunks stored', $e->getMessage());
+        }
+    }
+
+    public function testPartialUploadErrorRetryableDefaultsFalse(): void
+    {
+        // An older daemon (< 0.14.0) never sends `retryable`; the flag must read
+        // false so callers fall back to the re-prepare path rather than looping
+        // on an upload_id the daemon has already dropped.
+        $mock = new MockHandler([
+            $this->jsonResponse(502, [
+                'error' => 'Partial upload: 300/312 chunks stored, 12 failed after retries',
+                'code' => 'PARTIAL_UPLOAD',
+                'chunks_stored' => 300,
+                'chunks_failed' => 12,
+                'total_chunks' => 312,
+            ]),
+        ]);
+        $client = $this->createClient($mock);
+        try {
+            $client->finalizeUpload('up1', ['qh1' => 'tx1']);
+            $this->fail('Expected PartialUploadError');
+        } catch (PartialUploadError $e) {
+            $this->assertFalse($e->retryable);
+            $this->assertSame(300, $e->chunksStored);
+            $this->assertSame(12, $e->chunksFailed);
+            $this->assertSame(312, $e->totalChunks);
+        }
+    }
+
+    public function testPartialUploadErrorIsCatchableAsNetworkError(): void
+    {
+        // PartialUploadError extends NetworkError (the 502 mapping), so code
+        // written before the typed error keeps catching it.
+        $mock = new MockHandler([
+            $this->jsonResponse(502, [
+                'error' => 'Partial upload: 1/2 chunks stored, 1 failed after retries',
+                'code' => 'PARTIAL_UPLOAD',
+                'chunks_stored' => 1,
+                'chunks_failed' => 1,
+                'total_chunks' => 2,
+                'retryable' => true,
+            ]),
+        ]);
+        $client = $this->createClient($mock);
+        $this->expectException(NetworkError::class);
+        $client->finalizeChunkUpload('chunk-1', ['qh1' => 'tx1']);
+    }
+
+    public function testPartialUploadErrorOnAsyncFinalize(): void
+    {
+        $mock = new MockHandler([
+            $this->jsonResponse(502, [
+                'error' => 'Partial upload: 5/8 chunks stored, 3 failed after retries',
+                'code' => 'PARTIAL_UPLOAD',
+                'chunks_stored' => 5,
+                'chunks_failed' => 3,
+                'total_chunks' => 8,
+                'retryable' => true,
+            ]),
+        ]);
+        $client = $this->createClient($mock);
+        try {
+            $client->finalizeUploadAsync('up1', ['qh1' => 'tx1'])->wait();
+            $this->fail('Expected PartialUploadError');
+        } catch (PartialUploadError $e) {
+            $this->assertSame(5, $e->chunksStored);
+            $this->assertSame(3, $e->chunksFailed);
+            $this->assertSame(8, $e->totalChunks);
+            $this->assertTrue($e->retryable);
+        }
+    }
+
+    public function testPlain502StillMapsToNetworkError(): void
+    {
+        $mock = new MockHandler([
+            $this->jsonResponse(502, ['error' => 'upstream unreachable', 'code' => 'NETWORK_ERROR']),
+        ]);
+        $client = $this->createClient($mock);
+        try {
+            $client->finalizeUpload('up1', []);
+            $this->fail('Expected NetworkError');
+        } catch (NetworkError $e) {
+            $this->assertNotInstanceOf(PartialUploadError::class, $e);
+        }
+    }
+
+    public function testErrorFactoryFromResponseKeepsStatusMappingForOtherCodes(): void
+    {
+        $this->assertInstanceOf(NotFoundError::class, ErrorFactory::fromResponse(404, 'gone', ['error' => 'gone', 'code' => 'NOT_FOUND']));
+        $this->assertInstanceOf(NetworkError::class, ErrorFactory::fromResponse(502, 'down', null));
+        $this->assertNotInstanceOf(PartialUploadError::class, ErrorFactory::fromResponse(502, 'down', null));
+
+        $e = ErrorFactory::fromResponse(502, 'partial', ['code' => 'PARTIAL_UPLOAD', 'retryable' => 'yes']);
+        $this->assertInstanceOf(PartialUploadError::class, $e);
+        $this->assertFalse($e->retryable, 'only a JSON true counts as retryable');
+        $this->assertSame(0, $e->chunksStored);
+        $this->assertSame(0, $e->chunksFailed);
+        $this->assertSame(0, $e->totalChunks);
     }
 
     // --- External Signer (Two-Phase Upload) ---

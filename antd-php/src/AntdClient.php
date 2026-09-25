@@ -9,6 +9,7 @@ use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Promise\PromiseInterface;
 use Autonomi\Antd\Errors\AntdError;
 use Autonomi\Antd\Errors\ErrorFactory;
+use Autonomi\Antd\Errors\PartialUploadError;
 use Autonomi\Antd\Models\DataPutPublicResult;
 use Autonomi\Antd\Models\DataPutResult;
 use Autonomi\Antd\Models\FilePutPublicResult;
@@ -83,6 +84,30 @@ class AntdClient
     }
 
     /**
+     * Map a non-2xx daemon response onto a typed {@see AntdError}.
+     *
+     * The body is parsed for the daemon's `{"error": "...", "code": "..."}`
+     * envelope; the message falls back to the raw body when it is not JSON.
+     * The decoded body is handed to {@see ErrorFactory::fromResponse()} so
+     * codes that carry structured detail (`PARTIAL_UPLOAD`: chunk counts and
+     * the `retryable` flag) survive the mapping.
+     */
+    private static function errorFromResponse(\Psr\Http\Message\ResponseInterface $response): AntdError
+    {
+        $responseBody = (string) $response->getBody();
+        $message = $responseBody;
+        $parsed = json_decode($responseBody, true);
+        if (is_array($parsed) && isset($parsed['error'])) {
+            $message = $parsed['error'];
+        }
+        return ErrorFactory::fromResponse(
+            $response->getStatusCode(),
+            $message,
+            is_array($parsed) ? $parsed : null,
+        );
+    }
+
+    /**
      * @return array<string, mixed>|null
      * @throws AntdError
      */
@@ -96,15 +121,7 @@ class AntdClient
         try {
             $response = $this->http->request($method, $this->baseUrl . $path, $options);
         } catch (\GuzzleHttp\Exception\ClientException|\GuzzleHttp\Exception\ServerException $e) {
-            $response = $e->getResponse();
-            $statusCode = $response->getStatusCode();
-            $responseBody = (string) $response->getBody();
-            $message = $responseBody;
-            $parsed = json_decode($responseBody, true);
-            if (is_array($parsed) && isset($parsed['error'])) {
-                $message = $parsed['error'];
-            }
-            throw ErrorFactory::fromHttpStatus($statusCode, $message);
+            throw self::errorFromResponse($e->getResponse());
         }
 
         $responseBody = (string) $response->getBody();
@@ -139,15 +156,7 @@ class AntdClient
         try {
             $response = $this->http->request($method, $this->baseUrl . $path, $options);
         } catch (\GuzzleHttp\Exception\ClientException|\GuzzleHttp\Exception\ServerException $e) {
-            $response = $e->getResponse();
-            $statusCode = $response->getStatusCode();
-            $responseBody = (string) $response->getBody();
-            $message = $responseBody;
-            $parsed = json_decode($responseBody, true);
-            if (is_array($parsed) && isset($parsed['error'])) {
-                $message = $parsed['error'];
-            }
-            throw ErrorFactory::fromHttpStatus($statusCode, $message);
+            throw self::errorFromResponse($e->getResponse());
         }
 
         return $response->getBody();
@@ -190,15 +199,7 @@ class AntdClient
                 if ($e instanceof \GuzzleHttp\Exception\ClientException
                     || $e instanceof \GuzzleHttp\Exception\ServerException
                 ) {
-                    $response = $e->getResponse();
-                    $statusCode = $response->getStatusCode();
-                    $responseBody = (string) $response->getBody();
-                    $message = $responseBody;
-                    $parsed = json_decode($responseBody, true);
-                    if (is_array($parsed) && isset($parsed['error'])) {
-                        $message = $parsed['error'];
-                    }
-                    throw ErrorFactory::fromHttpStatus($statusCode, $message);
+                    throw self::errorFromResponse($e->getResponse());
                 }
                 throw $e;
             },
@@ -909,8 +910,27 @@ class AntdClient
     /**
      * Finalize an upload after an external signer has submitted payment transactions.
      *
+     * When some chunks stay unstored after the daemon's own retries this
+     * throws {@see PartialUploadError} (HTTP 502, `code: "PARTIAL_UPLOAD"`)
+     * with `chunksStored` / `chunksFailed` / `totalChunks` and a `retryable`
+     * flag. The payment persists and the stored chunks stay on the network:
+     *
+     *  - `retryable === true` (antd >= 0.14.0): the daemon kept the paid
+     *    attempt under the same `upload_id`. Call this method again with the
+     *    same arguments to store the remainder against the same payment; no
+     *    re-prepare, no second signature, no double payment. Bound that loop
+     *    (cap the attempts; a `chunksFailed` that stops shrinking is stuck).
+     *  - `retryable === false` (older daemon, or a merkle finalize with
+     *    unpaid batches): nothing was retained. Re-prepare the same content;
+     *    already-stored chunks are skipped, so the retry pays only for the
+     *    remainder.
+     *
+     * See docs/external-signer-flow.md, "6. Retry a partial store", and
+     * `finalizeWithRetry()` in examples/07-external-signer.php.
+     *
      * @param string $uploadId The upload ID from prepareUpload.
      * @param array<string, string> $txHashes Map of quote_hash to tx_hash.
+     * @throws PartialUploadError when only part of the upload was stored.
      */
     public function finalizeUpload(string $uploadId, array $txHashes): FinalizeUploadResult
     {
@@ -923,6 +943,9 @@ class AntdClient
 
     /**
      * Async: Finalize an upload after an external signer has submitted payment transactions.
+     *
+     * Rejects with {@see PartialUploadError} on a partial store; see
+     * {@see finalizeUpload()} for the retry contract.
      *
      * @param string $uploadId The upload ID from prepareUpload.
      * @param array<string, string> $txHashes Map of quote_hash to tx_hash.
@@ -969,8 +992,15 @@ class AntdClient
      * Submit a prepared chunk to the network after external payment via
      * POST /v1/chunks/finalize.
      *
+     * A store that misses quorum after the daemon's retries throws
+     * {@see PartialUploadError}; when `retryable` is `true` (antd >= 0.14.0)
+     * the paid attempt was retained and calling this method again with the
+     * same arguments retries against the same payment. See
+     * {@see finalizeUpload()} for the full contract.
+     *
      * @param string $uploadId The upload ID from prepareChunkUpload().
      * @param array<string, string> $txHashes Map of quote_hash to tx_hash.
+     * @throws PartialUploadError when the chunk was paid for but not stored.
      */
     public function finalizeChunkUpload(string $uploadId, array $txHashes): string
     {
@@ -983,6 +1013,9 @@ class AntdClient
 
     /**
      * Async: Submit a prepared chunk to the network after external payment.
+     *
+     * Rejects with {@see PartialUploadError} on a partial store; see
+     * {@see finalizeUpload()} for the retry contract.
      *
      * @param string $uploadId The upload ID from prepareChunkUpload().
      * @param array<string, string> $txHashes Map of quote_hash to tx_hash.
