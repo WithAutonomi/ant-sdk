@@ -83,7 +83,7 @@ function Client:_do_json(method, path, body)
         if ok and type(parsed) == "table" and parsed.error then
             msg = parsed.error
         end
-        return nil, status, errors.error_for_status(status, msg)
+        return nil, status, errors.error_for_response(status, msg, ok and parsed or nil)
     end
 
     if resp_body == "" or resp_body == nil then
@@ -195,7 +195,7 @@ function Client:_do_stream(method, path, body, sink_cb)
         if ok and type(parsed) == "table" and parsed.error then
             msg = parsed.error
         end
-        return nil, errors.error_for_status(status, msg)
+        return nil, errors.error_for_response(status, msg, ok and parsed or nil)
     end
 
     -- 2xx: flush any still-buffered head chunk (single-chunk responses never

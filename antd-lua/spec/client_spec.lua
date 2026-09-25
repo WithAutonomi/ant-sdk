@@ -714,4 +714,105 @@ describe("antd client", function()
             assert.are.equal("tx2", body.tx_hashes.qh2)
         end)
     end)
+
+    -- ── Partial upload (antd >= 0.14.0 sends `retryable`) ──
+
+    describe("partial upload", function()
+        it("maps a 502 PARTIAL_UPLOAD body onto a partial_upload error with counts", function()
+            register_route("POST", "/v1/upload/finalize", 502,
+                cjson.encode({
+                    error = "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
+                        .. "(paid attempt retained: call finalize again with the same upload_id "
+                        .. "to store the remainder against the same payment)",
+                    code = "PARTIAL_UPLOAD",
+                    chunks_stored = 300,
+                    chunks_failed = 12,
+                    total_chunks = 312,
+                    retryable = true,
+                }))
+
+            local result, err = client:finalize_merkle_upload("mb1", "pool_abc", false)
+            assert.is_nil(result)
+            assert.is_not_nil(err)
+            assert.is_true(errors.is_antd_error(err))
+            assert.is_true(errors.is_partial_upload(err))
+            assert.are.equal("partial_upload", err.type)
+            assert.are.equal(502, err.status_code)
+            assert.are.equal(300, err.chunks_stored)
+            assert.are.equal(12, err.chunks_failed)
+            assert.are.equal(312, err.total_chunks)
+            assert.is_true(err.retryable)
+            assert.is_truthy(err.message:find("Partial upload: 300/312", 1, true))
+        end)
+
+        it("defaults retryable to false when an older daemon omits the flag", function()
+            -- An older daemon (< 0.14.0) never sends `retryable`; the flag must
+            -- read false so callers fall back to the re-prepare path rather
+            -- than looping on an upload_id the daemon has already dropped.
+            register_route("POST", "/v1/upload/finalize", 502,
+                cjson.encode({
+                    error = "Partial upload: 300/312 chunks stored, 12 failed after retries",
+                    code = "PARTIAL_UPLOAD",
+                    chunks_stored = 300,
+                    chunks_failed = 12,
+                    total_chunks = 312,
+                }))
+
+            local _, err = client:finalize_upload("u1", { ["0xq"] = "0xt" })
+            assert.is_true(errors.is_partial_upload(err))
+            assert.is_false(err.retryable)
+            assert.are.equal(300, err.chunks_stored)
+            assert.are.equal(12, err.chunks_failed)
+            assert.are.equal(312, err.total_chunks)
+        end)
+
+        it("defaults the counts to 0 when the body omits them", function()
+            register_route("POST", "/v1/upload/finalize", 502,
+                cjson.encode({ error = "Partial upload", code = "PARTIAL_UPLOAD" }))
+
+            local _, err = client:finalize_upload("u1", { ["0xq"] = "0xt" })
+            assert.is_true(errors.is_partial_upload(err))
+            assert.are.equal(0, err.chunks_stored)
+            assert.are.equal(0, err.chunks_failed)
+            assert.are.equal(0, err.total_chunks)
+            assert.is_false(err.retryable)
+        end)
+
+        it("keeps a plain 502 mapped to network", function()
+            register_route("POST", "/v1/upload/finalize", 502,
+                cjson.encode({ error = "upstream unreachable", code = "NETWORK_ERROR" }))
+
+            local _, err = client:finalize_upload("up1", {})
+            assert.are.equal("network", err.type)
+            assert.are.equal(502, err.status_code)
+            assert.is_false(errors.is_partial_upload(err))
+            assert.is_nil(err.retryable)
+        end)
+
+        it("keeps a non-JSON 502 mapped to network", function()
+            register_route("POST", "/v1/upload/finalize", 502, "bad gateway")
+
+            local _, err = client:finalize_upload("up1", {})
+            assert.are.equal("network", err.type)
+            assert.are.equal("bad gateway", err.message)
+            assert.is_false(errors.is_partial_upload(err))
+        end)
+
+        it("is exposed through the top-level module", function()
+            assert.are.equal(errors.is_partial_upload, antd.is_partial_upload)
+            assert.are.equal(errors.error_for_response, antd.error_for_response)
+        end)
+    end)
+
+    describe("errors.error_for_response", function()
+        it("only special-cases code == PARTIAL_UPLOAD", function()
+            local e = errors.error_for_response(404, "gone", { code = "NOT_FOUND" })
+            assert.are.equal("not_found", e.type)
+            e = errors.error_for_response(502, "x", nil)
+            assert.are.equal("network", e.type)
+            e = errors.error_for_response(502, "x", { code = "PARTIAL_UPLOAD", retryable = false })
+            assert.are.equal("partial_upload", e.type)
+            assert.is_false(e.retryable)
+        end)
+    end)
 end)
