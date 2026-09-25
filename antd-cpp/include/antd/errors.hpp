@@ -1,10 +1,12 @@
 #pragma once
 
+#include <charconv>
 #include <cstdint>
 #include <regex>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 
 namespace antd {
 
@@ -96,13 +98,16 @@ public:
 ///     unpaid batches, or an older daemon). Re-preparing the same content
 ///     skips already-stored chunks, so a retry pays only for the remainder.
 ///
-/// Over REST the counts and `retryable` come from the structured error body.
-/// Over gRPC only an ABORTED whose message carries the daemon's fixed
-/// `Partial upload:` prefix becomes this type (see is_partial_upload_message);
-/// any other ABORTED keeps the generic AntdError mapping. The counts are then
-/// parsed best-effort from the message (see parse_partial_upload_message); a
-/// prefixed message with garbled counts leaves them zero and `retryable`
-/// false. See docs/external-signer-flow.md §6.
+/// Over REST the counts and `retryable` come from the structured error body;
+/// a field that is missing or not of the expected JSON type reads as zero /
+/// false. Over gRPC only an ABORTED whose message starts with the daemon's
+/// fixed `Partial upload:` prefix becomes this type (see
+/// is_partial_upload_message); any other ABORTED, including one that quotes
+/// the prefix further into its message, keeps the generic AntdError mapping.
+/// The counts and `retryable` are then parsed best-effort, and independently,
+/// from the message (see parse_partial_upload_message): counts that do not
+/// parse read as zero, while `retryable` still follows the "paid attempt
+/// retained" hint. See docs/external-signer-flow.md §6.
 class PartialUploadError : public NetworkError {
 public:
     std::uint64_t chunks_stored;
@@ -136,30 +141,61 @@ struct PartialUploadCounts {
 inline constexpr std::string_view kPartialUploadPrefix = "Partial upload:";
 
 /// Whether a gRPC ABORTED status message is the daemon's PARTIAL_UPLOAD
-/// report. Matched by containment rather than a strict prefix so a transport
-/// or interceptor that prepends its own text does not hide the partial case.
+/// report: true only when the message starts with kPartialUploadPrefix.
+/// Pass the raw grpc::Status::error_message().
+///
+/// Anchored at the start of the message, not a containment check (matching
+/// antd-rust). The daemon opens every PARTIAL_UPLOAD message with the prefix
+/// and never wraps it, so an ABORTED that merely quotes "Partial upload:"
+/// further into its text is some other failure. Treating it as a partial
+/// store would report counts read out of unrelated text and possibly
+/// `retryable == true`, steering the caller into paid-attempt recovery for an
+/// upload the daemon never retained.
 inline bool is_partial_upload_message(std::string_view message) {
-    return message.find(kPartialUploadPrefix) != std::string_view::npos;
+    return message.substr(0, kPartialUploadPrefix.size()) == kPartialUploadPrefix;
 }
+
+namespace detail {
+
+/// Parse a run of ASCII digits as a u64 without throwing: false on overflow
+/// or trailing junk. (std::stoull would throw std::out_of_range, which would
+/// escape the typed AntdError contract.)
+inline bool parse_decimal_u64(const std::string& digits, std::uint64_t& out) {
+    const char* first = digits.data();
+    const char* last = first + digits.size();
+    const auto [ptr, ec] = std::from_chars(first, last, out);
+    return ec == std::errc() && ptr == last;
+}
+
+}  // namespace detail
 
 /// Recover the chunk counts and the retryable hint from a PARTIAL_UPLOAD
 /// message. Used for gRPC, where the status carries no structured detail;
 /// REST callers get the body fields instead. Callers gate on
-/// is_partial_upload_message first: this parser only reads the counts.
+/// is_partial_upload_message first: this parser only reads the fields and
+/// does not decide whether the message is a partial upload.
 ///
-/// Matches the fixed prefix "Partial upload: <stored>/<total> chunks stored,
-/// <failed> failed" and reads `retryable` from the "paid attempt retained"
-/// hint the daemon appends when it kept the paid attempt. An unrecognised
-/// message yields zero counts and `retryable == false`.
+/// Reads the counts from "Partial upload: <stored>/<total> chunks stored,
+/// <failed> failed" and `retryable` from the "paid attempt retained" hint the
+/// daemon appends when it kept the paid attempt. The two are independent:
+/// counts that do not match, or that overflow 64 bits, all read as zero, and
+/// `retryable` is false unless the hint is present. Never throws.
 inline PartialUploadCounts parse_partial_upload_message(std::string_view message) {
     static const std::regex kCounts(
         R"(Partial upload: (\d+)/(\d+) chunks stored, (\d+) failed)");
     PartialUploadCounts out;
     std::match_results<std::string_view::const_iterator> m;
     if (std::regex_search(message.begin(), message.end(), m, kCounts)) {
-        out.chunks_stored = std::stoull(m[1].str());
-        out.total_chunks = std::stoull(m[2].str());
-        out.chunks_failed = std::stoull(m[3].str());
+        std::uint64_t stored = 0;
+        std::uint64_t total = 0;
+        std::uint64_t failed = 0;
+        if (detail::parse_decimal_u64(m[1].str(), stored) &&
+            detail::parse_decimal_u64(m[2].str(), total) &&
+            detail::parse_decimal_u64(m[3].str(), failed)) {
+            out.chunks_stored = stored;
+            out.total_chunks = total;
+            out.chunks_failed = failed;
+        }
     }
     out.retryable = message.find("paid attempt retained") != std::string_view::npos;
     return out;

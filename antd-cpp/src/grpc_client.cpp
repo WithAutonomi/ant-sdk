@@ -43,9 +43,11 @@ static void check_status(const grpc::Status& status) {
             throw PaymentError(status.error_message());
         case grpc::StatusCode::ABORTED: {
             // PARTIAL_UPLOAD rides ABORTED, but ABORTED is a generic code:
-            // only the daemon's fixed "Partial upload:" prefix identifies a
-            // partial store. Any other ABORTED keeps the mapping it had
-            // before PartialUploadError existed (the default arm below).
+            // only a raw status message that starts with the daemon's fixed
+            // "Partial upload:" prefix is a partial store. The match is
+            // anchored, so an ABORTED that quotes the phrase further into its
+            // message is not misreported. Any other ABORTED keeps the mapping
+            // it had before PartialUploadError existed (the default arm below).
             if (!is_partial_upload_message(status.error_message())) {
                 throw AntdError(static_cast<int>(status.error_code()),
                                 status.error_message());

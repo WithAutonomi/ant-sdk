@@ -282,8 +282,13 @@ try {
 paid: some chunks store, others miss quorum after the daemon's own retries.
 That surfaces as `antd::PartialUploadError` (HTTP 502 with
 `code: "PARTIAL_UPLOAD"`; gRPC `ABORTED` whose message starts with
-`Partial upload:`, where the fields are parsed from the status message; any
-other `ABORTED` stays a plain `AntdError`). It derives from `NetworkError`, so existing 502 handlers
+`Partial upload:`, where the fields are parsed from the status message). The
+gRPC match is anchored at the start of the message: any other `ABORTED`,
+including one that only quotes `Partial upload:` further into its text, stays
+a plain `AntdError`. Over REST, a count or flag of the wrong JSON type reads as
+zero / `false`, and a body whose `code` is not the string `PARTIAL_UPLOAD`
+keeps the plain status mapping; the error mapping never throws anything but an
+`AntdError` subclass. It derives from `NetworkError`, so existing 502 handlers
 keep working — catch it first to handle the partial case specifically. The
 on-chain payment persists and the stored chunks stay on the network; the
 `retryable` flag says how to finish:

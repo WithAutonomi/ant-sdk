@@ -68,8 +68,9 @@ enum StatusCode {
         case FAILED_PRECONDITION:
             throw antd::PaymentError(message);
         case ABORTED: {
-            // Same gate as grpc_client.cpp: only the daemon's "Partial
-            // upload:" prefix turns ABORTED into PartialUploadError.
+            // Same gate as grpc_client.cpp: only a message that starts with
+            // the daemon's "Partial upload:" prefix turns ABORTED into
+            // PartialUploadError.
             if (!antd::is_partial_upload_message(message)) {
                 throw antd::AntdError(static_cast<int>(code), message);
             }
@@ -134,11 +135,12 @@ TEST_CASE("grpc UNAVAILABLE -> NetworkError") {
 }
 
 // ---------------------------------------------------------------------------
-// PARTIAL_UPLOAD rides gRPC ABORTED, gated on the daemon's fixed "Partial
-// upload:" prefix (is_partial_upload_message). The status carries no
-// structured detail, so the counts and the "paid attempt retained" hint are
-// parsed from the message text (parse_partial_upload_message) to match the
-// REST client's typed error. Any other ABORTED keeps the generic mapping.
+// PARTIAL_UPLOAD rides gRPC ABORTED, gated on the message starting with the
+// daemon's fixed "Partial upload:" prefix (is_partial_upload_message). The
+// status carries no structured detail, so the counts and the "paid attempt
+// retained" hint are parsed from the message text
+// (parse_partial_upload_message) to match the REST client's typed error. Any
+// other ABORTED keeps the generic mapping.
 // ---------------------------------------------------------------------------
 
 TEST_CASE("grpc ABORTED -> PartialUploadError with counts and retryable from the retained hint") {
@@ -184,9 +186,10 @@ TEST_CASE("grpc ABORTED is still catchable as NetworkError and AntdError") {
 }
 
 TEST_CASE("grpc ABORTED without the Partial upload prefix keeps the generic AntdError mapping") {
-    // ABORTED is a generic gRPC code; only the daemon's fixed prefix marks a
-    // partial store. Anything else must map exactly as before this type
-    // existed: AntdError with the raw code preserved.
+    // ABORTED is a generic gRPC code; only a message that opens with the
+    // daemon's fixed prefix marks a partial store. Anything else must map
+    // exactly as before this type existed: AntdError with the raw code
+    // preserved.
     const std::string msg = "transaction aborted: something else entirely";
     try {
         test_grpc::check_status(test_grpc::ABORTED, msg);
@@ -216,10 +219,55 @@ TEST_CASE("grpc ABORTED with the prefix but garbled counts -> PartialUploadError
     }
 }
 
-TEST_CASE("is_partial_upload_message matches the daemon prefix by containment") {
+TEST_CASE("grpc ABORTED that embeds the Partial upload marker after other text keeps the generic AntdError mapping") {
+    // Anchored, not containment: an ABORTED that merely quotes the marker
+    // further into its message is some other failure and must not select
+    // the partial-store recovery path (least of all a retryable one).
+    const std::string msgs[] = {
+        "upstream error: Partial upload: 1/3 chunks stored, 2 failed",
+        "wrapped (Partial upload: 0/1 chunks stored, 1 failed; paid attempt retained)",
+    };
+    for (const auto& msg : msgs) {
+        CAPTURE(msg);
+        try {
+            test_grpc::check_status(test_grpc::ABORTED, msg);
+            FAIL("should have thrown");
+        } catch (const antd::PartialUploadError&) {
+            FAIL("an embedded marker must not become PartialUploadError");
+        } catch (const antd::NetworkError&) {
+            FAIL("an embedded marker must not become NetworkError");
+        } catch (const antd::AntdError& e) {
+            CHECK(e.status_code == static_cast<int>(test_grpc::ABORTED));
+            CHECK(std::string(e.what()).find(msg) != std::string::npos);
+        }
+    }
+}
+
+TEST_CASE("grpc ABORTED with a count that overflows 64 bits -> PartialUploadError with zeros, no raw exception") {
+    const std::string msg =
+        "Partial upload: 99999999999999999999999/312 chunks stored, 12 failed after retries";
+    try {
+        test_grpc::check_status(test_grpc::ABORTED, msg);
+        FAIL("should have thrown");
+    } catch (const antd::PartialUploadError& e) {
+        CHECK(e.chunks_stored == 0);
+        CHECK(e.chunks_failed == 0);
+        CHECK(e.total_chunks == 0);
+        CHECK_FALSE(e.retryable);
+    } catch (const std::exception& e) {
+        FAIL("escaped the typed error contract: " << std::string(e.what()));
+    }
+}
+
+TEST_CASE("is_partial_upload_message matches the daemon prefix only at the start of the message") {
     CHECK(antd::is_partial_upload_message("Partial upload: 1/2 chunks stored, 1 failed"));
-    CHECK(antd::is_partial_upload_message("rpc error: Partial upload: 1/2 chunks stored, 1 failed"));
     CHECK(antd::is_partial_upload_message("Partial upload:"));
+    CHECK_FALSE(antd::is_partial_upload_message("rpc error: Partial upload: 1/2 chunks stored, 1 failed"));
+    CHECK_FALSE(antd::is_partial_upload_message("upstream error: Partial upload: 1/3 chunks stored, 2 failed"));
+    CHECK_FALSE(antd::is_partial_upload_message(
+        "wrapped (Partial upload: 0/1 chunks stored, 1 failed; paid attempt retained)"));
+    CHECK_FALSE(antd::is_partial_upload_message(" Partial upload: 1/2 chunks stored, 1 failed"));  // leading space
+    CHECK_FALSE(antd::is_partial_upload_message("Partial upload"));  // shorter than the prefix
     CHECK_FALSE(antd::is_partial_upload_message("partial upload: 1/2 chunks stored"));  // case-sensitive
     CHECK_FALSE(antd::is_partial_upload_message("Partial upload 1/2 chunks stored"));   // no colon
     CHECK_FALSE(antd::is_partial_upload_message("something else entirely"));
@@ -241,6 +289,9 @@ TEST_CASE("parse_partial_upload_message recovers counts and the retryable hint")
          "(stored chunks persist; re-prepare the same content to retry only the remainder)",
          300, 12, 312, false},
         {"Partial upload: 300/312 chunks stored, 12 failed after retries", 300, 12, 312, false},
+        {"Partial upload: 18446744073709551615/1 chunks stored, 0 failed",  // u64 max still parses
+         18446744073709551615ULL, 0, 1, false},
+        {"Partial upload: 18446744073709551616/1 chunks stored, 0 failed", 0, 0, 0, false},  // overflow
         {"something else entirely", 0, 0, 0, false},
     };
     for (const auto& tc : cases) {

@@ -8,7 +8,9 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <optional>
+#include <string>
 #include <thread>
 
 #include "antd/client.hpp"
@@ -370,6 +372,35 @@ TEST_CASE("FinalizeUploadResult data_map field") {
 
 namespace {
 
+// Raw 502 bodies served by /v1/upload/finalize, keyed by upload_id. The
+// daemon never sends these, but the body is network input (a proxy or a
+// buggy build could), and the error mapping must stay typed whatever its
+// shape.
+const std::map<std::string, std::string> kMalformedFinalizeBodies = {
+    // `code` is not the string "PARTIAL_UPLOAD" (or there is no object at
+    // all): the status mapping applies, so a 502 is a plain NetworkError.
+    {"bad_code_object",
+     R"({"error":"Partial upload: 1/2 chunks stored, 1 failed","code":{},)"
+     R"("chunks_stored":1,"chunks_failed":1,"total_chunks":2,"retryable":true})"},
+    {"bad_code_array",
+     R"({"error":"Partial upload: 1/2 chunks stored, 1 failed","code":["PARTIAL_UPLOAD"]})"},
+    {"bad_code_null", R"({"error":"Partial upload: 1/2 chunks stored, 1 failed","code":null})"},
+    {"bad_code_number", R"({"error":"Partial upload: 1/2 chunks stored, 1 failed","code":502})"},
+    {"top_level_array", R"(["PARTIAL_UPLOAD",{"code":"PARTIAL_UPLOAD"}])"},
+    {"not_json", "<html>502 Bad Gateway</html>"},
+    // `code` is "PARTIAL_UPLOAD" but the fields are mistyped: still a
+    // PartialUploadError, with each bad field read as zero / false.
+    {"bad_fields",
+     R"({"error":"Partial upload: bad fields","code":"PARTIAL_UPLOAD",)"
+     R"("chunks_stored":"300","chunks_failed":[],"total_chunks":{},"retryable":"true"})"},
+    {"bad_numbers",
+     R"({"error":"Partial upload: bad numbers","code":"PARTIAL_UPLOAD",)"
+     R"("chunks_stored":-1,"chunks_failed":1.5,"total_chunks":1e30,"retryable":1})"},
+    {"error_not_string",
+     R"({"error":{"detail":"nested"},"code":"PARTIAL_UPLOAD",)"
+     R"("chunks_stored":2,"chunks_failed":1,"total_chunks":3,"retryable":true})"},
+};
+
 struct StubServer {
     httplib::Server svr;
     std::thread th;
@@ -618,6 +649,12 @@ struct StubServer {
                 res.status = 502;
                 json err = {{"error", "upstream unreachable"}, {"code", "NETWORK_ERROR"}};
                 res.set_content(err.dump(), "application/json");
+                return;
+            }
+            if (auto it = kMalformedFinalizeBodies.find(uid);
+                it != kMalformedFinalizeBodies.end()) {
+                res.status = 502;
+                res.set_content(it->second, "application/json");
                 return;
             }
             json resp = {
@@ -1053,6 +1090,67 @@ TEST_CASE("plain 502 without code PARTIAL_UPLOAD still maps to NetworkError") {
     } catch (const antd::NetworkError& e) {
         CHECK(e.status_code == 502);
         CHECK(std::string(e.what()).find("upstream unreachable") != std::string::npos);
+    }
+}
+
+TEST_CASE("a 502 whose code is not the string PARTIAL_UPLOAD maps to NetworkError, never a raw exception") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    for (const std::string uid : {"bad_code_object", "bad_code_array", "bad_code_null",
+                                 "bad_code_number", "top_level_array", "not_json"}) {
+        CAPTURE(uid);
+        try {
+            c.finalize_upload(uid, {{"qh1", "tx1"}});
+            FAIL("should have thrown");
+        } catch (const antd::PartialUploadError&) {
+            FAIL("a code that is not the string PARTIAL_UPLOAD must not become PartialUploadError");
+        } catch (const antd::NetworkError& e) {
+            CHECK(e.status_code == 502);
+        } catch (const std::exception& e) {
+            FAIL("escaped the typed error contract: " << std::string(e.what()));
+        }
+    }
+}
+
+TEST_CASE("PARTIAL_UPLOAD with mistyped count / flag fields -> PartialUploadError with zeros, not retryable") {
+    // Includes a negative, a fractional and an out-of-range number: none may
+    // wrap or truncate into a plausible-looking count.
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    for (const std::string uid : {"bad_fields", "bad_numbers"}) {
+        CAPTURE(uid);
+        try {
+            c.finalize_upload(uid, {{"qh1", "tx1"}});
+            FAIL("should have thrown");
+        } catch (const antd::PartialUploadError& e) {
+            CHECK(e.status_code == 502);
+            CHECK(e.chunks_stored == 0);
+            CHECK(e.chunks_failed == 0);
+            CHECK(e.total_chunks == 0);
+            CHECK_FALSE(e.retryable);
+        } catch (const std::exception& e) {
+            FAIL("escaped the typed error contract: " << std::string(e.what()));
+        }
+    }
+}
+
+TEST_CASE("PARTIAL_UPLOAD with a non-string error keeps the fields and uses the raw body as the message") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    try {
+        c.finalize_upload("error_not_string", {{"qh1", "tx1"}});
+        FAIL("should have thrown");
+    } catch (const antd::PartialUploadError& e) {
+        CHECK(e.chunks_stored == 2);
+        CHECK(e.chunks_failed == 1);
+        CHECK(e.total_chunks == 3);
+        CHECK(e.retryable);
+        CHECK(std::string(e.what()).find("nested") != std::string::npos);
+    } catch (const std::exception& e) {
+        FAIL("escaped the typed error contract: " << std::string(e.what()));
     }
 }
 

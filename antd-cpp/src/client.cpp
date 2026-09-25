@@ -63,6 +63,12 @@ bool parse_ndjson_frame(std::string_view line, DownloadFrame& out) {
 /// NetworkError, so it is thrown as PartialUploadError carrying the body's
 /// `chunks_stored` / `chunks_failed` / `total_chunks` and `retryable` (absent
 /// on daemons < 0.14.0 => false). Every other code keeps the status mapping.
+///
+/// The body is network input, so a malformed one never escapes as anything
+/// but an AntdError subclass: a non-JSON or non-object body, or a `code`
+/// that is missing, another value, or not a string, takes the status mapping
+/// (NetworkError for a 502); a count or flag of the wrong JSON type reads as
+/// zero / false; a non-string `error` falls back to the raw body.
 [[noreturn]] void throw_error_response(int status, const std::string& body) {
     std::string msg = body;
     try {
@@ -70,12 +76,21 @@ bool parse_ndjson_frame(std::string_view line, DownloadFrame& out) {
         if (err_json.contains("error") && err_json["error"].is_string()) {
             msg = err_json["error"].get<std::string>();
         }
-        if (err_json.value("code", "") == "PARTIAL_UPLOAD") {
+        // find() returns end() on a non-object, and the string check keeps a
+        // `code` of any other JSON type on the status mapping.
+        const auto code = err_json.find("code");
+        if (code != err_json.end() && code->is_string() &&
+            code->get_ref<const std::string&>() == "PARTIAL_UPLOAD") {
             // Tolerate a missing or mistyped field (zero / false) rather than
-            // degrading the whole error to a generic NetworkError.
+            // degrading the whole error to a generic NetworkError. Counts must
+            // be non-negative JSON integers: get<uint64_t> would wrap a
+            // negative value and truncate (or, out of range, misconvert) a
+            // floating-point one.
             auto u64 = [&](const char* key) -> std::uint64_t {
                 auto it = err_json.find(key);
-                return it != err_json.end() && it->is_number() ? it->get<std::uint64_t>() : 0;
+                return it != err_json.end() && it->is_number_unsigned()
+                           ? it->get<std::uint64_t>()
+                           : 0;
             };
             auto flag = [&](const char* key) -> bool {
                 auto it = err_json.find(key);
