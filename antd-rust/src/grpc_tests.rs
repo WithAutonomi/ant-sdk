@@ -1270,10 +1270,12 @@ async fn test_grpc_partial_upload_maps_to_partial_upload() {
             chunks_failed,
             total_chunks,
             retryable,
+            retention_known,
             message,
         } => {
             assert_eq!((chunks_stored, chunks_failed, total_chunks), (300, 12, 312));
             assert!(retryable, "expected retryable from the retained hint");
+            assert!(retention_known, "well-formed counts establish retention");
             assert!(message.starts_with("Partial upload: 300/312"), "{message}");
         }
         other => panic!("expected AntdError::PartialUpload, got: {other:?}"),
@@ -1289,10 +1291,15 @@ async fn test_grpc_partial_upload_maps_to_partial_upload() {
             chunks_failed,
             total_chunks,
             retryable,
+            retention_known,
             ..
         } => {
             assert_eq!((chunks_stored, chunks_failed, total_chunks), (300, 12, 312));
             assert!(!retryable, "no retained hint must read as not retryable");
+            assert!(
+                retention_known,
+                "well-formed counts without the hint confirm nothing was retained"
+            );
         }
         other => panic!("expected AntdError::PartialUpload, got: {other:?}"),
     }
@@ -1335,7 +1342,8 @@ async fn test_grpc_error_aborted_embedded_marker_stays_grpc() {
 #[tokio::test]
 async fn test_grpc_error_aborted_partial_prefix_garbled_counts() {
     // The prefix alone is enough to classify the status as a partial store;
-    // counts that fail to parse read as zero and `retryable` as false.
+    // counts that fail to parse read as zero, `retryable` as false, and
+    // retention as unknown.
     let client = start_error_server(tonic::Code::Aborted, "Partial upload: n/a chunks").await;
     let err = client.health().await.unwrap_err();
     match err {
@@ -1344,10 +1352,12 @@ async fn test_grpc_error_aborted_partial_prefix_garbled_counts() {
             chunks_failed,
             total_chunks,
             retryable,
+            retention_known,
             message,
         } => {
             assert_eq!((chunks_stored, chunks_failed, total_chunks), (0, 0, 0));
             assert!(!retryable);
+            assert!(!retention_known);
             assert_eq!(message, "Partial upload: n/a chunks");
         }
         other => panic!("expected AntdError::PartialUpload, got: {other:?}"),
@@ -1355,10 +1365,11 @@ async fn test_grpc_error_aborted_partial_prefix_garbled_counts() {
 }
 
 #[tokio::test]
-async fn test_grpc_error_aborted_partial_invalid_counts_with_hint_not_retryable() {
-    // The counts gate the retry: a `Partial upload:` status whose counts do
+async fn test_grpc_error_aborted_partial_invalid_counts_with_hint_unknown_retention() {
+    // The counts gate retention: a `Partial upload:` status whose counts do
     // not parse, or overflow u64 in any position, is still a partial store,
-    // but reads as zero counts and not retryable even with the retained hint.
+    // but reads as zero counts, not retryable and retention unknown, even
+    // with the retained hint.
     let over = "18446744073709551616"; // u64::MAX + 1
     let msgs = [
         "Partial upload: 300/312 chunks (paid attempt retained)".to_string(),
@@ -1374,6 +1385,7 @@ async fn test_grpc_error_aborted_partial_invalid_counts_with_hint_not_retryable(
                 chunks_failed,
                 total_chunks,
                 retryable,
+                retention_known,
                 message,
             } => {
                 assert_eq!(
@@ -1382,6 +1394,10 @@ async fn test_grpc_error_aborted_partial_invalid_counts_with_hint_not_retryable(
                     "{msg}"
                 );
                 assert!(!retryable, "invalid counts must not enable retry: {msg}");
+                assert!(
+                    !retention_known,
+                    "invalid counts must leave retention unknown: {msg}"
+                );
                 assert_eq!(message, msg);
             }
             other => panic!("expected AntdError::PartialUpload for {msg}, got: {other:?}"),

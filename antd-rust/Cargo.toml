@@ -58,6 +58,8 @@ path = "examples/06-private-data.rs"
 [[example]]
 name = "07-external-signer"
 path = "examples/07-external-signer.rs"
+# Run finalize_with_retry's unit tests (mock daemon, no devnet) under `cargo test`.
+test = true
 
 [[example]]
 name = "08-grpc"

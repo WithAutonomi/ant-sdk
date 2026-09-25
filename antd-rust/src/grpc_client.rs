@@ -475,8 +475,9 @@ impl GrpcClient {
     ///
     /// A partial store (gRPC `ABORTED` whose message starts with
     /// `Partial upload:`) surfaces as [`AntdError::PartialUpload`] with the
-    /// counts and `retryable` flag parsed from the status message; the
-    /// retry contract is the same as over REST. Any other `ABORTED` stays
+    /// counts, `retryable` and `retention_known` parsed from the status
+    /// message; counts that do not parse leave retention unknown. The
+    /// recovery contract is the same as over REST. Any other `ABORTED` stays
     /// [`AntdError::Grpc`].
     ///
     /// Requires antd >= 0.9.0.
@@ -771,8 +772,9 @@ impl GrpcClient {
     ///
     /// A partial store (gRPC `ABORTED` whose message starts with
     /// `Partial upload:`) surfaces as [`AntdError::PartialUpload`] with the
-    /// counts and `retryable` flag parsed from the status message; the
-    /// retry contract is the same as over REST. Any other `ABORTED` stays
+    /// counts, `retryable` and `retention_known` parsed from the status
+    /// message; counts that do not parse leave retention unknown. The
+    /// recovery contract is the same as over REST. Any other `ABORTED` stays
     /// [`AntdError::Grpc`].
     ///
     /// Requires antd >= 0.9.0.
@@ -804,8 +806,9 @@ impl GrpcClient {
     ///
     /// A partial store (gRPC `ABORTED` whose message starts with
     /// `Partial upload:`) surfaces as [`AntdError::PartialUpload`] with the
-    /// counts and `retryable` flag parsed from the status message; the
-    /// retry contract is the same as over REST. Any other `ABORTED` stays
+    /// counts, `retryable` and `retention_known` parsed from the status
+    /// message; counts that do not parse leave retention unknown. The
+    /// recovery contract is the same as over REST. Any other `ABORTED` stays
     /// [`AntdError::Grpc`].
     ///
     /// Requires antd >= 0.9.0.

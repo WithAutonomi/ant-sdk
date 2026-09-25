@@ -44,32 +44,48 @@ pub enum AntdError {
     /// daemon's own retries (HTTP 502 with `code: "PARTIAL_UPLOAD"`; gRPC
     /// `ABORTED` whose message starts with `Partial upload:`). The on-chain
     /// payment persists and the stored chunks stay on the network. How to
-    /// finish the upload depends on `retryable`:
+    /// finish the upload depends on `retryable` and `retention_known`
+    /// (`retryable` implies `retention_known`):
     ///
-    /// - `true` — the daemon kept the paid attempt (payment proofs + unstored
-    ///   chunks) under the same `upload_id`. Call the **same** finalize method
-    ///   again with the same arguments to store the remainder against the
-    ///   same payment: no re-prepare, no second signature, no double payment.
-    ///   Bound the loop: a persistent failure returns this error on every
-    ///   call, so cap the attempts and treat a `chunks_failed` that stops
-    ///   shrinking as stuck. The retained attempt expires with the daemon's
-    ///   pending-upload TTL. Sent by antd >= 0.14.0; older daemons never set
-    ///   the flag, so it reads `false` and the re-prepare path applies.
-    /// - `false` — nothing was retained (a merkle finalize with deliberately
-    ///   unpaid batches, or an older daemon). Re-preparing the same content
-    ///   skips already-stored chunks, so a retry pays only for the remainder.
+    /// - `retryable` — the daemon kept the paid attempt (payment proofs +
+    ///   unstored chunks) under the same `upload_id`. Call the **same**
+    ///   finalize method again with the same `upload_id` and the same payment
+    ///   artefacts (`tx_hashes`, or the winning pool hash of a merkle upload)
+    ///   to store the remainder against the same payment: no re-prepare, no
+    ///   second signature, no double payment. Bound the loop: a persistent
+    ///   failure returns this error on every call, so cap the attempts and
+    ///   treat a `chunks_failed` that stops shrinking as stuck. The retained
+    ///   attempt expires with the daemon's pending-upload TTL.
+    /// - `retention_known && !retryable` — the daemon confirmed it kept
+    ///   nothing (for example a merkle finalize with deliberately unpaid
+    ///   batches). Re-prepare the same content: already-stored chunks are
+    ///   skipped, so the new payment covers only the remainder.
+    /// - `!retention_known` — retention is unknown: the reply did not
+    ///   establish whether the daemon kept the paid attempt (antd older than
+    ///   0.14.0 never sends `retryable`; a gRPC message whose counts do not
+    ///   parse). The daemon may still hold the attempt, so this does **not**
+    ///   mean nothing was retained. Stop automatic recovery, keep the
+    ///   `upload_id` and the original payment artefacts, and reconcile the
+    ///   retained attempt before deciding to re-prepare or pay again. Never
+    ///   pay again on this signal alone: re-preparing skips already-stored
+    ///   chunks, but it can still pay a second time for chunks that were paid
+    ///   for and not stored.
     ///
-    /// Over REST the counts and `retryable` come from the structured error
-    /// body. Over gRPC they are parsed from the status message
+    /// Over REST the fields come from the structured error body: a count is
+    /// a JSON non-negative integer (anything else reads as 0), and
+    /// `retention_known` is `true` only when the body carries `retryable` as a
+    /// JSON bool. Over gRPC they are parsed from the status message
     /// (`Partial upload: S/T chunks stored, F failed ...`, with a
-    /// `paid attempt retained` hint when retryable), and the counts gate the
-    /// flag: `retryable` is `true` only when the message matches that pattern,
-    /// all three counts convert to `u64`, and the hint is present. A message
-    /// that starts with the `Partial upload:` prefix but whose counts are
-    /// garbled or overflow `u64` reads as zero counts with `retryable ==
-    /// false`, hint or not, so the caller takes the re-prepare path. An
-    /// `ABORTED` status that does not start with that prefix is not a partial
-    /// store and stays [`AntdError::Grpc`].
+    /// `paid attempt retained` hint when retryable): `retention_known` is
+    /// `true` only when the message matches that pattern and all three counts
+    /// convert to `u64`, and the hint then decides `retryable`. A message that
+    /// starts with the `Partial upload:` prefix but whose counts are garbled
+    /// or overflow `u64` reads as zero counts with both flags `false`, hint or
+    /// not. An `ABORTED` status that does not start with that prefix is not a
+    /// partial store and stays [`AntdError::Grpc`].
+    ///
+    /// New in 0.2.0: earlier releases surfaced a partial store as
+    /// [`AntdError::Network`] over REST and [`AntdError::Grpc`] over gRPC.
     ///
     /// See `docs/external-signer-flow.md` §6 ("Retry a partial store") in the
     /// [ant-sdk repository](https://github.com/WithAutonomi/ant-sdk/blob/main/docs/external-signer-flow.md).
@@ -81,10 +97,16 @@ pub enum AntdError {
         chunks_failed: u64,
         /// Chunks in the upload (`chunks_stored + chunks_failed`).
         total_chunks: u64,
-        /// `true` when the same finalize call (same `upload_id`) stores the
-        /// remainder against the same payment; `false` when the retry is a
-        /// re-prepare.
+        /// `true` when the daemon kept the paid attempt: the same finalize
+        /// call (same `upload_id`, same payment artefacts) stores the
+        /// remainder against the same payment. Implies `retention_known`.
         retryable: bool,
+        /// `true` when the daemon's reply established whether it kept the
+        /// paid attempt, so `retryable == false` means nothing was retained
+        /// and re-preparing is the way to finish. `false` means retention is
+        /// unknown: stop, keep the `upload_id` and payment artefacts, and
+        /// reconcile before re-preparing or paying again.
+        retention_known: bool,
         /// The daemon's error message.
         message: String,
     },
@@ -114,20 +136,21 @@ impl From<tonic::Status> for AntdError {
             // the generic mapping rather than being misreported as a partial
             // store. The counts and the "paid attempt retained" hint ride the
             // message text over gRPC (no structured detail yet), so parse
-            // them to match the REST client's typed error; the hint enables
-            // retry only when the counts parse too.
+            // them to match the REST client's typed error; retention is known,
+            // and the hint can enable retry, only when the counts parse.
             // Anchored at the start of the message, matching the count parser:
             // a `Partial upload:` marker embedded in some other ABORTED text
             // must not select paid-attempt recovery with zero counts.
             tonic::Code::Aborted if status.message().starts_with(PARTIAL_UPLOAD_PREFIX) => {
                 let message = status.message().to_string();
-                let (chunks_stored, chunks_failed, total_chunks, retryable) =
+                let (chunks_stored, chunks_failed, total_chunks, retryable, retention_known) =
                     parse_partial_upload_message(&message);
                 AntdError::PartialUpload {
                     chunks_stored,
                     chunks_failed,
                     total_chunks,
                     retryable,
+                    retention_known,
                     message,
                 }
             }
@@ -144,21 +167,22 @@ const PARTIAL_UPLOAD_PREFIX: &str = "Partial upload:";
 /// same-`upload_id` retry.
 const PARTIAL_UPLOAD_RETAINED_HINT: &str = "paid attempt retained";
 
-/// Recovers `(stored, failed, total, retryable)` from a `PARTIAL_UPLOAD`
-/// message. Used for gRPC, where the status carries no structured detail;
-/// REST callers get the body fields instead.
+/// Recovers `(stored, failed, total, retryable, retention_known)` from a
+/// `PARTIAL_UPLOAD` message. Used for gRPC, where the status carries no
+/// structured detail; REST callers get the body fields instead.
 ///
 /// Matches the fixed prefix `Partial upload: <stored>/<total> chunks stored,
-/// <failed> failed`, and every count must convert to a `u64`. `retryable` is
-/// `true` only when that match succeeds **and** the retained hint is present.
-/// Any miss (a message that does not fit the pattern, or a count that is not
-/// a plain `u64`, such as one that overflows) yields `(0, 0, 0, false)` even
-/// when the hint is there. Invalid fields must not enable recovery: a
-/// same-`upload_id` retry acts on these counts (a bounded loop watches
-/// `chunks_failed` shrink), so it is offered only for a message the client
-/// fully understood. A miss falls back to re-preparing, which skips
-/// already-stored chunks and so pays only for the remainder.
-pub(crate) fn parse_partial_upload_message(msg: &str) -> (u64, u64, u64, bool) {
+/// <failed> failed`, and every count must convert to a `u64`. Only that match
+/// establishes retention (`retention_known == true`); the retained hint then
+/// decides `retryable`. Any miss (a message that does not fit the pattern, or
+/// a count that is not a plain `u64`, such as one that overflows) yields
+/// `(0, 0, 0, false, false)` even when the hint is there. Invalid fields must
+/// not enable recovery: a same-`upload_id` retry acts on these counts (a
+/// bounded loop watches `chunks_failed` shrink), so it is offered only for a
+/// message the client fully understood. Nor do they mean nothing was
+/// retained: the daemon may still hold the paid attempt, so a miss reports
+/// retention as unknown and the caller reconciles before paying again.
+pub(crate) fn parse_partial_upload_message(msg: &str) -> (u64, u64, u64, bool, bool) {
     let counts = (|| {
         let rest = msg.strip_prefix(PARTIAL_UPLOAD_PREFIX)?.strip_prefix(' ')?;
         let (stored, rest) = take_u64(rest)?;
@@ -169,9 +193,9 @@ pub(crate) fn parse_partial_upload_message(msg: &str) -> (u64, u64, u64, bool) {
     match counts {
         Some((stored, failed, total)) => {
             let retryable = msg.contains(PARTIAL_UPLOAD_RETAINED_HINT);
-            (stored, failed, total, retryable)
+            (stored, failed, total, retryable, true)
         }
-        None => (0, 0, 0, false),
+        None => (0, 0, 0, false, false),
     }
 }
 
@@ -200,16 +224,17 @@ pub fn error_for_body(code: u16, bytes: &[u8]) -> AntdError {
         .to_string();
     if body.get("code").and_then(Value::as_str) == Some("PARTIAL_UPLOAD") {
         let count = |k: &str| body.get(k).and_then(Value::as_u64).unwrap_or(0);
+        // Only a JSON bool `retryable` establishes retention. It is absent on
+        // antd < 0.14.0; absent or any other type reads as unknown retention
+        // (not "nothing retained"), so the caller stops and reconciles rather
+        // than paying again.
+        let retryable = body.get("retryable").and_then(Value::as_bool);
         return AntdError::PartialUpload {
             chunks_stored: count("chunks_stored"),
             chunks_failed: count("chunks_failed"),
             total_chunks: count("total_chunks"),
-            // Absent on antd < 0.14.0: the daemon dropped the upload_id, so
-            // the caller must take the re-prepare path.
-            retryable: body
-                .get("retryable")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
+            retryable: retryable.unwrap_or(false),
+            retention_known: retryable.is_some(),
             message,
         };
     }

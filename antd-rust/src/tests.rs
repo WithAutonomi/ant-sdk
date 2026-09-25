@@ -653,12 +653,17 @@ async fn test_partial_upload_error_carries_counts_and_retryable() {
             chunks_failed,
             total_chunks,
             retryable,
+            retention_known,
             message,
         } => {
             assert_eq!(chunks_stored, 300);
             assert_eq!(chunks_failed, 12);
             assert_eq!(total_chunks, 312);
             assert!(retryable, "expected retryable from the body flag");
+            assert!(
+                retention_known,
+                "a JSON bool retryable establishes retention"
+            );
             assert!(message.starts_with("Partial upload: 300/312"), "{message}");
         }
         other => panic!("expected PartialUpload, got: {other:?}"),
@@ -666,10 +671,11 @@ async fn test_partial_upload_error_carries_counts_and_retryable() {
 }
 
 #[tokio::test]
-async fn test_partial_upload_error_retryable_defaults_false() {
-    // An older daemon (< 0.14.0) never sends `retryable`; the flag must read
-    // false so callers fall back to the re-prepare path rather than looping
-    // on an upload_id the daemon has already dropped.
+async fn test_partial_upload_error_missing_retryable_is_unknown_retention() {
+    // An older daemon (< 0.14.0) never sends `retryable`. The flag reads
+    // false, so callers do not loop on the upload_id, and retention reads as
+    // unknown rather than "nothing retained", so callers stop and reconcile
+    // instead of paying again.
     let mut server = mock_server().await;
     let _m = server
         .mock("POST", "/v1/upload/finalize")
@@ -696,12 +702,17 @@ async fn test_partial_upload_error_retryable_defaults_false() {
             chunks_failed,
             total_chunks,
             retryable,
+            retention_known,
             ..
         } => {
             assert_eq!((chunks_stored, chunks_failed, total_chunks), (300, 12, 312));
             assert!(
                 !retryable,
                 "retryable must default to false without the body flag"
+            );
+            assert!(
+                !retention_known,
+                "a missing retryable must leave retention unknown"
             );
         }
         other => panic!("expected PartialUpload, got: {other:?}"),
@@ -713,8 +724,9 @@ fn test_partial_upload_body_mistyped_fields_read_zero_and_false() {
     // REST reads typed JSON: a count is a non-negative integer that fits a
     // u64 and `retryable` is a JSON bool. Anything else (a quoted number, a
     // quoted "true", a negative, a fraction, an overflow, null) reads as
-    // 0 / false rather than being coerced, so a malformed body never selects
-    // paid-attempt recovery.
+    // 0 / false rather than being coerced, and a mistyped `retryable` leaves
+    // retention unknown, so a malformed body never selects paid-attempt
+    // recovery and never reads as "nothing retained".
     let bodies = [
         r#"{"error":"Partial upload: 300/312 chunks stored, 12 failed","code":"PARTIAL_UPLOAD","chunks_stored":"300","chunks_failed":"12","total_chunks":"312","retryable":"true"}"#,
         r#"{"error":"Partial upload: 300/312 chunks stored, 12 failed","code":"PARTIAL_UPLOAD","chunks_stored":-1,"chunks_failed":12.5,"total_chunks":18446744073709551616,"retryable":1}"#,
@@ -727,6 +739,7 @@ fn test_partial_upload_body_mistyped_fields_read_zero_and_false() {
                 chunks_failed,
                 total_chunks,
                 retryable,
+                retention_known,
                 ..
             } => {
                 assert_eq!(
@@ -735,8 +748,63 @@ fn test_partial_upload_body_mistyped_fields_read_zero_and_false() {
                     "{body}"
                 );
                 assert!(!retryable, "mistyped retryable must read false: {body}");
+                assert!(
+                    !retention_known,
+                    "mistyped retryable must leave retention unknown: {body}"
+                );
             }
             other => panic!("expected PartialUpload for {body}, got: {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn test_partial_upload_body_retention_known() {
+    // Only a JSON bool `retryable` establishes retention: `true` is a
+    // retained attempt, `false` a confirmed non-retention. Missing, null or
+    // any other type is unknown retention, never "nothing retained".
+    let cases = [
+        (Some(json!(true)), (true, true)),
+        (Some(json!(false)), (false, true)),
+        (None, (false, false)),
+        (Some(json!(null)), (false, false)),
+        (Some(json!("true")), (false, false)),
+        (Some(json!("false")), (false, false)),
+        (Some(json!(1)), (false, false)),
+        (Some(json!(0)), (false, false)),
+    ];
+    for (flag, (want_retryable, want_known)) in cases {
+        let mut body = json!({
+            "error": "Partial upload: 300/312 chunks stored, 12 failed after retries",
+            "code": "PARTIAL_UPLOAD",
+            "chunks_stored": 300,
+            "chunks_failed": 12,
+            "total_chunks": 312,
+        });
+        if let Some(flag) = &flag {
+            body["retryable"] = flag.clone();
+        }
+        match error_for_body(502, body.to_string().as_bytes()) {
+            AntdError::PartialUpload {
+                chunks_stored,
+                chunks_failed,
+                total_chunks,
+                retryable,
+                retention_known,
+                ..
+            } => {
+                assert_eq!(
+                    (chunks_stored, chunks_failed, total_chunks),
+                    (300, 12, 312),
+                    "{flag:?}"
+                );
+                assert_eq!(
+                    (retryable, retention_known),
+                    (want_retryable, want_known),
+                    "retryable = {flag:?}"
+                );
+            }
+            other => panic!("expected PartialUpload for {flag:?}, got: {other:?}"),
         }
     }
 }
@@ -764,53 +832,69 @@ async fn test_plain_502_still_maps_to_network() {
 
 #[test]
 fn test_parse_partial_upload_message() {
+    // (stored, failed, total, retryable, retention_known)
     let cases = [
+        // Well-formed with the hint: retention known, retryable.
         (
             "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)",
-            (300, 12, 312, true),
+            (300, 12, 312, true, true),
         ),
+        // Well-formed without the hint: retention known, nothing retained.
         (
             "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (stored chunks persist; re-prepare the same content to retry only the remainder)",
-            (300, 12, 312, false),
+            (300, 12, 312, false, true),
         ),
         (
             "Partial upload: 300/312 chunks stored, 12 failed after retries",
-            (300, 12, 312, false),
+            (300, 12, 312, false, true),
         ),
-        ("Partial upload: 0/1 chunks stored, 1 failed", (0, 1, 1, false)),
+        (
+            "Partial upload: 0/1 chunks stored, 1 failed",
+            (0, 1, 1, false, true),
+        ),
         // The largest u64 still converts, so the hint is honoured.
         (
             "Partial upload: 18446744073709551615/18446744073709551615 chunks stored, 18446744073709551615 failed (paid attempt retained)",
-            (u64::MAX, u64::MAX, u64::MAX, true),
+            (u64::MAX, u64::MAX, u64::MAX, true, true),
         ),
-        // Pattern misses: the counts gate the flag, so the hint alone never
-        // makes the error retryable.
+        // Pattern misses: the counts gate retention, so the hint alone never
+        // makes the error retryable, and retention reads as unknown.
         (
             "Partial upload: 300/312 chunks (paid attempt retained)",
-            (0, 0, 0, false),
+            (0, 0, 0, false, false),
         ),
         (
             "Partial upload: n/a chunks stored, 12 failed (paid attempt retained)",
-            (0, 0, 0, false),
+            (0, 0, 0, false, false),
         ),
         (
             "Partial upload: -1/312 chunks stored, 12 failed (paid attempt retained)",
-            (0, 0, 0, false),
+            (0, 0, 0, false, false),
         ),
-        ("something else (paid attempt retained)", (0, 0, 0, false)),
-        ("something else entirely", (0, 0, 0, false)),
+        (
+            "something else (paid attempt retained)",
+            (0, 0, 0, false, false),
+        ),
+        ("something else entirely", (0, 0, 0, false, false)),
     ];
     for (msg, want) in cases {
-        assert_eq!(parse_partial_upload_message(msg), want, "{msg:?}");
+        let got = parse_partial_upload_message(msg);
+        assert_eq!(got, want, "{msg:?}");
+        // Invariant: retryable implies retention_known.
+        assert!(
+            !got.3 || got.4,
+            "retryable without known retention: {msg:?}"
+        );
     }
 }
 
 #[test]
 fn test_parse_partial_upload_message_overflow_disables_retry() {
     // 2^64, one past u64::MAX. A count that fails to convert, in any
-    // position, zeroes every count and disables retry even though the
-    // retained hint is present: fields the client could not read must not
-    // select paid-attempt recovery.
+    // position, zeroes every count, disables retry and leaves retention
+    // unknown even though the retained hint is present: fields the client
+    // could not read must not select paid-attempt recovery, nor read as
+    // "nothing retained".
     const OVER: &str = "18446744073709551616";
     const TAIL: &str = "after retries: quorum (paid attempt retained: call finalize again \
                         with the same upload_id to store the remainder against the same payment)";
@@ -824,7 +908,7 @@ fn test_parse_partial_upload_message_overflow_disables_retry() {
         assert!(msg.contains("paid attempt retained"), "{msg:?}");
         assert_eq!(
             parse_partial_upload_message(msg),
-            (0, 0, 0, false),
+            (0, 0, 0, false, false),
             "{msg:?}"
         );
     }
