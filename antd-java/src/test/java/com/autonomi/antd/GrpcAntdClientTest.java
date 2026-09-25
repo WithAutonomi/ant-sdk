@@ -1098,4 +1098,48 @@ class GrpcAntdClientTest {
         }
     }
 
+    @Test
+    void testAbortedWithEmbeddedPartialUploadMarkerFallsBackToGenericException() throws Exception {
+        // The gate is anchored at the start of the description, as in
+        // antd-rust: the daemon never wraps its own PARTIAL_UPLOAD message, so
+        // an ABORTED that merely quotes "Partial upload:" further in is not a
+        // partial upload. A containment check would misreport these as
+        // PartialUploadException (the second one as retryable, steering a
+        // caller into the paid-attempt retry loop).
+        String[] embedded = {
+                "upstream error: Partial upload: 1/3 chunks stored, 2 failed",
+                "wrapped (Partial upload: 0/1 chunks stored, 1 failed; paid attempt retained)",
+                " Partial upload: 1/3 chunks stored, 2 failed",
+        };
+        for (String description : embedded) {
+            try (GrpcAntdClient c = abortedFinalizeClient(description)) {
+                AntdException ex = assertThrows(AntdException.class,
+                        () -> c.finalizeUpload("aborted-embedded", Map.of()), description);
+                assertFalse(ex instanceof PartialUploadException,
+                        "embedded marker must not map to PartialUploadException: " + description);
+                assertFalse(ex instanceof NetworkException, description);
+                assertEquals(Status.Code.ABORTED.value(), ex.getStatusCode(), description);
+                assertEquals("antd error 10: " + description, ex.getMessage());
+            }
+        }
+    }
+
+    @Test
+    void testIsPartialUploadMessageIsAnchoredAtStart() {
+        assertTrue(PartialUploadException.isPartialUploadMessage(
+                "Partial upload: 1/3 chunks stored, 2 failed"));
+        assertTrue(PartialUploadException.isPartialUploadMessage(
+                "Partial upload: ??? chunks, no idea"));
+        assertFalse(PartialUploadException.isPartialUploadMessage(
+                "upstream error: Partial upload: 1/3 chunks stored, 2 failed"));
+        assertFalse(PartialUploadException.isPartialUploadMessage(
+                "wrapped (Partial upload: 0/1 chunks stored, 1 failed; paid attempt retained)"));
+        assertFalse(PartialUploadException.isPartialUploadMessage(
+                " Partial upload: 1/3 chunks stored, 2 failed"));
+        assertFalse(PartialUploadException.isPartialUploadMessage(
+                "partial upload: 1/3 chunks stored, 2 failed"));
+        assertFalse(PartialUploadException.isPartialUploadMessage(""));
+        assertFalse(PartialUploadException.isPartialUploadMessage(null));
+    }
+
 }

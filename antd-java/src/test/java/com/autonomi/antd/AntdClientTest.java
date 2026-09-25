@@ -898,6 +898,86 @@ class AntdClientTest {
     }
 
     @Test
+    void testPartialUpload502WithNonStringCodeFallsBackToNetworkException() throws IOException {
+        // The error body is input from the network. A `code` that is not the
+        // JSON string "PARTIAL_UPLOAD" (object, array, null, number), a body
+        // that is not a JSON object, or a non-string `error` must fall back to
+        // the status-based mapping (502 -> plain NetworkException), never
+        // escape as a raw parse or cast exception.
+        String[] bodies = {
+                "{\"code\":{}}",
+                "{\"code\":[\"PARTIAL_UPLOAD\"]}",
+                "{\"code\":null,\"error\":\"x\"}",
+                "{\"code\":502,\"error\":\"x\"}",
+                "{\"code\":true}",
+                "[{\"code\":\"PARTIAL_UPLOAD\"}]",
+                "[]",
+                "{\"error\":{\"detail\":\"x\"},\"code\":\"NETWORK_ERROR\"}",
+                "{\"error\":[\"x\"]}",
+                "not json at all",
+        };
+        for (String body : bodies) {
+            try (MockWebServer srv = startFinalize502Daemon(body);
+                 AntdClient c = new AntdClient(srv.url("/").toString(), Duration.ofSeconds(10))) {
+                AntdException ex = assertThrows(AntdException.class,
+                        () -> c.finalizeUpload("up1", Map.of("0xq", "0xt")), body);
+                assertEquals(NetworkException.class, ex.getClass(),
+                        "body " + body + " must map to a plain NetworkException");
+                assertEquals(502, ex.getStatusCode(), body);
+                assertNotNull(ex.getMessage(), body);
+            }
+        }
+    }
+
+    @Test
+    void testPartialUploadWrongTypedFieldsReadAsDefaults() throws IOException {
+        // `code` is the string PARTIAL_UPLOAD, so these are partial uploads,
+        // but the counts are not JSON numbers and `retryable` is not a JSON
+        // boolean: they read as zero / false (never a truthy non-boolean)
+        // instead of throwing.
+        String[] bodies = {
+                "{\"code\":\"PARTIAL_UPLOAD\",\"chunks_failed\":[]}",
+                "{\"code\":\"PARTIAL_UPLOAD\",\"chunks_stored\":\"300\",\"chunks_failed\":{},"
+                        + "\"total_chunks\":null,\"retryable\":\"true\"}",
+                "{\"code\":\"PARTIAL_UPLOAD\",\"chunks_stored\":[1],\"chunks_failed\":true,"
+                        + "\"total_chunks\":{\"n\":3},\"retryable\":1}",
+        };
+        for (String body : bodies) {
+            try (MockWebServer srv = startFinalize502Daemon(body);
+                 AntdClient c = new AntdClient(srv.url("/").toString(), Duration.ofSeconds(10))) {
+                PartialUploadException ex = assertThrows(PartialUploadException.class,
+                        () -> c.finalizeUpload("up1", Map.of("0xq", "0xt")), body);
+                assertEquals(0L, ex.getChunksStored(), body);
+                assertEquals(0L, ex.getChunksFailed(), body);
+                assertEquals(0L, ex.getTotalChunks(), body);
+                assertFalse(ex.isRetryable(), body);
+                assertEquals(502, ex.getStatusCode(), body);
+            }
+        }
+    }
+
+    @Test
+    void testPartialUploadNonStringErrorKeepsTypedException() throws IOException {
+        // A non-string `error` must not crash the mapper; the typed exception
+        // and its counts still come through from the other fields.
+        String[] errors = {"{\"detail\":\"x\"}", "[\"x\"]", "42", "null"};
+        for (String err : errors) {
+            String body = "{\"error\":" + err + ",\"code\":\"PARTIAL_UPLOAD\","
+                    + "\"chunks_stored\":1,\"chunks_failed\":2,\"total_chunks\":3,\"retryable\":true}";
+            try (MockWebServer srv = startFinalize502Daemon(body);
+                 AntdClient c = new AntdClient(srv.url("/").toString(), Duration.ofSeconds(10))) {
+                PartialUploadException ex = assertThrows(PartialUploadException.class,
+                        () -> c.finalizeUpload("up1", Map.of("0xq", "0xt")), body);
+                assertEquals(1L, ex.getChunksStored(), body);
+                assertEquals(2L, ex.getChunksFailed(), body);
+                assertEquals(3L, ex.getTotalChunks(), body);
+                assertTrue(ex.isRetryable(), body);
+                assertNotNull(ex.getMessage(), body);
+            }
+        }
+    }
+
+    @Test
     void testParsePartialUploadMessage() {
         String retained = "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
                 + "(paid attempt retained: call finalize again with the same upload_id to store the "

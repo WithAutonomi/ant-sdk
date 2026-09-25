@@ -33,14 +33,16 @@ import java.util.regex.Pattern;
  *
  * <p>Over REST the counts and the flag come from the structured error body.
  * Over gRPC the daemon surfaces a partial upload as status {@code ABORTED}
- * whose description opens with the fixed prefix {@code "Partial upload:"}
+ * whose description starts with the fixed prefix {@code "Partial upload:"}
  * ({@code "Partial upload: S/T chunks stored, F failed ..."}, with a
  * {@code "paid attempt retained"} hint when retryable). The gRPC client maps
  * {@code ABORTED} to this exception only when
- * {@link #isPartialUploadMessage(String)} recognises that prefix, and parses
- * the rest via {@link #fromMessage(String)}; a message that carries the
- * prefix but garbled counts leaves the counts zero and {@code retryable}
- * false.
+ * {@link #isPartialUploadMessage(String)} finds that prefix at the start of
+ * the description (an {@code ABORTED} that merely quotes it further in keeps
+ * the generic mapping), and parses the rest via {@link #fromMessage(String)}.
+ * Counts and the hint are parsed independently: a description that starts
+ * with the prefix but has garbled counts leaves the counts zero, while
+ * {@code retryable} still follows the hint.
  *
  * <p>See {@code docs/external-signer-flow.md} §6 ("Retry a partial store")
  * for the daemon-side contract.
@@ -51,9 +53,10 @@ public class PartialUploadException extends NetworkException {
     public static final String CODE = "PARTIAL_UPLOAD";
 
     /**
-     * Fixed text every {@code PARTIAL_UPLOAD} message from the daemon opens
+     * Fixed text every {@code PARTIAL_UPLOAD} message from the daemon starts
      * with. Over gRPC this is the only marker that distinguishes a partial
-     * upload from any other {@code ABORTED} status.
+     * upload from any other {@code ABORTED} status, and it counts only at the
+     * start of the description (see {@link #isPartialUploadMessage(String)}).
      */
     public static final String MESSAGE_PREFIX = "Partial upload:";
 
@@ -83,21 +86,27 @@ public class PartialUploadException extends NetworkException {
 
     /**
      * Whether {@code message} is the daemon's {@code PARTIAL_UPLOAD} wire text,
-     * i.e. it contains the fixed {@link #MESSAGE_PREFIX}. The gRPC client uses
-     * this to decide whether an {@code ABORTED} status is a partial upload at
-     * all; a {@code null} or unrelated message is not.
+     * i.e. it starts with the fixed {@link #MESSAGE_PREFIX}. The gRPC client
+     * uses this to decide whether an {@code ABORTED} status is a partial upload
+     * at all. The match is anchored at the start rather than a containment
+     * check: the daemon never wraps its own message, so a status that merely
+     * quotes {@code "Partial upload:"} further into its description is not a
+     * partial upload and must not select the paid-attempt retry path. A
+     * {@code null} or unrelated message is not one either.
      */
     public static boolean isPartialUploadMessage(String message) {
-        return message != null && message.contains(MESSAGE_PREFIX);
+        return message != null && message.startsWith(MESSAGE_PREFIX);
     }
 
     /**
      * Builds the exception from a bare {@code PARTIAL_UPLOAD} message, recovering
      * the chunk counts and the retryable hint from the text. Used for gRPC, where
      * the status carries no structured detail; REST callers get the body fields.
-     * Callers should gate on {@link #isPartialUploadMessage(String)} first; a
-     * message whose counts cannot be parsed yields zero counts and
-     * {@code retryable == false}.
+     * Callers should gate on {@link #isPartialUploadMessage(String)} first.
+     * Counts and the retained hint are parsed independently: a message whose
+     * counts cannot be parsed yields zero counts, while {@code retryable}
+     * still follows the {@code "paid attempt retained"} hint ({@code false}
+     * when it is absent).
      */
     public static PartialUploadException fromMessage(String message) {
         String msg = message == null ? "" : message;

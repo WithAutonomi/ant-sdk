@@ -19,6 +19,14 @@ public final class ExceptionFactory {
      * to {@code false}). Every other code keeps the status-based mapping of
      * {@link #fromHttpStatus(int, String)}.
      *
+     * <p>The body is input from the network, so this never throws on a
+     * malformed one: only a {@code code} that is the JSON string
+     * {@code "PARTIAL_UPLOAD"} selects the typed exception (a missing, null,
+     * numeric, object or array {@code code}, or a body that was not a JSON
+     * object, keeps the status-based mapping), and a count that is not a JSON
+     * number or a {@code retryable} that is not a JSON boolean reads as zero /
+     * {@code false}.
+     *
      * @param statusCode the HTTP status code
      * @param message    the error message from the daemon
      * @param body       the parsed JSON error body, or {@code null} when the
