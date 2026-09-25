@@ -109,14 +109,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any) (map
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		msg := string(respBytes)
-		var parsed map[string]any
-		if json.Unmarshal(respBytes, &parsed) == nil {
-			if e, ok := parsed["error"].(string); ok {
-				msg = e
-			}
-		}
-		return nil, resp.StatusCode, errorForResponse(resp.StatusCode, msg, parsed)
+		return nil, resp.StatusCode, errorFromBody(resp.StatusCode, respBytes)
 	}
 
 	if len(respBytes) == 0 {
@@ -174,14 +167,7 @@ func (c *Client) doStreamWithAccept(ctx context.Context, method, path string, bo
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		defer resp.Body.Close()
 		respBytes, _ := io.ReadAll(resp.Body)
-		msg := string(respBytes)
-		var parsed map[string]any
-		if json.Unmarshal(respBytes, &parsed) == nil {
-			if e, ok := parsed["error"].(string); ok {
-				msg = e
-			}
-		}
-		return nil, errorForResponse(resp.StatusCode, msg, parsed)
+		return nil, errorFromBody(resp.StatusCode, respBytes)
 	}
 
 	return resp.Body, nil

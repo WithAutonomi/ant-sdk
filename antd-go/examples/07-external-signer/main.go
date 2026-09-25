@@ -144,9 +144,11 @@ func externalSignerPay(ctx context.Context, rpcURL string, vaultAddr, tokenAddr 
 // The loop is bounded: a persistent failure (a chunk whose close group stays
 // unreachable) returns *PartialUploadError on every call, never a different
 // error, so it caps the attempts and treats a ChunksFailed that stops
-// shrinking as stuck. A non-retryable partial upload (older daemon, or a
-// merkle upload with unpaid batches) is returned as-is: the recovery there is
-// to re-prepare the same content, which skips the chunks already stored.
+// shrinking as stuck. A non-retryable partial upload (older daemon, a
+// merkle upload with unpaid batches, or an error the SDK could not read as
+// retained: Retryable is set only from the daemon's explicit JSON true) is
+// returned as-is: the recovery there is to re-prepare the same content,
+// which skips the chunks already stored.
 // retryBackoffUnit scales the linear backoff between attempts (attempt N
 // waits N units). A variable so the tests can shrink it.
 var retryBackoffUnit = 2 * time.Second

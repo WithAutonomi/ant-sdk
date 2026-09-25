@@ -2,7 +2,10 @@
 package antd
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -67,12 +70,18 @@ type ServiceUnavailableError struct{ AntdError }
 //     (or re-uploading) the same content skips already-stored chunks, so a
 //     retry pays only for the missing remainder.
 //
-// Over REST the counts and Retryable come from the structured error body.
-// Over gRPC an ABORTED status is treated as a partial upload only when its
-// message carries the daemon's fixed "Partial upload:" prefix (any other
-// ABORTED maps to the generic AntdError); the counts and the "paid attempt
-// retained" hint are then parsed best-effort from that message, and a
-// garbled message leaves the counts zero and Retryable false.
+// Over REST the counts and Retryable come from the structured error body,
+// read strictly: a count must be a JSON number holding a non-negative
+// integer no larger than math.MaxUint64 (anything else reads as 0), and only
+// the JSON boolean true sets Retryable. Over gRPC an ABORTED status is a
+// partial upload only when its message starts with the daemon's fixed
+// "Partial upload:" prefix (any other ABORTED, including one that merely
+// embeds that text, maps to the generic AntdError). The counts are then
+// parsed from the message, and Retryable is true only when all three counts
+// parsed AND the "paid attempt retained" hint is present: a garbled or
+// out-of-range count leaves the counts zero and Retryable false, so a
+// malformed message falls back to the re-prepare path rather than a
+// same-payment retry.
 type PartialUploadError struct {
 	AntdError
 	ChunksStored uint64
@@ -87,15 +96,16 @@ type PartialUploadError struct {
 const partialUploadPrefix = "Partial upload:"
 
 // isPartialUploadMessage reports whether a gRPC status message is the
-// daemon's PARTIAL_UPLOAD text (some transports prepend their own code
-// decoration, so this is a containment check, not a strict prefix).
+// daemon's PARTIAL_UPLOAD text. The check is anchored: the daemon's message
+// always starts with the prefix, and an ABORTED that merely contains it (a
+// wrapped upstream error, say) keeps the generic mapping.
 func isPartialUploadMessage(msg string) bool {
-	return strings.Contains(msg, partialUploadPrefix)
+	return strings.HasPrefix(msg, partialUploadPrefix)
 }
 
-// partialUploadCounts matches the fixed prefix of the daemon's PARTIAL_UPLOAD
+// partialUploadCounts matches the fixed start of the daemon's PARTIAL_UPLOAD
 // message: "Partial upload: <stored>/<total> chunks stored, <failed> failed".
-var partialUploadCounts = regexp.MustCompile(partialUploadPrefix + ` (\d+)/(\d+) chunks stored, (\d+) failed`)
+var partialUploadCounts = regexp.MustCompile(`^` + regexp.QuoteMeta(partialUploadPrefix) + ` (\d+)/(\d+) chunks stored, (\d+) failed`)
 
 // partialUploadRetainedHint is the message tail the daemon appends when it
 // kept the paid attempt for a same-upload_id retry.
@@ -104,38 +114,119 @@ const partialUploadRetainedHint = "paid attempt retained"
 // parsePartialUploadMessage recovers the chunk counts and the retryable hint
 // from a PARTIAL_UPLOAD message. Used for gRPC, where the status carries no
 // structured detail; REST callers get the body fields instead.
+//
+// The counts gate the retry: retryable is true only when the message matched
+// the counts pattern, all three counts fit a uint64, and the "paid attempt
+// retained" hint is present. A pattern miss or an out-of-range count yields
+// zero counts and false. (strconv.ParseUint returns math.MaxUint64 alongside
+// ErrRange on overflow, so its error is checked rather than discarded.)
 func parsePartialUploadMessage(msg string) (stored, failed, total uint64, retryable bool) {
-	if m := partialUploadCounts.FindStringSubmatch(msg); m != nil {
-		stored, _ = strconv.ParseUint(m[1], 10, 64)
-		total, _ = strconv.ParseUint(m[2], 10, 64)
-		failed, _ = strconv.ParseUint(m[3], 10, 64)
+	m := partialUploadCounts.FindStringSubmatch(msg)
+	if m == nil {
+		return 0, 0, 0, false
 	}
-	retryable = strings.Contains(msg, partialUploadRetainedHint)
-	return stored, failed, total, retryable
+	var err error
+	if stored, err = strconv.ParseUint(m[1], 10, 64); err != nil {
+		return 0, 0, 0, false
+	}
+	if total, err = strconv.ParseUint(m[2], 10, 64); err != nil {
+		return 0, 0, 0, false
+	}
+	if failed, err = strconv.ParseUint(m[3], 10, 64); err != nil {
+		return 0, 0, 0, false
+	}
+	return stored, failed, total, strings.Contains(msg, partialUploadRetainedHint)
+}
+
+// errorFromBody maps a non-2xx REST response body onto a typed error. The
+// JSON "error" string becomes the message; any other body (not JSON, not an
+// object, or a non-string "error") keeps the raw body text as the message.
+func errorFromBody(statusCode int, respBytes []byte) error {
+	msg := string(respBytes)
+	body := decodeErrorBody(respBytes)
+	if e, ok := body["error"].(string); ok {
+		msg = e
+	}
+	return errorForResponse(statusCode, msg, body)
+}
+
+// decodeErrorBody decodes an error body that is a single JSON object, or
+// returns nil. Numbers decode as json.Number so a count keeps its exact
+// integer value: a float64 would round anything above 2^53 and turn
+// math.MaxUint64 into 2^64.
+func decodeErrorBody(respBytes []byte) map[string]any {
+	if !json.Valid(respBytes) {
+		return nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(respBytes))
+	dec.UseNumber()
+	var body map[string]any
+	if dec.Decode(&body) != nil {
+		return nil
+	}
+	return body
 }
 
 // errorForResponse maps a REST error response onto a typed error, preferring
 // the machine-readable `code` over the bare HTTP status where they diverge
 // (PARTIAL_UPLOAD arrives as a 502 that would otherwise read as a generic
 // NetworkError). body may be nil when the response was not JSON.
+//
+// The partial-upload fields are read strictly: code must be the JSON string
+// "PARTIAL_UPLOAD" (anything else falls back to the status-based error),
+// each count goes through jsonCount, and only the JSON boolean true sets
+// Retryable. A field of the wrong type reads as its zero value; a malformed
+// body never panics or escapes as a raw decoding error.
 func errorForResponse(statusCode int, message string, body map[string]any) error {
-	if code, _ := body["code"].(string); code == "PARTIAL_UPLOAD" {
-		e := &PartialUploadError{AntdError: AntdError{StatusCode: statusCode, Message: message}}
-		if v, ok := body["chunks_stored"].(float64); ok {
-			e.ChunksStored = uint64(v)
-		}
-		if v, ok := body["chunks_failed"].(float64); ok {
-			e.ChunksFailed = uint64(v)
-		}
-		if v, ok := body["total_chunks"].(float64); ok {
-			e.TotalChunks = uint64(v)
-		}
-		if v, ok := body["retryable"].(bool); ok {
-			e.Retryable = v
-		}
-		return e
+	if code, ok := body["code"].(string); !ok || code != "PARTIAL_UPLOAD" {
+		return errorForStatus(statusCode, message)
 	}
-	return errorForStatus(statusCode, message)
+	retryable, _ := body["retryable"].(bool)
+	return &PartialUploadError{
+		AntdError:    AntdError{StatusCode: statusCode, Message: message},
+		ChunksStored: jsonCount(body["chunks_stored"]),
+		ChunksFailed: jsonCount(body["chunks_failed"]),
+		TotalChunks:  jsonCount(body["total_chunks"]),
+		Retryable:    retryable,
+	}
+}
+
+// twoTo64 is 2^64, the first float64 past the uint64 range.
+const twoTo64 = float64(1 << 64)
+
+// jsonCount converts a decoded JSON count to a uint64. It accepts only a
+// JSON number holding a non-negative integer no larger than math.MaxUint64;
+// anything else (a string, bool, array, object or null, or a negative,
+// fractional or out-of-range number) reads as 0.
+func jsonCount(v any) uint64 {
+	switch n := v.(type) {
+	case json.Number:
+		if u, err := strconv.ParseUint(n.String(), 10, 64); err == nil {
+			return u // plain integer literal: exact
+		}
+		// A sign, fraction or exponent (or a literal past MaxUint64):
+		// fall back to the float value under the same range guard.
+		f, err := n.Float64()
+		if err != nil {
+			return 0
+		}
+		return countFromFloat(f)
+	case float64:
+		return countFromFloat(n)
+	default:
+		return 0
+	}
+}
+
+// countFromFloat converts f to a uint64 only when it is finite, integral and
+// in [0, 2^64). Converting a negative, NaN, infinite or >= 2^64 float64 to
+// uint64 is implementation-defined in Go, and a fraction would silently
+// truncate, so every other value reads as 0.
+func countFromFloat(f float64) uint64 {
+	if math.IsNaN(f) || math.IsInf(f, 0) || f < 0 || f >= twoTo64 || f != math.Trunc(f) {
+		return 0
+	}
+	return uint64(f)
 }
 
 // errorForStatus returns the appropriate error type for an HTTP status code.

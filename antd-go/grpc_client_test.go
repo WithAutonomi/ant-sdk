@@ -318,6 +318,11 @@ func (m *mockUploadService) FinalizeUpload(_ context.Context, req *pb.FinalizeUp
 	if req.GetUploadId() == "aborted-other" {
 		return nil, status.Error(codes.Aborted, "operation aborted for some other reason")
 	}
+	// Magic id: an ABORTED that embeds the partial-upload text without
+	// starting with it (a wrapped upstream error); guards the anchored gate.
+	if req.GetUploadId() == "aborted-embedded" {
+		return nil, status.Error(codes.Aborted, "upstream error: Partial upload: 1/3 chunks stored, 2 failed")
+	}
 	// Magic id: a partial upload the daemon did NOT retain (unpaid merkle
 	// batches, or an older daemon's message).
 	if req.GetUploadId() == "partial-final" {
@@ -1417,6 +1422,15 @@ func TestGrpcPartialUploadMapsToPartialUploadError(t *testing.T) {
 	if !errors.As(err, &base) || base.StatusCode != int(codes.Aborted) {
 		t.Fatalf("expected the generic mapping with the gRPC code, got %T: %v", err, err)
 	}
+
+	// Nor is one that merely embeds the prefix: the gate is anchored.
+	_, err = c.FinalizeMerkleUploadMulti(context.Background(), "aborted-embedded", []string{"0xw1"}, false)
+	if errors.As(err, &perr) {
+		t.Fatalf("embedded-marker ABORTED must not map to PartialUploadError: %v", err)
+	}
+	if !errors.As(err, &base) || base.StatusCode != int(codes.Aborted) {
+		t.Fatalf("expected the generic mapping with the gRPC code, got %T: %v", err, err)
+	}
 }
 
 func TestPrepareResponseToResultMultiBatch(t *testing.T) {
@@ -1449,5 +1463,72 @@ func TestPrepareResponseToResultMultiBatch(t *testing.T) {
 	// Multi-batch prepares leave the legacy singular fields empty.
 	if res.Depth != 0 || len(res.PoolCommitments) != 0 {
 		t.Fatalf("legacy fields must stay empty on multi-batch: %+v", res)
+	}
+}
+
+func TestIsPartialUploadMessageIsAnchored(t *testing.T) {
+	cases := []struct {
+		msg  string
+		want bool
+	}{
+		{"Partial upload: 1/3 chunks stored, 2 failed", true},
+		{"Partial upload: garbled", true}, // the gate only checks the prefix
+		{"upstream error: Partial upload: 1/3 chunks stored, 2 failed", false},
+		{" Partial upload: 1/3 chunks stored, 2 failed", false},
+		{"partial upload: 1/3 chunks stored, 2 failed", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		if got := isPartialUploadMessage(tc.msg); got != tc.want {
+			t.Errorf("isPartialUploadMessage(%q) = %v, want %v", tc.msg, got, tc.want)
+		}
+	}
+}
+
+func TestErrorFromGrpcPartialUploadContract(t *testing.T) {
+	const hint = " after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)"
+	const over = "18446744073709551616" // 2^64
+	cases := []struct {
+		name                  string
+		msg                   string
+		partial               bool
+		stored, failed, total uint64
+		retryable             bool
+	}{
+		{"well-formed with hint", "Partial upload: 300/312 chunks stored, 12 failed" + hint, true, 300, 12, 312, true},
+		{"well-formed without hint", "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum", true, 300, 12, 312, false},
+		{"stored overflow with hint", "Partial upload: " + over + "/312 chunks stored, 12 failed" + hint, true, 0, 0, 0, false},
+		{"total overflow with hint", "Partial upload: 300/" + over + " chunks stored, 12 failed" + hint, true, 0, 0, 0, false},
+		{"failed overflow with hint", "Partial upload: 300/312 chunks stored, " + over + " failed" + hint, true, 0, 0, 0, false},
+		{"pattern miss with hint", "Partial upload: chunks missing" + hint, true, 0, 0, 0, false},
+		{"embedded marker", "upstream error: Partial upload: 1/3 chunks stored, 2 failed", false, 0, 0, 0, false},
+		{"embedded marker with hint", "upstream error: Partial upload: 1/3 chunks stored, 2 failed" + hint, false, 0, 0, 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := errorFromGrpc(status.Error(codes.Aborted, tc.msg))
+			var perr *PartialUploadError
+			if !tc.partial {
+				if errors.As(err, &perr) {
+					t.Fatalf("must not map to *PartialUploadError: %+v", perr)
+				}
+				var base *AntdError
+				if !errors.As(err, &base) || base.StatusCode != int(codes.Aborted) || base.Message != tc.msg {
+					t.Fatalf("expected the generic ABORTED mapping, got %T: %v", err, err)
+				}
+				return
+			}
+			if !errors.As(err, &perr) {
+				t.Fatalf("expected *PartialUploadError, got %T: %v", err, err)
+			}
+			if perr.StatusCode != 502 || perr.Message != tc.msg {
+				t.Fatalf("unexpected status/message: %+v", perr)
+			}
+			if perr.ChunksStored != tc.stored || perr.ChunksFailed != tc.failed || perr.TotalChunks != tc.total || perr.Retryable != tc.retryable {
+				t.Fatalf("got (%d, %d, %d, %v), want (%d, %d, %d, %v)",
+					perr.ChunksStored, perr.ChunksFailed, perr.TotalChunks, perr.Retryable,
+					tc.stored, tc.failed, tc.total, tc.retryable)
+			}
+		})
 	}
 }
