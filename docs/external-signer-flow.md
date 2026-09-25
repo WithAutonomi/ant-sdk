@@ -510,8 +510,12 @@ only when the flag was set; older daemons ignore the flag.
 
 - **Entries:** at most 1024 per call on both transports (`MAX_VERIFY_ENTRIES`;
   a 256-chunk wave batch fits comfortably). More is a REST 400 / gRPC
-  `INVALID_ARGUMENT`.
-- **REST body:** `/v1/verify/quotes` has its own 40 MB body cap (antd 0.13.1+),
+  `INVALID_ARGUMENT`. The cap is per verify *request*, not per prepared
+  upload: a prepare can return more `signed_quotes` than one call accepts
+  (for example after ant-core's merkle-to-wave fallback), so verify those in
+  batches of at most 1024 entries. Such a prepare may also need a raised
+  client receive ceiling (below).
+- **REST body:** `/v1/verify/quotes` has its own 40 MB body cap (antd 0.14.0+),
   sized to a full batch of maximal entries; larger bodies are a 413 before any
   parsing. Per entry, `signed_quote` text over 21,848 base64 characters
   (16 KiB decoded) yields a `valid: false` verdict without being decoded. The
@@ -520,7 +524,7 @@ only when the flag was set; older daemons ignore the flag.
   set has its sidecar length-checked before decoding. A baseline quote (no
   pin) is fully resolved before the sidecar is examined, so an extraneous
   sidecar on it, oversized or not, is ignored rather than failing the entry.
-- **gRPC message:** `VerifyService` accepts 32 MiB per message (antd 0.13.1+),
+- **gRPC message:** `VerifyService` accepts 32 MiB per message (antd 0.14.0+),
   enough for the same 1024 entries as raw bytes. On antd 0.13.0 tonic's 4 MiB
   default applies, which tops out around 600 real entries — batch smaller or
   use REST against that version.

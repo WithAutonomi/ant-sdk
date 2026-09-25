@@ -538,7 +538,7 @@ paths:
         Run it on a daemon you trust (your own), never the counterparty's.
         Malformed entries yield per-entry valid:false verdicts, not transport
         errors; only an unparseable body or an oversized batch is a 400.
-        Limits (antd 0.13.1+): at most 1024 entries per call; request bodies
+        Limits (antd 0.14.0+): at most 1024 entries per call; request bodies
         on this route are capped at 40 MB (a full batch of maximal entries)
         and larger bodies are rejected with 413 before parsing; per entry,
         signed_quote text over 21,848 base64 chars (16 KiB decoded) or

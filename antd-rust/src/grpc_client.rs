@@ -719,7 +719,7 @@ impl GrpcClient {
     /// the daemon would return a per-entry invalid verdict for the same
     /// input).
     ///
-    /// The daemon accepts at most 1024 entries per call. antd >= 0.13.1 sets
+    /// The daemon accepts at most 1024 entries per call. antd >= 0.14.0 sets
     /// the gRPC decode ceiling to admit a full batch; on 0.13.0 the gRPC
     /// side tops out around 600 real entries.
     ///
