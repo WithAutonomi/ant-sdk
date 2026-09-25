@@ -17,7 +17,6 @@
 # repeated to store the remainder against the same payment (section 6 of
 # docs/external-signer-flow.md).
 
-require "eth"
 require "fileutils"
 require "tmpdir"
 require_relative "../lib/antd"
@@ -117,37 +116,64 @@ def external_signer_pay(rpc_url, vault_addr, token_addr, payments, key)
   payments.each_with_object({}) { |p, h| h[p.quote_hash] = pay_tx }
 end
 
-# Finalize with a bounded retry against the same payment.
+# Finalize, resuming a partial store against the same payment.
 #
 # +finalize_upload+ can raise +Antd::PartialUploadError+ after the wallet has
 # paid: some chunks stored, others missed quorum after the daemon's own
-# retries. When +retryable+ is true the daemon retained the paid attempt under
-# the same upload_id, so calling finalize again with the same arguments stores
-# the remainder against the same payment — no re-prepare, no second
-# signature, no double payment. A persistent failure (a close group that
-# stays unreachable) raises the same error on every call, never a different
-# one, so the loop caps the attempts and treats a +chunks_failed+ that stops
-# shrinking as stuck. A non-retryable partial upload (older daemon, or a
-# merkle upload with unpaid batches) is re-raised untouched: the recovery
-# there is to re-prepare the same content, which skips the chunks already
-# stored.
-def finalize_with_retry(client, upload_id, tx_hashes, max_attempts: 5)
+# retries. The on-chain payment persists either way; what to do next depends
+# on what the daemon said about the paid attempt:
+#
+# - +retryable+: the daemon retained the paid attempt under the same
+#   upload_id, so calling finalize again with the same upload_id and tx
+#   hashes stores the remainder against the same payment -- no re-prepare,
+#   no second signature, no double payment. A persistent failure (a close
+#   group that stays unreachable) raises the same error on every call, so
+#   the loop caps the attempts and treats a +chunks_failed+ that stops
+#   shrinking as stuck.
+# - +retention_known+ but not +retryable+: the daemon confirmed nothing was
+#   retained (a merkle upload with unpaid batches). The error is re-raised
+#   untouched; the recovery is to re-prepare the same content, which skips
+#   the chunks already stored.
+# - not +retention_known+: the error did not say whether the paid attempt
+#   was kept (a REST response from a daemon older than 0.14.0, or an error
+#   the SDK could not fully read, such as a gRPC message without a readable
+#   closing hint), and the daemon may still hold it. The helper stops
+#   without retrying, re-preparing or paying: keep the upload_id and tx
+#   hashes and reconcile before doing either.
+#
+# The helper never prepares or pays; it only repeats the same finalize call.
+# An interruption during the backoff (Ctrl-C, say) is re-raised as is, after
+# naming the upload_id that still holds the paid attempt.
+def finalize_with_retry(client, upload_id, tx_hashes, max_attempts: 5,
+                        backoff: ->(attempt) { sleep(2 * attempt) })
   last_failed = nil
   attempt = 0
   begin
     attempt += 1
     client.finalize_upload(upload_id, tx_hashes) # every chunk stored
   rescue Antd::PartialUploadError => e
-    raise unless e.retryable
+    unless e.retention_known
+      raise Antd::PartialUploadError.new(
+        "finalize stopped: retention of the paid attempt is unknown " \
+        "(#{e.chunks_stored}/#{e.total_chunks} chunks stored). The daemon may still hold it " \
+        "under upload_id #{upload_id}: keep the upload_id and tx hashes and reconcile " \
+        "before re-preparing or paying again: #{e.message}",
+        chunks_stored: e.chunks_stored, chunks_failed: e.chunks_failed,
+        total_chunks: e.total_chunks, retryable: false, retention_known: false
+      )
+    end
+    raise unless e.retryable # confirmed not retained: the caller re-prepares
 
     stuck = !last_failed.nil? && e.chunks_failed >= last_failed
     if attempt >= max_attempts || stuck
       raise Antd::PartialUploadError.new(
         "finalize stuck after #{attempt} attempt(s): #{e.chunks_stored}/#{e.total_chunks} " \
         "chunks stored, #{e.chunks_failed} still unstored (paid attempt retained under " \
-        "upload_id #{upload_id} — retry later or re-prepare): #{e.message}",
+        "upload_id #{upload_id} — retry the same finalize later (don't re-prepare, which would pay again)): " \
+        "#{e.message}",
         chunks_stored: e.chunks_stored, chunks_failed: e.chunks_failed,
-        total_chunks: e.total_chunks, retryable: e.retryable
+        total_chunks: e.total_chunks, retryable: e.retryable,
+        retention_known: e.retention_known
       )
     end
 
@@ -155,10 +181,25 @@ def finalize_with_retry(client, upload_id, tx_hashes, max_attempts: 5)
     puts "finalize stored #{e.chunks_stored}/#{e.total_chunks} chunks, " \
          "#{e.chunks_failed} still unstored — retrying against the same payment " \
          "(attempt #{attempt + 1}/#{max_attempts})"
-    sleep(attempt * 2)
+    begin
+      backoff.call(attempt)
+    rescue Interrupt, StandardError
+      warn "finalize retry interrupted after #{attempt} attempt(s) with " \
+           "#{e.chunks_stored}/#{e.total_chunks} chunks stored: the paid attempt is retained " \
+           "under upload_id #{upload_id}; resume later with the same finalize call, " \
+           "do not re-prepare or pay again"
+      raise
+    end
     retry
   end
 end
+
+# Everything above has no side effects, so test/test_example_external_signer.rb
+# can load this file and exercise finalize_with_retry offline. The script body
+# below runs only when the file is executed directly.
+return unless File.expand_path($PROGRAM_NAME) == File.expand_path(__FILE__)
+
+require "eth"
 
 client = Antd::Client.new
 key = Eth::Key.new(priv: ANVIL_KEY)

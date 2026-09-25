@@ -662,15 +662,17 @@ class TestGrpcClient < Minitest::Test
     assert_equal 12, err.chunks_failed
     assert_equal 312, err.total_chunks
     assert err.retryable, "expected retryable from the retained hint"
+    assert err.retention_known, "the retained hint makes retention known"
     assert_kind_of Antd::NetworkError, err
   end
 
-  def test_error_aborted_without_retained_hint_is_not_retryable
+  def test_error_aborted_with_not_retained_hint_is_known_not_retryable
     msg = "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " \
           "(stored chunks persist; re-prepare the same content to retry only the remainder)"
     client = build_error_client(grpc_error(:ABORTED, msg))
     err = assert_raises(Antd::PartialUploadError) { client.chunk_put("x") }
-    refute err.retryable, "no retained hint must read as not retryable"
+    refute err.retryable, "the not-retained hint must read as not retryable"
+    assert err.retention_known, "the not-retained hint: confirmed not retained"
     assert_equal 300, err.chunks_stored
     assert_equal 12, err.chunks_failed
     assert_equal 312, err.total_chunks
@@ -696,6 +698,7 @@ class TestGrpcClient < Minitest::Test
     assert_equal 0, err.chunks_failed
     assert_equal 0, err.total_chunks
     refute err.retryable
+    refute err.retention_known
     assert_includes err.message, "Partial upload: counts unreadable"
   end
 
@@ -710,6 +713,7 @@ class TestGrpcClient < Minitest::Test
     assert_equal 0, err.chunks_failed
     assert_equal 0, err.total_chunks
     refute err.retryable, "unparsed counts must not enable retry"
+    refute err.retention_known, "unparsed counts leave retention unknown, not confirmed"
   end
 
   # A count above u64::MAX (the daemon's count type) in any position is a
@@ -725,6 +729,7 @@ class TestGrpcClient < Minitest::Test
       err = assert_raises(Antd::PartialUploadError, msg) { client.chunk_put("x") }
       assert_equal [0, 0, 0], [err.chunks_stored, err.chunks_failed, err.total_chunks], msg
       refute err.retryable, msg
+      refute err.retention_known, msg
     end
   end
 
@@ -741,6 +746,53 @@ class TestGrpcClient < Minitest::Test
     assert_equal 2, err.chunks_failed
     assert_equal 3, err.total_chunks
     refute err.retryable
+    refute err.retention_known, "no closing hint: retention unknown"
+  end
+
+  # Readable counts without a readable retention hint (none, or the review's
+  # truncated reproducer): the counts still read, but retention is unknown
+  # (stop and reconcile), never "nothing retained" (re-prepare).
+  def test_error_aborted_with_counts_but_no_readable_hint_is_unknown
+    [
+      "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum",
+      "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (paid attempt retai"
+    ].each do |msg|
+      client = build_error_client(grpc_error(:ABORTED, msg))
+      err = assert_raises(Antd::PartialUploadError, msg) { client.chunk_put("x") }
+      assert_equal [1, 2, 3], [err.chunks_stored, err.chunks_failed, err.total_chunks], msg
+      refute err.retryable, msg
+      refute err.retention_known, "#{msg}: retention must be unknown, not confirmed non-retention"
+    end
+  end
+
+  # Only the hint that closes the details is the daemon's answer
+  # (partial_upload_hint in antd/src/error.rs). [retryable, retention_known]
+  def test_error_aborted_retention_comes_from_the_closing_hint
+    retained = " (paid attempt retained: call finalize again with the same upload_id " \
+               "to store the remainder against the same payment)"
+    not_retained = " (stored chunks persist; re-prepare the same content to retry only the remainder)"
+    {
+      "quorum#{retained}" => [true, true],
+      "quorum (paid attempt retained)" => [true, true],
+      "quorum#{not_retained}" => [false, true],
+      "quorum (2 of 5 peers)#{not_retained}" => [false, true],
+      "peer said (paid attempt retained)#{not_retained}" => [false, true],
+      "quorum" => [false, false],
+      "quorum (paid attempt retai" => [false, false],
+      "quorum (paid attempt retained: call finalize again" => [false, false],
+      "quorum (stored chunks persist; re-prepare the same con" => [false, false],
+      "quorum (something else)" => [false, false],
+      "quorum#{retained} trailing" => [false, false],
+      "quorum#{retained}\n" => [false, false],
+      "peer said (paid attempt retained) (connection reset)" => [false, false]
+    }.each do |rest, (retryable, known)|
+      msg = "Partial upload: 1/3 chunks stored, 2 failed after retries: #{rest}"
+      client = build_error_client(grpc_error(:ABORTED, msg))
+      err = assert_raises(Antd::PartialUploadError, msg.inspect) { client.chunk_put("x") }
+      assert_equal [1, 2, 3, retryable, known],
+                   [err.chunks_stored, err.chunks_failed, err.total_chunks, err.retryable, err.retention_known],
+                   msg.inspect
+    end
   end
 
   # Anchored, not containment: an ABORTED that quotes "Partial upload:"
