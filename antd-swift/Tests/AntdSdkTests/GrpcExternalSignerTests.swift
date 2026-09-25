@@ -188,13 +188,15 @@ final class GrpcExternalSignerTests: XCTestCase {
                 XCTAssertEqual(error.chunksFailed, 12)
                 XCTAssertEqual(error.totalChunks, 312)
                 XCTAssertTrue(error.retryable)
+                XCTAssertTrue(error.retentionKnown)
             } catch {
                 XCTFail("expected PartialUploadError, got \(error)")
             }
         }
     }
 
-    /// 13. ABORTED without the retained hint → counts parsed, retryable == false.
+    /// 13. ABORTED without the retained hint → counts parsed, retention known,
+    /// retryable == false (the daemon kept nothing).
     func testFinalizeUploadPartialNotRetryable() async throws {
         try await withMockServer { client in
             do {
@@ -205,6 +207,7 @@ final class GrpcExternalSignerTests: XCTestCase {
                 XCTAssertEqual(error.chunksFailed, 12)
                 XCTAssertEqual(error.totalChunks, 312)
                 XCTAssertFalse(error.retryable)
+                XCTAssertTrue(error.retentionKnown)
             } catch {
                 XCTFail("expected PartialUploadError, got \(error)")
             }
@@ -246,8 +249,8 @@ final class GrpcExternalSignerTests: XCTestCase {
     }
 
     /// 16. ABORTED "Partial upload:" with an out-of-range count and the
-    /// retained hint → PartialUploadError with zero counts and
-    /// retryable == false over the wire.
+    /// retained hint → PartialUploadError with zero counts, unknown retention
+    /// and retryable == false over the wire.
     func testFinalizeUploadPartialOverflowCountIsNotRetryable() async throws {
         try await withMockServer { client in
             do {
@@ -259,6 +262,7 @@ final class GrpcExternalSignerTests: XCTestCase {
                 XCTAssertEqual(error.chunksFailed, 0)
                 XCTAssertEqual(error.totalChunks, 0)
                 XCTAssertFalse(error.retryable)
+                XCTAssertFalse(error.retentionKnown)
             } catch {
                 XCTFail("expected PartialUploadError, got \(error)")
             }

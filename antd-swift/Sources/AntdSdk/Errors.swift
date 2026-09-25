@@ -43,7 +43,12 @@ public final class PaymentError: AntdError {
     }
 }
 
-public final class NetworkError: AntdError {
+/// A connection or upstream failure (HTTP 502, gRPC UNAVAILABLE).
+///
+/// Not `final`: ``PartialUploadError`` subclasses it, so a
+/// `catch let e as NetworkError` written before that typed error existed
+/// still catches a partial upload (which is also an HTTP 502).
+public class NetworkError: AntdError {
     public override init(_ message: String, statusCode: Int = 502) {
         super.init(message, statusCode: statusCode)
     }
@@ -68,64 +73,94 @@ public final class ServiceUnavailableError: AntdError {
 }
 
 /// A finalize stored some chunks while others remained unstored after the
-/// daemon's retries (HTTP 502 with `code: "PARTIAL_UPLOAD"`; gRPC ABORTED).
-/// The on-chain payment persists and the stored chunks stay on the network.
-/// How to finish the upload depends on ``retryable``:
+/// daemon's retries (HTTP 502 with `code: "PARTIAL_UPLOAD"`; gRPC ABORTED
+/// whose message starts with `Partial upload:`). The on-chain payment
+/// persists and the stored chunks stay on the network. How to finish the
+/// upload depends on ``retryable`` and ``retentionKnown``:
 ///
-/// - `retryable == true`: the daemon kept the paid attempt (payment proofs +
+/// - ``retryable``: the daemon kept the paid attempt (payment proofs +
 ///   unstored chunks) under the same `upload_id`. Call the **same** finalize
-///   method again with the same arguments to store the remainder against the
-///   same payment — no re-prepare, no second signature, no double payment.
-///   Bound the loop: a persistent failure throws this error on every call, so
-///   cap the attempts and treat a ``chunksFailed`` that stops shrinking as
-///   stuck. The retained attempt expires with the daemon's pending-upload TTL.
-///   (antd >= 0.14.0; older daemons never send the flag, so `retryable` reads
-///   `false` and the re-prepare path applies.)
-/// - `retryable == false`: nothing was retained (a merkle finalize with
-///   deliberately unpaid batches, or an older daemon). Re-preparing the same
-///   content skips already-stored chunks, so a retry pays only for the
-///   missing remainder.
+///   method again with the same `upload_id` and the same payment artefacts
+///   to store the remainder against the same payment — no re-prepare, no
+///   second signature, no double payment. Bound the loop: a persistent
+///   failure throws this error on every call, so cap the attempts and treat
+///   a ``chunksFailed`` that stops shrinking as stuck. The retained attempt
+///   expires with the daemon's pending-upload TTL. (antd >= 0.14.0.)
+/// - ``retentionKnown`` and not ``retryable``: the daemon confirmed it kept
+///   nothing (for example a merkle finalize with deliberately unpaid
+///   batches). Re-preparing the same content skips already-stored chunks, so
+///   a retry pays only for the missing remainder.
+/// - Not ``retentionKnown``: retention is unknown, and the daemon may still
+///   hold the paid attempt. Stop automatic recovery, keep the `upload_id`
+///   and the original payment artefacts (transaction hashes or winner pool
+///   hash), and reconcile before re-preparing or paying again. Never pay
+///   again on this signal alone. Daemons older than 0.14.0 never send
+///   `retryable`, so their REST partial uploads read as unknown.
+///
+/// ``retryable`` implies ``retentionKnown``.
 ///
 /// Over REST the counts and `retryable` come from the structured error body.
 /// The counts must be JSON non-negative integers that fit in `UInt64` and
 /// `retryable` a JSON boolean; a body where any of those (or `error` /
 /// `code`) carries another JSON type, such as a quoted `"1"` or `"true"`,
-/// does not decode and keeps the status-based mapping (a 502 stays a
-/// ``NetworkError``). Absent counts read zero and an absent `retryable`
-/// reads `false`.
+/// does not decode and keeps the status-based mapping (a 502 stays a plain
+/// ``NetworkError``). Absent or `null` counts read zero. ``retentionKnown``
+/// is `true` only when the body carries `retryable` as a JSON boolean; an
+/// absent or `null` `retryable` reads as unknown retention, not retryable.
 ///
 /// Over gRPC they are parsed from the status message (`Partial upload: S/T
 /// chunks stored, F failed ...`, with a `paid attempt retained` hint when
 /// retryable). Only an ABORTED whose message **starts with** the daemon's
 /// fixed `Partial upload:` prefix maps here; any other ABORTED, including one
 /// that merely mentions the prefix later in its text, keeps the
-/// ``ForkError`` mapping. `retryable` is `true` only when the counts pattern
-/// matched, all three counts converted to `UInt64`, and the hint is present;
-/// on a pattern miss or a failed conversion the counts read zero and
-/// `retryable` is `false`, so a garbled message never enables the
-/// same-`upload_id` retry. See `docs/external-signer-flow.md` §6.
+/// ``ForkError`` mapping. ``retentionKnown`` is `true` only when the counts
+/// pattern matched and all three counts converted to `UInt64`; the hint then
+/// decides ``retryable``. On a pattern miss or a failed conversion the
+/// counts read zero, retention is unknown and ``retryable`` is `false`, so a
+/// garbled message neither enables the same-`upload_id` retry nor reads as
+/// a confirmed "nothing retained". SDK releases up to 0.13.x mapped every
+/// gRPC ABORTED to ``ForkError``; a partial-upload ABORTED now maps here
+/// (the daemon emits ABORTED only for `PARTIAL_UPLOAD`). See
+/// `docs/external-signer-flow.md` §6.
 ///
-/// This is a sibling of ``NetworkError`` (not a subclass) so that a
-/// `catch let e as NetworkError` clause never swallows a paid, partly stored
-/// upload as a plain transport failure.
-public final class PartialUploadError: AntdError {
+/// A subclass of ``NetworkError``, the type a REST partial upload mapped to
+/// before this error existed, so an existing `catch let e as NetworkError`
+/// still catches it. Catch `PartialUploadError` *before* `NetworkError` to
+/// act on the flags above: a paid, partly stored upload is not a plain
+/// transport failure.
+public final class PartialUploadError: NetworkError {
+    /// Chunks the daemon confirmed stored.
     public let chunksStored: UInt64
+    /// Chunks still unstored after the daemon's retries.
     public let chunksFailed: UInt64
+    /// Chunks in the upload.
     public let totalChunks: UInt64
+    /// The daemon kept the paid attempt under the same `upload_id`: repeat
+    /// the same finalize call, bounded. Implies ``retentionKnown``.
     public let retryable: Bool
+    /// Whether the daemon's answer on retention is known. `true`: it either
+    /// kept the paid attempt (``retryable``) or confirmed it kept nothing
+    /// (re-prepare). `false`: unknown, and the daemon may still hold the paid
+    /// attempt; stop automatic recovery, keep the `upload_id` and payment
+    /// artefacts, and reconcile before re-preparing or paying again.
+    public let retentionKnown: Bool
 
+    /// `retryable` holds only together with `retentionKnown`: an attempt the
+    /// daemon is not known to hold is never marked retryable.
     public init(
         _ message: String,
         chunksStored: UInt64,
         chunksFailed: UInt64,
         totalChunks: UInt64,
         retryable: Bool,
+        retentionKnown: Bool,
         statusCode: Int = 502
     ) {
         self.chunksStored = chunksStored
         self.chunksFailed = chunksFailed
         self.totalChunks = totalChunks
-        self.retryable = retryable
+        self.retryable = retryable && retentionKnown
+        self.retentionKnown = retentionKnown
         super.init(message, statusCode: statusCode)
     }
 }
@@ -182,10 +217,12 @@ enum ErrorMapping {
     /// Maps a non-2xx REST response to an ``AntdError``. `body` is the raw
     /// response body. When it is the daemon's JSON envelope with
     /// `code == "PARTIAL_UPLOAD"` the structured counts and `retryable` flag
-    /// are surfaced as a ``PartialUploadError`` (absent counts read zero and
-    /// an absent `retryable` reads `false`). Every other body, including an
-    /// envelope whose fields carry the wrong JSON types (see
-    /// ``ErrorBodyDTO``), keeps the status-based mapping, so a malformed
+    /// are surfaced as a ``PartialUploadError``. Absent or `null` counts read
+    /// zero. `retentionKnown` is `true` only when `retryable` is present as a
+    /// JSON boolean, so an absent or `null` `retryable` (daemons older than
+    /// 0.14.0) reads as unknown retention and not retryable. Every other
+    /// body, including an envelope whose fields carry the wrong JSON types
+    /// (see ``ErrorBodyDTO``), keeps the status-based mapping, so a malformed
     /// body always yields a typed ``AntdError`` and no decoding error
     /// reaches the caller.
     static func fromHTTPStatus(_ statusCode: Int, body: String) -> AntdError {
@@ -197,6 +234,7 @@ enum ErrorMapping {
                 chunksFailed: envelope.chunksFailed ?? 0,
                 totalChunks: envelope.totalChunks ?? 0,
                 retryable: envelope.retryable ?? false,
+                retentionKnown: envelope.retryable != nil,
                 statusCode: statusCode
             )
         }
@@ -242,6 +280,7 @@ enum ErrorMapping {
                     chunksFailed: parsed.chunksFailed,
                     totalChunks: parsed.totalChunks,
                     retryable: parsed.retryable,
+                    retentionKnown: parsed.retentionKnown,
                     statusCode: 502
                 )
             }
@@ -261,16 +300,18 @@ enum ErrorMapping {
     ///
     /// All or nothing: the counts pattern must match at the start of the
     /// message and all three counts must convert to `UInt64` (a value past
-    /// `UInt64.max` does not). Only then are the counts returned, and only
-    /// then can `retryable` be `true`, which additionally needs the `paid
-    /// attempt retained` hint. On a pattern miss or any failed conversion
-    /// every count is zero and `retryable` is `false`, even when the hint is
-    /// present, so a garbled message never enables the same-`upload_id`
-    /// retry. Callers decide whether the message is a partial upload at all
-    /// (see ``partialUploadMessagePrefix``); this parser does not.
+    /// `UInt64.max` does not). Only then are the counts returned and
+    /// `retentionKnown` `true`, and the `paid attempt retained` hint then
+    /// decides `retryable`. On a pattern miss or any failed conversion every
+    /// count is zero, `retentionKnown` is `false` and `retryable` is `false`,
+    /// even when the hint is present, so a garbled message never enables the
+    /// same-`upload_id` retry and never reads as a confirmed "nothing
+    /// retained" either. Callers decide whether the message is a partial
+    /// upload at all (see ``partialUploadMessagePrefix``); this parser does
+    /// not.
     static func parsePartialUploadMessage(
         _ message: String
-    ) -> (chunksStored: UInt64, chunksFailed: UInt64, totalChunks: UInt64, retryable: Bool) {
+    ) -> (chunksStored: UInt64, chunksFailed: UInt64, totalChunks: UInt64, retryable: Bool, retentionKnown: Bool) {
         guard let regex = try? NSRegularExpression(pattern: partialUploadCountsPattern),
               let match = regex.firstMatch(
                   in: message,
@@ -285,8 +326,8 @@ enum ErrorMapping {
               let total = UInt64(message[totalRange]),
               let failed = UInt64(message[failedRange])
         else {
-            return (0, 0, 0, false)
+            return (0, 0, 0, false, false)
         }
-        return (stored, failed, total, message.contains(partialUploadRetainedHint))
+        return (stored, failed, total, message.contains(partialUploadRetainedHint), true)
     }
 }
