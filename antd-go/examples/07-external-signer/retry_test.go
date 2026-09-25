@@ -100,7 +100,7 @@ func TestFinalizeWithRetryStopsWhenFailedCountStopsShrinking(t *testing.T) {
 		t.Fatal("expected a stuck error")
 	}
 	var perr *antd.PartialUploadError
-	if !errors.As(err, &perr) || !perr.Retryable {
+	if !errors.As(err, &perr) || !perr.Retryable || !perr.RetentionKnown {
 		t.Fatalf("stuck error must wrap the retained partial upload: %v", err)
 	}
 	if !strings.Contains(err.Error(), "stuck") || !strings.Contains(err.Error(), "upload_id u1") {
@@ -129,15 +129,47 @@ func TestFinalizeWithRetryCapsAttempts(t *testing.T) {
 
 func TestFinalizeWithRetryReturnsNonRetryablePartialUntouched(t *testing.T) {
 	srv, calls, _ := finalizeServer(t, []map[string]any{
-		partialBody(300, 12, 312, false), // older daemon / unpaid merkle batches
+		partialBody(300, 12, 312, false), // daemon confirms nothing retained (unpaid merkle batches, daemon wallet)
 	})
 	_, err := finalizeWithRetry(context.Background(), antd.NewClient(srv.URL), "u1", map[string]string{}, false)
 	var perr *antd.PartialUploadError
-	if !errors.As(err, &perr) || perr.Retryable {
-		t.Fatalf("expected the non-retryable partial upload as-is, got %v", err)
+	if !errors.As(err, &perr) || perr.Retryable || !perr.RetentionKnown {
+		t.Fatalf("expected the known non-retryable partial upload as-is, got %v", err)
+	}
+	if _, ok := err.(*antd.PartialUploadError); !ok {
+		t.Fatalf("a confirmed non-retained partial must be returned untouched, got %T", err)
 	}
 	if calls.Load() != 1 {
 		t.Fatalf("must not retry a non-retryable partial, got %d calls", calls.Load())
+	}
+}
+
+func TestFinalizeWithRetryStopsOnUnknownRetention(t *testing.T) {
+	// A missing (daemon older than 0.14.0) or malformed retryable flag means
+	// retention is unknown: the daemon may still hold the paid attempt, so
+	// the loop must stop on the first call, return the typed error, and
+	// point the caller at the upload_id rather than a re-prepare.
+	for name, retryable := range map[string]any{"missing": nil, "null": nil, "string": "true", "number": 1} {
+		t.Run(name, func(t *testing.T) {
+			body := partialBody(300, 12, 312, false)
+			if name == "missing" {
+				delete(body, "retryable")
+			} else {
+				body["retryable"] = retryable
+			}
+			srv, calls, _ := finalizeServer(t, []map[string]any{body, {"data_map": "never reached"}})
+			_, err := finalizeWithRetry(context.Background(), antd.NewClient(srv.URL), "u1", map[string]string{"0xq1": "0xt1"}, false)
+			var perr *antd.PartialUploadError
+			if !errors.As(err, &perr) || perr.RetentionKnown || perr.Retryable {
+				t.Fatalf("expected the typed partial with unknown retention, got %v", err)
+			}
+			if calls.Load() != 1 {
+				t.Fatalf("must stop on unknown retention, got %d calls", calls.Load())
+			}
+			if !strings.Contains(err.Error(), "upload_id u1") || !strings.Contains(err.Error(), "reconcile") {
+				t.Fatalf("unknown-retention error should keep the upload_id and say to reconcile: %v", err)
+			}
+		})
 	}
 }
 
@@ -155,6 +187,10 @@ func TestFinalizeWithRetryPreservesPaidAttemptOnCancellation(t *testing.T) {
 	_, err := finalizeWithRetry(ctx, antd.NewClient(srv.URL), "u1", map[string]string{}, false)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("cancellation identity must survive: %v", err)
+	}
+	var perr *antd.PartialUploadError
+	if !errors.As(err, &perr) || !perr.Retryable || perr.ChunksStored != 300 {
+		t.Fatalf("the retained partial upload must survive cancellation for errors.As: %v", err)
 	}
 	if !strings.Contains(err.Error(), "upload_id u1") || !strings.Contains(err.Error(), "300/312") {
 		t.Fatalf("cancellation must keep the retained-attempt context: %v", err)

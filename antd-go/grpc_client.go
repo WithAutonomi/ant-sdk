@@ -176,16 +176,20 @@ func errorFromGrpc(err error) error {
 		return &NetworkError{base}
 	case codes.Aborted:
 		// PARTIAL_UPLOAD: some chunks stored, some still unstored after
-		// retries. The counts and the "paid attempt retained" hint ride
-		// the message text over gRPC (no structured detail yet), so parse
-		// them best-effort to match the REST client's typed error. Only a
-		// message carrying the daemon's "Partial upload:" prefix is a
-		// partial upload — any other ABORTED (none exist today) falls
-		// through to the generic mapping rather than being misreported.
+		// retries. The counts and the retention hint ride the message text
+		// over gRPC (no structured detail yet), so parse them to match the
+		// REST client's typed error: RetentionKnown is set only when all
+		// three counts parse and the message ends with one of the daemon's
+		// two retention hints, and Retryable only when that hint is "paid
+		// attempt retained". Only a message that STARTS
+		// WITH the daemon's "Partial upload:" prefix is a partial upload —
+		// any other ABORTED (none exist today, and one that merely embeds
+		// the text counts as "other") falls through to the generic mapping
+		// rather than being misreported.
 		if isPartialUploadMessage(msg) {
 			base.StatusCode = 502
 			e := &PartialUploadError{AntdError: base}
-			e.ChunksStored, e.ChunksFailed, e.TotalChunks, e.Retryable = parsePartialUploadMessage(msg)
+			e.ChunksStored, e.ChunksFailed, e.TotalChunks, e.Retryable, e.RetentionKnown = parsePartialUploadMessage(msg)
 			return e
 		}
 		base.StatusCode = int(st.Code())

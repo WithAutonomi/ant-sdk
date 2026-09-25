@@ -134,23 +134,33 @@ func externalSignerPay(ctx context.Context, rpcURL string, vaultAddr, tokenAddr 
 	return out, nil
 }
 
-// finalizeWithRetry finalizes a wave-batch upload and, when the daemon
-// reports a storage shortfall AFTER the payment settled, retries the same
-// call against the same payment. antd >= 0.14.0 keeps the paid attempt
-// (payment proofs + unstored chunks) under the same upload_id and flags the
-// error Retryable, so repeating FinalizeUpload stores only the remainder — no
-// re-prepare, no second signature, no double payment.
-//
-// The loop is bounded: a persistent failure (a chunk whose close group stays
-// unreachable) returns *PartialUploadError on every call, never a different
-// error, so it caps the attempts and treats a ChunksFailed that stops
-// shrinking as stuck. A non-retryable partial upload (older daemon, or a
-// merkle upload with unpaid batches) is returned as-is: the recovery there is
-// to re-prepare the same content, which skips the chunks already stored.
 // retryBackoffUnit scales the linear backoff between attempts (attempt N
 // waits N units). A variable so the tests can shrink it.
 var retryBackoffUnit = 2 * time.Second
 
+// finalizeWithRetry finalizes a wave-batch upload and, when the daemon
+// reports a storage shortfall AFTER the payment settled, retries the same
+// call against the same payment. antd >= 0.14.0 keeps the paid attempt
+// (payment proofs + unstored chunks) under the same upload_id and flags the
+// error Retryable, so repeating FinalizeUpload with the same upload_id and
+// tx hashes stores only the remainder — no re-prepare, no second signature,
+// no double payment.
+//
+// The loop is bounded: a persistent failure (a chunk whose close group stays
+// unreachable) returns *PartialUploadError on every call, never a different
+// error, so it caps the attempts and treats a ChunksFailed that stops
+// shrinking as stuck. It retries only a Retryable partial upload; any other
+// partial upload stops the loop and returns the typed error:
+//
+//   - RetentionKnown && !Retryable: the daemon confirmed nothing was
+//     retained (a merkle upload with unpaid batches, a daemon-wallet
+//     upload). Returned as-is; the recovery there is to re-prepare the same
+//     content, which skips the chunks already stored.
+//   - !RetentionKnown: retention is unknown (a daemon older than 0.14.0
+//     never sends the flag, or the SDK could not read it). The daemon may
+//     still hold the paid attempt, so this stops without re-preparing or
+//     paying again; the caller keeps uploadID and txHashes and reconciles
+//     before doing either.
 func finalizeWithRetry(ctx context.Context, client *antd.Client, uploadID string, txHashes map[string]string, storeDataMap bool) (*antd.FinalizeUploadResult, error) {
 	const maxAttempts = 5
 	var lastFailed uint64
@@ -160,12 +170,20 @@ func finalizeWithRetry(ctx context.Context, client *antd.Client, uploadID string
 			return res, nil // every chunk stored
 		}
 		var perr *antd.PartialUploadError
-		if !errors.As(err, &perr) || !perr.Retryable {
+		if !errors.As(err, &perr) {
 			return nil, err
+		}
+		if !perr.RetentionKnown {
+			// Never re-prepare or pay again on this signal alone.
+			return nil, fmt.Errorf("finalize stored %d/%d chunks but the daemon's retention of the paid attempt is unknown: keep upload_id %s and the payment tx hashes, and reconcile before re-preparing or paying again: %w",
+				perr.ChunksStored, perr.TotalChunks, uploadID, err)
+		}
+		if !perr.Retryable {
+			return nil, err // nothing retained: the caller may re-prepare
 		}
 		stuck := attempt > 1 && perr.ChunksFailed >= lastFailed
 		if attempt >= maxAttempts || stuck {
-			return nil, fmt.Errorf("finalize stuck after %d attempt(s): %d/%d chunks stored, %d still unstored (paid attempt retained under upload_id %s — retry later or re-prepare): %w",
+			return nil, fmt.Errorf("finalize stuck after %d attempt(s): %d/%d chunks stored, %d still unstored (paid attempt retained under upload_id %s — retry the same finalize later instead of re-preparing and paying again): %w",
 				attempt, perr.ChunksStored, perr.TotalChunks, perr.ChunksFailed, uploadID, err)
 		}
 		lastFailed = perr.ChunksFailed
@@ -173,11 +191,12 @@ func finalizeWithRetry(ctx context.Context, client *antd.Client, uploadID string
 			perr.ChunksStored, perr.TotalChunks, perr.ChunksFailed, attempt+1, maxAttempts)
 		select {
 		case <-ctx.Done():
-			// Keep both the cancellation (errors.Is(err, context.Canceled)
-			// still works) and the paid-attempt context: the daemon still
+			// Wrap both the cancellation and the partial upload so that
+			// errors.Is(err, context.Canceled) and errors.As into a
+			// *antd.PartialUploadError both still work: the daemon still
 			// holds the retained upload, so the caller should resume with
 			// the same upload_id later, not re-prepare and pay again.
-			return nil, fmt.Errorf("finalize retry cancelled after %d attempt(s) with %d/%d chunks stored (paid attempt retained under upload_id %s — resume later with the same finalize call): %w (last partial: %v)",
+			return nil, fmt.Errorf("finalize retry cancelled after %d attempt(s) with %d/%d chunks stored (paid attempt retained under upload_id %s — resume later with the same finalize call): %w (last partial: %w)",
 				attempt, perr.ChunksStored, perr.TotalChunks, uploadID, ctx.Err(), perr)
 		case <-time.After(time.Duration(attempt) * retryBackoffUnit):
 		}

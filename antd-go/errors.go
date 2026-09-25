@@ -2,7 +2,10 @@
 package antd
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -49,36 +52,63 @@ type ServiceUnavailableError struct{ AntdError }
 // PartialUploadError indicates a finalize stored some chunks while others
 // remained unstored after the daemon's retries (HTTP 502 with code
 // PARTIAL_UPLOAD; gRPC ABORTED). The on-chain payment persists and the
-// stored chunks stay on the network. How to finish the upload depends on
-// Retryable:
+// stored chunks stay on the network. It embeds AntdError, not NetworkError:
+// match it with errors.As(err, &perr) for a *PartialUploadError.
 //
-//   - Retryable == true: the daemon kept the paid attempt (payment proofs +
+// How to finish the upload depends on Retryable and RetentionKnown
+// (Retryable implies RetentionKnown):
+//
+//   - Retryable: the daemon kept the paid attempt (payment proofs +
 //     unstored chunks) under the same upload_id. Call the same Finalize*
-//     method again with the same arguments to store the remainder against
-//     the same payment — no re-prepare, no second signature, no double
-//     payment. Bound the loop: a persistent failure returns this error on
-//     every call, so cap the attempts and treat a ChunksFailed that stops
+//     method again with the same upload_id and payment artefacts (tx
+//     hashes / winner pool hashes) to store the remainder against the same
+//     payment — no re-prepare, no second signature, no double payment.
+//     Bound the loop: a persistent failure returns this error on every
+//     call, so cap the attempts and treat a ChunksFailed that stops
 //     shrinking as stuck. The retained attempt expires with the daemon's
-//     pending-upload TTL. (antd >= 0.14.0; older daemons never set the
-//     flag, so Retryable reads false and the re-prepare path applies.)
-//   - Retryable == false: nothing was retained — a daemon-wallet upload
-//     (UploadFile / UploadData, where the daemon pays), a merkle finalize
-//     with deliberately unpaid batches, or an older daemon. Re-preparing
-//     (or re-uploading) the same content skips already-stored chunks, so a
-//     retry pays only for the missing remainder.
+//     pending-upload TTL. (antd >= 0.14.0.)
+//   - RetentionKnown && !Retryable: the daemon confirmed nothing was
+//     retained — a daemon-wallet upload (UploadFile / UploadData, where the
+//     daemon pays) or a merkle finalize with deliberately unpaid batches.
+//     Re-preparing (or re-uploading) the same content skips already-stored
+//     chunks, so a retry pays only for the missing remainder.
+//   - !RetentionKnown: retention is unknown. The daemon may still hold the
+//     paid attempt (it records the resume handle before returning this
+//     error), so stop automatic recovery, keep the upload_id and the
+//     original payment artefacts, and reconcile before re-preparing or
+//     paying again. Never pay again on this signal alone. Daemons older
+//     than 0.14.0 never send the retryable flag, so their REST partial
+//     uploads read as unknown.
 //
-// Over REST the counts and Retryable come from the structured error body.
-// Over gRPC an ABORTED status is treated as a partial upload only when its
-// message carries the daemon's fixed "Partial upload:" prefix (any other
-// ABORTED maps to the generic AntdError); the counts and the "paid attempt
-// retained" hint are then parsed best-effort from that message, and a
-// garbled message leaves the counts zero and Retryable false.
+// Over REST the counts and flags come from the structured error body, read
+// strictly: a count must be a JSON number holding a non-negative integer no
+// larger than math.MaxUint64 (anything else reads as 0), and RetentionKnown
+// is true only when the body's retryable is present and a JSON bool, whose
+// value then sets Retryable (missing, null or any other type reads as
+// unknown). Over gRPC an ABORTED status is a partial upload only when its
+// message starts with the daemon's fixed "Partial upload:" prefix (any
+// other ABORTED, including one that merely embeds that text, maps to the
+// generic AntdError). The counts are then parsed from the message:
+// RetentionKnown is true only when the counts pattern matched, all three
+// counts converted, and the message ends with one of the daemon's two
+// retention hints, "(paid attempt retained...)" or "(stored chunks persist;
+// re-prepare the same content...)"; Retryable is then true only for the
+// first. A garbled or out-of-range count leaves the counts zero and both
+// flags false. A missing, truncated or unrecognised tail keeps the counts
+// but leaves both flags false: retention unknown, not "nothing retained".
 type PartialUploadError struct {
 	AntdError
 	ChunksStored uint64
 	ChunksFailed uint64
 	TotalChunks  uint64
-	Retryable    bool
+	// Retryable reports that the daemon kept the paid attempt under the
+	// same upload_id, so the same finalize call can store the remainder
+	// against the same payment. It implies RetentionKnown.
+	Retryable bool
+	// RetentionKnown reports that the SDK read the daemon's answer on
+	// whether it kept the paid attempt. When false, retention is unknown:
+	// stop and reconcile; never pay again on this signal alone.
+	RetentionKnown bool
 }
 
 // partialUploadPrefix opens every PARTIAL_UPLOAD message the daemon emits;
@@ -87,55 +117,160 @@ type PartialUploadError struct {
 const partialUploadPrefix = "Partial upload:"
 
 // isPartialUploadMessage reports whether a gRPC status message is the
-// daemon's PARTIAL_UPLOAD text (some transports prepend their own code
-// decoration, so this is a containment check, not a strict prefix).
+// daemon's PARTIAL_UPLOAD text. The check is anchored: the daemon's message
+// always starts with the prefix, and an ABORTED that merely contains it (a
+// wrapped upstream error, say) keeps the generic mapping.
 func isPartialUploadMessage(msg string) bool {
-	return strings.Contains(msg, partialUploadPrefix)
+	return strings.HasPrefix(msg, partialUploadPrefix)
 }
 
-// partialUploadCounts matches the fixed prefix of the daemon's PARTIAL_UPLOAD
+// partialUploadCounts matches the fixed start of the daemon's PARTIAL_UPLOAD
 // message: "Partial upload: <stored>/<total> chunks stored, <failed> failed".
-var partialUploadCounts = regexp.MustCompile(partialUploadPrefix + ` (\d+)/(\d+) chunks stored, (\d+) failed`)
+var partialUploadCounts = regexp.MustCompile(`^` + regexp.QuoteMeta(partialUploadPrefix) + ` (\d+)/(\d+) chunks stored, (\d+) failed`)
 
-// partialUploadRetainedHint is the message tail the daemon appends when it
-// kept the paid attempt for a same-upload_id retry.
-const partialUploadRetainedHint = "paid attempt retained"
+// The daemon closes every PARTIAL_UPLOAD message with one of two
+// parenthesised hints (partial_upload_hint in antd/src/error.rs): the
+// retained hint when it kept the paid attempt for a same-upload_id retry,
+// the not-retained hint when it did not. Daemons older than 0.14.0 write
+// only the not-retained hint.
+const (
+	partialUploadRetainedHint    = "paid attempt retained"
+	partialUploadNotRetainedHint = "stored chunks persist; re-prepare the same content"
+)
 
-// parsePartialUploadMessage recovers the chunk counts and the retryable hint
-// from a PARTIAL_UPLOAD message. Used for gRPC, where the status carries no
-// structured detail; REST callers get the body fields instead.
-func parsePartialUploadMessage(msg string) (stored, failed, total uint64, retryable bool) {
-	if m := partialUploadCounts.FindStringSubmatch(msg); m != nil {
-		stored, _ = strconv.ParseUint(m[1], 10, 64)
-		total, _ = strconv.ParseUint(m[2], 10, 64)
-		failed, _ = strconv.ParseUint(m[3], 10, 64)
+// partialUploadRetentionTail matches the hint that closes the message:
+// "(<hint>...)" at the very end. The group must be the message's last text,
+// so a hint quoted inside the failure reason, a truncated tail, or trailing
+// text after the hint is not read as the daemon's answer.
+var partialUploadRetentionTail = regexp.MustCompile(`\((` + regexp.QuoteMeta(partialUploadRetainedHint) + `|` + regexp.QuoteMeta(partialUploadNotRetainedHint) + `)[^()]*\)$`)
+
+// parsePartialUploadMessage recovers the chunk counts and the retention
+// flags from a PARTIAL_UPLOAD message. Used for gRPC, where the status
+// carries no structured detail; REST callers get the body fields instead.
+//
+// known is true only when the message matched the counts pattern, all three
+// counts fit a uint64, and the message ends with one of the daemon's two
+// retention hints; retryable is then true only for the retained hint. A
+// pattern miss or an out-of-range count yields zero counts and both flags
+// false. Readable counts with a missing, truncated or unrecognised tail keep
+// the counts but leave both flags false: the daemon's answer on retention
+// was not read, so retention is unknown, never "nothing retained".
+// (strconv.ParseUint returns math.MaxUint64 alongside ErrRange on overflow,
+// so its error is checked rather than discarded.)
+func parsePartialUploadMessage(msg string) (stored, failed, total uint64, retryable, known bool) {
+	m := partialUploadCounts.FindStringSubmatch(msg)
+	if m == nil {
+		return 0, 0, 0, false, false
 	}
-	retryable = strings.Contains(msg, partialUploadRetainedHint)
-	return stored, failed, total, retryable
+	var err error
+	if stored, err = strconv.ParseUint(m[1], 10, 64); err != nil {
+		return 0, 0, 0, false, false
+	}
+	if total, err = strconv.ParseUint(m[2], 10, 64); err != nil {
+		return 0, 0, 0, false, false
+	}
+	if failed, err = strconv.ParseUint(m[3], 10, 64); err != nil {
+		return 0, 0, 0, false, false
+	}
+	tail := partialUploadRetentionTail.FindStringSubmatch(msg)
+	if tail == nil {
+		return stored, failed, total, false, false
+	}
+	return stored, failed, total, tail[1] == partialUploadRetainedHint, true
+}
+
+// errorFromBody maps a non-2xx REST response body onto a typed error. The
+// JSON "error" string becomes the message; any other body (not JSON, not an
+// object, or a non-string "error") keeps the raw body text as the message.
+func errorFromBody(statusCode int, respBytes []byte) error {
+	msg := string(respBytes)
+	body := decodeErrorBody(respBytes)
+	if e, ok := body["error"].(string); ok {
+		msg = e
+	}
+	return errorForResponse(statusCode, msg, body)
+}
+
+// decodeErrorBody decodes an error body that is a single JSON object, or
+// returns nil. Numbers decode as json.Number so a count keeps its exact
+// integer value: a float64 would round anything above 2^53 and turn
+// math.MaxUint64 into 2^64.
+func decodeErrorBody(respBytes []byte) map[string]any {
+	if !json.Valid(respBytes) {
+		return nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(respBytes))
+	dec.UseNumber()
+	var body map[string]any
+	if dec.Decode(&body) != nil {
+		return nil
+	}
+	return body
 }
 
 // errorForResponse maps a REST error response onto a typed error, preferring
 // the machine-readable `code` over the bare HTTP status where they diverge
 // (PARTIAL_UPLOAD arrives as a 502 that would otherwise read as a generic
 // NetworkError). body may be nil when the response was not JSON.
+//
+// The partial-upload fields are read strictly: code must be the JSON string
+// "PARTIAL_UPLOAD" (anything else falls back to the status-based error),
+// each count goes through jsonCount, and RetentionKnown is set only when
+// retryable is present and a JSON bool, whose value then sets Retryable
+// (missing, null or any other type reads as unknown retention). A field of
+// the wrong type reads as its zero value; a malformed body never panics or
+// escapes as a raw decoding error.
 func errorForResponse(statusCode int, message string, body map[string]any) error {
-	if code, _ := body["code"].(string); code == "PARTIAL_UPLOAD" {
-		e := &PartialUploadError{AntdError: AntdError{StatusCode: statusCode, Message: message}}
-		if v, ok := body["chunks_stored"].(float64); ok {
-			e.ChunksStored = uint64(v)
-		}
-		if v, ok := body["chunks_failed"].(float64); ok {
-			e.ChunksFailed = uint64(v)
-		}
-		if v, ok := body["total_chunks"].(float64); ok {
-			e.TotalChunks = uint64(v)
-		}
-		if v, ok := body["retryable"].(bool); ok {
-			e.Retryable = v
-		}
-		return e
+	if code, ok := body["code"].(string); !ok || code != "PARTIAL_UPLOAD" {
+		return errorForStatus(statusCode, message)
 	}
-	return errorForStatus(statusCode, message)
+	retryable, known := body["retryable"].(bool)
+	return &PartialUploadError{
+		AntdError:      AntdError{StatusCode: statusCode, Message: message},
+		ChunksStored:   jsonCount(body["chunks_stored"]),
+		ChunksFailed:   jsonCount(body["chunks_failed"]),
+		TotalChunks:    jsonCount(body["total_chunks"]),
+		Retryable:      retryable,
+		RetentionKnown: known,
+	}
+}
+
+// twoTo64 is 2^64, the first float64 past the uint64 range.
+const twoTo64 = float64(1 << 64)
+
+// jsonCount converts a decoded JSON count to a uint64. It accepts only a
+// JSON number holding a non-negative integer no larger than math.MaxUint64;
+// anything else (a string, bool, array, object or null, or a negative,
+// fractional or out-of-range number) reads as 0.
+func jsonCount(v any) uint64 {
+	switch n := v.(type) {
+	case json.Number:
+		if u, err := strconv.ParseUint(n.String(), 10, 64); err == nil {
+			return u // plain integer literal: exact
+		}
+		// A sign, fraction or exponent (or a literal past MaxUint64):
+		// fall back to the float value under the same range guard.
+		f, err := n.Float64()
+		if err != nil {
+			return 0
+		}
+		return countFromFloat(f)
+	case float64:
+		return countFromFloat(n)
+	default:
+		return 0
+	}
+}
+
+// countFromFloat converts f to a uint64 only when it is finite, integral and
+// in [0, 2^64). Converting a negative, NaN, infinite or >= 2^64 float64 to
+// uint64 is implementation-defined in Go, and a fraction would silently
+// truncate, so every other value reads as 0.
+func countFromFloat(f float64) uint64 {
+	if math.IsNaN(f) || math.IsInf(f, 0) || f < 0 || f >= twoTo64 || f != math.Trunc(f) {
+		return 0
+	}
+	return uint64(f)
 }
 
 // errorForStatus returns the appropriate error type for an HTTP status code.

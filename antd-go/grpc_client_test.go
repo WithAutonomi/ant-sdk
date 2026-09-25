@@ -318,10 +318,23 @@ func (m *mockUploadService) FinalizeUpload(_ context.Context, req *pb.FinalizeUp
 	if req.GetUploadId() == "aborted-other" {
 		return nil, status.Error(codes.Aborted, "operation aborted for some other reason")
 	}
+	// Magic id: an ABORTED that embeds the partial-upload text without
+	// starting with it (a wrapped upstream error); guards the anchored gate.
+	if req.GetUploadId() == "aborted-embedded" {
+		return nil, status.Error(codes.Aborted, "upstream error: Partial upload: 1/3 chunks stored, 2 failed")
+	}
 	// Magic id: a partial upload the daemon did NOT retain (unpaid merkle
 	// batches, or an older daemon's message).
 	if req.GetUploadId() == "partial-final" {
 		return nil, status.Error(codes.Aborted, "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (stored chunks persist; re-prepare the same content to retry only the remainder)")
+	}
+	// Magic ids: a partial upload whose counts read but whose retention hint
+	// is missing or cut short; retention must read as unknown.
+	if req.GetUploadId() == "partial-no-hint" {
+		return nil, status.Error(codes.Aborted, "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum")
+	}
+	if req.GetUploadId() == "partial-truncated-hint" {
+		return nil, status.Error(codes.Aborted, "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (paid attempt retai")
 	}
 	// Merkle multi-batch: winner_pool_hashes populated. Echo the paid-batch
 	// count back as ChunksStored so tests can assert the list arrived.
@@ -1395,16 +1408,32 @@ func TestGrpcPartialUploadMapsToPartialUploadError(t *testing.T) {
 	if perr.ChunksStored != 300 || perr.ChunksFailed != 12 || perr.TotalChunks != 312 {
 		t.Fatalf("unexpected counts parsed from message: %+v", perr)
 	}
-	if !perr.Retryable {
-		t.Fatalf("expected Retryable from the retained hint: %+v", perr)
+	if !perr.Retryable || !perr.RetentionKnown {
+		t.Fatalf("expected known retention + Retryable from the retained hint: %+v", perr)
 	}
 
 	_, err = c.FinalizeMerkleUploadMulti(context.Background(), "partial-final", []string{"0xw1"}, false)
 	if !errors.As(err, &perr) {
 		t.Fatalf("expected *PartialUploadError, got %T: %v", err, err)
 	}
-	if perr.Retryable {
-		t.Fatalf("no retained hint must read as not retryable: %+v", perr)
+	if perr.Retryable || !perr.RetentionKnown {
+		t.Fatalf("the not-retained hint: retention known, not retryable: %+v", perr)
+	}
+
+	// Readable counts without a readable retention hint: the daemon's answer
+	// was not read, so retention is unknown (stop and reconcile), never
+	// "nothing retained" (re-prepare).
+	for _, id := range []string{"partial-no-hint", "partial-truncated-hint"} {
+		_, err = c.FinalizeUpload(context.Background(), id, map[string]string{"0xq": "0xtx"}, false)
+		if !errors.As(err, &perr) {
+			t.Fatalf("%s: expected *PartialUploadError, got %T: %v", id, err, err)
+		}
+		if perr.ChunksStored != 1 || perr.ChunksFailed != 2 || perr.TotalChunks != 3 {
+			t.Fatalf("%s: counts should still read: %+v", id, perr)
+		}
+		if perr.Retryable || perr.RetentionKnown {
+			t.Fatalf("%s: retention must be unknown, not confirmed non-retention: %+v", id, perr)
+		}
 	}
 
 	// An ABORTED without the daemon's "Partial upload:" prefix is not a
@@ -1414,6 +1443,15 @@ func TestGrpcPartialUploadMapsToPartialUploadError(t *testing.T) {
 		t.Fatalf("non-partial ABORTED must not map to PartialUploadError: %v", err)
 	}
 	var base *AntdError
+	if !errors.As(err, &base) || base.StatusCode != int(codes.Aborted) {
+		t.Fatalf("expected the generic mapping with the gRPC code, got %T: %v", err, err)
+	}
+
+	// Nor is one that merely embeds the prefix: the gate is anchored.
+	_, err = c.FinalizeMerkleUploadMulti(context.Background(), "aborted-embedded", []string{"0xw1"}, false)
+	if errors.As(err, &perr) {
+		t.Fatalf("embedded-marker ABORTED must not map to PartialUploadError: %v", err)
+	}
 	if !errors.As(err, &base) || base.StatusCode != int(codes.Aborted) {
 		t.Fatalf("expected the generic mapping with the gRPC code, got %T: %v", err, err)
 	}
@@ -1449,5 +1487,89 @@ func TestPrepareResponseToResultMultiBatch(t *testing.T) {
 	// Multi-batch prepares leave the legacy singular fields empty.
 	if res.Depth != 0 || len(res.PoolCommitments) != 0 {
 		t.Fatalf("legacy fields must stay empty on multi-batch: %+v", res)
+	}
+}
+
+func TestIsPartialUploadMessageIsAnchored(t *testing.T) {
+	cases := []struct {
+		msg  string
+		want bool
+	}{
+		{"Partial upload: 1/3 chunks stored, 2 failed", true},
+		{"Partial upload: garbled", true}, // the gate only checks the prefix
+		{"upstream error: Partial upload: 1/3 chunks stored, 2 failed", false},
+		{" Partial upload: 1/3 chunks stored, 2 failed", false},
+		{"partial upload: 1/3 chunks stored, 2 failed", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		if got := isPartialUploadMessage(tc.msg); got != tc.want {
+			t.Errorf("isPartialUploadMessage(%q) = %v, want %v", tc.msg, got, tc.want)
+		}
+	}
+}
+
+func TestErrorFromGrpcPartialUploadContract(t *testing.T) {
+	// The daemon's two closing hints (partial_upload_hint in antd/src/error.rs).
+	const retainedTail = " (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)"
+	const notRetainedTail = " (stored chunks persist; re-prepare the same content to retry only the remainder)"
+	const hint = " after retries: quorum" + retainedTail
+	const notRetained = " after retries: quorum" + notRetainedTail
+	const over = "18446744073709551616" // 2^64
+	cases := []struct {
+		name                  string
+		msg                   string
+		partial               bool
+		stored, failed, total uint64
+		retryable, known      bool
+	}{
+		{"well-formed with hint", "Partial upload: 300/312 chunks stored, 12 failed" + hint, true, 300, 12, 312, true, true},
+		{"well-formed with the not-retained hint", "Partial upload: 300/312 chunks stored, 12 failed" + notRetained, true, 300, 12, 312, false, true},
+		{"short retained hint", "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (paid attempt retained)", true, 300, 12, 312, true, true},
+		{"parenthesised reason before the hint", "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (2 of 5 peers)" + notRetainedTail, true, 1, 2, 3, false, true},
+		// Readable counts but no readable answer on retention: unknown, not
+		// "nothing retained".
+		{"no hint", "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum", true, 300, 12, 312, false, false},
+		{"truncated retained hint", "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (paid attempt retai", true, 1, 2, 3, false, false},
+		{"retained hint without its closing paren", "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (paid attempt retained: call finalize again", true, 1, 2, 3, false, false},
+		{"truncated not-retained hint", "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (stored chunks persist; re-prepare the same con", true, 1, 2, 3, false, false},
+		{"unrecognised hint", "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (something else)", true, 1, 2, 3, false, false},
+		{"text after the hint", "Partial upload: 1/3 chunks stored, 2 failed" + hint + " trailing", true, 1, 2, 3, false, false},
+		{"retained hint quoted in the reason only", "Partial upload: 1/3 chunks stored, 2 failed after retries: peer said (paid attempt retained) (connection reset)", true, 1, 2, 3, false, false},
+		{"retained hint in the reason, not-retained tail", "Partial upload: 1/3 chunks stored, 2 failed after retries: peer said (paid attempt retained)" + notRetainedTail, true, 1, 2, 3, false, true},
+		{"stored overflow with hint", "Partial upload: " + over + "/312 chunks stored, 12 failed" + hint, true, 0, 0, 0, false, false},
+		{"total overflow with hint", "Partial upload: 300/" + over + " chunks stored, 12 failed" + hint, true, 0, 0, 0, false, false},
+		{"failed overflow with hint", "Partial upload: 300/312 chunks stored, " + over + " failed" + hint, true, 0, 0, 0, false, false},
+		{"pattern miss with hint", "Partial upload: chunks missing" + hint, true, 0, 0, 0, false, false},
+		{"embedded marker", "upstream error: Partial upload: 1/3 chunks stored, 2 failed", false, 0, 0, 0, false, false},
+		{"embedded marker with hint", "upstream error: Partial upload: 1/3 chunks stored, 2 failed" + hint, false, 0, 0, 0, false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := errorFromGrpc(status.Error(codes.Aborted, tc.msg))
+			var perr *PartialUploadError
+			if !tc.partial {
+				if errors.As(err, &perr) {
+					t.Fatalf("must not map to *PartialUploadError: %+v", perr)
+				}
+				var base *AntdError
+				if !errors.As(err, &base) || base.StatusCode != int(codes.Aborted) || base.Message != tc.msg {
+					t.Fatalf("expected the generic ABORTED mapping, got %T: %v", err, err)
+				}
+				return
+			}
+			if !errors.As(err, &perr) {
+				t.Fatalf("expected *PartialUploadError, got %T: %v", err, err)
+			}
+			if perr.StatusCode != 502 || perr.Message != tc.msg {
+				t.Fatalf("unexpected status/message: %+v", perr)
+			}
+			if perr.ChunksStored != tc.stored || perr.ChunksFailed != tc.failed || perr.TotalChunks != tc.total ||
+				perr.Retryable != tc.retryable || perr.RetentionKnown != tc.known {
+				t.Fatalf("got (%d, %d, %d, retryable=%v, known=%v), want (%d, %d, %d, retryable=%v, known=%v)",
+					perr.ChunksStored, perr.ChunksFailed, perr.TotalChunks, perr.Retryable, perr.RetentionKnown,
+					tc.stored, tc.failed, tc.total, tc.retryable, tc.known)
+			}
+		})
 	}
 }
