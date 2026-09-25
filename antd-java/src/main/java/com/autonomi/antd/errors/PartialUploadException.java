@@ -40,9 +40,11 @@ import java.util.regex.Pattern;
  * {@link #isPartialUploadMessage(String)} finds that prefix at the start of
  * the description (an {@code ABORTED} that merely quotes it further in keeps
  * the generic mapping), and parses the rest via {@link #fromMessage(String)}.
- * Counts and the hint are parsed independently: a description that starts
- * with the prefix but has garbled counts leaves the counts zero, while
- * {@code retryable} still follows the hint.
+ * {@code retryable} is {@code true} only when all three counts parse and the
+ * hint is present: a description whose counts do not match the layout, or
+ * overflow a {@code long}, yields zero counts and {@code retryable == false}
+ * even with the hint, because a bounded retry loop that cannot watch
+ * {@link #getChunksFailed()} shrink cannot tell progress from a stuck upload.
  *
  * <p>See {@code docs/external-signer-flow.md} §6 ("Retry a partial store")
  * for the daemon-side contract.
@@ -103,32 +105,32 @@ public class PartialUploadException extends NetworkException {
      * the chunk counts and the retryable hint from the text. Used for gRPC, where
      * the status carries no structured detail; REST callers get the body fields.
      * Callers should gate on {@link #isPartialUploadMessage(String)} first.
-     * Counts and the retained hint are parsed independently: a message whose
-     * counts cannot be parsed yields zero counts, while {@code retryable}
-     * still follows the {@code "paid attempt retained"} hint ({@code false}
-     * when it is absent).
+     *
+     * <p>{@code retryable} is {@code true} only when the message matches the
+     * count layout, all three counts convert to a {@code long}, and the
+     * {@code "paid attempt retained"} hint is present. On a layout miss or a
+     * failed conversion (a count that overflows a {@code long}) all three
+     * counts are zero and {@code retryable} is {@code false}, even when the
+     * hint is present: a caller must never be steered into the same-upload_id
+     * retry loop by a message whose counts it could not read.
      */
     public static PartialUploadException fromMessage(String message) {
         String msg = message == null ? "" : message;
-        long stored = 0L;
-        long total = 0L;
-        long failed = 0L;
         Matcher m = COUNTS.matcher(msg);
         if (m.find()) {
-            stored = parseCount(m.group(1));
-            total = parseCount(m.group(2));
-            failed = parseCount(m.group(3));
+            try {
+                long stored = Long.parseLong(m.group(1));
+                long total = Long.parseLong(m.group(2));
+                long failed = Long.parseLong(m.group(3));
+                return new PartialUploadException(msg, stored, failed, total,
+                        msg.contains(RETAINED_HINT));
+            } catch (NumberFormatException overflow) {
+                // A count beyond Long.MAX_VALUE: fall through to the
+                // all-or-nothing default rather than keep the counts that did
+                // convert.
+            }
         }
-        boolean retryable = msg.contains(RETAINED_HINT);
-        return new PartialUploadException(msg, stored, failed, total, retryable);
-    }
-
-    private static long parseCount(String digits) {
-        try {
-            return Long.parseLong(digits);
-        } catch (NumberFormatException e) {
-            return 0L;
-        }
+        return new PartialUploadException(msg, 0L, 0L, 0L, false);
     }
 
     /** Chunks the daemon stored before giving up. */

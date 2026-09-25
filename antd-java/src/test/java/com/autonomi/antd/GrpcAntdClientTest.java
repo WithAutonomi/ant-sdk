@@ -1073,6 +1073,30 @@ class GrpcAntdClientTest {
     }
 
     @Test
+    void testAbortedWithUnreadableCountsAndRetainedHintIsNotRetryable() throws Exception {
+        // Through the real gRPC client: a "Partial upload:" description whose
+        // counts overflow a long, or do not match the layout, is still a
+        // PartialUploadException, but with zero counts and retryable == false
+        // even though the retained hint is present.
+        String[] descriptions = {
+                "Partial upload: 0/9223372036854775808 chunks stored, 9223372036854775808 failed "
+                        + "(paid attempt retained)",
+                "Partial upload: 9223372036854775808/10 chunks stored, 1 failed (paid attempt retained)",
+                "Partial upload: ??? chunks, no idea (paid attempt retained)",
+        };
+        for (String description : descriptions) {
+            try (GrpcAntdClient c = abortedFinalizeClient(description)) {
+                PartialUploadException ex = assertThrows(PartialUploadException.class,
+                        () -> c.finalizeUpload("partial-unreadable", Map.of()), description);
+                assertEquals(0L, ex.getChunksStored(), description);
+                assertEquals(0L, ex.getChunksFailed(), description);
+                assertEquals(0L, ex.getTotalChunks(), description);
+                assertFalse(ex.isRetryable(), description);
+            }
+        }
+    }
+
+    @Test
     void testAbortedWithUnrelatedMessageFallsBackToGenericException() throws Exception {
         // An ABORTED whose description lacks the "Partial upload:" prefix is
         // not a partial upload: it keeps the pre-existing generic mapping

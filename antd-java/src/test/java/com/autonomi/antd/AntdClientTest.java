@@ -978,6 +978,57 @@ class AntdClientTest {
     }
 
     @Test
+    void testParsePartialUploadMessageRequiresParsedCountsForRetry() {
+        // retryable is true only when the count layout matches, all three
+        // counts convert, and the retained hint is present. Any regex miss or
+        // conversion failure yields all-zero counts and retryable == false,
+        // even with the hint.
+        String hint = " (paid attempt retained: call finalize again with the same upload_id)";
+        String overflow = "9223372036854775808"; // Long.MAX_VALUE + 1
+        String[] notRetryable = {
+                // Overflow in each position.
+                "Partial upload: " + overflow + "/10 chunks stored, 1 failed" + hint,
+                "Partial upload: 1/" + overflow + " chunks stored, 1 failed" + hint,
+                "Partial upload: 1/10 chunks stored, " + overflow + " failed" + hint,
+                // The exact message from the Kotlin review.
+                "Partial upload: 0/9223372036854775808 chunks stored, 9223372036854775808 failed "
+                        + "(paid attempt retained)",
+                // Layout miss with the hint.
+                "Partial upload: ??? chunks, no idea" + hint,
+        };
+        for (String msg : notRetryable) {
+            PartialUploadException ex = PartialUploadException.fromMessage(msg);
+            assertEquals(0L, ex.getChunksStored(), msg);
+            assertEquals(0L, ex.getChunksFailed(), msg);
+            assertEquals(0L, ex.getTotalChunks(), msg);
+            assertFalse(ex.isRetryable(), msg);
+        }
+
+        // Well-formed with the hint: retryable, with its counts.
+        PartialUploadException ex = PartialUploadException.fromMessage(
+                "Partial upload: 1/3 chunks stored, 2 failed" + hint);
+        assertEquals(1L, ex.getChunksStored());
+        assertEquals(2L, ex.getChunksFailed());
+        assertEquals(3L, ex.getTotalChunks());
+        assertTrue(ex.isRetryable());
+
+        // Long.MAX_VALUE itself still converts.
+        ex = PartialUploadException.fromMessage(
+                "Partial upload: 9223372036854775807/9223372036854775807 chunks stored, 0 failed" + hint);
+        assertEquals(Long.MAX_VALUE, ex.getChunksStored());
+        assertEquals(0L, ex.getChunksFailed());
+        assertEquals(Long.MAX_VALUE, ex.getTotalChunks());
+        assertTrue(ex.isRetryable());
+
+        // Well-formed without the hint: counts kept, not retryable.
+        ex = PartialUploadException.fromMessage("Partial upload: 1/3 chunks stored, 2 failed after retries");
+        assertEquals(1L, ex.getChunksStored());
+        assertEquals(2L, ex.getChunksFailed());
+        assertEquals(3L, ex.getTotalChunks());
+        assertFalse(ex.isRetryable());
+    }
+
+    @Test
     void testParsePartialUploadMessage() {
         String retained = "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
                 + "(paid attempt retained: call finalize again with the same upload_id to store the "
