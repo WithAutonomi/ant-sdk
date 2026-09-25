@@ -1,7 +1,10 @@
 package com.autonomi.examples
 
 import com.autonomi.sdk.AntdClient
+import com.autonomi.sdk.PartialUploadException
 import com.autonomi.sdk.PaymentInfo
+
+import kotlinx.coroutines.delay
 
 import org.web3j.abi.FunctionEncoder
 import org.web3j.abi.datatypes.Address
@@ -71,7 +74,9 @@ suspend fun example07ExternalSigner() {
             filePrep.rpcUrl, filePrep.paymentVaultAddress, filePrep.paymentTokenAddress,
             filePrep.payments, credentials
         )
-        val fileFin = client.finalizeUpload(filePrep.uploadId, fileTxHashes)
+        val fileFin = finalizeWithRetry(filePrep.uploadId) {
+            client.finalizeUpload(filePrep.uploadId, fileTxHashes)
+        }
         println(
             "File finalize: data_map_address=${fileFin.dataMapAddress}, " +
                 "chunks_stored=${fileFin.chunksStored}"
@@ -99,7 +104,9 @@ suspend fun example07ExternalSigner() {
                 chunkPrep.rpcUrl, chunkPrep.paymentVaultAddress, chunkPrep.paymentTokenAddress,
                 chunkPrep.payments, credentials
             )
-            val addr = client.finalizeChunkUpload(chunkPrep.uploadId, chunkTxHashes)
+            val addr = finalizeWithRetry(chunkPrep.uploadId) {
+                client.finalizeChunkUpload(chunkPrep.uploadId, chunkTxHashes)
+            }
             if (addr != chunkPrep.address) {
                 throw RuntimeException("chunk address mismatch: $addr != ${chunkPrep.address}")
             }
@@ -116,6 +123,74 @@ suspend fun example07ExternalSigner() {
     } finally {
         client.close()
         tmpDir.deleteRecursively()
+    }
+}
+
+/**
+ * Runs an external-signer finalize, retrying against the SAME payment when
+ * the daemon reports a retryable partial store. Whenever it stops, it
+ * rethrows the original [PartialUploadException] unchanged, so the caller
+ * still has the counts and both flags to pick the recovery. It never
+ * re-prepares or pays; only [finalize] is ever called.
+ *
+ * - `retryable`: the daemon kept the paid attempt (payment proofs +
+ *   unstored chunks) under [uploadId], so calling the same finalize again
+ *   with the same arguments stores the remainder without a re-prepare, a
+ *   second signature, or a double payment. The loop is bounded: a
+ *   persistent failure (a chunk whose close group stays unreachable) throws
+ *   [PartialUploadException] on every call, so it gives up after
+ *   [maxAttempts] calls, or as soon as `chunksFailed` stops shrinking, and
+ *   rethrows the last exception. The paid attempt stays retained, so a
+ *   later call with the same arguments can still finish it.
+ * - `retentionKnown && !retryable`: the daemon confirmed it kept nothing
+ *   (e.g. a merkle upload with unpaid batches). Rethrown at once; the
+ *   caller re-prepares the same content, which skips the chunks already
+ *   stored.
+ * - `!retentionKnown`: retention is unknown and the daemon may still hold
+ *   the paid attempt. Rethrown at once with no further finalize: the caller
+ *   keeps [uploadId] and the tx hashes and reconciles before re-preparing
+ *   or paying again.
+ */
+internal suspend fun <T> finalizeWithRetry(
+    uploadId: String,
+    maxAttempts: Int = 5,
+    finalize: suspend () -> T,
+): T {
+    require(maxAttempts >= 1) { "maxAttempts must be at least 1, got $maxAttempts" }
+    var lastFailed = 0L
+    var attempt = 1
+    while (true) {
+        try {
+            return finalize() // every chunk stored
+        } catch (e: PartialUploadException) {
+            if (!e.retentionKnown) {
+                println(
+                    "finalize stored ${e.chunksStored}/${e.totalChunks} chunks, retention unknown: stopping. " +
+                        "Keep upload_id $uploadId and the tx hashes, and reconcile before re-preparing or paying again."
+                )
+                throw e
+            }
+            if (!e.retryable) {
+                println("finalize: the daemon kept nothing for upload_id $uploadId; re-prepare the same content.")
+                throw e
+            }
+            val stalled = attempt > 1 && e.chunksFailed >= lastFailed
+            if (attempt >= maxAttempts || stalled) {
+                println(
+                    "finalize gave up after $attempt attempt(s) (${if (stalled) "no progress" else "attempts exhausted"}): " +
+                        "${e.chunksStored}/${e.totalChunks} chunks stored, ${e.chunksFailed} still unstored. " +
+                        "The paid attempt stays retained under upload_id $uploadId; retry later with the same arguments."
+                )
+                throw e
+            }
+            lastFailed = e.chunksFailed
+            println(
+                "finalize stored ${e.chunksStored}/${e.totalChunks} chunks, ${e.chunksFailed} still unstored " +
+                    "— retrying against the same payment (attempt ${attempt + 1}/$maxAttempts)"
+            )
+            delay(attempt * 2_000L)
+            attempt++
+        }
     }
 }
 

@@ -89,12 +89,29 @@ try {
 |---|---|---|---|
 | `NotFoundException` | 404 | NOT_FOUND | Resource not found |
 | `AlreadyExistsException` | 409 | ALREADY_EXISTS | Resource already exists |
-| `ForkException` | 409 | ABORTED | Conflicting update |
+| `ForkException` | 409 | ABORTED (non-partial-upload) | Conflicting update |
 | `BadRequestException` | 400 | INVALID_ARGUMENT | Invalid input |
 | `PaymentException` | 402 | FAILED_PRECONDITION | Insufficient funds |
 | `NetworkException` | 502 | UNAVAILABLE | Network unreachable |
+| `PartialUploadException` | 502 (`code: "PARTIAL_UPLOAD"`) | ABORTED (`Partial upload:` message) | Finalize stored some chunks, others stayed unstored (extends `NetworkException`) |
 | `TooLargeException` | 413 | RESOURCE_EXHAUSTED | Data too large |
 | `InternalException` | 500 | INTERNAL | Server error |
+
+### Partial uploads
+
+An external-signer finalize (`finalizeUpload`, `finalizeMerkleUpload`, `finalizeChunkUpload`) can fail *after* the wallet has paid: some chunks store, others miss quorum after the daemon's own retries. That surfaces as `PartialUploadException` carrying `chunksStored` / `chunksFailed` / `totalChunks` and two flags, `retryable` and `retentionKnown` (`retryable` implies `retentionKnown`). The on-chain payment persists and the stored chunks stay on the network; the flags say how to finish:
+
+- **`retryable`** — the daemon kept the paid attempt under the same `uploadId`. Call the **same** finalize method again with the same `uploadId` and payment artefacts to store the remainder against the same payment — no re-prepare, no second signature, no double payment. Bound that loop: a persistent failure throws on every call, so cap the attempts and treat a `chunksFailed` that stops shrinking as stuck. The retained attempt expires with the daemon's pending-upload TTL.
+- **`retentionKnown && !retryable`** — the daemon confirmed it kept nothing (e.g. a merkle finalize with deliberately unpaid batches). Re-prepare the same content; already-stored chunks are skipped, so the retry pays only for the remainder.
+- **`!retentionKnown`** — retention is unknown, and the daemon may still hold the paid attempt: it records the resume handle before it returns the error. Stop automatic recovery, keep the `uploadId` and the original payment artefacts (tx hashes / quote data), and reconcile before re-preparing or paying again. Never pay again on this signal alone. Daemons older than 0.14.0 never send `retryable`, so their REST partial uploads always read as unknown.
+
+`PartialUploadException` extends `NetworkException` because the daemon reports it as a 502, so existing `catch (e: NetworkException)` blocks keep working; narrow with `is PartialUploadException` to read the counts and flags. It is not a `ForkException`: over gRPC a partial upload's ABORTED used to map to `ForkException`, and the daemon sends ABORTED only for PARTIAL_UPLOAD, so code that caught `ForkException` around a gRPC finalize should catch `PartialUploadException` instead.
+
+Over gRPC an ABORTED status maps to `PartialUploadException` only when its message starts with the daemon's fixed `Partial upload:` prefix (anchored, as in antd-rust); any other ABORTED stays a `ForkException`. `retentionKnown` is true only when the message starts with the count layout (`Partial upload: S/T chunks stored, F failed after retries: <reason> (<hint>)`), all three counts convert to a `Long`, and the message ends with one of the daemon's two closing hints: `(paid attempt retained…)` sets `retryable`, and `(stored chunks persist; re-prepare the same content…)` means the daemon confirmed it kept nothing (daemons older than 0.14.0 write only this one). If the layout does not match or any count fails to convert (e.g. one past `Long.MAX_VALUE`), all three counts read as zero and both flags as false, even if a hint is present. Readable counts with a missing, truncated or unrecognised hint, or text after it, keep the counts, but both flags stay false: retention is unknown, so stop and reconcile rather than re-prepare.
+
+Over REST, each count is read only from a JSON number holding a non-negative integer; a quoted number, a negative, fractional or out-of-range number, an array or an object reads as zero. `retentionKnown` is true when the body's `retryable` is a JSON boolean (`true` or `false`), and `retryable` only when it is the literal `true`; missing, `null`, a quoted `"true"`, a number, an array or an object reads as unknown and not retryable. A non-string `code` falls back to the plain `NetworkException`, and the error mapper never throws on a malformed body.
+
+See `finalizeWithRetry` in `examples/src/main/kotlin/com/autonomi/examples/Example07ExternalSigner.kt` for a bounded retry loop that rethrows the original `PartialUploadException` whenever it stops, and [`docs/external-signer-flow.md` §6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment) for the daemon-side contract.
 
 ## Examples
 

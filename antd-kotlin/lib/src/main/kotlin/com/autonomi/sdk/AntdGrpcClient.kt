@@ -285,12 +285,23 @@ class AntdGrpcClient internal constructor(
         )
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
+    /**
+     * Submits a prepared single chunk after the external signer has paid.
+     *
+     * @throws PartialUploadException when the chunk stayed unstored after the
+     *   daemon's retries (gRPC ABORTED). See [finalizeUpload] for the
+     *   recovery contract — it is identical here.
+     */
     override suspend fun finalizeChunkUpload(uploadId: String, txHashes: Map<String, String>): String = try {
         val resp = chunkStub.finalizeChunk(finalizeChunkRequest {
             this.uploadId = uploadId
             this.txHashes.putAll(txHashes)
         })
         resp.address
+    } catch (ex: StatusException) {
+        // grpc-kotlin's coroutine stubs surface a failed unary call as
+        // StatusException (see the wallet methods); map it the same way.
+        throw ExceptionMapping.fromGrpcStatus(ex.status.asRuntimeException())
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
     // ── Files ──
@@ -429,6 +440,36 @@ class AntdGrpcClient internal constructor(
         mapPrepareUploadResponse(resp)
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
+    /**
+     * Finalizes an upload after an external signer has submitted payment
+     * transactions.
+     *
+     * A finalize where some chunks stayed unstored after the daemon's retries
+     * fails with gRPC ABORTED, surfaced as [PartialUploadException] with the
+     * counts parsed from the status description. The on-chain payment
+     * persists and the stored chunks stay on the network:
+     *
+     * - [PartialUploadException.retryable]: the daemon kept the paid attempt
+     *   under the same [uploadId]. Call this method again with the **same**
+     *   arguments to store the remainder against the same payment. Bound that
+     *   loop: cap the attempts and treat a
+     *   [PartialUploadException.chunksFailed] that stops shrinking as stuck.
+     * - [PartialUploadException.retentionKnown] but not `retryable`: the
+     *   daemon confirmed it kept nothing; re-prepare the same content, which
+     *   skips already-stored chunks so the retry pays only for the remainder.
+     * - not `retentionKnown` (the counts or the daemon's closing retention
+     *   hint could not be read from the status description): the daemon may
+     *   still hold the paid attempt. Stop, keep [uploadId] and [txHashes],
+     *   and reconcile before re-preparing or paying again; never pay again
+     *   on this signal alone.
+     *
+     * A partial upload used to surface here as [ForkException]; catch
+     * [PartialUploadException] instead.
+     *
+     * See `docs/external-signer-flow.md` §6 ("Retry a partial store").
+     *
+     * @throws PartialUploadException as described above.
+     */
     override suspend fun finalizeUpload(uploadId: String, txHashes: Map<String, String>): FinalizeUploadResult = try {
         val resp = uploadStub.finalizeUpload(finalizeUploadRequest {
             this.uploadId = uploadId
@@ -440,8 +481,21 @@ class AntdGrpcClient internal constructor(
             dataMap = resp.dataMap,
             dataMapAddress = resp.dataMapAddress,
         )
+    } catch (ex: StatusException) {
+        // grpc-kotlin's coroutine stubs surface a failed unary call as
+        // StatusException (see the wallet methods); map it the same way.
+        throw ExceptionMapping.fromGrpcStatus(ex.status.asRuntimeException())
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 
+    /**
+     * Finalizes a merkle batch upload by selecting a winner pool.
+     *
+     * @throws PartialUploadException when some chunks stayed unstored after
+     *   the daemon's retries (gRPC ABORTED). See [finalizeUpload] for the
+     *   recovery contract; a merkle finalize with deliberately unpaid
+     *   batches reports retention as known and not retryable (re-prepare
+     *   instead).
+     */
     override suspend fun finalizeMerkleUpload(uploadId: String, winnerPoolHash: String): FinalizeMerkleUploadResult = try {
         val resp = uploadStub.finalizeUpload(finalizeUploadRequest {
             this.uploadId = uploadId
@@ -453,5 +507,7 @@ class AntdGrpcClient internal constructor(
             dataMap = resp.dataMap,
             dataMapAddress = resp.dataMapAddress,
         )
+    } catch (ex: StatusException) {
+        throw ExceptionMapping.fromGrpcStatus(ex.status.asRuntimeException())
     } catch (ex: StatusRuntimeException) { throw wrap(ex) }
 }
