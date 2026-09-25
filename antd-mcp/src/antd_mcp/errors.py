@@ -42,10 +42,14 @@ def format_error(exc: AntdError) -> dict:
     """Convert an AntdError to a structured error dict.
 
     ``PARTIAL_UPLOAD`` additionally carries ``chunks_stored``,
-    ``chunks_failed``, ``total_chunks`` and ``retryable`` so an agent can
-    decide whether to call the same finalize tool again (``retryable``: the
-    daemon kept the paid attempt under the same ``upload_id``) or to
-    re-prepare the content (already-stored chunks are skipped).
+    ``chunks_failed``, ``total_chunks``, ``retryable`` and
+    ``retention_known`` so an agent can pick one of three paths:
+    ``retryable`` -- the daemon kept the paid attempt, so call the same
+    finalize tool again with the same arguments; ``retention_known`` and not
+    ``retryable`` -- the daemon kept nothing, so re-prepare (already-stored
+    chunks are skipped); not ``retention_known`` -- the daemon may still hold
+    the paid attempt, so stop and reconcile before preparing or paying again.
+    ``retryable`` implies ``retention_known``.
 
     Those fields are copied from the SDK's typed error, which reads the
     daemon's response strictly: a malformed count reads as ``0`` and
@@ -65,6 +69,11 @@ def format_error(exc: AntdError) -> dict:
         d["chunks_failed"] = exc.chunks_failed
         d["total_chunks"] = exc.total_chunks
         d["retryable"] = exc.retryable
+        # antd releases before the retention flag lack the attribute: read it
+        # as unknown, except that retryable implies a known retention.
+        d["retention_known"] = (
+            bool(getattr(exc, "retention_known", False)) or exc.retryable is True
+        )
     return d
 
 

@@ -258,14 +258,15 @@ async def test_finalize_upload_partial_upload_surfaces_counts_and_retryable(mock
     assert payload["chunks_failed"] == 12
     assert payload["total_chunks"] == 312
     assert payload["retryable"] is True
+    assert payload["retention_known"] is True
     assert payload["message"].startswith("Partial upload: 300/312")
     assert payload["network"] == "test-net"
 
 
 @pytest.mark.asyncio
 async def test_finalize_merkle_upload_partial_upload_not_retryable(mock_client):
-    # No `retryable` from the daemon (< 0.14.0, or unpaid merkle batches):
-    # the flag reads False so the agent takes the re-prepare path.
+    # No `retryable` from the daemon (< 0.14.0): not retryable and retention
+    # unknown, so the agent stops and reconciles instead of paying again.
     mock_client.finalize_merkle_upload.side_effect = PartialUploadError(
         "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
         "(stored chunks persist; re-prepare the same content to retry only the remainder)",
@@ -283,7 +284,32 @@ async def test_finalize_merkle_upload_partial_upload_not_retryable(mock_client):
 
     assert payload["error"] == "PARTIAL_UPLOAD"
     assert payload["retryable"] is False
+    assert payload["retention_known"] is False
     assert payload["chunks_failed"] == 12
+
+
+@pytest.mark.asyncio
+async def test_finalize_merkle_upload_partial_upload_known_not_retained(mock_client):
+    # `retryable: false` from the daemon (unpaid merkle batches): the daemon
+    # confirmed it kept nothing, so the agent re-prepares.
+    mock_client.finalize_merkle_upload.side_effect = PartialUploadError(
+        "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum",
+        502,
+        chunks_stored=300,
+        chunks_failed=12,
+        total_chunks=312,
+        retention_known=True,
+    )
+
+    raw = await _tool_fn(server.finalize_merkle_upload)(
+        upload_id="upload-abc",
+        winner_pool_hash="0xwinner",
+    )
+    payload = json.loads(raw)
+
+    assert payload["error"] == "PARTIAL_UPLOAD"
+    assert payload["retryable"] is False
+    assert payload["retention_known"] is True
 
 
 @pytest.mark.asyncio
@@ -299,6 +325,7 @@ async def test_finalize_upload_plain_network_error_has_no_partial_fields(mock_cl
     assert payload["error"] == "NETWORK_ERROR"
     assert payload["status_code"] == 502
     assert "retryable" not in payload
+    assert "retention_known" not in payload
     assert "chunks_failed" not in payload
 
 
@@ -369,6 +396,7 @@ async def test_finalize_malformed_partial_body_is_partial_upload_not_unexpected(
     assert payload["status_code"] == 502
     assert (payload["chunks_stored"], payload["chunks_failed"], payload["total_chunks"]) == (0, 0, 0)
     assert payload["retryable"] is False
+    assert payload["retention_known"] is False
     assert payload["network"] == "test-net"
 
 
@@ -393,6 +421,7 @@ async def test_finalize_unreadable_partial_body_is_network_error_not_unexpected(
     assert payload["error"] == "NETWORK_ERROR"
     assert payload["status_code"] == 502
     assert "retryable" not in payload
+    assert "retention_known" not in payload
 
 
 def _int_digit_limit_applies(digits: int) -> bool:
@@ -447,7 +476,38 @@ async def test_finalize_well_formed_partial_body_through_real_client(monkeypatch
     assert payload["error"] == "PARTIAL_UPLOAD"
     assert (payload["chunks_stored"], payload["chunks_failed"], payload["total_chunks"]) == (1, 2, 3)
     assert payload["retryable"] is True
+    assert payload["retention_known"] is True
     assert payload["message"].startswith("Partial upload: 1/3")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "retryable_json, retryable, known",
+    [
+        ("true", True, True),
+        ("false", False, True),
+        (None, False, False),
+        ('"true"', False, False),
+        ("1", False, False),
+    ],
+    ids=["true", "false", "missing", "quoted-true", "one"],
+)
+async def test_finalize_payload_carries_retention_known(monkeypatch, retryable_json, retryable, known):
+    fields = (
+        '"error": ' + _MSG + ', "code": "PARTIAL_UPLOAD", '
+        '"chunks_stored": 1, "chunks_failed": 2, "total_chunks": 3'
+    )
+    if retryable_json is not None:
+        fields += ', "retryable": ' + retryable_json
+    client = _real_client(monkeypatch, ("{" + fields + "}").encode())
+    try:
+        raw = await _tool_fn(server.finalize_upload)(upload_id="upload-abc", tx_hashes={})
+    finally:
+        await client.close()
+    payload = json.loads(raw)
+
+    assert payload["error"] == "PARTIAL_UPLOAD"
+    assert (payload["retryable"], payload["retention_known"]) == (retryable, known)
 
 
 # ---------------------------------------------------------------------------

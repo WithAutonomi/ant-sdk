@@ -559,12 +559,15 @@ class RestClient:
         Raises:
             PartialUploadError: some chunks stored, others still unstored
                 after the daemon's retries (HTTP 502 ``PARTIAL_UPLOAD`` /
-                gRPC ``ABORTED``). The payment persists. If ``retryable`` is
-                True the daemon kept the paid attempt (antd >= 0.14.0): call
-                this method again with the same arguments to store the
-                remainder against the same payment, bounding the loop. If
-                False, re-prepare the same content; already-stored chunks
-                are skipped so only the remainder is paid for. See
+                gRPC ``ABORTED``). The payment persists. ``retryable``: the
+                daemon kept the paid attempt, so call this method again with
+                the same arguments, bounding the loop. ``retention_known``
+                and not ``retryable``: the daemon confirmed it kept nothing,
+                so re-prepare the same content (already-stored chunks are
+                skipped). Not ``retention_known``: the daemon may still hold
+                the paid attempt, so stop, keep the ``upload_id`` and payment
+                artefacts, and reconcile before re-preparing or paying
+                again. See :class:`~antd.exceptions.PartialUploadError` and
                 ``docs/external-signer-flow.md`` section 6.
         """
         resp = self._http.post("/v1/upload/finalize", json={
@@ -590,12 +593,15 @@ class RestClient:
         Raises:
             PartialUploadError: some chunks stored, others still unstored
                 after the daemon's retries (HTTP 502 ``PARTIAL_UPLOAD`` /
-                gRPC ``ABORTED``). The payment persists. If ``retryable`` is
-                True the daemon kept the paid attempt (antd >= 0.14.0): call
-                this method again with the same arguments to store the
-                remainder against the same payment, bounding the loop. If
-                False, re-prepare the same content; already-stored chunks
-                are skipped so only the remainder is paid for. See
+                gRPC ``ABORTED``). The payment persists. ``retryable``: the
+                daemon kept the paid attempt, so call this method again with
+                the same arguments, bounding the loop. ``retention_known``
+                and not ``retryable``: the daemon confirmed it kept nothing,
+                so re-prepare the same content (already-stored chunks are
+                skipped). Not ``retention_known``: the daemon may still hold
+                the paid attempt, so stop, keep the ``upload_id`` and payment
+                artefacts, and reconcile before re-preparing or paying
+                again. See :class:`~antd.exceptions.PartialUploadError` and
                 ``docs/external-signer-flow.md`` section 6.
         """
         resp = self._http.post("/v1/upload/finalize", json={
@@ -875,12 +881,15 @@ class AsyncRestClient:
         Raises:
             PartialUploadError: some chunks stored, others still unstored
                 after the daemon's retries (HTTP 502 ``PARTIAL_UPLOAD`` /
-                gRPC ``ABORTED``). The payment persists. If ``retryable`` is
-                True the daemon kept the paid attempt (antd >= 0.14.0): call
-                this method again with the same arguments to store the
-                remainder against the same payment, bounding the loop. If
-                False, re-prepare the same content; already-stored chunks
-                are skipped so only the remainder is paid for. See
+                gRPC ``ABORTED``). The payment persists. ``retryable``: the
+                daemon kept the paid attempt, so call this method again with
+                the same arguments, bounding the loop. ``retention_known``
+                and not ``retryable``: the daemon confirmed it kept nothing,
+                so re-prepare the same content (already-stored chunks are
+                skipped). Not ``retention_known``: the daemon may still hold
+                the paid attempt, so stop, keep the ``upload_id`` and payment
+                artefacts, and reconcile before re-preparing or paying
+                again. See :class:`~antd.exceptions.PartialUploadError` and
                 ``docs/external-signer-flow.md`` section 6.
         """
         resp = await self._http.post("/v1/upload/finalize", json={
@@ -898,12 +907,15 @@ class AsyncRestClient:
         Raises:
             PartialUploadError: some chunks stored, others still unstored
                 after the daemon's retries (HTTP 502 ``PARTIAL_UPLOAD`` /
-                gRPC ``ABORTED``). The payment persists. If ``retryable`` is
-                True the daemon kept the paid attempt (antd >= 0.14.0): call
-                this method again with the same arguments to store the
-                remainder against the same payment, bounding the loop. If
-                False, re-prepare the same content; already-stored chunks
-                are skipped so only the remainder is paid for. See
+                gRPC ``ABORTED``). The payment persists. ``retryable``: the
+                daemon kept the paid attempt, so call this method again with
+                the same arguments, bounding the loop. ``retention_known``
+                and not ``retryable``: the daemon confirmed it kept nothing,
+                so re-prepare the same content (already-stored chunks are
+                skipped). Not ``retention_known``: the daemon may still hold
+                the paid attempt, so stop, keep the ``upload_id`` and payment
+                artefacts, and reconcile before re-preparing or paying
+                again. See :class:`~antd.exceptions.PartialUploadError` and
                 ``docs/external-signer-flow.md`` section 6.
         """
         resp = await self._http.post("/v1/upload/finalize", json={

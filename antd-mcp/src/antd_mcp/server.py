@@ -722,14 +722,20 @@ async def finalize_upload(
     Errors:
         ``error: "PARTIAL_UPLOAD"`` means the payment went through but only
         some chunks stored (``chunks_stored`` / ``chunks_failed`` /
-        ``total_chunks``). The stored chunks and the payment persist. When
-        ``retryable`` is true the daemon kept the paid attempt under this
-        ``upload_id``: call this same tool again with the same arguments to
+        ``total_chunks``). The stored chunks and the payment persist.
+        ``retryable`` true: the daemon kept the paid attempt under this
+        ``upload_id``; call this same tool again with the same arguments to
         store the remainder against the same payment (no re-prepare, no
         second payment). Bound the retries -- stop after a few attempts or
-        when ``chunks_failed`` stops shrinking. When ``retryable`` is false
-        (or absent), re-run the prepare step for the same content; already
-        stored chunks are skipped, so only the remainder is paid for.
+        when ``chunks_failed`` stops shrinking.
+        ``retention_known`` true and ``retryable`` false: the daemon
+        confirmed it kept nothing; re-run the prepare step for the same
+        content (already-stored chunks are skipped, so only the remainder is
+        paid for).
+        ``retention_known`` false: retention is unknown and the daemon may
+        still hold the paid attempt. Stop, keep the ``upload_id`` and the
+        payment details you passed, and reconcile before preparing or paying
+        again. Never pay again on this signal alone.
     """
     client, network = _get_ctx(ctx)
     try:
@@ -779,14 +785,20 @@ async def finalize_merkle_upload(
     Errors:
         ``error: "PARTIAL_UPLOAD"`` means the payment went through but only
         some chunks stored (``chunks_stored`` / ``chunks_failed`` /
-        ``total_chunks``). The stored chunks and the payment persist. When
-        ``retryable`` is true the daemon kept the paid attempt under this
-        ``upload_id``: call this same tool again with the same arguments to
+        ``total_chunks``). The stored chunks and the payment persist.
+        ``retryable`` true: the daemon kept the paid attempt under this
+        ``upload_id``; call this same tool again with the same arguments to
         store the remainder against the same payment (no re-prepare, no
         second payment). Bound the retries -- stop after a few attempts or
-        when ``chunks_failed`` stops shrinking. When ``retryable`` is false
-        (or absent), re-run the prepare step for the same content; already
-        stored chunks are skipped, so only the remainder is paid for.
+        when ``chunks_failed`` stops shrinking.
+        ``retention_known`` true and ``retryable`` false: the daemon
+        confirmed it kept nothing; re-run the prepare step for the same
+        content (already-stored chunks are skipped, so only the remainder is
+        paid for).
+        ``retention_known`` false: retention is unknown and the daemon may
+        still hold the paid attempt. Stop, keep the ``upload_id`` and the
+        payment details you passed, and reconcile before preparing or paying
+        again. Never pay again on this signal alone.
     """
     client, network = _get_ctx(ctx)
     try:

@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import httpx
 import pytest
 
-from antd._rest import RestClient, _acheck_streamed, _check
+from antd._rest import AsyncRestClient, RestClient, _acheck_streamed, _check
 from antd.exceptions import BadRequestError, NetworkError, NotFoundError, PartialUploadError
 from antd.models import (
     CandidateNodeEntry,
@@ -721,17 +721,19 @@ class TestPartialUpload:
         assert err.status_code == 502
         assert (err.chunks_stored, err.chunks_failed, err.total_chunks) == (300, 12, 312)
         assert err.retryable is True
+        assert err.retention_known is True
         assert str(err).startswith("Partial upload: 300/312 chunks stored, 12 failed")
 
     def test_finalize_merkle_upload_retryable_defaults_false(self, client: RestClient):
-        # An older daemon (< 0.14.0) never sends `retryable`; the flag must
-        # read False so callers fall back to the re-prepare path rather than
-        # looping on an upload_id the daemon has already dropped.
+        # An older daemon (< 0.14.0) never sends `retryable`: the flag reads
+        # False and retention reads unknown, so callers stop and reconcile
+        # rather than loop on the upload_id or pay again.
         with pytest.raises(PartialUploadError) as exc_info:
             client.finalize_merkle_upload("partial-legacy", "0xw1")
         err = exc_info.value
         assert (err.chunks_stored, err.chunks_failed, err.total_chunks) == (300, 12, 312)
         assert err.retryable is False
+        assert err.retention_known is False
 
     def test_is_a_network_error(self, client: RestClient):
         # Existing `except NetworkError` / `except AntdError` blocks keep
@@ -753,9 +755,10 @@ _PARTIAL_FIELDS = {
 }
 
 
-def _partial_body(**overrides: str) -> bytes:
+def _partial_body(**overrides: str | None) -> bytes:
+    """The body as bytes; an override of ``None`` leaves that field out."""
     fields = {**_PARTIAL_FIELDS, **overrides}
-    return ("{" + ", ".join(f'"{k}": {v}' for k, v in fields.items()) + "}").encode()
+    return ("{" + ", ".join(f'"{k}": {v}' for k, v in fields.items() if v is not None) + "}").encode()
 
 
 def _finalize_raw(client: RestClient, mock_server, upload_id: str, raw: bytes):
@@ -812,6 +815,7 @@ class TestMalformedPartialUploadBody:
         err = _finalize_raw(client, mock_server, f"retryable-{literal}", _partial_body(retryable=literal))
         assert isinstance(err, PartialUploadError)
         assert err.retryable is False
+        assert err.retention_known is (literal == "false")
         assert {f: getattr(err, f) for f in _COUNT_FIELDS} == _WELL_FORMED_COUNTS
 
     @pytest.mark.parametrize("literal", ["{}", "[]", "null", "1", '"partial_upload"'])
@@ -894,6 +898,59 @@ class TestMalformedPartialUploadBody:
         assert exc_info.value.total_chunks == 0
         assert exc_info.value.chunks_failed == 12
         assert str(exc_info.value) == raw.decode()
+
+
+# (retryable literal, or None to leave it out; retryable; retention_known)
+_RETENTION_CASES = [
+    ("true", True, True),
+    ("false", False, True),
+    (None, False, False),
+    ("null", False, False),
+    ('"true"', False, False),
+    ("1", False, False),
+]
+_RETENTION_IDS = ["true", "false", "missing", "null", "quoted-true", "one"]
+
+
+class TestRetentionKnown:
+    """retention_known is True only when the 502 body's `retryable` is a JSON
+    bool; retryable implies it. Missing (antd < 0.14.0), null or any other
+    type means retention is unknown: stop and reconcile, never re-pay."""
+
+    @pytest.mark.parametrize("literal, retryable, known", _RETENTION_CASES, ids=_RETENTION_IDS)
+    def test_sync(self, client, mock_server, literal, retryable, known):
+        err = _finalize_raw(
+            client, mock_server, f"retention-{literal}", _partial_body(retryable=literal),
+        )
+        assert isinstance(err, PartialUploadError)
+        assert (err.retryable, err.retention_known) == (retryable, known)
+        assert (err.chunks_stored, err.chunks_failed, err.total_chunks) == (300, 12, 312)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("method", ["finalize_upload", "finalize_merkle_upload"])
+    @pytest.mark.parametrize("literal, retryable, known", _RETENTION_CASES, ids=_RETENTION_IDS)
+    async def test_async(self, literal, retryable, known, method):
+        raw = _partial_body(retryable=literal)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(502, content=raw, headers={"content-type": "application/json"})
+
+        client = AsyncRestClient(base_url="http://antd.test")
+        await client._http.aclose()
+        client._http = httpx.AsyncClient(
+            base_url="http://antd.test", transport=httpx.MockTransport(handler),
+        )
+        try:
+            with pytest.raises(PartialUploadError) as exc_info:
+                if method == "finalize_upload":
+                    await client.finalize_upload("up-1", {"0xq1": "0xtx1"})
+                else:
+                    await client.finalize_merkle_upload("up-1", "0xw1")
+        finally:
+            await client.close()
+        err = exc_info.value
+        assert (err.retryable, err.retention_known) == (retryable, known)
+        assert (err.chunks_stored, err.chunks_failed, err.total_chunks) == (300, 12, 312)
 
 
 class TestDataStreamWithProgress:

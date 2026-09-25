@@ -346,6 +346,7 @@ class TestSyncFinalizePartialUpload:
         err = exc_info.value
         assert (err.chunks_stored, err.chunks_failed, err.total_chunks) == (300, 12, 312)
         assert err.retryable is True
+        assert err.retention_known is True
         assert err.status_code == grpc.StatusCode.ABORTED.value[0]
 
     def test_no_retained_hint_reads_not_retryable(self, sync_client):
@@ -354,6 +355,7 @@ class TestSyncFinalizePartialUpload:
         err = exc_info.value
         assert (err.chunks_stored, err.chunks_failed, err.total_chunks) == (300, 12, 312)
         assert err.retryable is False
+        assert err.retention_known is True  # counts parsed, no hint: nothing kept
 
     def test_is_a_network_error(self, sync_client):
         with pytest.raises(NetworkError):
@@ -365,6 +367,7 @@ class TestSyncFinalizePartialUpload:
         err = exc_info.value
         assert (err.chunks_stored, err.chunks_failed, err.total_chunks) == (0, 0, 0)
         assert err.retryable is False
+        assert err.retention_known is False
 
     def test_aborted_without_prefix_is_fork_error(self, sync_client):
         with pytest.raises(ForkError) as exc_info:
@@ -386,6 +389,7 @@ class TestSyncFinalizePartialUploadMalformed:
         err = exc_info.value
         assert (err.chunks_stored, err.chunks_failed, err.total_chunks) == (0, 0, 0)
         assert err.retryable is False
+        assert err.retention_known is False
         assert str(err) == _MALFORMED_ABORTED[upload_id]
 
     def test_well_formed_with_hint_is_retryable(self, sync_client):
@@ -394,6 +398,7 @@ class TestSyncFinalizePartialUploadMalformed:
         err = exc_info.value
         assert (err.chunks_stored, err.chunks_failed, err.total_chunks) == (1, 2, 3)
         assert err.retryable is True
+        assert err.retention_known is True
 
     def test_well_formed_without_hint_is_not_retryable(self, sync_client):
         with pytest.raises(PartialUploadError) as exc_info:
@@ -401,6 +406,7 @@ class TestSyncFinalizePartialUploadMalformed:
         err = exc_info.value
         assert (err.chunks_stored, err.chunks_failed, err.total_chunks) == (1, 2, 3)
         assert err.retryable is False
+        assert err.retention_known is True
 
     @pytest.mark.parametrize("upload_id", ["embedded-marker", "embedded-marker-hint"])
     def test_embedded_marker_is_not_a_partial_upload(self, sync_client, upload_id):
@@ -489,12 +495,14 @@ class TestAsyncFinalizePartialUpload:
         err = exc_info.value
         assert (err.chunks_stored, err.chunks_failed, err.total_chunks) == (300, 12, 312)
         assert err.retryable is True
+        assert err.retention_known is True
 
     @pytest.mark.asyncio
     async def test_no_retained_hint_reads_not_retryable(self, async_client):
         with pytest.raises(PartialUploadError) as exc_info:
             await async_client.finalize_merkle_upload("partial-final", "0xwinpool")
         assert exc_info.value.retryable is False
+        assert exc_info.value.retention_known is True
         assert exc_info.value.chunks_failed == 12
 
     @pytest.mark.asyncio
@@ -504,6 +512,7 @@ class TestAsyncFinalizePartialUpload:
         err = exc_info.value
         assert (err.chunks_stored, err.chunks_failed, err.total_chunks) == (0, 0, 0)
         assert err.retryable is False
+        assert err.retention_known is False
 
     @pytest.mark.asyncio
     async def test_aborted_without_prefix_is_fork_error(self, async_client):
@@ -521,6 +530,7 @@ class TestAsyncFinalizePartialUploadMalformed:
         err = exc_info.value
         assert (err.chunks_stored, err.chunks_failed, err.total_chunks) == (0, 0, 0)
         assert err.retryable is False
+        assert err.retention_known is False
 
     @pytest.mark.asyncio
     async def test_well_formed_with_hint_is_retryable(self, async_client):
@@ -528,6 +538,15 @@ class TestAsyncFinalizePartialUploadMalformed:
             await async_client.finalize_upload("well-formed-hint", {"0xq1": "0xtx1"})
         err = exc_info.value
         assert (err.chunks_stored, err.chunks_failed, err.total_chunks, err.retryable) == (1, 2, 3, True)
+        assert err.retention_known is True
+
+    @pytest.mark.asyncio
+    async def test_well_formed_without_hint_is_known_not_retryable(self, async_client):
+        with pytest.raises(PartialUploadError) as exc_info:
+            await async_client.finalize_upload("well-formed-no-hint", {"0xq1": "0xtx1"})
+        err = exc_info.value
+        assert (err.chunks_stored, err.chunks_failed, err.total_chunks) == (1, 2, 3)
+        assert (err.retryable, err.retention_known) == (False, True)
 
     @pytest.mark.asyncio
     async def test_embedded_marker_is_not_a_partial_upload(self, async_client):

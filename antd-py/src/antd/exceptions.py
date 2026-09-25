@@ -24,7 +24,13 @@ class AlreadyExistsError(AntdError):
 
 
 class ForkError(AntdError):
-    """Fork/version conflict detected (HTTP 409 / gRPC ABORTED)."""
+    """Fork/version conflict detected (HTTP 409 / gRPC ABORTED).
+
+    A gRPC ``ABORTED`` for a partial upload used to map here and now raises
+    :class:`PartialUploadError`. The daemon sends ``ABORTED`` only for
+    PARTIAL_UPLOAD, so code that caught ``ForkError`` around a finalize
+    should catch :class:`PartialUploadError` instead.
+    """
     pass
 
 
@@ -49,26 +55,38 @@ class PartialUploadError(NetworkError):
 
     Subclasses :class:`NetworkError` because it rides the same 502 status, so
     an existing ``except NetworkError`` still catches it; check ``isinstance``
-    (or order the ``except`` clauses) to handle it specifically.
+    (or order the ``except`` clauses) to handle it specifically. Over gRPC a
+    partial upload used to raise :class:`ForkError`; the daemon sends
+    ``ABORTED`` only for PARTIAL_UPLOAD, so code that caught ``ForkError``
+    around a finalize should catch this instead.
 
     The on-chain payment persists and the stored chunks stay on the network.
-    How to finish the upload depends on ``retryable``:
+    Two flags say how to finish the upload, and ``retryable`` implies
+    ``retention_known``:
 
-    - ``True``: the daemon kept the paid attempt (payment proofs + unstored
-      chunks) under the same ``upload_id``. Call the **same** ``finalize_*``
-      method again with the **same arguments** to store the remainder against
-      the same payment — no re-prepare, no second signature, no double
-      payment. Bound the loop: a persistent failure raises this on every
-      call, so cap the attempts and treat a ``chunks_failed`` that stops
-      shrinking as stuck. The retained attempt expires with the daemon's
-      pending-upload TTL. Sent by antd >= 0.14.0; older daemons never send
-      the flag, so it reads ``False`` and the re-prepare path applies.
-    - ``False``: nothing was retained (older daemon, or a merkle finalize
-      with deliberately unpaid batches). Re-preparing the same content skips
-      already-stored chunks, so a retry pays only for the remainder.
+    - ``retryable``: the daemon kept the paid attempt (payment proofs +
+      unstored chunks) under the same ``upload_id``. Call the **same**
+      ``finalize_*`` method again with the **same arguments** (the same
+      ``upload_id`` and payment artefacts) to store the remainder against the
+      same payment -- no re-prepare, no second signature, no double payment.
+      Bound the loop: a persistent failure raises this on every call, so cap
+      the attempts and treat a ``chunks_failed`` that stops shrinking as
+      stuck. The retained attempt expires with the daemon's pending-upload
+      TTL. Sent by antd >= 0.14.0.
+    - ``retention_known`` and not ``retryable``: the daemon confirmed it kept
+      nothing (e.g. a merkle finalize with deliberately unpaid batches).
+      Re-preparing the same content skips already-stored chunks, so a retry
+      pays only for the remainder.
+    - not ``retention_known``: retention is unknown, and the daemon may still
+      hold the paid attempt (it records the resume handle before it returns
+      the error). Stop automatic recovery, keep the ``upload_id`` and the
+      original payment artefacts, and reconcile before re-preparing or paying
+      again. Never pay again on this signal alone. Daemons before 0.14.0
+      never send ``retryable``, so their REST partial uploads read as unknown,
+      as does a gRPC message the SDK could not read.
 
-    Over REST the counts and ``retryable`` come from the structured error
-    body. Over gRPC they are parsed from the status message
+    Over REST the counts and both flags come from the structured error body.
+    Over gRPC they are parsed from the status message
     (``"Partial upload: S/T chunks stored, F failed ..."`` with a
     ``"paid attempt retained"`` hint when retryable).
 
@@ -78,15 +96,17 @@ class PartialUploadError(NetworkError):
     - REST: each count must be a JSON integer in ``0..2**64 - 1`` -- a quoted
       number, bool, float (including ``Infinity``), array, object, negative
       or larger value reads as ``0``. ``retryable`` is True only for the JSON
-      literal ``true``. Only a string ``code`` equal to ``"PARTIAL_UPLOAD"``
+      literal ``true``, and ``retention_known`` only when ``retryable`` is a
+      JSON bool (``true`` or ``false``); absent, ``null`` or any other type
+      reads as unknown. Only a string ``code`` equal to ``"PARTIAL_UPLOAD"``
       selects this error; any other body keeps the status mapping (502 ->
       :class:`NetworkError`).
     - gRPC: only an ``ABORTED`` whose status details *start with*
       ``"Partial upload:"`` is a partial upload; any other ``ABORTED`` stays a
-      :class:`ForkError`. The counts gate the retry: ``retryable`` is True
-      only when the message matches the pattern above, all three counts fit
-      in a u64, and the hint is present. Otherwise the counts are zero and
-      ``retryable`` is False.
+      :class:`ForkError`. The counts gate both flags: ``retention_known`` is
+      True only when the message matches the pattern above and all three
+      counts fit in a u64, and the hint then decides ``retryable``.
+      Otherwise the counts are zero and both flags are False.
 
     See ``docs/external-signer-flow.md`` section 6 for the full contract.
     """
@@ -100,12 +120,15 @@ class PartialUploadError(NetworkError):
         chunks_failed: int = 0,
         total_chunks: int = 0,
         retryable: bool = False,
+        retention_known: bool = False,
     ):
         super().__init__(message, status_code)
         self.chunks_stored = chunks_stored
         self.chunks_failed = chunks_failed
         self.total_chunks = total_chunks
         self.retryable = retryable
+        # retryable => retention_known: a retained attempt is a known one.
+        self.retention_known = bool(retention_known or retryable)
 
 
 class ServiceUnavailableError(AntdError):
@@ -203,29 +226,30 @@ def is_partial_upload_message(details: object) -> bool:
     return isinstance(details, str) and details.startswith(PARTIAL_UPLOAD_MESSAGE_PREFIX)
 
 
-def parse_partial_upload_message(message: str) -> tuple[int, int, int, bool]:
-    """Recover ``(chunks_stored, chunks_failed, total_chunks, retryable)`` from
-    a PARTIAL_UPLOAD message.
+def parse_partial_upload_message(message: str) -> tuple[int, int, int, bool, bool]:
+    """Recover ``(chunks_stored, chunks_failed, total_chunks, retryable,
+    retention_known)`` from a PARTIAL_UPLOAD message.
 
     Used for gRPC, where the status carries no structured detail; REST callers
-    get the body fields instead. The counts gate the retry: ``retryable`` is
-    True only when the message matches
-    ``"Partial upload: <stored>/<total> chunks stored, <failed> failed"``, all
-    three counts convert (each no larger than u64 max), **and** the
-    ``"paid attempt retained"`` hint is present. On a pattern miss or any
-    count that does not convert the result is ``(0, 0, 0, False)``: a message
-    the SDK could not read must never tell a caller to repeat a paid
-    finalize. Never raises.
+    get the body fields instead. The counts gate both flags:
+    ``retention_known`` is True only when the message matches
+    ``"Partial upload: <stored>/<total> chunks stored, <failed> failed"`` and
+    all three counts convert (each no larger than u64 max); the
+    ``"paid attempt retained"`` hint then decides ``retryable``. On a pattern
+    miss or any count that does not convert the result is
+    ``(0, 0, 0, False, False)``: a message the SDK could not read must never
+    tell a caller to repeat a paid finalize, nor that nothing was kept.
+    Never raises.
     """
     if not isinstance(message, str):
-        return 0, 0, 0, False
+        return 0, 0, 0, False, False
     m = _PARTIAL_UPLOAD_COUNTS.search(message)
     if m is None:
-        return 0, 0, 0, False
+        return 0, 0, 0, False, False
     stored, total, failed = (_message_count(g) for g in m.groups())
     if stored is None or total is None or failed is None:
-        return 0, 0, 0, False
-    return stored, failed, total, _PARTIAL_UPLOAD_RETAINED_HINT in message
+        return 0, 0, 0, False, False
+    return stored, failed, total, _PARTIAL_UPLOAD_RETAINED_HINT in message, True
 
 
 def raise_for_http_error(status_code: int, message: str, body: object) -> None:
@@ -245,7 +269,10 @@ def raise_for_http_error(status_code: int, message: str, body: object) -> None:
       (quoted number, bool, float including ``Infinity``, array, object,
       negative, larger value) reads as ``0``;
     - ``retryable`` is True only for the JSON literal ``true``; an absent flag
-      (daemons before 0.14.0) or any other value reads as ``False``.
+      (daemons before 0.14.0) or any other value reads as ``False``;
+    - ``retention_known`` is True only when ``retryable`` is a JSON bool
+      (``true`` or ``false``). Absent (daemons before 0.14.0), ``null`` or any
+      other type reads as ``False``: retention unknown.
 
     For any non-2xx status this raises an :class:`AntdError` subclass, never a
     raw ``ValueError`` / ``TypeError`` / ``OverflowError``.
@@ -255,12 +282,14 @@ def raise_for_http_error(status_code: int, message: str, body: object) -> None:
     if isinstance(body, dict):
         code = body.get("code")
         if isinstance(code, str) and code == PARTIAL_UPLOAD_CODE:
+            retryable = body.get("retryable")
             raise PartialUploadError(
                 message,
                 status_code,
                 chunks_stored=_json_count(body.get("chunks_stored")),
                 chunks_failed=_json_count(body.get("chunks_failed")),
                 total_chunks=_json_count(body.get("total_chunks")),
-                retryable=body.get("retryable") is True,
+                retryable=retryable is True,
+                retention_known=isinstance(retryable, bool),
             )
     raise_for_http_status(status_code, message)

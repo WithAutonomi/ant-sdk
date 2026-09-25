@@ -230,14 +230,17 @@ def _handle_rpc_error(e: grpc.RpcError) -> None:
         # raw status details that START WITH the daemon's fixed
         # "Partial upload:" prefix qualify. Any other ABORTED, including one
         # that merely embeds the phrase, keeps the ForkError mapping below.
-        # The counts gate the retry: retryable is True only when the message
-        # matched and all three counts converted (parse_partial_upload_message).
-        # The parser never raises; the guard keeps even an unexpected failure
-        # from replacing the typed error with a raw exception.
+        # The counts gate both flags: retention_known is True only when the
+        # message matched and all three counts converted, and the hint then
+        # decides retryable (parse_partial_upload_message). The parser never
+        # raises; the guard keeps even an unexpected failure from replacing
+        # the typed error with a raw exception.
         try:
-            stored, failed, total, retryable = parse_partial_upload_message(details)
+            stored, failed, total, retryable, retention_known = (
+                parse_partial_upload_message(details)
+            )
         except Exception:
-            stored, failed, total, retryable = 0, 0, 0, False
+            stored, failed, total, retryable, retention_known = 0, 0, 0, False, False
         raise PartialUploadError(
             details,
             code.value[0],
@@ -245,6 +248,7 @@ def _handle_rpc_error(e: grpc.RpcError) -> None:
             chunks_failed=failed,
             total_chunks=total,
             retryable=retryable,
+            retention_known=retention_known,
         ) from e
     exc_class = _GRPC_CODE_MAP.get(code, AntdError)
     raise exc_class(details, code.value[0]) from e
@@ -524,12 +528,15 @@ class GrpcClient:
         Raises:
             PartialUploadError: some chunks stored, others still unstored
                 after the daemon's retries (HTTP 502 ``PARTIAL_UPLOAD`` /
-                gRPC ``ABORTED``). The payment persists. If ``retryable`` is
-                True the daemon kept the paid attempt (antd >= 0.14.0): call
-                this method again with the same arguments to store the
-                remainder against the same payment, bounding the loop. If
-                False, re-prepare the same content; already-stored chunks
-                are skipped so only the remainder is paid for. See
+                gRPC ``ABORTED``). The payment persists. ``retryable``: the
+                daemon kept the paid attempt, so call this method again with
+                the same arguments, bounding the loop. ``retention_known``
+                and not ``retryable``: the daemon confirmed it kept nothing,
+                so re-prepare the same content (already-stored chunks are
+                skipped). Not ``retention_known``: the daemon may still hold
+                the paid attempt, so stop, keep the ``upload_id`` and payment
+                artefacts, and reconcile before re-preparing or paying
+                again. See :class:`~antd.exceptions.PartialUploadError` and
                 ``docs/external-signer-flow.md`` section 6.
         """
         try:
@@ -548,12 +555,15 @@ class GrpcClient:
         Raises:
             PartialUploadError: some chunks stored, others still unstored
                 after the daemon's retries (HTTP 502 ``PARTIAL_UPLOAD`` /
-                gRPC ``ABORTED``). The payment persists. If ``retryable`` is
-                True the daemon kept the paid attempt (antd >= 0.14.0): call
-                this method again with the same arguments to store the
-                remainder against the same payment, bounding the loop. If
-                False, re-prepare the same content; already-stored chunks
-                are skipped so only the remainder is paid for. See
+                gRPC ``ABORTED``). The payment persists. ``retryable``: the
+                daemon kept the paid attempt, so call this method again with
+                the same arguments, bounding the loop. ``retention_known``
+                and not ``retryable``: the daemon confirmed it kept nothing,
+                so re-prepare the same content (already-stored chunks are
+                skipped). Not ``retention_known``: the daemon may still hold
+                the paid attempt, so stop, keep the ``upload_id`` and payment
+                artefacts, and reconcile before re-preparing or paying
+                again. See :class:`~antd.exceptions.PartialUploadError` and
                 ``docs/external-signer-flow.md`` section 6.
         """
         try:
@@ -844,12 +854,15 @@ class AsyncGrpcClient:
         Raises:
             PartialUploadError: some chunks stored, others still unstored
                 after the daemon's retries (HTTP 502 ``PARTIAL_UPLOAD`` /
-                gRPC ``ABORTED``). The payment persists. If ``retryable`` is
-                True the daemon kept the paid attempt (antd >= 0.14.0): call
-                this method again with the same arguments to store the
-                remainder against the same payment, bounding the loop. If
-                False, re-prepare the same content; already-stored chunks
-                are skipped so only the remainder is paid for. See
+                gRPC ``ABORTED``). The payment persists. ``retryable``: the
+                daemon kept the paid attempt, so call this method again with
+                the same arguments, bounding the loop. ``retention_known``
+                and not ``retryable``: the daemon confirmed it kept nothing,
+                so re-prepare the same content (already-stored chunks are
+                skipped). Not ``retention_known``: the daemon may still hold
+                the paid attempt, so stop, keep the ``upload_id`` and payment
+                artefacts, and reconcile before re-preparing or paying
+                again. See :class:`~antd.exceptions.PartialUploadError` and
                 ``docs/external-signer-flow.md`` section 6.
         """
         try:
@@ -868,12 +881,15 @@ class AsyncGrpcClient:
         Raises:
             PartialUploadError: some chunks stored, others still unstored
                 after the daemon's retries (HTTP 502 ``PARTIAL_UPLOAD`` /
-                gRPC ``ABORTED``). The payment persists. If ``retryable`` is
-                True the daemon kept the paid attempt (antd >= 0.14.0): call
-                this method again with the same arguments to store the
-                remainder against the same payment, bounding the loop. If
-                False, re-prepare the same content; already-stored chunks
-                are skipped so only the remainder is paid for. See
+                gRPC ``ABORTED``). The payment persists. ``retryable``: the
+                daemon kept the paid attempt, so call this method again with
+                the same arguments, bounding the loop. ``retention_known``
+                and not ``retryable``: the daemon confirmed it kept nothing,
+                so re-prepare the same content (already-stored chunks are
+                skipped). Not ``retention_known``: the daemon may still hold
+                the paid attempt, so stop, keep the ``upload_id`` and payment
+                artefacts, and reconcile before re-preparing or paying
+                again. See :class:`~antd.exceptions.PartialUploadError` and
                 ``docs/external-signer-flow.md`` section 6.
         """
         try:

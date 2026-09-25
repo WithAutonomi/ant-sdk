@@ -7,7 +7,8 @@ as the external signer and exercises both round-trips end-to-end.
 
 See `docs/external-signer-flow.md` for the full reference; the contract ABI
 loaded below is committed at `docs/abi/IPaymentVault.json`. Section 6 of that
-doc covers the partial-store case that `finalize_with_retry` below handles.
+doc covers the partial-store case that `finalize_with_retry` and `next_step`
+below handle.
 
 Requires `web3` and `eth-account` (pip install web3 eth-account).
 """
@@ -113,7 +114,8 @@ def finalize_with_retry(client, upload_id, tx_hashes, max_attempts=5):
     A finalize can fail *after* the wallet has paid: some chunks store,
     others miss quorum after the daemon's own retries. That raises
     `PartialUploadError`; the on-chain payment persists and the stored
-    chunks stay on the network.
+    chunks stay on the network. Its flags give three cases, and only the
+    first is retried here:
 
     - `retryable` (antd >= 0.14.0): the daemon kept the paid attempt under
       the same `upload_id`, so the same call with the same arguments stores
@@ -121,10 +123,18 @@ def finalize_with_retry(client, upload_id, tx_hashes, max_attempts=5):
       signature, no double payment. The loop is bounded: at most
       `max_attempts` calls, and a `chunks_failed` that stops shrinking
       counts as stuck.
-    - not retryable (older daemon, or a merkle finalize with deliberately
-      unpaid batches): nothing was retained, so the error propagates as-is.
-      Re-preparing the same content skips already-stored chunks and pays
-      only for the remainder.
+    - `retention_known` and not `retryable`: the daemon confirmed it kept
+      nothing. The caller re-prepares the same content, which skips
+      already-stored chunks and pays only for the remainder.
+    - not `retention_known`: retention is unknown, and the daemon may still
+      hold the paid attempt. The caller stops, keeps `upload_id` and
+      `tx_hashes`, and reconciles before re-preparing or paying again.
+      Never pay again on this signal alone. Daemons before 0.14.0 land here.
+
+    Whenever it stops (not retryable, retention unknown, attempts exhausted
+    or stalled) it re-raises the original `PartialUploadError` unchanged, so
+    the caller branches on the same typed fields (see `next_step`). It never
+    re-prepares or pays by itself.
 
     See `docs/external-signer-flow.md` section 6.
     """
@@ -134,15 +144,10 @@ def finalize_with_retry(client, upload_id, tx_hashes, max_attempts=5):
             return client.finalize_upload(upload_id, tx_hashes)  # every chunk stored
         except PartialUploadError as e:
             if not e.retryable:
-                raise
+                raise  # nothing to resume here: known-empty or unknown retention
             stuck = last_failed is not None and e.chunks_failed >= last_failed
             if attempt == max_attempts or stuck:
-                raise RuntimeError(
-                    f"finalize stuck after {attempt} attempt(s): "
-                    f"{e.chunks_stored}/{e.total_chunks} chunks stored, "
-                    f"{e.chunks_failed} still unstored (paid attempt retained "
-                    f"under upload_id {upload_id} -- retry later or re-prepare)"
-                ) from e
+                raise  # the paid attempt is still retained under upload_id
             last_failed = e.chunks_failed
             print(
                 f"finalize stored {e.chunks_stored}/{e.total_chunks} chunks, "
@@ -152,57 +157,89 @@ def finalize_with_retry(client, upload_id, tx_hashes, max_attempts=5):
             time.sleep(2 * attempt)
 
 
-client = AntdClient()
-acct = Account.from_key(ANVIL_KEY)
-
-# --- 1. file upload via external signer -----------------------------------
-with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as f:
-    f.write(b"hello external signer (file)\n" * 16)  # ~480 bytes, single wave
-    src = f.name
-try:
-    prep = client.prepare_upload_public(src)
-    print(
-        f"File prepare: upload_id={prep.upload_id[:16]}..., "
-        f"payment_type={prep.payment_type}, "
-        f"payments={len(prep.payments)}, total_amount={prep.total_amount}"
+def next_step(e, upload_id):
+    """Say what to do once `finalize_with_retry` has given up with `e`."""
+    progress = (
+        f"{e.chunks_stored}/{e.total_chunks} chunks stored, "
+        f"{e.chunks_failed} still unstored"
+    )
+    if e.retryable:
+        return (
+            f"{progress}. The paid attempt is still retained under upload_id "
+            f"{upload_id}: retry the same finalize later, before the daemon's "
+            "pending-upload TTL expires."
+        )
+    if e.retention_known:
+        return (
+            f"{progress}. The daemon kept nothing: re-prepare the same content "
+            "(already-stored chunks are skipped, so only the remainder is paid for)."
+        )
+    return (
+        f"{progress}. Retention is unknown: the daemon may still hold the paid "
+        f"attempt. Stop, keep upload_id {upload_id} and the tx hashes, and "
+        "reconcile before re-preparing or paying again."
     )
 
-    tx_hashes = external_signer_pay(prep, acct)
-    fin = finalize_with_retry(client, prep.upload_id, tx_hashes)
-    print(
-        f"File finalize: data_map_address={fin.data_map_address}, "
-        f"chunks_stored={fin.chunks_stored}"
-    )
 
-    dst = src + ".downloaded"
-    client.file_get_public(fin.data_map_address, dst)
-    with open(src, "rb") as a, open(dst, "rb") as b:
-        assert a.read() == b.read(), "file round-trip mismatch"
-    os.unlink(dst)
-    print("File round-trip OK!")
-finally:
-    os.unlink(src)
+def main():
+    client = AntdClient()
+    acct = Account.from_key(ANVIL_KEY)
+
+    # --- 1. file upload via external signer -------------------------------
+    with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as f:
+        f.write(b"hello external signer (file)\n" * 16)  # ~480 bytes, single wave
+        src = f.name
+    try:
+        prep = client.prepare_upload_public(src)
+        print(
+            f"File prepare: upload_id={prep.upload_id[:16]}..., "
+            f"payment_type={prep.payment_type}, "
+            f"payments={len(prep.payments)}, total_amount={prep.total_amount}"
+        )
+
+        tx_hashes = external_signer_pay(prep, acct)
+        try:
+            fin = finalize_with_retry(client, prep.upload_id, tx_hashes)
+        except PartialUploadError as e:
+            print(next_step(e, prep.upload_id))
+            raise
+        print(
+            f"File finalize: data_map_address={fin.data_map_address}, "
+            f"chunks_stored={fin.chunks_stored}"
+        )
+
+        dst = src + ".downloaded"
+        client.file_get_public(fin.data_map_address, dst)
+        with open(src, "rb") as a, open(dst, "rb") as b:
+            assert a.read() == b.read(), "file round-trip mismatch"
+        os.unlink(dst)
+        print("File round-trip OK!")
+    finally:
+        os.unlink(src)
+
+    # --- 2. single-chunk publish via external signer ----------------------
+    chunk_data = b"hello external signer (chunk)\n" * 8  # ~240 bytes
+    prep = client.prepare_chunk_upload(chunk_data)
+    if prep.already_stored:
+        # Network already has this exact chunk -- no payment, no finalize step.
+        print(f"Chunk prepare: already_stored, address={prep.address}")
+    else:
+        print(
+            f"Chunk prepare: upload_id={prep.upload_id[:16]}..., "
+            f"address={prep.address}, payments={len(prep.payments)}, "
+            f"total_amount={prep.total_amount}"
+        )
+        tx_hashes = external_signer_pay(prep, acct)
+        addr = client.finalize_chunk_upload(prep.upload_id, tx_hashes)
+        assert addr == prep.address, ("chunk address mismatch", addr, prep.address)
+        print(f"Chunk finalize: address={addr}")
+
+    got = client.chunk_get(prep.address)
+    assert got == chunk_data, "chunk round-trip mismatch"
+    print("Chunk round-trip OK!")
+
+    print("\n07_external_signer OK!")
 
 
-# --- 2. single-chunk publish via external signer --------------------------
-chunk_data = b"hello external signer (chunk)\n" * 8  # ~240 bytes
-prep = client.prepare_chunk_upload(chunk_data)
-if prep.already_stored:
-    # Network already has this exact chunk -- no payment, no finalize step.
-    print(f"Chunk prepare: already_stored, address={prep.address}")
-else:
-    print(
-        f"Chunk prepare: upload_id={prep.upload_id[:16]}..., "
-        f"address={prep.address}, payments={len(prep.payments)}, "
-        f"total_amount={prep.total_amount}"
-    )
-    tx_hashes = external_signer_pay(prep, acct)
-    addr = client.finalize_chunk_upload(prep.upload_id, tx_hashes)
-    assert addr == prep.address, ("chunk address mismatch", addr, prep.address)
-    print(f"Chunk finalize: address={addr}")
-
-got = client.chunk_get(prep.address)
-assert got == chunk_data, "chunk round-trip mismatch"
-print("Chunk round-trip OK!")
-
-print("\n07_external_signer OK!")
+if __name__ == "__main__":
+    main()

@@ -32,14 +32,14 @@ class TestParsePartialUploadMessage:
     @pytest.mark.parametrize(
         "message, expected",
         [
-            (_RETAINED, (300, 12, 312, True)),
-            (_REPREPARE, (300, 12, 312, False)),
-            ("Partial upload: 300/312 chunks stored, 12 failed after retries", (300, 12, 312, False)),
-            ("something else entirely", (0, 0, 0, False)),
+            (_RETAINED, (300, 12, 312, True, True)),
+            (_REPREPARE, (300, 12, 312, False, True)),
+            ("Partial upload: 300/312 chunks stored, 12 failed after retries", (300, 12, 312, False, True)),
+            ("something else entirely", (0, 0, 0, False, False)),
         ],
     )
     def test_table(self, message, expected):
-        # (stored, failed, total, retryable)
+        # (stored, failed, total, retryable, retention_known)
         assert parse_partial_upload_message(message) == expected
 
 
@@ -56,6 +56,7 @@ class TestRaiseForHttpError:
         assert err.status_code == 502
         assert (err.chunks_stored, err.chunks_failed, err.total_chunks) == (300, 12, 312)
         assert err.retryable is True
+        assert err.retention_known is True
 
     def test_partial_upload_body_without_flag_defaults_false(self):
         # antd < 0.14.0 never sends `retryable`.
@@ -66,6 +67,8 @@ class TestRaiseForHttpError:
         with pytest.raises(PartialUploadError) as exc_info:
             raise_for_http_error(502, body["error"], body)
         assert exc_info.value.retryable is False
+        # ...and retention is unknown: stop and reconcile, never re-pay.
+        assert exc_info.value.retention_known is False
         assert exc_info.value.chunks_failed == 12
 
     def test_other_codes_keep_status_mapping(self):
@@ -91,10 +94,12 @@ class TestHierarchy:
         assert isinstance(err, AntdError)
         assert ExportedPartialUploadError is PartialUploadError
         assert (err.chunks_stored, err.chunks_failed, err.total_chunks, err.retryable) == (1, 2, 3, True)
+        assert err.retention_known is True  # retryable implies retention_known
 
     def test_defaults(self):
         err = PartialUploadError("m")
         assert (err.chunks_stored, err.chunks_failed, err.total_chunks, err.retryable) == (0, 0, 0, False)
+        assert err.retention_known is False
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +148,7 @@ class TestRaiseForHttpErrorMalformedBody:
         # Over REST the daemon's own `retryable` field is authoritative, so a
         # bad count leaves it (and the other counts) alone.
         assert err.retryable is True
+        assert err.retention_known is True
 
     @pytest.mark.parametrize("value", [0, 1, _U64_MAX])
     def test_count_range_is_inclusive(self, value):
@@ -156,6 +162,7 @@ class TestRaiseForHttpErrorMalformedBody:
     def test_retryable_only_for_json_true(self, value):
         err = _raise_partial({**_WELL_FORMED_BODY, "retryable": value})
         assert err.retryable is False
+        assert err.retention_known is isinstance(value, bool)
         assert (err.chunks_stored, err.chunks_failed, err.total_chunks) == (300, 12, 312)
 
     @pytest.mark.parametrize(
@@ -191,6 +198,7 @@ class TestRaiseForHttpErrorMalformedBody:
             "retryable": "true",
         })
         assert (err.chunks_stored, err.chunks_failed, err.total_chunks, err.retryable) == (0, 0, 0, False)
+        assert err.retention_known is False
 
 
 class TestIsPartialUploadMessage:
@@ -218,8 +226,8 @@ _UNCONVERTIBLE_COUNTS = [str(_U64_MAX + 1), "9" * 25, "9" * 5000]
 
 
 class TestParsePartialUploadMessageMalformed:
-    """The counts gate the retry: retryable only when the pattern matched,
-    all three counts converted, and the hint is present."""
+    """The counts gate both flags: retention_known only when the pattern
+    matched and all three counts converted; retryable also needs the hint."""
 
     @pytest.mark.parametrize("position", ["stored", "total", "failed"])
     @pytest.mark.parametrize("value", _UNCONVERTIBLE_COUNTS, ids=lambda v: f"{len(v)}-digits")
@@ -230,11 +238,11 @@ class TestParsePartialUploadMessageMalformed:
             f"Partial upload: {counts['stored']}/{counts['total']} chunks stored, "
             f"{counts['failed']} failed after retries: quorum {_HINT}"
         )
-        assert parse_partial_upload_message(message) == (0, 0, 0, False)
+        assert parse_partial_upload_message(message) == (0, 0, 0, False, False)
 
     def test_u64_max_counts_convert(self):
         message = f"Partial upload: {_U64_MAX}/{_U64_MAX} chunks stored, {_U64_MAX} failed {_HINT}"
-        assert parse_partial_upload_message(message) == (_U64_MAX, _U64_MAX, _U64_MAX, True)
+        assert parse_partial_upload_message(message) == (_U64_MAX, _U64_MAX, _U64_MAX, True, True)
 
     @pytest.mark.parametrize(
         "message",
@@ -251,15 +259,69 @@ class TestParsePartialUploadMessageMalformed:
         ],
     )
     def test_pattern_miss_with_hint_is_not_retryable(self, message):
-        assert parse_partial_upload_message(message) == (0, 0, 0, False)
+        assert parse_partial_upload_message(message) == (0, 0, 0, False, False)
 
     def test_well_formed_with_hint_is_retryable(self):
         message = f"Partial upload: 1/3 chunks stored, 2 failed after retries: quorum {_HINT}"
-        assert parse_partial_upload_message(message) == (1, 2, 3, True)
+        assert parse_partial_upload_message(message) == (1, 2, 3, True, True)
 
     def test_well_formed_without_hint_is_not_retryable(self):
         message = "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum"
-        assert parse_partial_upload_message(message) == (1, 2, 3, False)
+        assert parse_partial_upload_message(message) == (1, 2, 3, False, True)
 
     def test_non_string_reads_zero(self):
-        assert parse_partial_upload_message(None) == (0, 0, 0, False)  # type: ignore[arg-type]
+        assert parse_partial_upload_message(None) == (0, 0, 0, False, False)  # type: ignore[arg-type]
+
+
+class TestRetentionKnown:
+    """retention_known says whether the daemon told us what it kept.
+    retryable implies it; unknown means stop and reconcile, never re-pay."""
+
+    @pytest.mark.parametrize(
+        "value, retryable, known",
+        [
+            (True, True, True),
+            (False, False, True),
+            (None, False, False),
+            ("true", False, False),
+            ("false", False, False),
+            (1, False, False),
+            (0, False, False),
+            ({}, False, False),
+            ([], False, False),
+        ],
+        ids=["true", "false", "null", "quoted-true", "quoted-false", "one", "zero", "object", "array"],
+    )
+    def test_rest_flag(self, value, retryable, known):
+        err = _raise_partial({**_WELL_FORMED_BODY, "retryable": value})
+        assert (err.retryable, err.retention_known) == (retryable, known)
+
+    def test_rest_missing_flag_is_unknown(self):
+        # antd < 0.14.0 never sends `retryable`.
+        body = {k: v for k, v in _WELL_FORMED_BODY.items() if k != "retryable"}
+        err = _raise_partial(body)
+        assert (err.retryable, err.retention_known) == (False, False)
+
+    @pytest.mark.parametrize(
+        "message, retryable, known",
+        [
+            (f"Partial upload: 1/3 chunks stored, 2 failed after retries: quorum {_HINT}", True, True),
+            ("Partial upload: 1/3 chunks stored, 2 failed after retries: quorum", False, True),
+            (f"Partial upload: {_U64_MAX + 1}/3 chunks stored, 2 failed {_HINT}", False, False),
+            (f"Partial upload: 1/3 chunks stored, {'9' * 5000} failed {_HINT}", False, False),
+            (f"Partial upload: counts unavailable {_HINT}", False, False),
+        ],
+        ids=["well-formed-hint", "well-formed-no-hint", "overflow-hint", "huge-hint", "miss-hint"],
+    )
+    def test_grpc_message(self, message, retryable, known):
+        *_, got_retryable, got_known = parse_partial_upload_message(message)
+        assert (got_retryable, got_known) == (retryable, known)
+
+    @pytest.mark.parametrize("known", [True, False])
+    def test_retryable_implies_known(self, known):
+        err = PartialUploadError("m", 502, retryable=True, retention_known=known)
+        assert err.retention_known is True
+
+    def test_known_without_retry(self):
+        err = PartialUploadError("m", 502, retention_known=True)
+        assert (err.retryable, err.retention_known) == (False, True)

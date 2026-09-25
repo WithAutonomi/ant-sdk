@@ -150,6 +150,7 @@ Errors return structured error objects:
   "chunks_failed": 12,
   "total_chunks": 312,
   "retryable": true,
+  "retention_known": true,
   "network": "local"
 }
 ```
@@ -157,9 +158,12 @@ Errors return structured error objects:
 The payment and the stored chunks persist either way.
 
 - **`retryable: true`** — the daemon kept the paid attempt under the same `upload_id` (antd ≥ 0.14.0). Call the **same** finalize tool again with the **same arguments**; it stores the remainder against the same payment — no re-prepare, no second payment. Bound the retries: stop after a few attempts, or when `chunks_failed` stops shrinking. The retained attempt expires with the daemon's pending-upload TTL (one hour).
-- **`retryable: false`** — nothing was retained (older daemon, or a merkle finalize with deliberately unpaid batches). Run the prepare step again for the same content; already-stored chunks are skipped, so only the remainder is paid for.
+- **`retention_known: true`, `retryable: false`** — the daemon confirmed it kept nothing (e.g. a merkle finalize with deliberately unpaid batches). Run the prepare step again for the same content; already-stored chunks are skipped, so only the remainder is paid for.
+- **`retention_known: false`** — retention is unknown. The daemon may still hold the paid attempt: it records the resume handle before it returns the error. Stop automatic recovery, keep the `upload_id` and the payment details you passed, and reconcile before preparing or paying again. Never pay again on this signal alone. Daemons older than 0.14.0 never send `retryable`, so their partial uploads read as unknown.
 
-These fields come from the antd SDK, which reads the daemon's response strictly. A count that is not a non-negative JSON integer (at most 2^64−1) reads as `0`, and `retryable` is `true` only when the daemon sent the JSON literal `true`. A malformed partial-upload response therefore never shows up as `UNEXPECTED`. It arrives as `PARTIAL_UPLOAD` with the unreadable fields at `0` / `false`. If the body is unreadable, or its `code` is not exactly `"PARTIAL_UPLOAD"`, it arrives as a plain `NETWORK_ERROR` without the partial-upload fields.
+`retryable: true` always comes with `retention_known: true`.
+
+These fields come from the antd SDK, which reads the daemon's response strictly. A count that is not a non-negative JSON integer (at most 2^64−1) reads as `0`. `retryable` is `true` only when the daemon sent the JSON literal `true`, and `retention_known` is `true` only when `retryable` was a JSON bool. A malformed partial-upload response therefore never shows up as `UNEXPECTED`. It arrives as `PARTIAL_UPLOAD` with the unreadable fields at `0` / `false` (an unreadable `retryable` means retention unknown). If the body is unreadable, or its `code` is not exactly `"PARTIAL_UPLOAD"`, it arrives as a plain `NETWORK_ERROR` without the partial-upload fields.
 
 Full contract: `docs/external-signer-flow.md` §6 in the ant-sdk repo.
 
