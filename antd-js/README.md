@@ -98,6 +98,8 @@ Two-phase upload — daemon prepares the payment intent, caller signs + submits 
 | `finalizeUpload(uploadId, txHashes)` | `FinalizeUploadResult` | Submit a prepared upload after external payment. `data_map_address` populated when prepare used `visibility: "public"` |
 | `finalizeChunkUpload(uploadId, txHashes)` | `string` | Submit a prepared chunk after external payment; returns the chunk address |
 
+A finalize where some chunks stayed unstored after the daemon's retries throws `PartialUploadError` with `chunksStored` / `chunksFailed` / `totalChunks` and a `retryable` flag. `retryable === true` (antd ≥ 0.14.0) means the daemon kept the paid attempt under the same `uploadId`: call the **same** finalize method again with the same arguments to store the remainder against the same payment — no re-prepare, no second signature, no double payment. Bound that loop (cap the attempts; a `chunksFailed` that stops shrinking means stuck). `retryable === false` — an older daemon, or a merkle finalize with deliberately unpaid batches — means nothing was retained: re-preparing the same content skips stored chunks, so a retry pays only for the remainder. See `finalizeWithRetry` in `examples/07-external-signer.ts` and [`docs/external-signer-flow.md` §6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment).
+
 ## Models
 
 ```typescript
@@ -142,6 +144,7 @@ All errors extend `AntdError`, which extends `Error` and includes a `statusCode`
 | `TooLargeError` | 413 | Data exceeds size limit |
 | `InternalError` | 500 | Internal server error |
 | `NetworkError` | 502 | Cannot reach network |
+| `PartialUploadError` | 502 | Finalize stored only some chunks (`code: "PARTIAL_UPLOAD"`); carries `chunksStored`, `chunksFailed`, `totalChunks`, `retryable`. Extends `NetworkError` |
 
 ```typescript
 import { createClient, NotFoundError } from "@withautonomi/antd";
@@ -152,6 +155,27 @@ try {
 } catch (err) {
   if (err instanceof NotFoundError) {
     console.log("Data not found on network");
+  }
+}
+```
+
+`PartialUploadError` extends `NetworkError` (a 502 mapped to `NetworkError` before the daemon exposed the structured code), so check for it first:
+
+```typescript
+import { PartialUploadError } from "@withautonomi/antd";
+
+try {
+  await client.finalizeUpload(uploadId, txHashes);
+} catch (err) {
+  if (err instanceof PartialUploadError) {
+    // Payment persists; stored chunks stay on the network.
+    if (err.retryable) {
+      // antd >= 0.14.0 kept the paid attempt: repeat the SAME finalize call
+      // with the same uploadId + txHashes (bounded — see the example).
+    } else {
+      // Nothing retained: re-prepare the same content; stored chunks are
+      // skipped so the retry pays only for the remainder.
+    }
   }
 }
 ```

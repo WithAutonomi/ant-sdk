@@ -3,14 +3,18 @@ import { healthStatusFromJson, RestClient } from "./rest-client.js";
 import { PaymentMode, isMetaFrame, isProgressFrame } from "./models.js";
 import type { DownloadFrame } from "./models.js";
 import {
+  AntdError,
   NotFoundError,
   BadRequestError,
   PaymentError,
   NetworkError,
+  PartialUploadError,
   InternalError,
   TooLargeError,
   ServiceUnavailableError,
   AlreadyExistsError,
+  fromErrorBody,
+  fromHttpStatus,
 } from "./errors.js";
 
 // ---------------------------------------------------------------------------
@@ -1251,6 +1255,199 @@ describe("RestClient", () => {
       vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(resp)));
 
       await expect(client.dataGetPublic("0x1")).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  // ---- Partial upload (PARTIAL_UPLOAD) ----
+
+  describe("partial upload (PARTIAL_UPLOAD)", () => {
+    const retainedMsg =
+      "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " +
+      "(paid attempt retained: call finalize again with the same upload_id to " +
+      "store the remainder against the same payment)";
+
+    it("throws PartialUploadError carrying the body's counts + retryable flag", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+          Promise.resolve(
+            jsonResponse(502, {
+              error: retainedMsg,
+              code: "PARTIAL_UPLOAD",
+              chunks_stored: 300,
+              chunks_failed: 12,
+              total_chunks: 312,
+              retryable: true,
+            }),
+          ),
+        ),
+      );
+
+      const err = await client
+        .finalizeMerkleUpload("mb1", "0xw1")
+        .then(() => undefined, (e: unknown) => e);
+      expect(err).toBeInstanceOf(PartialUploadError);
+      const perr = err as PartialUploadError;
+      expect(perr.chunksStored).toBe(300);
+      expect(perr.chunksFailed).toBe(12);
+      expect(perr.totalChunks).toBe(312);
+      expect(perr.retryable).toBe(true);
+      expect(perr.statusCode).toBe(502);
+      expect(perr.name).toBe("PartialUploadError");
+      expect(perr.message).toBe(retainedMsg);
+    });
+
+    it("defaults retryable to false when an older daemon omits the flag", async () => {
+      // antd < 0.14.0 never sends `retryable`; it must read false so callers
+      // fall back to re-prepare rather than loop on a dropped upload_id.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+          Promise.resolve(
+            jsonResponse(502, {
+              error: "Partial upload: 300/312 chunks stored, 12 failed after retries",
+              code: "PARTIAL_UPLOAD",
+              chunks_stored: 300,
+              chunks_failed: 12,
+              total_chunks: 312,
+            }),
+          ),
+        ),
+      );
+
+      const err = await client
+        .finalizeUpload("u1", { "0xq": "0xt" })
+        .then(() => undefined, (e: unknown) => e);
+      expect(err).toBeInstanceOf(PartialUploadError);
+      const perr = err as PartialUploadError;
+      expect(perr.retryable).toBe(false);
+      expect(perr.chunksStored).toBe(300);
+      expect(perr.chunksFailed).toBe(12);
+      expect(perr.totalChunks).toBe(312);
+    });
+
+    it("maps finalizeChunkUpload partials too", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+          Promise.resolve(
+            jsonResponse(502, {
+              error: retainedMsg,
+              code: "PARTIAL_UPLOAD",
+              chunks_stored: 0,
+              chunks_failed: 1,
+              total_chunks: 1,
+              retryable: true,
+            }),
+          ),
+        ),
+      );
+
+      const err = await client
+        .finalizeChunkUpload("chunk-1", { qh1: "tx1" })
+        .then(() => undefined, (e: unknown) => e);
+      expect(err).toBeInstanceOf(PartialUploadError);
+      expect((err as PartialUploadError).chunksFailed).toBe(1);
+      expect((err as PartialUploadError).retryable).toBe(true);
+    });
+
+    it("keeps existing instanceof NetworkError / AntdError checks matching", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+          Promise.resolve(
+            jsonResponse(502, {
+              error: retainedMsg,
+              code: "PARTIAL_UPLOAD",
+              chunks_stored: 300,
+              chunks_failed: 12,
+              total_chunks: 312,
+              retryable: true,
+            }),
+          ),
+        ),
+      );
+
+      const p = client.finalizeUpload("u1", {});
+      await expect(p).rejects.toThrow(NetworkError);
+      await expect(p).rejects.toThrow(AntdError);
+    });
+
+    it("still maps a plain 502 (any other code) to NetworkError", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+          Promise.resolve(
+            jsonResponse(502, { error: "upstream unreachable", code: "NETWORK_ERROR" }),
+          ),
+        ),
+      );
+
+      const err = await client
+        .finalizeUpload("up1", {})
+        .then(() => undefined, (e: unknown) => e);
+      expect(err).toBeInstanceOf(NetworkError);
+      expect(err).not.toBeInstanceOf(PartialUploadError);
+      expect((err as NetworkError).message).toBe("upstream unreachable");
+    });
+
+    it("leaves every other code on the status-based mapping", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+          Promise.resolve(
+            jsonResponse(404, { error: "upload not found", code: "NOT_FOUND" }),
+          ),
+        ),
+      );
+
+      await expect(client.finalizeUpload("gone", {})).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe("fromErrorBody()", () => {
+    it("builds PartialUploadError from a PARTIAL_UPLOAD body", () => {
+      const err = fromErrorBody(502, "Partial upload", {
+        code: "PARTIAL_UPLOAD",
+        chunks_stored: 5,
+        chunks_failed: 2,
+        total_chunks: 7,
+        retryable: true,
+      });
+      expect(err).toBeInstanceOf(PartialUploadError);
+      expect(err).toMatchObject({
+        statusCode: 502,
+        chunksStored: 5,
+        chunksFailed: 2,
+        totalChunks: 7,
+        retryable: true,
+      });
+    });
+
+    it("zeroes counts and clears retryable when the fields are missing or malformed", () => {
+      const err = fromErrorBody(502, "Partial upload", {
+        code: "PARTIAL_UPLOAD",
+        chunks_stored: "5",
+        retryable: "true",
+      }) as PartialUploadError;
+      expect(err).toBeInstanceOf(PartialUploadError);
+      expect(err.chunksStored).toBe(0);
+      expect(err.chunksFailed).toBe(0);
+      expect(err.totalChunks).toBe(0);
+      expect(err.retryable).toBe(false);
+    });
+
+    it.each([
+      [502, { code: "NETWORK_ERROR" }, NetworkError],
+      [502, undefined, NetworkError],
+      [404, { code: "NOT_FOUND" }, NotFoundError],
+      [402, {}, PaymentError],
+      [418, { code: "PARTIAL_UPLOAD_ISH" }, AntdError],
+    ])("delegates status %i with body %o to fromHttpStatus", (status, body, expected) => {
+      const err = fromErrorBody(status, "msg", body);
+      expect(err).toBeInstanceOf(expected);
+      expect(err).not.toBeInstanceOf(PartialUploadError);
+      expect(err.constructor).toBe(fromHttpStatus(status, "msg").constructor);
     });
   });
 

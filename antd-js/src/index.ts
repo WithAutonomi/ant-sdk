@@ -28,10 +28,12 @@ export {
   BadRequestError,
   PaymentError,
   NetworkError,
+  PartialUploadError,
   TooLargeError,
   InternalError,
   ServiceUnavailableError,
   fromHttpStatus,
+  fromErrorBody,
 } from "./errors.js";
 
 export { RestClient } from "./rest-client.js";
