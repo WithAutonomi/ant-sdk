@@ -7,9 +7,9 @@
 //
 // See docs/external-signer-flow.md for the full reference; the IPaymentVault
 // function selector and tuple ABI are baked into the ContractAbi declaration
-// below. Finalize goes through finalizeWithRetry, which resumes a partial
-// store against the same payment when the daemon retained the paid attempt
-// (docs/external-signer-flow.md §6).
+// below. Finalize goes through finalizeWithRetry (finalize_with_retry.dart),
+// which resumes a partial store against the same payment when the daemon
+// retained the paid attempt (docs/external-signer-flow.md §6).
 //
 // Requires web3dart (added as a dev_dependency).
 
@@ -19,6 +19,8 @@ import 'dart:typed_data';
 import 'package:antd_client/antd_client.dart';
 import 'package:web3dart/web3dart.dart';
 import 'package:http/http.dart' as http;
+
+import 'finalize_with_retry.dart';
 
 // Anvil deterministic account #0. Pre-funded with ETH (gas) and antToken
 // (storage payment) by `ant dev start --enable-evm` devnet genesis. Never
@@ -133,46 +135,6 @@ Future<void> main() async {
   } finally {
     client.close();
     await tmp.delete(recursive: true);
-  }
-}
-
-/// Finalizes a wave-batch upload, resuming a partial store against the same
-/// payment when the daemon kept the paid attempt.
-///
-/// A [PartialUploadError] with `retryable == true` (antd >= 0.14.0) means the
-/// daemon retained the payment proofs and the unstored chunks under the same
-/// upload_id, so calling finalize again with the same arguments stores the
-/// remainder — no re-prepare, no second signature, no double payment. The
-/// loop is bounded: at most [maxAttempts] calls, linear backoff between them,
-/// and a `chunksFailed` that stops shrinking counts as stuck. A partial with
-/// `retryable == false` (nothing retained: re-prepare the same content to pay
-/// only for the remainder) and every other error are rethrown untouched.
-Future<FinalizeUploadResult> finalizeWithRetry(
-  AntdClient client,
-  String uploadId,
-  Map<String, String> txHashes, {
-  int maxAttempts = 5,
-}) async {
-  int? lastFailed;
-  for (var attempt = 1;; attempt++) {
-    try {
-      return await client.finalizeUpload(uploadId, txHashes);
-    } on PartialUploadError catch (e) {
-      if (!e.retryable) rethrow;
-      final stuck = lastFailed != null && e.chunksFailed >= lastFailed;
-      if (attempt >= maxAttempts || stuck) {
-        throw StateError(
-            'finalize stuck after $attempt attempt(s): ${e.chunksStored}/'
-            '${e.totalChunks} chunks stored, ${e.chunksFailed} still unstored '
-            '(paid attempt retained under upload_id $uploadId — retry later '
-            'or re-prepare): $e');
-      }
-      lastFailed = e.chunksFailed;
-      print('finalize stored ${e.chunksStored}/${e.totalChunks} chunks, '
-          '${e.chunksFailed} still unstored — retrying against the same '
-          'payment (attempt ${attempt + 1}/$maxAttempts)');
-      await Future.delayed(Duration(seconds: attempt * 2));
-    }
   }
 }
 

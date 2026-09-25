@@ -230,21 +230,21 @@ try {
 A `finalizeUpload` / `finalizeMerkleUpload` / `finalizeChunkUpload` call can fail *after* the wallet has paid: some chunks store, others miss quorum after the daemon's own retries. That is a `PartialUploadError` (a `NetworkError` subclass, so existing `on NetworkError` clauses still catch it) carrying `chunksStored`, `chunksFailed`, `totalChunks` and a `retryable` flag. The on-chain payment persists and the stored chunks stay on the network.
 
 - **`retryable == true`** (antd ≥ 0.14.0) — the daemon kept the paid attempt under the same `upload_id`. Call the **same** finalize method again with the same arguments to store the remainder against the same payment: no re-prepare, no second signature, no double payment. Bound that loop — a persistent failure throws this error on every call, so cap the attempts and treat a `chunksFailed` that stops shrinking as stuck. The retained attempt expires with the daemon's pending-upload TTL.
-- **`retryable == false`** — nothing was retained (a merkle finalize with deliberately unpaid batches, or an older daemon that never sends the flag). Re-preparing the same content skips already-stored chunks, so a retry pays only for the remainder.
+- **`retryable == false`** — nothing was retained (a merkle finalize with deliberately unpaid batches, or an older daemon that never sends the flag). Re-preparing the same content skips already-stored chunks, so a retry pays only for the remainder. A `false` that is the SDK's fallback for an error it could not read (a gRPC message whose counts did not parse, or a REST flag of the wrong type) only means retention is unconfirmed, not that the paid attempt was discarded: don't treat it alone as permission to pay again.
 
 ```dart
 try {
   await client.finalizeUpload(uploadId, txHashes);
 } on PartialUploadError catch (e) {
   if (e.retryable) {
-    // same upload_id, same payment — see finalizeWithRetry in example/07_external_signer.dart
+    // same upload_id, same payment — see finalizeWithRetry in example/finalize_with_retry.dart
   } else {
     // re-prepare the same content; only the remainder is paid for
   }
 }
 ```
 
-Over gRPC the error arrives as status `ABORTED` whose message starts with `Partial upload:`; the counts and the flag are parsed from that message, and `retryable` is `true` only when all three counts parse and the `paid attempt retained` hint is present (otherwise the counts read as zero and the flag as `false`). Any other `ABORTED` is not a partial upload and surfaces as a plain `AntdError`. See `finalizeWithRetry` in [`example/07_external_signer.dart`](example/07_external_signer.dart) for a bounded retry loop and [`docs/external-signer-flow.md`](../docs/external-signer-flow.md) §6 for the daemon contract.
+Over gRPC the error arrives as status `ABORTED` whose message starts with `Partial upload:`; the counts and the flag are parsed from that message, and `retryable` is `true` only when all three counts parse and the `paid attempt retained` hint is present (otherwise the counts read as zero and the flag as `false`). Any other `ABORTED` is not a partial upload and surfaces as a plain `AntdError`. See `finalizeWithRetry` in [`example/finalize_with_retry.dart`](example/finalize_with_retry.dart) (used by `07_external_signer.dart`) for a bounded retry loop that rethrows the last `PartialUploadError` unchanged when it gives up, and [`docs/external-signer-flow.md`](../docs/external-signer-flow.md) §6 for the daemon contract.
 
 ## Examples
 

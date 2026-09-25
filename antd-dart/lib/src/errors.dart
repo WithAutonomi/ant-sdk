@@ -76,6 +76,11 @@ class ServiceUnavailableError extends AntdError {
 ///   * `false` — nothing was retained (a merkle finalize with deliberately
 ///     unpaid batches, or an older daemon). Re-preparing the same content
 ///     skips already-stored chunks, so a retry pays only for the remainder.
+///     A `false` that is the SDK's fallback for an error it could not read
+///     (a gRPC message whose counts did not parse, or a REST flag of the
+///     wrong type) only means retention is unconfirmed, not that the daemon
+///     discarded the paid attempt: do not treat it alone as permission to
+///     pay again.
 ///
 /// Extends [NetworkError] because the daemon reports the shortfall as a 502:
 /// an existing `on NetworkError` clause keeps catching it, while a dedicated
@@ -103,7 +108,9 @@ class PartialUploadError extends NetworkError {
 
   /// `true` when the paid attempt was retained under the same `upload_id`
   /// and the same finalize call stores the remainder against the same
-  /// payment; `false` when the retry is a re-prepare.
+  /// payment; `false` when the daemon did not report it retained, including
+  /// the fallback for an unreadable error (see the class doc before paying
+  /// again).
   final bool retryable;
 
   const PartialUploadError(

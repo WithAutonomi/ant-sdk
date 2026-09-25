@@ -673,9 +673,11 @@ class GrpcAntdClient {
   /// remainder against the same payment, bounding the loop (cap attempts; a
   /// [PartialUploadError.chunksFailed] that stops shrinking means stuck).
   /// When `false`, nothing was retained: re-prepare the same content, which
-  /// skips already-stored chunks so the retry pays only for the remainder.
-  /// See `docs/external-signer-flow.md` §6 and
-  /// `example/07_external_signer.dart` (`finalizeWithRetry`).
+  /// skips already-stored chunks so the retry pays only for the remainder. A
+  /// `false` that is the fallback for an unreadable error means retention is
+  /// unconfirmed, not ruled out; see [PartialUploadError]. See
+  /// `docs/external-signer-flow.md` §6 and `example/finalize_with_retry.dart`
+  /// (`finalizeWithRetry`).
   Future<FinalizeUploadResult> finalizeUpload(
     String uploadId,
     Map<String, String> txHashes,

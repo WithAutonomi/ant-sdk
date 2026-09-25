@@ -12,9 +12,10 @@
   (antd ≥ 0.14.0) means the same finalize call with the same `upload_id`
   stores the remainder against the
   same payment; older daemons never send the flag, so it reads `false`.
-- `example/07_external_signer.dart`: `finalizeWithRetry`, a bounded retry loop
-  around `finalizeUpload` that resumes only when `retryable` and stops when
-  `chunksFailed` stops shrinking.
+- `example/finalize_with_retry.dart` (used by `07_external_signer.dart`):
+  `finalizeWithRetry`, a bounded retry loop around `finalizeUpload` that
+  resumes only when `retryable`, stops when `chunksFailed` stops shrinking,
+  and then rethrows the last `PartialUploadError` unchanged.
 
 ## 0.1.0
 
