@@ -87,7 +87,10 @@ class AntdClient
      * Map a non-2xx daemon response onto a typed {@see AntdError}.
      *
      * The body is parsed for the daemon's `{"error": "...", "code": "..."}`
-     * envelope; the message falls back to the raw body when it is not JSON.
+     * envelope. The message is the `error` string, falling back to the raw
+     * body when the body is not JSON or `error` is missing or not a string:
+     * handing an object, number or bool on as the `string $message` would
+     * raise a TypeError under strict_types instead of a typed error.
      * The decoded body is handed to {@see ErrorFactory::fromResponse()} so
      * codes that carry structured detail (`PARTIAL_UPLOAD`: chunk counts and
      * the `retryable` flag) survive the mapping.
@@ -95,11 +98,10 @@ class AntdClient
     private static function errorFromResponse(\Psr\Http\Message\ResponseInterface $response): AntdError
     {
         $responseBody = (string) $response->getBody();
-        $message = $responseBody;
         $parsed = json_decode($responseBody, true);
-        if (is_array($parsed) && isset($parsed['error'])) {
-            $message = $parsed['error'];
-        }
+        $message = is_array($parsed) && is_string($parsed['error'] ?? null)
+            ? $parsed['error']
+            : $responseBody;
         return ErrorFactory::fromResponse(
             $response->getStatusCode(),
             $message,

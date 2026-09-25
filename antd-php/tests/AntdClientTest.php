@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Autonomi\Antd\Tests;
 
 use Autonomi\Antd\AntdClient;
+use Autonomi\Antd\Errors\AntdError;
 use Autonomi\Antd\Errors\NotFoundError;
 use Autonomi\Antd\Errors\BadRequestError;
 use Autonomi\Antd\Errors\PaymentError;
@@ -21,6 +22,7 @@ use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 class AntdClientTest extends TestCase
@@ -623,6 +625,274 @@ class AntdClientTest extends TestCase
         $this->assertSame(0, $e->chunksStored);
         $this->assertSame(0, $e->chunksFailed);
         $this->assertSame(0, $e->totalChunks);
+    }
+
+    // --- Malformed error bodies ---
+    //
+    // The contract: only the string code "PARTIAL_UPLOAD" selects
+    // PartialUploadError; a count is read only from a JSON non-negative
+    // integer (anything else reads 0); `retryable` only from the JSON boolean
+    // true; the message only from a string `error` (otherwise the raw body).
+    // A malformed body never escapes as a TypeError; at worst it falls back
+    // to the status-based error. Bodies are raw JSON so each literal reaches
+    // json_decode() exactly as a daemon would send it.
+
+    private function rawJsonResponse(int $status, string $json): Response
+    {
+        return new Response($status, ['Content-Type' => 'application/json'], $json);
+    }
+
+    /**
+     * Run $call and return the AntdError it throws; a TypeError fails the
+     * test by name instead of surfacing as a generic PHPUnit error.
+     */
+    private function catchAntdError(callable $call): AntdError
+    {
+        try {
+            $call();
+        } catch (AntdError $e) {
+            return $e;
+        } catch (\TypeError $e) {
+            $this->fail('TypeError escaped the typed error contract: ' . $e->getMessage());
+        }
+        $this->fail('Expected an AntdError');
+    }
+
+    /** @return array<string, array{string}> JSON literals that are not a non-negative integer. */
+    public static function malformedCountProvider(): array
+    {
+        return [
+            'quoted number' => ['"1"'],
+            'bool' => ['true'],
+            'float' => ['1.5'],
+            'negative' => ['-1'],
+            'array' => ['["x"]'],
+            'object' => ['{}'],
+            'beyond int64' => ['18446744073709551616'],
+        ];
+    }
+
+    /** @return array<string, array{string, string}> [field, literal] for every count field. */
+    public static function malformedCountFieldProvider(): array
+    {
+        $cases = [];
+        foreach (self::malformedCountProvider() as $label => [$literal]) {
+            foreach (['chunks_stored', 'chunks_failed', 'total_chunks'] as $field) {
+                $cases["{$field} {$label}"] = [$field, $literal];
+            }
+        }
+        return $cases;
+    }
+
+    #[DataProvider('malformedCountFieldProvider')]
+    public function testMalformedPartialUploadCountReadsZero(string $field, string $literal): void
+    {
+        $literals = ['chunks_stored' => '5', 'chunks_failed' => '3', 'total_chunks' => '8'];
+        $literals[$field] = $literal;
+        $json = sprintf(
+            '{"error":"Partial upload: 5/8 chunks stored, 3 failed after retries","code":"PARTIAL_UPLOAD",'
+            . '"chunks_stored":%s,"chunks_failed":%s,"total_chunks":%s,"retryable":true}',
+            $literals['chunks_stored'],
+            $literals['chunks_failed'],
+            $literals['total_chunks'],
+        );
+        $client = $this->createClient(new MockHandler([$this->rawJsonResponse(502, $json)]));
+
+        $e = $this->catchAntdError(fn() => $client->finalizeUpload('up1', ['qh1' => 'tx1']));
+
+        $this->assertInstanceOf(PartialUploadError::class, $e);
+        $expected = ['chunks_stored' => 5, 'chunks_failed' => 3, 'total_chunks' => 8];
+        $expected[$field] = 0;
+        $this->assertSame($expected['chunks_stored'], $e->chunksStored);
+        $this->assertSame($expected['chunks_failed'], $e->chunksFailed);
+        $this->assertSame($expected['total_chunks'], $e->totalChunks);
+        $this->assertTrue($e->retryable, 'retryable is read from its own field');
+        $this->assertStringContainsString('Partial upload: 5/8 chunks stored', $e->getMessage());
+    }
+
+    #[DataProvider('malformedCountProvider')]
+    public function testErrorFactoryMalformedCountsReadZero(string $literal): void
+    {
+        $body = json_decode(
+            sprintf('{"code":"PARTIAL_UPLOAD","chunks_stored":%1$s,"chunks_failed":%1$s,"total_chunks":%1$s}', $literal),
+            true,
+        );
+        $this->assertIsArray($body);
+
+        $e = ErrorFactory::fromResponse(502, 'partial', $body);
+
+        $this->assertInstanceOf(PartialUploadError::class, $e);
+        $this->assertSame(0, $e->chunksStored);
+        $this->assertSame(0, $e->chunksFailed);
+        $this->assertSame(0, $e->totalChunks);
+    }
+
+    public function testErrorFactoryKeepsNonNegativeIntegerCounts(): void
+    {
+        $body = json_decode(
+            '{"code":"PARTIAL_UPLOAD","chunks_stored":0,"chunks_failed":7,"total_chunks":9223372036854775807}',
+            true,
+        );
+
+        $e = ErrorFactory::fromResponse(502, 'partial', $body);
+
+        $this->assertInstanceOf(PartialUploadError::class, $e);
+        $this->assertSame(0, $e->chunksStored);
+        $this->assertSame(7, $e->chunksFailed);
+        $this->assertSame(PHP_INT_MAX, $e->totalChunks);
+    }
+
+    /** @return array<string, array{string}> */
+    public static function nonTrueRetryableProvider(): array
+    {
+        return [
+            'quoted true' => ['"true"'],
+            'integer 1' => ['1'],
+        ];
+    }
+
+    #[DataProvider('nonTrueRetryableProvider')]
+    public function testRetryableIsTrueOnlyForJsonTrue(string $literal): void
+    {
+        $json = sprintf(
+            '{"error":"Partial upload: 1/2 chunks stored, 1 failed after retries","code":"PARTIAL_UPLOAD",'
+            . '"chunks_stored":1,"chunks_failed":1,"total_chunks":2,"retryable":%s}',
+            $literal,
+        );
+        $client = $this->createClient(new MockHandler([$this->rawJsonResponse(502, $json)]));
+
+        $e = $this->catchAntdError(fn() => $client->finalizeUpload('up1', ['qh1' => 'tx1']));
+
+        $this->assertInstanceOf(PartialUploadError::class, $e);
+        $this->assertFalse($e->retryable);
+        $this->assertSame(1, $e->chunksStored);
+        $this->assertSame(1, $e->chunksFailed);
+        $this->assertSame(2, $e->totalChunks);
+
+        $direct = ErrorFactory::fromResponse(502, 'partial', json_decode($json, true));
+        $this->assertInstanceOf(PartialUploadError::class, $direct);
+        $this->assertFalse($direct->retryable);
+    }
+
+    /** @return array<string, array{string}> */
+    public static function nonStringCodeProvider(): array
+    {
+        return [
+            'object' => ['{}'],
+            'array' => ['[]'],
+            'null' => ['null'],
+            'number' => ['1'],
+        ];
+    }
+
+    #[DataProvider('nonStringCodeProvider')]
+    public function testNonStringCodeKeepsStatusMapping(string $literal): void
+    {
+        $json = sprintf(
+            '{"error":"upstream unreachable","code":%s,"chunks_stored":1,"chunks_failed":1,"total_chunks":2,"retryable":true}',
+            $literal,
+        );
+        $client = $this->createClient(new MockHandler([$this->rawJsonResponse(502, $json)]));
+
+        $e = $this->catchAntdError(fn() => $client->finalizeUpload('up1', ['qh1' => 'tx1']));
+
+        $this->assertInstanceOf(NetworkError::class, $e);
+        $this->assertNotInstanceOf(PartialUploadError::class, $e);
+        $this->assertSame(502, $e->statusCode);
+        $this->assertStringContainsString('upstream unreachable', $e->getMessage());
+
+        $direct = ErrorFactory::fromResponse(502, 'upstream unreachable', json_decode($json, true));
+        $this->assertInstanceOf(NetworkError::class, $direct);
+        $this->assertNotInstanceOf(PartialUploadError::class, $direct);
+    }
+
+    public function testTopLevelArrayBodyKeepsStatusMapping(): void
+    {
+        $client = $this->createClient(new MockHandler([$this->rawJsonResponse(502, '[]')]));
+
+        $e = $this->catchAntdError(fn() => $client->finalizeUpload('up1', ['qh1' => 'tx1']));
+
+        $this->assertInstanceOf(NetworkError::class, $e);
+        $this->assertNotInstanceOf(PartialUploadError::class, $e);
+        $this->assertStringContainsString('[]', $e->getMessage(), 'message falls back to the raw body');
+
+        $direct = ErrorFactory::fromResponse(502, '[]', []);
+        $this->assertInstanceOf(NetworkError::class, $direct);
+        $this->assertNotInstanceOf(PartialUploadError::class, $direct);
+    }
+
+    /** @return array<string, array{string}> */
+    public static function nonStringErrorProvider(): array
+    {
+        return [
+            'object' => ['{}'],
+            'number' => ['1'],
+            'null' => ['null'],
+        ];
+    }
+
+    #[DataProvider('nonStringErrorProvider')]
+    public function testNonStringErrorOnPartialUploadUsesRawBody(string $literal): void
+    {
+        $json = sprintf(
+            '{"error":%s,"code":"PARTIAL_UPLOAD","chunks_stored":1,"chunks_failed":1,"total_chunks":2,"retryable":true}',
+            $literal,
+        );
+        $client = $this->createClient(new MockHandler([$this->rawJsonResponse(502, $json)]));
+
+        $e = $this->catchAntdError(fn() => $client->finalizeUpload('up1', ['qh1' => 'tx1']));
+
+        $this->assertInstanceOf(PartialUploadError::class, $e);
+        $this->assertSame(1, $e->chunksStored);
+        $this->assertSame(1, $e->chunksFailed);
+        $this->assertSame(2, $e->totalChunks);
+        $this->assertTrue($e->retryable);
+        $this->assertStringContainsString($json, $e->getMessage());
+    }
+
+    /** @return array<string, array{int, class-string<AntdError>, string}> */
+    public static function nonStringErrorStatusProvider(): array
+    {
+        $cases = [];
+        foreach ([400 => BadRequestError::class, 502 => NetworkError::class] as $status => $class) {
+            foreach (self::nonStringErrorProvider() as $label => [$literal]) {
+                $cases["{$status} {$label}"] = [$status, $class, $literal];
+            }
+        }
+        return $cases;
+    }
+
+    /**
+     * @param class-string<AntdError> $class
+     */
+    #[DataProvider('nonStringErrorStatusProvider')]
+    public function testNonStringErrorOnPlainStatusUsesRawBody(int $status, string $class, string $literal): void
+    {
+        $json = sprintf('{"error":%s}', $literal);
+        $client = $this->createClient(new MockHandler([$this->rawJsonResponse($status, $json)]));
+
+        $e = $this->catchAntdError(fn() => $client->health());
+
+        $this->assertInstanceOf($class, $e);
+        $this->assertNotInstanceOf(PartialUploadError::class, $e);
+        $this->assertSame($status, $e->statusCode);
+        $this->assertStringContainsString($json, $e->getMessage());
+    }
+
+    public function testNonStringErrorOnAsyncAndStreamPaths(): void
+    {
+        // errorFromResponse() backs all three request paths; prove the async
+        // rejection handler and the streaming path degrade the same way.
+        $json = '{"error":{},"code":"PARTIAL_UPLOAD","chunks_stored":1,"chunks_failed":1,"total_chunks":2,"retryable":true}';
+        $client = $this->createClient(new MockHandler([$this->rawJsonResponse(502, $json)]));
+        $e = $this->catchAntdError(fn() => $client->finalizeUploadAsync('up1', ['qh1' => 'tx1'])->wait());
+        $this->assertInstanceOf(PartialUploadError::class, $e);
+        $this->assertSame(1, $e->chunksFailed);
+
+        $client = $this->createClient(new MockHandler([$this->rawJsonResponse(400, '{"error":["x"]}')]));
+        $e = $this->catchAntdError(fn() => $client->dataStream('datamap'));
+        $this->assertInstanceOf(BadRequestError::class, $e);
+        $this->assertStringContainsString('{"error":["x"]}', $e->getMessage());
     }
 
     // --- External Signer (Two-Phase Upload) ---

@@ -16,21 +16,40 @@ class ErrorFactory
      * defaults to `false`). Every other code keeps the status-based mapping
      * of {@see fromHttpStatus()}.
      *
-     * @param array<string, mixed>|null $body The decoded JSON error body, or
-     *     null when the response was not JSON.
+     * The body is read strictly, so a malformed one degrades rather than
+     * throwing: only the string `"PARTIAL_UPLOAD"` selects
+     * {@see PartialUploadError} (any other `code`, or a body that is not a
+     * JSON object, keeps the status mapping); a count is taken only from a
+     * JSON non-negative integer and reads as 0 otherwise; `retryable` is
+     * true only for the JSON boolean `true`.
+     *
+     * @param array<mixed>|null $body The decoded JSON error body, or null
+     *     when the response was not JSON.
      */
     public static function fromResponse(int $code, string $message, ?array $body = null): AntdError
     {
         if (($body['code'] ?? null) === 'PARTIAL_UPLOAD') {
             return new PartialUploadError(
                 $message,
-                chunksStored: (int)($body['chunks_stored'] ?? 0),
-                chunksFailed: (int)($body['chunks_failed'] ?? 0),
-                totalChunks: (int)($body['total_chunks'] ?? 0),
+                chunksStored: self::nonNegativeInt($body['chunks_stored'] ?? null),
+                chunksFailed: self::nonNegativeInt($body['chunks_failed'] ?? null),
+                totalChunks: self::nonNegativeInt($body['total_chunks'] ?? null),
                 retryable: ($body['retryable'] ?? false) === true,
             );
         }
         return self::fromHttpStatus($code, $message);
+    }
+
+    /**
+     * A `PARTIAL_UPLOAD` count: the value when it is a JSON non-negative
+     * integer, otherwise 0. No `(int)` coercion, which would read `"1"`,
+     * `true`, `1.5` and `["x"]` as 1 and let `-1` through. An integer too
+     * large for PHP's int comes out of json_decode() as a float, so it
+     * reads as 0 too.
+     */
+    private static function nonNegativeInt(mixed $value): int
+    {
+        return is_int($value) && $value >= 0 ? $value : 0;
     }
 
     /**
