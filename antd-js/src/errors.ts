@@ -61,21 +61,28 @@ export class NetworkError extends AntdError {
  * A finalize stored some chunks while others remained unstored after the
  * daemon's retries (HTTP 502 with `code: "PARTIAL_UPLOAD"`). The on-chain
  * payment persists and the stored chunks stay on the network. How to finish
- * the upload depends on `retryable`:
+ * the upload depends on `retryable` and `retentionKnown` (`retryable`
+ * implies `retentionKnown`):
  *
- *   - `retryable === true`: the daemon kept the paid attempt (payment proofs
- *     + unstored chunks) under the same `upload_id`. Call the same finalize
- *     method again with the same arguments to store the remainder against the
- *     same payment — no re-prepare, no second signature, no double payment.
- *     Bound the loop: a persistent failure throws this error on every call,
- *     so cap the attempts and treat a `chunksFailed` that stops shrinking as
- *     stuck. The retained attempt expires with the daemon's pending-upload
- *     TTL. (antd >= 0.14.0; older daemons never send the flag, so `retryable`
- *     reads `false` and the re-prepare path applies.)
- *   - `retryable === false`: nothing was retained (a merkle finalize with
- *     deliberately unpaid batches, or an older daemon). Re-preparing the same
- *     content skips already-stored chunks, so a retry pays only for the
- *     missing remainder.
+ *   - `retryable`: the daemon kept the paid attempt (payment proofs +
+ *     unstored chunks) under the same `upload_id`. Call the same finalize
+ *     method again with the same `uploadId` and payment artefacts to store
+ *     the remainder against the same payment: no re-prepare, no second
+ *     signature, no double payment. Bound the loop: a persistent failure
+ *     throws this error on every call, so cap the attempts and treat a
+ *     `chunksFailed` that stops shrinking as stuck. The retained attempt
+ *     expires with the daemon's pending-upload TTL. (antd >= 0.14.0.)
+ *   - `retentionKnown && !retryable`: the daemon confirmed nothing was
+ *     retained (e.g. a merkle finalize with deliberately unpaid batches).
+ *     Re-prepare the same content; already-stored chunks are skipped, so the
+ *     new payment covers only the chunks still missing.
+ *   - `!retentionKnown`: retention is unknown. The daemon may still hold the
+ *     paid attempt, so stop automatic recovery, keep the `uploadId` and the
+ *     original payment artefacts, and reconcile before re-preparing or
+ *     paying again. Never pay again on this signal alone: re-preparing skips
+ *     only stored chunks, so it would pay twice for chunks the retained
+ *     attempt already paid for. Daemons older than antd 0.14.0 never send
+ *     `retryable`, so their partials read as unknown.
  *
  * Extends {@link NetworkError} because a 502 mapped to `NetworkError` before
  * the daemon exposed the structured code, so existing
@@ -89,9 +96,25 @@ export class PartialUploadError extends NetworkError {
   chunksFailed: number;
   /** Chunks in the upload (stored + failed). */
   totalChunks: number;
-  /** `true` when the paid attempt was retained for a same-`upload_id` retry. */
+  /**
+   * `true` when the daemon confirmed it kept the paid attempt for a
+   * same-`upload_id` retry. `false` covers both confirmed non-retention and
+   * unknown retention; {@link PartialUploadError.retentionKnown} tells them
+   * apart.
+   */
   retryable: boolean;
+  /**
+   * `true` when the daemon said whether it kept the paid attempt: the REST
+   * body carried a boolean `retryable`. `false` means retention is unknown,
+   * so the daemon may still hold the paid attempt; do not re-prepare or pay
+   * again until it is reconciled. Always `true` when `retryable` is.
+   */
+  readonly retentionKnown: boolean;
 
+  /**
+   * `fields.retentionKnown` defaults to `false`; `fields.retryable: true`
+   * forces it to `true`, since a retained attempt is a known retention state.
+   */
   constructor(
     message: string,
     fields: {
@@ -99,6 +122,7 @@ export class PartialUploadError extends NetworkError {
       chunksFailed?: number;
       totalChunks?: number;
       retryable?: boolean;
+      retentionKnown?: boolean;
     } = {},
     statusCode: number = 502,
   ) {
@@ -108,6 +132,7 @@ export class PartialUploadError extends NetworkError {
     this.chunksFailed = fields.chunksFailed ?? 0;
     this.totalChunks = fields.totalChunks ?? 0;
     this.retryable = fields.retryable ?? false;
+    this.retentionKnown = this.retryable || (fields.retentionKnown ?? false);
   }
 }
 
@@ -158,8 +183,10 @@ export function fromHttpStatus(statusCode: number, message: string): AntdError {
  * machine-readable `code` over the bare HTTP status where they diverge.
  * `PARTIAL_UPLOAD` arrives as a 502 that would otherwise read as a plain
  * {@link NetworkError}; it becomes a {@link PartialUploadError} carrying the
- * body's `chunks_stored` / `chunks_failed` / `total_chunks` and `retryable`
- * (absent on antd < 0.14.0, so it defaults to `false`). Every other code
+ * body's `chunks_stored` / `chunks_failed` / `total_chunks` and `retryable`.
+ * `retentionKnown` is `true` only when the body's `retryable` is a JSON
+ * boolean; missing (antd < 0.14.0 never sends it), `null` or any other type
+ * reads as unknown retention, with `retryable` `false`. Every other code
  * keeps the status-based mapping of {@link fromHttpStatus}. `body` may be
  * `undefined` when the response was not JSON.
  */
@@ -176,6 +203,9 @@ export function fromErrorBody(
         chunksFailed: typeof body.chunks_failed === "number" ? body.chunks_failed : 0,
         totalChunks: typeof body.total_chunks === "number" ? body.total_chunks : 0,
         retryable: body.retryable === true,
+        // Only a boolean says whether the attempt was retained; anything
+        // else leaves retention unknown.
+        retentionKnown: typeof body.retryable === "boolean",
       },
       statusCode,
     );

@@ -98,7 +98,13 @@ Two-phase upload — daemon prepares the payment intent, caller signs + submits 
 | `finalizeUpload(uploadId, txHashes)` | `FinalizeUploadResult` | Submit a prepared upload after external payment. `data_map_address` populated when prepare used `visibility: "public"` |
 | `finalizeChunkUpload(uploadId, txHashes)` | `string` | Submit a prepared chunk after external payment; returns the chunk address |
 
-A finalize where some chunks stayed unstored after the daemon's retries throws `PartialUploadError` with `chunksStored` / `chunksFailed` / `totalChunks` and a `retryable` flag. `retryable === true` (antd ≥ 0.14.0) means the daemon kept the paid attempt under the same `uploadId`: call the **same** finalize method again with the same arguments to store the remainder against the same payment — no re-prepare, no second signature, no double payment. Bound that loop (cap the attempts; a `chunksFailed` that stops shrinking means stuck). `retryable === false` — an older daemon, or a merkle finalize with deliberately unpaid batches — means nothing was retained: re-preparing the same content skips stored chunks, so a retry pays only for the remainder. See `finalizeWithRetry` in `examples/07-external-signer.ts` and [`docs/external-signer-flow.md` §6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment).
+A finalize where some chunks stayed unstored after the daemon's retries throws `PartialUploadError` with `chunksStored` / `chunksFailed` / `totalChunks` and two flags, `retryable` and `retentionKnown` (`retryable` implies `retentionKnown`). The payment persists and stored chunks stay on the network. Three cases:
+
+- `retryable` (antd ≥ 0.14.0): the daemon kept the paid attempt under the same `uploadId`. Call the **same** finalize method again with the same `uploadId` and payment artefacts to store the remainder against the same payment: no re-prepare, no second signature, no double payment. Bound that loop (cap the attempts; a `chunksFailed` that stops shrinking means stuck).
+- `retentionKnown && !retryable`: the daemon confirmed nothing was retained (e.g. a merkle finalize with deliberately unpaid batches). Re-prepare the same content; stored chunks are skipped, so the new payment covers only the chunks still missing.
+- `!retentionKnown`: retention is unknown, and the daemon may still hold the paid attempt. Stop automatic recovery, keep the `uploadId` and the original payment artefacts, and reconcile before re-preparing or paying again. Never pay again on this signal alone. Daemons older than 0.14.0 never send `retryable`, so their partials read as unknown.
+
+See `finalizeWithRetry` in `examples/finalize-with-retry.ts` (used by `examples/07-external-signer.ts`) and [`docs/external-signer-flow.md` §6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment).
 
 ## Models
 
@@ -144,7 +150,7 @@ All errors extend `AntdError`, which extends `Error` and includes a `statusCode`
 | `TooLargeError` | 413 | Data exceeds size limit |
 | `InternalError` | 500 | Internal server error |
 | `NetworkError` | 502 | Cannot reach network |
-| `PartialUploadError` | 502 | Finalize stored only some chunks (`code: "PARTIAL_UPLOAD"`); carries `chunksStored`, `chunksFailed`, `totalChunks`, `retryable`. Extends `NetworkError` |
+| `PartialUploadError` | 502 | Finalize stored only some chunks (`code: "PARTIAL_UPLOAD"`); carries `chunksStored`, `chunksFailed`, `totalChunks`, `retryable`, `retentionKnown`. Extends `NetworkError` |
 
 ```typescript
 import { createClient, NotFoundError } from "@withautonomi/antd";
@@ -170,11 +176,16 @@ try {
   if (err instanceof PartialUploadError) {
     // Payment persists; stored chunks stay on the network.
     if (err.retryable) {
-      // antd >= 0.14.0 kept the paid attempt: repeat the SAME finalize call
-      // with the same uploadId + txHashes (bounded — see the example).
+      // The daemon kept the paid attempt: repeat the SAME finalize call with
+      // the same uploadId + txHashes (bounded; see the example).
+    } else if (err.retentionKnown) {
+      // The daemon confirmed nothing was retained: re-prepare the same
+      // content; stored chunks are skipped, so the new payment covers only
+      // the chunks still missing.
     } else {
-      // Nothing retained: re-prepare the same content; stored chunks are
-      // skipped so the retry pays only for the remainder.
+      // Retention unknown (e.g. antd < 0.14.0): the daemon may still hold
+      // the paid attempt. Stop, keep uploadId + txHashes, and reconcile
+      // before re-preparing or paying again.
     }
   }
 }
@@ -192,6 +203,7 @@ The `examples/` directory contains 7 runnable scripts covering all major feature
 | `04-files.ts` | File upload/download |
 | `06-private-data.ts` | Private encrypted data |
 | `07-external-signer.ts` | External-signer file + chunk upload (anvil signer) |
+| `finalize-with-retry.ts` | Bounded same-`uploadId` finalize retry used by `07` (imported, not run directly) |
 
 Run examples with [tsx](https://github.com/privatenumber/tsx):
 

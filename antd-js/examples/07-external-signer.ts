@@ -9,6 +9,11 @@
  * See `docs/external-signer-flow.md` for the full reference; the contract
  * ABI loaded below is committed at `docs/abi/IPaymentVault.json`.
  *
+ * Both finalize calls go through `finalizeWithRetry`
+ * (`./finalize-with-retry.ts`): it repeats a finalize only when the daemon
+ * confirms it kept the paid attempt, and otherwise stops and rethrows the
+ * typed `PartialUploadError` (docs/external-signer-flow.md §6).
+ *
  * Requires `ethers` (added as a devDependency of antd-js).
  */
 
@@ -17,7 +22,6 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
 
 import {
   Contract,
@@ -28,7 +32,8 @@ import {
   getAddress,
 } from "ethers";
 
-import { createClient, PartialUploadError } from "../src/index.js";
+import { createClient } from "../src/index.js";
+import { finalizeWithRetry } from "./finalize-with-retry.js";
 
 // Anvil deterministic account #0. Pre-funded with ETH (gas) and antToken
 // (storage payment) by `ant dev start --enable-evm` devnet genesis. Never
@@ -107,57 +112,6 @@ async function externalSignerPay(
     txHashes[p.quoteHash] = payRcpt.hash;
   }
   return txHashes;
-}
-
-/**
- * Run a finalize call and, when the daemon reports a storage shortfall AFTER
- * the payment settled, retry the same call against the same payment.
- * antd >= 0.14.0 keeps the paid attempt (payment proofs + unstored chunks)
- * under the same upload_id and flags the error `retryable`, so repeating the
- * finalize stores only the remainder — no re-prepare, no second signature,
- * no double payment. `attemptFinalize` must issue the SAME finalize method
- * with the SAME arguments each time; the closure guarantees that.
- *
- * The loop is bounded: a persistent failure (a chunk whose close group stays
- * unreachable) throws PartialUploadError on every call, never a different
- * error, so it caps the attempts and treats a `chunksFailed` that stops
- * shrinking as stuck. A non-retryable partial upload (older daemon, or a
- * merkle upload with unpaid batches) is rethrown untouched: the recovery
- * there is to re-prepare the same content, which skips the chunks already
- * stored. See docs/external-signer-flow.md §6.
- */
-async function finalizeWithRetry<T>(
-  uploadId: string,
-  attemptFinalize: () => Promise<T>,
-): Promise<T> {
-  const maxAttempts = 5;
-  let lastFailed = Infinity;
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await attemptFinalize(); // every chunk stored
-    } catch (err) {
-      if (!(err instanceof PartialUploadError) || !err.retryable) {
-        throw err;
-      }
-      const stuck = attempt > 1 && err.chunksFailed >= lastFailed;
-      if (attempt >= maxAttempts || stuck) {
-        throw new Error(
-          `finalize stuck after ${attempt} attempt(s): ` +
-            `${err.chunksStored}/${err.totalChunks} chunks stored, ` +
-            `${err.chunksFailed} still unstored (paid attempt retained under ` +
-            `upload_id ${uploadId} — retry later or re-prepare): ${err.message}`,
-          { cause: err },
-        );
-      }
-      lastFailed = err.chunksFailed;
-      console.log(
-        `finalize stored ${err.chunksStored}/${err.totalChunks} chunks, ` +
-          `${err.chunksFailed} still unstored — retrying against the same ` +
-          `payment (attempt ${attempt + 1}/${maxAttempts})`,
-      );
-      await sleep(attempt * 2_000);
-    }
-  }
 }
 
 const client = createClient();

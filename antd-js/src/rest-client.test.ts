@@ -1260,6 +1260,18 @@ describe("RestClient", () => {
 
   // ---- Partial upload (PARTIAL_UPLOAD) ----
 
+  // The REST body's `retryable` -> (retentionKnown, retryable). Retention is
+  // known only when `retryable` is a JSON boolean; the message text (which
+  // carries the retained hint in these tests) never decides it over REST.
+  const RETRYABLE_CASES = [
+    { label: "true", extra: { retryable: true }, known: true, retry: true },
+    { label: "false", extra: { retryable: false }, known: true, retry: false },
+    { label: "missing", extra: {}, known: false, retry: false },
+    { label: "null", extra: { retryable: null }, known: false, retry: false },
+    { label: 'the string "true"', extra: { retryable: "true" }, known: false, retry: false },
+    { label: "the number 1", extra: { retryable: 1 }, known: false, retry: false },
+  ];
+
   describe("partial upload (PARTIAL_UPLOAD)", () => {
     const retainedMsg =
       "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " +
@@ -1292,14 +1304,17 @@ describe("RestClient", () => {
       expect(perr.chunksFailed).toBe(12);
       expect(perr.totalChunks).toBe(312);
       expect(perr.retryable).toBe(true);
+      expect(perr.retentionKnown).toBe(true);
       expect(perr.statusCode).toBe(502);
       expect(perr.name).toBe("PartialUploadError");
       expect(perr.message).toBe(retainedMsg);
     });
 
-    it("defaults retryable to false when an older daemon omits the flag", async () => {
-      // antd < 0.14.0 never sends `retryable`; it must read false so callers
-      // fall back to re-prepare rather than loop on a dropped upload_id.
+    it("reads an older daemon's partial (no retryable flag) as unknown retention", async () => {
+      // antd < 0.14.0 never sends `retryable`. The client cannot tell whether
+      // the paid attempt was retained, so it is neither retryable nor
+      // confirmed non-retained: callers stop and reconcile rather than loop
+      // on the upload_id or re-prepare and pay again.
       vi.stubGlobal(
         "fetch",
         vi.fn(() =>
@@ -1321,6 +1336,7 @@ describe("RestClient", () => {
       expect(err).toBeInstanceOf(PartialUploadError);
       const perr = err as PartialUploadError;
       expect(perr.retryable).toBe(false);
+      expect(perr.retentionKnown).toBe(false);
       expect(perr.chunksStored).toBe(300);
       expect(perr.chunksFailed).toBe(12);
       expect(perr.totalChunks).toBe(312);
@@ -1350,6 +1366,36 @@ describe("RestClient", () => {
       expect((err as PartialUploadError).chunksFailed).toBe(1);
       expect((err as PartialUploadError).retryable).toBe(true);
     });
+
+    it.each(RETRYABLE_CASES)(
+      "maps body retryable $label to retentionKnown=$known, retryable=$retry",
+      async ({ extra, known, retry }) => {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(() =>
+            Promise.resolve(
+              jsonResponse(502, {
+                error: retainedMsg,
+                code: "PARTIAL_UPLOAD",
+                chunks_stored: 300,
+                chunks_failed: 12,
+                total_chunks: 312,
+                ...extra,
+              }),
+            ),
+          ),
+        );
+
+        const err = await client
+          .finalizeUpload("u1", { "0xq": "0xt" })
+          .then(() => undefined, (e: unknown) => e);
+        expect(err).toBeInstanceOf(PartialUploadError);
+        const perr = err as PartialUploadError;
+        expect(perr.retentionKnown).toBe(known);
+        expect(perr.retryable).toBe(retry);
+        expect(perr.chunksFailed).toBe(12);
+      },
+    );
 
     it("keeps existing instanceof NetworkError / AntdError checks matching", async () => {
       vi.stubGlobal(
@@ -1421,6 +1467,7 @@ describe("RestClient", () => {
         chunksFailed: 2,
         totalChunks: 7,
         retryable: true,
+        retentionKnown: true,
       });
     });
 
@@ -1435,6 +1482,52 @@ describe("RestClient", () => {
       expect(err.chunksFailed).toBe(0);
       expect(err.totalChunks).toBe(0);
       expect(err.retryable).toBe(false);
+      expect(err.retentionKnown).toBe(false);
+    });
+
+    it.each(RETRYABLE_CASES)(
+      "reads body retryable $label as retentionKnown=$known, retryable=$retry",
+      ({ extra, known, retry }) => {
+        const err = fromErrorBody(502, "Partial upload", {
+          code: "PARTIAL_UPLOAD",
+          chunks_stored: 5,
+          chunks_failed: 2,
+          total_chunks: 7,
+          ...extra,
+        }) as PartialUploadError;
+        expect(err).toBeInstanceOf(PartialUploadError);
+        expect(err.retentionKnown).toBe(known);
+        expect(err.retryable).toBe(retry);
+      },
+    );
+
+    it("keeps existing PartialUploadError constructor calls working", () => {
+      expect(new PartialUploadError("Partial upload")).toMatchObject({
+        statusCode: 502,
+        retryable: false,
+        retentionKnown: false,
+      });
+      expect(
+        new PartialUploadError(
+          "Partial upload",
+          { chunksStored: 1, chunksFailed: 1, totalChunks: 2 },
+          502,
+        ),
+      ).toMatchObject({ chunksFailed: 1, retryable: false, retentionKnown: false });
+      expect(new PartialUploadError("m", { retentionKnown: true })).toMatchObject({
+        retryable: false,
+        retentionKnown: true,
+      });
+    });
+
+    it("forces retentionKnown when retryable (retryable implies retentionKnown)", () => {
+      expect(new PartialUploadError("m", { retryable: true })).toMatchObject({
+        retryable: true,
+        retentionKnown: true,
+      });
+      expect(
+        new PartialUploadError("m", { retryable: true, retentionKnown: false }),
+      ).toMatchObject({ retryable: true, retentionKnown: true });
     });
 
     it.each([
