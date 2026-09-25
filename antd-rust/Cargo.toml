@@ -1,6 +1,6 @@
 [package]
 name = "antd-client"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.82"
 description = "Rust client for the antd daemon: store and fetch data on the Autonomi decentralized network over REST or gRPC"

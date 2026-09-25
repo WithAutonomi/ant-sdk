@@ -14,11 +14,12 @@ from antd.exceptions import (
     TooLargeError,
 )
 
-# ``PartialUploadError`` arrived in the antd SDK together with the daemon's
-# resumable finalize. The MCP server's dependency floor still admits older SDK
-# releases that predate it, so the import is guarded: against such an SDK the
-# server keeps starting and serving, and a partial upload simply surfaces as
-# the ``NETWORK_ERROR`` it always was (with the daemon's message text).
+# ``PartialUploadError`` arrived in the antd SDK (0.2.0) together with the
+# daemon's resumable finalize, and the MCP server's dependency floor now
+# requires it. The import stays guarded for an environment that bypasses the
+# floor (e.g. installed with --no-deps): against an older SDK the server keeps
+# starting and serving, and a partial upload simply surfaces as the
+# ``NETWORK_ERROR`` it always was (with the daemon's message text).
 try:
     from antd.exceptions import PartialUploadError
 except ImportError:  # antd SDK without the typed partial-upload error

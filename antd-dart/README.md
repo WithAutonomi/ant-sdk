@@ -14,7 +14,7 @@ Or add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  antd_client: ^0.1.0
+  antd_client: ^0.2.0
 ```
 
 ## Compatibility

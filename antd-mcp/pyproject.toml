@@ -28,11 +28,11 @@ classifiers = [
 dependencies = [
   "mcp>=2,<3",
   # The server uses the REST transport, so the `rest` extra (httpx) is required.
-  # The floor admits SDK releases that predate `PartialUploadError`; errors.py
-  # guards that import so the server still starts against them (partial
-  # uploads then surface as NETWORK_ERROR). Raise the floor to the first antd
-  # release that ships the typed error once it is published.
-  "antd[rest]>=0.1.0,<0.2",
+  # antd 0.2.0 is the first SDK release with `PartialUploadError` and
+  # `retention_known`, which the finalize tools report. errors.py still guards
+  # the import, so an environment that bypasses the floor (e.g. --no-deps)
+  # starts and reports partial uploads as NETWORK_ERROR.
+  "antd[rest]>=0.2.0,<0.3",
 ]
 
 [project.optional-dependencies]
