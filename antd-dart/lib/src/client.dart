@@ -16,6 +16,26 @@ const defaultTimeout = Duration(minutes: 5);
 /// Media type that opts the stream endpoints into NDJSON progress framing.
 const _ndjsonContentType = 'application/x-ndjson';
 
+/// Maps a non-2xx REST response onto a typed [AntdError] from its status
+/// code and raw body; shared by the JSON and the streaming request paths.
+///
+/// Never throws: the body is input from the network. A body that is not
+/// JSON, or JSON that is not an object (a top-level array, a string, ...),
+/// maps by status alone; an `error` field that is missing or not a string
+/// leaves the raw body as the message. [errorForResponse] then reads the
+/// `PARTIAL_UPLOAD` fields without casting.
+AntdError _errorForBody(int statusCode, String raw) {
+  Map<String, dynamic>? body;
+  try {
+    final decoded = jsonDecode(raw);
+    if (decoded is Map<String, dynamic>) body = decoded;
+  } catch (_) {
+    // Not JSON: the raw body is the message.
+  }
+  final error = body?['error'];
+  return errorForResponse(statusCode, error is String ? error : raw, body);
+}
+
 /// REST client for the antd daemon.
 class AntdClient {
   final String _baseUrl;
@@ -101,17 +121,7 @@ class AntdClient {
     }
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      var msg = response.body;
-      Map<String, dynamic>? parsed;
-      try {
-        parsed = jsonDecode(response.body) as Map<String, dynamic>;
-        if (parsed.containsKey('error')) {
-          msg = parsed['error'] as String;
-        }
-      } catch (_) {
-        // Use raw body as message
-      }
-      throw errorForResponse(response.statusCode, msg, parsed);
+      throw _errorForBody(response.statusCode, response.body);
     }
 
     if (response.body.isEmpty) {
@@ -157,19 +167,9 @@ class AntdClient {
         await _httpClient.send(request).timeout(_timeout);
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      // Drain the (short) error body so we can parse {"error"} like _doJson.
+      // Drain the (short) error body so it maps exactly like _doJson's.
       final raw = await response.stream.bytesToString();
-      var msg = raw;
-      Map<String, dynamic>? parsed;
-      try {
-        parsed = jsonDecode(raw) as Map<String, dynamic>;
-        if (parsed.containsKey('error')) {
-          msg = parsed['error'] as String;
-        }
-      } catch (_) {
-        // Use raw body as message.
-      }
-      throw errorForResponse(response.statusCode, msg, parsed);
+      throw _errorForBody(response.statusCode, raw);
     }
 
     return response.stream;

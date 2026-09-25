@@ -168,6 +168,18 @@ MockClient partialUploadDaemon({bool? retryable}) {
   });
 }
 
+/// Creates a MockClient that always answers [statusCode] with [body]
+/// verbatim, for malformed-error-body tests.
+MockClient rawBodyDaemon(int statusCode, String body) {
+  return MockClient((request) async {
+    return http.Response(
+      body,
+      statusCode,
+      headers: {'content-type': 'application/json'},
+    );
+  });
+}
+
 void main() {
   setUp(() {
     lastRequestBodies = {};
@@ -536,6 +548,124 @@ void main() {
       expect(
         () => client.finalizeUpload('up1', {}),
         throwsA(allOf(isA<NetworkError>(), isNot(isA<PartialUploadError>()))),
+      );
+      client.close();
+    });
+
+    test('502 whose code is not the string PARTIAL_UPLOAD maps by status',
+        () async {
+      // The error body is input from the network. A `code` that is an
+      // object, array, null or number, or a body that is not a JSON object
+      // at all, must fall back to the status mapping (a plain NetworkError
+      // for a 502) instead of throwing a TypeError out of the client. A
+      // non-string `error` leaves the raw body as the message.
+      const cases = <String, String>{
+        // body: expected message
+        '{"code":{}}': '{"code":{}}',
+        '{"code":[],"error":"x"}': 'x',
+        '{"code":["PARTIAL_UPLOAD"]}': '{"code":["PARTIAL_UPLOAD"]}',
+        '{"code":null,"error":"x"}': 'x',
+        '{"code":1,"error":"x"}': 'x',
+        '{"code":"NETWORK_ERROR","error":{}}':
+            '{"code":"NETWORK_ERROR","error":{}}',
+        '[]': '[]',
+        '[{"code":"PARTIAL_UPLOAD"}]': '[{"code":"PARTIAL_UPLOAD"}]',
+        '"PARTIAL_UPLOAD"': '"PARTIAL_UPLOAD"',
+      };
+      for (final entry in cases.entries) {
+        final client = AntdClient(httpClient: rawBodyDaemon(502, entry.key));
+        await expectLater(
+          client.finalizeUpload('u1', {'0xq': '0xt'}),
+          throwsA(allOf(
+            isA<NetworkError>()
+                .having((e) => e.statusCode, 'statusCode', 502)
+                .having((e) => e.message, 'message', entry.value),
+            isNot(isA<PartialUploadError>()),
+          )),
+          reason: entry.key,
+        );
+        client.close();
+      }
+    });
+
+    test('non-502 with a non-string error keeps the status mapping', () async {
+      final client =
+          AntdClient(httpClient: rawBodyDaemon(400, '{"error":{"a":1}}'));
+      await expectLater(
+        client.health(),
+        throwsA(isA<BadRequestError>()
+            .having((e) => e.message, 'message', '{"error":{"a":1}}')),
+      );
+      client.close();
+    });
+
+    test('PARTIAL_UPLOAD with mistyped fields reads them as 0 / false',
+        () async {
+      // The code is right, so it is still a PartialUploadError, but no field
+      // may throw: a count that is not a finite JSON number reads as 0, a
+      // retryable that is not the JSON boolean true reads as false, and a
+      // non-string `error` leaves the raw body as the message.
+      const bodies = [
+        '{"error":{},"code":"PARTIAL_UPLOAD","chunks_stored":[],'
+            '"chunks_failed":{},"total_chunks":"3","retryable":"true"}',
+        '{"error":["x"],"code":"PARTIAL_UPLOAD","chunks_stored":null,'
+            '"chunks_failed":true,"total_chunks":1e999,"retryable":{}}',
+        '{"code":"PARTIAL_UPLOAD","retryable":1}',
+      ];
+      for (final body in bodies) {
+        final client = AntdClient(httpClient: rawBodyDaemon(502, body));
+        await expectLater(
+          client.finalizeUpload('u1', {'0xq': '0xt'}),
+          throwsA(isA<PartialUploadError>()
+              .having((e) => e.statusCode, 'statusCode', 502)
+              .having((e) => e.chunksStored, 'chunksStored', 0)
+              .having((e) => e.chunksFailed, 'chunksFailed', 0)
+              .having((e) => e.totalChunks, 'totalChunks', 0)
+              .having((e) => e.retryable, 'retryable', isFalse)
+              .having((e) => e.message, 'message', body)),
+          reason: body,
+        );
+        client.close();
+      }
+
+      // Well-typed fields next to mistyped ones are still read.
+      const mixed = '{"error":"partial","code":"PARTIAL_UPLOAD",'
+          '"chunks_stored":300,"chunks_failed":"12","total_chunks":312.0,'
+          '"retryable":"yes"}';
+      final client = AntdClient(httpClient: rawBodyDaemon(502, mixed));
+      await expectLater(
+        client.finalizeUpload('u1', {'0xq': '0xt'}),
+        throwsA(isA<PartialUploadError>()
+            .having((e) => e.chunksStored, 'chunksStored', 300)
+            .having((e) => e.chunksFailed, 'chunksFailed', 0)
+            .having((e) => e.totalChunks, 'totalChunks', 312)
+            .having((e) => e.retryable, 'retryable', isFalse)
+            .having((e) => e.message, 'message', 'partial')),
+      );
+      client.close();
+    });
+
+    test('stream path never throws on a malformed error body', () async {
+      var client = AntdClient(httpClient: rawBodyDaemon(502, '{"code":{}}'));
+      await expectLater(
+        client.dataStream('dm123'),
+        throwsA(allOf(
+          isA<NetworkError>()
+              .having((e) => e.message, 'message', '{"code":{}}'),
+          isNot(isA<PartialUploadError>()),
+        )),
+      );
+      client.close();
+
+      const body = '{"error":{},"code":"PARTIAL_UPLOAD","chunks_failed":[],'
+          '"retryable":"true"}';
+      client = AntdClient(httpClient: rawBodyDaemon(502, body));
+      await expectLater(
+        client.dataStream('dm123'),
+        throwsA(isA<PartialUploadError>()
+            .having((e) => e.chunksFailed, 'chunksFailed', 0)
+            .having((e) => e.retryable, 'retryable', isFalse)
+            .having((e) => e.message, 'message', body)),
       );
       client.close();
     });

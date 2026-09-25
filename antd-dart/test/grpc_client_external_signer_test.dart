@@ -159,6 +159,32 @@ void main() {
         )),
       );
     });
+
+    test('ABORTED finalize quoting the marker further in stays AntdError',
+        () async {
+      // The gate is anchored: only a message that starts with
+      // "Partial upload:" is a partial upload. One that embeds the marker
+      // after other text keeps the generic mapping instead of surfacing as
+      // a PartialUploadError with made-up counts or retryable set.
+      const cases = {
+        'aborted-embedded':
+            'upstream error: Partial upload: 1/3 chunks stored, 2 failed',
+        'aborted-wrapped': 'wrapped (Partial upload: 0/1 chunks stored, '
+            '1 failed; paid attempt retained)',
+      };
+      for (final entry in cases.entries) {
+        await expectLater(
+          client.finalizeUpload(entry.key, {'0xq1': '0xtx1'}),
+          throwsA(allOf(
+            isA<AntdError>()
+                .having((e) => e.statusCode, 'statusCode', 10)
+                .having((e) => e.message, 'message', entry.value),
+            isNot(isA<PartialUploadError>()),
+          )),
+          reason: entry.key,
+        );
+      }
+    });
   });
 
   group('External signer (V2-284) — prepare/finalize chunks', () {
@@ -323,6 +349,16 @@ class _MockUploadService extends upload_pb.UploadServiceBase {
     }
     if (request.uploadId == 'aborted-other') {
       throw GrpcError.aborted('upload aborted: daemon shutting down');
+    }
+    // ABORTED statuses that quote the daemon's marker after other text: not
+    // partial uploads, since the gate is anchored at the start.
+    if (request.uploadId == 'aborted-embedded') {
+      throw GrpcError.aborted(
+          'upstream error: Partial upload: 1/3 chunks stored, 2 failed');
+    }
+    if (request.uploadId == 'aborted-wrapped') {
+      throw GrpcError.aborted('wrapped (Partial upload: 0/1 chunks stored, '
+          '1 failed; paid attempt retained)');
     }
     if (request.winnerPoolHash.isNotEmpty) {
       return upload_msg.FinalizeUploadResponse()

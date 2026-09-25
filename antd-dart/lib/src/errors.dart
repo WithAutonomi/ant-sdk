@@ -59,7 +59,7 @@ class ServiceUnavailableError extends AntdError {
 
 /// A finalize stored some chunks while others stayed unstored after the
 /// daemon's retries (HTTP 502 with `code: "PARTIAL_UPLOAD"`; gRPC ABORTED
-/// whose message carries the daemon's `Partial upload:` prefix).
+/// whose message starts with the daemon's `Partial upload:` prefix).
 ///
 /// The on-chain payment persists and the stored chunks stay on the network.
 /// How to finish the upload depends on [retryable]:
@@ -81,12 +81,14 @@ class ServiceUnavailableError extends AntdError {
 /// an existing `on NetworkError` clause keeps catching it, while a dedicated
 /// `on PartialUploadError` clause (listed first) gets the counts.
 ///
-/// Over REST the counts and [retryable] come from the structured error body.
-/// Over gRPC they are parsed best-effort from the status message by
-/// [PartialUploadError.fromMessage], and only an ABORTED whose message
-/// passes [PartialUploadError.isPartialUploadMessage] is mapped to this
-/// type; any other ABORTED stays a plain [AntdError]. See
-/// `docs/external-signer-flow.md` §6
+/// Over REST the counts and [retryable] come from the structured error body;
+/// a field that is missing or not of the expected JSON type reads as 0 /
+/// `false` (see [errorForResponse]). Over gRPC they are parsed best-effort
+/// from the status message by [PartialUploadError.fromMessage], and only an
+/// ABORTED whose message starts with `Partial upload:` (see
+/// [PartialUploadError.isPartialUploadMessage]) is mapped to this type; any
+/// other ABORTED, including one that quotes the phrase further in, stays a
+/// plain [AntdError]. See `docs/external-signer-flow.md` §6
 /// ("Retry a partial store") for the daemon contract.
 class PartialUploadError extends NetworkError {
   /// Chunks the daemon stored before giving up on the remainder.
@@ -117,10 +119,11 @@ class PartialUploadError extends NetworkError {
   ///
   /// The daemon formats the message as `Partial upload: <stored>/<total>
   /// chunks stored, <failed> failed after retries: <reason> (<hint>)`, with
-  /// the hint `paid attempt retained: ...` when retryable. A message that
-  /// carries the prefix but not the counts leaves them zero and [retryable]
-  /// false. Callers gate on [isPartialUploadMessage] first so that an
-  /// unrelated ABORTED is not misreported as a partial upload.
+  /// the hint `paid attempt retained: ...` when retryable. The counts and
+  /// the hint are parsed independently, as in antd-rust: counts that do not
+  /// parse read as zero, while [retryable] follows the hint alone. Callers
+  /// gate on [isPartialUploadMessage] first so that an unrelated ABORTED is
+  /// not misreported as a partial upload.
   factory PartialUploadError.fromMessage(String message) {
     final m = _partialUploadCounts.firstMatch(message);
     return PartialUploadError(
@@ -135,8 +138,13 @@ class PartialUploadError extends NetworkError {
   /// Whether [message] is the daemon's `PARTIAL_UPLOAD` message: every one
   /// it emits opens with the fixed text `Partial upload:`. Used to decide
   /// whether a gRPC ABORTED status is a partial upload at all.
+  ///
+  /// Anchored at the start of [message], matching antd-rust: the daemon
+  /// never wraps its own message, so an ABORTED that merely quotes the
+  /// phrase further in is something else and must not be misreported as a
+  /// partial upload.
   static bool isPartialUploadMessage(String message) =>
-      message.contains(_partialUploadPrefix);
+      message.startsWith(_partialUploadPrefix);
 }
 
 /// Fixed opening text of every `PARTIAL_UPLOAD` message the daemon emits.
@@ -155,25 +163,39 @@ const _partialUploadRetainedHint = 'paid attempt retained';
 /// machine-readable `code` over the bare HTTP status where they diverge:
 /// `PARTIAL_UPLOAD` arrives as a 502 that would otherwise read as a generic
 /// [NetworkError]. Every other code keeps the [errorForStatus] mapping.
-/// [body] is `null` when the response was not JSON.
+/// [body] is `null` when the response was not a JSON object.
 ///
-/// `retryable` is absent from daemons before 0.14.0 and defaults to `false`.
+/// Never throws: the body is input from the network. A `code` that is not
+/// the string `PARTIAL_UPLOAD` (missing, another string, or an object,
+/// array, number or null) keeps the [errorForStatus] mapping. In a
+/// `PARTIAL_UPLOAD` body a count that is not a finite JSON number reads as
+/// 0, and a `retryable` that is not the JSON boolean `true` reads as
+/// `false`. `retryable` is absent from daemons before 0.14.0, so it
+/// defaults to `false` there.
 AntdError errorForResponse(
   int statusCode,
   String message,
   Map<String, dynamic>? body,
 ) {
-  if (body != null && body['code'] == 'PARTIAL_UPLOAD') {
+  final code = body?['code'];
+  if (body != null && code is String && code == 'PARTIAL_UPLOAD') {
     return PartialUploadError(
       message,
-      chunksStored: (body['chunks_stored'] as num?)?.toInt() ?? 0,
-      chunksFailed: (body['chunks_failed'] as num?)?.toInt() ?? 0,
-      totalChunks: (body['total_chunks'] as num?)?.toInt() ?? 0,
-      retryable: body['retryable'] as bool? ?? false,
+      chunksStored: _countField(body['chunks_stored']),
+      chunksFailed: _countField(body['chunks_failed']),
+      totalChunks: _countField(body['total_chunks']),
+      retryable: body['retryable'] == true,
     );
   }
   return errorForStatus(statusCode, message);
 }
+
+/// A `PARTIAL_UPLOAD` count field as an int: 0 unless [value] is a finite
+/// JSON number. A string, object, array, boolean or null reads as absent,
+/// and so does an overflowing literal such as `1e999`, which decodes to
+/// infinity (`toInt()` would throw on it).
+int _countField(Object? value) =>
+    value is num && value.isFinite ? value.toInt() : 0;
 
 /// Returns the appropriate error type for an HTTP status code.
 AntdError errorForStatus(int statusCode, String message) {

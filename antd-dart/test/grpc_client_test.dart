@@ -441,6 +441,55 @@ void main() {
       );
     });
 
+    test('ABORTED that only embeds the Partial upload marker -> AntdError',
+        () async {
+      // The gate is anchored at the start of the message, as in antd-rust: a
+      // status that quotes the daemon's phrase further in is not a partial
+      // upload and must not come back with zero counts or retryable set.
+      const messages = [
+        'upstream error: Partial upload: 1/3 chunks stored, 2 failed',
+        'wrapped (Partial upload: 0/1 chunks stored, 1 failed; '
+            'paid attempt retained)',
+      ];
+      for (final msg in messages) {
+        final client = _errorClient(10, msg);
+        await expectLater(
+          client.health(),
+          throwsA(allOf(
+            isA<AntdError>()
+                .having((e) => e.statusCode, 'statusCode', 10)
+                .having((e) => e.message, 'message', msg),
+            isNot(isA<PartialUploadError>()),
+          )),
+          reason: msg,
+        );
+      }
+    });
+
+    test('isPartialUploadMessage is anchored at the start', () {
+      expect(
+          PartialUploadError.isPartialUploadMessage(
+              'Partial upload: 300/312 chunks stored, 12 failed after retries'),
+          isTrue);
+      expect(
+          PartialUploadError.isPartialUploadMessage(
+              'Partial upload: counts unavailable'),
+          isTrue);
+      const negatives = [
+        'upstream error: Partial upload: 1/3 chunks stored, 2 failed',
+        'wrapped (Partial upload: 0/1 chunks stored, 1 failed; '
+            'paid attempt retained)',
+        ' Partial upload: 1/3 chunks stored, 2 failed',
+        'partial upload: 1/3 chunks stored, 2 failed',
+        'upload aborted: daemon shutting down',
+        '',
+      ];
+      for (final msg in negatives) {
+        expect(PartialUploadError.isPartialUploadMessage(msg), isFalse,
+            reason: msg);
+      }
+    });
+
     test('unknown gRPC code -> AntdError with code', () async {
       final client = _errorClient(15, 'data loss');
       expect(
