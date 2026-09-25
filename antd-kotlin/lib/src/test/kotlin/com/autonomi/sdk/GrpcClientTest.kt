@@ -90,6 +90,10 @@ class GrpcClientTest {
         // Carries the fixed prefix but not the count layout: still a partial
         // upload, just one whose counts cannot be recovered.
         const val PARTIAL_GARBLED_MSG = "Partial upload: counts unavailable"
+        // Matches the count layout and carries the hint, but two counts are
+        // one past Long.MAX_VALUE and do not convert.
+        const val PARTIAL_OVERFLOW_MSG =
+            "Partial upload: 0/9223372036854775808 chunks stored, 9223372036854775808 failed (paid attempt retained)"
         // An ABORTED that is not a partial upload at all.
         const val OTHER_ABORTED_MSG = "register fork: concurrent update detected"
     }
@@ -338,6 +342,10 @@ class GrpcClientTest {
             if (request.uploadId == "partial-garbled") {
                 throw Status.ABORTED.withDescription(PARTIAL_GARBLED_MSG).asRuntimeException()
             }
+            // Magic id: the counts match the layout but overflow a Long.
+            if (request.uploadId == "partial-overflow") {
+                throw Status.ABORTED.withDescription(PARTIAL_OVERFLOW_MSG).asRuntimeException()
+            }
             // Magic id: an ABORTED that is not a partial upload.
             if (request.uploadId == "aborted-other") {
                 throw Status.ABORTED.withDescription(OTHER_ABORTED_MSG).asRuntimeException()
@@ -473,6 +481,7 @@ class GrpcClientTest {
         assertEquals(12L, ex.chunksFailed)
         assertEquals(312L, ex.totalChunks)
         assertTrue(ex.retryable, "expected retryable from the retained hint")
+        assertTrue(ex.retentionKnown)
         assertEquals(502, ex.statusCode)
         assertEquals(PARTIAL_RETAINED_MSG, ex.message)
         // A 502 has always been a NetworkException; existing catch blocks keep working.
@@ -488,6 +497,7 @@ class GrpcClientTest {
         assertEquals(12L, ex.chunksFailed)
         assertEquals(312L, ex.totalChunks)
         assertFalse(ex.retryable, "no retained hint must read as not retryable")
+        assertTrue(ex.retentionKnown, "readable counts without the hint: the daemon kept nothing")
     }
 
     @Test
@@ -510,7 +520,23 @@ class GrpcClientTest {
         assertEquals(0L, ex.chunksFailed)
         assertEquals(0L, ex.totalChunks)
         assertFalse(ex.retryable)
+        assertFalse(ex.retentionKnown)
         assertEquals(PARTIAL_GARBLED_MSG, ex.message)
+    }
+
+    @Test
+    fun finalizeUploadPartialWithOverflowingCountsIsNotRetryable() = runTest {
+        val ex = assertFailsWith<PartialUploadException> {
+            client.finalizeUpload("partial-overflow", mapOf("0xq1" to "0xtx1"))
+        }
+        // The layout matches and the hint is present, but counts that do not
+        // convert must not enable a retry: all three read as zero.
+        assertEquals(0L, ex.chunksStored)
+        assertEquals(0L, ex.chunksFailed)
+        assertEquals(0L, ex.totalChunks)
+        assertFalse(ex.retryable)
+        assertFalse(ex.retentionKnown)
+        assertEquals(PARTIAL_OVERFLOW_MSG, ex.message)
     }
 
     @Test
@@ -540,21 +566,42 @@ class GrpcClientTest {
 
     @Test
     fun partialUploadMessageParserCases() {
-        data class Case(val msg: String, val stored: Long, val failed: Long, val total: Long, val retryable: Boolean)
+        // `known` is retentionKnown: true only when the counts read; the
+        // retained hint then decides `retryable`.
+        data class Case(
+            val msg: String, val stored: Long, val failed: Long, val total: Long,
+            val retryable: Boolean, val known: Boolean,
+        )
         val cases = listOf(
-            Case(PARTIAL_RETAINED_MSG, 300, 12, 312, true),
-            Case(PARTIAL_NOT_RETAINED_MSG, 300, 12, 312, false),
-            Case("Partial upload: 300/312 chunks stored, 12 failed after retries", 300, 12, 312, false),
-            // Prefix present, counts garbled: zero counts, not retryable.
-            Case(PARTIAL_GARBLED_MSG, 0, 0, 0, false),
+            // Well-formed with the hint: known and retryable.
+            Case(PARTIAL_RETAINED_MSG, 300, 12, 312, true, true),
+            // Well-formed without the hint: known, the daemon kept nothing.
+            Case(PARTIAL_NOT_RETAINED_MSG, 300, 12, 312, false, true),
+            Case("Partial upload: 300/312 chunks stored, 12 failed after retries", 300, 12, 312, false, true),
+            // Prefix present, counts garbled: zero counts, unknown.
+            Case(PARTIAL_GARBLED_MSG, 0, 0, 0, false, false),
             // Counts garbled AND the retained hint present: still not
-            // retryable — a loop that cannot watch chunksFailed shrink
-            // cannot tell progress from a stuck upload, so the documented
-            // conservative fallback applies.
-            Case("$PARTIAL_GARBLED_MSG (paid attempt retained: call finalize again with the same upload_id)", 0, 0, 0, false),
+            // retryable, and retention unknown — a loop that cannot watch
+            // chunksFailed shrink cannot tell progress from a stuck upload,
+            // and an unread message says nothing about what was kept.
+            Case("$PARTIAL_GARBLED_MSG (paid attempt retained: call finalize again with the same upload_id)", 0, 0, 0, false, false),
+            // Counts that match the layout but overflow a Long, with the
+            // hint present: none of the three counts is trusted and the
+            // hint alone never enables a retry. One overflow per position,
+            // plus the two-position message from review.
+            Case(PARTIAL_OVERFLOW_MSG, 0, 0, 0, false, false),
+            Case("Partial upload: 9223372036854775808/312 chunks stored, 12 failed (paid attempt retained)", 0, 0, 0, false, false),
+            Case("Partial upload: 300/9223372036854775808 chunks stored, 12 failed (paid attempt retained)", 0, 0, 0, false, false),
+            Case("Partial upload: 300/312 chunks stored, 9223372036854775808 failed (paid attempt retained)", 0, 0, 0, false, false),
+            // The largest counts that do convert still read, and with the
+            // hint the message is retryable.
+            Case("Partial upload: 9223372036854775807/9223372036854775807 chunks stored, 0 failed (paid attempt retained)", Long.MAX_VALUE, 0, Long.MAX_VALUE, true, true),
+            // The count layout is anchored like the gate: quoted further in,
+            // it does not read.
+            Case("finalize failed: Partial upload: 300/312 chunks stored, 12 failed (paid attempt retained)", 0, 0, 0, false, false),
             // The parser itself never decides the exception type; the
             // mapping-level gate does (see abortedMappingGatesOnPartialUploadPrefix).
-            Case("something else entirely", 0, 0, 0, false),
+            Case("something else entirely", 0, 0, 0, false, false),
         )
         for (c in cases) {
             val ex = ExceptionMapping.partialUploadFromMessage(c.msg)
@@ -562,6 +609,7 @@ class GrpcClientTest {
             assertEquals(c.failed, ex.chunksFailed, c.msg)
             assertEquals(c.total, ex.totalChunks, c.msg)
             assertEquals(c.retryable, ex.retryable, c.msg)
+            assertEquals(c.known, ex.retentionKnown, c.msg)
             assertEquals(c.msg, ex.message)
         }
     }

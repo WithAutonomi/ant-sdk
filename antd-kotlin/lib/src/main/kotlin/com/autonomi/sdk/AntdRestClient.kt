@@ -357,7 +357,7 @@ class AntdRestClient(
      *
      * @throws PartialUploadException when the chunk stayed unstored after the
      *   daemon's retries (HTTP 502, `code: "PARTIAL_UPLOAD"`). See
-     *   [finalizeUpload] for the `retryable` contract — it is identical here.
+     *   [finalizeUpload] for the recovery contract — it is identical here.
      */
     override suspend fun finalizeChunkUpload(uploadId: String, txHashes: Map<String, String>): String {
         val body = buildJsonObject {
@@ -501,16 +501,19 @@ class AntdRestClient(
      * `chunks_failed` / `total_chunks` counts. The on-chain payment persists
      * and the stored chunks stay on the network:
      *
-     * - [PartialUploadException.retryable] `== true` (sent by antd >= 0.14.0;
-     *   absent — and therefore `false` — on older daemons): the daemon kept
-     *   the paid attempt under the same [uploadId]. Call this method again
-     *   with the **same** arguments to store the remainder against the same
-     *   payment — no re-prepare, no second signature, no double payment.
-     *   Bound that loop: cap the attempts and treat a
-     *   [PartialUploadException.chunksFailed] that stops shrinking as stuck.
-     * - `retryable == false`: nothing was retained; re-prepare the same
-     *   content, which skips already-stored chunks so the retry pays only for
-     *   the remainder.
+     * - [PartialUploadException.retryable]: the daemon kept the paid attempt
+     *   under the same [uploadId]. Call this method again with the **same**
+     *   arguments to store the remainder against the same payment — no
+     *   re-prepare, no second signature, no double payment. Bound that loop:
+     *   cap the attempts and treat a [PartialUploadException.chunksFailed]
+     *   that stops shrinking as stuck.
+     * - [PartialUploadException.retentionKnown] but not `retryable`: the
+     *   daemon confirmed it kept nothing; re-prepare the same content, which
+     *   skips already-stored chunks so the retry pays only for the remainder.
+     * - not `retentionKnown` (always the case on daemons < 0.14.0, which never
+     *   send the flag): the daemon may still hold the paid attempt. Stop,
+     *   keep [uploadId] and [txHashes], and reconcile before re-preparing or
+     *   paying again; never pay again on this signal alone.
      *
      * See `docs/external-signer-flow.md` §6 ("Retry a partial store").
      *
@@ -537,8 +540,9 @@ class AntdRestClient(
      *
      * @throws PartialUploadException when some chunks stayed unstored after
      *   the daemon's retries (HTTP 502, `code: "PARTIAL_UPLOAD"`). See
-     *   [finalizeUpload] for the `retryable` contract; a merkle finalize with
-     *   deliberately unpaid batches is never retryable (re-prepare instead).
+     *   [finalizeUpload] for the recovery contract; a merkle finalize with
+     *   deliberately unpaid batches reports retention as known and not
+     *   retryable (re-prepare instead).
      */
     override suspend fun finalizeMerkleUpload(uploadId: String, winnerPoolHash: String): FinalizeMerkleUploadResult {
         val body = buildJsonObject {
