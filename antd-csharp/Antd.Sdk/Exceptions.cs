@@ -52,7 +52,7 @@ public class NetworkException : AntdException
 /// <summary>
 /// A finalize stored some chunks while others remained unstored after the
 /// daemon's retries (HTTP 502 with <c>code: "PARTIAL_UPLOAD"</c>; gRPC
-/// <c>ABORTED</c> whose message carries the daemon's fixed
+/// <c>ABORTED</c> whose status detail starts with the daemon's fixed
 /// <c>Partial upload:</c> prefix). The on-chain payment persists and the
 /// stored chunks stay on the network. How to finish the upload depends on
 /// <see cref="Retryable"/>:
@@ -79,13 +79,16 @@ public class NetworkException : AntdException
 /// Extends <see cref="NetworkException"/> because a partial upload has
 /// always arrived as a 502, so existing <c>catch (NetworkException)</c>
 /// blocks keep matching; catch this type first to branch on the counts.
-/// Over REST the counts and flag come from the structured error body. Over
-/// gRPC they are parsed best-effort from the status message
-/// (<c>Partial upload: S/T chunks stored, F failed ...</c>, with a
-/// <c>paid attempt retained</c> hint when retryable); a prefixed message
-/// whose counts fail to parse leaves them zero and <see cref="Retryable"/>
-/// false. An <c>ABORTED</c> without the prefix is a
-/// <see cref="ForkException"/>, as before.
+/// Over REST the counts and flag come from the structured error body; a
+/// field that is missing or not of the expected JSON kind reads as zero or
+/// <c>false</c>. Over gRPC they are parsed best-effort from the status
+/// detail (<c>Partial upload: S/T chunks stored, F failed ...</c>, with a
+/// <c>paid attempt retained</c> hint when retryable). Counts and the hint
+/// are parsed independently: a prefixed detail whose counts fail to parse
+/// leaves them zero, while <see cref="Retryable"/> still follows the hint.
+/// An <c>ABORTED</c> whose detail does not start with the prefix (including
+/// one that quotes it further in) is a <see cref="ForkException"/>, as
+/// before.
 /// See docs/external-signer-flow.md, section 6.
 /// </summary>
 public class PartialUploadException : NetworkException
@@ -155,7 +158,8 @@ internal static partial class ExceptionMapping
     /// <summary>
     /// Fixed text every PARTIAL_UPLOAD message from the daemon opens with.
     /// Over gRPC it is the only marker that distinguishes a partial upload
-    /// from any other <c>ABORTED</c> status, so the mapping gates on it.
+    /// from any other <c>ABORTED</c> status, so the mapping gates on the
+    /// status detail starting with it (anchored, as in antd-rust).
     /// </summary>
     private const string PartialUploadPrefix = "Partial upload:";
 
@@ -193,8 +197,12 @@ internal static partial class ExceptionMapping
     /// Recognises the daemon's structured PARTIAL_UPLOAD body
     /// (<c>error</c>, <c>code</c>, <c>chunks_stored</c>, <c>chunks_failed</c>,
     /// <c>total_chunks</c>, <c>retryable</c>). <c>retryable</c> is absent on
-    /// daemons before 0.14.0 and then reads <c>false</c>. A non-JSON body, or
-    /// any other <c>code</c>, is left to the status-based mapping.
+    /// daemons before 0.14.0 and then reads <c>false</c>. A body that is not
+    /// a readable JSON object, or whose <c>code</c> is not the string
+    /// <c>"PARTIAL_UPLOAD"</c>, is left to the status-based mapping. A count
+    /// or flag of the wrong JSON kind reads as zero / <c>false</c>, and an
+    /// <c>error</c> that is not a decodable string falls back to the raw
+    /// body. The body is network input, so this never throws.
     /// </summary>
     private static bool TryParsePartialUploadBody(string body, int statusCode, out PartialUploadException? partial)
     {
@@ -207,13 +215,10 @@ internal static partial class ExceptionMapping
             using var doc = JsonDocument.Parse(trimmed);
             var root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object) return false;
-            if (!root.TryGetProperty("code", out var codeEl) || codeEl.ValueKind != JsonValueKind.String
-                || codeEl.GetString() != PartialUploadCode)
+            if (ReadString(root, "code") != PartialUploadCode)
                 return false;
 
-            var message = root.TryGetProperty("error", out var errEl) && errEl.ValueKind == JsonValueKind.String
-                ? errEl.GetString() ?? body!
-                : body!;
+            var message = ReadString(root, "error") ?? body!;
             var retryable = root.TryGetProperty("retryable", out var r) && r.ValueKind == JsonValueKind.True;
             partial = new PartialUploadException(
                 message,
@@ -224,9 +229,35 @@ internal static partial class ExceptionMapping
                 statusCode);
             return true;
         }
-        catch (JsonException)
+        catch (Exception e) when (e is JsonException or InvalidOperationException or ArgumentException)
         {
+            // JsonException: malformed JSON. InvalidOperationException: a
+            // property name whose escape is not valid UTF-16 (a lone
+            // surrogate), which System.Text.Json throws on when it has to
+            // unescape the name to compare it. ArgumentException: input text
+            // that is not valid UTF-16. None is a body this mapper can read,
+            // so the status-based mapping applies.
             return false;
+        }
+    }
+
+    /// <summary>
+    /// The value at <paramref name="name"/> when it is a JSON string that
+    /// decodes; <c>null</c> when it is absent, another JSON kind, or an escape
+    /// that is not valid UTF-16 (a lone surrogate), on which
+    /// <see cref="JsonElement.GetString"/> would throw.
+    /// </summary>
+    private static string? ReadString(JsonElement root, string name)
+    {
+        if (!root.TryGetProperty(name, out var el) || el.ValueKind != JsonValueKind.String)
+            return null;
+        try
+        {
+            return el.GetString();
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
         }
     }
 
@@ -238,8 +269,11 @@ internal static partial class ExceptionMapping
     /// <summary>
     /// Recovers the chunk counts and the retryable hint from a PARTIAL_UPLOAD
     /// message. Used for gRPC, where the status carries no structured detail;
-    /// REST callers get the body fields instead. An unrecognised message
-    /// yields zero counts and <c>Retryable == false</c>.
+    /// REST callers get the body fields instead. Counts and the hint are
+    /// parsed independently: counts that do not parse read as zero, and
+    /// <c>Retryable</c> is <c>true</c> only when the retained hint is present.
+    /// Whether the message is a partial upload at all is decided by
+    /// <see cref="IsPartialUploadMessage"/>.
     /// </summary>
     internal static (ulong Stored, ulong Failed, ulong Total, bool Retryable) ParsePartialUploadMessage(string? message)
     {
@@ -258,17 +292,21 @@ internal static partial class ExceptionMapping
 
     public static AntdException FromGrpcStatus(RpcException ex)
     {
+        // The raw status detail, not RpcException.Message: Grpc.Net formats
+        // the latter as Status(StatusCode="...", Detail="..."), which would
+        // defeat the anchored PARTIAL_UPLOAD match below.
         var detail = ex.Status.Detail;
         return ex.StatusCode switch
         {
             Grpc.Core.StatusCode.NotFound => new NotFoundException(detail),
             Grpc.Core.StatusCode.AlreadyExists => new AlreadyExistsException(detail),
             // ABORTED carries the daemon's PARTIAL_UPLOAD (some chunks stored,
-            // some still unstored after retries) when the message opens with
-            // the fixed "Partial upload:" prefix. The counts and the "paid
-            // attempt retained" hint ride the message text over gRPC (no
-            // structured detail yet), so parse them best-effort to match the
-            // REST client's typed exception. Any other ABORTED keeps the
+            // some still unstored after retries) when the status detail
+            // starts with the fixed "Partial upload:" prefix. The counts and
+            // the "paid attempt retained" hint ride the detail text over gRPC
+            // (no structured detail yet), so parse them best-effort to match
+            // the REST client's typed exception. Any other ABORTED, including
+            // one that quotes the prefix further into its detail, keeps the
             // pre-existing version-conflict mapping.
             Grpc.Core.StatusCode.Aborted => AbortedFromGrpc(detail),
             Grpc.Core.StatusCode.InvalidArgument => new BadRequestException(detail),
@@ -289,11 +327,15 @@ internal static partial class ExceptionMapping
     }
 
     /// <summary>
-    /// <c>true</c> when the message carries the daemon's fixed PARTIAL_UPLOAD
-    /// prefix. Containment rather than a strict prefix match, so a transport
-    /// or daemon wrapper that prepends context still routes correctly; the
-    /// counts may still fail to parse, which leaves them at zero.
+    /// <c>true</c> when the gRPC status detail starts with the daemon's fixed
+    /// PARTIAL_UPLOAD prefix. Anchored rather than a containment check, so an
+    /// unrelated <c>ABORTED</c> that merely quotes the phrase further into its
+    /// detail is not misreported as a partial upload with zero counts (and,
+    /// if it also quotes the retained hint, <c>Retryable</c> set). The daemon
+    /// sends its PARTIAL_UPLOAD message as the detail unwrapped, so a genuine
+    /// partial upload always has the prefix at offset zero. Pass the raw
+    /// <c>Status.Detail</c>, not <c>RpcException.Message</c>.
     /// </summary>
     internal static bool IsPartialUploadMessage(string? message) =>
-        message?.Contains(PartialUploadPrefix, StringComparison.Ordinal) == true;
+        message?.StartsWith(PartialUploadPrefix, StringComparison.Ordinal) == true;
 }

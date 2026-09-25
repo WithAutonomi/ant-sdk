@@ -1023,6 +1023,75 @@ public sealed class AntdRestClientTests : IDisposable
         Assert.IsNotType<PartialUploadException>(ex);
         Assert.Equal(502, ex.StatusCode);
     }
+
+    [Theory]
+    [InlineData("{\"error\":\"x\",\"code\":{}}")]
+    [InlineData("{\"error\":\"x\",\"code\":[\"PARTIAL_UPLOAD\"]}")]
+    [InlineData("{\"error\":\"x\",\"code\":null}")]
+    [InlineData("{\"error\":\"x\",\"code\":502}")]
+    [InlineData("[{\"error\":\"x\",\"code\":\"PARTIAL_UPLOAD\",\"chunks_stored\":1}]")]
+    [InlineData("{\"error\":\"x\",\"code\":\"PARTIAL_UPLOAD\",\"chunks_stored\":")]
+    [InlineData("{\"error\":\"x\",\"code\":\"\\uDC00\"}")]
+    [InlineData("{\"error\":\"x\",\"code\":\"PARTIAL_UPLOAD\",\"c\\uD800\":0}")]
+    public async Task ErrorMapping_502_BodyWithoutReadablePartialUploadCode_StaysNetworkException(string body)
+    {
+        // `code` must be the string "PARTIAL_UPLOAD" in a body that reads as
+        // a JSON object. Any other shape (object, array, null or number code,
+        // a top-level array body, truncated JSON, a code or property name
+        // whose escape is not valid UTF-16) is not a partial upload: it falls
+        // back to the status-based mapping instead of escaping the typed
+        // exception contract as a parse error.
+        _server.Route("POST", "/v1/upload/finalize", 502, body);
+        _server.Start();
+
+        var ex = await Assert.ThrowsAsync<NetworkException>(
+            () => _client.FinalizeUploadAsync("up_bad_code", new Dictionary<string, string>()));
+
+        Assert.IsNotType<PartialUploadException>(ex);
+        Assert.Equal(502, ex.StatusCode);
+        Assert.Equal(body, ex.Message);
+    }
+
+    [Theory]
+    [InlineData("{\"error\":\"Partial upload: bad counts\",\"code\":\"PARTIAL_UPLOAD\",\"chunks_failed\":[]}", "Partial upload: bad counts")]
+    [InlineData("{\"error\":{\"msg\":\"x\"},\"code\":\"PARTIAL_UPLOAD\",\"chunks_stored\":\"300\",\"chunks_failed\":{},\"total_chunks\":-1,\"retryable\":\"true\"}", null)]
+    [InlineData("{\"error\":42,\"code\":\"PARTIAL_UPLOAD\",\"chunks_stored\":1.5,\"chunks_failed\":null,\"total_chunks\":1e3,\"retryable\":1}", null)]
+    [InlineData("{\"error\":null,\"code\":\"PARTIAL_UPLOAD\",\"chunks_stored\":18446744073709551616,\"chunks_failed\":true,\"total_chunks\":[312],\"retryable\":null}", null)]
+    [InlineData("{\"error\":\"\\uD800\",\"code\":\"PARTIAL_UPLOAD\"}", null)]
+    public async Task ErrorMapping_502_PartialUploadWithWrongTypedFields_ReadsDefaults(string body, string? expectedMessage)
+    {
+        // A count or flag that is not the expected JSON kind (array, object,
+        // string, negative, fractional, out of range, null) reads as absent,
+        // i.e. zero / false, and an `error` that is not a decodable string
+        // falls back to the raw body: still the typed exception, never a
+        // parse error.
+        _server.Route("POST", "/v1/upload/finalize", 502, body);
+        _server.Start();
+
+        var ex = await Assert.ThrowsAsync<PartialUploadException>(
+            () => _client.FinalizeUploadAsync("up_bad_fields", new Dictionary<string, string>()));
+
+        Assert.Equal(0UL, ex.ChunksStored);
+        Assert.Equal(0UL, ex.ChunksFailed);
+        Assert.Equal(0UL, ex.TotalChunks);
+        Assert.False(ex.Retryable);
+        Assert.Equal(502, ex.StatusCode);
+        Assert.Equal(expectedMessage ?? body, ex.Message);
+    }
+
+    [Fact]
+    public void ErrorMapping_BodyThatIsNotValidUtf16_FallsBackWithoutThrowing()
+    {
+        // Unreachable over HTTP (the response decoder replaces bad bytes),
+        // but the shared mapper must still not throw on a string holding a
+        // lone surrogate.
+        var body = "{\"error\":\"\uD800\",\"code\":\"PARTIAL_UPLOAD\"}";
+
+        var ex = ExceptionMapping.FromHttpStatus(HttpStatusCode.BadGateway, body);
+
+        Assert.IsType<NetworkException>(ex);
+        Assert.Equal(body, ex.Message);
+    }
 }
 
 /// <summary>
@@ -1040,6 +1109,8 @@ public sealed class PartialUploadMessageParserTests
         300UL, 12UL, 312UL, false)]
     [InlineData("Partial upload: 300/312 chunks stored, 12 failed after retries", 300UL, 12UL, 312UL, false)]
     [InlineData("Partial upload: counts missing", 0UL, 0UL, 0UL, false)]
+    // Counts and the retained hint are parsed independently (as in antd-rust).
+    [InlineData("Partial upload: counts missing (paid attempt retained)", 0UL, 0UL, 0UL, true)]
     [InlineData("something else entirely", 0UL, 0UL, 0UL, false)]
     [InlineData("", 0UL, 0UL, 0UL, false)]
     public void ParsePartialUploadMessage_RecoversCountsAndRetainedHint(
@@ -1056,8 +1127,9 @@ public sealed class PartialUploadMessageParserTests
 
 /// <summary>
 /// The gRPC <c>ABORTED</c> arm: the daemon's PARTIAL_UPLOAD only when the
-/// detail carries the fixed "Partial upload:" prefix; every other ABORTED
-/// keeps the pre-existing version-conflict mapping.
+/// status detail starts with the fixed "Partial upload:" prefix; every other
+/// ABORTED, including one that quotes the prefix after other text, keeps the
+/// pre-existing version-conflict mapping.
 /// </summary>
 public sealed class GrpcAbortedMappingTests
 {
@@ -1077,11 +1149,32 @@ public sealed class GrpcAbortedMappingTests
     }
 
     [Fact]
+    public void Aborted_GateReadsRawStatusDetail_NotTheFormattedRpcExceptionMessage()
+    {
+        // Grpc.Net formats RpcException.Message as
+        // Status(StatusCode="Aborted", Detail="..."), so the prefix is never
+        // at offset zero there; the anchored gate must read Status.Detail.
+        const string detail =
+            "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)";
+        var rpc = new RpcException(new Status(Grpc.Core.StatusCode.Aborted, detail));
+        Assert.False(rpc.Message.StartsWith("Partial upload:", StringComparison.Ordinal));
+
+        var ex = Assert.IsType<PartialUploadException>(ExceptionMapping.FromGrpcStatus(rpc));
+
+        Assert.Equal(detail, ex.Message);
+        Assert.Equal(1UL, ex.ChunksStored);
+        Assert.Equal(2UL, ex.ChunksFailed);
+        Assert.Equal(3UL, ex.TotalChunks);
+        Assert.True(ex.Retryable);
+    }
+
+    [Fact]
     public void Aborted_WithPrefixButGarbledCounts_MapsToPartialUploadExceptionWithZeros()
     {
-        // The prefix alone routes to the typed exception; unparseable counts
-        // degrade to zero and Retryable false rather than to a wrong type.
-        var ex = Assert.IsType<PartialUploadException>(Map("wrapped: Partial upload: n/a chunks stored"));
+        // The anchored prefix alone routes to the typed exception; unparseable
+        // counts degrade to zero (and, with no retained hint, Retryable false)
+        // rather than to a wrong type.
+        var ex = Assert.IsType<PartialUploadException>(Map("Partial upload: n/a chunks stored"));
 
         Assert.Equal(0UL, ex.ChunksStored);
         Assert.Equal(0UL, ex.ChunksFailed);
@@ -1095,6 +1188,25 @@ public sealed class GrpcAbortedMappingTests
     [InlineData("")]
     public void Aborted_WithoutPartialUploadPrefix_MapsToForkException(string detail)
     {
+        var ex = Map(detail);
+
+        Assert.IsType<ForkException>(ex);
+        Assert.IsNotType<PartialUploadException>(ex);
+        Assert.Equal(409, ex.StatusCode);
+        Assert.Equal(detail, ex.Message);
+    }
+
+    [Theory]
+    [InlineData("upstream error: Partial upload: 1/3 chunks stored, 2 failed")]
+    [InlineData("wrapped (Partial upload: 0/1 chunks stored, 1 failed; paid attempt retained)")]
+    [InlineData("wrapped: Partial upload: n/a chunks stored")]
+    [InlineData(" Partial upload: 1/3 chunks stored, 2 failed")]
+    public void Aborted_WithPartialUploadMarkerAfterOtherText_MapsToForkException(string detail)
+    {
+        // The gate is anchored at the start of the detail: a status that
+        // merely quotes "Partial upload:" further in (even with parseable
+        // counts or the retained hint) is not a partial upload and must not
+        // select paid-attempt recovery.
         var ex = Map(detail);
 
         Assert.IsType<ForkException>(ex);

@@ -186,6 +186,14 @@ public sealed class GrpcClientTests
                 return Fail<FinalizeUploadResponse>(new Status(StatusCode.Aborted,
                     "version conflict: expected v3, found v4"));
             }
+            // The gate is anchored: a "Partial upload:" marker quoted after
+            // other text is not a partial upload, even with counts and the
+            // retained hint, and must keep the ForkException mapping too.
+            if (request.UploadId == "embedded")
+            {
+                return Fail<FinalizeUploadResponse>(new Status(StatusCode.Aborted,
+                    "upstream error: Partial upload: 1/3 chunks stored, 2 failed (paid attempt retained)"));
+            }
             // Merkle: winner_pool_hash populated.
             if (!string.IsNullOrEmpty(request.WinnerPoolHash))
             {
@@ -515,5 +523,17 @@ public sealed class GrpcClientTests
         Assert.IsNotType<PartialUploadException>(ex);
         Assert.Equal(409, ex.StatusCode);
         Assert.Equal("version conflict: expected v3, found v4", ex.Message);
+    }
+
+    [Fact]
+    public async Task FinalizeUpload_Aborted_WithEmbeddedPartialUploadMarkerIsForkException()
+    {
+        var client = MakeClient();
+        var ex = await Assert.ThrowsAsync<ForkException>(
+            () => client.FinalizeUploadAsync("embedded", new() { ["0xq1"] = "0xtx1" }));
+
+        Assert.IsNotType<PartialUploadException>(ex);
+        Assert.Equal(409, ex.StatusCode);
+        Assert.Equal("upstream error: Partial upload: 1/3 chunks stored, 2 failed (paid attempt retained)", ex.Message);
     }
 }
