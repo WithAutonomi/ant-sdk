@@ -285,7 +285,10 @@ That surfaces as `antd::PartialUploadError` (HTTP 502 with
 `Partial upload:`, where the fields are parsed from the status message). The
 gRPC match is anchored at the start of the message: any other `ABORTED`,
 including one that only quotes `Partial upload:` further into its text, stays
-a plain `AntdError`. Over REST, a count or flag of the wrong JSON type reads as
+a plain `AntdError`. Over gRPC, `retryable` is true only when the counts in
+the message parse *and* the daemon's "paid attempt retained" hint is present;
+a message whose counts do not parse reads as zero counts and not retryable,
+even with the hint. Over REST, a count or flag of the wrong JSON type reads as
 zero / `false`, and a body whose `code` is not the string `PARTIAL_UPLOAD`
 keeps the plain status mapping; the error mapping never throws anything but an
 `AntdError` subclass. It derives from `NetworkError`, so existing 502 handlers
@@ -299,10 +302,10 @@ on-chain payment persists and the stored chunks stay on the network; the
   no re-prepare, no second signature, no double payment. Bound the loop: a
   persistent failure throws on every call, so cap attempts and treat a
   `chunks_failed` that stops shrinking as stuck.
-- **`retryable == false`** (older daemon, or a merkle finalize with
-  deliberately unpaid batches): nothing was retained. Re-prepare the same
-  content — already-stored chunks are skipped, so the retry pays only for the
-  remainder.
+- **`retryable == false`** (older daemon, a merkle finalize with
+  deliberately unpaid batches, or a gRPC message whose counts did not parse):
+  treat it as not retained. Re-prepare the same content — already-stored
+  chunks are skipped, so the retry pays only for the remainder.
 
 ```cpp
 for (int attempt = 1;; ++attempt) {

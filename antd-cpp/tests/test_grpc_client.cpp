@@ -243,9 +243,13 @@ TEST_CASE("grpc ABORTED that embeds the Partial upload marker after other text k
     }
 }
 
-TEST_CASE("grpc ABORTED with a count that overflows 64 bits -> PartialUploadError with zeros, no raw exception") {
+TEST_CASE("grpc ABORTED with a count that overflows 64 bits -> PartialUploadError with zeros, not retryable, no raw exception") {
+    // The retained hint is present, but the counts are unusable, so the
+    // error must not be retryable.
     const std::string msg =
-        "Partial upload: 99999999999999999999999/312 chunks stored, 12 failed after retries";
+        "Partial upload: 99999999999999999999999/312 chunks stored, 12 failed after retries: "
+        "quorum (paid attempt retained: call finalize again with the same upload_id to "
+        "store the remainder against the same payment)";
     try {
         test_grpc::check_status(test_grpc::ABORTED, msg);
         FAIL("should have thrown");
@@ -256,6 +260,22 @@ TEST_CASE("grpc ABORTED with a count that overflows 64 bits -> PartialUploadErro
         CHECK_FALSE(e.retryable);
     } catch (const std::exception& e) {
         FAIL("escaped the typed error contract: " << std::string(e.what()));
+    }
+}
+
+TEST_CASE("grpc ABORTED with the retained hint but unparseable counts -> PartialUploadError with zeros, not retryable") {
+    const std::string msg =
+        "Partial upload: counts unavailable (paid attempt retained: call finalize again "
+        "with the same upload_id to store the remainder against the same payment)";
+    try {
+        test_grpc::check_status(test_grpc::ABORTED, msg);
+        FAIL("should have thrown");
+    } catch (const antd::PartialUploadError& e) {
+        CHECK(e.status_code == 502);
+        CHECK(e.chunks_stored == 0);
+        CHECK(e.chunks_failed == 0);
+        CHECK(e.total_chunks == 0);
+        CHECK_FALSE(e.retryable);
     }
 }
 
@@ -293,6 +313,45 @@ TEST_CASE("parse_partial_upload_message recovers counts and the retryable hint")
          18446744073709551615ULL, 0, 1, false},
         {"Partial upload: 18446744073709551616/1 chunks stored, 0 failed", 0, 0, 0, false},  // overflow
         {"something else entirely", 0, 0, 0, false},
+    };
+    for (const auto& tc : cases) {
+        CAPTURE(tc.msg);
+        const auto c = antd::parse_partial_upload_message(tc.msg);
+        CHECK(c.chunks_stored == tc.stored);
+        CHECK(c.chunks_failed == tc.failed);
+        CHECK(c.total_chunks == tc.total);
+        CHECK(c.retryable == tc.retryable);
+    }
+}
+
+TEST_CASE("parse_partial_upload_message is retryable only when all three counts parse and the hint is present") {
+    // The retained hint alone does not make an error retryable: a bounded
+    // retry loop tells progress from a stuck upload by watching chunks_failed
+    // shrink, which it cannot do without the counts. A regex miss or a count
+    // that fails to convert (overflow in any position) therefore zeroes all
+    // three counts and leaves retryable false, hint or not.
+    const std::string hint =
+        " (paid attempt retained: call finalize again with the same upload_id to "
+        "store the remainder against the same payment)";
+    const std::string overflow = "18446744073709551616";  // u64 max + 1
+    struct Case {
+        std::string msg;
+        std::uint64_t stored, failed, total;
+        bool retryable;
+    };
+    const Case cases[] = {
+        // Well-formed: retryable follows the hint.
+        {"Partial upload: 300/312 chunks stored, 12 failed after retries: quorum" + hint,
+         300, 12, 312, true},
+        {"Partial upload: 300/312 chunks stored, 12 failed after retries: quorum",
+         300, 12, 312, false},
+        // Overflow in each position, hint present.
+        {"Partial upload: " + overflow + "/312 chunks stored, 12 failed" + hint, 0, 0, 0, false},
+        {"Partial upload: 300/" + overflow + " chunks stored, 12 failed" + hint, 0, 0, 0, false},
+        {"Partial upload: 300/312 chunks stored, " + overflow + " failed" + hint, 0, 0, 0, false},
+        // Regex miss, hint present.
+        {"Partial upload: counts unavailable" + hint, 0, 0, 0, false},
+        {"Partial upload: 300 of 312 chunks stored, 12 failed" + hint, 0, 0, 0, false},
     };
     for (const auto& tc : cases) {
         CAPTURE(tc.msg);

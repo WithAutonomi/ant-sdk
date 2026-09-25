@@ -104,10 +104,12 @@ public:
 /// fixed `Partial upload:` prefix becomes this type (see
 /// is_partial_upload_message); any other ABORTED, including one that quotes
 /// the prefix further into its message, keeps the generic AntdError mapping.
-/// The counts and `retryable` are then parsed best-effort, and independently,
-/// from the message (see parse_partial_upload_message): counts that do not
-/// parse read as zero, while `retryable` still follows the "paid attempt
-/// retained" hint. See docs/external-signer-flow.md §6.
+/// The counts and `retryable` are then parsed best-effort from the message
+/// (see parse_partial_upload_message). `retryable` requires parsed counts:
+/// when the counts do not match or do not convert, all three read as zero
+/// and `retryable` is false even if the "paid attempt retained" hint is
+/// present, so the caller takes the re-prepare path rather than a retry loop
+/// it cannot bound. See docs/external-signer-flow.md §6.
 class PartialUploadError : public NetworkError {
 public:
     std::uint64_t chunks_stored;
@@ -176,27 +178,33 @@ inline bool parse_decimal_u64(const std::string& digits, std::uint64_t& out) {
 /// does not decide whether the message is a partial upload.
 ///
 /// Reads the counts from "Partial upload: <stored>/<total> chunks stored,
-/// <failed> failed" and `retryable` from the "paid attempt retained" hint the
-/// daemon appends when it kept the paid attempt. The two are independent:
-/// counts that do not match, or that overflow 64 bits, all read as zero, and
-/// `retryable` is false unless the hint is present. Never throws.
+/// <failed> failed" and the "paid attempt retained" hint the daemon appends
+/// when it kept the paid attempt. `retryable` is true only when the counts
+/// matched, all three converted to 64-bit values, and the hint is present.
+/// On a regex miss or any conversion failure (e.g. a count that overflows 64
+/// bits) all three counts are zero and `retryable` is false, even if the
+/// hint is there: a bounded retry loop tells progress from a stuck upload by
+/// watching `chunks_failed` shrink, which it cannot do without the counts.
+/// Never throws.
 inline PartialUploadCounts parse_partial_upload_message(std::string_view message) {
     static const std::regex kCounts(
         R"(Partial upload: (\d+)/(\d+) chunks stored, (\d+) failed)");
     PartialUploadCounts out;
     std::match_results<std::string_view::const_iterator> m;
-    if (std::regex_search(message.begin(), message.end(), m, kCounts)) {
-        std::uint64_t stored = 0;
-        std::uint64_t total = 0;
-        std::uint64_t failed = 0;
-        if (detail::parse_decimal_u64(m[1].str(), stored) &&
-            detail::parse_decimal_u64(m[2].str(), total) &&
-            detail::parse_decimal_u64(m[3].str(), failed)) {
-            out.chunks_stored = stored;
-            out.total_chunks = total;
-            out.chunks_failed = failed;
-        }
+    if (!std::regex_search(message.begin(), message.end(), m, kCounts)) {
+        return out;
     }
+    std::uint64_t stored = 0;
+    std::uint64_t total = 0;
+    std::uint64_t failed = 0;
+    if (!detail::parse_decimal_u64(m[1].str(), stored) ||
+        !detail::parse_decimal_u64(m[2].str(), total) ||
+        !detail::parse_decimal_u64(m[3].str(), failed)) {
+        return out;
+    }
+    out.chunks_stored = stored;
+    out.total_chunks = total;
+    out.chunks_failed = failed;
     out.retryable = message.find("paid attempt retained") != std::string_view::npos;
     return out;
 }
