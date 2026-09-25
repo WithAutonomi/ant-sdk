@@ -87,8 +87,10 @@ class PartialUploadError(NetworkError):
 
     Over REST the counts and both flags come from the structured error body.
     Over gRPC they are parsed from the status message
-    (``"Partial upload: S/T chunks stored, F failed ..."`` with a
-    ``"paid attempt retained"`` hint when retryable).
+    (``"Partial upload: S/T chunks stored, F failed after retries: <reason>
+    (<hint>)"``, where the hint starts ``"paid attempt retained"`` when the
+    daemon kept the attempt and ``"stored chunks persist; re-prepare the same
+    content"`` when it did not).
 
     Malformed input is read conservatively and never escapes as a raw
     ``ValueError`` / ``TypeError`` / ``OverflowError``:
@@ -103,10 +105,13 @@ class PartialUploadError(NetworkError):
       :class:`NetworkError`).
     - gRPC: only an ``ABORTED`` whose status details *start with*
       ``"Partial upload:"`` is a partial upload; any other ``ABORTED`` stays a
-      :class:`ForkError`. The counts gate both flags: ``retention_known`` is
-      True only when the message matches the pattern above and all three
-      counts fit in a u64, and the hint then decides ``retryable``.
-      Otherwise the counts are zero and both flags are False.
+      :class:`ForkError`. ``retention_known`` is True only when the message
+      starts with the counts pattern above, all three counts fit in a u64,
+      and the message ends with one of the two hints; the hint then decides
+      ``retryable``. A pattern miss or unconvertible count zeroes the counts
+      and both flags. Readable counts with a missing, truncated or
+      unrecognised hint keep the counts, but both flags stay False:
+      retention unknown, not "nothing retained".
 
     See ``docs/external-signer-flow.md`` section 6 for the full contract.
     """
@@ -183,9 +188,23 @@ _PARTIAL_UPLOAD_COUNTS = re.compile(
     re.ASCII,
 )
 
-# Message tail the daemon appends when it kept the paid attempt for a
-# same-upload_id retry.
+# The daemon closes every PARTIAL_UPLOAD message with one of two parenthesised
+# hints (``partial_upload_hint`` in antd/src/error.rs): the retained hint when
+# it kept the paid attempt for a same-upload_id retry, the not-retained hint
+# when it did not. Daemons before 0.14.0 write only the not-retained hint.
 _PARTIAL_UPLOAD_RETAINED_HINT = "paid attempt retained"
+_PARTIAL_UPLOAD_NOT_RETAINED_HINT = "stored chunks persist; re-prepare the same content"
+
+# The hint must close the message: "(<hint>...)" at the very end (``\Z``, not
+# ``$``, which would also match before a trailing newline). A hint quoted inside
+# the failure reason, a truncated tail, or text after the hint does not match.
+_PARTIAL_UPLOAD_RETENTION_TAIL = re.compile(
+    r"\(("
+    + re.escape(_PARTIAL_UPLOAD_RETAINED_HINT)
+    + "|"
+    + re.escape(_PARTIAL_UPLOAD_NOT_RETAINED_HINT)
+    + r")[^()]*\)\Z"
+)
 
 # The daemon's counts are Rust ``u64``s, so nothing larger is a real count.
 _U64_MAX = 2**64 - 1
@@ -231,25 +250,31 @@ def parse_partial_upload_message(message: str) -> tuple[int, int, int, bool, boo
     retention_known)`` from a PARTIAL_UPLOAD message.
 
     Used for gRPC, where the status carries no structured detail; REST callers
-    get the body fields instead. The counts gate both flags:
-    ``retention_known`` is True only when the message matches
-    ``"Partial upload: <stored>/<total> chunks stored, <failed> failed"`` and
-    all three counts convert (each no larger than u64 max); the
-    ``"paid attempt retained"`` hint then decides ``retryable``. On a pattern
-    miss or any count that does not convert the result is
-    ``(0, 0, 0, False, False)``: a message the SDK could not read must never
-    tell a caller to repeat a paid finalize, nor that nothing was kept.
-    Never raises.
+    get the body fields instead. ``retention_known`` is True only when the
+    message starts with
+    ``"Partial upload: <stored>/<total> chunks stored, <failed> failed"``, all
+    three counts convert (each no larger than u64 max), and the message ends
+    with one of the daemon's two hints, ``"(paid attempt retained...)"`` or
+    ``"(stored chunks persist; re-prepare the same content...)"``;
+    ``retryable`` is then True only for the first. On a pattern miss or any
+    count that does not convert the result is ``(0, 0, 0, False, False)``.
+    Readable counts with a missing, truncated or unrecognised tail keep the
+    counts but leave both flags False. A message the SDK could not fully read
+    must never tell a caller to repeat a paid finalize, nor that nothing was
+    kept. Never raises.
     """
     if not isinstance(message, str):
         return 0, 0, 0, False, False
-    m = _PARTIAL_UPLOAD_COUNTS.search(message)
+    m = _PARTIAL_UPLOAD_COUNTS.match(message)
     if m is None:
         return 0, 0, 0, False, False
     stored, total, failed = (_message_count(g) for g in m.groups())
     if stored is None or total is None or failed is None:
         return 0, 0, 0, False, False
-    return stored, failed, total, _PARTIAL_UPLOAD_RETAINED_HINT in message, True
+    tail = _PARTIAL_UPLOAD_RETENTION_TAIL.search(message)
+    if tail is None:
+        return stored, failed, total, False, False
+    return stored, failed, total, tail.group(1) == _PARTIAL_UPLOAD_RETAINED_HINT, True
 
 
 def raise_for_http_error(status_code: int, message: str, body: object) -> None:

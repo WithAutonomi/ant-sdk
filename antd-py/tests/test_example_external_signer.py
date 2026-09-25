@@ -17,6 +17,7 @@ from unittest.mock import Mock, call
 import pytest
 
 from antd import PartialUploadError
+from antd.exceptions import parse_partial_upload_message
 
 _EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "07_external_signer.py"
 _TX = {"0xq1": "0xtx1"}
@@ -127,3 +128,42 @@ def test_next_step_covers_the_three_cases(example, flags, expected, unexpected):
     advice = example.next_step(_partial(failed=4, **flags), "up-1")
     assert expected in advice
     assert unexpected not in advice
+
+
+_GRPC_COUNTS = "Partial upload: 6/10 chunks stored, 4 failed after retries: quorum"
+
+
+@pytest.mark.parametrize(
+    "tail, expected, unexpected",
+    [
+        (
+            " (stored chunks persist; re-prepare the same content to retry only the remainder)",
+            "The daemon kept nothing",
+            "Retention is unknown",
+        ),
+        ("", "Retention is unknown", "kept nothing"),
+        # The review's reproducer: the retained hint cut short.
+        (" (paid attempt retai", "Retention is unknown", "kept nothing"),
+        (" (stored chunks persist; re-prepare the same con", "Retention is unknown", "kept nothing"),
+    ],
+    ids=["not-retained-hint", "no-hint", "truncated-retained-hint", "truncated-not-retained-hint"],
+)
+def test_grpc_message_without_a_readable_hint_gets_reconcile_advice(example, tail, expected, unexpected):
+    # End to end from the gRPC status text: the SDK parser's flags must steer
+    # next_step to reconciling, not re-preparing, whenever the daemon's
+    # answer on retention could not be read.
+    message = _GRPC_COUNTS + tail
+    stored, failed, total, retryable, known = parse_partial_upload_message(message)
+    err = PartialUploadError(
+        message,
+        10,
+        chunks_stored=stored,
+        chunks_failed=failed,
+        total_chunks=total,
+        retryable=retryable,
+        retention_known=known,
+    )
+    advice = example.next_step(err, "up-1")
+    assert expected in advice
+    assert unexpected not in advice
+    assert "6/10 chunks stored, 4 still unstored" in advice

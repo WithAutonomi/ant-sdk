@@ -34,7 +34,8 @@ class TestParsePartialUploadMessage:
         [
             (_RETAINED, (300, 12, 312, True, True)),
             (_REPREPARE, (300, 12, 312, False, True)),
-            ("Partial upload: 300/312 chunks stored, 12 failed after retries", (300, 12, 312, False, True)),
+            # Readable counts but no retention hint: retention unknown.
+            ("Partial upload: 300/312 chunks stored, 12 failed after retries", (300, 12, 312, False, False)),
             ("something else entirely", (0, 0, 0, False, False)),
         ],
     )
@@ -114,6 +115,7 @@ _HINT = (
     "(paid attempt retained: call finalize again with the same upload_id to "
     "store the remainder against the same payment)"
 )
+_NOT_RETAINED_HINT = "(stored chunks persist; re-prepare the same content to retry only the remainder)"
 
 _WELL_FORMED_BODY = {
     "error": _RETAINED, "code": "PARTIAL_UPLOAD",
@@ -226,8 +228,9 @@ _UNCONVERTIBLE_COUNTS = [str(_U64_MAX + 1), "9" * 25, "9" * 5000]
 
 
 class TestParsePartialUploadMessageMalformed:
-    """The counts gate both flags: retention_known only when the pattern
-    matched and all three counts converted; retryable also needs the hint."""
+    """retention_known only when the counts pattern opened the message, all
+    three counts converted, and one of the daemon's two hints closes it;
+    retryable only for the retained hint."""
 
     @pytest.mark.parametrize("position", ["stored", "total", "failed"])
     @pytest.mark.parametrize("value", _UNCONVERTIBLE_COUNTS, ids=lambda v: f"{len(v)}-digits")
@@ -265,9 +268,49 @@ class TestParsePartialUploadMessageMalformed:
         message = f"Partial upload: 1/3 chunks stored, 2 failed after retries: quorum {_HINT}"
         assert parse_partial_upload_message(message) == (1, 2, 3, True, True)
 
-    def test_well_formed_without_hint_is_not_retryable(self):
-        message = "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum"
+    def test_well_formed_with_not_retained_hint_is_known(self):
+        message = f"Partial upload: 1/3 chunks stored, 2 failed after retries: quorum {_NOT_RETAINED_HINT}"
         assert parse_partial_upload_message(message) == (1, 2, 3, False, True)
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum",
+            # The review's reproducer: the retained hint cut short.
+            "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (paid attempt retai",
+            "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (paid attempt retained: call finalize again",
+            "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (stored chunks persist; re-prepare the same con",
+            "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (something else)",
+            f"Partial upload: 1/3 chunks stored, 2 failed after retries: quorum {_HINT} trailing",
+            f"Partial upload: 1/3 chunks stored, 2 failed after retries: quorum {_HINT}\n",
+            "Partial upload: 1/3 chunks stored, 2 failed after retries: peer said (paid attempt retained) (connection reset)",
+        ],
+        ids=[
+            "no-hint", "truncated-retained", "retained-unclosed", "truncated-not-retained",
+            "unrecognised", "trailing-text", "trailing-newline", "hint-only-in-reason",
+        ],
+    )
+    def test_counts_without_a_readable_hint_are_unknown(self, message):
+        # The daemon's answer was not read: unknown (stop and reconcile),
+        # never "nothing retained" (re-prepare). The counts still read.
+        assert parse_partial_upload_message(message) == (1, 2, 3, False, False)
+
+    @pytest.mark.parametrize(
+        "reason, expected",
+        [
+            ("quorum (2 of 5 peers)", (1, 2, 3, False, True)),
+            ("peer said (paid attempt retained)", (1, 2, 3, False, True)),
+        ],
+        ids=["parenthesised-reason", "retained-hint-in-reason"],
+    )
+    def test_only_the_closing_hint_decides(self, reason, expected):
+        message = f"Partial upload: 1/3 chunks stored, 2 failed after retries: {reason} {_NOT_RETAINED_HINT}"
+        assert parse_partial_upload_message(message) == expected
+
+    def test_counts_pattern_is_anchored(self):
+        # Counts quoted later in a garbled message are not read.
+        message = f"Partial upload: garbled; was Partial upload: 1/3 chunks stored, 2 failed {_HINT}"
+        assert parse_partial_upload_message(message) == (0, 0, 0, False, False)
 
     def test_non_string_reads_zero(self):
         assert parse_partial_upload_message(None) == (0, 0, 0, False, False)  # type: ignore[arg-type]
@@ -306,12 +349,17 @@ class TestRetentionKnown:
         "message, retryable, known",
         [
             (f"Partial upload: 1/3 chunks stored, 2 failed after retries: quorum {_HINT}", True, True),
-            ("Partial upload: 1/3 chunks stored, 2 failed after retries: quorum", False, True),
+            (f"Partial upload: 1/3 chunks stored, 2 failed after retries: quorum {_NOT_RETAINED_HINT}", False, True),
+            ("Partial upload: 1/3 chunks stored, 2 failed after retries: quorum", False, False),
+            ("Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (paid attempt retai", False, False),
             (f"Partial upload: {_U64_MAX + 1}/3 chunks stored, 2 failed {_HINT}", False, False),
             (f"Partial upload: 1/3 chunks stored, {'9' * 5000} failed {_HINT}", False, False),
             (f"Partial upload: counts unavailable {_HINT}", False, False),
         ],
-        ids=["well-formed-hint", "well-formed-no-hint", "overflow-hint", "huge-hint", "miss-hint"],
+        ids=[
+            "well-formed-hint", "well-formed-not-retained", "well-formed-no-hint",
+            "truncated-hint", "overflow-hint", "huge-hint", "miss-hint",
+        ],
     )
     def test_grpc_message(self, message, retryable, known):
         *_, got_retryable, got_known = parse_partial_upload_message(message)

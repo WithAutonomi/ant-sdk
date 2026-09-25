@@ -224,15 +224,16 @@ def _handle_rpc_error(e: grpc.RpcError) -> None:
     details = raw_details or str(e)
     if code == grpc.StatusCode.ABORTED and is_partial_upload_message(raw_details):
         # PARTIAL_UPLOAD: some chunks stored, some still unstored after
-        # retries. The counts and the "paid attempt retained" hint ride the
-        # status message over gRPC (no structured detail yet), so parse them
+        # retries. The counts and the retention hint ride the status
+        # message over gRPC (no structured detail yet), so parse them
         # to match the REST client's typed error. The gate is anchored: only
         # raw status details that START WITH the daemon's fixed
         # "Partial upload:" prefix qualify. Any other ABORTED, including one
         # that merely embeds the phrase, keeps the ForkError mapping below.
-        # The counts gate both flags: retention_known is True only when the
-        # message matched and all three counts converted, and the hint then
-        # decides retryable (parse_partial_upload_message). The parser never
+        # retention_known is True only when the counts matched and converted
+        # and the message ends with one of the daemon's two retention hints,
+        # which then decides retryable (parse_partial_upload_message). The
+        # parser never
         # raises; the guard keeps even an unexpected failure from replacing
         # the typed error with a raw exception.
         try:

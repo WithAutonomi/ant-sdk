@@ -45,6 +45,7 @@ _MALFORMED_ABORTED = {
     "miss-with-hint": f"Partial upload: counts unavailable {_RETAINED_HINT}",
     "well-formed-hint": f"Partial upload: 1/3 chunks stored, 2 failed after retries: quorum {_RETAINED_HINT}",
     "well-formed-no-hint": "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum",
+    "truncated-hint": "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (paid attempt retai",
     "embedded-marker": "upstream error: Partial upload: 1/3 chunks stored, 2 failed",
     "embedded-marker-hint": f"upstream error: Partial upload: 1/3 chunks stored, 2 failed {_RETAINED_HINT}",
 }
@@ -53,6 +54,10 @@ _UNREADABLE_COUNTS = [
     "overflow-stored", "overflow-total", "overflow-failed",
     "huge-stored", "huge-total", "huge-failed", "miss-with-hint",
 ]
+
+# Readable counts but no readable retention hint (missing, or the review's
+# truncated reproducer): retention unknown, never "nothing retained".
+_COUNTS_WITHOUT_HINT = ["well-formed-no-hint", "truncated-hint"]
 
 
 # --- Mock servicers ---------------------------------------------------------
@@ -355,7 +360,7 @@ class TestSyncFinalizePartialUpload:
         err = exc_info.value
         assert (err.chunks_stored, err.chunks_failed, err.total_chunks) == (300, 12, 312)
         assert err.retryable is False
-        assert err.retention_known is True  # counts parsed, no hint: nothing kept
+        assert err.retention_known is True  # the not-retained hint: nothing kept
 
     def test_is_a_network_error(self, sync_client):
         with pytest.raises(NetworkError):
@@ -378,9 +383,10 @@ class TestSyncFinalizePartialUpload:
 
 
 class TestSyncFinalizePartialUploadMalformed:
-    """The counts gate the retry (retryable only when the message matched,
-    every count converted, and the hint is present) and the gate is anchored
-    (only details that START WITH "Partial upload:" are a partial upload)."""
+    """Retention is known only when the message matched, every count
+    converted, and one of the daemon's two hints closes it; retryable only
+    for the retained hint. The gate is anchored (only details that START
+    WITH "Partial upload:" are a partial upload)."""
 
     @pytest.mark.parametrize("upload_id", _UNREADABLE_COUNTS)
     def test_unreadable_counts_read_zero_and_not_retryable(self, sync_client, upload_id):
@@ -400,13 +406,14 @@ class TestSyncFinalizePartialUploadMalformed:
         assert err.retryable is True
         assert err.retention_known is True
 
-    def test_well_formed_without_hint_is_not_retryable(self, sync_client):
+    @pytest.mark.parametrize("upload_id", _COUNTS_WITHOUT_HINT)
+    def test_counts_without_a_readable_hint_are_unknown(self, sync_client, upload_id):
         with pytest.raises(PartialUploadError) as exc_info:
-            sync_client.finalize_merkle_upload("well-formed-no-hint", "0xwinpool")
+            sync_client.finalize_merkle_upload(upload_id, "0xwinpool")
         err = exc_info.value
         assert (err.chunks_stored, err.chunks_failed, err.total_chunks) == (1, 2, 3)
         assert err.retryable is False
-        assert err.retention_known is True
+        assert err.retention_known is False
 
     @pytest.mark.parametrize("upload_id", ["embedded-marker", "embedded-marker-hint"])
     def test_embedded_marker_is_not_a_partial_upload(self, sync_client, upload_id):
@@ -541,12 +548,13 @@ class TestAsyncFinalizePartialUploadMalformed:
         assert err.retention_known is True
 
     @pytest.mark.asyncio
-    async def test_well_formed_without_hint_is_known_not_retryable(self, async_client):
+    @pytest.mark.parametrize("upload_id", _COUNTS_WITHOUT_HINT)
+    async def test_counts_without_a_readable_hint_are_unknown(self, async_client, upload_id):
         with pytest.raises(PartialUploadError) as exc_info:
-            await async_client.finalize_upload("well-formed-no-hint", {"0xq1": "0xtx1"})
+            await async_client.finalize_upload(upload_id, {"0xq1": "0xtx1"})
         err = exc_info.value
         assert (err.chunks_stored, err.chunks_failed, err.total_chunks) == (1, 2, 3)
-        assert (err.retryable, err.retention_known) == (False, True)
+        assert (err.retryable, err.retention_known) == (False, False)
 
     @pytest.mark.asyncio
     async def test_embedded_marker_is_not_a_partial_upload(self, async_client):
