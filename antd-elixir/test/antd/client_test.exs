@@ -709,6 +709,95 @@ defmodule Antd.ClientTest do
              Antd.Client.finalize_upload(client, "up1", %{})
   end
 
+  # A malformed error body must never escape the typed error contract. `code`
+  # counts only as the string "PARTIAL_UPLOAD": any other shape, or a
+  # top-level JSON array, keeps the status-based mapping (a plain
+  # NetworkError for a 502), whether or not the body is tagged as JSON.
+  for {label, raw} <- [
+        {"an object code", ~s({"error":"bad gateway","code":{}})},
+        {"an array code", ~s({"error":"bad gateway","code":["PARTIAL_UPLOAD"]})},
+        {"a null code", ~s({"error":"bad gateway","code":null})},
+        {"a number code", ~s({"error":"bad gateway","code":502})},
+        {"a top-level JSON array body", ~s([{"code":"PARTIAL_UPLOAD","chunks_stored":1}])}
+      ],
+      content_type <- ["application/json", "text/plain"] do
+    test "502 with #{label} (#{content_type}) returns NetworkError",
+         %{bypass: bypass, client: client} do
+      Bypass.expect_once(bypass, "POST", "/v1/upload/finalize", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type(unquote(content_type))
+        |> Plug.Conn.resp(502, unquote(raw))
+      end)
+
+      assert {:error, %Antd.NetworkError{status_code: 502} = err} =
+               Antd.Client.finalize_upload(client, "up1", %{"0xq" => "0xt"})
+
+      assert is_binary(err.message)
+    end
+  end
+
+  # Wrong-typed counts or flag read as absent (zero / false); the response is
+  # still a PartialUploadError because `code` is the PARTIAL_UPLOAD string.
+  for {label, raw} <- [
+        {"non-numeric",
+         ~s({"error":"Partial upload: 1/3 chunks stored, 2 failed","code":"PARTIAL_UPLOAD",) <>
+           ~s("chunks_stored":"1","chunks_failed":[],"total_chunks":{},"retryable":"true"})},
+        {"out-of-range",
+         ~s({"error":"Partial upload: 1/3 chunks stored, 2 failed","code":"PARTIAL_UPLOAD",) <>
+           ~s("chunks_stored":-1,"chunks_failed":1.5,"total_chunks":null,"retryable":1})}
+      ] do
+    test "502 PARTIAL_UPLOAD with #{label} counts and flag reads them as zero / false",
+         %{bypass: bypass, client: client} do
+      Bypass.expect_once(bypass, "POST", "/v1/upload/finalize", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(502, unquote(raw))
+      end)
+
+      assert {:error,
+              %Antd.PartialUploadError{
+                status_code: 502,
+                message: "Partial upload: 1/3 chunks stored, 2 failed",
+                chunks_stored: 0,
+                chunks_failed: 0,
+                total_chunks: 0,
+                retryable: false
+              }} = Antd.Client.finalize_upload(client, "up1", %{"0xq" => "0xt"})
+    end
+  end
+
+  # A non-string `error` must not crash the mapping or leak a non-string
+  # message; the counts and flag are still read from the body.
+  for {label, error_json} <- [
+        {"an object", ~s({"detail":"x"})},
+        {"a number", "42"},
+        {"null", "null"}
+      ] do
+    test "502 PARTIAL_UPLOAD whose error is #{label} still returns PartialUploadError",
+         %{bypass: bypass, client: client} do
+      raw =
+        ~s({"error":#{unquote(error_json)},"code":"PARTIAL_UPLOAD",) <>
+          ~s("chunks_stored":1,"chunks_failed":1,"total_chunks":2,"retryable":true})
+
+      Bypass.expect_once(bypass, "POST", "/v1/upload/finalize", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(502, raw)
+      end)
+
+      assert {:error,
+              %Antd.PartialUploadError{
+                status_code: 502,
+                chunks_stored: 1,
+                chunks_failed: 1,
+                total_chunks: 2,
+                retryable: true
+              } = err} = Antd.Client.finalize_upload(client, "up1", %{"0xq" => "0xt"})
+
+      assert is_binary(err.message)
+    end
+  end
+
   test "finalize_upload!/3 raises PartialUploadError", %{bypass: bypass, client: client} do
     Bypass.expect_once(bypass, "POST", "/v1/upload/finalize", fn conn ->
       conn

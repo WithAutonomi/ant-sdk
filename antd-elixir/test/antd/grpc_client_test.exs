@@ -397,6 +397,21 @@ defmodule Antd.GrpcClientTest do
     assert %Antd.AntdError{status_code: 10, message: ^msg} = err
   end
 
+  test "ABORTED that quotes Partial upload: after other text keeps the generic AntdError mapping" do
+    # The gate is anchored at the start of the message: a status that merely
+    # embeds the marker (a wrapped or relayed error) is not a partial upload,
+    # so it must not surface as one with zero counts or a retryable flag.
+    for msg <- [
+          "upstream error: Partial upload: 1/3 chunks stored, 2 failed",
+          "wrapped (Partial upload: 0/1 chunks stored, 1 failed; paid attempt retained)"
+        ] do
+      {:error, err} = simulate_grpc_call(:error, %GRPC.RPCError{status: 10, message: msg})
+
+      refute match?(%Antd.PartialUploadError{}, err), "misreported as partial: #{msg}"
+      assert %Antd.AntdError{status_code: 10, message: ^msg} = err
+    end
+  end
+
   test "ABORTED with the Partial upload: prefix but garbled counts -> zeros, not retryable" do
     msg = "Partial upload: counts unavailable"
 
@@ -413,10 +428,20 @@ defmodule Antd.GrpcClientTest do
     assert err.message == msg
   end
 
-  test "partial_upload_message?/1 gates on the daemon's fixed prefix" do
+  test "partial_upload_message?/1 matches the daemon's fixed prefix only at the start" do
     assert Antd.Errors.partial_upload_message?("Partial upload: 1/2 chunks stored, 1 failed")
     assert Antd.Errors.partial_upload_message?("Partial upload: counts unavailable")
     refute Antd.Errors.partial_upload_message?("something else entirely")
+
+    refute Antd.Errors.partial_upload_message?(
+             "upstream error: Partial upload: 1/3 chunks stored, 2 failed"
+           )
+
+    refute Antd.Errors.partial_upload_message?(
+             "wrapped (Partial upload: 0/1 chunks stored, 1 failed; paid attempt retained)"
+           )
+
+    refute Antd.Errors.partial_upload_message?(" Partial upload: 1/2 chunks stored, 1 failed")
     refute Antd.Errors.partial_upload_message?("")
     refute Antd.Errors.partial_upload_message?(nil)
   end
@@ -437,6 +462,12 @@ defmodule Antd.GrpcClientTest do
     assert Antd.Errors.parse_partial_upload_message(
              "Partial upload: 300/312 chunks stored, 12 failed after retries"
            ) == {300, 12, 312, false}
+
+    # Counts and the hint are parsed independently: garbled counts read as
+    # zero while the retained hint is still honoured.
+    assert Antd.Errors.parse_partial_upload_message(
+             "Partial upload: 300/312 chunks (paid attempt retained)"
+           ) == {0, 0, 0, true}
 
     assert Antd.Errors.parse_partial_upload_message("something else entirely") ==
              {0, 0, 0, false}

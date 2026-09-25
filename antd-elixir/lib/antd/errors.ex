@@ -134,8 +134,11 @@ defmodule Antd.PartialUploadError do
   Over REST the counts and `retryable` come from the structured error body.
   Over gRPC they are parsed best-effort from the status message
   (`Partial upload: S/T chunks stored, F failed ...`, with a
-  `paid attempt retained` hint when retryable); an unrecognised message
-  leaves the counts `0` and `retryable` `false`.
+  `paid attempt retained` hint when retryable). Only a message that starts
+  with that prefix is a partial upload; an `ABORTED` that merely quotes it
+  further in keeps the generic `Antd.AntdError` mapping. Counts and the hint
+  are parsed independently: counts that do not parse read as `0`, while
+  `retryable` still follows the hint.
 
   See `docs/external-signer-flow.md` §6 ("Retry a partial store — same
   `upload_id`, same payment") and `finalize_with_retry/3` in
@@ -165,8 +168,8 @@ defmodule Antd.Errors do
   @moduledoc false
 
   # Fixed prefix of every `PARTIAL_UPLOAD` message the daemon emits (see
-  # `antd/src/error.rs`). The gRPC client gates on it before treating an
-  # `ABORTED` status as a partial upload.
+  # `antd/src/error.rs`). The gRPC client treats an `ABORTED` status as a
+  # partial upload only when its message starts with it.
   @partial_upload_prefix "Partial upload:"
 
   # Message tail the daemon appends to a `PARTIAL_UPLOAD` error when it kept
@@ -192,12 +195,15 @@ defmodule Antd.Errors do
   @doc """
   Builds an `Antd.PartialUploadError` from a decoded `PARTIAL_UPLOAD` REST
   error body. The counts are read from the body; `retryable` is absent on
-  daemons older than 0.14.0 and defaults to `false`.
+  daemons older than 0.14.0 and defaults to `false`. A malformed field never
+  raises: a count that is not a non-negative integer reads as `0`,
+  `retryable` is `true` only for a JSON `true`, and a missing or non-string
+  `error` falls back to the encoded body so `message` stays a string.
   """
   @spec partial_upload_error(integer(), map()) :: Antd.PartialUploadError.t()
   def partial_upload_error(status_code, body) when is_map(body) do
     %Antd.PartialUploadError{
-      message: Map.get(body, "error", Jason.encode!(body)),
+      message: body_message(body),
       status_code: status_code,
       chunks_stored: count(body["chunks_stored"]),
       chunks_failed: count(body["chunks_failed"]),
@@ -207,25 +213,29 @@ defmodule Antd.Errors do
   end
 
   @doc """
-  Whether `message` is a daemon `PARTIAL_UPLOAD` message: every one opens
-  with the fixed `Partial upload:` prefix. The gRPC client checks this
-  before mapping an `ABORTED` status to `Antd.PartialUploadError`, so any
-  other `ABORTED` keeps its generic `Antd.AntdError` mapping. A non-binary
-  message is never a partial upload.
+  Whether `message` is a daemon `PARTIAL_UPLOAD` message, i.e. starts with
+  the fixed `Partial upload:` prefix every such message opens with. The
+  match is anchored at the start of the message, not a containment check: an
+  `ABORTED` whose text merely quotes the phrase further in (a wrapped or
+  relayed error) is not a partial upload. The gRPC client checks this before
+  mapping an `ABORTED` status to `Antd.PartialUploadError`, so any other
+  `ABORTED` keeps its generic `Antd.AntdError` mapping. A non-binary message
+  is never a partial upload.
   """
   @spec partial_upload_message?(term()) :: boolean()
   def partial_upload_message?(message) when is_binary(message),
-    do: String.contains?(message, @partial_upload_prefix)
+    do: String.starts_with?(message, @partial_upload_prefix)
 
   def partial_upload_message?(_), do: false
 
   @doc """
   Builds an `Antd.PartialUploadError` from a gRPC `ABORTED` status message
-  that carries the `Partial upload:` prefix (check with
+  that starts with the `Partial upload:` prefix (check with
   `partial_upload_message?/1` first). The status carries no structured
   detail, so the counts and the retained hint are recovered from the text
   via `parse_partial_upload_message/1`; a prefixed message whose counts do
-  not parse still builds the error, with zero counts and `retryable: false`.
+  not parse still builds the error, with zero counts (`retryable` still
+  follows the hint).
   """
   @spec partial_upload_error_from_message(integer(), String.t()) ::
           Antd.PartialUploadError.t()
@@ -245,8 +255,10 @@ defmodule Antd.Errors do
   @doc """
   Parses the chunk counts and the retained hint out of a `PARTIAL_UPLOAD`
   message (`Partial upload: <stored>/<total> chunks stored, <failed> failed
-  ...`). Returns `{chunks_stored, chunks_failed, total_chunks, retryable}`;
-  an unrecognised message yields `{0, 0, 0, false}`.
+  ...`). Returns `{chunks_stored, chunks_failed, total_chunks, retryable}`.
+  Counts that do not parse read as zero; `retryable` is decided
+  independently, by the presence of the `paid attempt retained` hint, so a
+  message with neither yields `{0, 0, 0, false}`.
   """
   @spec parse_partial_upload_message(String.t()) ::
           {non_neg_integer(), non_neg_integer(), non_neg_integer(), boolean()}
@@ -265,4 +277,7 @@ defmodule Antd.Errors do
 
   defp count(n) when is_integer(n) and n >= 0, do: n
   defp count(_), do: 0
+
+  defp body_message(%{"error" => message}) when is_binary(message), do: message
+  defp body_message(body), do: Jason.encode!(body)
 end

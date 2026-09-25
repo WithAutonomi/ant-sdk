@@ -927,7 +927,9 @@ defmodule Antd.GrpcClient do
       9 -> %Antd.PaymentError{message: message, status_code: 402}
       # ABORTED carries PARTIAL_UPLOAD: some chunks stored, some still
       # unstored after retries. Every such message opens with the daemon's
-      # fixed "Partial upload:" prefix, so gate on it: the counts and the
+      # fixed "Partial upload:" prefix, so gate on the message starting with
+      # it (anchored, not containment: an ABORTED that merely quotes the
+      # phrase further in is not a partial upload). The counts and the
       # "paid attempt retained" hint ride the message text (no structured
       # detail over gRPC yet) and are parsed best-effort to match the REST
       # client's typed error. Any other ABORTED keeps the generic mapping.

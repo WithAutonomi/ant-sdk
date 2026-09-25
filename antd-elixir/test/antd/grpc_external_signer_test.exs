@@ -106,6 +106,15 @@ defmodule Antd.GrpcExternalSignerTest do
             status: GRPC.Status.aborted(),
             message: "Upload aborted: another finalize is already in progress"
 
+        # An ABORTED that only quotes the marker further into its message
+        # (a wrapped error) is not a partial upload either.
+        req.upload_id == "aborted_embedded" ->
+          raise GRPC.RPCError,
+            status: GRPC.Status.aborted(),
+            message:
+              "upstream error: Partial upload: 1/3 chunks stored, 2 failed " <>
+                "(paid attempt retained)"
+
         req.winner_pool_hash != "" ->
           %Antd.V1.FinalizeUploadResponse{
             data_map: "dm_merkle",
@@ -307,6 +316,16 @@ defmodule Antd.GrpcExternalSignerTest do
     refute match?(%Antd.PartialUploadError{}, err)
     assert %Antd.AntdError{status_code: 10} = err
     assert err.message =~ "another finalize is already in progress"
+  end
+
+  test "finalize_upload ABORTED that only quotes the prefix mid-message stays a generic AntdError",
+       %{client: client} do
+    {:error, err} =
+      GrpcClient.finalize_upload(client, "aborted_embedded", %{"0xq1" => "0xtx1"})
+
+    refute match?(%Antd.PartialUploadError{}, err)
+    assert %Antd.AntdError{status_code: 10} = err
+    assert String.starts_with?(err.message, "upstream error: Partial upload:")
   end
 
   # --- prepare/finalize chunks ---
