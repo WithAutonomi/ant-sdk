@@ -700,6 +700,8 @@ class TestClient < Minitest::Test
     assert_equal 312, err.total_chunks
     assert err.retryable, "expected retryable from the body flag"
     assert err.retryable?
+    assert err.retention_known, "a JSON boolean flag makes retention known"
+    assert err.retention_known?
     assert_equal 502, err.status_code
     assert_includes err.message, "Partial upload: 300/312 chunks stored"
   end
@@ -718,6 +720,7 @@ class TestClient < Minitest::Test
       @client.finalize_upload("u1", { "0xq" => "0xt" })
     end
     refute err.retryable, "retryable must default to false without the body flag"
+    refute err.retention_known, "an absent flag leaves retention unknown, not confirmed"
     assert_equal 300, err.chunks_stored
     assert_equal 12, err.chunks_failed
     assert_equal 312, err.total_chunks
@@ -737,6 +740,8 @@ class TestClient < Minitest::Test
     end
     assert_instance_of Antd::PartialUploadError, err
     assert_equal 1, err.chunks_failed
+    refute err.retryable
+    assert err.retention_known, "retryable: false is confirmed non-retention"
   end
 
   # Only code == PARTIAL_UPLOAD is special-cased; a plain 502 keeps mapping
@@ -760,23 +765,29 @@ class TestClient < Minitest::Test
     assert_includes err.message, "bad gateway"
   end
 
+  # [stored, failed, total, retryable, retention_known]
   def test_parse_partial_upload_message
     cases = {
-      PARTIAL_RETAINED_MSG => [300, 12, 312, true],
-      PARTIAL_REPREPARE_MSG => [300, 12, 312, false],
-      "Partial upload: 300/312 chunks stored, 12 failed after retries" => [300, 12, 312, false],
-      "something else entirely" => [0, 0, 0, false],
-      # Pattern miss with the hint: retry needs parsed counts.
-      "Partial upload: counts unreadable (#{RETAINED})" => [0, 0, 0, false],
-      "Partial upload: 3/x chunks stored, 1 failed (#{RETAINED})" => [0, 0, 0, false],
-      RETAINED => [0, 0, 0, false],
+      # Well-formed with the hint: known and retryable.
+      PARTIAL_RETAINED_MSG => [300, 12, 312, true, true],
+      # Well-formed without the hint: known, confirmed not retained.
+      PARTIAL_REPREPARE_MSG => [300, 12, 312, false, true],
+      "Partial upload: 300/312 chunks stored, 12 failed after retries" => [300, 12, 312, false, true],
+      "something else entirely" => [0, 0, 0, false, false],
+      # Pattern miss with the hint: unknown, and never retryable.
+      "Partial upload: counts unreadable (#{RETAINED})" => [0, 0, 0, false, false],
+      "Partial upload: 3/x chunks stored, 1 failed (#{RETAINED})" => [0, 0, 0, false, false],
+      RETAINED => [0, 0, 0, false, false],
+      # The anchored prefix is required: an embedded message is unknown.
+      "upstream error: Partial upload: 1/3 chunks stored, 2 failed (#{RETAINED})" => [0, 0, 0, false, false],
       # u64::MAX is the largest count the daemon can send; it still parses.
       "Partial upload: #{U64_MAX}/#{U64_MAX} chunks stored, #{U64_MAX} failed (#{RETAINED})" =>
-        [U64_MAX, U64_MAX, U64_MAX, true]
+        [U64_MAX, U64_MAX, U64_MAX, true, true]
     }
-    cases.each do |msg, (stored, failed, total, retryable)|
+    cases.each do |msg, (stored, failed, total, retryable, known)|
       parsed = Antd.parse_partial_upload_message(msg)
-      assert_equal({ chunks_stored: stored, chunks_failed: failed, total_chunks: total, retryable: retryable },
+      assert_equal({ chunks_stored: stored, chunks_failed: failed, total_chunks: total, retryable: retryable,
+                     retention_known: known },
                    parsed, msg)
     end
   end
@@ -793,7 +804,8 @@ class TestClient < Minitest::Test
       "Partial upload: 300/#{over} chunks stored, 12 failed (#{RETAINED})", # total
       "Partial upload: 300/312 chunks stored, #{over} failed (#{RETAINED})" # failed
     ].each do |msg|
-      assert_equal({ chunks_stored: 0, chunks_failed: 0, total_chunks: 0, retryable: false },
+      assert_equal({ chunks_stored: 0, chunks_failed: 0, total_chunks: 0, retryable: false,
+                     retention_known: false },
                    Antd.parse_partial_upload_message(msg), msg)
     end
   end
@@ -896,6 +908,45 @@ class TestClient < Minitest::Test
         assert_equal expected, err.retryable, body
         assert_equal [1, 2, 3], [err.chunks_stored, err.chunks_failed, err.total_chunks], body
       end
+  end
+
+  # retention_known is true only for a JSON boolean `retryable`; absent
+  # (daemons < 0.14.0), null or any other type is unknown, never confirmed
+  # non-retention. [flag, retention_known, retryable]
+  def test_error_for_response_retention_known_only_for_json_boolean
+    [
+      [true, true, true],
+      [false, true, false],
+      [:absent, false, false],
+      [nil, false, false],
+      ["true", false, false],
+      ["false", false, false],
+      [1, false, false],
+      [0, false, false],
+      [{}, false, false],
+      [[], false, false]
+    ].each do |flag, known, retryable|
+      fields = { error: "Partial upload: x", code: "PARTIAL_UPLOAD", chunks_stored: 1, chunks_failed: 2, total_chunks: 3 }
+      fields[:retryable] = flag unless flag == :absent
+      body = JSON.generate(fields)
+      err = Antd.error_for_response(502, body)
+      assert_instance_of Antd::PartialUploadError, err, body
+      assert_equal known, err.retention_known, body
+      assert_equal retryable, err.retryable, body
+    end
+  end
+
+  # retention_known is additive: existing keyword calls keep working, and
+  # retryable implies retention_known however the error is built.
+  def test_partial_upload_error_retention_known_defaults_and_invariant
+    legacy = Antd::PartialUploadError.new("x", chunks_stored: 1, chunks_failed: 2, total_chunks: 3)
+    refute legacy.retryable
+    refute legacy.retention_known
+
+    assert Antd::PartialUploadError.new("x", retryable: true).retention_known
+    assert Antd::PartialUploadError.new("x", retryable: true, retention_known: false).retention_known
+    assert Antd::PartialUploadError.new("x", retryable: false, retention_known: true).retention_known
+    refute Antd::PartialUploadError.new("x", retryable: false, retention_known: true).retryable
   end
 
   def test_error_for_response_non_string_error_uses_raw_body

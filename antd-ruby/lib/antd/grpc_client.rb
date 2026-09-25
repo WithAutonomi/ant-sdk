@@ -326,10 +326,14 @@ module Antd
     # @return [String] hex chunk address
     # @raise [PartialUploadError] when some chunks stored and others did not
     #   (gRPC ABORTED, details prefixed +Partial upload:+). The payment
-    #   persists. If +retryable+ is true, call this method again with the same
+    #   persists. If +retryable+, call this method again with the same
     #   arguments to store the remainder against the same payment
-    #   (antd >= 0.14.0); otherwise re-prepare the same content, which skips
-    #   stored chunks. See docs/external-signer-flow.md section 6.
+    #   (antd >= 0.14.0). If +retention_known+ but not +retryable+, nothing
+    #   was retained: re-prepare the same content, which skips stored chunks.
+    #   If +retention_known+ is false, retention is unknown: stop, keep the
+    #   upload_id and payment artefacts, and reconcile before re-preparing or
+    #   paying again. See +PartialUploadError+ and
+    #   docs/external-signer-flow.md section 6.
     def finalize_chunk_upload(upload_id, tx_hashes)
       req = Antd::V1::FinalizeChunkRequest.new(
         upload_id: upload_id,
@@ -386,10 +390,14 @@ module Antd
     # @return [FinalizeUploadResult]
     # @raise [PartialUploadError] when some chunks stored and others did not
     #   (gRPC ABORTED, details prefixed +Partial upload:+). The payment
-    #   persists. If +retryable+ is true, call this method again with the same
+    #   persists. If +retryable+, call this method again with the same
     #   arguments to store the remainder against the same payment
-    #   (antd >= 0.14.0); otherwise re-prepare the same content, which skips
-    #   stored chunks. See docs/external-signer-flow.md section 6.
+    #   (antd >= 0.14.0). If +retention_known+ but not +retryable+, nothing
+    #   was retained: re-prepare the same content, which skips stored chunks.
+    #   If +retention_known+ is false, retention is unknown: stop, keep the
+    #   upload_id and payment artefacts, and reconcile before re-preparing or
+    #   paying again. See +PartialUploadError+ and
+    #   docs/external-signer-flow.md section 6.
     def finalize_upload(upload_id, tx_hashes)
       req = Antd::V1::FinalizeUploadRequest.new(
         upload_id: upload_id,
@@ -413,10 +421,14 @@ module Antd
     # @return [FinalizeUploadResult]
     # @raise [PartialUploadError] when some chunks stored and others did not
     #   (gRPC ABORTED, details prefixed +Partial upload:+). The payment
-    #   persists. If +retryable+ is true, call this method again with the same
+    #   persists. If +retryable+, call this method again with the same
     #   arguments to store the remainder against the same payment
-    #   (antd >= 0.14.0); otherwise re-prepare the same content, which skips
-    #   stored chunks. See docs/external-signer-flow.md section 6.
+    #   (antd >= 0.14.0). If +retention_known+ but not +retryable+, nothing
+    #   was retained: re-prepare the same content, which skips stored chunks.
+    #   If +retention_known+ is false, retention is unknown: stop, keep the
+    #   upload_id and payment artefacts, and reconcile before re-preparing or
+    #   paying again. See +PartialUploadError+ and
+    #   docs/external-signer-flow.md section 6.
     def finalize_merkle_upload(upload_id, winner_pool_hash, store_data_map: false)
       req = Antd::V1::FinalizeUploadRequest.new(
         upload_id: upload_id,

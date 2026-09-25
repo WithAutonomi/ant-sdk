@@ -61,52 +61,67 @@ module Antd
   # A finalize stored some chunks while others remained unstored after the
   # daemon's retries (HTTP 502 with +code: "PARTIAL_UPLOAD"+; gRPC ABORTED).
   # The on-chain payment persists and the stored chunks stay on the network.
-  # How to finish the upload depends on +retryable+:
+  # How to finish the upload depends on +retryable+ and +retention_known+:
   #
-  # - +retryable == true+: the daemon kept the paid attempt (payment proofs +
-  #   unstored chunks) under the same +upload_id+. Call the same +finalize_*+
-  #   method again with the same arguments to store the remainder against the
+  # - +retryable+ (antd >= 0.14.0; implies +retention_known+): the daemon kept
+  #   the paid attempt (payment proofs + unstored chunks) under the same
+  #   +upload_id+. Call the same +finalize_*+ method again with the same
+  #   +upload_id+ and payment artefacts to store the remainder against the
   #   same payment -- no re-prepare, no second signature, no double payment.
   #   Bound the loop: a persistent failure raises this error on every call, so
   #   cap the attempts and treat a +chunks_failed+ that stops shrinking as
   #   stuck. The retained attempt expires with the daemon's pending-upload
-  #   TTL. (antd >= 0.14.0; older daemons never send the flag, so +retryable+
-  #   reads +false+ and the re-prepare path applies.)
-  # - +retryable == false+: nothing was retained (a merkle finalize with
-  #   deliberately unpaid batches, or an older daemon). Re-preparing the same
-  #   content skips already-stored chunks, so a retry pays only for the
-  #   missing remainder.
+  #   TTL.
+  # - +retention_known+ and not +retryable+: the daemon confirmed nothing was
+  #   retained (a merkle finalize with deliberately unpaid batches).
+  #   Re-preparing the same content skips already-stored chunks, so a retry
+  #   pays only for the missing remainder.
+  # - not +retention_known+: retention is unknown. The error did not say, in
+  #   a form this SDK could read, whether the paid attempt was kept, and the
+  #   daemon may still hold it: it records the resume handle before it
+  #   returns the error. Stop automatic recovery, keep the +upload_id+ and the
+  #   original payment artefacts (tx hashes, or the merkle winner pool hash),
+  #   and reconcile before re-preparing or paying again. Never pay again on
+  #   this signal alone. Daemons older than 0.14.0 never send +retryable+, so
+  #   their REST partial uploads read as unknown.
   #
-  # Over REST the counts and +retryable+ come from the structured error body;
-  # a field of the wrong JSON type reads as absent (zero / +false+). Over gRPC
-  # they are parsed best-effort from the status details ("Partial upload: S/T
-  # chunks stored, F failed ...", with a "paid attempt retained" hint when
+  # Over REST the counts and flags come from the structured error body; a
+  # count of the wrong JSON type reads as 0, and +retention_known+ is true
+  # only when the body's +retryable+ is a JSON boolean. Over gRPC they are
+  # parsed best-effort from the status details ("Partial upload: S/T chunks
+  # stored, F failed ...", with a "paid attempt retained" hint when
   # retryable); only an ABORTED whose details start with "Partial upload:" is
-  # a partial upload. +retryable+ is true there only when all three counts
-  # parse and the hint is present: counts that do not parse leave all three
-  # zero and +retryable+ false, so the caller takes the re-prepare path.
+  # a partial upload. +retention_known+ is true there only when all three
+  # counts parse, and the hint then decides +retryable+; counts that do not
+  # parse leave all three zero and both flags false.
   #
   # Subclasses +NetworkError+ because the daemon reports it as a 502: existing
   # +rescue Antd::NetworkError+ blocks keep catching it, and +status_code+ is
   # 502 on both transports. Rescue +PartialUploadError+ first to handle it
   # specifically. See docs/external-signer-flow.md section 6.
   class PartialUploadError < NetworkError
-    attr_reader :chunks_stored, :chunks_failed, :total_chunks, :retryable
+    attr_reader :chunks_stored, :chunks_failed, :total_chunks, :retryable, :retention_known
 
     # @param message [String]
     # @param chunks_stored [Integer] chunks confirmed stored on the network
     # @param chunks_failed [Integer] chunks still unstored after retries
     # @param total_chunks [Integer] chunks in the upload
     # @param retryable [Boolean] whether the daemon retained the paid attempt
-    def initialize(message, chunks_stored: 0, chunks_failed: 0, total_chunks: 0, retryable: false)
+    # @param retention_known [Boolean] whether the daemon said, in a form this
+    #   SDK could read, whether it retained the paid attempt. +retryable+
+    #   implies it: +retryable: true+ always yields +retention_known == true+.
+    def initialize(message, chunks_stored: 0, chunks_failed: 0, total_chunks: 0, retryable: false,
+                   retention_known: false)
       @chunks_stored = chunks_stored
       @chunks_failed = chunks_failed
       @total_chunks = total_chunks
       @retryable = retryable
+      @retention_known = (retention_known || retryable) ? true : false
       super(message)
     end
 
     alias retryable? retryable
+    alias retention_known? retention_known
   end
 
   # Fixed text every PARTIAL_UPLOAD message from the daemon opens with. Over
@@ -148,30 +163,32 @@ module Antd
   # message (over gRPC, the status details). Used for gRPC, where the status
   # carries no structured detail; REST callers get the body fields instead.
   #
-  # Conservative: +retryable+ is true only when the counts pattern matched,
-  # all three counts converted (each at most u64::MAX, the daemon's count
-  # type) and the "paid attempt retained" hint is present. On a pattern miss
-  # or a count out of range, all three counts are 0 and +retryable+ is false,
-  # so a message the parser cannot fully read never selects the same-upload_id
-  # retry.
+  # Conservative: +retention_known+ is true only when the message starts
+  # with "Partial upload:", the counts pattern matched and all three counts
+  # converted (each at most u64::MAX, the daemon's count type). The
+  # "paid attempt retained" hint then decides +retryable+. On a prefix or
+  # pattern miss, or a count out of range, all three counts are 0 and both
+  # flags are false: a message the parser cannot fully read never selects
+  # the same-upload_id retry, and never reads as confirmed non-retention.
   #
   # @param message [String]
   # @return [Hash] +:chunks_stored+, +:chunks_failed+, +:total_chunks+,
-  #   +:retryable+ -- splat into +PartialUploadError.new+
+  #   +:retryable+, +:retention_known+ -- splat into +PartialUploadError.new+
   def self.parse_partial_upload_message(message)
     text = message.to_s
-    m = PARTIAL_UPLOAD_COUNTS.match(text)
+    m = partial_upload_message?(text) && PARTIAL_UPLOAD_COUNTS.match(text)
     # The groups are ASCII digit runs, so #to_i is exact; only the range can fail.
     stored, total, failed = m && [m[1], m[2], m[3]].map(&:to_i)
     unless m && [stored, total, failed].all? { |n| n <= PARTIAL_UPLOAD_COUNT_MAX }
-      return { chunks_stored: 0, chunks_failed: 0, total_chunks: 0, retryable: false }
+      return { chunks_stored: 0, chunks_failed: 0, total_chunks: 0, retryable: false, retention_known: false }
     end
 
     {
       chunks_stored: stored,
       chunks_failed: failed,
       total_chunks: total,
-      retryable: text.include?(PARTIAL_UPLOAD_RETAINED_HINT)
+      retryable: text.include?(PARTIAL_UPLOAD_RETAINED_HINT),
+      retention_known: true
     }
   end
 
@@ -186,7 +203,9 @@ module Antd
   # Never raises on a malformed body: every field is type-checked, not
   # coerced. Only a +code+ that is exactly the string "PARTIAL_UPLOAD"
   # selects +PartialUploadError+; a count that is not a non-negative JSON
-  # integer reads as 0; +retryable+ is true only for JSON +true+.
+  # integer reads as 0; +retryable+ is true only for JSON +true+; and
+  # +retention_known+ is true only when +retryable+ is a JSON boolean (absent
+  # on daemons < 0.14.0, +null+ or any other type reads as unknown).
   #
   # @param code [Integer] HTTP status
   # @param body [String, nil] raw response body
@@ -208,8 +227,11 @@ module Antd
           chunks_stored: body_count(parsed["chunks_stored"]),
           chunks_failed: body_count(parsed["chunks_failed"]),
           total_chunks: body_count(parsed["total_chunks"]),
-          # Absent on daemons < 0.14.0 -> not retryable (re-prepare path).
-          retryable: parsed["retryable"] == true
+          retryable: parsed["retryable"] == true,
+          # Known only when the daemon sent the flag as a JSON boolean. Absent
+          # (daemons < 0.14.0), null or any other type -> unknown: the daemon
+          # may still hold the paid attempt, so this is not a re-prepare signal.
+          retention_known: [true, false].include?(parsed["retryable"])
         )
       end
     end

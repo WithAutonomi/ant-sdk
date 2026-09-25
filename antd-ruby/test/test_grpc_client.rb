@@ -662,6 +662,7 @@ class TestGrpcClient < Minitest::Test
     assert_equal 12, err.chunks_failed
     assert_equal 312, err.total_chunks
     assert err.retryable, "expected retryable from the retained hint"
+    assert err.retention_known, "parsed counts make retention known"
     assert_kind_of Antd::NetworkError, err
   end
 
@@ -671,6 +672,7 @@ class TestGrpcClient < Minitest::Test
     client = build_error_client(grpc_error(:ABORTED, msg))
     err = assert_raises(Antd::PartialUploadError) { client.chunk_put("x") }
     refute err.retryable, "no retained hint must read as not retryable"
+    assert err.retention_known, "parsed counts without the hint: confirmed not retained"
     assert_equal 300, err.chunks_stored
     assert_equal 12, err.chunks_failed
     assert_equal 312, err.total_chunks
@@ -696,6 +698,7 @@ class TestGrpcClient < Minitest::Test
     assert_equal 0, err.chunks_failed
     assert_equal 0, err.total_chunks
     refute err.retryable
+    refute err.retention_known
     assert_includes err.message, "Partial upload: counts unreadable"
   end
 
@@ -710,6 +713,7 @@ class TestGrpcClient < Minitest::Test
     assert_equal 0, err.chunks_failed
     assert_equal 0, err.total_chunks
     refute err.retryable, "unparsed counts must not enable retry"
+    refute err.retention_known, "unparsed counts leave retention unknown, not confirmed"
   end
 
   # A count above u64::MAX (the daemon's count type) in any position is a
@@ -725,6 +729,7 @@ class TestGrpcClient < Minitest::Test
       err = assert_raises(Antd::PartialUploadError, msg) { client.chunk_put("x") }
       assert_equal [0, 0, 0], [err.chunks_stored, err.chunks_failed, err.total_chunks], msg
       refute err.retryable, msg
+      refute err.retention_known, msg
     end
   end
 
