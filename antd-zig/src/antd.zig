@@ -77,8 +77,8 @@ pub const Client = struct {
 
     /// Get the last error info, if any. After `error.PartialUpload` it also
     /// carries `chunks_stored` / `chunks_failed` / `total_chunks` and the
-    /// `retryable` flag (see `ErrorInfo`); those read zero / false for every
-    /// other error.
+    /// `retryable` / `retention_known` flags (see `ErrorInfo`); those read
+    /// zero / false for every other error.
     pub fn getLastError(self: *const Client) ?ErrorInfo {
         return self.last_error;
     }
@@ -103,19 +103,13 @@ pub const Client = struct {
 
     /// Map a non-2xx response body onto an AntdError and record it in
     /// `last_error`. A JSON `{"error":"..."}` body supplies the message and,
-    /// when its `code` is `PARTIAL_UPLOAD`, the chunk counts and `retryable`
-    /// flag; any other body is recorded verbatim and mapped by status alone.
+    /// when its `code` is `PARTIAL_UPLOAD`, the chunk counts and the
+    /// `retryable` / `retention_known` flags; any other body is recorded
+    /// verbatim and mapped by status alone.
     fn errorFromBody(self: *Client, status_code: u16, body: []const u8) AntdError {
         if (json_helpers.parseErrorBody(self.allocator, body)) |parsed| {
             defer parsed.deinit(self.allocator);
-            self.setLastErrorInfo(.{
-                .status_code = status_code,
-                .message = parsed.message,
-                .chunks_stored = parsed.chunks_stored,
-                .chunks_failed = parsed.chunks_failed,
-                .total_chunks = parsed.total_chunks,
-                .retryable = parsed.retryable,
-            });
+            self.setLastErrorInfo(parsed.errorInfo(status_code));
             return errors.errorForResponse(status_code, parsed.code);
         }
         self.setLastError(status_code, body);
@@ -494,14 +488,20 @@ pub const Client = struct {
     /// Returns `error.PartialUpload` when some chunks stored and others did
     /// not after the daemon's retries. The payment persists and the stored
     /// chunks stay on the network; `getLastError()` carries the counts and
-    /// the `retryable` flag (antd >= 0.14.0):
+    /// the `retryable` / `retention_known` flags:
     ///
-    ///   - `retryable == true`: the paid attempt is retained under the same
+    ///   - `retryable`: the paid attempt is retained under the same
     ///     `upload_id`. Call `finalizeUpload` again with the same arguments to
     ///     store the remainder against the same payment. Bound the loop (cap
     ///     attempts, treat a `chunks_failed` that stops shrinking as stuck).
-    ///   - `retryable == false`: nothing was retained; re-prepare the same
-    ///     content, which skips the already-stored chunks.
+    ///   - `retention_known and !retryable`: the daemon confirmed nothing was
+    ///     retained; re-prepare the same content, which skips the
+    ///     already-stored chunks.
+    ///   - `!retention_known`: retention is unknown (the flag was missing, as
+    ///     from every daemon older than 0.14.0, or malformed). The daemon may
+    ///     still hold the paid attempt, so stop automatic recovery, keep the
+    ///     `upload_id` and the payment artefacts, and reconcile before
+    ///     re-preparing or paying again. Never pay again on this signal alone.
     ///
     /// See docs/external-signer-flow.md, section 6, and the README's
     /// "Partial uploads" section for a bounded retry helper.

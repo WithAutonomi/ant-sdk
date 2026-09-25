@@ -590,8 +590,9 @@ test "streaming non-2xx error body parses into the SDK {\"error\"} contract" {
 //
 // The daemon reports a finalize that stored some chunks but not all as HTTP
 // 502 with `code: "PARTIAL_UPLOAD"`, structured counts, and (antd >= 0.14.0)
-// a `retryable` flag. Client.doRequest/doStream feed the body through
-// parseErrorBody + errorForResponse and record the counts in last_error. As
+// a `retryable` flag; `retention_known` records whether that flag arrived.
+// Client.doRequest/doStream feed the body through parseErrorBody +
+// errorForResponse and record the counts in last_error. As
 // elsewhere in this file, no mock HTTP server: the parser and the mapping are
 // unit-tested directly.
 // =============================================================================
@@ -609,12 +610,13 @@ test "parseErrorBody extracts PARTIAL_UPLOAD counts and the retryable flag" {
     try testing.expectEqual(@as(u64, 12), parsed.chunks_failed);
     try testing.expectEqual(@as(u64, 312), parsed.total_chunks);
     try testing.expect(parsed.retryable);
+    try testing.expect(parsed.retention_known);
 }
 
-test "parseErrorBody defaults retryable to false when the flag is absent (pre-0.14.0 daemon)" {
-    // An older daemon never sends `retryable`; it must read false so callers
-    // fall back to the re-prepare path rather than looping on an upload_id
-    // the daemon has already dropped.
+test "parseErrorBody reads a missing retryable flag as unknown retention (pre-0.14.0 daemon)" {
+    // An older daemon never sends `retryable`. It reads false, so callers do
+    // not loop on the upload_id, and `retention_known` reads false, so they
+    // do not take the absence to mean "nothing retained" and pay again.
     const body =
         \\{"error":"Partial upload: 300/312 chunks stored, 12 failed after retries","code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":12,"total_chunks":312}
     ;
@@ -626,6 +628,7 @@ test "parseErrorBody defaults retryable to false when the flag is absent (pre-0.
     try testing.expectEqual(@as(u64, 12), parsed.chunks_failed);
     try testing.expectEqual(@as(u64, 312), parsed.total_chunks);
     try testing.expect(!parsed.retryable);
+    try testing.expect(!parsed.retention_known);
 }
 
 test "parseErrorBody leaves counts zero for other error codes" {
@@ -641,6 +644,7 @@ test "parseErrorBody leaves counts zero for other error codes" {
     try testing.expectEqual(@as(u64, 0), parsed.chunks_failed);
     try testing.expectEqual(@as(u64, 0), parsed.total_chunks);
     try testing.expect(!parsed.retryable);
+    try testing.expect(!parsed.retention_known);
 }
 
 test "parseErrorBody defaults code to empty and returns null without an error field" {
@@ -657,6 +661,24 @@ test "parseErrorBody defaults code to empty and returns null without an error fi
     // exactly like parseErrorMessage.
     try testing.expect(json_helpers.parseErrorBody(testing.allocator, "{\"status\":\"ok\"}") == null);
     try testing.expect(json_helpers.parseErrorBody(testing.allocator, "Bad Gateway") == null);
+}
+
+test "ErrorBody.errorInfo carries every partial-upload field into ErrorInfo" {
+    // Client.errorFromBody records exactly this ErrorInfo in last_error.
+    const body =
+        \\{"error":"partial","code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":12,"total_chunks":312,"retryable":false}
+    ;
+    const parsed = json_helpers.parseErrorBody(testing.allocator, body) orelse return error.JsonError;
+    defer parsed.deinit(testing.allocator);
+
+    const info = parsed.errorInfo(502);
+    try testing.expectEqual(@as(u16, 502), info.status_code);
+    try testing.expectEqualStrings("partial", info.message);
+    try testing.expectEqual(@as(u64, 300), info.chunks_stored);
+    try testing.expectEqual(@as(u64, 12), info.chunks_failed);
+    try testing.expectEqual(@as(u64, 312), info.total_chunks);
+    try testing.expect(!info.retryable);
+    try testing.expect(info.retention_known);
 }
 
 test "errorForResponse maps code PARTIAL_UPLOAD to PartialUpload" {
@@ -678,40 +700,46 @@ test "ErrorInfo partial-upload fields default to zero and false" {
     try testing.expectEqual(@as(u64, 0), info.chunks_failed);
     try testing.expectEqual(@as(u64, 0), info.total_chunks);
     try testing.expect(!info.retryable);
+    try testing.expect(!info.retention_known);
 }
 
 // =============================================================================
 // Malformed PARTIAL_UPLOAD bodies.
 //
 // A count is read only from a JSON non-negative integer below 2^64; anything
-// else reads as 0. `retryable` is true only for the JSON boolean `true`. The
-// counts and `retryable` are read only when `code` is the string
+// else reads as 0. `retryable` is true only for the JSON boolean `true`, and
+// `retention_known` only when `retryable` is a JSON boolean. The
+// counts and flags are read only when `code` is the string
 // "PARTIAL_UPLOAD"; otherwise the body maps by status alone. None of this may
 // panic: `zig build test` runs in Debug, where an out-of-range
 // `@intFromFloat` / `@intCast` aborts the whole test binary.
 // =============================================================================
 
 /// The error and partial-upload fields Client.errorFromBody records for a
-/// 502 body: a body parseErrorBody accepts maps by its `code`, any other
-/// body by status alone with every partial-upload field zero / false.
+/// 502 body: a body parseErrorBody accepts maps by its `code` and records
+/// `ErrorBody.errorInfo`, any other body maps by status alone with every
+/// partial-upload field zero / false.
 const MappedError = struct {
     err: errors.AntdError,
     chunks_stored: u64 = 0,
     chunks_failed: u64 = 0,
     total_chunks: u64 = 0,
     retryable: bool = false,
+    retention_known: bool = false,
 };
 
 fn mapErrorBody(body: []const u8) MappedError {
     const parsed = json_helpers.parseErrorBody(testing.allocator, body) orelse
         return .{ .err = errors.errorForStatus(502) };
     defer parsed.deinit(testing.allocator);
+    const info = parsed.errorInfo(502);
     return .{
-        .err = errors.errorForResponse(502, parsed.code),
-        .chunks_stored = parsed.chunks_stored,
-        .chunks_failed = parsed.chunks_failed,
-        .total_chunks = parsed.total_chunks,
-        .retryable = parsed.retryable,
+        .err = errors.errorForResponse(info.status_code, parsed.code),
+        .chunks_stored = info.chunks_stored,
+        .chunks_failed = info.chunks_failed,
+        .total_chunks = info.total_chunks,
+        .retryable = info.retryable,
+        .retention_known = info.retention_known,
     };
 }
 
@@ -758,6 +786,7 @@ test "a malformed PARTIAL_UPLOAD count reads as 0 in every position" {
             try testing.expectEqual(@as(u64, if (position == 1) 0 else 12), mapped.chunks_failed);
             try testing.expectEqual(@as(u64, if (position == 2) 0 else 312), mapped.total_chunks);
             try testing.expect(!mapped.retryable);
+            try testing.expect(!mapped.retention_known);
         }
     }
 }
@@ -787,20 +816,36 @@ test "a PARTIAL_UPLOAD count converts across the whole u64 range" {
     }
 }
 
-test "retryable is true only for the JSON boolean true" {
-    const values = [_][]const u8{ "\"true\"", "1", "\"yes\"", "null", "{}", "[]", "false" };
-    for (values) |value| {
+test "retention_known is true only when retryable is a JSON boolean" {
+    const cases = [_]struct { field: []const u8, retryable: bool, retention_known: bool }{
+        // The daemon states retention either way.
+        .{ .field = ",\"retryable\":true", .retryable = true, .retention_known = true },
+        .{ .field = ",\"retryable\":false", .retryable = false, .retention_known = true },
+        // Missing (every daemon older than 0.14.0), null or not a boolean:
+        // retention is unknown, not "nothing retained".
+        .{ .field = "", .retryable = false, .retention_known = false },
+        .{ .field = ",\"retryable\":null", .retryable = false, .retention_known = false },
+        .{ .field = ",\"retryable\":\"true\"", .retryable = false, .retention_known = false },
+        .{ .field = ",\"retryable\":1", .retryable = false, .retention_known = false },
+        .{ .field = ",\"retryable\":\"yes\"", .retryable = false, .retention_known = false },
+        .{ .field = ",\"retryable\":{}", .retryable = false, .retention_known = false },
+        .{ .field = ",\"retryable\":[]", .retryable = false, .retention_known = false },
+    };
+    for (cases) |case| {
         const body = try std.fmt.allocPrint(
             testing.allocator,
-            "{{\"error\":\"partial\",\"code\":\"PARTIAL_UPLOAD\",\"chunks_stored\":300,\"chunks_failed\":12,\"total_chunks\":312,\"retryable\":{s}}}",
-            .{value},
+            "{{\"error\":\"partial\",\"code\":\"PARTIAL_UPLOAD\",\"chunks_stored\":300,\"chunks_failed\":12,\"total_chunks\":312{s}}}",
+            .{case.field},
         );
         defer testing.allocator.free(body);
 
         const mapped = mapErrorBody(body);
         try testing.expectEqual(error.PartialUpload, mapped.err);
         try testing.expectEqual(@as(u64, 300), mapped.chunks_stored);
-        try testing.expect(!mapped.retryable);
+        try testing.expectEqual(case.retryable, mapped.retryable);
+        try testing.expectEqual(case.retention_known, mapped.retention_known);
+        // Invariant: retryable implies retention_known.
+        try testing.expect(!mapped.retryable or mapped.retention_known);
     }
 }
 
@@ -822,6 +867,7 @@ test "a code other than the string PARTIAL_UPLOAD falls back to the status mappi
         try testing.expectEqual(@as(u64, 0), mapped.chunks_failed);
         try testing.expectEqual(@as(u64, 0), mapped.total_chunks);
         try testing.expect(!mapped.retryable);
+        try testing.expect(!mapped.retention_known);
     }
 }
 
@@ -842,6 +888,7 @@ test "a non-string error field falls back to the status mapping" {
         try testing.expectEqual(error.Network, mapped.err);
         try testing.expectEqual(@as(u64, 0), mapped.chunks_stored);
         try testing.expect(!mapped.retryable);
+        try testing.expect(!mapped.retention_known);
     }
 }
 
