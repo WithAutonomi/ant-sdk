@@ -636,6 +636,352 @@ defmodule Antd.ClientTest do
              Antd.Client.health(client)
   end
 
+  test "502 PARTIAL_UPLOAD returns PartialUploadError with counts and retryable",
+       %{bypass: bypass, client: client} do
+    Bypass.expect_once(bypass, "POST", "/v1/upload/finalize", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(
+        502,
+        Jason.encode!(%{
+          error: "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum",
+          code: "PARTIAL_UPLOAD",
+          chunks_stored: 300,
+          chunks_failed: 12,
+          total_chunks: 312,
+          retryable: true
+        })
+      )
+    end)
+
+    assert {:error,
+            %Antd.PartialUploadError{
+              status_code: 502,
+              message: "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum",
+              chunks_stored: 300,
+              chunks_failed: 12,
+              total_chunks: 312,
+              retryable: true,
+              retention_known: true
+            }} = Antd.Client.finalize_merkle_upload(client, "mb1", "0xw1")
+  end
+
+  test "502 PARTIAL_UPLOAD without the flag reads as retention unknown",
+       %{bypass: bypass, client: client} do
+    # A daemon older than 0.14.0 never sends `retryable`. The SDK cannot tell
+    # whether the paid attempt was kept, so both flags read false: callers
+    # must neither loop on the upload_id nor re-prepare automatically.
+    Bypass.expect_once(bypass, "POST", "/v1/upload/finalize", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(
+        502,
+        Jason.encode!(%{
+          error: "Partial upload: 300/312 chunks stored, 12 failed after retries",
+          code: "PARTIAL_UPLOAD",
+          chunks_stored: 300,
+          chunks_failed: 12,
+          total_chunks: 312
+        })
+      )
+    end)
+
+    assert {:error,
+            %Antd.PartialUploadError{
+              status_code: 502,
+              chunks_stored: 300,
+              chunks_failed: 12,
+              total_chunks: 312,
+              retryable: false,
+              retention_known: false
+            }} = Antd.Client.finalize_upload(client, "up1", %{"0xq" => "0xt"})
+  end
+
+  # retention_known is true only when the body's `retryable` is a JSON
+  # boolean, and retryable implies retention_known.
+  for {label, flag, retryable, known} <- [
+        {"true", ~s(,"retryable":true), true, true},
+        {"false", ~s(,"retryable":false), false, true},
+        {"missing", "", false, false},
+        {"null", ~s(,"retryable":null), false, false},
+        {"a quoted true", ~s(,"retryable":"true"), false, false},
+        {"the number 1", ~s(,"retryable":1), false, false}
+      ] do
+    test "PARTIAL_UPLOAD retryable #{label}: retryable=#{retryable} known=#{known}",
+         %{bypass: bypass, client: client} do
+      raw =
+        ~s({"error":"Partial upload: 1/3 chunks stored, 2 failed","code":"PARTIAL_UPLOAD",) <>
+          ~s("chunks_stored":1,"chunks_failed":2,"total_chunks":3) <> unquote(flag) <> "}"
+
+      Bypass.expect_once(bypass, "POST", "/v1/upload/finalize", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(502, raw)
+      end)
+
+      assert {:error, %Antd.PartialUploadError{chunks_stored: 1, chunks_failed: 2} = err} =
+               Antd.Client.finalize_upload(client, "up1", %{"0xq" => "0xt"})
+
+      assert err.retryable == unquote(retryable)
+      assert err.retention_known == unquote(known)
+      assert not err.retryable or err.retention_known
+    end
+  end
+
+  test "502 with another code still returns NetworkError", %{bypass: bypass, client: client} do
+    Bypass.expect_once(bypass, "POST", "/v1/upload/finalize", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(
+        502,
+        Jason.encode!(%{error: "upstream unreachable", code: "NETWORK_ERROR"})
+      )
+    end)
+
+    assert {:error, %Antd.NetworkError{status_code: 502, message: "upstream unreachable"}} =
+             Antd.Client.finalize_upload(client, "up1", %{})
+  end
+
+  # A malformed error body must never escape the typed error contract. `code`
+  # counts only as the string "PARTIAL_UPLOAD": any other shape, or a
+  # top-level JSON array, keeps the status-based mapping (a plain
+  # NetworkError for a 502), whether or not the body is tagged as JSON.
+  for {label, raw} <- [
+        {"an object code", ~s({"error":"bad gateway","code":{}})},
+        {"an array code", ~s({"error":"bad gateway","code":["PARTIAL_UPLOAD"]})},
+        {"a null code", ~s({"error":"bad gateway","code":null})},
+        {"a number code", ~s({"error":"bad gateway","code":502})},
+        {"a top-level JSON array body", ~s([{"code":"PARTIAL_UPLOAD","chunks_stored":1}])}
+      ],
+      content_type <- ["application/json", "text/plain"] do
+    test "502 with #{label} (#{content_type}) returns NetworkError",
+         %{bypass: bypass, client: client} do
+      Bypass.expect_once(bypass, "POST", "/v1/upload/finalize", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type(unquote(content_type))
+        |> Plug.Conn.resp(502, unquote(raw))
+      end)
+
+      assert {:error, %Antd.NetworkError{status_code: 502} = err} =
+               Antd.Client.finalize_upload(client, "up1", %{"0xq" => "0xt"})
+
+      assert is_binary(err.message)
+    end
+  end
+
+  # Wrong-typed counts or flag read as absent (zero / false); the response is
+  # still a PartialUploadError because `code` is the PARTIAL_UPLOAD string.
+  for {label, raw} <- [
+        {"non-numeric",
+         ~s({"error":"Partial upload: 1/3 chunks stored, 2 failed","code":"PARTIAL_UPLOAD",) <>
+           ~s("chunks_stored":"1","chunks_failed":[],"total_chunks":{},"retryable":"true"})},
+        {"out-of-range",
+         ~s({"error":"Partial upload: 1/3 chunks stored, 2 failed","code":"PARTIAL_UPLOAD",) <>
+           ~s("chunks_stored":-1,"chunks_failed":1.5,"total_chunks":null,"retryable":1})}
+      ] do
+    test "502 PARTIAL_UPLOAD with #{label} counts and flag reads them as zero / false",
+         %{bypass: bypass, client: client} do
+      Bypass.expect_once(bypass, "POST", "/v1/upload/finalize", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(502, unquote(raw))
+      end)
+
+      assert {:error,
+              %Antd.PartialUploadError{
+                status_code: 502,
+                message: "Partial upload: 1/3 chunks stored, 2 failed",
+                chunks_stored: 0,
+                chunks_failed: 0,
+                total_chunks: 0,
+                retryable: false,
+                retention_known: false
+              }} = Antd.Client.finalize_upload(client, "up1", %{"0xq" => "0xt"})
+    end
+  end
+
+  # A non-string `error` must not crash the mapping or leak a non-string
+  # message; the counts and flag are still read from the body.
+  for {label, error_json} <- [
+        {"an object", ~s({"detail":"x"})},
+        {"a number", "42"},
+        {"null", "null"}
+      ] do
+    test "502 PARTIAL_UPLOAD whose error is #{label} still returns PartialUploadError",
+         %{bypass: bypass, client: client} do
+      raw =
+        ~s({"error":#{unquote(error_json)},"code":"PARTIAL_UPLOAD",) <>
+          ~s("chunks_stored":1,"chunks_failed":1,"total_chunks":2,"retryable":true})
+
+      Bypass.expect_once(bypass, "POST", "/v1/upload/finalize", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(502, raw)
+      end)
+
+      assert {:error,
+              %Antd.PartialUploadError{
+                status_code: 502,
+                chunks_stored: 1,
+                chunks_failed: 1,
+                total_chunks: 2,
+                retryable: true,
+                retention_known: true
+              } = err} = Antd.Client.finalize_upload(client, "up1", %{"0xq" => "0xt"})
+
+      assert is_binary(err.message)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Error-contract change: a partial store is Antd.PartialUploadError, a
+  # separate struct, where it used to be Antd.NetworkError. These pin the
+  # change and the README's "Migrating error handlers" patterns.
+  # ---------------------------------------------------------------------------
+
+  # Serves the finalize route by upload_id: "partial" gets the daemon's
+  # PARTIAL_UPLOAD 502, anything else a plain 502.
+  defp serve_finalize(bypass) do
+    Bypass.expect(bypass, "POST", "/v1/upload/finalize", fn conn ->
+      {:ok, raw, conn} = Plug.Conn.read_body(conn)
+
+      body =
+        case Jason.decode!(raw) do
+          %{"upload_id" => "partial"} ->
+            %{
+              error: "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum",
+              code: "PARTIAL_UPLOAD",
+              chunks_stored: 1,
+              chunks_failed: 2,
+              total_chunks: 3,
+              retryable: true
+            }
+
+          _ ->
+            %{error: "upstream unreachable", code: "NETWORK_ERROR"}
+        end
+
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(502, Jason.encode!(body))
+    end)
+  end
+
+  # README migration pattern: a PartialUploadError clause ahead of the old one.
+  defp classify_rest(result) do
+    case result do
+      {:ok, _} -> :ok
+      {:error, %Antd.PartialUploadError{}} -> :partial_upload
+      {:error, %Antd.NetworkError{}} -> :network
+    end
+  end
+
+  # README migration pattern: rescue both modules around a bang function.
+  defp rescue_rest(fun) do
+    fun.()
+  rescue
+    e in [Antd.PartialUploadError, Antd.NetworkError] -> {:rescued, e.__struct__}
+  end
+
+  test "a partial store is a PartialUploadError, no longer a NetworkError",
+       %{bypass: bypass, client: client} do
+    serve_finalize(bypass)
+    txs = %{"0xq" => "0xt"}
+
+    assert {:error, err} = Antd.Client.finalize_upload(client, "partial", txs)
+    assert %Antd.PartialUploadError{chunks_stored: 1, retryable: true} = err
+    assert err.retention_known
+    refute match?(%Antd.NetworkError{}, err)
+    refute match?(%Antd.AntdError{}, err)
+
+    # A non-partial 502 still maps to NetworkError.
+    assert {:error, %Antd.NetworkError{status_code: 502}} =
+             Antd.Client.finalize_upload(client, "other", txs)
+  end
+
+  test "an ordinary daemon-wallet upload gets the same PartialUploadError",
+       %{bypass: bypass, client: client} do
+    Bypass.expect_once(bypass, "POST", "/v1/data/public", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(
+        502,
+        Jason.encode!(%{
+          error: "Partial upload: 2/3 chunks stored, 1 failed after retries: quorum",
+          code: "PARTIAL_UPLOAD",
+          chunks_stored: 2,
+          chunks_failed: 1,
+          total_chunks: 3,
+          retryable: false
+        })
+      )
+    end)
+
+    assert {:error, err} = Antd.Client.data_put_public(client, "payload")
+
+    assert %Antd.PartialUploadError{
+             chunks_stored: 2,
+             chunks_failed: 1,
+             total_chunks: 3,
+             retryable: false,
+             retention_known: true
+           } = err
+
+    refute match?(%Antd.NetworkError{}, err)
+  end
+
+  test "migration: a PartialUploadError clause ahead of the NetworkError clause",
+       %{bypass: bypass, client: client} do
+    serve_finalize(bypass)
+    txs = %{"0xq" => "0xt"}
+
+    assert classify_rest(Antd.Client.finalize_upload(client, "partial", txs)) == :partial_upload
+    assert classify_rest(Antd.Client.finalize_upload(client, "other", txs)) == :network
+  end
+
+  test "migration: rescuing [PartialUploadError, NetworkError] around the bang function",
+       %{bypass: bypass, client: client} do
+    serve_finalize(bypass)
+    txs = %{"0xq" => "0xt"}
+
+    assert rescue_rest(fn -> Antd.Client.finalize_upload!(client, "partial", txs) end) ==
+             {:rescued, Antd.PartialUploadError}
+
+    assert rescue_rest(fn -> Antd.Client.finalize_upload!(client, "other", txs) end) ==
+             {:rescued, Antd.NetworkError}
+
+    # A rescue that names only NetworkError no longer catches a partial store.
+    assert_raise Antd.PartialUploadError, fn ->
+      try do
+        Antd.Client.finalize_upload!(client, "partial", txs)
+      rescue
+        e in Antd.NetworkError -> e
+      end
+    end
+  end
+
+  test "finalize_upload!/3 raises PartialUploadError", %{bypass: bypass, client: client} do
+    Bypass.expect_once(bypass, "POST", "/v1/upload/finalize", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(
+        502,
+        Jason.encode!(%{
+          error: "Partial upload: 1/2 chunks stored, 1 failed after retries",
+          code: "PARTIAL_UPLOAD",
+          chunks_stored: 1,
+          chunks_failed: 1,
+          total_chunks: 2,
+          retryable: true
+        })
+      )
+    end)
+
+    assert_raise Antd.PartialUploadError, fn ->
+      Antd.Client.finalize_upload!(client, "up1", %{"0xq" => "0xt"})
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Bang variants
   # ---------------------------------------------------------------------------

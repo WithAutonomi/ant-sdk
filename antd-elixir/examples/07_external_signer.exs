@@ -9,6 +9,10 @@ Mix.install([
 # daemon. This example uses anvil deterministic account #0 as the external
 # signer and exercises both round-trips end-to-end.
 #
+# A finalize can also fail *after* the payment settled: some chunks store,
+# others miss quorum. `finalize_with_retry/3` below shows the bounded
+# same-payment retry the daemon's PARTIAL_UPLOAD contract allows.
+#
 # See docs/external-signer-flow.md for the full reference. Elixir does not
 # have a first-party EVM lib that handles EIP-1559 + tuple ABI encoding +
 # secp256k1 signing in a way that's both robust against version drift and
@@ -23,6 +27,81 @@ max_uint256 = String.duplicate("f", 64)
 
 defmodule ExternalSigner do
   @moduledoc false
+
+  @max_finalize_attempts 5
+
+  # Finalize with a bounded same-payment retry.
+  #
+  # A finalize that stored only part of the upload returns
+  # `%Antd.PartialUploadError{}`; what to do depends on two flags:
+  #
+  #   * `retryable: true` — the daemon kept the paid attempt under the same
+  #     upload_id, so the very same call again stores the remainder against
+  #     the same payment (no re-prepare, no second signature, no double
+  #     payment). A persistent failure (a chunk whose close group stays
+  #     unreachable) returns that error on every call, never a different one,
+  #     so the loop caps the attempts and treats a `chunks_failed` that stops
+  #     shrinking as stuck.
+  #   * `retention_known: false` — the error did not say whether the daemon
+  #     kept the paid attempt (a daemon older than 0.14.0, or a response the
+  #     SDK could not fully read). The daemon may still hold it, so this
+  #     stops: re-preparing or paying again could pay twice for the same
+  #     chunks. The upload_id and tx hashes are what reconciling needs, so
+  #     they are reported with the error.
+  #   * `retention_known: true, retryable: false` — the daemon confirmed it
+  #     kept nothing. The error is returned untouched; the recovery there is
+  #     to re-prepare the same content, which skips the chunks already stored.
+  def finalize_with_retry(client, upload_id, tx_hashes, attempt \\ 1, last_failed \\ nil) do
+    case Antd.Client.finalize_upload(client, upload_id, tx_hashes) do
+      {:ok, _} = ok ->
+        # every chunk stored
+        ok
+
+      {:error, %Antd.PartialUploadError{retryable: true} = err} ->
+        stuck = last_failed != nil and err.chunks_failed >= last_failed
+
+        if attempt >= @max_finalize_attempts or stuck do
+          IO.puts(
+            :stderr,
+            "finalize stuck after #{attempt} attempt(s): " <>
+              "#{err.chunks_stored}/#{err.total_chunks} chunks stored, " <>
+              "#{err.chunks_failed} still unstored (paid attempt retained under " <>
+              "upload_id #{upload_id} — retry the same finalize later; " <>
+              "re-preparing would pay again)"
+          )
+
+          {:error, err}
+        else
+          IO.puts(
+            "finalize stored #{err.chunks_stored}/#{err.total_chunks} chunks, " <>
+              "#{err.chunks_failed} still unstored — retrying against the same payment " <>
+              "(attempt #{attempt + 1}/#{@max_finalize_attempts})"
+          )
+
+          Process.sleep(attempt * 2_000)
+          finalize_with_retry(client, upload_id, tx_hashes, attempt + 1, err.chunks_failed)
+        end
+
+      {:error, %Antd.PartialUploadError{retention_known: false} = err} ->
+        # Retention unknown: stop without re-preparing or paying again.
+        tx_list = tx_hashes |> Map.values() |> Enum.uniq() |> Enum.join(", ")
+
+        IO.puts(
+          :stderr,
+          "finalize stored #{err.chunks_stored}/#{err.total_chunks} chunks, but the " <>
+            "daemon did not say whether it kept the paid attempt — stopping without " <>
+            "re-preparing or paying again; reconcile upload_id #{upload_id} " <>
+            "(tx hashes: #{tx_list}) first"
+        )
+
+        {:error, err}
+
+      # Confirmed not retained (re-prepare the same content) or any other
+      # error: hand it back as-is.
+      {:error, _} = err ->
+        err
+    end
+  end
 
   def pay(_rpc_url, _vault_addr, _token_addr, [], _key), do: %{}
 
@@ -94,7 +173,8 @@ try do
       anvil_key
     )
 
-  {:ok, file_fin} = Antd.Client.finalize_upload(client, file_prep.upload_id, file_tx_hashes)
+  {:ok, file_fin} =
+    ExternalSigner.finalize_with_retry(client, file_prep.upload_id, file_tx_hashes)
 
   IO.puts(
     "File finalize: data_map_address=#{file_fin.data_map_address}, " <>

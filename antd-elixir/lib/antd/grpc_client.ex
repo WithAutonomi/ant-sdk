@@ -698,6 +698,35 @@ defmodule Antd.GrpcClient do
   Finalizes a wave-batch upload after an external signer has submitted
   the `payForQuotes()` transactions. `tx_hashes` maps each `quote_hash`
   from the prepare result to its on-chain `tx_hash`.
+
+  A finalize that stored only part of the upload returns
+  `{:error, %Antd.PartialUploadError{}}` (gRPC `ABORTED` whose message
+  starts with `Partial upload:`; this used to be a plain `Antd.AntdError`,
+  as any other `ABORTED` still is) carrying `chunks_stored`, `chunks_failed`,
+  `total_chunks`, `retryable` and `retention_known`, parsed from the status
+  message: `retention_known` is `true` only when the counts parse and the
+  message ends with one of the daemon's two closing hints, which then
+  decides `retryable` ("paid attempt retained" sets it; "stored chunks
+  persist; re-prepare the same content" means nothing was retained).
+  Readable counts with a missing, truncated or unrecognised hint keep the
+  counts but read as retention unknown. The payment persists and the stored
+  chunks stay on the network. Recovery has three cases:
+
+    * `retryable: true` (antd >= 0.14.0) — the daemon kept the paid attempt
+      under the same `upload_id`: call this function again with the same
+      arguments to store the remainder against the same payment. Bound that
+      loop (cap the attempts; a `chunks_failed` that stops shrinking means
+      stuck).
+    * `retention_known: true, retryable: false` — the daemon confirmed it
+      kept nothing: re-prepare the same content (already-stored chunks are
+      skipped, so the retry pays only for the remainder).
+    * `retention_known: false` — the status message's counts or closing
+      hint could not be read, so retention is unknown and the daemon may
+      still hold the paid attempt. Stop automatic recovery, keep `upload_id`
+      and `tx_hashes`, and reconcile before re-preparing or paying again.
+
+  See `Antd.PartialUploadError`, `docs/external-signer-flow.md` §6 and
+  `examples/07_external_signer.exs`.
   """
   @spec finalize_upload(t(), String.t(), map()) ::
           {:ok, Antd.FinalizeUploadResult.t()} | {:error, Exception.t()}
@@ -723,6 +752,14 @@ defmodule Antd.GrpcClient do
   Finalizes a merkle-batch upload after the external signer has submitted
   the `payForMerkleTree2()` transaction. `winner_pool_hash` is the
   bytes32 from the `MerklePaymentMade` event (hex with `0x` prefix).
+
+  A partial store surfaces as `{:error, %Antd.PartialUploadError{}}` exactly
+  as for `finalize_upload/3`, with the same three cases: retry the same call
+  (bounded) while `retryable` is `true`; re-prepare the same content only
+  when `retention_known` is `true` and `retryable` is `false` (for example a
+  merkle finalize with deliberately unpaid batches); and when
+  `retention_known` is `false`, stop, keep `upload_id` and
+  `winner_pool_hash`, and reconcile before re-preparing or paying again.
 
   ## Options
 
@@ -904,6 +941,24 @@ defmodule Antd.GrpcClient do
       6 -> %Antd.AlreadyExistsError{message: message, status_code: 409}
       8 -> %Antd.TooLargeError{message: message, status_code: 413}
       9 -> %Antd.PaymentError{message: message, status_code: 402}
+      # ABORTED carries PARTIAL_UPLOAD: some chunks stored, some still
+      # unstored after retries. Every such message opens with the daemon's
+      # fixed "Partial upload:" prefix, so gate on the message starting with
+      # it (anchored, not containment: an ABORTED that merely quotes the
+      # phrase further in is not a partial upload). The counts and the
+      # daemon's closing retention hint ride the message text (no structured
+      # detail over gRPC yet) and are parsed to match the REST client's typed
+      # error; retention is known only when both read. This applies to every
+      # RPC through this translator (ordinary uploads included) and replaces
+      # the generic Antd.AntdError these statuses used to map to; any other
+      # ABORTED keeps that generic mapping.
+      10 ->
+        if Antd.Errors.partial_upload_message?(message) do
+          Antd.Errors.partial_upload_error_from_message(502, message)
+        else
+          %Antd.AntdError{message: message, status_code: status}
+        end
+
       13 -> %Antd.InternalError{message: message, status_code: 500}
       14 -> %Antd.NetworkError{message: message, status_code: 502}
       _ -> %Antd.AntdError{message: message, status_code: status}

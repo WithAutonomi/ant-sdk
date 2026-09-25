@@ -80,6 +80,63 @@ defmodule Antd.GrpcExternalSignerTest do
             Antd.V1.FinalizeUploadResponse.t()
     def finalize_upload(req, _stream) do
       cond do
+        # PARTIAL_UPLOAD after the daemon retained the paid attempt: ABORTED
+        # with the counts and the "paid attempt retained" hint in the message.
+        req.upload_id == "partial_retained" ->
+          raise GRPC.RPCError,
+            status: GRPC.Status.aborted(),
+            message:
+              "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " <>
+                "(paid attempt retained: call finalize again with the same upload_id to " <>
+                "store the remainder against the same payment)"
+
+        # PARTIAL_UPLOAD with nothing retained (unpaid merkle batches / older
+        # daemon): same status, re-prepare hint instead.
+        req.upload_id == "partial_final" ->
+          raise GRPC.RPCError,
+            status: GRPC.Status.aborted(),
+            message:
+              "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " <>
+                "(stored chunks persist; re-prepare the same content to retry only the remainder)"
+
+        # Readable counts but no closing retention hint: retention unknown.
+        req.upload_id == "partial_no_hint" ->
+          raise GRPC.RPCError,
+            status: GRPC.Status.aborted(),
+            message: "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum"
+
+        # Readable counts with the retained hint cut short (the review's
+        # reproducer): retention unknown.
+        req.upload_id == "partial_truncated_hint" ->
+          raise GRPC.RPCError,
+            status: GRPC.Status.aborted(),
+            message:
+              "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum " <>
+                "(paid attempt retai"
+
+        # A prefixed message whose counts do not parse: retention unknown,
+        # even though it carries the retained hint.
+        req.upload_id == "partial_unparsed" ->
+          raise GRPC.RPCError,
+            status: GRPC.Status.aborted(),
+            message: "Partial upload: x/y chunks stored, z failed (paid attempt retained)"
+
+        # Any other ABORTED (no "Partial upload:" prefix) is not a partial
+        # upload and must keep the generic error mapping.
+        req.upload_id == "aborted_other" ->
+          raise GRPC.RPCError,
+            status: GRPC.Status.aborted(),
+            message: "Upload aborted: another finalize is already in progress"
+
+        # An ABORTED that only quotes the marker further into its message
+        # (a wrapped error) is not a partial upload either.
+        req.upload_id == "aborted_embedded" ->
+          raise GRPC.RPCError,
+            status: GRPC.Status.aborted(),
+            message:
+              "upstream error: Partial upload: 1/3 chunks stored, 2 failed " <>
+                "(paid attempt retained)"
+
         req.winner_pool_hash != "" ->
           %Antd.V1.FinalizeUploadResponse{
             data_map: "dm_merkle",
@@ -148,10 +205,27 @@ defmodule Antd.GrpcExternalSignerTest do
     end
   end
 
+  # Daemon-wallet upload: a partial store surfaces through the same shared
+  # translator as the external-signer finalize.
+  defmodule MockDataServer do
+    use GRPC.Server, service: Antd.V1.DataService.Service
+
+    @spec put(Antd.V1.PutDataRequest.t(), GRPC.Server.Stream.t()) ::
+            Antd.V1.PutDataResponse.t()
+    def put(_req, _stream) do
+      raise GRPC.RPCError,
+        status: GRPC.Status.aborted(),
+        message:
+          "Partial upload: 2/3 chunks stored, 1 failed after retries: quorum " <>
+            "(stored chunks persist; re-prepare the same content to retry only the remainder)"
+    end
+  end
+
   defmodule TestEndpoint do
     use GRPC.Endpoint
     run(MockUploadServer)
     run(MockChunkServer)
+    run(MockDataServer)
   end
 
   setup_all do
@@ -245,6 +319,182 @@ defmodule Antd.GrpcExternalSignerTest do
     {:ok, r} = GrpcClient.finalize_merkle_upload(client, "upid_data_", "0xwinpool")
     assert r.data_map == "dm_merkle"
     assert r.address == ""
+  end
+
+  test "finalize_upload ABORTED maps to PartialUploadError with parsed counts",
+       %{client: client} do
+    {:error, err} = GrpcClient.finalize_upload(client, "partial_retained", %{"0xq1" => "0xtx1"})
+
+    # Counts and the retained hint are parsed from the status message, so
+    # the gRPC client matches the REST client's typed error.
+    assert %Antd.PartialUploadError{
+             status_code: 502,
+             chunks_stored: 300,
+             chunks_failed: 12,
+             total_chunks: 312,
+             retryable: true,
+             retention_known: true
+           } = err
+
+    assert String.starts_with?(err.message, "Partial upload: 300/312 chunks stored")
+  end
+
+  test "finalize_merkle_upload ABORTED with the not-retained hint is known, not retryable",
+       %{client: client} do
+    {:error, err} = GrpcClient.finalize_merkle_upload(client, "partial_final", "0xwinpool")
+
+    assert %Antd.PartialUploadError{chunks_stored: 300, chunks_failed: 12, total_chunks: 312} =
+             err
+
+    refute err.retryable
+    assert err.retention_known
+  end
+
+  # Readable counts without a readable closing hint: the counts are kept but
+  # neither flag is set, so a caller stops and reconciles instead of
+  # re-preparing or repeating a paid finalize.
+  defp assert_counts_kept_retention_unknown(result) do
+    assert {:error,
+            %Antd.PartialUploadError{
+              status_code: 502,
+              chunks_stored: 1,
+              chunks_failed: 2,
+              total_chunks: 3,
+              retryable: false,
+              retention_known: false
+            }} = result
+  end
+
+  test "finalize ABORTED with counts but no retention hint reads as retention unknown",
+       %{client: client} do
+    assert_counts_kept_retention_unknown(
+      GrpcClient.finalize_upload(client, "partial_no_hint", %{"0xq1" => "0xtx1"})
+    )
+
+    assert_counts_kept_retention_unknown(
+      GrpcClient.finalize_merkle_upload(client, "partial_no_hint", "0xwinpool")
+    )
+  end
+
+  test "finalize ABORTED with a truncated retention hint reads as retention unknown",
+       %{client: client} do
+    assert_counts_kept_retention_unknown(
+      GrpcClient.finalize_upload(client, "partial_truncated_hint", %{"0xq1" => "0xtx1"})
+    )
+
+    assert_counts_kept_retention_unknown(
+      GrpcClient.finalize_merkle_upload(client, "partial_truncated_hint", "0xwinpool")
+    )
+  end
+
+  test "finalize_upload ABORTED with unparseable counts reads as retention unknown",
+       %{client: client} do
+    {:error, err} = GrpcClient.finalize_upload(client, "partial_unparsed", %{"0xq1" => "0xtx1"})
+
+    assert %Antd.PartialUploadError{
+             chunks_stored: 0,
+             chunks_failed: 0,
+             total_chunks: 0,
+             retryable: false,
+             retention_known: false
+           } = err
+  end
+
+  test "finalize_upload ABORTED without the partial-upload prefix stays a generic AntdError",
+       %{client: client} do
+    {:error, err} = GrpcClient.finalize_upload(client, "aborted_other", %{"0xq1" => "0xtx1"})
+
+    refute match?(%Antd.PartialUploadError{}, err)
+    assert %Antd.AntdError{status_code: 10} = err
+    assert err.message =~ "another finalize is already in progress"
+  end
+
+  test "finalize_upload ABORTED that only quotes the prefix mid-message stays a generic AntdError",
+       %{client: client} do
+    {:error, err} =
+      GrpcClient.finalize_upload(client, "aborted_embedded", %{"0xq1" => "0xtx1"})
+
+    refute match?(%Antd.PartialUploadError{}, err)
+    assert %Antd.AntdError{status_code: 10} = err
+    assert String.starts_with?(err.message, "upstream error: Partial upload:")
+  end
+
+  # --- error-contract change: a partial store is PartialUploadError ---
+  #
+  # It used to map to the generic Antd.AntdError. These pin the change and
+  # the README's "Migrating error handlers" patterns for gRPC.
+
+  # README migration pattern: a PartialUploadError clause ahead of the
+  # catch-all AntdError clause.
+  defp classify_grpc(result) do
+    case result do
+      {:ok, _} -> :ok
+      {:error, %Antd.PartialUploadError{}} -> :partial_upload
+      {:error, %Antd.AntdError{}} -> :other
+    end
+  end
+
+  # README migration pattern: rescue both modules around a bang function.
+  defp rescue_grpc(fun) do
+    fun.()
+  rescue
+    e in [Antd.PartialUploadError, Antd.AntdError] -> {:rescued, e.__struct__}
+  end
+
+  test "a partial store is a PartialUploadError, no longer an AntdError", %{client: client} do
+    {:error, err} = GrpcClient.finalize_upload(client, "partial_retained", %{"0xq1" => "0xtx1"})
+
+    assert %Antd.PartialUploadError{} = err
+    refute match?(%Antd.AntdError{}, err)
+    refute match?(%Antd.NetworkError{}, err)
+  end
+
+  test "an ordinary data_put partial store gets the same PartialUploadError",
+       %{client: client} do
+    {:error, err} = GrpcClient.data_put(client, "payload")
+
+    assert %Antd.PartialUploadError{
+             status_code: 502,
+             chunks_stored: 2,
+             chunks_failed: 1,
+             total_chunks: 3,
+             retryable: false,
+             retention_known: true
+           } = err
+
+    refute match?(%Antd.AntdError{}, err)
+  end
+
+  test "migration: a PartialUploadError clause ahead of the AntdError clause",
+       %{client: client} do
+    txs = %{"0xq1" => "0xtx1"}
+
+    partial = GrpcClient.finalize_upload(client, "partial_retained", txs)
+    assert classify_grpc(partial) == :partial_upload
+
+    # A non-partial ABORTED still yields AntdError.
+    other = GrpcClient.finalize_upload(client, "aborted_other", txs)
+    assert classify_grpc(other) == :other
+  end
+
+  test "migration: rescuing [PartialUploadError, AntdError] around the bang function",
+       %{client: client} do
+    txs = %{"0xq1" => "0xtx1"}
+
+    assert rescue_grpc(fn -> GrpcClient.finalize_upload!(client, "partial_retained", txs) end) ==
+             {:rescued, Antd.PartialUploadError}
+
+    assert rescue_grpc(fn -> GrpcClient.finalize_upload!(client, "aborted_other", txs) end) ==
+             {:rescued, Antd.AntdError}
+
+    # A rescue that names only AntdError no longer catches a partial store.
+    assert_raise Antd.PartialUploadError, fn ->
+      try do
+        GrpcClient.finalize_upload!(client, "partial_retained", txs)
+      rescue
+        e in Antd.AntdError -> e
+      end
+    end
   end
 
   # --- prepare/finalize chunks ---
