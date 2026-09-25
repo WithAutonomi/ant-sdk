@@ -476,9 +476,11 @@ impl GrpcClient {
     /// A partial store (gRPC `ABORTED` whose message starts with
     /// `Partial upload:`) surfaces as [`AntdError::PartialUpload`] with the
     /// counts, `retryable` and `retention_known` parsed from the status
-    /// message; counts that do not parse leave retention unknown. The
-    /// recovery contract is the same as over REST. Any other `ABORTED` stays
-    /// [`AntdError::Grpc`].
+    /// message. Retention is known only when the counts parse and the message
+    /// ends with one of the daemon's two retention hints; unreadable counts,
+    /// or readable counts with a missing, truncated or unrecognised hint,
+    /// leave retention unknown. The recovery contract is the same as over
+    /// REST. Any other `ABORTED` stays [`AntdError::Grpc`].
     ///
     /// Requires antd >= 0.9.0.
     pub async fn finalize_chunk_upload(
@@ -773,9 +775,11 @@ impl GrpcClient {
     /// A partial store (gRPC `ABORTED` whose message starts with
     /// `Partial upload:`) surfaces as [`AntdError::PartialUpload`] with the
     /// counts, `retryable` and `retention_known` parsed from the status
-    /// message; counts that do not parse leave retention unknown. The
-    /// recovery contract is the same as over REST. Any other `ABORTED` stays
-    /// [`AntdError::Grpc`].
+    /// message. Retention is known only when the counts parse and the message
+    /// ends with one of the daemon's two retention hints; unreadable counts,
+    /// or readable counts with a missing, truncated or unrecognised hint,
+    /// leave retention unknown. The recovery contract is the same as over
+    /// REST. Any other `ABORTED` stays [`AntdError::Grpc`].
     ///
     /// Requires antd >= 0.9.0.
     pub async fn finalize_upload(
@@ -807,9 +811,11 @@ impl GrpcClient {
     /// A partial store (gRPC `ABORTED` whose message starts with
     /// `Partial upload:`) surfaces as [`AntdError::PartialUpload`] with the
     /// counts, `retryable` and `retention_known` parsed from the status
-    /// message; counts that do not parse leave retention unknown. The
-    /// recovery contract is the same as over REST. Any other `ABORTED` stays
-    /// [`AntdError::Grpc`].
+    /// message. Retention is known only when the counts parse and the message
+    /// ends with one of the daemon's two retention hints; unreadable counts,
+    /// or readable counts with a missing, truncated or unrecognised hint,
+    /// leave retention unknown. The recovery contract is the same as over
+    /// REST. Any other `ABORTED` stays [`AntdError::Grpc`].
     ///
     /// Requires antd >= 0.9.0.
     pub async fn finalize_merkle_upload(

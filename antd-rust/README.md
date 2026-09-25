@@ -203,9 +203,16 @@ integers (anything else reads as 0), and retention is known only when `retryable
 bool. Over gRPC they are parsed from the `ABORTED` status message. Only an `ABORTED` whose
 message starts with the daemon's fixed `Partial upload:` prefix maps to `PartialUpload`; any
 other `ABORTED` — even one quoting that text further in — is the generic `Grpc` error.
-Retention is known only when all three counts parse as `u64`, and the
-`paid attempt retained` hint then decides `retryable`; garbled or overflowing counts read as
-zero with retention unknown, hint or not. See `finalize_with_retry` in
+The daemon writes that message as
+`Partial upload: <stored>/<total> chunks stored, <failed> failed after retries: <reason> (<hint>)`.
+Retention is known only when the counts pattern opens the message, all three counts parse
+as `u64`, and the message ends with one of the daemon's two hints: `(paid attempt
+retained...)` sets `retryable`, and `(stored chunks persist; re-prepare the same
+content...)` means the daemon confirmed it kept nothing (daemons older than 0.14.0 write
+only this one). Garbled or overflowing counts read as zero with retention unknown, hint or
+not. Readable counts with a missing, truncated or unrecognised hint, or text after it, keep
+the counts but also read as retention unknown: stop and reconcile, do not re-prepare. See
+`finalize_with_retry` in
 [`examples/07-external-signer.rs`](examples/07-external-signer.rs), which stops and returns
 the typed error whenever it cannot safely retry, and §6 of
 [`docs/external-signer-flow.md`](../docs/external-signer-flow.md).

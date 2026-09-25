@@ -839,18 +839,21 @@ fn test_parse_partial_upload_message() {
             "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)",
             (300, 12, 312, true, true),
         ),
-        // Well-formed without the hint: retention known, nothing retained.
+        // Well-formed with the not-retained hint: retention known, nothing
+        // retained.
         (
             "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (stored chunks persist; re-prepare the same content to retry only the remainder)",
             (300, 12, 312, false, true),
         ),
+        // Readable counts but no retention hint: the daemon's answer was not
+        // read, so retention is unknown, never "nothing retained".
         (
             "Partial upload: 300/312 chunks stored, 12 failed after retries",
-            (300, 12, 312, false, true),
+            (300, 12, 312, false, false),
         ),
         (
             "Partial upload: 0/1 chunks stored, 1 failed",
-            (0, 1, 1, false, true),
+            (0, 1, 1, false, false),
         ),
         // The largest u64 still converts, so the hint is honoured.
         (
@@ -912,6 +915,148 @@ fn test_parse_partial_upload_message_overflow_disables_retry() {
             "{msg:?}"
         );
     }
+}
+
+/// The daemon's two closing hints (`partial_upload_hint` in
+/// `antd/src/error.rs`), with the space before them.
+const RETAINED_TAIL: &str = " (paid attempt retained: call finalize again with the same \
+                             upload_id to store the remainder against the same payment)";
+const NOT_RETAINED_TAIL: &str =
+    " (stored chunks persist; re-prepare the same content to retry only the remainder)";
+
+#[test]
+fn test_parse_partial_upload_message_retention_needs_the_closing_hint() {
+    // Readable counts alone do not establish retention: the message must end
+    // with one of the daemon's two hints. Every case runs through the parser
+    // and through the gRPC mapping (`From<tonic::Status>` for an ABORTED).
+    // Mismatches are collected so a regression reports every failing case.
+    const COUNTS: &str = "Partial upload: 1/3 chunks stored, 2 failed after retries:";
+    let cases = [
+        // Known: the message ends with one of the daemon's hints.
+        (
+            "retained hint",
+            format!("{COUNTS} quorum{RETAINED_TAIL}"),
+            (1, 2, 3, true, true),
+        ),
+        (
+            "short retained hint",
+            format!("{COUNTS} quorum (paid attempt retained)"),
+            (1, 2, 3, true, true),
+        ),
+        (
+            "not-retained hint",
+            format!("{COUNTS} quorum{NOT_RETAINED_TAIL}"),
+            (1, 2, 3, false, true),
+        ),
+        // Only the closing hint decides.
+        (
+            "parenthesised reason before the hint",
+            format!("{COUNTS} quorum (2 of 5 peers){NOT_RETAINED_TAIL}"),
+            (1, 2, 3, false, true),
+        ),
+        (
+            "retained hint in the reason, not-retained tail",
+            format!("{COUNTS} peer said (paid attempt retained){NOT_RETAINED_TAIL}"),
+            (1, 2, 3, false, true),
+        ),
+        // Unknown: the counts still read, but the daemon's answer on
+        // retention was not read, so both flags stay false (stop and
+        // reconcile, never "nothing retained").
+        ("no hint", format!("{COUNTS} quorum"), (1, 2, 3, false, false)),
+        (
+            // The review's reproducer: the retained hint cut short.
+            "truncated retained hint",
+            format!("{COUNTS} quorum (paid attempt retai"),
+            (1, 2, 3, false, false),
+        ),
+        (
+            "retained hint without its closing paren",
+            format!("{COUNTS} quorum (paid attempt retained: call finalize again"),
+            (1, 2, 3, false, false),
+        ),
+        (
+            "truncated not-retained hint",
+            format!("{COUNTS} quorum (stored chunks persist; re-prepare the same con"),
+            (1, 2, 3, false, false),
+        ),
+        (
+            "unrecognised hint",
+            format!("{COUNTS} quorum (something else)"),
+            (1, 2, 3, false, false),
+        ),
+        (
+            "text after the hint",
+            format!("{COUNTS} quorum{RETAINED_TAIL} trailing"),
+            (1, 2, 3, false, false),
+        ),
+        (
+            "newline after the retained hint",
+            format!("{COUNTS} quorum{RETAINED_TAIL}\n"),
+            (1, 2, 3, false, false),
+        ),
+        (
+            "newline after the not-retained hint",
+            format!("{COUNTS} quorum{NOT_RETAINED_TAIL}\n"),
+            (1, 2, 3, false, false),
+        ),
+        (
+            "retained hint quoted in the reason only",
+            format!("{COUNTS} peer said (paid attempt retained) (connection reset)"),
+            (1, 2, 3, false, false),
+        ),
+        // The counts pattern is anchored at the start of the message, and the
+        // failed count must be followed by ` failed`: counts quoted later in
+        // a garbled message are not read, hint or not.
+        (
+            "embedded counts",
+            format!(
+                "Partial upload: garbled; was Partial upload: 1/3 chunks stored, 2 failed{RETAINED_TAIL}"
+            ),
+            (0, 0, 0, false, false),
+        ),
+        (
+            "failed count not followed by ` failed`",
+            format!("Partial upload: 1/3 chunks stored, 2x failed after retries: quorum{RETAINED_TAIL}"),
+            (0, 0, 0, false, false),
+        ),
+    ];
+    let mut mismatches = Vec::new();
+    for (name, msg, want) in &cases {
+        let parsed = parse_partial_upload_message(msg);
+        if parsed != *want {
+            mismatches.push(format!("{name}: parser gave {parsed:?}, want {want:?}"));
+        }
+        match AntdError::from(tonic::Status::aborted(msg.clone())) {
+            AntdError::PartialUpload {
+                chunks_stored,
+                chunks_failed,
+                total_chunks,
+                retryable,
+                retention_known,
+                message,
+            } => {
+                let mapped = (
+                    chunks_stored,
+                    chunks_failed,
+                    total_chunks,
+                    retryable,
+                    retention_known,
+                );
+                if mapped != *want || message != *msg {
+                    mismatches.push(format!(
+                        "{name}: gRPC mapping gave {mapped:?} / {message:?}, want {want:?}"
+                    ));
+                }
+            }
+            other => mismatches.push(format!("{name}: expected PartialUpload, got {other:?}")),
+        }
+    }
+    assert!(
+        mismatches.is_empty(),
+        "{} mismatch(es):\n{}",
+        mismatches.len(),
+        mismatches.join("\n")
+    );
 }
 
 #[tokio::test]

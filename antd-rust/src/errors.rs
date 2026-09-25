@@ -62,10 +62,11 @@ pub enum AntdError {
     ///   skipped, so the new payment covers only the remainder.
     /// - `!retention_known` — retention is unknown: the reply did not
     ///   establish whether the daemon kept the paid attempt (antd older than
-    ///   0.14.0 never sends `retryable`; a gRPC message whose counts do not
-    ///   parse). The daemon may still hold the attempt, so this does **not**
-    ///   mean nothing was retained. Stop automatic recovery, keep the
-    ///   `upload_id` and the original payment artefacts, and reconcile the
+    ///   0.14.0 never sends `retryable` over REST; a gRPC message whose counts
+    ///   do not parse, or that does not end with one of the daemon's two
+    ///   retention hints). The daemon may still hold the attempt, so this
+    ///   does **not** mean nothing was retained. Stop automatic recovery, keep
+    ///   the `upload_id` and the original payment artefacts, and reconcile the
     ///   retained attempt before deciding to re-prepare or pay again. Never
     ///   pay again on this signal alone: re-preparing skips already-stored
     ///   chunks, but it can still pay a second time for chunks that were paid
@@ -74,15 +75,22 @@ pub enum AntdError {
     /// Over REST the fields come from the structured error body: a count is
     /// a JSON non-negative integer (anything else reads as 0), and
     /// `retention_known` is `true` only when the body carries `retryable` as a
-    /// JSON bool. Over gRPC they are parsed from the status message
-    /// (`Partial upload: S/T chunks stored, F failed ...`, with a
-    /// `paid attempt retained` hint when retryable): `retention_known` is
-    /// `true` only when the message matches that pattern and all three counts
-    /// convert to `u64`, and the hint then decides `retryable`. A message that
-    /// starts with the `Partial upload:` prefix but whose counts are garbled
-    /// or overflow `u64` reads as zero counts with both flags `false`, hint or
-    /// not. An `ABORTED` status that does not start with that prefix is not a
-    /// partial store and stays [`AntdError::Grpc`].
+    /// JSON bool. Over gRPC they are parsed from the status message, which
+    /// the daemon writes as
+    /// `Partial upload: S/T chunks stored, F failed after retries: <reason> (<hint>)`.
+    /// The closing hint starts `paid attempt retained` when the daemon kept
+    /// the attempt and `stored chunks persist; re-prepare the same content`
+    /// when it did not (daemons older than 0.14.0 write only the second).
+    /// `retention_known` is `true` only when the message starts with the
+    /// counts, all three convert to `u64`, and the message ends with one of
+    /// the two hints; `retryable` is then `true` only for the first. A message
+    /// that starts with the `Partial upload:` prefix but whose counts are
+    /// garbled or overflow `u64` reads as zero counts with both flags `false`,
+    /// hint or not. Readable counts with a missing, truncated or unrecognised
+    /// hint, or text after it, keep the counts but also leave both flags
+    /// `false`: retention unknown (stop and reconcile), not "nothing
+    /// retained". An `ABORTED` status that does not start with that prefix is
+    /// not a partial store and stays [`AntdError::Grpc`].
     ///
     /// New in 0.2.0: earlier releases surfaced a partial store as
     /// [`AntdError::Network`] over REST and [`AntdError::Grpc`] over gRPC.
@@ -134,10 +142,12 @@ impl From<tonic::Status> for AntdError {
             // retries. The daemon opens every such message with the fixed
             // `Partial upload:` prefix, so gate on it: any other ABORTED keeps
             // the generic mapping rather than being misreported as a partial
-            // store. The counts and the "paid attempt retained" hint ride the
-            // message text over gRPC (no structured detail yet), so parse
-            // them to match the REST client's typed error; retention is known,
-            // and the hint can enable retry, only when the counts parse.
+            // store. The counts and the retention hint ride the message text
+            // over gRPC (no structured detail yet), so parse them to match
+            // the REST client's typed error; retention is known only when the
+            // counts parse and the message ends with one of the daemon's two
+            // retention hints, and only the "paid attempt retained" hint
+            // enables retry.
             // Anchored at the start of the message, matching the count parser:
             // a `Partial upload:` marker embedded in some other ABORTED text
             // must not select paid-attempt recovery with zero counts.
@@ -163,39 +173,78 @@ impl From<tonic::Status> for AntdError {
 /// `ABORTED` status is a partial store only when its message starts with it.
 const PARTIAL_UPLOAD_PREFIX: &str = "Partial upload:";
 
-/// Message tail the daemon appends when it kept the paid attempt for a
-/// same-`upload_id` retry.
+/// The daemon closes every `PARTIAL_UPLOAD` message with one of two
+/// parenthesised hints (`partial_upload_hint` in `antd/src/error.rs`): this
+/// one when it kept the paid attempt for a same-`upload_id` retry, and
+/// [`PARTIAL_UPLOAD_NOT_RETAINED_HINT`] when it did not. Daemons older than
+/// 0.14.0 write only the not-retained hint.
 const PARTIAL_UPLOAD_RETAINED_HINT: &str = "paid attempt retained";
+
+/// Opening of the hint the daemon closes a `PARTIAL_UPLOAD` message with when
+/// it did not keep the paid attempt (see [`PARTIAL_UPLOAD_RETAINED_HINT`]).
+const PARTIAL_UPLOAD_NOT_RETAINED_HINT: &str = "stored chunks persist; re-prepare the same content";
 
 /// Recovers `(stored, failed, total, retryable, retention_known)` from a
 /// `PARTIAL_UPLOAD` message. Used for gRPC, where the status carries no
 /// structured detail; REST callers get the body fields instead.
 ///
-/// Matches the fixed prefix `Partial upload: <stored>/<total> chunks stored,
-/// <failed> failed`, and every count must convert to a `u64`. Only that match
-/// establishes retention (`retention_known == true`); the retained hint then
-/// decides `retryable`. Any miss (a message that does not fit the pattern, or
-/// a count that is not a plain `u64`, such as one that overflows) yields
-/// `(0, 0, 0, false, false)` even when the hint is there. Invalid fields must
-/// not enable recovery: a same-`upload_id` retry acts on these counts (a
-/// bounded loop watches `chunks_failed` shrink), so it is offered only for a
-/// message the client fully understood. Nor do they mean nothing was
-/// retained: the daemon may still hold the paid attempt, so a miss reports
-/// retention as unknown and the caller reconciles before paying again.
+/// The message must start with `Partial upload: <stored>/<total> chunks
+/// stored, <failed> failed`, and every count must convert to a `u64`. Any
+/// miss (a message that does not fit the pattern, or a count that is not a
+/// plain `u64`, such as one that overflows) yields `(0, 0, 0, false, false)`
+/// even when a hint is there. Invalid fields must not enable recovery: a
+/// same-`upload_id` retry acts on these counts (a bounded loop watches
+/// `chunks_failed` shrink), so it is offered only for a message the client
+/// fully understood.
+///
+/// Readable counts alone do not establish retention: `retention_known` is
+/// `true` only when the message also ends with one of the daemon's two
+/// hints (see [`closing_retention_hint`]), and `retryable` is then `true`
+/// only for the retained one. A missing, truncated or unrecognised hint, or
+/// any text after it, keeps the counts but leaves both flags `false`.
+///
+/// Neither kind of miss means nothing was retained: the daemon may still hold
+/// the paid attempt, so retention reads as unknown and the caller reconciles
+/// before re-preparing or paying again.
 pub(crate) fn parse_partial_upload_message(msg: &str) -> (u64, u64, u64, bool, bool) {
     let counts = (|| {
         let rest = msg.strip_prefix(PARTIAL_UPLOAD_PREFIX)?.strip_prefix(' ')?;
         let (stored, rest) = take_u64(rest)?;
         let (total, rest) = take_u64(rest.strip_prefix('/')?)?;
-        let (failed, _) = take_u64(rest.strip_prefix(" chunks stored, ")?)?;
-        Some((stored, failed, total))
+        let (failed, rest) = take_u64(rest.strip_prefix(" chunks stored, ")?)?;
+        rest.starts_with(" failed")
+            .then_some((stored, failed, total))
     })();
-    match counts {
-        Some((stored, failed, total)) => {
-            let retryable = msg.contains(PARTIAL_UPLOAD_RETAINED_HINT);
-            (stored, failed, total, retryable, true)
-        }
-        None => (0, 0, 0, false, false),
+    let Some((stored, failed, total)) = counts else {
+        return (0, 0, 0, false, false);
+    };
+    match closing_retention_hint(msg) {
+        Some(retryable) => (stored, failed, total, retryable, true),
+        None => (stored, failed, total, false, false),
+    }
+}
+
+/// Reads the hint that closes a `PARTIAL_UPLOAD` message: `Some(true)` for
+/// the retained hint, `Some(false)` for the not-retained hint, `None` for
+/// anything else.
+///
+/// Equivalent to the pattern `\((<retained>|<not retained>)[^()]*\)\z`: the
+/// message must end with `)`, and the text after its last `(` must start with
+/// one of the two hints and hold no other parenthesis. So a hint quoted
+/// inside the failure reason, a truncated or unclosed hint, and any text
+/// after the hint (a trailing newline included) are not read as the daemon's
+/// answer.
+fn closing_retention_hint(msg: &str) -> Option<bool> {
+    let inner = msg.strip_suffix(')')?;
+    let hint = &inner[inner.rfind('(')? + 1..];
+    if hint.contains(')') {
+        None
+    } else if hint.starts_with(PARTIAL_UPLOAD_RETAINED_HINT) {
+        Some(true)
+    } else if hint.starts_with(PARTIAL_UPLOAD_NOT_RETAINED_HINT) {
+        Some(false)
+    } else {
+        None
     }
 }
 

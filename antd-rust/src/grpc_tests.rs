@@ -421,6 +421,19 @@ impl v1::upload_service_server::UploadService for MockUploadService {
                  remainder)",
             ));
         }
+        // Magic ids: a partial upload whose counts read but whose retention
+        // hint is missing or cut short; retention must read as unknown.
+        if req.upload_id == "partial-no-hint" {
+            return Err(Status::aborted(
+                "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum",
+            ));
+        }
+        if req.upload_id == "partial-truncated-hint" {
+            return Err(Status::aborted(
+                "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum \
+                 (paid attempt retai",
+            ));
+        }
         // Wave-batch: tx_hashes populated, winner_pool_hash empty.
         // Merkle:     winner_pool_hash populated, tx_hashes empty.
         if !req.winner_pool_hash.is_empty() {
@@ -1275,7 +1288,7 @@ async fn test_grpc_partial_upload_maps_to_partial_upload() {
         } => {
             assert_eq!((chunks_stored, chunks_failed, total_chunks), (300, 12, 312));
             assert!(retryable, "expected retryable from the retained hint");
-            assert!(retention_known, "well-formed counts establish retention");
+            assert!(retention_known, "the retained hint establishes retention");
             assert!(message.starts_with("Partial upload: 300/312"), "{message}");
         }
         other => panic!("expected AntdError::PartialUpload, got: {other:?}"),
@@ -1295,13 +1308,54 @@ async fn test_grpc_partial_upload_maps_to_partial_upload() {
             ..
         } => {
             assert_eq!((chunks_stored, chunks_failed, total_chunks), (300, 12, 312));
-            assert!(!retryable, "no retained hint must read as not retryable");
+            assert!(
+                !retryable,
+                "the not-retained hint must read as not retryable"
+            );
             assert!(
                 retention_known,
-                "well-formed counts without the hint confirm nothing was retained"
+                "the not-retained hint confirms nothing was retained"
             );
         }
         other => panic!("expected AntdError::PartialUpload, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_grpc_partial_upload_unreadable_hint_is_unknown_retention() {
+    // Readable counts without a readable retention hint (none at all, or the
+    // review's truncated `(paid attempt retai`): the daemon's answer was not
+    // read, so retention is unknown (stop and reconcile), never "nothing
+    // retained" (re-prepare). The counts still read.
+    let client = start_mock_server().await;
+    let tx_hashes = std::collections::HashMap::from([("0xq".to_string(), "0xtx".to_string())]);
+    for id in ["partial-no-hint", "partial-truncated-hint"] {
+        match client.finalize_upload(id, &tx_hashes).await.unwrap_err() {
+            AntdError::PartialUpload {
+                chunks_stored,
+                chunks_failed,
+                total_chunks,
+                retryable,
+                retention_known,
+                message,
+            } => {
+                assert_eq!(
+                    (chunks_stored, chunks_failed, total_chunks),
+                    (1, 2, 3),
+                    "{id}: the counts should still read"
+                );
+                assert!(!retryable, "{id}: an unreadable hint must not enable retry");
+                assert!(
+                    !retention_known,
+                    "{id}: retention must be unknown, not confirmed non-retention"
+                );
+                assert!(
+                    message.starts_with("Partial upload: 1/3"),
+                    "{id}: {message}"
+                );
+            }
+            other => panic!("{id}: expected AntdError::PartialUpload, got: {other:?}"),
+        }
     }
 }
 
