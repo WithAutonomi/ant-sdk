@@ -680,6 +680,199 @@ test "ErrorInfo partial-upload fields default to zero and false" {
     try testing.expect(!info.retryable);
 }
 
+// =============================================================================
+// Malformed PARTIAL_UPLOAD bodies.
+//
+// A count is read only from a JSON non-negative integer below 2^64; anything
+// else reads as 0. `retryable` is true only for the JSON boolean `true`. The
+// counts and `retryable` are read only when `code` is the string
+// "PARTIAL_UPLOAD"; otherwise the body maps by status alone. None of this may
+// panic: `zig build test` runs in Debug, where an out-of-range
+// `@intFromFloat` / `@intCast` aborts the whole test binary.
+// =============================================================================
+
+/// The error and partial-upload fields Client.errorFromBody records for a
+/// 502 body: a body parseErrorBody accepts maps by its `code`, any other
+/// body by status alone with every partial-upload field zero / false.
+const MappedError = struct {
+    err: errors.AntdError,
+    chunks_stored: u64 = 0,
+    chunks_failed: u64 = 0,
+    total_chunks: u64 = 0,
+    retryable: bool = false,
+};
+
+fn mapErrorBody(body: []const u8) MappedError {
+    const parsed = json_helpers.parseErrorBody(testing.allocator, body) orelse
+        return .{ .err = errors.errorForStatus(502) };
+    defer parsed.deinit(testing.allocator);
+    return .{
+        .err = errors.errorForResponse(502, parsed.code),
+        .chunks_stored = parsed.chunks_stored,
+        .chunks_failed = parsed.chunks_failed,
+        .total_chunks = parsed.total_chunks,
+        .retryable = parsed.retryable,
+    };
+}
+
+/// JSON values that are not a count: floats (in range, integral, huge,
+/// negative), negative integers, integers of 2^64 and beyond (std.json hands
+/// an integer that overflows i64 over as `.number_string`), a number that
+/// overflows f64, and every non-number type.
+const malformed_counts = [_][]const u8{
+    "1e20",
+    "1e19",
+    "1.0",
+    "1.5",
+    "-1",
+    "-1.0",
+    "-0.5",
+    "1e999",
+    "18446744073709551616",
+    "-18446744073709551616",
+    "\"1\"",
+    "true",
+    "null",
+    "[]",
+    "{}",
+};
+
+test "a malformed PARTIAL_UPLOAD count reads as 0 in every position" {
+    for (malformed_counts) |value| {
+        for (0..3) |position| {
+            // The malformed value in one position; the others stay valid.
+            const body = try std.fmt.allocPrint(
+                testing.allocator,
+                "{{\"error\":\"partial\",\"code\":\"PARTIAL_UPLOAD\",\"chunks_stored\":{s},\"chunks_failed\":{s},\"total_chunks\":{s}}}",
+                .{
+                    if (position == 0) value else "300",
+                    if (position == 1) value else "12",
+                    if (position == 2) value else "312",
+                },
+            );
+            defer testing.allocator.free(body);
+
+            const mapped = mapErrorBody(body);
+            try testing.expectEqual(error.PartialUpload, mapped.err);
+            try testing.expectEqual(@as(u64, if (position == 0) 0 else 300), mapped.chunks_stored);
+            try testing.expectEqual(@as(u64, if (position == 1) 0 else 12), mapped.chunks_failed);
+            try testing.expectEqual(@as(u64, if (position == 2) 0 else 312), mapped.total_chunks);
+            try testing.expect(!mapped.retryable);
+        }
+    }
+}
+
+test "a PARTIAL_UPLOAD count converts across the whole u64 range" {
+    // 2^63 .. 2^64 - 1 overflow i64, so std.json delivers them as
+    // `.number_string`; they are still valid counts.
+    const cases = [_]struct { json: []const u8, want: u64 }{
+        .{ .json = "0", .want = 0 },
+        .{ .json = "9223372036854775807", .want = std.math.maxInt(i64) },
+        .{ .json = "9223372036854775808", .want = @as(u64, 1) << 63 },
+        .{ .json = "18446744073709551615", .want = std.math.maxInt(u64) },
+    };
+    for (cases) |case| {
+        const body = try std.fmt.allocPrint(
+            testing.allocator,
+            "{{\"error\":\"partial\",\"code\":\"PARTIAL_UPLOAD\",\"chunks_stored\":{s},\"chunks_failed\":{s},\"total_chunks\":{s}}}",
+            .{ case.json, case.json, case.json },
+        );
+        defer testing.allocator.free(body);
+
+        const mapped = mapErrorBody(body);
+        try testing.expectEqual(error.PartialUpload, mapped.err);
+        try testing.expectEqual(case.want, mapped.chunks_stored);
+        try testing.expectEqual(case.want, mapped.chunks_failed);
+        try testing.expectEqual(case.want, mapped.total_chunks);
+    }
+}
+
+test "retryable is true only for the JSON boolean true" {
+    const values = [_][]const u8{ "\"true\"", "1", "\"yes\"", "null", "{}", "[]", "false" };
+    for (values) |value| {
+        const body = try std.fmt.allocPrint(
+            testing.allocator,
+            "{{\"error\":\"partial\",\"code\":\"PARTIAL_UPLOAD\",\"chunks_stored\":300,\"chunks_failed\":12,\"total_chunks\":312,\"retryable\":{s}}}",
+            .{value},
+        );
+        defer testing.allocator.free(body);
+
+        const mapped = mapErrorBody(body);
+        try testing.expectEqual(error.PartialUpload, mapped.err);
+        try testing.expectEqual(@as(u64, 300), mapped.chunks_stored);
+        try testing.expect(!mapped.retryable);
+    }
+}
+
+test "a code other than the string PARTIAL_UPLOAD falls back to the status mapping" {
+    // Counts and a valid `retryable: true` ride along, but without the exact
+    // code they are not partial-upload data and must not reach last_error.
+    const codes = [_][]const u8{ "{}", "[]", "[\"PARTIAL_UPLOAD\"]", "1", "true", "null", "\"partial_upload\"", "\"NETWORK_ERROR\"" };
+    for (codes) |code| {
+        const body = try std.fmt.allocPrint(
+            testing.allocator,
+            "{{\"error\":\"partial\",\"code\":{s},\"chunks_stored\":300,\"chunks_failed\":12,\"total_chunks\":312,\"retryable\":true}}",
+            .{code},
+        );
+        defer testing.allocator.free(body);
+
+        const mapped = mapErrorBody(body);
+        try testing.expectEqual(error.Network, mapped.err);
+        try testing.expectEqual(@as(u64, 0), mapped.chunks_stored);
+        try testing.expectEqual(@as(u64, 0), mapped.chunks_failed);
+        try testing.expectEqual(@as(u64, 0), mapped.total_chunks);
+        try testing.expect(!mapped.retryable);
+    }
+}
+
+test "a non-string error field falls back to the status mapping" {
+    // parseErrorBody needs a string `error`; without one Client records the
+    // raw body and maps by status, even when the code says PARTIAL_UPLOAD.
+    const values = [_][]const u8{ "{}", "[]", "null", "1", "true" };
+    for (values) |value| {
+        const body = try std.fmt.allocPrint(
+            testing.allocator,
+            "{{\"error\":{s},\"code\":\"PARTIAL_UPLOAD\",\"chunks_stored\":300,\"chunks_failed\":12,\"total_chunks\":312,\"retryable\":true}}",
+            .{value},
+        );
+        defer testing.allocator.free(body);
+
+        try testing.expect(json_helpers.parseErrorBody(testing.allocator, body) == null);
+        const mapped = mapErrorBody(body);
+        try testing.expectEqual(error.Network, mapped.err);
+        try testing.expectEqual(@as(u64, 0), mapped.chunks_stored);
+        try testing.expect(!mapped.retryable);
+    }
+}
+
+test "success-path counts share the rule: a float or out-of-range value reads as 0" {
+    // The success parsers read their counts through the same helper, so a
+    // malformed 2xx body cannot panic either.
+    const finalize_body =
+        \\{"data_map":"dm","chunks_stored":1e20}
+    ;
+    const finalize = try json_helpers.parseFinalizeUploadResult(testing.allocator, finalize_body);
+    defer finalize.deinit(testing.allocator);
+    try testing.expectEqual(@as(u64, 0), finalize.chunks_stored);
+
+    const health_body =
+        \\{"status":"ok","network":"local","uptime_seconds":-1e20}
+    ;
+    const health = try json_helpers.parseHealthStatus(testing.allocator, health_body);
+    defer health.deinit(testing.allocator);
+    try testing.expectEqual(@as(u64, 0), health.uptime_seconds);
+
+    // chunk_count is a u32: a count above its range reads as 0 rather than
+    // tripping the narrowing cast.
+    const estimate_body =
+        \\{"cost":"1","file_size":1e20,"chunk_count":4294967296,"estimated_gas_cost_wei":"0","payment_mode":"auto"}
+    ;
+    const estimate = try json_helpers.parseCostEstimate(testing.allocator, estimate_body);
+    defer estimate.deinit(testing.allocator);
+    try testing.expectEqual(@as(u64, 0), estimate.file_size);
+    try testing.expectEqual(@as(u32, 0), estimate.chunk_count);
+}
+
 // Note: Integration tests that exercise the full Client against a running antd
 // daemon are not included here. To run integration tests, start the daemon with
 // `ant dev start` and write tests that create a Client pointing at the daemon URL.

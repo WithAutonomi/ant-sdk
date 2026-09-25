@@ -1,21 +1,13 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const models = @import("models.zig");
+const errors = @import("errors.zig");
 
 /// Duplicate a std.json string value into an owned allocation.
 fn dupeString(allocator: Allocator, value: std.json.Value) ![]const u8 {
     return switch (value) {
         .string => |s| try allocator.dupe(u8, s),
         else => try allocator.dupe(u8, ""),
-    };
-}
-
-/// Extract an integer from a JSON value (handles both integer and float).
-fn jsonInt(value: std.json.Value) i64 {
-    return switch (value) {
-        .integer => |i| i,
-        .float => |f| @intFromFloat(f),
-        else => 0,
     };
 }
 
@@ -49,11 +41,7 @@ pub fn parseHealthStatus(allocator: Allocator, body: []const u8) !models.HealthS
         return error.JsonError;
     errdefer allocator.free(evm_network);
 
-    const uptime_seconds: u64 = blk: {
-        const v = obj.get("uptime_seconds") orelse break :blk 0;
-        const n = jsonInt(v);
-        break :blk if (n < 0) 0 else @intCast(n);
-    };
+    const uptime_seconds = dupeU64(obj.get("uptime_seconds") orelse .null);
 
     const build_commit = dupeString(allocator, obj.get("build_commit") orelse .null) catch
         return error.JsonError;
@@ -272,16 +260,23 @@ pub fn parseCostEstimate(allocator: Allocator, body: []const u8) !models.UploadC
     return models.UploadCostEstimate{
         .cost = try dupeString(allocator, obj.get("cost") orelse .null),
         .file_size = dupeU64(obj.get("file_size") orelse .null),
-        .chunk_count = @intCast(dupeU64(obj.get("chunk_count") orelse .null)),
+        .chunk_count = std.math.cast(u32, dupeU64(obj.get("chunk_count") orelse .null)) orelse 0,
         .estimated_gas_cost_wei = try dupeString(allocator, obj.get("estimated_gas_cost_wei") orelse .null),
         .payment_mode = try dupeString(allocator, obj.get("payment_mode") orelse .null),
     };
 }
 
+/// Read a count from a JSON value. Only a JSON non-negative integer below
+/// 2^64 converts; anything else (a float such as `1.0` or `1e20`, a negative
+/// number, a string, a bool, null, an array or an object) reads as 0, so a
+/// malformed body can never reach a safety-checked cast.
 fn dupeU64(v: std.json.Value) u64 {
     return switch (v) {
-        .integer => |n| if (n < 0) 0 else @intCast(n),
-        .float => |f| if (f < 0) 0 else @intFromFloat(f),
+        .integer => |n| std.math.cast(u64, n) orelse 0,
+        // std.json hands over an integer that overflows i64 as its digits:
+        // 2^63 .. 2^64 - 1 is still a valid count, 2^64 and beyond is not.
+        // A float that overflows f64 lands here too and fails the parse.
+        .number_string => |s| std.fmt.parseInt(u64, s, 10) catch 0,
         else => 0,
     };
 }
@@ -714,6 +709,11 @@ pub const ErrorBody = struct {
 /// Parse a JSON error response body into an ErrorBody. Returns null when the
 /// body is not a JSON object with a string "error" field, exactly like
 /// `parseErrorMessage`, so callers can fall back to the raw body text.
+///
+/// The counts and `retryable` are read only when `code` is the string
+/// "PARTIAL_UPLOAD". A count converts only from a JSON non-negative integer
+/// below 2^64 and reads as 0 otherwise; `retryable` is true only for the
+/// JSON boolean `true`. A malformed field never fails the parse.
 pub fn parseErrorBody(allocator: Allocator, body: []const u8) ?ErrorBody {
     const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch return null;
     defer parsed.deinit();
@@ -730,6 +730,10 @@ pub fn parseErrorBody(allocator: Allocator, body: []const u8) ?ErrorBody {
         allocator.free(message);
         return null;
     };
+
+    if (!std.mem.eql(u8, code, errors.partial_upload_code)) {
+        return .{ .message = message, .code = code };
+    }
 
     const retryable = switch (obj.get("retryable") orelse .null) {
         .bool => |b| b,
