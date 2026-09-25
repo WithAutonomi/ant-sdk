@@ -399,6 +399,17 @@ const std::map<std::string, std::string> kMalformedFinalizeBodies = {
     {"error_not_string",
      R"({"error":{"detail":"nested"},"code":"PARTIAL_UPLOAD",)"
      R"("chunks_stored":2,"chunks_failed":1,"total_chunks":3,"retryable":true})"},
+    // Well-formed counts, but `retryable` is not a JSON boolean: retention
+    // is unknown.
+    {"retryable_null",
+     R"({"error":"Partial upload: 300/312 chunks stored, 12 failed","code":"PARTIAL_UPLOAD",)"
+     R"("chunks_stored":300,"chunks_failed":12,"total_chunks":312,"retryable":null})"},
+    {"retryable_string",
+     R"({"error":"Partial upload: 300/312 chunks stored, 12 failed","code":"PARTIAL_UPLOAD",)"
+     R"("chunks_stored":300,"chunks_failed":12,"total_chunks":312,"retryable":"true"})"},
+    {"retryable_number",
+     R"({"error":"Partial upload: 300/312 chunks stored, 12 failed","code":"PARTIAL_UPLOAD",)"
+     R"("chunks_stored":300,"chunks_failed":12,"total_chunks":312,"retryable":1})"},
 };
 
 struct StubServer {
@@ -641,6 +652,21 @@ struct StubServer {
                     {"chunks_stored", 300},
                     {"chunks_failed", 12},
                     {"total_chunks", 312},
+                };
+                res.set_content(err.dump(), "application/json");
+                return;
+            }
+            if (uid == "up_partial_not_retained") {
+                res.status = 502;
+                json err = {
+                    {"error", "Partial upload: 300/312 chunks stored, 12 failed after retries: "
+                              "quorum (stored chunks persist; re-prepare the same content to "
+                              "retry only the remainder)"},
+                    {"code", "PARTIAL_UPLOAD"},
+                    {"chunks_stored", 300},
+                    {"chunks_failed", 12},
+                    {"total_chunks", 312},
+                    {"retryable", false},
                 };
                 res.set_content(err.dump(), "application/json");
                 return;
@@ -1046,14 +1072,32 @@ TEST_CASE("finalize_upload maps a PARTIAL_UPLOAD 502 to PartialUploadError with 
         CHECK(e.chunks_failed == 12);
         CHECK(e.total_chunks == 312);
         CHECK(e.retryable);
+        CHECK(e.retention_known);
         CHECK(std::string(e.what()).find("Partial upload: 300/312") != std::string::npos);
     }
 }
 
-TEST_CASE("finalize_upload PartialUploadError retryable defaults to false without the body flag") {
-    // An older daemon (< 0.14.0) never sends `retryable`; the flag must read
-    // false so callers fall back to the re-prepare path rather than looping
-    // on an upload_id the daemon has already dropped.
+TEST_CASE("finalize_upload PARTIAL_UPLOAD with retryable false -> retention known, not retryable") {
+    // The daemon confirmed nothing was retained: re-prepare is safe.
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    try {
+        c.finalize_upload("up_partial_not_retained", {{"qh1", "tx1"}});
+        FAIL("should have thrown");
+    } catch (const antd::PartialUploadError& e) {
+        CHECK(e.chunks_stored == 300);
+        CHECK(e.chunks_failed == 12);
+        CHECK(e.total_chunks == 312);
+        CHECK_FALSE(e.retryable);
+        CHECK(e.retention_known);
+    }
+}
+
+TEST_CASE("finalize_upload PartialUploadError without the body flag -> retention unknown, not retryable") {
+    // An older daemon (< 0.14.0) never sends `retryable`. That is not the
+    // daemon saying nothing was kept: retention is unknown, so callers must
+    // stop and reconcile rather than re-prepare and pay again.
     StubServer stub;
     antd::Client c(stub.base_url(), 5);
 
@@ -1065,6 +1109,28 @@ TEST_CASE("finalize_upload PartialUploadError retryable defaults to false withou
         CHECK(e.chunks_failed == 12);
         CHECK(e.total_chunks == 312);
         CHECK_FALSE(e.retryable);
+        CHECK_FALSE(e.retention_known);
+    }
+}
+
+TEST_CASE("finalize_upload PARTIAL_UPLOAD whose retryable is null, a string or a number -> retention unknown") {
+    StubServer stub;
+    antd::Client c(stub.base_url(), 5);
+
+    for (const std::string uid : {"retryable_null", "retryable_string", "retryable_number"}) {
+        CAPTURE(uid);
+        try {
+            c.finalize_upload(uid, {{"qh1", "tx1"}});
+            FAIL("should have thrown");
+        } catch (const antd::PartialUploadError& e) {
+            CHECK(e.chunks_stored == 300);
+            CHECK(e.chunks_failed == 12);
+            CHECK(e.total_chunks == 312);
+            CHECK_FALSE(e.retryable);
+            CHECK_FALSE(e.retention_known);
+        } catch (const std::exception& e) {
+            FAIL("escaped the typed error contract: " << std::string(e.what()));
+        }
     }
 }
 
@@ -1130,6 +1196,7 @@ TEST_CASE("PARTIAL_UPLOAD with mistyped count / flag fields -> PartialUploadErro
             CHECK(e.chunks_failed == 0);
             CHECK(e.total_chunks == 0);
             CHECK_FALSE(e.retryable);
+            CHECK_FALSE(e.retention_known);  // `retryable` is "true" / 1, not a boolean
         } catch (const std::exception& e) {
             FAIL("escaped the typed error contract: " << std::string(e.what()));
         }
@@ -1148,6 +1215,7 @@ TEST_CASE("PARTIAL_UPLOAD with a non-string error keeps the fields and uses the 
         CHECK(e.chunks_failed == 1);
         CHECK(e.total_chunks == 3);
         CHECK(e.retryable);
+        CHECK(e.retention_known);
         CHECK(std::string(e.what()).find("nested") != std::string::npos);
     } catch (const std::exception& e) {
         FAIL("escaped the typed error contract: " << std::string(e.what()));

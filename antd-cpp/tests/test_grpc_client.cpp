@@ -79,7 +79,8 @@ enum StatusCode {
                                            counts.chunks_stored,
                                            counts.chunks_failed,
                                            counts.total_chunks,
-                                           counts.retryable);
+                                           counts.retryable,
+                                           counts.retention_known);
         }
         default:
             throw antd::AntdError(static_cast<int>(code), message);
@@ -157,11 +158,12 @@ TEST_CASE("grpc ABORTED -> PartialUploadError with counts and retryable from the
         CHECK(e.chunks_failed == 12);
         CHECK(e.total_chunks == 312);
         CHECK(e.retryable);
+        CHECK(e.retention_known);
         CHECK(std::string(e.what()).find("Partial upload") != std::string::npos);
     }
 }
 
-TEST_CASE("grpc ABORTED without the retained hint reads as not retryable") {
+TEST_CASE("grpc ABORTED without the retained hint reads as retention known, not retryable") {
     const std::string msg =
         "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
         "(stored chunks persist; re-prepare the same content to retry only the remainder)";
@@ -173,6 +175,7 @@ TEST_CASE("grpc ABORTED without the retained hint reads as not retryable") {
         CHECK(e.chunks_failed == 12);
         CHECK(e.total_chunks == 312);
         CHECK_FALSE(e.retryable);
+        CHECK(e.retention_known);
     }
 }
 
@@ -204,7 +207,7 @@ TEST_CASE("grpc ABORTED without the Partial upload prefix keeps the generic Antd
     }
 }
 
-TEST_CASE("grpc ABORTED with the prefix but garbled counts -> PartialUploadError with zeros, not retryable") {
+TEST_CASE("grpc ABORTED with the prefix but garbled counts -> PartialUploadError with zeros, retention unknown") {
     const std::string msg = "Partial upload: counts unavailable";
     try {
         test_grpc::check_status(test_grpc::ABORTED, msg);
@@ -215,6 +218,7 @@ TEST_CASE("grpc ABORTED with the prefix but garbled counts -> PartialUploadError
         CHECK(e.chunks_failed == 0);
         CHECK(e.total_chunks == 0);
         CHECK_FALSE(e.retryable);
+        CHECK_FALSE(e.retention_known);
         CHECK(std::string(e.what()).find(msg) != std::string::npos);
     }
 }
@@ -243,9 +247,9 @@ TEST_CASE("grpc ABORTED that embeds the Partial upload marker after other text k
     }
 }
 
-TEST_CASE("grpc ABORTED with a count that overflows 64 bits -> PartialUploadError with zeros, not retryable, no raw exception") {
-    // The retained hint is present, but the counts are unusable, so the
-    // error must not be retryable.
+TEST_CASE("grpc ABORTED with a count that overflows 64 bits -> PartialUploadError with zeros, retention unknown, no raw exception") {
+    // The retained hint is present, but the counts are unusable, so
+    // retention is unknown and the error must not be retryable.
     const std::string msg =
         "Partial upload: 99999999999999999999999/312 chunks stored, 12 failed after retries: "
         "quorum (paid attempt retained: call finalize again with the same upload_id to "
@@ -258,12 +262,13 @@ TEST_CASE("grpc ABORTED with a count that overflows 64 bits -> PartialUploadErro
         CHECK(e.chunks_failed == 0);
         CHECK(e.total_chunks == 0);
         CHECK_FALSE(e.retryable);
+        CHECK_FALSE(e.retention_known);
     } catch (const std::exception& e) {
         FAIL("escaped the typed error contract: " << std::string(e.what()));
     }
 }
 
-TEST_CASE("grpc ABORTED with the retained hint but unparseable counts -> PartialUploadError with zeros, not retryable") {
+TEST_CASE("grpc ABORTED with the retained hint but unparseable counts -> PartialUploadError with zeros, retention unknown") {
     const std::string msg =
         "Partial upload: counts unavailable (paid attempt retained: call finalize again "
         "with the same upload_id to store the remainder against the same payment)";
@@ -276,7 +281,30 @@ TEST_CASE("grpc ABORTED with the retained hint but unparseable counts -> Partial
         CHECK(e.chunks_failed == 0);
         CHECK(e.total_chunks == 0);
         CHECK_FALSE(e.retryable);
+        CHECK_FALSE(e.retention_known);
     }
+}
+
+TEST_CASE("PartialUploadError: retryable implies retention_known; the 5-argument constructor stays source compatible") {
+    const antd::PartialUploadError known_not_retained("m", 1, 1, 2, false, true);
+    CHECK_FALSE(known_not_retained.retryable);
+    CHECK(known_not_retained.retention_known);
+
+    const antd::PartialUploadError unknown("m", 1, 1, 2, false, false);
+    CHECK_FALSE(unknown.retryable);
+    CHECK_FALSE(unknown.retention_known);
+
+    // A retryable error is always known, whatever the caller passes.
+    const antd::PartialUploadError forced("m", 1, 1, 2, true, false);
+    CHECK(forced.retryable);
+    CHECK(forced.retention_known);
+
+    // The pre-existing 5-argument form: retryable is known, anything else
+    // reads as unknown.
+    const antd::PartialUploadError legacy_retryable("m", 1, 1, 2, true);
+    CHECK(legacy_retryable.retention_known);
+    const antd::PartialUploadError legacy_not("m", 1, 1, 2, false);
+    CHECK_FALSE(legacy_not.retention_known);
 }
 
 TEST_CASE("is_partial_upload_message matches the daemon prefix only at the start of the message") {
@@ -294,25 +322,28 @@ TEST_CASE("is_partial_upload_message matches the daemon prefix only at the start
     CHECK_FALSE(antd::is_partial_upload_message(""));
 }
 
-TEST_CASE("parse_partial_upload_message recovers counts and the retryable hint") {
+TEST_CASE("parse_partial_upload_message recovers counts, retention and the retryable hint") {
     struct Case {
         const char* msg;
         std::uint64_t stored, failed, total;
-        bool retryable;
+        bool retryable, known;
     };
     const Case cases[] = {
         {"Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
          "(paid attempt retained: call finalize again with the same upload_id to "
          "store the remainder against the same payment)",
-         300, 12, 312, true},
+         300, 12, 312, true, true},
         {"Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
          "(stored chunks persist; re-prepare the same content to retry only the remainder)",
-         300, 12, 312, false},
-        {"Partial upload: 300/312 chunks stored, 12 failed after retries", 300, 12, 312, false},
+         300, 12, 312, false, true},
+        {"Partial upload: 300/312 chunks stored, 12 failed after retries", 300, 12, 312, false, true},
         {"Partial upload: 18446744073709551615/1 chunks stored, 0 failed",  // u64 max still parses
-         18446744073709551615ULL, 0, 1, false},
-        {"Partial upload: 18446744073709551616/1 chunks stored, 0 failed", 0, 0, 0, false},  // overflow
-        {"something else entirely", 0, 0, 0, false},
+         18446744073709551615ULL, 0, 1, false, true},
+        {"Partial upload: 18446744073709551616/1 chunks stored, 0 failed",  // overflow
+         0, 0, 0, false, false},
+        {"something else entirely", 0, 0, 0, false, false},
+        // The counts pattern must open the message, as the gate requires.
+        {"upstream error: Partial upload: 1/3 chunks stored, 2 failed", 0, 0, 0, false, false},
     };
     for (const auto& tc : cases) {
         CAPTURE(tc.msg);
@@ -321,15 +352,15 @@ TEST_CASE("parse_partial_upload_message recovers counts and the retryable hint")
         CHECK(c.chunks_failed == tc.failed);
         CHECK(c.total_chunks == tc.total);
         CHECK(c.retryable == tc.retryable);
+        CHECK(c.retention_known == tc.known);
     }
 }
 
-TEST_CASE("parse_partial_upload_message is retryable only when all three counts parse and the hint is present") {
-    // The retained hint alone does not make an error retryable: a bounded
-    // retry loop tells progress from a stuck upload by watching chunks_failed
-    // shrink, which it cannot do without the counts. A regex miss or a count
-    // that fails to convert (overflow in any position) therefore zeroes all
-    // three counts and leaves retryable false, hint or not.
+TEST_CASE("parse_partial_upload_message knows retention only when all three counts parse; the hint then decides retryable") {
+    // The retained hint alone does not make an error retryable, nor does it
+    // make retention known: a pattern miss or a count that fails to convert
+    // (overflow in any position) zeroes all three counts and leaves both
+    // flags false, hint or not.
     const std::string hint =
         " (paid attempt retained: call finalize again with the same upload_id to "
         "store the remainder against the same payment)";
@@ -337,21 +368,28 @@ TEST_CASE("parse_partial_upload_message is retryable only when all three counts 
     struct Case {
         std::string msg;
         std::uint64_t stored, failed, total;
-        bool retryable;
+        bool retryable, known;
     };
     const Case cases[] = {
-        // Well-formed: retryable follows the hint.
+        // Well-formed: retention known, retryable follows the hint.
         {"Partial upload: 300/312 chunks stored, 12 failed after retries: quorum" + hint,
-         300, 12, 312, true},
+         300, 12, 312, true, true},
         {"Partial upload: 300/312 chunks stored, 12 failed after retries: quorum",
-         300, 12, 312, false},
-        // Overflow in each position, hint present.
-        {"Partial upload: " + overflow + "/312 chunks stored, 12 failed" + hint, 0, 0, 0, false},
-        {"Partial upload: 300/" + overflow + " chunks stored, 12 failed" + hint, 0, 0, 0, false},
-        {"Partial upload: 300/312 chunks stored, " + overflow + " failed" + hint, 0, 0, 0, false},
-        // Regex miss, hint present.
-        {"Partial upload: counts unavailable" + hint, 0, 0, 0, false},
-        {"Partial upload: 300 of 312 chunks stored, 12 failed" + hint, 0, 0, 0, false},
+         300, 12, 312, false, true},
+        // Overflow in each position, hint present: unknown.
+        {"Partial upload: " + overflow + "/312 chunks stored, 12 failed" + hint,
+         0, 0, 0, false, false},
+        {"Partial upload: 300/" + overflow + " chunks stored, 12 failed" + hint,
+         0, 0, 0, false, false},
+        {"Partial upload: 300/312 chunks stored, " + overflow + " failed" + hint,
+         0, 0, 0, false, false},
+        // Pattern miss, hint present: unknown.
+        {"Partial upload: counts unavailable" + hint, 0, 0, 0, false, false},
+        {"Partial upload: 300 of 312 chunks stored, 12 failed" + hint, 0, 0, 0, false, false},
+        // Garbled counts after the prefix with a well-formed pattern later in
+        // the text: the pattern must open the message, so still unknown.
+        {"Partial upload: see below; Partial upload: 1/2 chunks stored, 1 failed" + hint,
+         0, 0, 0, false, false},
     };
     for (const auto& tc : cases) {
         CAPTURE(tc.msg);
@@ -360,6 +398,8 @@ TEST_CASE("parse_partial_upload_message is retryable only when all three counts 
         CHECK(c.chunks_failed == tc.failed);
         CHECK(c.total_chunks == tc.total);
         CHECK(c.retryable == tc.retryable);
+        CHECK(c.retention_known == tc.known);
+        CHECK((!c.retryable || c.retention_known));  // retryable => known
     }
 }
 

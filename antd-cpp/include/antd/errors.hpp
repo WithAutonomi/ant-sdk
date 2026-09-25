@@ -83,60 +83,89 @@ public:
 /// type existed, so `catch (const NetworkError&)` blocks keep catching it —
 /// catch PartialUploadError first to handle the partial case specifically.
 ///
-/// How to finish the upload depends on `retryable`:
+/// How to finish the upload depends on `retryable` and `retention_known`
+/// (`retryable` implies `retention_known`):
 ///
-///   - `true`: the daemon kept the paid attempt (payment proofs + unstored
-///     chunks) under the same `upload_id`. Call the same finalize method
-///     again with the same arguments to store the remainder against the same
-///     payment — no re-prepare, no second signature, no double payment.
-///     Bound the loop: a persistent failure throws this on every call, so cap
-///     the attempts and treat a `chunks_failed` that stops shrinking as
-///     stuck. The retained attempt expires with the daemon's pending-upload
-///     TTL. (antd >= 0.14.0; older daemons never send the flag, so it reads
-///     false and the re-prepare path applies.)
-///   - `false`: nothing was retained (a merkle finalize with deliberately
-///     unpaid batches, or an older daemon). Re-preparing the same content
-///     skips already-stored chunks, so a retry pays only for the remainder.
+///   1. `retryable`: the daemon kept the paid attempt (payment proofs +
+///      unstored chunks) under the same `upload_id`. Call the same finalize
+///      method again with the same `upload_id` and payment artefacts to store
+///      the remainder against the same payment — no re-prepare, no second
+///      signature, no double payment. Bound the loop: a persistent failure
+///      throws this on every call, so cap the attempts and treat a
+///      `chunks_failed` that stops shrinking as stuck. The retained attempt
+///      expires with the daemon's pending-upload TTL.
+///   2. `retention_known && !retryable`: the daemon confirmed nothing was
+///      retained (e.g. a merkle finalize with deliberately unpaid batches).
+///      Re-prepare the same content: already-stored chunks are skipped, so
+///      the retry pays only for the remainder.
+///   3. `!retention_known`: retention is unknown. The daemon may still hold
+///      the paid attempt (it records the resume handle before it returns the
+///      error). Stop automatic recovery, keep the `upload_id` and the
+///      original payment artefacts, and reconcile before re-preparing or
+///      paying again; never pay again on this signal alone. Daemons older
+///      than 0.14.0 never send `retryable`, so their REST partials read as
+///      unknown.
 ///
-/// Over REST the counts and `retryable` come from the structured error body;
-/// a field that is missing or not of the expected JSON type reads as zero /
-/// false. Over gRPC only an ABORTED whose message starts with the daemon's
-/// fixed `Partial upload:` prefix becomes this type (see
+/// Over REST the counts come from the structured error body (a missing or
+/// mistyped count reads as zero), and `retention_known` is true only when the
+/// body's `retryable` is present and a JSON boolean, which then sets
+/// `retryable`. Over gRPC only an ABORTED whose message starts with the
+/// daemon's fixed `Partial upload:` prefix becomes this type (see
 /// is_partial_upload_message); any other ABORTED, including one that quotes
 /// the prefix further into its message, keeps the generic AntdError mapping.
-/// The counts and `retryable` are then parsed best-effort from the message
-/// (see parse_partial_upload_message). `retryable` requires parsed counts:
-/// when the counts do not match or do not convert, all three read as zero
-/// and `retryable` is false even if the "paid attempt retained" hint is
-/// present, so the caller never enters a retry loop it cannot bound. That
-/// false means retention is unconfirmed, not that the daemon discarded the
-/// paid attempt: do not treat it alone as permission to pay again. See
-/// docs/external-signer-flow.md §6.
+/// The fields are then parsed from the message (see
+/// parse_partial_upload_message): `retention_known` is true only when the
+/// counts right after the prefix match and all three convert, and the "paid
+/// attempt retained" hint then decides `retryable`; otherwise the counts read
+/// as zero and retention is unknown. See docs/external-signer-flow.md §6.
 class PartialUploadError : public NetworkError {
 public:
     std::uint64_t chunks_stored;
     std::uint64_t chunks_failed;
     std::uint64_t total_chunks;
+    /// The daemon kept the paid attempt: repeat the same finalize call.
     bool retryable;
+    /// Whether the daemon's answer about retention could be read. When false,
+    /// `retryable` is false because retention is unknown, not because the
+    /// daemon said nothing was kept. Always true when `retryable` is.
+    bool retention_known;
 
+    /// `retryable` implies `retention_known`, so a retryable error is always
+    /// reported as known.
+    PartialUploadError(const std::string& msg,
+                       std::uint64_t chunks_stored,
+                       std::uint64_t chunks_failed,
+                       std::uint64_t total_chunks,
+                       bool retryable,
+                       bool retention_known)
+        : NetworkError(msg),
+          chunks_stored(chunks_stored),
+          chunks_failed(chunks_failed),
+          total_chunks(total_chunks),
+          retryable(retryable),
+          retention_known(retention_known || retryable) {}
+
+    /// The constructor from before `retention_known` existed, kept for source
+    /// compatibility: a retryable error is known, and anything else reads as
+    /// unknown (the conservative reading: never pay again on it alone).
     PartialUploadError(const std::string& msg,
                        std::uint64_t chunks_stored,
                        std::uint64_t chunks_failed,
                        std::uint64_t total_chunks,
                        bool retryable)
-        : NetworkError(msg),
-          chunks_stored(chunks_stored),
-          chunks_failed(chunks_failed),
-          total_chunks(total_chunks),
-          retryable(retryable) {}
+        : PartialUploadError(msg, chunks_stored, chunks_failed, total_chunks, retryable,
+                             retryable) {}
 };
 
-/// Counts and retry hint recovered from a PARTIAL_UPLOAD message.
+/// Counts, retry hint and retention status recovered from a PARTIAL_UPLOAD
+/// message.
 struct PartialUploadCounts {
     std::uint64_t chunks_stored{0};
     std::uint64_t chunks_failed{0};
     std::uint64_t total_chunks{0};
     bool retryable{false};
+    /// True only when the counts parsed; see parse_partial_upload_message.
+    bool retention_known{false};
 };
 
 /// The fixed text every PARTIAL_UPLOAD message from the daemon opens with
@@ -180,20 +209,22 @@ inline bool parse_decimal_u64(const std::string& digits, std::uint64_t& out) {
 /// does not decide whether the message is a partial upload.
 ///
 /// Reads the counts from "Partial upload: <stored>/<total> chunks stored,
-/// <failed> failed" and the "paid attempt retained" hint the daemon appends
-/// when it kept the paid attempt. `retryable` is true only when the counts
-/// matched, all three converted to 64-bit values, and the hint is present.
-/// On a regex miss or any conversion failure (e.g. a count that overflows 64
-/// bits) all three counts are zero and `retryable` is false, even if the
-/// hint is there: a bounded retry loop tells progress from a stuck upload by
-/// watching `chunks_failed` shrink, which it cannot do without the counts.
-/// Never throws.
+/// <failed> failed", which must open the message (the match is anchored at
+/// its start, like is_partial_upload_message), and the "paid attempt
+/// retained" hint the daemon appends when it kept the paid attempt.
+/// `retention_known` is true only when that pattern matched and all three
+/// counts converted to 64-bit values; `retryable` is then the hint. On a
+/// pattern miss or any conversion failure (e.g. a count that overflows 64
+/// bits) all three counts are zero and both flags are false, even if the hint
+/// is there: retention is unknown, and a bounded retry loop could not watch
+/// `chunks_failed` shrink without the counts anyway. Never throws.
 inline PartialUploadCounts parse_partial_upload_message(std::string_view message) {
     static const std::regex kCounts(
         R"(Partial upload: (\d+)/(\d+) chunks stored, (\d+) failed)");
     PartialUploadCounts out;
     std::match_results<std::string_view::const_iterator> m;
-    if (!std::regex_search(message.begin(), message.end(), m, kCounts)) {
+    if (!std::regex_search(message.begin(), message.end(), m, kCounts,
+                           std::regex_constants::match_continuous)) {
         return out;
     }
     std::uint64_t stored = 0;
@@ -207,6 +238,7 @@ inline PartialUploadCounts parse_partial_upload_message(std::string_view message
     out.chunks_stored = stored;
     out.total_chunks = total;
     out.chunks_failed = failed;
+    out.retention_known = true;
     out.retryable = message.find("paid attempt retained") != std::string_view::npos;
     return out;
 }

@@ -61,14 +61,17 @@ bool parse_ndjson_frame(std::string_view line, DownloadFrame& out) {
 /// readable `code` over the bare HTTP status where they diverge: a
 /// PARTIAL_UPLOAD arrives as a 502 that would otherwise read as a generic
 /// NetworkError, so it is thrown as PartialUploadError carrying the body's
-/// `chunks_stored` / `chunks_failed` / `total_chunks` and `retryable` (absent
-/// on daemons < 0.14.0 => false). Every other code keeps the status mapping.
+/// `chunks_stored` / `chunks_failed` / `total_chunks` and `retryable`.
+/// `retention_known` is true only when `retryable` is present and a JSON
+/// boolean; absent (daemons < 0.14.0), null or any other type leaves
+/// retention unknown and `retryable` false. Every other code keeps the
+/// status mapping.
 ///
 /// The body is network input, so a malformed one never escapes as anything
 /// but an AntdError subclass: a non-JSON or non-object body, or a `code`
 /// that is missing, another value, or not a string, takes the status mapping
-/// (NetworkError for a 502); a count or flag of the wrong JSON type reads as
-/// zero / false; a non-string `error` falls back to the raw body.
+/// (NetworkError for a 502); a count of the wrong JSON type reads as zero; a
+/// non-string `error` falls back to the raw body.
 [[noreturn]] void throw_error_response(int status, const std::string& body) {
     std::string msg = body;
     try {
@@ -92,12 +95,13 @@ bool parse_ndjson_frame(std::string_view line, DownloadFrame& out) {
                            ? it->get<std::uint64_t>()
                            : 0;
             };
-            auto flag = [&](const char* key) -> bool {
-                auto it = err_json.find(key);
-                return it != err_json.end() && it->is_boolean() && it->get<bool>();
-            };
+            // The daemon's answer about retention counts only when
+            // `retryable` is a JSON boolean; anything else leaves it unknown.
+            const auto retry = err_json.find("retryable");
+            const bool retention_known = retry != err_json.end() && retry->is_boolean();
+            const bool retryable = retention_known && retry->get<bool>();
             throw PartialUploadError(msg, u64("chunks_stored"), u64("chunks_failed"),
-                                     u64("total_chunks"), flag("retryable"));
+                                     u64("total_chunks"), retryable, retention_known);
         }
     } catch (const AntdError&) {
         throw;

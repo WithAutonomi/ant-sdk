@@ -259,6 +259,7 @@ TEST_CASE("async finalize_upload rethrows PartialUploadError through the future"
         CHECK(e.chunks_failed == 1);
         CHECK(e.total_chunks == 3);
         CHECK(e.retryable);
+        CHECK(e.retention_known);
     }
 }
 

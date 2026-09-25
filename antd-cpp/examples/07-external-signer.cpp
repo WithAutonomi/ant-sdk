@@ -112,13 +112,17 @@ std::map<std::string, std::string> external_signer_pay(
 // The loop is bounded: a persistent failure (a chunk whose close group stays
 // unreachable) throws PartialUploadError on every call, never a different
 // error, so it caps the attempts and treats a chunks_failed that stops
-// shrinking as stuck. A non-retryable partial upload (older daemon, or a
-// merkle upload with unpaid batches) is rethrown untouched: the recovery
-// there is to re-prepare the same content, which skips the chunks already
-// stored. Over gRPC, `retryable == false` can also mean the SDK could not
-// read the daemon's message: retention is then unconfirmed, not proof the
-// paid attempt was discarded, so do not treat it alone as permission to pay
-// again. See docs/external-signer-flow.md section 6.
+// shrinking as stuck. A partial upload that is not retryable is rethrown
+// without another attempt:
+//   - `retention_known`: the daemon confirmed nothing was retained, so the
+//     caller may re-prepare the same content (already-stored chunks are
+//     skipped and only the remainder is paid for).
+//   - `!retention_known`: retention is unknown and the daemon may still hold
+//     the paid attempt. The error is rethrown with the upload_id in its
+//     message; stop there, keep the upload_id and the tx hashes, and
+//     reconcile before re-preparing or paying again. Never pay again on this
+//     signal alone.
+// See docs/external-signer-flow.md section 6.
 antd::FinalizeUploadResult finalize_with_retry(
     antd::Client& client, const std::string& upload_id,
     const std::map<std::string, std::string>& tx_hashes, bool store_data_map) {
@@ -128,8 +132,18 @@ antd::FinalizeUploadResult finalize_with_retry(
         try {
             return client.finalize_upload(upload_id, tx_hashes, store_data_map);
         } catch (const antd::PartialUploadError& e) {
+            if (!e.retention_known) {
+                // Retention unknown: stop automatic recovery. Keep the type,
+                // counts and flags; the message says what to keep.
+                throw antd::PartialUploadError(
+                    "partial store with retention unknown: do not re-prepare or pay again; "
+                    "keep upload_id " + upload_id + " and the payment tx hashes and reconcile "
+                    "first: " + e.what(),
+                    e.chunks_stored, e.chunks_failed, e.total_chunks, e.retryable,
+                    e.retention_known);
+            }
             if (!e.retryable) {
-                throw;  // retention not confirmed: the caller decides (see above)
+                throw;  // the daemon confirmed nothing was retained: the caller may re-prepare
             }
             const bool stuck = attempt > 1 && e.chunks_failed >= last_failed;
             if (attempt >= kMaxAttempts || stuck) {
@@ -140,8 +154,9 @@ antd::FinalizeUploadResult finalize_with_retry(
                         std::to_string(e.chunks_stored) + "/" + std::to_string(e.total_chunks) +
                         " chunks stored, " + std::to_string(e.chunks_failed) +
                         " still unstored (paid attempt retained under upload_id " + upload_id +
-                        ", retry later or re-prepare): " + e.what(),
-                    e.chunks_stored, e.chunks_failed, e.total_chunks, e.retryable);
+                        ": retry the same finalize later): " + e.what(),
+                    e.chunks_stored, e.chunks_failed, e.total_chunks, e.retryable,
+                    e.retention_known);
             }
             last_failed = e.chunks_failed;
             std::cout << "finalize stored " << e.chunks_stored << "/" << e.total_chunks
@@ -233,14 +248,17 @@ int main() {
 
         std::cout << "\n07-external-signer OK!\n";
     } catch (const antd::PartialUploadError& e) {
-        // Payment settled, some chunks unstored. retryable == false means
-        // retention is not confirmed: re-preparing pays only for the
-        // remainder, but (over gRPC) a false from an unreadable message is
-        // not proof the paid attempt was discarded, so don't treat it alone
-        // as permission to pay again.
+        // Payment settled, some chunks unstored. The example stops here in
+        // every case; a real signer branches on the flags:
+        //   retryable                      -> same finalize again, later
+        //   retention_known && !retryable  -> re-prepare the same content
+        //   !retention_known               -> stop; keep upload_id + tx hashes
+        //                                     and reconcile; never pay again
+        //                                     on this alone
         std::cerr << "Partial upload (" << e.chunks_stored << "/" << e.total_chunks
                   << " stored, " << e.chunks_failed << " failed, retryable="
-                  << (e.retryable ? "true" : "false") << "): " << e.what() << "\n";
+                  << (e.retryable ? "true" : "false") << ", retention_known="
+                  << (e.retention_known ? "true" : "false") << "): " << e.what() << "\n";
         fs::remove_all(tmp);
         return 1;
     } catch (const antd::AntdError& e) {

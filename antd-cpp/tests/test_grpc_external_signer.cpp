@@ -288,6 +288,7 @@ TEST_CASE("finalize_upload maps ABORTED to PartialUploadError with counts parsed
         CHECK(e.chunks_failed == 12);
         CHECK(e.total_chunks == 312);
         CHECK(e.retryable);
+        CHECK(e.retention_known);
     }
 }
 
@@ -301,6 +302,7 @@ TEST_CASE("finalize_merkle_upload ABORTED without the retained hint is not retry
         CHECK(e.chunks_failed == 12);
         CHECK(e.total_chunks == 312);
         CHECK_FALSE(e.retryable);
+        CHECK(e.retention_known);
     }
 }
 

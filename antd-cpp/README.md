@@ -285,29 +285,37 @@ That surfaces as `antd::PartialUploadError` (HTTP 502 with
 `Partial upload:`, where the fields are parsed from the status message). The
 gRPC match is anchored at the start of the message: any other `ABORTED`,
 including one that only quotes `Partial upload:` further into its text, stays
-a plain `AntdError`. Over gRPC, `retryable` is true only when the counts in
-the message parse *and* the daemon's "paid attempt retained" hint is present;
-a message whose counts do not parse reads as zero counts and not retryable,
-even with the hint. Over REST, a count or flag of the wrong JSON type reads as
-zero / `false`, and a body whose `code` is not the string `PARTIAL_UPLOAD`
-keeps the plain status mapping; the error mapping never throws anything but an
-`AntdError` subclass. It derives from `NetworkError`, so existing 502 handlers
-keep working — catch it first to handle the partial case specifically. The
-on-chain payment persists and the stored chunks stay on the network; the
-`retryable` flag says how to finish:
+a plain `AntdError`. Over REST, a count of the wrong JSON type reads as zero,
+and a body whose `code` is not the string `PARTIAL_UPLOAD` keeps the plain
+status mapping; the error mapping never throws anything but an `AntdError`
+subclass. It derives from `NetworkError`, so existing 502 handlers keep
+working — catch it first to handle the partial case specifically. The
+on-chain payment persists and the stored chunks stay on the network. Two
+flags say how to finish, `retryable` and `retention_known` (`retryable`
+implies `retention_known`):
 
-- **`retryable == true`** (sent by antd >= 0.14.0): the daemon kept the paid
-  attempt under the same `upload_id`. Call the **same finalize method again
-  with the same arguments** to store the remainder against the same payment —
+- **`retryable`**: the daemon kept the paid attempt under the same
+  `upload_id`. Call the **same finalize method again with the same `upload_id`
+  and payment artefacts** to store the remainder against the same payment —
   no re-prepare, no second signature, no double payment. Bound the loop: a
   persistent failure throws on every call, so cap attempts and treat a
   `chunks_failed` that stops shrinking as stuck.
-- **`retryable == false`** (older daemon, or a merkle finalize with
-  deliberately unpaid batches): nothing was retained. Re-prepare the same
-  content — already-stored chunks are skipped, so the retry pays only for the
-  remainder. Over gRPC, `false` also comes from a message whose counts did not
-  parse; retention is then unconfirmed, not proof the paid attempt was
-  discarded, so don't treat that alone as permission to pay again.
+- **`retention_known && !retryable`**: the daemon confirmed nothing was
+  retained (for example a merkle finalize with deliberately unpaid batches).
+  Re-prepare the same content — already-stored chunks are skipped, so the
+  retry pays only for the remainder.
+- **`!retention_known`**: retention is unknown, and the daemon may still hold
+  the paid attempt (it records the resume handle before it returns the
+  error). Stop automatic recovery, keep the `upload_id` and the original
+  payment artefacts, and reconcile before re-preparing or paying again; never
+  pay again on this signal alone. Daemons older than 0.14.0 never send
+  `retryable`, so their REST partials read as unknown.
+
+`retention_known` is true over REST only when the body's `retryable` is
+present and a JSON boolean. Over gRPC it is true only when the counts right
+after the `Partial upload:` prefix parse (all three), after which the "paid
+attempt retained" hint decides `retryable`; a message whose counts do not
+parse reads as zero counts with retention unknown, even with the hint.
 
 ```cpp
 for (int attempt = 1;; ++attempt) {
@@ -315,7 +323,9 @@ for (int attempt = 1;; ++attempt) {
         auto fin = client.finalize_upload(upload_id, tx_hashes);
         break;  // every chunk stored
     } catch (const antd::PartialUploadError& e) {
-        if (!e.retryable || attempt >= 5) throw;  // not confirmed retained, or out of attempts
+        if (!e.retention_known) throw;  // unknown: stop, keep upload_id + tx_hashes, reconcile
+        if (!e.retryable) throw;        // confirmed not retained: re-prepare the same content
+        if (attempt >= 5) throw;        // still retained: retry the same finalize later
         std::cerr << e.chunks_stored << "/" << e.total_chunks << " stored, "
                   << e.chunks_failed << " unstored — retrying same upload_id\n";
     }
