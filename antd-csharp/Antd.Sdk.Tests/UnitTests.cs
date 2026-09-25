@@ -1109,8 +1109,20 @@ public sealed class PartialUploadMessageParserTests
         300UL, 12UL, 312UL, false)]
     [InlineData("Partial upload: 300/312 chunks stored, 12 failed after retries", 300UL, 12UL, 312UL, false)]
     [InlineData("Partial upload: counts missing", 0UL, 0UL, 0UL, false)]
-    // Counts and the retained hint are parsed independently (as in antd-rust).
-    [InlineData("Partial upload: counts missing (paid attempt retained)", 0UL, 0UL, 0UL, true)]
+    // Retryable needs the layout to match AND all three counts to convert AND
+    // the retained hint: a layout miss or an unconvertible count reads as
+    // zeros and not retryable, whatever the hint says.
+    [InlineData("Partial upload: counts missing (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)", 0UL, 0UL, 0UL, false)]
+    [InlineData("Partial upload: 18446744073709551616/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)", 0UL, 0UL, 0UL, false)]
+    [InlineData("Partial upload: 300/18446744073709551616 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)", 0UL, 0UL, 0UL, false)]
+    [InlineData("Partial upload: 300/312 chunks stored, 18446744073709551616 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)", 0UL, 0UL, 0UL, false)]
+    [InlineData("Partial upload: 18446744073709551615/18446744073709551615 chunks stored, 0 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)",
+        18446744073709551615UL, 0UL, 18446744073709551615UL, true)]
+    // Arabic-Indic digits: .NET's \d would match them; the parser is ASCII-only.
+    [InlineData("Partial upload: \u0663\u0660\u0660/\u0663\u0661\u0662 chunks stored, \u0661\u0662 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)", 0UL, 0UL, 0UL, false)]
+    [InlineData("Partial upload: 300/312 chunks stored, \u0661\u0662 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)", 0UL, 0UL, 0UL, false)]
+    // The layout is anchored at the prefix: counts quoted later do not count.
+    [InlineData("Partial upload: n/a chunks stored; earlier: Partial upload: 1/2 chunks stored, 1 failed (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)", 0UL, 0UL, 0UL, false)]
     [InlineData("something else entirely", 0UL, 0UL, 0UL, false)]
     [InlineData("", 0UL, 0UL, 0UL, false)]
     public void ParsePartialUploadMessage_RecoversCountsAndRetainedHint(
@@ -1168,18 +1180,26 @@ public sealed class GrpcAbortedMappingTests
         Assert.True(ex.Retryable);
     }
 
-    [Fact]
-    public void Aborted_WithPrefixButGarbledCounts_MapsToPartialUploadExceptionWithZeros()
+    [Theory]
+    [InlineData("Partial upload: n/a chunks stored")]
+    [InlineData("Partial upload: n/a chunks stored (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)")]
+    [InlineData("Partial upload: 18446744073709551616/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)")]
+    [InlineData("Partial upload: 300/18446744073709551616 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)")]
+    [InlineData("Partial upload: 300/312 chunks stored, 18446744073709551616 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)")]
+    [InlineData("Partial upload: \u0663\u0660\u0660/\u0663\u0661\u0662 chunks stored, \u0661\u0662 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)")]
+    public void Aborted_WithPrefixButUnparseableCounts_IsPartialUploadWithZerosAndNotRetryable(string detail)
     {
-        // The anchored prefix alone routes to the typed exception; unparseable
-        // counts degrade to zero (and, with no retained hint, Retryable false)
-        // rather than to a wrong type.
-        var ex = Assert.IsType<PartialUploadException>(Map("Partial upload: n/a chunks stored"));
+        // The anchored prefix alone routes to the typed exception. Counts that
+        // do not match or do not convert degrade to zero and Retryable false,
+        // even when the retained hint is present: without counts a retry loop
+        // cannot tell progress from a stuck upload.
+        var ex = Assert.IsType<PartialUploadException>(Map(detail));
 
         Assert.Equal(0UL, ex.ChunksStored);
         Assert.Equal(0UL, ex.ChunksFailed);
         Assert.Equal(0UL, ex.TotalChunks);
         Assert.False(ex.Retryable);
+        Assert.Equal(detail, ex.Message);
     }
 
     [Theory]

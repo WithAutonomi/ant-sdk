@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -83,9 +84,13 @@ public class NetworkException : AntdException
 /// field that is missing or not of the expected JSON kind reads as zero or
 /// <c>false</c>. Over gRPC they are parsed best-effort from the status
 /// detail (<c>Partial upload: S/T chunks stored, F failed ...</c>, with a
-/// <c>paid attempt retained</c> hint when retryable). Counts and the hint
-/// are parsed independently: a prefixed detail whose counts fail to parse
-/// leaves them zero, while <see cref="Retryable"/> still follows the hint.
+/// <c>paid attempt retained</c> hint when retryable). <see cref="Retryable"/>
+/// is <c>true</c> only when all three counts parse and the hint is present:
+/// a prefixed detail whose counts do not match or do not convert (an
+/// overflow, non-ASCII digits) leaves all three counts zero and
+/// <see cref="Retryable"/> <c>false</c>, even with the hint, because a retry
+/// loop that cannot watch <see cref="ChunksFailed"/> shrink cannot tell
+/// progress from a stuck upload.
 /// An <c>ABORTED</c> whose detail does not start with the prefix (including
 /// one that quotes it further in) is a <see cref="ForkException"/>, as
 /// before.
@@ -106,7 +111,9 @@ public class PartialUploadException : NetworkException
     /// <c>true</c> when the daemon retained the paid attempt under the same
     /// <c>upload_id</c>, so the same finalize call can be repeated to store
     /// the remainder against the same payment. Defaults to <c>false</c> when
-    /// the daemon did not send the flag (antd before 0.14.0).
+    /// the daemon did not send the flag (antd before 0.14.0). Over gRPC it is
+    /// also <c>false</c> whenever the counts in the status detail could not
+    /// be parsed.
     /// </summary>
     public bool Retryable { get; }
 
@@ -164,10 +171,12 @@ internal static partial class ExceptionMapping
     private const string PartialUploadPrefix = "Partial upload:";
 
     /// <summary>
-    /// Count layout of the daemon's PARTIAL_UPLOAD message:
-    /// <c>Partial upload: &lt;stored&gt;/&lt;total&gt; chunks stored, &lt;failed&gt; failed</c>.
+    /// Count layout of the daemon's PARTIAL_UPLOAD message, anchored at its
+    /// start: <c>Partial upload: &lt;stored&gt;/&lt;total&gt; chunks stored, &lt;failed&gt; failed</c>.
+    /// ASCII digits only: .NET's <c>\d</c> also matches other Unicode decimal
+    /// digits, which the daemon never sends.
     /// </summary>
-    [GeneratedRegex(@"Partial upload: (\d+)/(\d+) chunks stored, (\d+) failed")]
+    [GeneratedRegex(@"\APartial upload: ([0-9]+)/([0-9]+) chunks stored, ([0-9]+) failed")]
     private static partial Regex PartialUploadCounts();
 
     public static AntdException FromHttpStatus(HttpStatusCode status, string body)
@@ -269,26 +278,36 @@ internal static partial class ExceptionMapping
     /// <summary>
     /// Recovers the chunk counts and the retryable hint from a PARTIAL_UPLOAD
     /// message. Used for gRPC, where the status carries no structured detail;
-    /// REST callers get the body fields instead. Counts and the hint are
-    /// parsed independently: counts that do not parse read as zero, and
-    /// <c>Retryable</c> is <c>true</c> only when the retained hint is present.
-    /// Whether the message is a partial upload at all is decided by
-    /// <see cref="IsPartialUploadMessage"/>.
+    /// REST callers get the body fields instead. <c>Retryable</c> is
+    /// <c>true</c> only when the message matches the count layout, all three
+    /// counts convert to <see cref="ulong"/>, and the retained hint is
+    /// present. On a layout miss or any failed conversion (an overflow) all
+    /// three counts are zero and <c>Retryable</c> is <c>false</c> whatever
+    /// the hint says: a retry loop that cannot watch the failed count shrink
+    /// cannot tell progress from a stuck upload. Whether the message is a
+    /// partial upload at all is decided by <see cref="IsPartialUploadMessage"/>.
     /// </summary>
     internal static (ulong Stored, ulong Failed, ulong Total, bool Retryable) ParsePartialUploadMessage(string? message)
     {
         var msg = message ?? "";
-        ulong stored = 0, failed = 0, total = 0;
         var m = PartialUploadCounts().Match(msg);
-        if (m.Success)
+        if (!m.Success
+            || !TryParseCount(m.Groups[1].Value, out var stored)
+            || !TryParseCount(m.Groups[2].Value, out var total)
+            || !TryParseCount(m.Groups[3].Value, out var failed))
         {
-            ulong.TryParse(m.Groups[1].Value, out stored);
-            ulong.TryParse(m.Groups[2].Value, out total);
-            ulong.TryParse(m.Groups[3].Value, out failed);
+            return (0, 0, 0, false);
         }
         var retryable = msg.Contains(PartialUploadRetainedHint, StringComparison.Ordinal);
         return (stored, failed, total, retryable);
     }
+
+    /// <summary>
+    /// Converts one captured run of ASCII digits; <c>false</c> when it does
+    /// not fit in a <see cref="ulong"/>.
+    /// </summary>
+    private static bool TryParseCount(string digits, out ulong value) =>
+        ulong.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out value);
 
     public static AntdException FromGrpcStatus(RpcException ex)
     {
@@ -330,8 +349,7 @@ internal static partial class ExceptionMapping
     /// <c>true</c> when the gRPC status detail starts with the daemon's fixed
     /// PARTIAL_UPLOAD prefix. Anchored rather than a containment check, so an
     /// unrelated <c>ABORTED</c> that merely quotes the phrase further into its
-    /// detail is not misreported as a partial upload with zero counts (and,
-    /// if it also quotes the retained hint, <c>Retryable</c> set). The daemon
+    /// detail is not misreported as a partial upload. The daemon
     /// sends its PARTIAL_UPLOAD message as the detail unwrapped, so a genuine
     /// partial upload always has the prefix at offset zero. Pass the raw
     /// <c>Status.Detail</c>, not <c>RpcException.Message</c>.
