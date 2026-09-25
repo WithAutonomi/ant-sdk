@@ -496,6 +496,7 @@ public sealed class GrpcClientTests
         Assert.Equal(12UL, ex.ChunksFailed);
         Assert.Equal(312UL, ex.TotalChunks);
         Assert.True(ex.Retryable);
+        Assert.True(ex.RetentionKnown);
         Assert.Equal(502, ex.StatusCode);
         Assert.IsAssignableFrom<NetworkException>(ex);
     }
@@ -507,7 +508,10 @@ public sealed class GrpcClientTests
         var ex = await Assert.ThrowsAsync<PartialUploadException>(
             () => client.FinalizeMerkleUploadAsync("partial-final", "0xwinpool"));
 
+        // Well-formed counts without the retained hint: the daemon said it
+        // kept nothing, so retention is known and the recovery is a re-prepare.
         Assert.False(ex.Retryable);
+        Assert.True(ex.RetentionKnown);
         Assert.Equal(300UL, ex.ChunksStored);
         Assert.Equal(12UL, ex.ChunksFailed);
         Assert.Equal(312UL, ex.TotalChunks);
