@@ -11,9 +11,9 @@ import io.grpc.ForwardingClientCallListener
 import io.grpc.ManagedChannelBuilder
 import io.grpc.Metadata
 import io.grpc.MethodDescriptor
+import io.grpc.Status
 import io.grpc.StatusException
 import io.grpc.StatusRuntimeException
-import io.grpc.Status
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -87,6 +87,25 @@ class AntdGrpcClient internal constructor(
 
     private fun wrap(ex: StatusRuntimeException): AntdException = ExceptionMapping.fromGrpcStatus(ex)
 
+    /**
+     * Runs one gRPC call and maps a failed status onto the typed
+     * [AntdException] the REST client throws for the same daemon error.
+     *
+     * grpc-kotlin's coroutine stubs surface a failed unary call as
+     * [StatusException], not [StatusRuntimeException]; every call that
+     * throws goes through here so both shapes map the same way and neither
+     * escapes raw. Anything that is not a gRPC status propagates untouched.
+     * [health] is the one exception: it never throws, and reads the raw
+     * status itself (see [daemonAnswered]).
+     */
+    private inline fun <T> grpc(block: () -> T): T = try {
+        block()
+    } catch (ex: StatusException) {
+        throw wrap(ex.status.asRuntimeException())
+    } catch (ex: StatusRuntimeException) {
+        throw wrap(ex)
+    }
+
     // ── Health ──
 
     override suspend fun health(): HealthStatus = try {
@@ -101,43 +120,54 @@ class AntdGrpcClient internal constructor(
             paymentTokenAddress = resp.paymentTokenAddress,
             paymentVaultAddress = resp.paymentVaultAddress,
         )
+    } catch (ex: StatusException) {
+        HealthStatus(daemonAnswered(ex.status), "unknown")
     } catch (ex: StatusRuntimeException) {
-        if (ex.status.code == Status.Code.UNAVAILABLE) {
-            HealthStatus(false, "unknown")
-        } else {
-            HealthStatus(true, "unknown")
-        }
+        HealthStatus(daemonAnswered(ex.status), "unknown")
     } catch (_: Exception) {
         HealthStatus(false, "unknown")
     }
 
+    /**
+     * Whether a failed health check's [status] shows the daemon answered.
+     * UNAVAILABLE means it could not be reached. CANCELLED and
+     * DEADLINE_EXCEEDED prove nothing: gRPC raises both on the client side
+     * (a cancelled `io.grpc.Context`, an expired deadline), often before any
+     * request is sent. Any other status was returned by the daemon, so it
+     * is up.
+     */
+    private fun daemonAnswered(status: Status): Boolean = when (status.code) {
+        Status.Code.UNAVAILABLE, Status.Code.CANCELLED, Status.Code.DEADLINE_EXCEEDED -> false
+        else -> true
+    }
+
     // ── Data ──
 
-    override suspend fun dataPutPublic(data: ByteArray, paymentMode: PaymentMode): DataPutPublicResult = try {
+    override suspend fun dataPutPublic(data: ByteArray, paymentMode: PaymentMode): DataPutPublicResult = grpc {
         val resp = dataStub.putPublic(putPublicDataRequest {
             this.data = ByteString.copyFrom(data)
             this.paymentMode = paymentMode.wire
         })
         DataPutPublicResult(address = resp.address, chunksStored = resp.chunksStored.toULong(), paymentModeUsed = resp.paymentModeUsed)
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
+    }
 
-    override suspend fun dataGetPublic(address: String): ByteArray = try {
+    override suspend fun dataGetPublic(address: String): ByteArray = grpc {
         val resp = dataStub.getPublic(getPublicDataRequest { this.address = address })
         resp.data.toByteArray()
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
+    }
 
-    override suspend fun dataPut(data: ByteArray, paymentMode: PaymentMode): DataPutResult = try {
+    override suspend fun dataPut(data: ByteArray, paymentMode: PaymentMode): DataPutResult = grpc {
         val resp = dataStub.put(putDataRequest {
             this.data = ByteString.copyFrom(data)
             this.paymentMode = paymentMode.wire
         })
         DataPutResult(dataMap = resp.dataMap, chunksStored = resp.chunksStored.toULong(), paymentModeUsed = resp.paymentModeUsed)
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
+    }
 
-    override suspend fun dataGet(dataMap: String): ByteArray = try {
+    override suspend fun dataGet(dataMap: String): ByteArray = grpc {
         val resp = dataStub.get(getDataRequest { this.dataMap = dataMap })
         resp.data.toByteArray()
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
+    }
 
     /**
      * Streams private data from a caller-held DataMap (hex), one decrypt batch
@@ -244,7 +274,7 @@ class AntdGrpcClient internal constructor(
         else -> ex
     }
 
-    override suspend fun dataCost(data: ByteArray, paymentMode: PaymentMode): UploadCostEstimate = try {
+    override suspend fun dataCost(data: ByteArray, paymentMode: PaymentMode): UploadCostEstimate = grpc {
         val resp = dataStub.cost(dataCostRequest {
             this.data = ByteString.copyFrom(data)
             this.paymentMode = paymentMode.wire
@@ -252,21 +282,21 @@ class AntdGrpcClient internal constructor(
         UploadCostEstimate(
             resp.attoTokens, resp.fileSize.toULong(), resp.chunkCount.toUInt(),
             resp.estimatedGasCostWei, resp.paymentMode)
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
+    }
 
     // ── Chunks ──
 
-    override suspend fun chunkPut(data: ByteArray): PutResult = try {
+    override suspend fun chunkPut(data: ByteArray): PutResult = grpc {
         val resp = chunkStub.put(putChunkRequest { this.data = ByteString.copyFrom(data) })
         PutResult(resp.cost.attoTokens, resp.address)
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
+    }
 
-    override suspend fun chunkGet(address: String): ByteArray = try {
+    override suspend fun chunkGet(address: String): ByteArray = grpc {
         val resp = chunkStub.get(getChunkRequest { this.address = address })
         resp.data.toByteArray()
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
+    }
 
-    override suspend fun prepareChunkUpload(data: ByteArray): PrepareChunkResult = try {
+    override suspend fun prepareChunkUpload(data: ByteArray): PrepareChunkResult = grpc {
         val resp = chunkStub.prepareChunk(prepareChunkRequest {
             this.data = ByteString.copyFrom(data)
         })
@@ -283,7 +313,7 @@ class AntdGrpcClient internal constructor(
             paymentTokenAddress = resp.paymentTokenAddress,
             rpcUrl = resp.rpcUrl,
         )
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
+    }
 
     /**
      * Submits a prepared single chunk after the external signer has paid.
@@ -292,21 +322,17 @@ class AntdGrpcClient internal constructor(
      *   daemon's retries (gRPC ABORTED). See [finalizeUpload] for the
      *   recovery contract — it is identical here.
      */
-    override suspend fun finalizeChunkUpload(uploadId: String, txHashes: Map<String, String>): String = try {
+    override suspend fun finalizeChunkUpload(uploadId: String, txHashes: Map<String, String>): String = grpc {
         val resp = chunkStub.finalizeChunk(finalizeChunkRequest {
             this.uploadId = uploadId
             this.txHashes.putAll(txHashes)
         })
         resp.address
-    } catch (ex: StatusException) {
-        // grpc-kotlin's coroutine stubs surface a failed unary call as
-        // StatusException (see the wallet methods); map it the same way.
-        throw ExceptionMapping.fromGrpcStatus(ex.status.asRuntimeException())
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
+    }
 
     // ── Files ──
 
-    override suspend fun filePutPublic(path: String, paymentMode: PaymentMode): FilePutPublicResult = try {
+    override suspend fun filePutPublic(path: String, paymentMode: PaymentMode): FilePutPublicResult = grpc {
         val resp = fileStub.putPublic(putFileRequest {
             this.path = path
             this.paymentMode = paymentMode.wire
@@ -318,14 +344,14 @@ class AntdGrpcClient internal constructor(
             chunksStored = resp.chunksStored.toULong(),
             paymentModeUsed = resp.paymentModeUsed,
         )
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
+    }
 
-    override suspend fun fileGetPublic(address: String, destPath: String) = try {
+    override suspend fun fileGetPublic(address: String, destPath: String) = grpc {
         fileStub.getPublic(getFilePublicRequest { this.address = address; this.destPath = destPath })
         Unit
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
+    }
 
-    override suspend fun filePut(path: String, paymentMode: PaymentMode): FilePutResult = try {
+    override suspend fun filePut(path: String, paymentMode: PaymentMode): FilePutResult = grpc {
         val resp = fileStub.put(putFileRequest {
             this.path = path
             this.paymentMode = paymentMode.wire
@@ -337,14 +363,14 @@ class AntdGrpcClient internal constructor(
             chunksStored = resp.chunksStored.toULong(),
             paymentModeUsed = resp.paymentModeUsed,
         )
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
+    }
 
-    override suspend fun fileGet(dataMap: String, destPath: String) = try {
+    override suspend fun fileGet(dataMap: String, destPath: String) = grpc {
         fileStub.get(getFileRequest { this.dataMap = dataMap; this.destPath = destPath })
         Unit
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
+    }
 
-    override suspend fun fileCost(path: String, isPublic: Boolean, paymentMode: PaymentMode): UploadCostEstimate = try {
+    override suspend fun fileCost(path: String, isPublic: Boolean, paymentMode: PaymentMode): UploadCostEstimate = grpc {
         val resp = fileStub.cost(fileCostRequest {
             this.path = path
             this.isPublic = isPublic
@@ -353,38 +379,26 @@ class AntdGrpcClient internal constructor(
         UploadCostEstimate(
             resp.attoTokens, resp.fileSize.toULong(), resp.chunkCount.toUInt(),
             resp.estimatedGasCostWei, resp.paymentMode)
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
+    }
 
     // ── Wallet ──
 
-    // V2-286: parity with REST wallet surface. A missing daemon wallet emits
-    // gRPC FailedPrecondition which wrap() surfaces as PaymentException
+    // Parity with REST wallet surface. A missing daemon wallet emits gRPC
+    // FailedPrecondition which the mapping surfaces as PaymentException
     // (established FailedPrecondition->Payment convention across all SDKs).
-    override suspend fun walletAddress(): WalletAddress = try {
+    override suspend fun walletAddress(): WalletAddress = grpc {
         val resp = walletStub.getAddress(getWalletAddressRequest {})
         WalletAddress(address = resp.address)
-    } catch (e: StatusException) {
-        throw ExceptionMapping.fromGrpcStatus(e.status.asRuntimeException())
-    } catch (e: StatusRuntimeException) {
-        throw wrap(e)
     }
 
-    override suspend fun walletBalance(): WalletBalance = try {
+    override suspend fun walletBalance(): WalletBalance = grpc {
         val resp = walletStub.getBalance(getWalletBalanceRequest {})
         WalletBalance(balance = resp.balance, gasBalance = resp.gasBalance)
-    } catch (e: StatusException) {
-        throw ExceptionMapping.fromGrpcStatus(e.status.asRuntimeException())
-    } catch (e: StatusRuntimeException) {
-        throw wrap(e)
     }
 
-    override suspend fun walletApprove(): Boolean = try {
+    override suspend fun walletApprove(): Boolean = grpc {
         val resp = walletStub.approve(walletApproveRequest {})
         resp.approved
-    } catch (e: StatusException) {
-        throw ExceptionMapping.fromGrpcStatus(e.status.asRuntimeException())
-    } catch (e: StatusRuntimeException) {
-        throw wrap(e)
     }
 
     // ── External Signer ──
@@ -421,24 +435,24 @@ class AntdGrpcClient internal constructor(
         )
     }
 
-    override suspend fun prepareUpload(path: String, visibility: String?): PrepareUploadResult = try {
+    override suspend fun prepareUpload(path: String, visibility: String?): PrepareUploadResult = grpc {
         val resp = uploadStub.prepareFileUpload(prepareFileUploadRequest {
             this.path = path
             this.visibility = visibility ?: ""
         })
         mapPrepareUploadResponse(resp)
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
+    }
 
     override suspend fun prepareUploadPublic(path: String): PrepareUploadResult =
         prepareUpload(path, "public")
 
-    override suspend fun prepareDataUpload(data: ByteArray, visibility: String?): PrepareUploadResult = try {
+    override suspend fun prepareDataUpload(data: ByteArray, visibility: String?): PrepareUploadResult = grpc {
         val resp = uploadStub.prepareDataUpload(prepareDataUploadRequest {
             this.data = ByteString.copyFrom(data)
             this.visibility = visibility ?: ""
         })
         mapPrepareUploadResponse(resp)
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
+    }
 
     /**
      * Finalizes an upload after an external signer has submitted payment
@@ -470,7 +484,7 @@ class AntdGrpcClient internal constructor(
      *
      * @throws PartialUploadException as described above.
      */
-    override suspend fun finalizeUpload(uploadId: String, txHashes: Map<String, String>): FinalizeUploadResult = try {
+    override suspend fun finalizeUpload(uploadId: String, txHashes: Map<String, String>): FinalizeUploadResult = grpc {
         val resp = uploadStub.finalizeUpload(finalizeUploadRequest {
             this.uploadId = uploadId
             this.txHashes.putAll(txHashes)
@@ -481,11 +495,7 @@ class AntdGrpcClient internal constructor(
             dataMap = resp.dataMap,
             dataMapAddress = resp.dataMapAddress,
         )
-    } catch (ex: StatusException) {
-        // grpc-kotlin's coroutine stubs surface a failed unary call as
-        // StatusException (see the wallet methods); map it the same way.
-        throw ExceptionMapping.fromGrpcStatus(ex.status.asRuntimeException())
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
+    }
 
     /**
      * Finalizes a merkle batch upload by selecting a winner pool.
@@ -496,7 +506,7 @@ class AntdGrpcClient internal constructor(
      *   batches reports retention as known and not retryable (re-prepare
      *   instead).
      */
-    override suspend fun finalizeMerkleUpload(uploadId: String, winnerPoolHash: String): FinalizeMerkleUploadResult = try {
+    override suspend fun finalizeMerkleUpload(uploadId: String, winnerPoolHash: String): FinalizeMerkleUploadResult = grpc {
         val resp = uploadStub.finalizeUpload(finalizeUploadRequest {
             this.uploadId = uploadId
             this.winnerPoolHash = winnerPoolHash
@@ -507,7 +517,5 @@ class AntdGrpcClient internal constructor(
             dataMap = resp.dataMap,
             dataMapAddress = resp.dataMapAddress,
         )
-    } catch (ex: StatusException) {
-        throw ExceptionMapping.fromGrpcStatus(ex.status.asRuntimeException())
-    } catch (ex: StatusRuntimeException) { throw wrap(ex) }
+    }
 }

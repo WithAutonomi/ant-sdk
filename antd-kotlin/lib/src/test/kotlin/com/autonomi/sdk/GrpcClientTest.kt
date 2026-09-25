@@ -2,6 +2,7 @@ package com.autonomi.sdk
 
 import antd.v1.*
 import com.google.protobuf.ByteString
+import io.grpc.Context
 import io.grpc.ManagedChannel
 import io.grpc.Metadata
 import io.grpc.Server
@@ -13,9 +14,18 @@ import io.grpc.ForwardingServerCall
 import io.grpc.Status
 import io.grpc.inprocess.InProcessChannelBuilder
 import io.grpc.inprocess.InProcessServerBuilder
+import java.util.concurrent.Callable
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -24,6 +34,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -37,14 +48,22 @@ class GrpcClientTest {
     private lateinit var server: Server
     private lateinit var channel: ManagedChannel
     private lateinit var client: AntdGrpcClient
+    private lateinit var healthService: MockHealthService
+    private lateinit var healthRequests: RequestCountingInterceptor
 
     @BeforeTest
     fun setUp() {
         val name = InProcessServerBuilder.generateName()
+        healthService = MockHealthService()
+        healthRequests = RequestCountingInterceptor()
         server = InProcessServerBuilder.forName(name)
             .directExecutor()
+            // Counts the health checks that actually reach the server, so a
+            // test can tell a daemon answer from a client-side failure.
+            .addService(ServerInterceptors.intercept(healthService, healthRequests))
             .addService(MockChunkService())
             .addService(MockUploadService())
+            .addService(MockFileService())
             // The daemon attaches the total plaintext size as the
             // x-content-length response header so the consumer can surface a
             // byte denominator (V2-510); mimic it with a server interceptor.
@@ -93,9 +112,45 @@ class GrpcClientTest {
 
     // --- Mock servicers ---
 
+    // The failing unary mocks below throw StatusException (`asException()`),
+    // which is also what grpc-kotlin's coroutine stubs surface client-side
+    // for any failed unary call; the client must map it, never leak it.
+
+    class MockHealthService : HealthServiceGrpcKt.HealthServiceCoroutineImplBase() {
+        // When set, every check() fails with this status.
+        var failWith: Status? = null
+        // When set, every check() hangs until the call is cancelled.
+        var hang = false
+        // Released when a check() starts, i.e. the request reached the server.
+        val arrived = CountDownLatch(1)
+
+        override suspend fun check(request: Health.HealthCheckRequest): Health.HealthCheckResponse {
+            arrived.countDown()
+            if (hang) awaitCancellation()
+            failWith?.let { throw it.asException() }
+            return healthCheckResponse {
+                status = "ok"
+                network = "testnet"
+                version = "0.0.0-test"
+            }
+        }
+    }
+
     // Server-streams the payload in two chunks so the client's chunk-by-chunk
     // collection is exercised, not just a single message.
     class MockDataService : DataServiceGrpcKt.DataServiceCoroutineImplBase() {
+        override suspend fun getPublic(request: Data.GetPublicDataRequest): Data.GetPublicDataResponse {
+            throw Status.NOT_FOUND.withDescription("no data at ${request.address}").asException()
+        }
+
+        override suspend fun put(request: Data.PutDataRequest): Data.PutDataResponse {
+            throw Status.UNAVAILABLE.withDescription("network unreachable").asException()
+        }
+
+        override suspend fun cost(request: Data.DataCostRequest): Common.Cost {
+            throw Status.INTERNAL.withDescription("cost estimation failed").asException()
+        }
+
         // When include_progress is set, interleave a progress frame between the
         // data chunks so the oneof mapping is exercised; otherwise emit a pure
         // data-frame stream (the pre-progress behaviour).
@@ -118,6 +173,35 @@ class GrpcClientTest {
                 dataChunk { data = ByteString.copyFromUtf8("hel") },
                 dataChunk { data = ByteString.copyFromUtf8("lo") },
             )
+    }
+
+    // A deadline scheduler that holds the expiry task a Context deadline
+    // schedules instead of running it on a clock, so a test decides when the
+    // deadline passes. Everything else delegates to [backing].
+    class ManualDeadlineScheduler(
+        private val backing: ScheduledExecutorService,
+    ) : ScheduledExecutorService by backing {
+        @Volatile var expiry: Runnable? = null
+
+        override fun schedule(command: Runnable, delay: Long, unit: TimeUnit): ScheduledFuture<*> {
+            expiry = command
+            // A placeholder that never comes due during the test; the
+            // Context cancels it once the deadline has fired.
+            return backing.schedule({}, 1, TimeUnit.HOURS)
+        }
+    }
+
+    class RequestCountingInterceptor : ServerInterceptor {
+        val count = AtomicInteger()
+
+        override fun <ReqT, RespT> interceptCall(
+            call: ServerCall<ReqT, RespT>,
+            headers: Metadata,
+            next: ServerCallHandler<ReqT, RespT>,
+        ): ServerCall.Listener<ReqT> {
+            count.incrementAndGet()
+            return next.startCall(call, headers)
+        }
     }
 
     // Sets x-content-length initial metadata per data-stream method, matching
@@ -150,6 +234,14 @@ class GrpcClientTest {
     }
 
     class MockChunkService : ChunkServiceGrpcKt.ChunkServiceCoroutineImplBase() {
+        override suspend fun get(request: Chunks.GetChunkRequest): Chunks.GetChunkResponse {
+            throw Status.NOT_FOUND.withDescription("no chunk at ${request.address}").asException()
+        }
+
+        override suspend fun put(request: Chunks.PutChunkRequest): Chunks.PutChunkResponse {
+            throw Status.RESOURCE_EXHAUSTED.withDescription("chunk too large").asException()
+        }
+
         override suspend fun prepareChunk(request: Chunks.PrepareChunkRequest): Chunks.PrepareChunkResponse {
             val d = request.data
             // Inputs starting with "EXISTS" → already-stored short-circuit.
@@ -191,8 +283,22 @@ class GrpcClientTest {
         }
     }
 
+    class MockFileService : FileServiceGrpcKt.FileServiceCoroutineImplBase() {
+        override suspend fun get(request: Files.GetFileRequest): Files.GetFileResponse {
+            throw Status.NOT_FOUND.withDescription("no file for ${request.dataMap}").asException()
+        }
+
+        override suspend fun putPublic(request: Files.PutFileRequest): Files.PutFilePublicResponse {
+            throw Status.INVALID_ARGUMENT.withDescription("path is not a file: ${request.path}").asException()
+        }
+    }
+
     class MockUploadService : UploadServiceGrpcKt.UploadServiceCoroutineImplBase() {
         override suspend fun prepareFileUpload(request: Upload.PrepareFileUploadRequest): Upload.PrepareUploadResponse {
+            // Magic path: the daemon could not read the file.
+            if (request.path == "/missing") {
+                throw Status.NOT_FOUND.withDescription("file not found: /missing").asException()
+            }
             // Encode visibility into upload_id for the test.
             return prepareUploadResponse {
                 uploadId = "upid_file_${request.visibility}"
@@ -214,6 +320,10 @@ class GrpcClientTest {
         override suspend fun prepareDataUpload(request: Upload.PrepareDataUploadRequest): Upload.PrepareUploadResponse {
             val uid = "upid_data_${request.visibility}"
             val d = request.data
+            // Inputs starting with "NOFUNDS" → the daemon refuses to quote.
+            if (d.size() >= 7 && d.substring(0, 7).toStringUtf8() == "NOFUNDS") {
+                throw Status.FAILED_PRECONDITION.withDescription("insufficient funds").asException()
+            }
             if (d.size() >= 6 && d.substring(0, 6).toStringUtf8() == "MERKLE") {
                 return prepareUploadResponse {
                     uploadId = uid
@@ -601,6 +711,165 @@ class GrpcClientTest {
                     c.msg,
                 )
             }
+        }
+    }
+
+    // --- gRPC StatusException → typed AntdException on every method group ---
+    //
+    // grpc-kotlin's coroutine stubs throw StatusException on a failed unary
+    // call. Only the wallet and finalize methods used to catch it; every other
+    // method leaked the raw gRPC exception. Each group below asserts the typed
+    // exception the REST client would throw for the same daemon error.
+
+    @Test
+    fun dataGetPublicNotFoundMapsToNotFoundException() = runTest {
+        val ex = assertFailsWith<NotFoundException> { client.dataGetPublic("0xmissing") }
+        assertEquals("no data at 0xmissing", ex.message)
+        assertEquals(404, ex.statusCode)
+    }
+
+    @Test
+    fun dataPutUnavailableMapsToNetworkException() = runTest {
+        val ex = assertFailsWith<NetworkException> { client.dataPut(byteArrayOf(1, 2, 3), PaymentMode.AUTO) }
+        assertEquals("network unreachable", ex.message)
+    }
+
+    @Test
+    fun dataCostInternalMapsToInternalException() = runTest {
+        assertFailsWith<InternalException> { client.dataCost(byteArrayOf(1), PaymentMode.AUTO) }
+    }
+
+    @Test
+    fun chunkGetNotFoundMapsToNotFoundException() = runTest {
+        val ex = assertFailsWith<NotFoundException> { client.chunkGet("0xnochunk") }
+        assertEquals("no chunk at 0xnochunk", ex.message)
+    }
+
+    @Test
+    fun chunkPutResourceExhaustedMapsToTooLargeException() = runTest {
+        assertFailsWith<TooLargeException> { client.chunkPut(byteArrayOf(9)) }
+    }
+
+    @Test
+    fun fileGetNotFoundMapsToNotFoundException() = runTest {
+        val ex = assertFailsWith<NotFoundException> { client.fileGet("dm_missing", "/tmp/out") }
+        assertEquals("no file for dm_missing", ex.message)
+    }
+
+    @Test
+    fun filePutPublicInvalidArgumentMapsToBadRequestException() = runTest {
+        val ex = assertFailsWith<BadRequestException> { client.filePutPublic("/dev/null", PaymentMode.AUTO) }
+        assertEquals("path is not a file: /dev/null", ex.message)
+    }
+
+    @Test
+    fun prepareUploadNotFoundMapsToNotFoundException() = runTest {
+        val ex = assertFailsWith<NotFoundException> { client.prepareUpload("/missing", null) }
+        assertEquals("file not found: /missing", ex.message)
+    }
+
+    @Test
+    fun prepareDataUploadFailedPreconditionMapsToPaymentException() = runTest {
+        val ex = assertFailsWith<PaymentException> { client.prepareDataUpload("NOFUNDS".toByteArray(), null) }
+        assertEquals("insufficient funds", ex.message)
+    }
+
+    @Test
+    fun healthOkParsesResponse() = runTest {
+        val h = client.health()
+        assertTrue(h.ok)
+        assertEquals("testnet", h.network)
+        assertEquals("0.0.0-test", h.version)
+    }
+
+    @Test
+    fun healthUnavailableReportsDaemonDown() = runTest {
+        healthService.failWith = Status.UNAVAILABLE.withDescription("connection refused")
+        val h = client.health()
+        assertFalse(h.ok)
+        assertEquals("unknown", h.network)
+    }
+
+    @Test
+    fun healthOtherStatusReportsDaemonUp() = runTest {
+        // Any non-UNAVAILABLE status still came from the daemon, so it is
+        // reachable; before the shared helper a StatusException here fell
+        // through to the generic catch and read as down.
+        healthService.failWith = Status.INTERNAL.withDescription("degraded")
+        val h = client.health()
+        assertTrue(h.ok)
+        assertEquals("unknown", h.network)
+        assertEquals(1, healthRequests.count.get())
+    }
+
+    @Test
+    fun healthUnimplementedReportsDaemonUp() = runTest {
+        // A daemon without the health service still answered the call.
+        healthService.failWith = Status.UNIMPLEMENTED.withDescription("no health service")
+        assertTrue(client.health().ok)
+        assertEquals(1, healthRequests.count.get())
+    }
+
+    @Test
+    fun healthInCancelledContextReportsDaemonDown() {
+        // gRPC fails the call with CANCELLED on the client side, before any
+        // request is sent: that says nothing about the daemon, so the check
+        // must not fall into the "any other status means up" branch.
+        val ctx = Context.current().withCancellation()
+        ctx.cancel(null)
+        val h = ctx.call { runBlocking { client.health() } }
+        assertFalse(h.ok)
+        assertEquals("unknown", h.network)
+        assertEquals(0, healthRequests.count.get())
+    }
+
+    @Test
+    fun healthDeadlineExceededReportsDaemonDown() {
+        // The daemon takes the request but never answers; the client's
+        // deadline expires and gRPC fails the call with DEADLINE_EXCEEDED,
+        // which is not an answer from the daemon.
+        //
+        // No clock decides the ordering: the deadline is far off (so the call
+        // cannot fail locally at start) and its expiry task is held until the
+        // server has the request, then run. A slow dispatch can therefore
+        // never expire the call before it is sent and turn this into the
+        // zero-request case.
+        healthService.hang = true
+        val backing = Executors.newSingleThreadScheduledExecutor()
+        val deadlines = ManualDeadlineScheduler(backing)
+        val caller = Executors.newSingleThreadExecutor()
+        try {
+            val ctx = Context.current().withDeadlineAfter(1, TimeUnit.HOURS, deadlines)
+            val pending = caller.submit(Callable { ctx.call { runBlocking { client.health() } } })
+            assertTrue(
+                healthService.arrived.await(10, TimeUnit.SECONDS),
+                "the health check never reached the server",
+            )
+            assertEquals(1, healthRequests.count.get())
+            // The deadline passes now, after the server has the request.
+            assertNotNull(deadlines.expiry, "the Context deadline scheduled no expiry").run()
+            val h = pending.get(10, TimeUnit.SECONDS)
+            assertFalse(h.ok)
+            assertEquals("unknown", h.network)
+            assertEquals(1, healthRequests.count.get())
+        } finally {
+            caller.shutdownNow()
+            backing.shutdownNow()
+        }
+    }
+
+    @Test
+    fun healthExpiredDeadlineReportsDaemonDown() {
+        // A deadline that has already passed fails the call locally with
+        // DEADLINE_EXCEEDED; no request reaches the daemon.
+        val scheduler = Executors.newSingleThreadScheduledExecutor()
+        try {
+            val ctx = Context.current().withDeadlineAfter(-1, TimeUnit.SECONDS, scheduler)
+            val h = ctx.call { runBlocking { client.health() } }
+            assertFalse(h.ok)
+            assertEquals(0, healthRequests.count.get())
+        } finally {
+            scheduler.shutdownNow()
         }
     }
 

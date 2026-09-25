@@ -97,6 +97,8 @@ try {
 | `TooLargeException` | 413 | RESOURCE_EXHAUSTED | Data too large |
 | `InternalException` | 500 | INTERNAL | Server error |
 
+Both clients follow this table: every `AntdGrpcClient` method maps a failed gRPC status to the exception type in the same row, so a `catch (e: NotFoundException)` works unchanged whichever client you construct, and raw `io.grpc.StatusException` / `StatusRuntimeException` never escape. The mapping is not one-to-one everywhere, because gRPC carries less detail than HTTP: the daemon reports both an unreachable network (REST 502) and a service-unavailable error (REST 503) as gRPC UNAVAILABLE, so a service-unavailable error throws `ServiceUnavailableException` over REST but `NetworkException` over gRPC; code that must handle it on both transports should catch both. A gRPC status with no row here (e.g. DEADLINE_EXCEEDED) throws a plain `AntdException` whose `statusCode` is the gRPC code number.
+
 ### Partial uploads
 
 An external-signer finalize (`finalizeUpload`, `finalizeMerkleUpload`, `finalizeChunkUpload`) can fail *after* the wallet has paid: some chunks store, others miss quorum after the daemon's own retries. That surfaces as `PartialUploadException` carrying `chunksStored` / `chunksFailed` / `totalChunks` and two flags, `retryable` and `retentionKnown` (`retryable` implies `retentionKnown`). The on-chain payment persists and the stored chunks stay on the network; the flags say how to finish:
