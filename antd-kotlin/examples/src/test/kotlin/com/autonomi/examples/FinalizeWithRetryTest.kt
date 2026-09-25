@@ -2,6 +2,8 @@ package com.autonomi.examples
 
 import com.autonomi.sdk.PartialUploadException
 import kotlinx.coroutines.test.runTest
+import java.io.ByteArrayOutputStream
+import java.io.PrintStream
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -102,5 +104,84 @@ class FinalizeWithRetryTest {
         assertSame(original, ex)
         assertTrue(ex.retentionKnown)
         assertFalse(ex.retryable)
+    }
+
+    // --- End to end from gRPC status text ---
+
+    /**
+     * The SDK's gRPC message parser (`ExceptionMapping.partialUploadFromMessage`)
+     * is internal to :lib, so reach it reflectively: these tests feed daemon
+     * status text through the same code the gRPC client uses.
+     */
+    private fun fromGrpcMessage(message: String): PartialUploadException {
+        val mapping = Class.forName("com.autonomi.sdk.ExceptionMapping")
+        val instance = mapping.getField("INSTANCE").get(null)
+        return mapping.getMethod("partialUploadFromMessage", String::class.java)
+            .invoke(instance, message) as PartialUploadException
+    }
+
+    /** Runs [block] and returns what it printed to stdout. */
+    private inline fun capturingStdout(block: () -> Unit): String {
+        val original = System.out
+        val buffer = ByteArrayOutputStream()
+        System.setOut(PrintStream(buffer, true, Charsets.UTF_8))
+        try {
+            block()
+        } finally {
+            System.setOut(original)
+        }
+        return buffer.toString(Charsets.UTF_8)
+    }
+
+    private val grpcCounts = "Partial upload: 6/10 chunks stored, 4 failed after retries: quorum"
+
+    @Test
+    fun grpcMessageWithoutAReadableHintStopsToReconcileNeverRePrepare() = runTest {
+        // The SDK parser's flags must steer the helper to "stop and
+        // reconcile", never to "the daemon kept nothing; re-prepare",
+        // whenever the daemon's answer on retention could not be read: no
+        // hint, the review's truncated retained hint, a truncated
+        // not-retained hint.
+        for (tail in listOf("", " (paid attempt retai", " (stored chunks persist; re-prepare the same con")) {
+            val original = fromGrpcMessage(grpcCounts + tail)
+            var calls = 0
+            val out = capturingStdout {
+                val ex = assertFailsWith<PartialUploadException>(tail) {
+                    finalizeWithRetry("up-1") {
+                        calls++
+                        throw original
+                    }
+                }
+                assertSame(original, ex, tail)
+            }
+            assertEquals(1, calls, tail)
+            assertEquals(listOf(6L, 4L, 10L), listOf(original.chunksStored, original.chunksFailed, original.totalChunks), tail)
+            assertFalse(original.retentionKnown, tail)
+            assertFalse(original.retryable, tail)
+            assertTrue("retention unknown: stopping" in out, "[$tail] $out")
+            assertFalse("kept nothing" in out, "[$tail] $out")
+        }
+    }
+
+    @Test
+    fun grpcMessageWithTheNotRetainedHintIsRethrownForRePrepare() = runTest {
+        val original = fromGrpcMessage(
+            "$grpcCounts (stored chunks persist; re-prepare the same content to retry only the remainder)",
+        )
+        var calls = 0
+        val out = capturingStdout {
+            val ex = assertFailsWith<PartialUploadException> {
+                finalizeWithRetry("up-1") {
+                    calls++
+                    throw original
+                }
+            }
+            assertSame(original, ex)
+        }
+        assertEquals(1, calls)
+        assertTrue(original.retentionKnown)
+        assertFalse(original.retryable)
+        assertTrue("kept nothing" in out, out)
+        assertFalse("retention unknown" in out, out)
     }
 }

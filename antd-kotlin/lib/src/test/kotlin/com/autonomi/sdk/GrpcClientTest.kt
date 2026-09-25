@@ -65,8 +65,10 @@ class GrpcClientTest {
 
     companion object {
         // The daemon's PARTIAL_UPLOAD status descriptions: counts in the fixed
-        // prefix, and a "paid attempt retained" hint when the same-upload_id
-        // retry applies.
+        // prefix, and a closing hint: "paid attempt retained" when the
+        // same-upload_id retry applies, "stored chunks persist; re-prepare the
+        // same content" when it does not (partial_upload_hint in
+        // antd/src/error.rs).
         const val PARTIAL_RETAINED_MSG =
             "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " +
                 "(paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)"
@@ -82,6 +84,11 @@ class GrpcClientTest {
             "Partial upload: 0/9223372036854775808 chunks stored, 9223372036854775808 failed (paid attempt retained)"
         // An ABORTED that is not a partial upload at all.
         const val OTHER_ABORTED_MSG = "register fork: concurrent update detected"
+        // Readable counts but no readable retention hint: missing, or cut
+        // short (the review's reproducer). Retention must read as unknown.
+        const val PARTIAL_NO_HINT_MSG = "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum"
+        const val PARTIAL_TRUNCATED_HINT_MSG =
+            "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (paid attempt retai"
     }
 
     // --- Mock servicers ---
@@ -252,6 +259,14 @@ class GrpcClientTest {
             if (request.uploadId == "partial-final") {
                 throw Status.ABORTED.withDescription(PARTIAL_NOT_RETAINED_MSG).asRuntimeException()
             }
+            // Magic ids: readable counts, but the retention hint is missing
+            // or cut short.
+            if (request.uploadId == "partial-no-hint") {
+                throw Status.ABORTED.withDescription(PARTIAL_NO_HINT_MSG).asRuntimeException()
+            }
+            if (request.uploadId == "partial-truncated-hint") {
+                throw Status.ABORTED.withDescription(PARTIAL_TRUNCATED_HINT_MSG).asRuntimeException()
+            }
             // Magic id: the prefix is present but the counts are garbled.
             if (request.uploadId == "partial-garbled") {
                 throw Status.ABORTED.withDescription(PARTIAL_GARBLED_MSG).asRuntimeException()
@@ -410,8 +425,33 @@ class GrpcClientTest {
         assertEquals(300L, ex.chunksStored)
         assertEquals(12L, ex.chunksFailed)
         assertEquals(312L, ex.totalChunks)
-        assertFalse(ex.retryable, "no retained hint must read as not retryable")
-        assertTrue(ex.retentionKnown, "readable counts without the hint: the daemon kept nothing")
+        assertFalse(ex.retryable, "the not-retained hint must read as not retryable")
+        assertTrue(ex.retentionKnown, "the not-retained hint: the daemon kept nothing")
+    }
+
+    // Readable counts without a readable retention hint: the daemon's answer
+    // was not read, so retention is unknown (stop and reconcile), never
+    // "nothing retained" (re-prepare). The counts still read.
+    private suspend fun assertPartialRetentionUnknown(uploadId: String, message: String) {
+        val ex = assertFailsWith<PartialUploadException> {
+            client.finalizeUpload(uploadId, mapOf("0xq1" to "0xtx1"))
+        }
+        assertEquals(1L, ex.chunksStored)
+        assertEquals(2L, ex.chunksFailed)
+        assertEquals(3L, ex.totalChunks)
+        assertFalse(ex.retryable)
+        assertFalse(ex.retentionKnown, "retention must be unknown, not confirmed non-retention")
+        assertEquals(message, ex.message)
+    }
+
+    @Test
+    fun finalizeUploadPartialWithoutHintIsRetentionUnknown() = runTest {
+        assertPartialRetentionUnknown("partial-no-hint", PARTIAL_NO_HINT_MSG)
+    }
+
+    @Test
+    fun finalizeUploadPartialWithTruncatedHintIsRetentionUnknown() = runTest {
+        assertPartialRetentionUnknown("partial-truncated-hint", PARTIAL_TRUNCATED_HINT_MSG)
     }
 
     @Test
@@ -480,18 +520,41 @@ class GrpcClientTest {
 
     @Test
     fun partialUploadMessageParserCases() {
-        // `known` is retentionKnown: true only when the counts read; the
-        // retained hint then decides `retryable`.
+        // `known` is retentionKnown: true only when the counts read AND one of
+        // the daemon's two hints closes the message; the retained hint then
+        // decides `retryable`.
         data class Case(
             val msg: String, val stored: Long, val failed: Long, val total: Long,
             val retryable: Boolean, val known: Boolean,
         )
+        val counts = "Partial upload: 1/3 chunks stored, 2 failed after retries:"
+        val retainedTail = " (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)"
+        val notRetainedTail = " (stored chunks persist; re-prepare the same content to retry only the remainder)"
         val cases = listOf(
-            // Well-formed with the hint: known and retryable.
+            // Well-formed with the retained hint (full or short): known and retryable.
             Case(PARTIAL_RETAINED_MSG, 300, 12, 312, true, true),
-            // Well-formed without the hint: known, the daemon kept nothing.
+            Case("Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (paid attempt retained)", 300, 12, 312, true, true),
+            // Well-formed with the not-retained hint: known, the daemon kept nothing.
             Case(PARTIAL_NOT_RETAINED_MSG, 300, 12, 312, false, true),
-            Case("Partial upload: 300/312 chunks stored, 12 failed after retries", 300, 12, 312, false, true),
+            // Only the hint that closes the message decides: a parenthesised
+            // reason before it, or the retained hint quoted in the reason,
+            // does not change the answer.
+            Case("$counts quorum (2 of 5 peers)$notRetainedTail", 1, 2, 3, false, true),
+            Case("$counts peer said (paid attempt retained)$notRetainedTail", 1, 2, 3, false, true),
+            // Readable counts but no readable answer on retention: no hint, a
+            // truncated or unclosed hint, an unrecognised hint, text or a
+            // newline after the hint, or a hint only inside the reason. The
+            // counts still read; retention is unknown, never "nothing retained".
+            Case("Partial upload: 300/312 chunks stored, 12 failed after retries", 300, 12, 312, false, false),
+            Case(PARTIAL_NO_HINT_MSG, 1, 2, 3, false, false),
+            Case(PARTIAL_TRUNCATED_HINT_MSG, 1, 2, 3, false, false),
+            Case("$counts quorum (paid attempt retained: call finalize again", 1, 2, 3, false, false),
+            Case("$counts quorum (stored chunks persist; re-prepare the same con", 1, 2, 3, false, false),
+            Case("$counts quorum (something else)", 1, 2, 3, false, false),
+            Case("$counts quorum$retainedTail trailing", 1, 2, 3, false, false),
+            Case("$counts quorum$retainedTail\n", 1, 2, 3, false, false),
+            Case("$counts quorum$notRetainedTail\n", 1, 2, 3, false, false),
+            Case("$counts peer said (paid attempt retained) (connection reset)", 1, 2, 3, false, false),
             // Prefix present, counts garbled: zero counts, unknown.
             Case(PARTIAL_GARBLED_MSG, 0, 0, 0, false, false),
             // Counts garbled AND the retained hint present: still not
@@ -513,6 +576,7 @@ class GrpcClientTest {
             // The count layout is anchored like the gate: quoted further in,
             // it does not read.
             Case("finalize failed: Partial upload: 300/312 chunks stored, 12 failed (paid attempt retained)", 0, 0, 0, false, false),
+            Case("Partial upload: garbled; was Partial upload: 1/3 chunks stored, 2 failed (paid attempt retained)", 0, 0, 0, false, false),
             // The parser itself never decides the exception type; the
             // mapping-level gate does (see abortedMappingGatesOnPartialUploadPrefix).
             Case("something else entirely", 0, 0, 0, false, false),
@@ -525,6 +589,18 @@ class GrpcClientTest {
             assertEquals(c.retryable, ex.retryable, c.msg)
             assertEquals(c.known, ex.retentionKnown, c.msg)
             assertEquals(c.msg, ex.message)
+            // The ABORTED mapping reads a prefixed message the same way.
+            if (ExceptionMapping.isPartialUploadMessage(c.msg)) {
+                val mapped = assertIs<PartialUploadException>(
+                    ExceptionMapping.fromGrpcStatus(Status.ABORTED.withDescription(c.msg).asRuntimeException()),
+                    c.msg,
+                )
+                assertEquals(
+                    listOf(c.stored, c.failed, c.total, c.retryable, c.known),
+                    listOf(mapped.chunksStored, mapped.chunksFailed, mapped.totalChunks, mapped.retryable, mapped.retentionKnown),
+                    c.msg,
+                )
+            }
         }
     }
 
