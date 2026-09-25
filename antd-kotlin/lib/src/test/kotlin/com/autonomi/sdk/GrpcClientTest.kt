@@ -2,6 +2,7 @@ package com.autonomi.sdk
 
 import antd.v1.*
 import com.google.protobuf.ByteString
+import io.grpc.Context
 import io.grpc.ManagedChannel
 import io.grpc.Metadata
 import io.grpc.Server
@@ -13,9 +14,14 @@ import io.grpc.ForwardingServerCall
 import io.grpc.Status
 import io.grpc.inprocess.InProcessChannelBuilder
 import io.grpc.inprocess.InProcessServerBuilder
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -38,14 +44,18 @@ class GrpcClientTest {
     private lateinit var channel: ManagedChannel
     private lateinit var client: AntdGrpcClient
     private lateinit var healthService: MockHealthService
+    private lateinit var healthRequests: RequestCountingInterceptor
 
     @BeforeTest
     fun setUp() {
         val name = InProcessServerBuilder.generateName()
         healthService = MockHealthService()
+        healthRequests = RequestCountingInterceptor()
         server = InProcessServerBuilder.forName(name)
             .directExecutor()
-            .addService(healthService)
+            // Counts the health checks that actually reach the server, so a
+            // test can tell a daemon answer from a client-side failure.
+            .addService(ServerInterceptors.intercept(healthService, healthRequests))
             .addService(MockChunkService())
             .addService(MockUploadService())
             .addService(MockFileService())
@@ -93,8 +103,11 @@ class GrpcClientTest {
     class MockHealthService : HealthServiceGrpcKt.HealthServiceCoroutineImplBase() {
         // When set, every check() fails with this status.
         var failWith: Status? = null
+        // When set, every check() hangs until the call is cancelled.
+        var hang = false
 
         override suspend fun check(request: Health.HealthCheckRequest): Health.HealthCheckResponse {
+            if (hang) awaitCancellation()
             failWith?.let { throw it.asException() }
             return healthCheckResponse {
                 status = "ok"
@@ -141,6 +154,19 @@ class GrpcClientTest {
                 dataChunk { data = ByteString.copyFromUtf8("hel") },
                 dataChunk { data = ByteString.copyFromUtf8("lo") },
             )
+    }
+
+    class RequestCountingInterceptor : ServerInterceptor {
+        val count = AtomicInteger()
+
+        override fun <ReqT, RespT> interceptCall(
+            call: ServerCall<ReqT, RespT>,
+            headers: Metadata,
+            next: ServerCallHandler<ReqT, RespT>,
+        ): ServerCall.Listener<ReqT> {
+            count.incrementAndGet()
+            return next.startCall(call, headers)
+        }
     }
 
     // Sets x-content-length initial metadata per data-stream method, matching
@@ -625,6 +651,61 @@ class GrpcClientTest {
         val h = client.health()
         assertTrue(h.ok)
         assertEquals("unknown", h.network)
+        assertEquals(1, healthRequests.count.get())
+    }
+
+    @Test
+    fun healthUnimplementedReportsDaemonUp() = runTest {
+        // A daemon without the health service still answered the call.
+        healthService.failWith = Status.UNIMPLEMENTED.withDescription("no health service")
+        assertTrue(client.health().ok)
+        assertEquals(1, healthRequests.count.get())
+    }
+
+    @Test
+    fun healthInCancelledContextReportsDaemonDown() {
+        // gRPC fails the call with CANCELLED on the client side, before any
+        // request is sent: that says nothing about the daemon, so the check
+        // must not fall into the "any other status means up" branch.
+        val ctx = Context.current().withCancellation()
+        ctx.cancel(null)
+        val h = ctx.call { runBlocking { client.health() } }
+        assertFalse(h.ok)
+        assertEquals("unknown", h.network)
+        assertEquals(0, healthRequests.count.get())
+    }
+
+    @Test
+    fun healthDeadlineExceededReportsDaemonDown() {
+        // The daemon takes the request but never answers; the client's
+        // deadline expires and gRPC fails the call with DEADLINE_EXCEEDED,
+        // which is not an answer from the daemon.
+        healthService.hang = true
+        val scheduler = Executors.newSingleThreadScheduledExecutor()
+        try {
+            val ctx = Context.current().withDeadlineAfter(100, TimeUnit.MILLISECONDS, scheduler)
+            val h = ctx.call { runBlocking { client.health() } }
+            assertFalse(h.ok)
+            assertEquals("unknown", h.network)
+            assertEquals(1, healthRequests.count.get())
+        } finally {
+            scheduler.shutdownNow()
+        }
+    }
+
+    @Test
+    fun healthExpiredDeadlineReportsDaemonDown() {
+        // A deadline that has already passed fails the call locally with
+        // DEADLINE_EXCEEDED; no request reaches the daemon.
+        val scheduler = Executors.newSingleThreadScheduledExecutor()
+        try {
+            val ctx = Context.current().withDeadlineAfter(-1, TimeUnit.SECONDS, scheduler)
+            val h = ctx.call { runBlocking { client.health() } }
+            assertFalse(h.ok)
+            assertEquals(0, healthRequests.count.get())
+        } finally {
+            scheduler.shutdownNow()
+        }
     }
 
     @Test

@@ -11,6 +11,7 @@ import io.grpc.ForwardingClientCallListener
 import io.grpc.ManagedChannelBuilder
 import io.grpc.Metadata
 import io.grpc.MethodDescriptor
+import io.grpc.Status
 import io.grpc.StatusException
 import io.grpc.StatusRuntimeException
 import java.util.concurrent.atomic.AtomicReference
@@ -91,9 +92,11 @@ class AntdGrpcClient internal constructor(
      * [AntdException] the REST client throws for the same daemon error.
      *
      * grpc-kotlin's coroutine stubs surface a failed unary call as
-     * [StatusException], not [StatusRuntimeException]; every call goes
-     * through here so both shapes map the same way and neither escapes raw.
-     * Anything that is not a gRPC status propagates untouched.
+     * [StatusException], not [StatusRuntimeException]; every call that
+     * throws goes through here so both shapes map the same way and neither
+     * escapes raw. Anything that is not a gRPC status propagates untouched.
+     * [health] is the one exception: it never throws, and reads the raw
+     * status itself (see [daemonAnswered]).
      */
     private inline fun <T> grpc(block: () -> T): T = try {
         block()
@@ -106,7 +109,7 @@ class AntdGrpcClient internal constructor(
     // ── Health ──
 
     override suspend fun health(): HealthStatus = try {
-        val resp = grpc { healthStub.check(healthCheckRequest { }) }
+        val resp = healthStub.check(healthCheckRequest { })
         HealthStatus(
             ok = resp.status == "ok",
             network = resp.network.ifEmpty { "unknown" },
@@ -117,14 +120,25 @@ class AntdGrpcClient internal constructor(
             paymentTokenAddress = resp.paymentTokenAddress,
             paymentVaultAddress = resp.paymentVaultAddress,
         )
-    } catch (_: NetworkException) {
-        // UNAVAILABLE: the daemon could not be reached.
-        HealthStatus(false, "unknown")
-    } catch (_: AntdException) {
-        // Any other status came from the daemon, so it is up.
-        HealthStatus(true, "unknown")
+    } catch (ex: StatusException) {
+        HealthStatus(daemonAnswered(ex.status), "unknown")
+    } catch (ex: StatusRuntimeException) {
+        HealthStatus(daemonAnswered(ex.status), "unknown")
     } catch (_: Exception) {
         HealthStatus(false, "unknown")
+    }
+
+    /**
+     * Whether a failed health check's [status] shows the daemon answered.
+     * UNAVAILABLE means it could not be reached. CANCELLED and
+     * DEADLINE_EXCEEDED prove nothing: gRPC raises both on the client side
+     * (a cancelled `io.grpc.Context`, an expired deadline), often before any
+     * request is sent. Any other status was returned by the daemon, so it
+     * is up.
+     */
+    private fun daemonAnswered(status: Status): Boolean = when (status.code) {
+        Status.Code.UNAVAILABLE, Status.Code.CANCELLED, Status.Code.DEADLINE_EXCEEDED -> false
+        else -> true
     }
 
     // ── Data ──
