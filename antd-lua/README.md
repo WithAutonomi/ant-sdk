@@ -187,13 +187,15 @@ A `finalize_upload` / `finalize_merkle_upload` can fail *after* the wallet has p
 | `chunks_failed` | Chunks still unstored |
 | `total_chunks` | Chunks in the upload |
 | `retryable` | `true` when the daemon kept the paid attempt under the same `upload_id` (sent by antd ≥ 0.14.0; absent on older daemons, which reads as `false`) |
+| `retention_known` | `true` when the body's `retryable` is a JSON boolean (`true` or `false`), so the daemon said whether it kept the paid attempt; absent, `null` or any other type reads as `false`. `retryable` implies `retention_known` |
 
-The body is read strictly, never coerced. A count is taken only from a JSON number that is a finite, non-negative integer below 2^64; a quoted number such as `"12"`, a boolean, an object, `null`, or a negative, fractional or non-finite number reads as `0`. `retryable` is `true` only for the JSON boolean `true` (a string `"true"` or the number `1` reads `false`). The error is only mapped when `code` is exactly the string `"PARTIAL_UPLOAD"`; any other `code` keeps the status-based mapping (a 502 stays `network`), as does a body that is not strict JSON (for example a bare `NaN` or `0x10`). A non-string `error` field falls back to the raw response body as `message`. A malformed body never raises: at worst it maps onto the status-based error.
+The body is read strictly, never coerced. A count is taken only from a JSON number that is a finite, non-negative integer below 2^64; a quoted number such as `"12"`, a boolean, an object, `null`, or a negative, fractional or non-finite number reads as `0`. The check runs on the value cjson decodes (an IEEE-754 double), not on the exact wire digits: a fraction too close to an integer for a double to resolve reads as that integer, integers above 2^53 round, and the largest u64 rounds up to 2^64 and reads as `0`. `retryable` is `true` only for the JSON boolean `true` (a string `"true"` or the number `1` reads `false`), and `retention_known` only when `retryable` is a JSON boolean. The error is only mapped when `code` is exactly the string `"PARTIAL_UPLOAD"`; any other `code` keeps the status-based mapping (a 502 stays `network`), as does a body that is not strict JSON (for example a bare `NaN` or `0x10`). A non-string `error` field falls back to the raw response body as `message`. A malformed body never raises: at worst it maps onto the status-based error.
 
-The on-chain payment persists and the stored chunks stay on the network either way. What to do next depends on `retryable`:
+The on-chain payment persists and the stored chunks stay on the network either way. What to do next depends on what the daemon said about the paid attempt:
 
-- **`retryable == true`** — call the **same** finalize method again with the **same arguments**. The daemon stores the remainder against the same payment: no re-prepare, no second signature, no double payment. Bound that loop: a persistent failure returns `partial_upload` on every call, so cap the attempts and treat a `chunks_failed` that stops shrinking as stuck. The retained attempt expires with the daemon's pending-upload TTL.
-- **`retryable == false`** — nothing was retained (older daemon, or a merkle finalize with deliberately unpaid batches). Re-prepare the same content: the prepare skips already-stored chunks, so the retry pays only for the remainder.
+- **`retryable`** (antd ≥ 0.14.0; implies `retention_known`) — call the **same** finalize method again with the **same `upload_id` and payment artefacts**. The daemon stores the remainder against the same payment: no re-prepare, no second signature, no double payment. Bound that loop: a persistent failure returns `partial_upload` on every call, so cap the attempts and treat a `chunks_failed` that stops shrinking as stuck. The retained attempt expires with the daemon's pending-upload TTL.
+- **`retention_known and not retryable`** — the daemon confirmed nothing was retained (a merkle finalize with deliberately unpaid batches). Re-prepare the same content: the prepare skips already-stored chunks, so the retry pays only for the remainder.
+- **`not retention_known`** — retention is unknown: the error did not say, as a JSON boolean, whether the paid attempt was kept. The daemon may still hold it (it records the resume handle before it returns the error). Stop automatic recovery, keep the `upload_id` and the original payment artefacts, and reconcile before re-preparing or paying again. **Never pay again on this signal alone.** Daemons older than 0.14.0 never send `retryable`, so their partial uploads read as unknown.
 
 ```lua
 local errors = require("antd.errors")
@@ -206,13 +208,30 @@ if errors.is_partial_upload(err) then
         -- same upload_id, same payment: see finalize_with_retry in
         -- examples/07-external-signer.lua for a bounded loop
         result, err = client:finalize_upload(upload_id, tx_hashes)
+    elseif err.retention_known then
+        -- confirmed not retained: re-prepare the same content; only the
+        -- remainder is quoted and paid
     else
-        -- re-prepare the same content; only the remainder is quoted and paid
+        -- retention unknown: stop, keep upload_id + tx_hashes, and reconcile
+        -- before re-preparing or paying again
     end
 end
 ```
 
 See [docs/external-signer-flow.md §6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment) for the daemon-side contract and `finalize_with_retry` in [examples/07-external-signer.lua](examples/07-external-signer.lua) for a bounded retry helper.
+
+#### Upgrading: partial uploads are no longer `network` errors
+
+Until the 0.14.0 release, a REST partial upload surfaced as a plain `network` error (HTTP 502) carrying only the message text. It now has `type == "partial_upload"`, still with `status_code == 502`. This is an intentional change: the typed error carries the counts and the retention flags above. Code that matched `err.type == "network"` to catch a failed finalize no longer sees partial uploads. Handle `partial_upload` explicitly (preferred, with `errors.is_partial_upload(err)`), or widen the check:
+
+```lua
+-- before: if err.type == "network" then ... end
+if err.type == "partial_upload" or err.type == "network" then
+    -- a 502 from the daemon: partial store or network failure
+end
+```
+
+`err.status_code == 502` matches both, as before.
 
 ## Examples
 

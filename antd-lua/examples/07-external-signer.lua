@@ -126,10 +126,18 @@ end
 -- The loop is bounded: a persistent failure (a chunk whose close group stays
 -- unreachable) returns a partial_upload error on every call, never a
 -- different error, so it caps the attempts and treats a chunks_failed that
--- stops shrinking as stuck. A non-retryable partial upload (older daemon, or
--- a merkle upload with unpaid batches) is returned untouched: the recovery
--- there is to re-prepare the same content, which skips the chunks already
--- stored.
+-- stops shrinking as stuck.
+--
+-- A partial upload that is not retryable is one of two cases:
+--   * retention_known but not retryable: the daemon confirmed nothing was
+--     retained (a merkle upload with unpaid batches). The error is returned
+--     untouched; the recovery is to re-prepare the same content, which skips
+--     the chunks already stored.
+--   * not retention_known: the error did not say whether the paid attempt
+--     was kept (a daemon older than 0.14.0, or a body the SDK could not
+--     read), and the daemon may still hold it. The helper stops without
+--     retrying, re-preparing or paying: keep the upload_id and tx hashes and
+--     reconcile before re-preparing or paying again.
 --
 -- @return table|nil result, table|nil err
 local function finalize_with_retry(cli, upload_id, tx_hashes)
@@ -141,14 +149,27 @@ local function finalize_with_retry(cli, upload_id, tx_hashes)
         if not err then
             return result, nil -- every chunk stored
         end
-        if not errors.is_partial_upload(err) or not err.retryable then
+        if not errors.is_partial_upload(err) then
             return nil, err
+        end
+        if not err.retention_known then
+            -- Unknown retention: never re-prepare or pay again on this alone.
+            err.message = string.format(
+                "finalize stopped: retention of the paid attempt is unknown (%d/%d chunks stored). "
+                    .. "The daemon may still hold it under upload_id %s: keep the upload_id and tx "
+                    .. "hashes and reconcile before re-preparing or paying again: %s",
+                err.chunks_stored, err.total_chunks, upload_id, err.message)
+            return nil, err
+        end
+        if not err.retryable then
+            return nil, err -- confirmed not retained: the caller re-prepares
         end
         local stuck = last_failed ~= nil and err.chunks_failed >= last_failed
         if attempt >= max_attempts or stuck then
             err.message = string.format(
                 "finalize stuck after %d attempt(s): %d/%d chunks stored, %d still unstored "
-                    .. "(paid attempt retained under upload_id %s — retry later or re-prepare): %s",
+                    .. "(paid attempt retained under upload_id %s: retry the same finalize later; "
+                    .. "re-preparing now would pay again): %s",
                 attempt, err.chunks_stored, err.total_chunks, err.chunks_failed, upload_id, err.message)
             return nil, err
         end
@@ -185,8 +206,9 @@ local file_fin, err2 = finalize_with_retry(client, file_prep.upload_id, file_tx_
 if err2 then
     print("Finalize error: " .. err2.message)
     if errors.is_partial_upload(err2) then
-        print(string.format("  %d/%d chunks stored, %d unstored, retryable=%s",
-            err2.chunks_stored, err2.total_chunks, err2.chunks_failed, tostring(err2.retryable)))
+        print(string.format("  %d/%d chunks stored, %d unstored, retryable=%s, retention_known=%s",
+            err2.chunks_stored, err2.total_chunks, err2.chunks_failed, tostring(err2.retryable),
+            tostring(err2.retention_known)))
     end
     os.exit(1)
 end

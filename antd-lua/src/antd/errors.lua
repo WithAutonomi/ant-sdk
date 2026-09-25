@@ -90,6 +90,12 @@ local COUNT_LIMIT = 2 ^ 64
 -- non-negative integer below 2^64 is accepted; anything else reads as 0.
 -- `tonumber` is deliberately avoided: it turns the strings "1", "0x10" and
 -- " 1e3 " into 1, 16 and 1000.
+--
+-- The check runs on the decoded value, an IEEE-754 double, not on the wire
+-- digits: a fraction closer to an integer than a double can resolve (e.g.
+-- 1.0000000000000000001) reads as that integer, integers above 2^53 round to
+-- the nearest double, and 18446744073709551615 (the largest u64) rounds up
+-- to 2^64 and so reads as 0.
 -- @param v any decoded field value
 -- @return number
 local function count_field(v)
@@ -110,21 +116,30 @@ end
 --
 -- A finalize stored some chunks while others stayed unstored after the
 -- daemon's own retries. The on-chain payment persists and the stored chunks
--- stay on the network. How to finish the upload depends on `retryable`:
+-- stay on the network. How to finish the upload depends on what the daemon
+-- said about the paid attempt, read from `retryable` and `retention_known`:
 --
---   * `retryable == true` — the daemon kept the paid attempt (payment proofs
---     + unstored chunks) under the same `upload_id`. Call the same finalize
---     method again with the same arguments to store the remainder against
---     the same payment: no re-prepare, no second signature, no double
---     payment. Bound the loop — a persistent failure returns this error on
---     every call, so cap the attempts and treat a `chunks_failed` that stops
+--   * `retryable` (antd >= 0.14.0; implies `retention_known`) — the daemon
+--     kept the paid attempt (payment proofs + unstored chunks) under the
+--     same `upload_id`. Call the same finalize method again with the same
+--     `upload_id` and payment artefacts to store the remainder against the
+--     same payment: no re-prepare, no second signature, no double payment.
+--     Bound the loop — a persistent failure returns this error on every
+--     call, so cap the attempts and treat a `chunks_failed` that stops
 --     shrinking as stuck. The retained attempt expires with the daemon's
---     pending-upload TTL. (antd >= 0.14.0; older daemons never send the
---     flag, so it reads false and the re-prepare path applies.)
---   * `retryable == false` — nothing was retained (a merkle finalize with
---     deliberately unpaid batches, or an older daemon). Re-preparing the
---     same content skips already-stored chunks, so a retry pays only for
---     the missing remainder.
+--     pending-upload TTL.
+--   * `retention_known and not retryable` — the daemon confirmed nothing
+--     was retained (a merkle finalize with deliberately unpaid batches).
+--     Re-prepare the same content: already-stored chunks are skipped, so
+--     the retry pays only for the missing remainder.
+--   * `not retention_known` — retention is unknown: the body did not say,
+--     as a JSON boolean, whether the paid attempt was kept. The daemon may
+--     still hold it (it records the resume handle before it returns this
+--     error). Stop automatic recovery, keep the `upload_id` and the
+--     original payment artefacts, and reconcile before re-preparing or
+--     paying again. Never pay again on this signal alone. Daemons older
+--     than 0.14.0 never send `retryable`, so their partial uploads read as
+--     unknown.
 --
 -- See docs/external-signer-flow.md §6.
 --
@@ -133,12 +148,16 @@ end
 -- else (a quoted number such as "1", a boolean, a table, JSON null, or a
 -- negative, fractional, NaN or infinite number) reads as 0. `retryable` is
 -- true only for the JSON boolean `true`: a string "true" or the number 1
--- reads false. A malformed `fields` never raises.
+-- reads false. `retention_known` is true only when `retryable` is a JSON
+-- boolean (`true` or `false`); absent, JSON null or any other type reads as
+-- unknown. So `retryable` implies `retention_known`. A malformed `fields`
+-- never raises.
 --
 -- @param message string
 -- @param fields table|nil { chunks_stored, chunks_failed, total_chunks,
 --   retryable } as decoded from the response body; absent or malformed
---   counts read as 0, an absent or malformed retryable reads as false
+--   counts read as 0, an absent or malformed retryable reads as false and
+--   leaves retention_known false
 -- @return table
 function M.partial_upload(message, fields)
     if type(fields) ~= "table" then
@@ -149,6 +168,7 @@ function M.partial_upload(message, fields)
     err.chunks_failed = count_field(fields.chunks_failed)
     err.total_chunks = count_field(fields.total_chunks)
     err.retryable = fields.retryable == true
+    err.retention_known = type(fields.retryable) == "boolean"
     return err
 end
 

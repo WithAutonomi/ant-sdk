@@ -742,13 +742,15 @@ describe("antd client", function()
             assert.are.equal(12, err.chunks_failed)
             assert.are.equal(312, err.total_chunks)
             assert.is_true(err.retryable)
+            assert.is_true(err.retention_known)
             assert.is_truthy(err.message:find("Partial upload: 300/312", 1, true))
         end)
 
-        it("defaults retryable to false when an older daemon omits the flag", function()
-            -- An older daemon (< 0.14.0) never sends `retryable`; the flag must
-            -- read false so callers fall back to the re-prepare path rather
-            -- than looping on an upload_id the daemon has already dropped.
+        it("reads an older daemon's missing flag as unknown retention, not retryable", function()
+            -- An older daemon (< 0.14.0) never sends `retryable`. The flag reads
+            -- false, and retention_known false: the SDK cannot tell whether the
+            -- paid attempt was kept, so callers stop and reconcile instead of
+            -- looping on the upload_id or re-preparing (which could pay twice).
             register_route("POST", "/v1/upload/finalize", 502,
                 cjson.encode({
                     error = "Partial upload: 300/312 chunks stored, 12 failed after retries",
@@ -761,6 +763,7 @@ describe("antd client", function()
             local _, err = client:finalize_upload("u1", { ["0xq"] = "0xt" })
             assert.is_true(errors.is_partial_upload(err))
             assert.is_false(err.retryable)
+            assert.is_false(err.retention_known)
             assert.are.equal(300, err.chunks_stored)
             assert.are.equal(12, err.chunks_failed)
             assert.are.equal(312, err.total_chunks)
@@ -776,6 +779,36 @@ describe("antd client", function()
             assert.are.equal(0, err.chunks_failed)
             assert.are.equal(0, err.total_chunks)
             assert.is_false(err.retryable)
+            assert.is_false(err.retention_known)
+        end)
+
+        it("reads retryable=false as confirmed non-retention", function()
+            register_route("POST", "/v1/upload/finalize", 502,
+                cjson.encode({
+                    error = "Partial upload: 3/4 chunks stored, 1 failed",
+                    code = "PARTIAL_UPLOAD",
+                    chunks_stored = 3,
+                    chunks_failed = 1,
+                    total_chunks = 4,
+                    retryable = false,
+                }))
+
+            local _, err = client:finalize_merkle_upload("mb1", "pool_abc", false)
+            assert.is_true(errors.is_partial_upload(err))
+            assert.is_false(err.retryable)
+            assert.is_true(err.retention_known)
+        end)
+
+        it("is typed partial_upload, not network, with status 502 kept (documented change)", function()
+            register_route("POST", "/v1/upload/finalize", 502,
+                cjson.encode({ error = "Partial upload", code = "PARTIAL_UPLOAD", retryable = true }))
+
+            local _, err = client:finalize_upload("u1", { ["0xq"] = "0xt" })
+            assert.are.equal("partial_upload", err.type)
+            assert.are_not.equal("network", err.type)
+            assert.are.equal(502, err.status_code)
+            -- the README's migration check still catches it
+            assert.is_true(err.type == "partial_upload" or err.type == "network")
         end)
 
         it("keeps a plain 502 mapped to network", function()
@@ -787,6 +820,7 @@ describe("antd client", function()
             assert.are.equal(502, err.status_code)
             assert.is_false(errors.is_partial_upload(err))
             assert.is_nil(err.retryable)
+            assert.is_nil(err.retention_known)
         end)
 
         it("keeps a non-JSON 502 mapped to network", function()
@@ -871,6 +905,37 @@ describe("antd client", function()
                 assert.is_false(e.retryable, "retryable " .. tostring(v))
             end
             assert.is_true(errors.partial_upload("m", { retryable = true }).retryable)
+        end)
+
+        it("knows retention only when retryable is a JSON boolean", function()
+            local e = errors.partial_upload("m", { retryable = true })
+            assert.is_true(e.retention_known)
+            assert.is_true(e.retryable)
+            e = errors.partial_upload("m", { retryable = false })
+            assert.is_true(e.retention_known)
+            assert.is_false(e.retryable)
+            for _, v in ipairs({ "true", "false", 1, 0, {}, cjson.null }) do
+                e = errors.partial_upload("m", { retryable = v })
+                assert.is_false(e.retention_known, "retention_known for " .. tostring(v))
+                assert.is_false(e.retryable, "retryable for " .. tostring(v))
+            end
+            e = errors.partial_upload("m", {})
+            assert.is_false(e.retention_known)
+            assert.is_false(errors.partial_upload("m", nil).retention_known)
+        end)
+
+        it("ignores a retention_known field in the body", function()
+            local e = errors.partial_upload("m", { retention_known = true })
+            assert.is_false(e.retention_known)
+            e = errors.partial_upload("m", { retryable = "true", retention_known = true })
+            assert.is_false(e.retention_known)
+        end)
+
+        it("never reports retryable without retention_known", function()
+            for _, v in ipairs({ true, false, "true", 1, 0, {}, cjson.null, "yes" }) do
+                local e = errors.partial_upload("m", { retryable = v })
+                assert.is_true(not e.retryable or e.retention_known, "invariant for " .. tostring(v))
+            end
         end)
 
         it("does not raise when fields is not a table", function()
@@ -966,6 +1031,7 @@ describe("antd client", function()
                         .. '"retryable":' .. value .. '}')
                 assert.is_true(errors.is_partial_upload(err))
                 assert.is_false(err.retryable)
+                assert.is_false(err.retention_known)
                 assert.are.equal(300, err.chunks_stored)
                 assert.are.equal(12, err.chunks_failed)
                 assert.are.equal(312, err.total_chunks)
@@ -1049,6 +1115,7 @@ describe("antd client", function()
             assert.are.equal(1, err.chunks_failed)
             assert.are.equal(0, err.total_chunks)
             assert.is_false(err.retryable)
+            assert.is_false(err.retention_known)
             assert.are.equal(0, #got)
         end)
 
@@ -1059,6 +1126,105 @@ describe("antd client", function()
             assert.is_nil(ok)
             assert.are.equal("not_found", err.type)
             assert.are.equal(raw, err.message)
+        end)
+    end)
+
+    -- ── retention_known: did the daemon say whether it kept the paid attempt? ──
+
+    describe("partial upload retention", function()
+        local function finalize_with_flag(flag_json)
+            local body = '{"error":"Partial upload","code":"PARTIAL_UPLOAD",'
+                .. '"chunks_stored":3,"chunks_failed":1,"total_chunks":4'
+            if flag_json ~= nil then
+                body = body .. ',"retryable":' .. flag_json
+            end
+            register_route("POST", "/v1/upload/finalize", 502, body .. "}")
+            local _, err = client:finalize_upload("u1", { ["0xq"] = "0xt" })
+            assert.is_true(errors.is_partial_upload(err))
+            return err
+        end
+
+        it("true -> retention known, retryable", function()
+            local err = finalize_with_flag("true")
+            assert.is_true(err.retention_known)
+            assert.is_true(err.retryable)
+        end)
+
+        it("false -> retention known, not retryable", function()
+            local err = finalize_with_flag("false")
+            assert.is_true(err.retention_known)
+            assert.is_false(err.retryable)
+        end)
+
+        local unknown = {
+            { "missing", nil },
+            { "null", "null" },
+            { 'the string "true"', '"true"' },
+            { 'the string "false"', '"false"' },
+            { "the number 1", "1" },
+            { "the number 0", "0" },
+            { "an object", "{}" },
+            { "an array", "[true]" },
+        }
+        for _, case in ipairs(unknown) do
+            local label, value = case[1], case[2]
+            it(label .. " -> retention unknown, not retryable", function()
+                local err = finalize_with_flag(value)
+                assert.is_false(err.retention_known)
+                assert.is_false(err.retryable)
+            end)
+        end
+    end)
+
+    -- ── Counts are validated after cjson's binary64 conversion ──
+    -- The contract is checked on the decoded double, not the wire digits, so
+    -- these pin down where that differs from exact wire-number validation.
+
+    describe("partial upload counts at binary64 boundaries", function()
+        local function count_from_wire(literal)
+            register_route("POST", "/v1/upload/finalize", 502,
+                '{"error":"Partial upload","code":"PARTIAL_UPLOAD","chunks_failed":' .. literal .. '}')
+            local _, err = client:finalize_upload("u1", { ["0xq"] = "0xt" })
+            assert.is_true(errors.is_partial_upload(err))
+            return err.chunks_failed
+        end
+
+        it("accepts the largest double below 2^64", function()
+            assert.are.equal(18446744073709549568, count_from_wire("18446744073709549568"))
+        end)
+
+        it("reads the largest u64 as 0: it rounds up to 2^64", function()
+            assert.are.equal(0, count_from_wire("18446744073709551615"))
+            assert.are.equal(0, count_from_wire("18446744073709551614"))
+        end)
+
+        it("reads 2^64 and above as 0", function()
+            assert.are.equal(0, count_from_wire("18446744073709551616"))
+            assert.are.equal(0, count_from_wire("18446744073709551617"))
+        end)
+
+        it("rounds integers above 2^53 to the nearest double", function()
+            assert.are.equal(9007199254740992, count_from_wire("9007199254740993"))
+        end)
+
+        it("reads a fraction too close to an integer to resolve as that integer", function()
+            assert.are.equal(1, count_from_wire("1.0000000000000000001"))
+            assert.are.equal(12, count_from_wire("11.99999999999999999999"))
+        end)
+
+        it("still rejects a fraction a double can resolve", function()
+            assert.are.equal(0, count_from_wire("1.000000000000001"))
+            assert.are.equal(0, count_from_wire("0.5"))
+        end)
+
+        it("accepts integral values written with a fraction or exponent", function()
+            assert.are.equal(12, count_from_wire("12.0"))
+            assert.are.equal(12, count_from_wire("1.2e1"))
+            assert.are.equal(100, count_from_wire("1E2"))
+        end)
+
+        it("reads an underflowing exponent as 0", function()
+            assert.are.equal(0, count_from_wire("1e-400"))
         end)
     end)
 end)
