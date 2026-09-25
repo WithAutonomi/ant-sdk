@@ -877,7 +877,7 @@ impl Client {
     ///
     /// Malformed entries yield per-entry `valid: false` verdicts, not
     /// errors. The daemon accepts at most 1024 entries per call and (antd >=
-    /// 0.13.1) caps the request body at 40 MB on this route.
+    /// 0.14.0) caps the request body at 40 MB on this route.
     ///
     /// Requires antd >= 0.13.0.
     pub async fn verify_quotes(

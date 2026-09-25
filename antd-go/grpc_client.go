@@ -846,7 +846,7 @@ func (c *GrpcClient) PrepareDataUploadWithOptions(ctx context.Context, data []by
 // return a per-entry invalid verdict for the same input.
 //
 // The daemon accepts at most 1024 entries per call on both transports
-// (antd >= 0.13.1 sets the gRPC decode ceiling to match REST; on 0.13.0 the
+// (antd >= 0.14.0 sets the gRPC decode ceiling to match REST; on 0.13.0 the
 // gRPC side tops out around 600 real entries). Requires antd >= 0.13.0.
 func (c *GrpcClient) VerifyQuotes(ctx context.Context, entries []VerifyQuoteEntry) (*VerifyQuotesResult, error) {
 	req := &pb.VerifyQuotesRequest{}
