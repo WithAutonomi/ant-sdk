@@ -99,6 +99,13 @@ defmodule Antd.GrpcExternalSignerTest do
               "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " <>
                 "(stored chunks persist; re-prepare the same content to retry only the remainder)"
 
+        # A prefixed message whose counts do not parse: retention unknown,
+        # even though it carries the retained hint.
+        req.upload_id == "partial_unparsed" ->
+          raise GRPC.RPCError,
+            status: GRPC.Status.aborted(),
+            message: "Partial upload: x/y chunks stored, z failed (paid attempt retained)"
+
         # Any other ABORTED (no "Partial upload:" prefix) is not a partial
         # upload and must keep the generic error mapping.
         req.upload_id == "aborted_other" ->
@@ -310,7 +317,8 @@ defmodule Antd.GrpcExternalSignerTest do
              chunks_stored: 300,
              chunks_failed: 12,
              total_chunks: 312,
-             retryable: true
+             retryable: true,
+             retention_known: true
            } = err
 
     assert String.starts_with?(err.message, "Partial upload: 300/312 chunks stored")
@@ -324,6 +332,20 @@ defmodule Antd.GrpcExternalSignerTest do
              err
 
     refute err.retryable
+    assert err.retention_known
+  end
+
+  test "finalize_upload ABORTED with unparseable counts reads as retention unknown",
+       %{client: client} do
+    {:error, err} = GrpcClient.finalize_upload(client, "partial_unparsed", %{"0xq1" => "0xtx1"})
+
+    assert %Antd.PartialUploadError{
+             chunks_stored: 0,
+             chunks_failed: 0,
+             total_chunks: 0,
+             retryable: false,
+             retention_known: false
+           } = err
   end
 
   test "finalize_upload ABORTED without the partial-upload prefix stays a generic AntdError",
@@ -384,7 +406,8 @@ defmodule Antd.GrpcExternalSignerTest do
              chunks_stored: 2,
              chunks_failed: 1,
              total_chunks: 3,
-             retryable: false
+             retryable: false,
+             retention_known: true
            } = err
 
     refute match?(%Antd.AntdError{}, err)

@@ -372,6 +372,7 @@ defmodule Antd.GrpcClientTest do
     assert err.chunks_failed == 12
     assert err.total_chunks == 312
     assert err.retryable
+    assert err.retention_known
   end
 
   test "ABORTED without the retained hint -> PartialUploadError retryable false" do
@@ -384,6 +385,7 @@ defmodule Antd.GrpcClientTest do
              err
 
     refute err.retryable
+    assert err.retention_known
   end
 
   test "ABORTED with an unrelated message keeps the generic AntdError mapping" do
@@ -422,7 +424,8 @@ defmodule Antd.GrpcClientTest do
              chunks_stored: 0,
              chunks_failed: 0,
              total_chunks: 0,
-             retryable: false
+             retryable: false,
+             retention_known: false
            } = err
 
     assert err.message == msg
@@ -456,20 +459,20 @@ defmodule Antd.GrpcClientTest do
       "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum " <>
         "(stored chunks persist; re-prepare the same content to retry only the remainder)"
 
-    assert Antd.Errors.parse_partial_upload_message(retained) == {300, 12, 312, true}
-    assert Antd.Errors.parse_partial_upload_message(final) == {300, 12, 312, false}
+    assert Antd.Errors.parse_partial_upload_message(retained) == {300, 12, 312, true, true}
+    assert Antd.Errors.parse_partial_upload_message(final) == {300, 12, 312, false, true}
 
     assert Antd.Errors.parse_partial_upload_message(
              "Partial upload: 300/312 chunks stored, 12 failed after retries"
-           ) == {300, 12, 312, false}
+           ) == {300, 12, 312, false, true}
 
     # Garbled counts read as zero and are never retryable, even with the hint.
     assert Antd.Errors.parse_partial_upload_message(
              "Partial upload: 300/312 chunks (paid attempt retained)"
-           ) == {0, 0, 0, false}
+           ) == {0, 0, 0, false, false}
 
     assert Antd.Errors.parse_partial_upload_message("something else entirely") ==
-             {0, 0, 0, false}
+             {0, 0, 0, false, false}
   end
 
   # retryable requires a full parse: the counts pattern must match and every
@@ -482,15 +485,15 @@ defmodule Antd.GrpcClientTest do
 
     # Well-formed with the hint -> retryable with its counts.
     assert parse.("Partial upload: 1/3 chunks stored, 2 failed (paid attempt retained)") ==
-             {1, 2, 3, true}
+             {1, 2, 3, true, true}
 
     # Well-formed without the hint -> counts, not retryable.
     assert parse.("Partial upload: 1/3 chunks stored, 2 failed after retries") ==
-             {1, 2, 3, false}
+             {1, 2, 3, false, true}
 
     # Pattern miss with the hint -> zeros, not retryable.
     assert parse.("Partial upload: x/y chunks stored, z failed (paid attempt retained)") ==
-             {0, 0, 0, false}
+             {0, 0, 0, false, false}
 
     # Over u64::MAX in each position (stored, total, failed) with the hint ->
     # a failed conversion: zeros, not retryable.
@@ -499,7 +502,7 @@ defmodule Antd.GrpcClientTest do
           "Partial upload: 1/#{@u64_over} chunks stored, 2 failed (paid attempt retained)",
           "Partial upload: 1/3 chunks stored, #{@u64_over} failed (paid attempt retained)"
         ] do
-      assert parse.(msg) == {0, 0, 0, false}, "overflow not rejected: #{msg}"
+      assert parse.(msg) == {0, 0, 0, false, false}, "overflow not rejected: #{msg}"
     end
 
     # u64::MAX itself still converts in every position.
@@ -508,7 +511,32 @@ defmodule Antd.GrpcClientTest do
     assert parse.(
              "Partial upload: #{@u64_max}/#{@u64_max} chunks stored, " <>
                "#{@u64_max} failed (paid attempt retained)"
-           ) == {max, max, max, true}
+           ) == {max, max, max, true, true}
+  end
+
+  test "partial_upload_error_from_message/2 sets retention_known only for a full parse" do
+    hinted = fn counts -> "Partial upload: #{counts} (paid attempt retained)" end
+
+    # {message, retryable, retention_known}
+    cases = [
+      # well-formed with the hint -> known, retryable
+      {hinted.("1/3 chunks stored, 2 failed"), true, true},
+      # well-formed without the hint -> known, not retryable
+      {"Partial upload: 1/3 chunks stored, 2 failed after retries", false, true},
+      # pattern miss with the hint -> unknown, not retryable
+      {hinted.("x/y chunks stored, z failed"), false, false},
+      # over u64::MAX in each position with the hint -> unknown, not retryable
+      {hinted.("#{@u64_over}/3 chunks stored, 2 failed"), false, false},
+      {hinted.("1/#{@u64_over} chunks stored, 2 failed"), false, false},
+      {hinted.("1/3 chunks stored, #{@u64_over} failed"), false, false}
+    ]
+
+    for {msg, retryable, known} <- cases do
+      err = Antd.Errors.partial_upload_error_from_message(502, msg)
+      assert {err.retryable, err.retention_known} == {retryable, known}, msg
+      # retryable implies retention_known
+      assert not err.retryable or err.retention_known
+    end
   end
 
   test "ABORTED with an overflowing count and the hint -> zero counts, not retryable" do
@@ -524,7 +552,8 @@ defmodule Antd.GrpcClientTest do
              chunks_stored: 0,
              chunks_failed: 0,
              total_chunks: 0,
-             retryable: false
+             retryable: false,
+             retention_known: false
            } = err
 
     assert err.message == msg

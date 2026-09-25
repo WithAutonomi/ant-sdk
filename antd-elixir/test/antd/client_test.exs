@@ -661,15 +661,16 @@ defmodule Antd.ClientTest do
               chunks_stored: 300,
               chunks_failed: 12,
               total_chunks: 312,
-              retryable: true
+              retryable: true,
+              retention_known: true
             }} = Antd.Client.finalize_merkle_upload(client, "mb1", "0xw1")
   end
 
-  test "502 PARTIAL_UPLOAD defaults retryable to false when the flag is absent",
+  test "502 PARTIAL_UPLOAD without the flag reads as retention unknown",
        %{bypass: bypass, client: client} do
-    # A daemon older than 0.14.0 never sends `retryable`; the flag must read
-    # false so callers fall back to the re-prepare path rather than looping
-    # on an upload_id the daemon has already dropped.
+    # A daemon older than 0.14.0 never sends `retryable`. The SDK cannot tell
+    # whether the paid attempt was kept, so both flags read false: callers
+    # must neither loop on the upload_id nor re-prepare automatically.
     Bypass.expect_once(bypass, "POST", "/v1/upload/finalize", fn conn ->
       conn
       |> Plug.Conn.put_resp_content_type("application/json")
@@ -691,8 +692,40 @@ defmodule Antd.ClientTest do
               chunks_stored: 300,
               chunks_failed: 12,
               total_chunks: 312,
-              retryable: false
+              retryable: false,
+              retention_known: false
             }} = Antd.Client.finalize_upload(client, "up1", %{"0xq" => "0xt"})
+  end
+
+  # retention_known is true only when the body's `retryable` is a JSON
+  # boolean, and retryable implies retention_known.
+  for {label, flag, retryable, known} <- [
+        {"true", ~s(,"retryable":true), true, true},
+        {"false", ~s(,"retryable":false), false, true},
+        {"missing", "", false, false},
+        {"null", ~s(,"retryable":null), false, false},
+        {"a quoted true", ~s(,"retryable":"true"), false, false},
+        {"the number 1", ~s(,"retryable":1), false, false}
+      ] do
+    test "PARTIAL_UPLOAD retryable #{label}: retryable=#{retryable} known=#{known}",
+         %{bypass: bypass, client: client} do
+      raw =
+        ~s({"error":"Partial upload: 1/3 chunks stored, 2 failed","code":"PARTIAL_UPLOAD",) <>
+          ~s("chunks_stored":1,"chunks_failed":2,"total_chunks":3) <> unquote(flag) <> "}"
+
+      Bypass.expect_once(bypass, "POST", "/v1/upload/finalize", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(502, raw)
+      end)
+
+      assert {:error, %Antd.PartialUploadError{chunks_stored: 1, chunks_failed: 2} = err} =
+               Antd.Client.finalize_upload(client, "up1", %{"0xq" => "0xt"})
+
+      assert err.retryable == unquote(retryable)
+      assert err.retention_known == unquote(known)
+      assert not err.retryable or err.retention_known
+    end
   end
 
   test "502 with another code still returns NetworkError", %{bypass: bypass, client: client} do
@@ -761,7 +794,8 @@ defmodule Antd.ClientTest do
                 chunks_stored: 0,
                 chunks_failed: 0,
                 total_chunks: 0,
-                retryable: false
+                retryable: false,
+                retention_known: false
               }} = Antd.Client.finalize_upload(client, "up1", %{"0xq" => "0xt"})
     end
   end
@@ -791,7 +825,8 @@ defmodule Antd.ClientTest do
                 chunks_stored: 1,
                 chunks_failed: 1,
                 total_chunks: 2,
-                retryable: true
+                retryable: true,
+                retention_known: true
               } = err} = Antd.Client.finalize_upload(client, "up1", %{"0xq" => "0xt"})
 
       assert is_binary(err.message)
@@ -855,6 +890,7 @@ defmodule Antd.ClientTest do
 
     assert {:error, err} = Antd.Client.finalize_upload(client, "partial", txs)
     assert %Antd.PartialUploadError{chunks_stored: 1, retryable: true} = err
+    assert err.retention_known
     refute match?(%Antd.NetworkError{}, err)
     refute match?(%Antd.AntdError{}, err)
 
@@ -887,7 +923,8 @@ defmodule Antd.ClientTest do
              chunks_stored: 2,
              chunks_failed: 1,
              total_chunks: 3,
-             retryable: false
+             retryable: false,
+             retention_known: true
            } = err
 
     refute match?(%Antd.NetworkError{}, err)

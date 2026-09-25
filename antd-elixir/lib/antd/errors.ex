@@ -133,38 +133,40 @@ defmodule Antd.PartialUploadError do
   unchanged.
 
   The on-chain payment persists and the stored chunks stay on the network.
-  How to finish the upload depends on `retryable`:
+  How to finish the upload depends on `retryable` and `retention_known`
+  (`retryable` implies `retention_known`):
 
-    * `true` — the daemon kept the paid attempt (payment proofs plus the
-      still-unstored chunks) under the same `upload_id`. Call the **same**
-      finalize function again with the same arguments to store the remainder
-      against the same payment — no re-prepare, no second signature, no
-      double payment. Bound that loop: a persistent failure returns this
-      error on every call, so cap the attempts and treat a `chunks_failed`
-      that stops shrinking as stuck. The retained attempt expires with the
-      daemon's pending-upload TTL. The flag is sent by antd >= 0.14.0; older
-      daemons never send it, so it reads `false` and the re-prepare path
-      applies.
-    * `false` — the daemon did not report keeping the attempt (a
-      daemon-wallet upload, a merkle finalize with deliberately unpaid
-      batches, or an older daemon). Re-preparing the same content skips
-      already-stored chunks, so a retry pays only for the remainder. A
-      `false` that comes from a gRPC message the SDK could not parse (all
-      counts `0`) means retention is unconfirmed, not that the paid attempt
-      was discarded: do not treat it alone as permission to pay again; read
-      `message` (kept verbatim) and confirm first.
+    * `retryable: true` — the daemon kept the paid attempt (payment proofs
+      plus the still-unstored chunks) under the same `upload_id`. Call the
+      **same** finalize function again with the same `upload_id` and payment
+      arguments to store the remainder against the same payment — no
+      re-prepare, no second signature, no double payment. Bound that loop: a
+      persistent failure returns this error on every call, so cap the
+      attempts and treat a `chunks_failed` that stops shrinking as stuck.
+      The retained attempt expires with the daemon's pending-upload TTL.
+    * `retention_known: true, retryable: false` — the daemon confirmed it
+      kept nothing (a daemon-wallet upload, or a merkle finalize with
+      deliberately unpaid batches). Re-prepare the same content: stored
+      chunks are skipped, so the retry pays only for the remainder.
+    * `retention_known: false` — retention is unknown. The daemon may still
+      hold the paid attempt (it records the resume handle before it returns
+      the error), so stop automatic recovery, keep the `upload_id` and the
+      original payment arguments, and reconcile before re-preparing or
+      paying again. Never pay again on this signal alone. Daemons older than
+      0.14.0 never send `retryable`, so their REST partial uploads read as
+      unknown.
 
-  Over REST the counts and `retryable` come from the structured error body.
-  Over gRPC they are parsed best-effort from the status message
-  (`Partial upload: S/T chunks stored, F failed ...`, with a
-  `paid attempt retained` hint when retryable). Only a message that starts
-  with that prefix is a partial upload; an `ABORTED` that merely quotes it
-  further in keeps the generic `Antd.AntdError` mapping. `retryable` is
-  `true` only when all three counts parse (each within the daemon's `u64`
-  range) and the hint is present; a message whose counts do not parse reads
-  as zero counts and `retryable: false`, even with the hint. That fallback
-  leaves retention unconfirmed (see above), so it is not by itself a reason
-  to pay again.
+  Over REST the counts come from the structured error body, and
+  `retention_known` is `true` only when the body's `retryable` is a JSON
+  boolean (missing, `null` or any other type reads as unknown). Over gRPC
+  they are parsed from the status message (`Partial upload: S/T chunks
+  stored, F failed ...`, with a `paid attempt retained` hint when
+  retryable). Only a message that starts with that prefix is a partial
+  upload; an `ABORTED` that merely quotes it further in keeps the generic
+  `Antd.AntdError` mapping. `retention_known` is `true` only when the counts
+  pattern matches and all three counts convert (each within the daemon's
+  `u64` range); the hint then decides `retryable`. Otherwise the counts read
+  as `0` and both flags are `false`.
 
   See `docs/external-signer-flow.md` §6 ("Retry a partial store — same
   `upload_id`, same payment") and `finalize_with_retry/3` in
@@ -177,7 +179,8 @@ defmodule Antd.PartialUploadError do
     chunks_stored: 0,
     chunks_failed: 0,
     total_chunks: 0,
-    retryable: false
+    retryable: false,
+    retention_known: false
   ]
 
   @type t :: %__MODULE__{
@@ -186,7 +189,8 @@ defmodule Antd.PartialUploadError do
           chunks_stored: non_neg_integer(),
           chunks_failed: non_neg_integer(),
           total_chunks: non_neg_integer(),
-          retryable: boolean()
+          retryable: boolean(),
+          retention_known: boolean()
         }
 end
 
@@ -225,21 +229,26 @@ defmodule Antd.Errors do
 
   @doc """
   Builds an `Antd.PartialUploadError` from a decoded `PARTIAL_UPLOAD` REST
-  error body. The counts are read from the body; `retryable` is absent on
-  daemons older than 0.14.0 and defaults to `false`. A malformed field never
-  raises: a count that is not a non-negative integer reads as `0`,
-  `retryable` is `true` only for a JSON `true`, and a missing or non-string
-  `error` falls back to the encoded body so `message` stays a string.
+  error body. The counts are read from the body. `retention_known` is `true`
+  only when `retryable` is present and a JSON boolean, which then sets
+  `retryable`; a missing flag (daemons older than 0.14.0), `null` or any
+  other type leaves both `false`: retention unknown. A malformed field never
+  raises: a count that is not a non-negative integer reads as `0`, and a
+  missing or non-string `error` falls back to the encoded body so `message`
+  stays a string.
   """
   @spec partial_upload_error(integer(), map()) :: Antd.PartialUploadError.t()
   def partial_upload_error(status_code, body) when is_map(body) do
+    {retryable, retention_known} = retention(body["retryable"])
+
     %Antd.PartialUploadError{
       message: body_message(body),
       status_code: status_code,
       chunks_stored: count(body["chunks_stored"]),
       chunks_failed: count(body["chunks_failed"]),
       total_chunks: count(body["total_chunks"]),
-      retryable: body["retryable"] == true
+      retryable: retryable,
+      retention_known: retention_known
     }
   end
 
@@ -263,16 +272,15 @@ defmodule Antd.Errors do
   Builds an `Antd.PartialUploadError` from a gRPC `ABORTED` status message
   that starts with the `Partial upload:` prefix (check with
   `partial_upload_message?/1` first). The status carries no structured
-  detail, so the counts and the retained hint are recovered from the text
-  via `parse_partial_upload_message/1`; a prefixed message whose counts do
-  not parse still builds the error, with zero counts and `retryable: false`
-  even when the retained hint is present (retention unconfirmed, not ruled
-  out).
+  detail, so the counts, `retryable` and `retention_known` are recovered from
+  the text via `parse_partial_upload_message/1`; a prefixed message whose
+  counts do not parse still builds the error, with zero counts and both
+  flags `false` (retention unknown), even when the retained hint is present.
   """
   @spec partial_upload_error_from_message(integer(), String.t()) ::
           Antd.PartialUploadError.t()
   def partial_upload_error_from_message(status_code, message) when is_binary(message) do
-    {stored, failed, total, retryable} = parse_partial_upload_message(message)
+    {stored, failed, total, retryable, retention_known} = parse_partial_upload_message(message)
 
     %Antd.PartialUploadError{
       message: message,
@@ -280,34 +288,35 @@ defmodule Antd.Errors do
       chunks_stored: stored,
       chunks_failed: failed,
       total_chunks: total,
-      retryable: retryable
+      retryable: retryable,
+      retention_known: retention_known
     }
   end
 
   @doc """
   Parses the chunk counts and the retained hint out of a `PARTIAL_UPLOAD`
   message (`Partial upload: <stored>/<total> chunks stored, <failed> failed
-  ...`). Returns `{chunks_stored, chunks_failed, total_chunks, retryable}`.
+  ...`). Returns
+  `{chunks_stored, chunks_failed, total_chunks, retryable, retention_known}`.
 
-  `retryable` is `true` only when the counts pattern matches, all three
-  counts convert (each at most `u64::MAX`, the daemon's count type), and the
-  `paid attempt retained` hint is present. On a pattern miss or any failed
-  conversion the result is `{0, 0, 0, false}`, hint or not: a retry against
-  the same `upload_id` is only advertised when the whole message parsed.
-  That `false` means retention is unconfirmed, not that the daemon discarded
-  the paid attempt.
+  `retention_known` is `true` only when the counts pattern matches and all
+  three counts convert (each at most `u64::MAX`, the daemon's count type);
+  the `paid attempt retained` hint then decides `retryable`. On a pattern
+  miss or any failed conversion the result is `{0, 0, 0, false, false}`,
+  hint or not: retention is unknown, not ruled out, so a retry against the
+  same `upload_id` is only advertised when the whole message parsed.
   """
   @spec parse_partial_upload_message(String.t()) ::
-          {non_neg_integer(), non_neg_integer(), non_neg_integer(), boolean()}
+          {non_neg_integer(), non_neg_integer(), non_neg_integer(), boolean(), boolean()}
   def parse_partial_upload_message(message) when is_binary(message) do
     with [_, stored, total, failed] <-
            Regex.run(~r/Partial upload: (\d+)\/(\d+) chunks stored, (\d+) failed/, message),
          {:ok, stored} <- to_count(stored),
          {:ok, total} <- to_count(total),
          {:ok, failed} <- to_count(failed) do
-      {stored, failed, total, String.contains?(message, @partial_upload_retained_hint)}
+      {stored, failed, total, String.contains?(message, @partial_upload_retained_hint), true}
     else
-      _ -> {0, 0, 0, false}
+      _ -> {0, 0, 0, false, false}
     end
   end
 
@@ -322,6 +331,12 @@ defmodule Antd.Errors do
 
   defp count(n) when is_integer(n) and n >= 0, do: n
   defp count(_), do: 0
+
+  # REST `retryable` counts only as a JSON boolean; anything else (missing on
+  # daemons older than 0.14.0, null, a string, a number) leaves retention
+  # unknown. Returns `{retryable, retention_known}`.
+  defp retention(flag) when is_boolean(flag), do: {flag, true}
+  defp retention(_), do: {false, false}
 
   defp body_message(%{"error" => message}) when is_binary(message), do: message
   defp body_message(body), do: Jason.encode!(body)

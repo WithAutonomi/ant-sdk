@@ -721,15 +721,25 @@ defmodule Antd.Client do
   A finalize that stored only part of the upload returns
   `{:error, %Antd.PartialUploadError{}}` (not the `Antd.NetworkError` a 502
   used to map to; see `Antd.PartialUploadError`) carrying `chunks_stored`,
-  `chunks_failed`, `total_chunks` and `retryable`. The payment persists and
-  the stored chunks stay on the network. When `retryable` is `true` (antd
-  >= 0.14.0) the daemon kept the paid attempt under the same `upload_id`:
-  call this function again with the same arguments to store the remainder
-  against the same payment — bound that loop (cap the attempts; a
-  `chunks_failed` that stops shrinking means stuck). When `false` (older
-  daemon), re-prepare the same content: already-stored chunks are skipped, so
-  the retry pays only for the remainder. See `docs/external-signer-flow.md`
-  §6 and `examples/07_external_signer.exs`.
+  `chunks_failed`, `total_chunks`, `retryable` and `retention_known`. The
+  payment persists and the stored chunks stay on the network. Recovery has
+  three cases:
+
+    * `retryable: true` — the daemon kept the paid attempt under the same
+      `upload_id`: call this function again with the same arguments to store
+      the remainder against the same payment. Bound that loop (cap the
+      attempts; a `chunks_failed` that stops shrinking means stuck).
+    * `retention_known: true, retryable: false` — the daemon confirmed it
+      kept nothing: re-prepare the same content (already-stored chunks are
+      skipped, so the retry pays only for the remainder).
+    * `retention_known: false` — retention is unknown (the body's
+      `retryable` was missing or not a boolean, as with daemons older than
+      0.14.0) and the daemon may still hold the paid attempt. Stop automatic
+      recovery, keep `upload_id` and `tx_hashes`, and reconcile before
+      re-preparing or paying again.
+
+  See `Antd.PartialUploadError`, `docs/external-signer-flow.md` §6 and
+  `examples/07_external_signer.exs`.
   """
   @spec finalize_upload(t(), String.t(), map()) ::
           {:ok, Antd.FinalizeUploadResult.t()} | {:error, Exception.t()}
@@ -752,10 +762,12 @@ defmodule Antd.Client do
   Finalizes a merkle-batch upload after selecting a winning pool.
 
   A partial store surfaces as `{:error, %Antd.PartialUploadError{}}` exactly
-  as for `finalize_upload/3`: retry the same call while `retryable` is
-  `true`; a merkle finalize with deliberately unpaid batches (or an older
-  daemon) is never retryable — re-prepare the same content to pay only for
-  the remainder.
+  as for `finalize_upload/3`, with the same three cases: retry the same call
+  (bounded) while `retryable` is `true`; re-prepare the same content only
+  when `retention_known` is `true` and `retryable` is `false` (for example a
+  merkle finalize with deliberately unpaid batches); and when
+  `retention_known` is `false`, stop, keep `upload_id` and
+  `winner_pool_hash`, and reconcile before re-preparing or paying again.
   """
   @spec finalize_merkle_upload(t(), String.t(), String.t(), keyword()) ::
           {:ok, Antd.FinalizeUploadResult.t()} | {:error, Exception.t()}

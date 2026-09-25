@@ -236,39 +236,46 @@ end
 | `Antd.TooLargeError` | 413 | Payload too large |
 | `Antd.InternalError` | 500 | Server error |
 | `Antd.NetworkError` | 502 | Network unreachable |
-| `Antd.PartialUploadError` | 502 (gRPC `ABORTED`) | An upload stored only part of its chunks (`code: "PARTIAL_UPLOAD"`) — carries `chunks_stored`, `chunks_failed`, `total_chunks`, `retryable`. Not a `NetworkError` / `AntdError`: see [Migrating error handlers](#migrating-error-handlers-partial-uploads) |
+| `Antd.PartialUploadError` | 502 (gRPC `ABORTED`) | An upload stored only part of its chunks (`code: "PARTIAL_UPLOAD"`) — carries `chunks_stored`, `chunks_failed`, `total_chunks`, `retryable`, `retention_known`. Not a `NetworkError` / `AntdError`: see [Migrating error handlers](#migrating-error-handlers-partial-uploads) |
 
 ### Partial uploads
 
 `finalize_upload/3` and `finalize_merkle_upload/4` (REST and gRPC) can fail
 *after* the wallet has paid: some chunks store, others miss quorum after the
 daemon's own retries. That comes back as `{:error, %Antd.PartialUploadError{}}`
-with the counts and a `retryable` flag. Daemon-wallet uploads (`data_put`,
-`file_put` and their `_public` variants) can return the same error, with
-`retryable: false`. The on-chain payment persists and the stored chunks stay
-on the network:
+with the counts and two flags, `retryable` and `retention_known` (`retryable`
+implies `retention_known`). Daemon-wallet uploads (`data_put`, `file_put` and
+their `_public` variants) can return the same error. The on-chain payment
+persists and the stored chunks stay on the network. Recovery has three cases:
 
 - **`retryable: true`** (antd ≥ 0.14.0) — the daemon kept the paid attempt
   under the same `upload_id`. Call the **same** finalize function again with
-  the same arguments to store the remainder against the same payment — no
-  re-prepare, no second signature, no double payment. Bound that loop: a
-  persistent failure returns this error on every call, so cap the attempts and
-  treat a `chunks_failed` that stops shrinking as stuck.
-- **`retryable: false`** — the daemon did not report keeping the attempt (a
-  daemon-wallet upload, a merkle finalize with deliberately unpaid batches, or
-  an older daemon that never sends the flag). Re-preparing the same content
-  skips already-stored chunks, so a retry pays only for the remainder.
+  the same `upload_id` and payment arguments to store the remainder against
+  the same payment — no re-prepare, no second signature, no double payment.
+  Bound that loop: a persistent failure returns this error on every call, so
+  cap the attempts and treat a `chunks_failed` that stops shrinking as stuck.
+- **`retention_known: true, retryable: false`** — the daemon confirmed it kept
+  nothing (a daemon-wallet upload, or a merkle finalize with deliberately
+  unpaid batches). Re-prepare the same content: already-stored chunks are
+  skipped, so the retry pays only for the remainder.
+- **`retention_known: false`** — retention is **unknown**. The daemon may
+  still hold the paid attempt (it records the resume handle before it returns
+  the error). Stop automatic recovery, keep the `upload_id` and the original
+  payment arguments (`tx_hashes` / `winner_pool_hash`), and reconcile before
+  re-preparing or paying again. Never pay again on this signal alone. Daemons
+  older than 0.14.0 never send `retryable`, so their REST partial uploads read
+  as unknown.
 
-Over REST the fields come from the structured error body; over gRPC (status
+Over REST the counts come from the structured error body, and
+`retention_known` is `true` only when the body's `retryable` is a JSON boolean
+(missing, `null` or any other type reads as unknown). Over gRPC (status
 `ABORTED` whose message starts with `Partial upload:` — any other `ABORTED`,
 including one that only quotes that phrase further into its message, stays a
-plain `Antd.AntdError`) they are parsed best-effort from the status message:
-`retryable` is `true` only when the counts parse and the daemon's
-`paid attempt retained` hint is present, and a message whose counts do not
-parse reads as zero counts and `retryable: false`. That fallback means
-retention is **unconfirmed**, not that the paid attempt was discarded: do not
-treat it alone as permission to pay again — read `message` and confirm first.
-See
+plain `Antd.AntdError`) they are parsed from the status message:
+`retention_known` is `true` only when the counts parse (each within the
+daemon's `u64` range), and the daemon's `paid attempt retained` hint then
+decides `retryable`; a message whose counts do not parse reads as zero counts
+with retention unknown. See
 `finalize_with_retry/3` in [`examples/07_external_signer.exs`](examples/07_external_signer.exs)
 and [`docs/external-signer-flow.md`](../docs/external-signer-flow.md) §6
 ("Retry a partial store — same `upload_id`, same payment").
@@ -279,13 +286,18 @@ case Antd.Client.finalize_upload(client, upload_id, tx_hashes) do
     result
 
   {:error, %Antd.PartialUploadError{retryable: true} = e} ->
-    # paid attempt retained: the same call again stores the remainder
+    # paid attempt retained: the same call again stores the remainder (bounded)
     IO.puts("#{e.chunks_stored}/#{e.total_chunks} stored, #{e.chunks_failed} to retry")
 
-  {:error, %Antd.PartialUploadError{retryable: false}} ->
-    # not reported retained: re-prepare the same content (stored chunks are
-    # skipped); over gRPC, all-zero counts mean unconfirmed, so check first
+  {:error, %Antd.PartialUploadError{retention_known: true}} ->
+    # the daemon confirmed nothing was retained: re-prepare the same content
+    # (already-stored chunks are skipped)
     :re_prepare
+
+  {:error, %Antd.PartialUploadError{retention_known: false} = e} ->
+    # retention unknown: the daemon may still hold the paid attempt. Stop,
+    # keep upload_id and tx_hashes, and reconcile before re-preparing or paying.
+    {:reconcile, upload_id, tx_hashes, e}
 end
 ```
 

@@ -33,18 +33,24 @@ defmodule ExternalSigner do
   # Finalize with a bounded same-payment retry.
   #
   # A finalize that stored only part of the upload returns
-  # `%Antd.PartialUploadError{}`. When the daemon says `retryable: true` it
-  # kept the paid attempt under the same upload_id, so the very same call
-  # again stores the remainder against the same payment (no re-prepare, no
-  # second signature, no double payment). A persistent failure (a chunk whose
-  # close group stays unreachable) returns that error on every call, never a
-  # different one, so the loop caps the attempts and treats a `chunks_failed`
-  # that stops shrinking as stuck. A non-retryable partial upload (older
-  # daemon, or a merkle upload with unpaid batches) is returned untouched:
-  # the recovery there is to re-prepare the same content, which skips the
-  # chunks already stored. (Over gRPC, a non-retryable error with all counts
-  # 0 means the message could not be parsed: retention is unconfirmed, so
-  # check before paying again.)
+  # `%Antd.PartialUploadError{}`; what to do depends on two flags:
+  #
+  #   * `retryable: true` — the daemon kept the paid attempt under the same
+  #     upload_id, so the very same call again stores the remainder against
+  #     the same payment (no re-prepare, no second signature, no double
+  #     payment). A persistent failure (a chunk whose close group stays
+  #     unreachable) returns that error on every call, never a different one,
+  #     so the loop caps the attempts and treats a `chunks_failed` that stops
+  #     shrinking as stuck.
+  #   * `retention_known: false` — the error did not say whether the daemon
+  #     kept the paid attempt (a daemon older than 0.14.0, or a response the
+  #     SDK could not fully read). The daemon may still hold it, so this
+  #     stops: re-preparing or paying again could pay twice for the same
+  #     chunks. The upload_id and tx hashes are what reconciling needs, so
+  #     they are reported with the error.
+  #   * `retention_known: true, retryable: false` — the daemon confirmed it
+  #     kept nothing. The error is returned untouched; the recovery there is
+  #     to re-prepare the same content, which skips the chunks already stored.
   def finalize_with_retry(client, upload_id, tx_hashes, attempt \\ 1, last_failed \\ nil) do
     case Antd.Client.finalize_upload(client, upload_id, tx_hashes) do
       {:ok, _} = ok ->
@@ -60,7 +66,8 @@ defmodule ExternalSigner do
             "finalize stuck after #{attempt} attempt(s): " <>
               "#{err.chunks_stored}/#{err.total_chunks} chunks stored, " <>
               "#{err.chunks_failed} still unstored (paid attempt retained under " <>
-              "upload_id #{upload_id} — retry later or re-prepare)"
+              "upload_id #{upload_id} — retry the same finalize later; " <>
+              "re-preparing would pay again)"
           )
 
           {:error, err}
@@ -75,7 +82,22 @@ defmodule ExternalSigner do
           finalize_with_retry(client, upload_id, tx_hashes, attempt + 1, err.chunks_failed)
         end
 
-      # Non-retryable partial upload or any other error: hand it back as-is.
+      {:error, %Antd.PartialUploadError{retention_known: false} = err} ->
+        # Retention unknown: stop without re-preparing or paying again.
+        tx_list = tx_hashes |> Map.values() |> Enum.uniq() |> Enum.join(", ")
+
+        IO.puts(
+          :stderr,
+          "finalize stored #{err.chunks_stored}/#{err.total_chunks} chunks, but the " <>
+            "daemon did not say whether it kept the paid attempt — stopping without " <>
+            "re-preparing or paying again; reconcile upload_id #{upload_id} " <>
+            "(tx hashes: #{tx_list}) first"
+        )
+
+        {:error, err}
+
+      # Confirmed not retained (re-prepare the same content) or any other
+      # error: hand it back as-is.
       {:error, _} = err ->
         err
     end
