@@ -155,45 +155,98 @@ public class Example07ExternalSigner {
      * Finalize, resuming a partial store against the same payment.
      *
      * <p>When some chunks stay unstored after the daemon's own retries,
-     * {@code finalizeUpload} throws {@link PartialUploadException}. With
-     * {@code isRetryable()} the daemon (antd &gt;= 0.14.0) has kept the paid
-     * attempt under the same upload_id, so calling finalize again with the
-     * <b>same</b> arguments stores the remainder against the same payment —
-     * no re-prepare, no second signature, no double payment. The loop is
-     * bounded: a persistent failure (say, a node that stays unreachable)
-     * throws {@code PartialUploadException} on every call, never a different
-     * error, so it caps the attempts and treats a {@code chunksFailed} that
-     * stops shrinking as stuck. A non-retryable partial upload (older daemon,
-     * or a merkle upload with unpaid batches) is rethrown untouched: the
-     * recovery there is to re-prepare the same content, which skips the
-     * chunks already stored.
+     * {@code finalizeUpload} throws {@link PartialUploadException}. The helper
+     * retries only when {@code isRetryable()}: the daemon (antd &gt;= 0.14.0)
+     * kept the paid attempt under the same upload_id, so calling finalize
+     * again with the <b>same</b> upload_id and tx hashes stores the remainder
+     * against the same payment — no re-prepare, no second signature, no double
+     * payment. It never prepares or pays itself.
+     *
+     * <p>Whenever it stops on a partial store it rethrows the last
+     * {@code PartialUploadException} unchanged, so the caller keeps the typed
+     * error with its counts and both flags:
+     * <ul>
+     *   <li>attempts exhausted, or {@code chunksFailed} stopped shrinking (a
+     *       persistent failure throws on every call): the paid attempt is still
+     *       retained under the upload_id;</li>
+     *   <li>{@code isRetentionKnown() && !isRetryable()}: the daemon confirmed
+     *       nothing was retained, so the caller may re-prepare the same content
+     *       (already-stored chunks are skipped);</li>
+     *   <li>{@code !isRetentionKnown()}: retention is unknown and the daemon
+     *       may still hold the paid attempt, so the caller must not re-prepare
+     *       or pay again on this alone — keep the upload_id and tx hashes and
+     *       reconcile first;</li>
+     *   <li>the thread was interrupted during the backoff: the interrupt
+     *       status is restored and the {@code InterruptedException} is attached
+     *       as suppressed.</li>
+     * </ul>
+     * Any other exception from finalize propagates untouched, without a retry.
      */
     static FinalizeUploadResult finalizeWithRetry(
-            AntdClient client, String uploadId, Map<String, String> txHashes) throws InterruptedException {
+            AntdClient client, String uploadId, Map<String, String> txHashes) {
+        return finalizeWithRetry(client::finalizeUpload, uploadId, txHashes,
+                FINALIZE_MAX_ATTEMPTS, Thread::sleep);
+    }
+
+    /** One finalize call: {@link AntdClient#finalizeUpload} here, a stub in tests. */
+    @FunctionalInterface
+    interface FinalizeCall {
+        FinalizeUploadResult call(String uploadId, Map<String, String> txHashes);
+    }
+
+    /** Pause between attempts: {@link Thread#sleep(long)} here, a recorder in tests. */
+    @FunctionalInterface
+    interface Backoff {
+        void pause(long millis) throws InterruptedException;
+    }
+
+    /**
+     * {@link #finalizeWithRetry(AntdClient, String, Map)} with the finalize
+     * call, attempt cap and backoff injected so the loop can be tested
+     * directly.
+     */
+    static FinalizeUploadResult finalizeWithRetry(
+            FinalizeCall finalizeCall, String uploadId, Map<String, String> txHashes,
+            int maxAttempts, Backoff backoff) {
         long lastFailed = 0;
         for (int attempt = 1; ; attempt++) {
             PartialUploadException partial;
             try {
-                return client.finalizeUpload(uploadId, txHashes); // every chunk stored
+                return finalizeCall.call(uploadId, txHashes); // every chunk stored
             } catch (PartialUploadException e) {
-                if (!e.isRetryable()) throw e;
                 partial = e;
             }
-            boolean stuck = attempt > 1 && partial.getChunksFailed() >= lastFailed;
-            if (attempt >= FINALIZE_MAX_ATTEMPTS || stuck) {
-                throw new RuntimeException(String.format(
-                        "finalize stuck after %d attempt(s): %d/%d chunks stored, %d still unstored "
-                                + "(paid attempt retained under upload_id %s — retry later or re-prepare)",
-                        attempt, partial.getChunksStored(), partial.getTotalChunks(),
-                        partial.getChunksFailed(), uploadId), partial);
+            if (!partial.isRetryable()) {
+                if (!partial.isRetentionKnown()) {
+                    System.err.printf(
+                            "finalize: partial store with unknown retention; keep upload_id %s and its "
+                                    + "tx hashes and reconcile before re-preparing or paying again%n",
+                            uploadId);
+                }
+                throw partial;
+            }
+            boolean stalled = attempt > 1 && partial.getChunksFailed() >= lastFailed;
+            if (attempt >= maxAttempts || stalled) {
+                System.err.printf(
+                        "finalize %s after %d attempt(s): %d/%d chunks stored, %d still unstored "
+                                + "(paid attempt retained under upload_id %s)%n",
+                        stalled ? "stalled" : "gave up", attempt, partial.getChunksStored(),
+                        partial.getTotalChunks(), partial.getChunksFailed(), uploadId);
+                throw partial;
             }
             lastFailed = partial.getChunksFailed();
             System.out.printf(
                     "finalize stored %d/%d chunks, %d still unstored — retrying against the same payment "
                             + "(attempt %d/%d)%n",
                     partial.getChunksStored(), partial.getTotalChunks(), partial.getChunksFailed(),
-                    attempt + 1, FINALIZE_MAX_ATTEMPTS);
-            Thread.sleep(attempt * 2_000L);
+                    attempt + 1, maxAttempts);
+            try {
+                backoff.pause(attempt * 2_000L);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                partial.addSuppressed(interrupted);
+                throw partial;
+            }
         }
     }
 

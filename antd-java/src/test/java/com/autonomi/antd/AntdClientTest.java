@@ -853,6 +853,7 @@ class AntdClientTest {
                 assertEquals(12L, ex.getChunksFailed());
                 assertEquals(312L, ex.getTotalChunks());
                 assertTrue(ex.isRetryable(), "expected retryable from the body flag");
+                assertTrue(ex.isRetentionKnown());
                 assertEquals(502, ex.getStatusCode());
                 // Existing catch blocks keep working: a partial upload is still
                 // the 502 family.
@@ -864,9 +865,9 @@ class AntdClientTest {
 
     @Test
     void testPartialUploadRetryableDefaultsFalse() throws IOException {
-        // An older daemon (< 0.14.0) never sends `retryable`; the flag must read
-        // false so callers fall back to the re-prepare path rather than looping
-        // on an upload_id the daemon has already dropped.
+        // An older daemon (< 0.14.0) never sends `retryable`: the flag must read
+        // false (no automatic same-upload_id retry) and retention unknown (no
+        // re-prepare on this signal alone; the caller reconciles first).
         try (MockWebServer srv = startFinalize502Daemon(
                 "{\"error\":\"Partial upload: 300/312 chunks stored, 12 failed after retries\","
                         + "\"code\":\"PARTIAL_UPLOAD\","
@@ -880,6 +881,36 @@ class AntdClientTest {
                 assertEquals(12L, ex.getChunksFailed());
                 assertEquals(312L, ex.getTotalChunks());
                 assertFalse(ex.isRetryable(), "retryable must default to false without the body flag");
+                assertFalse(ex.isRetentionKnown(), "no body flag: retention unknown, not confirmed absent");
+            }
+        }
+    }
+
+    @Test
+    void testPartialUploadRetentionKnownOnlyForBooleanRetryable() throws IOException {
+        // retentionKnown is true only when the body carries `retryable` as a
+        // JSON boolean; missing, null or any other type reads as unknown and
+        // not retryable. retryable always implies retentionKnown.
+        record Case(String retryableField, boolean retryable, boolean retentionKnown) {}
+        Case[] cases = {
+                new Case(",\"retryable\":true", true, true),
+                new Case(",\"retryable\":false", false, true),
+                new Case("", false, false),
+                new Case(",\"retryable\":null", false, false),
+                new Case(",\"retryable\":\"true\"", false, false),
+                new Case(",\"retryable\":1", false, false),
+        };
+        for (Case tc : cases) {
+            String body = "{\"error\":\"Partial upload: 1/3 chunks stored, 2 failed\","
+                    + "\"code\":\"PARTIAL_UPLOAD\",\"chunks_stored\":1,\"chunks_failed\":2,"
+                    + "\"total_chunks\":3" + tc.retryableField() + "}";
+            try (MockWebServer srv = startFinalize502Daemon(body);
+                 AntdClient c = new AntdClient(srv.url("/").toString(), Duration.ofSeconds(10))) {
+                PartialUploadException ex = assertThrows(PartialUploadException.class,
+                        () -> c.finalizeUpload("up1", Map.of("0xq", "0xt")), body);
+                assertEquals(tc.retryable(), ex.isRetryable(), body);
+                assertEquals(tc.retentionKnown(), ex.isRetentionKnown(), body);
+                assertEquals(2L, ex.getChunksFailed(), body);
             }
         }
     }
@@ -951,6 +982,7 @@ class AntdClientTest {
                 assertEquals(0L, ex.getChunksFailed(), body);
                 assertEquals(0L, ex.getTotalChunks(), body);
                 assertFalse(ex.isRetryable(), body);
+                assertFalse(ex.isRetentionKnown(), body);
                 assertEquals(502, ex.getStatusCode(), body);
             }
         }
@@ -972,6 +1004,7 @@ class AntdClientTest {
                 assertEquals(2L, ex.getChunksFailed(), body);
                 assertEquals(3L, ex.getTotalChunks(), body);
                 assertTrue(ex.isRetryable(), body);
+                assertTrue(ex.isRetentionKnown(), body);
                 assertNotNull(ex.getMessage(), body);
             }
         }
@@ -1026,6 +1059,50 @@ class AntdClientTest {
         assertEquals(2L, ex.getChunksFailed());
         assertEquals(3L, ex.getTotalChunks());
         assertFalse(ex.isRetryable());
+    }
+
+    @Test
+    void testParsePartialUploadMessageRetentionKnown() {
+        String hint = " (paid attempt retained: call finalize again with the same upload_id)";
+        // Counts parsed: retention known, and the hint decides retryable.
+        PartialUploadException ex = PartialUploadException.fromMessage(
+                "Partial upload: 1/3 chunks stored, 2 failed" + hint);
+        assertTrue(ex.isRetentionKnown());
+        assertTrue(ex.isRetryable());
+        ex = PartialUploadException.fromMessage("Partial upload: 1/3 chunks stored, 2 failed after retries");
+        assertTrue(ex.isRetentionKnown());
+        assertFalse(ex.isRetryable());
+
+        // Counts unreadable: retention unknown and not retryable, hint or not.
+        String overflow = "9223372036854775808";
+        String[] unknown = {
+                "Partial upload: " + overflow + "/10 chunks stored, 1 failed" + hint,
+                "Partial upload: 1/" + overflow + " chunks stored, 1 failed" + hint,
+                "Partial upload: 1/10 chunks stored, " + overflow + " failed" + hint,
+                "Partial upload: ??? chunks, no idea" + hint,
+                "Partial upload: ??? chunks, no idea",
+        };
+        for (String msg : unknown) {
+            ex = PartialUploadException.fromMessage(msg);
+            assertFalse(ex.isRetentionKnown(), msg);
+            assertFalse(ex.isRetryable(), msg);
+        }
+        assertFalse(PartialUploadException.fromMessage(null).isRetentionKnown());
+    }
+
+    @Test
+    void testPartialUploadExceptionConstructorsKeepRetryableImpliesRetentionKnown() {
+        // The five-argument constructor cannot say whether retention is known,
+        // so a false flag reads as unknown.
+        assertTrue(new PartialUploadException("m", 1, 2, 3, true).isRetentionKnown());
+        assertFalse(new PartialUploadException("m", 1, 2, 3, false).isRetentionKnown());
+        // retryable forces retentionKnown.
+        PartialUploadException forced = new PartialUploadException("m", 1, 2, 3, true, false);
+        assertTrue(forced.isRetryable());
+        assertTrue(forced.isRetentionKnown());
+        PartialUploadException confirmed = new PartialUploadException("m", 1, 2, 3, false, true);
+        assertFalse(confirmed.isRetryable());
+        assertTrue(confirmed.isRetentionKnown());
     }
 
     @Test

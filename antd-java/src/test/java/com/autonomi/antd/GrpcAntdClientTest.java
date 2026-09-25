@@ -58,7 +58,9 @@ import antd.v1.Chunks.FinalizeChunkResponse;
 import antd.v1.Common.Cost;
 import antd.v1.Common.PaymentEntry;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import com.google.protobuf.ByteString;
@@ -80,6 +82,8 @@ class GrpcAntdClientTest {
     private Server server;
     private ManagedChannel channel;
     private GrpcAntdClient client;
+    /** Per-test in-process servers; shut down in {@link #tearDown()}. */
+    private final List<Server> extraServers = new ArrayList<>();
 
     @BeforeEach
     void setUp() throws Exception {
@@ -109,6 +113,7 @@ class GrpcAntdClientTest {
         client.close();
         channel.shutdownNow();
         server.shutdownNow();
+        for (Server s : extraServers) s.shutdownNow();
     }
 
     // =========================================================================
@@ -630,7 +635,7 @@ class GrpcAntdClientTest {
     @Test
     void testInvalidArgumentThrowsBadRequestException() throws Exception {
         String serverName = InProcessServerBuilder.generateName();
-        InProcessServerBuilder.forName(serverName)
+        extraServers.add(InProcessServerBuilder.forName(serverName)
                         .directExecutor()
                         .addService(new DataServiceGrpc.DataServiceImplBase() {
                             @Override
@@ -641,7 +646,7 @@ class GrpcAntdClientTest {
                             }
                         })
                         .build()
-                        .start();
+                        .start());
 
         ManagedChannel ch = InProcessChannelBuilder.forName(serverName).directExecutor().build();
 
@@ -655,7 +660,7 @@ class GrpcAntdClientTest {
     @Test
     void testAlreadyExistsThrowsAlreadyExistsException() throws Exception {
         String serverName = InProcessServerBuilder.generateName();
-        InProcessServerBuilder.forName(serverName)
+        extraServers.add(InProcessServerBuilder.forName(serverName)
                         .directExecutor()
                         .addService(new DataServiceGrpc.DataServiceImplBase() {
                             @Override
@@ -666,7 +671,7 @@ class GrpcAntdClientTest {
                             }
                         })
                         .build()
-                        .start();
+                        .start());
 
         ManagedChannel ch = InProcessChannelBuilder.forName(serverName).directExecutor().build();
 
@@ -680,7 +685,7 @@ class GrpcAntdClientTest {
     @Test
     void testFailedPreconditionThrowsPaymentException() throws Exception {
         String serverName = InProcessServerBuilder.generateName();
-        InProcessServerBuilder.forName(serverName)
+        extraServers.add(InProcessServerBuilder.forName(serverName)
                         .directExecutor()
                         .addService(new DataServiceGrpc.DataServiceImplBase() {
                             @Override
@@ -691,7 +696,7 @@ class GrpcAntdClientTest {
                             }
                         })
                         .build()
-                        .start();
+                        .start());
 
         ManagedChannel ch = InProcessChannelBuilder.forName(serverName).directExecutor().build();
 
@@ -705,7 +710,7 @@ class GrpcAntdClientTest {
     @Test
     void testResourceExhaustedThrowsTooLargeException() throws Exception {
         String serverName = InProcessServerBuilder.generateName();
-        InProcessServerBuilder.forName(serverName)
+        extraServers.add(InProcessServerBuilder.forName(serverName)
                         .directExecutor()
                         .addService(new DataServiceGrpc.DataServiceImplBase() {
                             @Override
@@ -716,7 +721,7 @@ class GrpcAntdClientTest {
                             }
                         })
                         .build()
-                        .start();
+                        .start());
 
         ManagedChannel ch = InProcessChannelBuilder.forName(serverName).directExecutor().build();
 
@@ -730,7 +735,7 @@ class GrpcAntdClientTest {
     @Test
     void testInternalThrowsInternalException() throws Exception {
         String serverName = InProcessServerBuilder.generateName();
-        InProcessServerBuilder.forName(serverName)
+        extraServers.add(InProcessServerBuilder.forName(serverName)
                         .directExecutor()
                         .addService(new DataServiceGrpc.DataServiceImplBase() {
                             @Override
@@ -741,7 +746,7 @@ class GrpcAntdClientTest {
                             }
                         })
                         .build()
-                        .start();
+                        .start());
 
         ManagedChannel ch = InProcessChannelBuilder.forName(serverName).directExecutor().build();
 
@@ -755,7 +760,7 @@ class GrpcAntdClientTest {
     @Test
     void testUnavailableThrowsNetworkException() throws Exception {
         String serverName = InProcessServerBuilder.generateName();
-        InProcessServerBuilder.forName(serverName)
+        extraServers.add(InProcessServerBuilder.forName(serverName)
                         .directExecutor()
                         .addService(new DataServiceGrpc.DataServiceImplBase() {
                             @Override
@@ -766,7 +771,7 @@ class GrpcAntdClientTest {
                             }
                         })
                         .build()
-                        .start();
+                        .start());
 
         ManagedChannel ch = InProcessChannelBuilder.forName(serverName).directExecutor().build();
 
@@ -780,7 +785,7 @@ class GrpcAntdClientTest {
     @Test
     void testUnknownCodeThrowsBaseAntdException() throws Exception {
         String serverName = InProcessServerBuilder.generateName();
-        InProcessServerBuilder.forName(serverName)
+        extraServers.add(InProcessServerBuilder.forName(serverName)
                         .directExecutor()
                         .addService(new DataServiceGrpc.DataServiceImplBase() {
                             @Override
@@ -791,7 +796,7 @@ class GrpcAntdClientTest {
                             }
                         })
                         .build()
-                        .start();
+                        .start());
 
         ManagedChannel ch = InProcessChannelBuilder.forName(serverName).directExecutor().build();
 
@@ -1004,9 +1009,9 @@ class GrpcAntdClientTest {
      * An upload service whose finalize always fails ABORTED with the given
      * description — the daemon's PARTIAL_UPLOAD wire form over gRPC.
      */
-    private static GrpcAntdClient abortedFinalizeClient(String description) throws Exception {
+    private GrpcAntdClient abortedFinalizeClient(String description) throws Exception {
         String serverName = InProcessServerBuilder.generateName();
-        InProcessServerBuilder.forName(serverName)
+        extraServers.add(InProcessServerBuilder.forName(serverName)
                         .directExecutor()
                         .addService(new UploadServiceGrpc.UploadServiceImplBase() {
                             @Override
@@ -1017,7 +1022,7 @@ class GrpcAntdClientTest {
                             }
                         })
                         .build()
-                        .start();
+                        .start());
         ManagedChannel ch = InProcessChannelBuilder.forName(serverName).directExecutor().build();
         return new GrpcAntdClient(ch);
     }
@@ -1037,6 +1042,7 @@ class GrpcAntdClientTest {
             assertEquals(12L, ex.getChunksFailed());
             assertEquals(312L, ex.getTotalChunks());
             assertTrue(ex.isRetryable(), "expected retryable from the retained hint");
+            assertTrue(ex.isRetentionKnown());
             assertEquals(502, ex.getStatusCode());
             assertInstanceOf(NetworkException.class, ex);
         }
@@ -1054,6 +1060,7 @@ class GrpcAntdClientTest {
             assertEquals(12L, ex.getChunksFailed());
             assertEquals(312L, ex.getTotalChunks());
             assertFalse(ex.isRetryable(), "no retained hint must read as not retryable");
+            assertTrue(ex.isRetentionKnown(), "counts parsed: the daemon's answer is known");
         }
     }
 
@@ -1069,6 +1076,7 @@ class GrpcAntdClientTest {
             assertEquals(0L, ex.getChunksFailed());
             assertEquals(0L, ex.getTotalChunks());
             assertFalse(ex.isRetryable());
+            assertFalse(ex.isRetentionKnown());
         }
     }
 
@@ -1092,6 +1100,7 @@ class GrpcAntdClientTest {
                 assertEquals(0L, ex.getChunksFailed(), description);
                 assertEquals(0L, ex.getTotalChunks(), description);
                 assertFalse(ex.isRetryable(), description);
+                assertFalse(ex.isRetentionKnown(), description);
             }
         }
     }

@@ -15,17 +15,19 @@ public final class ExceptionFactory {
      * where they diverge: {@code PARTIAL_UPLOAD} arrives as a 502 that would
      * otherwise read as a generic {@link NetworkException}, so it becomes a
      * {@link PartialUploadException} carrying the body's counts and
-     * {@code retryable} flag (absent on daemons older than 0.14.0, defaulting
-     * to {@code false}). Every other code keeps the status-based mapping of
+     * {@code retryable} flag. Retention is known only when {@code retryable}
+     * is a JSON boolean; a missing one (daemons older than 0.14.0), a
+     * {@code null} or any other type reads as {@code retryable == false} with
+     * retention unknown. Every other code keeps the status-based mapping of
      * {@link #fromHttpStatus(int, String)}.
      *
      * <p>The body is input from the network, so this never throws on a
      * malformed one: only a {@code code} that is the JSON string
      * {@code "PARTIAL_UPLOAD"} selects the typed exception (a missing, null,
      * numeric, object or array {@code code}, or a body that was not a JSON
-     * object, keeps the status-based mapping), and a count that is not a JSON
-     * number or a {@code retryable} that is not a JSON boolean reads as zero /
-     * {@code false}.
+     * object, keeps the status-based mapping), a count that is not a JSON
+     * number reads as zero, and a {@code retryable} that is not a JSON boolean
+     * reads as not retryable with retention unknown.
      *
      * @param statusCode the HTTP status code
      * @param message    the error message from the daemon
@@ -35,12 +37,14 @@ public final class ExceptionFactory {
      */
     public static AntdException fromErrorBody(int statusCode, String message, Map<String, Object> body) {
         if (body != null && PartialUploadException.CODE.equals(body.get("code"))) {
+            Object flag = body.get("retryable");
             return new PartialUploadException(
                     message,
                     count(body, "chunks_stored"),
                     count(body, "chunks_failed"),
                     count(body, "total_chunks"),
-                    body.get("retryable") instanceof Boolean b && b);
+                    flag instanceof Boolean b && b,
+                    flag instanceof Boolean);
         }
         return fromHttpStatus(statusCode, message);
     }
