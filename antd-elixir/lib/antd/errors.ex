@@ -136,9 +136,11 @@ defmodule Antd.PartialUploadError do
   (`Partial upload: S/T chunks stored, F failed ...`, with a
   `paid attempt retained` hint when retryable). Only a message that starts
   with that prefix is a partial upload; an `ABORTED` that merely quotes it
-  further in keeps the generic `Antd.AntdError` mapping. Counts and the hint
-  are parsed independently: counts that do not parse read as `0`, while
-  `retryable` still follows the hint.
+  further in keeps the generic `Antd.AntdError` mapping. `retryable` is
+  `true` only when all three counts parse (each within the daemon's `u64`
+  range) and the hint is present; a message whose counts do not parse reads
+  as zero counts and `retryable: false`, even with the hint, so the caller
+  falls back to re-preparing.
 
   See `docs/external-signer-flow.md` §6 ("Retry a partial store — same
   `upload_id`, same payment") and `finalize_with_retry/3` in
@@ -175,6 +177,11 @@ defmodule Antd.Errors do
   # Message tail the daemon appends to a `PARTIAL_UPLOAD` error when it kept
   # the paid attempt for a same-`upload_id` retry.
   @partial_upload_retained_hint "paid attempt retained"
+
+  # The daemon's chunk counts are `u64`; a larger parsed value is not a count
+  # it could have sent, so it fails the conversion (Elixir integers are
+  # unbounded and would otherwise accept it).
+  @max_count 18_446_744_073_709_551_615
 
   @doc "Returns the appropriate error struct for an HTTP status code."
   @spec error_for_status(integer(), String.t()) :: Exception.t()
@@ -234,8 +241,8 @@ defmodule Antd.Errors do
   `partial_upload_message?/1` first). The status carries no structured
   detail, so the counts and the retained hint are recovered from the text
   via `parse_partial_upload_message/1`; a prefixed message whose counts do
-  not parse still builds the error, with zero counts (`retryable` still
-  follows the hint).
+  not parse still builds the error, with zero counts and `retryable: false`
+  even when the retained hint is present.
   """
   @spec partial_upload_error_from_message(integer(), String.t()) ::
           Antd.PartialUploadError.t()
@@ -256,23 +263,34 @@ defmodule Antd.Errors do
   Parses the chunk counts and the retained hint out of a `PARTIAL_UPLOAD`
   message (`Partial upload: <stored>/<total> chunks stored, <failed> failed
   ...`). Returns `{chunks_stored, chunks_failed, total_chunks, retryable}`.
-  Counts that do not parse read as zero; `retryable` is decided
-  independently, by the presence of the `paid attempt retained` hint, so a
-  message with neither yields `{0, 0, 0, false}`.
+
+  `retryable` is `true` only when the counts pattern matches, all three
+  counts convert (each at most `u64::MAX`, the daemon's count type), and the
+  `paid attempt retained` hint is present. On a pattern miss or any failed
+  conversion the result is `{0, 0, 0, false}`, hint or not: a retry against
+  the same `upload_id` is only advertised when the whole message parsed.
   """
   @spec parse_partial_upload_message(String.t()) ::
           {non_neg_integer(), non_neg_integer(), non_neg_integer(), boolean()}
   def parse_partial_upload_message(message) when is_binary(message) do
-    {stored, failed, total} =
-      case Regex.run(~r/Partial upload: (\d+)\/(\d+) chunks stored, (\d+) failed/, message) do
-        [_, stored, total, failed] ->
-          {String.to_integer(stored), String.to_integer(failed), String.to_integer(total)}
+    with [_, stored, total, failed] <-
+           Regex.run(~r/Partial upload: (\d+)\/(\d+) chunks stored, (\d+) failed/, message),
+         {:ok, stored} <- to_count(stored),
+         {:ok, total} <- to_count(total),
+         {:ok, failed} <- to_count(failed) do
+      {stored, failed, total, String.contains?(message, @partial_upload_retained_hint)}
+    else
+      _ -> {0, 0, 0, false}
+    end
+  end
 
-        nil ->
-          {0, 0, 0}
-      end
-
-    {stored, failed, total, String.contains?(message, @partial_upload_retained_hint)}
+  # Converts a run of ASCII digits (guaranteed by the regex) to a count,
+  # failing for a value the daemon's `u64` counts could not hold.
+  defp to_count(digits) do
+    case String.to_integer(digits) do
+      n when n <= @max_count -> {:ok, n}
+      _ -> :error
+    end
   end
 
   defp count(n) when is_integer(n) and n >= 0, do: n

@@ -463,14 +463,71 @@ defmodule Antd.GrpcClientTest do
              "Partial upload: 300/312 chunks stored, 12 failed after retries"
            ) == {300, 12, 312, false}
 
-    # Counts and the hint are parsed independently: garbled counts read as
-    # zero while the retained hint is still honoured.
+    # Garbled counts read as zero and are never retryable, even with the hint.
     assert Antd.Errors.parse_partial_upload_message(
              "Partial upload: 300/312 chunks (paid attempt retained)"
-           ) == {0, 0, 0, true}
+           ) == {0, 0, 0, false}
 
     assert Antd.Errors.parse_partial_upload_message("something else entirely") ==
              {0, 0, 0, false}
+  end
+
+  # retryable requires a full parse: the counts pattern must match and every
+  # count must convert to the daemon's u64 before the retained hint counts.
+  @u64_max "18446744073709551615"
+  @u64_over "18446744073709551616"
+
+  test "parse_partial_upload_message/1 is retryable only with parsed counts and the hint" do
+    parse = &Antd.Errors.parse_partial_upload_message/1
+
+    # Well-formed with the hint -> retryable with its counts.
+    assert parse.("Partial upload: 1/3 chunks stored, 2 failed (paid attempt retained)") ==
+             {1, 2, 3, true}
+
+    # Well-formed without the hint -> counts, not retryable.
+    assert parse.("Partial upload: 1/3 chunks stored, 2 failed after retries") ==
+             {1, 2, 3, false}
+
+    # Pattern miss with the hint -> zeros, not retryable.
+    assert parse.("Partial upload: x/y chunks stored, z failed (paid attempt retained)") ==
+             {0, 0, 0, false}
+
+    # Over u64::MAX in each position (stored, total, failed) with the hint ->
+    # a failed conversion: zeros, not retryable.
+    for msg <- [
+          "Partial upload: #{@u64_over}/3 chunks stored, 2 failed (paid attempt retained)",
+          "Partial upload: 1/#{@u64_over} chunks stored, 2 failed (paid attempt retained)",
+          "Partial upload: 1/3 chunks stored, #{@u64_over} failed (paid attempt retained)"
+        ] do
+      assert parse.(msg) == {0, 0, 0, false}, "overflow not rejected: #{msg}"
+    end
+
+    # u64::MAX itself still converts in every position.
+    max = String.to_integer(@u64_max)
+
+    assert parse.(
+             "Partial upload: #{@u64_max}/#{@u64_max} chunks stored, " <>
+               "#{@u64_max} failed (paid attempt retained)"
+           ) == {max, max, max, true}
+  end
+
+  test "ABORTED with an overflowing count and the hint -> zero counts, not retryable" do
+    msg =
+      "Partial upload: 1/#{@u64_over} chunks stored, 2 failed after retries: quorum " <>
+        "(paid attempt retained: call finalize again with the same upload_id to " <>
+        "store the remainder against the same payment)"
+
+    {:error, err} = simulate_grpc_call(:error, %GRPC.RPCError{status: 10, message: msg})
+
+    assert %Antd.PartialUploadError{
+             status_code: 502,
+             chunks_stored: 0,
+             chunks_failed: 0,
+             total_chunks: 0,
+             retryable: false
+           } = err
+
+    assert err.message == msg
   end
 
   # ---------------------------------------------------------------------------

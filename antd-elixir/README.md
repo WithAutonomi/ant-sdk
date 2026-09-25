@@ -260,7 +260,10 @@ stored chunks stay on the network:
 Over REST the fields come from the structured error body; over gRPC (status
 `ABORTED` whose message starts with `Partial upload:` — any other `ABORTED`,
 including one that only quotes that phrase further into its message, stays a
-plain `Antd.AntdError`) they are parsed best-effort from the status message.
+plain `Antd.AntdError`) they are parsed best-effort from the status message:
+`retryable` is `true` only when the counts parse and the daemon's
+`paid attempt retained` hint is present, and a message whose counts do not
+parse reads as zero counts and `retryable: false`, so the caller re-prepares.
 See
 `finalize_with_retry/3` in [`examples/07_external_signer.exs`](examples/07_external_signer.exs)
 and [`docs/external-signer-flow.md`](../docs/external-signer-flow.md) §6

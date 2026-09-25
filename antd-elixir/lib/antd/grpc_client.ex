@@ -703,8 +703,11 @@ defmodule Antd.GrpcClient do
   `{:error, %Antd.PartialUploadError{}}` (gRPC `ABORTED` whose message
   starts with `Partial upload:`; any other `ABORTED` stays a plain
   `Antd.AntdError`) carrying `chunks_stored`, `chunks_failed`,
-  `total_chunks` and `retryable`, parsed from the status message. The
-  payment persists and the stored chunks stay on the network. When
+  `total_chunks` and `retryable`, parsed from the status message
+  (`retryable` is `true` only when the counts parse and the daemon's
+  "paid attempt retained" hint is present; unparseable counts read as zero
+  and not retryable). The payment persists and the stored chunks stay on
+  the network. When
   `retryable` is `true` (antd >= 0.14.0) the daemon
   kept the paid attempt under the same `upload_id`: call this function again
   with the same arguments to store the remainder against the same payment —
