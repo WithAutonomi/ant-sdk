@@ -198,11 +198,16 @@ How the SDKs set them:
 | Transport | `retryable` | `retention_known` |
 | --- | --- | --- |
 | REST | the body's `retryable` is `true` | the body's `retryable` is present and a JSON boolean (`true` or `false`) |
-| gRPC | `retention_known` **and** the message carries the `paid attempt retained` hint | the message was fully parsed: the `ABORTED` status passed the `Partial upload:` gate, the counts pattern matched, and all three counts converted |
+| gRPC | `retention_known` **and** the closing hint is `(paid attempt retained…)` | the message was fully parsed: the `ABORTED` status passed the `Partial upload:` gate, the counts pattern matched at the start, all three counts converted, **and** the message ends with one of the daemon's two hints |
 
-Over gRPC, a fully parsed message without the retained hint (the daemon's non-retained `re-prepare` tail) is known and not retryable: confirmed non-retention, the same as an explicit REST `retryable: false`. **Retention unknown** means the SDK could not read the daemon's answer: a REST body whose `retryable` is missing, `null` or not a boolean, or a gRPC `Partial upload:` message whose counts pattern missed or whose counts failed to convert.
+Over gRPC the answer on retention is the hint that closes the message, not the counts. The hint must be the message's last text: a parenthesised group at the very end (`\((paid attempt retained|stored chunks persist; re-prepare the same content)[^()]*\)` followed by end of input, with no trailing newline). A closing `(stored chunks persist; re-prepare the same content…)` is confirmed non-retention, the same as an explicit REST `retryable: false`.
 
-Daemons older than 0.14.0 never send `retryable`, so their REST partials read as unknown. Over gRPC their well-formed message carries only the `re-prepare` tail, so it reads as known and not retryable, which is correct: those daemons discarded the `upload_id` on the failed finalize.
+**Retention unknown** means the SDK could not read the daemon's answer:
+- a REST body whose `retryable` is missing, `null` or not a boolean;
+- a gRPC `Partial upload:` message whose counts pattern missed or whose counts failed to convert (the counts read 0);
+- a gRPC message whose counts read but whose closing hint is missing, cut short, unrecognised or followed by other text (the counts are kept). Readable counts alone never mean "nothing retained".
+
+Daemons older than 0.14.0 never send `retryable`, so their REST partials read as unknown. Over gRPC, their well-formed message always ends with the `(stored chunks persist; re-prepare the same content…)` hint, so it reads as known and not retryable. That is correct, because those daemons discarded the `upload_id` on the failed finalize.
 
 Recover by case:
 
