@@ -1,5 +1,6 @@
 using Antd.Examples;
 using Antd.Sdk;
+using Grpc.Core;
 using Xunit;
 
 namespace Antd.Sdk.Tests;
@@ -49,13 +50,14 @@ public sealed class FinalizeRetryTests
             };
         }
 
-        public Task<string> Run(int maxAttempts = FinalizeRetry.DefaultMaxAttempts, CancellationToken ct = default) =>
+        public Task<string> Run(
+            int maxAttempts = FinalizeRetry.DefaultMaxAttempts, CancellationToken ct = default, TextWriter? log = null) =>
             FinalizeRetry.FinalizeWithRetryAsync(
                 UploadId,
                 () => FinalizeAsync(UploadId, TxHashes),
                 maxAttempts,
                 backoff: (attempt, _) => { Backoffs.Add(attempt); return Task.CompletedTask; },
-                log: TextWriter.Null,
+                log: log ?? TextWriter.Null,
                 cancellationToken: ct);
     }
 
@@ -137,6 +139,61 @@ public sealed class FinalizeRetryTests
         Assert.False(ex.RetentionKnown);
         Assert.Single(script.Calls);
         Assert.Empty(script.Backoffs);
+    }
+
+    private const string GrpcCounts = "Partial upload: 6/10 chunks stored, 4 failed after retries: quorum";
+
+    /// <summary>The typed exception the SDK's gRPC mapping builds from an ABORTED detail.</summary>
+    private static PartialUploadException FromGrpcDetail(string detail) =>
+        Assert.IsType<PartialUploadException>(ExceptionMapping.FromGrpcStatus(
+            new RpcException(new Status(Grpc.Core.StatusCode.Aborted, detail))));
+
+    [Theory]
+    [InlineData("")]
+    // The review's reproducer: the retained hint cut short.
+    [InlineData(" (paid attempt retai")]
+    [InlineData(" (paid attempt retained: call finalize again")]
+    [InlineData(" (stored chunks persist; re-prepare the same con")]
+    public async Task GrpcDetailWithoutAReadableHint_StopsAndAdvisesReconcileNotReprepare(string tail)
+    {
+        // End to end from the gRPC status text: the SDK's ABORTED mapping must
+        // steer the helper to stop and reconcile, never to retry or to
+        // re-prepare, whenever the daemon's answer on retention was not read.
+        var partial = FromGrpcDetail(GrpcCounts + tail);
+        var script = new ScriptedFinalize(partial, "never reached");
+        var log = new StringWriter();
+
+        var ex = await Assert.ThrowsAsync<PartialUploadException>(() => script.Run(log: log));
+
+        Assert.Same(partial, ex);
+        Assert.Single(script.Calls);
+        Assert.Empty(script.Backoffs);
+        var advice = log.ToString();
+        Assert.Contains("stored 6/10 chunks", advice);
+        Assert.Contains("is unknown", advice);
+        Assert.Contains("reconcile", advice);
+        Assert.DoesNotContain("kept nothing", advice);
+        Assert.DoesNotContain("re-prepare the same content", advice);
+    }
+
+    [Fact]
+    public async Task GrpcDetailWithTheNotRetainedHint_StopsAndAdvisesReprepare()
+    {
+        // Only the daemon's explicit not-retained hint leads to the
+        // "kept nothing, re-prepare" advice.
+        var partial = FromGrpcDetail(
+            GrpcCounts + " (stored chunks persist; re-prepare the same content to retry only the remainder)");
+        var script = new ScriptedFinalize(partial, "never reached");
+        var log = new StringWriter();
+
+        var ex = await Assert.ThrowsAsync<PartialUploadException>(() => script.Run(log: log));
+
+        Assert.Same(partial, ex);
+        Assert.Single(script.Calls);
+        var advice = log.ToString();
+        Assert.Contains("kept nothing", advice);
+        Assert.Contains("re-prepare the same content", advice);
+        Assert.DoesNotContain("is unknown", advice);
     }
 
     [Fact]

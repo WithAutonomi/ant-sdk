@@ -1176,11 +1176,13 @@ public sealed class PartialUploadMessageParserTests
     [InlineData(
         "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (stored chunks persist; re-prepare the same content to retry only the remainder)",
         300UL, 12UL, 312UL, false, true)]
-    [InlineData("Partial upload: 300/312 chunks stored, 12 failed after retries", 300UL, 12UL, 312UL, false, true)]
+    // Readable counts but no retention hint: the daemon's answer was not
+    // read, so retention is unknown. The counts still read.
+    [InlineData("Partial upload: 300/312 chunks stored, 12 failed after retries", 300UL, 12UL, 312UL, false, false)]
     [InlineData("Partial upload: counts missing", 0UL, 0UL, 0UL, false, false)]
-    // RetentionKnown needs the layout to match AND all three counts to
-    // convert; Retryable additionally needs the retained hint. A layout miss
-    // or an unconvertible count reads as zeros, unknown retention and not
+    // RetentionKnown needs the layout to match, all three counts to convert
+    // AND a closing hint; Retryable needs the retained one. A layout miss or
+    // an unconvertible count reads as zeros, unknown retention and not
     // retryable, whatever the hint says.
     [InlineData("Partial upload: counts missing (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)", 0UL, 0UL, 0UL, false, false)]
     [InlineData("Partial upload: 18446744073709551616/312 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)", 0UL, 0UL, 0UL, false, false)]
@@ -1193,6 +1195,7 @@ public sealed class PartialUploadMessageParserTests
     [InlineData("Partial upload: 300/312 chunks stored, \u0661\u0662 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)", 0UL, 0UL, 0UL, false, false)]
     // The layout is anchored at the prefix: counts quoted later do not count.
     [InlineData("Partial upload: n/a chunks stored; earlier: Partial upload: 1/2 chunks stored, 1 failed (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)", 0UL, 0UL, 0UL, false, false)]
+    [InlineData("Partial upload: garbled; was Partial upload: 1/3 chunks stored, 2 failed (paid attempt retained)", 0UL, 0UL, 0UL, false, false)]
     [InlineData("something else entirely", 0UL, 0UL, 0UL, false, false)]
     [InlineData("", 0UL, 0UL, 0UL, false, false)]
     public void ParsePartialUploadMessage_RecoversCountsAndRetainedHint(
@@ -1205,6 +1208,62 @@ public sealed class PartialUploadMessageParserTests
         Assert.Equal(total, parsed.Total);
         Assert.Equal(retryable, parsed.Retryable);
         Assert.Equal(retentionKnown, parsed.RetentionKnown);
+    }
+
+    // The daemon's two closing hints (partial_upload_hint in antd/src/error.rs).
+    private const string RetainedHint =
+        "(paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)";
+    private const string NotRetainedHint =
+        "(stored chunks persist; re-prepare the same content to retry only the remainder)";
+
+    /// <summary>
+    /// Readable counts (1/3 stored, 2 failed) whose closing retention hint is
+    /// missing, cut short, unclosed, unrecognised, followed by more text, or
+    /// only quoted inside the failure reason. Shared with the gRPC mapping
+    /// tests.
+    /// </summary>
+    public static TheoryData<string> CountsWithoutAReadableHint => new()
+    {
+        "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum",
+        // The review's reproducer: the retained hint cut short.
+        "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (paid attempt retai",
+        "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (paid attempt retained: call finalize again",
+        "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (stored chunks persist; re-prepare the same con",
+        "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum (something else)",
+        "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum " + RetainedHint + " trailing",
+        // \z, not $: a trailing newline after a valid hint is not the end.
+        "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum " + RetainedHint + "\n",
+        "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum " + NotRetainedHint + "\n",
+        "Partial upload: 1/3 chunks stored, 2 failed after retries: peer said (paid attempt retained) (connection reset)",
+    };
+
+    [Theory]
+    [MemberData(nameof(CountsWithoutAReadableHint))]
+    public void ParsePartialUploadMessage_CountsWithoutAReadableClosingHint_AreUnknown(string message)
+    {
+        // The daemon's answer on retention was not read: unknown (stop and
+        // reconcile), never "nothing retained" (re-prepare). The counts
+        // still read.
+        var parsed = ExceptionMapping.ParsePartialUploadMessage(message);
+
+        Assert.Equal((1UL, 2UL, 3UL, false, false), parsed);
+    }
+
+    [Theory]
+    // The short form of the retained hint.
+    [InlineData("quorum (paid attempt retained)", true)]
+    // A parenthesised reason before the real hint.
+    [InlineData("quorum (2 of 5 peers) " + NotRetainedHint, false)]
+    [InlineData("quorum (2 of 5 peers) " + RetainedHint, true)]
+    // The retained hint quoted in the reason: the closing not-retained hint
+    // is the daemon's answer.
+    [InlineData("peer said (paid attempt retained) " + NotRetainedHint, false)]
+    public void ParsePartialUploadMessage_OnlyTheClosingHintDecides(string reasonAndHint, bool retryable)
+    {
+        var parsed = ExceptionMapping.ParsePartialUploadMessage(
+            "Partial upload: 1/3 chunks stored, 2 failed after retries: " + reasonAndHint);
+
+        Assert.Equal((1UL, 2UL, 3UL, retryable, true), parsed);
     }
 }
 
@@ -1295,14 +1354,32 @@ public sealed class GrpcAbortedMappingTests
     [InlineData("Partial upload: 300/312 chunks stored, 12 failed after retries: quorum (stored chunks persist; re-prepare the same content to retry only the remainder)", false, true)]
     [InlineData("Partial upload: 300/18446744073709551616 chunks stored, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)", false, false)]
     [InlineData("Partial upload: 300/312 chunks, 12 failed after retries: quorum (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)", false, false)]
-    public void Aborted_RetentionKnownOnlyWhenAllThreeCountsParse(string detail, bool retryable, bool retentionKnown)
+    public void Aborted_RetentionKnownOnlyWithCountsAndAClosingHint(string detail, bool retryable, bool retentionKnown)
     {
-        // Well-formed counts: retention is known and the retained hint decides
-        // Retryable. An overflow or a layout miss: unknown, even with the hint.
+        // Well-formed counts closed by one of the daemon's two hints:
+        // retention is known and the hint decides Retryable. An overflow or a
+        // layout miss: unknown, even with the hint.
         var ex = Assert.IsType<PartialUploadException>(Map(detail));
 
         Assert.Equal(retryable, ex.Retryable);
         Assert.Equal(retentionKnown, ex.RetentionKnown);
+    }
+
+    [Theory]
+    [MemberData(nameof(PartialUploadMessageParserTests.CountsWithoutAReadableHint), MemberType = typeof(PartialUploadMessageParserTests))]
+    public void Aborted_ReadableCountsWithoutAReadableClosingHint_KeepCountsButRetentionUnknown(string detail)
+    {
+        // The daemon's answer on retention was not read, so the typed
+        // exception must say unknown (stop and reconcile), never "nothing
+        // retained" (re-prepare). The counts still read.
+        var ex = Assert.IsType<PartialUploadException>(Map(detail));
+
+        Assert.Equal(1UL, ex.ChunksStored);
+        Assert.Equal(2UL, ex.ChunksFailed);
+        Assert.Equal(3UL, ex.TotalChunks);
+        Assert.False(ex.Retryable);
+        Assert.False(ex.RetentionKnown);
+        Assert.Equal(detail, ex.Message);
     }
 
     [Theory]

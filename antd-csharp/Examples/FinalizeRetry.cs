@@ -38,7 +38,8 @@ public static class FinalizeRetry
     /// <item><description>
     /// Not <see cref="PartialUploadException.RetentionKnown"/>: the SDK could
     /// not tell whether the daemon kept the paid attempt (a daemon before
-    /// antd 0.14.0 over REST, or an error it could not fully read). The
+    /// antd 0.14.0 over REST, or an error it could not fully read, such as a
+    /// gRPC detail whose closing retention hint is missing or cut short). The
     /// daemon may still hold it, so the helper stops without re-preparing or
     /// paying; the caller keeps the upload_id and the original payment
     /// artefacts and reconciles before paying again.
