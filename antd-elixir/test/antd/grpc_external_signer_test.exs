@@ -183,10 +183,27 @@ defmodule Antd.GrpcExternalSignerTest do
     end
   end
 
+  # Daemon-wallet upload: a partial store surfaces through the same shared
+  # translator as the external-signer finalize.
+  defmodule MockDataServer do
+    use GRPC.Server, service: Antd.V1.DataService.Service
+
+    @spec put(Antd.V1.PutDataRequest.t(), GRPC.Server.Stream.t()) ::
+            Antd.V1.PutDataResponse.t()
+    def put(_req, _stream) do
+      raise GRPC.RPCError,
+        status: GRPC.Status.aborted(),
+        message:
+          "Partial upload: 2/3 chunks stored, 1 failed after retries: quorum " <>
+            "(stored chunks persist; re-prepare the same content to retry only the remainder)"
+    end
+  end
+
   defmodule TestEndpoint do
     use GRPC.Endpoint
     run(MockUploadServer)
     run(MockChunkServer)
+    run(MockDataServer)
   end
 
   setup_all do
@@ -326,6 +343,83 @@ defmodule Antd.GrpcExternalSignerTest do
     refute match?(%Antd.PartialUploadError{}, err)
     assert %Antd.AntdError{status_code: 10} = err
     assert String.starts_with?(err.message, "upstream error: Partial upload:")
+  end
+
+  # --- error-contract change: a partial store is PartialUploadError ---
+  #
+  # It used to map to the generic Antd.AntdError. These pin the change and
+  # the README's "Migrating error handlers" patterns for gRPC.
+
+  # README migration pattern: a PartialUploadError clause ahead of the
+  # catch-all AntdError clause.
+  defp classify_grpc(result) do
+    case result do
+      {:ok, _} -> :ok
+      {:error, %Antd.PartialUploadError{}} -> :partial_upload
+      {:error, %Antd.AntdError{}} -> :other
+    end
+  end
+
+  # README migration pattern: rescue both modules around a bang function.
+  defp rescue_grpc(fun) do
+    fun.()
+  rescue
+    e in [Antd.PartialUploadError, Antd.AntdError] -> {:rescued, e.__struct__}
+  end
+
+  test "a partial store is a PartialUploadError, no longer an AntdError", %{client: client} do
+    {:error, err} = GrpcClient.finalize_upload(client, "partial_retained", %{"0xq1" => "0xtx1"})
+
+    assert %Antd.PartialUploadError{} = err
+    refute match?(%Antd.AntdError{}, err)
+    refute match?(%Antd.NetworkError{}, err)
+  end
+
+  test "an ordinary data_put partial store gets the same PartialUploadError",
+       %{client: client} do
+    {:error, err} = GrpcClient.data_put(client, "payload")
+
+    assert %Antd.PartialUploadError{
+             status_code: 502,
+             chunks_stored: 2,
+             chunks_failed: 1,
+             total_chunks: 3,
+             retryable: false
+           } = err
+
+    refute match?(%Antd.AntdError{}, err)
+  end
+
+  test "migration: a PartialUploadError clause ahead of the AntdError clause",
+       %{client: client} do
+    txs = %{"0xq1" => "0xtx1"}
+
+    partial = GrpcClient.finalize_upload(client, "partial_retained", txs)
+    assert classify_grpc(partial) == :partial_upload
+
+    # A non-partial ABORTED still yields AntdError.
+    other = GrpcClient.finalize_upload(client, "aborted_other", txs)
+    assert classify_grpc(other) == :other
+  end
+
+  test "migration: rescuing [PartialUploadError, AntdError] around the bang function",
+       %{client: client} do
+    txs = %{"0xq1" => "0xtx1"}
+
+    assert rescue_grpc(fn -> GrpcClient.finalize_upload!(client, "partial_retained", txs) end) ==
+             {:rescued, Antd.PartialUploadError}
+
+    assert rescue_grpc(fn -> GrpcClient.finalize_upload!(client, "aborted_other", txs) end) ==
+             {:rescued, Antd.AntdError}
+
+    # A rescue that names only AntdError no longer catches a partial store.
+    assert_raise Antd.PartialUploadError, fn ->
+      try do
+        GrpcClient.finalize_upload!(client, "partial_retained", txs)
+      rescue
+        e in Antd.AntdError -> e
+      end
+    end
   end
 
   # --- prepare/finalize chunks ---

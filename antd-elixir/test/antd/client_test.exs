@@ -798,6 +798,131 @@ defmodule Antd.ClientTest do
     end
   end
 
+  # ---------------------------------------------------------------------------
+  # Error-contract change: a partial store is Antd.PartialUploadError, a
+  # separate struct, where it used to be Antd.NetworkError. These pin the
+  # change and the README's "Migrating error handlers" patterns.
+  # ---------------------------------------------------------------------------
+
+  # Serves the finalize route by upload_id: "partial" gets the daemon's
+  # PARTIAL_UPLOAD 502, anything else a plain 502.
+  defp serve_finalize(bypass) do
+    Bypass.expect(bypass, "POST", "/v1/upload/finalize", fn conn ->
+      {:ok, raw, conn} = Plug.Conn.read_body(conn)
+
+      body =
+        case Jason.decode!(raw) do
+          %{"upload_id" => "partial"} ->
+            %{
+              error: "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum",
+              code: "PARTIAL_UPLOAD",
+              chunks_stored: 1,
+              chunks_failed: 2,
+              total_chunks: 3,
+              retryable: true
+            }
+
+          _ ->
+            %{error: "upstream unreachable", code: "NETWORK_ERROR"}
+        end
+
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(502, Jason.encode!(body))
+    end)
+  end
+
+  # README migration pattern: a PartialUploadError clause ahead of the old one.
+  defp classify_rest(result) do
+    case result do
+      {:ok, _} -> :ok
+      {:error, %Antd.PartialUploadError{}} -> :partial_upload
+      {:error, %Antd.NetworkError{}} -> :network
+    end
+  end
+
+  # README migration pattern: rescue both modules around a bang function.
+  defp rescue_rest(fun) do
+    fun.()
+  rescue
+    e in [Antd.PartialUploadError, Antd.NetworkError] -> {:rescued, e.__struct__}
+  end
+
+  test "a partial store is a PartialUploadError, no longer a NetworkError",
+       %{bypass: bypass, client: client} do
+    serve_finalize(bypass)
+    txs = %{"0xq" => "0xt"}
+
+    assert {:error, err} = Antd.Client.finalize_upload(client, "partial", txs)
+    assert %Antd.PartialUploadError{chunks_stored: 1, retryable: true} = err
+    refute match?(%Antd.NetworkError{}, err)
+    refute match?(%Antd.AntdError{}, err)
+
+    # A non-partial 502 still maps to NetworkError.
+    assert {:error, %Antd.NetworkError{status_code: 502}} =
+             Antd.Client.finalize_upload(client, "other", txs)
+  end
+
+  test "an ordinary daemon-wallet upload gets the same PartialUploadError",
+       %{bypass: bypass, client: client} do
+    Bypass.expect_once(bypass, "POST", "/v1/data/public", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(
+        502,
+        Jason.encode!(%{
+          error: "Partial upload: 2/3 chunks stored, 1 failed after retries: quorum",
+          code: "PARTIAL_UPLOAD",
+          chunks_stored: 2,
+          chunks_failed: 1,
+          total_chunks: 3,
+          retryable: false
+        })
+      )
+    end)
+
+    assert {:error, err} = Antd.Client.data_put_public(client, "payload")
+
+    assert %Antd.PartialUploadError{
+             chunks_stored: 2,
+             chunks_failed: 1,
+             total_chunks: 3,
+             retryable: false
+           } = err
+
+    refute match?(%Antd.NetworkError{}, err)
+  end
+
+  test "migration: a PartialUploadError clause ahead of the NetworkError clause",
+       %{bypass: bypass, client: client} do
+    serve_finalize(bypass)
+    txs = %{"0xq" => "0xt"}
+
+    assert classify_rest(Antd.Client.finalize_upload(client, "partial", txs)) == :partial_upload
+    assert classify_rest(Antd.Client.finalize_upload(client, "other", txs)) == :network
+  end
+
+  test "migration: rescuing [PartialUploadError, NetworkError] around the bang function",
+       %{bypass: bypass, client: client} do
+    serve_finalize(bypass)
+    txs = %{"0xq" => "0xt"}
+
+    assert rescue_rest(fn -> Antd.Client.finalize_upload!(client, "partial", txs) end) ==
+             {:rescued, Antd.PartialUploadError}
+
+    assert rescue_rest(fn -> Antd.Client.finalize_upload!(client, "other", txs) end) ==
+             {:rescued, Antd.NetworkError}
+
+    # A rescue that names only NetworkError no longer catches a partial store.
+    assert_raise Antd.PartialUploadError, fn ->
+      try do
+        Antd.Client.finalize_upload!(client, "partial", txs)
+      rescue
+        e in Antd.NetworkError -> e
+      end
+    end
+  end
+
   test "finalize_upload!/3 raises PartialUploadError", %{bypass: bypass, client: client} do
     Bypass.expect_once(bypass, "POST", "/v1/upload/finalize", fn conn ->
       conn

@@ -701,8 +701,8 @@ defmodule Antd.GrpcClient do
 
   A finalize that stored only part of the upload returns
   `{:error, %Antd.PartialUploadError{}}` (gRPC `ABORTED` whose message
-  starts with `Partial upload:`; any other `ABORTED` stays a plain
-  `Antd.AntdError`) carrying `chunks_stored`, `chunks_failed`,
+  starts with `Partial upload:`; this used to be a plain `Antd.AntdError`,
+  as any other `ABORTED` still is) carrying `chunks_stored`, `chunks_failed`,
   `total_chunks` and `retryable`, parsed from the status message
   (`retryable` is `true` only when the counts parse and the daemon's
   "paid attempt retained" hint is present; unparseable counts read as zero
@@ -714,8 +714,10 @@ defmodule Antd.GrpcClient do
   bound that loop (cap the attempts; a `chunks_failed` that stops shrinking
   means stuck). When `false` (older daemon), re-prepare the same content:
   already-stored chunks are skipped, so the retry pays only for the
-  remainder. See `docs/external-signer-flow.md` §6 and
-  `examples/07_external_signer.exs`.
+  remainder. If all counts are `0` the status message could not be parsed:
+  retention is then unconfirmed, not ruled out, so do not treat that alone
+  as permission to pay again; read `message` and confirm first. See
+  `docs/external-signer-flow.md` §6 and `examples/07_external_signer.exs`.
   """
   @spec finalize_upload(t(), String.t(), map()) ::
           {:ok, Antd.FinalizeUploadResult.t()} | {:error, Exception.t()}
@@ -746,7 +748,8 @@ defmodule Antd.GrpcClient do
   as for `finalize_upload/3`: retry the same call while `retryable` is
   `true`; a merkle finalize with deliberately unpaid batches (or an older
   daemon) is never retryable — re-prepare the same content to pay only for
-  the remainder.
+  the remainder (unless all counts are `0`: then the message could not be
+  parsed and retention is unconfirmed, as for `finalize_upload/3`).
 
   ## Options
 
@@ -935,7 +938,10 @@ defmodule Antd.GrpcClient do
       # phrase further in is not a partial upload). The counts and the
       # "paid attempt retained" hint ride the message text (no structured
       # detail over gRPC yet) and are parsed best-effort to match the REST
-      # client's typed error. Any other ABORTED keeps the generic mapping.
+      # client's typed error. This applies to every RPC through this
+      # translator (ordinary uploads included) and replaces the generic
+      # Antd.AntdError these statuses used to map to; any other ABORTED keeps
+      # that generic mapping.
       10 ->
         if Antd.Errors.partial_upload_message?(message) do
           Antd.Errors.partial_upload_error_from_message(502, message)

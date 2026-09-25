@@ -719,7 +719,8 @@ defmodule Antd.Client do
   transactions.
 
   A finalize that stored only part of the upload returns
-  `{:error, %Antd.PartialUploadError{}}` carrying `chunks_stored`,
+  `{:error, %Antd.PartialUploadError{}}` (not the `Antd.NetworkError` a 502
+  used to map to; see `Antd.PartialUploadError`) carrying `chunks_stored`,
   `chunks_failed`, `total_chunks` and `retryable`. The payment persists and
   the stored chunks stay on the network. When `retryable` is `true` (antd
   >= 0.14.0) the daemon kept the paid attempt under the same `upload_id`:
@@ -913,8 +914,10 @@ defmodule Antd.Client do
 
   # Maps a non-2xx response onto the SDK error struct. The structured
   # `PARTIAL_UPLOAD` body (a 502 that would otherwise read as a generic
-  # `Antd.NetworkError`) is recognised by its `code`; every other response
-  # keeps the status-based mapping.
+  # `Antd.NetworkError`) is recognised by its `code` and becomes
+  # `Antd.PartialUploadError`, a separate struct, for every call that goes
+  # through here (ordinary uploads included); every other response keeps the
+  # status-based mapping.
   defp error_for_response(status, resp_body) do
     case decode_error_body(resp_body) do
       %{"code" => "PARTIAL_UPLOAD"} = body ->

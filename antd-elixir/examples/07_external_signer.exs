@@ -42,7 +42,9 @@ defmodule ExternalSigner do
   # that stops shrinking as stuck. A non-retryable partial upload (older
   # daemon, or a merkle upload with unpaid batches) is returned untouched:
   # the recovery there is to re-prepare the same content, which skips the
-  # chunks already stored.
+  # chunks already stored. (Over gRPC, a non-retryable error with all counts
+  # 0 means the message could not be parsed: retention is unconfirmed, so
+  # check before paying again.)
   def finalize_with_retry(client, upload_id, tx_hashes, attempt \\ 1, last_failed \\ nil) do
     case Antd.Client.finalize_upload(client, upload_id, tx_hashes) do
       {:ok, _} = ok ->

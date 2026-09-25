@@ -87,7 +87,12 @@ defmodule Antd.InternalError do
 end
 
 defmodule Antd.NetworkError do
-  @moduledoc "Daemon cannot reach the network (HTTP 502)."
+  @moduledoc """
+  Daemon cannot reach the network (HTTP 502).
+
+  A 502 with `code: "PARTIAL_UPLOAD"` (some chunks stored after payment) is
+  `Antd.PartialUploadError` instead, which is not a subtype of this module.
+  """
 
   defexception [:message, :status_code]
 
@@ -110,9 +115,22 @@ end
 
 defmodule Antd.PartialUploadError do
   @moduledoc """
-  A finalize stored some chunks while others stayed unstored after the
+  An upload stored some chunks while others stayed unstored after the
   daemon's retries (HTTP 502 with `code: "PARTIAL_UPLOAD"`; gRPC `ABORTED`
-  whose message starts with `Partial upload:`).
+  whose message starts with `Partial upload:`). The external-signer finalize
+  functions return it, and so can daemon-wallet uploads (`data_put`,
+  `file_put` and their `_public` variants): every REST and gRPC call shares
+  one error mapping.
+
+  **Error-contract change.** This is its own exception module, not a subtype
+  of `Antd.NetworkError` or `Antd.AntdError`. A partial store used to come
+  back as `%Antd.NetworkError{}` (REST) or `%Antd.AntdError{}` (gRPC); it now
+  returns, and the bang variants raise, `%Antd.PartialUploadError{}` on both
+  transports, so a clause or `rescue` that names only those modules no
+  longer catches it. Add a `PartialUploadError` clause, or rescue it
+  alongside them; the README's "Migrating error handlers" section has
+  before/after examples. Other 502s and other `ABORTED` statuses are
+  unchanged.
 
   The on-chain payment persists and the stored chunks stay on the network.
   How to finish the upload depends on `retryable`:
@@ -127,9 +145,14 @@ defmodule Antd.PartialUploadError do
       daemon's pending-upload TTL. The flag is sent by antd >= 0.14.0; older
       daemons never send it, so it reads `false` and the re-prepare path
       applies.
-    * `false` — nothing was retained (a merkle finalize with deliberately
-      unpaid batches, or an older daemon). Re-preparing the same content
-      skips already-stored chunks, so a retry pays only for the remainder.
+    * `false` — the daemon did not report keeping the attempt (a
+      daemon-wallet upload, a merkle finalize with deliberately unpaid
+      batches, or an older daemon). Re-preparing the same content skips
+      already-stored chunks, so a retry pays only for the remainder. A
+      `false` that comes from a gRPC message the SDK could not parse (all
+      counts `0`) means retention is unconfirmed, not that the paid attempt
+      was discarded: do not treat it alone as permission to pay again; read
+      `message` (kept verbatim) and confirm first.
 
   Over REST the counts and `retryable` come from the structured error body.
   Over gRPC they are parsed best-effort from the status message
@@ -139,8 +162,9 @@ defmodule Antd.PartialUploadError do
   further in keeps the generic `Antd.AntdError` mapping. `retryable` is
   `true` only when all three counts parse (each within the daemon's `u64`
   range) and the hint is present; a message whose counts do not parse reads
-  as zero counts and `retryable: false`, even with the hint, so the caller
-  falls back to re-preparing.
+  as zero counts and `retryable: false`, even with the hint. That fallback
+  leaves retention unconfirmed (see above), so it is not by itself a reason
+  to pay again.
 
   See `docs/external-signer-flow.md` §6 ("Retry a partial store — same
   `upload_id`, same payment") and `finalize_with_retry/3` in
@@ -242,7 +266,8 @@ defmodule Antd.Errors do
   detail, so the counts and the retained hint are recovered from the text
   via `parse_partial_upload_message/1`; a prefixed message whose counts do
   not parse still builds the error, with zero counts and `retryable: false`
-  even when the retained hint is present.
+  even when the retained hint is present (retention unconfirmed, not ruled
+  out).
   """
   @spec partial_upload_error_from_message(integer(), String.t()) ::
           Antd.PartialUploadError.t()
@@ -269,6 +294,8 @@ defmodule Antd.Errors do
   `paid attempt retained` hint is present. On a pattern miss or any failed
   conversion the result is `{0, 0, 0, false}`, hint or not: a retry against
   the same `upload_id` is only advertised when the whole message parsed.
+  That `false` means retention is unconfirmed, not that the daemon discarded
+  the paid attempt.
   """
   @spec parse_partial_upload_message(String.t()) ::
           {non_neg_integer(), non_neg_integer(), non_neg_integer(), boolean()}

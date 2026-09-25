@@ -236,15 +236,17 @@ end
 | `Antd.TooLargeError` | 413 | Payload too large |
 | `Antd.InternalError` | 500 | Server error |
 | `Antd.NetworkError` | 502 | Network unreachable |
-| `Antd.PartialUploadError` | 502 | Finalize stored only part of the upload (`code: "PARTIAL_UPLOAD"`) — carries `chunks_stored`, `chunks_failed`, `total_chunks`, `retryable` |
+| `Antd.PartialUploadError` | 502 (gRPC `ABORTED`) | An upload stored only part of its chunks (`code: "PARTIAL_UPLOAD"`) — carries `chunks_stored`, `chunks_failed`, `total_chunks`, `retryable`. Not a `NetworkError` / `AntdError`: see [Migrating error handlers](#migrating-error-handlers-partial-uploads) |
 
-### Partial uploads (external-signer finalize)
+### Partial uploads
 
 `finalize_upload/3` and `finalize_merkle_upload/4` (REST and gRPC) can fail
 *after* the wallet has paid: some chunks store, others miss quorum after the
 daemon's own retries. That comes back as `{:error, %Antd.PartialUploadError{}}`
-with the counts and a `retryable` flag. The on-chain payment persists and the
-stored chunks stay on the network:
+with the counts and a `retryable` flag. Daemon-wallet uploads (`data_put`,
+`file_put` and their `_public` variants) can return the same error, with
+`retryable: false`. The on-chain payment persists and the stored chunks stay
+on the network:
 
 - **`retryable: true`** (antd ≥ 0.14.0) — the daemon kept the paid attempt
   under the same `upload_id`. Call the **same** finalize function again with
@@ -252,10 +254,10 @@ stored chunks stay on the network:
   re-prepare, no second signature, no double payment. Bound that loop: a
   persistent failure returns this error on every call, so cap the attempts and
   treat a `chunks_failed` that stops shrinking as stuck.
-- **`retryable: false`** — nothing was retained (a merkle finalize with
-  deliberately unpaid batches, or an older daemon that never sends the flag).
-  Re-preparing the same content skips already-stored chunks, so a retry pays
-  only for the remainder.
+- **`retryable: false`** — the daemon did not report keeping the attempt (a
+  daemon-wallet upload, a merkle finalize with deliberately unpaid batches, or
+  an older daemon that never sends the flag). Re-preparing the same content
+  skips already-stored chunks, so a retry pays only for the remainder.
 
 Over REST the fields come from the structured error body; over gRPC (status
 `ABORTED` whose message starts with `Partial upload:` — any other `ABORTED`,
@@ -263,7 +265,9 @@ including one that only quotes that phrase further into its message, stays a
 plain `Antd.AntdError`) they are parsed best-effort from the status message:
 `retryable` is `true` only when the counts parse and the daemon's
 `paid attempt retained` hint is present, and a message whose counts do not
-parse reads as zero counts and `retryable: false`, so the caller re-prepares.
+parse reads as zero counts and `retryable: false`. That fallback means
+retention is **unconfirmed**, not that the paid attempt was discarded: do not
+treat it alone as permission to pay again — read `message` and confirm first.
 See
 `finalize_with_retry/3` in [`examples/07_external_signer.exs`](examples/07_external_signer.exs)
 and [`docs/external-signer-flow.md`](../docs/external-signer-flow.md) §6
@@ -279,8 +283,75 @@ case Antd.Client.finalize_upload(client, upload_id, tx_hashes) do
     IO.puts("#{e.chunks_stored}/#{e.total_chunks} stored, #{e.chunks_failed} to retry")
 
   {:error, %Antd.PartialUploadError{retryable: false}} ->
-    # nothing retained: re-prepare the same content (stored chunks are skipped)
+    # not reported retained: re-prepare the same content (stored chunks are
+    # skipped); over gRPC, all-zero counts mean unconfirmed, so check first
     :re_prepare
+end
+```
+
+### Migrating error handlers (partial uploads)
+
+This is an intentional error-contract change. A post-payment partial store
+used to come back as `%Antd.NetworkError{}` over REST (HTTP 502) and as
+`%Antd.AntdError{status_code: 10}` over gRPC (`ABORTED`). It now returns, and
+the bang variants raise, `%Antd.PartialUploadError{}` on both transports. That
+covers the external-signer finalize functions and every other call, ordinary
+daemon-wallet uploads included, because all calls share one error mapping.
+`Antd.PartialUploadError` is a separate exception module, not a subtype of
+either (Elixir exceptions have no inheritance), so a clause or `rescue` that
+names only `Antd.NetworkError` or `Antd.AntdError` no longer catches a partial
+store. Other 502s and other `ABORTED` statuses map as before, and a catch-all
+`{:error, error}` clause or a bare `rescue e ->` still catches everything.
+
+Tuple matching — add a `PartialUploadError` clause ahead of the old one:
+
+```elixir
+# Before: a partial store reached the NetworkError clause
+case Antd.Client.data_put_public(client, data) do
+  {:ok, result} -> result
+  {:error, %Antd.NetworkError{} = e} -> handle_network_error(e)
+end
+
+# After
+case Antd.Client.data_put_public(client, data) do
+  {:ok, result} -> result
+  {:error, %Antd.PartialUploadError{} = e} -> handle_partial_upload(e)
+  {:error, %Antd.NetworkError{} = e} -> handle_network_error(e)
+end
+```
+
+Bang functions — rescue both modules:
+
+```elixir
+# Before: a partial store was rescued here
+try do
+  Antd.Client.finalize_upload!(client, upload_id, tx_hashes)
+rescue
+  e in Antd.NetworkError -> handle_network_error(e)
+end
+
+# After
+try do
+  Antd.Client.finalize_upload!(client, upload_id, tx_hashes)
+rescue
+  e in [Antd.PartialUploadError, Antd.NetworkError] -> handle_error(e)
+end
+```
+
+gRPC — the same applies to handlers that caught the `ABORTED` status as
+`Antd.AntdError`:
+
+```elixir
+case Antd.GrpcClient.finalize_upload(grpc, upload_id, tx_hashes) do
+  {:ok, result} -> result
+  {:error, %Antd.PartialUploadError{} = e} -> handle_partial_upload(e)
+  {:error, %Antd.AntdError{} = e} -> handle_other(e)
+end
+
+try do
+  Antd.GrpcClient.finalize_upload!(grpc, upload_id, tx_hashes)
+rescue
+  e in [Antd.PartialUploadError, Antd.AntdError] -> handle_error(e)
 end
 ```
 
