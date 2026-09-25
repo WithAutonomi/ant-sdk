@@ -95,7 +95,8 @@ public:
                                 const antd::v1::FinalizeUploadRequest* req,
                                 antd::v1::FinalizeUploadResponse* resp) override {
         // PARTIAL_UPLOAD rides ABORTED; the daemon's message carries the
-        // counts and, when it kept the paid attempt, the retained hint.
+        // counts and closes with a retention hint: "paid attempt retained"
+        // when it kept the paid attempt, "stored chunks persist" when not.
         // Only a message that starts with the fixed "Partial upload:"
         // prefix marks a partial store; any other ABORTED keeps the generic
         // mapping ("aborted-other"), including one that quotes the prefix
@@ -121,6 +122,19 @@ public:
                 grpc::StatusCode::ABORTED,
                 "Partial upload: 300/312 chunks stored, 12 failed after retries: quorum "
                 "(stored chunks persist; re-prepare the same content to retry only the remainder)");
+        }
+        // Readable counts whose retention hint is missing or cut short:
+        // retention must read as unknown, with the counts kept.
+        if (req->upload_id() == "partial-no-hint") {
+            return grpc::Status(
+                grpc::StatusCode::ABORTED,
+                "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum");
+        }
+        if (req->upload_id() == "partial-truncated-hint") {
+            return grpc::Status(
+                grpc::StatusCode::ABORTED,
+                "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum "
+                "(paid attempt retai");
         }
         if (!req->winner_pool_hash().empty()) {
             resp->set_data_map("dm_merkle");
@@ -292,7 +306,7 @@ TEST_CASE("finalize_upload maps ABORTED to PartialUploadError with counts parsed
     }
 }
 
-TEST_CASE("finalize_merkle_upload ABORTED without the retained hint is not retryable") {
+TEST_CASE("finalize_merkle_upload ABORTED with the not-retained hint reads as known, not retryable") {
     ExternalSignerFixture f;
     try {
         f.client().finalize_merkle_upload("partial-final", "0xwinner");
@@ -303,6 +317,26 @@ TEST_CASE("finalize_merkle_upload ABORTED without the retained hint is not retry
         CHECK(e.total_chunks == 312);
         CHECK_FALSE(e.retryable);
         CHECK(e.retention_known);
+    }
+}
+
+TEST_CASE("finalize_upload ABORTED with readable counts but no readable retention hint keeps the counts, retention unknown") {
+    // The daemon's answer on retention was not read: stop and reconcile,
+    // never "nothing retained" (re-prepare).
+    ExternalSignerFixture f;
+    for (const std::string id : {"partial-no-hint", "partial-truncated-hint"}) {
+        CAPTURE(id);
+        try {
+            f.client().finalize_upload(id, {{"0xqa", "0xtx"}});
+            FAIL("should have thrown");
+        } catch (const antd::PartialUploadError& e) {
+            CHECK(e.status_code == 502);
+            CHECK(e.chunks_stored == 1);
+            CHECK(e.chunks_failed == 2);
+            CHECK(e.total_chunks == 3);
+            CHECK_FALSE(e.retryable);
+            CHECK_FALSE(e.retention_known);
+        }
     }
 }
 

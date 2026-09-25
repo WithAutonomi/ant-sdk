@@ -180,10 +180,10 @@ public:
     ///
     /// Throws PartialUploadError when the payment settled but some chunks
     /// missed quorum after the daemon's retries (gRPC ABORTED whose message
-    /// starts with `Partial upload:`; the counts, `retention_known` and the
-    /// `retryable` hint are parsed from the status message, and any other
-    /// ABORTED stays a plain AntdError). The stored chunks and the on-chain
-    /// payment persist:
+    /// starts with `Partial upload:`; the counts, and the retention hint
+    /// that closes the message and sets `retention_known` and `retryable`,
+    /// are parsed from the status message, and any other ABORTED stays a
+    /// plain AntdError). The stored chunks and the on-chain payment persist:
     ///   - `retryable` (antd >= 0.14.0): the daemon kept the paid attempt
     ///     under this `upload_id`; call `finalize_upload` again with the same
     ///     arguments to store the remainder against the same payment. Bound
@@ -192,11 +192,11 @@ public:
     ///   - `retention_known && !retryable`: the daemon confirmed nothing was
     ///     retained; re-prepare the same content (already-stored chunks are
     ///     skipped, so only the remainder is paid for).
-    ///   - `!retention_known` (the counts in the status message could not be
-    ///     parsed): retention is unknown and the daemon may still hold the
-    ///     paid attempt. Stop, keep the `upload_id` and `tx_hashes`, and
-    ///     reconcile before re-preparing or paying again; never pay again on
-    ///     this alone.
+    ///   - `!retention_known` (the counts, or the retention hint that must
+    ///     close the status message, could not be read): retention is
+    ///     unknown and the daemon may still hold the paid attempt. Stop, keep
+    ///     the `upload_id` and `tx_hashes`, and reconcile before re-preparing
+    ///     or paying again; never pay again on this alone.
     /// See docs/external-signer-flow.md section 6.
     FinalizeUploadResult finalize_upload(std::string_view upload_id,
                                           const std::map<std::string, std::string>& tx_hashes,

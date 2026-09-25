@@ -115,9 +115,14 @@ public:
 /// the prefix further into its message, keeps the generic AntdError mapping.
 /// The fields are then parsed from the message (see
 /// parse_partial_upload_message): `retention_known` is true only when the
-/// counts right after the prefix match and all three convert, and the "paid
-/// attempt retained" hint then decides `retryable`; otherwise the counts read
-/// as zero and retention is unknown. See docs/external-signer-flow.md §6.
+/// counts right after the prefix match, all three convert, and the message
+/// ends with one of the daemon's two closing hints, "(paid attempt
+/// retained...)" (which sets `retryable`) or "(stored chunks persist;
+/// re-prepare the same content...)" (the daemon confirmed nothing was
+/// retained). Counts that do not parse read as zero with retention unknown.
+/// Readable counts with a missing, truncated or unrecognised hint keep the
+/// counts, but retention is unknown too: stop and reconcile, never read it as
+/// "nothing retained". See docs/external-signer-flow.md §6.
 class PartialUploadError : public NetworkError {
 public:
     std::uint64_t chunks_stored;
@@ -164,7 +169,8 @@ struct PartialUploadCounts {
     std::uint64_t chunks_failed{0};
     std::uint64_t total_chunks{0};
     bool retryable{false};
-    /// True only when the counts parsed; see parse_partial_upload_message.
+    /// True only when the counts parsed and the message ends with one of the
+    /// daemon's two retention hints; see parse_partial_upload_message.
     bool retention_known{false};
 };
 
@@ -200,24 +206,82 @@ inline bool parse_decimal_u64(const std::string& digits, std::uint64_t& out) {
     return ec == std::errc() && ptr == last;
 }
 
+/// The two parenthesised hints the daemon closes every PARTIAL_UPLOAD
+/// message with (partial_upload_hint in antd/src/error.rs): the retained hint
+/// when it kept the paid attempt for a same-upload_id retry, the not-retained
+/// hint when it did not. Daemons older than 0.14.0 write only the
+/// not-retained hint.
+inline constexpr std::string_view kPartialUploadRetainedHint = "paid attempt retained";
+inline constexpr std::string_view kPartialUploadNotRetainedHint =
+    "stored chunks persist; re-prepare the same content";
+
+/// What the hint that closes a PARTIAL_UPLOAD message says about retention.
+enum class PartialUploadRetention { unreadable, retained, not_retained };
+
+/// Read the hint that closes the message, "(<hint>...)" as its very last
+/// text: the message ends with ')', the text between that ')' and the last
+/// '(' holds no other parenthesis, and it opens with one of the two hints.
+/// This is the pattern `\((hint)[^()]*\)` anchored to the end of the input,
+/// done by hand so no regex `$` can match before a trailing newline. A hint
+/// quoted inside the failure reason, a truncated or unclosed tail, an
+/// unrecognised hint, and any text or newline after the closing ')' all read
+/// as unreadable.
+inline PartialUploadRetention read_partial_upload_retention(std::string_view message) {
+    if (message.empty() || message.back() != ')') {
+        return PartialUploadRetention::unreadable;
+    }
+    const auto open = message.rfind('(');
+    if (open == std::string_view::npos) {
+        return PartialUploadRetention::unreadable;
+    }
+    const auto inner = message.substr(open + 1, message.size() - open - 2);
+    if (inner.find_first_of("()") != std::string_view::npos) {
+        return PartialUploadRetention::unreadable;
+    }
+    const auto opens_with = [inner](std::string_view hint) {
+        return inner.substr(0, hint.size()) == hint;
+    };
+    if (opens_with(kPartialUploadRetainedHint)) {
+        return PartialUploadRetention::retained;
+    }
+    if (opens_with(kPartialUploadNotRetainedHint)) {
+        return PartialUploadRetention::not_retained;
+    }
+    return PartialUploadRetention::unreadable;
+}
+
 }  // namespace detail
 
-/// Recover the chunk counts and the retryable hint from a PARTIAL_UPLOAD
+/// Recover the chunk counts and the retention flags from a PARTIAL_UPLOAD
 /// message. Used for gRPC, where the status carries no structured detail;
 /// REST callers get the body fields instead. Callers gate on
 /// is_partial_upload_message first: this parser only reads the fields and
 /// does not decide whether the message is a partial upload.
 ///
-/// Reads the counts from "Partial upload: <stored>/<total> chunks stored,
-/// <failed> failed", which must open the message (the match is anchored at
-/// its start, like is_partial_upload_message), and the "paid attempt
-/// retained" hint the daemon appends when it kept the paid attempt.
-/// `retention_known` is true only when that pattern matched and all three
-/// counts converted to 64-bit values; `retryable` is then the hint. On a
-/// pattern miss or any conversion failure (e.g. a count that overflows 64
-/// bits) all three counts are zero and both flags are false, even if the hint
-/// is there: retention is unknown, and a bounded retry loop could not watch
-/// `chunks_failed` shrink without the counts anyway. Never throws.
+/// The daemon writes "Partial upload: <stored>/<total> chunks stored,
+/// <failed> failed after retries: <reason> (<hint>)", where the hint is
+/// "paid attempt retained..." or "stored chunks persist; re-prepare the same
+/// content..." (partial_upload_hint in antd/src/error.rs). The counts must
+/// open the message (the match is anchored at its start, like
+/// is_partial_upload_message) and the hint must close it:
+///
+///   - Counts parse and the message ends with the retained hint:
+///     `retention_known` and `retryable`.
+///   - Counts parse and the message ends with the not-retained hint:
+///     `retention_known`, not `retryable` (the daemon confirmed nothing was
+///     retained).
+///   - Counts parse but the closing hint is missing, truncated, unclosed,
+///     unrecognised, or followed by any text or newline: the counts are kept
+///     but both flags are false. The daemon's answer on retention was not
+///     read, so retention is unknown (stop and reconcile), never "nothing
+///     retained". A hint quoted inside the failure reason is not read as the
+///     answer; only the hint that closes the message counts.
+///   - A pattern miss or any conversion failure (e.g. a count that overflows
+///     64 bits): all three counts are zero and both flags are false, even
+///     with a hint; a bounded retry loop could not watch `chunks_failed`
+///     shrink without the counts anyway.
+///
+/// Never throws.
 inline PartialUploadCounts parse_partial_upload_message(std::string_view message) {
     static const std::regex kCounts(
         R"(Partial upload: (\d+)/(\d+) chunks stored, (\d+) failed)");
@@ -238,8 +302,17 @@ inline PartialUploadCounts parse_partial_upload_message(std::string_view message
     out.chunks_stored = stored;
     out.total_chunks = total;
     out.chunks_failed = failed;
-    out.retention_known = true;
-    out.retryable = message.find("paid attempt retained") != std::string_view::npos;
+    switch (detail::read_partial_upload_retention(message)) {
+        case detail::PartialUploadRetention::retained:
+            out.retention_known = true;
+            out.retryable = true;
+            break;
+        case detail::PartialUploadRetention::not_retained:
+            out.retention_known = true;
+            break;
+        case detail::PartialUploadRetention::unreadable:
+            break;  // counts kept, retention unknown
+    }
     return out;
 }
 

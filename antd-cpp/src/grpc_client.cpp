@@ -53,10 +53,13 @@ static void check_status(const grpc::Status& status) {
                                 status.error_message());
             }
             // Some chunks stored, some still unstored after retries. The
-            // counts and the "paid attempt retained" hint ride the message
+            // counts and the daemon's closing retention hint ride the message
             // text over gRPC (no structured detail yet), so parse them
-            // best-effort to match the REST client's typed error; retention
-            // is known only when the counts parsed.
+            // best-effort to match the REST client's typed error: retention
+            // is known only when the counts parsed and the message ends with
+            // one of the daemon's two hints, and retryable only when that
+            // hint is "paid attempt retained". Readable counts with a
+            // missing or damaged hint keep the counts, retention unknown.
             const auto counts = parse_partial_upload_message(status.error_message());
             throw PartialUploadError(status.error_message(),
                                      counts.chunks_stored,

@@ -312,10 +312,17 @@ implies `retention_known`):
   `retryable`, so their REST partials read as unknown.
 
 `retention_known` is true over REST only when the body's `retryable` is
-present and a JSON boolean. Over gRPC it is true only when the counts right
-after the `Partial upload:` prefix parse (all three), after which the "paid
-attempt retained" hint decides `retryable`; a message whose counts do not
-parse reads as zero counts with retention unknown, even with the hint.
+present and a JSON boolean. Over gRPC the status message reads
+`Partial upload: <stored>/<total> chunks stored, <failed> failed after retries: <reason> (<hint>)`,
+and `retention_known` is true only when the counts right after the
+`Partial upload:` prefix parse (all three) and the message ends with one of
+the daemon's two hints: `(paid attempt retained...)` sets `retryable`, and
+`(stored chunks persist; re-prepare the same content...)` means the daemon
+confirmed nothing was retained (daemons older than 0.14.0 write only this
+one). A message whose counts do not parse reads as zero counts with
+retention unknown, even with a hint. Readable counts with a missing,
+truncated or unrecognised hint, or text after it, keep the counts but read
+as retention unknown: stop and reconcile, not "nothing retained".
 
 ```cpp
 for (int attempt = 1;; ++attempt) {
