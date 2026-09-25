@@ -185,6 +185,39 @@ const result = client.health() catch |err| {
 | `HttpError` | -- | Connection/transport failure |
 | `JsonError` | -- | JSON parse/encode failure |
 
+### `error.PartialUpload` replaces `error.Network` for partial uploads
+
+This is an intentional change. A REST partial upload (HTTP 502 with `code: "PARTIAL_UPLOAD"`) used to surface as `error.Network`, the plain 502 mapping. It now surfaces as `error.PartialUpload`, because it has been paid for and needs different recovery than a network failure. Zig error sets have no subtyping, so an existing `error.Network => ...` prong no longer sees it, and a `switch` over `AntdError` without an `else` prong must name the new error. Add an `error.PartialUpload` prong:
+
+```zig
+const body = client.finalizeUpload(upload_id, tx_hashes_json) catch |err| switch (err) {
+    // Previously this case fell through to error.Network below.
+    error.PartialUpload => {
+        const info = client.getLastError() orelse return err;
+        std.debug.print("partial upload: {d}/{d} chunks stored (retryable={}, retention_known={})\n", .{
+            info.chunks_stored, info.total_chunks, info.retryable, info.retention_known,
+        });
+        return err; // recover as described in "Partial uploads" below
+    },
+    error.Network => return err, // a plain 502: the finalize reported no partial store
+    else => return err,
+};
+```
+
+Or handle both in one prong while migrating:
+
+```zig
+const body = client.finalizeUpload(upload_id, tx_hashes_json) catch |err| switch (err) {
+    error.Network, error.PartialUpload => {
+        std.debug.print("finalize failed: {s}\n", .{@errorName(err)});
+        return err;
+    },
+    else => return err,
+};
+```
+
+Whichever form you choose, never send a partial upload down a recovery path that re-prepares and pays again, as you might after a network failure. Follow the three cases in the next section.
+
 ### Partial uploads
 
 An external-signer finalize (`finalizeUpload`, `finalizeChunkUpload`) can fail *after* the wallet has paid: some chunks store, others miss quorum after the daemon's own retries. The daemon reports this as HTTP 502 with `code: "PARTIAL_UPLOAD"`, which the SDK returns as `error.PartialUpload` (a plain 502 stays `error.Network`). The on-chain payment persists and the stored chunks stay on the network. `getLastError()` carries the structured detail:
@@ -194,21 +227,25 @@ An external-signer finalize (`finalizeUpload`, `finalizeChunkUpload`) can fail *
 | `chunks_stored` | Chunks the daemon stored before giving up |
 | `chunks_failed` | Chunks still unstored after the daemon's retries |
 | `total_chunks` | Chunks in the upload |
-| `retryable` | How to finish the upload (see below). Sent by antd >= 0.14.0; absent on older daemons, where it reads `false` |
+| `retryable` | `true` when the daemon kept the paid attempt for a retry. Sent by antd >= 0.14.0. It reads `false` when absent or malformed, so check `retention_known` before taking `false` to mean nothing was retained |
+| `retention_known` | `true` when the body carried `retryable` as a JSON boolean, meaning the daemon stated whether it kept the paid attempt. `false` when the flag was missing (every daemon older than 0.14.0), null or not a boolean: retention is unknown. Always `true` when `retryable` is |
 
-These fields are zero / `false` for every other error. A malformed body never panics: a count that is not a JSON non-negative integer below 2^64 reads as 0, a `retryable` that is not the JSON boolean `true` reads as `false`, and a body whose `code` is not the string `"PARTIAL_UPLOAD"` maps by HTTP status alone.
+These fields are zero / `false` for every other error. A malformed body never panics: a count that is not a JSON non-negative integer below 2^64 reads as 0, a `retryable` that is not a JSON boolean reads as `false` with `retention_known` `false`, and a body whose `code` is not the string `"PARTIAL_UPLOAD"` maps by HTTP status alone.
 
-- **`retryable == true`** -- the daemon kept the paid attempt (payment proofs plus the unstored chunks) under the same `upload_id`. Call the **same finalize function again with the same arguments** (the same `upload_id` and the same `tx_hashes_json` map); the remainder is stored against the same payment -- no re-prepare, no second signature, no double payment. Bound the loop: a persistent failure returns `error.PartialUpload` on every call, so cap the attempts and treat a `chunks_failed` that stops shrinking as stuck. The retained attempt expires with the daemon's pending-upload TTL (one hour).
-- **`retryable == false`** -- nothing was retained (an older daemon, or a merkle finalize with deliberately unpaid batches). Re-prepare the same content: already-stored chunks are skipped, so the retry pays only for the remainder.
+- **`retryable`** -- the daemon kept the paid attempt (payment proofs plus the unstored chunks) under the same `upload_id`. Call the **same finalize function again with the same arguments** (the same `upload_id` and the same `tx_hashes_json` map); the remainder is stored against the same payment -- no re-prepare, no second signature, no double payment. Bound the loop: a persistent failure returns `error.PartialUpload` on every call, so cap the attempts and treat a `chunks_failed` that stops shrinking as stuck. The retained attempt expires with the daemon's pending-upload TTL (one hour).
+- **`retention_known and !retryable`** -- the daemon confirmed that nothing was retained (a merkle finalize with deliberately unpaid batches, for example). Re-prepare the same content: already-stored chunks are skipped, so the retry pays only for the remainder.
+- **`!retention_known`** -- retention is unknown. The flag was missing, as it is from every daemon older than 0.14.0, or it was null or not a boolean. `retryable == false` does **not** mean that nothing was retained here: the daemon records the resume handle before it returns the error, so it may still hold the paid attempt under the same `upload_id`. Stop automatic recovery. Keep the `upload_id` and the original payment artefacts (the `tx_hashes_json` map and the transactions behind it), and reconcile before re-preparing or paying again. Never pay again on this signal alone.
 
-The contract is specified in [docs/external-signer-flow.md, section 6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment). A bounded retry helper around `finalizeUpload` -- five attempts, linear backoff, stuck detection -- that only retries when `retryable` and returns a non-retryable partial upload untouched:
+The contract is specified in [docs/external-signer-flow.md, section 6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment). A bounded retry helper around `finalizeUpload` -- five attempts, linear backoff, stuck detection -- that only retries when `retryable`. It returns any other partial upload untouched, and when retention is unknown it stops without re-preparing or paying:
 
 ```zig
 /// Finalize with a bounded retry against the same payment. `upload_id` and
 /// `tx_hashes_json` (the quote-hash -> tx-hash map as a JSON object string)
 /// are passed to `finalizeUpload` unchanged on every attempt. Returns the
-/// finalize response body (caller frees) or the finalize error; a
-/// non-retryable `error.PartialUpload` is returned untouched (re-prepare).
+/// finalize response body (caller frees) or the finalize error. A
+/// non-retryable `error.PartialUpload` is returned untouched: re-prepare
+/// only when `retention_known` says nothing was retained; when retention is
+/// unknown, keep `upload_id` and the payment artefacts and reconcile first.
 fn finalizeWithRetry(client: *antd.Client, upload_id: []const u8, tx_hashes_json: []const u8) ![]const u8 {
     const max_attempts = 5;
     var last_failed: ?u64 = null;
@@ -217,7 +254,18 @@ fn finalizeWithRetry(client: *antd.Client, upload_id: []const u8, tx_hashes_json
         return client.finalizeUpload(upload_id, tx_hashes_json) catch |err| {
             if (err != error.PartialUpload) return err;
             const info = client.getLastError() orelse return err;
-            if (!info.retryable) return err; // nothing retained: re-prepare instead
+            if (!info.retryable) {
+                // Confirmed that nothing was retained: the caller re-prepares.
+                if (info.retention_known) return err;
+                // Retention unknown (daemon < 0.14.0, or a missing / malformed
+                // flag): the daemon may still hold the paid attempt. Stop here
+                // -- no re-prepare, no second payment.
+                std.debug.print(
+                    "finalize stored {d}/{d} chunks; retention unknown -- keep upload_id {s} and the payment artefacts and reconcile before re-preparing or paying again\n",
+                    .{ info.chunks_stored, info.total_chunks, upload_id },
+                );
+                return err;
+            }
 
             const stuck = if (last_failed) |prev| info.chunks_failed >= prev else false;
             if (attempt >= max_attempts or stuck) {

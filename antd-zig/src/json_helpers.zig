@@ -690,8 +690,8 @@ pub fn parseErrorMessage(allocator: Allocator, body: []const u8) ?[]const u8 {
 /// Structured fields of a daemon error body
 /// `{"error":"...","code":"...",...}`. `code` is empty when the body carried
 /// none. The chunk counts and `retryable` are sent only with
-/// `code: "PARTIAL_UPLOAD"` (`retryable` by antd >= 0.14.0) and read zero /
-/// false otherwise.
+/// `code: "PARTIAL_UPLOAD"` (`retryable` by antd >= 0.14.0); they, and
+/// `retention_known`, read zero / false otherwise.
 pub const ErrorBody = struct {
     message: []const u8,
     code: []const u8,
@@ -699,10 +699,26 @@ pub const ErrorBody = struct {
     chunks_failed: u64 = 0,
     total_chunks: u64 = 0,
     retryable: bool = false,
+    /// `true` only when `retryable` arrived as a JSON boolean.
+    retention_known: bool = false,
 
     pub fn deinit(self: ErrorBody, allocator: Allocator) void {
         allocator.free(self.message);
         allocator.free(self.code);
+    }
+
+    /// The `ErrorInfo` a Client records for this body. `message` is
+    /// borrowed from the ErrorBody; the Client stores its own copy.
+    pub fn errorInfo(self: ErrorBody, status_code: u16) errors.ErrorInfo {
+        return .{
+            .status_code = status_code,
+            .message = self.message,
+            .chunks_stored = self.chunks_stored,
+            .chunks_failed = self.chunks_failed,
+            .total_chunks = self.total_chunks,
+            .retryable = self.retryable,
+            .retention_known = self.retention_known,
+        };
     }
 };
 
@@ -713,7 +729,8 @@ pub const ErrorBody = struct {
 /// The counts and `retryable` are read only when `code` is the string
 /// "PARTIAL_UPLOAD". A count converts only from a JSON non-negative integer
 /// below 2^64 and reads as 0 otherwise; `retryable` is true only for the
-/// JSON boolean `true`. A malformed field never fails the parse.
+/// JSON boolean `true`, and `retention_known` only when `retryable` is a
+/// JSON boolean (either value). A malformed field never fails the parse.
 pub fn parseErrorBody(allocator: Allocator, body: []const u8) ?ErrorBody {
     const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch return null;
     defer parsed.deinit();
@@ -735,9 +752,11 @@ pub fn parseErrorBody(allocator: Allocator, body: []const u8) ?ErrorBody {
         return .{ .message = message, .code = code };
     }
 
-    const retryable = switch (obj.get("retryable") orelse .null) {
+    // A missing flag (antd < 0.14.0), null or a non-boolean leaves retention
+    // unknown, which is not the same as "nothing retained".
+    const retryable: ?bool = switch (obj.get("retryable") orelse .null) {
         .bool => |b| b,
-        else => false,
+        else => null,
     };
 
     return .{
@@ -746,6 +765,7 @@ pub fn parseErrorBody(allocator: Allocator, body: []const u8) ?ErrorBody {
         .chunks_stored = dupeU64(obj.get("chunks_stored") orelse .null),
         .chunks_failed = dupeU64(obj.get("chunks_failed") orelse .null),
         .total_chunks = dupeU64(obj.get("total_chunks") orelse .null),
-        .retryable = retryable,
+        .retryable = retryable orelse false,
+        .retention_known = retryable != null,
     };
 }
