@@ -188,6 +188,8 @@ A `finalize_upload` / `finalize_merkle_upload` can fail *after* the wallet has p
 | `total_chunks` | Chunks in the upload |
 | `retryable` | `true` when the daemon kept the paid attempt under the same `upload_id` (sent by antd ≥ 0.14.0; absent on older daemons, which reads as `false`) |
 
+The body is read strictly, never coerced. A count is taken only from a JSON number that is a finite, non-negative integer below 2^64; a quoted number such as `"12"`, a boolean, an object, `null`, or a negative, fractional or non-finite number reads as `0`. `retryable` is `true` only for the JSON boolean `true` (a string `"true"` or the number `1` reads `false`). The error is only mapped when `code` is exactly the string `"PARTIAL_UPLOAD"`; any other `code` keeps the status-based mapping (a 502 stays `network`), as does a body that is not strict JSON (for example a bare `NaN` or `0x10`). A non-string `error` field falls back to the raw response body as `message`. A malformed body never raises: at worst it maps onto the status-based error.
+
 The on-chain payment persists and the stored chunks stay on the network either way. What to do next depends on `retryable`:
 
 - **`retryable == true`** — call the **same** finalize method again with the **same arguments**. The daemon stores the remainder against the same payment: no re-prepare, no second signature, no double payment. Bound that loop: a persistent failure returns `partial_upload` on every call, so cap the attempts and treat a `chunks_failed` that stops shrinking as stuck. The retained attempt expires with the daemon's pending-upload TTL.
