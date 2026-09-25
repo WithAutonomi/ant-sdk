@@ -23,41 +23,55 @@ class ServiceUnavailableException(message: String, statusCode: Int = 503) : Antd
  * A finalize stored some chunks while others remained unstored after the
  * daemon's retries (HTTP 502 with `code: "PARTIAL_UPLOAD"`; gRPC ABORTED).
  * The on-chain payment persists and the stored chunks stay on the network.
- * How to finish the upload depends on [retryable]:
+ * How to finish the upload depends on [retryable] and [retentionKnown]
+ * ([retryable] implies [retentionKnown]):
  *
- * - `retryable == true`: the daemon kept the paid attempt (payment proofs +
+ * - [retryable]: the daemon kept the paid attempt (payment proofs +
  *   unstored chunks) under the same `upload_id`. Call the **same** finalize
- *   method again with the same arguments to store the remainder against the
- *   same payment — no re-prepare, no second signature, no double payment.
- *   Bound the loop: a persistent failure throws this exception on every
- *   call, so cap the attempts and treat a [chunksFailed] that stops
- *   shrinking as stuck. The retained attempt expires with the daemon's
- *   pending-upload TTL. (Sent by antd >= 0.14.0; older daemons never send
- *   the flag, so it reads `false` and the re-prepare path applies.)
- * - `retryable == false`: nothing was retained (a merkle finalize with
- *   deliberately unpaid batches, or an older daemon). Re-preparing the same
- *   content skips already-stored chunks, so a retry pays only for the
- *   missing remainder.
+ *   method again with the same `upload_id` and payment artefacts to store
+ *   the remainder against the same payment — no re-prepare, no second
+ *   signature, no double payment. Bound the loop: a persistent failure
+ *   throws this exception on every call, so cap the attempts and treat a
+ *   [chunksFailed] that stops shrinking as stuck. The retained attempt
+ *   expires with the daemon's pending-upload TTL.
+ * - [retentionKnown] and not [retryable]: the daemon confirmed it kept
+ *   nothing (e.g. a merkle finalize with deliberately unpaid batches).
+ *   Re-prepare the same content; already-stored chunks are skipped, so the
+ *   retry pays only for the missing remainder.
+ * - not [retentionKnown]: retention is unknown, and the daemon may still
+ *   hold the paid attempt (it records the resume handle before it returns
+ *   the error). Stop automatic recovery, keep the `upload_id` and the
+ *   original payment artefacts (tx hashes / quote data), and reconcile
+ *   before re-preparing or paying again. Never pay again on this signal
+ *   alone. Daemons older than 0.14.0 never send `retryable`, so their REST
+ *   partial uploads always read as unknown.
  *
  * Extends [NetworkException] because a `PARTIAL_UPLOAD` arrives as a 502,
  * which this SDK has always mapped to [NetworkException]; existing
  * `catch (e: NetworkException)` blocks keep working and can narrow with
- * `is PartialUploadException` when they want the counts.
+ * `is PartialUploadException` when they want the counts and flags. It is
+ * not a [ForkException]: over gRPC a partial upload's ABORTED used to map
+ * there, and the daemon sends ABORTED only for PARTIAL_UPLOAD, so code that
+ * caught [ForkException] around a gRPC finalize should catch
+ * [PartialUploadException] instead.
  *
- * Over REST the counts and [retryable] come from the structured error body:
- * each count only from a JSON number holding a non-negative integer, and
- * [retryable] only from a JSON boolean. Anything else (missing, a quoted
- * number or quoted `"true"`, a negative, fractional or out-of-range number,
- * an array or an object) reads as zero / `false`; the mapper never throws.
+ * Over REST the counts and flags come from the structured error body. Each
+ * count is read only from a JSON number holding a non-negative integer;
+ * anything else (missing, a quoted number, a negative, fractional or
+ * out-of-range number, an array or an object) reads as zero.
+ * [retentionKnown] is true when the body's `retryable` is a JSON boolean
+ * (`true` or `false`), and [retryable] when it is the literal `true`;
+ * missing, `null`, a quoted `"true"`, a number, an array or an object reads
+ * as unknown and not retryable. The mapper never throws.
  *
  * Over gRPC they are parsed from the status description
  * (`Partial upload: S/T chunks stored, F failed ...`, with a "paid attempt
- * retained" hint when retryable). [retryable] is true only when the
- * description matches that layout, all three counts convert to a [Long],
- * and the hint is present. On a layout mismatch or a count that does not
- * convert, all three counts are zero and [retryable] is false even if the
- * hint is present, so a caller never loops on a message the SDK could not
- * read.
+ * retained" hint when retryable). [retentionKnown] is true only when the
+ * description starts with that layout and all three counts convert to a
+ * [Long]; the hint then decides [retryable]. On a layout mismatch or a count
+ * that does not convert, all three counts are zero and both flags are false
+ * even if the hint is present, so a caller never loops on, or pays again
+ * for, a message the SDK could not read.
  *
  * See `docs/external-signer-flow.md` §6 ("Retry a partial store") for the
  * daemon-side contract.
@@ -68,8 +82,16 @@ class PartialUploadException(
     val chunksFailed: Long = 0,
     val totalChunks: Long = 0,
     val retryable: Boolean = false,
+    retentionKnown: Boolean = retryable,
     statusCode: Int = 502,
-) : NetworkException(message, statusCode)
+) : NetworkException(message, statusCode) {
+    /**
+     * Whether the daemon's answer on retaining the paid attempt was read:
+     * `true` when it confirmed either way, `false` when retention is
+     * unknown. Always `true` when [retryable] is.
+     */
+    val retentionKnown: Boolean = retentionKnown || retryable
+}
 
 internal object ExceptionMapping {
 
@@ -85,10 +107,11 @@ internal object ExceptionMapping {
     private const val PARTIAL_UPLOAD_PREFIX = "Partial upload:"
 
     /**
-     * Fixed prefix of the daemon's PARTIAL_UPLOAD message:
+     * Fixed prefix of the daemon's PARTIAL_UPLOAD message, anchored at the
+     * start like [isPartialUploadMessage]:
      * `Partial upload: <stored>/<total> chunks stored, <failed> failed`.
      */
-    private val partialUploadCounts = Regex("$PARTIAL_UPLOAD_PREFIX (\\d+)/(\\d+) chunks stored, (\\d+) failed")
+    private val partialUploadCounts = Regex("^$PARTIAL_UPLOAD_PREFIX (\\d+)/(\\d+) chunks stored, (\\d+) failed")
 
     /**
      * Message tail the daemon appends when it kept the paid attempt for a
@@ -109,8 +132,9 @@ internal object ExceptionMapping {
 
     /**
      * Returns a [PartialUploadException] when [body] is a JSON error object
-     * whose `code` is the string `"PARTIAL_UPLOAD"`, carrying its counts;
-     * `retryable` is absent on daemons < 0.14.0 and defaults to `false`.
+     * whose `code` is the string `"PARTIAL_UPLOAD"`, carrying its counts.
+     * A boolean `retryable` makes retention known and sets `retryable`;
+     * daemons < 0.14.0 never send it, so their retention reads as unknown.
      * Returns null for every other body (non-JSON, non-object, or a `code`
      * that is missing, another value, or not a string), so the caller's
      * status-based mapping applies. Counts go through [count] and
@@ -129,12 +153,14 @@ internal object ExceptionMapping {
         } ?: return null
         val code = obj.primitive("code")
         if (code == null || !code.isString || code.content != PARTIAL_UPLOAD_CODE) return null
+        val retained = obj.flag("retryable")
         return PartialUploadException(
             message = obj.primitive("error")?.takeIf { it.isString }?.content ?: body,
             chunksStored = obj.count("chunks_stored"),
             chunksFailed = obj.count("chunks_failed"),
             totalChunks = obj.count("total_chunks"),
-            retryable = obj.flag("retryable"),
+            retryable = retained == true,
+            retentionKnown = retained != null,
             statusCode = statusCode,
         )
     }
@@ -156,12 +182,16 @@ internal object ExceptionMapping {
         primitive(key)?.takeUnless { it.isString }?.content?.toLongOrNull()?.takeIf { it >= 0 } ?: 0
 
     /**
-     * The flag at [key]: true only for the JSON literal `true`. Anything
-     * else reads as false: absent, the string `"true"`, a number, `null`,
-     * an object or an array.
+     * The boolean at [key]: `true` / `false` only for the JSON literals
+     * `true` / `false`, and `null` for anything else: absent, `null`, the
+     * string `"true"`, a number, an object or an array.
      */
-    private fun JsonObject.flag(key: String): Boolean =
-        primitive(key)?.takeUnless { it.isString }?.content == "true"
+    private fun JsonObject.flag(key: String): Boolean? =
+        when (primitive(key)?.takeUnless { it.isString }?.content) {
+            "true" -> true
+            "false" -> false
+            else -> null
+        }
 
     /**
      * True when [message] starts with the daemon's fixed PARTIAL_UPLOAD
@@ -175,15 +205,17 @@ internal object ExceptionMapping {
     /**
      * Recovers the chunk counts and the retryable hint from a PARTIAL_UPLOAD
      * message. Used for gRPC, where the status carries no structured detail;
-     * REST callers get the body fields instead. `retryable` is true only when
-     * the message matches the count layout, all three counts convert to a
-     * [Long], and the "paid attempt retained" hint is present. The layout
-     * accepts any run of digits, so a count past [Long.MAX_VALUE] matches but
-     * does not convert. On a layout mismatch or a failed conversion all three
-     * counts are zero and `retryable` is false, even when the hint is present:
-     * a retry loop that cannot see [PartialUploadException.chunksFailed]
-     * shrinking has no way to tell progress from a stuck upload. Whether the
-     * message is a partial upload at all is decided by [isPartialUploadMessage].
+     * REST callers get the body fields instead. `retentionKnown` is true only
+     * when the message starts with the count layout and all three counts
+     * convert to a [Long]; `retryable` additionally needs the "paid attempt
+     * retained" hint. The layout accepts any run of digits, so a count past
+     * [Long.MAX_VALUE] matches but does not convert. On a layout mismatch or
+     * a failed conversion all three counts are zero and both flags are false,
+     * even when the hint is present: a retry loop that cannot see
+     * [PartialUploadException.chunksFailed] shrinking has no way to tell
+     * progress from a stuck upload, and an unread message says nothing about
+     * what the daemon kept. Whether the message is a partial upload at all is
+     * decided by [isPartialUploadMessage].
      */
     fun partialUploadFromMessage(message: String): PartialUploadException {
         val counts = partialUploadCounts.find(message)?.groupValues?.let { g ->
@@ -198,6 +230,7 @@ internal object ExceptionMapping {
             totalChunks = counts?.second ?: 0,
             chunksFailed = counts?.third ?: 0,
             retryable = counts != null && message.contains(PARTIAL_UPLOAD_RETAINED_HINT),
+            retentionKnown = counts != null,
         )
     }
 

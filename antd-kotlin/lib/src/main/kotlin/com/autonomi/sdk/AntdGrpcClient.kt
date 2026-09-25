@@ -290,7 +290,7 @@ class AntdGrpcClient internal constructor(
      *
      * @throws PartialUploadException when the chunk stayed unstored after the
      *   daemon's retries (gRPC ABORTED). See [finalizeUpload] for the
-     *   `retryable` contract — it is identical here.
+     *   recovery contract — it is identical here.
      */
     override suspend fun finalizeChunkUpload(uploadId: String, txHashes: Map<String, String>): String = try {
         val resp = chunkStub.finalizeChunk(finalizeChunkRequest {
@@ -449,14 +449,21 @@ class AntdGrpcClient internal constructor(
      * counts parsed from the status description. The on-chain payment
      * persists and the stored chunks stay on the network:
      *
-     * - [PartialUploadException.retryable] `== true` (antd >= 0.14.0): the
-     *   daemon kept the paid attempt under the same [uploadId]. Call this
-     *   method again with the **same** arguments to store the remainder
-     *   against the same payment. Bound that loop: cap the attempts and treat
-     *   a [PartialUploadException.chunksFailed] that stops shrinking as stuck.
-     * - `retryable == false`: nothing was retained; re-prepare the same
-     *   content, which skips already-stored chunks so the retry pays only for
-     *   the remainder.
+     * - [PartialUploadException.retryable]: the daemon kept the paid attempt
+     *   under the same [uploadId]. Call this method again with the **same**
+     *   arguments to store the remainder against the same payment. Bound that
+     *   loop: cap the attempts and treat a
+     *   [PartialUploadException.chunksFailed] that stops shrinking as stuck.
+     * - [PartialUploadException.retentionKnown] but not `retryable`: the
+     *   daemon confirmed it kept nothing; re-prepare the same content, which
+     *   skips already-stored chunks so the retry pays only for the remainder.
+     * - not `retentionKnown` (the status description could not be read): the
+     *   daemon may still hold the paid attempt. Stop, keep [uploadId] and
+     *   [txHashes], and reconcile before re-preparing or paying again; never
+     *   pay again on this signal alone.
+     *
+     * A partial upload used to surface here as [ForkException]; catch
+     * [PartialUploadException] instead.
      *
      * See `docs/external-signer-flow.md` §6 ("Retry a partial store").
      *
@@ -484,8 +491,9 @@ class AntdGrpcClient internal constructor(
      *
      * @throws PartialUploadException when some chunks stayed unstored after
      *   the daemon's retries (gRPC ABORTED). See [finalizeUpload] for the
-     *   `retryable` contract; a merkle finalize with deliberately unpaid
-     *   batches is never retryable (re-prepare instead).
+     *   recovery contract; a merkle finalize with deliberately unpaid
+     *   batches reports retention as known and not retryable (re-prepare
+     *   instead).
      */
     override suspend fun finalizeMerkleUpload(uploadId: String, winnerPoolHash: String): FinalizeMerkleUploadResult = try {
         val resp = uploadStub.finalizeUpload(finalizeUploadRequest {

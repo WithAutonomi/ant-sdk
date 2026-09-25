@@ -649,6 +649,7 @@ class RestClientTest {
             assertEquals(12L, ex.chunksFailed)
             assertEquals(312L, ex.totalChunks)
             assertTrue(ex.retryable, "retryable must come from the body flag")
+            assertTrue(ex.retentionKnown, "a boolean retryable makes retention known")
             assertEquals(502, ex.statusCode)
             assertTrue(ex.message!!.startsWith("Partial upload: 300/312"), "message must be the body's error field; got ${ex.message}")
             // A 502 has always been a NetworkException; existing catch blocks keep working.
@@ -660,10 +661,10 @@ class RestClientTest {
     }
 
     @Test
-    fun `502 PARTIAL_UPLOAD without retryable flag defaults to false`() = runTest {
-        // An older daemon (< 0.14.0) never sends `retryable`; the flag must
-        // read false so callers fall back to the re-prepare path rather than
-        // looping on an upload_id the daemon has already dropped.
+    fun `502 PARTIAL_UPLOAD without retryable flag reads as unknown retention`() = runTest {
+        // An older daemon (< 0.14.0) never sends `retryable`. The flag reads
+        // false, so nothing loops on the upload_id, and retention reads as
+        // unknown, so nothing re-prepares or pays again on this alone.
         val errServer = partialUploadServer(
             """{"error":"Partial upload: 300/312 chunks stored, 12 failed after retries","code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":12,"total_chunks":312}""",
         )
@@ -676,6 +677,7 @@ class RestClientTest {
             assertEquals(12L, ex.chunksFailed)
             assertEquals(312L, ex.totalChunks)
             assertFalse(ex.retryable, "retryable must default to false without the body flag")
+            assertFalse(ex.retentionKnown, "no body flag means retention is unknown")
         } finally {
             errClient.close()
             errServer.shutdown()
@@ -779,6 +781,7 @@ class RestClientTest {
             assertEquals(0L, ex.chunksFailed)
             assertEquals(0L, ex.totalChunks)
             assertFalse(ex.retryable, "a non-boolean retryable must read false, never true")
+            assertFalse(ex.retentionKnown, "a non-boolean retryable leaves retention unknown")
             assertEquals(body, ex.message, "a non-string error field falls back to the raw body")
             assertEquals(502, ex.statusCode)
         } finally {
@@ -790,25 +793,32 @@ class RestClientTest {
     @Test
     fun `502 PARTIAL_UPLOAD reads counts only from JSON numbers and retryable only from a JSON boolean`() = runTest {
         // A quoted number or a quoted "true" is a JSON string, not the kind
-        // the contract names, so it reads as absent (zero / false) instead of
-        // being coerced. A negative, fractional or out-of-range number is not
-        // a count either. Well-typed fields in the same body still read.
-        data class Case(val body: String, val stored: Long, val failed: Long, val total: Long, val retryable: Boolean)
+        // the contract names, so it reads as absent (zero / unknown) instead
+        // of being coerced. A negative, fractional or out-of-range number is
+        // not a count either. Well-typed fields in the same body still read.
+        // Retention is known only when `retryable` is a JSON boolean.
+        data class Case(
+            val body: String, val stored: Long, val failed: Long, val total: Long,
+            val retryable: Boolean, val known: Boolean,
+        )
         val cases = listOf(
             // The review's reproducer: a quoted count and a quoted "true".
-            Case("""{"code":"PARTIAL_UPLOAD","chunks_failed":"1","retryable":"true"}""", 0, 0, 0, false),
+            Case("""{"code":"PARTIAL_UPLOAD","chunks_failed":"1","retryable":"true"}""", 0, 0, 0, false, false),
             // Quoted numbers in every count position.
-            Case("""{"code":"PARTIAL_UPLOAD","chunks_stored":"300","chunks_failed":"12","total_chunks":"312"}""", 0, 0, 0, false),
-            // Quoted "true" / "false", and a number, where a boolean belongs.
-            Case("""{"code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":12,"total_chunks":312,"retryable":"true"}""", 300, 12, 312, false),
-            Case("""{"code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":12,"total_chunks":312,"retryable":"false"}""", 300, 12, 312, false),
-            Case("""{"code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":12,"total_chunks":312,"retryable":1}""", 300, 12, 312, false),
+            Case("""{"code":"PARTIAL_UPLOAD","chunks_stored":"300","chunks_failed":"12","total_chunks":"312"}""", 0, 0, 0, false, false),
+            // Quoted "true" / "false", a number, and null where a boolean belongs: unknown.
+            Case("""{"code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":12,"total_chunks":312,"retryable":"true"}""", 300, 12, 312, false, false),
+            Case("""{"code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":12,"total_chunks":312,"retryable":"false"}""", 300, 12, 312, false, false),
+            Case("""{"code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":12,"total_chunks":312,"retryable":1}""", 300, 12, 312, false, false),
+            Case("""{"code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":12,"total_chunks":312,"retryable":null}""", 300, 12, 312, false, false),
             // A negative count reads as zero.
-            Case("""{"code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":-12,"total_chunks":312}""", 300, 0, 312, false),
+            Case("""{"code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":-12,"total_chunks":312}""", 300, 0, 312, false, false),
             // Fractional and past Long.MAX_VALUE.
-            Case("""{"code":"PARTIAL_UPLOAD","chunks_stored":1.5,"chunks_failed":9223372036854775808,"total_chunks":312}""", 0, 0, 312, false),
-            // Well-typed fields: the real literal true is still retryable.
-            Case("""{"code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":12,"total_chunks":312,"retryable":true}""", 300, 12, 312, true),
+            Case("""{"code":"PARTIAL_UPLOAD","chunks_stored":1.5,"chunks_failed":9223372036854775808,"total_chunks":312}""", 0, 0, 312, false, false),
+            // The literal true: known and retryable.
+            Case("""{"code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":12,"total_chunks":312,"retryable":true}""", 300, 12, 312, true, true),
+            // The literal false: known, the daemon kept nothing.
+            Case("""{"code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":12,"total_chunks":312,"retryable":false}""", 300, 12, 312, false, true),
         )
         for (c in cases) {
             val errServer = partialUploadServer(c.body)
@@ -821,11 +831,20 @@ class RestClientTest {
                 assertEquals(c.failed, ex.chunksFailed, c.body)
                 assertEquals(c.total, ex.totalChunks, c.body)
                 assertEquals(c.retryable, ex.retryable, c.body)
+                assertEquals(c.known, ex.retentionKnown, c.body)
             } finally {
                 errClient.close()
                 errServer.shutdown()
             }
         }
+    }
+
+    @Test
+    fun `PartialUploadException retryable always implies retentionKnown`() {
+        assertTrue(PartialUploadException("x", retryable = true, retentionKnown = false).retentionKnown)
+        assertTrue(PartialUploadException("x", retryable = true).retentionKnown)
+        assertFalse(PartialUploadException("x").retentionKnown)
+        assertTrue(PartialUploadException("x", retentionKnown = true).retentionKnown)
     }
 
     // -------------------------------------------------------------------------
