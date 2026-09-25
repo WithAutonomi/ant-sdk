@@ -471,10 +471,11 @@ class AntdGrpcClient internal constructor(
      * - [PartialUploadException.retentionKnown] but not `retryable`: the
      *   daemon confirmed it kept nothing; re-prepare the same content, which
      *   skips already-stored chunks so the retry pays only for the remainder.
-     * - not `retentionKnown` (the status description could not be read): the
-     *   daemon may still hold the paid attempt. Stop, keep [uploadId] and
-     *   [txHashes], and reconcile before re-preparing or paying again; never
-     *   pay again on this signal alone.
+     * - not `retentionKnown` (the counts or the daemon's closing retention
+     *   hint could not be read from the status description): the daemon may
+     *   still hold the paid attempt. Stop, keep [uploadId] and [txHashes],
+     *   and reconcile before re-preparing or paying again; never pay again
+     *   on this signal alone.
      *
      * A partial upload used to surface here as [ForkException]; catch
      * [PartialUploadException] instead.
