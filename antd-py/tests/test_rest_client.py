@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import base64
 import json
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+import httpx
 import pytest
 
-from antd._rest import RestClient
+from antd._rest import RestClient, _acheck_streamed, _check
 from antd.exceptions import BadRequestError, NetworkError, NotFoundError, PartialUploadError
 from antd.models import (
     CandidateNodeEntry,
@@ -46,6 +48,15 @@ class _MockHandler(BaseHTTPRequestHandler):
 
     def _json_response(self, status: int, body: dict) -> None:
         payload = json.dumps(body).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _raw_response(self, status: int, payload: bytes) -> None:
+        """Send ``payload`` verbatim, for bodies ``json.dumps`` cannot produce
+        (bare ``Infinity``, over-long integers) or that are not JSON objects."""
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
@@ -257,6 +268,11 @@ class _MockHandler(BaseHTTPRequestHandler):
             req = json.loads(body) if body else {}
             # Store the request so tests can inspect it
             self.server._last_finalize_request = req
+            # Malformed 502 bodies registered by a test, sent verbatim.
+            raw = self.server._raw_finalize_bodies.get(req.get("upload_id"))
+            if raw is not None:
+                self._raw_response(502, raw)
+                return
             # PARTIAL_UPLOAD: 502 whose body carries the machine-readable code
             # and counts. "partial" mimics antd >= 0.14.0 (paid attempt
             # retained, `retryable: true`); "partial-legacy" mimics an older
@@ -332,6 +348,7 @@ def mock_server():
     """Start a local HTTP server on an ephemeral port for the test module."""
     server = HTTPServer(("127.0.0.1", 0), _MockHandler)
     server._last_payment_modes = {}
+    server._raw_finalize_bodies = {}
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     yield server
@@ -721,6 +738,162 @@ class TestPartialUpload:
         # catching the 502 -- the subclass only adds detail.
         with pytest.raises(NetworkError):
             client.finalize_upload("partial", {})
+
+
+# A well-formed PARTIAL_UPLOAD body as JSON text, with one field replaced by a
+# raw JSON literal. Text rather than a dict so the literals json.dumps cannot
+# produce (bare Infinity, over-long integers) reach the client verbatim.
+_PARTIAL_FIELDS = {
+    "error": '"Partial upload: 300/312 chunks stored, 12 failed after retries: quorum"',
+    "code": '"PARTIAL_UPLOAD"',
+    "chunks_stored": "300",
+    "chunks_failed": "12",
+    "total_chunks": "312",
+    "retryable": "true",
+}
+
+
+def _partial_body(**overrides: str) -> bytes:
+    fields = {**_PARTIAL_FIELDS, **overrides}
+    return ("{" + ", ".join(f'"{k}": {v}' for k, v in fields.items()) + "}").encode()
+
+
+def _finalize_raw(client: RestClient, mock_server, upload_id: str, raw: bytes):
+    """Finalize against a mock 502 whose body is ``raw``; return what it raised."""
+    mock_server._raw_finalize_bodies[upload_id] = raw
+    with pytest.raises(NetworkError) as exc_info:
+        client.finalize_upload(upload_id, {"0xq1": "0xtx1"})
+    return exc_info.value
+
+
+_COUNT_FIELDS = ("chunks_stored", "chunks_failed", "total_chunks")
+_WELL_FORMED_COUNTS = {"chunks_stored": 300, "chunks_failed": 12, "total_chunks": 312}
+
+
+def _int_digit_limit_applies(digits: int) -> bool:
+    """True when this interpreter refuses ``int()`` of ``digits`` decimal
+    digits, and so ``json.loads`` of such an integer: the 4300-digit default
+    on Python >= 3.11 (and 3.10.7+), unless disabled."""
+    get_limit = getattr(sys, "get_int_max_str_digits", None)
+    if get_limit is None:
+        return False
+    limit = get_limit()
+    return limit != 0 and digits > limit
+
+
+class TestMalformedPartialUploadBody:
+    """A malformed 502 PARTIAL_UPLOAD body read through the real client: a
+    count that is not a non-negative JSON integer (<= u64 max) reads as 0,
+    `retryable` needs the JSON literal `true`, `code` must be the exact
+    string, and nothing escapes as a raw ValueError / TypeError /
+    OverflowError. At worst the status mapping (502 -> NetworkError) applies."""
+
+    @pytest.mark.parametrize("field", _COUNT_FIELDS)
+    @pytest.mark.parametrize(
+        "literal",
+        ['"1"', "true", "1.5", "-1", "[]", "{}", "18446744073709551616", "Infinity", "NaN", "null"],
+    )
+    def test_malformed_count_reads_zero(self, client, mock_server, field, literal):
+        err = _finalize_raw(client, mock_server, f"bad-{field}-{literal}", _partial_body(**{field: literal}))
+        assert isinstance(err, PartialUploadError)
+        assert {f: getattr(err, f) for f in _COUNT_FIELDS} == {**_WELL_FORMED_COUNTS, field: 0}
+        assert err.retryable is True
+        assert err.status_code == 502
+
+    def test_u64_max_count_is_kept(self, client, mock_server):
+        err = _finalize_raw(
+            client, mock_server, "u64-max", _partial_body(chunks_failed="18446744073709551615"),
+        )
+        assert isinstance(err, PartialUploadError)
+        assert err.chunks_failed == 18446744073709551615
+
+    @pytest.mark.parametrize("literal", ['"true"', '"false"', "1", "{}", "null", "false"])
+    def test_retryable_needs_json_true(self, client, mock_server, literal):
+        err = _finalize_raw(client, mock_server, f"retryable-{literal}", _partial_body(retryable=literal))
+        assert isinstance(err, PartialUploadError)
+        assert err.retryable is False
+        assert {f: getattr(err, f) for f in _COUNT_FIELDS} == _WELL_FORMED_COUNTS
+
+    @pytest.mark.parametrize("literal", ["{}", "[]", "null", "1", '"partial_upload"'])
+    def test_code_must_be_the_exact_string(self, client, mock_server, literal):
+        raw = _partial_body(code=literal)
+        err = _finalize_raw(client, mock_server, f"code-{literal}", raw)
+        assert type(err) is NetworkError
+        assert err.status_code == 502
+        assert str(err).startswith("Partial upload: 300/312")
+
+    def test_top_level_array_body_is_network_error(self, client, mock_server):
+        err = _finalize_raw(client, mock_server, "array-body", b"[]")
+        assert type(err) is NetworkError
+        assert str(err) == "[]"
+
+    def test_non_string_error_uses_raw_body_as_message(self, client, mock_server):
+        raw = _partial_body(error="{}")
+        err = _finalize_raw(client, mock_server, "error-object", raw)
+        assert isinstance(err, PartialUploadError)
+        assert str(err) == raw.decode()
+        assert {f: getattr(err, f) for f in _COUNT_FIELDS} == _WELL_FORMED_COUNTS
+        assert err.retryable is True
+
+    def test_over_long_integer_never_escapes(self, client, mock_server):
+        raw = _partial_body(chunks_failed="9" * 5000)
+        err = _finalize_raw(client, mock_server, "huge-int", raw)
+        assert err.status_code == 502
+        if _int_digit_limit_applies(5000):
+            # json.loads refuses it, so the body is unreadable and the status
+            # mapping applies.
+            assert type(err) is NetworkError
+        else:
+            # Decoded, but far above u64 max: the count reads as 0.
+            assert isinstance(err, PartialUploadError)
+            assert err.chunks_failed == 0
+
+    def test_everything_malformed_at_once(self, client, mock_server):
+        raw = _partial_body(
+            error="{}", chunks_stored='"300"', chunks_failed="Infinity",
+            total_chunks="[312]", retryable='"true"',
+        )
+        err = _finalize_raw(client, mock_server, "all-bad", raw)
+        assert isinstance(err, PartialUploadError)
+        assert (err.chunks_stored, err.chunks_failed, err.total_chunks, err.retryable) == (0, 0, 0, False)
+        assert str(err) == raw.decode()
+
+    def test_check_directly(self, client, mock_server):
+        mock_server._raw_finalize_bodies["direct"] = _partial_body(chunks_stored="Infinity", error="{}")
+        resp = client._http.post("/v1/upload/finalize", json={"upload_id": "direct", "tx_hashes": {}})
+        with pytest.raises(PartialUploadError) as exc_info:
+            _check(resp)
+        assert exc_info.value.chunks_stored == 0
+        assert exc_info.value.chunks_failed == 12
+
+    def test_streamed_check(self, client, mock_server):
+        from antd._rest import _check_streamed
+        mock_server._raw_finalize_bodies["streamed"] = _partial_body(
+            chunks_failed="[12]", retryable='"true"',
+        )
+        with client._http.stream(
+            "POST", "/v1/upload/finalize", json={"upload_id": "streamed", "tx_hashes": {}},
+        ) as resp:
+            with pytest.raises(PartialUploadError) as exc_info:
+                _check_streamed(resp)
+        assert (exc_info.value.chunks_failed, exc_info.value.retryable) == (0, False)
+
+    @pytest.mark.asyncio
+    async def test_async_streamed_check(self):
+        raw = _partial_body(total_chunks="-1", error="{}")
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(502, content=raw, headers={"content-type": "application/json"})
+
+        async with httpx.AsyncClient(
+            base_url="http://antd.test", transport=httpx.MockTransport(handler),
+        ) as http:
+            async with http.stream("POST", "/v1/upload/finalize") as resp:
+                with pytest.raises(PartialUploadError) as exc_info:
+                    await _acheck_streamed(resp)
+        assert exc_info.value.total_chunks == 0
+        assert exc_info.value.chunks_failed == 12
+        assert str(exc_info.value) == raw.decode()
 
 
 class TestDataStreamWithProgress:

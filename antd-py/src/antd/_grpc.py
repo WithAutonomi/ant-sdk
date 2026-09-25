@@ -15,10 +15,10 @@ from .exceptions import (
     InternalError,
     NetworkError,
     NotFoundError,
-    PARTIAL_UPLOAD_MESSAGE_PREFIX,
     PartialUploadError,
     PaymentError,
     TooLargeError,
+    is_partial_upload_message,
     parse_partial_upload_message,
 )
 from .models import (
@@ -220,16 +220,24 @@ _GRPC_CODE_MAP: dict[grpc.StatusCode, type[AntdError]] = {
 
 def _handle_rpc_error(e: grpc.RpcError) -> None:
     code = e.code()
-    details = e.details() or str(e)
-    if code == grpc.StatusCode.ABORTED and PARTIAL_UPLOAD_MESSAGE_PREFIX in details:
+    raw_details = e.details()
+    details = raw_details or str(e)
+    if code == grpc.StatusCode.ABORTED and is_partial_upload_message(raw_details):
         # PARTIAL_UPLOAD: some chunks stored, some still unstored after
         # retries. The counts and the "paid attempt retained" hint ride the
         # status message over gRPC (no structured detail yet), so parse them
-        # best-effort to match the REST client's typed error. Only the
-        # daemon's fixed "Partial upload:" prefix identifies it (a containment
-        # check, since some transports decorate the message); any other
-        # ABORTED keeps the ForkError mapping below.
-        stored, failed, total, retryable = parse_partial_upload_message(details)
+        # to match the REST client's typed error. The gate is anchored: only
+        # raw status details that START WITH the daemon's fixed
+        # "Partial upload:" prefix qualify. Any other ABORTED, including one
+        # that merely embeds the phrase, keeps the ForkError mapping below.
+        # The counts gate the retry: retryable is True only when the message
+        # matched and all three counts converted (parse_partial_upload_message).
+        # The parser never raises; the guard keeps even an unexpected failure
+        # from replacing the typed error with a raw exception.
+        try:
+            stored, failed, total, retryable = parse_partial_upload_message(details)
+        except Exception:
+            stored, failed, total, retryable = 0, 0, 0, False
         raise PartialUploadError(
             details,
             code.value[0],

@@ -46,6 +46,13 @@ def format_error(exc: AntdError) -> dict:
     decide whether to call the same finalize tool again (``retryable``: the
     daemon kept the paid attempt under the same ``upload_id``) or to
     re-prepare the content (already-stored chunks are skipped).
+
+    Those fields are copied from the SDK's typed error, which reads the
+    daemon's response strictly: a malformed count reads as ``0`` and
+    ``retryable`` is True only when the daemon unambiguously said so (the
+    JSON literal ``true``). A malformed partial-upload body therefore reaches
+    here as ``PARTIAL_UPLOAD`` or ``NETWORK_ERROR``, never as an unexpected
+    exception.
     """
     code = _CODE_MAP.get(type(exc), "UNKNOWN")
     d = {

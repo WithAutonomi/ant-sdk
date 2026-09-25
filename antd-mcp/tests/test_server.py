@@ -11,11 +11,14 @@ from __future__ import annotations
 import base64
 import functools
 import json
+import sys
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 
+from antd._rest import AsyncRestClient
 from antd.exceptions import NetworkError, PartialUploadError
 from antd.models import (
     FinalizeUploadResult,
@@ -297,6 +300,154 @@ async def test_finalize_upload_plain_network_error_has_no_partial_fields(mock_cl
     assert payload["status_code"] == 502
     assert "retryable" not in payload
     assert "chunks_failed" not in payload
+
+
+# ---------------------------------------------------------------------------
+# finalize_* — a malformed PARTIAL_UPLOAD body through the real REST client
+# ---------------------------------------------------------------------------
+
+
+def _real_client(monkeypatch, raw_body: bytes) -> AsyncRestClient:
+    """Point the tools at a real ``AsyncRestClient`` whose transport answers
+    every request with HTTP 502 + ``raw_body``, so the SDK's own error
+    parsing runs (the ``mock_client`` fixture bypasses it)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(502, content=raw_body, headers={"content-type": "application/json"})
+
+    client = AsyncRestClient(base_url="http://antd.test")
+    client._http = httpx.AsyncClient(
+        base_url="http://antd.test", transport=httpx.MockTransport(handler),
+    )
+    monkeypatch.setattr(server, "_get_ctx", lambda ctx: (client, "test-net"))
+    return client
+
+
+_MSG = '"Partial upload: 1/3 chunks stored, 2 failed after retries: quorum"'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "raw_body",
+    [
+        # Counts that are not non-negative JSON integers, retryable not `true`.
+        (
+            '{"error": ' + _MSG + ', "code": "PARTIAL_UPLOAD", "chunks_stored": "1", '
+            '"chunks_failed": [2], "total_chunks": 1.5, "retryable": "true"}'
+        ).encode(),
+        # Infinity (json.loads accepts it), a negative, u64::MAX + 1, and an
+        # `error` that is not a string.
+        (
+            b'{"error": {}, "code": "PARTIAL_UPLOAD", "chunks_stored": Infinity, '
+            b'"chunks_failed": -1, "total_chunks": 18446744073709551616, "retryable": 1}'
+        ),
+        # Booleans and objects in count positions.
+        (
+            '{"error": ' + _MSG + ', "code": "PARTIAL_UPLOAD", "chunks_stored": true, '
+            '"chunks_failed": {}, "total_chunks": null, "retryable": {}}'
+        ).encode(),
+    ],
+    ids=["quoted-array-float", "infinity-negative-overflow", "bool-object-null"],
+)
+@pytest.mark.parametrize("tool", ["finalize_upload", "finalize_merkle_upload"])
+async def test_finalize_malformed_partial_body_is_partial_upload_not_unexpected(
+    monkeypatch, raw_body, tool,
+):
+    client = _real_client(monkeypatch, raw_body)
+    try:
+        if tool == "finalize_upload":
+            raw = await _tool_fn(server.finalize_upload)(upload_id="upload-abc", tx_hashes={})
+        else:
+            raw = await _tool_fn(server.finalize_merkle_upload)(
+                upload_id="upload-abc", winner_pool_hash="0xwinner",
+            )
+    finally:
+        await client.close()
+    payload = json.loads(raw)
+
+    assert payload["error"] == "PARTIAL_UPLOAD"
+    assert payload["status_code"] == 502
+    assert (payload["chunks_stored"], payload["chunks_failed"], payload["total_chunks"]) == (0, 0, 0)
+    assert payload["retryable"] is False
+    assert payload["network"] == "test-net"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "raw_body",
+    [
+        b"[]",
+        b'{"error": "bad gateway", "code": {}, "chunks_failed": 2, "retryable": true}',
+        b'{"error": "bad gateway", "code": "partial_upload", "chunks_failed": 2, "retryable": true}',
+    ],
+    ids=["array-body", "object-code", "lowercase-code"],
+)
+async def test_finalize_unreadable_partial_body_is_network_error_not_unexpected(monkeypatch, raw_body):
+    client = _real_client(monkeypatch, raw_body)
+    try:
+        raw = await _tool_fn(server.finalize_upload)(upload_id="upload-abc", tx_hashes={})
+    finally:
+        await client.close()
+    payload = json.loads(raw)
+
+    assert payload["error"] == "NETWORK_ERROR"
+    assert payload["status_code"] == 502
+    assert "retryable" not in payload
+
+
+def _int_digit_limit_applies(digits: int) -> bool:
+    """True when this interpreter refuses ``int()`` of ``digits`` decimal
+    digits, and so ``json.loads`` of such an integer: the 4300-digit default
+    on Python >= 3.11 (and 3.10.7+), unless disabled."""
+    get_limit = getattr(sys, "get_int_max_str_digits", None)
+    if get_limit is None:
+        return False
+    limit = get_limit()
+    return limit != 0 and digits > limit
+
+
+@pytest.mark.asyncio
+async def test_finalize_over_long_integer_is_never_unexpected(monkeypatch):
+    raw_body = (
+        '{"error": "bad gateway", "code": "PARTIAL_UPLOAD", "retryable": true, "chunks_failed": '
+        + "9" * 5000 + "}"
+    ).encode()
+    client = _real_client(monkeypatch, raw_body)
+    try:
+        raw = await _tool_fn(server.finalize_upload)(upload_id="upload-abc", tx_hashes={})
+    finally:
+        await client.close()
+    payload = json.loads(raw)
+
+    assert payload["status_code"] == 502
+    if _int_digit_limit_applies(5000):
+        # json.loads refuses the integer: the body is unreadable.
+        assert payload["error"] == "NETWORK_ERROR"
+    else:
+        # Decoded, but far above u64 max: the count reads as 0.
+        assert payload["error"] == "PARTIAL_UPLOAD"
+        assert payload["chunks_failed"] == 0
+
+
+@pytest.mark.asyncio
+async def test_finalize_well_formed_partial_body_through_real_client(monkeypatch):
+    client = _real_client(
+        monkeypatch,
+        (
+            '{"error": ' + _MSG + ', "code": "PARTIAL_UPLOAD", "chunks_stored": 1, '
+            '"chunks_failed": 2, "total_chunks": 3, "retryable": true}'
+        ).encode(),
+    )
+    try:
+        raw = await _tool_fn(server.finalize_upload)(upload_id="upload-abc", tx_hashes={})
+    finally:
+        await client.close()
+    payload = json.loads(raw)
+
+    assert payload["error"] == "PARTIAL_UPLOAD"
+    assert (payload["chunks_stored"], payload["chunks_failed"], payload["total_chunks"]) == (1, 2, 3)
+    assert payload["retryable"] is True
+    assert payload["message"].startswith("Partial upload: 1/3")
 
 
 # ---------------------------------------------------------------------------
