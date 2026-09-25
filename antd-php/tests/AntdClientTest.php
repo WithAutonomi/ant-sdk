@@ -525,6 +525,7 @@ class AntdClientTest extends TestCase
             $this->assertSame(12, $e->chunksFailed);
             $this->assertSame(312, $e->totalChunks);
             $this->assertTrue($e->retryable, 'retryable must come from the body flag');
+            $this->assertTrue($e->retentionKnown);
             $this->assertSame(502, $e->statusCode);
             $this->assertStringContainsString('Partial upload: 300/312 chunks stored', $e->getMessage());
         }
@@ -533,8 +534,8 @@ class AntdClientTest extends TestCase
     public function testPartialUploadErrorRetryableDefaultsFalse(): void
     {
         // An older daemon (< 0.14.0) never sends `retryable`; the flag must read
-        // false so callers fall back to the re-prepare path rather than looping
-        // on an upload_id the daemon has already dropped.
+        // false so callers never loop on an upload_id, and retention must read
+        // unknown (not confirmed non-retention) so they never pay again on it.
         $mock = new MockHandler([
             $this->jsonResponse(502, [
                 'error' => 'Partial upload: 300/312 chunks stored, 12 failed after retries',
@@ -550,6 +551,7 @@ class AntdClientTest extends TestCase
             $this->fail('Expected PartialUploadError');
         } catch (PartialUploadError $e) {
             $this->assertFalse($e->retryable);
+            $this->assertFalse($e->retentionKnown);
             $this->assertSame(300, $e->chunksStored);
             $this->assertSame(12, $e->chunksFailed);
             $this->assertSame(312, $e->totalChunks);
@@ -622,6 +624,7 @@ class AntdClientTest extends TestCase
         $e = ErrorFactory::fromResponse(502, 'partial', ['code' => 'PARTIAL_UPLOAD', 'retryable' => 'yes']);
         $this->assertInstanceOf(PartialUploadError::class, $e);
         $this->assertFalse($e->retryable, 'only a JSON true counts as retryable');
+        $this->assertFalse($e->retentionKnown, 'only a JSON boolean says whether anything was retained');
         $this->assertSame(0, $e->chunksStored);
         $this->assertSame(0, $e->chunksFailed);
         $this->assertSame(0, $e->totalChunks);
@@ -729,8 +732,10 @@ class AntdClientTest extends TestCase
 
     public function testErrorFactoryKeepsNonNegativeIntegerCounts(): void
     {
+        // The upper boundary comes from this platform's PHP_INT_MAX (int64 on
+        // 64-bit builds, int32 on 32-bit ones), so it is valid everywhere.
         $body = json_decode(
-            '{"code":"PARTIAL_UPLOAD","chunks_stored":0,"chunks_failed":7,"total_chunks":9223372036854775807}',
+            sprintf('{"code":"PARTIAL_UPLOAD","chunks_stored":0,"chunks_failed":7,"total_chunks":%d}', PHP_INT_MAX),
             true,
         );
 
@@ -742,36 +747,89 @@ class AntdClientTest extends TestCase
         $this->assertSame(PHP_INT_MAX, $e->totalChunks);
     }
 
-    /** @return array<string, array{string}> */
-    public static function nonTrueRetryableProvider(): array
+    public function testErrorFactoryCountOnePastPhpIntMaxReadsZero(): void
+    {
+        // One past this platform's PHP_INT_MAX: json_decode() hands it back as a
+        // float, which is not a JSON integer PHP can hold, so it reads 0.
+        $max = (string) PHP_INT_MAX;
+        $onePast = substr($max, 0, -1) . ((int) substr($max, -1) + 1);  // ...807 -> ...808, ...647 -> ...648
+        $body = json_decode(
+            sprintf('{"code":"PARTIAL_UPLOAD","chunks_stored":%1$s,"chunks_failed":%1$s,"total_chunks":%1$s}', $onePast),
+            true,
+        );
+        $this->assertIsFloat($body['total_chunks'], 'the literal must overflow int on this platform');
+
+        $e = ErrorFactory::fromResponse(502, 'partial', $body);
+
+        $this->assertInstanceOf(PartialUploadError::class, $e);
+        $this->assertSame(0, $e->chunksStored);
+        $this->assertSame(0, $e->chunksFailed);
+        $this->assertSame(0, $e->totalChunks);
+    }
+
+    /**
+     * The `retryable` member as it appears in the body (null = absent), and
+     * the [retryable, retentionKnown] it must produce.
+     *
+     * @return array<string, array{?string, bool, bool}>
+     */
+    public static function retryableFieldProvider(): array
     {
         return [
-            'quoted true' => ['"true"'],
-            'integer 1' => ['1'],
+            'true: retained' => ['true', true, true],
+            'false: confirmed not retained' => ['false', false, true],
+            'missing (antd < 0.14.0): unknown' => [null, false, false],
+            'null: unknown' => ['null', false, false],
+            'quoted true: unknown' => ['"true"', false, false],
+            'integer 1: unknown' => ['1', false, false],
         ];
     }
 
-    #[DataProvider('nonTrueRetryableProvider')]
-    public function testRetryableIsTrueOnlyForJsonTrue(string $literal): void
-    {
+    #[DataProvider('retryableFieldProvider')]
+    public function testRetryableAndRetentionKnownComeFromTheRetryableField(
+        ?string $literal,
+        bool $retryable,
+        bool $retentionKnown,
+    ): void {
         $json = sprintf(
             '{"error":"Partial upload: 1/2 chunks stored, 1 failed after retries","code":"PARTIAL_UPLOAD",'
-            . '"chunks_stored":1,"chunks_failed":1,"total_chunks":2,"retryable":%s}',
-            $literal,
+            . '"chunks_stored":1,"chunks_failed":1,"total_chunks":2%s}',
+            $literal === null ? '' : ',"retryable":' . $literal,
         );
         $client = $this->createClient(new MockHandler([$this->rawJsonResponse(502, $json)]));
 
         $e = $this->catchAntdError(fn() => $client->finalizeUpload('up1', ['qh1' => 'tx1']));
 
         $this->assertInstanceOf(PartialUploadError::class, $e);
-        $this->assertFalse($e->retryable);
+        $this->assertSame($retryable, $e->retryable);
+        $this->assertSame($retentionKnown, $e->retentionKnown);
         $this->assertSame(1, $e->chunksStored);
         $this->assertSame(1, $e->chunksFailed);
         $this->assertSame(2, $e->totalChunks);
 
         $direct = ErrorFactory::fromResponse(502, 'partial', json_decode($json, true));
         $this->assertInstanceOf(PartialUploadError::class, $direct);
-        $this->assertFalse($direct->retryable);
+        $this->assertSame($retryable, $direct->retryable);
+        $this->assertSame($retentionKnown, $direct->retentionKnown);
+    }
+
+    public function testPartialUploadErrorConstructorKeepsRetryableImpliesRetentionKnown(): void
+    {
+        // Constructor calls written before retentionKnown existed keep working.
+        $legacy = new PartialUploadError('m', 1, 1, 2, true);
+        $this->assertTrue($legacy->retryable);
+        $this->assertTrue($legacy->retentionKnown, 'retryable implies retentionKnown');
+
+        $forced = new PartialUploadError('m', retryable: true, retentionKnown: false);
+        $this->assertTrue($forced->retentionKnown, 'the invariant holds even when asked otherwise');
+
+        $unknown = new PartialUploadError('m');
+        $this->assertFalse($unknown->retryable);
+        $this->assertFalse($unknown->retentionKnown);
+
+        $notRetained = new PartialUploadError('m', 1, 1, 2, false, true);
+        $this->assertFalse($notRetained->retryable);
+        $this->assertTrue($notRetained->retentionKnown);
     }
 
     /** @return array<string, array{string}> */

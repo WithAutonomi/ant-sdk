@@ -194,18 +194,24 @@ try {
 
 An external-signer finalize (`finalizeUpload`, `finalizeChunkUpload`) can fail *after* the
 payment settled: some chunks store, others miss quorum after the daemon's own retries. The
-SDK throws `PartialUploadError` with `chunksStored` / `chunksFailed` / `totalChunks` and a
-`retryable` flag. The on-chain payment persists and the stored chunks stay on the network;
-what to do next depends on the flag:
+SDK throws `PartialUploadError` with `chunksStored` / `chunksFailed` / `totalChunks` and two
+flags, `retryable` and `retentionKnown` (`retryable` implies `retentionKnown`). The on-chain
+payment persists and the stored chunks stay on the network; what to do next depends on the
+flags:
 
-- **`retryable === true`** (antd ≥ 0.14.0): the daemon kept the paid attempt under the same
-  `upload_id`. Call the **same** finalize method again with the same arguments to store the
-  remainder against the same payment — no re-prepare, no second signature, no double payment.
-  Bound that loop: a persistent failure throws on every call, so cap the attempts and treat a
-  `chunksFailed` that stops shrinking as stuck.
-- **`retryable === false`** (older daemon, or a merkle finalize with deliberately unpaid
-  batches): nothing was retained. Re-prepare the same content — already-stored chunks are
-  skipped, so the retry pays only for the remainder.
+- **`retryable`** (antd ≥ 0.14.0): the daemon kept the paid attempt under the same
+  `upload_id`. Call the **same** finalize method again with the same `upload_id` and tx hashes
+  to store the remainder against the same payment — no re-prepare, no second signature, no
+  double payment. Bound that loop: a persistent failure throws on every call, so cap the
+  attempts and treat a `chunksFailed` that stops shrinking as stuck.
+- **`retentionKnown && !retryable`**: the daemon confirmed nothing was retained (a
+  daemon-wallet upload, or a merkle finalize with deliberately unpaid batches). Re-prepare the
+  same content — already-stored chunks are skipped.
+- **`!retentionKnown`**: retention is unknown. The daemon may still hold the paid attempt (it
+  records the resume handle before it returns the error), so stop automatic recovery, keep the
+  `upload_id` and the original tx hashes, and reconcile before re-preparing or paying again.
+  Never pay again on this signal alone. Daemons older than 0.14.0 never send `retryable`, so
+  their partial uploads read as unknown.
 
 ```php
 use Autonomi\Antd\Errors\PartialUploadError;
@@ -216,16 +222,21 @@ try {
     if ($e->retryable) {
         // Same upload_id, same payment: retry finalizeUpload() with the same
         // arguments (bounded — see finalizeWithRetry() in examples/07-external-signer.php).
+    } elseif ($e->retentionKnown) {
+        // The daemon confirmed nothing was retained: re-prepare the same content.
     } else {
-        // Re-prepare the same content; only the unstored remainder is paid for.
+        // Retention unknown: keep $prep->uploadId and $txHashes and reconcile
+        // before re-preparing or paying again. Never pay again on this alone.
     }
 }
 ```
 
 The body is read strictly: a count comes only from a non-negative JSON integer (anything else
-reads `0`), `retryable` is `true` only for the JSON boolean `true`, and a `code` other than the
-string `"PARTIAL_UPLOAD"` keeps the plain `NetworkError`. A malformed error body never escapes
-as a PHP `TypeError`; the message falls back to the raw body when `error` is not a string.
+reads `0`), `retryable` is `true` only for the JSON boolean `true`, `retentionKnown` is `true`
+only when `retryable` is a JSON boolean (missing, `null` or any other type reads as unknown),
+and a `code` other than the string `"PARTIAL_UPLOAD"` keeps the plain `NetworkError`. A
+malformed error body never escapes as a PHP `TypeError`; the message falls back to the raw body
+when `error` is not a string.
 
 `PartialUploadError` extends `NetworkError`, so a pre-existing `catch (NetworkError $e)` still
 catches it; catch the subclass first when you need the counts. The full contract is in

@@ -12,16 +12,20 @@ class ErrorFactory
      * Prefers the machine-readable `code` over the bare HTTP status where
      * they diverge: `PARTIAL_UPLOAD` arrives as a 502 that would otherwise
      * read as a generic {@see NetworkError}, and it carries structured counts
-     * plus a `retryable` flag (absent on daemons older than 0.14.0, so it
-     * defaults to `false`). Every other code keeps the status-based mapping
-     * of {@see fromHttpStatus()}.
+     * plus a `retryable` flag. `retentionKnown` records whether that flag was
+     * a JSON boolean at all: daemons older than 0.14.0 never send it, so
+     * their partial uploads read `retryable = false, retentionKnown = false`
+     * (retention unknown), not confirmed non-retention. Every other code
+     * keeps the status-based mapping of {@see fromHttpStatus()}.
      *
      * The body is read strictly, so a malformed one degrades rather than
      * throwing: only the string `"PARTIAL_UPLOAD"` selects
      * {@see PartialUploadError} (any other `code`, or a body that is not a
      * JSON object, keeps the status mapping); a count is taken only from a
      * JSON non-negative integer and reads as 0 otherwise; `retryable` is
-     * true only for the JSON boolean `true`.
+     * true only for the JSON boolean `true`, and `retentionKnown` only when
+     * `retryable` is a JSON boolean (missing, null or any other type reads
+     * as unknown).
      *
      * @param array<mixed>|null $body The decoded JSON error body, or null
      *     when the response was not JSON.
@@ -29,12 +33,14 @@ class ErrorFactory
     public static function fromResponse(int $code, string $message, ?array $body = null): AntdError
     {
         if (($body['code'] ?? null) === 'PARTIAL_UPLOAD') {
+            $retryable = $body['retryable'] ?? null;
             return new PartialUploadError(
                 $message,
                 chunksStored: self::nonNegativeInt($body['chunks_stored'] ?? null),
                 chunksFailed: self::nonNegativeInt($body['chunks_failed'] ?? null),
                 totalChunks: self::nonNegativeInt($body['total_chunks'] ?? null),
-                retryable: ($body['retryable'] ?? false) === true,
+                retryable: $retryable === true,
+                retentionKnown: is_bool($retryable),
             );
         }
         return self::fromHttpStatus($code, $message);
