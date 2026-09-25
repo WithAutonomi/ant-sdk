@@ -914,18 +914,23 @@ class AntdClient
      *
      * When some chunks stay unstored after the daemon's own retries this
      * throws {@see PartialUploadError} (HTTP 502, `code: "PARTIAL_UPLOAD"`)
-     * with `chunksStored` / `chunksFailed` / `totalChunks` and a `retryable`
-     * flag. The payment persists and the stored chunks stay on the network:
+     * with `chunksStored` / `chunksFailed` / `totalChunks` and the
+     * `retryable` / `retentionKnown` flags. The payment persists and the
+     * stored chunks stay on the network:
      *
-     *  - `retryable === true` (antd >= 0.14.0): the daemon kept the paid
-     *    attempt under the same `upload_id`. Call this method again with the
-     *    same arguments to store the remainder against the same payment; no
-     *    re-prepare, no second signature, no double payment. Bound that loop
-     *    (cap the attempts; a `chunksFailed` that stops shrinking is stuck).
-     *  - `retryable === false` (older daemon, or a merkle finalize with
-     *    unpaid batches): nothing was retained. Re-prepare the same content;
-     *    already-stored chunks are skipped, so the retry pays only for the
-     *    remainder.
+     *  - `retryable` (antd >= 0.14.0): the daemon kept the paid attempt under
+     *    the same `upload_id`. Call this method again with the same arguments
+     *    to store the remainder against the same payment; no re-prepare, no
+     *    second signature, no double payment. Bound that loop (cap the
+     *    attempts; a `chunksFailed` that stops shrinking is stuck).
+     *  - `retentionKnown && !retryable`: the daemon confirmed nothing was
+     *    retained. Re-prepare the same content; already-stored chunks are
+     *    skipped.
+     *  - `!retentionKnown` (e.g. antd < 0.14.0, which never sends the flag):
+     *    retention is unknown and the daemon may still hold the paid attempt.
+     *    Stop automatic recovery, keep `$uploadId` and `$txHashes`, and
+     *    reconcile before re-preparing or paying again; never pay again on
+     *    this signal alone.
      *
      * See docs/external-signer-flow.md, "6. Retry a partial store", and
      * `finalizeWithRetry()` in examples/07-external-signer.php.
@@ -997,8 +1002,9 @@ class AntdClient
      * A store that misses quorum after the daemon's retries throws
      * {@see PartialUploadError}; when `retryable` is `true` (antd >= 0.14.0)
      * the paid attempt was retained and calling this method again with the
-     * same arguments retries against the same payment. See
-     * {@see finalizeUpload()} for the full contract.
+     * same arguments retries against the same payment. `retryable === false`
+     * with `retentionKnown === false` means retention is unknown, not that
+     * nothing was retained. See {@see finalizeUpload()} for the full contract.
      *
      * @param string $uploadId The upload ID from prepareChunkUpload().
      * @param array<string, string> $txHashes Map of quote_hash to tx_hash.

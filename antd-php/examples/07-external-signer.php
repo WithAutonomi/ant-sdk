@@ -104,34 +104,67 @@ function externalSignerPay(string $rpcUrl, string $vaultAddr, string $tokenAddr,
  * The loop is bounded: a persistent failure (a chunk whose close group stays
  * unreachable) throws PartialUploadError on every call, never a different
  * error, so it caps the attempts and treats a chunksFailed that stops
- * shrinking as stuck. A non-retryable partial upload (older daemon, or a
- * merkle upload with unpaid batches) is rethrown untouched: the recovery
- * there is to re-prepare the same content, which skips the chunks already
- * stored.
+ * shrinking as stuck. Whenever it stops it rethrows the original
+ * PartialUploadError, so the caller keeps the typed error with its counts
+ * and flags. It never re-prepares or pays; what the caller does next
+ * depends on the flags:
+ *
+ *  - retryable (attempts exhausted or stalled): the paid attempt is still
+ *    retained under the same upload_id; finalize again later with the same
+ *    tx hashes.
+ *  - retentionKnown && !retryable: the daemon confirmed nothing was
+ *    retained; re-prepare the same content.
+ *  - !retentionKnown: retention is unknown (antd < 0.14.0 never sends the
+ *    flag). The daemon may still hold the paid attempt, so stop, keep the
+ *    upload_id and the tx hashes, and reconcile before re-preparing or
+ *    paying again. Never pay again on this signal alone.
  *
  * @param  array<string,string>  $txHashes
+ * @param  (callable(int): mixed)|null  $sleep  Backoff between attempts, in
+ *     seconds; defaults to sleep(). Injectable so tests run without waiting.
  */
-function finalizeWithRetry(AntdClient $client, string $uploadId, array $txHashes): FinalizeUploadResult
-{
-    $maxAttempts = 5;
+function finalizeWithRetry(
+    AntdClient $client,
+    string $uploadId,
+    array $txHashes,
+    int $maxAttempts = 5,
+    ?callable $sleep = null
+): FinalizeUploadResult {
+    $sleep ??= 'sleep';
     $lastFailed = null;
     for ($attempt = 1; ; $attempt++) {
         try {
             return $client->finalizeUpload($uploadId, $txHashes);  // every chunk stored
         } catch (PartialUploadError $e) {
+            if (!$e->retentionKnown) {
+                printf(
+                    "finalize stored %d/%d chunks and the daemon did not say whether it kept the paid attempt: stopping. Keep upload_id %s and the tx hashes and reconcile before re-preparing or paying again\n",
+                    $e->chunksStored,
+                    $e->totalChunks,
+                    $uploadId
+                );
+                throw $e;
+            }
             if (!$e->retryable) {
+                printf(
+                    "finalize stored %d/%d chunks and the daemon retained nothing: re-prepare the same content to store the remainder\n",
+                    $e->chunksStored,
+                    $e->totalChunks
+                );
                 throw $e;
             }
             $stuck = $lastFailed !== null && $e->chunksFailed >= $lastFailed;
             if ($attempt >= $maxAttempts || $stuck) {
-                throw new \RuntimeException(sprintf(
-                    'finalize stuck after %d attempt(s): %d/%d chunks stored, %d still unstored (paid attempt retained under upload_id %s — retry later or re-prepare)',
+                printf(
+                    "finalize %s after %d attempt(s): %d/%d chunks stored, %d still unstored. upload_id %s keeps the paid attempt: finalize again later with the same tx hashes\n",
+                    $stuck ? 'stalled' : 'gave up',
                     $attempt,
                     $e->chunksStored,
                     $e->totalChunks,
                     $e->chunksFailed,
                     $uploadId
-                ), 0, $e);
+                );
+                throw $e;
             }
             $lastFailed = $e->chunksFailed;
             printf(
@@ -142,7 +175,7 @@ function finalizeWithRetry(AntdClient $client, string $uploadId, array $txHashes
                 $attempt + 1,
                 $maxAttempts
             );
-            sleep($attempt * 2);
+            $sleep($attempt * 2);
         }
     }
 }
@@ -212,6 +245,13 @@ function padUint(string $hex): string
 }
 
 // --- main ---
+
+// Run only when executed directly (`php examples/07-external-signer.php`), so
+// tests/ExternalSignerExampleTest.php can load finalizeWithRetry() without a
+// daemon or a chain.
+if (realpath((string) get_included_files()[0]) !== __FILE__) {
+    return;
+}
 
 $tmp = sys_get_temp_dir() . DIRECTORY_SEPARATOR . uniqid('antd-php-07-extsig-');
 mkdir($tmp, 0o700, true);
