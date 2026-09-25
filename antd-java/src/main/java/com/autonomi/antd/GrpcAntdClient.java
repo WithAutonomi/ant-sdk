@@ -153,10 +153,12 @@ public class GrpcAntdClient implements AutoCloseable {
             case INTERNAL -> new InternalException(msg);
             case UNAVAILABLE -> new NetworkException(msg);
             // PARTIAL_UPLOAD: some chunks stored, some still unstored after
-            // retries. The counts and the "paid attempt retained" hint ride
-            // the status description over gRPC (no structured detail yet),
-            // so parse them best-effort to match the REST client's typed
-            // exception. The daemon starts every such description with the
+            // retries. The counts and the closing retention hint ride the
+            // status description over gRPC (no structured detail yet), so
+            // parse them to match the REST client's typed exception:
+            // retentionKnown needs the counts and one of the daemon's two
+            // hints at the very end, and retryable needs the "paid attempt
+            // retained" one. The daemon starts every such description with the
             // fixed "Partial upload:" prefix and never wraps it, so gate on
             // the description starting with it (anchored, as antd-rust does):
             // an ABORTED that lacks the prefix, or merely quotes it further
@@ -742,7 +744,8 @@ public class GrpcAntdClient implements AutoCloseable {
      * {@link PartialUploadException}, with {@code chunksStored} /
      * {@code chunksFailed} / {@code totalChunks} and the {@code retryable} /
      * {@code retentionKnown} flags parsed from the status description (a
-     * description whose counts cannot be read reads as retention unknown).
+     * description whose counts cannot be read, or that does not end with one
+     * of the daemon's two retention hints, reads as retention unknown).
      * The on-chain payment persists and the stored chunks stay on the network:
      * <ul>
      *   <li>{@code isRetryable()} (antd &gt;= 0.14.0): the daemon kept the

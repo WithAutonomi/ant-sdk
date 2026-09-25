@@ -8,8 +8,13 @@ import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -138,6 +143,68 @@ class FinalizeWithRetryTest {
                 () -> Example07ExternalSigner.finalizeWithRetry(fin, UPLOAD_ID, TX_HASHES, 5, recordPause)));
         assertEquals(1, fin.calls());
         assertTrue(pauses.isEmpty());
+    }
+
+    // --- gRPC status text through the SDK parser into the helper ---
+
+    private static final String GRPC_COUNTS =
+            "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum";
+
+    /**
+     * Runs the helper on a finalize that throws {@code partial} once, asserts
+     * it stopped after that one call with the same exception, and returns what
+     * it printed to stderr.
+     */
+    private String stopOn(PartialUploadException partial) {
+        ScriptedFinalize fin = new ScriptedFinalize(partial);
+        PrintStream original = System.err;
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        System.setErr(new PrintStream(err, true, StandardCharsets.UTF_8));
+        try {
+            assertSame(partial, assertThrows(PartialUploadException.class,
+                    () -> Example07ExternalSigner.finalizeWithRetry(fin, UPLOAD_ID, TX_HASHES, 5, recordPause)));
+        } finally {
+            System.setErr(original);
+        }
+        assertEquals(1, fin.calls(), "one finalize, no retry");
+        assertTrue(pauses.isEmpty());
+        return err.toString(StandardCharsets.UTF_8);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {
+            GRPC_COUNTS,
+            GRPC_COUNTS + " (paid attempt retai",
+            GRPC_COUNTS + " (paid attempt retained: call finalize again",
+            GRPC_COUNTS + " (stored chunks persist; re-prepare the same con",
+            GRPC_COUNTS + " (something else)",
+            GRPC_COUNTS + " (paid attempt retained) trailing",
+            "Partial upload: 1/3 chunks stored, 2 failed after retries: "
+                    + "peer said (paid attempt retained) (connection reset)",
+    })
+    void grpcPartialWithoutAReadableHintStopsForReconciliation(String message) {
+        // The counts read but the daemon's closing hint does not: the helper
+        // must stop at once and warn to reconcile, never retry and never
+        // treat it as "nothing retained".
+        PartialUploadException partial = PartialUploadException.fromMessage(message);
+        String err = stopOn(partial);
+        assertTrue(err.contains("unknown retention") && err.contains("reconcile"), err);
+        assertFalse(partial.isRetentionKnown(), "retention unknown, not confirmed non-retention");
+        assertFalse(partial.isRetryable());
+        assertEquals(2L, partial.getChunksFailed(), "the counts still read");
+    }
+
+    @Test
+    void grpcPartialWithTheNotRetainedHintIsConfirmedNonRetention() {
+        // Only the daemon's explicit not-retained hint is confirmed
+        // non-retention: the helper stops without the reconcile warning and
+        // the caller may re-prepare.
+        PartialUploadException partial = PartialUploadException.fromMessage(GRPC_COUNTS
+                + " (stored chunks persist; re-prepare the same content to retry only the remainder)");
+        String err = stopOn(partial);
+        assertFalse(err.contains("unknown retention"), err);
+        assertTrue(partial.isRetentionKnown());
+        assertFalse(partial.isRetryable());
     }
 
     @Test

@@ -10,12 +10,16 @@ import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.Map;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -1053,24 +1057,33 @@ class AntdClientTest {
         assertEquals(Long.MAX_VALUE, ex.getTotalChunks());
         assertTrue(ex.isRetryable());
 
-        // Well-formed without the hint: counts kept, not retryable.
+        // Well-formed without the hint: counts kept, not retryable, and
+        // retention unknown (the daemon's answer was not read).
         ex = PartialUploadException.fromMessage("Partial upload: 1/3 chunks stored, 2 failed after retries");
         assertEquals(1L, ex.getChunksStored());
         assertEquals(2L, ex.getChunksFailed());
         assertEquals(3L, ex.getTotalChunks());
         assertFalse(ex.isRetryable());
+        assertFalse(ex.isRetentionKnown());
     }
 
     @Test
     void testParsePartialUploadMessageRetentionKnown() {
         String hint = " (paid attempt retained: call finalize again with the same upload_id)";
-        // Counts parsed: retention known, and the hint decides retryable.
+        // Counts parsed and a closing hint: retention known, and the hint
+        // decides retryable.
         PartialUploadException ex = PartialUploadException.fromMessage(
                 "Partial upload: 1/3 chunks stored, 2 failed" + hint);
         assertTrue(ex.isRetentionKnown());
         assertTrue(ex.isRetryable());
-        ex = PartialUploadException.fromMessage("Partial upload: 1/3 chunks stored, 2 failed after retries");
+        ex = PartialUploadException.fromMessage(
+                "Partial upload: 1/3 chunks stored, 2 failed after retries: quorum" + NOT_RETAINED_TAIL);
         assertTrue(ex.isRetentionKnown());
+        assertFalse(ex.isRetryable());
+        // Counts parsed but no closing hint: retention unknown, never
+        // "nothing retained".
+        ex = PartialUploadException.fromMessage("Partial upload: 1/3 chunks stored, 2 failed after retries");
+        assertFalse(ex.isRetentionKnown());
         assertFalse(ex.isRetryable());
 
         // Counts unreadable: retention unknown and not retryable, hint or not.
@@ -1088,6 +1101,67 @@ class AntdClientTest {
             assertFalse(ex.isRetryable(), msg);
         }
         assertFalse(PartialUploadException.fromMessage(null).isRetentionKnown());
+    }
+
+    /** The daemon's two closing hints (partial_upload_hint in antd/src/error.rs). */
+    private static final String RETAINED_TAIL = " (paid attempt retained: call finalize again with the "
+            + "same upload_id to store the remainder against the same payment)";
+    private static final String NOT_RETAINED_TAIL =
+            " (stored chunks persist; re-prepare the same content to retry only the remainder)";
+
+    static Stream<Arguments> retentionTailCases() {
+        String counts = "Partial upload: 1/3 chunks stored, 2 failed after retries: ";
+        return Stream.of(
+                // name, message, retryable, retentionKnown
+                Arguments.of("retained hint", counts + "quorum" + RETAINED_TAIL, true, true),
+                Arguments.of("short retained hint", counts + "quorum (paid attempt retained)", true, true),
+                Arguments.of("not-retained hint", counts + "quorum" + NOT_RETAINED_TAIL, false, true),
+                Arguments.of("parenthesised reason before the hint",
+                        counts + "quorum (2 of 5 peers)" + NOT_RETAINED_TAIL, false, true),
+                Arguments.of("retained hint in the reason, not-retained tail",
+                        counts + "peer said (paid attempt retained)" + NOT_RETAINED_TAIL, false, true),
+                // Readable counts but no readable answer on retention: unknown
+                // (stop and reconcile), never "nothing retained" (re-prepare).
+                Arguments.of("no hint", counts + "quorum", false, false),
+                Arguments.of("truncated retained hint", counts + "quorum (paid attempt retai", false, false),
+                Arguments.of("retained hint without its closing paren",
+                        counts + "quorum (paid attempt retained: call finalize again", false, false),
+                Arguments.of("truncated not-retained hint",
+                        counts + "quorum (stored chunks persist; re-prepare the same con", false, false),
+                Arguments.of("unrecognised hint", counts + "quorum (something else)", false, false),
+                Arguments.of("text after the hint", counts + "quorum" + RETAINED_TAIL + " trailing", false, false),
+                Arguments.of("newline after the hint", counts + "quorum" + RETAINED_TAIL + "\n", false, false),
+                Arguments.of("CRLF after the hint", counts + "quorum" + NOT_RETAINED_TAIL + "\r\n", false, false),
+                Arguments.of("retained hint quoted in the reason only",
+                        counts + "peer said (paid attempt retained) (connection reset)", false, false));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("retentionTailCases")
+    void testParsePartialUploadMessageRetentionComesFromTheClosingHint(
+            String name, String message, boolean retryable, boolean retentionKnown) {
+        // retentionKnown needs readable counts AND one of the daemon's two
+        // hints closing the message; retryable only for the retained one. The
+        // counts read either way.
+        PartialUploadException ex = PartialUploadException.fromMessage(message);
+        assertEquals(1L, ex.getChunksStored(), name);
+        assertEquals(2L, ex.getChunksFailed(), name);
+        assertEquals(3L, ex.getTotalChunks(), name);
+        assertEquals(retryable, ex.isRetryable(), name);
+        assertEquals(retentionKnown, ex.isRetentionKnown(), name);
+    }
+
+    @Test
+    void testParsePartialUploadMessageCountsAreAnchoredAtTheStart() {
+        // Counts quoted later in a garbled message are not read, so neither
+        // flag can be set from them.
+        PartialUploadException ex = PartialUploadException.fromMessage(
+                "Partial upload: garbled; was Partial upload: 1/3 chunks stored, 2 failed (paid attempt retained)");
+        assertEquals(0L, ex.getChunksStored());
+        assertEquals(0L, ex.getChunksFailed());
+        assertEquals(0L, ex.getTotalChunks());
+        assertFalse(ex.isRetryable());
+        assertFalse(ex.isRetentionKnown());
     }
 
     @Test
@@ -1120,18 +1194,21 @@ class AntdClientTest {
         assertEquals(12L, ex.getChunksFailed());
         assertEquals(312L, ex.getTotalChunks());
         assertTrue(ex.isRetryable());
+        assertTrue(ex.isRetentionKnown());
 
         ex = PartialUploadException.fromMessage(rePrepare);
         assertEquals(300L, ex.getChunksStored());
         assertEquals(12L, ex.getChunksFailed());
         assertEquals(312L, ex.getTotalChunks());
         assertFalse(ex.isRetryable());
+        assertTrue(ex.isRetentionKnown(), "the not-retained hint: confirmed non-retention");
 
         ex = PartialUploadException.fromMessage(bare);
         assertEquals(300L, ex.getChunksStored());
         assertEquals(12L, ex.getChunksFailed());
         assertEquals(312L, ex.getTotalChunks());
         assertFalse(ex.isRetryable());
+        assertFalse(ex.isRetentionKnown(), "no hint: retention unknown");
 
         ex = PartialUploadException.fromMessage(garbage);
         assertEquals(0L, ex.getChunksStored());
