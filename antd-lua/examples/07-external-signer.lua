@@ -10,11 +10,20 @@
 -- first-party EVM library that handles EIP-1559 + tuple ABI encoding +
 -- secp256k1 signing, so this example shells out to `cast` (foundry CLI),
 -- which `ant dev start --enable-evm` already depends on.
+--
+-- The values passed to `cast` come from the daemon's prepare response, and
+-- Lua can only start a process through `/bin/sh -c`. external_signer_util
+-- (next to this file) validates every one of them before any process starts
+-- and shell-quotes every argument, so none of them can run as shell syntax.
 
 local antd = require("antd")
 local errors = require("antd.errors")
-local cjson = require("cjson")
 local socket = require("socket")
+
+-- external_signer_util.lua sits next to this file; find it from any cwd.
+local here = debug.getinfo(1, "S").source:match("^@(.*[/\\])") or "./"
+package.path = here .. "?.lua;" .. package.path
+local signer_util = require("external_signer_util")
 
 local client = antd.new_client()
 
@@ -37,49 +46,68 @@ local function read_file(path)
     return content
 end
 
-local function run_cmd(cmd)
-    local ok = os.execute(cmd)
+--- Run a fixed local command (argument vector, each element shell-quoted).
+local function run_cmd(argv)
+    local ok = os.execute(signer_util.command_line(argv))
     return ok == true or ok == 0
-end
-
---- Run a command, returning its stdout. Fails loudly on a non-zero exit.
-local function capture(cmd)
-    local p = assert(io.popen(cmd, "r"))
-    local out = p:read("*a")
-    local ok, _, code = p:close()
-    if not (ok == true or ok == 0 or code == 0) then
-        error("command failed: " .. cmd .. "\n" .. tostring(out))
-    end
-    return out
 end
 
 --- Run approve + payForQuotes on-chain for a daemon prepare response via
 -- `cast send`. Returns the quote_hash -> tx_hash map the finalize_* methods
 -- expect. Every entry maps to the same payForQuotes tx because every quote
 -- in the wave is paid in one batched call.
+--
+-- Every argument below except the fixed strings and the key comes from the
+-- daemon, so the whole request is validated before any process starts, and
+-- `cast` runs from an argument vector with each element shell-quoted.
+-- Errors name the offending field or the program, never a value or the key.
 local function external_signer_pay(rpc_url, vault_addr, token_addr, payments)
     -- No on-chain work when every quoted chunk is already on-network.
     if #payments == 0 then
         return {}
     end
 
+    local valid, why = signer_util.validate_signing_request({
+        rpc_url = rpc_url,
+        payment_vault_address = vault_addr,
+        payment_token_address = token_addr,
+        payments = payments,
+    })
+    if not valid then
+        error("refusing to sign the daemon's payment request: " .. why, 0)
+    end
+
+    --- `cast send <args...> --rpc-url <url> --private-key <key> --json`,
+    -- returning the validated transaction hash from the receipt.
+    local function cast_send(args)
+        local argv = { "cast", "send" }
+        for _, a in ipairs(args) do
+            argv[#argv + 1] = a
+        end
+        for _, a in ipairs({ "--rpc-url", rpc_url, "--private-key", ANVIL_KEY, "--json" }) do
+            argv[#argv + 1] = a
+        end
+        local tx_hash, err = signer_util.tx_hash_from_cast_json(signer_util.run_capture(argv))
+        if not tx_hash then
+            error(err, 0)
+        end
+        return tx_hash
+    end
+
     -- Idempotent unlimited approval so subsequent runs in the same devnet
     -- session skip a fresh approve.
-    capture(string.format(
-        "cast send %s 'approve(address,uint256)' %s %s --rpc-url %s --private-key %s --gas-limit 500000 --json",
-        token_addr, vault_addr, MAX_UINT256, rpc_url, ANVIL_KEY))
+    cast_send({ token_addr, "approve(address,uint256)", vault_addr, MAX_UINT256,
+        "--gas-limit", "500000" })
 
     -- payForQuotes((address rewardsAddress, uint256 amount, bytes32 quoteHash)[])
+    -- The tuple list is one argument, built only from validated values.
     local tuples = {}
     for i, p in ipairs(payments) do
         local qh = p.quote_hash:gsub("^0x", "")
         tuples[i] = string.format("(%s,%s,0x%s)", p.rewards_address, p.amount, qh)
     end
-    local pay_json = capture(string.format(
-        "cast send %s 'payForQuotes((address,uint256,bytes32)[])' '[%s]' "
-            .. "--rpc-url %s --private-key %s --gas-limit 1000000 --json",
-        vault_addr, table.concat(tuples, ","), rpc_url, ANVIL_KEY))
-    local tx_hash = cjson.decode(pay_json).transactionHash
+    local tx_hash = cast_send({ vault_addr, "payForQuotes((address,uint256,bytes32)[])",
+        "[" .. table.concat(tuples, ",") .. "]", "--gas-limit", "1000000" })
 
     local tx_hashes = {}
     for _, p in ipairs(payments) do
@@ -134,8 +162,8 @@ local function finalize_with_retry(cli, upload_id, tx_hashes)
 end
 
 local tmp = "/tmp/antd-lua-07-extsig"
-run_cmd("rm -rf " .. tmp)
-assert(run_cmd("mkdir -p " .. tmp))
+run_cmd({ "rm", "-rf", tmp })
+assert(run_cmd({ "mkdir", "-p", tmp }))
 
 -- --- 1. file upload via external signer ---------------------------
 local src_file = tmp .. "/file.bin"
@@ -172,7 +200,7 @@ if err3 then
     os.exit(1)
 end
 if read_file(dst_file) ~= file_content then
-    run_cmd("rm -rf " .. tmp)
+    run_cmd({ "rm", "-rf", tmp })
     print("file round-trip mismatch")
     os.exit(1)
 end
@@ -209,11 +237,11 @@ if err6 then
     os.exit(1)
 end
 if retrieved ~= chunk_data then
-    run_cmd("rm -rf " .. tmp)
+    run_cmd({ "rm", "-rf", tmp })
     print("chunk round-trip mismatch")
     os.exit(1)
 end
 print("Chunk round-trip OK!")
 
-run_cmd("rm -rf " .. tmp)
+run_cmd({ "rm", "-rf", tmp })
 print("\n07-external-signer OK!\n")

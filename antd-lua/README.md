@@ -225,6 +225,8 @@ See the [examples/](examples/) directory:
 - `06-private-data` — Private encrypted data storage
 - `07-external-signer` — Prepare / pay with an external signer / finalize, with a bounded partial-upload retry (shells out to foundry's `cast`)
 
+Lua can only start a process through `/bin/sh -c`, so `07-external-signer` never puts a daemon-supplied value into a command line as-is. `examples/external_signer_util.lua` validates the prepare response before any process starts: the RPC URL must be http(s) printable ASCII with no whitespace, addresses `0x` + 40 hex digits, amounts decimal uint256, and quote hashes 64 hex digits. It also shell-quotes every argument to `cast` and checks that the transaction hash `cast` returns is `0x` + 64 hex digits. Its errors name the field or the program, never a value or the key. Reuse it (or a real process-spawning library) if you adapt the example. POSIX shells only.
+
 ## Testing
 
 Tests use the [busted](https://github.com/lunarmodules/busted) framework:
@@ -233,3 +235,5 @@ Tests use the [busted](https://github.com/lunarmodules/busted) framework:
 luarocks install busted
 busted spec/
 ```
+
+`spec/external_signer_util_spec.lua` runs real commands through `/bin/sh` (`printf`, `touch`, `sh`), so it needs a POSIX shell. It does not need `cast`.
