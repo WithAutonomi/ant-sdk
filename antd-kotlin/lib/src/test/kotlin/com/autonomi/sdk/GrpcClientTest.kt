@@ -76,6 +76,10 @@ class GrpcClientTest {
         // Carries the fixed prefix but not the count layout: still a partial
         // upload, just one whose counts cannot be recovered.
         const val PARTIAL_GARBLED_MSG = "Partial upload: counts unavailable"
+        // Matches the count layout and carries the hint, but two counts are
+        // one past Long.MAX_VALUE and do not convert.
+        const val PARTIAL_OVERFLOW_MSG =
+            "Partial upload: 0/9223372036854775808 chunks stored, 9223372036854775808 failed (paid attempt retained)"
         // An ABORTED that is not a partial upload at all.
         const val OTHER_ABORTED_MSG = "register fork: concurrent update detected"
     }
@@ -251,6 +255,10 @@ class GrpcClientTest {
             // Magic id: the prefix is present but the counts are garbled.
             if (request.uploadId == "partial-garbled") {
                 throw Status.ABORTED.withDescription(PARTIAL_GARBLED_MSG).asRuntimeException()
+            }
+            // Magic id: the counts match the layout but overflow a Long.
+            if (request.uploadId == "partial-overflow") {
+                throw Status.ABORTED.withDescription(PARTIAL_OVERFLOW_MSG).asRuntimeException()
             }
             // Magic id: an ABORTED that is not a partial upload.
             if (request.uploadId == "aborted-other") {
@@ -428,6 +436,20 @@ class GrpcClientTest {
     }
 
     @Test
+    fun finalizeUploadPartialWithOverflowingCountsIsNotRetryable() = runTest {
+        val ex = assertFailsWith<PartialUploadException> {
+            client.finalizeUpload("partial-overflow", mapOf("0xq1" to "0xtx1"))
+        }
+        // The layout matches and the hint is present, but counts that do not
+        // convert must not enable a retry: all three read as zero.
+        assertEquals(0L, ex.chunksStored)
+        assertEquals(0L, ex.chunksFailed)
+        assertEquals(0L, ex.totalChunks)
+        assertFalse(ex.retryable)
+        assertEquals(PARTIAL_OVERFLOW_MSG, ex.message)
+    }
+
+    @Test
     fun finalizeUploadUnrelatedAbortedStaysForkException() = runTest {
         // An ABORTED without the daemon's "Partial upload:" prefix keeps the
         // pre-existing mapping rather than being misreported as a partial upload.
@@ -466,6 +488,17 @@ class GrpcClientTest {
             // cannot tell progress from a stuck upload, so the documented
             // conservative fallback applies.
             Case("$PARTIAL_GARBLED_MSG (paid attempt retained: call finalize again with the same upload_id)", 0, 0, 0, false),
+            // Counts that match the layout but overflow a Long, with the
+            // hint present: none of the three counts is trusted and the
+            // hint alone never enables a retry. One overflow per position,
+            // plus the two-position message from review.
+            Case(PARTIAL_OVERFLOW_MSG, 0, 0, 0, false),
+            Case("Partial upload: 9223372036854775808/312 chunks stored, 12 failed (paid attempt retained)", 0, 0, 0, false),
+            Case("Partial upload: 300/9223372036854775808 chunks stored, 12 failed (paid attempt retained)", 0, 0, 0, false),
+            Case("Partial upload: 300/312 chunks stored, 9223372036854775808 failed (paid attempt retained)", 0, 0, 0, false),
+            // The largest counts that do convert still read, and with the
+            // hint the message is retryable.
+            Case("Partial upload: 9223372036854775807/9223372036854775807 chunks stored, 0 failed (paid attempt retained)", Long.MAX_VALUE, 0, Long.MAX_VALUE, true),
             // The parser itself never decides the exception type; the
             // mapping-level gate does (see abortedMappingGatesOnPartialUploadPrefix).
             Case("something else entirely", 0, 0, 0, false),

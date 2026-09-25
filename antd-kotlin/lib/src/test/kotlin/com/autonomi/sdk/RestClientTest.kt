@@ -787,6 +787,47 @@ class RestClientTest {
         }
     }
 
+    @Test
+    fun `502 PARTIAL_UPLOAD reads counts only from JSON numbers and retryable only from a JSON boolean`() = runTest {
+        // A quoted number or a quoted "true" is a JSON string, not the kind
+        // the contract names, so it reads as absent (zero / false) instead of
+        // being coerced. A negative, fractional or out-of-range number is not
+        // a count either. Well-typed fields in the same body still read.
+        data class Case(val body: String, val stored: Long, val failed: Long, val total: Long, val retryable: Boolean)
+        val cases = listOf(
+            // The review's reproducer: a quoted count and a quoted "true".
+            Case("""{"code":"PARTIAL_UPLOAD","chunks_failed":"1","retryable":"true"}""", 0, 0, 0, false),
+            // Quoted numbers in every count position.
+            Case("""{"code":"PARTIAL_UPLOAD","chunks_stored":"300","chunks_failed":"12","total_chunks":"312"}""", 0, 0, 0, false),
+            // Quoted "true" / "false", and a number, where a boolean belongs.
+            Case("""{"code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":12,"total_chunks":312,"retryable":"true"}""", 300, 12, 312, false),
+            Case("""{"code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":12,"total_chunks":312,"retryable":"false"}""", 300, 12, 312, false),
+            Case("""{"code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":12,"total_chunks":312,"retryable":1}""", 300, 12, 312, false),
+            // A negative count reads as zero.
+            Case("""{"code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":-12,"total_chunks":312}""", 300, 0, 312, false),
+            // Fractional and past Long.MAX_VALUE.
+            Case("""{"code":"PARTIAL_UPLOAD","chunks_stored":1.5,"chunks_failed":9223372036854775808,"total_chunks":312}""", 0, 0, 312, false),
+            // Well-typed fields: the real literal true is still retryable.
+            Case("""{"code":"PARTIAL_UPLOAD","chunks_stored":300,"chunks_failed":12,"total_chunks":312,"retryable":true}""", 300, 12, 312, true),
+        )
+        for (c in cases) {
+            val errServer = partialUploadServer(c.body)
+            val errClient = AntdRestClient(baseUrl = errServer.url("/").toString())
+            try {
+                val ex = assertFailsWith<PartialUploadException>("body ${c.body}") {
+                    errClient.finalizeUpload("up-1", mapOf("qh1" to "tx1"))
+                }
+                assertEquals(c.stored, ex.chunksStored, c.body)
+                assertEquals(c.failed, ex.chunksFailed, c.body)
+                assertEquals(c.total, ex.totalChunks, c.body)
+                assertEquals(c.retryable, ex.retryable, c.body)
+            } finally {
+                errClient.close()
+                errServer.shutdown()
+            }
+        }
+    }
+
     // -------------------------------------------------------------------------
     // V2-274: public-prepare visibility forwarding + chunk external-signer
     // -------------------------------------------------------------------------

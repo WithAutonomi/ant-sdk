@@ -6,8 +6,6 @@ import io.grpc.Status
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.longOrNull
 
 open class AntdException(message: String, val statusCode: Int = 0) : Exception(message)
 
@@ -46,14 +44,20 @@ class ServiceUnavailableException(message: String, statusCode: Int = 503) : Antd
  * `catch (e: NetworkException)` blocks keep working and can narrow with
  * `is PartialUploadException` when they want the counts.
  *
- * Over REST the counts and [retryable] come from the structured error body.
- * Over gRPC they are parsed best-effort from the status description
+ * Over REST the counts and [retryable] come from the structured error body:
+ * each count only from a JSON number holding a non-negative integer, and
+ * [retryable] only from a JSON boolean. Anything else (missing, a quoted
+ * number or quoted `"true"`, a negative, fractional or out-of-range number,
+ * an array or an object) reads as zero / `false`; the mapper never throws.
+ *
+ * Over gRPC they are parsed from the status description
  * (`Partial upload: S/T chunks stored, F failed ...`, with a "paid attempt
- * retained" hint when retryable); a description whose counts do not parse
- * leaves the counts at zero and [retryable] false even if the hint is
- * present, so a caller never loops on a message the SDK could not read.
- * Over REST a body field that is missing or not a JSON primitive of the
- * expected kind reads the same way (zero / `false`); the mapper never throws.
+ * retained" hint when retryable). [retryable] is true only when the
+ * description matches that layout, all three counts convert to a [Long],
+ * and the hint is present. On a layout mismatch or a count that does not
+ * convert, all three counts are zero and [retryable] is false even if the
+ * hint is present, so a caller never loops on a message the SDK could not
+ * read.
  *
  * See `docs/external-signer-flow.md` §6 ("Retry a partial store") for the
  * daemon-side contract.
@@ -109,10 +113,11 @@ internal object ExceptionMapping {
      * `retryable` is absent on daemons < 0.14.0 and defaults to `false`.
      * Returns null for every other body (non-JSON, non-object, or a `code`
      * that is missing, another value, or not a string), so the caller's
-     * status-based mapping applies. A count or flag field that is not a
-     * primitive of the expected kind (an object, an array, a string where a
-     * number belongs) reads as absent — zero or `false` — rather than
-     * escaping as a serialization error: the daemon's error body is input
+     * status-based mapping applies. Counts go through [count] and
+     * `retryable` through [flag]: a value of any other kind (a quoted number
+     * or quoted `"true"`, a negative or fractional number, an object or an
+     * array) reads as absent, zero or `false`, rather than being coerced or
+     * escaping as a serialization error. The daemon's error body is input
      * from the network and must never turn a typed [AntdException] into an
      * [IllegalArgumentException].
      */
@@ -126,10 +131,10 @@ internal object ExceptionMapping {
         if (code == null || !code.isString || code.content != PARTIAL_UPLOAD_CODE) return null
         return PartialUploadException(
             message = obj.primitive("error")?.takeIf { it.isString }?.content ?: body,
-            chunksStored = obj.primitive("chunks_stored")?.longOrNull ?: 0,
-            chunksFailed = obj.primitive("chunks_failed")?.longOrNull ?: 0,
-            totalChunks = obj.primitive("total_chunks")?.longOrNull ?: 0,
-            retryable = obj.primitive("retryable")?.booleanOrNull ?: false,
+            chunksStored = obj.count("chunks_stored"),
+            chunksFailed = obj.count("chunks_failed"),
+            totalChunks = obj.count("total_chunks"),
+            retryable = obj.flag("retryable"),
             statusCode = statusCode,
         )
     }
@@ -140,6 +145,23 @@ internal object ExceptionMapping {
      * Unlike `JsonElement.jsonPrimitive`, never throws.
      */
     private fun JsonObject.primitive(key: String): JsonPrimitive? = this[key] as? JsonPrimitive
+
+    /**
+     * The chunk count at [key]: a JSON number holding a non-negative integer
+     * that fits a [Long]. Anything else reads as 0: absent, a JSON string
+     * (even `"12"`), a negative, fractional or out-of-range number, `null`,
+     * a boolean, an object or an array.
+     */
+    private fun JsonObject.count(key: String): Long =
+        primitive(key)?.takeUnless { it.isString }?.content?.toLongOrNull()?.takeIf { it >= 0 } ?: 0
+
+    /**
+     * The flag at [key]: true only for the JSON literal `true`. Anything
+     * else reads as false: absent, the string `"true"`, a number, `null`,
+     * an object or an array.
+     */
+    private fun JsonObject.flag(key: String): Boolean =
+        primitive(key)?.takeUnless { it.isString }?.content == "true"
 
     /**
      * True when [message] starts with the daemon's fixed PARTIAL_UPLOAD
@@ -153,21 +175,29 @@ internal object ExceptionMapping {
     /**
      * Recovers the chunk counts and the retryable hint from a PARTIAL_UPLOAD
      * message. Used for gRPC, where the status carries no structured detail;
-     * REST callers get the body fields instead. A message whose counts do not
-     * parse yields zero counts and `retryable = false` — even when the
-     * "paid attempt retained" hint is present, because a retry loop that
-     * cannot see [PartialUploadException.chunksFailed] shrinking has no way to
-     * tell progress from a stuck upload. Whether the message is a partial
-     * upload at all is decided by [isPartialUploadMessage].
+     * REST callers get the body fields instead. `retryable` is true only when
+     * the message matches the count layout, all three counts convert to a
+     * [Long], and the "paid attempt retained" hint is present. The layout
+     * accepts any run of digits, so a count past [Long.MAX_VALUE] matches but
+     * does not convert. On a layout mismatch or a failed conversion all three
+     * counts are zero and `retryable` is false, even when the hint is present:
+     * a retry loop that cannot see [PartialUploadException.chunksFailed]
+     * shrinking has no way to tell progress from a stuck upload. Whether the
+     * message is a partial upload at all is decided by [isPartialUploadMessage].
      */
     fun partialUploadFromMessage(message: String): PartialUploadException {
-        val m = partialUploadCounts.find(message)
+        val counts = partialUploadCounts.find(message)?.groupValues?.let { g ->
+            val stored = g[1].toLongOrNull()
+            val total = g[2].toLongOrNull()
+            val failed = g[3].toLongOrNull()
+            if (stored != null && total != null && failed != null) Triple(stored, total, failed) else null
+        }
         return PartialUploadException(
             message = message,
-            chunksStored = m?.groupValues?.get(1)?.toLongOrNull() ?: 0,
-            totalChunks = m?.groupValues?.get(2)?.toLongOrNull() ?: 0,
-            chunksFailed = m?.groupValues?.get(3)?.toLongOrNull() ?: 0,
-            retryable = m != null && message.contains(PARTIAL_UPLOAD_RETAINED_HINT),
+            chunksStored = counts?.first ?: 0,
+            totalChunks = counts?.second ?: 0,
+            chunksFailed = counts?.third ?: 0,
+            retryable = counts != null && message.contains(PARTIAL_UPLOAD_RETAINED_HINT),
         )
     }
 
