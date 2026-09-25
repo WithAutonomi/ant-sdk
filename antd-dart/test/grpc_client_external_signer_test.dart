@@ -123,7 +123,7 @@ void main() {
       );
     });
 
-    test('ABORTED finalize without the retained hint is not retryable',
+    test('ABORTED finalize with the not-retained hint is known, not retryable',
         () async {
       await expectLater(
         client.finalizeUpload('partial-final', {'0xq1': '0xtx1'}),
@@ -132,6 +132,25 @@ void main() {
             .having((e) => e.retryable, 'retryable', isFalse)
             .having((e) => e.retentionKnown, 'retentionKnown', isTrue)),
       );
+    });
+
+    _countsWithoutHintMessages.forEach((uploadId, msg) {
+      test('ABORTED finalize $uploadId: counts kept, retention unknown',
+          () async {
+        // Readable counts, but the daemon's closing retention hint is
+        // missing or cut short (the review's reproducer): its answer was not
+        // read, so retention is unknown, never "nothing retained".
+        await expectLater(
+          client.finalizeUpload(uploadId, {'0xq1': '0xtx1'}),
+          throwsA(isA<PartialUploadError>()
+              .having((e) => e.message, 'message', msg)
+              .having((e) => e.chunksStored, 'chunksStored', 1)
+              .having((e) => e.chunksFailed, 'chunksFailed', 2)
+              .having((e) => e.totalChunks, 'totalChunks', 3)
+              .having((e) => e.retryable, 'retryable', isFalse)
+              .having((e) => e.retentionKnown, 'retentionKnown', isFalse)),
+        );
+      });
     });
 
     test('ABORTED finalize with the prefix but garbled counts -> zeros',
@@ -312,6 +331,15 @@ const _unparseableCountMessages = {
       'Partial upload: counts unavailable (paid attempt retained)',
 };
 
+/// ABORTED partial-upload messages whose counts read (1 stored, 2 failed, 3
+/// total) but whose closing retention hint is missing or cut short.
+const _countsWithoutHintMessages = {
+  'partial-no-hint':
+      'Partial upload: 1/3 chunks stored, 2 failed after retries: quorum',
+  'partial-truncated-hint': 'Partial upload: 1/3 chunks stored, 2 failed '
+      'after retries: quorum (paid attempt retai',
+};
+
 /// Mock UploadService with the V2-284 RPCs.
 class _MockUploadService extends upload_pb.UploadServiceBase {
   @override
@@ -393,6 +421,10 @@ class _MockUploadService extends upload_pb.UploadServiceBase {
     final unparseable = _unparseableCountMessages[request.uploadId];
     if (unparseable != null) {
       throw GrpcError.aborted(unparseable);
+    }
+    final withoutHint = _countsWithoutHintMessages[request.uploadId];
+    if (withoutHint != null) {
+      throw GrpcError.aborted(withoutHint);
     }
     if (request.uploadId == 'aborted-other') {
       throw GrpcError.aborted('upload aborted: daemon shutting down');

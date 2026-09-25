@@ -176,14 +176,17 @@ class GrpcAntdClient {
         throw PaymentError(e.message ?? 'failed precondition');
       case StatusCode.aborted:
         // PARTIAL_UPLOAD: some chunks stored, some still unstored after
-        // retries. The counts and the "paid attempt retained" hint ride the
-        // message text over gRPC (no structured detail yet), so parse them
-        // best-effort to match the REST client's typed error. Every such
-        // message opens with the daemon's fixed "Partial upload:" prefix, so
-        // gate on the message starting with it (anchored, as antd-rust
-        // does): any other ABORTED, including one that quotes the phrase
-        // further in, keeps the generic mapping so it is not misreported as
-        // a partial upload.
+        // retries. The counts and the daemon's closing retention hint ride
+        // the message text over gRPC (no structured detail yet), so parse
+        // them best-effort to match the REST client's typed error:
+        // retentionKnown needs the counts to convert and the message to end
+        // with one of the daemon's two hints, and retryable needs the "paid
+        // attempt retained" one (see PartialUploadError.fromMessage). Every
+        // such message opens with the daemon's fixed "Partial upload:"
+        // prefix, so gate on the message starting with it (anchored, as
+        // antd-rust does): any other ABORTED, including one that quotes the
+        // phrase further in, keeps the generic mapping so it is not
+        // misreported as a partial upload.
         final message = e.message;
         if (message != null &&
             PartialUploadError.isPartialUploadMessage(message)) {
@@ -707,7 +710,8 @@ class GrpcAntdClient {
   /// finalize that deliberately left sub-batches unpaid reports
   /// [PartialUploadError.retryable] = `false` (with
   /// [PartialUploadError.retentionKnown] = `true` when the message's counts
-  /// parse), so that case is a re-prepare.
+  /// parse and it ends with the daemon's not-retained hint), so that case is
+  /// a re-prepare.
   Future<FinalizeUploadResult> finalizeMerkleUpload(
     String uploadId,
     String winnerPoolHash, {

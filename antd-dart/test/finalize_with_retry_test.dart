@@ -92,6 +92,33 @@ Future<(Object, StackTrace)> _thrown(_FinalizeDaemon daemon,
   throw TestFailure('finalizeWithRetry returned instead of throwing');
 }
 
+/// Throws, from every finalizeUpload call, the [PartialUploadError] the gRPC
+/// client builds from an ABORTED status [message], and counts the calls. The
+/// SDK's gRPC parser, not a hand-set flag, decides what the helper sees.
+class _GrpcMessageClient extends AntdClient {
+  _GrpcMessageClient(this.message)
+      : super(
+            httpClient: MockClient((_) async =>
+                throw StateError('finalizeUpload is overridden')));
+
+  final String message;
+  var calls = 0;
+
+  @override
+  Future<FinalizeUploadResult> finalizeUpload(
+    String uploadId,
+    Map<String, String> txHashes,
+  ) async {
+    calls++;
+    throw PartialUploadError.fromMessage(message);
+  }
+}
+
+/// Counts prefix of a gRPC PARTIAL_UPLOAD message for a 312-chunk upload
+/// with 12 chunks still unstored.
+const _grpcCounts =
+    'Partial upload: 300/312 chunks stored, 12 failed after retries: quorum';
+
 Matcher _partialError({
   required int failed,
   required bool retryable,
@@ -201,6 +228,69 @@ void main() {
         expect(daemon.logs.single, contains('retention is unknown'),
             reason: label);
       }
+    });
+
+    // End to end from the gRPC status text: whenever the daemon's closing
+    // retention hint cannot be read, the helper must stop at once with the
+    // reconcile advice, never retry, re-prepare or pay.
+    const unreadable = {
+      'no hint': _grpcCounts,
+      // The review's reproducer: the retained hint cut short.
+      'a truncated retained hint': '$_grpcCounts (paid attempt retai',
+      'an unclosed retained hint':
+          '$_grpcCounts (paid attempt retained: call finalize again',
+      'a truncated not-retained hint':
+          '$_grpcCounts (stored chunks persist; re-prepare the same con',
+    };
+    unreadable.forEach((label, message) {
+      test('gRPC message with $label stops at once to reconcile', () async {
+        final client = _GrpcMessageClient(message);
+        addTearDown(client.close);
+        final logs = <String>[];
+        final backoffs = <int>[];
+        Object? error;
+        try {
+          await finalizeWithRetry(
+            client,
+            'up-1',
+            {'0xq': '0xt'},
+            backoff: (attempt) {
+              backoffs.add(attempt);
+              return Duration.zero;
+            },
+            log: logs.add,
+          );
+        } catch (e) {
+          error = e;
+        }
+        expect(error,
+            _partialError(failed: 12, retryable: false, retentionKnown: false));
+        expect(client.calls, equals(1));
+        expect(backoffs, isEmpty);
+        expect(logs.single,
+            allOf(contains('retention is unknown'), contains('reconcile')));
+      });
+    });
+
+    test('gRPC message with the not-retained hint is rethrown as known',
+        () async {
+      // Only the daemon's explicit not-retained hint means "nothing
+      // retained": the error reaches the caller as known, not retryable,
+      // and the helper does not log the unknown-retention advice.
+      final client = _GrpcMessageClient('$_grpcCounts (stored chunks '
+          'persist; re-prepare the same content to retry only the remainder)');
+      addTearDown(client.close);
+      final logs = <String>[];
+      Object? error;
+      try {
+        await finalizeWithRetry(client, 'up-1', {'0xq': '0xt'},
+            backoff: (_) => Duration.zero, log: logs.add);
+      } catch (e) {
+        error = e;
+      }
+      expect(error, _partialError(failed: 12, retryable: false));
+      expect(client.calls, equals(1));
+      expect(logs, isEmpty);
     });
 
     test('other errors are rethrown after one call', () async {

@@ -9,9 +9,13 @@
   `retryable` is a JSON boolean; daemons before 0.14.0 never send it). gRPC
   maps status `ABORTED` whose message starts with `Partial upload:`, parsing
   the counts from the message (`retentionKnown` only when all three counts
-  parse, with the retained hint then deciding `retryable`; any other
-  `ABORTED` stays a plain `AntdError`). `retryable`: call the same finalize
-  with the same `upload_id` to store the remainder against the same payment.
+  parse and the message ends with one of the daemon's two retention hints:
+  `(paid attempt retained...)` sets `retryable`, `(stored chunks persist;
+  re-prepare the same content...)` means nothing was retained; readable
+  counts with a missing, truncated or unrecognised hint keep the counts but
+  read as retention unknown; any other `ABORTED` stays a plain `AntdError`).
+  `retryable`: call the same finalize with the same `upload_id` to store the
+  remainder against the same payment.
   `retentionKnown && !retryable`: nothing was retained, so re-prepare.
   `!retentionKnown`: retention is unknown, so keep the `upload_id` and
   payment artefacts and reconcile before re-preparing or paying again.

@@ -80,7 +80,8 @@ class ServiceUnavailableError extends AntdError {
 ///   * not [retentionKnown] — retention is unknown: the SDK could not read
 ///     whether the daemon kept the attempt (a REST body without a boolean
 ///     `retryable`, which includes every daemon before 0.14.0, or a gRPC
-///     message whose counts did not parse). The daemon may still hold the
+///     message whose counts did not parse or that does not end with one of
+///     the daemon's two retention hints). The daemon may still hold the
 ///     paid attempt, because it records the resume handle before it returns
 ///     the error. Stop automatic recovery, keep the `upload_id` and the
 ///     original payment artefacts, and reconcile before re-preparing or
@@ -117,9 +118,10 @@ class PartialUploadError extends NetworkError {
 
   /// `true` when the SDK read the daemon's answer on retention: over REST a
   /// JSON boolean `retryable` in the body, over gRPC a message whose counts
-  /// parsed. `false` means retention is unknown and the daemon may still
-  /// hold the paid attempt, so neither re-prepare nor pay again on this
-  /// error alone (see the class doc).
+  /// parsed and that ends with one of the daemon's two retention hints (see
+  /// [PartialUploadError.fromMessage]). `false` means retention is unknown
+  /// and the daemon may still hold the paid attempt, so neither re-prepare
+  /// nor pay again on this error alone (see the class doc).
   final bool retentionKnown;
 
   /// Passing [retryable] `true` also makes [retentionKnown] `true`: an
@@ -139,16 +141,24 @@ class PartialUploadError extends NetworkError {
   /// carries no structured detail; REST callers get the body fields instead.
   ///
   /// The daemon formats the message as `Partial upload: <stored>/<total>
-  /// chunks stored, <failed> failed after retries: <reason> (<hint>)`, with
-  /// the hint `paid attempt retained: ...` when it kept the attempt.
+  /// chunks stored, <failed> failed after retries: <reason> (<hint>)` and
+  /// closes it with one of two hints (`partial_upload_hint` in
+  /// antd/src/error.rs): `(paid attempt retained: ...)` when it kept the
+  /// attempt, `(stored chunks persist; re-prepare the same content ...)`
+  /// when it did not. Daemons before 0.14.0 write only the second.
   ///
-  /// [retentionKnown] is `true` only when [message] starts with that pattern
-  /// and all three counts convert to an `int`; the hint then decides
-  /// [retryable]. Otherwise (the pattern does not match at the start, or a
-  /// count does not fit an `int`, whose Dart VM limit is 2^63 - 1) all three
-  /// counts read as zero and both flags are `false`, even if the hint is
-  /// present: retention is unknown, and a retry loop that cannot watch
-  /// [chunksFailed] shrink cannot tell progress from a stuck upload. Never
+  /// [retentionKnown] is `true` only when [message] starts with the counts
+  /// pattern, all three counts convert to an `int`, and [message] ends with
+  /// one of the two hints; [retryable] is then `true` only for the retained
+  /// hint. If the pattern does not match at the start, or a count does not
+  /// fit an `int` (whose Dart VM limit is 2^63 - 1), all three counts read
+  /// as zero and both flags are `false`, even if a hint is present: a retry
+  /// loop that cannot watch [chunksFailed] shrink cannot tell progress from
+  /// a stuck upload. Readable counts with a missing, truncated or
+  /// unrecognised hint, or with any text after it, keep the counts but leave
+  /// both flags `false`: the daemon's answer on retention was not read, so
+  /// retention is unknown (stop and reconcile), never "nothing retained". A
+  /// hint quoted inside the failure reason is not the daemon's answer. Never
   /// throws. Callers gate on [isPartialUploadMessage] first so that an
   /// unrelated ABORTED is not misreported as a partial upload.
   factory PartialUploadError.fromMessage(String message) {
@@ -159,13 +169,14 @@ class PartialUploadError extends NetworkError {
     if (stored == null || total == null || failed == null) {
       return PartialUploadError(message);
     }
+    final tail = _partialUploadRetentionTail.firstMatch(message);
     return PartialUploadError(
       message,
       chunksStored: stored,
       totalChunks: total,
       chunksFailed: failed,
-      retryable: message.contains(_partialUploadRetainedHint),
-      retentionKnown: true,
+      retryable: tail?.group(1) == _partialUploadRetainedHint,
+      retentionKnown: tail != null,
     );
   }
 
@@ -191,9 +202,25 @@ const _partialUploadPrefix = 'Partial upload:';
 final _partialUploadCounts =
     RegExp(r'^Partial upload: (\d+)/(\d+) chunks stored, (\d+) failed');
 
-/// Message tail the daemon appends when it kept the paid attempt for a
-/// same-`upload_id` retry.
+/// The daemon closes every `PARTIAL_UPLOAD` message with one of two
+/// parenthesised hints (`partial_upload_hint` in antd/src/error.rs): the
+/// retained hint when it kept the paid attempt for a same-`upload_id` retry,
+/// the not-retained hint when it did not. Daemons before 0.14.0 write only
+/// the not-retained hint.
 const _partialUploadRetainedHint = 'paid attempt retained';
+const _partialUploadNotRetainedHint =
+    'stored chunks persist; re-prepare the same content';
+
+/// Matches the hint that closes the message: `(<hint>...)` at the very end.
+/// Without `multiLine`, a Dart `$` matches only at the end of the input, not
+/// before a trailing newline. A hint quoted inside the failure reason, a
+/// truncated or unclosed tail, or any text after the hint does not match.
+final _partialUploadRetentionTail = RegExp(
+  r'\(('
+  '${RegExp.escape(_partialUploadRetainedHint)}|'
+  '${RegExp.escape(_partialUploadNotRetainedHint)}'
+  r')[^()]*\)$',
+);
 
 /// Maps a REST error response onto a typed error, preferring the
 /// machine-readable `code` over the bare HTTP status where they diverge:

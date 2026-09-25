@@ -396,7 +396,8 @@ void main() {
       );
     });
 
-    test('ABORTED without the retained hint -> not retryable', () async {
+    test('ABORTED with the not-retained hint -> known, not retryable',
+        () async {
       final client = _errorClient(
           10,
           'Partial upload: 300/312 chunks stored, 12 failed after retries: '
@@ -409,6 +410,32 @@ void main() {
             .having((e) => e.retryable, 'retryable', isFalse)
             .having((e) => e.retentionKnown, 'retentionKnown', isTrue)),
       );
+    });
+
+    // Readable counts whose closing retention hint is missing or cut short
+    // (the review's reproducer): the daemon's answer was not read, so the
+    // counts are kept but retention is unknown, never "nothing retained".
+    const countsWithoutHint = {
+      'no hint':
+          'Partial upload: 1/3 chunks stored, 2 failed after retries: quorum',
+      'a truncated hint': 'Partial upload: 1/3 chunks stored, 2 failed after '
+          'retries: quorum (paid attempt retai',
+    };
+    countsWithoutHint.forEach((label, msg) {
+      test('ABORTED with readable counts but $label -> retention unknown',
+          () async {
+        final client = _errorClient(10, msg);
+        await expectLater(
+          client.health(),
+          throwsA(isA<PartialUploadError>()
+              .having((e) => e.message, 'message', msg)
+              .having((e) => e.chunksStored, 'chunksStored', 1)
+              .having((e) => e.chunksFailed, 'chunksFailed', 2)
+              .having((e) => e.totalChunks, 'totalChunks', 3)
+              .having((e) => e.retryable, 'retryable', isFalse)
+              .having((e) => e.retentionKnown, 'retentionKnown', isFalse)),
+        );
+      });
     });
 
     test('ABORTED with the prefix but garbled counts -> zeros, not retryable',

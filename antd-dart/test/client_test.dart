@@ -716,20 +716,21 @@ void main() {
       client.close();
     });
 
-    test('fromMessage parses counts and the retained hint', () {
+    test('fromMessage parses counts and the retention hint', () {
       final cases = <String, List<Object>>{
-        // message: [stored, failed, total, retryable]
+        // message: [stored, failed, total, retryable, retentionKnown]
         'Partial upload: 300/312 chunks stored, 12 failed after retries: quorum '
                 '(paid attempt retained: call finalize again with the same '
                 'upload_id to store the remainder against the same payment)':
-            [300, 12, 312, true],
+            [300, 12, 312, true, true],
         'Partial upload: 300/312 chunks stored, 12 failed after retries: quorum '
                 '(stored chunks persist; re-prepare the same content to retry '
                 'only the remainder)':
-            [300, 12, 312, false],
+            [300, 12, 312, false, true],
+        // Readable counts but no retention hint: retention unknown.
         'Partial upload: 300/312 chunks stored, 12 failed after retries':
-            [300, 12, 312, false],
-        'something else entirely': [0, 0, 0, false],
+            [300, 12, 312, false, false],
+        'something else entirely': [0, 0, 0, false, false],
       };
       cases.forEach((msg, want) {
         final e = PartialUploadError.fromMessage(msg);
@@ -738,6 +739,7 @@ void main() {
         expect(e.chunksFailed, equals(want[1]), reason: msg);
         expect(e.totalChunks, equals(want[2]), reason: msg);
         expect(e.retryable, equals(want[3]), reason: msg);
+        expect(e.retentionKnown, equals(want[4]), reason: msg);
       });
     });
 
@@ -747,8 +749,8 @@ void main() {
       // int max; int.parse used to throw a FormatException on it.
       const hint = '(paid attempt retained: call finalize again with the '
           'same upload_id to store the remainder against the same payment)';
-      const noHint = '(stored chunks persist; re-prepare the same content to '
-          'retry only the remainder)';
+      const notRetained = '(stored chunks persist; re-prepare the same '
+          'content to retry only the remainder)';
       const over = '9223372036854775808';
       String msg(String stored, String total, String failed, String tail) =>
           'Partial upload: $stored/$total chunks stored, $failed failed '
@@ -779,8 +781,9 @@ void main() {
       expect(e.retryable, isTrue);
       expect(e.retentionKnown, isTrue);
 
-      // Well-formed without the hint: counts, not retryable.
-      e = PartialUploadError.fromMessage(msg('300', '312', '12', noHint));
+      // Well-formed with the not-retained hint: counts, known, not
+      // retryable.
+      e = PartialUploadError.fromMessage(msg('300', '312', '12', notRetained));
       expect([e.chunksStored, e.totalChunks, e.chunksFailed], [300, 312, 12]);
       expect(e.retryable, isFalse);
       expect(e.retentionKnown, isTrue);
@@ -792,6 +795,41 @@ void main() {
       expect(e.totalChunks, equals(9223372036854775807));
       expect(e.retryable, isTrue);
       expect(e.retentionKnown, isTrue);
+    });
+
+    // Retention is read only from the hint that closes the message
+    // (partial_upload_hint in antd/src/error.rs), never from readable counts
+    // alone or from a hint quoted inside the failure reason.
+    _knownRetentionMessages.forEach((label, want) {
+      final (message, retryable) = want;
+      test('fromMessage: $label -> retention known', () {
+        final e = PartialUploadError.fromMessage(message);
+        expect([e.chunksStored, e.chunksFailed, e.totalChunks], [1, 2, 3],
+            reason: message);
+        expect(e.retryable, equals(retryable), reason: message);
+        expect(e.retentionKnown, isTrue, reason: message);
+      });
+    });
+
+    _unreadableRetentionMessages.forEach((label, message) {
+      test('fromMessage: $label -> counts kept, retention unknown', () {
+        // The daemon's answer was not read: unknown (stop and reconcile),
+        // never "nothing retained" (re-prepare). The counts still read.
+        final e = PartialUploadError.fromMessage(message);
+        expect([e.chunksStored, e.chunksFailed, e.totalChunks], [1, 2, 3],
+            reason: message);
+        expect(e.retryable, isFalse, reason: message);
+        expect(e.retentionKnown, isFalse, reason: message);
+      });
+    });
+
+    test('fromMessage: counts quoted after a garbled prefix are not read', () {
+      const message = 'Partial upload: garbled; was Partial upload: 1/3 '
+          'chunks stored, 2 failed (paid attempt retained)';
+      final e = PartialUploadError.fromMessage(message);
+      expect([e.chunksStored, e.chunksFailed, e.totalChunks], [0, 0, 0]);
+      expect(e.retryable, isFalse);
+      expect(e.retentionKnown, isFalse);
     });
   });
 
@@ -1075,6 +1113,44 @@ void main() {
 }
 
 /// Drains a `Stream<List<int>>` into a single byte list.
+/// Counts prefix of a well-formed gRPC PARTIAL_UPLOAD message: 1 stored,
+/// 2 failed, 3 total.
+const _counts123 = 'Partial upload: 1/3 chunks stored, 2 failed after retries';
+
+/// The daemon's two closing hints (partial_upload_hint in antd/src/error.rs).
+const _retainedHint = '(paid attempt retained: call finalize again with the '
+    'same upload_id to store the remainder against the same payment)';
+const _notRetainedHint = '(stored chunks persist; re-prepare the same content '
+    'to retry only the remainder)';
+
+/// Messages whose closing hint is readable: label -> (message, retryable).
+const _knownRetentionMessages = {
+  'retained hint': ('$_counts123: quorum $_retainedHint', true),
+  'short retained hint': ('$_counts123: quorum (paid attempt retained)', true),
+  'not-retained hint': ('$_counts123: quorum $_notRetainedHint', false),
+  'parenthesised reason before the hint':
+      ('$_counts123: quorum (2 of 5 peers) $_notRetainedHint', false),
+  'retained hint quoted in the reason':
+      ('$_counts123: peer said (paid attempt retained) $_notRetainedHint', false),
+};
+
+/// Messages with readable counts whose closing hint is missing, cut short,
+/// unrecognised or followed by more text: label -> message.
+const _unreadableRetentionMessages = {
+  'no hint': '$_counts123: quorum',
+  // The review's reproducer: the retained hint cut short.
+  'truncated retained hint': '$_counts123: quorum (paid attempt retai',
+  'unclosed retained hint':
+      '$_counts123: quorum (paid attempt retained: call finalize again',
+  'truncated not-retained hint':
+      '$_counts123: quorum (stored chunks persist; re-prepare the same con',
+  'unrecognised hint': '$_counts123: quorum (something else)',
+  'trailing text': '$_counts123: quorum $_retainedHint trailing',
+  'trailing newline': '$_counts123: quorum $_retainedHint\n',
+  'hint only in the reason':
+      '$_counts123: peer said (paid attempt retained) (connection reset)',
+};
+
 Future<List<int>> _collect(Stream<List<int>> stream) async {
   final out = <int>[];
   await for (final chunk in stream) {
