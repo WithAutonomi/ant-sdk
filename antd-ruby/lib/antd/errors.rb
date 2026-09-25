@@ -81,8 +81,10 @@ module Antd
   # a field of the wrong JSON type reads as absent (zero / +false+). Over gRPC
   # they are parsed best-effort from the status details ("Partial upload: S/T
   # chunks stored, F failed ...", with a "paid attempt retained" hint when
-  # retryable): only an ABORTED whose details start with "Partial upload:" is
-  # a partial upload, and counts the parser cannot read are left zero.
+  # retryable); only an ABORTED whose details start with "Partial upload:" is
+  # a partial upload. +retryable+ is true there only when all three counts
+  # parse and the hint is present: counts that do not parse leave all three
+  # zero and +retryable+ false, so the caller takes the re-prepare path.
   #
   # Subclasses +NetworkError+ because the daemon reports it as a 502: existing
   # +rescue Antd::NetworkError+ blocks keep catching it, and +status_code+ is
@@ -120,6 +122,11 @@ module Antd
   # same-upload_id retry.
   PARTIAL_UPLOAD_RETAINED_HINT = "paid attempt retained"
 
+  # Largest count the daemon can send (its counts are u64). Ruby integers are
+  # unbounded, so a larger digit run is treated as a failed conversion.
+  PARTIAL_UPLOAD_COUNT_MAX = 18_446_744_073_709_551_615
+  private_constant :PARTIAL_UPLOAD_COUNT_MAX
+
   # Whether a gRPC status's details are the daemon's PARTIAL_UPLOAD message.
   # Anchored: the details must start with +PARTIAL_UPLOAD_PREFIX+. A status
   # that merely quotes "Partial upload:" further into its text (an upstream
@@ -140,9 +147,13 @@ module Antd
   # Recovers the chunk counts and the retryable hint from a PARTIAL_UPLOAD
   # message (over gRPC, the status details). Used for gRPC, where the status
   # carries no structured detail; REST callers get the body fields instead.
-  # Counts and hint are read independently: unrecognised counts yield zeros,
-  # and +retryable+ is true only when the "paid attempt retained" hint is
-  # present.
+  #
+  # Conservative: +retryable+ is true only when the counts pattern matched,
+  # all three counts converted (each at most u64::MAX, the daemon's count
+  # type) and the "paid attempt retained" hint is present. On a pattern miss
+  # or a count out of range, all three counts are 0 and +retryable+ is false,
+  # so a message the parser cannot fully read never selects the same-upload_id
+  # retry.
   #
   # @param message [String]
   # @return [Hash] +:chunks_stored+, +:chunks_failed+, +:total_chunks+,
@@ -150,10 +161,16 @@ module Antd
   def self.parse_partial_upload_message(message)
     text = message.to_s
     m = PARTIAL_UPLOAD_COUNTS.match(text)
+    # The groups are ASCII digit runs, so #to_i is exact; only the range can fail.
+    stored, total, failed = m && [m[1], m[2], m[3]].map(&:to_i)
+    unless m && [stored, total, failed].all? { |n| n <= PARTIAL_UPLOAD_COUNT_MAX }
+      return { chunks_stored: 0, chunks_failed: 0, total_chunks: 0, retryable: false }
+    end
+
     {
-      chunks_stored: m ? m[1].to_i : 0,
-      chunks_failed: m ? m[3].to_i : 0,
-      total_chunks: m ? m[2].to_i : 0,
+      chunks_stored: stored,
+      chunks_failed: failed,
+      total_chunks: total,
       retryable: text.include?(PARTIAL_UPLOAD_RETAINED_HINT)
     }
   end

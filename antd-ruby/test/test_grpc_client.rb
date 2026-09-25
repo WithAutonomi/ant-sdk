@@ -699,6 +699,35 @@ class TestGrpcClient < Minitest::Test
     assert_includes err.message, "Partial upload: counts unreadable"
   end
 
+  # Retry needs parsed counts: the retained hint alone, after counts the
+  # parser cannot read, must not enable the same-upload_id retry.
+  def test_error_aborted_with_retained_hint_but_garbled_counts_is_not_retryable
+    msg = "Partial upload: counts unreadable (paid attempt retained: call finalize again " \
+          "with the same upload_id to store the remainder against the same payment)"
+    client = build_error_client(grpc_error(:ABORTED, msg))
+    err = assert_raises(Antd::PartialUploadError) { client.health }
+    assert_equal 0, err.chunks_stored
+    assert_equal 0, err.chunks_failed
+    assert_equal 0, err.total_chunks
+    refute err.retryable, "unparsed counts must not enable retry"
+  end
+
+  # A count above u64::MAX (the daemon's count type) in any position is a
+  # failed conversion: zero counts, not retryable, despite the hint.
+  def test_error_aborted_with_count_overflow_is_not_retryable
+    over = "18446744073709551616"
+    [
+      "Partial upload: #{over}/312 chunks stored, 12 failed after retries (paid attempt retained)",
+      "Partial upload: 300/#{over} chunks stored, 12 failed after retries (paid attempt retained)",
+      "Partial upload: 300/312 chunks stored, #{over} failed after retries (paid attempt retained)"
+    ].each do |msg|
+      client = build_error_client(grpc_error(:ABORTED, msg))
+      err = assert_raises(Antd::PartialUploadError, msg) { client.chunk_put("x") }
+      assert_equal [0, 0, 0], [err.chunks_stored, err.chunks_failed, err.total_chunks], msg
+      refute err.retryable, msg
+    end
+  end
+
   # grpc-ruby's BadStatus#message is "10:<details>"; the gate reads the
   # undecorated #details, so a real GRPC::Aborted from the daemon maps.
   def test_error_aborted_gate_reads_status_details

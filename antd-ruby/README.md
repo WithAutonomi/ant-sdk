@@ -202,6 +202,12 @@ chunks stay on the network; what to do next depends on `retryable`:
   sends the flag). Re-prepare the same content: already-stored chunks are
   skipped, so the retry pays only for the remainder.
 
+Over gRPC there is no structured body, so the counts and `retryable` are
+parsed from the status text. `retryable` is true only when all three counts
+parse (each within the daemon's u64 range) and the text carries the
+`paid attempt retained` hint. If the counts cannot be read, all three are `0`
+and `retryable` is `false`, so the caller takes the re-prepare path.
+
 `PartialUploadError` subclasses `NetworkError` (the 502 mapping), so existing
 `rescue Antd::NetworkError` blocks keep catching it; rescue the subclass first
 to handle it specifically.

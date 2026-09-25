@@ -765,12 +765,36 @@ class TestClient < Minitest::Test
       PARTIAL_RETAINED_MSG => [300, 12, 312, true],
       PARTIAL_REPREPARE_MSG => [300, 12, 312, false],
       "Partial upload: 300/312 chunks stored, 12 failed after retries" => [300, 12, 312, false],
-      "something else entirely" => [0, 0, 0, false]
+      "something else entirely" => [0, 0, 0, false],
+      # Pattern miss with the hint: retry needs parsed counts.
+      "Partial upload: counts unreadable (#{RETAINED})" => [0, 0, 0, false],
+      "Partial upload: 3/x chunks stored, 1 failed (#{RETAINED})" => [0, 0, 0, false],
+      RETAINED => [0, 0, 0, false],
+      # u64::MAX is the largest count the daemon can send; it still parses.
+      "Partial upload: #{U64_MAX}/#{U64_MAX} chunks stored, #{U64_MAX} failed (#{RETAINED})" =>
+        [U64_MAX, U64_MAX, U64_MAX, true]
     }
     cases.each do |msg, (stored, failed, total, retryable)|
       parsed = Antd.parse_partial_upload_message(msg)
       assert_equal({ chunks_stored: stored, chunks_failed: failed, total_chunks: total, retryable: retryable },
                    parsed, msg)
+    end
+  end
+
+  U64_MAX = 18_446_744_073_709_551_615
+  RETAINED = "paid attempt retained: call finalize again with the same upload_id"
+
+  # A count above u64::MAX is a failed conversion: in any position it zeroes
+  # all three counts and disables retry, even with the retained hint.
+  def test_parse_partial_upload_message_overflow_in_any_position_disables_retry
+    over = U64_MAX + 1 # 18446744073709551616
+    [
+      "Partial upload: #{over}/312 chunks stored, 12 failed (#{RETAINED})", # stored
+      "Partial upload: 300/#{over} chunks stored, 12 failed (#{RETAINED})", # total
+      "Partial upload: 300/312 chunks stored, #{over} failed (#{RETAINED})" # failed
+    ].each do |msg|
+      assert_equal({ chunks_stored: 0, chunks_failed: 0, total_chunks: 0, retryable: false },
+                   Antd.parse_partial_upload_message(msg), msg)
     end
   end
 
