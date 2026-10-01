@@ -16,6 +16,7 @@ on:
       - "antd/**"
       - "antd-rust/**"
       - "antd-js/**"
+      - "scripts/third_party_notices/**"
       - ".github/workflows/ci.yml"
       - "!**/*.md"
       - "!antd/openapi.yaml"
@@ -25,6 +26,7 @@ on:
       - "antd/**"
       - "antd-rust/**"
       - "antd-js/**"
+      - "scripts/third_party_notices/**"
       - ".github/workflows/ci.yml"
       - "!**/*.md"
       - "!antd/openapi.yaml"
@@ -130,6 +132,33 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+  # The release workflow ships THIRD-PARTY-NOTICES.txt with every antd binary,
+  # package and image. Generating it on each change catches a dependency that
+  # ships no licence text, a licence outside the policy, or a new crate that
+  # compiles bundled C code, before a release tag.
+  notices-antd:
+    name: Third-party notices (antd)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Generate THIRD-PARTY-NOTICES.txt
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          python scripts/third_party_notices/generate.py
+          --manifest-path antd/Cargo.toml
+          --package antd
+          --config scripts/third_party_notices/config.toml
+          --output THIRD-PARTY-NOTICES.txt
+          --target x86_64-unknown-linux-gnu
+          --target aarch64-unknown-linux-gnu
+          --target aarch64-apple-darwin
+          --target x86_64-pc-windows-msvc
 
   audit:
     name: Security audit

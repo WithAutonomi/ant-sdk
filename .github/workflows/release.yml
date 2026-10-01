@@ -29,15 +29,19 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             artifact: antd-linux-amd64
+            asset: antd-linux-amd64
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-24.04-arm
             artifact: antd-linux-arm64
+            asset: antd-linux-arm64
           - target: aarch64-apple-darwin
             os: macos-latest
             artifact: antd-darwin-arm64
+            asset: antd-darwin-arm64
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             artifact: antd-windows-amd64.exe
+            asset: antd-windows-amd64
     defaults:
       run:
         working-directory: antd
@@ -59,6 +63,27 @@ jobs:
           # 24506528329 and 25060322954.
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Collects, unaltered, the licence, copyright and notice files of every
+      # crate this target's build resolves, including build-time tools and
+      # OpenSSL, and fails if any crate's licence is outside the policy or its
+      # texts cannot be found (see the script and its config). The token raises
+      # the GitHub rate limit for licence files fetched from crates' repositories.
+      - name: Generate third-party notices
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          python ../scripts/third_party_notices/generate.py
+          --manifest-path Cargo.toml
+          --package antd
+          --config ../scripts/third_party_notices/config.toml
+          --output "${{ matrix.asset }}.THIRD-PARTY-NOTICES.txt"
+          --target ${{ matrix.target }}
+
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }}
 
@@ -69,10 +94,23 @@ jobs:
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then ext=".exe"; fi
           cp "target/${{ matrix.target }}/release/antd${ext}" "${{ matrix.artifact }}"
 
+      # The Rust standard library's notices, from the toolchain that built
+      # this binary, travel with it like the third-party notices.
+      - name: Copy the Rust standard library notices
+        shell: bash
+        run: |
+          sysroot="$(rustc --print sysroot)"
+          if command -v cygpath >/dev/null 2>&1; then sysroot="$(cygpath -u "$sysroot")"; fi
+          cp "$sysroot/share/doc/rust/COPYRIGHT-library.html" "${{ matrix.asset }}.RUST-STD-COPYRIGHT.html"
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: antd/${{ matrix.artifact }}
+          path: |
+            antd/${{ matrix.artifact }}
+            antd/${{ matrix.asset }}.THIRD-PARTY-NOTICES.txt
+            antd/${{ matrix.asset }}.RUST-STD-COPYRIGHT.html
+          if-no-files-found: error
 
   # ---------------------------------------------------------------------------
   # Installer packaging + binary signing. Each job consumes the bare binaries the
@@ -105,6 +143,15 @@ jobs:
       - name: Install nfpm
         run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
 
+      # The .deb and .rpm install the licence files and the amd64 build's
+      # notices under /usr/share/doc/antd/.
+      - name: Stage the package licence files
+        run: |
+          mkdir -p docs
+          cp LICENSE-MIT LICENSE-APACHE docs/
+          cp bin/antd-linux-amd64.THIRD-PARTY-NOTICES.txt docs/THIRD-PARTY-NOTICES.txt
+          cp bin/antd-linux-amd64.RUST-STD-COPYRIGHT.html docs/RUST-STD-COPYRIGHT.html
+
       - name: Build .deb and .rpm
         run: |
           chmod +x bin/antd-linux-amd64
@@ -112,14 +159,20 @@ jobs:
           export PATH="$GOPATH_BIN:$PATH"
           ./installers/linux/build-deb-rpm.sh \
             --bin "$PWD/bin/antd-linux-amd64" \
+            --docs "$PWD/docs" \
             --version "${GITHUB_REF_NAME#v}" \
             --out "$PWD/out"
 
       - name: Stage the generic install script
         run: cp installers/linux/install.sh "out/antd-linux-install.sh"
 
+      # Each bare binary is published with its own notices, plus the project's
+      # licence files once for the whole release.
       - name: Pass through bare linux binaries
-        run: cp bin/antd-linux-amd64 bin/antd-linux-arm64 out/
+        run: |
+          cp bin/antd-linux-amd64 bin/antd-linux-arm64 out/
+          cp bin/antd-linux-*.THIRD-PARTY-NOTICES.txt bin/antd-linux-*.RUST-STD-COPYRIGHT.html out/
+          cp LICENSE-MIT LICENSE-APACHE out/
 
       - uses: actions/upload-artifact@v4
         with:
@@ -190,12 +243,17 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           chmod +x bin/antd-darwin-arm64
+          mkdir -p docs
+          cp LICENSE-MIT LICENSE-APACHE docs/
+          cp bin/antd-darwin-arm64.THIRD-PARTY-NOTICES.txt docs/THIRD-PARTY-NOTICES.txt
+          cp bin/antd-darwin-arm64.RUST-STD-COPYRIGHT.html docs/RUST-STD-COPYRIGHT.html
           ./installers/macos/build-pkg.sh \
             --bin "$PWD/bin/antd-darwin-arm64" \
+            --docs "$PWD/docs" \
             --version "${GITHUB_REF_NAME#v}" \
             --arch arm64 \
             --out "$PWD/out"
-          cp bin/antd-darwin-arm64 out/
+          cp bin/antd-darwin-arm64 bin/antd-darwin-arm64.THIRD-PARTY-NOTICES.txt bin/antd-darwin-arm64.RUST-STD-COPYRIGHT.html out/
 
       - uses: actions/upload-artifact@v4
         with:
@@ -227,11 +285,15 @@ jobs:
           name: antd-windows-amd64.exe
           path: bin
 
+      # The MSI installs the licence files and notices next to antd.exe.
       - name: Stage binary as antd.exe
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path msibin | Out-Null
           Copy-Item bin\antd-windows-amd64.exe msibin\antd.exe
+          Copy-Item LICENSE-MIT, LICENSE-APACHE msibin\ -ErrorAction Stop
+          Copy-Item bin\antd-windows-amd64.THIRD-PARTY-NOTICES.txt msibin\THIRD-PARTY-NOTICES.txt -ErrorAction Stop
+          Copy-Item bin\antd-windows-amd64.RUST-STD-COPYRIGHT.html msibin\RUST-STD-COPYRIGHT.html -ErrorAction Stop
 
       - name: Prepare client certificate
         if: env.SIGNING_AVAILABLE == 'true'
@@ -285,7 +347,9 @@ jobs:
 
       - name: Stage signed standalone binary
         shell: pwsh
-        run: Copy-Item bin\antd-windows-amd64.exe out\
+        run: |
+          Copy-Item bin\antd-windows-amd64.exe out\
+          Copy-Item bin\antd-windows-amd64.THIRD-PARTY-NOTICES.txt, bin\antd-windows-amd64.RUST-STD-COPYRIGHT.html out\ -ErrorAction Stop
 
       # Only the assets we mean to ship. build-msi.ps1 no longer emits a
       # .wixpdb, and this list would keep it out of the release even if it did.
@@ -295,6 +359,8 @@ jobs:
           path: |
             out/*.msi
             out/*.exe
+            out/*.THIRD-PARTY-NOTICES.txt
+            out/*.RUST-STD-COPYRIGHT.html
           if-no-files-found: error
 
   release:
@@ -342,6 +408,11 @@ jobs:
         with:
           name: antd-linux-arm64
           path: deploy/
+
+      # The image carries the licence files and each architecture's notices
+      # under /usr/share/doc/antd/ (see deploy/Dockerfile).
+      - name: Stage the licence files
+        run: cp LICENSE-MIT LICENSE-APACHE deploy/
 
       - uses: docker/setup-qemu-action@v3
 
@@ -396,6 +467,6 @@ jobs:
             org.opencontainers.image.source=https://github.com/WithAutonomi/ant-sdk
             org.opencontainers.image.version=${{ github.ref_name }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.licenses=GPL-3.0
+            org.opencontainers.image.licenses=MIT OR Apache-2.0
           cache-from: type=gha,scope=docker-release
           cache-to: type=gha,scope=docker-release,mode=max

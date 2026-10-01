@@ -54,6 +54,24 @@
               KeyPath="yes" />
       </Component>
 
+      <!-- Licences, and the third-party notices for the installed antd.exe. -->
+      <Component Id="AntdLicenseMit" Guid="01b4c121-68eb-42b2-94ef-5df34b541c49">
+        <File Id="AntdLicenseMitFile" Name="LICENSE-MIT"
+              Source="$(var.ArtifactsDir)\LICENSE-MIT" KeyPath="yes" />
+      </Component>
+      <Component Id="AntdLicenseApache" Guid="3ce405fa-63b5-4730-94ea-f26daf14aac0">
+        <File Id="AntdLicenseApacheFile" Name="LICENSE-APACHE"
+              Source="$(var.ArtifactsDir)\LICENSE-APACHE" KeyPath="yes" />
+      </Component>
+      <Component Id="AntdThirdPartyNotices" Guid="674e79a2-4a42-40b1-bb02-832c4f68528e">
+        <File Id="AntdThirdPartyNoticesFile" Name="THIRD-PARTY-NOTICES.txt"
+              Source="$(var.ArtifactsDir)\THIRD-PARTY-NOTICES.txt" KeyPath="yes" />
+      </Component>
+      <Component Id="AntdRustStdCopyright" Guid="0f03661f-5bdd-42b4-9ed7-e7fd28072cb4">
+        <File Id="AntdRustStdCopyrightFile" Name="RUST-STD-COPYRIGHT.html"
+              Source="$(var.ArtifactsDir)\RUST-STD-COPYRIGHT.html" KeyPath="yes" />
+      </Component>
+
       <!-- Hidden launcher: starts antd with no console window (Run "...", 0). -->
       <Component Id="AntdLauncher" Guid="b8d2f3c4-5e6a-4b7c-9d0e-1f2a3b4c5d6e">
         <File Id="AntdLaunchVbs"

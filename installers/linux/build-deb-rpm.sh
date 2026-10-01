@@ -2,7 +2,12 @@
 # Build the antd Linux .deb and .rpm packages with nfpm.
 #
 # Usage:
-#   build-deb-rpm.sh --bin <path/to/antd> [--version X.Y.Z] [--out <dir>] [--deb] [--rpm]
+#   build-deb-rpm.sh --bin <path/to/antd> --docs <dir> [--version X.Y.Z] [--out <dir>] [--deb] [--rpm]
+#
+# --docs names a directory holding LICENSE-MIT, LICENSE-APACHE,
+# THIRD-PARTY-NOTICES.txt and RUST-STD-COPYRIGHT.html for the packaged binary
+# (the release workflow stages them); they are installed under
+# /usr/share/doc/antd/.
 #
 # Defaults: version is read from antd/Cargo.toml; both packages are built;
 # output goes to ./dist. Produces the fixed asset filenames from metadata.env
@@ -17,6 +22,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 . "$SCRIPT_DIR/../common/metadata.env"
 
 BIN_SRC=""
+DOCS_DIR=""
 VERSION=""
 OUT_DIR="$SCRIPT_DIR/dist"
 BUILD_DEB=0
@@ -25,11 +31,12 @@ BUILD_RPM=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --bin)     BIN_SRC="$2"; shift 2 ;;
+        --docs)    DOCS_DIR="$2"; shift 2 ;;
         --version) VERSION="$2"; shift 2 ;;
         --out)     OUT_DIR="$2"; shift 2 ;;
         --deb)     BUILD_DEB=1; shift ;;
         --rpm)     BUILD_RPM=1; shift ;;
-        -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
         *) echo "unknown arg: $1" >&2; exit 2 ;;
     esac
 done
@@ -51,6 +58,13 @@ if [ -z "$BIN_SRC" ]; then
 fi
 [ -f "$BIN_SRC" ] || { echo "antd binary not found: $BIN_SRC (pass --bin)" >&2; exit 1; }
 
+# The packages must carry the licences and notices for the binary they install.
+[ -n "$DOCS_DIR" ] || { echo "pass --docs <dir> with the licence files and notices" >&2; exit 1; }
+for doc in LICENSE-MIT LICENSE-APACHE THIRD-PARTY-NOTICES.txt RUST-STD-COPYRIGHT.html; do
+    [ -f "$DOCS_DIR/$doc" ] || { echo "missing $DOCS_DIR/$doc" >&2; exit 1; }
+done
+DOCS_DIR="$(cd "$DOCS_DIR" && pwd)"
+
 command -v nfpm >/dev/null 2>&1 || {
     echo "nfpm not found. Install with:" >&2
     echo "  go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest" >&2
@@ -66,10 +80,11 @@ cd "$SCRIPT_DIR"
 # envsubst (restricted to our variables so any literal nfpm `$` syntax is kept).
 export ANTD_VERSION="$VERSION"
 export ANTD_BIN_SRC="$BIN_SRC"
+export ANTD_DOCS_DIR="$DOCS_DIR"
 export ANTD_MAINTAINER ANTD_DESCRIPTION ANTD_VENDOR ANTD_HOMEPAGE ANTD_LICENSE
 RENDERED="$(mktemp "${TMPDIR:-/tmp}/antd-nfpm.XXXXXX.yaml")"
 trap 'rm -f "$RENDERED"' EXIT
-envsubst '$ANTD_VERSION $ANTD_BIN_SRC $ANTD_MAINTAINER $ANTD_DESCRIPTION $ANTD_VENDOR $ANTD_HOMEPAGE $ANTD_LICENSE' \
+envsubst '$ANTD_VERSION $ANTD_BIN_SRC $ANTD_DOCS_DIR $ANTD_MAINTAINER $ANTD_DESCRIPTION $ANTD_VENDOR $ANTD_HOMEPAGE $ANTD_LICENSE' \
     < nfpm.yaml > "$RENDERED"
 
 if [ "$BUILD_DEB" -eq 1 ]; then
