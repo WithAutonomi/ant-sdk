@@ -78,29 +78,45 @@ fi
 # Read the release's metadata once: it pins "latest" to one tag, so the binary
 # and its notices always come from the same release, and its asset list says
 # whether that release publishes the licence files and notices.
+#
+# The API is unauthenticated, and GitHub rate-limits that per IP address
+# (shared NAT, CI runners). If it cannot be read, fall back to the plain
+# release download URLs and fetch the documents best-effort (WITH_NOTICES=2).
+# Without a pinned tag, a release published between the downloads could pair
+# the binary with the next release's notices; rerunning the installer fixes it.
 if [ -n "$TAG" ]; then
     API="https://api.github.com/repos/$REPO/releases/tags/$TAG"
 else
     API="https://api.github.com/repos/$REPO/releases/latest"
 fi
 # shellcheck disable=SC2086
-RELEASE="$($DL - "$API")" || { echo "could not read release metadata from $API" >&2; exit 1; }
-if [ -z "$TAG" ]; then
-    TAG="$(printf '%s\n' "$RELEASE" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)"
-    [ -n "$TAG" ] || { echo "could not resolve the latest antd release; pass --tag vX.Y.Z" >&2; exit 1; }
-fi
-BASE_URL="https://github.com/$REPO/releases/download/$TAG"
-URL="$BASE_URL/$ASSET"
-if printf '%s\n' "$RELEASE" | grep -q "\"name\": *\"$ASSET.THIRD-PARTY-NOTICES.txt\""; then
-    WITH_NOTICES=1
+if RELEASE="$($DL - "$API")"; then
+    if [ -z "$TAG" ]; then
+        TAG="$(printf '%s\n' "$RELEASE" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)"
+        [ -n "$TAG" ] || { echo "could not resolve the latest antd release; pass --tag vX.Y.Z" >&2; exit 1; }
+    fi
+    BASE_URL="https://github.com/$REPO/releases/download/$TAG"
+    if printf '%s\n' "$RELEASE" | grep -q "\"name\": *\"$ASSET.THIRD-PARTY-NOTICES.txt\""; then
+        WITH_NOTICES=1
+    else
+        WITH_NOTICES=0
+    fi
 else
-    WITH_NOTICES=0
+    echo "note: could not read release metadata from $API; downloading from the release URLs directly" >&2
+    if [ -n "$TAG" ]; then
+        BASE_URL="https://github.com/$REPO/releases/download/$TAG"
+    else
+        # /releases/latest/download resolves to the most recent (non-pre) release.
+        BASE_URL="https://github.com/$REPO/releases/latest/download"
+    fi
+    WITH_NOTICES=2
 fi
+URL="$BASE_URL/$ASSET"
 
 # ---- download into a staging directory first ---------------------------
 # The binary and, when the release publishes them, its licence files and
 # third-party notices are fetched before anything is installed; every download
-# must succeed.
+# must succeed, except the documents in the best-effort fallback.
 if [ -d "$BIN_PATH" ]; then
     echo "$BIN_PATH is a directory; remove it and run the installer again" >&2
     exit 1
@@ -131,24 +147,35 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "Downloading $ASSET ($TAG) from $URL"
+echo "Downloading $ASSET${TAG:+ ($TAG)} from $URL"
 # shellcheck disable=SC2086
 $DL "$STAGE/antd" "$URL"
 chmod 0755 "$STAGE/antd"
 
 mkdir -p "$STAGE/doc"
-if [ "$WITH_NOTICES" -eq 1 ]; then
+if [ "$WITH_NOTICES" -eq 0 ]; then
+    echo "note: $TAG predates the published licence files and notices; see https://github.com/$REPO for licence information." >&2
+else
     for doc in LICENSE-MIT LICENSE-APACHE \
         "$ASSET.THIRD-PARTY-NOTICES.txt:THIRD-PARTY-NOTICES.txt" \
         "$ASSET.RUST-STD-COPYRIGHT.html:RUST-STD-COPYRIGHT.html"; do
         remote="${doc%%:*}"
         local_name="${doc#*:}"
         # shellcheck disable=SC2086
-        $DL "$STAGE/doc/$local_name" "$BASE_URL/$remote" \
-            || { echo "could not download $remote from $BASE_URL; not installing" >&2; exit 1; }
+        if ! $DL "$STAGE/doc/$local_name" "$BASE_URL/$remote"; then
+            if [ "$WITH_NOTICES" -eq 1 ]; then
+                echo "could not download $remote from $BASE_URL; not installing" >&2
+                exit 1
+            fi
+            # Without the metadata, a missing document may just mean the
+            # release predates them: install the binary without any.
+            echo "note: could not download the licence files and notices from $BASE_URL; see https://github.com/$REPO for licence information." >&2
+            rm -rf "$STAGE/doc"
+            mkdir -p "$STAGE/doc"
+            WITH_NOTICES=0
+            break
+        fi
     done
-else
-    echo "note: $TAG predates the published licence files and notices; see https://github.com/$REPO for licence information." >&2
 fi
 
 # ---- install ------------------------------------------------------------
@@ -160,7 +187,7 @@ cp "$STAGE/antd" "$NEW_BIN"
 chmod 0755 "$NEW_BIN"
 cp -R "$STAGE/doc" "$NEW_DOC"
 chmod 0755 "$NEW_DOC"
-if [ "$WITH_NOTICES" -eq 1 ]; then
+if [ "$WITH_NOTICES" -ne 0 ]; then
     chmod 0644 "$NEW_DOC"/*
 fi
 if [ -d "$DOC_DIR" ]; then
@@ -171,7 +198,7 @@ DOC_PLACED=1
 mv "$NEW_BIN" "$BIN_PATH"
 COMMITTED=1
 rm -rf "$OLD_DOC"
-if [ "$WITH_NOTICES" -eq 1 ]; then
+if [ "$WITH_NOTICES" -ne 0 ]; then
     echo "Installed antd's licence files and third-party notices to $DOC_DIR"
 fi
 
