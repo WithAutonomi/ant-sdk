@@ -4,6 +4,7 @@ name = "ant-ffi"
 # so the exported ant_ffi_version() tells the truth — bump on every release.
 version = "0.0.9"
 edition = "2021"
+license = "MIT OR Apache-2.0"
 
 [lib]
 crate-type = ["cdylib", "staticlib", "lib"]
