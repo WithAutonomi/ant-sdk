@@ -34,6 +34,12 @@ pub enum AntdError {
     #[error("Internal error: {0}")]
     Internal(String),
 
+    /// A byte-range download (V2-1425) that starts at or past the end of the
+    /// object. `size` is the object's plaintext size, reported back so the
+    /// caller can re-issue a satisfiable range.
+    #[error("Range not satisfiable: the object is {size} bytes")]
+    RangeNotSatisfiable { size: u64 },
+
     /// Upload partially succeeded: some chunks stored, some failed quorum
     /// after all retries. The payment was made and the stored chunks persist.
     ///
@@ -87,6 +93,7 @@ impl AntdError {
             AntdError::ServiceUnavailable(_) => "SERVICE_UNAVAILABLE",
             AntdError::NotImplemented(_) => "NOT_IMPLEMENTED",
             AntdError::Internal(_) => "INTERNAL_ERROR",
+            AntdError::RangeNotSatisfiable { .. } => "RANGE_NOT_SATISFIABLE",
             AntdError::PartialUpload { .. } => "PARTIAL_UPLOAD",
         }
     }
@@ -165,6 +172,7 @@ impl IntoResponse for AntdError {
             AntdError::ServiceUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             AntdError::NotImplemented(_) => StatusCode::NOT_IMPLEMENTED,
             AntdError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            AntdError::RangeNotSatisfiable { .. } => StatusCode::RANGE_NOT_SATISFIABLE,
             // The upstream network failed to store part of the file; the
             // request itself was valid, so this is a gateway-side failure.
             AntdError::PartialUpload { .. } => StatusCode::BAD_GATEWAY,
@@ -188,12 +196,21 @@ impl IntoResponse for AntdError {
             retryable,
         })
         .unwrap_or_else(|_| r#"{"error":"internal error","code":"INTERNAL_ERROR"}"#.to_string());
-        (
+        let mut response = (
             status,
             [(axum::http::header::CONTENT_TYPE, "application/json")],
             body,
         )
-            .into_response()
+            .into_response();
+        // RFC 9110 §15.5.17: a 416 carries the current length as `bytes */size`.
+        if let AntdError::RangeNotSatisfiable { size } = self {
+            response.headers_mut().insert(
+                axum::http::header::CONTENT_RANGE,
+                axum::http::HeaderValue::from_str(&format!("bytes */{size}"))
+                    .expect("decimal digits are a valid header value"),
+            );
+        }
+        response
     }
 }
 
@@ -210,6 +227,7 @@ impl From<AntdError> for tonic::Status {
             AntdError::ServiceUnavailable(msg) => tonic::Status::unavailable(msg),
             AntdError::NotImplemented(msg) => tonic::Status::unimplemented(msg),
             AntdError::Internal(msg) => tonic::Status::internal(msg),
+            e @ AntdError::RangeNotSatisfiable { .. } => tonic::Status::out_of_range(e.to_string()),
             // ABORTED: the operation stopped partway and the retry lives at
             // the application level — a repeat FinalizeUpload with the same
             // upload_id when the paid attempt was retained (`retryable`), or
@@ -241,6 +259,25 @@ mod tests {
     fn not_found_is_http_404() {
         let resp = AntdError::NotFound("gone".into()).into_response();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn range_not_satisfiable_is_http_416_with_content_range() {
+        let resp = AntdError::RangeNotSatisfiable { size: 1234 }.into_response();
+        assert_eq!(resp.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+        assert_eq!(
+            resp.headers()
+                .get(axum::http::header::CONTENT_RANGE)
+                .unwrap(),
+            "bytes */1234"
+        );
+    }
+
+    #[test]
+    fn range_not_satisfiable_is_grpc_out_of_range() {
+        let status = tonic::Status::from(AntdError::RangeNotSatisfiable { size: 7 });
+        assert_eq!(status.code(), tonic::Code::OutOfRange);
+        assert!(status.message().contains("7 bytes"));
     }
 
     #[test]

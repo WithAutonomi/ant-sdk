@@ -57,6 +57,16 @@ message StreamPublicDataRequest {
   // progress bar. Defaults to false — old clients omitting it receive a
   // pure data-frame stream, byte-identical to the pre-progress behaviour.
   bool include_progress = 2;
+  // Byte-range download. Setting either field streams only the plaintext bytes
+  // [offset, offset + length) instead of the whole object, fetching just the
+  // chunks that overlap them. `offset` defaults to 0 and an absent `length`
+  // reads to the end; a `length` past the end is clamped. `length` 0 is
+  // INVALID_ARGUMENT, and an `offset` at or past the end is OUT_OF_RANGE. A
+  // ranged stream's `x-content-length` metadata is the range's byte count, and
+  // it adds `x-content-range` (`bytes first-last/size`, `last` inclusive).
+  // Cannot be combined with include_progress (INVALID_ARGUMENT).
+  optional uint64 offset = 3;
+  optional uint64 length = 4;
 }
 
 // A single frame of a streaming download. Exactly one of `data` (a decrypted
@@ -98,6 +108,9 @@ message StreamDataRequest {
   string data_map = 1; // hex
   // See StreamPublicDataRequest.include_progress. Defaults to false.
   bool include_progress = 2;
+  // Byte range: see StreamPublicDataRequest.offset / length.
+  optional uint64 offset = 3;
+  optional uint64 length = 4;
 }
 
 message GetDataResponse {

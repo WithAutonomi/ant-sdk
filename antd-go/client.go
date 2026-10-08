@@ -139,6 +139,27 @@ func (c *Client) doStream(ctx context.Context, method, path string, body any) (i
 // "application/x-ndjson" opts the stream endpoints into interleaved NDJSON
 // progress framing; an empty accept leaves the default raw octet-stream body.
 func (c *Client) doStreamWithAccept(ctx context.Context, method, path string, body any, accept string) (io.ReadCloser, error) {
+	header := http.Header{}
+	if accept != "" {
+		header.Set("Accept", accept)
+	}
+	resp, err := c.openStream(ctx, method, path, body, header)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		defer resp.Body.Close()
+		respBytes, _ := io.ReadAll(resp.Body)
+		return nil, errorFromBody(resp.StatusCode, respBytes)
+	}
+
+	return resp.Body, nil
+}
+
+// openStream issues a request with the given extra headers and returns the
+// response, whatever its status, with the body still open for the caller.
+func (c *Client) openStream(ctx context.Context, method, path string, body any, header http.Header) (*http.Response, error) {
 	var reqBody io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -155,22 +176,53 @@ func (c *Client) doStreamWithAccept(ctx context.Context, method, path string, bo
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if accept != "" {
-		req.Header.Set("Accept", accept)
+	for name, values := range header {
+		req.Header[name] = values
 	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("http request: %w", err)
 	}
+	return resp, nil
+}
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		defer resp.Body.Close()
-		respBytes, _ := io.ReadAll(resp.Body)
-		return nil, errorFromBody(resp.StatusCode, respBytes)
+// doRangeStream issues a streaming request with a Range header and returns the
+// 206 body as a RangeReader. A 416 becomes a *RangeNotSatisfiableError carrying
+// the object size; a 200 means the daemon ignored the range.
+func (c *Client) doRangeStream(ctx context.Context, method, path string, body any, offset, length int64) (*RangeReader, error) {
+	value, err := rangeHeader(offset, length)
+	if err != nil {
+		return nil, err
+	}
+	header := http.Header{}
+	header.Set("Range", value)
+	resp, err := c.openStream(ctx, method, path, body, header)
+	if err != nil {
+		return nil, err
 	}
 
-	return resp.Body, nil
+	switch {
+	case resp.StatusCode == http.StatusPartialContent:
+		r, err := parseContentRange(resp.Header.Get("Content-Range"))
+		if err != nil {
+			resp.Body.Close()
+			return nil, err
+		}
+		r.ReadCloser = resp.Body
+		return r, nil
+	case resp.StatusCode >= 200 && resp.StatusCode < 300:
+		resp.Body.Close()
+		return nil, errNoRangeSupport
+	default:
+		defer resp.Body.Close()
+		respBytes, _ := io.ReadAll(resp.Body)
+		err := errorFromBody(resp.StatusCode, respBytes)
+		if rerr, ok := err.(*RangeNotSatisfiableError); ok {
+			rerr.Size = unsatisfiedSize(resp.Header.Get("Content-Range"))
+		}
+		return nil, err
+	}
 }
 
 func str(m map[string]any, key string) string {
@@ -313,6 +365,24 @@ func (c *Client) DataStream(ctx context.Context, dataMap string) (io.ReadCloser,
 // to DataGetPublic. The caller reads the returned stream and MUST Close it.
 func (c *Client) DataStreamPublic(ctx context.Context, address string) (io.ReadCloser, error) {
 	return c.doStream(ctx, http.MethodGet, "/v1/data/public/"+address+"/stream", nil)
+}
+
+// DataStreamRange streams the plaintext bytes [offset, offset+length) of
+// private data from a caller-held DataMap (hex), fetching only the chunks that
+// overlap them. Pass RangeToEnd as length to read to the end; a length past
+// the end is clamped. An offset at or past the end is a
+// *RangeNotSatisfiableError. The caller reads the returned stream and MUST
+// Close it.
+func (c *Client) DataStreamRange(ctx context.Context, dataMap string, offset, length int64) (*RangeReader, error) {
+	return c.doRangeStream(ctx, http.MethodPost, "/v1/data/stream", map[string]any{
+		"data_map": dataMap,
+	}, offset, length)
+}
+
+// DataStreamPublicRange streams a byte range of public data by address — the
+// public counterpart to DataStreamRange, with the same semantics.
+func (c *Client) DataStreamPublicRange(ctx context.Context, address string, offset, length int64) (*RangeReader, error) {
+	return c.doRangeStream(ctx, http.MethodGet, "/v1/data/public/"+address+"/stream", nil, offset, length)
 }
 
 // ndjsonContentType opts the stream endpoints into NDJSON progress framing.

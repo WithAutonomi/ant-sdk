@@ -376,6 +376,101 @@ async fn data_chunk_stream_response(
     Ok(response)
 }
 
+/// gRPC frame size for a ranged stream. Range windows can be ~32 MiB, which is
+/// over the 4 MiB default receive limit of most gRPC clients, so each window is
+/// split into frames of this size.
+const RANGE_FRAME_BYTES: usize = 1024 * 1024;
+
+/// Build the gRPC server-streaming response for a byte-range download
+/// (V2-1425): the `offset` / `length` fields of `StreamDataRequest` /
+/// `StreamPublicDataRequest`. Like [`data_chunk_stream_response`] it resolves a
+/// shrunk map before the stream opens and ends the stream with a terminal
+/// `Status` on failure. `x-content-length` is the range's byte count, and
+/// `x-content-range` (`bytes first-last/size`) carries the object size.
+#[allow(clippy::result_large_err)]
+async fn data_chunk_range_response(
+    client: Arc<ant_core::data::Client>,
+    data_map: ant_core::data::DataMap,
+    offset: Option<u64>,
+    length: Option<u64>,
+) -> Result<Response<tokio_stream::wrappers::ReceiverStream<Result<pb::DataChunk, Status>>>, Status>
+{
+    let data_map = crate::datamap::resolve_root_data_map(&client, data_map)
+        .await
+        .map_err(|e| Status::from(AntdError::from_core(e)))?;
+    let size = data_map.original_file_size() as u64;
+    let range = crate::range::range_from_offset(offset.unwrap_or(0), length, size).map_err(
+        |e| match e {
+            crate::range::RangeError::Invalid(msg) => Status::invalid_argument(msg),
+            crate::range::RangeError::Unsatisfiable => {
+                Status::from(AntdError::RangeNotSatisfiable { size })
+            }
+        },
+    )?;
+
+    let mut byte_rx = crate::range::spawn_range_stream(client, data_map, range);
+    let (out_tx, out_rx) = tokio::sync::mpsc::channel::<Result<pb::DataChunk, Status>>(16);
+    tokio::spawn(async move {
+        while let Some(item) = byte_rx.recv().await {
+            match item {
+                Ok(mut bytes) => {
+                    while !bytes.is_empty() {
+                        let frame = bytes.split_to(bytes.len().min(RANGE_FRAME_BYTES));
+                        let chunk = pb::DataChunk {
+                            kind: Some(pb::data_chunk::Kind::Data(frame.to_vec())),
+                        };
+                        if out_tx.send(Ok(chunk)).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = out_tx
+                        .send(Err(Status::from(AntdError::from_core(e))))
+                        .await;
+                    return;
+                }
+            }
+        }
+    });
+
+    let mut response = Response::new(tokio_stream::wrappers::ReceiverStream::new(out_rx));
+    let metadata = response.metadata_mut();
+    metadata.insert(
+        "x-content-length",
+        range
+            .len()
+            .to_string()
+            .parse()
+            .expect("decimal digits are a valid ascii metadata value"),
+    );
+    metadata.insert(
+        "x-content-range",
+        range
+            .content_range(size)
+            .parse()
+            .expect("a byte-range string is a valid ascii metadata value"),
+    );
+    Ok(response)
+}
+
+/// Whether a stream request asked for a byte range, rejecting a range combined
+/// with `include_progress` (ranged streams carry data frames only).
+#[allow(clippy::result_large_err)]
+fn wants_range(
+    offset: Option<u64>,
+    length: Option<u64>,
+    include_progress: bool,
+) -> Result<bool, Status> {
+    let ranged = offset.is_some() || length.is_some();
+    if ranged && include_progress {
+        return Err(Status::invalid_argument(
+            "offset/length cannot be combined with include_progress",
+        ));
+    }
+    Ok(ranged)
+}
+
 #[tonic::async_trait]
 impl pb::data_service_server::DataService for DataServiceImpl {
     async fn get_public(
@@ -487,6 +582,9 @@ impl pb::data_service_server::DataService for DataServiceImpl {
             .map_err(|e| Status::invalid_argument(format!("invalid data map: {e}")))?;
 
         let client = self.state.client.clone();
+        if wants_range(req.offset, req.length, include_progress)? {
+            return data_chunk_range_response(client, data_map, req.offset, req.length).await;
+        }
         data_chunk_stream_response(client, data_map, include_progress).await
     }
 
@@ -497,6 +595,7 @@ impl pb::data_service_server::DataService for DataServiceImpl {
     ) -> Result<Response<Self::StreamPublicStream>, Status> {
         let req = request.into_inner();
         let include_progress = req.include_progress;
+        let ranged = wants_range(req.offset, req.length, include_progress)?;
         let addr = req.address;
         if addr.len() != 64 {
             return Err(Status::invalid_argument(
@@ -519,6 +618,9 @@ impl pb::data_service_server::DataService for DataServiceImpl {
             .map_err(AntdError::from_core)
             .map_err(tonic::Status::from)?;
 
+        if ranged {
+            return data_chunk_range_response(client, data_map, req.offset, req.length).await;
+        }
         data_chunk_stream_response(client, data_map, include_progress).await
     }
 

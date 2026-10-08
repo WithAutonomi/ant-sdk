@@ -266,6 +266,7 @@ impl GrpcClient {
             .stream(proto::antd::v1::StreamDataRequest {
                 data_map: data_map.to_string(),
                 include_progress: false,
+                ..Default::default()
             })
             .await?
             .into_inner();
@@ -289,6 +290,7 @@ impl GrpcClient {
             .stream_public(proto::antd::v1::StreamPublicDataRequest {
                 address: address.to_string(),
                 include_progress: false,
+                ..Default::default()
             })
             .await?
             .into_inner();
@@ -316,6 +318,7 @@ impl GrpcClient {
             .stream(proto::antd::v1::StreamDataRequest {
                 data_map: data_map.to_string(),
                 include_progress: true,
+                ..Default::default()
             })
             .await?;
 
@@ -340,6 +343,7 @@ impl GrpcClient {
             .stream_public(proto::antd::v1::StreamPublicDataRequest {
                 address: address.to_string(),
                 include_progress: true,
+                ..Default::default()
             })
             .await?;
 
