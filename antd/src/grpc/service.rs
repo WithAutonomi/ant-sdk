@@ -10,8 +10,10 @@ use crate::types::{
     adjust_for_public_upload, format_payment_mode, parse_payment_mode, parse_visibility,
 };
 
-// Generated protobuf modules
-#[allow(dead_code)]
+// Generated protobuf modules. tonic's server traits go through async-trait,
+// which before 0.1.92 marks every method #[must_use] although the boxed
+// future it returns already is: clippy::double_must_use on rustc >= 1.99.
+#[allow(dead_code, clippy::double_must_use)]
 pub mod pb {
     tonic::include_proto!("antd.v1");
 }

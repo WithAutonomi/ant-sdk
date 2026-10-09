@@ -10,6 +10,11 @@
 # Override at run time with `-e ANTD_REST_ADDR=127.0.0.1:8082` or by
 # passing `--rest-addr` after the image name.
 #
+# The build context must also hold LICENSE-MIT, LICENSE-APACHE and, per
+# architecture, antd-linux-<arch>.THIRD-PARTY-NOTICES.txt and
+# antd-linux-<arch>.RUST-STD-COPYRIGHT.html (the release workflow stages them);
+# they are installed under /usr/share/doc/antd/.
+#
 # Build manually for local smoke test:
 #   docker buildx build \
 #     --platform linux/amd64,linux/arm64 \
@@ -46,6 +51,11 @@ RUN apt-get update \
 # both files in the build context and selects per-platform automatically.
 COPY antd-${TARGETOS}-${TARGETARCH} /usr/local/bin/antd
 RUN chmod +x /usr/local/bin/antd
+
+# Licences and the third-party notices for this architecture's binary.
+COPY LICENSE-MIT LICENSE-APACHE /usr/share/doc/antd/
+COPY antd-${TARGETOS}-${TARGETARCH}.THIRD-PARTY-NOTICES.txt /usr/share/doc/antd/THIRD-PARTY-NOTICES.txt
+COPY antd-${TARGETOS}-${TARGETARCH}.RUST-STD-COPYRIGHT.html /usr/share/doc/antd/RUST-STD-COPYRIGHT.html
 
 USER antd
 WORKDIR /var/lib/antd

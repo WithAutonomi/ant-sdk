@@ -12,8 +12,11 @@ use crate::models::*;
 /// Generated protobuf types for the antd gRPC API.
 // tonic's generated client methods return Result<_, tonic::Status> (~176
 // bytes), which trips clippy::result_large_err on rustc >= 1.98; the
-// signatures aren't ours to change.
-#[allow(clippy::result_large_err)]
+// signatures aren't ours to change. Its server traits go through
+// async-trait, which before 0.1.92 marks every method #[must_use] although
+// the boxed future it returns already is: clippy::double_must_use on
+// rustc >= 1.99.
+#[allow(clippy::result_large_err, clippy::double_must_use)]
 pub mod proto {
     pub mod antd {
         pub mod v1 {

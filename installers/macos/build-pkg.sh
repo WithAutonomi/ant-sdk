@@ -4,7 +4,12 @@
 # single daemon binary plus a LaunchAgent + postinstall autostart.
 #
 # Usage:
-#   build-pkg.sh --bin <path/to/antd> [--version X.Y.Z] [--arch arm64] [--out <dir>]
+#   build-pkg.sh --bin <path/to/antd> --docs <dir> [--version X.Y.Z] [--arch arm64] [--out <dir>]
+#
+# --docs names a directory holding LICENSE-MIT, LICENSE-APACHE,
+# THIRD-PARTY-NOTICES.txt and RUST-STD-COPYRIGHT.html for the packaged binary
+# (the release workflow stages them); they are installed under
+# /usr/local/share/doc/antd/.
 #
 # Signing/notarization (skipped with a warning if unset — unless
 # ANTD_REQUIRE_SIGNING=1, in which case a missing step is fatal; release CI sets
@@ -31,6 +36,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 . "$SCRIPT_DIR/../common/metadata.env"
 
 BIN_SRC=""
+DOCS_DIR=""
 VERSION=""
 ARCH="arm64"                 # matches the release matrix (aarch64-apple-darwin)
 OUT_DIR="$SCRIPT_DIR/dist"
@@ -39,10 +45,11 @@ IDENTIFIER="com.autonomi.antd"
 while [ $# -gt 0 ]; do
     case "$1" in
         --bin)     BIN_SRC="$2"; shift 2 ;;
+        --docs)    DOCS_DIR="$2"; shift 2 ;;
         --version) VERSION="$2"; shift 2 ;;
         --arch)    ARCH="$2"; shift 2 ;;
         --out)     OUT_DIR="$2"; shift 2 ;;
-        -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
         *) echo "unknown arg: $1" >&2; exit 2 ;;
     esac
 done
@@ -52,6 +59,12 @@ if [ -z "$VERSION" ]; then
 fi
 [ -n "$BIN_SRC" ] && [ -f "$BIN_SRC" ] || { echo "antd binary not found (pass --bin)" >&2; exit 1; }
 
+# The package must carry the licences and notices for the binary it installs.
+[ -n "$DOCS_DIR" ] || { echo "pass --docs <dir> with the licence files and notices" >&2; exit 1; }
+for doc in LICENSE-MIT LICENSE-APACHE THIRD-PARTY-NOTICES.txt RUST-STD-COPYRIGHT.html; do
+    [ -f "$DOCS_DIR/$doc" ] || { echo "missing $DOCS_DIR/$doc" >&2; exit 1; }
+done
+
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$OUT_DIR"
@@ -59,7 +72,11 @@ mkdir -p "$OUT_DIR"
 # 1) Assemble the payload root.
 mkdir -p "$WORK/pkg-root/usr/local/bin"
 mkdir -p "$WORK/pkg-root/Library/LaunchAgents"
+mkdir -p "$WORK/pkg-root/usr/local/share/doc/antd"
 install -m 0755 "$BIN_SRC" "$WORK/pkg-root$ANTD_MACOS_BIN"
+for doc in LICENSE-MIT LICENSE-APACHE THIRD-PARTY-NOTICES.txt RUST-STD-COPYRIGHT.html; do
+    install -m 0644 "$DOCS_DIR/$doc" "$WORK/pkg-root/usr/local/share/doc/antd/$doc"
+done
 install -m 0644 "$SCRIPT_DIR/com.autonomi.antd.plist" "$WORK/pkg-root/Library/LaunchAgents/com.autonomi.antd.plist"
 
 # Scripts dir for pkgbuild (postinstall must be named exactly "postinstall").

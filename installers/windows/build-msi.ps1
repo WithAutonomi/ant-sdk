@@ -18,7 +18,10 @@
   ever contains the .msi.
 
 .PARAMETER BinDir
-  Directory containing the built antd.exe (passed to WiX as ArtifactsDir).
+  Directory containing the built antd.exe plus LICENSE-MIT, LICENSE-APACHE,
+  THIRD-PARTY-NOTICES.txt and RUST-STD-COPYRIGHT.html for that binary (passed
+  to WiX as ArtifactsDir). The MSI installs all five; WiX fails if one is
+  missing.
 
 .PARAMETER Version
   Product version (X.Y.Z). Defaults to the version in antd/Cargo.toml.

@@ -54,17 +54,30 @@ installers/
 **Linux** (needs Go for nfpm; produces both packages):
 ```sh
 go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
-installers/linux/build-deb-rpm.sh --bin path/to/antd --version 0.10.0 --out dist
+installers/linux/build-deb-rpm.sh --bin path/to/antd --docs path/to/docs --version 0.10.0 --out dist
 ```
 
 **macOS** (on macOS; signing/notarization skipped if the env vars below are unset):
 ```sh
-installers/macos/build-pkg.sh --bin path/to/antd --version 0.10.0 --out dist
+installers/macos/build-pkg.sh --bin path/to/antd --docs path/to/docs --version 0.10.0 --out dist
 ```
 
 **Windows** (on Windows; .NET SDK; signing skipped if smctl/SM_KEYPAIR_ALIAS absent; no `.wixpdb` is emitted):
 ```powershell
 installers\windows\build-msi.ps1 -BinDir path\to\dir-with-antd.exe -Version 0.10.0 -OutDir dist
+```
+
+Every package installs antd's licence files and the third-party notices for
+the binary it contains. `--docs` (and, on Windows, `-BinDir`) must hold
+`LICENSE-MIT`, `LICENSE-APACHE`, `THIRD-PARTY-NOTICES.txt` and
+`RUST-STD-COPYRIGHT.html`; the builds fail without them. Generate the notices
+for the binary's target with:
+```sh
+python3 scripts/third_party_notices/generate.py --manifest-path antd/Cargo.toml \
+  --package antd --config scripts/third_party_notices/config.toml \
+  --target x86_64-unknown-linux-gnu --output path/to/docs/THIRD-PARTY-NOTICES.txt
+cp "$(rustc --print sysroot)/share/doc/rust/COPYRIGHT-library.html" path/to/docs/RUST-STD-COPYRIGHT.html
+cp LICENSE-MIT LICENSE-APACHE path/to/docs/
 ```
 
 The generic Linux script is self-contained — end users just run it:

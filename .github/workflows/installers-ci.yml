@@ -77,17 +77,20 @@ jobs:
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
           sudo apt-get update -q && sudo apt-get install -y -q rpm
 
-      - name: Stub binary
+      - name: Stub binary and documents
         run: |
-          mkdir -p bin
+          mkdir -p bin docs
           printf '#!/bin/sh\necho "antd stub %s"\n' "$CI_VERSION" > bin/antd
           chmod +x bin/antd
+          cp LICENSE-MIT LICENSE-APACHE docs/
+          echo "stub notices" > docs/THIRD-PARTY-NOTICES.txt
+          echo "stub rust std notices" > docs/RUST-STD-COPYRIGHT.html
 
       - name: Build
         run: |
           gopath_bin="$(go env GOPATH)/bin"
           export PATH="$gopath_bin:$PATH"
-          ./installers/linux/build-deb-rpm.sh --bin "$PWD/bin/antd" --version "$CI_VERSION" --out "$PWD/out"
+          ./installers/linux/build-deb-rpm.sh --bin "$PWD/bin/antd" --docs "$PWD/docs" --version "$CI_VERSION" --out "$PWD/out"
           ls -la out
 
       - name: Assert .deb
@@ -101,6 +104,9 @@ jobs:
           dpkg-deb --contents "$deb" | tee /tmp/deb-files.txt
           grep -q ' ./usr/bin/antd$' /tmp/deb-files.txt
           grep -q ' ./usr/lib/systemd/user/antd.service$' /tmp/deb-files.txt
+          for doc in LICENSE-MIT LICENSE-APACHE THIRD-PARTY-NOTICES.txt RUST-STD-COPYRIGHT.html; do
+            grep -q " ./usr/share/doc/antd/$doc$" /tmp/deb-files.txt || { echo "deb lacks $doc" >&2; exit 1; }
+          done
           # Maintainer scripts must be present and executable.
           dpkg-deb --ctrl-tarfile "$deb" | tar -tv | tee /tmp/deb-ctrl.txt
           for s in postinst prerm postrm; do grep -qE "^-rwxr-xr-x .* \./$s$" /tmp/deb-ctrl.txt || { echo "missing/non-exec $s" >&2; exit 1; }; done
@@ -117,6 +123,9 @@ jobs:
           rpm -qpl "$rpm" | tee /tmp/rpm-files.txt
           grep -qx '/usr/bin/antd' /tmp/rpm-files.txt
           grep -qx '/usr/lib/systemd/user/antd.service' /tmp/rpm-files.txt
+          for doc in LICENSE-MIT LICENSE-APACHE THIRD-PARTY-NOTICES.txt RUST-STD-COPYRIGHT.html; do
+            grep -qx "/usr/share/doc/antd/$doc" /tmp/rpm-files.txt || { echo "rpm lacks $doc" >&2; exit 1; }
+          done
           rpm -qp --scripts "$rpm" | grep -q 'systemctl' || { echo "rpm scriptlets missing" >&2; exit 1; }
           echo "rpm OK"
 
@@ -129,15 +138,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Stub binary
+      - name: Stub binary and documents
         run: |
-          mkdir -p bin
+          mkdir -p bin docs
           printf '#!/bin/sh\necho "antd stub %s"\n' "$CI_VERSION" > bin/antd
           chmod +x bin/antd
+          cp LICENSE-MIT LICENSE-APACHE docs/
+          echo "stub notices" > docs/THIRD-PARTY-NOTICES.txt
+          echo "stub rust std notices" > docs/RUST-STD-COPYRIGHT.html
 
       - name: Build (no signing env -> warns, continues)
         run: |
-          ./installers/macos/build-pkg.sh --bin "$PWD/bin/antd" --version "$CI_VERSION" --arch arm64 --out "$PWD/out" 2> >(tee /tmp/build.err >&2)
+          ./installers/macos/build-pkg.sh --bin "$PWD/bin/antd" --docs "$PWD/docs" --version "$CI_VERSION" --arch arm64 --out "$PWD/out" 2> >(tee /tmp/build.err >&2)
           grep -c 'WARNING:' /tmp/build.err
           ls -la out
 
@@ -158,6 +170,9 @@ jobs:
           grep -q 'identifier="com.autonomi.antd"' "$comp/PackageInfo"
           test -x "$comp/Payload/usr/local/bin/antd"
           test -f "$comp/Payload/Library/LaunchAgents/com.autonomi.antd.plist"
+          for doc in LICENSE-MIT LICENSE-APACHE THIRD-PARTY-NOTICES.txt RUST-STD-COPYRIGHT.html; do
+            test -f "$comp/Payload/usr/local/share/doc/antd/$doc" || { echo "pkg lacks $doc" >&2; exit 1; }
+          done
           test -x "$comp/Scripts/postinstall"
           plutil -lint "$comp/Payload/Library/LaunchAgents/com.autonomi.antd.plist"
           echo "pkg OK"
@@ -169,7 +184,7 @@ jobs:
           ANTD_REQUIRE_SIGNING: "1"
         run: |
           set +e
-          ./installers/macos/build-pkg.sh --bin "$PWD/bin/antd" --version "$CI_VERSION" --arch arm64 --out "$PWD/out-neg" > /tmp/neg.log 2>&1
+          ./installers/macos/build-pkg.sh --bin "$PWD/bin/antd" --docs "$PWD/docs" --version "$CI_VERSION" --arch arm64 --out "$PWD/out-neg" > /tmp/neg.log 2>&1
           rc=$?
           set -e
           cat /tmp/neg.log
@@ -184,11 +199,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Stub binary (a real PE so WiX is happy)
+      - name: Stub binary (a real PE so WiX is happy) and documents
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path msibin | Out-Null
           Copy-Item "$env:SystemRoot\System32\whoami.exe" msibin\antd.exe
+          Copy-Item LICENSE-MIT, LICENSE-APACHE msibin\
+          Set-Content -Path msibin\THIRD-PARTY-NOTICES.txt -Value "stub notices"
+          Set-Content -Path msibin\RUST-STD-COPYRIGHT.html -Value "stub rust std notices"
 
       - name: Build (no smctl -> warns, continues)
         shell: pwsh
@@ -227,6 +245,11 @@ jobs:
           Write-Host "files: $exe, $vbs"
           if ($exe -notmatch 'antd\.exe') { throw "antd.exe missing from File table ($exe)" }
           if ($vbs -notmatch 'antd-launch\.vbs') { throw "antd-launch.vbs missing from File table ($vbs)" }
+          foreach ($id in 'AntdLicenseMitFile', 'AntdLicenseApacheFile', 'AntdThirdPartyNoticesFile', 'AntdRustStdCopyrightFile') {
+            $f = Query "SELECT FileName FROM File WHERE File='$id'"
+            if ([string]::IsNullOrWhiteSpace($f)) { throw "$id missing from File table" }
+            Write-Host "doc file: $f"
+          }
           $run = Query "SELECT Value FROM Registry WHERE Name='Autonomi antd' AND Root=2"
           Write-Host "Run value: $run"
           if ($run -notmatch 'antd-launch\.vbs') { throw "HKLM Run autostart value missing" }
