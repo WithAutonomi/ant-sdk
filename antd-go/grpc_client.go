@@ -168,6 +168,9 @@ func errorFromGrpc(err error) error {
 	case codes.ResourceExhausted:
 		base.StatusCode = 413
 		return &TooLargeError{base}
+	case codes.OutOfRange:
+		base.StatusCode = 416
+		return &RangeNotSatisfiableError{AntdError: base, Size: -1}
 	case codes.Internal:
 		base.StatusCode = 500
 		return &InternalError{base}
@@ -359,6 +362,87 @@ func (c *GrpcClient) DataStreamPublic(ctx context.Context, address string) (io.R
 		return nil, errorFromGrpc(err)
 	}
 	return &grpcChunkReader{stream: stream, cancel: cancel}, nil
+}
+
+// DataStreamRange streams the plaintext bytes [offset, offset+length) of
+// private data from a caller-held DataMap (hex), fetching only the chunks that
+// overlap them — the gRPC mirror of the REST client's DataStreamRange. Pass
+// RangeToEnd as length to read to the end; a length past the end is clamped.
+// An offset at or past the end is a *RangeNotSatisfiableError. The caller
+// MUST Close the returned reader (Close cancels the RPC).
+func (c *GrpcClient) DataStreamRange(ctx context.Context, dataMap string, offset, length int64) (*RangeReader, error) {
+	if err := checkRange(offset, length); err != nil {
+		return nil, err
+	}
+	req := &pb.StreamDataRequest{DataMap: dataMap}
+	req.Offset, req.Length = grpcRange(offset, length)
+	ctx, cancel := c.ctx(ctx)
+	stream, err := c.data.Stream(ctx, req)
+	if err != nil {
+		cancel()
+		return nil, errorFromGrpc(err)
+	}
+	return openGrpcRange(stream, cancel)
+}
+
+// DataStreamPublicRange streams a byte range of public data by address — the
+// public counterpart to DataStreamRange, with the same semantics.
+func (c *GrpcClient) DataStreamPublicRange(ctx context.Context, address string, offset, length int64) (*RangeReader, error) {
+	if err := checkRange(offset, length); err != nil {
+		return nil, err
+	}
+	req := &pb.StreamPublicDataRequest{Address: address}
+	req.Offset, req.Length = grpcRange(offset, length)
+	ctx, cancel := c.ctx(ctx)
+	stream, err := c.data.StreamPublic(ctx, req)
+	if err != nil {
+		cancel()
+		return nil, errorFromGrpc(err)
+	}
+	return openGrpcRange(stream, cancel)
+}
+
+// grpcRange converts a validated offset/length into the request's optional
+// fields; RangeToEnd leaves length unset.
+func grpcRange(offset, length int64) (*uint64, *uint64) {
+	o := uint64(offset)
+	if length == RangeToEnd {
+		return &o, nil
+	}
+	l := uint64(length)
+	return &o, &l
+}
+
+// openGrpcRange waits for a ranged stream's response headers and reads the
+// range from x-content-range. A stream that failed before sending headers
+// (e.g. OUT_OF_RANGE) surfaces its status here rather than on the first Read.
+// A daemon that predates range support ignores the fields and streams the whole
+// object without x-content-range, which is reported as an error rather than
+// passed off as the range.
+func openGrpcRange(stream dataChunkStream, cancel context.CancelFunc) (*RangeReader, error) {
+	md, err := stream.Header()
+	if err != nil {
+		cancel()
+		return nil, errorFromGrpc(err)
+	}
+	values := md.Get("x-content-range")
+	if len(values) == 0 {
+		// No x-content-range: either the RPC ended trailers-only (its status
+		// comes from Recv) or an old daemon is streaming the whole object.
+		_, err := stream.Recv()
+		cancel()
+		if err != nil && err != io.EOF {
+			return nil, errorFromGrpc(err)
+		}
+		return nil, errNoRangeSupport
+	}
+	r, err := parseContentRange(values[0])
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	r.ReadCloser = &grpcChunkReader{stream: stream, cancel: cancel}
+	return r, nil
 }
 
 // DownloadStream is a progress-enabled streaming download: a sequence of

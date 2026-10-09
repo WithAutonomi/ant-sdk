@@ -452,6 +452,18 @@ pub struct StreamPublicDataRequest {
     /// pure data-frame stream, byte-identical to the pre-progress behaviour.
     #[prost(bool, tag = "2")]
     pub include_progress: bool,
+    /// Byte-range download. Setting either field streams only the plaintext bytes
+    /// [offset, offset + length) instead of the whole object, fetching just the
+    /// chunks that overlap them. `offset` defaults to 0 and an absent `length`
+    /// reads to the end; a `length` past the end is clamped. `length` 0 is
+    /// INVALID_ARGUMENT, and an `offset` at or past the end is OUT_OF_RANGE. A
+    /// ranged stream's `x-content-length` metadata is the range's byte count, and
+    /// it adds `x-content-range` (`bytes first-last/size`, `last` inclusive).
+    /// Cannot be combined with include_progress (INVALID_ARGUMENT).
+    #[prost(uint64, optional, tag = "3")]
+    pub offset: ::core::option::Option<u64>,
+    #[prost(uint64, optional, tag = "4")]
+    pub length: ::core::option::Option<u64>,
 }
 /// A single frame of a streaming download. Exactly one of `data` (a decrypted
 /// plaintext chunk) or `progress` (a fetch-progress update) is set per frame.
@@ -507,6 +519,11 @@ pub struct StreamDataRequest {
     /// See StreamPublicDataRequest.include_progress. Defaults to false.
     #[prost(bool, tag = "2")]
     pub include_progress: bool,
+    /// Byte range: see StreamPublicDataRequest.offset / length.
+    #[prost(uint64, optional, tag = "3")]
+    pub offset: ::core::option::Option<u64>,
+    #[prost(uint64, optional, tag = "4")]
+    pub length: ::core::option::Option<u64>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetDataResponse {

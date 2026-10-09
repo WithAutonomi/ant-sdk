@@ -49,6 +49,15 @@ type NetworkError struct{ AntdError }
 // dependency such as a wallet (HTTP 503).
 type ServiceUnavailableError struct{ AntdError }
 
+// RangeNotSatisfiableError indicates a byte-range download that starts at or
+// past the end of the object (HTTP 416; gRPC OUT_OF_RANGE). Size is the
+// object's plaintext size when the daemon reported it (REST, from the 416's
+// Content-Range), or -1 when unknown (gRPC).
+type RangeNotSatisfiableError struct {
+	AntdError
+	Size int64
+}
+
 // PartialUploadError indicates a finalize stored some chunks while others
 // remained unstored after the daemon's retries (HTTP 502 with code
 // PARTIAL_UPLOAD; gRPC ABORTED). The on-chain payment persists and the
@@ -287,6 +296,8 @@ func errorForStatus(statusCode int, message string) error {
 		return &AlreadyExistsError{base}
 	case 413:
 		return &TooLargeError{base}
+	case 416:
+		return &RangeNotSatisfiableError{AntdError: base, Size: -1}
 	case 500:
 		return &InternalError{base}
 	case 502:
