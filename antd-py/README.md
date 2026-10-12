@@ -58,6 +58,15 @@ status = await aclient.health()
 await aclient.close()
 ```
 
+The gRPC stubs in `src/antd/_proto/` are generated from `antd/proto` and
+committed. After changing the protos, regenerate them and commit the result
+(CI fails when they drift):
+
+```bash
+pip install grpcio-tools==1.80.0   # the version the script pins
+python scripts/generate_proto.py
+```
+
 ## API Reference
 
 ### Factory Functions
