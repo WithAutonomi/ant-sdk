@@ -8,6 +8,62 @@ use crate::models::{PaymentMode, PrepareOptions, VerifyQuoteEntry};
 
 // --- Mock service implementations ---
 
+type MockChunkStream = tokio_stream::wrappers::ReceiverStream<Result<v1::DataChunk, Status>>;
+
+/// Answers a ranged stream request like the daemon: `x-content-range` metadata
+/// and only the requested bytes, one byte per frame, or `OUT_OF_RANGE` past the
+/// end with the size in `x-content-range`. `None` when the request isn't
+/// ranged. The key "legacy" ignores the range, like a daemon without range
+/// support; "old-daemon" sends `OUT_OF_RANGE` without the size.
+// Returns tonic's Status, as the service methods it stands in for do.
+#[allow(clippy::result_large_err)]
+fn mock_range_response(
+    payload: &'static str,
+    key: &str,
+    offset: Option<u64>,
+    length: Option<u64>,
+) -> Result<Option<Response<MockChunkStream>>, Status> {
+    if (offset.is_none() && length.is_none()) || key == "legacy" {
+        return Ok(None);
+    }
+    let size = payload.len() as u64;
+    let start = offset.unwrap_or(0);
+    if start >= size {
+        let mut status =
+            Status::out_of_range(format!("Range not satisfiable: the object is {size} bytes"));
+        if key != "old-daemon" {
+            status.metadata_mut().insert(
+                "x-content-range",
+                format!("bytes */{size}").parse().unwrap(),
+            );
+        }
+        return Err(status);
+    }
+    let end = length.map_or(size, |l| (start + l).min(size));
+    let (tx, rx) = tokio::sync::mpsc::channel(4);
+    tokio::spawn(async move {
+        for &byte in &payload.as_bytes()[start as usize..end as usize] {
+            let chunk = v1::DataChunk {
+                kind: Some(v1::data_chunk::Kind::Data(vec![byte])),
+            };
+            if tx.send(Ok(chunk)).await.is_err() {
+                return;
+            }
+        }
+    });
+    let mut response = Response::new(tokio_stream::wrappers::ReceiverStream::new(rx));
+    let metadata = response.metadata_mut();
+    metadata.insert(
+        "x-content-length",
+        (end - start).to_string().parse().unwrap(),
+    );
+    metadata.insert(
+        "x-content-range",
+        format!("bytes {start}-{}/{size}", end - 1).parse().unwrap(),
+    );
+    Ok(Some(response))
+}
+
 /// The daemon's shape for one signed wave-batch quote when the request set
 /// `include_signed_quotes`: raw msgpack bytes on the wire ("opaque" / "side"
 /// stand in), which the client must base64-encode into the shared model.
@@ -179,8 +235,13 @@ impl v1::data_service_server::DataService for MockDataService {
 
     async fn stream_public(
         &self,
-        _request: Request<v1::StreamPublicDataRequest>,
+        request: Request<v1::StreamPublicDataRequest>,
     ) -> Result<Response<Self::StreamPublicStream>, Status> {
+        let req = request.into_inner();
+        if let Some(response) = mock_range_response("hello", &req.address, req.offset, req.length)?
+        {
+            return Ok(response);
+        }
         // Emit the payload as two chunks so the client's chunk-by-chunk
         // consumption is exercised, not just a single message.
         let (tx, rx) = tokio::sync::mpsc::channel(2);
@@ -204,7 +265,13 @@ impl v1::data_service_server::DataService for MockDataService {
         &self,
         request: Request<v1::StreamDataRequest>,
     ) -> Result<Response<Self::StreamStream>, Status> {
-        let include_progress = request.into_inner().include_progress;
+        let req = request.into_inner();
+        if let Some(response) =
+            mock_range_response("secret", &req.data_map, req.offset, req.length)?
+        {
+            return Ok(response);
+        }
+        let include_progress = req.include_progress;
         let (tx, rx) = tokio::sync::mpsc::channel(4);
         tokio::spawn(async move {
             // When progress is requested, interleave a fetch-progress frame so
@@ -1627,4 +1694,73 @@ async fn test_wallet_address_unconfigured_returns_failed_precondition() {
         }
         other => panic!("expected AntdError::Grpc, got: {other:?}"),
     }
+}
+
+// --- Byte-range downloads ---
+
+async fn collect_range(mut range: crate::RangeStream) -> Result<Vec<u8>, AntdError> {
+    use tokio_stream::StreamExt;
+    let mut out = Vec::new();
+    while let Some(chunk) = range.next().await {
+        out.extend_from_slice(&chunk?);
+    }
+    Ok(out)
+}
+
+#[tokio::test]
+async fn test_grpc_data_stream_range() {
+    let client = start_mock_server().await;
+    let range = client.data_stream_range("dm123", 1, Some(3)).await.unwrap();
+    assert_eq!((range.offset, range.length, range.size), (1, 3, 6));
+    assert_eq!(collect_range(range).await.unwrap(), b"ecr");
+
+    // Public, to the end; a length past the end is clamped by the daemon.
+    let range = client
+        .data_stream_public_range("abc123", 3, None)
+        .await
+        .unwrap();
+    assert_eq!((range.offset, range.length, range.size), (3, 2, 5));
+    assert_eq!(collect_range(range).await.unwrap(), b"lo");
+    let range = client
+        .data_stream_public_range("abc123", 4, Some(100))
+        .await
+        .unwrap();
+    assert_eq!((range.length, range.size), (1, 5));
+    assert_eq!(collect_range(range).await.unwrap(), b"o");
+}
+
+#[tokio::test]
+async fn test_grpc_data_stream_range_out_of_range() {
+    let client = start_mock_server().await;
+    match client.data_stream_range("dm123", 6, None).await {
+        Err(AntdError::RangeNotSatisfiable { size, .. }) => assert_eq!(size, Some(6)),
+        other => panic!("expected RangeNotSatisfiable with the size, got {other:?}"),
+    }
+    match client.data_stream_public_range("abc123", 9, Some(1)).await {
+        Err(AntdError::RangeNotSatisfiable { size, .. }) => assert_eq!(size, Some(5)),
+        other => panic!("public: expected RangeNotSatisfiable, got {other:?}"),
+    }
+    // A daemon whose OUT_OF_RANGE carries no size still yields the typed error.
+    match client.data_stream_range("old-daemon", 6, None).await {
+        Err(AntdError::RangeNotSatisfiable { size, .. }) => assert_eq!(size, None),
+        other => panic!("old daemon: expected RangeNotSatisfiable, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_grpc_data_stream_range_rejects_an_ignored_range() {
+    let client = start_mock_server().await;
+    match client.data_stream_range("legacy", 1, Some(3)).await {
+        Err(AntdError::Internal(msg)) => assert!(msg.contains("ignored the byte range"), "{msg}"),
+        other => panic!("expected the ignored-range error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_grpc_data_stream_range_validates_before_sending() {
+    let client = start_mock_server().await;
+    assert!(matches!(
+        client.data_stream_range("dm123", 0, Some(0)).await,
+        Err(AntdError::BadRequest(_))
+    ));
 }

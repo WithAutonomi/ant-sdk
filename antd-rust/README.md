@@ -84,6 +84,8 @@ All methods are `async` and return `Result<T, AntdError>`.
 | `data_put(data, payment_mode)` | Store encrypted private data — returns `DataPutResult` (DataMap returned to caller) |
 | `data_get(data_map)` | Retrieve private data using a caller-held DataMap |
 | `data_cost(data, payment_mode)` | Estimate storage cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
+| `data_stream_range(data_map, offset, length)` | Stream the bytes `[offset, offset + length)` of private data; `length: None` reads to the end. Returns a `RangeStream` (a `Stream` of `Bytes` with `offset`, `length` and the object `size`); the daemon fetches only the chunks the range overlaps |
+| `data_stream_public_range(address, offset, length)` | The same for public data by address |
 
 ### Chunks
 | Method | Description |
@@ -131,7 +133,9 @@ The `GrpcClient` has identical method signatures to the REST `Client`, so switch
 transports requires only changing the constructor. gRPC status codes are surfaced through
 the `Grpc` error variant, except an `ABORTED` whose message starts with `Partial upload:`,
 which is a partial store and maps to `AntdError::PartialUpload`; any other `ABORTED` stays
-the generic `Grpc` error (see [Error Handling](#error-handling)).
+the generic `Grpc` error (see [Error Handling](#error-handling)). Likewise an `OUT_OF_RANGE`
+from a range method is `AntdError::RangeNotSatisfiable`, and stays `Grpc` elsewhere (tonic
+also uses that code for a local message-size error).
 
 `GrpcClient::connect` decodes responses up to `DEFAULT_MAX_RECV_MESSAGE_BYTES` (32 MiB,
 sized so a full wave-batch prepare with `include_signed_quotes` fits; tonic's own 4 MiB
@@ -167,6 +171,7 @@ match client.data_get_public("some_address").await {
 | `Network` | 502 | Network unreachable |
 | `PartialUpload` | 502 (`code: PARTIAL_UPLOAD`) / gRPC `ABORTED` with a `Partial upload:` message | A finalize stored some chunks but not all; carries counts, `retryable` and `retention_known` (new in 0.2.0) |
 | `ServiceUnavailable` | 503 | Wallet not configured |
+| `RangeNotSatisfiable` | 416 / gRPC `OUT_OF_RANGE` from a range method | A byte range starts at or past the end of the object; `size` carries the object size when the daemon reports it |
 | `Http` | - | REST transport error |
 | `Json` | - | Serialization error |
 | `Grpc` | - | gRPC transport/status error |
