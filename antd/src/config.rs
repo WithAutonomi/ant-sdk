@@ -91,7 +91,23 @@ pub struct Config {
     /// reduce outbound bandwidth pressure on slow connections.
     #[arg(long, env = "ANTD_STORE_CONCURRENCY")]
     pub store_concurrency: Option<usize>,
+
+    /// Number of fetched chunks kept in memory for reuse (an LRU). Each entry
+    /// can hold a full ~4 MiB chunk, so the default of 64 bounds the cache at
+    /// ~256 MiB. Repeat reads of an object's DataMap and neighbouring ranged
+    /// reads hit it. ant-core's own default is 1024 (~4 GiB), which a single
+    /// multi-GB download fills.
+    #[arg(
+        long,
+        env = "ANTD_CHUNK_CACHE_CAPACITY",
+        default_value_t = DEFAULT_CHUNK_CACHE_CAPACITY,
+        value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(1..)
+    )]
+    pub chunk_cache_capacity: usize,
 }
+
+/// Default for `--chunk-cache-capacity`, in chunks.
+pub const DEFAULT_CHUNK_CACHE_CAPACITY: usize = 64;
 
 /// Parsed CORS policy derived from `--cors` / `ANTD_CORS`.
 ///
@@ -288,5 +304,29 @@ mod tests {
         let cfg = Config::parse_from(["antd", "--network", "default", "--ipv4-only"]);
         assert!(cfg.ipv4_only);
         assert_eq!(cfg.network, "default");
+    }
+
+    #[test]
+    fn chunk_cache_capacity_defaults_to_a_bounded_cache() {
+        assert_eq!(
+            Config::parse_from(["antd"]).chunk_cache_capacity,
+            DEFAULT_CHUNK_CACHE_CAPACITY
+        );
+        assert_eq!(
+            Config::parse_from(["antd", "--chunk-cache-capacity", "1024"]).chunk_cache_capacity,
+            1024
+        );
+    }
+
+    #[test]
+    fn chunk_cache_capacity_rejects_zero() {
+        // ant-core's ChunkCache::new(0) silently means its 1024 default, the
+        // opposite of what a caller passing 0 would expect.
+        for value in ["0", "-1", "lots"] {
+            assert!(
+                Config::try_parse_from(["antd", "--chunk-cache-capacity", value]).is_err(),
+                "{value:?}"
+            );
+        }
     }
 }
