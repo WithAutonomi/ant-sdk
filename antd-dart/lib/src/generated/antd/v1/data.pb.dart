@@ -262,10 +262,14 @@ class StreamPublicDataRequest extends $pb.GeneratedMessage {
   factory StreamPublicDataRequest({
     $core.String? address,
     $core.bool? includeProgress,
+    $fixnum.Int64? offset,
+    $fixnum.Int64? length,
   }) {
     final result = create();
     if (address != null) result.address = address;
     if (includeProgress != null) result.includeProgress = includeProgress;
+    if (offset != null) result.offset = offset;
+    if (length != null) result.length = length;
     return result;
   }
 
@@ -277,6 +281,8 @@ class StreamPublicDataRequest extends $pb.GeneratedMessage {
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'StreamPublicDataRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'address')
     ..aOB(2, _omitFieldNames ? '' : 'includeProgress')
+    ..a<$fixnum.Int64>(3, _omitFieldNames ? '' : 'offset', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
+    ..a<$fixnum.Int64>(4, _omitFieldNames ? '' : 'length', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
     ..hasRequiredFields = false
   ;
 
@@ -318,6 +324,32 @@ class StreamPublicDataRequest extends $pb.GeneratedMessage {
   $core.bool hasIncludeProgress() => $_has(1);
   @$pb.TagNumber(2)
   void clearIncludeProgress() => $_clearField(2);
+
+  /// Byte-range download. Setting either field streams only the plaintext bytes
+  /// [offset, offset + length) instead of the whole object, fetching just the
+  /// chunks that overlap them. `offset` defaults to 0 and an absent `length`
+  /// reads to the end; a `length` past the end is clamped. `length` 0 is
+  /// INVALID_ARGUMENT, and an `offset` at or past the end is OUT_OF_RANGE. A
+  /// ranged stream's `x-content-length` metadata is the range's byte count, and
+  /// it adds `x-content-range` (`bytes first-last/size`, `last` inclusive).
+  /// Cannot be combined with include_progress (INVALID_ARGUMENT).
+  @$pb.TagNumber(3)
+  $fixnum.Int64 get offset => $_getI64(2);
+  @$pb.TagNumber(3)
+  set offset($fixnum.Int64 value) => $_setInt64(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasOffset() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearOffset() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $fixnum.Int64 get length => $_getI64(3);
+  @$pb.TagNumber(4)
+  set length($fixnum.Int64 value) => $_setInt64(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasLength() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearLength() => $_clearField(4);
 }
 
 enum DataChunk_Kind {
@@ -531,10 +563,14 @@ class StreamDataRequest extends $pb.GeneratedMessage {
   factory StreamDataRequest({
     $core.String? dataMap,
     $core.bool? includeProgress,
+    $fixnum.Int64? offset,
+    $fixnum.Int64? length,
   }) {
     final result = create();
     if (dataMap != null) result.dataMap = dataMap;
     if (includeProgress != null) result.includeProgress = includeProgress;
+    if (offset != null) result.offset = offset;
+    if (length != null) result.length = length;
     return result;
   }
 
@@ -546,6 +582,8 @@ class StreamDataRequest extends $pb.GeneratedMessage {
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'StreamDataRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'antd.v1'), createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'dataMap')
     ..aOB(2, _omitFieldNames ? '' : 'includeProgress')
+    ..a<$fixnum.Int64>(3, _omitFieldNames ? '' : 'offset', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
+    ..a<$fixnum.Int64>(4, _omitFieldNames ? '' : 'length', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
     ..hasRequiredFields = false
   ;
 
@@ -584,6 +622,25 @@ class StreamDataRequest extends $pb.GeneratedMessage {
   $core.bool hasIncludeProgress() => $_has(1);
   @$pb.TagNumber(2)
   void clearIncludeProgress() => $_clearField(2);
+
+  /// Byte range: see StreamPublicDataRequest.offset / length.
+  @$pb.TagNumber(3)
+  $fixnum.Int64 get offset => $_getI64(2);
+  @$pb.TagNumber(3)
+  set offset($fixnum.Int64 value) => $_setInt64(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasOffset() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearOffset() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $fixnum.Int64 get length => $_getI64(3);
+  @$pb.TagNumber(4)
+  set length($fixnum.Int64 value) => $_setInt64(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasLength() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearLength() => $_clearField(4);
 }
 
 class GetDataResponse extends $pb.GeneratedMessage {

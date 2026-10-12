@@ -75,13 +75,21 @@ const StreamPublicDataRequest$json = {
   '2': [
     {'1': 'address', '3': 1, '4': 1, '5': 9, '10': 'address'},
     {'1': 'include_progress', '3': 2, '4': 1, '5': 8, '10': 'includeProgress'},
+    {'1': 'offset', '3': 3, '4': 1, '5': 4, '9': 0, '10': 'offset', '17': true},
+    {'1': 'length', '3': 4, '4': 1, '5': 4, '9': 1, '10': 'length', '17': true},
+  ],
+  '8': [
+    {'1': '_offset'},
+    {'1': '_length'},
   ],
 };
 
 /// Descriptor for `StreamPublicDataRequest`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List streamPublicDataRequestDescriptor = $convert.base64Decode(
     'ChdTdHJlYW1QdWJsaWNEYXRhUmVxdWVzdBIYCgdhZGRyZXNzGAEgASgJUgdhZGRyZXNzEikKEG'
-    'luY2x1ZGVfcHJvZ3Jlc3MYAiABKAhSD2luY2x1ZGVQcm9ncmVzcw==');
+    'luY2x1ZGVfcHJvZ3Jlc3MYAiABKAhSD2luY2x1ZGVQcm9ncmVzcxIbCgZvZmZzZXQYAyABKARI'
+    'AFIGb2Zmc2V0iAEBEhsKBmxlbmd0aBgEIAEoBEgBUgZsZW5ndGiIAQFCCQoHX29mZnNldEIJCg'
+    'dfbGVuZ3Ro');
 
 @$core.Deprecated('Use dataChunkDescriptor instead')
 const DataChunk$json = {
@@ -133,13 +141,21 @@ const StreamDataRequest$json = {
   '2': [
     {'1': 'data_map', '3': 1, '4': 1, '5': 9, '10': 'dataMap'},
     {'1': 'include_progress', '3': 2, '4': 1, '5': 8, '10': 'includeProgress'},
+    {'1': 'offset', '3': 3, '4': 1, '5': 4, '9': 0, '10': 'offset', '17': true},
+    {'1': 'length', '3': 4, '4': 1, '5': 4, '9': 1, '10': 'length', '17': true},
+  ],
+  '8': [
+    {'1': '_offset'},
+    {'1': '_length'},
   ],
 };
 
 /// Descriptor for `StreamDataRequest`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List streamDataRequestDescriptor = $convert.base64Decode(
     'ChFTdHJlYW1EYXRhUmVxdWVzdBIZCghkYXRhX21hcBgBIAEoCVIHZGF0YU1hcBIpChBpbmNsdW'
-    'RlX3Byb2dyZXNzGAIgASgIUg9pbmNsdWRlUHJvZ3Jlc3M=');
+    'RlX3Byb2dyZXNzGAIgASgIUg9pbmNsdWRlUHJvZ3Jlc3MSGwoGb2Zmc2V0GAMgASgESABSBm9m'
+    'ZnNldIgBARIbCgZsZW5ndGgYBCABKARIAVIGbGVuZ3RoiAEBQgkKB19vZmZzZXRCCQoHX2xlbm'
+    'd0aA==');
 
 @$core.Deprecated('Use getDataResponseDescriptor instead')
 const GetDataResponse$json = {
