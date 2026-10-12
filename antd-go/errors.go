@@ -51,8 +51,9 @@ type ServiceUnavailableError struct{ AntdError }
 
 // RangeNotSatisfiableError indicates a byte-range download that starts at or
 // past the end of the object (HTTP 416; gRPC OUT_OF_RANGE). Size is the
-// object's plaintext size when the daemon reported it (REST, from the 416's
-// Content-Range), or -1 when unknown (gRPC).
+// object's plaintext size when the daemon reported it — from the 416's
+// Content-Range on REST, or the x-content-range "bytes */size" trailer on gRPC —
+// or -1 when unknown (an older daemon's gRPC error carries no size).
 type RangeNotSatisfiableError struct {
 	AntdError
 	Size int64

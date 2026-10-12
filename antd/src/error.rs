@@ -227,7 +227,19 @@ impl From<AntdError> for tonic::Status {
             AntdError::ServiceUnavailable(msg) => tonic::Status::unavailable(msg),
             AntdError::NotImplemented(msg) => tonic::Status::unimplemented(msg),
             AntdError::Internal(msg) => tonic::Status::internal(msg),
-            e @ AntdError::RangeNotSatisfiable { .. } => tonic::Status::out_of_range(e.to_string()),
+            // REST's 416 carries the size as `Content-Range: bytes */size`;
+            // send the same value as metadata so gRPC clients don't have to
+            // parse the message.
+            e @ AntdError::RangeNotSatisfiable { size } => {
+                let mut status = tonic::Status::out_of_range(e.to_string());
+                status.metadata_mut().insert(
+                    "x-content-range",
+                    format!("bytes */{size}")
+                        .parse()
+                        .expect("a byte-range string is a valid ascii metadata value"),
+                );
+                status
+            }
             // ABORTED: the operation stopped partway and the retry lives at
             // the application level — a repeat FinalizeUpload with the same
             // upload_id when the paid attempt was retained (`retryable`), or
@@ -278,6 +290,13 @@ mod tests {
         let status = tonic::Status::from(AntdError::RangeNotSatisfiable { size: 7 });
         assert_eq!(status.code(), tonic::Code::OutOfRange);
         assert!(status.message().contains("7 bytes"));
+        assert_eq!(
+            status
+                .metadata()
+                .get("x-content-range")
+                .and_then(|v| v.to_str().ok()),
+            Some("bytes */7")
+        );
     }
 
     #[test]
