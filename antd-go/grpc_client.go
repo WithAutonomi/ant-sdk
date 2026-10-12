@@ -297,6 +297,7 @@ func (c *GrpcClient) DataGetPublic(ctx context.Context, address string) ([]byte,
 type dataChunkStream interface {
 	Recv() (*pb.DataChunk, error)
 	Header() (metadata.MD, error)
+	Trailer() metadata.MD
 }
 
 // grpcChunkReader adapts a server-streaming DataChunk RPC into an io.ReadCloser
@@ -422,18 +423,21 @@ func grpcRange(offset, length int64) (*uint64, *uint64) {
 func openGrpcRange(stream dataChunkStream, cancel context.CancelFunc) (*RangeReader, error) {
 	md, err := stream.Header()
 	if err != nil {
+		err = rangeStreamError(stream, err)
 		cancel()
-		return nil, errorFromGrpc(err)
+		return nil, err
 	}
 	values := md.Get("x-content-range")
 	if len(values) == 0 {
 		// No x-content-range: either the RPC ended trailers-only (its status
 		// comes from Recv) or an old daemon is streaming the whole object.
 		_, err := stream.Recv()
-		cancel()
 		if err != nil && err != io.EOF {
-			return nil, errorFromGrpc(err)
+			err = rangeStreamError(stream, err)
+			cancel()
+			return nil, err
 		}
+		cancel()
 		return nil, errNoRangeSupport
 	}
 	r, err := parseContentRange(values[0])
@@ -443,6 +447,20 @@ func openGrpcRange(stream dataChunkStream, cancel context.CancelFunc) (*RangeRea
 	}
 	r.ReadCloser = &grpcChunkReader{stream: stream, cancel: cancel}
 	return r, nil
+}
+
+// rangeStreamError maps a ranged stream that failed before its first frame.
+// For OUT_OF_RANGE the daemon sends the object size in its trailers as
+// x-content-range "bytes */size", the value REST's 416 puts in Content-Range;
+// a daemon that predates that leaves Size at -1.
+func rangeStreamError(stream dataChunkStream, err error) error {
+	mapped := errorFromGrpc(err)
+	if rerr, ok := mapped.(*RangeNotSatisfiableError); ok {
+		if values := stream.Trailer().Get("x-content-range"); len(values) > 0 {
+			rerr.Size = unsatisfiedSize(values[0])
+		}
+	}
+	return mapped
 }
 
 // DownloadStream is a progress-enabled streaming download: a sequence of

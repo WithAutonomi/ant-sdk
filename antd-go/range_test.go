@@ -145,9 +145,10 @@ func TestDataStreamRangeValidatesBeforeSending(t *testing.T) {
 }
 
 // serveMockRange answers a ranged mock stream like the daemon: x-content-range
-// metadata and only the requested bytes, or OUT_OF_RANGE past the end. It
-// reports whether the request was ranged. The data map / address "legacy"
-// ignores the range, like an old daemon.
+// metadata and only the requested bytes, or OUT_OF_RANGE past the end with the
+// size in an x-content-range trailer. It reports whether the request was
+// ranged. The data map / address "legacy" ignores the range, like a daemon
+// without range support; "old-daemon" sends OUT_OF_RANGE without the trailer.
 func serveMockRange(payload string, key string, offset, length *uint64, srv grpc.ServerStreamingServer[pb.DataChunk]) (bool, error) {
 	if (offset == nil && length == nil) || key == "legacy" {
 		return false, nil
@@ -158,6 +159,9 @@ func serveMockRange(payload string, key string, offset, length *uint64, srv grpc
 		start = *offset
 	}
 	if start >= size {
+		if key != "old-daemon" {
+			srv.SetTrailer(metadata.Pairs("x-content-range", fmt.Sprintf("bytes */%d", size)))
+		}
 		return true, status.Errorf(codes.OutOfRange, "Range not satisfiable: the object is %d bytes", size)
 	}
 	end := size
@@ -193,8 +197,17 @@ func TestGrpcDataStreamRangeOutOfRange(t *testing.T) {
 	c := startMockServer(t)
 	_, err := c.DataStreamRange(context.Background(), "dm123", 6, RangeToEnd)
 	var rerr *RangeNotSatisfiableError
-	if !errors.As(err, &rerr) || rerr.StatusCode != 416 {
-		t.Fatalf("want *RangeNotSatisfiableError, got %#v", err)
+	if !errors.As(err, &rerr) || rerr.StatusCode != 416 || rerr.Size != 6 {
+		t.Fatalf("want *RangeNotSatisfiableError with Size 6, got %#v", err)
+	}
+	_, err = c.DataStreamPublicRange(context.Background(), "abc123", 9, 1)
+	if !errors.As(err, &rerr) || rerr.Size != 5 {
+		t.Fatalf("public: want *RangeNotSatisfiableError with Size 5, got %#v", err)
+	}
+	// A daemon that sends no size trailer still yields the typed error.
+	_, err = c.DataStreamRange(context.Background(), "old-daemon", 6, RangeToEnd)
+	if !errors.As(err, &rerr) || rerr.StatusCode != 416 || rerr.Size != -1 {
+		t.Fatalf("old daemon: want *RangeNotSatisfiableError with Size -1, got %#v", err)
 	}
 }
 
