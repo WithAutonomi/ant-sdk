@@ -84,11 +84,14 @@ dependencies:
   protobuf: ^4.1.0
 ```
 
-Generate the Dart protobuf/gRPC stubs from the proto definitions:
+The Dart protobuf/gRPC stubs in `lib/src/generated/` are committed. After
+changing the proto definitions, regenerate them and commit the result (CI
+fails when they drift):
 
 ```bash
-# Install the Dart protoc plugin (pin to 22.x — newer plugins emit code
-# targeting protobuf 6+, which conflicts with web3dart's transitive deps).
+# Install the Dart protoc plugin (pin to 22.3.0 — the script checks it; newer
+# plugins emit code targeting protobuf 6+, which conflicts with web3dart's
+# transitive deps).
 dart pub global activate protoc_plugin 22.3.0
 
 # Generate stubs into lib/src/generated/

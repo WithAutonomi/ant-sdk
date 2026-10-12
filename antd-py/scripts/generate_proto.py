@@ -1,15 +1,28 @@
 #!/usr/bin/env python
 """Generate Python protobuf stubs from antd proto definitions.
 
-Reads .proto files from ../antd/proto/ and generates Python stubs
-into src/antd/_proto/.
+Reads the .proto files this SDK ships from ../antd/proto/ and generates
+Python stubs into src/antd/_proto/.
 
-Requires: pip install grpcio-tools
+grpcio-tools bundles its own protoc and stamps both versions into the
+generated files (GRPC_GENERATED_VERSION, "Protobuf Python Version"), so it
+is pinned:
+
+    pip install grpcio-tools==1.80.0
+
+CI (.github/workflows/proto-drift.yml) runs this script and fails when the
+committed stubs differ from its output, so commit whatever it changes.
 """
 
 import re
 import sys
+from importlib import metadata
 from pathlib import Path
+
+GRPCIO_TOOLS_VERSION = "1.80.0"
+
+# The antd/proto/antd/v1 files this SDK ships stubs for.
+PROTOS = ["chunks", "common", "data", "events", "files", "health", "upload", "wallet"]
 
 # Resolve paths relative to this script
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -23,25 +36,32 @@ def main():
         print(f"ERROR: Proto source directory not found: {PROTO_SRC}")
         sys.exit(1)
 
-    # Collect .proto files, excluding removed mutable data types
-    EXCLUDED_PROTOS = {"pointers.proto", "scratchpads.proto", "registers.proto", "vaults.proto"}
-    proto_files = sorted(
-        f for f in PROTO_SRC.rglob("*.proto") if f.name not in EXCLUDED_PROTOS
-    )
-    if not proto_files:
-        print(f"ERROR: No .proto files found in {PROTO_SRC}")
+    proto_files = [PROTO_SRC / "antd" / "v1" / f"{name}.proto" for name in PROTOS]
+    missing = [str(f) for f in proto_files if not f.exists()]
+    if missing:
+        print(f"ERROR: proto files not found: {', '.join(missing)}")
         sys.exit(1)
-
-    print(f"Found {len(proto_files)} proto files in {PROTO_SRC}")
-
-    # Ensure output directory exists
-    PROTO_OUT.mkdir(parents=True, exist_ok=True)
 
     try:
-        from grpc_tools import protoc
-    except ImportError:
-        print("ERROR: grpcio-tools not installed. Run: pip install grpcio-tools")
+        found = metadata.version("grpcio-tools")
+    except metadata.PackageNotFoundError:
+        found = None
+    if found != GRPCIO_TOOLS_VERSION:
+        print(
+            f"ERROR: grpcio-tools {GRPCIO_TOOLS_VERSION} is required (found: {found or 'none'}). "
+            f"Run: pip install grpcio-tools=={GRPCIO_TOOLS_VERSION}"
+        )
         sys.exit(1)
+    from grpc_tools import protoc
+
+    print(f"Generating stubs for {len(proto_files)} proto files from {PROTO_SRC}")
+
+    # Start from an empty package (keeping the __init__.py files), so a proto
+    # dropped from PROTOS shows up as deleted stubs instead of lingering.
+    stub_dir = PROTO_OUT / "antd" / "v1"
+    stub_dir.mkdir(parents=True, exist_ok=True)
+    for stale in stub_dir.glob("*_pb2*.py*"):
+        stale.unlink()
 
     # Build protoc arguments
     args = [
@@ -110,7 +130,7 @@ def fix_imports(output_dir: Path):
         )
 
         if content != original:
-            py_file.write_text(content, encoding="utf-8")
+            py_file.write_text(content, encoding="utf-8", newline="\n")
             count += 1
 
     # Also fix .pyi files
@@ -131,7 +151,7 @@ def fix_imports(output_dir: Path):
         )
 
         if content != original:
-            pyi_file.write_text(content, encoding="utf-8")
+            pyi_file.write_text(content, encoding="utf-8", newline="\n")
             count += 1
 
     print(f"Fixed imports in {count} files")

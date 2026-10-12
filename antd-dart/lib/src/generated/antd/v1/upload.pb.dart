@@ -569,6 +569,17 @@ class CandidateNodeEntry extends $pb.GeneratedMessage {
   void clearAmount() => $_clearField(2);
 }
 
+/// Phase 2 of the external-signer upload. Validation happens before the
+/// stored upload is consumed, so a bad request leaves the paid-for upload in
+/// place. A storage shortfall AFTER payment is retryable against the same
+/// payment: the call fails with ABORTED (message prefixed "Partial upload:",
+/// carrying the stored/failed/total counts and a "paid attempt retained"
+/// hint), the daemon keeps the payment proofs plus the unstored chunks under
+/// the same upload_id, and repeating FinalizeUpload with that upload_id stores
+/// the remainder — no re-prepare, no second signature, no double payment. The
+/// payment fields are ignored on such a resume. Bound the retry loop: a
+/// persistent failure comes back as ABORTED on every call, and the retained
+/// attempt expires with the daemon's pending-upload TTL.
 class FinalizeUploadRequest extends $pb.GeneratedMessage {
   factory FinalizeUploadRequest({
     $core.String? uploadId,
@@ -617,7 +628,8 @@ class FinalizeUploadRequest extends $pb.GeneratedMessage {
   static FinalizeUploadRequest getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<FinalizeUploadRequest>(create);
   static FinalizeUploadRequest? _defaultInstance;
 
-  /// The upload_id returned from a Prepare* call.
+  /// The upload_id returned from a Prepare* call — or from a previous
+  /// FinalizeUpload that failed with ABORTED after payment (see above).
   @$pb.TagNumber(1)
   $core.String get uploadId => $_getSZ(0);
   @$pb.TagNumber(1)
@@ -665,7 +677,10 @@ class FinalizeUploadRequest extends $pb.GeneratedMessage {
   /// `merkle_batches`, index-aligned. An empty string marks a batch the
   /// signer never paid — paid batches store and the unpaid chunks surface
   /// via the PARTIAL_UPLOAD error. Required (over `winner_pool_hash`) when
-  /// the prepared upload has more than one batch.
+  /// the prepared upload has more than one batch. Only a fully paid list
+  /// (no empty entries) takes the resumable path: with unpaid batches the
+  /// shortfall is NOT retryable under the same upload_id (nothing is
+  /// retained), because a resume can never acquire proofs for unpaid chunks.
   @$pb.TagNumber(5)
   $pb.PbList<$core.String> get winnerPoolHashes => $_getList(4);
 }

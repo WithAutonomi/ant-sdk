@@ -39,12 +39,16 @@ class PutPublicDataResponse(_message.Message):
     def __init__(self, cost: _Optional[_Union[_common_pb2.Cost, _Mapping]] = ..., address: _Optional[str] = ..., chunks_stored: _Optional[int] = ..., payment_mode_used: _Optional[str] = ...) -> None: ...
 
 class StreamPublicDataRequest(_message.Message):
-    __slots__ = ("address", "include_progress")
+    __slots__ = ("address", "include_progress", "offset", "length")
     ADDRESS_FIELD_NUMBER: _ClassVar[int]
     INCLUDE_PROGRESS_FIELD_NUMBER: _ClassVar[int]
+    OFFSET_FIELD_NUMBER: _ClassVar[int]
+    LENGTH_FIELD_NUMBER: _ClassVar[int]
     address: str
     include_progress: bool
-    def __init__(self, address: _Optional[str] = ..., include_progress: bool = ...) -> None: ...
+    offset: int
+    length: int
+    def __init__(self, address: _Optional[str] = ..., include_progress: bool = ..., offset: _Optional[int] = ..., length: _Optional[int] = ...) -> None: ...
 
 class DataChunk(_message.Message):
     __slots__ = ("data", "progress")
@@ -71,12 +75,16 @@ class GetDataRequest(_message.Message):
     def __init__(self, data_map: _Optional[str] = ...) -> None: ...
 
 class StreamDataRequest(_message.Message):
-    __slots__ = ("data_map", "include_progress")
+    __slots__ = ("data_map", "include_progress", "offset", "length")
     DATA_MAP_FIELD_NUMBER: _ClassVar[int]
     INCLUDE_PROGRESS_FIELD_NUMBER: _ClassVar[int]
+    OFFSET_FIELD_NUMBER: _ClassVar[int]
+    LENGTH_FIELD_NUMBER: _ClassVar[int]
     data_map: str
     include_progress: bool
-    def __init__(self, data_map: _Optional[str] = ..., include_progress: bool = ...) -> None: ...
+    offset: int
+    length: int
+    def __init__(self, data_map: _Optional[str] = ..., include_progress: bool = ..., offset: _Optional[int] = ..., length: _Optional[int] = ...) -> None: ...
 
 class GetDataResponse(_message.Message):
     __slots__ = ("data",)

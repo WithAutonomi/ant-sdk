@@ -56,6 +56,8 @@ defmodule Antd.V1.StreamPublicDataRequest do
 
   field :address, 1, type: :string
   field :include_progress, 2, type: :bool, json_name: "includeProgress"
+  field :offset, 3, proto3_optional: true, type: :uint64
+  field :length, 4, proto3_optional: true, type: :uint64
 end
 
 defmodule Antd.V1.DataChunk do
@@ -106,6 +108,8 @@ defmodule Antd.V1.StreamDataRequest do
 
   field :data_map, 1, type: :string, json_name: "dataMap"
   field :include_progress, 2, type: :bool, json_name: "includeProgress"
+  field :offset, 3, proto3_optional: true, type: :uint64
+  field :length, 4, proto3_optional: true, type: :uint64
 end
 
 defmodule Antd.V1.GetDataResponse do

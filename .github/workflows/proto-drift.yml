@@ -1,7 +1,7 @@
 name: Proto drift
 
-# The daemon's protos in antd/proto are the source of truth. Two consumers
-# carry copies that nothing verified before 2026-09-24:
+# The daemon's protos in antd/proto are the source of truth. Several SDKs
+# carry copies or generated code that has to follow them:
 #
 # - antd-swift ships pre-generated stubs (Sources/AntdSdk/Proto/*.pb.swift +
 #   *.grpc.swift) so `swift package resolve` works without protoc or the
@@ -9,11 +9,16 @@ name: Proto drift
 #   comment-only proto change silently leaves the Swift docs describing an old
 #   contract (that is exactly what happened with the resumable-finalize
 #   wording on FinalizeUploadRequest).
+# - antd-go, antd-py, antd-dart, antd-ruby and antd-elixir ship pre-generated
+#   stubs too. Each has one regen script that pins its generator versions
+#   (they are stamped into, or shape, the output) and lists the protos that
+#   SDK ships; its job below runs that same script and fails on any diff or
+#   new file. A new proto file is opt-in per SDK: add it to the script.
 # - antd-kotlin carries a *source* copy of the protos and compiles them at
 #   build time; the copy has to match the daemon's file for file.
 #
 # antd-rust already guards its committed code with tests/proto_drift.rs. This
-# workflow does the same for the other two: regenerate / compare, fail on a
+# workflow does the same for the others: regenerate / compare, fail on a
 # diff, and on failure (or on manual dispatch) upload the freshly generated
 # Swift stubs as an artifact so they can be committed without a local Swift
 # toolchain.
@@ -28,6 +33,16 @@ on:
       - "antd-swift/Package.swift"
       - "antd-swift/Package.resolved"
       - "antd-kotlin/lib/src/main/proto/**"
+      - "antd-go/proto/**"
+      - "antd-go/scripts/generate-protos.sh"
+      - "antd-py/src/antd/_proto/**"
+      - "antd-py/scripts/generate_proto.py"
+      - "antd-dart/lib/src/generated/**"
+      - "antd-dart/tool/generate_proto.sh"
+      - "antd-ruby/lib/antd/v1/**"
+      - "antd-ruby/scripts/generate-protos.sh"
+      - "antd-elixir/lib/antd/v1/**"
+      - "antd-elixir/scripts/generate-protos.sh"
       - ".github/workflows/proto-drift.yml"
   pull_request:
     paths:
@@ -37,11 +52,27 @@ on:
       - "antd-swift/Package.swift"
       - "antd-swift/Package.resolved"
       - "antd-kotlin/lib/src/main/proto/**"
+      - "antd-go/proto/**"
+      - "antd-go/scripts/generate-protos.sh"
+      - "antd-py/src/antd/_proto/**"
+      - "antd-py/scripts/generate_proto.py"
+      - "antd-dart/lib/src/generated/**"
+      - "antd-dart/tool/generate_proto.sh"
+      - "antd-ruby/lib/antd/v1/**"
+      - "antd-ruby/scripts/generate-protos.sh"
+      - "antd-elixir/lib/antd/v1/**"
+      - "antd-elixir/scripts/generate-protos.sh"
       - ".github/workflows/proto-drift.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
+
+# protoc for the go/dart/elixir jobs. Only the Go stubs depend on its version
+# (it is stamped into their headers); antd-go/scripts/generate-protos.sh
+# refuses to run with any other.
+env:
+  PROTOC_VERSION: "34.1"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -135,3 +166,203 @@ jobs:
           path: antd-swift/Sources/AntdSdk/Proto
           if-no-files-found: error
           retention-days: 7
+
+  # The jobs below share one shape: install the generator versions pinned in
+  # the SDK's regen script (which refuses to run with any other), run that
+  # script, then fail if the committed stubs changed or new files appeared.
+  # Each "Fail on drift" step is identical apart from STUBS and REGEN.
+
+  go-proto-stubs:
+    name: antd-go generated stubs match antd/proto
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: antd-go/go.mod
+          cache-dependency-path: antd-go/go.sum
+
+      - name: Install protoc
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/protoc.zip" \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip"
+          unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+
+      # The script builds protoc-gen-go and protoc-gen-go-grpc at its pinned
+      # versions itself.
+      - name: Regenerate stubs from antd/proto
+        run: antd-go/scripts/generate-protos.sh
+
+      - name: Fail on drift
+        env:
+          STUBS: antd-go/proto
+          REGEN: antd-go/scripts/generate-protos.sh
+        run: |
+          set -euo pipefail
+          untracked="$(git ls-files --others --exclude-standard -- "$STUBS")"
+          if git diff --quiet -- "$STUBS" && [ -z "$untracked" ]; then
+            echo "$STUBS is up to date."
+            exit 0
+          fi
+          echo "::error::$STUBS is stale relative to antd/proto. Run $REGEN (generator versions are pinned at its top) and commit the result."
+          git --no-pager diff --stat -- "$STUBS"
+          git --no-pager diff -- "$STUBS" | head -200 || true
+          if [ -n "$untracked" ]; then echo "New files:"; echo "$untracked"; fi
+          exit 1
+
+  py-proto-stubs:
+    name: antd-py generated stubs match antd/proto
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # grpcio-tools bundles its own protoc.
+      - name: Install grpcio-tools
+        run: python -m pip install grpcio-tools==1.80.0
+
+      - name: Regenerate stubs from antd/proto
+        run: python antd-py/scripts/generate_proto.py
+
+      - name: Fail on drift
+        env:
+          STUBS: antd-py/src/antd/_proto
+          REGEN: antd-py/scripts/generate_proto.py
+        run: |
+          set -euo pipefail
+          untracked="$(git ls-files --others --exclude-standard -- "$STUBS")"
+          if git diff --quiet -- "$STUBS" && [ -z "$untracked" ]; then
+            echo "$STUBS is up to date."
+            exit 0
+          fi
+          echo "::error::$STUBS is stale relative to antd/proto. Run $REGEN (generator versions are pinned at its top) and commit the result."
+          git --no-pager diff --stat -- "$STUBS"
+          git --no-pager diff -- "$STUBS" | head -200 || true
+          if [ -n "$untracked" ]; then echo "New files:"; echo "$untracked"; fi
+          exit 1
+
+  dart-proto-stubs:
+    name: antd-dart generated stubs match antd/proto
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Install protoc
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/protoc.zip" \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip"
+          unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+
+      - name: Install protoc_plugin
+        run: |
+          dart pub global activate protoc_plugin 22.3.0
+          echo "${PUB_CACHE:-$HOME/.pub-cache}/bin" >> "$GITHUB_PATH"
+
+      - name: Regenerate stubs from antd/proto
+        run: antd-dart/tool/generate_proto.sh
+
+      - name: Fail on drift
+        env:
+          STUBS: antd-dart/lib/src/generated
+          REGEN: antd-dart/tool/generate_proto.sh
+        run: |
+          set -euo pipefail
+          untracked="$(git ls-files --others --exclude-standard -- "$STUBS")"
+          if git diff --quiet -- "$STUBS" && [ -z "$untracked" ]; then
+            echo "$STUBS is up to date."
+            exit 0
+          fi
+          echo "::error::$STUBS is stale relative to antd/proto. Run $REGEN (generator versions are pinned at its top) and commit the result."
+          git --no-pager diff --stat -- "$STUBS"
+          git --no-pager diff -- "$STUBS" | head -200 || true
+          if [ -n "$untracked" ]; then echo "New files:"; echo "$untracked"; fi
+          exit 1
+
+  ruby-proto-stubs:
+    name: antd-ruby generated stubs match antd/proto
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      # grpc-tools bundles its own protoc.
+      - name: Install grpc-tools
+        run: gem install grpc-tools -v 1.84.0 --no-document
+
+      - name: Regenerate stubs from antd/proto
+        run: antd-ruby/scripts/generate-protos.sh
+
+      - name: Fail on drift
+        env:
+          STUBS: antd-ruby/lib/antd/v1
+          REGEN: antd-ruby/scripts/generate-protos.sh
+        run: |
+          set -euo pipefail
+          untracked="$(git ls-files --others --exclude-standard -- "$STUBS")"
+          if git diff --quiet -- "$STUBS" && [ -z "$untracked" ]; then
+            echo "$STUBS is up to date."
+            exit 0
+          fi
+          echo "::error::$STUBS is stale relative to antd/proto. Run $REGEN (generator versions are pinned at its top) and commit the result."
+          git --no-pager diff --stat -- "$STUBS"
+          git --no-pager diff -- "$STUBS" | head -200 || true
+          if [ -n "$untracked" ]; then echo "New files:"; echo "$untracked"; fi
+          exit 1
+
+  elixir-proto-stubs:
+    name: antd-elixir generated stubs match antd/proto
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # protoc-gen-elixir runs its output through the Elixir formatter; the
+      # committed stubs were made with an escript built on Elixir 1.18.
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          elixir-version: "1.18.4"
+
+      - name: Install protoc
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/protoc.zip" \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip"
+          unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+
+      - name: Install protoc-gen-elixir
+        run: |
+          mix escript.install hex protobuf 0.16.0 --force
+          echo "${MIX_HOME:-$HOME/.mix}/escripts" >> "$GITHUB_PATH"
+
+      - name: Regenerate stubs from antd/proto
+        run: antd-elixir/scripts/generate-protos.sh
+
+      - name: Fail on drift
+        env:
+          STUBS: antd-elixir/lib/antd/v1
+          REGEN: antd-elixir/scripts/generate-protos.sh
+        run: |
+          set -euo pipefail
+          untracked="$(git ls-files --others --exclude-standard -- "$STUBS")"
+          if git diff --quiet -- "$STUBS" && [ -z "$untracked" ]; then
+            echo "$STUBS is up to date."
+            exit 0
+          fi
+          echo "::error::$STUBS is stale relative to antd/proto. Run $REGEN (generator versions are pinned at its top) and commit the result."
+          git --no-pager diff --stat -- "$STUBS"
+          git --no-pager diff -- "$STUBS" | head -200 || true
+          if [ -n "$untracked" ]; then echo "New files:"; echo "$untracked"; fi
+          exit 1

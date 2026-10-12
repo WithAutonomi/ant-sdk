@@ -53,17 +53,14 @@ Install the gRPC gem (listed as an optional development dependency):
 gem install grpc grpc-tools
 ```
 
-Generate the Ruby protobuf/gRPC stubs from the proto definitions:
+The Ruby protobuf/gRPC stubs in `lib/antd/v1/` are generated from the proto
+definitions and committed. After changing the protos, regenerate them and
+commit the result (CI fails when they drift):
 
 ```bash
-grpc_tools_ruby_protoc \
-  -I../../antd/proto \
-  --ruby_out=lib --grpc_out=lib \
-  antd/v1/common.proto antd/v1/health.proto antd/v1/data.proto \
-  antd/v1/chunks.proto antd/v1/files.proto
+gem install grpc-tools -v 1.84.0   # the version the script pins
+antd-ruby/scripts/generate-protos.sh
 ```
-
-The generated files are expected under `lib/antd/v1/`.
 
 ### Usage
 

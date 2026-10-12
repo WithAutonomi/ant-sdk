@@ -157,23 +157,16 @@ It exposes the same methods with identical signatures and error types as the RES
 
 ### Generating Proto Stubs
 
-Before using the gRPC client, you must generate the protobuf Go stubs from the
-proto definitions in `antd/proto/antd/v1/`:
+The protobuf Go stubs imported by `GrpcClient` (the `antd-go/proto/antd/v1/`
+package) are generated from `antd/proto/antd/v1/` and committed, so nothing
+needs generating to use the gRPC client. After changing the protos, regenerate
+them and commit the result (CI fails when they drift):
 
 ```bash
-# Install protoc plugins
-go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-
-# Generate from the repo root
-protoc \
-  --proto_path=antd/proto \
-  --go_out=antd-go/proto --go_opt=paths=source_relative \
-  --go-grpc_out=antd-go/proto --go-grpc_opt=paths=source_relative \
-  antd/proto/antd/v1/*.proto
+# Needs Go and protoc 34.1 on PATH; the script builds protoc-gen-go and
+# protoc-gen-go-grpc at the versions pinned at its top.
+antd-go/scripts/generate-protos.sh
 ```
-
-This creates the `antd-go/proto/antd/v1/` package imported by `GrpcClient`.
 
 ### Usage
 

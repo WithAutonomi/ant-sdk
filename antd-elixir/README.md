@@ -94,16 +94,14 @@ them with:
 mix deps.get
 ```
 
-Generate the Elixir protobuf/gRPC stubs from the proto definitions:
+The Elixir protobuf/gRPC stubs in `lib/antd/v1/` are generated from the proto
+definitions and committed. After changing the protos, regenerate them and
+commit the result (CI fails when they drift):
 
 ```bash
-protoc --elixir_out=plugins=grpc:lib \
-  -I../antd/proto \
-  antd/v1/common.proto antd/v1/health.proto antd/v1/data.proto \
-  antd/v1/chunks.proto antd/v1/files.proto
+mix escript.install hex protobuf 0.16.0   # protoc-gen-elixir, as the script pins
+antd-elixir/scripts/generate-protos.sh    # needs protoc and ~/.mix/escripts on PATH
 ```
-
-The generated modules are expected under `lib/antd/v1/`.
 
 ### Usage
 
