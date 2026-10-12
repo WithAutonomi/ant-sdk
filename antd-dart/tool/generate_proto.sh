@@ -5,8 +5,9 @@
 #   dart pub global activate protoc_plugin 22.3.0
 #   protoc installed and on PATH (any 3.15+; the Dart output does not depend
 #   on its version)
-#   On Windows, also add "$HOME/AppData/Local/Pub/Cache/bin" to PATH so
-#   protoc can find protoc-gen-dart.bat.
+#
+# protoc runs the protoc-gen-dart from that activation (in the pub cache's
+# bin directory, or $PUB_CACHE/bin), not whichever one is first on PATH.
 #
 # CI (.github/workflows/proto-drift.yml) runs this script and fails when the
 # committed stubs differ from its output, so commit whatever it changes.
@@ -34,6 +35,26 @@ if ! dart pub global list 2>/dev/null | tr -d '\r' | grep -qx "protoc_plugin $PR
   exit 1
 fi
 
+# The executable `dart pub global activate` installed for the check above.
+# On Windows (Git Bash) protoc is a native program, and it needs the output
+# directory as a Windows path.
+dart_out="$OUT_DIR"
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*)
+    default_pub_cache="$HOME/AppData/Local/Pub/Cache"
+    dart_out="$(cygpath -m "$OUT_DIR")"
+    ;;
+  *) default_pub_cache="$HOME/.pub-cache" ;;
+esac
+PLUGIN="${PUB_CACHE:-$default_pub_cache}/bin/protoc-gen-dart"
+if [[ -f "$PLUGIN.bat" ]]; then
+  PLUGIN="$PLUGIN.bat"
+fi
+if [[ ! -f "$PLUGIN" ]]; then
+  echo "error: $PLUGIN not found; set PUB_CACHE if your pub cache is elsewhere." >&2
+  exit 1
+fi
+
 # Start from an empty package, so a proto dropped from PROTOS shows up as
 # deleted stubs instead of lingering.
 mkdir -p "$OUT_DIR/antd/v1"
@@ -44,7 +65,8 @@ for p in "${PROTOS[@]}"; do files+=("$PROTO_ROOT/antd/v1/$p.proto"); done
 
 protoc \
   -I "$PROTO_ROOT" \
-  --dart_out=grpc:"$OUT_DIR" \
+  --plugin=protoc-gen-dart="$PLUGIN" \
+  --dart_out=grpc:"$dart_out" \
   "${files[@]}"
 
 echo "Regenerated Dart stubs under $OUT_DIR"
