@@ -84,7 +84,7 @@ All methods are `async` and return `Result<T, AntdError>`.
 | `data_put(data, payment_mode)` | Store encrypted private data — returns `DataPutResult` (DataMap returned to caller) |
 | `data_get(data_map)` | Retrieve private data using a caller-held DataMap |
 | `data_cost(data, payment_mode)` | Estimate storage cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
-| `data_stream_range(data_map, offset, length)` | Stream the bytes `[offset, offset + length)` of private data; `length: None` reads to the end. Returns a `RangeStream` (a `Stream` of `Bytes` with `offset`, `length` and the object `size`); the daemon fetches only the chunks the range overlaps |
+| `data_stream_range(data_map, offset, length)` | Stream the bytes `[offset, offset + length)` of private data; `length: None` reads to the end. Returns a `RangeStream` (a `Stream` of `Bytes` with `offset`, `length` and the object `size`); the daemon fetches only the chunks the range overlaps. A body shorter or longer than the announced length ends the stream with `AntdError::Network` |
 | `data_stream_public_range(address, offset, length)` | The same for public data by address |
 
 ### Chunks

@@ -1632,6 +1632,40 @@ async fn test_data_stream_range_not_satisfiable_carries_size() {
 }
 
 #[tokio::test]
+async fn test_data_stream_range_not_satisfiable_without_size() {
+    // A 416 without Content-Range is still the typed error, with no size.
+    let mut server = mock_server().await;
+    let _m = server
+        .mock("POST", "/v1/data/stream")
+        .with_status(416)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"error":"Range not satisfiable","code":"RANGE_NOT_SATISFIABLE"}"#)
+        .create();
+    let client = Client::new(&server.url());
+
+    match client.data_stream_range("dm123", 6, None).await {
+        Err(AntdError::RangeNotSatisfiable { size, .. }) => assert_eq!(size, None),
+        other => panic!("expected RangeNotSatisfiable, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_data_stream_range_rejects_206_without_content_range() {
+    let mut server = mock_server().await;
+    let _m = server
+        .mock("POST", "/v1/data/stream")
+        .with_status(206)
+        .with_body("ecr")
+        .create();
+    let client = Client::new(&server.url());
+
+    match client.data_stream_range("dm123", 1, Some(3)).await {
+        Err(AntdError::Internal(msg)) => assert!(msg.contains("without Content-Range"), "{msg}"),
+        other => panic!("expected the missing Content-Range error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn test_data_stream_range_rejects_an_ignored_range() {
     // A daemon without range support answers 200 with the whole object.
     let mut server = mock_server().await;

@@ -452,7 +452,9 @@ impl Client {
     /// [`AntdError::RangeNotSatisfiable`] with the object's size, and a zero
     /// length is [`AntdError::BadRequest`] before any request is sent. A
     /// daemon that ignores the range (one that predates range support) is an
-    /// error, never a silent whole-object read.
+    /// error, never a silent whole-object read. A body that ends short of the
+    /// announced length, or runs past it, ends the stream with
+    /// [`AntdError::Network`].
     ///
     /// # Example
     ///
