@@ -12,6 +12,7 @@ use serde_json::{json, Value};
 use crate::discover::discover_daemon_url;
 use crate::errors::{error_for_body, AntdError};
 use crate::models::*;
+use crate::range::RangeStream;
 
 /// Default base URL of the antd daemon.
 pub const DEFAULT_BASE_URL: &str = "http://localhost:8082";
@@ -439,6 +440,122 @@ impl Client {
             )
             .await?;
         Ok(resp.bytes_stream())
+    }
+
+    /// Streams the byte range `[offset, offset + length)` of private data
+    /// from a caller-held DataMap (hex). The daemon fetches and decrypts only
+    /// the chunks that overlap the range.
+    ///
+    /// `length: None` reads to the end of the object, and a length past the
+    /// end is clamped: the returned [`RangeStream`]'s `offset`, `length` and
+    /// `size` say what it carries. A range starting at or past the end is
+    /// [`AntdError::RangeNotSatisfiable`] with the object's size, and a zero
+    /// length is [`AntdError::BadRequest`] before any request is sent. A
+    /// daemon that ignores the range (one that predates range support) is an
+    /// error, never a silent whole-object read.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use antd_client::{Client, DEFAULT_BASE_URL};
+    /// use tokio_stream::StreamExt;
+    ///
+    /// # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new(DEFAULT_BASE_URL);
+    /// // Bytes 1,000,000..1,001,000 of the object.
+    /// let mut range = client.data_stream_range("deadbeef", 1_000_000, Some(1000)).await?;
+    /// println!("{} of {} bytes from {}", range.length, range.size, range.offset);
+    /// while let Some(chunk) = range.next().await {
+    ///     let chunk = chunk?;
+    ///     // process `chunk` (Bytes) incrementally
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn data_stream_range(
+        &self,
+        data_map: &str,
+        offset: u64,
+        length: Option<u64>,
+    ) -> Result<RangeStream, AntdError> {
+        self.do_range_stream(
+            reqwest::Method::POST,
+            "/v1/data/stream",
+            Some(json!({ "data_map": data_map })),
+            offset,
+            length,
+        )
+        .await
+    }
+
+    /// Streams a byte range of public data by address — the public
+    /// counterpart to [`data_stream_range`](Self::data_stream_range), with the
+    /// same semantics.
+    pub async fn data_stream_public_range(
+        &self,
+        address: &str,
+        offset: u64,
+        length: Option<u64>,
+    ) -> Result<RangeStream, AntdError> {
+        self.do_range_stream(
+            reqwest::Method::GET,
+            &format!("/v1/data/public/{address}/stream"),
+            None,
+            offset,
+            length,
+        )
+        .await
+    }
+
+    /// Sends a stream request with a `Range` header and reads the daemon's
+    /// answer: 206 with `Content-Range` is the range; another 2xx means the
+    /// daemon ignored the header; 416 carries the size in `Content-Range`.
+    async fn do_range_stream(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<Value>,
+        offset: u64,
+        length: Option<u64>,
+    ) -> Result<RangeStream, AntdError> {
+        let range = crate::range::range_header(offset, length)?;
+        let mut req = self
+            .http
+            .request(method, self.url(path))
+            .header(reqwest::header::RANGE, range);
+        if let Some(b) = body {
+            req = req.json(&b);
+        }
+        let resp = req.send().await?;
+        let status = resp.status().as_u16();
+        let content_range = resp
+            .headers()
+            .get(reqwest::header::CONTENT_RANGE)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned);
+
+        match status {
+            206 => {
+                let value = content_range
+                    .ok_or_else(|| AntdError::Internal("206 without Content-Range".into()))?;
+                let span = crate::range::parse_content_range(&value, offset)?;
+                let bytes = tokio_stream::StreamExt::map(resp.bytes_stream(), |r| {
+                    r.map_err(AntdError::from)
+                });
+                Ok(RangeStream::new(span, bytes))
+            }
+            200..=299 => Err(crate::range::no_range_support()),
+            _ => {
+                let bytes = resp.bytes().await?;
+                let mut err = error_for_body(status, &bytes);
+                if let AntdError::RangeNotSatisfiable { size, .. } = &mut err {
+                    *size = content_range
+                        .as_deref()
+                        .and_then(crate::range::unsatisfied_size);
+                }
+                Err(err)
+            }
+        }
     }
 
     /// Like [`data_stream`](Self::data_stream) but opts into NDJSON progress

@@ -119,6 +119,21 @@ pub enum AntdError {
         message: String,
     },
 
+    /// A byte-range download started at or past the end of the object: HTTP
+    /// 416, or gRPC `OUT_OF_RANGE` from a range method's call. (Other gRPC
+    /// calls keep `OUT_OF_RANGE` as [`AntdError::Grpc`], since tonic also uses
+    /// that code for a local message-size error.)
+    #[error("antd error 416: {message}")]
+    RangeNotSatisfiable {
+        /// The object's plaintext size, when the daemon reported it: from the
+        /// 416's `Content-Range: bytes */size` over REST, or the
+        /// `x-content-range` metadata over gRPC. `None` when the daemon sent
+        /// neither (older daemons' gRPC errors carry no size).
+        size: Option<u64>,
+        /// The daemon's error message.
+        message: String,
+    },
+
     /// HTTP transport error from reqwest.
     #[error("http error: {0}")]
     Http(#[from] reqwest::Error),
@@ -164,6 +179,10 @@ impl From<tonic::Status> for AntdError {
                     message,
                 }
             }
+            // OUT_OF_RANGE is not mapped here: tonic also uses it for a local
+            // "decoded message length too large" error. The range methods map
+            // it to RangeNotSatisfiable themselves (see
+            // `crate::range::range_call_error`).
             _ => AntdError::Grpc(Box::new(status)),
         }
     }
@@ -298,6 +317,12 @@ pub fn error_for_status(code: u16, message: String) -> AntdError {
         404 => AntdError::NotFound(message),
         409 => AntdError::AlreadyExists(message),
         413 => AntdError::TooLarge(message),
+        // The size comes from the response's Content-Range header, which the
+        // range methods read; a bare status carries none.
+        416 => AntdError::RangeNotSatisfiable {
+            size: None,
+            message,
+        },
         500 => AntdError::Internal(message),
         502 => AntdError::Network(message),
         503 => AntdError::ServiceUnavailable(message),

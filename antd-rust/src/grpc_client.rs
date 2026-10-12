@@ -8,6 +8,7 @@ use tonic::transport::{Channel, Endpoint};
 use crate::discover::discover_grpc_target;
 use crate::errors::AntdError;
 use crate::models::*;
+use crate::range::RangeStream;
 
 /// Generated protobuf types for the antd gRPC API.
 // tonic's generated client methods return Result<_, tonic::Status> (~176
@@ -85,6 +86,29 @@ fn meta_frame_of(
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse::<u64>().ok())
         .map(|total| Ok(DownloadFrame::Meta(total)))
+}
+
+/// Read a ranged stream's `x-content-range` metadata and wrap its data frames.
+/// A stream without it comes from a daemon that ignored the range and is
+/// sending the whole object, so it is dropped (cancelling the RPC) and
+/// reported instead of being read as the range.
+fn range_stream_of(
+    response: tonic::Response<tonic::Streaming<proto::antd::v1::DataChunk>>,
+    requested: u64,
+) -> Result<RangeStream, AntdError> {
+    let span = match response
+        .metadata()
+        .get("x-content-range")
+        .and_then(|v| v.to_str().ok())
+    {
+        Some(value) => crate::range::parse_content_range(value, requested)?,
+        None => return Err(crate::range::no_range_support()),
+    };
+    let stream = response.into_inner().filter_map(|item| match item {
+        Ok(chunk) => data_bytes_of(chunk).map(Ok),
+        Err(e) => Some(Err(AntdError::from(e))),
+    });
+    Ok(RangeStream::new(span, stream))
 }
 
 /// gRPC client for the antd daemon.
@@ -302,6 +326,57 @@ impl GrpcClient {
             Ok(chunk) => data_bytes_of(chunk).map(Ok),
             Err(e) => Some(Err(AntdError::from(e))),
         }))
+    }
+
+    /// Streams the byte range `[offset, offset + length)` of private data —
+    /// the gRPC counterpart to the REST client's
+    /// [`data_stream_range`](crate::Client::data_stream_range), with the same
+    /// semantics: `length: None` reads to the end, a length past the end is
+    /// clamped, a range starting at or past the end is
+    /// [`AntdError::RangeNotSatisfiable`], and a daemon that ignores the range
+    /// is an error.
+    pub async fn data_stream_range(
+        &self,
+        data_map: &str,
+        offset: u64,
+        length: Option<u64>,
+    ) -> Result<RangeStream, AntdError> {
+        crate::range::check_length(length)?;
+        let response = self
+            .data
+            .clone()
+            .stream(proto::antd::v1::StreamDataRequest {
+                data_map: data_map.to_string(),
+                include_progress: false,
+                offset: Some(offset),
+                length,
+            })
+            .await
+            .map_err(crate::range::range_call_error)?;
+        range_stream_of(response, offset)
+    }
+
+    /// Streams a byte range of public data by address — the public
+    /// counterpart to [`data_stream_range`](Self::data_stream_range).
+    pub async fn data_stream_public_range(
+        &self,
+        address: &str,
+        offset: u64,
+        length: Option<u64>,
+    ) -> Result<RangeStream, AntdError> {
+        crate::range::check_length(length)?;
+        let response = self
+            .data
+            .clone()
+            .stream_public(proto::antd::v1::StreamPublicDataRequest {
+                address: address.to_string(),
+                include_progress: false,
+                offset: Some(offset),
+                length,
+            })
+            .await
+            .map_err(crate::range::range_call_error)?;
+        range_stream_of(response, offset)
     }
 
     /// Like [`data_stream`](Self::data_stream) but requests interleaved

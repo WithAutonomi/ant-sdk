@@ -1557,3 +1557,121 @@ async fn test_finalize_chunk_upload_returns_address_and_forwards_body() {
         .unwrap();
     assert_eq!(addr, "addr_chunk_new");
 }
+
+// ---------------------------------------------------------------------------
+// Byte-range downloads
+// ---------------------------------------------------------------------------
+
+async fn collect_range(mut range: crate::RangeStream) -> Result<Vec<u8>, AntdError> {
+    use tokio_stream::StreamExt;
+    let mut out = Vec::new();
+    while let Some(chunk) = range.next().await {
+        out.extend_from_slice(&chunk?);
+    }
+    Ok(out)
+}
+
+#[tokio::test]
+async fn test_data_stream_range_private() {
+    let mut server = mock_server().await;
+    let _m = server
+        .mock("POST", "/v1/data/stream")
+        .match_header("range", "bytes=1-3")
+        .match_body(Matcher::Json(json!({"data_map": "dm123"})))
+        .with_status(206)
+        .with_header("content-range", "bytes 1-3/6")
+        .with_body("ecr")
+        .create();
+    let client = Client::new(&server.url());
+
+    let range = client.data_stream_range("dm123", 1, Some(3)).await.unwrap();
+    assert_eq!((range.offset, range.length, range.size), (1, 3, 6));
+    assert_eq!(collect_range(range).await.unwrap(), b"ecr");
+}
+
+#[tokio::test]
+async fn test_data_stream_range_public_to_end() {
+    let mut server = mock_server().await;
+    let _m = server
+        .mock("GET", "/v1/data/public/abc123/stream")
+        .match_header("range", "bytes=3-")
+        .with_status(206)
+        .with_header("content-range", "bytes 3-4/5")
+        .with_body("lo")
+        .create();
+    let client = Client::new(&server.url());
+
+    let range = client
+        .data_stream_public_range("abc123", 3, None)
+        .await
+        .unwrap();
+    assert_eq!((range.offset, range.length, range.size), (3, 2, 5));
+    assert_eq!(collect_range(range).await.unwrap(), b"lo");
+}
+
+#[tokio::test]
+async fn test_data_stream_range_not_satisfiable_carries_size() {
+    let mut server = mock_server().await;
+    let _m = server
+        .mock("POST", "/v1/data/stream")
+        .match_header("range", "bytes=6-")
+        .with_status(416)
+        .with_header("content-type", "application/json")
+        .with_header("content-range", "bytes */6")
+        .with_body(r#"{"error":"Range not satisfiable: the object is 6 bytes","code":"RANGE_NOT_SATISFIABLE"}"#)
+        .create();
+    let client = Client::new(&server.url());
+
+    match client.data_stream_range("dm123", 6, None).await {
+        Err(AntdError::RangeNotSatisfiable { size, message }) => {
+            assert_eq!(size, Some(6));
+            assert!(message.contains("6 bytes"), "{message}");
+        }
+        other => panic!("expected RangeNotSatisfiable, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_data_stream_range_rejects_an_ignored_range() {
+    // A daemon without range support answers 200 with the whole object.
+    let mut server = mock_server().await;
+    let _m = mock_data_stream_private(&mut server);
+    let client = Client::new(&server.url());
+
+    match client.data_stream_range("dm123", 1, Some(3)).await {
+        Err(AntdError::Internal(msg)) => assert!(msg.contains("ignored the byte range"), "{msg}"),
+        other => panic!("expected the ignored-range error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_data_stream_range_validates_before_sending() {
+    let mut server = mock_server().await;
+    let m = server.mock("POST", "/v1/data/stream").expect(0).create();
+    let client = Client::new(&server.url());
+
+    assert!(matches!(
+        client.data_stream_range("dm123", 0, Some(0)).await,
+        Err(AntdError::BadRequest(_))
+    ));
+    m.assert();
+}
+
+#[tokio::test]
+async fn test_data_stream_range_reports_a_short_body() {
+    // Content-Range promises 3 bytes but only 2 arrive.
+    let mut server = mock_server().await;
+    let _m = server
+        .mock("POST", "/v1/data/stream")
+        .with_status(206)
+        .with_header("content-range", "bytes 1-3/6")
+        .with_body("ec")
+        .create();
+    let client = Client::new(&server.url());
+
+    let range = client.data_stream_range("dm123", 1, Some(3)).await.unwrap();
+    assert!(matches!(
+        collect_range(range).await,
+        Err(AntdError::Network(_))
+    ));
+}
