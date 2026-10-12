@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::extract::{Path, State};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::Response;
 use axum::Json;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -285,8 +285,54 @@ async fn stream_response(
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/octet-stream")
         .header(header::CONTENT_LENGTH, content_length.to_string())
+        .header(header::ACCEPT_RANGES, "bytes")
         .body(body)
         .expect("static content-type + numeric content-length are always valid"))
+}
+
+/// Build a `206 Partial Content` response for a `Range` request (V2-1425):
+/// stream only the requested plaintext bytes, fetching and decrypting just the
+/// chunks that overlap them (see [`crate::range`]). One `bytes` range is
+/// supported. A range starting at or past the end is `416` with
+/// `Content-Range: bytes */size`; a malformed or multi-range header is `400`.
+/// As on the whole-object path, `Content-Length` is the promised byte count, so
+/// a body that ends short signals a failed download.
+///
+/// Ranges are raw-only: combined with the NDJSON progress framing they are
+/// rejected as `400`.
+async fn range_response(
+    client: Arc<ant_core::data::Client>,
+    data_map: ant_core::data::DataMap,
+    range_header: &HeaderValue,
+    ndjson: bool,
+) -> Result<Response, AntdError> {
+    if ndjson {
+        return Err(AntdError::BadRequest(format!(
+            "Range is not supported with {NDJSON_CONTENT_TYPE} progress framing"
+        )));
+    }
+    let range_header = range_header
+        .to_str()
+        .map_err(|_| AntdError::BadRequest("Range header is not valid ASCII".into()))?;
+    let data_map = crate::datamap::resolve_root_data_map(&client, data_map)
+        .await
+        .map_err(AntdError::from_core)?;
+    let size = data_map.original_file_size() as u64;
+    let range = crate::range::parse_range_header(range_header, size).map_err(|e| match e {
+        crate::range::RangeError::Invalid(msg) => AntdError::BadRequest(msg),
+        crate::range::RangeError::Unsatisfiable => AntdError::RangeNotSatisfiable { size },
+    })?;
+
+    let rx = crate::range::spawn_range_stream(client, data_map, range);
+    let body = Body::from_stream(tokio_stream::wrappers::ReceiverStream::new(rx));
+    Ok(Response::builder()
+        .status(StatusCode::PARTIAL_CONTENT)
+        .header(header::CONTENT_TYPE, "application/octet-stream")
+        .header(header::CONTENT_LENGTH, range.len().to_string())
+        .header(header::CONTENT_RANGE, range.content_range(size))
+        .header(header::ACCEPT_RANGES, "bytes")
+        .body(body)
+        .expect("static content-type + numeric range headers are always valid"))
 }
 
 /// Build the opt-in NDJSON streaming response: interleave fetch-progress frames
@@ -384,7 +430,9 @@ async fn stream_response_ndjson(
 /// `POST /v1/data/stream` — private streaming download from a caller-held
 /// DataMap (the primitive). Mirrors `data_get` but streams the plaintext
 /// instead of buffering it into a base64 JSON body. POST (not GET) because the
-/// hex DataMap can be many KB.
+/// hex DataMap can be many KB. A `Range` header returns just that byte range
+/// (see [`range_response`]); RFC 9110 defines `Range` only for GET, so this is
+/// an antd extension on this route.
 pub async fn data_stream(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -407,7 +455,15 @@ pub async fn data_stream(
     let data_map: ant_core::data::DataMap = rmp_serde::from_slice(&data_map_bytes)
         .map_err(|e| AntdError::BadRequest(format!("invalid data map: {e}")))?;
 
-    if wants_ndjson(&headers) {
+    if let Some(range) = headers.get(header::RANGE) {
+        range_response(
+            state.client.clone(),
+            data_map,
+            range,
+            wants_ndjson(&headers),
+        )
+        .await
+    } else if wants_ndjson(&headers) {
         stream_response_ndjson(state.client.clone(), data_map).await
     } else {
         stream_response(state.client.clone(), data_map).await
@@ -417,7 +473,7 @@ pub async fn data_stream(
 /// `GET /v1/data/public/{addr}/stream` — public streaming download. Resolves
 /// the address to a DataMap, then streams from it (wraps the private
 /// primitive). A fetch failure surfaces as a normal error response before the
-/// stream opens.
+/// stream opens. Honours a `Range` header like `data_stream`.
 pub async fn data_stream_public(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -440,7 +496,15 @@ pub async fn data_stream_public(
         .await
         .map_err(AntdError::from_core)?;
 
-    if wants_ndjson(&headers) {
+    if let Some(range) = headers.get(header::RANGE) {
+        range_response(
+            state.client.clone(),
+            data_map,
+            range,
+            wants_ndjson(&headers),
+        )
+        .await
+    } else if wants_ndjson(&headers) {
         stream_response_ndjson(state.client.clone(), data_map).await
     } else {
         stream_response(state.client.clone(), data_map).await

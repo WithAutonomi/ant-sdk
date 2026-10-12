@@ -81,6 +81,9 @@ func (m *mockDataService) Get(_ context.Context, _ *pb.GetDataRequest) (*pb.GetD
 // Stream emits the private payload as two chunks so the reader's
 // chunk-boundary buffering is exercised, not just a single Recv.
 func (m *mockDataService) Stream(req *pb.StreamDataRequest, srv grpc.ServerStreamingServer[pb.DataChunk]) error {
+	if ranged, err := serveMockRange("secret", req.GetDataMap(), req.Offset, req.Length, srv); ranged {
+		return err
+	}
 	if req.GetIncludeProgress() {
 		// Mirror the daemon: attach the byte total as response metadata.
 		_ = srv.SetHeader(metadata.Pairs("x-content-length", "6"))
@@ -99,6 +102,9 @@ func (m *mockDataService) Stream(req *pb.StreamDataRequest, srv grpc.ServerStrea
 }
 
 func (m *mockDataService) StreamPublic(req *pb.StreamPublicDataRequest, srv grpc.ServerStreamingServer[pb.DataChunk]) error {
+	if ranged, err := serveMockRange("hello", req.GetAddress(), req.Offset, req.Length, srv); ranged {
+		return err
+	}
 	if req.GetIncludeProgress() {
 		_ = srv.SetHeader(metadata.Pairs("x-content-length", "5"))
 		if err := srv.Send(&pb.DataChunk{Kind: &pb.DataChunk_Progress{Progress: &pb.DownloadProgress{

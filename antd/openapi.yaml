@@ -65,7 +65,10 @@ paths:
       tags: [data]
       operationId: dataStreamPublic
       summary: Stream public data
-      description: Stream public data as a chunked response.
+      description: >-
+        Stream public data as a chunked response. With a `Range` header, only
+        that byte range is streamed and only the chunks overlapping it are
+        fetched.
       parameters:
         - name: addr
           in: path
@@ -73,11 +76,71 @@ paths:
           schema:
             type: string
           description: Hex address of the data
+        - $ref: "#/components/parameters/Range"
       responses:
         "200":
-          description: Chunked data stream
+          description: >-
+            The whole object as `application/octet-stream`. `Content-Length`
+            is the plaintext size, so a body that ends short signals a failed
+            download. Carries `Accept-Ranges: bytes`.
+        "206":
+          description: >-
+            The requested byte range (`Range` request). `Content-Range` is
+            `bytes first-last/size` and `Content-Length` is the range's byte
+            count; a body that ends short signals a failed download.
+          headers:
+            Content-Range:
+              schema:
+                type: string
+              description: "`bytes first-last/size` (`last` inclusive)"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
+        "416":
+          $ref: "#/components/responses/RangeNotSatisfiable"
+
+  /v1/data/stream:
+    post:
+      tags: [data]
+      operationId: dataStream
+      summary: Stream private data
+      description: >-
+        Stream private data from a caller-held DataMap instead of buffering it
+        into a base64 JSON body. POST because the hex DataMap can be many KB.
+        With a `Range` header, only that byte range is streamed and only the
+        chunks overlapping it are fetched (RFC 9110 defines `Range` only for
+        GET; antd honours it on this route too).
+      parameters:
+        - $ref: "#/components/parameters/Range"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DataGetRequest"
+      responses:
+        "200":
+          description: >-
+            The whole object as `application/octet-stream`. `Content-Length`
+            is the plaintext size, so a body that ends short signals a failed
+            download. Carries `Accept-Ranges: bytes`.
+        "206":
+          description: >-
+            The requested byte range (`Range` request). `Content-Range` is
+            `bytes first-last/size` and `Content-Length` is the range's byte
+            count; a body that ends short signals a failed download.
+          headers:
+            Content-Range:
+              schema:
+                type: string
+              description: "`bytes first-last/size` (`last` inclusive)"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "416":
+          $ref: "#/components/responses/RangeNotSatisfiable"
 
   /v1/data/public:
     post:
@@ -653,6 +716,21 @@ paths:
           $ref: "#/components/responses/PartialUpload"
 
 components:
+  parameters:
+    Range:
+      name: Range
+      in: header
+      required: false
+      schema:
+        type: string
+      example: bytes=0-1048575
+      description: >-
+        One byte range: `bytes=first-last`, `bytes=first-` (to the end) or
+        `bytes=-n` (the last n bytes). A `last` past the end is clamped. A
+        range starting at or past the end is 416; a malformed range, more
+        than one range, or a Range combined with `Accept:
+        application/x-ndjson` is 400.
+
   schemas:
     # -- Health --
     HealthResponse:
@@ -1460,6 +1538,20 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
     ServiceUnavailable:
       description: Service unavailable — wallet not configured (503)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    RangeNotSatisfiable:
+      description: >-
+        The range starts at or past the end of the object (416). Code
+        RANGE_NOT_SATISFIABLE; `Content-Range: bytes */size` gives the
+        object's size.
+      headers:
+        Content-Range:
+          schema:
+            type: string
+          description: "`bytes */size`"
       content:
         application/json:
           schema:

@@ -111,9 +111,38 @@ public struct Antd_V1_StreamPublicDataRequest: Sendable {
   /// pure data-frame stream, byte-identical to the pre-progress behaviour.
   public var includeProgress: Bool = false
 
+  /// Byte-range download. Setting either field streams only the plaintext bytes
+  /// [offset, offset + length) instead of the whole object, fetching just the
+  /// chunks that overlap them. `offset` defaults to 0 and an absent `length`
+  /// reads to the end; a `length` past the end is clamped. `length` 0 is
+  /// INVALID_ARGUMENT, and an `offset` at or past the end is OUT_OF_RANGE. A
+  /// ranged stream's `x-content-length` metadata is the range's byte count, and
+  /// it adds `x-content-range` (`bytes first-last/size`, `last` inclusive).
+  /// Cannot be combined with include_progress (INVALID_ARGUMENT).
+  public var offset: UInt64 {
+    get {_offset ?? 0}
+    set {_offset = newValue}
+  }
+  /// Returns true if `offset` has been explicitly set.
+  public var hasOffset: Bool {self._offset != nil}
+  /// Clears the value of `offset`. Subsequent reads from it will return its default value.
+  public mutating func clearOffset() {self._offset = nil}
+
+  public var length: UInt64 {
+    get {_length ?? 0}
+    set {_length = newValue}
+  }
+  /// Returns true if `length` has been explicitly set.
+  public var hasLength: Bool {self._length != nil}
+  /// Clears the value of `length`. Subsequent reads from it will return its default value.
+  public mutating func clearLength() {self._length = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
+
+  fileprivate var _offset: UInt64? = nil
+  fileprivate var _length: UInt64? = nil
 }
 
 /// A single frame of a streaming download. Exactly one of `data` (a decrypted
@@ -206,9 +235,31 @@ public struct Antd_V1_StreamDataRequest: Sendable {
   /// See StreamPublicDataRequest.include_progress. Defaults to false.
   public var includeProgress: Bool = false
 
+  /// Byte range: see StreamPublicDataRequest.offset / length.
+  public var offset: UInt64 {
+    get {_offset ?? 0}
+    set {_offset = newValue}
+  }
+  /// Returns true if `offset` has been explicitly set.
+  public var hasOffset: Bool {self._offset != nil}
+  /// Clears the value of `offset`. Subsequent reads from it will return its default value.
+  public mutating func clearOffset() {self._offset = nil}
+
+  public var length: UInt64 {
+    get {_length ?? 0}
+    set {_length = newValue}
+  }
+  /// Returns true if `length` has been explicitly set.
+  public var hasLength: Bool {self._length != nil}
+  /// Clears the value of `length`. Subsequent reads from it will return its default value.
+  public mutating func clearLength() {self._length = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
+
+  fileprivate var _offset: UInt64? = nil
+  fileprivate var _length: UInt64? = nil
 }
 
 public struct Antd_V1_GetDataResponse: Sendable {
@@ -436,7 +487,7 @@ extension Antd_V1_PutPublicDataResponse: SwiftProtobuf.Message, SwiftProtobuf._M
 
 extension Antd_V1_StreamPublicDataRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".StreamPublicDataRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}address\0\u{3}include_progress\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}address\0\u{3}include_progress\0\u{1}offset\0\u{1}length\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -446,24 +497,38 @@ extension Antd_V1_StreamPublicDataRequest: SwiftProtobuf.Message, SwiftProtobuf.
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.address) }()
       case 2: try { try decoder.decodeSingularBoolField(value: &self.includeProgress) }()
+      case 3: try { try decoder.decodeSingularUInt64Field(value: &self._offset) }()
+      case 4: try { try decoder.decodeSingularUInt64Field(value: &self._length) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
     if !self.address.isEmpty {
       try visitor.visitSingularStringField(value: self.address, fieldNumber: 1)
     }
     if self.includeProgress != false {
       try visitor.visitSingularBoolField(value: self.includeProgress, fieldNumber: 2)
     }
+    try { if let v = self._offset {
+      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 3)
+    } }()
+    try { if let v = self._length {
+      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 4)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Antd_V1_StreamPublicDataRequest, rhs: Antd_V1_StreamPublicDataRequest) -> Bool {
     if lhs.address != rhs.address {return false}
     if lhs.includeProgress != rhs.includeProgress {return false}
+    if lhs._offset != rhs._offset {return false}
+    if lhs._length != rhs._length {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -603,7 +668,7 @@ extension Antd_V1_GetDataRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
 
 extension Antd_V1_StreamDataRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".StreamDataRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}data_map\0\u{3}include_progress\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}data_map\0\u{3}include_progress\0\u{1}offset\0\u{1}length\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -613,24 +678,38 @@ extension Antd_V1_StreamDataRequest: SwiftProtobuf.Message, SwiftProtobuf._Messa
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.dataMap) }()
       case 2: try { try decoder.decodeSingularBoolField(value: &self.includeProgress) }()
+      case 3: try { try decoder.decodeSingularUInt64Field(value: &self._offset) }()
+      case 4: try { try decoder.decodeSingularUInt64Field(value: &self._length) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
     if !self.dataMap.isEmpty {
       try visitor.visitSingularStringField(value: self.dataMap, fieldNumber: 1)
     }
     if self.includeProgress != false {
       try visitor.visitSingularBoolField(value: self.includeProgress, fieldNumber: 2)
     }
+    try { if let v = self._offset {
+      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 3)
+    } }()
+    try { if let v = self._length {
+      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 4)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Antd_V1_StreamDataRequest, rhs: Antd_V1_StreamDataRequest) -> Bool {
     if lhs.dataMap != rhs.dataMap {return false}
     if lhs.includeProgress != rhs.includeProgress {return false}
+    if lhs._offset != rhs._offset {return false}
+    if lhs._length != rhs._length {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

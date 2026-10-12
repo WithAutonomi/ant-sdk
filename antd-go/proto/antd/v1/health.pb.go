@@ -58,17 +58,22 @@ func (*HealthCheckRequest) Descriptor() ([]byte, []int) {
 }
 
 type HealthCheckResponse struct {
-	state               protoimpl.MessageState `protogen:"open.v1"`
-	Status              string                 `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`                                                        // "ok"
-	Network             string                 `protobuf:"bytes,2,opt,name=network,proto3" json:"network,omitempty"`                                                      // "default", "local", "alpha"
-	Version             string                 `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`                                                      // antd crate version (e.g. "0.4.0")
-	EvmNetwork          string                 `protobuf:"bytes,4,opt,name=evm_network,json=evmNetwork,proto3" json:"evm_network,omitempty"`                              // EVM preset: "arbitrum-one", "arbitrum-sepolia", "local", "custom"
-	UptimeSeconds       uint64                 `protobuf:"varint,5,opt,name=uptime_seconds,json=uptimeSeconds,proto3" json:"uptime_seconds,omitempty"`                    // seconds since process start
-	BuildCommit         string                 `protobuf:"bytes,6,opt,name=build_commit,json=buildCommit,proto3" json:"build_commit,omitempty"`                           // short git SHA, or "" if built outside a git checkout
-	PaymentTokenAddress string                 `protobuf:"bytes,7,opt,name=payment_token_address,json=paymentTokenAddress,proto3" json:"payment_token_address,omitempty"` // token contract, or "" if unconfigured
-	PaymentVaultAddress string                 `protobuf:"bytes,8,opt,name=payment_vault_address,json=paymentVaultAddress,proto3" json:"payment_vault_address,omitempty"` // payment vault contract, or "" if unconfigured
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	Status               string                 `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`                                                                 // "ok"
+	Network              string                 `protobuf:"bytes,2,opt,name=network,proto3" json:"network,omitempty"`                                                               // "default", "local", "alpha"
+	Version              string                 `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`                                                               // antd crate version (e.g. "0.4.0")
+	EvmNetwork           string                 `protobuf:"bytes,4,opt,name=evm_network,json=evmNetwork,proto3" json:"evm_network,omitempty"`                                       // EVM preset: "arbitrum-one", "arbitrum-sepolia", "local", "custom"
+	UptimeSeconds        uint64                 `protobuf:"varint,5,opt,name=uptime_seconds,json=uptimeSeconds,proto3" json:"uptime_seconds,omitempty"`                             // seconds since process start
+	BuildCommit          string                 `protobuf:"bytes,6,opt,name=build_commit,json=buildCommit,proto3" json:"build_commit,omitempty"`                                    // short git SHA, or "" if built outside a git checkout
+	PaymentTokenAddress  string                 `protobuf:"bytes,7,opt,name=payment_token_address,json=paymentTokenAddress,proto3" json:"payment_token_address,omitempty"`          // token contract, or "" if unconfigured
+	PaymentVaultAddress  string                 `protobuf:"bytes,8,opt,name=payment_vault_address,json=paymentVaultAddress,proto3" json:"payment_vault_address,omitempty"`          // payment vault contract, or "" if unconfigured
+	WriteReady           bool                   `protobuf:"varint,9,opt,name=write_ready,json=writeReady,proto3" json:"write_ready,omitempty"`                                      // best-effort write-path signal: max(routing_table_size, connected_peers) >= rebootstrap_threshold; false = stores known-degraded
+	ConnectedPeers       uint32                 `protobuf:"varint,10,opt,name=connected_peers,json=connectedPeers,proto3" json:"connected_peers,omitempty"`                         // live transport-level connection count (distinct from routing_table_size)
+	RoutingTableSize     uint32                 `protobuf:"varint,11,opt,name=routing_table_size,json=routingTableSize,proto3" json:"routing_table_size,omitempty"`                 // DHT routing-table entries — the number auto-re-bootstrap keys off
+	RebootstrapThreshold uint32                 `protobuf:"varint,12,opt,name=rebootstrap_threshold,json=rebootstrapThreshold,proto3" json:"rebootstrap_threshold,omitempty"`       // routing-table floor below which the DHT auto-re-bootstraps
+	LastStoreOkSecsAgo   *uint64                `protobuf:"varint,13,opt,name=last_store_ok_secs_ago,json=lastStoreOkSecsAgo,proto3,oneof" json:"last_store_ok_secs_ago,omitempty"` // seconds since the last successful store-type operation; absent if none this process
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *HealthCheckResponse) Reset() {
@@ -157,12 +162,47 @@ func (x *HealthCheckResponse) GetPaymentVaultAddress() string {
 	return ""
 }
 
+func (x *HealthCheckResponse) GetWriteReady() bool {
+	if x != nil {
+		return x.WriteReady
+	}
+	return false
+}
+
+func (x *HealthCheckResponse) GetConnectedPeers() uint32 {
+	if x != nil {
+		return x.ConnectedPeers
+	}
+	return 0
+}
+
+func (x *HealthCheckResponse) GetRoutingTableSize() uint32 {
+	if x != nil {
+		return x.RoutingTableSize
+	}
+	return 0
+}
+
+func (x *HealthCheckResponse) GetRebootstrapThreshold() uint32 {
+	if x != nil {
+		return x.RebootstrapThreshold
+	}
+	return 0
+}
+
+func (x *HealthCheckResponse) GetLastStoreOkSecsAgo() uint64 {
+	if x != nil && x.LastStoreOkSecsAgo != nil {
+		return *x.LastStoreOkSecsAgo
+	}
+	return 0
+}
+
 var File_antd_v1_health_proto protoreflect.FileDescriptor
 
 const file_antd_v1_health_proto_rawDesc = "" +
 	"\n" +
 	"\x14antd/v1/health.proto\x12\aantd.v1\"\x14\n" +
-	"\x12HealthCheckRequest\"\xb4\x02\n" +
+	"\x12HealthCheckRequest\"\xb5\x04\n" +
 	"\x13HealthCheckResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\tR\x06status\x12\x18\n" +
 	"\anetwork\x18\x02 \x01(\tR\anetwork\x12\x18\n" +
@@ -172,7 +212,15 @@ const file_antd_v1_health_proto_rawDesc = "" +
 	"\x0euptime_seconds\x18\x05 \x01(\x04R\ruptimeSeconds\x12!\n" +
 	"\fbuild_commit\x18\x06 \x01(\tR\vbuildCommit\x122\n" +
 	"\x15payment_token_address\x18\a \x01(\tR\x13paymentTokenAddress\x122\n" +
-	"\x15payment_vault_address\x18\b \x01(\tR\x13paymentVaultAddress2S\n" +
+	"\x15payment_vault_address\x18\b \x01(\tR\x13paymentVaultAddress\x12\x1f\n" +
+	"\vwrite_ready\x18\t \x01(\bR\n" +
+	"writeReady\x12'\n" +
+	"\x0fconnected_peers\x18\n" +
+	" \x01(\rR\x0econnectedPeers\x12,\n" +
+	"\x12routing_table_size\x18\v \x01(\rR\x10routingTableSize\x123\n" +
+	"\x15rebootstrap_threshold\x18\f \x01(\rR\x14rebootstrapThreshold\x127\n" +
+	"\x16last_store_ok_secs_ago\x18\r \x01(\x04H\x00R\x12lastStoreOkSecsAgo\x88\x01\x01B\x19\n" +
+	"\x17_last_store_ok_secs_ago2S\n" +
 	"\rHealthService\x12B\n" +
 	"\x05Check\x12\x1b.antd.v1.HealthCheckRequest\x1a\x1c.antd.v1.HealthCheckResponseBDZ8github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1\xaa\x02\aAntd.V1b\x06proto3"
 
@@ -208,6 +256,7 @@ func file_antd_v1_health_proto_init() {
 	if File_antd_v1_health_proto != nil {
 		return
 	}
+	file_antd_v1_health_proto_msgTypes[1].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

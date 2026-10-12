@@ -242,8 +242,18 @@ type StreamPublicDataRequest struct {
 	// progress bar. Defaults to false — old clients omitting it receive a
 	// pure data-frame stream, byte-identical to the pre-progress behaviour.
 	IncludeProgress bool `protobuf:"varint,2,opt,name=include_progress,json=includeProgress,proto3" json:"include_progress,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Byte-range download. Setting either field streams only the plaintext bytes
+	// [offset, offset + length) instead of the whole object, fetching just the
+	// chunks that overlap them. `offset` defaults to 0 and an absent `length`
+	// reads to the end; a `length` past the end is clamped. `length` 0 is
+	// INVALID_ARGUMENT, and an `offset` at or past the end is OUT_OF_RANGE. A
+	// ranged stream's `x-content-length` metadata is the range's byte count, and
+	// it adds `x-content-range` (`bytes first-last/size`, `last` inclusive).
+	// Cannot be combined with include_progress (INVALID_ARGUMENT).
+	Offset        *uint64 `protobuf:"varint,3,opt,name=offset,proto3,oneof" json:"offset,omitempty"`
+	Length        *uint64 `protobuf:"varint,4,opt,name=length,proto3,oneof" json:"length,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StreamPublicDataRequest) Reset() {
@@ -288,6 +298,20 @@ func (x *StreamPublicDataRequest) GetIncludeProgress() bool {
 		return x.IncludeProgress
 	}
 	return false
+}
+
+func (x *StreamPublicDataRequest) GetOffset() uint64 {
+	if x != nil && x.Offset != nil {
+		return *x.Offset
+	}
+	return 0
+}
+
+func (x *StreamPublicDataRequest) GetLength() uint64 {
+	if x != nil && x.Length != nil {
+		return *x.Length
+	}
+	return 0
 }
 
 // A single frame of a streaming download. Exactly one of `data` (a decrypted
@@ -385,7 +409,9 @@ func (*DataChunk_Progress) isDataChunk_Kind() {}
 // actually advance smoothly during a download.
 type DownloadProgress struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// One of: "resolving_map", "resolved", "fetching".
+	// One of: "resolving_map", "resolved", "fetching". Daemons that resolve a
+	// shrunk DataMap before the stream opens (V2-1104) no longer emit
+	// "resolving_map" frames; the value remains for streams from older daemons.
 	Phase string `protobuf:"bytes,1,opt,name=phase,proto3" json:"phase,omitempty"`
 	// Chunks fetched so far in the current phase.
 	Fetched uint64 `protobuf:"varint,2,opt,name=fetched,proto3" json:"fetched,omitempty"`
@@ -495,8 +521,11 @@ type StreamDataRequest struct {
 	DataMap string                 `protobuf:"bytes,1,opt,name=data_map,json=dataMap,proto3" json:"data_map,omitempty"` // hex
 	// See StreamPublicDataRequest.include_progress. Defaults to false.
 	IncludeProgress bool `protobuf:"varint,2,opt,name=include_progress,json=includeProgress,proto3" json:"include_progress,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Byte range: see StreamPublicDataRequest.offset / length.
+	Offset        *uint64 `protobuf:"varint,3,opt,name=offset,proto3,oneof" json:"offset,omitempty"`
+	Length        *uint64 `protobuf:"varint,4,opt,name=length,proto3,oneof" json:"length,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StreamDataRequest) Reset() {
@@ -541,6 +570,20 @@ func (x *StreamDataRequest) GetIncludeProgress() bool {
 		return x.IncludeProgress
 	}
 	return false
+}
+
+func (x *StreamDataRequest) GetOffset() uint64 {
+	if x != nil && x.Offset != nil {
+		return *x.Offset
+	}
+	return 0
+}
+
+func (x *StreamDataRequest) GetLength() uint64 {
+	if x != nil && x.Length != nil {
+		return *x.Length
+	}
+	return 0
 }
 
 type GetDataResponse struct {
@@ -782,10 +825,14 @@ const file_antd_v1_data_proto_rawDesc = "" +
 	"\x04cost\x18\x01 \x01(\v2\r.antd.v1.CostR\x04cost\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12#\n" +
 	"\rchunks_stored\x18\x03 \x01(\x04R\fchunksStored\x12*\n" +
-	"\x11payment_mode_used\x18\x04 \x01(\tR\x0fpaymentModeUsed\"^\n" +
+	"\x11payment_mode_used\x18\x04 \x01(\tR\x0fpaymentModeUsed\"\xae\x01\n" +
 	"\x17StreamPublicDataRequest\x12\x18\n" +
 	"\aaddress\x18\x01 \x01(\tR\aaddress\x12)\n" +
-	"\x10include_progress\x18\x02 \x01(\bR\x0fincludeProgress\"b\n" +
+	"\x10include_progress\x18\x02 \x01(\bR\x0fincludeProgress\x12\x1b\n" +
+	"\x06offset\x18\x03 \x01(\x04H\x00R\x06offset\x88\x01\x01\x12\x1b\n" +
+	"\x06length\x18\x04 \x01(\x04H\x01R\x06length\x88\x01\x01B\t\n" +
+	"\a_offsetB\t\n" +
+	"\a_length\"b\n" +
 	"\tDataChunk\x12\x14\n" +
 	"\x04data\x18\x01 \x01(\fH\x00R\x04data\x127\n" +
 	"\bprogress\x18\x02 \x01(\v2\x19.antd.v1.DownloadProgressH\x00R\bprogressB\x06\n" +
@@ -795,10 +842,14 @@ const file_antd_v1_data_proto_rawDesc = "" +
 	"\afetched\x18\x02 \x01(\x04R\afetched\x12\x14\n" +
 	"\x05total\x18\x03 \x01(\x04R\x05total\"+\n" +
 	"\x0eGetDataRequest\x12\x19\n" +
-	"\bdata_map\x18\x01 \x01(\tR\adataMap\"Y\n" +
+	"\bdata_map\x18\x01 \x01(\tR\adataMap\"\xa9\x01\n" +
 	"\x11StreamDataRequest\x12\x19\n" +
 	"\bdata_map\x18\x01 \x01(\tR\adataMap\x12)\n" +
-	"\x10include_progress\x18\x02 \x01(\bR\x0fincludeProgress\"%\n" +
+	"\x10include_progress\x18\x02 \x01(\bR\x0fincludeProgress\x12\x1b\n" +
+	"\x06offset\x18\x03 \x01(\x04H\x00R\x06offset\x88\x01\x01\x12\x1b\n" +
+	"\x06length\x18\x04 \x01(\x04H\x01R\x06length\x88\x01\x01B\t\n" +
+	"\a_offsetB\t\n" +
+	"\a_length\"%\n" +
 	"\x0fGetDataResponse\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\"G\n" +
 	"\x0ePutDataRequest\x12\x12\n" +
@@ -881,10 +932,12 @@ func file_antd_v1_data_proto_init() {
 		return
 	}
 	file_antd_v1_common_proto_init()
+	file_antd_v1_data_proto_msgTypes[4].OneofWrappers = []any{}
 	file_antd_v1_data_proto_msgTypes[5].OneofWrappers = []any{
 		(*DataChunk_Data)(nil),
 		(*DataChunk_Progress)(nil),
 	}
+	file_antd_v1_data_proto_msgTypes[8].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

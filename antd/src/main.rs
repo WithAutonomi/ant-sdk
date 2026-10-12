@@ -23,6 +23,7 @@ mod evm_defaults;
 mod grpc;
 mod peers;
 mod port_file;
+mod range;
 mod rest;
 mod signed_quotes;
 mod state;
