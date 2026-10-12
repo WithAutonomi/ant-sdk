@@ -455,6 +455,8 @@ func openGrpcRange(stream dataChunkStream, cancel context.CancelFunc) (*RangeRea
 // a daemon that predates that leaves Size at -1.
 func rangeStreamError(stream dataChunkStream, err error) error {
 	mapped := errorFromGrpc(err)
+	// errorFromGrpc returns a new error value on every call, so setting Size
+	// here changes only this call's error.
 	if rerr, ok := mapped.(*RangeNotSatisfiableError); ok {
 		if values := stream.Trailer().Get("x-content-range"); len(values) > 0 {
 			rerr.Size = unsatisfiedSize(values[0])
