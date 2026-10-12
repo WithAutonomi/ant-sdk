@@ -12,8 +12,8 @@ use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
 use ant_core::data::{
-    Client, ClientConfig, CoreNodeConfig, EvmNetwork, MultiAddr, NodeMode, P2PNode, Wallet,
-    MAX_WIRE_MESSAGE_SIZE,
+    ChunkCache, Client, ClientConfig, CoreNodeConfig, EvmNetwork, MultiAddr, NodeMode, P2PNode,
+    Wallet, MAX_WIRE_MESSAGE_SIZE,
 };
 
 mod config;
@@ -265,11 +265,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         store_timeout_secs = client_config.store_timeout_secs,
         quote_concurrency = client_config.quote_concurrency,
         store_concurrency = client_config.store_concurrency,
+        chunk_cache_capacity = config.chunk_cache_capacity,
         "client config resolved"
     );
 
     let node = Arc::new(node);
-    let mut client = Client::from_node(node, client_config);
+    // ant-core keeps every chunk it fetches in this LRU. Left at its default
+    // (1024 chunks, ~4 GiB) one multi-GB download grows the daemon by ~4 GiB.
+    let mut client = Client::from_node(node, client_config)
+        .with_chunk_cache(ChunkCache::new(config.chunk_cache_capacity));
 
     // Resolve EVM configuration — network-aware defaults + env overrides.
     let evm_cfg = evm_defaults::resolve(&config.network);
