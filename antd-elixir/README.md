@@ -100,7 +100,7 @@ commit the result (CI fails when they drift):
 
 ```bash
 mix escript.install hex protobuf 0.16.0   # protoc-gen-elixir, as the script pins
-antd-elixir/scripts/generate-protos.sh    # needs protoc and ~/.mix/escripts on PATH
+./scripts/generate-protos.sh              # needs protoc and ~/.mix/escripts on PATH
 ```
 
 ### Usage

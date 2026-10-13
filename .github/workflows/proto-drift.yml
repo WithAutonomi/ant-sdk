@@ -232,7 +232,7 @@ jobs:
       - name: Fail on drift
         env:
           STUBS: antd-py/src/antd/_proto
-          REGEN: antd-py/scripts/generate_proto.py
+          REGEN: python antd-py/scripts/generate_proto.py
         run: |
           set -euo pipefail
           untracked="$(git ls-files --others --exclude-standard -- "$STUBS")"

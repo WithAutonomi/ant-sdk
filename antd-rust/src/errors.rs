@@ -120,9 +120,11 @@ pub enum AntdError {
     },
 
     /// A byte-range download started at or past the end of the object: HTTP
-    /// 416, or gRPC `OUT_OF_RANGE` from a range method's call. (Other gRPC
-    /// calls keep `OUT_OF_RANGE` as [`AntdError::Grpc`], since tonic also uses
-    /// that code for a local message-size error.)
+    /// 416, or gRPC `OUT_OF_RANGE` from a range method's call. Any REST 416
+    /// maps here, but only the range methods send a `Range` header, so only
+    /// they get one. (Other gRPC calls keep `OUT_OF_RANGE` as
+    /// [`AntdError::Grpc`], since tonic also uses that code for a local
+    /// message-size error.)
     #[error("antd error 416: {message}")]
     RangeNotSatisfiable {
         /// The object's plaintext size, when the daemon reported it: from the
