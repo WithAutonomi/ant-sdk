@@ -29,6 +29,23 @@ SDK_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROTO_ROOT="$(cd "$SDK_ROOT/../antd/proto" && pwd)"
 OUT_DIR="$SDK_ROOT/lib/src/generated"
 
+# On Windows (Git Bash) dart and protoc are native programs and need Windows
+# paths. Git Bash converts most arguments and variables for them, but not with
+# MSYS_NO_PATHCONV=1, and never the directory after --dart_out's "grpc:", so
+# convert every path they get.
+native_path() { printf '%s\n' "$1"; }
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*)
+    default_pub_cache="$HOME/AppData/Local/Pub/Cache"
+    native_path() { cygpath -m "$1"; }
+    ;;
+  *) default_pub_cache="$HOME/.pub-cache" ;;
+esac
+if [[ -n "${PUB_CACHE:-}" ]]; then
+  PUB_CACHE="$(native_path "$PUB_CACHE")"
+  export PUB_CACHE
+fi
+
 if ! dart pub global list 2>/dev/null | tr -d '\r' | grep -qx "protoc_plugin $PROTOC_PLUGIN_VERSION"; then
   echo "error: protoc_plugin $PROTOC_PLUGIN_VERSION is required." >&2
   echo "Run: dart pub global activate protoc_plugin $PROTOC_PLUGIN_VERSION" >&2
@@ -36,16 +53,6 @@ if ! dart pub global list 2>/dev/null | tr -d '\r' | grep -qx "protoc_plugin $PR
 fi
 
 # The executable `dart pub global activate` installed for the check above.
-# On Windows (Git Bash) protoc is a native program, and it needs the output
-# directory as a Windows path.
-dart_out="$OUT_DIR"
-case "$(uname -s)" in
-  MINGW* | MSYS* | CYGWIN*)
-    default_pub_cache="$HOME/AppData/Local/Pub/Cache"
-    dart_out="$(cygpath -m "$OUT_DIR")"
-    ;;
-  *) default_pub_cache="$HOME/.pub-cache" ;;
-esac
 PLUGIN="${PUB_CACHE:-$default_pub_cache}/bin/protoc-gen-dart"
 if [[ -f "$PLUGIN.bat" ]]; then
   PLUGIN="$PLUGIN.bat"
@@ -55,18 +62,24 @@ if [[ ! -f "$PLUGIN" ]]; then
   exit 1
 fi
 
-# Start from an empty package, so a proto dropped from PROTOS shows up as
+# Generate into a scratch directory, so a failed run leaves the committed
+# stubs alone.
+GEN_DIR="$(mktemp -d)"
+trap 'rm -rf "$GEN_DIR"' EXIT
+
+files=()
+for p in "${PROTOS[@]}"; do files+=("$(native_path "$PROTO_ROOT/antd/v1/$p.proto")"); done
+
+protoc \
+  -I "$(native_path "$PROTO_ROOT")" \
+  --plugin=protoc-gen-dart="$(native_path "$PLUGIN")" \
+  --dart_out=grpc:"$(native_path "$GEN_DIR")" \
+  "${files[@]}"
+
+# Replace the package wholesale, so a proto dropped from PROTOS shows up as
 # deleted stubs instead of lingering.
 mkdir -p "$OUT_DIR/antd/v1"
 rm -f "$OUT_DIR"/antd/v1/*.dart
-
-files=()
-for p in "${PROTOS[@]}"; do files+=("$PROTO_ROOT/antd/v1/$p.proto"); done
-
-protoc \
-  -I "$PROTO_ROOT" \
-  --plugin=protoc-gen-dart="$PLUGIN" \
-  --dart_out=grpc:"$dart_out" \
-  "${files[@]}"
+cp "$GEN_DIR"/antd/v1/*.dart "$OUT_DIR/antd/v1/"
 
 echo "Regenerated Dart stubs under $OUT_DIR"
