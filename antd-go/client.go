@@ -372,7 +372,8 @@ func (c *Client) DataStreamPublic(ctx context.Context, address string) (io.ReadC
 // overlap them. Pass RangeToEnd as length to read to the end; a length past
 // the end is clamped. An offset at or past the end is a
 // *RangeNotSatisfiableError. The caller reads the returned stream and MUST
-// Close it.
+// Close it. Requires antd >= 0.15.0; an older daemon ignores the range, which
+// is reported as an error rather than returned as the whole object.
 func (c *Client) DataStreamRange(ctx context.Context, dataMap string, offset, length int64) (*RangeReader, error) {
 	return c.doRangeStream(ctx, http.MethodPost, "/v1/data/stream", map[string]any{
 		"data_map": dataMap,
