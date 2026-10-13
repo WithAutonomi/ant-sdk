@@ -30,8 +30,9 @@ type RangeReader struct {
 }
 
 // errNoRangeSupport reports a daemon that answered a range request with the
-// whole object, which only a daemon predating byte-range support does.
-var errNoRangeSupport = errors.New("antd: the daemon ignored the byte range (it predates range support); upgrade antd")
+// whole object, which only a daemon predating byte-range support (antd
+// 0.15.0) does.
+var errNoRangeSupport = errors.New("antd: the daemon ignored the byte range (it predates range support); upgrade to antd 0.15.0 or later")
 
 // rangeHeader validates offset/length and renders them as an HTTP Range value.
 func rangeHeader(offset, length int64) (string, error) {

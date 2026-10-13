@@ -370,7 +370,9 @@ func (c *GrpcClient) DataStreamPublic(ctx context.Context, address string) (io.R
 // overlap them — the gRPC mirror of the REST client's DataStreamRange. Pass
 // RangeToEnd as length to read to the end; a length past the end is clamped.
 // An offset at or past the end is a *RangeNotSatisfiableError. The caller
-// MUST Close the returned reader (Close cancels the RPC).
+// MUST Close the returned reader (Close cancels the RPC). Requires antd >=
+// 0.15.0; an older daemon ignores the range, which is reported as an error
+// rather than returned as the whole object.
 func (c *GrpcClient) DataStreamRange(ctx context.Context, dataMap string, offset, length int64) (*RangeReader, error) {
 	if err := checkRange(offset, length); err != nil {
 		return nil, err
