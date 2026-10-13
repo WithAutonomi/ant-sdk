@@ -333,9 +333,9 @@ impl GrpcClient {
     /// [`data_stream_range`](crate::Client::data_stream_range), with the same
     /// semantics: `length: None` reads to the end, a length past the end is
     /// clamped, a range starting at or past the end is
-    /// [`AntdError::RangeNotSatisfiable`], a daemon that ignores the range is
-    /// an error, and a body shorter or longer than the announced length ends
-    /// the stream with [`AntdError::Network`].
+    /// [`AntdError::RangeNotSatisfiable`], a daemon that ignores the range
+    /// (antd < 0.15.0) is an error, and a body shorter or longer than the
+    /// announced length ends the stream with [`AntdError::Network`].
     pub async fn data_stream_range(
         &self,
         data_map: &str,
