@@ -49,8 +49,26 @@ func TestParseContentRange(t *testing.T) {
 			t.Errorf("parseContentRange(%q) accepted a malformed value", bad)
 		}
 	}
-	if unsatisfiedSize("bytes */1234") != 1234 || unsatisfiedSize("") != -1 {
-		t.Error("unsatisfiedSize")
+}
+
+func TestUnsatisfiedSize(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  int64
+	}{
+		{"bytes */1234", 1234},
+		{" bytes */10 ", 10},
+		{"bytes */0", 0},
+		{"", -1},
+		{"bytes */", -1},
+		{"bytes */lots", -1},
+		{"bytes */-5", -1},
+		{"bytes 0-1/10", -1},
+		{"items */10", -1},
+	} {
+		if got := unsatisfiedSize(tc.value); got != tc.want {
+			t.Errorf("unsatisfiedSize(%q) = %d, want %d", tc.value, got, tc.want)
+		}
 	}
 }
 
