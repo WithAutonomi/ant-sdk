@@ -189,10 +189,11 @@ pub(crate) fn range_call_error(status: tonic::Status) -> AntdError {
 }
 
 /// The error for a daemon that answered a range request with the whole
-/// object, which only a daemon predating byte-range support does.
+/// object, which only a daemon predating byte-range support (antd < 0.15.0)
+/// does.
 pub(crate) fn no_range_support() -> AntdError {
     AntdError::Internal(
-        "the daemon ignored the byte range (it predates range support); upgrade antd".into(),
+        "the daemon ignored the byte range (it predates range support); upgrade to antd 0.15.0 or later".into(),
     )
 }
 

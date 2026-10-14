@@ -12,12 +12,12 @@ Or add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-antd-client = "0.2"
+antd-client = "0.3"
 ```
 
 ## Compatibility
 
-This crate talks to a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon; it does not join the network itself. Rust 1.82+. Tested against antd 0.12.x. The gRPC client code is pre-generated and committed, so consumers need neither `protoc` nor the daemon's `.proto` files. For a daemon-less client see the `ant-ffi` crate in this repository.
+This crate talks to a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon; it does not join the network itself. Rust 1.82+. The byte-range methods need antd 0.15.0 or later; the rest of the API works with antd 0.14.x. The gRPC client code is pre-generated and committed, so consumers need neither `protoc` nor the daemon's `.proto` files. For a daemon-less client see the `ant-ffi` crate in this repository.
 
 ## Quick Start
 
@@ -84,8 +84,8 @@ All methods are `async` and return `Result<T, AntdError>`.
 | `data_put(data, payment_mode)` | Store encrypted private data — returns `DataPutResult` (DataMap returned to caller) |
 | `data_get(data_map)` | Retrieve private data using a caller-held DataMap |
 | `data_cost(data, payment_mode)` | Estimate storage cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
-| `data_stream_range(data_map, offset, length)` | Stream the bytes `[offset, offset + length)` of private data; `length: None` reads to the end. Returns a `RangeStream` (a `Stream` of `Bytes` with `offset`, `length` and the object `size`); the daemon fetches only the chunks the range overlaps. A body shorter or longer than the announced length ends the stream with `AntdError::Network` |
-| `data_stream_public_range(address, offset, length)` | The same for public data by address |
+| `data_stream_range(data_map, offset, length)` | Stream the bytes `[offset, offset + length)` of private data; `length: None` reads to the end. Returns a `RangeStream` (a `Stream` of `Bytes` with `offset`, `length` and the object `size`); the daemon fetches only the chunks the range overlaps. A body shorter or longer than the announced length ends the stream with `AntdError::Network`. New in 0.3.0; requires antd >= 0.15.0, and an older daemon's whole-object answer is an error |
+| `data_stream_public_range(address, offset, length)` | The same for public data by address (new in 0.3.0) |
 
 ### Chunks
 | Method | Description |
@@ -171,7 +171,7 @@ match client.data_get_public("some_address").await {
 | `Network` | 502 | Network unreachable |
 | `PartialUpload` | 502 (`code: PARTIAL_UPLOAD`) / gRPC `ABORTED` with a `Partial upload:` message | A finalize stored some chunks but not all; carries counts, `retryable` and `retention_known` (new in 0.2.0) |
 | `ServiceUnavailable` | 503 | Wallet not configured |
-| `RangeNotSatisfiable` | 416 / gRPC `OUT_OF_RANGE` from a range method | A byte range starts at or past the end of the object; `size` carries the object size when the daemon reports it |
+| `RangeNotSatisfiable` | 416 / gRPC `OUT_OF_RANGE` from a range method | A byte range starts at or past the end of the object; `size` carries the object size when the daemon reports it (new in 0.3.0) |
 | `Http` | - | REST transport error |
 | `Json` | - | Serialization error |
 | `Grpc` | - | gRPC transport/status error |
@@ -241,6 +241,15 @@ match client.finalize_upload(&upload_id, &tx_hashes).await {
     Err(e) => return Err(e.into()),
 }
 ```
+
+### Upgrading from 0.2.x: range errors are a new error variant
+
+0.3.0 adds the byte-range methods and `AntdError::RangeNotSatisfiable { size, message }`.
+In 0.2.x a REST 416 fell through to `AntdError::Internal("unexpected status 416: …")`, but
+nothing in 0.2.x sent a `Range` header, so in practice only the new range methods return the
+new variant. It is still a breaking change for code that matches `AntdError` exhaustively:
+`AntdError` is not `#[non_exhaustive]`, so a `match` without a catch-all arm stops compiling
+until it handles `RangeNotSatisfiable { .. }`. Code with a catch-all arm compiles unchanged.
 
 ### Upgrading from 0.1.x: partial stores are a new error variant
 
