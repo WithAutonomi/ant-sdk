@@ -25,6 +25,23 @@ try:
 except ImportError:  # antd SDK without the typed partial-upload error
     PartialUploadError = None  # type: ignore[assignment,misc]
 
+# The pointer-era errors arrived in the antd SDK together with the pointer
+# API. Guarded like ``PartialUploadError``: against an older SDK the server
+# starts without the pointer tools (see server.py) and these codes never
+# appear.
+try:
+    from antd.exceptions import (
+        CloseGroupShortfallError,
+        ConflictError,
+        PointerFinalError,
+        PointerForkedError,
+    )
+except ImportError:  # antd SDK without the pointer API
+    CloseGroupShortfallError = None  # type: ignore[assignment,misc]
+    ConflictError = None  # type: ignore[assignment,misc]
+    PointerFinalError = None  # type: ignore[assignment,misc]
+    PointerForkedError = None  # type: ignore[assignment,misc]
+
 _CODE_MAP: dict[type[AntdError], str] = {
     NotFoundError: "NOT_FOUND",
     AlreadyExistsError: "ALREADY_EXISTS",
@@ -37,6 +54,49 @@ _CODE_MAP: dict[type[AntdError], str] = {
 }
 if PartialUploadError is not None:
     _CODE_MAP[PartialUploadError] = "PARTIAL_UPLOAD"
+
+# What an agent should do next, for the codes where the wrong move costs
+# money. The lookup is by exact type, like _CODE_MAP, so PointerForkedError
+# (a ForkError subclass) gets its own entry rather than VERSION_CONFLICT.
+_HINTS: dict[type[AntdError], str] = {}
+if PointerFinalError is not None:
+    _CODE_MAP[PointerFinalError] = "POINTER_FINAL"
+    _HINTS[PointerFinalError] = (
+        "The pointer is final (transferred or frozen): nothing can update or "
+        "transfer it again. Nothing was paid. Do not retry; pointer_controller "
+        "shows the pointer that now decides what this address resolves to."
+    )
+if PointerForkedError is not None:
+    _CODE_MAP[PointerForkedError] = "POINTER_FORKED"
+    _HINTS[PointerForkedError] = (
+        "The pointer's owner signed two different final states and no "
+        "majority of its close group holds either, so the network has no "
+        "answer for it. Do not retry; pointer_finality lists the rival states."
+    )
+if ConflictError is not None:
+    _CODE_MAP[ConflictError] = "CONFLICT"
+    _HINTS[ConflictError] = (
+        "Another write to this pointer is in the way: a prepared write awaits "
+        "payment (finalize it, or wait up to an hour for it to expire), or "
+        "this update lost to a newer state. Nothing was paid. Read the pointer "
+        "again with pointer_get before deciding whether to write."
+    )
+if CloseGroupShortfallError is not None:
+    _CODE_MAP[CloseGroupShortfallError] = "CLOSE_GROUP_SHORTFALL"
+
+_SHORTFALL_RETRYABLE_HINT = (
+    "Retry the finalize, the payment was kept: call pointer_finalize again "
+    "with the same upload_id to store the paid state against the same "
+    "payment. No second payment is made. Stop after a few attempts; the kept "
+    "attempt expires after one hour."
+)
+_SHORTFALL_HINT = (
+    "Too few of the close group answered or stored. A read is free to retry "
+    "later. Do not repeat a paid write automatically: it may already have "
+    "been paid for and a repeat pays again. Check the pointer with "
+    "pointer_get or pointer_finality first, and ask the user before paying "
+    "again."
+)
 
 
 def format_error(exc: AntdError) -> dict:
@@ -58,6 +118,12 @@ def format_error(exc: AntdError) -> dict:
     JSON literal ``true``). A malformed partial-upload body therefore reaches
     here as ``PARTIAL_UPLOAD`` or ``NETWORK_ERROR``, never as an unexpected
     exception.
+
+    The pointer-era codes (``POINTER_FINAL``, ``POINTER_FORKED``,
+    ``CONFLICT``, ``CLOSE_GROUP_SHORTFALL``) carry a ``hint`` saying what to
+    do next. ``CLOSE_GROUP_SHORTFALL`` also carries ``retryable``: True only
+    for a pointer finalize whose paid state the daemon kept, so the agent
+    retries that finalize and pays nothing more.
     """
     code = _CODE_MAP.get(type(exc), "UNKNOWN")
     d = {
@@ -75,6 +141,11 @@ def format_error(exc: AntdError) -> dict:
         d["retention_known"] = (
             bool(getattr(exc, "retention_known", False)) or exc.retryable is True
         )
+    if CloseGroupShortfallError is not None and isinstance(exc, CloseGroupShortfallError):
+        d["retryable"] = exc.retryable is True
+        d["hint"] = _SHORTFALL_RETRYABLE_HINT if d["retryable"] else _SHORTFALL_HINT
+    elif type(exc) in _HINTS:
+        d["hint"] = _HINTS[type(exc)]
     return d
 
 
