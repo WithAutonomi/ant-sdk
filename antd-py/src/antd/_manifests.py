@@ -32,24 +32,41 @@ _U64_MAX = 2**64 - 1
 
 # --- Checks made before sending -------------------------------------------
 #
-# These raise BadRequestError, the error the daemon's 400 / INVALID_ARGUMENT
-# maps to, so one ``except`` covers an entry refused here and one refused by
-# the daemon. Nothing was sent, so ``status_code`` is 0.
+# These raise BadRequestError with status_code 400 and the daemon's own
+# wording, so a refusal made here is indistinguishable from the daemon's 400
+# for the same mistake (one ``except`` covers both). Nothing was sent.
+
+_BAD_REQUEST = 400
+_MAX_REPORTED_ENTRY_ERRORS = 20
+_EMPTY_DECODE_INPUT = "needs a manifest (base64 .ant bytes) or a link"
 
 
 def check_entries(entries: Sequence[ManifestEntryInput]) -> None:
-    """Refuse an entry with both or neither of ``data_map`` and ``address``
-    (as antd-go's ``checkManifestEntries`` does), or a ``size`` that is not a
-    u64. An empty string counts as unset, as it does for the daemon. The
-    messages name ``entries[i]`` in the daemon's own words."""
+    """Refuse every entry with both or neither of ``data_map`` and
+    ``address`` (as antd-go's ``checkManifestEntries`` does), or a ``size``
+    that is not a u64. An empty string counts as unset, as it does for the
+    daemon. All bad entries are reported together, in the daemon's words
+    (``parse_entries`` / ``entry_errors_message``)."""
+    errors: list[str] = []
     for i, e in enumerate(entries):
         has_data_map, has_address = bool(e.data_map), bool(e.address)
         if has_data_map and has_address:
-            raise BadRequestError(f"entries[{i}]: give data_map or address, not both")
-        if not has_data_map and not has_address:
-            raise BadRequestError(f"entries[{i}]: needs a data_map or an address")
-        if e.size is not None and not _is_u64(e.size):
-            raise BadRequestError(f"entries[{i}]: size must be an int from 0 to 2**64 - 1, got {e.size!r}")
+            errors.append(f"entries[{i}]: give data_map or address, not both")
+        elif not has_data_map and not has_address:
+            errors.append(f"entries[{i}]: needs a data_map or an address")
+        elif e.size is not None and not _is_u64(e.size):
+            errors.append(f"entries[{i}]: size must be an int from 0 to 2**64 - 1, got {e.size!r}")
+    if not errors:
+        return
+    shown = "; ".join(errors[:_MAX_REPORTED_ENTRY_ERRORS])
+    if len(errors) > _MAX_REPORTED_ENTRY_ERRORS:
+        message = (
+            f"{len(errors)} invalid entries: {shown}; "
+            f"and {len(errors) - _MAX_REPORTED_ENTRY_ERRORS} more"
+        )
+    else:
+        message = f"{len(errors)} invalid entries: {shown}"
+    raise BadRequestError(message, _BAD_REQUEST)
 
 
 def check_torrent_info_hashes(hashes: Sequence[str] | None) -> list[str]:
@@ -70,7 +87,7 @@ def manifest_bytes(manifest: bytes | bytearray | memoryview) -> bytes:
         )
     data = bytes(manifest)
     if not data:
-        raise BadRequestError("manifest is empty")
+        raise BadRequestError(_EMPTY_DECODE_INPUT, _BAD_REQUEST)
     return data
 
 
@@ -81,7 +98,7 @@ def check_link(link: str) -> str:
             "decode_manifest_link takes an ant:// link or address; use decode_manifest for .ant bytes"
         )
     if not link:
-        raise BadRequestError("link is empty")
+        raise BadRequestError(_EMPTY_DECODE_INPUT, _BAD_REQUEST)
     return link
 
 

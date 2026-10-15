@@ -125,7 +125,7 @@ The `.ant` bytes are always raw `bytes` in this API: REST carries them as base64
 | `decode_manifest(manifest, resolve=False)` | `DecodedManifest` | Decode `.ant` bytes. With `resolve`, each entry's `exact_size` comes from the network, and a failure lands in that entry's `error` rather than failing the call |
 | `decode_manifest_link(link, resolve=False)` | `DecodedManifest` | Decode an `ant://manifest/` link, a file link or a bare 64-hex address (`source="file_link"`: one public entry, no path) |
 
-An invalid entry, such as a bad path (`../x`) or malformed hex, raises `BadRequestError` (HTTP 400 / gRPC `INVALID_ARGUMENT`) with the daemon's message, which names `entries[i]`. One refused before sending has `status_code` 0.
+An invalid entry, such as a bad path (`../x`) or malformed hex, raises `BadRequestError` (HTTP 400 / gRPC `INVALID_ARGUMENT`) with the daemon's message, which names `entries[i]`. One the client refuses before sending (both or neither of `data_map`/`address`, a bad `size`, empty decode input) is the same error with `status_code` 400 and the daemon's wording, such as `2 invalid entries: entries[0]: give data_map or address, not both; entries[2]: needs a data_map or an address`, so one `except` covers both.
 
 ```python
 from antd import AntdClient, ManifestEntryInput
