@@ -559,7 +559,7 @@ class GrpcAntdClient {
   /// hand. Nothing is uploaded or paid for. See [AntdClient.buildManifest].
   ///
   /// An entry with both or neither of `dataMap` and `address` throws
-  /// [ArgumentError] before anything is sent; the daemon's INVALID_ARGUMENT
+  /// [BadRequestError] before anything is sent; the daemon's INVALID_ARGUMENT
   /// for the rest (naming `entries[i]`) is a [BadRequestError].
   ///
   /// Requires the antd release after 0.15.0.
@@ -610,7 +610,7 @@ class GrpcAntdClient {
     bool resolve = false,
   }) async {
     if (manifest.isEmpty) {
-      throw ArgumentError.value(manifest, 'manifest', 'must not be empty');
+      throw const BadRequestError(manifestDecodeEmptyMessage);
     }
     return _decodeManifest(manifests_msg.DecodeManifestRequest()
       ..manifest = manifest
@@ -626,7 +626,7 @@ class GrpcAntdClient {
     bool resolve = false,
   }) async {
     if (link.isEmpty) {
-      throw ArgumentError.value(link, 'link', 'must not be empty');
+      throw const BadRequestError(manifestDecodeEmptyMessage);
     }
     return _decodeManifest(manifests_msg.DecodeManifestRequest()
       ..link = link

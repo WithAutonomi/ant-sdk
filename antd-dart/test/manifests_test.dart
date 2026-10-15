@@ -48,6 +48,7 @@ class _Daemon {
 
 const build = 'POST /v1/manifests/build';
 const decode = 'POST /v1/manifests/decode';
+const emptyInput = 'needs a manifest (base64 .ant bytes) or a link';
 
 Map<String, dynamic> _built({
   String manifest = manifestHeaderB64,
@@ -173,19 +174,62 @@ void main() {
         () async {
       final daemon = _Daemon({build: (200, _built())});
       final client = daemon.client;
-      for (final bad in [
-        const ManifestEntryInput(),
-        const ManifestEntryInput(path: 'x', dataMap: '', address: ''),
-        ManifestEntryInput(dataMap: 'abcd', address: addrA),
+      for (final (bad, message) in [
+        (
+          const ManifestEntryInput(),
+          '1 invalid entries: entries[1]: needs a data_map or an address'
+        ),
+        (
+          const ManifestEntryInput(path: 'x', dataMap: '', address: ''),
+          '1 invalid entries: entries[1]: needs a data_map or an address'
+        ),
+        (
+          ManifestEntryInput(dataMap: 'abcd', address: addrA),
+          '1 invalid entries: entries[1]: give data_map or address, not both'
+        ),
       ]) {
         await expectLater(
           client.buildManifest([ManifestEntryInput(address: addrA), bad]),
-          throwsA(isA<ArgumentError>()
-              .having((e) => e.name, 'name', 'entries[1]')
-              .having((e) => e.message, 'message', contains('exactly one'))),
+          throwsA(isA<BadRequestError>()
+              .having((e) => e.statusCode, 'statusCode', 400)
+              .having((e) => e.message, 'message', message)),
           reason: '$bad',
         );
       }
+      expect(daemon.requests, isEmpty);
+    });
+
+    test('lists every bad entry, in the daemon wording', () async {
+      final daemon = _Daemon({build: (200, _built())});
+      await expectLater(
+        daemon.client.buildManifest([
+          ManifestEntryInput(dataMap: 'abcd', address: addrA),
+          ManifestEntryInput(address: addrA),
+          const ManifestEntryInput(path: 'y'),
+        ]),
+        throwsA(isA<BadRequestError>()
+            .having((e) => e.statusCode, 'statusCode', 400)
+            .having(
+                (e) => e.message,
+                'message',
+                '2 invalid entries: entries[0]: give data_map or address, '
+                    'not both; entries[2]: needs a data_map or an address')),
+      );
+      expect(daemon.requests, isEmpty);
+    });
+
+    test('reports at most 20 bad entries, then "and N more"', () async {
+      final daemon = _Daemon({build: (200, _built())});
+      final shown = [
+        for (var i = 0; i < 20; i++)
+          'entries[$i]: needs a data_map or an address'
+      ].join('; ');
+      await expectLater(
+        daemon.client.buildManifest(
+            [for (var i = 0; i < 23; i++) const ManifestEntryInput()]),
+        throwsA(isA<BadRequestError>().having((e) => e.message, 'message',
+            '23 invalid entries: $shown; and 3 more')),
+      );
       expect(daemon.requests, isEmpty);
     });
 
@@ -194,8 +238,10 @@ void main() {
       await expectLater(
         daemon.client
             .buildManifest([ManifestEntryInput(size: -1, address: addrA)]),
-        throwsA(
-            isA<ArgumentError>().having((e) => e.name, 'name', 'entries[0]')),
+        throwsA(isA<BadRequestError>()
+            .having((e) => e.statusCode, 'statusCode', 400)
+            .having((e) => e.message, 'message',
+                '1 invalid entries: entries[0]: size must not be negative')),
       );
       expect(daemon.requests, isEmpty);
     });
@@ -299,7 +345,9 @@ void main() {
       final daemon = _Daemon({decode: (200, decoded)});
       await expectLater(
         daemon.client.decodeManifest(Uint8List(0)),
-        throwsA(isA<ArgumentError>()),
+        throwsA(isA<BadRequestError>()
+            .having((e) => e.statusCode, 'statusCode', 400)
+            .having((e) => e.message, 'message', emptyInput)),
       );
       expect(daemon.requests, isEmpty);
     });
@@ -352,7 +400,9 @@ void main() {
       final daemon = _Daemon({decode: (200, <String, dynamic>{})});
       await expectLater(
         daemon.client.decodeManifestLink(''),
-        throwsA(isA<ArgumentError>()),
+        throwsA(isA<BadRequestError>()
+            .having((e) => e.statusCode, 'statusCode', 400)
+            .having((e) => e.message, 'message', emptyInput)),
       );
       expect(daemon.requests, isEmpty);
     });

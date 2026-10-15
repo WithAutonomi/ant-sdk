@@ -23,6 +23,7 @@
 //   ANTD_TEST_MANIFEST_ADDRESSES=<hex>,<hex> \
 //   dart test test/live_manifests_test.dart
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -72,6 +73,9 @@ GrpcAntdClient _grpcClient(String target) {
     port: int.parse(hostPort.substring(colon + 1)),
   );
 }
+
+const _bothSources =
+    '1 invalid entries: entries[0]: give data_map or address, not both';
 
 const _one = 'live/one.txt';
 const _two = 'live/two.txt';
@@ -185,7 +189,9 @@ Future<BuiltManifest> _roundTrip(
       ManifestEntryInput(
           address: _addresses![0], dataMap: _dataMap ?? _addresses![1]),
     ]),
-    throwsA(isA<ArgumentError>()),
+    throwsA(isA<BadRequestError>()
+        .having((e) => e.statusCode, 'statusCode', 400)
+        .having((e) => e.message, 'message', _bothSources)),
   );
   await expectLater(
     build([ManifestEntryInput(path: '../x', address: _addresses![0])]),
@@ -205,6 +211,33 @@ void main() {
     () async {
       final rest = AntdClient(baseUrl: _url!);
       addTearDown(rest.close);
+
+      // The client-side refusal is the daemon's own 400: send the same bad
+      // request straight to the daemon and compare the messages.
+      final http = HttpClient();
+      addTearDown(http.close);
+      final req = await http.postUrl(Uri.parse('$_url/v1/manifests/build'));
+      req.headers.contentType = ContentType.json;
+      req.write(jsonEncode({
+        'entries': [
+          {'data_map': _dataMap ?? 'abcd', 'address': _addresses![0]},
+        ],
+      }));
+      final res = await req.close();
+      final body = jsonDecode(await utf8.decoder.bind(res).join()) as Map;
+      expect(res.statusCode, equals(400));
+      expect(body['code'], equals('BAD_REQUEST'));
+      await expectLater(
+        rest.buildManifest([
+          ManifestEntryInput(
+              address: _addresses![0], dataMap: _dataMap ?? 'abcd'),
+        ]),
+        throwsA(isA<BadRequestError>()
+            // The daemon's error text is "Bad request: " plus this message.
+            .having((e) => 'Bad request: ${e.message}', 'message', body['error'])),
+        reason: 'client-side and daemon refusals must be identical',
+      );
+
       await _roundTrip(
         (entries, {name}) => rest.buildManifest(entries, name: name),
         (bytes, {resolve = false}) =>

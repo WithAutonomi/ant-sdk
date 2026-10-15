@@ -491,7 +491,7 @@ class AntdClient {
   /// hand, via `POST /v1/manifests/build`. Nothing is uploaded or paid for.
   ///
   /// Each entry needs exactly one of `dataMap` or `address`; an entry with
-  /// both or neither throws [ArgumentError] before anything is sent. The
+  /// both or neither throws a [BadRequestError] before anything is sent. The
   /// daemon checks the rest (hex, paths, sizes) and names every invalid
   /// entry (`entries[i]: ...`) in a [BadRequestError].
   ///
@@ -539,7 +539,7 @@ class AntdClient {
     bool resolve = false,
   }) async {
     if (manifest.isEmpty) {
-      throw ArgumentError.value(manifest, 'manifest', 'must not be empty');
+      throw const BadRequestError(manifestDecodeEmptyMessage);
     }
     final json = await _doJson('POST', '/v1/manifests/decode', {
       'manifest': _b64Encode(manifest),
@@ -559,7 +559,7 @@ class AntdClient {
     bool resolve = false,
   }) async {
     if (link.isEmpty) {
-      throw ArgumentError.value(link, 'link', 'must not be empty');
+      throw const BadRequestError(manifestDecodeEmptyMessage);
     }
     final json = await _doJson('POST', '/v1/manifests/decode', {
       'link': link,

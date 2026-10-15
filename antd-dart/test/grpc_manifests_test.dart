@@ -124,14 +124,21 @@ void main() {
 
     test('rejects both or neither of dataMap and address before sending',
         () async {
-      for (final bad in [
-        const ManifestEntryInput(path: 'x'),
-        ManifestEntryInput(dataMap: 'abcd', address: addrA),
+      for (final (bad, message) in [
+        (
+          const ManifestEntryInput(path: 'x'),
+          '1 invalid entries: entries[0]: needs a data_map or an address'
+        ),
+        (
+          ManifestEntryInput(dataMap: 'abcd', address: addrA),
+          '1 invalid entries: entries[0]: give data_map or address, not both'
+        ),
       ]) {
         await expectLater(
           client.buildManifest([bad]),
-          throwsA(
-              isA<ArgumentError>().having((e) => e.name, 'name', 'entries[0]')),
+          throwsA(isA<BadRequestError>()
+              .having((e) => e.statusCode, 'statusCode', 400)
+              .having((e) => e.message, 'message', message)),
         );
       }
       expect(service.buildCalls, equals(0));
@@ -183,10 +190,12 @@ void main() {
     });
 
     test('rejects empty input before sending', () async {
-      await expectLater(
-          client.decodeManifest(Uint8List(0)), throwsA(isA<ArgumentError>()));
-      await expectLater(
-          client.decodeManifestLink(''), throwsA(isA<ArgumentError>()));
+      final refused = throwsA(isA<BadRequestError>()
+          .having((e) => e.statusCode, 'statusCode', 400)
+          .having((e) => e.message, 'message',
+              'needs a manifest (base64 .ant bytes) or a link'));
+      await expectLater(client.decodeManifest(Uint8List(0)), refused);
+      await expectLater(client.decodeManifestLink(''), refused);
       expect(service.decodeCalls, equals(0));
     });
 

@@ -49,24 +49,37 @@ class ManifestEntryInput {
       'dataMap: $dataMap, address: $address)';
 }
 
-/// Rejects, before anything is sent, an entry with both or neither of
+/// The daemon's message for a decode with neither bytes nor a link.
+const manifestDecodeEmptyMessage =
+    'needs a manifest (base64 .ant bytes) or a link';
+
+/// Rejects, before anything is sent, every entry with both or neither of
 /// `dataMap` and `address` (an empty string counts as unset, as it does for
-/// the daemon), or a negative size. Throws an [ArgumentError] whose name is
-/// `entries[i]`, as the daemon's 400 names it.
+/// the daemon), or a negative size. Throws a [BadRequestError] (400) whose
+/// message is the daemon's own wording, so a refusal here and the daemon's
+/// 400 for the same mistake are indistinguishable: every bad entry is
+/// listed, at most 20, as `entries[i]: ...`.
 void checkManifestEntries(List<ManifestEntryInput> entries) {
+  const maxReported = 20;
+  final errors = <String>[];
   for (var i = 0; i < entries.length; i++) {
     final e = entries[i];
     final hasDataMap = e.dataMap?.isNotEmpty ?? false;
     final hasAddress = e.address?.isNotEmpty ?? false;
-    if (hasDataMap == hasAddress) {
-      throw ArgumentError.value(
-          e, 'entries[$i]', 'set exactly one of dataMap or address');
-    }
-    final size = e.size;
-    if (size != null && size < 0) {
-      throw ArgumentError.value(e, 'entries[$i]', 'size must not be negative');
+    if (hasDataMap && hasAddress) {
+      errors.add('entries[$i]: give data_map or address, not both');
+    } else if (!hasDataMap && !hasAddress) {
+      errors.add('entries[$i]: needs a data_map or an address');
+    } else if ((e.size ?? 0) < 0) {
+      errors.add('entries[$i]: size must not be negative');
     }
   }
+  if (errors.isEmpty) return;
+  final shown = errors.take(maxReported).join('; ');
+  throw BadRequestError(errors.length > maxReported
+      ? '${errors.length} invalid entries: $shown; '
+          'and ${errors.length - maxReported} more'
+      : '${errors.length} invalid entries: $shown');
 }
 
 /// What a manifest says about one entry.
