@@ -1027,4 +1027,111 @@ defmodule Antd.GrpcClient do
   @spec wallet_approve!(t()) :: boolean()
   def wallet_approve!(client), do: unwrap!(wallet_approve(client))
 
+  # ---------------------------------------------------------------------------
+  # Manifests
+  # ---------------------------------------------------------------------------
+  #
+  # ManifestService: the same functions, results and errors as the REST
+  # client's manifest functions (see `Antd.Client.build_manifest/3`). Nothing
+  # is uploaded or paid for; the embedding policy and `resolve` read the
+  # network, so a call can time out and is safe to retry. Manifest bytes
+  # travel as raw protobuf `bytes`.
+  #
+  # Message size: a manifest can be 64 MiB, and a Build or Decode response
+  # carries it, so antd-go raises its client's 4 MiB receive default per
+  # call. grpc-elixir 0.11 has no receive limit to raise: its Gun adapter
+  # reads a unary response whole, whatever its size; GRPC.Stub.connect has no
+  # option for one, and a call rejects any option it does not know; and
+  # sends are capped only by GRPC.Message's 2 GiB default. So no limit is
+  # passed here (revisit if a later grpc-elixir adds one).
+  # test/antd/grpc_manifests_test.exs round-trips a manifest over 4 MiB both
+  # ways to hold that.
+  #
+  # Each function takes a `:timeout` option in milliseconds. It defaults to
+  # 5 minutes, the REST client's default, rather than grpc's 10 seconds.
+
+  @manifest_timeout 300_000
+
+  @doc """
+  Builds a `.ant` manifest from DataMaps and public addresses already in
+  hand. Mirrors `Antd.Client.build_manifest/3`, including its entry check
+  before sending; an entry the daemon rejects (`INVALID_ARGUMENT`) is an
+  `Antd.BadRequestError` whose message names `entries[i]`. Nothing is
+  uploaded or paid for.
+
+  ## Options
+
+    * `:name`, `:torrent_info_hashes`, `:embed_roots` (default `true`) — as
+      for `Antd.Client.build_manifest/3`.
+    * `:timeout` — call timeout in milliseconds (default 300_000).
+  """
+  @spec build_manifest(t(), [Antd.ManifestEntryInput.t()], keyword()) ::
+          {:ok, Antd.BuiltManifest.t()} | {:error, Exception.t()}
+  def build_manifest(%__MODULE__{channel: channel}, entries, opts \\ []) when is_list(entries) do
+    with :ok <- Antd.Manifests.check_entries(entries) do
+      req = Antd.Manifests.build_request(entries, opts)
+
+      case Antd.V1.ManifestService.Stub.build(channel, req, manifest_call_opts(opts)) do
+        {:ok, resp} -> {:ok, Antd.Manifests.built_from_proto(resp)}
+        {:error, rpc_error} -> {:error, translate_error(rpc_error)}
+      end
+    end
+  end
+
+  @doc "Like `build_manifest/3` but raises on error."
+  @spec build_manifest!(t(), [Antd.ManifestEntryInput.t()], keyword()) :: Antd.BuiltManifest.t()
+  def build_manifest!(client, entries, opts \\ []),
+    do: unwrap!(build_manifest(client, entries, opts))
+
+  @doc """
+  Decodes `.ant` bytes (a raw binary). Mirrors
+  `Antd.Client.decode_manifest/3`.
+
+  ## Options
+
+    * `:resolve` — as for `Antd.Client.decode_manifest/3` (default `false`).
+    * `:timeout` — call timeout in milliseconds (default 300_000).
+  """
+  @spec decode_manifest(t(), binary(), keyword()) ::
+          {:ok, Antd.DecodedManifest.t()} | {:error, Exception.t()}
+  def decode_manifest(%__MODULE__{} = client, manifest, opts \\ []) when is_binary(manifest) do
+    with :ok <- Antd.Manifests.check_input("decode_manifest: manifest", manifest) do
+      decode_manifest_call(client, {:manifest, manifest}, opts)
+    end
+  end
+
+  @doc "Like `decode_manifest/3` but raises on error."
+  @spec decode_manifest!(t(), binary(), keyword()) :: Antd.DecodedManifest.t()
+  def decode_manifest!(client, manifest, opts \\ []),
+    do: unwrap!(decode_manifest(client, manifest, opts))
+
+  @doc """
+  Decodes an `ant://` manifest link, a file link or a bare 64-hex address.
+  Mirrors `Antd.Client.decode_manifest_link/3`; takes the same options as
+  `decode_manifest/3`.
+  """
+  @spec decode_manifest_link(t(), String.t(), keyword()) ::
+          {:ok, Antd.DecodedManifest.t()} | {:error, Exception.t()}
+  def decode_manifest_link(%__MODULE__{} = client, link, opts \\ []) when is_binary(link) do
+    with :ok <- Antd.Manifests.check_input("decode_manifest_link: link", link) do
+      decode_manifest_call(client, {:link, link}, opts)
+    end
+  end
+
+  @doc "Like `decode_manifest_link/3` but raises on error."
+  @spec decode_manifest_link!(t(), String.t(), keyword()) :: Antd.DecodedManifest.t()
+  def decode_manifest_link!(client, link, opts \\ []),
+    do: unwrap!(decode_manifest_link(client, link, opts))
+
+  defp decode_manifest_call(%__MODULE__{channel: channel}, input, opts) do
+    req = Antd.Manifests.decode_request(input, opts)
+
+    case Antd.V1.ManifestService.Stub.decode(channel, req, manifest_call_opts(opts)) do
+      {:ok, resp} -> {:ok, Antd.Manifests.decoded_from_proto(resp)}
+      {:error, rpc_error} -> {:error, translate_error(rpc_error)}
+    end
+  end
+
+  defp manifest_call_opts(opts), do: [timeout: Keyword.get(opts, :timeout, @manifest_timeout)]
+
 end

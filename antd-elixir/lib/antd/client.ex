@@ -631,6 +631,107 @@ defmodule Antd.Client do
   def wallet_approve!(client), do: unwrap!(wallet_approve(client))
 
   # ---------------------------------------------------------------------------
+  # Manifests
+  # ---------------------------------------------------------------------------
+  #
+  # ADR-0006 `.ant` files and `ant://` links that describe a set of files,
+  # each with an optional path and size and either an embedded DataMap or a
+  # public DataMap address (needs the antd release after 0.15.0). The daemon
+  # builds and decodes them through ant-core. Nothing is uploaded or paid
+  # for; the network is read only to resolve DataMaps (the embedding policy
+  # on build, `resolve` on decode), so a call can time out and is safe to
+  # retry. Manifest bytes are raw binaries here; base64 is only the wire.
+
+  @doc """
+  Builds a `.ant` manifest from DataMaps and public addresses already in hand
+  (`POST /v1/manifests/build`). Nothing is uploaded or paid for.
+
+  `entries` is a list of `Antd.ManifestEntryInput`, each with exactly one of
+  `data_map` or `address`; one with both or neither is refused before
+  anything is sent (`Antd.BadRequestError`, `status_code` 0). An entry the
+  daemon rejects (an invalid path, a malformed DataMap) is an
+  `Antd.BadRequestError` whose message names `entries[i]`.
+
+  Returns an `Antd.BuiltManifest`: the raw `.ant` bytes, the `ant://` link
+  (`nil` when it would not fit 1,500 bytes) and the entries in encoded order.
+
+  ## Options
+
+    * `:name` — a suggested root directory name (one portable path
+      component).
+    * `:torrent_info_hashes` — BitTorrent info hashes of the same files: hex,
+      40 characters for v1 and/or 64 for v2.
+    * `:embed_roots` — `true` (the default) resolves each shrunk DataMap's
+      root, fetching its wrapper records, and embeds it when it is at most
+      64 KiB, so recipients skip that fetch (ADR-0006's policy). `false`
+      embeds DataMaps exactly as given.
+  """
+  @spec build_manifest(t(), [Antd.ManifestEntryInput.t()], keyword()) ::
+          {:ok, Antd.BuiltManifest.t()} | {:error, Exception.t()}
+  def build_manifest(%__MODULE__{} = client, entries, opts \\ []) when is_list(entries) do
+    with :ok <- Antd.Manifests.check_entries(entries),
+         payload = Antd.Manifests.build_payload(entries, opts),
+         {:ok, body} <- do_json(client, :post, "/v1/manifests/build", payload) do
+      Antd.Manifests.built_from_json(body)
+    end
+  end
+
+  @doc "Like `build_manifest/3` but raises on error."
+  @spec build_manifest!(t(), [Antd.ManifestEntryInput.t()], keyword()) :: Antd.BuiltManifest.t()
+  def build_manifest!(client, entries, opts \\ []),
+    do: unwrap!(build_manifest(client, entries, opts))
+
+  @doc """
+  Decodes `.ant` bytes (a raw binary) via `POST /v1/manifests/decode`.
+  Returns an `Antd.DecodedManifest`; a malformed manifest is an
+  `Antd.BadRequestError`.
+
+  ## Options
+
+    * `:resolve` — `true` fetches each entry's DataMap (and wrapper records)
+      to report `exact_size` and confirm the DataMap is on the network.
+      Content chunks are not fetched, and one entry's failure is reported in
+      its `error`, not as a failed call. Default `false`.
+  """
+  @spec decode_manifest(t(), binary(), keyword()) ::
+          {:ok, Antd.DecodedManifest.t()} | {:error, Exception.t()}
+  def decode_manifest(%__MODULE__{} = client, manifest, opts \\ []) when is_binary(manifest) do
+    with :ok <- Antd.Manifests.check_input("decode_manifest: manifest", manifest) do
+      decode_manifest_body(client, Antd.Manifests.decode_bytes_payload(manifest, opts))
+    end
+  end
+
+  @doc "Like `decode_manifest/3` but raises on error."
+  @spec decode_manifest!(t(), binary(), keyword()) :: Antd.DecodedManifest.t()
+  def decode_manifest!(client, manifest, opts \\ []),
+    do: unwrap!(decode_manifest(client, manifest, opts))
+
+  @doc """
+  Decodes an `ant://` manifest link, a file link or a bare 64-hex address via
+  `POST /v1/manifests/decode`. A file link or address reads as one public
+  entry with no path and `source: "file_link"`. Takes the same `:resolve`
+  option as `decode_manifest/3`.
+  """
+  @spec decode_manifest_link(t(), String.t(), keyword()) ::
+          {:ok, Antd.DecodedManifest.t()} | {:error, Exception.t()}
+  def decode_manifest_link(%__MODULE__{} = client, link, opts \\ []) when is_binary(link) do
+    with :ok <- Antd.Manifests.check_input("decode_manifest_link: link", link) do
+      decode_manifest_body(client, Antd.Manifests.decode_link_payload(link, opts))
+    end
+  end
+
+  @doc "Like `decode_manifest_link/3` but raises on error."
+  @spec decode_manifest_link!(t(), String.t(), keyword()) :: Antd.DecodedManifest.t()
+  def decode_manifest_link!(client, link, opts \\ []),
+    do: unwrap!(decode_manifest_link(client, link, opts))
+
+  defp decode_manifest_body(client, payload) do
+    with {:ok, body} <- do_json(client, :post, "/v1/manifests/decode", payload) do
+      {:ok, Antd.Manifests.decoded_from_json(body)}
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # External Signer (Two-Phase Upload)
   # ---------------------------------------------------------------------------
 

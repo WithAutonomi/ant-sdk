@@ -371,6 +371,71 @@ rescue
 end
 ```
 
+## Manifests
+
+A manifest (ADR-0006) is one `.ant` file, or an `ant://manifest/` link, that
+describes a set of files: each entry has an optional path and size and either
+an embedded DataMap (the key to a private upload) or a public DataMap address.
+The daemon builds and decodes manifests through ant-core, so the SDK never
+re-implements the format. Needs the antd release after 0.15.0.
+
+**Nothing is uploaded or paid for.** Building and decoding read the network
+only to resolve DataMaps (the embedding policy on build, `resolve: true` on
+decode), so a call can time out, and retrying it is safe. Upload the files
+first (`data_put_public`, `file_put`, ...) and build the manifest from the
+addresses and DataMaps they return.
+
+| Function | Description |
+|----------|-------------|
+| `build_manifest(client, entries, opts \\ [])` | Build from a list of `Antd.ManifestEntryInput` (exactly one of `data_map` or `address`, optional `path` and `size`) — returns `Antd.BuiltManifest` (`manifest` bytes, `link` or `nil` when it would exceed 1,500 bytes, `entries` sorted by effective name). `opts`: `name:`, `torrent_info_hashes:`, `embed_roots:` (default `true`: embed each shrunk DataMap's resolved root when it is at most 64 KiB; `false` embeds DataMaps as given) |
+| `decode_manifest(client, manifest, opts \\ [])` | Decode `.ant` bytes — returns `Antd.DecodedManifest` (`source`, `name`, `torrent_info_hash_v1`/`_v2`, `entries`). `opts`: `resolve: true` fetches each entry's DataMap to report `exact_size` and confirm it is on the network (content chunks are not fetched) |
+| `decode_manifest_link(client, link, opts \\ [])` | Decode an `ant://` manifest link, a file link or a bare 64-hex address (a file link reads as one public entry with no path, `source: "file_link"`). `opts`: `resolve:` |
+
+Each entry comes back as an `Antd.ManifestEntryInfo`: `effective_name` (the
+path, or the content address when there is none), `path`, `size` (the
+creator's claim), `kind` (`"embedded"` or `"public"`), `content_address`,
+`data_map` (decode only), `exact_size` and `error`.
+
+- **Bytes.** The manifest is always a raw binary in this API. The REST client
+  base64-encodes it on the wire; gRPC carries it as raw bytes.
+- **Unset values are `nil`** on both transports. A `size` or `exact_size` that
+  was never recorded or resolved is `nil`, never `0`; `link`, `path`, `name`,
+  `data_map`, `error` and the torrent hashes are `nil` when absent.
+- **Errors.** An entry with both or neither of `data_map` and `address` is
+  refused before anything is sent, as an `Antd.BadRequestError` with
+  `status_code` 0. The daemon's rejections (an invalid path such as `../x`, a
+  malformed DataMap or manifest) are `Antd.BadRequestError` too (400, or gRPC
+  `INVALID_ARGUMENT`), carrying the daemon's message, which names
+  `entries[i]`. With `resolve: true`, one entry's failure is reported in its
+  `error` and the call still succeeds.
+- **gRPC.** `Antd.GrpcClient` has the same functions, each also taking a
+  `:timeout` option in milliseconds (default 5 minutes). A manifest can be up
+  to 64 MiB; grpc-elixir sets no receive limit on the client, so large
+  manifests need no extra option.
+
+```elixir
+{:ok, one} = Antd.Client.data_put_public(client, "first file")
+{:ok, two} = Antd.Client.data_put_public(client, "second file")
+
+{:ok, built} =
+  Antd.Client.build_manifest(
+    client,
+    [
+      %Antd.ManifestEntryInput{path: "notes/one.txt", address: one.address},
+      %Antd.ManifestEntryInput{path: "notes/two.txt", address: two.address}
+    ],
+    name: "notes"
+  )
+
+# Keep the .ant bytes, or share the link.
+File.write!("notes.ant", built.manifest)
+
+{:ok, decoded} = Antd.Client.decode_manifest_link(client, built.link, resolve: true)
+for e <- decoded.entries, do: IO.puts("#{e.effective_name}: #{inspect(e.exact_size)} bytes")
+```
+
+See [`examples/09_manifests.exs`](examples/09_manifests.exs).
+
 ## Examples
 
 See the [examples/](examples/) directory:
@@ -381,3 +446,4 @@ See the [examples/](examples/) directory:
 - `04_files.exs` — File upload/download (public and private)
 - `06_private_data.exs` — Private encrypted data
 - `07_external_signer.exs` — External-signer two-phase upload with a bounded partial-upload retry
+- `09_manifests.exs` — Build a manifest of two public uploads, then decode its link with exact sizes (optional `ANTD_BASE_URL`)
