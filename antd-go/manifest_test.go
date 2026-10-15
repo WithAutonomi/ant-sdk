@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	pb "github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1"
@@ -170,7 +171,14 @@ type mockManifestService struct {
 	pb.UnimplementedManifestServiceServer
 }
 
+// bigManifestSize is past the client's default receive ceiling, so only a
+// raised per-call limit lets a manifest this large arrive.
+const bigManifestSize = DefaultGrpcMaxRecvMsgSize + 1024*1024
+
 func (m *mockManifestService) Build(_ context.Context, req *pb.BuildManifestRequest) (*pb.BuildManifestResponse, error) {
+	if req.GetName() == "big" {
+		return &pb.BuildManifestResponse{Manifest: make([]byte, bigManifestSize)}, nil
+	}
 	if req.GetName() != "album" || req.EmbedRoots == nil || !req.GetEmbedRoots() || len(req.GetEntries()) != 2 {
 		return nil, errors.New("unexpected request")
 	}
@@ -195,6 +203,10 @@ func (m *mockManifestService) Build(_ context.Context, req *pb.BuildManifestRequ
 
 func (m *mockManifestService) Decode(_ context.Context, req *pb.DecodeManifestRequest) (*pb.DecodeManifestResponse, error) {
 	resp := &pb.DecodeManifestResponse{Source: "manifest"}
+	if req.GetLink() == "big" {
+		resp.Entries = []*pb.ManifestEntryInfo{{Kind: "embedded", DataMap: strings.Repeat("a", bigManifestSize)}}
+		return resp, nil
+	}
 	switch in := req.GetInput().(type) {
 	case *pb.DecodeManifestRequest_Manifest:
 		name := "bytes"
@@ -244,5 +256,31 @@ func TestGrpcDecodeManifestAndLink(t *testing.T) {
 	}
 	if res.Source != "file_link" || len(res.Entries) != 1 || res.Entries[0].ContentAddress != addr || res.TorrentInfoHashV1 != "" {
 		t.Fatalf("unexpected link decode: %+v", res)
+	}
+}
+
+// A manifest response past the client's default receive ceiling must still
+// arrive: Build and Decode raise the limit per call (maxManifestGrpcMessage),
+// since a manifest can be 64 MiB and a decode carries its DataMaps in hex.
+func TestGrpcManifestCallsRaiseTheRecvLimit(t *testing.T) {
+	if bigManifestSize <= DefaultGrpcMaxRecvMsgSize || bigManifestSize > maxManifestGrpcMessage {
+		t.Fatalf("fixture must sit between the default and the manifest ceilings, got %d bytes", bigManifestSize)
+	}
+	c := startMockServer(t)
+
+	built, err := c.BuildManifest(context.Background(), []ManifestEntryInput{{Address: "11"}}, &BuildManifestOptions{Name: "big"})
+	if err != nil {
+		t.Fatalf("large Build response rejected on a default client: %v", err)
+	}
+	if len(built.Manifest) != bigManifestSize {
+		t.Fatalf("expected %d manifest bytes, got %d", bigManifestSize, len(built.Manifest))
+	}
+
+	decoded, err := c.DecodeManifestLink(context.Background(), "big", false)
+	if err != nil {
+		t.Fatalf("large Decode response rejected on a default client: %v", err)
+	}
+	if len(decoded.Entries) != 1 || len(decoded.Entries[0].DataMap) != bigManifestSize {
+		t.Fatalf("large Decode response mangled: %d entries", len(decoded.Entries))
 	}
 }
