@@ -4,4 +4,5 @@ library;
 export 'src/client.dart';
 export 'src/discover.dart';
 export 'src/errors.dart';
+export 'src/manifests.dart' hide checkManifestEntries;
 export 'src/models.dart';
