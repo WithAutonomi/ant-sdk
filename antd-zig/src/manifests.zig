@@ -144,15 +144,59 @@ fn nonEmpty(s: ?[]const u8) ?[]const u8 {
     return if (v.len == 0) null else v;
 }
 
+/// The daemon's cap on entry errors it names in one message.
+const max_reported_entry_errors = 20;
+
 /// The index of the first entry that does not set exactly one of `data_map`
 /// or `address` (an empty string counts as unset), or `null` when every entry
 /// does. antd-go's `checkManifestEntries`; the Client runs it before sending.
 pub fn firstInvalidEntry(entries: []const ManifestEntryInput) ?usize {
     for (entries, 0..) |e, i| {
-        if ((nonEmpty(e.data_map) == null) == (nonEmpty(e.address) == null)) return i;
+        if (entryProblem(e) != null) return i;
     }
     return null;
 }
+
+fn entryProblem(e: ManifestEntryInput) ?[]const u8 {
+    const has_map = nonEmpty(e.data_map) != null;
+    const has_addr = nonEmpty(e.address) != null;
+    if (has_map and has_addr) return "give data_map or address, not both";
+    if (!has_map and !has_addr) return "needs a data_map or an address";
+    return null;
+}
+
+/// The message the daemon's 400 carries when entries fail the both-or-neither
+/// check (`parse_entries` / `entry_errors_message` in antd), so a refusal
+/// here and there read the same: `N invalid entries: entries[i]: ...; ...`,
+/// at most 20 named, then `; and K more`. `null` when every entry is valid.
+/// The caller frees the result.
+pub fn invalidEntriesMessage(allocator: Allocator, entries: []const ManifestEntryInput) !?[]u8 {
+    var buf = std.ArrayList(u8).init(allocator);
+    errdefer buf.deinit();
+    var count: usize = 0;
+    for (entries, 0..) |e, i| {
+        const problem = entryProblem(e) orelse continue;
+        if (count < max_reported_entry_errors) {
+            if (count > 0) try buf.appendSlice("; ");
+            try buf.writer().print("entries[{d}]: {s}", .{ i, problem });
+        }
+        count += 1;
+    }
+    if (count == 0) {
+        buf.deinit();
+        return null;
+    }
+    if (count > max_reported_entry_errors) {
+        try buf.writer().print("; and {d} more", .{count - max_reported_entry_errors});
+    }
+    const head = try std.fmt.allocPrint(allocator, "{d} invalid entries: ", .{count});
+    defer allocator.free(head);
+    try buf.insertSlice(0, head);
+    return try buf.toOwnedSlice();
+}
+
+/// The daemon's message for a decode with neither bytes nor a link.
+pub const empty_decode_message = "needs a manifest (base64 .ant bytes) or a link";
 
 // --- Request bodies ---
 

@@ -271,24 +271,52 @@ test "a zero size is sent and read back as 0, not as unset" {
     try testing.expectEqual(@as(?u64, 0), built.entries[0].exact_size);
 }
 
-test "buildManifest rejects an entry with both or neither source before sending" {
+test "buildManifest rejects an entry with both or neither before sending" {
     // Never dialled: the check runs before any request.
     var client = antd.Client.init(testing.allocator, "http://127.0.0.1:1");
     defer client.deinit();
 
+    // One bad entry.
     try testing.expectError(error.BadRequest, client.buildManifest(&.{
         .{ .address = "11" },
         .{ .data_map = "aa", .address = "bb" },
     }, .{}));
-    const info = client.getLastError().?;
-    try testing.expectEqual(@as(u16, 0), info.status_code);
-    try testing.expect(std.mem.indexOf(u8, info.message, "entries[1]") != null);
+    try testing.expectEqual(@as(u16, 400), client.getLastError().?.status_code);
+    try testing.expectEqualStrings(
+        "1 invalid entries: entries[1]: give data_map or address, not both",
+        client.getLastError().?.message,
+    );
 
-    try testing.expectError(error.BadRequest, client.buildManifest(&.{.{ .path = "a.txt" }}, .{}));
-    try testing.expect(std.mem.indexOf(u8, client.getLastError().?.message, "entries[0]") != null);
+    // Two bad entries are reported together, as the daemon does.
+    try testing.expectError(error.BadRequest, client.buildManifest(&.{
+        .{ .data_map = "aa", .address = "bb" },
+        .{ .address = "11" },
+        .{ .path = "a.txt" },
+    }, .{}));
+    try testing.expectEqual(@as(u16, 400), client.getLastError().?.status_code);
+    try testing.expectEqualStrings(
+        "2 invalid entries: entries[0]: give data_map or address, not both; entries[2]: needs a data_map or an address",
+        client.getLastError().?.message,
+    );
 
     // Empty strings count as unset.
     try testing.expectError(error.BadRequest, client.buildManifest(&.{.{ .data_map = "", .address = "" }}, .{}));
+    try testing.expectEqualStrings(
+        "1 invalid entries: entries[0]: needs a data_map or an address",
+        client.getLastError().?.message,
+    );
+}
+
+test "invalidEntriesMessage names at most 20 entries, then counts the rest" {
+    var entries: [23]antd.ManifestEntryInput = undefined;
+    for (&entries) |*e| e.* = .{};
+    const msg = (try manifests.invalidEntriesMessage(testing.allocator, &entries)).?;
+    defer testing.allocator.free(msg);
+    try testing.expect(std.mem.startsWith(u8, msg, "23 invalid entries: entries[0]: needs a data_map or an address; entries[1]:"));
+    try testing.expect(std.mem.indexOf(u8, msg, "entries[19]") != null);
+    try testing.expect(std.mem.indexOf(u8, msg, "entries[20]") == null);
+    try testing.expect(std.mem.endsWith(u8, msg, "; and 3 more"));
+    try testing.expect((try manifests.invalidEntriesMessage(testing.allocator, &.{.{ .address = "aa" }})) == null);
 }
 
 test "firstInvalidEntry treats empty strings as unset" {
@@ -378,8 +406,11 @@ test "decode rejects empty input before sending" {
     var client = antd.Client.init(testing.allocator, "http://127.0.0.1:1");
     defer client.deinit();
     try testing.expectError(error.BadRequest, client.decodeManifest("", false));
-    try testing.expectEqual(@as(u16, 0), client.getLastError().?.status_code);
+    try testing.expectEqual(@as(u16, 400), client.getLastError().?.status_code);
+    try testing.expectEqualStrings("needs a manifest (base64 .ant bytes) or a link", client.getLastError().?.message);
     try testing.expectError(error.BadRequest, client.decodeManifestLink("", true));
+    try testing.expectEqual(@as(u16, 400), client.getLastError().?.status_code);
+    try testing.expectEqualStrings("needs a manifest (base64 .ant bytes) or a link", client.getLastError().?.message);
 }
 
 test "the .ant bytes round-trip through base64 byte for byte" {

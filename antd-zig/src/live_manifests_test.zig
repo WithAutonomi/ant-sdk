@@ -220,7 +220,31 @@ test "live manifest round trip (ANTD_TEST_URL, ANTD_TEST_MANIFEST_ADDRESSES)" {
     // --- bad entries ---
     // Both sources: refused before sending.
     try testing.expectError(error.BadRequest, client.buildManifest(&.{.{ .data_map = "aa", .address = a }}, .{}));
-    try testing.expectEqual(@as(u16, 0), client.getLastError().?.status_code);
+    try testing.expectEqual(@as(u16, 400), client.getLastError().?.status_code);
+    const refused = try allocator.dupe(u8, client.getLastError().?.message);
+    defer allocator.free(refused);
+    try testing.expectEqualStrings("1 invalid entries: entries[0]: give data_map or address, not both", refused);
+    // The daemon says the same when the mistake reaches it: send both
+    // sources past the client check with raw REST.
+    {
+        const raw = try std.fmt.allocPrint(allocator, "{{\"entries\":[{{\"data_map\":\"aa\",\"address\":\"{s}\"}}]}}", .{a});
+        defer allocator.free(raw);
+        const endpoint = try std.fmt.allocPrint(allocator, "{s}/v1/manifests/build", .{url});
+        defer allocator.free(endpoint);
+        var http_client = std.http.Client{ .allocator = allocator };
+        defer http_client.deinit();
+        var body = std.ArrayList(u8).init(allocator);
+        defer body.deinit();
+        const res = try http_client.fetch(.{
+            .location = .{ .url = endpoint },
+            .method = .POST,
+            .payload = raw,
+            .headers = .{ .content_type = .{ .override = "application/json" } },
+            .response_storage = .{ .dynamic = &body },
+        });
+        try testing.expectEqual(std.http.Status.bad_request, res.status);
+        try testing.expect(std.mem.indexOf(u8, body.items, refused) != null);
+    }
     // An invalid path: the daemon's 400, naming the entry.
     try testing.expectError(error.BadRequest, client.buildManifest(&.{
         .{ .path = path_one, .address = a },

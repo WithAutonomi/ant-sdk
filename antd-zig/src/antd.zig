@@ -395,7 +395,8 @@ pub const Client = struct {
     ///
     /// Each entry must set exactly one of `data_map` or `address`. Otherwise
     /// the call returns `error.BadRequest` without sending anything, and
-    /// `getLastError()` names the entry with `status_code` 0. An entry the
+    /// `getLastError()` reads as the daemon's 400 would (`status_code` 400,
+    /// the same `N invalid entries: entries[i]: ...` message). An entry the
     /// daemon rejects (an invalid path or hex, say) is `error.BadRequest` as
     /// well, with the daemon's message naming `entries[i]`. With roots
     /// embedded, a shrunk DataMap whose wrapper records cannot be fetched
@@ -403,11 +404,9 @@ pub const Client = struct {
     ///
     /// The caller frees the result with `deinit`.
     pub fn buildManifest(self: *Client, entries: []const ManifestEntryInput, options: BuildManifestOptions) !BuiltManifest {
-        if (manifests.firstInvalidEntry(entries)) |i| {
-            var buf: [96]u8 = undefined;
-            const msg = std.fmt.bufPrint(&buf, "manifest entries[{d}]: set exactly one of data_map or address", .{i}) catch
-                "manifest entry: set exactly one of data_map or address";
-            self.setLastError(0, msg);
+        if (try manifests.invalidEntriesMessage(self.allocator, entries)) |msg| {
+            defer self.allocator.free(msg);
+            self.setLastError(400, msg);
             return error.BadRequest;
         }
         const req_body = try manifests.buildManifestBuildBody(self.allocator, entries, options);
@@ -428,7 +427,7 @@ pub const Client = struct {
     /// `error.BadRequest`. The caller frees the result with `deinit`.
     pub fn decodeManifest(self: *Client, manifest: []const u8, resolve: bool) !DecodedManifest {
         if (manifest.len == 0) {
-            self.setLastError(0, "manifest is empty");
+            self.setLastError(400, manifests.empty_decode_message);
             return error.BadRequest;
         }
         return self.manifestDecode(.{ .manifest = manifest }, resolve);
@@ -443,7 +442,7 @@ pub const Client = struct {
     /// The caller frees the result with `deinit`.
     pub fn decodeManifestLink(self: *Client, link: []const u8, resolve: bool) !DecodedManifest {
         if (link.len == 0) {
-            self.setLastError(0, "manifest link is empty");
+            self.setLastError(400, manifests.empty_decode_message);
             return error.BadRequest;
         }
         return self.manifestDecode(.{ .link = link }, resolve);
