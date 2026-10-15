@@ -691,12 +691,14 @@ class FinalizeUploadResponse extends $pb.GeneratedMessage {
     $core.String? address,
     $core.String? dataMapAddress,
     $fixnum.Int64? chunksStored,
+    $core.String? sha256,
   }) {
     final result = create();
     if (dataMap != null) result.dataMap = dataMap;
     if (address != null) result.address = address;
     if (dataMapAddress != null) result.dataMapAddress = dataMapAddress;
     if (chunksStored != null) result.chunksStored = chunksStored;
+    if (sha256 != null) result.sha256 = sha256;
     return result;
   }
 
@@ -710,6 +712,7 @@ class FinalizeUploadResponse extends $pb.GeneratedMessage {
     ..aOS(2, _omitFieldNames ? '' : 'address')
     ..aOS(3, _omitFieldNames ? '' : 'dataMapAddress')
     ..a<$fixnum.Int64>(4, _omitFieldNames ? '' : 'chunksStored', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
+    ..aOS(5, _omitFieldNames ? '' : 'sha256')
     ..hasRequiredFields = false
   ;
 
@@ -775,6 +778,17 @@ class FinalizeUploadResponse extends $pb.GeneratedMessage {
   $core.bool hasChunksStored() => $_has(3);
   @$pb.TagNumber(4)
   void clearChunksStored() => $_clearField(4);
+
+  /// SHA-256 of the uploaded plaintext, hex: a standard whole-file hash that
+  /// tools outside Autonomi can check (V2-1564).
+  @$pb.TagNumber(5)
+  $core.String get sha256 => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set sha256($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasSha256() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearSha256() => $_clearField(5);
 }
 
 

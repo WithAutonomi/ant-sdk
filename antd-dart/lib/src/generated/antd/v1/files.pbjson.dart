@@ -37,6 +37,7 @@ const PutFilePublicResponse$json = {
     {'1': 'gas_cost_wei', '3': 4, '4': 1, '5': 9, '10': 'gasCostWei'},
     {'1': 'chunks_stored', '3': 5, '4': 1, '5': 4, '10': 'chunksStored'},
     {'1': 'payment_mode_used', '3': 6, '4': 1, '5': 9, '10': 'paymentModeUsed'},
+    {'1': 'sha256', '3': 7, '4': 1, '5': 9, '10': 'sha256'},
   ],
   '9': [
     {'1': 1, '2': 2},
@@ -49,7 +50,8 @@ final $typed_data.Uint8List putFilePublicResponseDescriptor = $convert.base64Dec
     'ChVQdXRGaWxlUHVibGljUmVzcG9uc2USGAoHYWRkcmVzcxgCIAEoCVIHYWRkcmVzcxIqChFzdG'
     '9yYWdlX2Nvc3RfYXR0bxgDIAEoCVIPc3RvcmFnZUNvc3RBdHRvEiAKDGdhc19jb3N0X3dlaRgE'
     'IAEoCVIKZ2FzQ29zdFdlaRIjCg1jaHVua3Nfc3RvcmVkGAUgASgEUgxjaHVua3NTdG9yZWQSKg'
-    'oRcGF5bWVudF9tb2RlX3VzZWQYBiABKAlSD3BheW1lbnRNb2RlVXNlZEoECAEQAlIEY29zdA==');
+    'oRcGF5bWVudF9tb2RlX3VzZWQYBiABKAlSD3BheW1lbnRNb2RlVXNlZBIWCgZzaGEyNTYYByAB'
+    'KAlSBnNoYTI1NkoECAEQAlIEY29zdA==');
 
 @$core.Deprecated('Use putFileResponseDescriptor instead')
 const PutFileResponse$json = {
@@ -60,6 +62,7 @@ const PutFileResponse$json = {
     {'1': 'gas_cost_wei', '3': 3, '4': 1, '5': 9, '10': 'gasCostWei'},
     {'1': 'chunks_stored', '3': 4, '4': 1, '5': 4, '10': 'chunksStored'},
     {'1': 'payment_mode_used', '3': 5, '4': 1, '5': 9, '10': 'paymentModeUsed'},
+    {'1': 'sha256', '3': 6, '4': 1, '5': 9, '10': 'sha256'},
   ],
 };
 
@@ -68,7 +71,8 @@ final $typed_data.Uint8List putFileResponseDescriptor = $convert.base64Decode(
     'Cg9QdXRGaWxlUmVzcG9uc2USGQoIZGF0YV9tYXAYASABKAlSB2RhdGFNYXASKgoRc3RvcmFnZV'
     '9jb3N0X2F0dG8YAiABKAlSD3N0b3JhZ2VDb3N0QXR0bxIgCgxnYXNfY29zdF93ZWkYAyABKAlS'
     'Cmdhc0Nvc3RXZWkSIwoNY2h1bmtzX3N0b3JlZBgEIAEoBFIMY2h1bmtzU3RvcmVkEioKEXBheW'
-    '1lbnRfbW9kZV91c2VkGAUgASgJUg9wYXltZW50TW9kZVVzZWQ=');
+    '1lbnRfbW9kZV91c2VkGAUgASgJUg9wYXltZW50TW9kZVVzZWQSFgoGc2hhMjU2GAYgASgJUgZz'
+    'aGEyNTY=');
 
 @$core.Deprecated('Use getFilePublicRequestDescriptor instead')
 const GetFilePublicRequest$json = {

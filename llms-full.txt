@@ -466,12 +466,14 @@ Request:
   "name": "album",
   "embed_roots": true,
   "entries": [
-    {"path": "photos/a.jpg", "data_map": "<hex>", "size": 123},
+    {"path": "photos/a.jpg", "data_map": "<hex>", "size": 123, "sha256": "<hex>"},
     {"path": "readme.txt", "address": "<64 hex>"}
   ]
 }
 ```
-Response: `{"manifest": "<base64 .ant>", "link": "ant://manifest/...", "entries": [{"effective_name", "path", "size", "kind", "content_address", "exact_size"}]}`.
+Response: `{"manifest": "<base64 .ant>", "link": "ant://manifest/...", "entries": [{"effective_name", "path", "size", "sha256", "kind", "content_address", "exact_size"}]}`.
+`sha256` (optional, hex) is recorded as given; pass the `sha256` an upload
+returned, and `ant manifest download` checks the file against it.
 `link` is present only when it fits 1,500 bytes. Invalid entries are a 400
 that names every bad entry (`entries[i]: ...`).
 

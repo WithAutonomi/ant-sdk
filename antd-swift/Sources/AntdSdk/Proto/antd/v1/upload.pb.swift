@@ -274,6 +274,10 @@ public struct Antd_V1_FinalizeUploadResponse: Sendable {
   /// Number of chunks stored on the network.
   public var chunksStored: UInt64 = 0
 
+  /// SHA-256 of the uploaded plaintext, hex: a standard whole-file hash that
+  /// tools outside Autonomi can check (V2-1564).
+  public var sha256: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -620,7 +624,7 @@ extension Antd_V1_FinalizeUploadRequest: SwiftProtobuf.Message, SwiftProtobuf._M
 
 extension Antd_V1_FinalizeUploadResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FinalizeUploadResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}data_map\0\u{1}address\0\u{3}data_map_address\0\u{3}chunks_stored\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}data_map\0\u{1}address\0\u{3}data_map_address\0\u{3}chunks_stored\0\u{1}sha256\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -632,6 +636,7 @@ extension Antd_V1_FinalizeUploadResponse: SwiftProtobuf.Message, SwiftProtobuf._
       case 2: try { try decoder.decodeSingularStringField(value: &self.address) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.dataMapAddress) }()
       case 4: try { try decoder.decodeSingularUInt64Field(value: &self.chunksStored) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.sha256) }()
       default: break
       }
     }
@@ -650,6 +655,9 @@ extension Antd_V1_FinalizeUploadResponse: SwiftProtobuf.Message, SwiftProtobuf._
     if self.chunksStored != 0 {
       try visitor.visitSingularUInt64Field(value: self.chunksStored, fieldNumber: 4)
     }
+    if !self.sha256.isEmpty {
+      try visitor.visitSingularStringField(value: self.sha256, fieldNumber: 5)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -658,6 +666,7 @@ extension Antd_V1_FinalizeUploadResponse: SwiftProtobuf.Message, SwiftProtobuf._
     if lhs.address != rhs.address {return false}
     if lhs.dataMapAddress != rhs.dataMapAddress {return false}
     if lhs.chunksStored != rhs.chunksStored {return false}
+    if lhs.sha256 != rhs.sha256 {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -90,6 +90,10 @@ public struct Antd_V1_PutPublicDataResponse: Sendable {
   /// Which payment mode was actually used ("auto", "merkle", or "single").
   public var paymentModeUsed: String = String()
 
+  /// SHA-256 of the uploaded plaintext, hex: a standard whole-file hash that
+  /// tools outside Autonomi can check (V2-1564).
+  public var sha256: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -314,6 +318,10 @@ public struct Antd_V1_PutDataResponse: Sendable {
   /// Which payment mode was actually used ("auto", "merkle", or "single").
   public var paymentModeUsed: String = String()
 
+  /// SHA-256 of the uploaded plaintext, hex: a standard whole-file hash that
+  /// tools outside Autonomi can check (V2-1564).
+  public var sha256: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -438,7 +446,7 @@ extension Antd_V1_PutPublicDataRequest: SwiftProtobuf.Message, SwiftProtobuf._Me
 
 extension Antd_V1_PutPublicDataResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PutPublicDataResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}cost\0\u{1}address\0\u{3}chunks_stored\0\u{3}payment_mode_used\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}cost\0\u{1}address\0\u{3}chunks_stored\0\u{3}payment_mode_used\0\u{1}sha256\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -450,6 +458,7 @@ extension Antd_V1_PutPublicDataResponse: SwiftProtobuf.Message, SwiftProtobuf._M
       case 2: try { try decoder.decodeSingularStringField(value: &self.address) }()
       case 3: try { try decoder.decodeSingularUInt64Field(value: &self.chunksStored) }()
       case 4: try { try decoder.decodeSingularStringField(value: &self.paymentModeUsed) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.sha256) }()
       default: break
       }
     }
@@ -472,6 +481,9 @@ extension Antd_V1_PutPublicDataResponse: SwiftProtobuf.Message, SwiftProtobuf._M
     if !self.paymentModeUsed.isEmpty {
       try visitor.visitSingularStringField(value: self.paymentModeUsed, fieldNumber: 4)
     }
+    if !self.sha256.isEmpty {
+      try visitor.visitSingularStringField(value: self.sha256, fieldNumber: 5)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -480,6 +492,7 @@ extension Antd_V1_PutPublicDataResponse: SwiftProtobuf.Message, SwiftProtobuf._M
     if lhs.address != rhs.address {return false}
     if lhs.chunksStored != rhs.chunksStored {return false}
     if lhs.paymentModeUsed != rhs.paymentModeUsed {return false}
+    if lhs.sha256 != rhs.sha256 {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -782,7 +795,7 @@ extension Antd_V1_PutDataRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
 
 extension Antd_V1_PutDataResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PutDataResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}cost\0\u{3}data_map\0\u{3}chunks_stored\0\u{3}payment_mode_used\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}cost\0\u{3}data_map\0\u{3}chunks_stored\0\u{3}payment_mode_used\0\u{1}sha256\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -794,6 +807,7 @@ extension Antd_V1_PutDataResponse: SwiftProtobuf.Message, SwiftProtobuf._Message
       case 2: try { try decoder.decodeSingularStringField(value: &self.dataMap) }()
       case 3: try { try decoder.decodeSingularUInt64Field(value: &self.chunksStored) }()
       case 4: try { try decoder.decodeSingularStringField(value: &self.paymentModeUsed) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.sha256) }()
       default: break
       }
     }
@@ -816,6 +830,9 @@ extension Antd_V1_PutDataResponse: SwiftProtobuf.Message, SwiftProtobuf._Message
     if !self.paymentModeUsed.isEmpty {
       try visitor.visitSingularStringField(value: self.paymentModeUsed, fieldNumber: 4)
     }
+    if !self.sha256.isEmpty {
+      try visitor.visitSingularStringField(value: self.sha256, fieldNumber: 5)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -824,6 +841,7 @@ extension Antd_V1_PutDataResponse: SwiftProtobuf.Message, SwiftProtobuf._Message
     if lhs.dataMap != rhs.dataMap {return false}
     if lhs.chunksStored != rhs.chunksStored {return false}
     if lhs.paymentModeUsed != rhs.paymentModeUsed {return false}
+    if lhs.sha256 != rhs.sha256 {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -911,11 +911,16 @@ components:
 
     DataPutPublicResponse:
       type: object
-      required: [address, chunks_stored, payment_mode_used]
+      required: [address, sha256, chunks_stored, payment_mode_used]
       properties:
         address:
           type: string
           description: Hex address of stored data
+        sha256:
+          type: string
+          description: >-
+            SHA-256 of the uploaded plaintext, hex: a standard whole-file hash
+            that tools outside Autonomi can check (antd 0.16.0+).
         chunks_stored:
           type: integer
           description: Number of chunks stored on the network
@@ -926,11 +931,16 @@ components:
 
     DataPutResponse:
       type: object
-      required: [data_map, chunks_stored, payment_mode_used]
+      required: [data_map, sha256, chunks_stored, payment_mode_used]
       properties:
         data_map:
           type: string
           description: Hex-encoded data map for retrieval
+        sha256:
+          type: string
+          description: >-
+            SHA-256 of the uploaded plaintext, hex: a standard whole-file hash
+            that tools outside Autonomi can check (antd 0.16.0+).
         chunks_stored:
           type: integer
           description: Number of chunks stored on the network
@@ -1099,10 +1109,15 @@ components:
     FilePutPublicResponse:
       type: object
       required:
-        [address, storage_cost_atto, gas_cost_wei, chunks_stored, payment_mode_used]
+        [address, sha256, storage_cost_atto, gas_cost_wei, chunks_stored, payment_mode_used]
       properties:
         address:
           type: string
+        sha256:
+          type: string
+          description: >-
+            SHA-256 of the uploaded plaintext, hex: a standard whole-file hash
+            that tools outside Autonomi can check (antd 0.16.0+).
         storage_cost_atto:
           type: string
           description: Total storage cost paid in token units (atto). "0" if all chunks already existed.
@@ -1121,13 +1136,18 @@ components:
     FilePutResponse:
       type: object
       required:
-        [data_map, storage_cost_atto, gas_cost_wei, chunks_stored, payment_mode_used]
+        [data_map, sha256, storage_cost_atto, gas_cost_wei, chunks_stored, payment_mode_used]
       properties:
         data_map:
           type: string
           description: >-
             Hex-encoded rmp_serde-serialized DataMap. The caller keeps this; it
             is NOT stored on the network.
+        sha256:
+          type: string
+          description: >-
+            SHA-256 of the uploaded plaintext, hex: a standard whole-file hash
+            that tools outside Autonomi can check (antd 0.16.0+).
         storage_cost_atto:
           type: string
           description: Total storage cost paid in token units (atto). "0" if all chunks already existed.
@@ -1515,11 +1535,16 @@ components:
 
     FinalizeUploadResponse:
       type: object
-      required: [data_map, chunks_stored]
+      required: [data_map, sha256, chunks_stored]
       properties:
         data_map:
           type: string
           description: Hex-encoded serialized DataMap (always returned)
+        sha256:
+          type: string
+          description: >-
+            SHA-256 of the uploaded plaintext, hex: a standard whole-file hash
+            that tools outside Autonomi can check (antd 0.16.0+).
         address:
           type: string
           description: >-
@@ -1622,6 +1647,12 @@ components:
             Plaintext size to record, as given (the creator's claim). Absent:
             none is recorded; readers take the exact size from an embedded
             root DataMap.
+        sha256:
+          type: string
+          description: >-
+            SHA-256 of the plaintext to record, hex (the creator's claim), such
+            as an upload response's sha256. ant manifest download checks
+            downloads against it. Absent: none is recorded.
         data_map:
           type: string
           description: Hex DataMap, in the form the upload routes return (embedded)
@@ -1695,6 +1726,9 @@ components:
           type: integer
           format: int64
           description: The size recorded in the manifest (the creator's claim)
+        sha256:
+          type: string
+          description: The SHA-256 recorded in the manifest, hex (the creator's claim)
         kind:
           type: string
           enum: [embedded, public]

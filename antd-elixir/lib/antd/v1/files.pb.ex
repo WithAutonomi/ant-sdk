@@ -23,6 +23,7 @@ defmodule Antd.V1.PutFilePublicResponse do
   field :gas_cost_wei, 4, type: :string, json_name: "gasCostWei"
   field :chunks_stored, 5, type: :uint64, json_name: "chunksStored"
   field :payment_mode_used, 6, type: :string, json_name: "paymentModeUsed"
+  field :sha256, 7, type: :string
 end
 
 defmodule Antd.V1.PutFileResponse do
@@ -38,6 +39,7 @@ defmodule Antd.V1.PutFileResponse do
   field :gas_cost_wei, 3, type: :string, json_name: "gasCostWei"
   field :chunks_stored, 4, type: :uint64, json_name: "chunksStored"
   field :payment_mode_used, 5, type: :string, json_name: "paymentModeUsed"
+  field :sha256, 6, type: :string
 end
 
 defmodule Antd.V1.GetFilePublicRequest do
