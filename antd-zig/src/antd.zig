@@ -6,6 +6,7 @@ pub const models = @import("models.zig");
 pub const errors = @import("errors.zig");
 pub const json_helpers = @import("json_helpers.zig");
 pub const discover = @import("discover.zig");
+pub const manifests = @import("manifests.zig");
 
 pub const HealthStatus = models.HealthStatus;
 pub const PaymentMode = models.PaymentMode;
@@ -28,6 +29,11 @@ pub const ErrorBody = json_helpers.ErrorBody;
 pub const JsonValue = json_helpers.JsonValue;
 pub const discoverDaemonUrl = discover.discoverDaemonUrl;
 pub const discoverGrpcTarget = discover.discoverGrpcTarget;
+pub const ManifestEntryInput = manifests.ManifestEntryInput;
+pub const BuildManifestOptions = manifests.BuildManifestOptions;
+pub const ManifestEntryInfo = manifests.ManifestEntryInfo;
+pub const BuiltManifest = manifests.BuiltManifest;
+pub const DecodedManifest = manifests.DecodedManifest;
 
 /// Default antd daemon address.
 pub const default_base_url = "http://localhost:8082";
@@ -371,6 +377,84 @@ pub const Client = struct {
         const resp = try self.doRequest(.GET, path, null) orelse return error.JsonError;
         defer self.allocator.free(resp);
         return json_helpers.parseBase64Data(self.allocator, resp);
+    }
+
+    // --- Manifests (the antd release after 0.15.0) ---
+    //
+    // ADR-0006 `.ant` manifests and `ant://` links: a set of files, each with
+    // an optional path and size and either an embedded DataMap or a public
+    // DataMap address. The daemon builds and decodes them through ant-core.
+    // Nothing is uploaded or paid for. `resolve` and the default root
+    // embedding read from the network, so a call can time out; retrying is
+    // safe. The types and the wire handling are in manifests.zig; these
+    // methods take and return raw `.ant` bytes, never base64.
+
+    /// Build a `.ant` manifest from DataMaps and public addresses already in
+    /// hand, via POST /v1/manifests/build. Pass `.{}` for the default
+    /// options: no name, no torrent info hashes, and roots embedded.
+    ///
+    /// Each entry must set exactly one of `data_map` or `address`. Otherwise
+    /// the call returns `error.BadRequest` without sending anything, and
+    /// `getLastError()` names the entry with `status_code` 0. An entry the
+    /// daemon rejects (an invalid path or hex, say) is `error.BadRequest` as
+    /// well, with the daemon's message naming `entries[i]`. With roots
+    /// embedded, a shrunk DataMap whose wrapper records cannot be fetched
+    /// fails the call (`error.NotFound` when they are missing).
+    ///
+    /// The caller frees the result with `deinit`.
+    pub fn buildManifest(self: *Client, entries: []const ManifestEntryInput, options: BuildManifestOptions) !BuiltManifest {
+        if (manifests.firstInvalidEntry(entries)) |i| {
+            var buf: [96]u8 = undefined;
+            const msg = std.fmt.bufPrint(&buf, "manifest entries[{d}]: set exactly one of data_map or address", .{i}) catch
+                "manifest entry: set exactly one of data_map or address";
+            self.setLastError(0, msg);
+            return error.BadRequest;
+        }
+        const req_body = try manifests.buildManifestBuildBody(self.allocator, entries, options);
+        defer self.allocator.free(req_body);
+        const resp = try self.doRequest(.POST, "/v1/manifests/build", req_body) orelse return error.JsonError;
+        defer self.allocator.free(resp);
+        return manifests.parseBuiltManifest(self.allocator, resp);
+    }
+
+    /// Decode raw `.ant` bytes via POST /v1/manifests/decode. With
+    /// `resolve`, the daemon fetches each entry's DataMap (and wrapper
+    /// records) to report `exact_size` and confirm the DataMap is on the
+    /// network; content chunks are not fetched, and one entry's failure is
+    /// reported in its `error_message`, not as a failed call.
+    ///
+    /// Empty `manifest` bytes return `error.BadRequest` without sending
+    /// anything. Bytes that are not a manifest are the daemon's
+    /// `error.BadRequest`. The caller frees the result with `deinit`.
+    pub fn decodeManifest(self: *Client, manifest: []const u8, resolve: bool) !DecodedManifest {
+        if (manifest.len == 0) {
+            self.setLastError(0, "manifest is empty");
+            return error.BadRequest;
+        }
+        return self.manifestDecode(.{ .manifest = manifest }, resolve);
+    }
+
+    /// Decode an `ant://` manifest link, file link or bare 64-hex address via
+    /// POST /v1/manifests/decode. A file link or address reads as
+    /// `source == "file_link"` with one public entry and no path. See
+    /// `decodeManifest` for `resolve`.
+    ///
+    /// An empty `link` returns `error.BadRequest` without sending anything.
+    /// The caller frees the result with `deinit`.
+    pub fn decodeManifestLink(self: *Client, link: []const u8, resolve: bool) !DecodedManifest {
+        if (link.len == 0) {
+            self.setLastError(0, "manifest link is empty");
+            return error.BadRequest;
+        }
+        return self.manifestDecode(.{ .link = link }, resolve);
+    }
+
+    fn manifestDecode(self: *Client, input: manifests.DecodeInput, resolve: bool) !DecodedManifest {
+        const req_body = try manifests.buildManifestDecodeBody(self.allocator, input, resolve);
+        defer self.allocator.free(req_body);
+        const resp = try self.doRequest(.POST, "/v1/manifests/decode", req_body) orelse return error.JsonError;
+        defer self.allocator.free(resp);
+        return manifests.parseDecodedManifest(self.allocator, resp);
     }
 
     // --- Wallet ---
