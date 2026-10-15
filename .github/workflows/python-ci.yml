@@ -72,7 +72,7 @@ jobs:
           import antd_mcp.server as server
 
           tools = asyncio.run(server.mcp.list_tools())
-          assert len(tools) == 19, f"expected 19 tools, got {len(tools)}: {sorted(t.name for t in tools)}"
+          assert len(tools) == 21, f"expected 19 tools, got {len(tools)}: {sorted(t.name for t in tools)}"
           print(f"antd-mcp OK: {len(tools)} tools")
           EOF
 

@@ -916,6 +916,12 @@ async def finalize_chunk_upload(
         return _err(exc, network)
 
 
+# Manifest tools (own module; registered only if the antd SDK has the API).
+from . import manifests as _manifests  # noqa: E402
+
+_manifests.register(mcp)
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------

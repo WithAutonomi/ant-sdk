@@ -1,6 +1,6 @@
 # antd-mcp — MCP Server for Autonomi
 
-An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that exposes the Autonomi network as 19 tools for AI agents. Works with Claude Desktop, Claude Code, and any MCP-compatible client.
+An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that exposes the Autonomi network as tools for AI agents (19 storage tools, plus the manifest tools when the installed SDK supports them). Works with Claude Desktop, Claude Code, and any MCP-compatible client.
 
 ## Installation
 
@@ -103,6 +103,17 @@ The server will auto-discover the daemon via the port file. Add `"env": {"ANTD_B
 | 17 | `finalize_merkle_upload(upload_id, winner_pool_hash)` | Finalize a merkle-batch upload. Returns the same fields as `finalize_upload`; same `PARTIAL_UPLOAD` behaviour. |
 | 18 | `prepare_chunk_upload(data_base64)` | Prepare a single raw chunk for external-signer publish. Returns either `already_stored=True` (no payment needed) or a wave-batch payment intent. |
 | 19 | `finalize_chunk_upload(upload_id, tx_hashes)` | Submit a prepared chunk to the network after external payment. Returns `address`. |
+
+### Manifests
+
+A manifest (a `.ant` file, or an `ant://manifest/` link to one) bundles files that are already on the network, each with an optional relative path. The `link` is what you share. Both tools are **free**: nothing is uploaded and nothing is paid, so neither asks for confirmation. They are annotated read-only. Upload the files first (`store_data`, `upload_file`) and pass the `address` (public) or `data_map` (private, embedded in the manifest) they returned.
+
+| # | Tool | Description |
+|---|------|-------------|
+| 30 | `build_manifest(entries, name?, torrent_info_hashes?, embed_roots?)` | Each entry is `{path?, size?, data_map? \| address?}`: give exactly one of `data_map` or `address`. Returns `manifest_base64` (the `.ant` bytes), `link` (null when the manifest exceeds 1,500 bytes; share the file instead) and `entries`. `embed_roots` defaults to true. A bad entry returns `BAD_REQUEST` with a message naming `entries[i]`. |
+| 31 | `decode_manifest(manifest_base64? \| link?, resolve?)` | Give exactly one of the base64 `.ant` bytes or a `link` (manifest link, file link or bare address). Returns `source` (`manifest` or `file_link`), `name`, the torrent hashes and `entries`. With `resolve=true` it also reads each entry's root from the network to fill in `exact_size`; one entry's failure is in its `error`, not a failed call. |
+
+Unset sizes are `null`, never 0. These tools need an antd daemon with the manifest API (the antd release after 0.15.0) and an [`antd`](https://pypi.org/project/antd/) Python SDK that has `build_manifest`. With an older SDK the server still starts and serves its other tools; it just does not register the manifest tools.
 
 ### Payment Modes
 
