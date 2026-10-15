@@ -444,6 +444,78 @@ returned by `/v1/chunks/prepare`.
 Request: `{"upload_id": "<hex>", "tx_hashes": {"0xquotehash": "0xtxhash", ...}}`
 Response: `{"address": "<hex>"}`
 
+### Pointers
+
+A pointer is a small, owner-signed, mutable reference (ADR-0016 in ant-node).
+Its address is derived from the owner's ML-DSA-65 key and never changes; what
+it points at (a chunk, such as a public file's data map, or another pointer)
+can be updated by the owner. Every state is paid for separately, about the
+price of one chunk, and every attempt pays again: never retry a create, update
+or transfer automatically.
+
+antd signs with owner keys loaded at startup: `--pointer-keys <file-or-dir>`
+(env `ANTD_POINTER_KEYS_DIR`). A key file is what `ant pointer keygen` writes —
+a 32-byte seed, hex. Requests name the pointer by its address (`owner`), never
+by a key; antd never returns, logs or persists keys.
+
+Addresses, state ids and targets are 64 hex characters. Counters are decimal
+strings: a final state sits at u64::MAX (18446744073709551615).
+
+#### `GET /v1/pointers/keys`
+The pointers this daemon can write. Response: `{"keys": [{"address": "<hex>"}]}`
+
+#### `POST /v1/pointers`
+Create a pointer, paid by the daemon wallet. `409 ALREADY_EXISTS` if it exists.
+Request: `{"owner": "<hex>", "target": "<hex>", "kind": "chunk"}` (`kind`: `"chunk"` default, or `"pointer"`)
+Response: `{"address": "<hex>", "state_id": "<hex>", "counter": "0"}`
+
+#### `POST /v1/pointers/update`
+Point a pointer at a new target, paid by the daemon wallet; creates it if it
+does not exist. Same request and response as create. `409 POINTER_FINAL` if the
+pointer has been transferred or frozen.
+
+#### `POST /v1/pointers/transfer`
+Hand a pointer over to the recipient's pointer, for good (ADR-0018). Readers of
+the address are redirected to the recipient's pointer; the address stays the
+same; the old key can change nothing. Irreversible once stored. Refused before
+paying if the pointer is already final, the recipient does not exist or leads
+back, or not every peer of the close group answered (`503 CLOSE_GROUP_SHORTFALL`,
+free to retry).
+Request: `{"owner": "<hex>", "recipient": "<hex>"}`
+Response: `{"address": "<hex>", "state_id": "<hex>", "finality": {...} | null, "finality_error": "..."}`
+
+#### `GET /v1/pointers/{addr}`
+Response: `{"address", "owner": "<hex ML-DSA-65 public key>", "counter", "kind": "chunk|pointer|unknown", "kind_tag", "target", "state_id", "is_final": bool, "transferred_to": "<hex>" | null}`. `404` if no pointer.
+
+#### `GET /v1/pointers/{addr}/resolve`
+Follow a chain of pointers (at most 16 hops) to its end. Response: `{"kind", "kind_tag", "target"}`
+
+#### `GET /v1/pointers/{addr}/finality`
+Ask the whole close group where a pointer stands. Check this before relying on
+a transfer: only `"final"` means one final state, held by a majority, no rival.
+Response: `{"address", "group", "answered", "status": "open|settling|unconfirmed|final|forked", "counter" (open), "state" (settling/unconfirmed/final), "states" + "majority" (forked), "transferred_to"}`
+
+#### `GET /v1/pointers/{addr}/controller`
+Follow transfers to the pointer whose owner now decides. Response: `{"pointer", "transfers": [...], "frozen": bool}`
+
+#### `POST /v1/pointers/prepare`
+External signer: antd signs the write with its loaded key and quotes it; the
+caller pays with `payForQuotes()`. Needs no daemon wallet.
+Request: `{"owner": "<hex>", "op": "create|update|transfer", "target": "<hex>", "kind": "chunk", "recipient": "<hex>"}`
+Response: `{"upload_id", "op", "address", "state_id", "counter", "payment_type": "wave_batch", "payments": [...], "total_amount", "payment_vault_address", "payment_token_address", "rpc_url"}`
+While a prepared write is pending, other writes to that pointer answer `409 CONFLICT`.
+
+#### `POST /v1/pointers/finalize`
+Request: `{"upload_id": "<hex>", "tx_hashes": {"0xquotehash": "0xtxhash", ...}}`
+Response: `{"address", "state_id", "counter", "finality": {...}}` (`finality` for transfers only)
+A write that falls short after payment answers `503 CLOSE_GROUP_SHORTFALL` with
+`"retryable": true` and keeps the paid state: repeat the finalize with the same
+`upload_id` (tx_hashes ignored) to store it against the same payment.
+
+Pointer error codes: `CLOSE_GROUP_SHORTFALL` (503; reads are free to retry),
+`POINTER_FINAL` (409), `POINTER_FORKED` (409), `CONFLICT` (409),
+`ALREADY_EXISTS` (409).
+
 ---
 
 ### Manifests (ADR-0006)
@@ -512,6 +584,13 @@ Default target: `localhost:50051`. Package: `antd.v1`.
 
 ### EventService (events.proto)
 - `Subscribe(SubscribeRequest{}) → stream ClientEventProto{kind, records_paid, records_already_paid, tokens_spent}`
+
+### PointerService (pointers.proto)
+Mirrors REST `/v1/pointers` 1:1; counters are decimal strings, unset values are empty strings.
+- `ListKeys` · `Create` / `Update(PointerWriteRequest{owner, target, kind})` · `Transfer(PointerTransferRequest{owner, recipient})`
+- `Get` → `PointerRecord` · `Resolve` → `PointerResolved` · `Finality` → `PointerFinality` · `Controller` → `PointerController`
+- `Prepare(PreparePointerRequest{owner, op, target, kind, recipient})` / `Finalize(FinalizePointerRequest{upload_id, tx_hashes})`
+- Errors: `POINTER_FINAL` / `POINTER_FORKED` → FAILED_PRECONDITION, `CONFLICT` → ABORTED, `CLOSE_GROUP_SHORTFALL` → UNAVAILABLE
 
 ### ManifestService (manifests.proto)
 - `Build(BuildManifestRequest{name, torrent_info_hashes, embed_roots, entries[{path, size, data_map | address}]}) → BuildManifestResponse{manifest: bytes, link, entries}`

@@ -291,3 +291,171 @@ type DownloadFrameStream interface {
 	Recv() (DownloadFrame, error)
 	Close() error
 }
+
+// --- Pointers ---
+
+// PointerTargetKind is what a pointer points at.
+type PointerTargetKind string
+
+const (
+	// PointerTargetChunk is a chunk, such as a public file's data map. It is
+	// the default when a kind is left empty.
+	PointerTargetChunk PointerTargetKind = "chunk"
+	// PointerTargetPointer is another pointer: a forwarding the owner can
+	// still change. Use PointerTransfer to hand a pointer over for good.
+	PointerTargetPointer PointerTargetKind = "pointer"
+)
+
+// PointerFinalCounter is the counter of a pointer's final state, after a
+// transfer or a freeze: nothing can replace it.
+const PointerFinalCounter uint64 = 1<<64 - 1
+
+// PointerOp is the write a PointerPrepare signs.
+type PointerOp string
+
+const (
+	PointerOpCreate   PointerOp = "create"
+	PointerOpUpdate   PointerOp = "update"
+	PointerOpTransfer PointerOp = "transfer"
+)
+
+// PointerWrite is the state a pointer write stored.
+type PointerWrite struct {
+	Address string `json:"address"`  // hex
+	StateID string `json:"state_id"` // hex; the identifier the state was paid against
+	Counter uint64 `json:"counter"`
+}
+
+// PointerRecord is a pointer's current state, as the network serves it.
+type PointerRecord struct {
+	Address string `json:"address"` // hex
+	// Owner is the owner's ML-DSA-65 public key (hex, 1,952 bytes). The
+	// address is derived from it.
+	Owner   string `json:"owner"`
+	Counter uint64 `json:"counter"`
+	// Kind is "chunk", "pointer", or "unknown" for a kind this daemon does
+	// not know; KindTag is the raw value either way.
+	Kind    string `json:"kind"`
+	KindTag uint8  `json:"kind_tag"`
+	Target  string `json:"target"`   // hex
+	StateID string `json:"state_id"` // hex
+	// Final is true at the final counter: the pointer was handed over or
+	// frozen, and nothing can update it.
+	Final bool `json:"is_final"`
+	// TransferredTo is the pointer this one was handed over to, or "".
+	TransferredTo string `json:"transferred_to,omitempty"`
+}
+
+// PointerTarget is where a chain of pointers ends (PointerResolve).
+type PointerTarget struct {
+	Kind    string `json:"kind"`
+	KindTag uint8  `json:"kind_tag"`
+	Target  string `json:"target"` // hex
+}
+
+// PointerFinalityStatus is where a pointer stands with respect to finality.
+type PointerFinalityStatus string
+
+const (
+	// PointerOpen: no peer that answered holds a final state.
+	PointerOpen PointerFinalityStatus = "open"
+	// PointerSettling: one final state, not yet held by a majority.
+	PointerSettling PointerFinalityStatus = "settling"
+	// PointerUnconfirmed: one final state held by a majority, but not every
+	// peer of the group answered, so a rival could still exist.
+	PointerUnconfirmed PointerFinalityStatus = "unconfirmed"
+	// PointerFinal: one final state, held by a majority, every peer answered,
+	// no rival. Only this status means a transfer is beyond dispute.
+	PointerFinal PointerFinalityStatus = "final"
+	// PointerForked: the owner signed two or more different final states.
+	PointerForked PointerFinalityStatus = "forked"
+)
+
+// PointerFinalState is one final state, as a finality check reports it.
+type PointerFinalState struct {
+	StateID       string `json:"state_id"`
+	Kind          string `json:"kind"`
+	KindTag       uint8  `json:"kind_tag"`
+	Target        string `json:"target"`
+	Holders       uint32 `json:"holders"` // close-group peers holding it
+	TransferredTo string `json:"transferred_to,omitempty"`
+}
+
+// PointerFinality is the whole close group's view of a pointer's finality
+// (PointerFinality). Check it before relying on a transfer: only
+// Status == PointerFinal means the transfer is beyond dispute.
+type PointerFinality struct {
+	Address  string                `json:"address"`
+	Group    uint32                `json:"group"`    // close-group size
+	Answered uint32                `json:"answered"` // peers that answered
+	Status   PointerFinalityStatus `json:"status"`
+	// Counter is set for PointerOpen when a state is corroborated.
+	Counter *uint64 `json:"counter,omitempty"`
+	// State is the one final state seen (settling, unconfirmed, final).
+	State *PointerFinalState `json:"state,omitempty"`
+	// States and Majority are set for PointerForked: every final state seen,
+	// most-held first, and the one a majority holds, which reads return.
+	States   []PointerFinalState `json:"states,omitempty"`
+	Majority *PointerFinalState  `json:"majority,omitempty"`
+	// TransferredTo is the pointer this one was handed over to, once that is
+	// beyond dispute (Status == PointerFinal), or "".
+	TransferredTo string `json:"transferred_to,omitempty"`
+}
+
+// PointerController says whose pointer decides what an address resolves to,
+// after following every transfer.
+type PointerController struct {
+	Pointer   string   `json:"pointer"`
+	Transfers []string `json:"transfers"` // every pointer handed over to, in order
+	// Frozen is true when Pointer is final without being handed over.
+	Frozen bool `json:"frozen"`
+}
+
+// PointerTransferResult is what a transfer stored and where the close group
+// says it stands. Finality is nil when that check failed (FinalityError says
+// why); the transfer itself is stored and final either way.
+type PointerTransferResult struct {
+	Address       string           `json:"address"`
+	StateID       string           `json:"state_id"`
+	Finality      *PointerFinality `json:"finality,omitempty"`
+	FinalityError string           `json:"finality_error,omitempty"`
+}
+
+// PointerPrepareRequest asks antd to sign a pointer write with its loaded
+// owner key and quote it for an external signer.
+type PointerPrepareRequest struct {
+	Owner string    // address of the pointer to write
+	Op    PointerOp // create, update or transfer
+	// Target and Kind for create and update. Kind defaults to chunk.
+	Target string
+	Kind   PointerTargetKind
+	// Recipient for transfer: the recipient's pointer, which must exist.
+	Recipient           string
+	IncludeSignedQuotes bool
+}
+
+// PointerPrepareResult is a signed pointer state and the wave-batch payment
+// for it (the same shape PrepareChunkUpload returns).
+type PointerPrepareResult struct {
+	UploadID            string             `json:"upload_id"`
+	Op                  PointerOp          `json:"op"`
+	Address             string             `json:"address"`
+	StateID             string             `json:"state_id"`
+	Counter             uint64             `json:"counter"`
+	PaymentType         string             `json:"payment_type"` // always "wave_batch"
+	Payments            []PaymentInfo      `json:"payments"`
+	TotalAmount         string             `json:"total_amount"` // atto tokens, decimal string
+	PaymentVaultAddress string             `json:"payment_vault_address"`
+	PaymentTokenAddress string             `json:"payment_token_address"`
+	RPCUrl              string             `json:"rpc_url"`
+	SignedQuotes        []SignedQuoteEntry `json:"signed_quotes,omitempty"`
+}
+
+// PointerFinalizeResult is the state a finalize stored. Finality is set for a
+// transfer.
+type PointerFinalizeResult struct {
+	Address  string           `json:"address"`
+	StateID  string           `json:"state_id"`
+	Counter  uint64           `json:"counter"`
+	Finality *PointerFinality `json:"finality,omitempty"`
+}

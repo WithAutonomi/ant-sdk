@@ -23,6 +23,8 @@ mod evm_defaults;
 mod grpc;
 mod manifests;
 mod peers;
+mod pointer_keys;
+mod pointers;
 mod port_file;
 mod range;
 mod rest;
@@ -51,6 +53,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     tracing::info!(log_level = %log_level, "logging initialized");
+
+    // Pointer owner keys load before anything touches the network, so a bad
+    // key file stops the daemon at once instead of surfacing as a write that
+    // cannot be signed. Addresses are public; the keys are never logged.
+    let pointer_keys = match &config.pointer_keys {
+        Some(path) => {
+            let keys = pointer_keys::PointerKeys::load(path)?;
+            let addresses: Vec<String> = keys.addresses().map(hex::encode).collect();
+            tracing::info!(count = keys.len(), ?addresses, "pointer owner keys loaded");
+            keys
+        }
+        None => pointer_keys::PointerKeys::default(),
+    };
 
     // Resolve listen addresses (applying --rest-port / --grpc-port overrides)
     let rest_addr = config.resolved_rest_addr()?;
@@ -352,6 +367,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         bootstrap_peers,
         pending_uploads: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
         pending_chunks: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        pointer_keys: Arc::new(pointer_keys),
+        pending_pointers: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
         started_at: std::time::Instant::now(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         build_commit: env!("ANTD_BUILD_COMMIT").to_string(),
@@ -369,6 +386,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tokio::time::sleep(std::time::Duration::from_secs(300)).await;
             cleanup_state.cleanup_stale_uploads(ttl).await;
             cleanup_state.cleanup_stale_chunks(ttl).await;
+            cleanup_state.cleanup_stale_pointers(ttl).await;
         }
     });
 

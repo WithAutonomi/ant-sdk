@@ -104,6 +104,15 @@ pub struct Config {
         value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(1..)
     )]
     pub chunk_cache_capacity: usize,
+
+    /// Pointer owner keys: one key file, or a directory of them, in the
+    /// format `ant pointer keygen` writes (a 32-byte seed, hex). antd signs
+    /// pointer writes with these and never returns, logs or persists them;
+    /// requests name the pointer by its address. Without this flag pointers
+    /// can be read but not written. Keep the files readable only by the antd
+    /// user: a pointer key cannot be rotated.
+    #[arg(long, env = "ANTD_POINTER_KEYS_DIR", value_name = "PATH")]
+    pub pointer_keys: Option<std::path::PathBuf>,
 }
 
 /// Default for `--chunk-cache-capacity`, in chunks.

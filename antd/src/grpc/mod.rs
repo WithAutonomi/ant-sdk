@@ -6,6 +6,7 @@ use tonic::transport::Server;
 
 use crate::state::AppState;
 
+pub mod pointers;
 pub mod service;
 
 /// Largest ManifestService request accepted: the REST body limit.
@@ -15,8 +16,8 @@ use service::pb::{
     chunk_service_server::ChunkServiceServer, data_service_server::DataServiceServer,
     event_service_server::EventServiceServer, file_service_server::FileServiceServer,
     health_service_server::HealthServiceServer, manifest_service_server::ManifestServiceServer,
-    upload_service_server::UploadServiceServer, verify_service_server::VerifyServiceServer,
-    wallet_service_server::WalletServiceServer,
+    pointer_service_server::PointerServiceServer, upload_service_server::UploadServiceServer,
+    verify_service_server::VerifyServiceServer, wallet_service_server::WalletServiceServer,
 };
 
 pub async fn serve(
@@ -44,6 +45,9 @@ pub async fn serve(
     let health_svc = HealthServiceServer::new(service::HealthServiceImpl {
         state: state.clone(),
     });
+    let pointer_svc = PointerServiceServer::new(pointers::PointerServiceImpl {
+        state: state.clone(),
+    });
     // Entries carry raw quote/sidecar bytes; tonic's 4 MiB default would cap
     // a batch at ~600 entries where REST accepts MAX_VERIFY_ENTRIES.
     let verify_svc = VerifyServiceServer::new(service::VerifyServiceImpl)
@@ -68,6 +72,7 @@ pub async fn serve(
         .add_service(event_svc)
         .add_service(wallet_svc)
         .add_service(verify_svc)
+        .add_service(pointer_svc)
         .add_service(manifest_svc)
         .serve_with_incoming(TcpListenerStream::new(listener))
         .await?;

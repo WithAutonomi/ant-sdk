@@ -71,6 +71,7 @@ type GrpcClient struct {
 	upload   pb.UploadServiceClient
 	wallet   pb.WalletServiceClient
 	verify   pb.VerifyServiceClient
+	pointer  pb.PointerServiceClient
 	manifest pb.ManifestServiceClient
 }
 
@@ -121,6 +122,7 @@ func NewGrpcClient(target string, opts ...GrpcOption) (*GrpcClient, error) {
 	c.upload = pb.NewUploadServiceClient(conn)
 	c.wallet = pb.NewWalletServiceClient(conn)
 	c.verify = pb.NewVerifyServiceClient(conn)
+	c.pointer = pb.NewPointerServiceClient(conn)
 	c.manifest = pb.NewManifestServiceClient(conn)
 
 	return c, nil
