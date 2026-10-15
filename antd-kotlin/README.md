@@ -67,7 +67,47 @@ All methods are `suspend` functions for use with Kotlin coroutines.
 | **Health** | `health()` returns `HealthStatus` carrying antd version, EVM network, uptime, build commit, and payment contract addresses (antd ≥ 0.4.0) |
 | **Data** | `dataPutPublic`, `dataGetPublic`, `dataPut`, `dataGet`, `dataCost`. Private `dataPut` returns a caller-held DataMap (NOT stored on-network); public `dataPutPublic` stores the DataMap on-network at the returned address. All puts and `dataCost` accept a `PaymentMode` parameter. |
 | **Chunks** | `chunkPut`, `chunkGet` |
+| **Manifests** | `buildManifest`, `decodeManifest`, `decodeManifestLink`. See [Manifests](#manifests). |
 | **Files** | `filePut`, `fileGet`, `filePutPublic`, `fileGetPublic`, `fileCost`. Private variants return a caller-held DataMap (NOT stored on-network); public variants store the DataMap on-network at the returned address. All puts and `fileCost` accept a `PaymentMode` parameter. |
+
+## Manifests
+
+A manifest (ADR-0006) is a `.ant` file that lists a set of files, each with an optional path and size and either an embedded DataMap (a private upload; the manifest is then the key to it) or a public file's DataMap address. A small one also fits in an `ant://manifest/...` link. The daemon builds and reads them, so you never handle the format yourself. **Nothing is uploaded or paid for**: you build a manifest from DataMaps and addresses you already hold (from `dataPut`, `filePutPublic` and so on), then store or share the bytes or the link however you like. The calls are free to retry. `resolve` and the default root embedding read from the network, so they can time out. The manifest methods need the antd release after 0.15.0; both `AntdRestClient` and `AntdGrpcClient` implement them.
+
+```kotlin
+val client = AntdClient.createRest()
+val one = client.dataPutPublic("first note".toByteArray()).address
+val two = client.dataPutPublic("second note".toByteArray()).address
+
+val built = client.buildManifest(
+    listOf(
+        ManifestEntryInput(address = one, path = "notes/one.txt"),
+        ManifestEntryInput(address = two, path = "notes/two.txt"),
+    ),
+    BuildManifestOptions(name = "notes"),
+)
+File("notes.ant").writeBytes(built.manifest)      // the raw .ant bytes
+println(built.link)                               // ant://manifest/..., or null if over 1,500 bytes
+
+val decoded = client.decodeManifestLink(built.link!!, resolve = true)
+decoded.entries.forEach { println("${it.effectiveName}: ${it.exactSize} bytes") }
+```
+
+| Method | Description |
+|---|---|
+| `buildManifest(entries, options = BuildManifestOptions())` | Build a manifest. Each `ManifestEntryInput` sets exactly one of `dataMap` (hex, embedded) or `address` (hex, public), plus an optional `path` and `size` (the size to record, as given). Both or neither throws `IllegalArgumentException` naming the entry, before anything is sent. `BuildManifestOptions` has `name`, `torrentInfoHashes` and `embedRoots`, which defaults to `true`: the daemon resolves each shrunk DataMap and embeds its root when that is at most 64 KiB, so recipients skip the fetch. Returns `BuiltManifest`: `manifest` (the raw `.ant` bytes), `link` (null when it would not fit 1,500 bytes) and `entries` |
+| `decodeManifest(manifest, resolve = false)` | Decode `.ant` bytes. Returns `DecodedManifest`: `source` (`"manifest"`), `name`, `torrentInfoHashV1`, `torrentInfoHashV2` and `entries`. With `resolve`, the daemon fetches each entry's DataMap (not its content) to report `exactSize` and confirm it is on the network |
+| `decodeManifestLink(link, resolve = false)` | Decode a manifest link, a file link or a bare 64-hex address. The last two come back as `source == "file_link"` with one public entry and no path |
+
+Each entry is a `ManifestEntryInfo`: `effectiveName` (the path, or the content address when there is none), `path`, `size` (the recorded size), `kind` (`"embedded"` or `"public"`), `contentAddress` (hex; the public DataMap address, the same for private and public uploads of one file), `dataMap` (an embedded entry's DataMap in the hex form `dataGet` / `fileGet` accept; decodes only), `exactSize` and `error`.
+
+- **Bytes:** the methods take and return the raw `.ant` bytes on both transports. REST carries them as base64 inside the JSON, and the client converts.
+- **Sizes** are `ULong?`. Unset is `null`, never `0`, on both transports: REST omits the field, and gRPC's proto3 `optional` is read by presence. A recorded `size` is only the creator's claim. `exactSize` comes from an embedded root DataMap or a resolving decode.
+- **Errors:** an invalid entry or input, such as a path like `../x`, is a `BadRequestException` (REST 400, gRPC INVALID_ARGUMENT) whose message is the daemon's, naming `entries[i]`. If `resolve` fails for one entry, the reason is in that entry's `error`; the call still succeeds.
+- **gRPC message size:** a manifest can be 64 MiB, past grpc-java's 4 MiB receive limit, so `AntdGrpcClient` raises the receive and send limits of its manifest stub to 256 MiB. The other services keep the defaults.
+- **Upgrading:** `IAntdClient` gains the three methods, each with a default body that throws `UnsupportedOperationException` ("buildManifest is not implemented by this IAntdClient"). A class of your own that implements the interface compiles unchanged.
+
+See `examples/src/main/kotlin/com/autonomi/examples/Example09Manifests.kt` for a runnable round trip.
 
 ## Error Handling
 
@@ -125,6 +165,12 @@ Run individual examples:
 ./gradlew :examples:run --args="all" # All examples
 ```
 
+Example 9 (manifests) is not part of `all`: it needs the antd release after 0.15.0. It uploads two small public blobs (each pays), then builds and decodes a manifest of them for free. Run it by number; `ANTD_BASE_URL` overrides the daemon URL (default `http://localhost:8082`):
+
+```bash
+./gradlew :examples:run --args="9"
+```
+
 ## Building
 
 ```bash
@@ -149,8 +195,9 @@ antd-kotlin/
 │       ├── AntdRestClient.kt     # REST implementation
 │       ├── AntdGrpcClient.kt     # gRPC implementation
 │       ├── Models.kt             # Data classes
+│       ├── Manifests.kt          # Manifest types and wire mapping
 │       └── Exceptions.kt         # Exception hierarchy
-├── examples/                     # 6 runnable examples
+├── examples/                     # 7 runnable examples
 ├── build.gradle.kts              # Root build config
 └── settings.gradle.kts
 ```

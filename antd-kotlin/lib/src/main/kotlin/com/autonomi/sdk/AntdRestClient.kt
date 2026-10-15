@@ -428,6 +428,30 @@ class AntdRestClient(
         return UploadCostEstimate(resp.cost, resp.fileSize, resp.chunkCount, resp.estimatedGasCostWei, resp.paymentMode)
     }
 
+    // ── Manifests ──
+    //
+    // The `.ant` bytes travel as base64 in the JSON (`manifest`); callers only
+    // see raw bytes. Nothing is paid for. See IAntdClient for the contract and
+    // Manifests.kt for the wire shapes. Requires the antd release after 0.15.0.
+
+    /** `POST /v1/manifests/build`. See [IAntdClient.buildManifest]. */
+    override suspend fun buildManifest(entries: List<ManifestEntryInput>, options: BuildManifestOptions): BuiltManifest {
+        checkManifestEntries(entries)
+        return postJson<ManifestBuildDto>("/v1/manifests/build", manifestBuildBody(entries, options)).toBuiltManifest()
+    }
+
+    /** `POST /v1/manifests/decode` with the bytes. See [IAntdClient.decodeManifest]. */
+    override suspend fun decodeManifest(manifest: ByteArray, resolve: Boolean): DecodedManifest {
+        checkManifestBytes(manifest)
+        return postJson<ManifestDecodeDto>("/v1/manifests/decode", manifestDecodeBytesBody(manifest, resolve)).toDecodedManifest()
+    }
+
+    /** `POST /v1/manifests/decode` with a link. See [IAntdClient.decodeManifestLink]. */
+    override suspend fun decodeManifestLink(link: String, resolve: Boolean): DecodedManifest {
+        checkManifestLink(link)
+        return postJson<ManifestDecodeDto>("/v1/manifests/decode", manifestDecodeLinkBody(link, resolve)).toDecodedManifest()
+    }
+
     // ── Wallet ──
 
     override suspend fun walletAddress(): WalletAddress {
