@@ -17,7 +17,7 @@ antd-client = "0.3"
 
 ## Compatibility
 
-This crate talks to a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon; it does not join the network itself. Rust 1.82+. The byte-range methods need antd 0.15.0 or later; the rest of the API works with antd 0.14.x. The gRPC client code is pre-generated and committed, so consumers need neither `protoc` nor the daemon's `.proto` files. For a daemon-less client see the `ant-ffi` crate in this repository.
+This crate talks to a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon; it does not join the network itself. Rust 1.82+. The byte-range methods need antd 0.15.0 or later and the pointer methods need the antd release after 0.15.0, the first with pointers; the rest of the API works with antd 0.14.x. The gRPC client code is pre-generated and committed, so consumers need neither `protoc` nor the daemon's `.proto` files. For a daemon-less client see the `ant-ffi` crate in this repository.
 
 ## Quick Start
 
@@ -102,6 +102,32 @@ All methods are `async` and return `Result<T, AntdError>`.
 | `file_get_public(address, dest_path)` | Download a public file by address |
 | `file_cost(path, is_public, payment_mode)` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
+### Pointers
+
+A pointer is a small, owner-signed, mutable reference. Its address is derived from the owner's
+key and never changes; what it points at (a chunk, such as a public file's data map, or another
+pointer) can be changed by the owner. The daemon holds the owner keys, loaded at startup with
+`antd --pointer-keys <file-or-dir>` (files in the format `ant pointer keygen` writes), so every
+write names the pointer by its address (`owner`), never by a key.
+
+Every write pays (about the price of one chunk), and every attempt pays again: do not retry a
+create, update or transfer automatically. Reads are free to retry; a read during an update or
+churn can fail with `AntdError::CloseGroupShortfall`. Counters are `u64`; a final state (a
+transfer) sits at `u64::MAX`.
+
+| Method | Description |
+|--------|-------------|
+| `pointer_keys()` | The pointers this daemon holds owner keys for, so can write |
+| `pointer_create(owner, target, kind)` | Create a pointer, paid by the daemon wallet — returns `PointerWriteResult` (`address`, `state_id`, `counter`). `AlreadyExists` if it exists, refused before paying |
+| `pointer_update(owner, target, kind)` | Point a pointer at a new target, paid by the daemon wallet; creates it if it does not exist. `kind` is `PointerKind::Chunk` or `PointerKind::Pointer` (a forwarding the owner can still change). `PointerFinal` once transferred |
+| `pointer_transfer(owner, recipient)` | Hand a pointer over for good to the recipient's pointer, which must exist: readers of the address are redirected there and the old key can change nothing. Irreversible. Returns `PointerTransferResult` with the close group's `finality` |
+| `pointer_get(address)` | Read a pointer — returns `PointerRecord` (`counter`, `target`, `kind`/`kind_tag`, `is_final`, `transferred_to`, the owner's public key). `NotFound` if there is none |
+| `pointer_resolve(address)` | Follow a chain of pointers (forwardings and transfers) to the target at its end — returns `PointerResolved` |
+| `pointer_finality(address)` | Ask the whole close group where a pointer stands — returns `PointerFinality` with `status` `Open`, `Settling`, `Unconfirmed`, `Final` or `Forked`. Check `is_final()` before relying on a transfer |
+| `pointer_controller(address)` | Follow transfers to the pointer whose owner now decides — returns `PointerController` |
+| `pointer_prepare(owner, op)` / `pointer_prepare_with_options(owner, op, opts)` | External signer: the daemon signs `PointerOp::Create`, `Update` or `Transfer` with its key and quotes it — returns `PointerPrepareResult` (wave-batch `payments` for `payForQuotes()`). Needs no daemon wallet. Other writes to the pointer answer `Conflict` until it is finalized or expires |
+| `pointer_finalize(upload_id, tx_hashes)` | External signer: store the prepared write once paid — returns `PointerFinalizeResult`. A write that falls short after payment returns `CloseGroupShortfall { retryable: true }`: repeat the same call to store it against the same payment |
+
 ## gRPC Transport
 
 The SDK also provides a gRPC client with the same async methods. It connects to the
@@ -131,7 +157,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 The `GrpcClient` has identical method signatures to the REST `Client`, so switching
 transports requires only changing the constructor. gRPC status codes are surfaced through
-the `Grpc` error variant, except an `ABORTED` whose message starts with `Partial upload:`,
+the `Grpc` error variant, except the pointer and close-group errors, which the daemon tags with
+`x-antd-error-code` metadata and which map to the same typed variants as over REST; and an `ABORTED` whose message starts with `Partial upload:`,
 which is a partial store and maps to `AntdError::PartialUpload`; any other `ABORTED` stays
 the generic `Grpc` error (see [Error Handling](#error-handling)). Likewise an `OUT_OF_RANGE`
 from a range method is `AntdError::RangeNotSatisfiable`, and stays `Grpc` elsewhere (tonic
@@ -171,6 +198,10 @@ match client.data_get_public("some_address").await {
 | `Network` | 502 | Network unreachable |
 | `PartialUpload` | 502 (`code: PARTIAL_UPLOAD`) / gRPC `ABORTED` with a `Partial upload:` message | A finalize stored some chunks but not all; carries counts, `retryable` and `retention_known` (new in 0.2.0) |
 | `ServiceUnavailable` | 503 | Wallet not configured |
+| `PointerFinal` | 409 (`code: POINTER_FINAL`) / gRPC `FAILED_PRECONDITION` | The pointer is transferred or frozen; nothing can change it |
+| `PointerForked` | 409 (`code: POINTER_FORKED`) / gRPC `FAILED_PRECONDITION` | The owner signed two final states and no majority holds either |
+| `Conflict` | 409 (`code: CONFLICT`) / gRPC `ABORTED` | A pointer write while a prepared write to it awaits payment, or an update that lost to a newer state |
+| `CloseGroupShortfall` | 503 (`code: CLOSE_GROUP_SHORTFALL`) / gRPC `UNAVAILABLE` | Too few of the close group answered or stored; `retryable` is `true` only for a pointer finalize that kept the paid state |
 | `RangeNotSatisfiable` | 416 / gRPC `OUT_OF_RANGE` from a range method | A byte range starts at or past the end of the object; `size` carries the object size when the daemon reports it (new in 0.3.0) |
 | `Http` | - | REST transport error |
 | `Json` | - | Serialization error |
@@ -241,6 +272,15 @@ match client.finalize_upload(&upload_id, &tx_hashes).await {
     Err(e) => return Err(e.into()),
 }
 ```
+
+### Upgrading from 0.3.x: pointer error variants
+
+The pointer methods bring four new `AntdError` variants: `PointerFinal`, `PointerForked`,
+`Conflict` and `CloseGroupShortfall { retryable, message }`. `AntdError` is not
+`#[non_exhaustive]`, so a `match` without a catch-all arm stops compiling until it handles them.
+`CloseGroupShortfall` is not only for pointers: a daemon with the pointer API reports a close
+group that fell short on any call (a chunk store, say) as `503 CLOSE_GROUP_SHORTFALL`, which an
+older daemon sent as a 500, read as `AntdError::Internal`.
 
 ### Upgrading from 0.2.x: range errors are a new error variant
 
