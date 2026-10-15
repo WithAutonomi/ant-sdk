@@ -129,10 +129,11 @@ local MAX_REPORTED_ENTRY_ERRORS = 20
 --- The daemon's message for a decode with neither bytes nor a link.
 local EMPTY_DECODE_INPUT = "needs a manifest (base64 .ant bytes) or a link"
 
---- A bad_request carrying the text the daemon sends for the same mistake:
--- its error body reads "Bad request: <message>" (AntdError::BadRequest).
+--- A bad_request (status 400) with the daemon's bare message. The daemon's
+-- REST body prefixes "Bad request: " (AntdError's Display) and gRPC does
+-- not; client-side refusals use the bare text.
 local function daemon_bad_request(message)
-    return errors.bad_request("Bad request: " .. message)
+    return errors.bad_request(message)
 end
 
 --- The daemon's `entry_errors_message`: every bad entry, at most 20 shown.

@@ -160,21 +160,23 @@ describe("live manifests", function()
         assert.are.equal("bad_request", err and err.type)
         assert.are.equal(400, err.status_code)
         -- The same request past the client check (the daemon is asked via
-        -- the transport directly) gets the same type, status and message.
+        -- the transport directly) gets the same type, status and message,
+        -- bar the "Bad request: " its REST body adds (gRPC sends it bare).
+        local function bare(m) return (m:gsub("^Bad request: ", "")) end
         local _, _, derr = client:_do_json("POST", "/v1/manifests/build", {
             entries = { { address = first, data_map = data_map or "aa" } },
         })
         assert.are.equal("bad_request", derr.type)
         assert.are.equal(derr.status_code, err.status_code)
-        assert.are.equal(derr.message, err.message)
+        assert.are.equal(bare(derr.message), err.message)
         _, _, derr = client:_do_json("POST", "/v1/manifests/build", {
             entries = { { path = "x" }, { address = first, data_map = "aa" } },
         })
         r, err = client:build_manifest({ { path = "x" }, { address = first, data_map = "aa" } })
-        assert.are.equal(derr.message, err.message)
+        assert.are.equal(bare(derr.message), err.message)
         _, _, derr = client:_do_json("POST", "/v1/manifests/decode", { manifest = "" })
         r, err = client:decode_manifest_link("")
-        assert.are.equal(derr.message, err.message)
+        assert.are.equal(bare(derr.message), err.message)
         assert.are.equal(derr.status_code, err.status_code)
 
         -- A path the portable rules refuse: the daemon's 400, naming the entry.

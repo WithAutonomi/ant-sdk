@@ -255,7 +255,7 @@ describe("manifest API", function()
             }) do
                 local err = refused(client:build_manifest({ { address = "11" }, c[1] }))
                 assert.are.equal(400, err.status_code)
-                assert.are.equal("Bad request: 1 invalid entries: entries[1]: " .. c[2], err.message)
+                assert.are.equal("1 invalid entries: entries[1]: " .. c[2], err.message)
             end
             assert.are.equal(0, #requests)
         end)
@@ -267,7 +267,7 @@ describe("manifest API", function()
                 {},
             }))
             assert.are.equal(400, err.status_code)
-            assert.are.equal("Bad request: 2 invalid entries: entries[0]: give data_map or address, "
+            assert.are.equal("2 invalid entries: entries[0]: give data_map or address, "
                 .. "not both; entries[2]: needs a data_map or an address", err.message)
             assert.are.equal(0, #requests)
         end)
@@ -280,14 +280,14 @@ describe("manifest API", function()
             for i = 0, 19 do
                 parts[#parts + 1] = "entries[" .. i .. "]: needs a data_map or an address"
             end
-            assert.are.equal("Bad request: 23 invalid entries: " .. table.concat(parts, "; ")
+            assert.are.equal("23 invalid entries: " .. table.concat(parts, "; ")
                 .. "; and 3 more", err.message)
         end)
 
         it("prefixes other entry checks with entries[i]", function()
             local err = refused(client:build_manifest({ { address = "11" }, { address = "11", size = -1 } }))
             assert.are.equal(400, err.status_code)
-            assert.are.equal("Bad request: 1 invalid entries: entries[1]: size must be a whole number "
+            assert.are.equal("1 invalid entries: entries[1]: size must be a whole number "
                 .. "of bytes from 0 to 2^53", err.message)
         end)
 
@@ -319,7 +319,7 @@ describe("manifest API", function()
         end)
 
         it("maps a 400 onto bad_request and keeps the daemon's message", function()
-            local msg = "Bad request: 1 invalid entries: entries[0]: invalid path \"../x\": "
+            local msg = "1 invalid entries: entries[0]: invalid path \"../x\": "
                 .. "path component \"..\" is not allowed"
             route("POST", "/v1/manifests/build", 400, { error = msg, code = "BAD_REQUEST" })
             local err = refused(client:build_manifest({ { address = ADDR, path = "../x" } }))
@@ -400,7 +400,7 @@ describe("manifest API", function()
         end)
 
         it("refuses empty bytes and a non-boolean resolve before sending", function()
-            local want = "Bad request: needs a manifest (base64 .ant bytes) or a link"
+            local want = "needs a manifest (base64 .ant bytes) or a link"
             assert.are.equal(want, refused(client:decode_manifest("")).message)
             assert.are.equal(want, refused(client:decode_manifest(nil)).message)
             assert.are.equal(400, refused(client:decode_manifest("")).status_code)
@@ -409,7 +409,7 @@ describe("manifest API", function()
         end)
 
         it("maps a 400 onto bad_request and keeps the daemon's message", function()
-            local msg = "Bad request: not a manifest: missing or invalid header"
+            local msg = "not a manifest: missing or invalid header"
             route("POST", "/v1/manifests/decode", 400, { error = msg, code = "BAD_REQUEST" })
             local err = refused(client:decode_manifest("nope"))
             assert.are.equal(msg, err.message)
@@ -437,7 +437,7 @@ describe("manifest API", function()
         end)
 
         it("refuses an empty link before sending", function()
-            local want = "Bad request: needs a manifest (base64 .ant bytes) or a link"
+            local want = "needs a manifest (base64 .ant bytes) or a link"
             local err = refused(client:decode_manifest_link(""))
             assert.are.equal(want, err.message)
             assert.are.equal(400, err.status_code)
