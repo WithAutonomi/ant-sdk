@@ -12,7 +12,7 @@
  *     `antd --pointer-keys <file-or-dir>` (key files from `ant pointer keygen`)
  *   - ANTD_POINTER_OWNER: the address of a pointer the daemon holds the key
  *     for (one of `$client->pointerKeys()`)
- *   - ANTD_URL (optional): the daemon's REST base URL, default
+ *   - ANTD_BASE_URL (optional): the daemon's REST base URL, default
  *     http://localhost:8082
  *
  * Every pointer write pays (about the price of one chunk), and every attempt
@@ -37,7 +37,7 @@ if ($owner === '') {
     fwrite(STDERR, "Set ANTD_POINTER_OWNER to the address of a pointer the daemon holds the key for.\n");
     exit(1);
 }
-$url = getenv('ANTD_URL') ?: 'http://localhost:8082';
+$url = getenv('ANTD_BASE_URL') ?: 'http://localhost:8082';
 $client = new AntdClient($url);
 
 $keys = array_map('normaliseAddress', $client->pointerKeys());

@@ -315,7 +315,7 @@ See the [examples/](examples/) directory:
 - `06-private-data.php` — Private encrypted data
 - `07-external-signer.php` — External-signer flow with a bounded partial-upload retry
 - `08-pointers.php` — Create, update, resolve and check the finality of a pointer
-  (`ANTD_POINTER_OWNER=<address> php examples/08-pointers.php`; set `ANTD_URL` for a daemon
+  (`ANTD_POINTER_OWNER=<address> php examples/08-pointers.php`; set `ANTD_BASE_URL` for a daemon
   other than `http://localhost:8082`). Each run pays for its pointer writes.
 
 ## Versioning and releases
