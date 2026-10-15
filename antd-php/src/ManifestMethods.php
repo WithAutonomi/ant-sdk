@@ -33,7 +33,7 @@ use GuzzleHttp\Promise\PromiseInterface;
  */
 trait ManifestMethods
 {
-    /** The daemon's 400 text (its error body adds the "Bad request: " prefix, which the client-side refusals repeat) for a decode with neither bytes nor a link. */
+    /** The daemon's 400 text for a decode with neither bytes nor a link. */
     private const MANIFEST_INPUT_MISSING = 'needs a manifest (base64 .ant bytes) or a link';
 
     /**
@@ -189,7 +189,7 @@ trait ManifestMethods
             // every bad entry, at most 20 shown.
             $shown = implode('; ', array_slice($errors, 0, 20));
             $more = count($errors) > 20 ? '; and ' . (count($errors) - 20) . ' more' : '';
-            throw new BadRequestError("Bad request: " . count($errors) . " invalid entries: {$shown}{$more}");
+            throw new BadRequestError(count($errors) . " invalid entries: {$shown}{$more}");
         }
         $body = ['entries' => $wire, 'embed_roots' => $options->embedRoots];
         if ($options->name !== null && $options->name !== '') {
@@ -208,7 +208,7 @@ trait ManifestMethods
     private static function manifestDecodeBytesBody(string $manifest, bool $resolve): array
     {
         if ($manifest === '') {
-            throw new BadRequestError("Bad request: " . self::MANIFEST_INPUT_MISSING);
+            throw new BadRequestError(self::MANIFEST_INPUT_MISSING);
         }
         return ['manifest' => base64_encode($manifest), 'resolve' => $resolve];
     }
@@ -220,7 +220,7 @@ trait ManifestMethods
     private static function manifestDecodeLinkBody(string $link, bool $resolve): array
     {
         if ($link === '') {
-            throw new BadRequestError("Bad request: " . self::MANIFEST_INPUT_MISSING);
+            throw new BadRequestError(self::MANIFEST_INPUT_MISSING);
         }
         return ['link' => $link, 'resolve' => $resolve];
     }

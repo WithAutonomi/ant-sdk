@@ -202,7 +202,7 @@ class ManifestTest extends TestCase
         $e = $this->catchAntdError(fn() => $client->buildManifest($entries));
         $this->assertInstanceOf(BadRequestError::class, $e);
         $this->assertSame(400, $e->statusCode);
-        $this->assertSame("antd error 400: Bad request: {$message}", $e->getMessage());
+        $this->assertSame("antd error 400: {$message}", $e->getMessage());
         $this->assertSame([], $this->history);
     }
 
@@ -214,7 +214,7 @@ class ManifestTest extends TestCase
         $e = $this->catchAntdError(fn() => $client->buildManifestAsync($entries));
         $this->assertInstanceOf(BadRequestError::class, $e);
         $this->assertSame(400, $e->statusCode);
-        $this->assertSame("antd error 400: Bad request: {$message}", $e->getMessage());
+        $this->assertSame("antd error 400: {$message}", $e->getMessage());
         $this->assertSame([], $this->history);
     }
 
@@ -383,7 +383,7 @@ class ManifestTest extends TestCase
             $e = $this->catchAntdError($call);
             $this->assertInstanceOf(BadRequestError::class, $e);
             $this->assertSame(400, $e->statusCode);
-            $this->assertSame('antd error 400: Bad request: needs a manifest (base64 .ant bytes) or a link', $e->getMessage());
+            $this->assertSame('antd error 400: needs a manifest (base64 .ant bytes) or a link', $e->getMessage());
         }
         $this->assertSame([], $this->history);
     }

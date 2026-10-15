@@ -209,6 +209,7 @@ class LiveManifestsTest extends TestCase
             $remote = json_decode((string) $ex->getResponse()->getBody(), true)['error'] ?? null;
         }
         $this->assertIsString($remote);
-        $this->assertSame('antd error 400: ' . $remote, $local->getMessage());
+        // REST's error text carries a "Bad request: " prefix that gRPC and the client leave off.
+        $this->assertSame('antd error 400: ' . preg_replace('/^Bad request: /', '', $remote), $local->getMessage());
     }
 }
