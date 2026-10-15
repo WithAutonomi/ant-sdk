@@ -122,6 +122,35 @@ Exception hierarchy:
 | `InternalException` | 500 | Server error |
 | `NetworkException` | 502 | Network unreachable |
 
+## Manifests
+
+A manifest describes a set of files as one `ant://manifest/` link, or as a `.ant` file when the link would be too long. Each entry is either a public file's address or an embedded DataMap (the manifest is then the key to a private file), with an optional path. Building and decoding upload and pay for nothing: upload the files first, then describe them. Needs the antd release after 0.15.0. Walk-through: [Tutorial: Share a Set of Files as One Link](tutorial-manifests.md).
+
+```dart
+final one = await client.dataPutPublic(Uint8List.fromList(utf8.encode('one')));   // pays
+final two = await client.dataPutPublic(Uint8List.fromList(utf8.encode('two')));   // pays
+
+final built = await client.buildManifest([                                        // free
+  ManifestEntryInput(path: 'notes/one.txt', address: one.address),
+  ManifestEntryInput(path: 'notes/two.txt', address: two.address),
+], name: 'example');
+print(built.link);                                // null when over 1,500 bytes: share built.manifest instead
+
+final decoded = await client.decodeManifestLink(built.link!, resolve: true);      // free
+for (final e in decoded.entries) {
+  print('${e.effectiveName}: ${e.exactSize ?? e.error}');
+}
+```
+
+`decodeManifest(bytes, resolve: ...)` takes raw `.ant` bytes (`Uint8List`). Use `dataMap:` instead of `address:` for an embedded entry, and `embedRoots: false` to keep shrunk DataMaps as given.
+
+Runnable example: `antd-dart/example/10_manifests.dart`. Its two uploads pay; the manifest calls do not.
+
+```bash
+cd antd-dart
+ANTD_BASE_URL=http://localhost:8082 dart run example/10_manifests.dart
+```
+
 ## Examples
 
 ```bash

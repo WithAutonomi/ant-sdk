@@ -122,6 +122,50 @@ print(f"Stored: {result.chunks_stored} chunks "
 
 **When to suggest this:** Developer has their own wallet/signer and doesn't want to use antd's built-in wallet. Common in web apps, mobile apps, or enterprise integrations.
 
+### Pattern 5: Manifests (One Link for Several Files)
+
+A manifest describes a set of files as one `.ant` document, or as one `ant://manifest/` link when it is small enough. Each entry has an optional `path` (and `size`) and **exactly one** of an `address` (a public file) or a `data_map` (a private file, embedded: the manifest is then its key). Needs the antd release after 0.15.0.
+
+**Nothing is uploaded or paid for.** Build and decode are free and need no wallet, so no confirmation or cost estimate is needed. They read the network only to resolve DataMaps and can time out: retrying is safe. The files must already be uploaded, so get the addresses and DataMaps first:
+
+- public file: `data_put_public` / `file_put_public` return the `address`
+- private file: `data_put` / `file_put` return the `data_map` (hex). Keep it secret: anyone with it can read the file
+- the manifest does not upload anything; entries are only pointers to what is already there
+
+```python
+from antd import ManifestEntryInput
+
+a = client.file_put_public("/abs/intro.txt").address     # pays
+d = client.file_put("/abs/diary.txt").data_map           # pays; private
+
+# Build (free). Exactly one of address / data_map per entry; paths are relative, no ".."
+built = client.build_manifest(
+    [ManifestEntryInput(path="intro.txt", address=a),
+     ManifestEntryInput(path="private/diary.txt", data_map=d)],
+    name="trip",
+)
+built.link        # "ant://manifest/..." or None when over 1,500 bytes: share built.manifest (raw bytes) instead
+
+# Decode (free). resolve=True also reads each DataMap to fill in exact_size
+m = client.decode_manifest_link(built.link, resolve=True)   # or client.decode_manifest(bytes, resolve=True)
+for e in m.entries:                                         # sorted by effective_name
+    if e.kind == "public":
+        client.file_get_public(e.content_address, dest)    # download by address
+    else:
+        client.file_get(e.data_map, dest)                  # download by DataMap
+```
+
+Rules for the agent:
+
+- Always pick **one** of `address` or `data_map` per entry; both or neither is refused before sending. Paths are portable relative paths; an invalid one is a `BadRequestError` naming `entries[i]`.
+- `link` is empty/`None` past 1,500 bytes; check for it and fall back to the `.ant` bytes. Embedded DataMaps use far more of that budget than public addresses.
+- Embedded entries are private-but-shareable: whoever holds the link or file can read them. Say so before generating code that publishes a link. Public entries can be read by anyone who knows the address.
+- An unset size is `None`/`null`, never `0`. `exact_size` is trustworthy (read from the network); `size` is only what the creator claimed. One entry's failed `resolve` is in that entry's `error`, not an exception.
+- The `.ant` bytes are raw bytes in every SDK; base64 is only the REST wire form. Method names follow each SDK's casing: `buildManifest`, `BuildManifestAsync`, `build_manifest(client, ...)`. JS/TS, Lua, PHP and Zig are REST only; the others also work over gRPC.
+- The MCP server has `build_manifest` and `decode_manifest` tools (free).
+
+**When to suggest this:** Developer wants to hand someone a folder-like set of files (with paths and a name) as one link, or to share private files with a link as the key.
+
 ## Key Rules
 
 1. **Every write costs tokens.** Always offer to estimate cost first with the `*_cost` methods — they return an `UploadCostEstimate` with `cost`, `file_size`, `chunk_count`, `estimated_gas_cost_wei`, and `payment_mode`. Before the first storage operation, the wallet must be approved via `wallet_approve()`. Reads are free.
@@ -163,3 +207,4 @@ When a developer asks to build something, follow this sequence:
 - [llms-full.txt](llms-full.txt) — complete method signatures for all 12 languages, request/response formats, runnable examples
 - [docs/architecture.md](docs/architecture.md) — full mental model, data primitive deep-dive, payment model, design patterns
 - [docs/tutorial-store-retrieve.md](docs/tutorial-store-retrieve.md) — store text, files, private data, chunks (all 12 languages)
+- [docs/tutorial-manifests.md](docs/tutorial-manifests.md) — share a set of files as one `ant://manifest/` link, decode it, download each entry

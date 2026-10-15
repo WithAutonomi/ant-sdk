@@ -520,41 +520,122 @@ Pointer error codes: `CLOSE_GROUP_SHORTFALL` (503; reads are free to retry),
 
 ### Manifests (ADR-0006)
 
-Stateless build and decode of `.ant` manifests and `ant://` links (antd
-0.16.0+). The format, content addresses and portable path rules come from
-ant-core; nothing is uploaded or paid for. The network is touched only to
-resolve DataMaps.
+Stateless build and decode of `.ant` manifests and `ant://` links (needs the
+antd release after 0.15.0). A manifest describes a set of files as one
+document: each entry has an optional `path` and `size` and either an embedded
+DataMap (a private file: the manifest is its key) or the address of a public
+file. The format, content addresses and portable path rules come from
+ant-core, so the same inputs give the `ant` CLI's exact bytes. **Nothing is
+uploaded or paid for**, and the daemon needs no wallet. The network is read
+only to resolve DataMaps (the embedding policy on build, `resolve` on decode),
+so a call can time out; retrying is safe. Upload the files first
+(`POST /v1/data`, `POST /v1/data/public`, `POST /v1/files`,
+`POST /v1/files/public`) and build from the DataMaps and addresses they return.
 
 #### `POST /v1/manifests/build`
-Build a manifest from DataMaps (hex, embedded) and public addresses already
-in hand. Each entry has exactly one of `data_map` or `address`. `size` is
-recorded as given (the creator's claim). With `embed_roots` (default true), a
-shrunk DataMap is resolved and its root embedded when it is at most 64 KiB,
-as the `ant` CLI does; the same inputs give the CLI's exact bytes.
+Build a manifest from DataMaps (hex, embedded) and public addresses already in
+hand. Each entry has **exactly one** of `data_map` (the hex a private upload
+returns) or `address` (64 hex: a public file's DataMap address); both or
+neither is a 400. `path` is a relative portable path (no `..`, no leading
+slash, no empty component; unset or empty: the entry extracts under its content
+address). `size` is recorded as given, the creator's claim; unset records none.
+`name` is a suggested root directory name (one portable path component).
+`torrent_info_hashes` are hex, 40 characters for v1 and/or 64 for v2.
+`embed_roots` (default true): a shrunk DataMap is resolved and its root embedded
+when the root is at most 64 KiB, as the `ant` CLI does, so readers skip that
+fetch; `false` embeds DataMaps exactly as given.
 
 Request:
 ```json
 {
   "name": "album",
   "embed_roots": true,
+  "torrent_info_hashes": [],
   "entries": [
     {"path": "photos/a.jpg", "data_map": "<hex>", "size": 123},
     {"path": "readme.txt", "address": "<64 hex>"}
   ]
 }
 ```
-Response: `{"manifest": "<base64 .ant>", "link": "ant://manifest/...", "entries": [{"effective_name", "path", "size", "kind", "content_address", "exact_size"}]}`.
-`link` is present only when it fits 1,500 bytes. Invalid entries are a 400
-that names every bad entry (`entries[i]: ...`).
+Response (`manifest` is the base64 of the raw `.ant` bytes):
+```json
+{
+  "manifest": "<base64 .ant>",
+  "link": "ant://manifest/...",
+  "entries": [
+    {"effective_name": "photos/a.jpg", "path": "photos/a.jpg", "size": 123,
+     "kind": "embedded", "content_address": "<64 hex>", "exact_size": 123},
+    {"effective_name": "readme.txt", "path": "readme.txt",
+     "kind": "public", "content_address": "<64 hex>"}
+  ]
+}
+```
+- `entries` come back in encoded order, sorted by `effective_name` (the path, or
+  the content address in hex when there is no path), not in request order.
+- `link` is present only when it fits 1,500 bytes; otherwise it is omitted and
+  the `.ant` bytes (`manifest`) are what you share.
+- Unset fields are omitted: `size` when none was recorded, `exact_size` when
+  unknown (an embedded root DataMap carries it, so embedded entries have it
+  after `embed_roots`), `path` when there is none. Never `0` for unset: `0` is
+  an empty file.
+- `content_address` is the file's public DataMap address, the same for a private
+  and a public upload of one file.
 
 #### `POST /v1/manifests/decode`
-Decode `{"manifest": "<base64 .ant>"}` or `{"link": "ant://manifest/... | ant://<addr> | <addr>"}`.
-With `"resolve": true`, each entry's DataMap is fetched and resolved to
-report `exact_size`; a failure is reported in that entry's `error` instead of
-failing the call. Embedded entries carry `data_map` in the hex form the
-download routes accept.
+Decode a manifest. Give exactly one of `manifest` (base64 `.ant` bytes) or
+`link` (`ant://manifest/...`, an `ant://<address>` file link, or a bare 64-hex
+address); both or neither is a 400.
+Request: `{"manifest": "<base64 .ant>", "resolve": false}` or `{"link": "ant://manifest/...", "resolve": true}`
 
-Response: `{"source": "manifest" | "file_link", "name", "torrent_info_hash_v1", "torrent_info_hash_v2", "entries": [...]}`
+`resolve` (default false) fetches each entry's DataMap, and its wrapper
+records, to report `exact_size` and confirm the DataMap is on the network.
+Content chunks are not fetched. One entry's failure is reported in that entry's
+`error` and `exact_size` stays unset; it does not fail the call.
+
+Response:
+```json
+{
+  "source": "manifest",
+  "name": "album",
+  "torrent_info_hash_v1": "<40 hex>",
+  "torrent_info_hash_v2": "<64 hex>",
+  "entries": [
+    {"effective_name": "photos/a.jpg", "path": "photos/a.jpg", "size": 123,
+     "kind": "embedded", "content_address": "<64 hex>",
+     "data_map": "<hex>", "exact_size": 123},
+    {"effective_name": "readme.txt", "path": "readme.txt", "kind": "public",
+     "content_address": "<64 hex>", "exact_size": 40}
+  ]
+}
+```
+- `source` is `"manifest"`, or `"file_link"` for a file link or bare address,
+  which decodes as one public entry with no path and no `name`.
+- Embedded entries carry `data_map` in the hex form the download routes accept
+  (`POST /v1/data/get`, `POST /v1/files/get`). Public entries have none: use
+  `content_address` with `GET /v1/data/public/{addr}` or
+  `POST /v1/files/public/get`.
+- `name` and the torrent hashes are omitted when absent.
+
+Limits: a manifest is at most 64 MiB and 100,000 entries; each `data_map` at
+most 10 MiB; request bodies at most 100 MiB. A link is recommended at no more
+than 1,500 bytes; past that `link` is omitted. Error messages list up to 20
+bad entries.
+
+Errors: there are no manifest-specific codes. An invalid entry or input is
+`400 BAD_REQUEST` (gRPC INVALID_ARGUMENT) with a message that names every bad
+entry, e.g. `entries[0]: invalid path "../x": ...; entries[1]: give data_map or
+address, not both`. Bad base64, a manifest that does not parse, and an invalid
+link are 400s too.
+
+Per-SDK methods (`build_manifest`, `decode_manifest`, `decode_manifest_link`,
+cased per language) are listed in each SDK's section below. Every SDK has them,
+over gRPC too in C++, C#, Dart, Elixir, Go, Java, Kotlin, Python, Ruby, Rust and
+Swift; JS/TS, Lua, PHP and Zig are REST only. They take and return the raw
+`.ant` bytes: base64 is only the REST wire form. The MCP server has
+`build_manifest` and `decode_manifest` tools (free; no confirmation needed).
+Tutorial: [docs/tutorial-manifests.md](docs/tutorial-manifests.md).
+
+---
 
 ## gRPC API — All Services
 
@@ -591,8 +672,12 @@ Mirrors REST `/v1/pointers` 1:1; counters are decimal strings, unset values are 
 - Errors: `POINTER_FINAL` / `POINTER_FORKED` → FAILED_PRECONDITION, `CONFLICT` → ABORTED, `CLOSE_GROUP_SHORTFALL` → UNAVAILABLE
 
 ### ManifestService (manifests.proto)
-- `Build(BuildManifestRequest{name, torrent_info_hashes, embed_roots, entries[{path, size, data_map | address}]}) → BuildManifestResponse{manifest: bytes, link, entries}`
-- `Decode(DecodeManifestRequest{manifest: bytes | link, resolve}) → DecodeManifestResponse{source, name, torrent_info_hash_v1, torrent_info_hash_v2, entries}`
+Mirrors REST `/v1/manifests` 1:1; the `.ant` bytes are raw `bytes` here (base64 only on REST), and optional values use proto3 `optional` (check presence, not the zero value). Both calls are unary and free.
+- `Build(BuildManifestRequest{name?, torrent_info_hashes, embed_roots?, entries[{path?, size?, data_map | address}]}) → BuildManifestResponse{manifest: bytes, link, entries}`: `embed_roots` unset means true; `link` is empty when it would pass 1,500 bytes
+- `Decode(DecodeManifestRequest{manifest: bytes | link, resolve}) → DecodeManifestResponse{source, name?, torrent_info_hash_v1, torrent_info_hash_v2, entries}`
+- `ManifestEntryInfo{effective_name, path?, size?, kind, content_address, data_map, exact_size?, error}`: `data_map` is empty for public entries and on build; `error` is empty unless `resolve` failed for that entry
+- A manifest can be 64 MiB and the server accepts requests up to 100 MiB, so clients raise their receive (and send) limit for these calls: the SDKs set 256 MiB, per call where the gRPC library allows it, otherwise on a second channel for the manifest service
+- Errors: invalid entry or input → INVALID_ARGUMENT, with the same `entries[i]` message as REST
 
 ### SDKs with gRPC support
 Go, Python, C#, Kotlin, Swift, Rust, Java, C++, Dart, Ruby, Elixir (11 of 15 SDKs).
@@ -609,6 +694,18 @@ JS/TS, PHP, Lua, and Zig are REST-only.
 | HealthStatus | ok: bool, network: string | Health check result |
 | PutResult | cost: string, address: string | Result from any create/put operation |
 | UploadCostEstimate | cost: string, file_size: u64, chunk_count: u32, estimated_gas_cost_wei: string, payment_mode: string | Pre-upload cost breakdown returned by data_cost / file_cost. Server samples up to 5 chunk addresses and extrapolates; gas is an advisory heuristic. |
+
+### Manifests
+
+Wire field names; each SDK cases them idiomatically. Sizes are optional unsigned 64-bit values (or the SDK's usual file-size type): unset is the language's none, never `0`.
+
+| Type | Fields | Description |
+|------|--------|-------------|
+| ManifestEntryInput | path?, size?, data_map \| address | One file to build from: exactly one of `data_map` (hex, embedded) or `address` (hex, public); both or neither is refused before sending |
+| BuildManifestOptions | name?, torrent_info_hashes, embed_roots (default true) | Go, Java, C++ and Rust spell the last as `KeepShrunkDataMaps` / `keepShrunkDataMaps` / `keep_shrunk_data_maps` (default false) |
+| ManifestEntryInfo | effective_name, path?, size?, kind ("embedded" \| "public"), content_address, data_map, exact_size?, error | What a manifest says about one entry; `data_map` on decode only, `exact_size` and `error` set by `resolve` (or an embedded root) |
+| BuiltManifest | manifest (raw `.ant` bytes), link, entries | `link` is empty or none when it would pass 1,500 bytes; entries are sorted by effective name |
+| DecodedManifest | source ("manifest" \| "file_link"), name?, torrent_info_hash_v1, torrent_info_hash_v2, entries | A decoded manifest or file link |
 
 ---
 
@@ -673,6 +770,11 @@ client.fileGetPublic(address: string, destPath: string): Promise<void>
 client.fileCost(path: string, isPublic?: boolean, opts?: { paymentMode?: PaymentMode }): Promise<UploadCostEstimate>
 
 // Wallet
+// Manifests (REST; free: nothing is uploaded or paid for; sizes are number, unset values null; bytes are Buffer)
+client.buildManifest(entries: ManifestEntryInput[], opts?: { name?: string; torrentInfoHashes?: string[]; embedRoots?: boolean }): Promise<BuiltManifest>
+client.decodeManifest(manifest: Buffer | Uint8Array, resolve?: boolean): Promise<DecodedManifest>
+client.decodeManifestLink(link: string, resolve?: boolean): Promise<DecodedManifest>
+
 client.walletAddress(): Promise<WalletAddress>
 client.walletBalance(): Promise<WalletBalance>
 client.walletApprove(): Promise<boolean>
@@ -710,6 +812,11 @@ client.file_get_public(address: str, dest_path: str) → None
 client.file_cost(path: str, is_public: bool = True, payment_mode: PaymentMode = PaymentMode.AUTO) → UploadCostEstimate
 
 # Wallet
+# Manifests (REST + gRPC, sync and async; free; sizes are int, unset is None; bytes are bytes)
+client.build_manifest(entries: list[ManifestEntryInput], *, name=None, torrent_info_hashes=None, embed_roots=True) → BuiltManifest
+client.decode_manifest(manifest: bytes, resolve: bool = False) → DecodedManifest
+client.decode_manifest_link(link: str, resolve: bool = False) → DecodedManifest
+
 client.wallet_address() → WalletAddress
 client.wallet_balance() → WalletBalance
 client.wallet_approve() → bool
@@ -747,6 +854,11 @@ Task FileGetPublicAsync(string address, string destPath);
 Task<UploadCostEstimate> FileCostAsync(string path, bool isPublic = true, PaymentMode paymentMode = PaymentMode.Auto);
 
 // Wallet
+// Manifests (REST + gRPC; free; sizes are ulong?, unset is null; bytes are byte[])
+Task<BuiltManifest> BuildManifestAsync(IReadOnlyList<ManifestEntryInput> entries, BuildManifestOptions? options = null);  // ManifestEntryInput.Embedded(...) / .Public(...)
+Task<DecodedManifest> DecodeManifestAsync(byte[] manifest, bool resolve = false);
+Task<DecodedManifest> DecodeManifestLinkAsync(string link, bool resolve = false);
+
 Task<WalletAddress> WalletAddressAsync();
 Task<WalletBalance> WalletBalanceAsync();
 Task<bool> WalletApproveAsync();
@@ -784,6 +896,11 @@ suspend fun fileGetPublic(address: String, destPath: String)
 suspend fun fileCost(path: String, isPublic: Boolean = true, paymentMode: PaymentMode = PaymentMode.Auto): UploadCostEstimate
 
 // Wallet
+// Manifests (REST + gRPC; free; sizes are ULong?, unset is null; bytes are ByteArray)
+suspend fun buildManifest(entries: List<ManifestEntryInput>, options: BuildManifestOptions = BuildManifestOptions()): BuiltManifest
+suspend fun decodeManifest(manifest: ByteArray, resolve: Boolean = false): DecodedManifest
+suspend fun decodeManifestLink(link: String, resolve: Boolean = false): DecodedManifest
+
 suspend fun walletAddress(): WalletAddress
 suspend fun walletBalance(): WalletBalance
 suspend fun walletApprove(): Boolean
@@ -823,6 +940,11 @@ func fileGetPublic(address: String, destPath: String) async throws
 func fileCost(path: String, isPublic: Bool, paymentMode: PaymentMode = .auto) async throws -> UploadCostEstimate
 
 // Wallet
+// Manifests (REST + gRPC; free; sizes are UInt64?, unset is nil; bytes are Data)
+func buildManifest(entries: [ManifestEntryInput], options: BuildManifestOptions) async throws -> BuiltManifest  // also buildManifest(entries:)
+func decodeManifest(_ manifest: Data, resolve: Bool) async throws -> DecodedManifest
+func decodeManifestLink(_ link: String, resolve: Bool) async throws -> DecodedManifest
+
 func walletAddress() async throws -> WalletAddress
 func walletBalance() async throws -> WalletBalance
 func walletApprove() async throws -> Bool
@@ -870,7 +992,8 @@ func (c *Client) WalletAddress(ctx context.Context) (*WalletAddress, error)
 func (c *Client) WalletBalance(ctx context.Context) (*WalletBalance, error)
 func (c *Client) WalletApprove(ctx context.Context) error
 
-// Manifests (ADR-0006, antd 0.16.0+); same methods on GrpcClient
+// Manifests (ADR-0006, the antd release after 0.15.0; free; sizes are *uint64, unset is nil; bytes are []byte); same methods on GrpcClient
+// BuildManifestOptions{Name, TorrentInfoHashes, KeepShrunkDataMaps}; ManifestEntryInput{Path, Size, DataMap, Address}
 func (c *Client) BuildManifest(ctx context.Context, entries []ManifestEntryInput, opts *BuildManifestOptions) (*BuiltManifest, error)
 func (c *Client) DecodeManifest(ctx context.Context, manifest []byte, resolve bool) (*DecodedManifest, error)
 func (c *Client) DecodeManifestLink(ctx context.Context, link string, resolve bool) (*DecodedManifest, error)
@@ -910,6 +1033,11 @@ void fileGetPublic(String address, String destPath) throws AntdException
 UploadCostEstimate fileCost(String path, boolean isPublic, PaymentMode paymentMode) throws AntdException
 
 // Wallet
+// Manifests (REST + gRPC; free; sizes are Long, unset is null; bytes are byte[])
+BuiltManifest buildManifest(List<ManifestEntryInput> entries[, BuildManifestOptions options]) throws AntdException  // ManifestEntryInput.ofDataMap(...) / .ofAddress(...); options keepShrunkDataMaps
+DecodedManifest decodeManifest(byte[] manifest, boolean resolve) throws AntdException
+DecodedManifest decodeManifestLink(String link, boolean resolve) throws AntdException
+
 WalletAddress walletAddress() throws AntdException
 WalletBalance walletBalance() throws AntdException
 boolean walletApprove() throws AntdException
@@ -949,6 +1077,11 @@ async fn file_get_public(&self, address: &str, dest_path: &str) -> Result<(), An
 async fn file_cost(&self, path: &str, is_public: bool, payment_mode: PaymentMode) -> Result<UploadCostEstimate, AntdError>
 
 // Wallet
+// Manifests (REST + gRPC; free; sizes are Option<u64>, unset is None; bytes are Vec<u8>)
+async fn build_manifest(&self, entries: &[ManifestEntryInput]) -> Result<BuiltManifest, AntdError>  // also build_manifest_with_options(entries, &BuildManifestOptions { keep_shrunk_data_maps, .. })
+async fn decode_manifest(&self, manifest: &[u8], resolve: bool) -> Result<DecodedManifest, AntdError>
+async fn decode_manifest_link(&self, link: &str, resolve: bool) -> Result<DecodedManifest, AntdError>
+
 async fn wallet_address(&self) -> Result<WalletAddress, AntdError>
 async fn wallet_balance(&self) -> Result<WalletBalance, AntdError>
 async fn wallet_approve(&self) -> Result<bool, AntdError>
@@ -989,6 +1122,11 @@ void fileGetPublic(const std::string& address, const std::string& destPath)
 UploadCostEstimate fileCost(const std::string& path, bool isPublic = true, antd::PaymentMode paymentMode = antd::PaymentMode::Auto)
 
 // Wallet
+// Manifests (REST + gRPC, sync and async; free; sizes are std::optional<std::uint64_t>; bytes are std::vector<uint8_t>)
+antd::BuiltManifest build_manifest(const std::vector<antd::ManifestEntryInput>& entries, const antd::BuildManifestOptions& options = {})  // options.keep_shrunk_data_maps
+antd::DecodedManifest decode_manifest(const std::vector<uint8_t>& manifest, bool resolve = false)
+antd::DecodedManifest decode_manifest_link(std::string_view link, bool resolve = false)
+
 antd::WalletAddress walletAddress()
 antd::WalletBalance walletBalance()
 bool walletApprove()
@@ -1029,6 +1167,11 @@ client.file_get_public(address, dest_path) → nil
 client.file_cost(path, is_public: true, payment_mode: :auto) → UploadCostEstimate
 
 # Wallet
+# Manifests (REST + gRPC; free; sizes are Integer, unset is nil; bytes are String)
+client.build_manifest(entries, name: nil, torrent_info_hashes: nil, embed_roots: true) → BuiltManifest  # entries: ManifestEntryInput or Hash
+client.decode_manifest(manifest, resolve: false) → DecodedManifest
+client.decode_manifest_link(link, resolve: false) → DecodedManifest
+
 client.wallet_address → WalletAddress
 client.wallet_balance → WalletBalance
 client.wallet_approve → Boolean
@@ -1066,6 +1209,11 @@ $client->fileGetPublic(string $address, string $destPath): void
 $client->fileCost(string $path, bool $isPublic = true, string $paymentMode = 'auto'): UploadCostEstimate
 
 // Wallet
+// Manifests (REST; free; sizes are ?int, unset is null; bytes are string; each has an Async variant)
+$client->buildManifest(array $entries, ?BuildManifestOptions $options = null): BuiltManifest  // entries: ManifestEntryInput
+$client->decodeManifest(string $manifest, bool $resolve = false): DecodedManifest
+$client->decodeManifestLink(string $link, bool $resolve = false): DecodedManifest
+
 $client->walletAddress(): array{address: string}
 $client->walletBalance(): array{balance: string, gas_balance: string}
 $client->walletApprove(): bool
@@ -1103,6 +1251,11 @@ Future<void> fileGetPublic(String address, String destPath)
 Future<UploadCostEstimate> fileCost(String path, {bool isPublic = true, PaymentMode paymentMode = PaymentMode.auto})
 
 // Wallet
+// Manifests (REST + gRPC; free; sizes are int?, unset is null; bytes are Uint8List)
+Future<BuiltManifest> buildManifest(List<ManifestEntryInput> entries, {String? name, List<String>? torrentInfoHashes, bool embedRoots = true})
+Future<DecodedManifest> decodeManifest(Uint8List manifest, {bool resolve = false})
+Future<DecodedManifest> decodeManifestLink(String link, {bool resolve = false})
+
 Future<WalletAddress> walletAddress()
 Future<WalletBalance> walletBalance()
 Future<bool> walletApprove()
@@ -1140,6 +1293,11 @@ client:file_get_public(address, dest_path) → nil
 client:file_cost(path, is_public, payment_mode) → UploadCostEstimate (table)
 
 -- Wallet
+-- Manifests (REST; free; sizes are numbers, unset is nil; bytes are Lua strings; entries are {path, size, data_map | address})
+client:build_manifest(entries, opts) → {manifest, link, entries} | nil, err  -- opts: {name, torrent_info_hashes, embed_roots}
+client:decode_manifest(bytes, resolve) → {source, name, torrent_info_hash_v1, torrent_info_hash_v2, entries} | nil, err
+client:decode_manifest_link(link, resolve) → same
+
 client:wallet_address() → {address=string}
 client:wallet_balance() → {balance=string, gas_balance=string}
 client:wallet_approve() → boolean
@@ -1175,6 +1333,11 @@ Antd.Client.file_get_public(client, address, dest_path) :: :ok | {:error, term()
 Antd.Client.file_cost(client, path, is_public \\ true, opts \\ []) :: {:ok, Antd.UploadCostEstimate.t()} | {:error, term()}
 
 # Wallet
+# Manifests (REST + gRPC via Antd.GrpcClient; free; sizes are integers, unset is nil; bytes are binaries; each has a ! variant)
+Antd.Client.build_manifest(client, entries, opts \\ []) :: {:ok, Antd.BuiltManifest.t()} | {:error, term()}  # entries: [%Antd.ManifestEntryInput{}]; opts: name:, torrent_info_hashes:, embed_roots:
+Antd.Client.decode_manifest(client, manifest, opts \\ []) :: {:ok, Antd.DecodedManifest.t()} | {:error, term()}  # opts: resolve:
+Antd.Client.decode_manifest_link(client, link, opts \\ []) :: {:ok, Antd.DecodedManifest.t()} | {:error, term()}
+
 Antd.Client.wallet_address(client) :: {:ok, WalletAddress.t()} | {:error, term()}
 Antd.Client.wallet_balance(client) :: {:ok, WalletBalance.t()} | {:error, term()}
 Antd.Client.wallet_approve(client) :: {:ok, boolean()} | {:error, term()}
@@ -1213,6 +1376,11 @@ fn fileGetPublic(self: *Client, address: []const u8, dest_path: []const u8) !voi
 fn fileCost(self: *Client, path: []const u8, is_public: bool, payment_mode: PaymentMode) !UploadCostEstimate
 
 // Wallet
+// Manifests (REST; free; sizes are ?u64, unset is null; bytes are []const u8; results have deinit(allocator))
+fn buildManifest(self: *Client, entries: []const ManifestEntryInput, options: BuildManifestOptions) !BuiltManifest  // options: .{ .name, .torrent_info_hashes, .embed_roots }
+fn decodeManifest(self: *Client, manifest: []const u8, resolve: bool) !DecodedManifest
+fn decodeManifestLink(self: *Client, link: []const u8, resolve: bool) !DecodedManifest
+
 fn walletAddress(self: *Client) !WalletAddress
 fn walletBalance(self: *Client) !WalletBalance
 fn walletApprove(self: *Client) !bool
@@ -1266,6 +1434,8 @@ Every tool with a `private` flag (`store_data`, `retrieve_data`, `upload_file`, 
 | `wallet_address` | `wallet_address` | Get wallet public address |
 | `wallet_balance` | `wallet_balance` | Get wallet balances |
 | `wallet_approve` | `wallet_approve` | Approve wallet for payments |
+| `build_manifest(entries, name?, torrent_info_hashes?, embed_roots?)` | `build_manifest` | Build a manifest from DataMaps and public addresses; returns `manifest_base64`, `link` (null past 1,500 bytes) and entries. Free |
+| `decode_manifest(manifest_base64? \| link?, resolve?)` | `decode_manifest` | Decode a manifest, manifest link, file link or address; `resolve=true` fills `exact_size`. Free |
 
 ---
 

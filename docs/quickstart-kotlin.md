@@ -147,6 +147,36 @@ Exception hierarchy:
 | `InternalException` | 500 | Server error |
 | `NetworkException` | 502 | Network unreachable |
 
+## Manifests
+
+A manifest describes a set of files as one `ant://manifest/` link, or as a `.ant` file when the link would be too long. Each entry is either a public file's address or an embedded DataMap (the manifest is then the key to a private file), with an optional path. Building and decoding upload and pay for nothing: upload the files first, then describe them. Needs the antd release after 0.15.0. Walk-through: [Tutorial: Share a Set of Files as One Link](tutorial-manifests.md).
+
+```kotlin
+val one = client.dataPutPublic("first note".toByteArray()).address   // pays
+val two = client.dataPutPublic("second note".toByteArray()).address  // pays
+
+val built = client.buildManifest(                                     // free
+    listOf(
+        ManifestEntryInput(address = one, path = "notes/one.txt"),
+        ManifestEntryInput(address = two, path = "notes/two.txt"),
+    ),
+    BuildManifestOptions(name = "example"),
+)
+println(built.link)                                // null when over 1,500 bytes: share built.manifest (ByteArray) instead
+
+val decoded = client.decodeManifestLink(built.link!!, resolve = true)   // free
+decoded.entries.forEach { println("${it.effectiveName}: ${it.exactSize} bytes") }
+```
+
+`decodeManifest(bytes, resolve = false)` takes raw `.ant` bytes. Use `dataMap =` instead of `address =` for an embedded entry; `BuildManifestOptions` has `embedRoots` (default `true`). Sizes are `ULong?`.
+
+Runnable example: `antd-kotlin/examples/src/main/kotlin/com/autonomi/examples/Example09Manifests.kt`. Its two uploads pay; the manifest calls do not.
+
+```bash
+cd antd-kotlin
+ANTD_BASE_URL=http://localhost:8082 ./gradlew :examples:run --args="9"
+```
+
 ## Examples
 
 ```bash
