@@ -11,6 +11,7 @@
 
 #include "discover.hpp"
 #include "errors.hpp"
+#include "manifests.hpp"
 #include "models.hpp"
 
 namespace antd {
@@ -227,6 +228,28 @@ public:
     /// `PrepareChunkResult::address`).
     std::string finalize_chunk_upload(std::string_view upload_id,
                                       const std::map<std::string, std::string>& tx_hashes);
+
+    // --- Manifests (ManifestService) ---
+    //
+    // The same methods, types and errors as the REST Client (see client.hpp);
+    // the `.ant` bytes travel as raw proto `bytes`. A manifest can be 64 MiB
+    // and a Build or Decode message carries it, past gRPC's 4 MiB default, so
+    // these calls use their own channel to the same target, created with
+    // grpc::ChannelArguments raising the max receive and send message sizes
+    // to 256 MiB (as antd-go raises its per-call receive limit). Every other
+    // call keeps the default channel and limits.
+
+    /// Mirrors Client::build_manifest.
+    BuiltManifest build_manifest(const std::vector<ManifestEntryInput>& entries,
+                                 const BuildManifestOptions& options = {});
+
+    /// Mirrors Client::decode_manifest.
+    DecodedManifest decode_manifest(const std::vector<uint8_t>& manifest,
+                                    bool resolve = false);
+
+    /// Mirrors Client::decode_manifest_link.
+    DecodedManifest decode_manifest_link(std::string_view link, bool resolve = false);
+
     // --- Wallet (V2-286) ---
 
     /// Returns the wallet's on-chain address (hex with 0x prefix).

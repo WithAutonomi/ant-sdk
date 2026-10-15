@@ -30,6 +30,7 @@ add_library(antd
     src/async_client.cpp
     src/base64.cpp
     src/discover.cpp
+    src/manifests_json.cpp
 )
 
 target_include_directories(antd
@@ -96,6 +97,7 @@ if(ANTD_BUILD_GRPC)
 
     add_library(antd_grpc
         src/grpc_client.cpp
+        src/manifests_grpc.cpp
         ${ANTD_PROTO_SRCS}
         ${ANTD_GRPC_SRCS}
     )
@@ -130,6 +132,11 @@ if(ANTD_BUILD_EXAMPLES)
         add_executable(${example} examples/${example}.cpp)
         target_link_libraries(${example} PRIVATE antd)
     endforeach()
+
+    # Manifests: uploads two pieces of public data (paid), then builds and
+    # decodes a manifest of them (free).
+    add_executable(09-manifests examples/09-manifests.cpp)
+    target_link_libraries(09-manifests PRIVATE antd)
 endif()
 
 # --- Tests ---
@@ -178,10 +185,39 @@ if(ANTD_BUILD_TESTS)
     )
     add_test(NAME antd_external_signer_util_tests COMMAND antd_external_signer_util_tests)
 
+    # Manifest API over REST (Client and AsyncClient) against a stub daemon.
+    add_executable(antd_manifest_tests tests/test_manifests.cpp)
+    target_link_libraries(antd_manifest_tests PRIVATE antd doctest::doctest)
+    add_test(NAME antd_manifest_tests COMMAND antd_manifest_tests)
+
+    # Live manifest build and decode against a daemon whose fixtures are
+    # already uploaded. Passes without running anything unless ANTD_TEST_URL
+    # and ANTD_TEST_MANIFEST_ADDRESSES (and, in a gRPC build, ANTD_TEST_GRPC)
+    # are set. Pays for nothing.
+    add_executable(antd_live_manifest_tests tests/live_manifests.cpp)
+    target_link_libraries(antd_live_manifest_tests PRIVATE antd doctest::doctest)
+    if(ANTD_BUILD_GRPC)
+        target_link_libraries(antd_live_manifest_tests PRIVATE antd_grpc)
+        target_compile_definitions(antd_live_manifest_tests PRIVATE ANTD_LIVE_GRPC=1)
+    endif()
+    add_test(NAME antd_live_manifest_tests COMMAND antd_live_manifest_tests)
+
     # V2-284 external-signer + V2-286 WalletService wire-mapping tests —
     # gated on ANTD_BUILD_GRPC=ON since they spin up a real grpc++ server
     # and link against generated proto + service stubs from antd/proto/.
     if(ANTD_BUILD_GRPC)
+        # ManifestService wire mapping and the raised message limits.
+        add_executable(antd_grpc_manifest_tests tests/test_grpc_manifests.cpp)
+        target_link_libraries(antd_grpc_manifest_tests
+            PRIVATE antd_grpc doctest::doctest
+        )
+        target_include_directories(antd_grpc_manifest_tests PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${ANTD_PROTO_GEN_DIR}
+        )
+        add_test(NAME antd_grpc_manifest_tests COMMAND antd_grpc_manifest_tests)
+
         add_executable(antd_grpc_external_signer_tests
             tests/test_grpc_external_signer.cpp
         )

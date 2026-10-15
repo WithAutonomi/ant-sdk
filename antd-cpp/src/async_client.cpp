@@ -147,6 +147,31 @@ std::future<bool> AsyncClient::wallet_approve() {
 }
 
 // ---------------------------------------------------------------------------
+// Manifests
+// ---------------------------------------------------------------------------
+
+std::future<BuiltManifest> AsyncClient::build_manifest(std::vector<ManifestEntryInput> entries,
+                                                       BuildManifestOptions options) {
+    return std::async(std::launch::async,
+                      [this, e = std::move(entries), o = std::move(options)] {
+                          return client_.build_manifest(e, o);
+                      });
+}
+
+std::future<DecodedManifest> AsyncClient::decode_manifest(std::vector<uint8_t> manifest,
+                                                          bool resolve) {
+    return std::async(std::launch::async, [this, m = std::move(manifest), resolve] {
+        return client_.decode_manifest(m, resolve);
+    });
+}
+
+std::future<DecodedManifest> AsyncClient::decode_manifest_link(std::string link, bool resolve) {
+    return std::async(std::launch::async, [this, l = std::move(link), resolve] {
+        return client_.decode_manifest_link(l, resolve);
+    });
+}
+
+// ---------------------------------------------------------------------------
 // External Signer (Two-Phase Upload)
 // ---------------------------------------------------------------------------
 
