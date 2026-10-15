@@ -149,7 +149,11 @@ final class LiveManifestTests: XCTestCase {
         let both = await Self.thrownError {
             _ = try await client.buildManifest(entries: [ManifestEntryInput(dataMap: fx.dataMap, address: fx.addresses[0])])
         }
-        XCTAssertTrue(both is BadRequestError, "got \(String(describing: both))")
+        let refused = try XCTUnwrap(both as? BadRequestError, "got \(String(describing: both))")
+        XCTAssertEqual(refused.statusCode, 400)
+        // Word for word what the daemon says for the same mistake (its 400
+        // body is "Bad request: " plus this text).
+        XCTAssertEqual(refused.message, "1 invalid entries: entries[0]: give data_map or address, not both")
         let badPath = await Self.thrownError {
             _ = try await client.buildManifest(entries: [
                 ManifestEntryInput(path: "ok.txt", address: fx.addresses[0]),

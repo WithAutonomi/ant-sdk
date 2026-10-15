@@ -125,23 +125,42 @@ final class ManifestTests: XCTestCase {
         XCTAssertNil(body["name"])
     }
 
-    /// An entry with both or neither of dataMap and address is refused as a
-    /// BadRequestError naming the entry, and nothing is sent.
+    /// An entry with both or neither of dataMap and address is refused before
+    /// anything is sent, as a BadRequestError (400) whose message is exactly
+    /// the daemon's aggregated one.
     func testBuildManifestRejectsBothOrNeitherBeforeSending() async throws {
         let client = makeClient()
-        let cases: [(entries: [ManifestEntryInput], index: Int)] = [
-            ([ManifestEntryInput()], 0),
-            ([ManifestEntryInput(path: "a.txt")], 0),
-            ([ManifestEntryInput(dataMap: "", address: "")], 0),
-            ([ManifestEntryInput(dataMap: "aa", address: "bb")], 0),
-            ([ManifestEntryInput(address: "11"), ManifestEntryInput(dataMap: "aa", address: "bb")], 1),
+        let both = "give data_map or address, not both"
+        let neither = "needs a data_map or an address"
+        let cases: [(entries: [ManifestEntryInput], message: String)] = [
+            ([ManifestEntryInput()], "1 invalid entries: entries[0]: \(neither)"),
+            ([ManifestEntryInput(path: "a.txt")], "1 invalid entries: entries[0]: \(neither)"),
+            ([ManifestEntryInput(dataMap: "", address: "")], "1 invalid entries: entries[0]: \(neither)"),
+            ([ManifestEntryInput(dataMap: "aa", address: "bb")], "1 invalid entries: entries[0]: \(both)"),
+            ([ManifestEntryInput(address: "11"), ManifestEntryInput(dataMap: "aa", address: "bb")],
+             "1 invalid entries: entries[1]: \(both)"),
+            // Two bad entries are reported together, in order.
+            ([ManifestEntryInput(dataMap: "aa", address: "bb"), ManifestEntryInput(address: "11"), ManifestEntryInput()],
+             "2 invalid entries: entries[0]: \(both); entries[2]: \(neither)"),
         ]
-        for (entries, index) in cases {
+        for (entries, message) in cases {
             let error = await Self.thrownError { _ = try await client.buildManifest(entries: entries) }
             let bad = try XCTUnwrap(error as? BadRequestError, "got \(String(describing: error)) for \(entries)")
-            XCTAssertTrue(bad.message.contains("entries[\(index)]"), bad.message)
+            XCTAssertEqual(bad.statusCode, 400)
+            XCTAssertEqual(bad.message, message)
         }
         XCTAssertNil(StubURLProtocol.lastBodies["/v1/manifests/build"], "nothing may be sent")
+    }
+
+    /// Past 20 bad entries the message lists 20 and counts the rest, as the
+    /// daemon's does.
+    func testBuildManifestCapsTheReportedEntries() async throws {
+        let entries = Array(repeating: ManifestEntryInput(), count: 23)
+        let error = await Self.thrownError { _ = try await self.makeClient().buildManifest(entries: entries) }
+        let bad = try XCTUnwrap(error as? BadRequestError, "got \(String(describing: error))")
+        let shown = (0..<20).map { "entries[\($0)]: needs a data_map or an address" }.joined(separator: "; ")
+        XCTAssertEqual(bad.statusCode, 400)
+        XCTAssertEqual(bad.message, "23 invalid entries: \(shown); and 3 more")
     }
 
     func testBuildManifestRefusesBadBase64FromTheDaemon() async throws {
@@ -209,9 +228,12 @@ final class ManifestTests: XCTestCase {
     func testDecodeRefusesEmptyInputBeforeSending() async throws {
         let client = makeClient()
         let empty = await Self.thrownError { _ = try await client.decodeManifest(Data(), resolve: false) }
-        XCTAssertTrue(empty is BadRequestError, "got \(String(describing: empty))")
         let noLink = await Self.thrownError { _ = try await client.decodeManifestLink("", resolve: false) }
-        XCTAssertTrue(noLink is BadRequestError, "got \(String(describing: noLink))")
+        for error in [empty, noLink] {
+            let bad = try XCTUnwrap(error as? BadRequestError, "got \(String(describing: error))")
+            XCTAssertEqual(bad.statusCode, 400)
+            XCTAssertEqual(bad.message, "needs a manifest (base64 .ant bytes) or a link")
+        }
         XCTAssertNil(StubURLProtocol.lastBodies["/v1/manifests/decode"], "nothing may be sent")
     }
 

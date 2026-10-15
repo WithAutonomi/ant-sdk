@@ -105,10 +105,17 @@ final class GrpcManifestTests: XCTestCase {
     func testBuildRejectsBothOrNeitherBeforeSending() async throws {
         let service = MockManifestService()
         try await withMockServer(service: service) { client, _ in
-            for entries in [[ManifestEntryInput()], [ManifestEntryInput(dataMap: "aa", address: "bb")]] {
+            let cases: [([ManifestEntryInput], String)] = [
+                ([ManifestEntryInput()], "1 invalid entries: entries[0]: needs a data_map or an address"),
+                ([ManifestEntryInput(dataMap: "aa", address: "bb")], "1 invalid entries: entries[0]: give data_map or address, not both"),
+                ([ManifestEntryInput(dataMap: "aa", address: "bb"), ManifestEntryInput()],
+                 "2 invalid entries: entries[0]: give data_map or address, not both; entries[1]: needs a data_map or an address"),
+            ]
+            for (entries, message) in cases {
                 let error = await Self.thrownError { _ = try await client.buildManifest(entries: entries) }
                 let bad = try XCTUnwrap(error as? BadRequestError, "got \(String(describing: error))")
-                XCTAssertTrue(bad.message.contains("entries[0]"), bad.message)
+                XCTAssertEqual(bad.statusCode, 400)
+                XCTAssertEqual(bad.message, message)
             }
         }
         XCTAssertEqual(service.calls("build"), 0, "nothing may be sent")
@@ -158,9 +165,12 @@ final class GrpcManifestTests: XCTestCase {
         let service = MockManifestService()
         try await withMockServer(service: service) { client, _ in
             let empty = await Self.thrownError { _ = try await client.decodeManifest(Data(), resolve: false) }
-            XCTAssertTrue(empty is BadRequestError, "got \(String(describing: empty))")
             let noLink = await Self.thrownError { _ = try await client.decodeManifestLink("", resolve: true) }
-            XCTAssertTrue(noLink is BadRequestError, "got \(String(describing: noLink))")
+            for error in [empty, noLink] {
+                let bad = try XCTUnwrap(error as? BadRequestError, "got \(String(describing: error))")
+                XCTAssertEqual(bad.statusCode, 400)
+                XCTAssertEqual(bad.message, "needs a manifest (base64 .ant bytes) or a link")
+            }
         }
         XCTAssertEqual(service.calls("decode"), 0, "nothing may be sent")
     }

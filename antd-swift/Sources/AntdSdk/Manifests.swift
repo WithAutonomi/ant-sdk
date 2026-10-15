@@ -166,30 +166,44 @@ enum ManifestWire {
         return value
     }
 
-    /// Refuses, before anything is sent, an entry that sets both or neither
-    /// of `dataMap` and `address` (antd-go's `checkManifestEntries`). The
-    /// message names `entries[i]`, as the daemon's does.
+    /// The most entry problems the daemon lists in one message.
+    static let maxReportedEntryErrors = 20
+
+    /// Refuses, before anything is sent, every entry that sets both or
+    /// neither of `dataMap` and `address`. The error is a
+    /// ``BadRequestError`` (400) with the daemon's own aggregated wording
+    /// (`entry_errors_message` in antd's manifests.rs), so a client-side
+    /// refusal and the daemon's 400 read the same.
     static func checkEntries(_ entries: [ManifestEntryInput]) throws {
+        var errors: [String] = []
         for (i, entry) in entries.enumerated() {
             let hasDataMap = nonEmpty(entry.dataMap) != nil
             let hasAddress = nonEmpty(entry.address) != nil
-            if hasDataMap == hasAddress {
-                let found = hasDataMap ? "both are set" : "neither is set"
-                throw BadRequestError("buildManifest: entries[\(i)]: set exactly one of dataMap or address (\(found))")
+            if hasDataMap && hasAddress {
+                errors.append("entries[\(i)]: give data_map or address, not both")
+            } else if !hasDataMap && !hasAddress {
+                errors.append("entries[\(i)]: needs a data_map or an address")
             }
         }
+        if errors.isEmpty { return }
+        var message = "\(errors.count) invalid entries: "
+            + errors.prefix(maxReportedEntryErrors).joined(separator: "; ")
+        if errors.count > maxReportedEntryErrors {
+            message += "; and \(errors.count - maxReportedEntryErrors) more"
+        }
+        throw BadRequestError(message, statusCode: 400)
     }
 
     static func checkManifest(_ manifest: Data) throws {
-        if manifest.isEmpty {
-            throw BadRequestError("decodeManifest: manifest is empty")
-        }
+        if manifest.isEmpty { throw emptyDecodeInput() }
     }
 
     static func checkLink(_ link: String) throws {
-        if link.isEmpty {
-            throw BadRequestError("decodeManifestLink: link is empty")
-        }
+        if link.isEmpty { throw emptyDecodeInput() }
+    }
+
+    private static func emptyDecodeInput() -> BadRequestError {
+        BadRequestError("needs a manifest (base64 .ant bytes) or a link", statusCode: 400)
     }
 }
 
