@@ -92,6 +92,58 @@ $client = new AntdClient('http://localhost:8082', 300.0, $myGuzzleClient);
 | `fileGetPublic(string $address, string $destPath)` | Download a public file by address |
 | `fileCost(string $path, bool $isPublic, string $paymentMode = 'auto')` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
+### Manifests
+
+A manifest (ADR-0006) is one `.ant` file, or an `ant://manifest/` link when it is small enough,
+that describes a set of files. Each entry has an optional path and size and either an embedded
+DataMap or a public DataMap address. The daemon builds and decodes them, so you never handle the
+format. An embedded entry carries a private upload's DataMap, the key to that file: anyone with
+the manifest or its link can read it. The manifest methods need the antd release after 0.15.0.
+
+**Nothing is uploaded or paid for.** Build a manifest from the DataMaps and addresses your
+uploads already returned. Building (with root embedding, the default) and a resolving decode
+read from the network, so they can time out; retrying any of these calls is safe.
+
+| Method | Description |
+|--------|-------------|
+| `buildManifest(array $entries, ?BuildManifestOptions $options = null)` | Build a manifest from `ManifestEntryInput`s — returns `BuiltManifest` (`manifest`: the raw `.ant` bytes; `link`: null when it would exceed 1,500 bytes; `entries`). Each entry sets exactly one of `dataMap` or `address`: both or neither throws `\InvalidArgumentException` before anything is sent. `BuildManifestOptions` takes `name`, `torrentInfoHashes` and `embedRoots` (default `true`: a shrunk DataMap's root is resolved and embedded when it is at most 64 KiB; `false` embeds DataMaps exactly as given) |
+| `decodeManifest(string $manifest, bool $resolve = false)` | Decode raw `.ant` bytes — returns `DecodedManifest` (`source`, `name`, `torrentInfoHashV1`, `torrentInfoHashV2`, `entries`) |
+| `decodeManifestLink(string $link, bool $resolve = false)` | Decode an `ant://` manifest link, file link or bare address. A file link or address reads as `source: "file_link"` with one public entry and no path |
+
+Every entry comes back as a `ManifestEntryInfo`: `effectiveName` (the path, or the content
+address when there is none), `path`, `size` (the size the creator recorded), `kind`
+(`"embedded"` or `"public"`), `contentAddress`, `dataMap` (decode only; null for public
+entries), `exactSize` and `error`. With `$resolve` the daemon fetches each entry's DataMap to
+report `exactSize`; one entry's failure lands in its `error` instead of failing the call.
+
+**Sizes are ints, and unset is `null`.** `size` and `exactSize` are `?int`: an unset size reads
+as `null`, never `0`, and a `null` size on a `ManifestEntryInput` is left out of the request.
+The `.ant` bytes are plain PHP strings both ways; the base64 the REST API carries them in never
+reaches you. An entry the daemon refuses (bad hex, a path such as `../x`, two entries with one
+name) is a `BadRequestError` whose message names each `entries[i]`.
+
+Every manifest method has an `Async` variant too.
+
+```php
+use Autonomi\Antd\Models\BuildManifestOptions;
+use Autonomi\Antd\Models\ManifestEntryInput;
+
+$public = $client->dataPutPublic('first file')->address;    // pays
+$private = $client->dataPut('second file')->dataMap;        // pays
+
+$built = $client->buildManifest([                           // free
+    new ManifestEntryInput(path: 'notes/one.txt', address: $public),
+    new ManifestEntryInput(path: 'notes/two.txt', dataMap: $private),
+], new BuildManifestOptions(name: 'notes'));
+
+file_put_contents('notes.ant', $built->manifest);           // raw .ant bytes
+echo $built->link, "\n";                                    // ant://manifest/... (null if too long)
+
+foreach ($client->decodeManifest($built->manifest, resolve: true)->entries as $entry) {
+    echo "{$entry->effectiveName}: {$entry->exactSize} bytes\n";
+}
+```
+
 ## Async Usage
 
 Every method has an `Async` variant that returns a `GuzzleHttp\Promise\PromiseInterface` instead of blocking. This lets you fire off multiple requests concurrently and wait for results when you need them.
@@ -253,6 +305,9 @@ See the [examples/](examples/) directory:
 - `04-files.php` — File and directory upload/download
 - `06-private-data.php` — Private encrypted data
 - `07-external-signer.php` — External-signer flow with a bounded partial-upload retry
+- `09-manifests.php` — Build a manifest of two public uploads, print its link, and decode it
+  with resolved sizes (`php examples/09-manifests.php`; set `ANTD_BASE_URL` for a daemon other
+  than `http://localhost:8082`). Each run pays for its two uploads; the manifest calls are free.
 
 ## Versioning and releases
 
