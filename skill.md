@@ -157,7 +157,7 @@ for e in m.entries:                                         # sorted by effectiv
 
 Rules for the agent:
 
-- Always pick **one** of `address` or `data_map` per entry; both or neither is refused before sending. Paths are portable relative paths; an invalid one is a `BadRequestError` naming `entries[i]`.
+- Always pick **one** of `address` or `data_map` per entry; both or neither is refused before sending. Paths are portable relative paths. Every SDK raises its one bad-request error (status 400) for an invalid entry, whether the SDK or the daemon caught it, with a message like `1 invalid entries: entries[0]: give data_map or address, not both`.
 - `link` is empty/`None` past 1,500 bytes; check for it and fall back to the `.ant` bytes. Embedded DataMaps use far more of that budget than public addresses.
 - Embedded entries are private-but-shareable: whoever holds the link or file can read them. Say so before generating code that publishes a link. Public entries can be read by anyone who knows the address.
 - An unset size is `None`/`null`, never `0`. `exact_size` is trustworthy (read from the network); `size` is only what the creator claimed. One entry's failed `resolve` is in that entry's `error`, not an exception.

@@ -623,8 +623,12 @@ bad entries.
 
 Errors: there are no manifest-specific codes. An invalid entry or input is
 `400 BAD_REQUEST` (gRPC INVALID_ARGUMENT) with a message that names every bad
-entry, e.g. `entries[0]: invalid path "../x": ...; entries[1]: give data_map or
-address, not both`. Bad base64, a manifest that does not parse, and an invalid
+entry, e.g. `2 invalid entries: entries[0]: invalid path "../x": ...;
+entries[1]: give data_map or address, not both` (at most 20 shown, then `; and K
+more`; REST prefixes `Bad request: `). Every SDK raises its bad-request error (status
+400) for these, including the both-or-neither check it makes before sending and
+an empty decode input (`needs a manifest (base64 .ant bytes) or a link`), with the
+same text. Bad base64, a manifest that does not parse, and an invalid
 link are 400s too.
 
 Per-SDK methods (`build_manifest`, `decode_manifest`, `decode_manifest_link`,
@@ -701,7 +705,7 @@ Wire field names; each SDK cases them idiomatically. Sizes are optional unsigned
 
 | Type | Fields | Description |
 |------|--------|-------------|
-| ManifestEntryInput | path?, size?, data_map \| address | One file to build from: exactly one of `data_map` (hex, embedded) or `address` (hex, public); both or neither is refused before sending |
+| ManifestEntryInput | path?, size?, data_map \| address | One file to build from: exactly one of `data_map` (hex, embedded) or `address` (hex, public); both or neither is refused before sending, as the SDK's bad-request error (status 400) |
 | BuildManifestOptions | name?, torrent_info_hashes, embed_roots (default true) | Go, Java, C++ and Rust spell the last as `KeepShrunkDataMaps` / `keepShrunkDataMaps` / `keep_shrunk_data_maps` (default false) |
 | ManifestEntryInfo | effective_name, path?, size?, kind ("embedded" \| "public"), content_address, data_map, exact_size?, error | What a manifest says about one entry; `data_map` on decode only, `exact_size` and `error` set by `resolve` (or an embedded root) |
 | BuiltManifest | manifest (raw `.ant` bytes), link, entries | `link` is empty or none when it would pass 1,500 bytes; entries are sorted by effective name |

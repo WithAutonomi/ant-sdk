@@ -97,7 +97,7 @@ print(diary.dataMap.prefix(32), "...")   // the key to the private file
 
 ## 2. Build the Manifest
 
-Describe each file as one entry: a `path` (where the receiver should put it), and **exactly one** of `address` (a public file) or `data_map` (a private file, embedded). Both or neither is refused, before anything is sent. Add a `name` for the set as a whole, a suggested root directory. Paths are relative and portable: no `..`, no leading slash.
+Describe each file as one entry: a `path` (where the receiver should put it), and **exactly one** of `address` (a public file) or `data_map` (a private file, embedded). Both or neither is refused before anything is sent, with the same bad-request error (status 400) the daemon would give. Add a `name` for the set as a whole, a suggested root directory. Paths are relative and portable: no `..`, no leading slash.
 
 `size` is optional. If you give one it is recorded as you gave it, the creator's claim. Unset means none is recorded, never `0`.
 
@@ -407,7 +407,7 @@ let decoded = try await client.decodeManifest(Data(contentsOf: URL(fileURLWithPa
 
 ## Error Handling
 
-There are no manifest-specific error codes. An invalid entry or input is a `400 BAD_REQUEST` (gRPC `INVALID_ARGUMENT`), and the message names every bad entry by index, for example `entries[0]: invalid path "../x": ...`. The SDKs raise their usual bad-request error and keep that message. One entry that cannot be resolved during a decode is not an error: it is reported in that entry's `error`.
+There are no manifest-specific error codes. An invalid entry or input is a `400 BAD_REQUEST` (gRPC `INVALID_ARGUMENT`), and the message counts and names every bad entry by index, for example `2 invalid entries: entries[0]: invalid path "../x": ...; entries[1]: needs a data_map or an address` (at most 20 are shown, then `; and K more`). Every SDK raises its usual bad-request error and keeps that message; over REST it carries a leading `Bad request: `, over gRPC it is bare. One entry that cannot be resolved during a decode is not an error: it is reported in that entry's `error`.
 
 ### Python
 
@@ -417,7 +417,7 @@ from antd import BadRequestError, ManifestEntryInput
 try:
     client.build_manifest([ManifestEntryInput(path="../x", address=intro.address)])
 except BadRequestError as e:
-    print(e)    # entries[0]: invalid path "../x": ...
+    print(e)    # 1 invalid entries: entries[0]: invalid path "../x": ...
 ```
 
 ### C#
@@ -429,7 +429,7 @@ try
 }
 catch (BadRequestException e)
 {
-    Console.WriteLine(e.Message);    // entries[0]: invalid path "../x": ...
+    Console.WriteLine(e.Message);    // 1 invalid entries: entries[0]: invalid path "../x": ...
 }
 ```
 
@@ -439,7 +439,7 @@ catch (BadRequestException e)
 try {
     client.buildManifest(listOf(ManifestEntryInput(path = "../x", address = intro.address)))
 } catch (e: BadRequestException) {
-    println(e.message)    // entries[0]: invalid path "../x": ...
+    println(e.message)    // 1 invalid entries: entries[0]: invalid path "../x": ...
 }
 ```
 
@@ -449,11 +449,11 @@ try {
 do {
     _ = try await client.buildManifest(entries: [ManifestEntryInput(path: "../x", address: intro.address)])
 } catch let e as BadRequestError {
-    print(e)    // entries[0]: invalid path "../x": ...
+    print(e)    // 1 invalid entries: entries[0]: invalid path "../x": ...
 }
 ```
 
-An entry with both or neither of `address` and `data_map` is refused before the request is sent. Most SDKs raise their bad-request error for it; C#, Java, Kotlin and Dart raise their language's argument error (`ArgumentException`, `IllegalArgumentException`, `ArgumentError`). Either way nothing reaches the daemon.
+An entry with both or neither of `address` and `data_map` is refused before the request is sent. Every SDK raises the same bad-request error, with status 400 and the daemon's message text, so a refusal on the client is indistinguishable from the daemon's own 400, and nothing reaches the daemon. An empty decode input (neither bytes nor a link) is refused the same way: `needs a manifest (base64 .ant bytes) or a link`.
 
 ## Over Plain REST
 
