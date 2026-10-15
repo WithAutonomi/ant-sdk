@@ -7,7 +7,7 @@ using System.Text.Json.Serialization;
 
 namespace Antd.Sdk;
 
-public sealed class AntdRestClient : IAntdClient
+public sealed partial class AntdRestClient : IAntdClient
 {
     private readonly HttpClient _http;
     private readonly string _baseUrl;

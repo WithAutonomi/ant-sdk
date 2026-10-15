@@ -194,6 +194,52 @@ for (var attempt = 1; ; attempt++)
 
 See `Examples/FinalizeRetry.cs` (`FinalizeWithRetryAsync`, used by example 7) and [docs/external-signer-flow.md §6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment).
 
+## Manifests
+
+A manifest (ADR-0006) is a `.ant` file, or an `ant://manifest/` link when it is small enough, that describes a set of files. Each entry has an optional path and size, and either an embedded DataMap (the manifest is then the key to a private file) or a public file's DataMap address. The daemon builds and decodes manifests with ant-core, so the format, content addresses, link encoding and portable path rules are never re-implemented here. The manifest methods need the antd release after 0.15.0.
+
+**Nothing is uploaded or paid for.** Building and decoding are free. The daemon reads the network only to resolve DataMaps (the root-embedding policy on build, and `resolve` on decode), so a call can time out; it is safe to retry.
+
+Both clients implement every method below, over REST and gRPC alike. The `.ant` bytes are always a raw `byte[]`: REST carries them as base64 in the JSON and gRPC as protobuf bytes, and the SDK converts. Sizes are `ulong?`, and an unset size is `null`, never `0`.
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `BuildManifestAsync(IReadOnlyList<ManifestEntryInput> entries, BuildManifestOptions? options = null)` | `BuiltManifest` | Build a manifest from DataMaps and public addresses already in hand. Each entry sets exactly one of `DataMap` or `Address` (`ManifestEntryInput.Embedded(...)` or `.Public(...)`); both or neither throws `ArgumentException` before anything is sent. The options are `Name`, `TorrentInfoHashes` and `EmbedRoots` |
+| `DecodeManifestAsync(byte[] manifest, bool resolve = false)` | `DecodedManifest` | Decode `.ant` bytes. With `resolve`, the daemon fetches each entry's DataMap (not its content) to report `ExactSize` and confirm it is on the network; one entry's failure is in its `Error`, not thrown |
+| `DecodeManifestLinkAsync(string link, bool resolve = false)` | `DecodedManifest` | Decode an `ant://` manifest link, a file link or a bare 64-hex address. A file link or address reads as one public entry with no path, and `Source` is `"file_link"` |
+
+| Model | Fields | Description |
+|-------|--------|-------------|
+| `ManifestEntryInput` | `Path`, `Size`, `DataMap`, `Address` | One file to build from. `Size` is recorded as given (the creator's claim); `null` records none |
+| `BuildManifestOptions` | `Name`, `TorrentInfoHashes`, `EmbedRoots` | `EmbedRoots` defaults to `true`: the daemon resolves each shrunk DataMap and embeds its root when it is at most 64 KiB, so recipients skip that fetch. `false` embeds DataMaps exactly as given. `null` options mean all defaults |
+| `BuiltManifest` | `Manifest`, `Link`, `Entries` | `Link` is `null` when the link would pass the recommended 1,500 bytes; share `Manifest` instead. Entries are sorted by effective name |
+| `DecodedManifest` | `Source`, `Name`, `TorrentInfoHashV1`, `TorrentInfoHashV2`, `Entries` | `Source` is `"manifest"` or `"file_link"`; absent values are `null` |
+| `ManifestEntryInfo` | `EffectiveName`, `Path`, `Size`, `Kind`, `ContentAddress`, `DataMap`, `ExactSize`, `Error` | `Kind` is `"embedded"` or `"public"`. `ExactSize` comes from an embedded root DataMap or a resolving decode. `DataMap` is set by a decode, for embedded entries only |
+
+```csharp
+using var client = AntdClient.CreateRest();
+var one = await client.DataPutPublicAsync(Encoding.UTF8.GetBytes("note one"));   // pays
+var two = await client.DataPutPublicAsync(Encoding.UTF8.GetBytes("note two"));   // pays
+
+var built = await client.BuildManifestAsync(new[]                                 // free
+{
+    ManifestEntryInput.Public(one.Address, "notes/one.txt"),
+    ManifestEntryInput.Public(two.Address, "notes/two.txt"),
+}, new BuildManifestOptions(Name: "example"));
+Console.WriteLine(built.Link);                       // ant://manifest/... (null when too long)
+await File.WriteAllBytesAsync("example.ant", built.Manifest);
+
+var decoded = await client.DecodeManifestLinkAsync(built.Link!, resolve: true);  // free
+foreach (var e in decoded.Entries)
+    Console.WriteLine($"{e.EffectiveName}: {e.ExactSize} bytes");
+```
+
+The daemon refuses a bad entry (a path that breaks the portable rules, such as `../x`, or a malformed DataMap or address) or a bad torrent hash with HTTP 400 / gRPC `INVALID_ARGUMENT`. That surfaces as `BadRequestException`, whose message names each bad entry as `entries[i]`. Bytes or a link that are not a manifest are a `BadRequestException` too. There are no new exception types.
+
+Over gRPC, a manifest response can pass Grpc.Net.Client's default 4 MiB receive limit, since a manifest can be 64 MiB. Grpc.Net.Client sets message limits per channel, not per call, so `AntdGrpcClient` sends manifest calls over a second channel to the same target with both limits raised to 256 MiB; the other services keep the defaults. That channel connects on the first manifest call.
+
+The members were added to `IAntdClient` with default implementations that throw `NotSupportedException`, so a class implementing the interface outside this package keeps compiling.
+
 ## Examples
 
 ```bash
@@ -215,6 +261,8 @@ ant dev example data -l csharp
 ant dev example all -l csharp
 ```
 
+Example 9 (`dotnet run -- 9`, or `dotnet run -- manifests`) uploads two pieces of public data, builds a manifest of them with paths `notes/one.txt` and `notes/two.txt`, prints its link and entries, and decodes the link with `resolve` to print each entry's exact size. Only the two uploads pay. It is left out of "all" because it needs the antd release after 0.15.0; `ANTD_BASE_URL` overrides the daemon URL (default `http://localhost:8082`).
+
 ## Project Structure
 
 ```
@@ -223,6 +271,10 @@ antd-csharp/
 ├── Antd.Sdk/                  # SDK library
 │   ├── Antd.Sdk.csproj
 │   ├── IAntdClient.cs         # Client interface
+│   ├── IAntdClient.Manifests.cs
+│   ├── AntdRestClient.Manifests.cs
+│   ├── AntdGrpcClient.Manifests.cs
+│   ├── ManifestModels.cs      # Manifest models
 │   ├── AntdClientFactory.cs   # Factory methods
 │   ├── AntdRestClient.cs      # REST implementation
 │   ├── AntdGrpcClient.cs      # gRPC implementation
@@ -230,6 +282,7 @@ antd-csharp/
 │   └── Exceptions.cs          # Exception hierarchy
 ├── Examples/                  # Example programs
 │   ├── Examples.csproj
+│   ├── Example09Manifests.cs
 │   └── Program.cs
 └── Antd.Sdk.Tests/            # Tests
     ├── Antd.Sdk.Tests.csproj
