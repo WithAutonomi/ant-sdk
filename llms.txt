@@ -60,6 +60,8 @@ data = client.data_get_public(result.address)
 | POST | `/v1/data/prepare` | Prepare data upload for external signer — returns `payment_type` ("wave_batch" or "merkle") |
 | POST | `/v1/upload/prepare` | Prepare file upload for external signer — returns `payment_type` ("wave_batch" or "merkle") |
 | POST | `/v1/upload/finalize` | Finalize upload — accepts `tx_hashes` (wave_batch) or `winner_pool_hash` (merkle) |
+| POST | `/v1/manifests/build` | Build an ADR-0006 `.ant` manifest (and `ant://manifest/` link) from DataMaps and public addresses |
+| POST | `/v1/manifests/decode` | Decode a `.ant` manifest, manifest link, file link or address; optional `resolve` for exact sizes |
 
 ## gRPC Services
 
