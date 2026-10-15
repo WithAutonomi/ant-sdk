@@ -4,6 +4,9 @@ use std::sync::Arc;
 use ant_core::data::{Client, FinalizeResume, MultiAddr, PreparedChunk, PreparedUpload};
 use tokio::sync::Mutex;
 
+use crate::pointer_keys::PointerKeys;
+use crate::pointers::PendingPointer;
+
 /// Which external-signer payment shape a pending upload carries. Drives the
 /// finalize routing (`tx_hashes` for wave-batch, winner pool hashes for
 /// merkle) and the wrong-shape request checks.
@@ -163,6 +166,13 @@ pub struct AppState {
     /// because the inner type differs and the two flows touch different
     /// ant-core surfaces.
     pub pending_chunks: Arc<Mutex<HashMap<String, TimestampedChunk>>>,
+    /// Pointer owner keys loaded at startup (`--pointer-keys`), by pointer
+    /// address. Never returned or logged; see [`crate::pointer_keys`].
+    pub pointer_keys: Arc<PointerKeys>,
+    /// Prepared pointer writes awaiting external payment, plus paid writes
+    /// that fell short and are kept for a repeat finalize (upload_id →
+    /// session).
+    pub pending_pointers: Arc<Mutex<HashMap<String, PendingPointer>>>,
     /// Process start time, for /health uptime reporting.
     pub started_at: std::time::Instant,
     /// antd crate version (env!("CARGO_PKG_VERSION") at build time).
@@ -209,6 +219,23 @@ impl AppState {
                 removed,
                 remaining = uploads.len(),
                 "cleaned up stale pending uploads"
+            );
+        }
+    }
+
+    /// Remove pending pointer writes older than the given duration. Dropping
+    /// one whose finalize already fell short abandons a paid state, as for an
+    /// upload, so the TTL bounds how long a signer has to retry.
+    pub async fn cleanup_stale_pointers(&self, max_age: std::time::Duration) {
+        let mut pointers = self.pending_pointers.lock().await;
+        let before = pointers.len();
+        pointers.retain(|_, v| v.created_at.elapsed() < max_age);
+        let removed = before - pointers.len();
+        if removed > 0 {
+            tracing::info!(
+                removed,
+                remaining = pointers.len(),
+                "cleaned up stale pending pointer writes"
             );
         }
     }
