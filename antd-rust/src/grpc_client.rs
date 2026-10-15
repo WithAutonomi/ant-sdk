@@ -31,8 +31,8 @@ pub mod proto {
 use proto::antd::v1::{
     chunk_service_client::ChunkServiceClient, data_service_client::DataServiceClient,
     file_service_client::FileServiceClient, health_service_client::HealthServiceClient,
-    upload_service_client::UploadServiceClient, verify_service_client::VerifyServiceClient,
-    wallet_service_client::WalletServiceClient,
+    pointer_service_client::PointerServiceClient, upload_service_client::UploadServiceClient,
+    verify_service_client::VerifyServiceClient, wallet_service_client::WalletServiceClient,
 };
 
 /// Default gRPC endpoint of the antd daemon.
@@ -124,6 +124,7 @@ pub struct GrpcClient {
     upload: UploadServiceClient<Channel>,
     wallet: WalletServiceClient<Channel>,
     verify: VerifyServiceClient<Channel>,
+    pointers: PointerServiceClient<Channel>,
 }
 
 impl GrpcClient {
@@ -169,7 +170,8 @@ impl GrpcClient {
             files: FileServiceClient::new(channel.clone()).max_decoding_message_size(n),
             upload: UploadServiceClient::new(channel.clone()).max_decoding_message_size(n),
             wallet: WalletServiceClient::new(channel.clone()).max_decoding_message_size(n),
-            verify: VerifyServiceClient::new(channel).max_decoding_message_size(n),
+            verify: VerifyServiceClient::new(channel.clone()).max_decoding_message_size(n),
+            pointers: PointerServiceClient::new(channel).max_decoding_message_size(n),
         })
     }
 
@@ -968,6 +970,246 @@ impl GrpcClient {
             .into_inner();
         Ok(resp.approved)
     }
+
+    // --- Pointers ---
+    //
+    // Mirror the REST methods on [`crate::Client`]; see there for the
+    // contract. Errors the daemon tags with `x-antd-error-code` map to the
+    // same typed variants as over REST.
+
+    /// The pointers this daemon holds owner keys for. Mirrors
+    /// [`crate::Client::pointer_keys`].
+    pub async fn pointer_keys(&self) -> Result<Vec<PointerKey>, AntdError> {
+        let resp = self
+            .pointers
+            .clone()
+            .list_keys(proto::antd::v1::ListPointerKeysRequest {})
+            .await?
+            .into_inner();
+        Ok(resp
+            .keys
+            .into_iter()
+            .map(|k| PointerKey { address: k.address })
+            .collect())
+    }
+
+    /// Creates a pointer, paid by the daemon wallet. Mirrors
+    /// [`crate::Client::pointer_create`].
+    pub async fn pointer_create(
+        &self,
+        owner: &str,
+        target: &str,
+        kind: PointerKind,
+    ) -> Result<PointerWriteResult, AntdError> {
+        let resp = self
+            .pointers
+            .clone()
+            .create(pointer_write_request(owner, target, kind))
+            .await?
+            .into_inner();
+        pointer_write_to_result(resp)
+    }
+
+    /// Points a pointer at a new target, paid by the daemon wallet. Mirrors
+    /// [`crate::Client::pointer_update`].
+    pub async fn pointer_update(
+        &self,
+        owner: &str,
+        target: &str,
+        kind: PointerKind,
+    ) -> Result<PointerWriteResult, AntdError> {
+        let resp = self
+            .pointers
+            .clone()
+            .update(pointer_write_request(owner, target, kind))
+            .await?
+            .into_inner();
+        pointer_write_to_result(resp)
+    }
+
+    /// Hands a pointer over for good, paid by the daemon wallet. Mirrors
+    /// [`crate::Client::pointer_transfer`].
+    pub async fn pointer_transfer(
+        &self,
+        owner: &str,
+        recipient: &str,
+    ) -> Result<PointerTransferResult, AntdError> {
+        let resp = self
+            .pointers
+            .clone()
+            .transfer(proto::antd::v1::PointerTransferRequest {
+                owner: owner.to_string(),
+                recipient: recipient.to_string(),
+            })
+            .await?
+            .into_inner();
+        Ok(PointerTransferResult {
+            address: resp.address,
+            state_id: resp.state_id,
+            finality: resp.finality.map(pointer_finality_to_model).transpose()?,
+            finality_error: non_empty(resp.finality_error),
+        })
+    }
+
+    /// Reads a pointer. Mirrors [`crate::Client::pointer_get`].
+    pub async fn pointer_get(&self, address: &str) -> Result<PointerRecord, AntdError> {
+        let r = self
+            .pointers
+            .clone()
+            .get(proto::antd::v1::GetPointerRequest {
+                address: address.to_string(),
+            })
+            .await?
+            .into_inner();
+        Ok(PointerRecord {
+            address: r.address,
+            owner: r.owner,
+            counter: parse_counter("counter", &r.counter)?,
+            kind: r.kind,
+            kind_tag: kind_tag_of(r.kind_tag),
+            target: r.target,
+            state_id: r.state_id,
+            is_final: r.is_final,
+            transferred_to: non_empty(r.transferred_to),
+        })
+    }
+
+    /// Follows a chain of pointers to its end. Mirrors
+    /// [`crate::Client::pointer_resolve`].
+    pub async fn pointer_resolve(&self, address: &str) -> Result<PointerResolved, AntdError> {
+        let r = self
+            .pointers
+            .clone()
+            .resolve(proto::antd::v1::ResolvePointerRequest {
+                address: address.to_string(),
+            })
+            .await?
+            .into_inner();
+        Ok(PointerResolved {
+            kind: r.kind,
+            kind_tag: kind_tag_of(r.kind_tag),
+            target: r.target,
+        })
+    }
+
+    /// Asks the whole close group where a pointer stands. Mirrors
+    /// [`crate::Client::pointer_finality`].
+    pub async fn pointer_finality(&self, address: &str) -> Result<PointerFinality, AntdError> {
+        let f = self
+            .pointers
+            .clone()
+            .finality(proto::antd::v1::PointerFinalityRequest {
+                address: address.to_string(),
+            })
+            .await?
+            .into_inner();
+        pointer_finality_to_model(f)
+    }
+
+    /// Follows a pointer's transfers to the pointer that now decides. Mirrors
+    /// [`crate::Client::pointer_controller`].
+    pub async fn pointer_controller(&self, address: &str) -> Result<PointerController, AntdError> {
+        let c = self
+            .pointers
+            .clone()
+            .controller(proto::antd::v1::PointerControllerRequest {
+                address: address.to_string(),
+            })
+            .await?
+            .into_inner();
+        Ok(PointerController {
+            pointer: c.pointer,
+            transfers: c.transfers,
+            frozen: c.frozen,
+        })
+    }
+
+    /// Signs a pointer write with the daemon's key and quotes it for an
+    /// external signer. Mirrors [`crate::Client::pointer_prepare`].
+    pub async fn pointer_prepare(
+        &self,
+        owner: &str,
+        op: &PointerOp,
+    ) -> Result<PointerPrepareResult, AntdError> {
+        self.pointer_prepare_with_options(owner, op, &PrepareOptions::default())
+            .await
+    }
+
+    /// [`pointer_prepare`](Self::pointer_prepare) with explicit
+    /// [`PrepareOptions`]. Mirrors
+    /// [`crate::Client::pointer_prepare_with_options`].
+    pub async fn pointer_prepare_with_options(
+        &self,
+        owner: &str,
+        op: &PointerOp,
+        opts: &PrepareOptions,
+    ) -> Result<PointerPrepareResult, AntdError> {
+        let mut req = proto::antd::v1::PreparePointerRequest {
+            owner: owner.to_string(),
+            include_signed_quotes: opts.include_signed_quotes,
+            ..Default::default()
+        };
+        match op {
+            PointerOp::Create { target, kind } | PointerOp::Update { target, kind } => {
+                req.op = if matches!(op, PointerOp::Create { .. }) {
+                    "create"
+                } else {
+                    "update"
+                }
+                .to_string();
+                req.target = target.clone();
+                req.kind = kind.as_wire().to_string();
+            }
+            PointerOp::Transfer { recipient } => {
+                req.op = "transfer".to_string();
+                req.recipient = recipient.clone();
+            }
+        }
+        let p = self.pointers.clone().prepare(req).await?.into_inner();
+        Ok(PointerPrepareResult {
+            upload_id: p.upload_id,
+            op: p.op,
+            address: p.address,
+            state_id: p.state_id,
+            counter: parse_counter("counter", &p.counter)?,
+            payment_type: p.payment_type,
+            payments: p.payments.into_iter().map(payment_entry_to_info).collect(),
+            total_amount: p.total_amount,
+            payment_vault_address: p.payment_vault_address,
+            payment_token_address: p.payment_token_address,
+            rpc_url: p.rpc_url,
+            signed_quotes: p
+                .signed_quotes
+                .into_iter()
+                .map(signed_quote_entry_to_model)
+                .collect(),
+        })
+    }
+
+    /// Stores a prepared pointer write once it is paid. Mirrors
+    /// [`crate::Client::pointer_finalize`], including the
+    /// [`AntdError::CloseGroupShortfall`] `retryable` contract.
+    pub async fn pointer_finalize(
+        &self,
+        upload_id: &str,
+        tx_hashes: &std::collections::HashMap<String, String>,
+    ) -> Result<PointerFinalizeResult, AntdError> {
+        let f = self
+            .pointers
+            .clone()
+            .finalize(proto::antd::v1::FinalizePointerRequest {
+                upload_id: upload_id.to_string(),
+                tx_hashes: tx_hashes.clone(),
+            })
+            .await?
+            .into_inner();
+        Ok(PointerFinalizeResult {
+            address: f.address,
+            state_id: f.state_id,
+            counter: parse_counter("counter", &f.counter)?,
+            finality: f.finality.map(pointer_finality_to_model).transpose()?,
+        })
+    }
 }
 
 // --- proto → model conversions ---
@@ -1067,4 +1309,75 @@ fn finalize_response_to_result(
         data_map_address: resp.data_map_address,
         chunks_stored: resp.chunks_stored as i64,
     }
+}
+
+// --- pointer proto <-> model conversions ---
+
+/// proto3 strings have no null: an empty string means "not set".
+fn non_empty(s: String) -> Option<String> {
+    (!s.is_empty()).then_some(s)
+}
+
+/// A target kind tag is one byte on the wire; proto widens it to `u32`. A
+/// value past `u8` cannot come from the daemon and reads as `u8::MAX`, a tag
+/// no kind uses.
+fn kind_tag_of(tag: u32) -> u8 {
+    u8::try_from(tag).unwrap_or(u8::MAX)
+}
+
+fn pointer_write_request(
+    owner: &str,
+    target: &str,
+    kind: PointerKind,
+) -> proto::antd::v1::PointerWriteRequest {
+    proto::antd::v1::PointerWriteRequest {
+        owner: owner.to_string(),
+        target: target.to_string(),
+        kind: kind.as_wire().to_string(),
+    }
+}
+
+fn pointer_write_to_result(
+    w: proto::antd::v1::PointerWriteResponse,
+) -> Result<PointerWriteResult, AntdError> {
+    Ok(PointerWriteResult {
+        address: w.address,
+        state_id: w.state_id,
+        counter: parse_counter("counter", &w.counter)?,
+    })
+}
+
+fn pointer_final_state_to_model(s: proto::antd::v1::PointerFinalState) -> PointerFinalState {
+    PointerFinalState {
+        state_id: s.state_id,
+        kind: s.kind,
+        kind_tag: kind_tag_of(s.kind_tag),
+        target: s.target,
+        holders: s.holders,
+        transferred_to: non_empty(s.transferred_to),
+    }
+}
+
+pub(crate) fn pointer_finality_to_model(
+    f: proto::antd::v1::PointerFinality,
+) -> Result<PointerFinality, AntdError> {
+    let counter = match f.counter.as_str() {
+        "" => None,
+        c => Some(parse_counter("counter", c)?),
+    };
+    Ok(PointerFinality {
+        address: f.address,
+        group: f.group,
+        answered: f.answered,
+        status: PointerFinalityStatus::from_wire(&f.status),
+        counter,
+        state: f.state.map(pointer_final_state_to_model),
+        states: f
+            .states
+            .into_iter()
+            .map(pointer_final_state_to_model)
+            .collect(),
+        majority: f.majority.map(pointer_final_state_to_model),
+        transferred_to: non_empty(f.transferred_to),
+    })
 }

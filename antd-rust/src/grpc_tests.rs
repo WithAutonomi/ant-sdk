@@ -4,7 +4,9 @@ use tonic::{Request, Response, Status};
 use crate::errors::AntdError;
 use crate::grpc_client::proto::antd::v1;
 use crate::grpc_client::GrpcClient;
-use crate::models::{PaymentMode, PrepareOptions, VerifyQuoteEntry};
+use crate::models::{
+    PaymentMode, PointerFinalityStatus, PointerKind, PointerOp, PrepareOptions, VerifyQuoteEntry,
+};
 
 // --- Mock service implementations ---
 
@@ -641,6 +643,9 @@ async fn spawn_mock_server() -> std::net::SocketAddr {
             ))
             .add_service(v1::verify_service_server::VerifyServiceServer::new(
                 MockVerifyService,
+            ))
+            .add_service(v1::pointer_service_server::PointerServiceServer::new(
+                MockPointerService,
             ))
             .serve_with_incoming(incoming)
             .await
@@ -1763,4 +1768,421 @@ async fn test_grpc_data_stream_range_validates_before_sending() {
         client.data_stream_range("dm123", 0, Some(0)).await,
         Err(AntdError::BadRequest(_))
     ));
+}
+
+// --- Pointers ---
+
+const P_OWNER: &str = "11111111111111111111111111111111111111111111111111111111111111aa";
+const P_TARGET: &str = "22222222222222222222222222222222222222222222222222222222222222bb";
+const P_RECIPIENT: &str = "33333333333333333333333333333333333333333333333333333333333333cc";
+/// Writes to this owner are refused as the daemon refuses a final pointer.
+const P_FINAL_OWNER: &str = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+
+/// A daemon-shaped status: the gRPC code plus the `x-antd-error-code` tag.
+fn tagged_status(code: tonic::Code, tag: &str, msg: &str) -> Status {
+    let mut status = Status::new(code, msg.to_string());
+    status
+        .metadata_mut()
+        .insert("x-antd-error-code", tag.parse().unwrap());
+    status
+}
+
+fn mock_final_state(target: &str, holders: u32) -> v1::PointerFinalState {
+    v1::PointerFinalState {
+        state_id: "f1".into(),
+        kind: "pointer".into(),
+        kind_tag: 1,
+        target: target.into(),
+        holders,
+        transferred_to: target.into(),
+    }
+}
+
+#[derive(Default)]
+struct MockPointerService;
+
+#[tonic::async_trait]
+impl v1::pointer_service_server::PointerService for MockPointerService {
+    async fn list_keys(
+        &self,
+        _request: Request<v1::ListPointerKeysRequest>,
+    ) -> Result<Response<v1::ListPointerKeysResponse>, Status> {
+        Ok(Response::new(v1::ListPointerKeysResponse {
+            keys: vec![v1::PointerKey {
+                address: P_OWNER.into(),
+            }],
+        }))
+    }
+
+    async fn create(
+        &self,
+        request: Request<v1::PointerWriteRequest>,
+    ) -> Result<Response<v1::PointerWriteResponse>, Status> {
+        let req = request.into_inner();
+        Ok(Response::new(v1::PointerWriteResponse {
+            address: req.owner,
+            state_id: format!("{}:{}", req.kind, req.target),
+            counter: "0".into(),
+        }))
+    }
+
+    async fn update(
+        &self,
+        request: Request<v1::PointerWriteRequest>,
+    ) -> Result<Response<v1::PointerWriteResponse>, Status> {
+        let req = request.into_inner();
+        if req.owner == P_FINAL_OWNER {
+            return Err(tagged_status(
+                tonic::Code::FailedPrecondition,
+                "POINTER_FINAL",
+                "Pointer is final: an update cannot replace it",
+            ));
+        }
+        Ok(Response::new(v1::PointerWriteResponse {
+            address: req.owner,
+            state_id: format!("{}:{}", req.kind, req.target),
+            counter: "5".into(),
+        }))
+    }
+
+    async fn transfer(
+        &self,
+        request: Request<v1::PointerTransferRequest>,
+    ) -> Result<Response<v1::PointerTransferResponse>, Status> {
+        let req = request.into_inner();
+        Ok(Response::new(v1::PointerTransferResponse {
+            address: req.owner,
+            state_id: "f1".into(),
+            finality: None,
+            finality_error: "only 3 of the close group answered".into(),
+        }))
+    }
+
+    async fn get(
+        &self,
+        request: Request<v1::GetPointerRequest>,
+    ) -> Result<Response<v1::PointerRecord>, Status> {
+        Ok(Response::new(v1::PointerRecord {
+            address: request.into_inner().address,
+            owner: "ab".into(),
+            counter: u64::MAX.to_string(),
+            kind: "pointer".into(),
+            kind_tag: 1,
+            target: P_RECIPIENT.into(),
+            state_id: "f1".into(),
+            is_final: true,
+            transferred_to: P_RECIPIENT.into(),
+        }))
+    }
+
+    async fn resolve(
+        &self,
+        _request: Request<v1::ResolvePointerRequest>,
+    ) -> Result<Response<v1::PointerResolved>, Status> {
+        Ok(Response::new(v1::PointerResolved {
+            kind: "unknown".into(),
+            kind_tag: 42,
+            target: P_TARGET.into(),
+        }))
+    }
+
+    async fn finality(
+        &self,
+        request: Request<v1::PointerFinalityRequest>,
+    ) -> Result<Response<v1::PointerFinality>, Status> {
+        let address = request.into_inner().address;
+        // The owner's pointer is open at counter 3; any other is forked.
+        let finality = if address == P_OWNER {
+            v1::PointerFinality {
+                address,
+                group: 7,
+                answered: 7,
+                status: "open".into(),
+                counter: "3".into(),
+                ..Default::default()
+            }
+        } else {
+            v1::PointerFinality {
+                address,
+                group: 7,
+                answered: 6,
+                status: "forked".into(),
+                states: vec![mock_final_state(P_OWNER, 4), mock_final_state(P_TARGET, 2)],
+                majority: Some(mock_final_state(P_OWNER, 4)),
+                ..Default::default()
+            }
+        };
+        Ok(Response::new(finality))
+    }
+
+    async fn controller(
+        &self,
+        _request: Request<v1::PointerControllerRequest>,
+    ) -> Result<Response<v1::PointerController>, Status> {
+        Ok(Response::new(v1::PointerController {
+            pointer: P_RECIPIENT.into(),
+            transfers: vec![P_RECIPIENT.into()],
+            frozen: false,
+        }))
+    }
+
+    async fn prepare(
+        &self,
+        request: Request<v1::PreparePointerRequest>,
+    ) -> Result<Response<v1::PreparePointerResponse>, Status> {
+        let req = request.into_inner();
+        if req.owner == P_FINAL_OWNER {
+            return Err(tagged_status(
+                tonic::Code::Aborted,
+                "CONFLICT",
+                "Conflict: pointer has a prepared write awaiting payment",
+            ));
+        }
+        // Echo the request so the test can check what went on the wire.
+        Ok(Response::new(v1::PreparePointerResponse {
+            upload_id: "u1".into(),
+            op: req.op,
+            address: req.owner,
+            state_id: format!("{}|{}|{}", req.target, req.kind, req.recipient),
+            counter: "1".into(),
+            payment_type: "wave_batch".into(),
+            payments: vec![v1::PaymentEntry {
+                quote_hash: "0xq".into(),
+                rewards_address: "0xr".into(),
+                amount: "123".into(),
+            }],
+            total_amount: "123".into(),
+            signed_quotes: mock_signed_quotes(req.include_signed_quotes, "0xq"),
+            ..Default::default()
+        }))
+    }
+
+    async fn finalize(
+        &self,
+        request: Request<v1::FinalizePointerRequest>,
+    ) -> Result<Response<v1::FinalizePointerResponse>, Status> {
+        let req = request.into_inner();
+        if req.upload_id == "short" {
+            return Err(tagged_status(
+                tonic::Code::Unavailable,
+                "CLOSE_GROUP_SHORTFALL",
+                "Close group shortfall: pointer x stored on 4 of 5 close-group peers (paid attempt retained: call finalize again with the same upload_id to store it against the same payment)",
+            ));
+        }
+        Ok(Response::new(v1::FinalizePointerResponse {
+            address: P_OWNER.into(),
+            state_id: req.tx_hashes.get("0xq").cloned().unwrap_or_default(),
+            counter: u64::MAX.to_string(),
+            finality: Some(v1::PointerFinality {
+                address: P_OWNER.into(),
+                group: 7,
+                answered: 7,
+                status: "final".into(),
+                state: Some(mock_final_state(P_RECIPIENT, 7)),
+                transferred_to: P_RECIPIENT.into(),
+                ..Default::default()
+            }),
+        }))
+    }
+}
+
+#[tokio::test]
+async fn test_grpc_pointer_keys_create_update() {
+    let client = start_mock_server().await;
+    let keys = client.pointer_keys().await.unwrap();
+    assert_eq!(keys[0].address, P_OWNER);
+
+    let w = client
+        .pointer_create(P_OWNER, P_TARGET, PointerKind::Chunk)
+        .await
+        .unwrap();
+    assert_eq!(w.counter, 0);
+    assert_eq!(w.state_id, format!("chunk:{P_TARGET}"));
+
+    let w = client
+        .pointer_update(P_OWNER, P_RECIPIENT, PointerKind::Pointer)
+        .await
+        .unwrap();
+    assert_eq!(w.counter, 5);
+    assert_eq!(w.state_id, format!("pointer:{P_RECIPIENT}"));
+}
+
+#[tokio::test]
+async fn test_grpc_pointer_get_reads_a_final_record() {
+    let client = start_mock_server().await;
+    let r = client.pointer_get(P_OWNER).await.unwrap();
+    assert_eq!(r.counter, u64::MAX);
+    assert!(r.is_final);
+    assert_eq!(r.transferred_to.as_deref(), Some(P_RECIPIENT));
+    assert_eq!(r.target_kind(), Some(PointerKind::Pointer));
+}
+
+#[tokio::test]
+async fn test_grpc_pointer_resolve_controller_transfer() {
+    let client = start_mock_server().await;
+    let res = client.pointer_resolve(P_OWNER).await.unwrap();
+    assert_eq!((res.kind.as_str(), res.kind_tag), ("unknown", 42));
+
+    let c = client.pointer_controller(P_OWNER).await.unwrap();
+    assert_eq!(c.transfers, vec![P_RECIPIENT.to_string()]);
+
+    let t = client.pointer_transfer(P_OWNER, P_RECIPIENT).await.unwrap();
+    assert!(t.finality.is_none());
+    assert_eq!(
+        t.finality_error.as_deref(),
+        Some("only 3 of the close group answered")
+    );
+}
+
+#[tokio::test]
+async fn test_grpc_pointer_finality_open_and_forked() {
+    let client = start_mock_server().await;
+    let open = client.pointer_finality(P_OWNER).await.unwrap();
+    assert_eq!(open.status, PointerFinalityStatus::Open);
+    assert_eq!(open.counter, Some(3));
+    assert_eq!(open.transferred_to, None);
+    assert!(open.state.is_none() && open.majority.is_none());
+
+    let forked = client.pointer_finality(P_TARGET).await.unwrap();
+    assert_eq!(forked.status, PointerFinalityStatus::Forked);
+    assert_eq!(forked.counter, None);
+    assert_eq!(forked.states.len(), 2);
+    assert_eq!(forked.majority.unwrap().holders, 4);
+}
+
+#[tokio::test]
+async fn test_grpc_pointer_prepare_sends_each_op_shape() {
+    let client = start_mock_server().await;
+    let p = client
+        .pointer_prepare(
+            P_OWNER,
+            &PointerOp::Update {
+                target: P_TARGET.into(),
+                kind: PointerKind::Pointer,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(p.op, "update");
+    assert_eq!(p.state_id, format!("{P_TARGET}|pointer|"));
+    assert_eq!(p.counter, 1);
+    assert_eq!(p.payments[0].amount, "123");
+    assert!(p.signed_quotes.is_empty());
+
+    let p = client
+        .pointer_prepare_with_options(
+            P_OWNER,
+            &PointerOp::Transfer {
+                recipient: P_RECIPIENT.into(),
+            },
+            &PrepareOptions {
+                include_signed_quotes: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(p.op, "transfer");
+    assert_eq!(p.state_id, format!("||{P_RECIPIENT}"));
+    // Raw bytes on the wire become base64 in the shared model.
+    assert_eq!(p.signed_quotes[0].quote, "b3BhcXVl");
+}
+
+#[tokio::test]
+async fn test_grpc_pointer_finalize_reads_the_transfer_finality() {
+    let client = start_mock_server().await;
+    let hashes = std::collections::HashMap::from([("0xq".to_string(), "0xtx".to_string())]);
+    let f = client.pointer_finalize("u1", &hashes).await.unwrap();
+    assert_eq!(f.state_id, "0xtx");
+    assert_eq!(f.counter, u64::MAX);
+    let finality = f.finality.unwrap();
+    assert!(finality.is_final());
+    assert_eq!(finality.transferred_to.as_deref(), Some(P_RECIPIENT));
+}
+
+/// The daemon's tags survive the transport (an error-only response carries
+/// them as trailers) and select the typed variants.
+#[tokio::test]
+async fn test_grpc_pointer_errors_map_by_the_daemon_tag_over_the_wire() {
+    let client = start_mock_server().await;
+    assert!(matches!(
+        client
+            .pointer_update(P_FINAL_OWNER, P_TARGET, PointerKind::Chunk)
+            .await,
+        Err(AntdError::PointerFinal(m)) if m.contains("final")
+    ));
+    assert!(matches!(
+        client
+            .pointer_prepare(
+                P_FINAL_OWNER,
+                &PointerOp::Update {
+                    target: P_TARGET.into(),
+                    kind: PointerKind::Chunk,
+                }
+            )
+            .await,
+        Err(AntdError::Conflict(_))
+    ));
+    match client
+        .pointer_finalize("short", &std::collections::HashMap::new())
+        .await
+    {
+        Err(AntdError::CloseGroupShortfall { retryable, .. }) => assert!(retryable),
+        other => panic!("expected CloseGroupShortfall, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_grpc_tagged_statuses_map_only_when_tag_and_code_agree() {
+    use tonic::Code;
+    let cases: Vec<(Status, &str)> = vec![
+        (
+            tagged_status(Code::FailedPrecondition, "POINTER_FINAL", "x"),
+            "PointerFinal",
+        ),
+        (
+            tagged_status(Code::FailedPrecondition, "POINTER_FORKED", "x"),
+            "PointerForked",
+        ),
+        (tagged_status(Code::Aborted, "CONFLICT", "x"), "Conflict"),
+        (
+            tagged_status(Code::Unavailable, "CLOSE_GROUP_SHORTFALL", "only 3 answered"),
+            "CloseGroupShortfall(false)",
+        ),
+        (
+            tagged_status(
+                Code::Unavailable,
+                "CLOSE_GROUP_SHORTFALL",
+                "Close group shortfall: x (paid attempt retained: call finalize again)",
+            ),
+            "CloseGroupShortfall(true)",
+        ),
+        // An untagged FAILED_PRECONDITION (a payment error) stays generic.
+        (Status::failed_precondition("Payment error: x"), "Grpc"),
+        // A tag on the wrong code, or a tag this SDK does not know, is ignored.
+        (tagged_status(Code::Aborted, "POINTER_FINAL", "x"), "Grpc"),
+        (tagged_status(Code::Unavailable, "SOMETHING_NEW", "x"), "Grpc"),
+        // The partial-upload parsing on ABORTED is unchanged.
+        (
+            Status::aborted(
+                "Partial upload: 3/5 chunks stored, 2 failed after retries: q (paid attempt retained: call finalize again with the same upload_id to store the remainder against the same payment)",
+            ),
+            "PartialUpload",
+        ),
+    ];
+    for (status, want) in cases {
+        let shown = format!("{status:?}");
+        let got = match AntdError::from(status) {
+            AntdError::PointerFinal(_) => "PointerFinal".to_string(),
+            AntdError::PointerForked(_) => "PointerForked".to_string(),
+            AntdError::Conflict(_) => "Conflict".to_string(),
+            AntdError::CloseGroupShortfall { retryable, .. } => {
+                format!("CloseGroupShortfall({retryable})")
+            }
+            AntdError::PartialUpload { .. } => "PartialUpload".to_string(),
+            AntdError::Grpc(_) => "Grpc".to_string(),
+            other => format!("{other:?}"),
+        };
+        assert_eq!(got, want, "{shown}");
+    }
 }

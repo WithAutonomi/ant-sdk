@@ -914,6 +914,7 @@ dependencies = [
  "self_encryption",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
@@ -925,6 +926,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "xor_name",
+ "zeroize",
 ]
 
 [[package]]

@@ -157,7 +157,7 @@ pub struct WalletBalance {
 }
 
 /// A single payment required for an upload.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaymentInfo {
     /// Hex-encoded quote hash.
     pub quote_hash: String,
@@ -397,4 +397,260 @@ pub enum DownloadFrame {
     Meta(u64),
     Data(bytes::Bytes),
     Progress(DownloadProgress),
+}
+
+// ── Pointers (ADR-0016 / ADR-0018 in ant-node) ──
+//
+// A pointer is a small, owner-signed, mutable reference. Its address is
+// derived from the owner's key and never changes; its target (a chunk, such as
+// a public file's data map, or another pointer) can be changed by the owner.
+// antd signs with owner keys it loaded at startup (`--pointer-keys`), so a
+// write names the pointer by its address (`owner`), never by a key.
+//
+// Every write pays, and every attempt pays again: do not retry a create,
+// update or transfer automatically.
+
+/// What a pointer's target is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PointerKind {
+    /// An immutable chunk, such as a public file's data map. The default.
+    #[default]
+    Chunk,
+    /// Another pointer: a forwarding the owner can still change. Use a
+    /// transfer to hand a pointer over for good.
+    Pointer,
+}
+
+impl PointerKind {
+    /// Serialize to the wire string the daemon expects.
+    pub fn as_wire(self) -> &'static str {
+        match self {
+            Self::Chunk => "chunk",
+            Self::Pointer => "pointer",
+        }
+    }
+
+    /// The kind a raw target tag names, if this SDK knows it (`0` chunk,
+    /// `1` pointer).
+    pub fn from_tag(tag: u8) -> Option<Self> {
+        match tag {
+            0 => Some(Self::Chunk),
+            1 => Some(Self::Pointer),
+            _ => None,
+        }
+    }
+}
+
+/// The write a [`pointer_prepare`](crate::Client::pointer_prepare) signs for an
+/// external signer to pay.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PointerOp {
+    /// Create the pointer at `target`. Refused if it already exists.
+    Create { target: String, kind: PointerKind },
+    /// Point the pointer at `target`, creating it if it does not exist.
+    Update { target: String, kind: PointerKind },
+    /// Hand the pointer over for good to the pointer at `recipient`, which
+    /// must already exist. Irreversible once stored.
+    Transfer { recipient: String },
+}
+
+/// A pointer the daemon holds an owner key for.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PointerKey {
+    /// The pointer's address, derived from the owner key.
+    pub address: String,
+}
+
+/// The state a pointer write stored.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PointerWriteResult {
+    pub address: String,
+    pub state_id: String,
+    /// The state's counter. A final state (a transfer) sits at `u64::MAX`.
+    pub counter: u64,
+}
+
+/// A pointer's current state, as the network serves it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PointerRecord {
+    pub address: String,
+    /// The owner's ML-DSA-65 public key (hex, 1,952 bytes). The address is
+    /// derived from it, so it is the proof of who owns the pointer.
+    pub owner: String,
+    pub counter: u64,
+    /// `"chunk"`, `"pointer"`, or `"unknown"` for a kind the daemon does not
+    /// know; [`kind_tag`](Self::kind_tag) carries the raw value either way.
+    pub kind: String,
+    pub kind_tag: u8,
+    pub target: String,
+    pub state_id: String,
+    /// The state is at the final counter: nothing can replace it.
+    pub is_final: bool,
+    /// The pointer this one was handed over to, when its final state is a
+    /// transfer.
+    pub transferred_to: Option<String>,
+}
+
+impl PointerRecord {
+    /// The target's kind, if this SDK knows its tag.
+    pub fn target_kind(&self) -> Option<PointerKind> {
+        PointerKind::from_tag(self.kind_tag)
+    }
+}
+
+/// Where a chain of pointers ends.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PointerResolved {
+    /// `"chunk"`, or `"unknown"` for a target kind the daemon does not know.
+    pub kind: String,
+    pub kind_tag: u8,
+    pub target: String,
+}
+
+/// Where a pointer stands with respect to finality, as its whole close group
+/// reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PointerFinalityStatus {
+    /// No peer that answered holds a final state: the owner can still move
+    /// the pointer. Rules a final state out only when every peer answered.
+    Open,
+    /// One final state, not yet held by a majority: a transfer still
+    /// spreading, or a write that fell short.
+    Settling,
+    /// One final state held by a majority, but not every peer answered, so a
+    /// rival could still be unseen. Ask again.
+    Unconfirmed,
+    /// One final state held by a majority, every peer answered, no rival.
+    /// The only status a recipient should rely on.
+    Final,
+    /// The owner signed two or more different final states.
+    Forked,
+    /// A status this SDK does not know (a newer daemon).
+    Unknown(String),
+}
+
+impl PointerFinalityStatus {
+    /// Parse the daemon's wire string.
+    pub fn from_wire(s: &str) -> Self {
+        match s {
+            "open" => Self::Open,
+            "settling" => Self::Settling,
+            "unconfirmed" => Self::Unconfirmed,
+            "final" => Self::Final,
+            "forked" => Self::Forked,
+            other => Self::Unknown(other.to_string()),
+        }
+    }
+}
+
+/// One final state, as a finality check reports it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PointerFinalState {
+    pub state_id: String,
+    pub kind: String,
+    pub kind_tag: u8,
+    pub target: String,
+    /// How many peers of the close group hold it.
+    pub holders: u32,
+    pub transferred_to: Option<String>,
+}
+
+/// The answer to a pointer finality check.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PointerFinality {
+    pub address: String,
+    /// Peers in the close group.
+    pub group: u32,
+    /// Peers that answered.
+    pub answered: u32,
+    pub status: PointerFinalityStatus,
+    /// [`Open`](PointerFinalityStatus::Open) only: the counter a read would
+    /// return, if any state is corroborated.
+    pub counter: Option<u64>,
+    /// `Settling`, `Unconfirmed` and `Final`: the one final state seen.
+    pub state: Option<PointerFinalState>,
+    /// `Forked` only: every final state seen, most-held first.
+    pub states: Vec<PointerFinalState>,
+    /// `Forked` only: the state a majority holds, which reads return.
+    pub majority: Option<PointerFinalState>,
+    /// The pointer this one was handed over to, once that is beyond dispute
+    /// (status `Final`).
+    pub transferred_to: Option<String>,
+}
+
+impl PointerFinality {
+    /// One final state, held by a majority, with every peer answering and no
+    /// rival seen.
+    pub fn is_final(&self) -> bool {
+        self.status == PointerFinalityStatus::Final
+    }
+}
+
+/// What a transfer stored, and where the close group says it stands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PointerTransferResult {
+    pub address: String,
+    pub state_id: String,
+    /// The close group's view once the write landed. `None` when that check
+    /// failed (see `finality_error`), which does not undo the transfer: it is
+    /// stored and final. Ask again with `pointer_finality`.
+    pub finality: Option<PointerFinality>,
+    pub finality_error: Option<String>,
+}
+
+/// Whose pointer decides what an address resolves to, after every transfer.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PointerController {
+    pub pointer: String,
+    /// Every pointer the address was handed over to, in order.
+    pub transfers: Vec<String>,
+    /// `pointer` is final without being handed over: nobody can move it.
+    pub frozen: bool,
+}
+
+/// A pointer write signed by the daemon and quoted for an external signer.
+/// Pay `payments` with `payForQuotes()`, then call `pointer_finalize`.
+///
+/// While it awaits payment, other writes to the pointer answer
+/// [`AntdError::Conflict`](crate::AntdError::Conflict) until it is finalized
+/// or expires.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PointerPrepareResult {
+    pub upload_id: String,
+    /// `"create"`, `"update"` or `"transfer"`.
+    pub op: String,
+    pub address: String,
+    pub state_id: String,
+    pub counter: u64,
+    /// Always `"wave_batch"`: a pointer state is paid with one quote.
+    pub payment_type: String,
+    pub payments: Vec<PaymentInfo>,
+    pub total_amount: String,
+    pub payment_vault_address: String,
+    pub payment_token_address: String,
+    pub rpc_url: String,
+    /// Populated when requested with
+    /// [`PrepareOptions::include_signed_quotes`].
+    pub signed_quotes: Vec<SignedQuoteEntry>,
+}
+
+/// The state a pointer finalize stored.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PointerFinalizeResult {
+    pub address: String,
+    pub state_id: String,
+    pub counter: u64,
+    /// Transfers only: where the close group says the transfer stands.
+    pub finality: Option<PointerFinality>,
+}
+
+/// Parse a pointer counter. The daemon sends counters as decimal strings,
+/// since a final state's `u64::MAX` is past what a JSON number keeps exactly
+/// in several languages; Rust reads it into a `u64` losslessly.
+pub(crate) fn parse_counter(field: &str, value: &str) -> Result<u64, crate::AntdError> {
+    value.parse().map_err(|_| {
+        crate::AntdError::Internal(format!(
+            "invalid pointer {field} {value:?}: expected a decimal u64"
+        ))
+    })
 }

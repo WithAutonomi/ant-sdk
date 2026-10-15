@@ -150,6 +150,25 @@ A finalize where some chunks stayed unstored after the daemon's retries returns 
 
 The fields are read conservatively: over REST a count that is not a JSON non-negative integer (≤ 2^64−1) reads as 0, and `RetentionKnown` is set only when the body's `retryable` is a JSON bool (whose value then sets `Retryable`); over gRPC both flags depend on the counts and the closing retention hint parsing from the status message (see [gRPC Error Mapping](#grpc-error-mapping)). See `finalizeWithRetry` in `examples/07-external-signer/main.go`.
 
+### Pointers
+
+A pointer is a small, owner-signed, mutable reference (the antd release after 0.15.0, the first with pointers). Its address is derived from its owner's key and never changes. What it points at (a chunk, such as a public file's data map, or another pointer) can be updated by the owner, and the owner can hand the pointer over to another pointer for good. The daemon signs with owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so writes name the pointer by its address (`owner`) and no key ever crosses the API.
+
+| Method | Description |
+|--------|-------------|
+| `PointerKeys(ctx)` | Addresses of the pointers this daemon can write |
+| `PointerCreate(ctx, owner, target, kind)` | Create a pointer, paid by the daemon wallet; `AlreadyExistsError` if it exists. `kind` is `PointerTargetChunk` (default when `""`) or `PointerTargetPointer` |
+| `PointerUpdate(ctx, owner, target, kind)` | Point a pointer at a new target, creating it if needed; `PointerFinalError` if it was handed over or frozen |
+| `PointerTransfer(ctx, owner, recipient)` | Hand a pointer over to the recipient's pointer, irreversibly — returns `*PointerTransferResult` with the close group's finality |
+| `PointerGet(ctx, address)` | Read a pointer — returns `*PointerRecord`; `NotFoundError` if none |
+| `PointerResolve(ctx, address)` | Follow a chain of pointers to its target — returns `*PointerTarget` |
+| `PointerFinality(ctx, address)` | Ask the whole close group where a pointer stands — only `PointerFinal` means a transfer is beyond dispute |
+| `PointerController(ctx, address)` | Follow transfers to the pointer whose owner now decides |
+| `PointerPrepare(ctx, PointerPrepareRequest)` | Sign a create, update or transfer and quote it for an external signer (no daemon wallet needed) |
+| `PointerFinalize(ctx, uploadID, txHashes)` | Store a prepared write once `payForQuotes()` has paid it |
+
+Counters are `uint64`; a final state is at `PointerFinalCounter` (2^64−1). Every write pays, about the price of one chunk, and every attempt pays again, so never retry `PointerCreate`, `PointerUpdate` or `PointerTransfer` automatically. Reads are free to retry: a `*CloseGroupShortfallError` on a read usually clears once an update in flight settles. A `PointerFinalize` that falls short after payment returns `*CloseGroupShortfallError` with `Retryable` set: the daemon kept the paid state, so call it again with the same `uploadID`. While a prepared write awaits payment, other writes to that pointer return `*ConflictError`.
+
 ## gRPC Transport
 
 The SDK also provides a `GrpcClient` that connects to the antd daemon over gRPC.
@@ -245,6 +264,8 @@ gRPC status codes are mapped to the same typed errors as the REST client:
 | `Unavailable` | `NetworkError` |
 | `Aborted` (message starts with `Partial upload:`) | `PartialUploadError` |
 | `Aborted` (any other message) | `AntdError` |
+
+The pointer methods also read the daemon's `x-antd-error-code` trailer, which takes precedence: `POINTER_FINAL` → `PointerFinalError`, `POINTER_FORKED` → `ForkError`, `CONFLICT` → `ConflictError`, `CLOSE_GROUP_SHORTFALL` → `CloseGroupShortfallError` (`Retryable` when the message says the paid attempt was retained). Over REST the same types come from the error body's `code`.
 
 A partial upload's counts and retention are parsed from the status message (`Partial upload: <stored>/<total> chunks stored, <failed> failed after retries: <reason> (<hint>)`). `RetentionKnown` is true only when that counts pattern matched, all three counts fit a `uint64`, and the message ends with one of the daemon's two hints: `(paid attempt retained...)` sets `Retryable`, and `(stored chunks persist; re-prepare the same content...)` means the daemon confirmed nothing was retained (daemons older than 0.14.0 write only this one). A garbled or out-of-range count reads 0 and leaves both flags false. Readable counts with a missing, truncated or unrecognised hint keep the counts, but both flags stay false. In both cases retention is unknown, so stop and reconcile rather than re-prepare.
 
