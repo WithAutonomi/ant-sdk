@@ -261,6 +261,38 @@ public class AsyncAntdClient implements AutoCloseable {
         return fileCostAsync(path, isPublic, PaymentMode.AUTO);
     }
 
+    // Manifests — non-blocking mirrors of AntdClient's manifest methods, with
+    // the same models and exceptions (wrapped in a CompletionException). An
+    // invalid argument throws IllegalArgumentException at the call, before
+    // anything is sent. Nothing is uploaded or paid for.
+
+    /** See {@link AntdClient#buildManifest(List)}. */
+    public CompletableFuture<BuiltManifest> buildManifestAsync(List<ManifestEntryInput> entries) {
+        return buildManifestAsync(entries, BuildManifestOptions.DEFAULT);
+    }
+
+    /** See {@link AntdClient#buildManifest(List, BuildManifestOptions)}. */
+    public CompletableFuture<BuiltManifest> buildManifestAsync(
+            List<ManifestEntryInput> entries, BuildManifestOptions options) {
+        ManifestWire.checkEntries(entries);
+        return doJsonAsync("POST", "/v1/manifests/build", ManifestWire.buildBody(entries, options))
+                .thenApply(ManifestWire::parseBuilt);
+    }
+
+    /** See {@link AntdClient#decodeManifest(byte[], boolean)}. */
+    public CompletableFuture<DecodedManifest> decodeManifestAsync(byte[] manifest, boolean resolve) {
+        ManifestWire.checkManifest(manifest);
+        return doJsonAsync("POST", "/v1/manifests/decode", ManifestWire.decodeBody(manifest, resolve))
+                .thenApply(ManifestWire::parseDecoded);
+    }
+
+    /** See {@link AntdClient#decodeManifestLink(String, boolean)}. */
+    public CompletableFuture<DecodedManifest> decodeManifestLinkAsync(String link, boolean resolve) {
+        ManifestWire.checkLink(link);
+        return doJsonAsync("POST", "/v1/manifests/decode", ManifestWire.decodeLinkBody(link, resolve))
+                .thenApply(ManifestWire::parseDecoded);
+    }
+
     // Wallet
 
     public CompletableFuture<WalletAddress> walletAddressAsync() {

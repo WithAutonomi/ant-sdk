@@ -593,6 +593,92 @@ public class AntdClient implements AutoCloseable {
         return fileCost(path, isPublic, PaymentMode.AUTO);
     }
 
+    // Manifests
+    //
+    // ADR-0006 `.ant` files and `ant://` links: a set of files, each with an
+    // optional path and size and either an embedded DataMap or a public
+    // DataMap address. The daemon builds and decodes them, so callers never
+    // re-implement the format. Nothing is uploaded or paid for; only the
+    // embedding policy and `resolve` read from the network, so these calls can
+    // time out and are safe to retry. Needs the antd release after 0.15.0.
+
+    /**
+     * {@link #buildManifest(List, BuildManifestOptions)} with the default
+     * options: no name, no torrent info hashes, roots embedded.
+     *
+     * @param entries the files; each sets exactly one of {@code dataMap} or
+     *                {@code address}
+     * @return the {@code .ant} bytes, the link when it fits, and the entries
+     */
+    public BuiltManifest buildManifest(List<ManifestEntryInput> entries) {
+        return buildManifest(entries, BuildManifestOptions.DEFAULT);
+    }
+
+    /**
+     * Builds a {@code .ant} manifest from DataMaps and public addresses already
+     * in hand ({@code POST /v1/manifests/build}). Nothing is uploaded or paid
+     * for.
+     *
+     * @param entries the files; each sets exactly one of {@code dataMap} or
+     *                {@code address}
+     * @param options name, torrent info hashes and root embedding; {@code null}
+     *                means {@link BuildManifestOptions#DEFAULT}
+     * @return the {@code .ant} bytes, the link when it fits, and the entries
+     * @throws IllegalArgumentException before anything is sent, for an entry
+     *         with both or neither of {@code dataMap} and {@code address}, or a
+     *         negative size
+     * @throws com.autonomi.antd.errors.BadRequestException for an entry the
+     *         daemon rejects (an invalid path, DataMap or address); the message
+     *         names each one as {@code entries[i]}
+     */
+    public BuiltManifest buildManifest(List<ManifestEntryInput> entries, BuildManifestOptions options) {
+        ManifestWire.checkEntries(entries);
+        return ManifestWire.parseBuilt(
+                doJson("POST", "/v1/manifests/build", ManifestWire.buildBody(entries, options)));
+    }
+
+    /**
+     * Decodes {@code .ant} bytes ({@code POST /v1/manifests/decode}). With
+     * {@code resolve}, the daemon fetches each entry's DataMap (and wrapper
+     * records) to report {@link ManifestEntryInfo#exactSize()} and confirm the
+     * DataMap is on the network; content chunks are not fetched, and one
+     * entry's failure is reported in its {@link ManifestEntryInfo#error()}, not
+     * as a failed call.
+     *
+     * @param manifest the {@code .ant} bytes
+     * @param resolve  fetch each entry's DataMap
+     * @return the decoded manifest
+     * @throws IllegalArgumentException if {@code manifest} is empty, before
+     *         anything is sent
+     * @throws com.autonomi.antd.errors.BadRequestException if the bytes are not
+     *         a manifest
+     */
+    public DecodedManifest decodeManifest(byte[] manifest, boolean resolve) {
+        ManifestWire.checkManifest(manifest);
+        return ManifestWire.parseDecoded(
+                doJson("POST", "/v1/manifests/decode", ManifestWire.decodeBody(manifest, resolve)));
+    }
+
+    /**
+     * Decodes an {@code ant://} manifest link, a file link or a bare 64-hex
+     * address ({@code POST /v1/manifests/decode}). A file link or address reads
+     * as one public entry with no path, from source
+     * {@value DecodedManifest#SOURCE_FILE_LINK}. See
+     * {@link #decodeManifest(byte[], boolean)} for {@code resolve}.
+     *
+     * @param link    the link or address
+     * @param resolve fetch each entry's DataMap
+     * @return the decoded manifest
+     * @throws IllegalArgumentException if {@code link} is empty, before
+     *         anything is sent
+     * @throws com.autonomi.antd.errors.BadRequestException if it is not a link
+     */
+    public DecodedManifest decodeManifestLink(String link, boolean resolve) {
+        ManifestWire.checkLink(link);
+        return ManifestWire.parseDecoded(
+                doJson("POST", "/v1/manifests/decode", ManifestWire.decodeLinkBody(link, resolve)));
+    }
+
     // Wallet
 
     public WalletAddress walletAddress() {
