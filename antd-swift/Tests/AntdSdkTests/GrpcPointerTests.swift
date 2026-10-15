@@ -251,6 +251,44 @@ final class GrpcPointerTests: XCTestCase {
         }
         XCTAssertEqual(service.calls("create"), 1)
     }
+
+    /// The gRPC client implements every pointer requirement itself: called
+    /// through the protocol, none of them falls through to the throwing
+    /// default, and each reaches the server.
+    func testEveryPointerMethodDispatchesThroughTheProtocol() async throws {
+        let service = MockPointerService()
+        try await withMockServer(service: service) { grpc in
+            let client: any AntdClientProtocol = grpc
+            let a = MockPointerService.addrA
+            let b = MockPointerService.addrB
+            let keys = try await client.pointerKeys()
+            XCTAssertEqual(keys.count, 2)
+            let created = try await client.pointerCreate(owner: a, target: "t1", kind: .chunk)
+            XCTAssertEqual(created.counter, 0)
+            let updated = try await client.pointerUpdate(owner: a, target: "t2", kind: .chunk)
+            XCTAssertEqual(updated.counter, UInt64.max)
+            let transferred = try await client.pointerTransfer(owner: a, recipient: b)
+            XCTAssertEqual(transferred.finality?.status, .final)
+            let record = try await client.pointerGet(address: a)
+            XCTAssertTrue(record.isFinal)
+            let target = try await client.pointerResolve(address: a)
+            XCTAssertEqual(target.target, "t1")
+            let finality = try await client.pointerFinality(address: "open")
+            XCTAssertEqual(finality.status, .open)
+            let controller = try await client.pointerController(address: a)
+            XCTAssertEqual(controller.pointer, b)
+            let prepared = try await client.pointerPrepare(owner: a, op: .create(target: "t1"), options: PointerPrepareOptions())
+            XCTAssertEqual(prepared.op, "create")
+            let preparedDefault = try await client.pointerPrepare(owner: a, op: .update(target: "t2"))
+            XCTAssertEqual(preparedDefault.op, "update")
+            let finalized = try await client.pointerFinalize(uploadId: "up1", txHashes: [:])
+            XCTAssertEqual(finalized.counter, 1)
+        }
+        for method in ["listKeys", "create", "update", "transfer", "get", "resolve", "finality", "controller", "finalize"] {
+            XCTAssertEqual(service.calls(method), 1, method)
+        }
+        XCTAssertEqual(service.calls("prepare"), 2)
+    }
 }
 
 // MARK: - Mock PointerService

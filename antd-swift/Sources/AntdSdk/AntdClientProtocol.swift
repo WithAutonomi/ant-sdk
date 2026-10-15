@@ -95,6 +95,11 @@ public protocol AntdClientProtocol: Sendable {
     // `retryable` from `pointerFinalize`, which reuses the payment). Reads
     // are free to retry; a ``CloseGroupShortfallError`` on a read usually
     // clears once an update in flight settles.
+    //
+    // These are requirements, so ``AntdRestClient`` and ``AntdGrpcClient``
+    // dispatch dynamically through the protocol. They also have default
+    // implementations (below) that throw ``NotSupportedError``, so a type
+    // that conformed to this protocol before the pointer API keeps compiling.
 
     /// The pointers this daemon holds owner keys for (`GET /v1/pointers/keys`).
     /// Only these can be written through this daemon.
@@ -171,5 +176,54 @@ extension AntdClientProtocol {
     /// quotes).
     public func pointerPrepare(owner: String, op: PointerOp) async throws -> PointerPrepareResult {
         try await pointerPrepare(owner: owner, op: op, options: PointerPrepareOptions())
+    }
+}
+
+// Default implementations of the pointer requirements, for conformers that
+// predate the pointer API. Each throws NotSupportedError; AntdRestClient and
+// AntdGrpcClient replace all of them with real implementations.
+extension AntdClientProtocol {
+    private func pointersNotSupported(_ method: String) -> NotSupportedError {
+        NotSupportedError("\(method) is not supported by \(type(of: self)): it does not implement the pointer API")
+    }
+
+    public func pointerKeys() async throws -> [PointerKey] {
+        throw pointersNotSupported("pointerKeys")
+    }
+
+    public func pointerCreate(owner: String, target: String, kind: PointerKind) async throws -> PointerWriteResult {
+        throw pointersNotSupported("pointerCreate")
+    }
+
+    public func pointerUpdate(owner: String, target: String, kind: PointerKind) async throws -> PointerWriteResult {
+        throw pointersNotSupported("pointerUpdate")
+    }
+
+    public func pointerTransfer(owner: String, recipient: String) async throws -> PointerTransferResult {
+        throw pointersNotSupported("pointerTransfer")
+    }
+
+    public func pointerGet(address: String) async throws -> PointerRecord {
+        throw pointersNotSupported("pointerGet")
+    }
+
+    public func pointerResolve(address: String) async throws -> PointerTarget {
+        throw pointersNotSupported("pointerResolve")
+    }
+
+    public func pointerFinality(address: String) async throws -> PointerFinality {
+        throw pointersNotSupported("pointerFinality")
+    }
+
+    public func pointerController(address: String) async throws -> PointerController {
+        throw pointersNotSupported("pointerController")
+    }
+
+    public func pointerPrepare(owner: String, op: PointerOp, options: PointerPrepareOptions) async throws -> PointerPrepareResult {
+        throw pointersNotSupported("pointerPrepare")
+    }
+
+    public func pointerFinalize(uploadId: String, txHashes: [String: String]) async throws -> PointerFinalizeResult {
+        throw pointersNotSupported("pointerFinalize")
     }
 }

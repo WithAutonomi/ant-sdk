@@ -133,6 +133,17 @@ public final class ServiceUnavailableError: AntdError {
     }
 }
 
+/// The client does not implement the operation. Thrown on the client side,
+/// never by the daemon (``statusCode`` is 0): the default implementations of
+/// the pointer methods on ``AntdClientProtocol`` throw it, so a type that
+/// conformed to the protocol before those methods existed keeps compiling.
+/// ``AntdRestClient`` and ``AntdGrpcClient`` implement every method.
+public final class NotSupportedError: AntdError {
+    public override init(_ message: String, statusCode: Int = 0) {
+        super.init(message, statusCode: statusCode)
+    }
+}
+
 /// A finalize stored some chunks while others remained unstored after the
 /// daemon's retries (HTTP 502 with `code: "PARTIAL_UPLOAD"`; gRPC ABORTED
 /// whose message starts with `Partial upload:`). The on-chain payment

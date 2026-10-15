@@ -126,7 +126,9 @@ Pointer errors:
 
 Over REST these map from the error body's `code`; over gRPC from the `x-antd-error-code` trailer, and only when it agrees with the status code (an untagged FAILED_PRECONDITION is still a `PaymentError`).
 
-**Upgrading:** the pointer methods are new requirements on `AntdClientProtocol`, so a type of your own that conforms to it (a test double, say) must implement them. The REST and gRPC clients and the factory are unaffected. `ForkError` is no longer `final`, so that `PointerForkedError` can subclass it. Daemons with the pointer API send `CLOSE_GROUP_SHORTFALL` on any path where too few of a close group answered. Before, that was a 500 `InternalError`; now it is `CloseGroupShortfallError` on both transports.
+**Upgrading:** the pointer methods are requirements on `AntdClientProtocol`, with default implementations that throw `NotSupportedError`. So a type of your own that conforms to it (a test double, say) keeps compiling unchanged; implement the methods if it should support pointers. `AntdRestClient` and `AntdGrpcClient` implement all of them. `ForkError` is no longer `final`, so that `PointerForkedError` can subclass it.
+
+One behaviour change: daemons with the pointer API send `CLOSE_GROUP_SHORTFALL` on any path where too few of a close group answered. Before, that was a 500 `InternalError`. Now it is `CloseGroupShortfallError` on both transports, not `ServiceUnavailableError` (REST) or `NetworkError` (gRPC), so catch it by name.
 
 ## Error Handling
 
@@ -156,6 +158,7 @@ do {
 | `TooLargeError` | 413 | RESOURCE_EXHAUSTED | Data too large |
 | `InternalError` | 500 | INTERNAL | Server error |
 | `PointerFinalError`, `PointerForkedError`, `ConflictError`, `CloseGroupShortfallError` | 409 / 503, by `code` | by `x-antd-error-code` trailer | See [Pointers](#pointers) |
+| `NotSupportedError` | (client-side, `statusCode` 0) | (client-side) | A pointer method called on your own `AntdClientProtocol` conformer that does not implement it |
 
 ### Partial uploads (external-signer finalize)
 

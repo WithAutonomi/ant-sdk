@@ -541,3 +541,135 @@ final class PointerMappingTests: XCTestCase {
         XCTAssertEqual(PointerWire.kindTag(nil as UInt64?), .max)
     }
 }
+
+// MARK: - Protocol defaults
+
+/// A conformer written before the pointer API: it implements every other
+/// requirement and none of the pointer methods. That it compiles at all is
+/// half the test.
+private struct LegacyClient: AntdClientProtocol {
+    private func unused() -> AntdError { AntdError("not used by these tests") }
+
+    func health() async throws -> HealthStatus { HealthStatus(ok: true, network: "legacy") }
+    func dataPut(_ data: Data, paymentMode: PaymentMode) async throws -> DataPutResult { throw unused() }
+    func dataGet(dataMap: String) async throws -> Data { throw unused() }
+    func dataPutPublic(_ data: Data, paymentMode: PaymentMode) async throws -> DataPutPublicResult { throw unused() }
+    func dataGetPublic(address: String) async throws -> Data { throw unused() }
+    func dataCost(_ data: Data, paymentMode: PaymentMode) async throws -> UploadCostEstimate { throw unused() }
+    func chunkPut(_ data: Data) async throws -> PutResult { throw unused() }
+    func chunkGet(address: String) async throws -> Data { throw unused() }
+    func prepareChunkUpload(_ data: Data) async throws -> PrepareChunkResult { throw unused() }
+    func finalizeChunkUpload(uploadId: String, txHashes: [String: String]) async throws -> String { throw unused() }
+    func filePut(path: String, paymentMode: PaymentMode) async throws -> FilePutResult { throw unused() }
+    func fileGet(dataMap: String, destPath: String) async throws { throw unused() }
+    func filePutPublic(path: String, paymentMode: PaymentMode) async throws -> FilePutPublicResult { throw unused() }
+    func fileGetPublic(address: String, destPath: String) async throws { throw unused() }
+    func fileCost(path: String, isPublic: Bool, paymentMode: PaymentMode) async throws -> UploadCostEstimate { throw unused() }
+    func walletAddress() async throws -> WalletAddress { throw unused() }
+    func walletBalance() async throws -> WalletBalance { throw unused() }
+    func walletApprove() async throws -> Bool { throw unused() }
+    func prepareUpload(path: String, visibility: String?) async throws -> PrepareUploadResult { throw unused() }
+    func prepareUploadPublic(path: String) async throws -> PrepareUploadResult { throw unused() }
+    func prepareDataUpload(_ data: Data) async throws -> PrepareUploadResult { throw unused() }
+    func finalizeUpload(uploadId: String, txHashes: [String: String]) async throws -> FinalizeUploadResult { throw unused() }
+    func finalizeMerkleUpload(uploadId: String, winnerPoolHash: String) async throws -> FinalizeMerkleUploadResult { throw unused() }
+}
+
+final class PointerProtocolDefaultTests: XCTestCase {
+
+    private let addr = String(repeating: "a", count: 64)
+
+    /// Every pointer method of a conformer that does not implement them
+    /// throws NotSupportedError naming the method, before any I/O.
+    func testALegacyConformerCompilesAndItsPointerMethodsThrowNotSupported() async throws {
+        let client: any AntdClientProtocol = LegacyClient()
+        let health = try await client.health()
+        XCTAssertEqual(health.network, "legacy")
+
+        let addr = self.addr
+        let calls: [(String, () async throws -> Void)] = [
+            ("pointerKeys", { _ = try await client.pointerKeys() }),
+            ("pointerCreate", { _ = try await client.pointerCreate(owner: addr, target: addr, kind: .chunk) }),
+            ("pointerUpdate", { _ = try await client.pointerUpdate(owner: addr, target: addr, kind: .pointer) }),
+            ("pointerTransfer", { _ = try await client.pointerTransfer(owner: addr, recipient: addr) }),
+            ("pointerGet", { _ = try await client.pointerGet(address: addr) }),
+            ("pointerResolve", { _ = try await client.pointerResolve(address: addr) }),
+            ("pointerFinality", { _ = try await client.pointerFinality(address: addr) }),
+            ("pointerController", { _ = try await client.pointerController(address: addr) }),
+            ("pointerPrepare", {
+                _ = try await client.pointerPrepare(owner: addr, op: .transfer(recipient: addr), options: PointerPrepareOptions())
+            }),
+            // The convenience overload routes through the defaulted requirement.
+            ("pointerPrepare", { _ = try await client.pointerPrepare(owner: addr, op: .create(target: addr)) }),
+            ("pointerFinalize", { _ = try await client.pointerFinalize(uploadId: "up", txHashes: [:]) }),
+        ]
+        for (method, call) in calls {
+            do {
+                try await call()
+                XCTFail("\(method) should have thrown")
+            } catch let error as NotSupportedError {
+                XCTAssertTrue(error.message.hasPrefix("\(method) is not supported by LegacyClient"), error.message)
+                XCTAssertEqual(error.statusCode, 0)
+            } catch {
+                XCTFail("\(method) threw \(error), expected NotSupportedError")
+            }
+        }
+    }
+
+    /// The real REST client implements every requirement itself: called
+    /// through the protocol, none of them falls through to a default.
+    func testTheRestClientDispatchesEveryPointerMethodThroughTheProtocol() async throws {
+        StubURLProtocol.reset()
+        func json(_ obj: [String: Any]) -> Data { try! JSONSerialization.data(withJSONObject: obj) }
+        let write = json(["address": addr, "state_id": "s", "counter": "1"])
+        StubURLProtocol.routes = [
+            "/v1/pointers/keys": json(["keys": [["address": addr]]]),
+            "/v1/pointers": write,
+            "/v1/pointers/update": write,
+            "/v1/pointers/transfer": json(["address": addr, "state_id": "s"]),
+            "/v1/pointers/\(addr)": json([
+                "address": addr, "owner": "00", "counter": "1", "kind": "chunk", "kind_tag": 0,
+                "target": addr, "state_id": "s", "is_final": false,
+            ]),
+            "/v1/pointers/\(addr)/resolve": json(["kind": "chunk", "kind_tag": 0, "target": addr]),
+            "/v1/pointers/\(addr)/finality": json([
+                "address": addr, "group": 7, "answered": 7, "status": "open", "counter": "1",
+            ]),
+            "/v1/pointers/\(addr)/controller": json(["pointer": addr, "transfers": [] as [Any], "frozen": false]),
+            "/v1/pointers/prepare": json([
+                "upload_id": "up", "op": "create", "address": addr, "state_id": "s", "counter": "0",
+                "payment_type": "wave_batch",
+            ]),
+            "/v1/pointers/finalize": write,
+        ]
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [StubURLProtocol.self] + (config.protocolClasses ?? [])
+        let client: any AntdClientProtocol = AntdRestClient(baseURL: "http://stub.local", session: URLSession(configuration: config))
+
+        let keys = try await client.pointerKeys()
+        XCTAssertEqual(keys, [PointerKey(address: addr)])
+        let created = try await client.pointerCreate(owner: addr, target: addr, kind: .chunk)
+        XCTAssertEqual(created.counter, 1)
+        let updated = try await client.pointerUpdate(owner: addr, target: addr, kind: .chunk)
+        XCTAssertEqual(updated.counter, 1)
+        let transferred = try await client.pointerTransfer(owner: addr, recipient: addr)
+        XCTAssertEqual(transferred.stateId, "s")
+        let record = try await client.pointerGet(address: addr)
+        XCTAssertEqual(record.counter, 1)
+        let target = try await client.pointerResolve(address: addr)
+        XCTAssertEqual(target.target, addr)
+        let finality = try await client.pointerFinality(address: addr)
+        XCTAssertEqual(finality.status, .open)
+        let controller = try await client.pointerController(address: addr)
+        XCTAssertEqual(controller.pointer, addr)
+        let prepared = try await client.pointerPrepare(owner: addr, op: .create(target: addr), options: PointerPrepareOptions())
+        XCTAssertEqual(prepared.uploadId, "up")
+        let preparedDefault = try await client.pointerPrepare(owner: addr, op: .create(target: addr))
+        XCTAssertEqual(preparedDefault.uploadId, "up")
+        let finalized = try await client.pointerFinalize(uploadId: "up", txHashes: [:])
+        XCTAssertEqual(finalized.counter, 1)
+        for path in StubURLProtocol.routes.keys {
+            XCTAssertGreaterThan(StubURLProtocol.requestCounts[path] ?? 0, 0, "\(path) was never requested")
+        }
+    }
+}
