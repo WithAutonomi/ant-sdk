@@ -5,9 +5,12 @@
 // updated by the owner. The daemon signs with owner keys it loaded at startup
 // (antd --pointer-keys), so writes name the pointer by its address.
 //
-// Set ANTD_POINTER_OWNER to the address of a pointer the daemon holds a key
-// for (see PointerKeys) and that has never been written. The example creates
-// that pointer, so each address can be used once.
+// Environment:
+//
+//	ANTD_POINTER_OWNER  address of a pointer the daemon holds a key for
+//	                    (see PointerKeys); required. The first run creates
+//	                    the pointer; later runs update it.
+//	ANTD_BASE_URL       daemon REST URL (default antd.DefaultBaseURL)
 //
 // Every write pays, about the price of one chunk, and every attempt pays
 // again, so pointer writes are never retried automatically.
@@ -15,6 +18,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -25,13 +29,17 @@ import (
 func main() {
 	owner := os.Getenv("ANTD_POINTER_OWNER")
 	if owner == "" {
-		log.Fatal("set ANTD_POINTER_OWNER to the address of an unwritten pointer the daemon holds a key for")
+		log.Fatal("set ANTD_POINTER_OWNER to the address of a pointer the daemon holds a key for")
+	}
+	baseURL := os.Getenv("ANTD_BASE_URL")
+	if baseURL == "" {
+		baseURL = antd.DefaultBaseURL
 	}
 
-	client := antd.NewClient(antd.DefaultBaseURL)
+	client := antd.NewClient(baseURL)
 	ctx := context.Background()
 
-	fmt.Println("Note: each pointer write below (create, update) pays about the price of one chunk.")
+	fmt.Println("Note: each pointer write below pays about the price of one chunk: the create (an update if the pointer already exists) and the update.")
 
 	// Store two pieces of public data for the pointer to point at
 	first, err := client.DataPutPublic(ctx, []byte("Pointer target, version 1"), antd.PaymentModeAuto)
@@ -46,12 +54,23 @@ func main() {
 	}
 	fmt.Printf("Stored second target at %s\n", second.Address)
 
-	// Create the pointer at the first target (paid)
+	// Create the pointer at the first target (paid). A pointer that already
+	// exists, say from an earlier run, is refused before paying; point it at
+	// the first target with an update instead (also paid).
 	created, err := client.PointerCreate(ctx, owner, first.Address, antd.PointerTargetChunk)
-	if err != nil {
+	var exists *antd.AlreadyExistsError
+	switch {
+	case errors.As(err, &exists):
+		created, err = client.PointerUpdate(ctx, owner, first.Address, antd.PointerTargetChunk)
+		if err != nil {
+			log.Fatalf("pointer update (existing): %v", err)
+		}
+		fmt.Printf("Pointer %s already exists; updated it to the first target instead (counter: %d)\n", created.Address, created.Counter)
+	case err != nil:
 		log.Fatalf("pointer create: %v", err)
+	default:
+		fmt.Printf("Created pointer %s (counter: %d)\n", created.Address, created.Counter)
 	}
-	fmt.Printf("Created pointer %s (counter: %d)\n", created.Address, created.Counter)
 
 	// Update it to the second target (paid)
 	updated, err := client.PointerUpdate(ctx, owner, second.Address, antd.PointerTargetChunk)

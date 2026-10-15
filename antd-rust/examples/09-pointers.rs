@@ -5,24 +5,31 @@
 //! updated by the owner. The daemon signs with owner keys it loaded at
 //! startup (`antd --pointer-keys`), so writes name the pointer by its address.
 //!
-//! Set `ANTD_POINTER_OWNER` to the address of a pointer the daemon holds a key
-//! for (see `pointer_keys`) and that has never been written. The example
-//! creates that pointer, so each address can be used once.
+//! Environment:
+//!
+//! - `ANTD_POINTER_OWNER`: address of a pointer the daemon holds a key for
+//!   (see `pointer_keys`); required. The first run creates the pointer; later
+//!   runs update it.
+//! - `ANTD_BASE_URL`: daemon REST URL (default `DEFAULT_BASE_URL`).
 //!
 //! Every write pays, about the price of one chunk, and every attempt pays
 //! again, so pointer writes are never retried automatically.
 
-use antd_client::{Client, PaymentMode, PointerKind, DEFAULT_BASE_URL};
+use antd_client::{AntdError, Client, PaymentMode, PointerKind, DEFAULT_BASE_URL};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let owner = std::env::var("ANTD_POINTER_OWNER").map_err(|_| {
-        "set ANTD_POINTER_OWNER to the address of an unwritten pointer the daemon holds a key for"
+        "set ANTD_POINTER_OWNER to the address of a pointer the daemon holds a key for"
     })?;
+    let base_url = std::env::var("ANTD_BASE_URL").unwrap_or_else(|_| DEFAULT_BASE_URL.to_string());
 
-    let client = Client::new(DEFAULT_BASE_URL);
+    let client = Client::new(&base_url);
 
-    println!("Note: each pointer write below (create, update) pays about the price of one chunk.");
+    println!(
+        "Note: each pointer write below pays about the price of one chunk: \
+         the create (an update if the pointer already exists) and the update."
+    );
 
     // Store two pieces of public data for the pointer to point at
     let first = client
@@ -34,14 +41,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     println!("Stored second target at {}", second.address);
 
-    // Create the pointer at the first target (paid)
-    let created = client
+    // Create the pointer at the first target (paid). A pointer that already
+    // exists, say from an earlier run, is refused before paying; point it at
+    // the first target with an update instead (also paid).
+    let created = match client
         .pointer_create(&owner, &first.address, PointerKind::Chunk)
-        .await?;
-    println!(
-        "Created pointer {} (counter: {})",
-        created.address, created.counter
-    );
+        .await
+    {
+        Ok(created) => {
+            println!(
+                "Created pointer {} (counter: {})",
+                created.address, created.counter
+            );
+            created
+        }
+        Err(AntdError::AlreadyExists(_)) => {
+            let updated = client
+                .pointer_update(&owner, &first.address, PointerKind::Chunk)
+                .await?;
+            println!(
+                "Pointer {} already exists; updated it to the first target instead (counter: {})",
+                updated.address, updated.counter
+            );
+            updated
+        }
+        Err(e) => return Err(e.into()),
+    };
 
     // Update it to the second target (paid)
     let updated = client
