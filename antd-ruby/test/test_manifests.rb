@@ -92,26 +92,46 @@ class TestManifests < Minitest::Test
   end
 
   def test_build_manifest_rejects_both_or_neither_before_sending
-    bad = [
-      {},
-      { path: "x" },
-      { data_map: "aa", address: "bb" },
-      Antd::ManifestEntryInput.new(data_map: "", address: ""),
-      Antd::ManifestEntryInput.new(data_map: "aa", address: "bb")
-    ]
-    bad.each do |entry|
-      err = assert_raises(ArgumentError) { @client.build_manifest([{ address: ADDR }, entry]) }
-      assert_match(/manifest entry 1: set exactly one of data_map or address/, err.message)
+    both = "entries[1]: give data_map or address, not both"
+    neither = "entries[1]: needs a data_map or an address"
+    {
+      {} => neither,
+      { path: "x" } => neither,
+      { data_map: "", address: "" } => neither,
+      { data_map: "aa", address: "bb" } => both,
+      Antd::ManifestEntryInput.new(data_map: "aa", address: "bb") => both
+    }.each do |entry, expected|
+      err = assert_raises(Antd::BadRequestError) { @client.build_manifest([{ address: ADDR }, entry]) }
+      assert_equal 400, err.status_code
+      assert_equal "antd error 400: 1 invalid entries: #{expected}", err.message
     end
     assert_not_requested :post, "#{BASE}/v1/manifests/build"
   end
 
+  def test_build_manifest_reports_every_bad_entry
+    err = assert_raises(Antd::BadRequestError) do
+      @client.build_manifest([{ data_map: "a", address: "b" }, { address: ADDR }, {}])
+    end
+    assert_equal "antd error 400: 2 invalid entries: entries[0]: give data_map or address, not both; " \
+                 "entries[2]: needs a data_map or an address", err.message
+
+    err = assert_raises(Antd::BadRequestError) { @client.build_manifest(Array.new(23) { {} }) }
+    expected = (0...20).map { |i| "entries[#{i}]: needs a data_map or an address" }.join("; ")
+    assert_equal "antd error 400: 23 invalid entries: #{expected}; and 3 more", err.message
+    assert_not_requested :post, "#{BASE}/v1/manifests/build"
+  end
+
   def test_build_manifest_rejects_bad_sizes_and_shapes_before_sending
-    assert_raises(ArgumentError) { @client.build_manifest([{ address: ADDR, size: -1 }]) }
-    assert_raises(ArgumentError) { @client.build_manifest([{ address: ADDR, size: "10" }]) }
-    assert_raises(ArgumentError) { @client.build_manifest([{ address: ADDR, sise: 10 }]) }
-    assert_raises(ArgumentError) { @client.build_manifest([ADDR]) }
-    assert_raises(ArgumentError) { @client.build_manifest({ address: ADDR }) }
+    [
+      [{ address: ADDR, size: -1 }, "entries[0]: size must be a non-negative Integer or nil"],
+      [{ address: ADDR, size: "10" }, "entries[0]: size must be a non-negative Integer or nil"],
+      [{ address: ADDR, sise: 10 }, "entries[0]: unknown field (expected path, size, data_map, address)"],
+      [ADDR, "entries[0]: must be a ManifestEntryInput or Hash"]
+    ].each do |entry, expected|
+      err = assert_raises(Antd::BadRequestError) { @client.build_manifest([entry]) }
+      assert_equal [400, "antd error 400: 1 invalid entries: #{expected}"], [err.status_code, err.message]
+    end
+    assert_raises(Antd::BadRequestError) { @client.build_manifest({ address: ADDR }) }
     assert_not_requested :post, "#{BASE}/v1/manifests/build"
   end
 
@@ -197,10 +217,12 @@ class TestManifests < Minitest::Test
   end
 
   def test_decode_rejects_empty_input_before_sending
-    assert_raises(ArgumentError) { @client.decode_manifest("") }
-    assert_raises(ArgumentError) { @client.decode_manifest(nil) }
-    assert_raises(ArgumentError) { @client.decode_manifest_link("") }
-    assert_raises(ArgumentError) { @client.decode_manifest_link(nil) }
+    [-> { @client.decode_manifest("") }, -> { @client.decode_manifest(nil) },
+     -> { @client.decode_manifest_link("") }, -> { @client.decode_manifest_link(nil) }].each do |call|
+      err = assert_raises(Antd::BadRequestError, &call)
+      assert_equal [400, "antd error 400: needs a manifest (base64 .ant bytes) or a link"],
+                   [err.status_code, err.message]
+    end
     assert_not_requested :post, "#{BASE}/v1/manifests/decode"
   end
 

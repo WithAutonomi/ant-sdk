@@ -100,35 +100,65 @@ module Antd
   # receive limit is 4 MiB.
   MANIFEST_GRPC_MAX_MESSAGE = 256 * 1024 * 1024
 
-  # Normalises +build_manifest+ entries to +ManifestEntryInput+s, rejecting
-  # an entry with both or neither of +data_map+ and +address+ (nil and ""
-  # count as unset) or a +size+ that is not a non-negative Integer, before
-  # anything is sent.
+  # The daemon's cap on the entry errors one 400 names.
+  MANIFEST_MAX_REPORTED_ENTRY_ERRORS = 20
+  private_constant :MANIFEST_MAX_REPORTED_ENTRY_ERRORS
+
+  # The daemon's message for empty decode input (empty bytes or link).
+  MANIFEST_DECODE_NEEDS_INPUT = "needs a manifest (base64 .ant bytes) or a link"
+
+  # Normalises +build_manifest+ entries to +ManifestEntryInput+s before
+  # anything is sent. A refusal is the +BadRequestError+ (400) the daemon
+  # would send, with its wording: every bad entry (both or neither of
+  # +data_map+ and +address+, nil and "" counting as unset; or a +size+ that
+  # is not a non-negative Integer) is collected and named as
+  # "N invalid entries: entries[i]: ...; entries[j]: ..." (at most 20, then
+  # "; and K more").
   #
   # @api private
   # @param entries [Array<ManifestEntryInput, Hash>]
   # @return [Array<ManifestEntryInput>]
-  # @raise [ArgumentError]
+  # @raise [BadRequestError]
   def self.manifest_entry_inputs(entries)
-    raise ArgumentError, "antd: manifest entries must be an Array" unless entries.is_a?(Array)
+    raise BadRequestError, "entries must be an Array" unless entries.is_a?(Array)
 
-    entries.each_with_index.map do |e, i|
+    errors = []
+    inputs = entries.each_with_index.map do |e, i|
       e = ManifestEntryInput.new(**e.transform_keys(&:to_sym)) if e.is_a?(Hash)
       unless e.is_a?(ManifestEntryInput)
-        raise ArgumentError, "antd: manifest entry #{i}: expected a ManifestEntryInput or Hash"
+        errors << "entries[#{i}]: must be a ManifestEntryInput or Hash"
+        next
       end
 
       has_data_map = !(e.data_map.nil? || e.data_map.empty?)
       has_address = !(e.address.nil? || e.address.empty?)
-      if has_data_map == has_address
-        raise ArgumentError, "antd: manifest entry #{i}: set exactly one of data_map or address"
+      if has_data_map && has_address
+        errors << "entries[#{i}]: give data_map or address, not both"
+      elsif !has_data_map && !has_address
+        errors << "entries[#{i}]: needs a data_map or an address"
       end
       unless e.size.nil? || (e.size.is_a?(Integer) && e.size >= 0)
-        raise ArgumentError, "antd: manifest entry #{i}: size must be a non-negative Integer or nil"
+        errors << "entries[#{i}]: size must be a non-negative Integer or nil"
       end
-
       e
+    rescue ArgumentError
+      # A Hash with a key ManifestEntryInput does not have.
+      errors << "entries[#{i}]: unknown field (expected path, size, data_map, address)"
+      nil
     end
+    raise BadRequestError, Antd.manifest_entry_errors_message(errors) unless errors.empty?
+
+    inputs
+  end
+
+  # The daemon's +entry_errors_message+.
+  #
+  # @api private
+  def self.manifest_entry_errors_message(errors)
+    shown = errors.first(MANIFEST_MAX_REPORTED_ENTRY_ERRORS).join("; ")
+    message = "#{errors.length} invalid entries: #{shown}"
+    message += "; and #{errors.length - MANIFEST_MAX_REPORTED_ENTRY_ERRORS} more" if errors.length > MANIFEST_MAX_REPORTED_ENTRY_ERRORS
+    message
   end
 
   class Client
@@ -153,8 +183,8 @@ module Antd
     # @param embed_roots [Boolean] false embeds shrunk DataMaps exactly as
     #   given (the wire's +embed_roots+; default true)
     # @return [BuiltManifest]
-    # @raise [ArgumentError] an entry with both or neither of +data_map+ and
-    #   +address+, or a bad +size+
+    # @raise [BadRequestError] an entry with both or neither of +data_map+ and
+    #   +address+, or a bad +size+, worded as the daemon words it
     # @raise [BadRequestError] an entry the daemon rejects; the message names
     #   +entries[i]+
     def build_manifest(entries, name: nil, torrent_info_hashes: nil, embed_roots: true)
@@ -194,10 +224,10 @@ module Antd
     # @param manifest [String] the `.ant` bytes
     # @param resolve [Boolean]
     # @return [DecodedManifest]
-    # @raise [ArgumentError] an empty +manifest+
+    # @raise [BadRequestError] an empty +manifest+
     # @raise [BadRequestError] bytes that are not a manifest
     def decode_manifest(manifest, resolve: false)
-      raise ArgumentError, "antd: decode_manifest: manifest is empty" if manifest.nil? || manifest.empty?
+      raise BadRequestError, MANIFEST_DECODE_NEEDS_INPUT if manifest.nil? || manifest.empty?
 
       post_manifest_decode({ manifest: b64_encode(manifest), resolve: resolve ? true : false })
     end
@@ -210,10 +240,10 @@ module Antd
     # @param link [String]
     # @param resolve [Boolean]
     # @return [DecodedManifest]
-    # @raise [ArgumentError] an empty +link+
+    # @raise [BadRequestError] an empty +link+
     # @raise [BadRequestError] a link the daemon cannot read
     def decode_manifest_link(link, resolve: false)
-      raise ArgumentError, "antd: decode_manifest_link: link is empty" if link.nil? || link.empty?
+      raise BadRequestError, MANIFEST_DECODE_NEEDS_INPUT if link.nil? || link.empty?
 
       post_manifest_decode({ link: link, resolve: resolve ? true : false })
     end

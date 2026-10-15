@@ -114,9 +114,14 @@ class TestGrpcManifests < Minitest::Test
 
   def test_build_manifest_rejects_both_or_neither_before_sending
     client, stub = client_with(build: V1::BuildManifestResponse.new)
-    [{}, { data_map: "aa", address: "bb" }].each do |entry|
-      assert_raises(ArgumentError) { client.build_manifest([entry]) }
+    err = assert_raises(Antd::BadRequestError) { client.build_manifest([{}]) }
+    assert_equal [400, "antd error 400: 1 invalid entries: entries[0]: needs a data_map or an address"],
+                 [err.status_code, err.message]
+    err = assert_raises(Antd::BadRequestError) do
+      client.build_manifest([{ data_map: "aa", address: "bb" }, { address: ADDR }, {}])
     end
+    assert_equal "antd error 400: 2 invalid entries: entries[0]: give data_map or address, not both; " \
+                 "entries[2]: needs a data_map or an address", err.message
     assert_empty stub.calls
   end
 
@@ -162,8 +167,11 @@ class TestGrpcManifests < Minitest::Test
 
   def test_decode_rejects_empty_input_before_sending
     client, stub = client_with(decode: V1::DecodeManifestResponse.new)
-    assert_raises(ArgumentError) { client.decode_manifest("") }
-    assert_raises(ArgumentError) { client.decode_manifest_link("") }
+    [-> { client.decode_manifest("") }, -> { client.decode_manifest_link("") }].each do |call|
+      err = assert_raises(Antd::BadRequestError, &call)
+      assert_equal [400, "antd error 400: needs a manifest (base64 .ant bytes) or a link"],
+                   [err.status_code, err.message]
+    end
     assert_empty stub.calls
   end
 

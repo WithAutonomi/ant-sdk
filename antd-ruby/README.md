@@ -270,7 +270,7 @@ Both `Antd::Client` and `Antd::GrpcClient` have these methods:
 
 | Method | Description |
 |--------|-------------|
-| `build_manifest(entries, name: nil, torrent_info_hashes: nil, embed_roots: true)` | Build a manifest — returns `BuiltManifest` (`manifest`, the raw `.ant` bytes; `link`, or nil when it would exceed 1,500 bytes; `entries`, sorted by effective name). Each entry is a `ManifestEntryInput` or a Hash with `path`, `size`, and exactly one of `data_map` (hex) or `address` (hex); both or neither raises `ArgumentError` before anything is sent. By default the daemon resolves each shrunk DataMap and embeds its root when it is at most 64 KiB; `embed_roots: false` embeds them as given |
+| `build_manifest(entries, name: nil, torrent_info_hashes: nil, embed_roots: true)` | Build a manifest — returns `BuiltManifest` (`manifest`, the raw `.ant` bytes; `link`, or nil when it would exceed 1,500 bytes; `entries`, sorted by effective name). Each entry is a `ManifestEntryInput` or a Hash with `path`, `size`, and exactly one of `data_map` (hex) or `address` (hex); both or neither raises `BadRequestError` (400, the daemon's wording) before anything is sent. By default the daemon resolves each shrunk DataMap and embeds its root when it is at most 64 KiB; `embed_roots: false` embeds them as given |
 | `decode_manifest(manifest, resolve: false)` | Decode `.ant` bytes — returns `DecodedManifest` (`source`, `name`, `torrent_info_hash_v1`/`_v2`, `entries`) |
 | `decode_manifest_link(link, resolve: false)` | Decode an `ant://manifest/` link, a file link or a bare 64-hex address (a `ManifestSource::FILE_LINK`: one public entry, no path) |
 
@@ -288,7 +288,9 @@ it as-is over gRPC. Sizes are `Integer`s, and anything a manifest leaves unset
 is `nil` on both transports, so a missing `size` or `exact_size` is `nil`,
 never `0`. An entry the daemon rejects (a bad path such as `../x`, a malformed
 DataMap or address) raises `BadRequestError` (gRPC `INVALID_ARGUMENT`) with
-the daemon's message, which names `entries[i]`.
+the daemon's message, which names `entries[i]`. The SDK's own checks (both or
+neither of `data_map` and `address`, an empty manifest or link) raise the same
+error with the daemon's exact text, so the two cannot be told apart.
 
 Over gRPC, a manifest can be up to 64 MiB, past gRPC's 4 MiB default, so the
 client talks to ManifestService on a channel of its own with the send and

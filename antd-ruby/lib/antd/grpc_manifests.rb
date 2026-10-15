@@ -29,7 +29,7 @@ module Antd
     # Needs the antd release after 0.15.0.
     #
     # @return [BuiltManifest]
-    # @raise [ArgumentError] an entry with both or neither of +data_map+ and
+    # @raise [BadRequestError] an entry with both or neither of +data_map+ and
     #   +address+, or a bad +size+, before anything is sent
     # @raise [BadRequestError] an entry the daemon rejects (INVALID_ARGUMENT);
     #   the message names +entries[i]+
@@ -57,7 +57,7 @@ module Antd
     #
     # @return [DecodedManifest]
     def decode_manifest(manifest, resolve: false)
-      raise ArgumentError, "antd: decode_manifest: manifest is empty" if manifest.nil? || manifest.empty?
+      raise BadRequestError, MANIFEST_DECODE_NEEDS_INPUT if manifest.nil? || manifest.empty?
 
       decode_manifest_pb(Antd::V1::DecodeManifestRequest.new(manifest: manifest.b, resolve: resolve ? true : false))
     end
@@ -68,7 +68,7 @@ module Antd
     #
     # @return [DecodedManifest]
     def decode_manifest_link(link, resolve: false)
-      raise ArgumentError, "antd: decode_manifest_link: link is empty" if link.nil? || link.empty?
+      raise BadRequestError, MANIFEST_DECODE_NEEDS_INPUT if link.nil? || link.empty?
 
       decode_manifest_pb(Antd::V1::DecodeManifestRequest.new(link: link, resolve: resolve ? true : false))
     end

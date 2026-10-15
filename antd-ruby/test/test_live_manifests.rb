@@ -57,6 +57,11 @@ class TestLiveManifests < Minitest::Test
 
   private
 
+  # build_manifest's request minus the client-side check, over REST.
+  def raw_build(entries)
+    Antd::Client.new(base_url: @url).send(:do_json, :post, "/v1/manifests/build", { entries: entries, embed_roots: true })
+  end
+
   def round_trip(client)
     one, two = @addresses
     # One size given, so the manifest records it; the others stay unset.
@@ -126,7 +131,18 @@ class TestLiveManifests < Minitest::Test
       client.build_manifest([{ path: "ok.txt", address: one }, { path: "../x", address: two }])
     end
     assert_includes err.message, "entries[1]"
-    assert_raises(ArgumentError) { client.build_manifest([{ data_map: @data_map, address: one }]) }
+    # The client-side refusal is word for word what the daemon says for the
+    # same request, so send one past the check over REST and compare.
+    bad = [{ data_map: @data_map, address: one }, {}]
+    local = assert_raises(Antd::BadRequestError) { client.build_manifest(bad) }
+    assert_equal 400, local.status_code
+    remote = assert_raises(Antd::BadRequestError) { raw_build(bad) }
+    text = "2 invalid entries: entries[0]: give data_map or address, not both; entries[1]: needs a data_map or an address"
+    assert_includes remote.message, text
+    assert_includes local.message, text
+    assert_equal remote.message.sub(/\A.*?(?=2 invalid)/m, ""), local.message.sub(/\A.*?(?=2 invalid)/m, "")
+    err = assert_raises(Antd::BadRequestError) { client.decode_manifest("") }
+    assert_equal "antd error 400: needs a manifest (base64 .ant bytes) or a link", err.message
     assert_raises(Antd::BadRequestError) { client.decode_manifest("not a manifest") }
   end
 end
