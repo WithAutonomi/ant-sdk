@@ -63,9 +63,14 @@ interface IAntdClient : Closeable {
     // again. Neither client retries pointerCreate, pointerUpdate,
     // pointerTransfer or pointerFinalize; do not wrap them in an automatic
     // retry. Reads are free to retry.
+    //
+    // Each method has a default body that throws UnsupportedOperationException,
+    // so an implementation of this interface written before the pointer API
+    // keeps compiling. AntdRestClient and AntdGrpcClient override all ten.
 
     /** The addresses of the pointers this daemon holds owner keys for. Only these can be written. */
-    suspend fun pointerKeys(): List<String>
+    suspend fun pointerKeys(): List<String> =
+        notImplemented("pointerKeys")
 
     /**
      * Creates the pointer at [owner], pointing at [target], paid by the daemon
@@ -73,7 +78,8 @@ interface IAntdClient : Closeable {
      *
      * @throws AlreadyExistsException if the pointer exists, before anything is paid.
      */
-    suspend fun pointerCreate(owner: String, target: String, kind: PointerKind = PointerKind.CHUNK): PointerWriteResult
+    suspend fun pointerCreate(owner: String, target: String, kind: PointerKind = PointerKind.CHUNK): PointerWriteResult =
+        notImplemented("pointerCreate")
 
     /**
      * Points the pointer at [owner] at [target], paid by the daemon wallet,
@@ -83,7 +89,8 @@ interface IAntdClient : Closeable {
      * @throws PointerFinalException if the pointer was transferred or frozen, before anything is paid.
      * @throws ConflictException while a prepared write to the pointer awaits payment.
      */
-    suspend fun pointerUpdate(owner: String, target: String, kind: PointerKind = PointerKind.CHUNK): PointerWriteResult
+    suspend fun pointerUpdate(owner: String, target: String, kind: PointerKind = PointerKind.CHUNK): PointerWriteResult =
+        notImplemented("pointerUpdate")
 
     /**
      * Hands the pointer at [owner] over for good to the pointer at [recipient],
@@ -96,14 +103,16 @@ interface IAntdClient : Closeable {
      * @throws CloseGroupShortfallException if not every peer of the close group
      *   answered, before anything is paid; retry later.
      */
-    suspend fun pointerTransfer(owner: String, recipient: String): PointerTransferResult
+    suspend fun pointerTransfer(owner: String, recipient: String): PointerTransferResult =
+        notImplemented("pointerTransfer")
 
     /**
      * Reads the pointer at [address].
      *
      * @throws NotFoundException if there is none.
      */
-    suspend fun pointerGet(address: String): PointerRecord
+    suspend fun pointerGet(address: String): PointerRecord =
+        notImplemented("pointerGet")
 
     /**
      * Follows a chain of pointers from [address], through forwardings and
@@ -111,16 +120,19 @@ interface IAntdClient : Closeable {
      *
      * @throws NotFoundException if a pointer on the chain does not exist.
      */
-    suspend fun pointerResolve(address: String): PointerTarget
+    suspend fun pointerResolve(address: String): PointerTarget =
+        notImplemented("pointerResolve")
 
     /**
      * Asks the whole close group where the pointer at [address] stands. Check
      * [PointerFinality.isFinal] before relying on a transfer.
      */
-    suspend fun pointerFinality(address: String): PointerFinality
+    suspend fun pointerFinality(address: String): PointerFinality =
+        notImplemented("pointerFinality")
 
     /** Follows the transfers of [address] to the pointer whose owner now decides what it resolves to. */
-    suspend fun pointerController(address: String): PointerController
+    suspend fun pointerController(address: String): PointerController =
+        notImplemented("pointerController")
 
     /**
      * External signer: the daemon signs [op] on the pointer at [owner] with its
@@ -132,7 +144,8 @@ interface IAntdClient : Closeable {
      * While the prepared write awaits payment, other writes to the pointer
      * throw [ConflictException] until it is finalized or expires (one hour).
      */
-    suspend fun pointerPrepare(owner: String, op: PointerOp, includeSignedQuotes: Boolean = false): PointerPrepareResult
+    suspend fun pointerPrepare(owner: String, op: PointerOp, includeSignedQuotes: Boolean = false): PointerPrepareResult =
+        notImplemented("pointerPrepare")
 
     /**
      * External signer: stores a prepared pointer write once paid. [txHashes]
@@ -146,5 +159,10 @@ interface IAntdClient : Closeable {
      * A finalize without the payment's hashes is a [BadRequestException] and
      * keeps the session, so it can be corrected.
      */
-    suspend fun pointerFinalize(uploadId: String, txHashes: Map<String, String>): PointerFinalizeResult
+    suspend fun pointerFinalize(uploadId: String, txHashes: Map<String, String>): PointerFinalizeResult =
+        notImplemented("pointerFinalize")
+
+    /** The default body of the pointer methods, for implementations that predate them. */
+    private fun notImplemented(method: String): Nothing =
+        throw UnsupportedOperationException("$method is not implemented by this IAntdClient")
 }

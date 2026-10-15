@@ -161,9 +161,14 @@ See `finalizeWithRetry` in `examples/src/main/kotlin/com/autonomi/examples/Examp
 
 ## Upgrading: pointer API
 
-- `IAntdClient` gains the ten `pointer*` methods. Both bundled clients implement them; a class of your own that implements `IAntdClient` (a test fake, say) must add them before it compiles again.
+Nothing that compiled before stops compiling:
+
+- `IAntdClient` gains the ten `pointer*` methods, each with a default body that throws `UnsupportedOperationException` ("pointerGet is not implemented by this IAntdClient"). Both bundled clients override all ten. A Kotlin class of your own that implements `IAntdClient` (a test fake, say) compiles unchanged; override the pointer methods only if you call them.
 - Four new exception types: `PointerFinalException`, `PointerForkedException`, `ConflictException` and `CloseGroupShortfallException`. The exception classes are not sealed, so no `when` stops compiling. `ForkException` is now `open`, and `PointerForkedException` extends it.
-- `CloseGroupShortfallException` is not only for pointers: a daemon with the pointer API reports a close group that fell short on any call (a chunk store, say) as `503 CLOSE_GROUP_SHORTFALL` / UNAVAILABLE with the tag. An older daemon sent a 500, read as `InternalException`.
+
+One behaviour change to plan for:
+
+- `CloseGroupShortfallException` is not only for pointers: a daemon with the pointer API reports a close group that fell short on any call (a chunk store, say) as `503 CLOSE_GROUP_SHORTFALL` / UNAVAILABLE with the tag, and both clients throw `CloseGroupShortfallException` for it. An older daemon sent a 500, read as `InternalException`, so a `catch (e: InternalException)` around a store no longer sees it.
 - The gRPC client now reads each failed call's trailers (`StatusException.trailers`); nothing changes for statuses without the `x-antd-error-code` tag.
 
 ## Examples
