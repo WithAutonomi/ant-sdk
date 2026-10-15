@@ -1,8 +1,11 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace antd {
@@ -258,6 +261,298 @@ struct UploadCostEstimate {
     uint32_t chunk_count{0};             // number of data chunks
     std::string estimated_gas_cost_wei;  // advisory gas heuristic in wei
     std::string payment_mode;            // "auto" | "merkle" | "single"
+};
+
+// ---------------------------------------------------------------------------
+// Pointers (ADR-0016 / ADR-0018 in ant-node)
+//
+// A pointer is a small, owner-signed, mutable reference. Its address is
+// derived from the owner's key and never changes; its target (a chunk, such
+// as a public file's data map, or another pointer) can be changed by the
+// owner, and the owner can hand it over to another pointer for good. antd
+// signs with owner keys it loaded at startup (`--pointer-keys`), so a write
+// names the pointer by its address (`owner`), never by a key.
+//
+// Every write pays, and every attempt pays again: do not retry a create,
+// update, transfer or finalize automatically.
+//
+// Counters are std::uint64_t. The daemon sends them as decimal strings,
+// because a final state sits at 2^64-1, past what a JSON number keeps exactly
+// in several languages; anything that is not a decimal u64 is an error, never
+// a zero. Addresses, state ids and targets are 64 hex characters; the daemon
+// accepts a `0x` prefix on input but always returns bare hex.
+// ---------------------------------------------------------------------------
+
+/// The counter of a pointer's final state, after a transfer or a freeze:
+/// nothing can replace it.
+inline constexpr std::uint64_t kPointerFinalCounter =
+    std::numeric_limits<std::uint64_t>::max();
+
+/// What a pointer's target is.
+enum class PointerKind {
+    /// An immutable chunk, such as a public file's data map. The default.
+    Chunk,
+    /// Another pointer: a forwarding the owner can still change. Use
+    /// pointer_transfer to hand a pointer over for good.
+    Pointer,
+};
+
+/// Serialize a PointerKind to the wire string the daemon expects.
+inline std::string pointer_kind_wire(PointerKind k) {
+    switch (k) {
+        case PointerKind::Chunk:   return "chunk";
+        case PointerKind::Pointer: return "pointer";
+    }
+    return "chunk";
+}
+
+/// The kind a raw target tag names, if this SDK knows it (0 chunk,
+/// 1 pointer).
+inline std::optional<PointerKind> pointer_kind_from_tag(std::uint8_t tag) {
+    switch (tag) {
+        case 0: return PointerKind::Chunk;
+        case 1: return PointerKind::Pointer;
+        default: return std::nullopt;
+    }
+}
+
+/// The write a pointer_prepare signs for an external signer to pay.
+enum class PointerOp {
+    /// Create the pointer at `target`. Refused if it already exists.
+    Create,
+    /// Point the pointer at `target`, creating it if it does not exist.
+    Update,
+    /// Hand the pointer over for good to the pointer at `recipient`, which
+    /// must already exist. Irreversible once stored.
+    Transfer,
+};
+
+/// Serialize a PointerOp to the wire string the daemon expects.
+inline std::string pointer_op_wire(PointerOp op) {
+    switch (op) {
+        case PointerOp::Create:   return "create";
+        case PointerOp::Update:   return "update";
+        case PointerOp::Transfer: return "transfer";
+    }
+    return "create";
+}
+
+/// A pointer the daemon holds an owner key for.
+struct PointerKey {
+    std::string address;  ///< the pointer's address, derived from the owner key
+};
+
+/// The state a pointer write stored.
+struct PointerWriteResult {
+    std::string address;
+    std::string state_id;       ///< the identifier the state was paid against
+    std::uint64_t counter{0};   ///< a final state (a transfer) sits at kPointerFinalCounter
+};
+
+/// A pointer's current state, as the network serves it.
+struct PointerRecord {
+    std::string address;
+    /// The owner's ML-DSA-65 public key (hex, 1,952 bytes). The address is
+    /// derived from it, so it is the proof of who owns the pointer.
+    std::string owner;
+    std::uint64_t counter{0};
+    /// "chunk", "pointer", or "unknown" for a kind the daemon does not know;
+    /// `kind_tag` carries the raw value either way.
+    std::string kind;
+    std::uint8_t kind_tag{0};
+    std::string target;
+    std::string state_id;
+    /// The state is at the final counter: the pointer was handed over or
+    /// frozen, and nothing can replace it.
+    bool is_final{false};
+    /// The pointer this one was handed over to, when its final state is a
+    /// transfer.
+    std::optional<std::string> transferred_to;
+
+    /// The target's kind, if this SDK knows its tag.
+    std::optional<PointerKind> target_kind() const { return pointer_kind_from_tag(kind_tag); }
+};
+
+/// Where a chain of pointers ends (pointer_resolve).
+struct PointerTarget {
+    /// "chunk", or "unknown" for a target kind the daemon does not know.
+    std::string kind;
+    std::uint8_t kind_tag{0};
+    std::string target;
+};
+
+/// Where a pointer stands with respect to finality, as its whole close group
+/// reports it. `Unknown` is a status this SDK does not know (a newer daemon);
+/// PointerFinality::status_raw then carries the daemon's string.
+enum class PointerFinalityStatus {
+    /// No peer that answered holds a final state: the owner can still move
+    /// the pointer. Rules a final state out only when every peer answered.
+    Open,
+    /// One final state, not yet held by a majority: a transfer still
+    /// spreading, or a write that fell short.
+    Settling,
+    /// One final state held by a majority, but not every peer answered, so a
+    /// rival could still be unseen. Ask again.
+    Unconfirmed,
+    /// One final state held by a majority, every peer answered, no rival.
+    /// The only status a recipient should rely on.
+    Final,
+    /// The owner signed two or more different final states.
+    Forked,
+    /// A status this SDK does not know; see PointerFinality::status_raw.
+    Unknown,
+};
+
+/// Parse the daemon's finality status string. Anything this SDK does not know
+/// is `Unknown`.
+inline PointerFinalityStatus pointer_finality_status_from_wire(std::string_view s) {
+    if (s == "open") return PointerFinalityStatus::Open;
+    if (s == "settling") return PointerFinalityStatus::Settling;
+    if (s == "unconfirmed") return PointerFinalityStatus::Unconfirmed;
+    if (s == "final") return PointerFinalityStatus::Final;
+    if (s == "forked") return PointerFinalityStatus::Forked;
+    return PointerFinalityStatus::Unknown;
+}
+
+/// One final state, as a finality check reports it.
+struct PointerFinalState {
+    std::string state_id;
+    std::string kind;
+    std::uint8_t kind_tag{0};
+    std::string target;
+    std::uint32_t holders{0};  ///< how many peers of the close group hold it
+    std::optional<std::string> transferred_to;
+};
+
+/// The answer to a pointer finality check. Check it before relying on a
+/// transfer: only `status == PointerFinalityStatus::Final` means the transfer
+/// is beyond dispute.
+struct PointerFinality {
+    std::string address;
+    std::uint32_t group{0};     ///< peers in the close group
+    std::uint32_t answered{0};  ///< peers that answered
+    PointerFinalityStatus status{PointerFinalityStatus::Unknown};
+    /// The daemon's status string, verbatim ("open", "final", ...). The only
+    /// way to read a status this SDK does not know (`status == Unknown`).
+    std::string status_raw;
+    /// `Open` only: the counter a read would return, if any state is
+    /// corroborated. Unset when none is (REST `null`, gRPC `""`).
+    std::optional<std::uint64_t> counter;
+    /// `Settling`, `Unconfirmed` and `Final`: the one final state seen.
+    std::optional<PointerFinalState> state;
+    /// `Forked` only: every final state seen, most-held first.
+    std::vector<PointerFinalState> states;
+    /// `Forked` only: the state a majority holds, which reads return.
+    std::optional<PointerFinalState> majority;
+    /// The pointer this one was handed over to, once that is beyond dispute
+    /// (status `Final`).
+    std::optional<std::string> transferred_to;
+
+    /// One final state, held by a majority, with every peer answering and no
+    /// rival seen.
+    bool is_final() const { return status == PointerFinalityStatus::Final; }
+};
+
+/// What a transfer stored, and where the close group says it stands.
+struct PointerTransferResult {
+    std::string address;
+    std::string state_id;
+    /// The close group's view once the write landed. Unset when that check
+    /// failed (see `finality_error`), which does not undo the transfer: it is
+    /// stored and final. Ask again with pointer_finality.
+    std::optional<PointerFinality> finality;
+    std::optional<std::string> finality_error;
+};
+
+/// Whose pointer decides what an address resolves to, after every transfer.
+struct PointerController {
+    std::string pointer;
+    std::vector<std::string> transfers;  ///< every pointer handed over to, in order
+    /// `pointer` is final without being handed over: nobody can move it.
+    bool frozen{false};
+};
+
+/// One `payments` quote in full signed form. `quote` and `commitment_sidecar`
+/// are opaque base64 blobs (msgpack inside) on both transports; only antd
+/// parses them.
+struct SignedQuoteEntry {
+    std::string quote_hash;  ///< hex with 0x prefix; matches the payments entry
+    std::string quote;       ///< base64(msgpack signed PaymentQuote), opaque
+    /// base64(msgpack StorageCommitment) the quote's commitment pin resolves
+    /// to. Unset for baseline quotes.
+    std::optional<std::string> commitment_sidecar;
+};
+
+/// A pointer write for the daemon to sign with its loaded owner key and quote
+/// for an external signer (pointer_prepare). Build one with create(), update()
+/// or transfer().
+struct PointerPrepareRequest {
+    /// Address of the pointer to write; the daemon must hold its key.
+    std::string owner;
+    PointerOp op{PointerOp::Create};
+    /// Create and update: the address to point at.
+    std::string target;
+    /// Create and update: what `target` is.
+    PointerKind kind{PointerKind::Chunk};
+    /// Transfer: the recipient's pointer, which must already exist.
+    std::string recipient;
+    /// Ask for every quote in full signed form (PointerPrepareResult::
+    /// signed_quotes), for offline verification.
+    bool include_signed_quotes{false};
+
+    static PointerPrepareRequest create(std::string owner, std::string target,
+                                        PointerKind kind = PointerKind::Chunk) {
+        PointerPrepareRequest r;
+        r.owner = std::move(owner);
+        r.op = PointerOp::Create;
+        r.target = std::move(target);
+        r.kind = kind;
+        return r;
+    }
+
+    static PointerPrepareRequest update(std::string owner, std::string target,
+                                        PointerKind kind = PointerKind::Chunk) {
+        PointerPrepareRequest r = create(std::move(owner), std::move(target), kind);
+        r.op = PointerOp::Update;
+        return r;
+    }
+
+    static PointerPrepareRequest transfer(std::string owner, std::string recipient) {
+        PointerPrepareRequest r;
+        r.owner = std::move(owner);
+        r.op = PointerOp::Transfer;
+        r.recipient = std::move(recipient);
+        return r;
+    }
+};
+
+/// A pointer write signed by the daemon and quoted for an external signer.
+/// Pay `payments` with payForQuotes(), then call pointer_finalize. While it
+/// awaits payment, other writes to the pointer throw ConflictError until it
+/// is finalized or expires.
+struct PointerPrepareResult {
+    std::string upload_id;
+    std::string op;  ///< "create", "update" or "transfer"
+    std::string address;
+    std::string state_id;
+    std::uint64_t counter{0};
+    std::string payment_type;  ///< always "wave_batch": one quote pays for a state
+    std::vector<PaymentInfo> payments;
+    std::string total_amount;  ///< atto tokens, decimal string
+    std::string payment_vault_address;
+    std::string payment_token_address;
+    std::string rpc_url;
+    /// Set only when requested with PointerPrepareRequest::include_signed_quotes.
+    std::vector<SignedQuoteEntry> signed_quotes;
+};
+
+/// The state a pointer finalize stored.
+struct PointerFinalizeResult {
+    std::string address;
+    std::string state_id;
+    std::uint64_t counter{0};
+    /// Transfers only: where the close group says the transfer stands.
+    std::optional<PointerFinality> finality;
 };
 
 }  // namespace antd
