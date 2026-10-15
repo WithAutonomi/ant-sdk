@@ -253,6 +253,61 @@ See [`docs/external-signer-flow.md` section 6](../docs/external-signer-flow.md#6
 for the daemon contract and `examples/07_external_signer.rb` for a
 `finalize_with_retry` helper.
 
+## Manifests
+
+A manifest (ADR-0006) describes a set of files in one `.ant` file or
+`ant://` link: each entry has an optional path and size, and either an
+embedded DataMap (from a private upload; the manifest is then the key to the
+file) or a public file's DataMap address. The daemon builds and decodes
+manifests, so the SDK never handles the format itself. These methods need the
+antd release after 0.15.0.
+
+**Nothing is uploaded or paid for.** Building one from DataMaps and addresses
+you already hold is free. Embedding roots (on build) and `resolve` (on
+decode) read from the network, so either can time out; retrying is safe.
+
+Both `Antd::Client` and `Antd::GrpcClient` have these methods:
+
+| Method | Description |
+|--------|-------------|
+| `build_manifest(entries, name: nil, torrent_info_hashes: nil, embed_roots: true)` | Build a manifest — returns `BuiltManifest` (`manifest`, the raw `.ant` bytes; `link`, or nil when it would exceed 1,500 bytes; `entries`, sorted by effective name). Each entry is a `ManifestEntryInput` or a Hash with `path`, `size`, and exactly one of `data_map` (hex) or `address` (hex); both or neither raises `ArgumentError` before anything is sent. By default the daemon resolves each shrunk DataMap and embeds its root when it is at most 64 KiB; `embed_roots: false` embeds them as given |
+| `decode_manifest(manifest, resolve: false)` | Decode `.ant` bytes — returns `DecodedManifest` (`source`, `name`, `torrent_info_hash_v1`/`_v2`, `entries`) |
+| `decode_manifest_link(link, resolve: false)` | Decode an `ant://manifest/` link, a file link or a bare 64-hex address (a `ManifestSource::FILE_LINK`: one public entry, no path) |
+
+Each entry comes back as a `ManifestEntryInfo`: `effective_name` (the path,
+or the content address when there is none), `path`, `size` (what the
+manifest records: the creator's claim), `kind` (`ManifestEntryKind::EMBEDDED`
+or `PUBLIC`), `content_address`, `data_map` (decode only, embedded entries
+only, in the hex form `data_get` and `file_get` take), `exact_size`, and
+`error`. With `resolve: true` the daemon fetches each DataMap (not the
+content) to fill in `exact_size`; an entry that fails gets an `error` instead
+of failing the call.
+
+`manifest` is always raw bytes: the SDK base64-encodes it for REST and sends
+it as-is over gRPC. Sizes are `Integer`s, and anything a manifest leaves unset
+is `nil` on both transports, so a missing `size` or `exact_size` is `nil`,
+never `0`. An entry the daemon rejects (a bad path such as `../x`, a malformed
+DataMap or address) raises `BadRequestError` (gRPC `INVALID_ARGUMENT`) with
+the daemon's message, which names `entries[i]`.
+
+Over gRPC, a manifest can be up to 64 MiB, past gRPC's 4 MiB default, so the
+client talks to ManifestService on a channel of its own with the send and
+receive limits raised to `Antd::MANIFEST_GRPC_MAX_MESSAGE` (256 MiB). The
+other services keep the defaults.
+
+```ruby
+a = client.data_put_public("one").address        # pays
+b = client.data_put_public("two").address        # pays
+built = client.build_manifest(
+  [{ path: "notes/one.txt", address: a }, { path: "notes/two.txt", address: b }],
+  name: "notes"
+)                                                # free
+File.binwrite("notes.ant", built.manifest)
+client.decode_manifest_link(built.link, resolve: true).entries.each do |e|
+  puts "#{e.effective_name}: #{e.exact_size} bytes"
+end
+```
+
 ## Examples
 
 See the [examples/](examples/) directory:
@@ -263,3 +318,4 @@ See the [examples/](examples/) directory:
 - `04_files.rb` — File upload and download
 - `06_private_data.rb` — Private data put/get
 - `07_external_signer.rb` — External-signer prepare/pay/finalize with a bounded partial-upload retry
+- `09_manifests.rb` — Store two pieces of public data, build a manifest of them, print its link and entries, and decode the link with `resolve`. `ANTD_BASE_URL` overrides the daemon URL. The two uploads pay; the manifest calls do not
