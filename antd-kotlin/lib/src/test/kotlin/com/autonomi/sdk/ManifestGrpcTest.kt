@@ -187,8 +187,10 @@ class ManifestGrpcTest {
     @Test
     fun `buildManifest rejects an entry with both or neither source before sending`() = runTest {
         for (bad in listOf(ManifestEntryInput(path = "x"), ManifestEntryInput(dataMap = "aa", address = ADDR))) {
-            val ex = assertFailsWith<IllegalArgumentException>("$bad") { client.buildManifest(listOf(bad)) }
-            assertEquals("manifest entry 0: set exactly one of dataMap or address", ex.message)
+            val ex = assertFailsWith<BadRequestException>("$bad") { client.buildManifest(listOf(bad)) }
+            assertEquals(400, ex.statusCode)
+            val reason = if (bad.dataMap == null) "needs a data_map or an address" else "give data_map or address, not both"
+            assertEquals("1 invalid entries: entries[0]: $reason", ex.message)
         }
         assertEquals(0, manifests.calls, "nothing may be sent")
     }
@@ -270,8 +272,11 @@ class ManifestGrpcTest {
 
     @Test
     fun `decode rejects empty input before sending`() = runTest {
-        assertFailsWith<IllegalArgumentException> { client.decodeManifest(ByteArray(0)) }
-        assertFailsWith<IllegalArgumentException> { client.decodeManifestLink("") }
+        for (call in listOf<suspend () -> Any>({ client.decodeManifest(ByteArray(0)) }, { client.decodeManifestLink("") })) {
+            val ex = assertFailsWith<BadRequestException> { call() }
+            assertEquals(400, ex.statusCode)
+            assertEquals("needs a manifest (base64 .ant bytes) or a link", ex.message)
+        }
         assertEquals(0, manifests.calls, "nothing may be sent")
     }
 

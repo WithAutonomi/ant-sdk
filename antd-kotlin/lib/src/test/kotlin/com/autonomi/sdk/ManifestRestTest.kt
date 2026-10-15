@@ -173,18 +173,36 @@ class ManifestRestTest {
     }
 
     @Test
-    fun `buildManifest rejects an entry with both or neither source before sending`() = runTest {
-        for (bad in listOf(
-            ManifestEntryInput(path = "x"),
-            ManifestEntryInput(dataMap = "", address = ""),
-            ManifestEntryInput(dataMap = "aa", address = ADDR),
-        )) {
-            val ex = assertFailsWith<IllegalArgumentException>("$bad") {
+    fun `buildManifest rejects entries with both or neither source before sending, in the daemon's words`() = runTest {
+        val cases = mapOf(
+            ManifestEntryInput(path = "x") to "1 invalid entries: entries[1]: needs a data_map or an address",
+            ManifestEntryInput(dataMap = "", address = "") to "1 invalid entries: entries[1]: needs a data_map or an address",
+            ManifestEntryInput(dataMap = "aa", address = ADDR) to "1 invalid entries: entries[1]: give data_map or address, not both",
+        )
+        for ((bad, message) in cases) {
+            val ex = assertFailsWith<BadRequestException>("$bad") {
                 client.buildManifest(listOf(ManifestEntryInput(address = ADDR), bad))
             }
-            assertEquals("manifest entry 1: set exactly one of dataMap or address", ex.message)
+            assertEquals(400, ex.statusCode)
+            assertEquals(message, ex.message)
         }
         assertTrue(daemon.requests.isEmpty(), "nothing may be sent: ${daemon.requests}")
+    }
+
+    @Test
+    fun `every bad entry is reported together, at most 20, then a count`() = runTest {
+        val two = assertFailsWith<BadRequestException> {
+            client.buildManifest(listOf(ManifestEntryInput(dataMap = "aa", address = ADDR), ManifestEntryInput(address = ADDR), ManifestEntryInput()))
+        }
+        assertEquals(400, two.statusCode)
+        assertEquals(
+            "2 invalid entries: entries[0]: give data_map or address, not both; entries[2]: needs a data_map or an address",
+            two.message,
+        )
+        val many = assertFailsWith<BadRequestException> { client.buildManifest(List(23) { ManifestEntryInput() }) }
+        val shown = (0 until 20).joinToString("; ") { "entries[$it]: needs a data_map or an address" }
+        assertEquals("23 invalid entries: $shown; and 3 more", many.message)
+        assertTrue(daemon.requests.isEmpty())
     }
 
     @Test
@@ -265,8 +283,11 @@ class ManifestRestTest {
 
     @Test
     fun `decode rejects empty input before sending`() = runTest {
-        assertFailsWith<IllegalArgumentException> { client.decodeManifest(ByteArray(0)) }
-        assertFailsWith<IllegalArgumentException> { client.decodeManifestLink("") }
+        for (call in listOf<suspend () -> Any>({ client.decodeManifest(ByteArray(0)) }, { client.decodeManifestLink("") })) {
+            val ex = assertFailsWith<BadRequestException> { call() }
+            assertEquals(400, ex.statusCode)
+            assertEquals("needs a manifest (base64 .ant bytes) or a link", ex.message)
+        }
         assertTrue(daemon.requests.isEmpty(), "nothing may be sent: ${daemon.requests}")
     }
 

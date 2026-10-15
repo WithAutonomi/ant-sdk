@@ -26,7 +26,7 @@ import java.util.Base64
 /**
  * One file for [IAntdClient.buildManifest]. Set exactly one of [dataMap] or
  * [address]; an empty string counts as unset. Both clients check this before
- * sending anything.
+ * sending anything and throw [BadRequestException].
  */
 data class ManifestEntryInput(
     /**
@@ -143,25 +143,41 @@ data class DecodedManifest(
  */
 internal const val MAX_MANIFEST_GRPC_MESSAGE: Int = 256 * 1024 * 1024
 
+/** Most entry errors the daemon lists in one message; the rest are counted. */
+private const val MAX_REPORTED_ENTRY_ERRORS = 20
+
 /**
- * Rejects an entry that sets both or neither of `dataMap` and `address`,
- * before anything is sent, as antd-go's `checkManifestEntries` does.
+ * Rejects entries that set both or neither of `dataMap` and `address`
+ * (an empty string is unset), before anything is sent. Every bad entry is
+ * reported, in the daemon's own wording (`antd/src/manifests.rs`
+ * `parse_entries` / `entry_errors_message`), so a client-side refusal reads
+ * exactly like the daemon's 400.
  *
- * @throws IllegalArgumentException naming the first bad entry's index.
+ * @throws BadRequestException (status 400) naming each bad entry's index.
  */
 internal fun checkManifestEntries(entries: List<ManifestEntryInput>) {
-    entries.forEachIndexed { i, e ->
-        require(e.dataMap.isNullOrEmpty() != e.address.isNullOrEmpty()) {
-            "manifest entry $i: set exactly one of dataMap or address"
+    val errors = entries.mapIndexedNotNull { i, e ->
+        when {
+            !e.dataMap.isNullOrEmpty() && !e.address.isNullOrEmpty() -> "entries[$i]: give data_map or address, not both"
+            e.dataMap.isNullOrEmpty() && e.address.isNullOrEmpty() -> "entries[$i]: needs a data_map or an address"
+            else -> null
         }
     }
+    if (errors.isEmpty()) return
+    var message = "${errors.size} invalid entries: ${errors.take(MAX_REPORTED_ENTRY_ERRORS).joinToString("; ")}"
+    if (errors.size > MAX_REPORTED_ENTRY_ERRORS) message += "; and ${errors.size - MAX_REPORTED_ENTRY_ERRORS} more"
+    throw BadRequestException(message, 400)
 }
 
-internal fun checkManifestBytes(manifest: ByteArray) =
-    require(manifest.isNotEmpty()) { "decodeManifest: manifest is empty" }
+private const val EMPTY_DECODE_INPUT = "needs a manifest (base64 .ant bytes) or a link"
 
-internal fun checkManifestLink(link: String) =
-    require(link.isNotEmpty()) { "decodeManifestLink: link is empty" }
+internal fun checkManifestBytes(manifest: ByteArray) {
+    if (manifest.isEmpty()) throw BadRequestException(EMPTY_DECODE_INPUT, 400)
+}
+
+internal fun checkManifestLink(link: String) {
+    if (link.isEmpty()) throw BadRequestException(EMPTY_DECODE_INPUT, 400)
+}
 
 // ── REST ──
 

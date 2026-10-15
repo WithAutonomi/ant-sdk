@@ -58,7 +58,7 @@ interface IAntdClient : Closeable {
      * (embedded) or [ManifestEntryInput.address] (public). [options] embeds
      * resolved roots by default ([BuildManifestOptions.embedRoots]).
      *
-     * @throws IllegalArgumentException if an entry sets both or neither, before anything is sent.
+     * @throws BadRequestException if an entry sets both or neither, before anything is sent (the daemon's own message).
      * @throws BadRequestException if the daemon rejects an entry (a path such as `../x`, a malformed DataMap).
      */
     suspend fun buildManifest(entries: List<ManifestEntryInput>, options: BuildManifestOptions = BuildManifestOptions()): BuiltManifest =
@@ -71,7 +71,7 @@ interface IAntdClient : Closeable {
      * fetched, and one entry's failure is reported in its
      * [ManifestEntryInfo.error], not as a failed call.
      *
-     * @throws IllegalArgumentException if [manifest] is empty, before anything is sent.
+     * @throws BadRequestException if [manifest] is empty, before anything is sent.
      * @throws BadRequestException if the bytes are not a manifest.
      */
     suspend fun decodeManifest(manifest: ByteArray, resolve: Boolean = false): DecodedManifest =
@@ -82,7 +82,7 @@ interface IAntdClient : Closeable {
      * (the last two as [DecodedManifest.source] "file_link", one public entry
      * with no path). See [decodeManifest] for [resolve].
      *
-     * @throws IllegalArgumentException if [link] is empty, before anything is sent.
+     * @throws BadRequestException if [link] is empty, before anything is sent.
      * @throws BadRequestException if it is not a link the daemon can read.
      */
     suspend fun decodeManifestLink(link: String, resolve: Boolean = false): DecodedManifest =

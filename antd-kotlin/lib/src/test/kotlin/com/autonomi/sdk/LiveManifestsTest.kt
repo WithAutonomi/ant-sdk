@@ -141,9 +141,20 @@ class LiveManifestsTest {
                 rest.buildManifest(listOf(ManifestEntryInput(address = one, path = "../x")))
             }
             assertTrue(bad.message!!.contains("entries[0]"), bad.message)
-            assertFailsWith<IllegalArgumentException> {
-                rest.buildManifest(listOf(ManifestEntryInput(address = one, dataMap = dataMap ?: "00")))
+            // The client-side refusal reads exactly like the daemon's 400 for the same request.
+            val refused = assertFailsWith<BadRequestException> {
+                rest.buildManifest(listOf(ManifestEntryInput(address = one), ManifestEntryInput(address = one, dataMap = "00")))
             }
+            assertEquals(400, refused.statusCode)
+            val raw = """{"entries":[{"address":"$one"},{"address":"$one","data_map":"00"}]}"""
+            val reply = java.net.http.HttpClient.newHttpClient().send(
+                java.net.http.HttpRequest.newBuilder(java.net.URI.create("$restUrl/v1/manifests/build"))
+                    .header("Content-Type", "application/json")
+                    .POST(java.net.http.HttpRequest.BodyPublishers.ofString(raw)).build(),
+                java.net.http.HttpResponse.BodyHandlers.ofString(),
+            )
+            assertEquals(400, reply.statusCode())
+            assertTrue(reply.body().contains(refused.message!!), "daemon said ${reply.body()}, client said ${refused.message}")
 
             // ── gRPC: the same manifest, byte for byte ──
             if (grpc != null) {
