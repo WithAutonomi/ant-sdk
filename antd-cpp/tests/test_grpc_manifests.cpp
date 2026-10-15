@@ -263,10 +263,16 @@ TEST_CASE("grpc build_manifest: defaults, keep_shrunk_data_maps and an explicit 
 
 TEST_CASE("grpc build_manifest refuses an ambiguous entry before any RPC") {
     ManifestFixture f;
-    CHECK_THROWS_AS(f.client().build_manifest({{.data_map = "aa", .address = "bb"}}),
-                    antd::BadRequestError);
-    CHECK_THROWS_AS(f.client().build_manifest({{.address = "11"}, {.path = "x"}}),
-                    antd::BadRequestError);
+    try {
+        (void)f.client().build_manifest(
+            {{.data_map = "aa", .address = "bb"}, {.address = "11"}, {.path = "x"}});
+        FAIL("expected BadRequestError");
+    } catch (const antd::BadRequestError& e) {
+        CHECK(e.status_code == 400);
+        CHECK(std::string(e.what()) ==
+              "antd error 400: 2 invalid entries: entries[0]: give data_map or address, "
+              "not both; entries[2]: needs a data_map or an address");
+    }
     CHECK(f.calls() == 0);
 }
 
@@ -315,8 +321,17 @@ TEST_CASE("grpc decode_manifest_link sends the link") {
 
 TEST_CASE("grpc decode refuses empty input before any RPC") {
     ManifestFixture f;
-    CHECK_THROWS_AS(f.client().decode_manifest({}), antd::BadRequestError);
-    CHECK_THROWS_AS(f.client().decode_manifest_link(""), antd::BadRequestError);
+    for (int i = 0; i < 2; ++i) {
+        try {
+            if (i == 0) (void)f.client().decode_manifest({});
+            else (void)f.client().decode_manifest_link("");
+            FAIL("expected BadRequestError");
+        } catch (const antd::BadRequestError& e) {
+            CHECK(e.status_code == 400);
+            CHECK(std::string(e.what()) ==
+                  "antd error 400: needs a manifest (base64 .ant bytes) or a link");
+        }
+    }
     CHECK(f.calls() == 0);
 }
 

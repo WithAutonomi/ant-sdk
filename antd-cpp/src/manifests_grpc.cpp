@@ -65,7 +65,7 @@ v1::BuildManifestRequest manifest_build_request(const std::vector<ManifestEntryI
 
 v1::DecodeManifestRequest manifest_decode_bytes_request(const std::vector<uint8_t>& manifest,
                                                         bool resolve) {
-    check_manifest_input(manifest.empty(), "manifest");
+    check_manifest_input(manifest.empty());
     v1::DecodeManifestRequest req;
     req.set_manifest(manifest.data(), manifest.size());
     req.set_resolve(resolve);
@@ -73,7 +73,7 @@ v1::DecodeManifestRequest manifest_decode_bytes_request(const std::vector<uint8_
 }
 
 v1::DecodeManifestRequest manifest_decode_link_request(std::string_view link, bool resolve) {
-    check_manifest_input(link.empty(), "link");
+    check_manifest_input(link.empty());
     v1::DecodeManifestRequest req;
     req.set_link(std::string(link));
     req.set_resolve(resolve);

@@ -111,23 +111,42 @@ struct DecodedManifest {
 
 namespace detail {
 
-/// Refuse, before anything is sent, an entry with both or neither of
-/// `data_map` and `address`. Throws BadRequestError naming `entries[i]`, as
-/// the daemon names the entries it rejects.
+/// Refuse, before anything is sent, every entry with both or neither of
+/// `data_map` and `address`. Throws BadRequestError (status 400) with the
+/// daemon's exact aggregated message, so a client-side refusal is
+/// indistinguishable from the daemon's 400: "{n} invalid entries:
+/// entries[i]: ...; entries[j]: ..." (at most 20 shown, then "; and {k}
+/// more"). An empty string counts as unset.
 inline void check_manifest_entries(const std::vector<ManifestEntryInput>& entries) {
+    constexpr std::size_t kMaxReported = 20;
+    std::vector<std::string> errors;
     for (std::size_t i = 0; i < entries.size(); ++i) {
-        if (entries[i].data_map.empty() == entries[i].address.empty()) {
-            throw BadRequestError("entries[" + std::to_string(i) +
-                                  "]: set exactly one of data_map or address");
+        const bool has_map = !entries[i].data_map.empty();
+        const bool has_addr = !entries[i].address.empty();
+        if (has_map == has_addr) {
+            errors.push_back("entries[" + std::to_string(i) + "]: " +
+                             (has_map ? "give data_map or address, not both"
+                                      : "needs a data_map or an address"));
         }
     }
+    if (errors.empty()) return;
+    std::string shown;
+    for (std::size_t i = 0; i < errors.size() && i < kMaxReported; ++i) {
+        if (i > 0) shown += "; ";
+        shown += errors[i];
+    }
+    std::string msg = std::to_string(errors.size()) + " invalid entries: " + shown;
+    if (errors.size() > kMaxReported) {
+        msg += "; and " + std::to_string(errors.size() - kMaxReported) + " more";
+    }
+    throw BadRequestError(msg);
 }
 
-/// Refuse empty `.ant` bytes or an empty link before sending, as antd-go
-/// does; the daemon would refuse them too.
-inline void check_manifest_input(bool empty, const char* what) {
+/// Refuse empty `.ant` bytes or an empty link before sending, with the
+/// daemon's message for a decode with no input.
+inline void check_manifest_input(bool empty) {
     if (empty) {
-        throw BadRequestError(std::string(what) + " is empty");
+        throw BadRequestError("needs a manifest (base64 .ant bytes) or a link");
     }
 }
 

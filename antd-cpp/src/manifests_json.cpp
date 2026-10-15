@@ -89,12 +89,12 @@ json manifest_build_body(const std::vector<ManifestEntryInput>& entries,
 }
 
 json manifest_decode_bytes_body(const std::vector<uint8_t>& manifest, bool resolve) {
-    check_manifest_input(manifest.empty(), "manifest");
+    check_manifest_input(manifest.empty());
     return json{{"manifest", base64_encode(manifest)}, {"resolve", resolve}};
 }
 
 json manifest_decode_link_body(std::string_view link, bool resolve) {
-    check_manifest_input(link.empty(), "link");
+    check_manifest_input(link.empty());
     return json{{"link", std::string(link)}, {"resolve", resolve}};
 }
 

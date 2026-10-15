@@ -33,6 +33,8 @@
 #include <string>
 #include <vector>
 
+#include <httplib.h>
+
 #include "antd/client.hpp"
 #include "antd/errors.hpp"
 #include "antd/manifests.hpp"
@@ -240,9 +242,27 @@ void round_trip(const Env& e, C& client, const char* transport) {
         check_fixture_link(e, client.decode_manifest_link(e.link, true));
     }
 
-    // Refused before sending: both sources on one entry.
-    CHECK_THROWS_AS(client.build_manifest({{.data_map = "aa", .address = e.fixtures[0].address}}),
-                    antd::BadRequestError);
+    // Refused before sending: both sources on one entry. The message is the
+    // daemon's own, so it equals what the daemon says for the same request.
+    try {
+        (void)client.build_manifest({{.data_map = "aa", .address = e.fixtures[0].address}});
+        FAIL("expected BadRequestError");
+    } catch (const antd::BadRequestError& err) {
+        CHECK(err.status_code == 400);
+        CHECK(std::string(err.what()) ==
+              "antd error 400: 1 invalid entries: entries[0]: give data_map or address, not both");
+    }
+    {
+        // The daemon's answer, for the same mistake sent past the client check.
+        httplib::Client raw(e.rest);
+        const std::string body = "{\"entries\":[{\"data_map\":\"aa\",\"address\":\"" +
+                                 e.fixtures[0].address + "\"}]}";
+        auto res = raw.Post("/v1/manifests/build", body, "application/json");
+        REQUIRE(res);
+        CHECK(res->status == 400);
+        CHECK(res->body.find("1 invalid entries: entries[0]: give data_map or address, not both") !=
+              std::string::npos);
+    }
     // Refused by the daemon, which names the entry.
     try {
         (void)client.build_manifest({{.address = e.fixtures[0].address},

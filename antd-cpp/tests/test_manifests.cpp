@@ -263,18 +263,44 @@ TEST_CASE("build_manifest refuses an entry with both or neither source before se
     };
     const std::vector<antd::ManifestEntryInput> neither = {{.path = "x.txt"}};
 
-    try {
-        (void)client.build_manifest(both);
-        FAIL("expected BadRequestError");
-    } catch (const antd::BadRequestError& e) {
-        CHECK(e.status_code == 400);
-        CHECK(std::string(e.what()).find("entries[1]") != std::string::npos);
+    const std::string prefix = "antd error 400: ";
+    const std::vector<antd::ManifestEntryInput> two_bad = {
+        {.data_map = "aa", .address = "bb"},
+        {.address = "11"},
+        {.path = "x.txt"},
+    };
+    struct Case {
+        const std::vector<antd::ManifestEntryInput>* in;
+        const char* msg;
+    };
+    const Case cases[] = {
+        {&both, "1 invalid entries: entries[1]: give data_map or address, not both"},
+        {&neither, "1 invalid entries: entries[0]: needs a data_map or an address"},
+        {&two_bad,
+         "2 invalid entries: entries[0]: give data_map or address, not both; "
+         "entries[2]: needs a data_map or an address"},
+    };
+    for (const auto& c : cases) {
+        try {
+            (void)client.build_manifest(*c.in);
+            FAIL("expected BadRequestError");
+        } catch (const antd::BadRequestError& e) {
+            CHECK(e.status_code == 400);
+            CHECK(std::string(e.what()) == prefix + c.msg);
+        }
     }
+    // An empty string counts as unset, and past 20 the rest are counted.
+    std::vector<antd::ManifestEntryInput> many(22);
     try {
-        (void)client.build_manifest(neither);
+        (void)client.build_manifest(many);
         FAIL("expected BadRequestError");
     } catch (const antd::BadRequestError& e) {
-        CHECK(std::string(e.what()).find("entries[0]") != std::string::npos);
+        const std::string m = e.what();
+        CHECK(m.rfind(prefix + "22 invalid entries: entries[0]: needs a data_map or an address; ", 0) == 0);
+        CHECK(m.find("entries[19]: needs") != std::string::npos);
+        CHECK(m.find("entries[20]") == std::string::npos);
+        CHECK(m.size() >= 12);
+        CHECK(m.substr(m.size() - 12) == "; and 2 more");
     }
     CHECK(s.count() == 0);
 }
@@ -395,8 +421,17 @@ TEST_CASE("the .ant bytes survive the base64 round trip") {
 TEST_CASE("empty bytes or an empty link are refused before sending") {
     StubServer s;
     antd::Client client(s.base_url());
-    CHECK_THROWS_AS(client.decode_manifest({}), antd::BadRequestError);
-    CHECK_THROWS_AS(client.decode_manifest_link(""), antd::BadRequestError);
+    for (int i = 0; i < 2; ++i) {
+        try {
+            if (i == 0) (void)client.decode_manifest({});
+            else (void)client.decode_manifest_link("");
+            FAIL("expected BadRequestError");
+        } catch (const antd::BadRequestError& e) {
+            CHECK(e.status_code == 400);
+            CHECK(std::string(e.what()) ==
+                  "antd error 400: needs a manifest (base64 .ant bytes) or a link");
+        }
+    }
     CHECK(s.count() == 0);
 }
 
