@@ -97,8 +97,34 @@ func TestBuildManifestDefaultsEmbedRoots(t *testing.T) {
 func TestBuildManifestRejectsAmbiguousEntriesBeforeSending(t *testing.T) {
 	c := NewClient("http://127.0.0.1:1") // never dialled
 	for _, e := range []ManifestEntryInput{{}, {DataMap: "aa", Address: "bb"}} {
-		if _, err := c.BuildManifest(context.Background(), []ManifestEntryInput{e}, nil); err == nil {
-			t.Fatalf("expected an error for %+v", e)
+		_, err := c.BuildManifest(context.Background(), []ManifestEntryInput{e}, nil)
+		var bad *BadRequestError
+		if !errors.As(err, &bad) || bad.StatusCode != http.StatusBadRequest {
+			t.Fatalf("expected *BadRequestError for %+v, got %T: %v", e, err, err)
+		}
+	}
+}
+
+// Pre-send rejections are the same *BadRequestError over REST and gRPC.
+func TestManifestClientSideRejectionsAreBadRequestOnBothTransports(t *testing.T) {
+	ctx := context.Background()
+	rest := NewClient("http://127.0.0.1:1") // never dialled
+	grpcc := startMockServer(t)
+	calls := map[string]func() error{
+		"rest build entry": func() error { _, err := rest.BuildManifest(ctx, []ManifestEntryInput{{}}, nil); return err },
+		"grpc build entry": func() error {
+			_, err := grpcc.BuildManifest(ctx, []ManifestEntryInput{{DataMap: "a", Address: "b"}}, nil)
+			return err
+		},
+		"rest empty bytes": func() error { _, err := rest.DecodeManifest(ctx, nil, false); return err },
+		"grpc empty bytes": func() error { _, err := grpcc.DecodeManifest(ctx, nil, false); return err },
+		"rest empty link":  func() error { _, err := rest.DecodeManifestLink(ctx, "", false); return err },
+		"grpc empty link":  func() error { _, err := grpcc.DecodeManifestLink(ctx, "", false); return err },
+	}
+	for name, call := range calls {
+		var bad *BadRequestError
+		if err := call(); !errors.As(err, &bad) {
+			t.Errorf("%s: expected *BadRequestError, got %T: %v", name, err, err)
 		}
 	}
 }

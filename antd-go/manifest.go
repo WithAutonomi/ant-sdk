@@ -2,7 +2,6 @@ package antd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 
@@ -97,10 +96,17 @@ type DecodedManifest struct {
 // manifest can be 64 MiB, and a decode response carries its DataMaps in hex.
 const maxManifestGrpcMessage = 256 * 1024 * 1024
 
+// badManifestRequest is a client-side rejection, before anything is sent. It
+// is the same *BadRequestError (status 400) the daemon's own 400 and gRPC
+// INVALID_ARGUMENT map to.
+func badManifestRequest(format string, args ...any) error {
+	return &BadRequestError{AntdError{StatusCode: http.StatusBadRequest, Message: fmt.Sprintf(format, args...)}}
+}
+
 func checkManifestEntries(entries []ManifestEntryInput) error {
 	for i, e := range entries {
 		if (e.DataMap == "") == (e.Address == "") {
-			return fmt.Errorf("antd: manifest entry %d: set exactly one of DataMap or Address", i)
+			return badManifestRequest("manifest entry %d: set exactly one of DataMap or Address", i)
 		}
 	}
 	return nil
@@ -168,7 +174,7 @@ func (c *Client) BuildManifest(ctx context.Context, entries []ManifestEntryInput
 // Requires the antd release after 0.15.0.
 func (c *Client) DecodeManifest(ctx context.Context, manifest []byte, resolve bool) (*DecodedManifest, error) {
 	if len(manifest) == 0 {
-		return nil, errors.New("antd: DecodeManifest: manifest is empty")
+		return nil, badManifestRequest("DecodeManifest: manifest is empty")
 	}
 	return c.decodeManifest(ctx, map[string]any{"manifest": b64Encode(manifest), "resolve": resolve})
 }
@@ -180,7 +186,7 @@ func (c *Client) DecodeManifest(ctx context.Context, manifest []byte, resolve bo
 // Requires the antd release after 0.15.0.
 func (c *Client) DecodeManifestLink(ctx context.Context, link string, resolve bool) (*DecodedManifest, error) {
 	if link == "" {
-		return nil, errors.New("antd: DecodeManifestLink: link is empty")
+		return nil, badManifestRequest("DecodeManifestLink: link is empty")
 	}
 	return c.decodeManifest(ctx, map[string]any{"link": link, "resolve": resolve})
 }
@@ -281,7 +287,7 @@ func (c *GrpcClient) BuildManifest(ctx context.Context, entries []ManifestEntryI
 // Requires the antd release after 0.15.0.
 func (c *GrpcClient) DecodeManifest(ctx context.Context, manifest []byte, resolve bool) (*DecodedManifest, error) {
 	if len(manifest) == 0 {
-		return nil, errors.New("antd: DecodeManifest: manifest is empty")
+		return nil, badManifestRequest("DecodeManifest: manifest is empty")
 	}
 	return c.decodeManifest(ctx, &pb.DecodeManifestRequest{
 		Input:   &pb.DecodeManifestRequest_Manifest{Manifest: manifest},
@@ -294,7 +300,7 @@ func (c *GrpcClient) DecodeManifest(ctx context.Context, manifest []byte, resolv
 // Requires the antd release after 0.15.0.
 func (c *GrpcClient) DecodeManifestLink(ctx context.Context, link string, resolve bool) (*DecodedManifest, error) {
 	if link == "" {
-		return nil, errors.New("antd: DecodeManifestLink: link is empty")
+		return nil, badManifestRequest("DecodeManifestLink: link is empty")
 	}
 	return c.decodeManifest(ctx, &pb.DecodeManifestRequest{
 		Input:   &pb.DecodeManifestRequest_Link{Link: link},
