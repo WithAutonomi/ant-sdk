@@ -112,6 +112,9 @@ export interface DecodedManifest {
 
 // ---- Wire forms ----
 
+/** The daemon's message for a decode with neither bytes nor a link. */
+const EMPTY_DECODE_INPUT = "needs a manifest (base64 .ant bytes) or a link";
+
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 
 function isSet(value: unknown): value is string {
@@ -139,25 +142,36 @@ function optionalSize(field: string, value: unknown): number | null {
   throw new InternalError(`antd: manifest ${field} ${JSON.stringify(value)} is not a size`);
 }
 
+/** Invalid entries listed in one message before it is cut short (the daemon's cap). */
+const MAX_REPORTED_ENTRY_ERRORS = 20;
+
 /**
- * Check entries the way the daemon will, before anything is sent: exactly
- * one of `dataMap` or `address`, and a size that is a non-negative integer.
- * Throws {@link BadRequestError} naming `entries[i]`, as the daemon's 400
- * does.
+ * Check entries the way the daemon will, before anything is sent, and word
+ * the refusal exactly as the daemon's 400 does (`parse_entries` and
+ * `entry_errors_message` in antd), so a client-side refusal and a daemon one
+ * cannot be told apart: every bad entry is collected, `entries[i]` is
+ * 0-based, and at most 20 are listed. Throws {@link BadRequestError} (400).
+ * The size check is this SDK's own (a JS number can be anything); it is
+ * reported in the same form.
  */
 function checkManifestEntries(entries: ManifestEntryInput[]): void {
+  const errors: string[] = [];
   entries.forEach((e, i) => {
-    if (isSet(e.dataMap) === isSet(e.address)) {
-      throw new BadRequestError(
-        `antd: manifest entries[${i}]: set exactly one of dataMap or address`,
-      );
-    }
+    const hasMap = isSet(e.dataMap);
+    const hasAddress = isSet(e.address);
+    if (hasMap && hasAddress) errors.push(`entries[${i}]: give data_map or address, not both`);
+    else if (!hasMap && !hasAddress) errors.push(`entries[${i}]: needs a data_map or an address`);
     if (e.size !== undefined && e.size !== null && !(Number.isSafeInteger(e.size) && e.size >= 0)) {
-      throw new BadRequestError(
-        `antd: manifest entries[${i}]: size ${String(e.size)} is not a non-negative integer`,
-      );
+      errors.push(`entries[${i}]: size ${String(e.size)} is not a non-negative integer`);
     }
   });
+  if (errors.length === 0) return;
+  const shown = errors.slice(0, MAX_REPORTED_ENTRY_ERRORS).join("; ");
+  const more =
+    errors.length > MAX_REPORTED_ENTRY_ERRORS
+      ? `; and ${errors.length - MAX_REPORTED_ENTRY_ERRORS} more`
+      : "";
+  throw new BadRequestError(`${errors.length} invalid entries: ${shown}${more}`, 400);
 }
 
 /** The `POST /v1/manifests/build` body. Throws before sending on a bad entry. */
@@ -192,7 +206,7 @@ export function manifestDecodeBody(
   resolve: boolean,
 ): Record<string, unknown> {
   if (manifest.byteLength === 0) {
-    throw new BadRequestError("antd: decodeManifest: manifest is empty");
+    throw new BadRequestError(EMPTY_DECODE_INPUT, 400);
   }
   // A view, not a copy: a manifest can be 64 MiB.
   const buf = Buffer.isBuffer(manifest)
@@ -204,7 +218,7 @@ export function manifestDecodeBody(
 /** The `POST /v1/manifests/decode` body for a link or bare address. */
 export function manifestLinkDecodeBody(link: string, resolve: boolean): Record<string, unknown> {
   if (!isSet(link)) {
-    throw new BadRequestError("antd: decodeManifestLink: link is empty");
+    throw new BadRequestError(EMPTY_DECODE_INPUT, 400);
   }
   return { link, resolve };
 }

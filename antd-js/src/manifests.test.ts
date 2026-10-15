@@ -219,25 +219,49 @@ describe("RestClient manifests", () => {
     });
 
     it.each([
-      ["neither", {}],
-      ["both", { dataMap: DM, address: ADDR }],
-      ["two empty strings", { dataMap: "", address: "" }],
-    ])("rejects an entry with %s before sending", async (_label, bad) => {
+      ["neither", {}, "needs a data_map or an address"],
+      ["both", { dataMap: DM, address: ADDR }, "give data_map or address, not both"],
+      ["two empty strings", { dataMap: "", address: "" }, "needs a data_map or an address"],
+    ])("rejects an entry with %s before sending, in the daemon's words", async (_l, bad, why) => {
       const calls = stubFetch(200, builtJson);
       const err = await rejection(client.buildManifest([{ address: ADDR }, bad]));
       expect(err).toBeInstanceOf(BadRequestError);
-      expect((err as Error).message).toContain("entries[1]");
-      expect((err as Error).message).toContain("exactly one of dataMap or address");
+      expect((err as BadRequestError).statusCode).toBe(400);
+      expect((err as Error).message).toBe(`1 invalid entries: entries[1]: ${why}`);
       expect(calls).toHaveLength(0);
     });
 
+    it("reports every bad entry together, 0-based, joined with a semicolon", async () => {
+      const calls = stubFetch(200, builtJson);
+      const err = await rejection(
+        client.buildManifest([{ dataMap: DM, address: ADDR }, { address: ADDR }, {}]),
+      );
+      expect(err).toBeInstanceOf(BadRequestError);
+      expect((err as BadRequestError).statusCode).toBe(400);
+      expect((err as Error).message).toBe(
+        "2 invalid entries: entries[0]: give data_map or address, not both; " +
+          "entries[2]: needs a data_map or an address",
+      );
+      expect(calls).toHaveLength(0);
+    });
+
+    it("lists at most 20 bad entries, then says how many more", async () => {
+      stubFetch(200, builtJson);
+      const err = await rejection(client.buildManifest(Array.from({ length: 23 }, () => ({}))));
+      const listed = Array.from({ length: 20 }, (_, i) => `entries[${i}]: needs a data_map or an address`);
+      expect((err as Error).message).toBe(`23 invalid entries: ${listed.join("; ")}; and 3 more`);
+    });
+
     it.each([[-1], [1.5], [Number.NaN], [2 ** 53]])(
-      "rejects a size of %s before sending",
+      "rejects a size of %s before sending, as entries[i]",
       async (size) => {
         const calls = stubFetch(200, builtJson);
-        const err = await rejection(client.buildManifest([{ size, address: ADDR }]));
+        const err = await rejection(client.buildManifest([{ address: ADDR }, { size, address: ADDR }]));
         expect(err).toBeInstanceOf(BadRequestError);
-        expect((err as Error).message).toContain("entries[0]");
+        expect((err as BadRequestError).statusCode).toBe(400);
+        expect((err as Error).message).toBe(
+          `1 invalid entries: entries[1]: size ${String(size)} is not a non-negative integer`,
+        );
         expect(calls).toHaveLength(0);
       },
     );
@@ -341,7 +365,10 @@ describe("RestClient manifests", () => {
 
     it("rejects empty bytes before sending", async () => {
       const calls = stubFetch(200, decodedJson);
-      expect(await rejection(client.decodeManifest(new Uint8Array(0)))).toBeInstanceOf(BadRequestError);
+      const err = await rejection(client.decodeManifest(new Uint8Array(0)));
+      expect(err).toBeInstanceOf(BadRequestError);
+      expect((err as BadRequestError).statusCode).toBe(400);
+      expect((err as Error).message).toBe("needs a manifest (base64 .ant bytes) or a link");
       expect(calls).toHaveLength(0);
     });
 
@@ -388,7 +415,10 @@ describe("RestClient manifests", () => {
 
     it("rejects an empty link before sending", async () => {
       const calls = stubFetch(200, decodedJson);
-      expect(await rejection(client.decodeManifestLink(""))).toBeInstanceOf(BadRequestError);
+      const err = await rejection(client.decodeManifestLink(""));
+      expect(err).toBeInstanceOf(BadRequestError);
+      expect((err as BadRequestError).statusCode).toBe(400);
+      expect((err as Error).message).toBe("needs a manifest (base64 .ant bytes) or a link");
       expect(calls).toHaveLength(0);
     });
   });

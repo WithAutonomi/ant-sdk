@@ -155,7 +155,35 @@ describe.skipIf(!enabled)("live: manifest build and decode", () => {
       .buildManifest([{ path: "x.txt", dataMap, address: addresses[0] }])
       .catch((e: unknown) => e);
     expect(both).toBeInstanceOf(BadRequestError);
-    expect((both as Error).message).toContain("entries[0]");
+    expect((both as BadRequestError).statusCode).toBe(400);
+    expect((both as Error).message).toBe(
+      "1 invalid entries: entries[0]: give data_map or address, not both",
+    );
+
+    // The same mistake sent past the client check: the daemon's 400 must
+    // read exactly the same (it adds only its "Bad request: " prefix).
+    const raw = await fetch(`${url}/v1/manifests/build`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entries: [{ path: "x.txt", data_map: dataMap, address: addresses[0] }] }),
+    });
+    expect(raw.status).toBe(400);
+    const daemonMsg = ((await raw.json()) as { error: string }).error;
+    expect(daemonMsg).toBe(`Bad request: ${(both as Error).message}`);
+
+    // Two bad entries at once, and neither source.
+    const two = await client
+      .buildManifest([{ path: "a" }, { address: addresses[0] }, { dataMap, address: addresses[1] }])
+      .catch((e: unknown) => e);
+    expect((two as Error).message).toBe(
+      "2 invalid entries: entries[0]: needs a data_map or an address; " +
+        "entries[2]: give data_map or address, not both",
+    );
+
+    // Empty decode input.
+    const empty = await client.decodeManifestLink("").catch((e: unknown) => e);
+    expect(empty).toBeInstanceOf(BadRequestError);
+    expect((empty as Error).message).toBe("needs a manifest (base64 .ant bytes) or a link");
 
     // A path that escapes its root: the daemon's 400, naming the entry.
     const escape = await client
