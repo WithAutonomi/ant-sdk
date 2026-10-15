@@ -25,8 +25,69 @@ public final class AlreadyExistsError: AntdError {
     }
 }
 
-public final class ForkError: AntdError {
+/// A version conflict or fork was detected (HTTP 409; gRPC ABORTED that is not
+/// a partial upload or a tagged ``ConflictError``).
+///
+/// Not `final`: ``PointerForkedError`` subclasses it, so a
+/// `catch let e as ForkError` also catches a forked pointer.
+public class ForkError: AntdError {
     public override init(_ message: String, statusCode: Int = 409) {
+        super.init(message, statusCode: statusCode)
+    }
+}
+
+/// The pointer is at its final state, transferred or frozen: nothing can
+/// update it or hand it over again (HTTP 409 with `code: "POINTER_FINAL"`;
+/// gRPC FAILED_PRECONDITION with `x-antd-error-code: POINTER_FINAL`). Refused
+/// before anything is paid.
+public final class PointerFinalError: AntdError {
+    public override init(_ message: String, statusCode: Int = 409) {
+        super.init(message, statusCode: statusCode)
+    }
+}
+
+/// The pointer's owner signed two different final states and no one of them
+/// is held by a majority of the close group, so there is no answer to give
+/// (HTTP 409 with `code: "POINTER_FORKED"`; gRPC FAILED_PRECONDITION with
+/// `x-antd-error-code: POINTER_FORKED`). A ``ForkError`` subclass.
+public final class PointerForkedError: ForkError {
+    public override init(_ message: String, statusCode: Int = 409) {
+        super.init(message, statusCode: statusCode)
+    }
+}
+
+/// The request conflicts with the resource's current state (HTTP 409 with
+/// `code: "CONFLICT"`; gRPC ABORTED with `x-antd-error-code: CONFLICT`). For
+/// pointers: a write while a prepared write to the same pointer awaits
+/// payment (finalize it, or wait for it to expire), or an update that lost to
+/// a newer state while it was in flight.
+public final class ConflictError: AntdError {
+    public override init(_ message: String, statusCode: Int = 409) {
+        super.init(message, statusCode: statusCode)
+    }
+}
+
+/// Too few of an address's close group answered, or took a write, for the
+/// result to be the network's (HTTP 503 with `code: "CLOSE_GROUP_SHORTFALL"`;
+/// gRPC UNAVAILABLE with `x-antd-error-code: CLOSE_GROUP_SHORTFALL`).
+///
+/// Reads are free to retry. A paid write is not, unless ``retryable`` is
+/// `true`: a pointer finalize then kept the paid state under the same
+/// `upload_id`, and repeating that finalize stores it against the same
+/// payment. Over REST ``retryable`` is the body's `retryable` field; over
+/// gRPC it is set when the status message closes with the daemon's
+/// `(paid attempt retained...)` hint.
+///
+/// A direct ``AntdError`` subclass, not a ``ServiceUnavailableError`` or
+/// ``NetworkError``: catch it by name.
+public final class CloseGroupShortfallError: AntdError {
+    /// `true` when a pointer finalize kept the paid state for a repeat with
+    /// the same `upload_id`. `false` otherwise, including every read and every
+    /// daemon-wallet write.
+    public let retryable: Bool
+
+    public init(_ message: String, retryable: Bool = false, statusCode: Int = 503) {
+        self.retryable = retryable
         super.init(message, statusCode: statusCode)
     }
 }
@@ -130,7 +191,8 @@ public final class ServiceUnavailableError: AntdError {
 /// enables the same-`upload_id` retry nor reads as a confirmed "nothing
 /// retained". SDK releases up to 0.13.x mapped every
 /// gRPC ABORTED to ``ForkError``; a partial-upload ABORTED now maps here
-/// (the daemon emits ABORTED only for `PARTIAL_UPLOAD`). See
+/// (besides `PARTIAL_UPLOAD`, the daemon emits ABORTED only for `CONFLICT`,
+/// tagged with `x-antd-error-code`, which maps to ``ConflictError``). See
 /// `docs/external-signer-flow.md` §6.
 ///
 /// A subclass of ``NetworkError``, the type a REST partial upload mapped to
@@ -180,6 +242,18 @@ enum ErrorMapping {
     /// Machine-readable `code` the daemon sends for a partial store.
     static let partialUploadCode = "PARTIAL_UPLOAD"
 
+    /// Codes the daemon sends for errors that share a status with older ones.
+    /// REST carries them in the body's `code`; gRPC in the
+    /// ``antdErrorCodeMetadataKey`` trailer.
+    static let pointerFinalCode = "POINTER_FINAL"
+    static let pointerForkedCode = "POINTER_FORKED"
+    static let conflictCode = "CONFLICT"
+    static let closeGroupShortfallCode = "CLOSE_GROUP_SHORTFALL"
+
+    /// gRPC metadata key the daemon sets on statuses whose code is shared with
+    /// older errors, carrying the REST `code` string.
+    static let antdErrorCodeMetadataKey = "x-antd-error-code"
+
     /// Fixed opening text of every `PARTIAL_UPLOAD` message the daemon emits.
     /// Over gRPC (where the status carries no structured `code`) this is what
     /// distinguishes a partial upload from any other ABORTED.
@@ -212,8 +286,9 @@ enum ErrorMapping {
         #"Partial upload: (\d+)/(\d+) chunks stored, (\d+) failed"#
 
     /// Shape of the daemon's `{"error": ..., "code": ...}` envelope. The
-    /// count fields and `retryable` are only present for `PARTIAL_UPLOAD`;
-    /// `retryable` is also absent on daemons older than 0.14.0.
+    /// count fields are only present for `PARTIAL_UPLOAD`, and `retryable`
+    /// only for `PARTIAL_UPLOAD` and a `CLOSE_GROUP_SHORTFALL` from a pointer
+    /// finalize; `retryable` is also absent on daemons older than 0.14.0.
     ///
     /// The fields are typed, so the envelope enforces the wire contract: a
     /// count that is not a JSON non-negative integer within `UInt64` (a
@@ -245,23 +320,52 @@ enum ErrorMapping {
     /// are surfaced as a ``PartialUploadError``. Absent or `null` counts read
     /// zero. `retentionKnown` is `true` only when `retryable` is present as a
     /// JSON boolean, so an absent or `null` `retryable` (daemons older than
-    /// 0.14.0) reads as unknown retention and not retryable. Every other
+    /// 0.14.0) reads as unknown retention and not retryable. The codes that
+    /// share a status with older errors map to their own types:
+    /// `POINTER_FINAL` → ``PointerFinalError``, `POINTER_FORKED` →
+    /// ``PointerForkedError``, `CONFLICT` → ``ConflictError`` (all 409s, never
+    /// ``AlreadyExistsError``), and `CLOSE_GROUP_SHORTFALL` →
+    /// ``CloseGroupShortfallError`` (a 503, with `retryable` only when the
+    /// body says `true`). Their message is the body's `error` text. Every other
     /// body, including an envelope whose fields carry the wrong JSON types
     /// (see ``ErrorBodyDTO``), keeps the status-based mapping, so a malformed
     /// body always yields a typed ``AntdError`` and no decoding error
     /// reaches the caller.
     static func fromHTTPStatus(_ statusCode: Int, body: String) -> AntdError {
-        if let envelope = try? JSONDecoder().decode(ErrorBodyDTO.self, from: Data(body.utf8)),
-           envelope.code == partialUploadCode {
-            return PartialUploadError(
-                envelope.error ?? body,
-                chunksStored: envelope.chunksStored ?? 0,
-                chunksFailed: envelope.chunksFailed ?? 0,
-                totalChunks: envelope.totalChunks ?? 0,
-                retryable: envelope.retryable ?? false,
-                retentionKnown: envelope.retryable != nil,
-                statusCode: statusCode
-            )
+        if let envelope = try? JSONDecoder().decode(ErrorBodyDTO.self, from: Data(body.utf8)) {
+            if envelope.code == partialUploadCode {
+                return PartialUploadError(
+                    envelope.error ?? body,
+                    chunksStored: envelope.chunksStored ?? 0,
+                    chunksFailed: envelope.chunksFailed ?? 0,
+                    totalChunks: envelope.totalChunks ?? 0,
+                    retryable: envelope.retryable ?? false,
+                    retentionKnown: envelope.retryable != nil,
+                    statusCode: statusCode
+                )
+            }
+            // The codes that share an HTTP status with older errors: the 409s
+            // must not read as AlreadyExistsError, nor the shortfall's 503 as
+            // ServiceUnavailableError.
+            let message = envelope.error ?? body
+            switch envelope.code {
+            case pointerFinalCode:
+                return PointerFinalError(message, statusCode: statusCode)
+            case pointerForkedCode:
+                return PointerForkedError(message, statusCode: statusCode)
+            case conflictCode:
+                return ConflictError(message, statusCode: statusCode)
+            case closeGroupShortfallCode:
+                // Present, and true, only on a pointer finalize that kept the
+                // paid state; anything else reads as not retained.
+                return CloseGroupShortfallError(
+                    message,
+                    retryable: envelope.retryable == true,
+                    statusCode: statusCode
+                )
+            default:
+                break
+            }
         }
         switch statusCode {
         case 400: return BadRequestError(body, statusCode: statusCode)
@@ -276,7 +380,12 @@ enum ErrorMapping {
         }
     }
 
-    static func fromGRPCStatus(code: Int, detail: String) -> AntdError {
+    /// Maps a failed gRPC call to an ``AntdError``. `antdErrorCode` is the
+    /// daemon's `x-antd-error-code` trailer, when it sent one.
+    static func fromGRPCStatus(code: Int, detail: String, antdErrorCode: String? = nil) -> AntdError {
+        if let typed = fromTaggedGRPCStatus(code: code, detail: detail, antdErrorCode: antdErrorCode) {
+            return typed
+        }
         // gRPC status codes: 5=NOT_FOUND, 6=ALREADY_EXISTS, 10=ABORTED,
         // 3=INVALID_ARGUMENT, 9=FAILED_PRECONDITION, 14=UNAVAILABLE,
         // 8=RESOURCE_EXHAUSTED, 13=INTERNAL
@@ -319,6 +428,50 @@ enum ErrorMapping {
         }
     }
 
+    /// The typed error for a status the daemon tagged with
+    /// `x-antd-error-code`, when the tag and the gRPC code agree:
+    /// FAILED_PRECONDITION (9) for `POINTER_FINAL` / `POINTER_FORKED`, ABORTED
+    /// (10) for `CONFLICT`, UNAVAILABLE (14) for `CLOSE_GROUP_SHORTFALL`.
+    /// Anything else (no tag, a tag this SDK does not know, or a tag on an
+    /// unexpected code) is `nil` and keeps the code-based mapping, so an
+    /// untagged FAILED_PRECONDITION is still a ``PaymentError``.
+    private static func fromTaggedGRPCStatus(code: Int, detail: String, antdErrorCode: String?) -> AntdError? {
+        guard let tag = antdErrorCode else { return nil }
+        switch (code, tag) {
+        case (9, pointerFinalCode):
+            return PointerFinalError(detail)
+        case (9, pointerForkedCode):
+            return PointerForkedError(detail)
+        case (10, conflictCode):
+            return ConflictError(detail)
+        case (14, closeGroupShortfallCode):
+            // gRPC carries no structured detail: a retained pointer finalize
+            // closes its message with the same "(paid attempt retained...)"
+            // hint a retained partial upload does.
+            return CloseGroupShortfallError(detail, retryable: closingRetentionHint(detail) == true)
+        default:
+            return nil
+        }
+    }
+
+    /// Reads the parenthesised hint that closes a daemon message (see
+    /// `partialUploadRetentionTailPattern`): `true` for the retained hint,
+    /// `false` for the not-retained hint, `nil` when the message does not end
+    /// with either (missing, truncated, quoted mid-message, or followed by
+    /// more text).
+    static func closingRetentionHint(_ message: String) -> Bool? {
+        guard let tailRegex = try? NSRegularExpression(pattern: partialUploadRetentionTailPattern),
+              let tail = tailRegex.firstMatch(
+                  in: message,
+                  range: NSRange(message.startIndex..., in: message)
+              ),
+              let hintRange = Range(tail.range(at: 1), in: message)
+        else {
+            return nil
+        }
+        return message[hintRange] == partialUploadRetainedHint
+    }
+
     /// Recovers the chunk counts and the retention flags from a
     /// `PARTIAL_UPLOAD` message. Used for gRPC, where the status carries no
     /// structured detail; REST callers get the body fields instead.
@@ -358,15 +511,9 @@ enum ErrorMapping {
         else {
             return (0, 0, 0, false, false)
         }
-        guard let tailRegex = try? NSRegularExpression(pattern: partialUploadRetentionTailPattern),
-              let tail = tailRegex.firstMatch(
-                  in: message,
-                  range: NSRange(message.startIndex..., in: message)
-              ),
-              let hintRange = Range(tail.range(at: 1), in: message)
-        else {
+        guard let retained = closingRetentionHint(message) else {
             return (stored, failed, total, false, false)
         }
-        return (stored, failed, total, message[hintRange] == partialUploadRetainedHint, true)
+        return (stored, failed, total, retained, true)
     }
 }

@@ -80,4 +80,96 @@ public protocol AntdClientProtocol: Sendable {
     /// the `uploadId` and `winnerPoolHash`, and reconcile before re-preparing
     /// or paying again.
     func finalizeMerkleUpload(uploadId: String, winnerPoolHash: String) async throws -> FinalizeMerkleUploadResult
+
+    // Pointers (antd with the pointer API, after 0.15.0)
+    //
+    // Owner-signed, paid, mutable references. antd signs with the owner keys
+    // it loaded at startup (`--pointer-keys`); a write names the pointer by
+    // its address (`owner`), never by a key, and an owner the daemon holds no
+    // key for is a ``BadRequestError``.
+    //
+    // Every write pays, about the price of one chunk, and every attempt pays
+    // again. The SDK never retries `pointerCreate`, `pointerUpdate`,
+    // `pointerTransfer` or `pointerFinalize` on its own, and callers should
+    // not either (the one exception is a ``CloseGroupShortfallError`` with
+    // `retryable` from `pointerFinalize`, which reuses the payment). Reads
+    // are free to retry; a ``CloseGroupShortfallError`` on a read usually
+    // clears once an update in flight settles.
+
+    /// The pointers this daemon holds owner keys for (`GET /v1/pointers/keys`).
+    /// Only these can be written through this daemon.
+    func pointerKeys() async throws -> [PointerKey]
+
+    /// Creates the pointer at `owner`, pointing at `target`, paid by the
+    /// daemon wallet. Pays once; never retried. Throws ``AlreadyExistsError``,
+    /// before anything is paid, if the pointer exists: use
+    /// ``pointerUpdate(owner:target:kind:)``.
+    func pointerCreate(owner: String, target: String, kind: PointerKind) async throws -> PointerWriteResult
+
+    /// Points the pointer at `owner` at `target`, paid by the daemon wallet,
+    /// creating it (at counter 0) if it does not exist. Pays once; never
+    /// retried. Throws ``PointerFinalError``, before anything is paid, if the
+    /// pointer has been transferred or frozen.
+    func pointerUpdate(owner: String, target: String, kind: PointerKind) async throws -> PointerWriteResult
+
+    /// Hands the pointer at `owner` over to the pointer at `recipient`, for
+    /// good, paid by the daemon wallet. Readers of the address are redirected
+    /// to the recipient's pointer, which only its owner can move. Irreversible
+    /// once stored. Pays once; never retried.
+    ///
+    /// Refused before paying if the pointer is already final
+    /// (``PointerFinalError``), if `recipient` does not exist or leads back
+    /// (``BadRequestError``), or if not every peer of the close group answered
+    /// (``CloseGroupShortfallError``; try again later).
+    func pointerTransfer(owner: String, recipient: String) async throws -> PointerTransferResult
+
+    /// Reads the pointer at `address`. Throws ``NotFoundError`` if there is
+    /// none.
+    func pointerGet(address: String) async throws -> PointerRecord
+
+    /// Follows a chain of pointers from `address` to the target at its end,
+    /// through forwardings and transfers alike. Throws ``NotFoundError`` if a
+    /// pointer on the chain does not exist.
+    func pointerResolve(address: String) async throws -> PointerTarget
+
+    /// Asks the whole close group where the pointer at `address` stands.
+    /// Check it before relying on a transfer: only
+    /// ``PointerFinalityStatus/final`` means one final state, held by a
+    /// majority, with no rival seen.
+    func pointerFinality(address: String) async throws -> PointerFinality
+
+    /// Follows the transfers of the pointer at `address` to the pointer whose
+    /// owner now decides what it resolves to.
+    func pointerController(address: String) async throws -> PointerController
+
+    /// Has the daemon sign `op` on the pointer at `owner` with its loaded key
+    /// and quote it for an external signer. Pay
+    /// ``PointerPrepareResult/payments`` with `payForQuotes()`, then call
+    /// ``pointerFinalize(uploadId:txHashes:)``. Needs no daemon wallet.
+    ///
+    /// Every check the daemon-wallet writes make before paying is made here,
+    /// before anything is quoted. While the prepared write awaits payment
+    /// (up to an hour), other writes to the pointer throw ``ConflictError``.
+    func pointerPrepare(owner: String, op: PointerOp, options: PointerPrepareOptions) async throws -> PointerPrepareResult
+
+    /// Stores a prepared pointer write once its external signer has paid.
+    /// `txHashes` maps each `quoteHash` from the prepare's payments to the
+    /// `payForQuotes()` transaction hash.
+    ///
+    /// A write that falls short after payment throws
+    /// ``CloseGroupShortfallError`` with `retryable == true`: the daemon kept
+    /// the paid state under the same `uploadId`, and calling this method
+    /// again with the same `uploadId` stores it against the same payment
+    /// (`txHashes` is then ignored). Bound that loop; the SDK never runs it
+    /// for you. A finalize without the payment's hashes is a
+    /// ``BadRequestError`` and keeps the session, so it can be corrected.
+    func pointerFinalize(uploadId: String, txHashes: [String: String]) async throws -> PointerFinalizeResult
+}
+
+extension AntdClientProtocol {
+    /// ``pointerPrepare(owner:op:options:)`` with default options (no signed
+    /// quotes).
+    public func pointerPrepare(owner: String, op: PointerOp) async throws -> PointerPrepareResult {
+        try await pointerPrepare(owner: owner, op: op, options: PointerPrepareOptions())
+    }
 }

@@ -81,6 +81,52 @@ All methods are `async throws` for use with Swift concurrency.
 | **Data** | `dataPutPublic`, `dataGetPublic`, `dataPut`, `dataGet`, `dataCost`. Private `dataPut` returns a caller-held DataMap (NOT stored on-network); public `dataPutPublic` stores the DataMap on-network at the returned address. All puts and `dataCost` accept a `PaymentMode` parameter. |
 | **Chunks** | `chunkPut`, `chunkGet` |
 | **Files** | `filePut`, `fileGet`, `filePutPublic`, `fileGetPublic`, `fileCost`. Private variants return a caller-held DataMap (NOT stored on-network); public variants store the DataMap on-network at the returned address. All puts and `fileCost` accept a `PaymentMode` parameter. |
+| **Pointers** | `pointerKeys`, `pointerCreate`, `pointerUpdate`, `pointerTransfer`, `pointerGet`, `pointerResolve`, `pointerFinality`, `pointerController`, and `pointerPrepare` / `pointerFinalize` for an external signer. See [Pointers](#pointers). |
+
+## Pointers
+
+A pointer is a small, owner-signed, mutable reference. Its address is derived from the owner's key and never changes. The owner can point it at a new target (a chunk, such as a public upload's address, or another pointer), and can hand it over to another pointer for good with `pointerTransfer`. Both REST and gRPC clients implement the full pointer API (antd with the pointer API, after 0.15.0).
+
+antd signs with the owner keys it loaded at startup (`antd --pointer-keys`). A write names the pointer by its address (`owner`), never by a key. `pointerKeys()` lists the pointers the daemon can write, and an owner it holds no key for is a `BadRequestError`.
+
+> **Every pointer write pays, and every attempt pays again.** `pointerCreate`, `pointerUpdate`, `pointerTransfer` and `pointerFinalize` each cost about one chunk's storage price. The SDK never retries them on its own, and you should not retry them automatically either. Reads (`pointerGet`, `pointerResolve`, `pointerFinality`, `pointerController`, `pointerKeys`) are free to retry.
+
+```swift
+let client = AntdClient.createRest()
+let owner = "<a pointer address from pointerKeys()>"
+
+let first = try await client.dataPutPublic(Data("v1".utf8), paymentMode: .auto)
+let second = try await client.dataPutPublic(Data("v2".utf8), paymentMode: .auto)
+
+let created = try await client.pointerCreate(owner: owner, target: first.address, kind: .chunk)  // pays
+let updated = try await client.pointerUpdate(owner: owner, target: second.address, kind: .chunk) // pays again
+print(created.counter, updated.counter)                     // 0 1
+
+let record = try await client.pointerGet(address: owner)     // counter, target, isFinal, transferredTo
+let target = try await client.pointerResolve(address: owner) // follows the chain to its end
+let finality = try await client.pointerFinality(address: owner)
+print(record.counter, target.target, finality.status)        // 1 <second.address> open
+```
+
+- **Counters are `UInt64`.** The daemon sends them as decimal strings because a final state (a transfer) sits at `UInt64.max` (`PointerRecord.finalCounter`). A counter that is not a plain decimal `UInt64` throws `InternalError` rather than reading as zero.
+- **Unset values are `nil`** on both transports (REST sends `null`, gRPC an empty string or an absent message): `PointerFinality.counter`, `.state`, `.majority`, `.transferredTo`, and `PointerRecord.transferredTo`.
+- **`PointerRecord.isFinal`** is the wire field `is_final` (`final` is a Swift keyword). `PointerFinalityStatus` is `.open`, `.settling`, `.unconfirmed`, `.final` or `.forked`, with `.unknown(String)` for a status a newer daemon may add. Only `.final` means a transfer is beyond dispute.
+- **Addresses** are 64 hex characters. The daemon accepts a `0x` prefix but always returns bare hex, so strip the prefix before comparing.
+- **External signer:** `pointerPrepare(owner:op:)` (or `pointerPrepare(owner:op:options:)` with `includeSignedQuotes`) signs a `.create`, `.update` or `.transfer` and returns a wave-batch quote. Pay it with `payForQuotes()`, then call `pointerFinalize(uploadId:txHashes:)`. While the prepared write awaits payment (up to an hour), other writes to that pointer throw `ConflictError`. A finalize that falls short after payment throws `CloseGroupShortfallError` with `retryable == true`. The daemon kept the paid state, so calling `pointerFinalize` again with the same `uploadId` stores it against the same payment. Bound that loop yourself.
+
+Pointer errors:
+
+| Error | HTTP | gRPC | When |
+|---|---|---|---|
+| `AlreadyExistsError` | 409 `ALREADY_EXISTS` | ALREADY_EXISTS | `pointerCreate` on a pointer that exists (nothing paid) |
+| `PointerFinalError` | 409 `POINTER_FINAL` | FAILED_PRECONDITION + `x-antd-error-code: POINTER_FINAL` | write to a transferred or frozen pointer (nothing paid) |
+| `PointerForkedError` (a `ForkError`) | 409 `POINTER_FORKED` | FAILED_PRECONDITION + `x-antd-error-code: POINTER_FORKED` | the owner signed rival final states and none holds a majority |
+| `ConflictError` | 409 `CONFLICT` | ABORTED + `x-antd-error-code: CONFLICT` | a write while a prepared write to the pointer awaits payment |
+| `CloseGroupShortfallError` | 503 `CLOSE_GROUP_SHORTFALL` | UNAVAILABLE + `x-antd-error-code: CLOSE_GROUP_SHORTFALL` | too few of the close group answered or stored; `retryable` only on a retained `pointerFinalize` |
+
+Over REST these map from the error body's `code`; over gRPC from the `x-antd-error-code` trailer, and only when it agrees with the status code (an untagged FAILED_PRECONDITION is still a `PaymentError`).
+
+**Upgrading:** the pointer methods are new requirements on `AntdClientProtocol`, so a type of your own that conforms to it (a test double, say) must implement them. The REST and gRPC clients and the factory are unaffected. `ForkError` is no longer `final`, so that `PointerForkedError` can subclass it. Daemons with the pointer API send `CLOSE_GROUP_SHORTFALL` on any path where too few of a close group answered. Before, that was a 500 `InternalError`; now it is `CloseGroupShortfallError` on both transports.
 
 ## Error Handling
 
@@ -102,13 +148,14 @@ do {
 |---|---|---|---|
 | `NotFoundError` | 404 | NOT_FOUND | Resource not found |
 | `AlreadyExistsError` | 409 | ALREADY_EXISTS | Resource already exists |
-| `ForkError` | 409 | ABORTED (non-partial-upload) | Conflicting update |
+| `ForkError` | 409 | ABORTED (not a partial upload or a tagged `CONFLICT`) | Conflicting update |
 | `BadRequestError` | 400 | INVALID_ARGUMENT | Invalid input |
 | `PaymentError` | 402 | FAILED_PRECONDITION | Insufficient funds |
 | `NetworkError` | 502 | UNAVAILABLE | Network unreachable |
 | `PartialUploadError` | 502 (`code: "PARTIAL_UPLOAD"`) | ABORTED (message starts with `Partial upload:`) | Finalize stored some chunks but not all; a `NetworkError` subclass (see below) |
 | `TooLargeError` | 413 | RESOURCE_EXHAUSTED | Data too large |
 | `InternalError` | 500 | INTERNAL | Server error |
+| `PointerFinalError`, `PointerForkedError`, `ConflictError`, `CloseGroupShortfallError` | 409 / 503, by `code` | by `x-antd-error-code` trailer | See [Pointers](#pointers) |
 
 ### Partial uploads (external-signer finalize)
 
@@ -122,7 +169,7 @@ A `finalizeUpload` / `finalizeMerkleUpload` where some chunks stayed unstored af
 
 Over REST the counts and `retryable` come from the structured error body. The counts must be JSON non-negative integers and `retryable` a JSON boolean: a body where any of them has another JSON type (a quoted `"1"` or `"true"`, a negative number, an array) is not trusted as a partial upload and keeps the status-based mapping, so a 502 stays a plain `NetworkError`. `retentionKnown` is `true` only when the body carries `retryable` as a JSON boolean; an absent or `null` `retryable` reads as unknown.
 
-Over gRPC only an ABORTED status whose message *starts with* the daemon's fixed `Partial upload:` prefix is a partial upload; any other ABORTED, including one that mentions the prefix further in, stays a `ForkError`. The counts and retention are parsed from that message (`Partial upload: <stored>/<total> chunks stored, <failed> failed after retries: <reason> (<hint>)`). `retentionKnown` is `true` only when all three counts parsed and the message ends with one of the daemon's two hints: `(paid attempt retained...)` sets `retryable`, and `(stored chunks persist; re-prepare the same content...)` means the daemon confirmed nothing was retained (daemons older than 0.14.0 write only this one). A message whose counts do not parse reads zero counts, unknown retention and `retryable == false`. Readable counts with a missing, truncated or unrecognised hint, or with text after it, keep the counts but also read unknown retention and `retryable == false`: stop and reconcile rather than re-prepare. SDK releases up to 0.13.x mapped every gRPC ABORTED to `ForkError`; a partial-upload ABORTED now maps to `PartialUploadError` (the daemon emits ABORTED only for `PARTIAL_UPLOAD`).
+Over gRPC only an ABORTED status whose message *starts with* the daemon's fixed `Partial upload:` prefix is a partial upload; any other ABORTED, including one that mentions the prefix further in, stays a `ForkError` (or a `ConflictError` when the daemon tags it `CONFLICT`). The counts and retention are parsed from that message (`Partial upload: <stored>/<total> chunks stored, <failed> failed after retries: <reason> (<hint>)`). `retentionKnown` is `true` only when all three counts parsed and the message ends with one of the daemon's two hints: `(paid attempt retained...)` sets `retryable`, and `(stored chunks persist; re-prepare the same content...)` means the daemon confirmed nothing was retained (daemons older than 0.14.0 write only this one). A message whose counts do not parse reads zero counts, unknown retention and `retryable == false`. Readable counts with a missing, truncated or unrecognised hint, or with text after it, keep the counts but also read unknown retention and `retryable == false`: stop and reconcile rather than re-prepare. SDK releases up to 0.13.x mapped every gRPC ABORTED to `ForkError`; a partial-upload ABORTED now maps to `PartialUploadError` (besides `PARTIAL_UPLOAD`, the daemon emits ABORTED only for a tagged `CONFLICT`, which maps to `ConflictError`).
 
 `PartialUploadError` subclasses `NetworkError`, so an existing `catch let e as NetworkError` still catches a partial upload. Catch `PartialUploadError` *before* `NetworkError` and the generic `AntdError` clause:
 
@@ -153,7 +200,12 @@ See `finalizeWithRetry` in `Sources/AntdExamples/Main.swift` and the contract in
 ```bash
 swift run AntdExamples 1      # Connect
 swift run AntdExamples 2      # Public Data
-swift run AntdExamples all    # All examples
+swift run AntdExamples all    # All examples (not pointers)
+
+# Pointers: create, update, resolve, finality. Pays for each write and needs
+# a never-written pointer address the daemon holds a key for, so it runs only
+# when named. ANTD_BASE_URL overrides the daemon URL.
+ANTD_POINTER_OWNER=<address> swift run AntdExamples pointers   # or: 9
 ```
 
 ## Building
