@@ -189,7 +189,26 @@ class LiveManifestsTest extends TestCase
         $e = $this->catchAntdError(fn() => $client->decodeManifest('not a manifest'));
         $this->assertInstanceOf(BadRequestError::class, $e);
 
-        $this->expectException(\InvalidArgumentException::class);
-        $client->buildManifest([new ManifestEntryInput(dataMap: $dataMap ?? 'aa', address: $one)]);
+        // Refused before sending, and worded exactly as the daemon words it:
+        // send the same mistake past the client check (raw REST) and compare.
+        $local = $this->catchAntdError(fn() => $client->buildManifest([
+            new ManifestEntryInput(path: 'ok.txt', address: $one),
+            new ManifestEntryInput(dataMap: $dataMap ?? 'aa', address: $one),
+            new ManifestEntryInput(path: 'c.txt'),
+        ]));
+        $this->assertInstanceOf(BadRequestError::class, $local);
+        $this->assertSame(400, $local->statusCode);
+        $remote = null;
+        try {
+            (new \GuzzleHttp\Client())->post($url . '/v1/manifests/build', ['json' => ['entries' => [
+                ['path' => 'ok.txt', 'address' => $one],
+                ['data_map' => $dataMap ?? 'aa', 'address' => $one],
+                ['path' => 'c.txt'],
+            ]]]);
+        } catch (\GuzzleHttp\Exception\ClientException $ex) {
+            $remote = json_decode((string) $ex->getResponse()->getBody(), true)['error'] ?? null;
+        }
+        $this->assertIsString($remote);
+        $this->assertSame('antd error 400: ' . $remote, $local->getMessage());
     }
 }

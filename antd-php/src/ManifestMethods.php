@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Autonomi\Antd;
 
+use Autonomi\Antd\Errors\BadRequestError;
 use Autonomi\Antd\Models\BuildManifestOptions;
 use Autonomi\Antd\Models\BuiltManifest;
 use Autonomi\Antd\Models\DecodedManifest;
@@ -32,19 +33,22 @@ use GuzzleHttp\Promise\PromiseInterface;
  */
 trait ManifestMethods
 {
+    /** The daemon's 400 text (its error body adds the "Bad request: " prefix, which the client-side refusals repeat) for a decode with neither bytes nor a link. */
+    private const MANIFEST_INPUT_MISSING = 'needs a manifest (base64 .ant bytes) or a link';
+
     /**
      * Build a `.ant` manifest via `POST /v1/manifests/build`.
      *
      * Each entry must set exactly one of `dataMap` or `address`, and a size
-     * must not be negative; an entry that breaks either rule throws before
-     * anything is sent. The daemon checks the rest (hex, portable paths,
-     * colliding names) and names every invalid entry (`entries[i]: ...`) in
-     * a {@see \Autonomi\Antd\Errors\BadRequestError}.
+     * must not be negative; a bad entry throws a {@see BadRequestError}
+     * before anything is sent, worded as the daemon's 400 is (every bad
+     * entry named as `entries[i]: ...`). The daemon checks the rest (hex,
+     * portable paths, colliding names) the same way.
      *
      * @param list<ManifestEntryInput> $entries
      * @param BuildManifestOptions|null $options Null: the daemon's defaults (root embedding on).
-     * @throws \InvalidArgumentException for an entry with both or neither of dataMap and address.
-     * @throws \Autonomi\Antd\Errors\BadRequestError for an entry the daemon refuses.
+     * @throws BadRequestError for an entry with both or neither of dataMap and address.
+     * @throws BadRequestError for an entry the daemon refuses.
      * @throws \Autonomi\Antd\Errors\NotFoundError when a shrunk DataMap's wrapper records are not on the network.
      */
     public function buildManifest(array $entries, ?BuildManifestOptions $options = null): BuiltManifest
@@ -60,7 +64,7 @@ trait ManifestMethods
      *
      * @param list<ManifestEntryInput> $entries
      * @return PromiseInterface<BuiltManifest>
-     * @throws \InvalidArgumentException for an entry with both or neither of dataMap and address.
+     * @throws BadRequestError for an entry with both or neither of dataMap and address.
      */
     public function buildManifestAsync(array $entries, ?BuildManifestOptions $options = null): PromiseInterface
     {
@@ -78,8 +82,8 @@ trait ManifestMethods
      * reported in its `error`, not as a failed call.
      *
      * @param string $manifest The raw `.ant` bytes.
-     * @throws \InvalidArgumentException if `$manifest` is empty.
-     * @throws \Autonomi\Antd\Errors\BadRequestError if the bytes are not a manifest.
+     * @throws BadRequestError if `$manifest` is empty.
+     * @throws BadRequestError if the bytes are not a manifest.
      */
     public function decodeManifest(string $manifest, bool $resolve = false): DecodedManifest
     {
@@ -92,7 +96,7 @@ trait ManifestMethods
      * Async: decode `.ant` bytes. An empty `$manifest` throws synchronously.
      *
      * @return PromiseInterface<DecodedManifest>
-     * @throws \InvalidArgumentException if `$manifest` is empty.
+     * @throws BadRequestError if `$manifest` is empty.
      */
     public function decodeManifestAsync(string $manifest, bool $resolve = false): PromiseInterface
     {
@@ -107,8 +111,8 @@ trait ManifestMethods
      * `source: "file_link"` with one public entry and no path. See
      * {@see decodeManifest()} for `$resolve`.
      *
-     * @throws \InvalidArgumentException if `$link` is empty.
-     * @throws \Autonomi\Antd\Errors\BadRequestError if `$link` is not a link or address.
+     * @throws BadRequestError if `$link` is empty.
+     * @throws BadRequestError if `$link` is not a link or address.
      */
     public function decodeManifestLink(string $link, bool $resolve = false): DecodedManifest
     {
@@ -122,7 +126,7 @@ trait ManifestMethods
      * throws synchronously.
      *
      * @return PromiseInterface<DecodedManifest>
-     * @throws \InvalidArgumentException if `$link` is empty.
+     * @throws BadRequestError if `$link` is empty.
      */
     public function decodeManifestLinkAsync(string $link, bool $resolve = false): PromiseInterface
     {
@@ -139,23 +143,32 @@ trait ManifestMethods
      *
      * @param array<mixed> $entries
      * @return array<string, mixed>
-     * @throws \InvalidArgumentException
+     * @throws BadRequestError
      */
     private static function manifestBuildBody(array $entries, ?BuildManifestOptions $options): array
     {
         $options ??= new BuildManifestOptions();
         $wire = [];
+        $errors = [];
         foreach (array_values($entries) as $i => $entry) {
             if (!$entry instanceof ManifestEntryInput) {
-                throw new \InvalidArgumentException("buildManifest: entries[{$i}] is not a ManifestEntryInput");
+                $errors[] = "entries[{$i}]: not a ManifestEntryInput";
+                continue;
             }
+            // An empty string is "not given", as the daemon reads it.
             $hasDataMap = $entry->dataMap !== null && $entry->dataMap !== '';
             $hasAddress = $entry->address !== null && $entry->address !== '';
-            if ($hasDataMap === $hasAddress) {
-                throw new \InvalidArgumentException("buildManifest: entries[{$i}]: set exactly one of dataMap or address");
+            if ($hasDataMap && $hasAddress) {
+                $errors[] = "entries[{$i}]: give data_map or address, not both";
+                continue;
+            }
+            if (!$hasDataMap && !$hasAddress) {
+                $errors[] = "entries[{$i}]: needs a data_map or an address";
+                continue;
             }
             if ($entry->size !== null && $entry->size < 0) {
-                throw new \InvalidArgumentException("buildManifest: entries[{$i}]: size must not be negative");
+                $errors[] = "entries[{$i}]: size must not be negative";
+                continue;
             }
             $item = [];
             if ($entry->path !== null && $entry->path !== '') {
@@ -171,6 +184,13 @@ trait ManifestMethods
             }
             $wire[] = $item;
         }
+        if ($errors !== []) {
+            // The daemon's wording (antd/src/manifests.rs entry_errors_message):
+            // every bad entry, at most 20 shown.
+            $shown = implode('; ', array_slice($errors, 0, 20));
+            $more = count($errors) > 20 ? '; and ' . (count($errors) - 20) . ' more' : '';
+            throw new BadRequestError("Bad request: " . count($errors) . " invalid entries: {$shown}{$more}");
+        }
         $body = ['entries' => $wire, 'embed_roots' => $options->embedRoots];
         if ($options->name !== null && $options->name !== '') {
             $body['name'] = $options->name;
@@ -183,24 +203,24 @@ trait ManifestMethods
 
     /**
      * @return array<string, string|bool>
-     * @throws \InvalidArgumentException
+     * @throws BadRequestError
      */
     private static function manifestDecodeBytesBody(string $manifest, bool $resolve): array
     {
         if ($manifest === '') {
-            throw new \InvalidArgumentException('decodeManifest: manifest is empty');
+            throw new BadRequestError("Bad request: " . self::MANIFEST_INPUT_MISSING);
         }
         return ['manifest' => base64_encode($manifest), 'resolve' => $resolve];
     }
 
     /**
      * @return array<string, string|bool>
-     * @throws \InvalidArgumentException
+     * @throws BadRequestError
      */
     private static function manifestDecodeLinkBody(string $link, bool $resolve): array
     {
         if ($link === '') {
-            throw new \InvalidArgumentException('decodeManifestLink: link is empty');
+            throw new BadRequestError("Bad request: " . self::MANIFEST_INPUT_MISSING);
         }
         return ['link' => $link, 'resolve' => $resolve];
     }

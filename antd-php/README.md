@@ -106,7 +106,7 @@ read from the network, so they can time out; retrying any of these calls is safe
 
 | Method | Description |
 |--------|-------------|
-| `buildManifest(array $entries, ?BuildManifestOptions $options = null)` | Build a manifest from `ManifestEntryInput`s — returns `BuiltManifest` (`manifest`: the raw `.ant` bytes; `link`: null when it would exceed 1,500 bytes; `entries`). Each entry sets exactly one of `dataMap` or `address`: both or neither throws `\InvalidArgumentException` before anything is sent. `BuildManifestOptions` takes `name`, `torrentInfoHashes` and `embedRoots` (default `true`: a shrunk DataMap's root is resolved and embedded when it is at most 64 KiB; `false` embeds DataMaps exactly as given) |
+| `buildManifest(array $entries, ?BuildManifestOptions $options = null)` | Build a manifest from `ManifestEntryInput`s — returns `BuiltManifest` (`manifest`: the raw `.ant` bytes; `link`: null when it would exceed 1,500 bytes; `entries`). Each entry sets exactly one of `dataMap` or `address`: both or neither throws `BadRequestError` (400, worded as the daemon words its own) before anything is sent. `BuildManifestOptions` takes `name`, `torrentInfoHashes` and `embedRoots` (default `true`: a shrunk DataMap's root is resolved and embedded when it is at most 64 KiB; `false` embeds DataMaps exactly as given) |
 | `decodeManifest(string $manifest, bool $resolve = false)` | Decode raw `.ant` bytes — returns `DecodedManifest` (`source`, `name`, `torrentInfoHashV1`, `torrentInfoHashV2`, `entries`) |
 | `decodeManifestLink(string $link, bool $resolve = false)` | Decode an `ant://` manifest link, file link or bare address. A file link or address reads as `source: "file_link"` with one public entry and no path |
 

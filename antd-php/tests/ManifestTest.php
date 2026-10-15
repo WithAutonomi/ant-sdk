@@ -178,11 +178,19 @@ class ManifestTest extends TestCase
     {
         $ok = new ManifestEntryInput(address: '11');
         return [
-            'neither' => [[new ManifestEntryInput(path: 'a.txt')], 'entries[0]: set exactly one of dataMap or address'],
-            'both' => [[$ok, new ManifestEntryInput(dataMap: 'aa', address: 'bb')], 'entries[1]: set exactly one of dataMap or address'],
-            'both empty strings' => [[new ManifestEntryInput(dataMap: '', address: '')], 'entries[0]: set exactly one'],
-            'negative size' => [[$ok, $ok, new ManifestEntryInput(size: -1, address: '11')], 'entries[2]: size must not be negative'],
-            'not an entry' => [[$ok, ['address' => '11']], 'entries[1] is not a ManifestEntryInput'],
+            'neither' => [[new ManifestEntryInput(path: 'a.txt')], '1 invalid entries: entries[0]: needs a data_map or an address'],
+            'both' => [[$ok, new ManifestEntryInput(dataMap: 'aa', address: 'bb')], '1 invalid entries: entries[1]: give data_map or address, not both'],
+            'both empty strings' => [[new ManifestEntryInput(dataMap: '', address: '')], '1 invalid entries: entries[0]: needs a data_map or an address'],
+            'two bad entries' => [
+                [new ManifestEntryInput(dataMap: 'aa', address: 'bb'), $ok, new ManifestEntryInput(path: 'c.txt')],
+                '2 invalid entries: entries[0]: give data_map or address, not both; entries[2]: needs a data_map or an address',
+            ],
+            'negative size' => [[$ok, $ok, new ManifestEntryInput(size: -1, address: '11')], '1 invalid entries: entries[2]: size must not be negative'],
+            'not an entry' => [[$ok, ['address' => '11']], '1 invalid entries: entries[1]: not a ManifestEntryInput'],
+            'more than 20' => [
+                array_fill(0, 23, new ManifestEntryInput()),
+                '23 invalid entries: ' . implode('; ', array_map(fn($i) => "entries[{$i}]: needs a data_map or an address", range(0, 19))) . '; and 3 more',
+            ],
         ];
     }
 
@@ -191,25 +199,22 @@ class ManifestTest extends TestCase
     public function testBuildRejectsABadEntryBeforeSending(array $entries, string $message): void
     {
         $client = $this->client(); // an empty MockHandler: any request would fail the test
-        try {
-            $client->buildManifest($entries);
-            $this->fail('Expected an InvalidArgumentException');
-        } catch (\InvalidArgumentException $e) {
-            $this->assertStringContainsString($message, $e->getMessage());
-        }
+        $e = $this->catchAntdError(fn() => $client->buildManifest($entries));
+        $this->assertInstanceOf(BadRequestError::class, $e);
+        $this->assertSame(400, $e->statusCode);
+        $this->assertSame("antd error 400: Bad request: {$message}", $e->getMessage());
         $this->assertSame([], $this->history);
     }
 
+    /** @param list<mixed> $entries */
     #[DataProvider('invalidEntries')]
     public function testBuildAsyncRejectsABadEntryBeforeSending(array $entries, string $message): void
     {
         $client = $this->client();
-        try {
-            $client->buildManifestAsync($entries);
-            $this->fail('Expected an InvalidArgumentException');
-        } catch (\InvalidArgumentException $e) {
-            $this->assertStringContainsString($message, $e->getMessage());
-        }
+        $e = $this->catchAntdError(fn() => $client->buildManifestAsync($entries));
+        $this->assertInstanceOf(BadRequestError::class, $e);
+        $this->assertSame(400, $e->statusCode);
+        $this->assertSame("antd error 400: Bad request: {$message}", $e->getMessage());
         $this->assertSame([], $this->history);
     }
 
@@ -375,12 +380,10 @@ class ManifestTest extends TestCase
             fn() => $client->decodeManifestLink(''),
             fn() => $client->decodeManifestLinkAsync(''),
         ] as $call) {
-            try {
-                $call();
-                $this->fail('Expected an InvalidArgumentException');
-            } catch (\InvalidArgumentException $e) {
-                $this->assertStringContainsString('empty', $e->getMessage());
-            }
+            $e = $this->catchAntdError($call);
+            $this->assertInstanceOf(BadRequestError::class, $e);
+            $this->assertSame(400, $e->statusCode);
+            $this->assertSame('antd error 400: Bad request: needs a manifest (base64 .ant bytes) or a link', $e->getMessage());
         }
         $this->assertSame([], $this->history);
     }
