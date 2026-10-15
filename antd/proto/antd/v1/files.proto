@@ -45,6 +45,9 @@ message PutFilePublicResponse {
   uint64 chunks_stored = 5;
   // Which payment mode was actually used ("auto", "merkle", or "single").
   string payment_mode_used = 6;
+  // SHA-256 of the uploaded plaintext, hex: a standard whole-file hash that
+  // tools outside Autonomi can check (V2-1564).
+  string sha256 = 7;
 }
 
 // --- Private PUT (uploads chunks only; DataMap returned to caller) ---
@@ -61,6 +64,9 @@ message PutFileResponse {
   uint64 chunks_stored = 4;
   // Which payment mode was actually used ("auto", "merkle", or "single").
   string payment_mode_used = 5;
+  // SHA-256 of the uploaded plaintext, hex: a standard whole-file hash that
+  // tools outside Autonomi can check (V2-1564).
+  string sha256 = 6;
 }
 
 // --- Public GET (download by on-network DataMap address) ---

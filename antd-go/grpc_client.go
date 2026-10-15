@@ -245,6 +245,7 @@ func (c *GrpcClient) DataPut(ctx context.Context, data []byte, paymentMode Payme
 	}
 	return &DataPutResult{
 		DataMap:         resp.GetDataMap(),
+		Sha256:          resp.GetSha256(),
 		ChunksStored:    resp.GetChunksStored(),
 		PaymentModeUsed: resp.GetPaymentModeUsed(),
 	}, nil
@@ -277,6 +278,7 @@ func (c *GrpcClient) DataPutPublic(ctx context.Context, data []byte, paymentMode
 	}
 	return &DataPutPublicResult{
 		Address:         resp.GetAddress(),
+		Sha256:          resp.GetSha256(),
 		ChunksStored:    resp.GetChunksStored(),
 		PaymentModeUsed: resp.GetPaymentModeUsed(),
 	}, nil
@@ -635,6 +637,7 @@ func (c *GrpcClient) FilePut(ctx context.Context, path string, paymentMode Payme
 	}
 	return &FilePutResult{
 		DataMap:         resp.GetDataMap(),
+		Sha256:          resp.GetSha256(),
 		StorageCostAtto: resp.GetStorageCostAtto(),
 		GasCostWei:      resp.GetGasCostWei(),
 		ChunksStored:    resp.GetChunksStored(),
@@ -670,6 +673,7 @@ func (c *GrpcClient) FilePutPublic(ctx context.Context, path string, paymentMode
 	}
 	return &FilePutPublicResult{
 		Address:         resp.GetAddress(),
+		Sha256:          resp.GetSha256(),
 		StorageCostAtto: resp.GetStorageCostAtto(),
 		GasCostWei:      resp.GetGasCostWei(),
 		ChunksStored:    resp.GetChunksStored(),
@@ -1028,6 +1032,7 @@ func (c *GrpcClient) FinalizeUpload(ctx context.Context, uploadID string, txHash
 	}
 	return &FinalizeUploadResult{
 		DataMap:        resp.GetDataMap(),
+		Sha256:         resp.GetSha256(),
 		Address:        resp.GetAddress(),
 		DataMapAddress: resp.GetDataMapAddress(),
 		ChunksStored:   int64(resp.GetChunksStored()),
@@ -1055,6 +1060,7 @@ func (c *GrpcClient) FinalizeMerkleUpload(ctx context.Context, uploadID string, 
 	}
 	return &FinalizeUploadResult{
 		DataMap:        resp.GetDataMap(),
+		Sha256:         resp.GetSha256(),
 		Address:        resp.GetAddress(),
 		DataMapAddress: resp.GetDataMapAddress(),
 		ChunksStored:   int64(resp.GetChunksStored()),
@@ -1081,6 +1087,7 @@ func (c *GrpcClient) FinalizeMerkleUploadMulti(ctx context.Context, uploadID str
 	}
 	return &FinalizeUploadResult{
 		DataMap:        resp.GetDataMap(),
+		Sha256:         resp.GetSha256(),
 		Address:        resp.GetAddress(),
 		DataMapAddress: resp.GetDataMapAddress(),
 		ChunksStored:   int64(resp.GetChunksStored()),

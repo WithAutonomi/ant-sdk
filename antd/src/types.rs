@@ -14,6 +14,9 @@ pub struct DataPutRequest {
 #[derive(Serialize)]
 pub struct DataPutPublicResponse {
     pub address: String,
+    /// SHA-256 of the uploaded plaintext, hex: a standard whole-file hash
+    /// that tools outside Autonomi can check (V2-1564).
+    pub sha256: String,
     pub chunks_stored: usize,
     pub payment_mode_used: String,
 }
@@ -35,6 +38,9 @@ pub struct DataCostRequest {
 #[derive(Serialize)]
 pub struct DataPutResponse {
     pub data_map: String, // hex-encoded serialized data map
+    /// SHA-256 of the uploaded plaintext, hex: a standard whole-file hash
+    /// that tools outside Autonomi can check (V2-1564).
+    pub sha256: String,
     pub chunks_stored: usize,
     pub payment_mode_used: String,
 }
@@ -411,6 +417,9 @@ pub struct FinalizeUploadRequest {
 pub struct FinalizeUploadResponse {
     /// Hex-encoded serialized DataMap. Always returned.
     pub data_map: String,
+    /// SHA-256 of the uploaded plaintext, hex: a standard whole-file hash
+    /// that tools outside Autonomi can check (V2-1564).
+    pub sha256: String,
     /// Network address of the stored DataMap, only set when the legacy
     /// `store_data_map=true` path published the DataMap via the daemon's
     /// internal wallet. New callers should prefer `visibility:"public"`
@@ -441,6 +450,9 @@ pub struct FilePutRequest {
 #[derive(Serialize)]
 pub struct FilePutPublicResponse {
     pub address: String,
+    /// SHA-256 of the uploaded plaintext, hex: a standard whole-file hash
+    /// that tools outside Autonomi can check (V2-1564).
+    pub sha256: String,
     /// Total storage cost paid in token units (atto). "0" if all chunks already existed.
     pub storage_cost_atto: String,
     /// Total gas cost paid in wei, as a decimal string (u128 exceeds JSON safe-integer range).
@@ -457,6 +469,9 @@ pub struct FilePutResponse {
     /// Hex-encoded rmp_serde-serialized DataMap. The caller keeps this; it is
     /// NOT stored on the network. Same shape as `DataPutResponse.data_map`.
     pub data_map: String,
+    /// SHA-256 of the uploaded plaintext, hex: a standard whole-file hash
+    /// that tools outside Autonomi can check (V2-1564).
+    pub sha256: String,
     /// Total storage cost paid in token units (atto). "0" if all chunks already existed.
     pub storage_cost_atto: String,
     /// Total gas cost paid in wei, as a decimal string (u128 exceeds JSON safe-integer range).
@@ -655,6 +670,9 @@ pub struct ManifestBuildEntry {
     pub path: Option<String>,
     #[serde(default)]
     pub size: Option<u64>,
+    /// SHA-256 of the plaintext to record, hex (the creator's claim).
+    #[serde(default)]
+    pub sha256: Option<String>,
     #[serde(default)]
     pub data_map: Option<String>,
     #[serde(default)]
@@ -711,6 +729,9 @@ pub struct ManifestEntryInfo {
     /// The size recorded in the manifest: the creator's claim.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size: Option<u64>,
+    /// The SHA-256 recorded in the manifest, hex: the creator's claim.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
     /// `embedded` or `public`.
     pub kind: String,
     /// Hex. The file's public DataMap address, whether or not it was ever
@@ -1061,12 +1082,14 @@ mod tests {
     fn finalize_response_serializes_data_map_address() {
         let resp = FinalizeUploadResponse {
             data_map: "deadbeef".into(),
+            sha256: "ab".repeat(32),
             address: None,
             data_map_address: Some("cafebabe".into()),
             chunks_stored: 4,
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["data_map"], "deadbeef");
+        assert_eq!(json["sha256"], "ab".repeat(32));
         assert_eq!(json["data_map_address"], "cafebabe");
         assert!(json.get("address").is_none());
         assert_eq!(json["chunks_stored"], 4);
@@ -1076,6 +1099,7 @@ mod tests {
     fn finalize_response_omits_data_map_address_when_private() {
         let resp = FinalizeUploadResponse {
             data_map: "deadbeef".into(),
+            sha256: "ab".repeat(32),
             address: None,
             data_map_address: None,
             chunks_stored: 4,

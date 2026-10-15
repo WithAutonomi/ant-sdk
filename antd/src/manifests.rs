@@ -14,7 +14,7 @@ use ant_core::data::manifest::path::validate_path;
 use ant_core::data::manifest::{
     embedded_len, parse_link, ContentRef, Link, Manifest, ManifestEntry, ManifestError,
     TorrentReference, ADDRESS_LEN, MANIFEST_LINK_RECOMMENDED_MAX_BYTES,
-    MAX_EMBEDDED_ROOT_MAP_BYTES, MAX_MANIFEST_ENTRIES,
+    MAX_EMBEDDED_ROOT_MAP_BYTES, MAX_MANIFEST_ENTRIES, SHA256_LEN,
 };
 use ant_core::data::{Client, DataMap};
 use futures::stream::{self, StreamExt};
@@ -47,7 +47,23 @@ pub enum EntrySource {
 pub struct EntryInput {
     pub path: Option<String>,
     pub size: Option<u64>,
+    /// SHA-256 of the plaintext to record, as given (the creator's claim).
+    pub sha256: Option<[u8; SHA256_LEN]>,
     pub source: EntrySource,
+}
+
+/// One build entry as it arrived on the wire, before parsing. Empty strings
+/// count as absent: proto3 strings have no presence.
+#[derive(Default)]
+pub struct RawEntry {
+    pub path: Option<String>,
+    pub size: Option<u64>,
+    /// Hex.
+    pub sha256: Option<String>,
+    /// Hex, in antd's usual DataMap form.
+    pub data_map: Option<String>,
+    /// Hex.
+    pub address: Option<String>,
 }
 
 /// A build request, transport-neutral.
@@ -67,6 +83,8 @@ pub struct EntryInfo {
     pub path: Option<String>,
     /// The size recorded in the manifest: the creator's claim.
     pub size: Option<u64>,
+    /// The SHA-256 recorded in the manifest: the creator's claim.
+    pub sha256: Option<[u8; SHA256_LEN]>,
     pub kind: &'static str,
     pub content_address: [u8; ADDRESS_LEN],
     /// Exact plaintext size, known only from an embedded root DataMap.
@@ -192,6 +210,14 @@ pub fn parse_address_hex(hex_str: &str) -> Result<[u8; ADDRESS_LEN], String> {
         .map_err(|_| format!("address must be {ADDRESS_LEN} bytes"))
 }
 
+/// Parse a 64-character hex SHA-256.
+pub fn parse_sha256_hex(hex_str: &str) -> Result<[u8; SHA256_LEN], String> {
+    let bytes = hex::decode(hex_str.trim()).map_err(|e| format!("invalid hex sha256: {e}"))?;
+    bytes
+        .try_into()
+        .map_err(|b: Vec<u8>| format!("sha256 must be {SHA256_LEN} bytes, got {}", b.len()))
+}
+
 /// Parse up to two torrent info hashes (v1 and/or v2) into one reference.
 pub fn parse_torrent_hashes(hashes: &[String]) -> Result<Option<TorrentReference>, AntdError> {
     if hashes.len() > 2 {
@@ -216,11 +242,18 @@ pub fn parse_torrent_hashes(hashes: &[String]) -> Result<Option<TorrentReference
 /// entry is reported, not just the first.
 pub fn parse_entries<I>(entries: I) -> Result<Vec<EntryInput>, AntdError>
 where
-    I: IntoIterator<Item = (Option<String>, Option<u64>, Option<String>, Option<String>)>,
+    I: IntoIterator<Item = RawEntry>,
 {
     let mut parsed = Vec::new();
     let mut errors = Vec::new();
-    for (i, (path, size, data_map, address)) in entries.into_iter().enumerate() {
+    for (i, raw) in entries.into_iter().enumerate() {
+        let RawEntry {
+            path,
+            size,
+            sha256,
+            data_map,
+            address,
+        } = raw;
         if parsed.len() + errors.len() >= MAX_MANIFEST_ENTRIES {
             return Err(AntdError::BadRequest(format!(
                 "more than {MAX_MANIFEST_ENTRIES} entries"
@@ -240,9 +273,20 @@ where
             Some(p) => validate_path(p).map_err(|reason| format!("invalid path {p:?}: {reason}")),
             None => Ok(()),
         };
-        match (source, path_ok) {
-            (Ok(source), Ok(())) => parsed.push(EntryInput { path, size, source }),
-            (Err(e), _) | (_, Err(e)) => errors.push(format!("entries[{i}]: {e}")),
+        let sha256 = sha256
+            .filter(|h| !h.is_empty())
+            .map(|h| parse_sha256_hex(&h))
+            .transpose();
+        match (source, path_ok, sha256) {
+            (Ok(source), Ok(()), Ok(sha256)) => parsed.push(EntryInput {
+                path,
+                size,
+                sha256,
+                source,
+            }),
+            (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => {
+                errors.push(format!("entries[{i}]: {e}"))
+            }
         }
     }
     if errors.is_empty() {
@@ -309,12 +353,18 @@ async fn embed_entry<R: DataMapResolver>(
     entry: EntryInput,
     embed_roots: bool,
 ) -> Result<ManifestEntry, AntdError> {
-    let EntryInput { path, size, source } = entry;
+    let EntryInput {
+        path,
+        size,
+        sha256,
+        source,
+    } = entry;
     let given = match source {
         EntrySource::Address(address) => {
             return Ok(ManifestEntry {
                 path,
                 size,
+                sha256,
                 source: ContentRef::Public { address },
             })
         }
@@ -337,6 +387,7 @@ async fn embed_entry<R: DataMapResolver>(
     Ok(ManifestEntry {
         path,
         size,
+        sha256,
         source: ContentRef::Embedded { data_map },
     })
 }
@@ -389,6 +440,7 @@ pub async fn decode<R: DataMapResolver>(
                     entries: vec![ManifestEntry {
                         path: None,
                         size: None,
+                        sha256: None,
                         source: ContentRef::Public { address },
                     }],
                 },
@@ -476,6 +528,7 @@ fn entry_info(entry: ManifestEntry, keep_data_map: bool) -> Result<EntryInfo, An
         effective_name,
         path: entry.path,
         size: entry.size,
+        sha256: entry.sha256,
         kind,
         content_address,
         known_size,
@@ -571,6 +624,7 @@ mod tests {
         EntryInput {
             path: Some(path.into()),
             size: None,
+            sha256: None,
             source: EntrySource::DataMap(data_map),
         }
     }
@@ -601,6 +655,7 @@ mod tests {
                 EntryInput {
                     path: Some("m.txt".into()),
                     size: Some(5),
+                    sha256: None,
                     source: EntrySource::Address([9; ADDRESS_LEN]),
                 },
             ]),
@@ -666,11 +721,13 @@ mod tests {
                 ManifestEntry {
                     path: Some("a".into()),
                     size: None,
+                    sha256: None,
                     source: ContentRef::Embedded { data_map: a },
                 },
                 ManifestEntry {
                     path: Some("b".into()),
                     size: None,
+                    sha256: None,
                     source: ContentRef::Embedded { data_map: b },
                 },
             ],
@@ -723,11 +780,13 @@ mod tests {
             EntryInput {
                 path: Some("Readme.md".into()),
                 size: None,
+                sha256: None,
                 source: EntrySource::Address([1; ADDRESS_LEN]),
             },
             EntryInput {
                 path: Some("README.md".into()),
                 size: None,
+                sha256: None,
                 source: EntrySource::Address([2; ADDRESS_LEN]),
             },
         ]);
@@ -735,29 +794,42 @@ mod tests {
         assert!(matches!(err, AntdError::BadRequest(_)), "{err}");
     }
 
+    fn raw(
+        path: Option<&str>,
+        sha256: Option<&str>,
+        data_map: Option<&str>,
+        address: Option<&str>,
+    ) -> RawEntry {
+        RawEntry {
+            path: path.map(str::to_string),
+            size: None,
+            sha256: sha256.map(str::to_string),
+            data_map: data_map.map(str::to_string),
+            address: address.map(str::to_string),
+        }
+    }
+
     #[test]
     fn parse_entries_reports_every_invalid_entry() {
-        let good_addr = hex::encode([7u8; ADDRESS_LEN]);
+        let good = hex::encode([7u8; ADDRESS_LEN]);
+        let good = Some(good.as_str());
         let err = parse_entries(vec![
-            (Some("ok.txt".into()), None, None, Some(good_addr.clone())),
-            (
-                Some("../escape".into()),
-                None,
-                None,
-                Some(good_addr.clone()),
-            ),
-            (None, None, None, None),
-            (None, None, Some("zz".into()), None),
-            (None, None, Some("00".into()), Some(good_addr.clone())),
-            (None, None, None, Some("abcd".into())),
+            raw(Some("ok.txt"), None, None, good),
+            raw(Some("../escape"), None, None, good),
+            raw(None, None, None, None),
+            raw(None, None, Some("zz"), None),
+            raw(None, None, Some("00"), good),
+            raw(None, None, None, Some("abcd")),
+            raw(Some("short-hash"), Some("abcd"), None, good),
+            raw(Some("bad-hash"), Some("zz"), None, good),
         ])
         .err()
         .expect("invalid");
         let AntdError::BadRequest(msg) = err else {
             panic!("expected BadRequest, got {err}");
         };
-        assert!(msg.starts_with("5 invalid entries"), "{msg}");
-        for i in 1..=5 {
+        assert!(msg.starts_with("7 invalid entries"), "{msg}");
+        for i in 1..=7 {
             assert!(msg.contains(&format!("entries[{i}]")), "{msg}");
         }
         assert!(!msg.contains("entries[0]"), "{msg}");
@@ -766,15 +838,49 @@ mod tests {
     #[test]
     fn parse_entries_treats_empty_strings_as_absent() {
         let addr = hex::encode([3u8; ADDRESS_LEN]);
-        let parsed = parse_entries(vec![(
-            Some(String::new()),
-            None,
-            Some(String::new()),
-            Some(addr),
-        )])
-        .expect("valid");
+        let parsed =
+            parse_entries(vec![raw(Some(""), Some(""), Some(""), Some(&addr))]).expect("valid");
         assert!(parsed[0].path.is_none());
+        assert!(parsed[0].sha256.is_none());
         assert!(matches!(parsed[0].source, EntrySource::Address(a) if a == [3; ADDRESS_LEN]));
+    }
+
+    #[tokio::test]
+    async fn sha256_is_recorded_as_given_and_reported_on_decode() {
+        let mut net = FakeNetwork::default();
+        let data_map = upload(&mut net, 4096, 9);
+        let hash = [0xcd; SHA256_LEN];
+        let mut entry = embedded("hashed.bin", data_map.clone());
+        entry.sha256 = Some(hash);
+        let out = build(
+            &net,
+            build_input(vec![entry, embedded("plain.bin", data_map)]),
+        )
+        .await
+        .unwrap();
+        let by_name = |entries: &[EntryInfo], n: &str| {
+            entries.iter().position(|e| e.effective_name == n).unwrap()
+        };
+        assert_eq!(
+            out.entries[by_name(&out.entries, "hashed.bin")].sha256,
+            Some(hash)
+        );
+        assert_eq!(out.entries[by_name(&out.entries, "plain.bin")].sha256, None);
+
+        // Same bytes as ant-core writes for the same entry.
+        let decoded = Manifest::decode(&out.bytes).unwrap();
+        let hashed = decoded
+            .entries
+            .iter()
+            .find(|e| e.path.as_deref() == Some("hashed.bin"))
+            .unwrap();
+        assert_eq!(hashed.sha256, Some(hash));
+
+        let d = decode(&net, DecodeInput::Bytes(out.bytes), false)
+            .await
+            .unwrap();
+        let infos: Vec<EntryInfo> = d.entries.into_iter().map(|e| e.info).collect();
+        assert_eq!(infos[by_name(&infos, "hashed.bin")].sha256, Some(hash));
     }
 
     #[test]
@@ -815,6 +921,7 @@ mod tests {
             .map(|i| EntryInput {
                 path: Some(format!("f{i}")),
                 size: None,
+                sha256: None,
                 source: EntrySource::Address([i; ADDRESS_LEN]),
             })
             .collect();
@@ -837,11 +944,13 @@ mod tests {
                 EntryInput {
                     path: Some("public.bin".into()),
                     size: None,
+                    sha256: None,
                     source: EntrySource::Address(public_addr),
                 },
                 EntryInput {
                     path: Some("gone.bin".into()),
                     size: None,
+                    sha256: None,
                     source: EntrySource::Address([0xee; ADDRESS_LEN]),
                 },
             ]),

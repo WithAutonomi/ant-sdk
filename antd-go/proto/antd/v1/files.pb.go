@@ -87,8 +87,11 @@ type PutFilePublicResponse struct {
 	ChunksStored uint64 `protobuf:"varint,5,opt,name=chunks_stored,json=chunksStored,proto3" json:"chunks_stored,omitempty"`
 	// Which payment mode was actually used ("auto", "merkle", or "single").
 	PaymentModeUsed string `protobuf:"bytes,6,opt,name=payment_mode_used,json=paymentModeUsed,proto3" json:"payment_mode_used,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// SHA-256 of the uploaded plaintext, hex: a standard whole-file hash that
+	// tools outside Autonomi can check (V2-1564).
+	Sha256        string `protobuf:"bytes,7,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PutFilePublicResponse) Reset() {
@@ -156,6 +159,13 @@ func (x *PutFilePublicResponse) GetPaymentModeUsed() string {
 	return ""
 }
 
+func (x *PutFilePublicResponse) GetSha256() string {
+	if x != nil {
+		return x.Sha256
+	}
+	return ""
+}
+
 type PutFileResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Hex-encoded rmp_serde-serialized DataMap. The caller keeps this; it is
@@ -169,8 +179,11 @@ type PutFileResponse struct {
 	ChunksStored uint64 `protobuf:"varint,4,opt,name=chunks_stored,json=chunksStored,proto3" json:"chunks_stored,omitempty"`
 	// Which payment mode was actually used ("auto", "merkle", or "single").
 	PaymentModeUsed string `protobuf:"bytes,5,opt,name=payment_mode_used,json=paymentModeUsed,proto3" json:"payment_mode_used,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// SHA-256 of the uploaded plaintext, hex: a standard whole-file hash that
+	// tools outside Autonomi can check (V2-1564).
+	Sha256        string `protobuf:"bytes,6,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PutFileResponse) Reset() {
@@ -234,6 +247,13 @@ func (x *PutFileResponse) GetChunksStored() uint64 {
 func (x *PutFileResponse) GetPaymentModeUsed() string {
 	if x != nil {
 		return x.PaymentModeUsed
+	}
+	return ""
+}
+
+func (x *PutFileResponse) GetSha256() string {
+	if x != nil {
+		return x.Sha256
 	}
 	return ""
 }
@@ -449,21 +469,23 @@ const file_antd_v1_files_proto_rawDesc = "" +
 	"\x13antd/v1/files.proto\x12\aantd.v1\x1a\x14antd/v1/common.proto\"G\n" +
 	"\x0ePutFileRequest\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12!\n" +
-	"\fpayment_mode\x18\x02 \x01(\tR\vpaymentMode\"\xdc\x01\n" +
+	"\fpayment_mode\x18\x02 \x01(\tR\vpaymentMode\"\xf4\x01\n" +
 	"\x15PutFilePublicResponse\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12*\n" +
 	"\x11storage_cost_atto\x18\x03 \x01(\tR\x0fstorageCostAtto\x12 \n" +
 	"\fgas_cost_wei\x18\x04 \x01(\tR\n" +
 	"gasCostWei\x12#\n" +
 	"\rchunks_stored\x18\x05 \x01(\x04R\fchunksStored\x12*\n" +
-	"\x11payment_mode_used\x18\x06 \x01(\tR\x0fpaymentModeUsedJ\x04\b\x01\x10\x02R\x04cost\"\xcb\x01\n" +
+	"\x11payment_mode_used\x18\x06 \x01(\tR\x0fpaymentModeUsed\x12\x16\n" +
+	"\x06sha256\x18\a \x01(\tR\x06sha256J\x04\b\x01\x10\x02R\x04cost\"\xe3\x01\n" +
 	"\x0fPutFileResponse\x12\x19\n" +
 	"\bdata_map\x18\x01 \x01(\tR\adataMap\x12*\n" +
 	"\x11storage_cost_atto\x18\x02 \x01(\tR\x0fstorageCostAtto\x12 \n" +
 	"\fgas_cost_wei\x18\x03 \x01(\tR\n" +
 	"gasCostWei\x12#\n" +
 	"\rchunks_stored\x18\x04 \x01(\x04R\fchunksStored\x12*\n" +
-	"\x11payment_mode_used\x18\x05 \x01(\tR\x0fpaymentModeUsed\"M\n" +
+	"\x11payment_mode_used\x18\x05 \x01(\tR\x0fpaymentModeUsed\x12\x16\n" +
+	"\x06sha256\x18\x06 \x01(\tR\x06sha256\"M\n" +
 	"\x14GetFilePublicRequest\x12\x18\n" +
 	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x1b\n" +
 	"\tdest_path\x18\x02 \x01(\tR\bdestPath\"H\n" +

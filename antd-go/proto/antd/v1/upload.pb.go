@@ -636,7 +636,10 @@ type FinalizeUploadResponse struct {
 	// no separate daemon-wallet payment is required.
 	DataMapAddress string `protobuf:"bytes,3,opt,name=data_map_address,json=dataMapAddress,proto3" json:"data_map_address,omitempty"`
 	// Number of chunks stored on the network.
-	ChunksStored  uint64 `protobuf:"varint,4,opt,name=chunks_stored,json=chunksStored,proto3" json:"chunks_stored,omitempty"`
+	ChunksStored uint64 `protobuf:"varint,4,opt,name=chunks_stored,json=chunksStored,proto3" json:"chunks_stored,omitempty"`
+	// SHA-256 of the uploaded plaintext, hex: a standard whole-file hash that
+	// tools outside Autonomi can check (V2-1564).
+	Sha256        string `protobuf:"bytes,5,opt,name=sha256,proto3" json:"sha256,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -699,6 +702,13 @@ func (x *FinalizeUploadResponse) GetChunksStored() uint64 {
 	return 0
 }
 
+func (x *FinalizeUploadResponse) GetSha256() string {
+	if x != nil {
+		return x.Sha256
+	}
+	return ""
+}
+
 var File_antd_v1_upload_proto protoreflect.FileDescriptor
 
 const file_antd_v1_upload_proto_rawDesc = "" +
@@ -752,12 +762,13 @@ const file_antd_v1_upload_proto_rawDesc = "" +
 	"\x0estore_data_map\x18\x04 \x01(\bR\fstoreDataMap\x1a;\n" +
 	"\rTxHashesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x9c\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb4\x01\n" +
 	"\x16FinalizeUploadResponse\x12\x19\n" +
 	"\bdata_map\x18\x01 \x01(\tR\adataMap\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12(\n" +
 	"\x10data_map_address\x18\x03 \x01(\tR\x0edataMapAddress\x12#\n" +
-	"\rchunks_stored\x18\x04 \x01(\x04R\fchunksStored2\x92\x02\n" +
+	"\rchunks_stored\x18\x04 \x01(\x04R\fchunksStored\x12\x16\n" +
+	"\x06sha256\x18\x05 \x01(\tR\x06sha2562\x92\x02\n" +
 	"\rUploadService\x12V\n" +
 	"\x11PrepareFileUpload\x12!.antd.v1.PrepareFileUploadRequest\x1a\x1e.antd.v1.PrepareUploadResponse\x12V\n" +
 	"\x11PrepareDataUpload\x12!.antd.v1.PrepareDataUploadRequest\x1a\x1e.antd.v1.PrepareUploadResponse\x12Q\n" +

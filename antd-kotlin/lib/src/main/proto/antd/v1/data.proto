@@ -48,6 +48,9 @@ message PutPublicDataResponse {
   uint64 chunks_stored = 3;
   // Which payment mode was actually used ("auto", "merkle", or "single").
   string payment_mode_used = 4;
+  // SHA-256 of the uploaded plaintext, hex: a standard whole-file hash that
+  // tools outside Autonomi can check (V2-1564).
+  string sha256 = 5;
 }
 
 message StreamPublicDataRequest {
@@ -132,6 +135,9 @@ message PutDataResponse {
   uint64 chunks_stored = 3;
   // Which payment mode was actually used ("auto", "merkle", or "single").
   string payment_mode_used = 4;
+  // SHA-256 of the uploaded plaintext, hex: a standard whole-file hash that
+  // tools outside Autonomi can check (V2-1564).
+  string sha256 = 5;
 }
 
 // --- Cost ---
