@@ -182,6 +182,13 @@ fn check_fixture_link(env: &Env, d: &DecodedManifest) {
     }
 }
 
+fn bad_request_message<T: std::fmt::Debug>(r: Result<T, AntdError>) -> String {
+    match r {
+        Err(AntdError::BadRequest(msg)) => msg,
+        other => panic!("expected BadRequest, got {other:?}"),
+    }
+}
+
 fn assert_bad_request<T: std::fmt::Debug>(r: Result<T, AntdError>, needle: &str) {
     match r {
         Err(AntdError::BadRequest(msg)) => assert!(msg.contains(needle), "{msg}"),
@@ -257,9 +264,40 @@ async fn live_manifest_round_trip() {
         data_map: Some("00".into()),
         ..ManifestEntryInput::public(&env.addresses[0])
     };
-    assert_bad_request(
-        rest.build_manifest(std::slice::from_ref(&both)).await,
-        "entries[0]",
+    let client_msg = bad_request_message(rest.build_manifest(std::slice::from_ref(&both)).await);
+    assert_eq!(
+        client_msg,
+        "1 invalid entries: entries[0]: give data_map or address, not both"
+    );
+    // The daemon refuses the same request, sent past the client's check, with
+    // the same text: a client-side refusal is indistinguishable from it.
+    let raw: serde_json::Value = {
+        let resp = reqwest::Client::new()
+            .post(format!(
+                "{}/v1/manifests/build",
+                env.rest.trim_end_matches('/')
+            ))
+            .json(&serde_json::json!({"entries": [
+                {"data_map": "00", "address": env.addresses[0]}
+            ]}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status().as_u16(), 400);
+        resp.json().await.unwrap()
+    };
+    let daemon_msg = raw["error"].as_str().unwrap();
+    // REST's error text opens with "Bad request: " (the daemon's Display);
+    // gRPC sends the bare text, as the client does.
+    assert_eq!(
+        daemon_msg
+            .strip_prefix("Bad request: ")
+            .unwrap_or(daemon_msg),
+        client_msg
+    );
+    assert_eq!(
+        bad_request_message(rest.decode_manifest(&[], false).await),
+        "needs a manifest (base64 .ant bytes) or a link"
     );
     assert_bad_request(
         rest.decode_manifest(b"not a manifest", false).await,
@@ -296,7 +334,10 @@ async fn live_manifest_round_trip() {
     }
 
     assert_bad_request(grpc.build_manifest(&bad_path).await, "entries[1]");
-    assert_bad_request(grpc.build_manifest(&[both]).await, "entries[0]");
+    assert_eq!(
+        bad_request_message(grpc.build_manifest(&[both]).await),
+        client_msg
+    );
     assert_bad_request(
         grpc.decode_manifest(b"not a manifest", false).await,
         "manifest",

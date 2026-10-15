@@ -197,6 +197,9 @@ impl From<tonic::Status> for AntdError {
             return e;
         }
         match status.code() {
+            // INVALID_ARGUMENT is the REST 400, on every call. Reached only
+            // when no `x-antd-error-code` tag took the status above.
+            tonic::Code::InvalidArgument => AntdError::BadRequest(status.message().to_string()),
             // PARTIAL_UPLOAD: some chunks stored, some still unstored after
             // retries. The daemon opens every such message with the fixed
             // `Partial upload:` prefix, so gate on it: any other ABORTED keeps

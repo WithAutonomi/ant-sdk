@@ -163,17 +163,49 @@ fn non_empty(s: Option<String>) -> Option<String> {
     s.filter(|s| !s.is_empty())
 }
 
-/// Rejects, before anything is sent, an entry that sets both or neither of
-/// `data_map` and `address`. The message names the entry as the daemon does.
+/// The most bad entries the daemon names in one message.
+const MAX_REPORTED_ENTRY_ERRORS: usize = 20;
+
+/// The daemon's 400 for a decode with neither bytes nor a link.
+const EMPTY_DECODE_INPUT: &str = "needs a manifest (base64 .ant bytes) or a link";
+
+/// Rejects, before anything is sent, every entry that sets both or neither of
+/// `data_map` and `address`, in one [`AntdError::BadRequest`] worded as the
+/// daemon words it (`parse_entries` and `entry_errors_message` in antd's
+/// `manifests.rs`), so a client-side refusal and the daemon's are
+/// indistinguishable.
 fn check_entries(entries: &[ManifestEntryInput]) -> Result<(), AntdError> {
-    for (i, e) in entries.iter().enumerate() {
-        if given(&e.data_map).is_some() == given(&e.address).is_some() {
-            return Err(AntdError::BadRequest(format!(
-                "entries[{i}]: set exactly one of data_map or address"
-            )));
-        }
+    let errors: Vec<String> = entries
+        .iter()
+        .enumerate()
+        .filter_map(
+            |(i, e)| match (given(&e.data_map).is_some(), given(&e.address).is_some()) {
+                (true, false) | (false, true) => None,
+                (true, true) => Some(format!("entries[{i}]: give data_map or address, not both")),
+                (false, false) => Some(format!("entries[{i}]: needs a data_map or an address")),
+            },
+        )
+        .collect();
+    if errors.is_empty() {
+        return Ok(());
     }
-    Ok(())
+    let shown = errors
+        .iter()
+        .take(MAX_REPORTED_ENTRY_ERRORS)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("; ");
+    Err(AntdError::BadRequest(
+        if errors.len() > MAX_REPORTED_ENTRY_ERRORS {
+            format!(
+                "{} invalid entries: {shown}; and {} more",
+                errors.len(),
+                errors.len() - MAX_REPORTED_ENTRY_ERRORS
+            )
+        } else {
+            format!("{} invalid entries: {shown}", errors.len())
+        },
+    ))
 }
 
 // --- REST wire forms ---
@@ -350,9 +382,7 @@ impl Client {
         resolve: bool,
     ) -> Result<DecodedManifest, AntdError> {
         if manifest.is_empty() {
-            return Err(AntdError::BadRequest(
-                "decode_manifest: manifest is empty".into(),
-            ));
+            return Err(AntdError::BadRequest(EMPTY_DECODE_INPUT.into()));
         }
         self.decode_manifest_request(json!({
             "manifest": BASE64.encode(manifest),
@@ -373,9 +403,7 @@ impl Client {
         resolve: bool,
     ) -> Result<DecodedManifest, AntdError> {
         if link.is_empty() {
-            return Err(AntdError::BadRequest(
-                "decode_manifest_link: link is empty".into(),
-            ));
+            return Err(AntdError::BadRequest(EMPTY_DECODE_INPUT.into()));
         }
         self.decode_manifest_request(json!({ "link": link, "resolve": resolve }))
             .await
@@ -398,17 +426,6 @@ impl Client {
 
 // --- gRPC ---
 
-/// A manifest call's status as an [`AntdError`]: `INVALID_ARGUMENT` (an
-/// invalid entry, path or input, the REST 400) is [`AntdError::BadRequest`]
-/// with the daemon's message, as over REST; anything else maps as on every
-/// other call.
-fn manifest_status_error(status: tonic::Status) -> AntdError {
-    match status.code() {
-        tonic::Code::InvalidArgument => AntdError::BadRequest(status.message().to_string()),
-        _ => AntdError::from(status),
-    }
-}
-
 fn entry_info_from_pb(e: pb::ManifestEntryInfo) -> ManifestEntryInfo {
     ManifestEntryInfo {
         effective_name: e.effective_name,
@@ -429,7 +446,7 @@ impl GrpcClient {
     // Mirror the REST methods on [`crate::Client`]; see there for the
     // contract. The ManifestService stub has its own message ceilings (see
     // `MANIFEST_MAX_RECV_MESSAGE_BYTES`), and `INVALID_ARGUMENT` maps to
-    // `AntdError::BadRequest` as the REST 400 does.
+    // `AntdError::BadRequest` on every call, as the REST 400 does.
 
     /// Builds a `.ant` manifest via `ManifestService.Build`. Mirrors
     /// [`crate::Client::build_manifest`].
@@ -468,13 +485,7 @@ impl GrpcClient {
                 })
                 .collect(),
         };
-        let resp = self
-            .manifests
-            .clone()
-            .build(req)
-            .await
-            .map_err(manifest_status_error)?
-            .into_inner();
+        let resp = self.manifests.clone().build(req).await?.into_inner();
         Ok(BuiltManifest {
             manifest: resp.manifest,
             link: non_empty(Some(resp.link)),
@@ -490,9 +501,7 @@ impl GrpcClient {
         resolve: bool,
     ) -> Result<DecodedManifest, AntdError> {
         if manifest.is_empty() {
-            return Err(AntdError::BadRequest(
-                "decode_manifest: manifest is empty".into(),
-            ));
+            return Err(AntdError::BadRequest(EMPTY_DECODE_INPUT.into()));
         }
         self.decode_manifest_request(pb::DecodeManifestRequest {
             input: Some(pb::decode_manifest_request::Input::Manifest(
@@ -512,9 +521,7 @@ impl GrpcClient {
         resolve: bool,
     ) -> Result<DecodedManifest, AntdError> {
         if link.is_empty() {
-            return Err(AntdError::BadRequest(
-                "decode_manifest_link: link is empty".into(),
-            ));
+            return Err(AntdError::BadRequest(EMPTY_DECODE_INPUT.into()));
         }
         self.decode_manifest_request(pb::DecodeManifestRequest {
             input: Some(pb::decode_manifest_request::Input::Link(link.to_string())),
@@ -527,13 +534,7 @@ impl GrpcClient {
         &self,
         req: pb::DecodeManifestRequest,
     ) -> Result<DecodedManifest, AntdError> {
-        let resp = self
-            .manifests
-            .clone()
-            .decode(req)
-            .await
-            .map_err(manifest_status_error)?
-            .into_inner();
+        let resp = self.manifests.clone().decode(req).await?.into_inner();
         Ok(DecodedManifest {
             source: resp.source,
             name: non_empty(resp.name),

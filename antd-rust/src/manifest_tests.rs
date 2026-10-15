@@ -41,6 +41,16 @@ async fn rest() -> (ServerGuard, Client) {
     (server, client)
 }
 
+/// The call failed with `BadRequest` and exactly this message.
+fn assert_bad_request<T: std::fmt::Debug>(r: Result<T, AntdError>, expected: &str) {
+    match r {
+        Err(AntdError::BadRequest(msg)) => assert_eq!(msg, expected),
+        other => panic!("expected BadRequest({expected:?}), got {other:?}"),
+    }
+}
+
+const EMPTY_DECODE: &str = "needs a manifest (base64 .ant bytes) or a link";
+
 // --- REST ---
 
 #[tokio::test]
@@ -167,15 +177,33 @@ async fn rest_build_manifest_rejects_both_or_neither_before_sending() {
         address: Some(String::new()),
         ..Default::default()
     };
-    for bad in [both, neither, empty] {
-        let entries = [ManifestEntryInput::public("11"), bad.clone()];
-        match client.build_manifest(&entries).await {
-            Err(AntdError::BadRequest(msg)) => {
-                assert!(msg.starts_with("entries[1]: "), "{msg}")
-            }
-            other => panic!("expected BadRequest for {bad:?}, got {other:?}"),
-        }
+    for (bad, why) in [
+        (both.clone(), "give data_map or address, not both"),
+        (neither.clone(), "needs a data_map or an address"),
+        (empty, "needs a data_map or an address"),
+    ] {
+        let entries = [ManifestEntryInput::public("11"), bad];
+        assert_bad_request(
+            client.build_manifest(&entries).await,
+            &format!("1 invalid entries: entries[1]: {why}"),
+        );
     }
+    // Every bad entry is named, in the daemon's wording.
+    let entries = [both.clone(), ManifestEntryInput::public("11"), neither];
+    assert_bad_request(
+        client.build_manifest(&entries).await,
+        "2 invalid entries: entries[0]: give data_map or address, not both; entries[2]: needs a data_map or an address",
+    );
+    // At most 20 are shown, then a count of the rest.
+    let many = vec![both; 25];
+    let shown = (0..20)
+        .map(|i| format!("entries[{i}]: give data_map or address, not both"))
+        .collect::<Vec<_>>()
+        .join("; ");
+    assert_bad_request(
+        client.build_manifest(&many).await,
+        &format!("25 invalid entries: {shown}; and 5 more"),
+    );
     never.assert_async().await;
 }
 
@@ -306,14 +334,8 @@ async fn rest_decode_manifest_bad_request_and_empty_input() {
         other => panic!("expected BadRequest, got {other:?}"),
     }
     // Empty input is refused before sending.
-    assert!(matches!(
-        client.decode_manifest(&[], false).await,
-        Err(AntdError::BadRequest(_))
-    ));
-    assert!(matches!(
-        client.decode_manifest_link("", false).await,
-        Err(AntdError::BadRequest(_))
-    ));
+    assert_bad_request(client.decode_manifest(&[], false).await, EMPTY_DECODE);
+    assert_bad_request(client.decode_manifest_link("", false).await, EMPTY_DECODE);
     m.assert_async().await;
 }
 
@@ -549,12 +571,16 @@ async fn grpc_build_manifest_rejects_both_or_neither_before_sending() {
         address: Some("bb".into()),
         ..Default::default()
     };
-    for bad in [both, ManifestEntryInput::default()] {
-        assert!(matches!(
-            client.build_manifest(&[bad]).await,
-            Err(AntdError::BadRequest(m)) if m.starts_with("entries[0]: ")
-        ));
-    }
+    assert_bad_request(
+        client.build_manifest(&[both]).await,
+        "1 invalid entries: entries[0]: give data_map or address, not both",
+    );
+    assert_bad_request(
+        client
+            .build_manifest(&[ManifestEntryInput::default()])
+            .await,
+        "1 invalid entries: entries[0]: needs a data_map or an address",
+    );
     assert!(mock.builds.lock().unwrap().is_empty());
 }
 
@@ -614,14 +640,8 @@ async fn grpc_decode_manifest_and_link() {
         );
         assert!(!decodes[1].resolve);
     }
-    assert!(matches!(
-        client.decode_manifest(&[], true).await,
-        Err(AntdError::BadRequest(_))
-    ));
-    assert!(matches!(
-        client.decode_manifest_link("", true).await,
-        Err(AntdError::BadRequest(_))
-    ));
+    assert_bad_request(client.decode_manifest(&[], true).await, EMPTY_DECODE);
+    assert_bad_request(client.decode_manifest_link("", true).await, EMPTY_DECODE);
     assert_eq!(mock.decodes.lock().unwrap().len(), 2);
 }
 

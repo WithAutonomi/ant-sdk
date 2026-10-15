@@ -139,7 +139,7 @@ retrying them is safe. These methods need the antd release after 0.15.0.
 
 | Method | Description |
 |--------|-------------|
-| `build_manifest(entries)` / `build_manifest_with_options(entries, opts)` | Build a manifest from `ManifestEntryInput`s — returns `BuiltManifest` (`manifest`: the `.ant` bytes; `link`, only when it fits 1,500 bytes; `entries`, sorted by effective name). Each entry sets exactly one of `data_map` (`ManifestEntryInput::embedded(hex)`) or `address` (`ManifestEntryInput::public(hex)`), with an optional `path` and `size`; both or neither is `BadRequest` before anything is sent. `BuildManifestOptions` has `name`, `torrent_info_hashes` and `keep_shrunk_data_maps`; the default embeds roots |
+| `build_manifest(entries)` / `build_manifest_with_options(entries, opts)` | Build a manifest from `ManifestEntryInput`s — returns `BuiltManifest` (`manifest`: the `.ant` bytes; `link`, only when it fits 1,500 bytes; `entries`, sorted by effective name). Each entry sets exactly one of `data_map` (`ManifestEntryInput::embedded(hex)`) or `address` (`ManifestEntryInput::public(hex)`), with an optional `path` and `size`; both or neither is `BadRequest` before anything is sent, worded as the daemon words it (`1 invalid entries: entries[0]: ...`). `BuildManifestOptions` has `name`, `torrent_info_hashes` and `keep_shrunk_data_maps`; the default embeds roots |
 | `decode_manifest(bytes, resolve)` | Decode `.ant` bytes — returns `DecodedManifest` (`source`, `name`, `torrent_info_hash_v1`/`_v2`, `entries`). With `resolve`, the daemon fetches each entry's DataMap to report its `exact_size`; one entry's failure is that entry's `error`, not a failed call |
 | `decode_manifest_link(link, resolve)` | Decode an `ant://` manifest link, a file link or a bare address. A file link or address is one public entry with no path, `source` `"file_link"` |
 
@@ -183,8 +183,8 @@ the `Grpc` error variant, except the pointer and close-group errors, which the d
 which is a partial store and maps to `AntdError::PartialUpload`; any other `ABORTED` stays
 the generic `Grpc` error (see [Error Handling](#error-handling)). Likewise an `OUT_OF_RANGE`
 from a range method is `AntdError::RangeNotSatisfiable`, and stays `Grpc` elsewhere (tonic
-also uses that code for a local message-size error), and an `INVALID_ARGUMENT` from a manifest
-method is `AntdError::BadRequest`, as the REST 400 is.
+also uses that code for a local message-size error), and an `INVALID_ARGUMENT` from any call
+is `AntdError::BadRequest`, as the REST 400 is.
 
 `GrpcClient::connect` decodes responses up to `DEFAULT_MAX_RECV_MESSAGE_BYTES` (32 MiB,
 sized so a full wave-batch prepare with `include_signed_quotes` fits; tonic's own 4 MiB
@@ -213,7 +213,7 @@ match client.data_get_public("some_address").await {
 
 | Error Variant | HTTP Status | When |
 |--------------|-------------|------|
-| `BadRequest` | 400 / gRPC `INVALID_ARGUMENT` from a manifest method | Invalid parameters |
+| `BadRequest` | 400 / gRPC `INVALID_ARGUMENT` | Invalid parameters |
 | `Payment` | 402 | Insufficient funds |
 | `NotFound` | 404 | Resource not found |
 | `AlreadyExists` | 409 | Resource exists |
@@ -297,6 +297,15 @@ match client.finalize_upload(&upload_id, &tx_hashes).await {
     Err(e) => return Err(e.into()),
 }
 ```
+
+### Upgrading from 0.3.x: gRPC `INVALID_ARGUMENT` is `BadRequest`
+
+Every `GrpcClient` call now maps a gRPC `INVALID_ARGUMENT` status to
+`AntdError::BadRequest(message)`, as a REST 400 always has. It used to arrive as
+`AntdError::Grpc(status)`, so an arm that matched `Grpc` and checked for
+`tonic::Code::InvalidArgument` no longer sees it: match `BadRequest` instead. A status the daemon
+tags with `x-antd-error-code` still maps to its typed variant, but only when the tag agrees with
+the status code; an `INVALID_ARGUMENT` carrying a tag for another code is a `BadRequest`.
 
 ### Upgrading from 0.3.x: pointer error variants
 
