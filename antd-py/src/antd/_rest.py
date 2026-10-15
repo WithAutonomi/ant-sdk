@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 
+from . import _pointers
 from .exceptions import InternalError, raise_for_http_error
 from .models import (
     CandidateNodeEntry,
@@ -23,6 +24,16 @@ from .models import (
     HealthStatus,
     PaymentInfo,
     PaymentMode,
+    PointerController,
+    PointerFinality,
+    PointerFinalizeResult,
+    PointerKind,
+    PointerOp,
+    PointerPrepareResult,
+    PointerRecord,
+    PointerTarget,
+    PointerTransferResult,
+    PointerWriteResult,
     PoolCommitmentEntry,
     PrepareChunkResult,
     PrepareUploadResult,
@@ -131,6 +142,16 @@ def _check(resp: httpx.Response) -> None:
         return
     msg, body = _error_details(resp)
     raise_for_http_error(resp.status_code, msg, body)
+
+
+def _json_object(resp: httpx.Response) -> dict:
+    """The response's JSON object; anything else reads as an empty object, so
+    the pointer parsers report a missing counter rather than a raw error."""
+    try:
+        j = resp.json()
+    except ValueError:
+        return {}
+    return j if isinstance(j, dict) else {}
 
 
 def _check_streamed(resp: httpx.Response) -> None:
@@ -612,6 +633,185 @@ class RestClient:
         _check(resp)
         return _parse_finalize_upload_result(resp.json())
 
+    # --- Pointers ---
+    #
+    # Owner-signed, paid, mutable references (antd with the pointer API,
+    # after 0.15.0). antd signs with owner keys it loaded at startup
+    # (``--pointer-keys``); a write names the pointer by its address
+    # (``owner``), and pointer_keys() lists the ones it can write.
+    #
+    # Every write pays, about the price of one chunk, and every attempt pays
+    # again. These methods never retry: do not retry pointer_create,
+    # pointer_update, pointer_transfer or pointer_finalize automatically
+    # (except a finalize whose CloseGroupShortfallError has retryable=True).
+    # Reads are free to retry.
+
+    def pointer_keys(self) -> list[str]:
+        """The addresses of the pointers this daemon holds owner keys for
+        (``GET /v1/pointers/keys``). Only these can be written through it."""
+        resp = self._http.get("/v1/pointers/keys")
+        _check(resp)
+        return _pointers.keys_from_json(_json_object(resp))
+
+    def pointer_create(
+        self, owner: str, target: str, kind: PointerKind | str = PointerKind.CHUNK,
+    ) -> PointerWriteResult:
+        """Create the pointer at ``owner``, pointing at ``target``, paid by the
+        daemon wallet (``POST /v1/pointers``). Pays; never retried.
+
+        Args:
+            owner: The pointer's address (hex, ``0x`` optional). The daemon
+                must hold its key (:meth:`pointer_keys`).
+            target: The address to point at (hex).
+            kind: :attr:`PointerKind.CHUNK` (default), such as a public data
+                address, or :attr:`PointerKind.POINTER` for a forwarding.
+
+        Raises:
+            AlreadyExistsError: the pointer exists (refused before paying);
+                use :meth:`pointer_update`.
+            ConflictError: a prepared write to it awaits payment.
+            BadRequestError: no key is loaded for ``owner``, or a malformed
+                address.
+        """
+        resp = self._http.post("/v1/pointers", json=_pointers.write_body(owner, target, kind))
+        _check(resp)
+        return _pointers.write_from_json(_json_object(resp))
+
+    def pointer_update(
+        self, owner: str, target: str, kind: PointerKind | str = PointerKind.CHUNK,
+    ) -> PointerWriteResult:
+        """Point the pointer at ``owner`` at ``target``, paid by the daemon
+        wallet (``POST /v1/pointers/update``), creating it at counter 0 if it
+        does not exist. Pays; never retried.
+
+        Raises:
+            PointerFinalError: the pointer was transferred or frozen (refused
+                before paying).
+            ConflictError: a prepared write to it awaits payment, or the
+                update lost to a newer state while in flight.
+        """
+        resp = self._http.post("/v1/pointers/update", json=_pointers.write_body(owner, target, kind))
+        _check(resp)
+        return _pointers.write_from_json(_json_object(resp))
+
+    def pointer_transfer(self, owner: str, recipient: str) -> PointerTransferResult:
+        """Hand the pointer at ``owner`` over to the pointer at ``recipient``,
+        for good, paid by the daemon wallet (``POST /v1/pointers/transfer``).
+        Readers of the address are redirected to the recipient's pointer,
+        which only its owner can move. Irreversible once stored. Pays; never
+        retried.
+
+        The result carries the close group's :class:`PointerFinality` once the
+        write landed, or ``finality_error`` when that check failed (the
+        transfer is stored either way).
+
+        Raises:
+            PointerFinalError: the pointer is already final.
+            BadRequestError: ``recipient`` does not exist or leads back.
+            CloseGroupShortfallError: not every peer of the close group
+                answered; nothing was paid, so a later retry is safe.
+        """
+        resp = self._http.post("/v1/pointers/transfer", json={"owner": owner, "recipient": recipient})
+        _check(resp)
+        return _pointers.transfer_from_json(_json_object(resp))
+
+    def pointer_get(self, address: str) -> PointerRecord:
+        """Read the pointer at ``address`` (``GET /v1/pointers/{address}``).
+
+        Raises:
+            NotFoundError: no pointer exists there.
+            CloseGroupShortfallError: too few peers answered; free to retry.
+        """
+        resp = self._http.get(f"/v1/pointers/{address}")
+        _check(resp)
+        return _pointers.record_from_json(_json_object(resp))
+
+    def pointer_resolve(self, address: str) -> PointerTarget:
+        """Follow a chain of pointers from ``address`` to the target at its
+        end (``GET /v1/pointers/{address}/resolve``), through forwardings and
+        transfers alike.
+
+        Raises:
+            NotFoundError: a pointer on the chain does not exist.
+        """
+        resp = self._http.get(f"/v1/pointers/{address}/resolve")
+        _check(resp)
+        return _pointers.target_from_json(_json_object(resp))
+
+    def pointer_finality(self, address: str) -> PointerFinality:
+        """Ask the whole close group where the pointer at ``address`` stands
+        (``GET /v1/pointers/{address}/finality``). Check it before relying on
+        a transfer: only :attr:`PointerFinality.is_final` means the transfer
+        is beyond dispute."""
+        resp = self._http.get(f"/v1/pointers/{address}/finality")
+        _check(resp)
+        return _pointers.finality_from_json(_json_object(resp))
+
+    def pointer_controller(self, address: str) -> PointerController:
+        """Follow the transfers of the pointer at ``address`` to the pointer
+        whose owner now decides what it resolves to
+        (``GET /v1/pointers/{address}/controller``)."""
+        resp = self._http.get(f"/v1/pointers/{address}/controller")
+        _check(resp)
+        return _pointers.controller_from_json(_json_object(resp))
+
+    def pointer_prepare(
+        self,
+        owner: str,
+        op: PointerOp | str,
+        *,
+        target: str | None = None,
+        kind: PointerKind | str | None = None,
+        recipient: str | None = None,
+        include_signed_quotes: bool = False,
+    ) -> PointerPrepareResult:
+        """Have the daemon sign ``op`` on the pointer at ``owner`` with its
+        loaded key and quote it for an external signer
+        (``POST /v1/pointers/prepare``). Needs no daemon wallet and pays
+        nothing itself. Pay the result's ``payments`` with ``payForQuotes()``,
+        then call :meth:`pointer_finalize`.
+
+        Args:
+            owner: The pointer's address; the daemon must hold its key.
+            op: :attr:`PointerOp.CREATE` or :attr:`PointerOp.UPDATE` (pass
+                ``target``, and ``kind`` to point at another pointer), or
+                :attr:`PointerOp.TRANSFER` (pass ``recipient``).
+            include_signed_quotes: also return each quote in full signed
+                form (:attr:`PointerPrepareResult.signed_quotes`).
+
+        Every check the daemon-wallet writes make before paying is made here,
+        before anything is quoted. While the prepared write awaits payment,
+        other writes to the pointer raise :class:`ConflictError` until it is
+        finalized or expires (one hour).
+        """
+        body = _pointers.prepare_body(owner, op, target, kind, recipient, include_signed_quotes)
+        resp = self._http.post("/v1/pointers/prepare", json=body)
+        _check(resp)
+        return _pointers.prepare_from_json(_json_object(resp))
+
+    def pointer_finalize(self, upload_id: str, tx_hashes: dict[str, str]) -> PointerFinalizeResult:
+        """Store a prepared pointer write once its external signer has paid
+        (``POST /v1/pointers/finalize``). ``tx_hashes`` maps each
+        ``quote_hash`` from :meth:`pointer_prepare`'s payments to the
+        ``payForQuotes()`` transaction hash. Never retried.
+
+        Raises:
+            CloseGroupShortfallError: with ``retryable=True`` the write fell
+                short after payment and the daemon kept the paid state: call
+                this again with the same ``upload_id`` (``tx_hashes`` is then
+                ignored) to store it against the same payment, bounding the
+                loop. Without ``retryable`` nothing was kept.
+            BadRequestError: the hashes do not match the payment; the session
+                is kept, so it can be corrected.
+            NotFoundError: ``upload_id`` expired or was already finalized.
+        """
+        resp = self._http.post("/v1/pointers/finalize", json={
+            "upload_id": upload_id,
+            "tx_hashes": tx_hashes,
+        })
+        _check(resp)
+        return _pointers.finalize_from_json(_json_object(resp))
+
 
 class AsyncRestClient:
     """Asynchronous REST client for the antd daemon."""
@@ -925,3 +1125,85 @@ class AsyncRestClient:
         })
         _check(resp)
         return _parse_finalize_upload_result(resp.json())
+
+    # --- Pointers ---
+    #
+    # Same methods, types and errors as RestClient (see there). Every write
+    # pays and is never retried; reads are free to retry.
+
+    async def pointer_keys(self) -> list[str]:
+        """See :meth:`RestClient.pointer_keys`."""
+        resp = await self._http.get("/v1/pointers/keys")
+        _check(resp)
+        return _pointers.keys_from_json(_json_object(resp))
+
+    async def pointer_create(
+        self, owner: str, target: str, kind: PointerKind | str = PointerKind.CHUNK,
+    ) -> PointerWriteResult:
+        """See :meth:`RestClient.pointer_create`. Pays; never retried."""
+        resp = await self._http.post("/v1/pointers", json=_pointers.write_body(owner, target, kind))
+        _check(resp)
+        return _pointers.write_from_json(_json_object(resp))
+
+    async def pointer_update(
+        self, owner: str, target: str, kind: PointerKind | str = PointerKind.CHUNK,
+    ) -> PointerWriteResult:
+        """See :meth:`RestClient.pointer_update`. Pays; never retried."""
+        resp = await self._http.post("/v1/pointers/update", json=_pointers.write_body(owner, target, kind))
+        _check(resp)
+        return _pointers.write_from_json(_json_object(resp))
+
+    async def pointer_transfer(self, owner: str, recipient: str) -> PointerTransferResult:
+        """See :meth:`RestClient.pointer_transfer`. Pays; never retried."""
+        resp = await self._http.post("/v1/pointers/transfer", json={"owner": owner, "recipient": recipient})
+        _check(resp)
+        return _pointers.transfer_from_json(_json_object(resp))
+
+    async def pointer_get(self, address: str) -> PointerRecord:
+        """See :meth:`RestClient.pointer_get`."""
+        resp = await self._http.get(f"/v1/pointers/{address}")
+        _check(resp)
+        return _pointers.record_from_json(_json_object(resp))
+
+    async def pointer_resolve(self, address: str) -> PointerTarget:
+        """See :meth:`RestClient.pointer_resolve`."""
+        resp = await self._http.get(f"/v1/pointers/{address}/resolve")
+        _check(resp)
+        return _pointers.target_from_json(_json_object(resp))
+
+    async def pointer_finality(self, address: str) -> PointerFinality:
+        """See :meth:`RestClient.pointer_finality`."""
+        resp = await self._http.get(f"/v1/pointers/{address}/finality")
+        _check(resp)
+        return _pointers.finality_from_json(_json_object(resp))
+
+    async def pointer_controller(self, address: str) -> PointerController:
+        """See :meth:`RestClient.pointer_controller`."""
+        resp = await self._http.get(f"/v1/pointers/{address}/controller")
+        _check(resp)
+        return _pointers.controller_from_json(_json_object(resp))
+
+    async def pointer_prepare(
+        self,
+        owner: str,
+        op: PointerOp | str,
+        *,
+        target: str | None = None,
+        kind: PointerKind | str | None = None,
+        recipient: str | None = None,
+        include_signed_quotes: bool = False,
+    ) -> PointerPrepareResult:
+        """See :meth:`RestClient.pointer_prepare`."""
+        body = _pointers.prepare_body(owner, op, target, kind, recipient, include_signed_quotes)
+        resp = await self._http.post("/v1/pointers/prepare", json=body)
+        _check(resp)
+        return _pointers.prepare_from_json(_json_object(resp))
+
+    async def pointer_finalize(self, upload_id: str, tx_hashes: dict[str, str]) -> PointerFinalizeResult:
+        """See :meth:`RestClient.pointer_finalize`. Never retried."""
+        resp = await self._http.post("/v1/pointers/finalize", json={
+            "upload_id": upload_id,
+            "tx_hashes": tx_hashes,
+        })
+        _check(resp)
+        return _pointers.finalize_from_json(_json_object(resp))
