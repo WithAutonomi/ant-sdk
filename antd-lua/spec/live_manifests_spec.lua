@@ -154,10 +154,28 @@ describe("live manifests", function()
         assert.is_string(gone.entries[1].error)
         assert.is_nil(gone.entries[1].exact_size)
 
-        -- Both sources: refused before sending.
+        -- Both sources: refused before sending, with the daemon's own message.
         local r, err = client:build_manifest({ { address = first, data_map = data_map or "aa" } })
         assert.is_nil(r)
         assert.are.equal("bad_request", err and err.type)
+        assert.are.equal(400, err.status_code)
+        -- The same request past the client check (the daemon is asked via
+        -- the transport directly) gets the same type, status and message.
+        local _, _, derr = client:_do_json("POST", "/v1/manifests/build", {
+            entries = { { address = first, data_map = data_map or "aa" } },
+        })
+        assert.are.equal("bad_request", derr.type)
+        assert.are.equal(derr.status_code, err.status_code)
+        assert.are.equal(derr.message, err.message)
+        _, _, derr = client:_do_json("POST", "/v1/manifests/build", {
+            entries = { { path = "x" }, { address = first, data_map = "aa" } },
+        })
+        r, err = client:build_manifest({ { path = "x" }, { address = first, data_map = "aa" } })
+        assert.are.equal(derr.message, err.message)
+        _, _, derr = client:_do_json("POST", "/v1/manifests/decode", { manifest = "" })
+        r, err = client:decode_manifest_link("")
+        assert.are.equal(derr.message, err.message)
+        assert.are.equal(derr.status_code, err.status_code)
 
         -- A path the portable rules refuse: the daemon's 400, naming the entry.
         r, err = client:build_manifest({ { address = first }, { path = "../x", address = second } })

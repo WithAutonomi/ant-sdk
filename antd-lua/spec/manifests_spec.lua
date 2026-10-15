@@ -244,18 +244,51 @@ describe("manifest API", function()
             assert.are.same({ address = "bb" }, last_request().body.entries[1])
         end)
 
-        it("refuses an entry with both or neither source before sending", function()
-            for _, e in ipairs({
-                {},
-                { path = "a.txt", size = 1 },
-                { data_map = "", address = "" },
-                { data_map = "aa", address = "bb" },
+        it("refuses an entry with both or neither source before sending, in the daemon's words", function()
+            local both = "give data_map or address, not both"
+            local neither = "needs a data_map or an address"
+            for _, c in ipairs({
+                { {}, neither },
+                { { path = "a.txt", size = 1 }, neither },
+                { { data_map = "", address = "" }, neither },
+                { { data_map = "aa", address = "bb" }, both },
             }) do
-                local err = refused(client:build_manifest({ { address = "11" }, e }))
-                assert.truthy(err.message:find("manifest entry 2", 1, true))
-                assert.truthy(err.message:find("exactly one of data_map or address", 1, true))
+                local err = refused(client:build_manifest({ { address = "11" }, c[1] }))
+                assert.are.equal(400, err.status_code)
+                assert.are.equal("Bad request: 1 invalid entries: entries[1]: " .. c[2], err.message)
             end
             assert.are.equal(0, #requests)
+        end)
+
+        it("reports every bad entry together, 0-based", function()
+            local err = refused(client:build_manifest({
+                { data_map = "aa", address = "bb" },
+                { address = "11" },
+                {},
+            }))
+            assert.are.equal(400, err.status_code)
+            assert.are.equal("Bad request: 2 invalid entries: entries[0]: give data_map or address, "
+                .. "not both; entries[2]: needs a data_map or an address", err.message)
+            assert.are.equal(0, #requests)
+        end)
+
+        it("shows at most 20 bad entries and counts the rest", function()
+            local list = {}
+            for i = 1, 23 do list[i] = {} end
+            local err = refused(client:build_manifest(list))
+            local parts = {}
+            for i = 0, 19 do
+                parts[#parts + 1] = "entries[" .. i .. "]: needs a data_map or an address"
+            end
+            assert.are.equal("Bad request: 23 invalid entries: " .. table.concat(parts, "; ")
+                .. "; and 3 more", err.message)
+        end)
+
+        it("prefixes other entry checks with entries[i]", function()
+            local err = refused(client:build_manifest({ { address = "11" }, { address = "11", size = -1 } }))
+            assert.are.equal(400, err.status_code)
+            assert.are.equal("Bad request: 1 invalid entries: entries[1]: size must be a whole number "
+                .. "of bytes from 0 to 2^53", err.message)
         end)
 
         it("refuses a malformed size, path or option before sending", function()
@@ -367,8 +400,10 @@ describe("manifest API", function()
         end)
 
         it("refuses empty bytes and a non-boolean resolve before sending", function()
-            refused(client:decode_manifest(""))
-            refused(client:decode_manifest(nil))
+            local want = "Bad request: needs a manifest (base64 .ant bytes) or a link"
+            assert.are.equal(want, refused(client:decode_manifest("")).message)
+            assert.are.equal(want, refused(client:decode_manifest(nil)).message)
+            assert.are.equal(400, refused(client:decode_manifest("")).status_code)
             refused(client:decode_manifest(HEADER, "yes"))
             assert.are.equal(0, #requests)
         end)
@@ -402,8 +437,11 @@ describe("manifest API", function()
         end)
 
         it("refuses an empty link before sending", function()
-            refused(client:decode_manifest_link(""))
-            refused(client:decode_manifest_link(nil, true))
+            local want = "Bad request: needs a manifest (base64 .ant bytes) or a link"
+            local err = refused(client:decode_manifest_link(""))
+            assert.are.equal(want, err.message)
+            assert.are.equal(400, err.status_code)
+            assert.are.equal(want, refused(client:decode_manifest_link(nil, true)).message)
             refused(client:decode_manifest_link("ant://x", 1))
             assert.are.equal(0, #requests)
         end)

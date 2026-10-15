@@ -123,6 +123,32 @@ local function decode_manifest_field(s)
     return raw, nil
 end
 
+--- The daemon's cap on reported entry errors (MAX_REPORTED_ENTRY_ERRORS).
+local MAX_REPORTED_ENTRY_ERRORS = 20
+
+--- The daemon's message for a decode with neither bytes nor a link.
+local EMPTY_DECODE_INPUT = "needs a manifest (base64 .ant bytes) or a link"
+
+--- A bad_request carrying the text the daemon sends for the same mistake:
+-- its error body reads "Bad request: <message>" (AntdError::BadRequest).
+local function daemon_bad_request(message)
+    return errors.bad_request("Bad request: " .. message)
+end
+
+--- The daemon's `entry_errors_message`: every bad entry, at most 20 shown.
+local function entry_errors_message(list)
+    local shown = {}
+    for i = 1, math.min(#list, MAX_REPORTED_ENTRY_ERRORS) do
+        shown[i] = list[i]
+    end
+    local text = table.concat(shown, "; ")
+    if #list > MAX_REPORTED_ENTRY_ERRORS then
+        return string.format("%d invalid entries: %s; and %d more",
+            #list, text, #list - MAX_REPORTED_ENTRY_ERRORS)
+    end
+    return string.format("%d invalid entries: %s", #list, text)
+end
+
 --- Check one entry and encode it as a JSON object.
 --
 -- The request body is assembled here rather than by cjson.encode: cjson
@@ -130,37 +156,39 @@ end
 -- size from 10^14 up, and it writes an empty Lua table as {} where the
 -- daemon wants an empty entries array. Sizes are written with %.0f, exact
 -- for every whole number up to 2^53; strings go through cjson.encode.
--- @param i number the entry's (1-based) index
--- @return string|nil json, table|nil error
-local function encode_entry(i, e)
-    local where = "manifest entry " .. i .. ": "
+-- @param e any the entry
+-- @return string|nil json, string|nil reason (the daemon's wording)
+local function encode_entry(e)
     if type(e) ~= "table" then
-        return nil, errors.bad_request(where .. "must be a table")
+        return nil, "must be a table"
     end
-    if is_set(e.data_map) == is_set(e.address) then
-        return nil, errors.bad_request(where .. "set exactly one of data_map or address")
+    local has_dm, has_addr = is_set(e.data_map), is_set(e.address)
+    if has_dm and has_addr then
+        return nil, "give data_map or address, not both"
+    elseif not has_dm and not has_addr then
+        return nil, "needs a data_map or an address"
     end
     local fields = {}
     if is_set(e.path) then
         if type(e.path) ~= "string" then
-            return nil, errors.bad_request(where .. "path must be a string")
+            return nil, "path must be a string"
         end
         fields[#fields + 1] = '"path":' .. cjson.encode(e.path)
     end
     if e.size ~= nil then
         if not is_size(e.size) then
-            return nil, errors.bad_request(where .. "size must be a whole number of bytes from 0 to 2^53")
+            return nil, "size must be a whole number of bytes from 0 to 2^53"
         end
         -- -0 passes is_size; write it as 0, not "-0".
         local size = e.size == 0 and 0 or e.size
         fields[#fields + 1] = '"size":' .. string.format("%.0f", size)
     end
     local key, value = "data_map", e.data_map
-    if is_set(e.address) then
+    if has_addr then
         key, value = "address", e.address
     end
     if type(value) ~= "string" then
-        return nil, errors.bad_request(where .. key .. " must be a hex string")
+        return nil, key .. " must be a hex string"
     end
     fields[#fields + 1] = '"' .. key .. '":' .. cjson.encode(value)
     return "{" .. table.concat(fields, ",") .. "}", nil
@@ -178,11 +206,18 @@ local function encode_build_body(entries, opts)
     end
     opts = opts or {}
 
-    local encoded = {}
+    -- Every bad entry is collected, 0-based as the daemon counts.
+    local encoded, bad = {}, {}
     for i, e in ipairs(entries) do
-        local json, err = encode_entry(i, e)
-        if err then return nil, err end
-        encoded[#encoded + 1] = json
+        local json, reason = encode_entry(e)
+        if reason then
+            bad[#bad + 1] = string.format("entries[%d]: %s", i - 1, reason)
+        else
+            encoded[#encoded + 1] = json
+        end
+    end
+    if #bad > 0 then
+        return nil, daemon_bad_request(entry_errors_message(bad))
     end
 
     -- embed_roots: nil means true, the daemon's default (ADR-0006's policy).
@@ -234,9 +269,10 @@ local methods = {}
 --
 -- Each entry sets exactly one of `data_map` or `address`; an entry with
 -- both or neither is refused before anything is sent, as a `bad_request`
--- naming the entry by its Lua index ("manifest entry 1" is the first). The
--- daemon names any other invalid entry (a bad path such as "../x", bad hex)
--- in a `bad_request` too, counting from 0: its `entries[0]` is the first.
+-- (status 400) with the daemon's own message ("1 invalid entries:
+-- entries[0]: give data_map or address, not both"), listing every bad entry
+-- and counting from 0. The daemon names any other invalid entry (a bad path
+-- such as "../x", bad hex) the same way.
 -- @param entries table list of ManifestEntryInput tables:
 --   { path = string|nil, size = number|nil, data_map = string|nil,
 --     address = string|nil }. `path` is the relative path the entry
@@ -298,7 +334,7 @@ end
 --   data_map, exact_size, error }.
 function methods:decode_manifest(manifest, resolve)
     if type(manifest) ~= "string" or manifest == "" then
-        return nil, errors.bad_request("manifest must be non-empty .ant bytes")
+        return nil, daemon_bad_request(EMPTY_DECODE_INPUT)
     end
     local bad = check_resolve(resolve)
     if bad then return nil, bad end
@@ -314,7 +350,7 @@ end
 -- @return table|nil DecodedManifest, error|nil
 function methods:decode_manifest_link(link, resolve)
     if type(link) ~= "string" or link == "" then
-        return nil, errors.bad_request("link must be a non-empty string")
+        return nil, daemon_bad_request(EMPTY_DECODE_INPUT)
     end
     local bad = check_resolve(resolve)
     if bad then return nil, bad end
