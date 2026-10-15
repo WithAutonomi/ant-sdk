@@ -3,7 +3,9 @@ package antd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -72,6 +74,7 @@ func TestIntegration_Manifests(t *testing.T) {
 	c.http.Timeout = 2 * time.Minute
 
 	built := checkLiveManifests(t, "REST", c, f)
+	checkClientRefusalMatchesDaemon(t, c, f)
 
 	// The same daemon over gRPC, when ANTD_TEST_GRPC is set.
 	target := os.Getenv("ANTD_TEST_GRPC")
@@ -222,4 +225,46 @@ func sizeString(size *uint64) string {
 		return "none"
 	}
 	return strconv.FormatUint(*size, 10)
+}
+
+// checkClientRefusalMatchesDaemon sends the daemon the same invalid entries
+// the client refuses before sending, and checks that the client's message is
+// the daemon's (which adds only its "Bad request: " prefix).
+func checkClientRefusalMatchesDaemon(t *testing.T, c *Client, f liveManifestFixtures) {
+	t.Helper()
+	ctx := context.Background()
+	_, err := c.BuildManifest(ctx, []ManifestEntryInput{
+		{Address: f.addresses[0], DataMap: f.dataMap},
+		{Address: f.addresses[1]},
+		{},
+	}, nil)
+	var bad *BadRequestError
+	if !errors.As(err, &bad) || bad.StatusCode != http.StatusBadRequest {
+		t.Fatalf("client refusal: expected a 400 *BadRequestError, got %T %v", err, err)
+	}
+	body, err := json.Marshal(map[string]any{"entries": []map[string]any{
+		{"address": f.addresses[0], "data_map": f.dataMap},
+		{"address": f.addresses[1]},
+		{},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/manifests/build", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var wire struct{ Error string }
+	if err := json.NewDecoder(resp.Body).Decode(&wire); err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusBadRequest || strings.TrimPrefix(wire.Error, "Bad request: ") != bad.Message {
+		t.Fatalf("daemon said %d %q, client said %q", resp.StatusCode, wire.Error, bad.Message)
+	}
 }

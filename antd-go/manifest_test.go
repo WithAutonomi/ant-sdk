@@ -96,12 +96,43 @@ func TestBuildManifestDefaultsEmbedRoots(t *testing.T) {
 
 func TestBuildManifestRejectsAmbiguousEntriesBeforeSending(t *testing.T) {
 	c := NewClient("http://127.0.0.1:1") // never dialled
-	for _, e := range []ManifestEntryInput{{}, {DataMap: "aa", Address: "bb"}} {
-		_, err := c.BuildManifest(context.Background(), []ManifestEntryInput{e}, nil)
-		var bad *BadRequestError
-		if !errors.As(err, &bad) || bad.StatusCode != http.StatusBadRequest {
-			t.Fatalf("expected *BadRequestError for %+v, got %T: %v", e, err, err)
-		}
+	ok := ManifestEntryInput{Address: "11"}
+	cases := []struct {
+		name    string
+		entries []ManifestEntryInput
+		want    string
+	}{
+		{"neither", []ManifestEntryInput{{}}, "1 invalid entries: entries[0]: needs a data_map or an address"},
+		{"both", []ManifestEntryInput{{DataMap: "aa", Address: "bb"}}, "1 invalid entries: entries[0]: give data_map or address, not both"},
+		{"two bad around a good one", []ManifestEntryInput{{DataMap: "aa", Address: "bb"}, ok, {}},
+			"2 invalid entries: entries[0]: give data_map or address, not both; entries[2]: needs a data_map or an address"},
+	}
+	for _, tc := range cases {
+		_, err := c.BuildManifest(context.Background(), tc.entries, nil)
+		checkBadRequest(t, tc.name, err, tc.want)
+	}
+}
+
+func checkBadRequest(t *testing.T, name string, err error, want string) {
+	t.Helper()
+	var bad *BadRequestError
+	if !errors.As(err, &bad) || bad.StatusCode != http.StatusBadRequest || bad.Message != want {
+		t.Errorf("%s: want *BadRequestError 400 %q, got %T: %v", name, want, err, err)
+	}
+}
+
+// Past 20 bad entries the daemon names the first 20 and counts the rest.
+func TestBuildManifestCapsReportedEntryErrors(t *testing.T) {
+	entries := make([]ManifestEntryInput, 23) // all neither
+	_, err := NewClient("http://127.0.0.1:1").BuildManifest(context.Background(), entries, nil)
+	var bad *BadRequestError
+	if !errors.As(err, &bad) {
+		t.Fatalf("got %T: %v", err, err)
+	}
+	if !strings.HasPrefix(bad.Message, "23 invalid entries: entries[0]: needs a data_map or an address; entries[1]:") ||
+		!strings.HasSuffix(bad.Message, "entries[19]: needs a data_map or an address; and 3 more") ||
+		strings.Contains(bad.Message, "entries[20]") {
+		t.Fatalf("unexpected message: %q", bad.Message)
 	}
 }
 
@@ -110,23 +141,19 @@ func TestManifestClientSideRejectionsAreBadRequestOnBothTransports(t *testing.T)
 	ctx := context.Background()
 	rest := NewClient("http://127.0.0.1:1") // never dialled
 	grpcc := startMockServer(t)
-	calls := map[string]func() error{
-		"rest build entry": func() error { _, err := rest.BuildManifest(ctx, []ManifestEntryInput{{}}, nil); return err },
-		"grpc build entry": func() error {
-			_, err := grpcc.BuildManifest(ctx, []ManifestEntryInput{{DataMap: "a", Address: "b"}}, nil)
-			return err
-		},
-		"rest empty bytes": func() error { _, err := rest.DecodeManifest(ctx, nil, false); return err },
-		"grpc empty bytes": func() error { _, err := grpcc.DecodeManifest(ctx, nil, false); return err },
-		"rest empty link":  func() error { _, err := rest.DecodeManifestLink(ctx, "", false); return err },
-		"grpc empty link":  func() error { _, err := grpcc.DecodeManifestLink(ctx, "", false); return err },
-	}
-	for name, call := range calls {
-		var bad *BadRequestError
-		if err := call(); !errors.As(err, &bad) {
-			t.Errorf("%s: expected *BadRequestError, got %T: %v", name, err, err)
-		}
-	}
+	const entryMsg = "1 invalid entries: entries[0]: needs a data_map or an address"
+	_, err := rest.BuildManifest(ctx, []ManifestEntryInput{{}}, nil)
+	checkBadRequest(t, "rest build entry", err, entryMsg)
+	_, err = grpcc.BuildManifest(ctx, []ManifestEntryInput{{}}, nil)
+	checkBadRequest(t, "grpc build entry", err, entryMsg)
+	_, err = rest.DecodeManifest(ctx, nil, false)
+	checkBadRequest(t, "rest empty bytes", err, noDecodeInput)
+	_, err = grpcc.DecodeManifest(ctx, nil, false)
+	checkBadRequest(t, "grpc empty bytes", err, noDecodeInput)
+	_, err = rest.DecodeManifestLink(ctx, "", false)
+	checkBadRequest(t, "rest empty link", err, noDecodeInput)
+	_, err = grpcc.DecodeManifestLink(ctx, "", false)
+	checkBadRequest(t, "grpc empty link", err, noDecodeInput)
 }
 
 func TestDecodeManifestAndLink(t *testing.T) {
