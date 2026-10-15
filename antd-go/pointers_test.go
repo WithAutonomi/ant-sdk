@@ -87,7 +87,7 @@ func TestPointerGetReadsTheFinalCounterExactly(t *testing.T) {
 		"GET /v1/pointers/aa": reply(200, map[string]any{
 			"address": "aa", "owner": "pk", "counter": "18446744073709551615",
 			"kind": "pointer", "kind_tag": 1, "target": "bb", "state_id": "ss",
-			"final": true, "transferred_to": "bb",
+			"is_final": true, "transferred_to": "bb",
 		}),
 	})
 	r, err := c.PointerGet(context.Background(), "aa")

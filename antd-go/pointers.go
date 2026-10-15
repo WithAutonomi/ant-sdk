@@ -267,7 +267,7 @@ func parsePointerRecord(j map[string]any) (*PointerRecord, error) {
 		KindTag:       uint8(unum64(j, "kind_tag")),
 		Target:        str(j, "target"),
 		StateID:       str(j, "state_id"),
-		Final:         boolField(j, "final"),
+		Final:         boolField(j, "is_final"),
 		TransferredTo: str(j, "transferred_to"),
 	}, nil
 }

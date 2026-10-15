@@ -1812,7 +1812,7 @@ async fn test_pointer_get_final_record_reads_u64_max_and_the_transfer() {
         json!({
             "address": OWNER, "owner": "ab".repeat(1952), "counter": "18446744073709551615",
             "kind": "pointer", "kind_tag": 1, "target": RECIPIENT, "state_id": "ef",
-            "final": true, "transferred_to": RECIPIENT
+            "is_final": true, "transferred_to": RECIPIENT
         }),
     );
     let client = Client::new(&server.url());
@@ -1834,7 +1834,7 @@ async fn test_pointer_get_open_record_has_no_transfer() {
         200,
         json!({
             "address": OWNER, "owner": "ab", "counter": "4", "kind": "unknown", "kind_tag": 42,
-            "target": TARGET, "state_id": "ef", "final": false, "transferred_to": null
+            "target": TARGET, "state_id": "ef", "is_final": false, "transferred_to": null
         }),
     );
     let client = Client::new(&server.url());

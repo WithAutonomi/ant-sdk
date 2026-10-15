@@ -1402,7 +1402,7 @@ impl Client {
             kind_tag: Self::kind_tag_field(&j),
             target: Self::str_field(&j, "target"),
             state_id: Self::str_field(&j, "state_id"),
-            is_final: j.get("final").and_then(Value::as_bool).unwrap_or(false),
+            is_final: j.get("is_final").and_then(Value::as_bool).unwrap_or(false),
             transferred_to: Self::opt_str_field(&j, "transferred_to"),
         })
     }

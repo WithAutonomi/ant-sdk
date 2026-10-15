@@ -881,7 +881,7 @@ mod tests {
         assert_eq!(view.transferred_to, Some(hex::encode([5; 32])));
         assert_eq!(view.owner.len(), 2 * 1952);
         let json = serde_json::to_value(&view).unwrap();
-        assert_eq!(json["final"], true);
+        assert_eq!(json["is_final"], true);
         assert_eq!(json["counter"], "18446744073709551615");
     }
 

@@ -707,7 +707,6 @@ pub struct PointerRecordResponse {
     pub target: String,
     pub state_id: String,
     /// The state is at the final counter: nothing can replace it.
-    #[serde(rename = "final")]
     pub is_final: bool,
     /// The pointer this one was handed over to, when its final state is a
     /// transfer.

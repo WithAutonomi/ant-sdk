@@ -485,7 +485,7 @@ Request: `{"owner": "<hex>", "recipient": "<hex>"}`
 Response: `{"address": "<hex>", "state_id": "<hex>", "finality": {...} | null, "finality_error": "..."}`
 
 #### `GET /v1/pointers/{addr}`
-Response: `{"address", "owner": "<hex ML-DSA-65 public key>", "counter", "kind": "chunk|pointer|unknown", "kind_tag", "target", "state_id", "final": bool, "transferred_to": "<hex>" | null}`. `404` if no pointer.
+Response: `{"address", "owner": "<hex ML-DSA-65 public key>", "counter", "kind": "chunk|pointer|unknown", "kind_tag", "target", "state_id", "is_final": bool, "transferred_to": "<hex>" | null}`. `404` if no pointer.
 
 #### `GET /v1/pointers/{addr}/resolve`
 Follow a chain of pointers (at most 16 hops) to its end. Response: `{"kind", "kind_tag", "target"}`

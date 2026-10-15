@@ -336,7 +336,7 @@ type PointerRecord struct {
 	StateID string `json:"state_id"` // hex
 	// Final is true at the final counter: the pointer was handed over or
 	// frozen, and nothing can update it.
-	Final bool `json:"final"`
+	Final bool `json:"is_final"`
 	// TransferredTo is the pointer this one was handed over to, or "".
 	TransferredTo string `json:"transferred_to,omitempty"`
 }
