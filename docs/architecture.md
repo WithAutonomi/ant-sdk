@@ -75,6 +75,26 @@ Download:  address     ──▶  antd  ──▶  local path
 
 Use for: file hosting, static websites, media storage.
 
+### Mutable References
+
+#### Pointers
+
+A pointer is a small, owner-signed, mutable reference. Its address is derived from its owner's ML-DSA-65 key and never changes; the owner can point it at new data (a chunk, such as a public file's address, or another pointer). The owner can also transfer it, irreversibly, to another pointer: readers of the address are then redirected there for good.
+
+```
+Create:   owner + target     ──▶  antd  ──▶  pointer address (= owner)
+Update:   owner + new target ──▶  antd  ──▶  same address, counter + 1
+Resolve:  pointer address    ──▶  antd  ──▶  current target
+```
+
+- antd holds the owner keys, loaded at startup with `--pointer-keys`, and signs every write; requests name a pointer by its address.
+- Every create, update and transfer pays (about one chunk's price), and every attempt pays again. Reads are free.
+- Needs the first antd release with pointers (after 0.15.0).
+
+Use for: a "latest version" address for a site, a release or a config. See [Tutorial: Point at a Public File and Update It](tutorial-pointers.md).
+
+Scratchpads, registers and vaults are not supported.
+
 ## Payment Model
 
 Every write operation costs network tokens (measured in "atto tokens" — 1 token = 10^18 atto).
@@ -89,7 +109,7 @@ result = client.data_put_public(data)
 print(f"Paid {result.cost} atto tokens")
 ```
 
-- **Cost estimation**: All write operations have a corresponding `*_cost` method.
+- **Cost estimation**: Data and file writes have a corresponding `*_cost` method. A pointer write (create, update or transfer) costs about the price of one chunk.
 - **One-time payment**: You pay once. Data persists forever.
 - **Reads are free**: Retrieving data doesn't cost tokens.
 - **Local testnet**: The EVM testnet provides unlimited funds for development.
@@ -103,7 +123,7 @@ print(f"Paid {result.cost} atto tokens")
 | Access control | IAM policies | Cryptographic keys |
 | Redundancy | Configurable | Built-in (network-wide replication) |
 | Privacy | Trust the provider | Self-encrypting (zero knowledge) |
-| Mutability | Overwrite anything | Immutable by design |
+| Mutability | Overwrite anything | Data is immutable; pointers are owner-signed references you can move to new data |
 | Cost model | Per-request + storage/month | One-time write fee, reads are free |
 
 ## Key Design Patterns

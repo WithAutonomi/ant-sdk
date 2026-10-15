@@ -130,6 +130,38 @@ const est = try client.fileCost("/path/to/file.txt", true);
 defer est.deinit(allocator);
 ```
 
+## Pointers
+
+A pointer is an owner-signed address you can move to new data. antd signs with the owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so `owner` is the pointer's address, never a key. Every create, update and transfer pays (about the price of one chunk) and is never retried; reads are free. A transfer hands the pointer over to another pointer for good. Needs the first antd release with pointers (after 0.15.0). Walk-through: [Tutorial: Point at a Public File and Update It](tutorial-pointers.md).
+
+```zig
+const owner = "<a pointer address from client.pointerKeys()>";
+
+const v1 = try client.dataPutPublic("version 1", .auto);
+defer v1.deinit(allocator);
+const v2 = try client.dataPutPublic("version 2", .auto);
+defer v2.deinit(allocator);
+
+const created = try client.pointerCreate(owner, v1.address, .chunk);  // pays; counter 0
+defer created.deinit(allocator);
+const updated = try client.pointerUpdate(owner, v2.address, .chunk);  // pays again; counter 1
+defer updated.deinit(allocator);
+
+const target = try client.pointerResolve(owner);                      // free
+defer target.deinit(allocator);
+const finality = try client.pointerFinality(owner);
+defer finality.deinit(allocator);
+std.debug.print("{s}: {s}\n", .{ target.target, finality.status.wire() });  // <v2.address>: open
+```
+
+Counters are `u64`. `pointerTransfer`, `pointerGet`, `pointerController`, `pointerPrepare` and `pointerFinalize` complete the set (REST only).
+
+Runnable example: `antd-zig/examples/09-pointers.zig`. Set `ANTD_POINTER_OWNER` to an address the daemon holds a key for, one it has not written yet (each run creates the pointer and pays for its writes), and `ANTD_BASE_URL` for a daemon other than `http://localhost:8082`:
+
+```bash
+cd antd-zig
+ANTD_POINTER_OWNER=<address> zig build run-09-pointers
+```
 
 ## Error Handling
 

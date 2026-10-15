@@ -84,6 +84,31 @@ $client->fileDownloadPublic($result->address, "/path/to/output.txt");
 $est = $client->fileCost("/path/to/file.txt");
 ```
 
+## Pointers
+
+A pointer is an owner-signed address you can move to new data. antd signs with the owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so `owner` is the pointer's address, never a key. Every create, update and transfer pays (about the price of one chunk) and is never retried; reads are free. A transfer hands the pointer over to another pointer for good. Needs the first antd release with pointers (after 0.15.0). Walk-through: [Tutorial: Point at a Public File and Update It](tutorial-pointers.md).
+
+```php
+$owner = $client->pointerKeys()[0];                        // a pointer antd can write
+
+$v1 = $client->dataPutPublic("version 1")->address;
+$v2 = $client->dataPutPublic("version 2")->address;
+
+$client->pointerCreate($owner, $v1);                       // pays; counter "0"
+$client->pointerUpdate($owner, $v2);                       // pays again; counter "1"
+$target = $client->pointerResolve($owner)->target;         // === $v2 (free)
+
+echo $client->pointerFinality($owner)->rawStatus, "\n";    // "open"
+```
+
+Counters are validated decimal strings, because a final pointer sits at 2^64 − 1, past PHP's `int`. `pointerTransfer`, `pointerGet`, `pointerController`, `pointerPrepare` and `pointerFinalize` complete the set (REST only), each with an `Async` variant.
+
+Runnable example: `antd-php/examples/08-pointers.php`. Set `ANTD_POINTER_OWNER` to an address the daemon holds a key for, one it has not written yet (each run creates the pointer and pays for its writes), and `ANTD_BASE_URL` for a daemon other than `http://localhost:8082`:
+
+```bash
+cd antd-php
+ANTD_POINTER_OWNER=<address> php examples/08-pointers.php
+```
 
 ## Error Handling
 
