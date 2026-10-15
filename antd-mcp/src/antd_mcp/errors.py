@@ -93,9 +93,8 @@ _SHORTFALL_RETRYABLE_HINT = (
 _SHORTFALL_HINT = (
     "Too few of the close group answered or stored. A read is free to retry "
     "later. Do not repeat a paid write automatically: it may already have "
-    "been paid for and a repeat pays again. Check the pointer with "
-    "pointer_get or pointer_finality first, and ask the user before paying "
-    "again."
+    "been paid for and a repeat pays again. For a pointer, check it with "
+    "pointer_get or pointer_finality first. Ask the user before paying again."
 )
 
 

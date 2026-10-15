@@ -580,6 +580,23 @@ async def test_close_group_shortfall_not_retryable(mock_client):
     assert payload["error"] == "CLOSE_GROUP_SHORTFALL"
     assert payload["retryable"] is False
     assert "Do not repeat a paid write automatically" in payload["hint"]
+    assert "For a pointer, check it with pointer_get or pointer_finality first" in payload["hint"]
+
+
+@pytest.mark.asyncio
+async def test_close_group_shortfall_on_a_data_store_reads_for_any_store(mock_client):
+    # A shortfall on a chunk or data store gets the same code and hint; the
+    # pointer advice is scoped to pointers.
+    mock_client.chunk_put.side_effect = CloseGroupShortfallError(
+        "Close group shortfall: 3 of 7 stored", 503,
+    )
+
+    payload = await _call("chunk_put", data="aGVsbG8=")
+
+    assert payload["error"] == "CLOSE_GROUP_SHORTFALL"
+    assert payload["retryable"] is False
+    assert payload["hint"].startswith("Too few of the close group answered or stored.")
+    assert "Check the pointer" not in payload["hint"]
 
 
 # ---------------------------------------------------------------------------
