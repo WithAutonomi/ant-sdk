@@ -233,21 +233,37 @@ defmodule Antd.GrpcManifestsTest do
     # No channel at all: the check must answer before any call is made.
     offline = %GrpcClient{target: "unused", channel: nil}
 
-    for entry <- [
-          %ManifestEntryInput{data_map: "abcd", address: @address},
-          %ManifestEntryInput{path: "a.txt"},
-          %ManifestEntryInput{address: @address, size: -1}
+    for {entry, reason} <- [
+          {%ManifestEntryInput{data_map: "abcd", address: @address},
+           "give data_map or address, not both"},
+          {%ManifestEntryInput{path: "a.txt"}, "needs a data_map or an address"},
+          {%ManifestEntryInput{address: @address, size: -1},
+           "size must be nil or an integer from 0 to 2^64-1"}
         ] do
-      assert {:error, %Antd.BadRequestError{status_code: 0, message: message}} =
+      assert {:error, %Antd.BadRequestError{status_code: 400, message: message}} =
                GrpcClient.build_manifest(offline, [%ManifestEntryInput{address: @address}, entry])
 
-      assert message =~ "entries[1]"
+      assert message == "1 invalid entries: entries[1]: #{reason}"
     end
 
-    assert {:error, %Antd.BadRequestError{status_code: 0}} =
+    # Two bad entries are reported together, in the daemon's wording.
+    assert {:error, %Antd.BadRequestError{status_code: 400, message: two}} =
+             GrpcClient.build_manifest(offline, [
+               %ManifestEntryInput{data_map: "abcd", address: @address},
+               %ManifestEntryInput{address: @address},
+               %ManifestEntryInput{}
+             ])
+
+    assert two ==
+             "2 invalid entries: entries[0]: give data_map or address, not both; " <>
+               "entries[2]: needs a data_map or an address"
+
+    empty = "needs a manifest (base64 .ant bytes) or a link"
+
+    assert {:error, %Antd.BadRequestError{status_code: 400, message: ^empty}} =
              GrpcClient.decode_manifest(offline, "")
 
-    assert {:error, %Antd.BadRequestError{status_code: 0}} =
+    assert {:error, %Antd.BadRequestError{status_code: 400, message: ^empty}} =
              GrpcClient.decode_manifest_link(offline, "")
   end
 

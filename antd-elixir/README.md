@@ -403,7 +403,9 @@ creator's claim), `kind` (`"embedded"` or `"public"`), `content_address`,
   `data_map`, `error` and the torrent hashes are `nil` when absent.
 - **Errors.** An entry with both or neither of `data_map` and `address` is
   refused before anything is sent, as an `Antd.BadRequestError` with
-  `status_code` 0. The daemon's rejections (an invalid path such as `../x`, a
+  `status_code` 400 and the daemon's own message (`2 invalid entries:
+  entries[0]: ...; entries[2]: ...`), so it cannot be told from the daemon's
+  refusal. The daemon's rejections (an invalid path such as `../x`, a
   malformed DataMap or manifest) are `Antd.BadRequestError` too (400, or gRPC
   `INVALID_ARGUMENT`), carrying the daemon's message, which names
   `entries[i]`. With `resolve: true`, one entry's failure is reported in its

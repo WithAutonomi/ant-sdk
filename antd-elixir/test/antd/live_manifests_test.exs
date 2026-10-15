@@ -149,8 +149,31 @@ defmodule Antd.LiveManifestsTest do
     # ── bad entries ──
     both = %ManifestEntryInput{data_map: f.data_map, address: f.a1}
 
-    assert {:error, %Antd.BadRequestError{status_code: 0}} =
-             mod.build_manifest(client, [both])
+    # The client-side refusals carry the daemon's status and wording. Send
+    # the same bad requests past the check, straight to the daemon, and the
+    # answers, minus REST's \"Bad request: \" prefix, must equal the client's message.
+    for {entry, reason} <- [
+          {both, "give data_map or address, not both"},
+          {%ManifestEntryInput{}, "needs a data_map or an address"}
+        ] do
+      assert {:error, %Antd.BadRequestError{status_code: 400, message: local}} =
+               mod.build_manifest(client, [entry])
+
+      assert local == "1 invalid entries: entries[0]: #{reason}"
+      # REST's error field is AntdError's Display, "Bad request: <text>"; gRPC
+      # sends the bare text. The client's message is the bare text.
+      remote =
+        entry
+        |> then(&daemon_message(mod, client, &1))
+        |> String.replace_prefix("Bad request: ", "")
+
+      assert remote == local, "daemon said #{inspect(remote)}, client #{inspect(local)}"
+    end
+
+    assert {:error, %Antd.BadRequestError{status_code: 400, message: empty}} =
+             mod.decode_manifest(client, "")
+
+    assert empty == "needs a manifest (base64 .ant bytes) or a link"
 
     escaping = %ManifestEntryInput{path: "../x", address: f.a1}
 
@@ -174,6 +197,31 @@ defmodule Antd.LiveManifestsTest do
     {:ok, client} = GrpcClient.new(@grpc)
     round_trip(GrpcClient, client)
   end
+
+  # What the daemon itself answers to a build with this one entry. Over gRPC
+  # the oneof can hold one source, so only an entry with neither is sendable.
+  defp daemon_message(Client, client, entry) do
+    wire = for {k, v} <- [data_map: entry.data_map, address: entry.address], v, do: {k, v}
+    payload = %{entries: [Map.new(wire)], embed_roots: true}
+
+    case Req.post(client.base_url <> "/v1/manifests/build", json: payload, retry: false) do
+      {:ok, %Req.Response{status: 400, body: %{"error" => message}}} -> message
+      other -> flunk("expected a 400 from the daemon, got #{inspect(other)}")
+    end
+  end
+
+  defp daemon_message(GrpcClient, client, %{data_map: nil, address: nil}) do
+    req = %Antd.V1.BuildManifestRequest{entries: [%Antd.V1.ManifestEntryInput{}]}
+
+    case Antd.V1.ManifestService.Stub.build(client.channel, req) do
+      {:error, %GRPC.RPCError{status: 3, message: message}} -> message
+      other -> flunk("expected INVALID_ARGUMENT from the daemon, got #{inspect(other)}")
+    end
+  end
+
+  # No way to send both sources over gRPC: the REST wording is the same code.
+  defp daemon_message(GrpcClient, _client, _entry),
+    do: "1 invalid entries: entries[0]: give data_map or address, not both"
 
   # As in Antd.GrpcManifestsTest: wait out a GRPC.Client.Supervisor that is
   # going down with another module, then start one that outlives this test.

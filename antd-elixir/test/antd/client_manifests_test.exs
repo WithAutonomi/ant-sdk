@@ -158,34 +158,57 @@ defmodule Antd.ClientManifestsTest do
            ]
   end
 
-  test "build_manifest/3 refuses a bad entry before sending anything",
+  test "build_manifest/3 refuses a bad entry before sending anything, as the daemon would",
        %{client: client} do
     # The Bypass server expects no request, so any request fails the test.
     good = %ManifestEntryInput{address: @address}
+    both = "give data_map or address, not both"
+    neither = "needs a data_map or an address"
+    size = "size must be nil or an integer from 0 to 2^64-1"
 
     bad = [
-      {%ManifestEntryInput{data_map: "abcd", address: @address}, "exactly one"},
-      {%ManifestEntryInput{path: "a.txt"}, "exactly one"},
-      {%ManifestEntryInput{data_map: "", address: ""}, "exactly one"},
-      {%ManifestEntryInput{address: @address, size: -1}, "size"},
-      {%ManifestEntryInput{address: @address, size: 18_446_744_073_709_551_616}, "size"},
-      {%ManifestEntryInput{address: @address, size: 1.5}, "size"},
-      {%ManifestEntryInput{address: @address, path: :a}, "path"},
-      {%ManifestEntryInput{address: 42}, "address"},
-      {%{address: @address}, "Antd.ManifestEntryInput"}
+      {%ManifestEntryInput{data_map: "abcd", address: @address}, both},
+      {%ManifestEntryInput{path: "a.txt"}, neither},
+      {%ManifestEntryInput{data_map: "", address: ""}, neither},
+      {%ManifestEntryInput{address: @address, size: -1}, size},
+      {%ManifestEntryInput{address: @address, size: 18_446_744_073_709_551_616}, size},
+      {%ManifestEntryInput{address: @address, size: 1.5}, size},
+      {%ManifestEntryInput{address: @address, path: :a}, "path must be a string"},
+      {%ManifestEntryInput{address: 42}, "address must be a hex string"},
+      {%{address: @address},
+       "expected an %Antd.ManifestEntryInput{}, got: %{address: \"#{@address}\"}"}
     ]
 
     for {entry, reason} <- bad do
-      assert {:error, %Antd.BadRequestError{status_code: 0, message: message}} =
+      assert {:error, %Antd.BadRequestError{status_code: 400, message: message}} =
                Client.build_manifest(client, [good, entry])
 
-      assert message =~ "entries[1]", message
-      assert message =~ reason, message
+      assert message == "1 invalid entries: entries[1]: #{reason}"
     end
 
-    assert_raise Antd.BadRequestError, ~r/entries\[0\]/, fn ->
+    assert_raise Antd.BadRequestError, "1 invalid entries: entries[0]: #{neither}", fn ->
       Client.build_manifest!(client, [%ManifestEntryInput{}])
     end
+  end
+
+  test "every bad entry is reported, at most 20, in the daemon's wording",
+       %{client: client} do
+    both = %ManifestEntryInput{data_map: "abcd", address: @address}
+    neither = %ManifestEntryInput{path: "a.txt"}
+    good = %ManifestEntryInput{address: @address}
+
+    assert {:error, %Antd.BadRequestError{status_code: 400, message: message}} =
+             Client.build_manifest(client, [both, good, neither])
+
+    assert message ==
+             "2 invalid entries: entries[0]: give data_map or address, not both; " <>
+               "entries[2]: needs a data_map or an address"
+
+    assert {:error, %Antd.BadRequestError{status_code: 400, message: many}} =
+             Client.build_manifest(client, List.duplicate(neither, 23))
+
+    shown = Enum.map_join(0..19, "; ", &"entries[#{&1}]: needs a data_map or an address")
+    assert many == "23 invalid entries: #{shown}; and 3 more"
   end
 
   test "an empty string counts as unset, so the other source is the entry's",
@@ -304,14 +327,12 @@ defmodule Antd.ClientManifestsTest do
   end
 
   test "an empty decode input is refused before sending", %{client: client} do
-    assert {:error, %Antd.BadRequestError{status_code: 0, message: m1}} =
+    message = "needs a manifest (base64 .ant bytes) or a link"
+
+    assert {:error, %Antd.BadRequestError{status_code: 400, message: ^message}} =
              Client.decode_manifest(client, "")
 
-    assert m1 =~ "manifest is empty"
-
-    assert {:error, %Antd.BadRequestError{status_code: 0, message: m2}} =
+    assert {:error, %Antd.BadRequestError{status_code: 400, message: ^message}} =
              Client.decode_manifest_link(client, "")
-
-    assert m2 =~ "link is empty"
   end
 end

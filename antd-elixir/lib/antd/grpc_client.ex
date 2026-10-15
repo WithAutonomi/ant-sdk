@@ -1095,7 +1095,7 @@ defmodule Antd.GrpcClient do
   @spec decode_manifest(t(), binary(), keyword()) ::
           {:ok, Antd.DecodedManifest.t()} | {:error, Exception.t()}
   def decode_manifest(%__MODULE__{} = client, manifest, opts \\ []) when is_binary(manifest) do
-    with :ok <- Antd.Manifests.check_input("decode_manifest: manifest", manifest) do
+    with :ok <- Antd.Manifests.check_input(manifest) do
       decode_manifest_call(client, {:manifest, manifest}, opts)
     end
   end
@@ -1113,7 +1113,7 @@ defmodule Antd.GrpcClient do
   @spec decode_manifest_link(t(), String.t(), keyword()) ::
           {:ok, Antd.DecodedManifest.t()} | {:error, Exception.t()}
   def decode_manifest_link(%__MODULE__{} = client, link, opts \\ []) when is_binary(link) do
-    with :ok <- Antd.Manifests.check_input("decode_manifest_link: link", link) do
+    with :ok <- Antd.Manifests.check_input(link) do
       decode_manifest_call(client, {:link, link}, opts)
     end
   end

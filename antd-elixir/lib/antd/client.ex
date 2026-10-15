@@ -648,7 +648,7 @@ defmodule Antd.Client do
 
   `entries` is a list of `Antd.ManifestEntryInput`, each with exactly one of
   `data_map` or `address`; one with both or neither is refused before
-  anything is sent (`Antd.BadRequestError`, `status_code` 0). An entry the
+  anything is sent (`Antd.BadRequestError`, `status_code` 400, as from the daemon). An entry the
   daemon rejects (an invalid path, a malformed DataMap) is an
   `Antd.BadRequestError` whose message names `entries[i]`.
 
@@ -696,7 +696,7 @@ defmodule Antd.Client do
   @spec decode_manifest(t(), binary(), keyword()) ::
           {:ok, Antd.DecodedManifest.t()} | {:error, Exception.t()}
   def decode_manifest(%__MODULE__{} = client, manifest, opts \\ []) when is_binary(manifest) do
-    with :ok <- Antd.Manifests.check_input("decode_manifest: manifest", manifest) do
+    with :ok <- Antd.Manifests.check_input(manifest) do
       decode_manifest_body(client, Antd.Manifests.decode_bytes_payload(manifest, opts))
     end
   end
@@ -715,7 +715,7 @@ defmodule Antd.Client do
   @spec decode_manifest_link(t(), String.t(), keyword()) ::
           {:ok, Antd.DecodedManifest.t()} | {:error, Exception.t()}
   def decode_manifest_link(%__MODULE__{} = client, link, opts \\ []) when is_binary(link) do
-    with :ok <- Antd.Manifests.check_input("decode_manifest_link: link", link) do
+    with :ok <- Antd.Manifests.check_input(link) do
       decode_manifest_body(client, Antd.Manifests.decode_link_payload(link, opts))
     end
   end

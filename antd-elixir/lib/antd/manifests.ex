@@ -22,24 +22,39 @@ defmodule Antd.Manifests do
   # Checks made before anything is sent
   # ---------------------------------------------------------------------------
 
+  @max_reported 20
+
   @doc """
-  Checks each entry the way the daemon would before it is sent: an
-  `Antd.ManifestEntryInput` with exactly one of `data_map` or `address`
-  (an empty string counts as unset, as it does for the daemon), string
-  fields, and a size that is `nil` or a u64. The first problem is an
-  `Antd.BadRequestError` naming `entries[i]`, with `status_code` 0 since the
-  daemon never saw it.
+  Checks each entry the way the daemon would before it is sent, and refuses
+  with the daemon's own 400: an `Antd.BadRequestError` with `status_code`
+  400 whose message is the daemon's aggregate, `N invalid entries:
+  entries[i]: ...; entries[j]: ...` (at most 20 shown, then `; and K more`),
+  so a refusal made here cannot be told from one made there.
+
+  An entry is an `Antd.ManifestEntryInput` with exactly one of `data_map` or
+  `address` (an empty string counts as unset, as it does for the daemon),
+  string fields, and a size that is `nil` or a u64.
   """
   @spec check_entries([term()]) :: :ok | {:error, Antd.BadRequestError.t()}
   def check_entries(entries) when is_list(entries) do
-    entries
-    |> Enum.with_index()
-    |> Enum.find_value(:ok, fn {entry, i} ->
-      case entry_problem(entry) do
-        nil -> nil
-        problem -> {:error, bad_request("antd: manifest entries[#{i}]: #{problem}")}
-      end
-    end)
+    errors =
+      for {entry, i} <- Enum.with_index(entries),
+          problem = entry_problem(entry),
+          do: "entries[#{i}]: #{problem}"
+
+    case errors do
+      [] -> :ok
+      _ -> {:error, bad_request(entry_errors_message(errors))}
+    end
+  end
+
+  defp entry_errors_message(errors) do
+    shown = errors |> Enum.take(@max_reported) |> Enum.join("; ")
+    n = length(errors)
+
+    if n > @max_reported,
+      do: "#{n} invalid entries: #{shown}; and #{n - @max_reported} more",
+      else: "#{n} invalid entries: #{shown}"
   end
 
   defp entry_problem(%Antd.ManifestEntryInput{} = e) do
@@ -47,7 +62,8 @@ defmodule Antd.Manifests do
       not optional_string?(e.data_map) -> "data_map must be a hex string"
       not optional_string?(e.address) -> "address must be a hex string"
       not optional_string?(e.path) -> "path must be a string"
-      given?(e.data_map) == given?(e.address) -> "set exactly one of data_map or address"
+      given?(e.data_map) and given?(e.address) -> "give data_map or address, not both"
+      not given?(e.data_map) and not given?(e.address) -> "needs a data_map or an address"
       not size?(e.size) -> "size must be nil or an integer from 0 to 2^64-1"
       true -> nil
     end
@@ -57,14 +73,16 @@ defmodule Antd.Manifests do
     do: "expected an %Antd.ManifestEntryInput{}, got: #{inspect(other)}"
 
   @doc """
-  Refuses an empty decode input before it is sent; `label` names it, e.g.
-  `"decode_manifest: manifest"`.
+  Refuses an empty decode input before it is sent, with the daemon's message
+  for a decode request that has neither a manifest nor a link.
   """
-  @spec check_input(String.t(), binary()) :: :ok | {:error, Antd.BadRequestError.t()}
-  def check_input(_label, input) when is_binary(input) and input != "", do: :ok
-  def check_input(label, _input), do: {:error, bad_request("antd: #{label} is empty")}
+  @spec check_input(binary()) :: :ok | {:error, Antd.BadRequestError.t()}
+  def check_input(input) when is_binary(input) and input != "", do: :ok
 
-  defp bad_request(message), do: %Antd.BadRequestError{message: message, status_code: 0}
+  def check_input(_input),
+    do: {:error, bad_request("needs a manifest (base64 .ant bytes) or a link")}
+
+  defp bad_request(message), do: %Antd.BadRequestError{message: message, status_code: 400}
 
   # ---------------------------------------------------------------------------
   # Options
