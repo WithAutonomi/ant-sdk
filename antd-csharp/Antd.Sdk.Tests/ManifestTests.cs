@@ -180,11 +180,11 @@ public sealed class ManifestRestTests : IDisposable
     }
 
     [Theory]
-    [InlineData(0)]
-    [InlineData(1)]
-    [InlineData(2)]
-    [InlineData(3)]
-    public async Task BuildManifest_BothOrNeither_IsRefusedBeforeSending(int which)
+    [InlineData(0, "1 invalid entries: entries[0]: needs a data_map or an address")]
+    [InlineData(1, "1 invalid entries: entries[1]: give data_map or address, not both")]
+    [InlineData(2, "1 invalid entries: entries[0]: needs a data_map or an address")]
+    [InlineData(3, "1 invalid entries: entries[1]: needs a data_map or an address")]
+    public async Task BuildManifest_BothOrNeither_IsTheDaemonsBadRequest_BeforeSending(int which, string message)
     {
         _server.Start();
         IReadOnlyList<ManifestEntryInput> bad = which switch
@@ -195,17 +195,48 @@ public sealed class ManifestRestTests : IDisposable
             _ => new[] { ManifestEntryInput.Public("11"), null! },
         };
 
-        var ex = await Assert.ThrowsAsync<ArgumentException>(() => _client.BuildManifestAsync(bad));
+        var ex = await Assert.ThrowsAsync<BadRequestException>(() => _client.BuildManifestAsync(bad));
 
-        Assert.Equal("entries", ex.ParamName);
-        Assert.Contains(which is 1 or 3 ? "entries[1]" : "entries[0]", ex.Message);
+        Assert.Equal(400, ex.StatusCode);
+        Assert.Equal(message, ex.Message);
         Assert.Empty(_server.LastRequestBodies);
     }
 
     [Fact]
-    public async Task BuildManifest_NullEntries_Throws()
+    public async Task BuildManifest_SeveralBadEntries_AreReportedTogether()
     {
-        await Assert.ThrowsAsync<ArgumentNullException>(() => _client.BuildManifestAsync(null!));
+        _server.Start();
+        var ex = await Assert.ThrowsAsync<BadRequestException>(() => _client.BuildManifestAsync(new[]
+        {
+            new ManifestEntryInput(DataMap: "aa", Address: "bb"),
+            ManifestEntryInput.Public("11"),
+            new ManifestEntryInput(Path: "x"),
+        }));
+
+        Assert.Equal(400, ex.StatusCode);
+        Assert.Equal(
+            "2 invalid entries: entries[0]: give data_map or address, not both; entries[2]: needs a data_map or an address",
+            ex.Message);
+        Assert.Empty(_server.LastRequestBodies);
+    }
+
+    [Fact]
+    public void CheckEntries_ShowsAtMostTwenty_ThenCountsTheRest()
+    {
+        var entries = Enumerable.Range(0, 23).Select(_ => new ManifestEntryInput()).ToList();
+
+        var ex = Assert.Throws<BadRequestException>(() => ManifestWire.CheckEntries(entries));
+
+        var shown = string.Join("; ", Enumerable.Range(0, 20).Select(i => $"entries[{i}]: needs a data_map or an address"));
+        Assert.Equal($"23 invalid entries: {shown}; and 3 more", ex.Message);
+        Assert.Equal(400, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task BuildManifest_NullEntries_IsABadRequest()
+    {
+        var ex = await Assert.ThrowsAsync<BadRequestException>(() => _client.BuildManifestAsync(null!));
+        Assert.Equal(400, ex.StatusCode);
     }
 
     [Fact]
@@ -322,10 +353,19 @@ public sealed class ManifestRestTests : IDisposable
     {
         _server.Start();
 
-        await Assert.ThrowsAsync<ArgumentException>(() => _client.DecodeManifestAsync(Array.Empty<byte>()));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => _client.DecodeManifestAsync(null!));
-        await Assert.ThrowsAsync<ArgumentException>(() => _client.DecodeManifestLinkAsync(""));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => _client.DecodeManifestLinkAsync(null!));
+        var calls = new Func<Task>[]
+        {
+            () => _client.DecodeManifestAsync(Array.Empty<byte>()),
+            () => _client.DecodeManifestAsync(null!),
+            () => _client.DecodeManifestLinkAsync(""),
+            () => _client.DecodeManifestLinkAsync(null!),
+        };
+        foreach (var call in calls)
+        {
+            var ex = await Assert.ThrowsAsync<BadRequestException>(call);
+            Assert.Equal(400, ex.StatusCode);
+            Assert.Equal("needs a manifest (base64 .ant bytes) or a link", ex.Message);
+        }
         Assert.Empty(_server.LastRequestBodies);
     }
 }
@@ -469,9 +509,12 @@ public sealed class ManifestGrpcTests
         var mock = new MockManifestService();
         var client = new AntdGrpcClient(mock);
 
-        await Assert.ThrowsAsync<ArgumentException>(() => client.BuildManifestAsync(new[] { new ManifestEntryInput(Path: "x") }));
-        await Assert.ThrowsAsync<ArgumentException>(
+        var neither = await Assert.ThrowsAsync<BadRequestException>(
+            () => client.BuildManifestAsync(new[] { new ManifestEntryInput(Path: "x") }));
+        Assert.Equal((400, "1 invalid entries: entries[0]: needs a data_map or an address"), (neither.StatusCode, neither.Message));
+        var both = await Assert.ThrowsAsync<BadRequestException>(
             () => client.BuildManifestAsync(new[] { new ManifestEntryInput(DataMap: "aa", Address: "bb") }));
+        Assert.Equal((400, "1 invalid entries: entries[0]: give data_map or address, not both"), (both.StatusCode, both.Message));
         Assert.Equal(0, mock.Calls);
     }
 
@@ -567,8 +610,10 @@ public sealed class ManifestGrpcTests
         var mock = new MockManifestService();
         var client = new AntdGrpcClient(mock);
 
-        await Assert.ThrowsAsync<ArgumentException>(() => client.DecodeManifestAsync(Array.Empty<byte>()));
-        await Assert.ThrowsAsync<ArgumentException>(() => client.DecodeManifestLinkAsync(""));
+        var bytes = await Assert.ThrowsAsync<BadRequestException>(() => client.DecodeManifestAsync(Array.Empty<byte>()));
+        var link = await Assert.ThrowsAsync<BadRequestException>(() => client.DecodeManifestLinkAsync(""));
+        foreach (var ex in new[] { bytes, link })
+            Assert.Equal((400, "needs a manifest (base64 .ant bytes) or a link"), (ex.StatusCode, ex.Message));
         Assert.Equal(0, mock.Calls);
     }
 }

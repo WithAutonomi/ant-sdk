@@ -21,10 +21,11 @@ public partial interface IAntdClient
     /// </summary>
     /// <param name="entries">The files. Each sets exactly one of <c>DataMap</c> or <c>Address</c>.</param>
     /// <param name="options"><c>null</c>: no name, no torrent hashes, and roots embedded.</param>
-    /// <exception cref="ArgumentException">An entry sets both or neither of <c>DataMap</c> and <c>Address</c>; nothing was sent.</exception>
     /// <exception cref="BadRequestException">
-    /// The daemon refused an entry (a bad path, DataMap or address) or a
-    /// torrent hash; the message names each bad entry as <c>entries[i]</c>.
+    /// An entry sets both or neither of <c>DataMap</c> and <c>Address</c>
+    /// (refused before anything is sent), or the daemon refused an entry (a
+    /// bad path, DataMap or address) or a torrent hash. Both are status 400
+    /// with the same wording, naming each bad entry as <c>entries[i]</c>.
     /// </exception>
     Task<BuiltManifest> BuildManifestAsync(IReadOnlyList<ManifestEntryInput> entries, BuildManifestOptions? options = null) =>
         throw new NotSupportedException("this IAntdClient does not implement manifests");
@@ -36,8 +37,7 @@ public partial interface IAntdClient
     /// the network; content chunks are not fetched, and one entry's failure is
     /// reported in its <see cref="ManifestEntryInfo.Error"/>, not thrown.
     /// </summary>
-    /// <exception cref="ArgumentException"><paramref name="manifest"/> is empty; nothing was sent.</exception>
-    /// <exception cref="BadRequestException">The bytes are not a manifest.</exception>
+    /// <exception cref="BadRequestException">The bytes are empty (refused before sending) or not a manifest.</exception>
     Task<DecodedManifest> DecodeManifestAsync(byte[] manifest, bool resolve = false) =>
         throw new NotSupportedException("this IAntdClient does not implement manifests");
 
@@ -47,8 +47,7 @@ public partial interface IAntdClient
     /// (<see cref="DecodedManifest.Source"/> <c>"file_link"</c>). See
     /// <see cref="DecodeManifestAsync"/> for <paramref name="resolve"/>.
     /// </summary>
-    /// <exception cref="ArgumentException"><paramref name="link"/> is empty; nothing was sent.</exception>
-    /// <exception cref="BadRequestException">The link is not one of those forms.</exception>
+    /// <exception cref="BadRequestException">The link is empty (refused before sending) or not one of those forms.</exception>
     Task<DecodedManifest> DecodeManifestLinkAsync(string link, bool resolve = false) =>
         throw new NotSupportedException("this IAntdClient does not implement manifests");
 }

@@ -138,8 +138,17 @@ public sealed class ManifestLiveTests
         Assert.Equal(("public", fx.Addresses[0], (string?)null, fx.Sizes[0]), (only.Kind, only.ContentAddress, only.Path, only.ExactSize!.Value));
 
         // 5. Bad entries: both sources is refused before sending, a bad path by the daemon.
-        await Assert.ThrowsAsync<ArgumentException>(() => client.BuildManifestAsync(
+        var both = await Assert.ThrowsAsync<BadRequestException>(() => client.BuildManifestAsync(
             new[] { new ManifestEntryInput(DataMap: fx.DataMap, Address: fx.Addresses[0]) }));
+        Assert.Equal(400, both.StatusCode);
+        Assert.Equal("1 invalid entries: entries[0]: give data_map or address, not both", both.Message);
+        var neither = await Assert.ThrowsAsync<BadRequestException>(
+            () => client.BuildManifestAsync(new[] { new ManifestEntryInput() }));
+        Assert.Equal((400, "1 invalid entries: entries[0]: needs a data_map or an address"), (neither.StatusCode, neither.Message));
+        // The daemon answers the same words to the same mistake, sent straight
+        // to the endpoint past the client's check. REST can carry both
+        // sources; gRPC's oneof cannot, so it is compared on neither.
+        Assert.Equal(transport == "REST" ? both.Message : neither.Message, await DaemonRefusal(transport, fx));
         var bad = await Assert.ThrowsAsync<BadRequestException>(() => client.BuildManifestAsync(
             new[] { ManifestEntryInput.Public(fx.Addresses[0], "../x") }));
         Assert.Contains("entries[0]", bad.Message);
@@ -149,6 +158,42 @@ public sealed class ManifestLiveTests
         _out.WriteLine($"{transport} not a manifest OK: {notManifest.Message}");
 
         return built.Manifest;
+    }
+
+    /// <summary>
+    /// What the daemon says to a bad entry sent past the client's check, without
+    /// the "Bad request: " prefix the REST error body adds: an entry with both
+    /// sources over REST, or with neither over gRPC (a oneof cannot hold both).
+    /// </summary>
+    private static async Task<string> DaemonRefusal(string transport, Fixtures fx)
+    {
+        const string prefix = "Bad request: ";
+        string message;
+        if (transport == "REST")
+        {
+            using var http = new HttpClient();
+            var body = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                entries = new[] { new { data_map = fx.DataMap, address = fx.Addresses[0] } },
+            });
+            var resp = await http.PostAsync(Env("ANTD_TEST_URL").TrimEnd('/') + "/v1/manifests/build",
+                new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resp.StatusCode);
+            message = System.Text.Json.JsonDocument.Parse(await resp.Content.ReadAsStringAsync())
+                .RootElement.GetProperty("error").GetString()!;
+        }
+        else
+        {
+            var target = Env("ANTD_TEST_GRPC");
+            using var channel = Grpc.Net.Client.GrpcChannel.ForAddress(target.Contains("://") ? target : "http://" + target);
+            var req = new Antd.V1.BuildManifestRequest();
+            req.Entries.Add(new Antd.V1.ManifestEntryInput());
+            var ex = await Assert.ThrowsAsync<Grpc.Core.RpcException>(
+                async () => await new Antd.V1.ManifestService.ManifestServiceClient(channel).BuildAsync(req));
+            Assert.Equal(Grpc.Core.StatusCode.InvalidArgument, ex.StatusCode);
+            message = ex.Status.Detail;
+        }
+        return message.StartsWith(prefix, StringComparison.Ordinal) ? message[prefix.Length..] : message;
     }
 
     /// <summary>

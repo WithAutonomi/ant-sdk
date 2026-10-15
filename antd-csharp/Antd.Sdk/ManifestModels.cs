@@ -120,30 +120,55 @@ public sealed record DecodedManifest(
 
 internal static class ManifestWire
 {
+    /// <summary>The daemon's cap on entry errors it spells out (<c>MAX_REPORTED_ENTRY_ERRORS</c>).</summary>
+    private const int MaxReportedEntryErrors = 20;
+
+    /// <summary>The daemon's message for an empty decode request.</summary>
+    internal const string EmptyDecodeInput = "needs a manifest (base64 .ant bytes) or a link";
+
     /// <summary>
     /// Refuse, before anything is sent, an entry that sets both or neither of
     /// <see cref="ManifestEntryInput.DataMap"/> and
     /// <see cref="ManifestEntryInput.Address"/> (an empty string counts as
-    /// unset), as antd-go's <c>checkManifestEntries</c> does.
+    /// unset). The refusal is indistinguishable from the daemon's: a
+    /// <see cref="BadRequestException"/> with status 400 and the daemon's own
+    /// aggregated wording (<c>parse_entries</c> and <c>entry_errors_message</c>
+    /// in antd/src/manifests.rs), which reports every bad entry, at most 20.
     /// </summary>
     internal static void CheckEntries(IReadOnlyList<ManifestEntryInput> entries)
     {
-        ArgumentNullException.ThrowIfNull(entries);
+        if (entries is null)
+            throw new BadRequestException("needs entries", 400);
+        var errors = new List<string>();
         for (var i = 0; i < entries.Count; i++)
         {
-            var e = entries[i] ?? throw new ArgumentException($"antd: manifest entries[{i}] is null", nameof(entries));
-            if (string.IsNullOrEmpty(e.DataMap) == string.IsNullOrEmpty(e.Address))
-                throw new ArgumentException(
-                    $"antd: manifest entries[{i}]: set exactly one of DataMap or Address", nameof(entries));
+            var e = entries[i];
+            string? problem = null;
+            if (e is null) problem = "needs a data_map or an address";
+            else if (!string.IsNullOrEmpty(e.DataMap) && !string.IsNullOrEmpty(e.Address))
+                problem = "give data_map or address, not both";
+            else if (string.IsNullOrEmpty(e.DataMap) && string.IsNullOrEmpty(e.Address))
+                problem = "needs a data_map or an address";
+            if (problem != null) errors.Add($"entries[{i}]: {problem}");
         }
+        if (errors.Count == 0) return;
+        var shown = string.Join("; ", errors.Take(MaxReportedEntryErrors));
+        var more = errors.Count > MaxReportedEntryErrors ? $"; and {errors.Count - MaxReportedEntryErrors} more" : "";
+        throw new BadRequestException($"{errors.Count} invalid entries: {shown}{more}", 400);
     }
 
     /// <summary>The <c>.ant</c> bytes to decode must be present.</summary>
     internal static void CheckManifest(byte[] manifest)
     {
-        ArgumentNullException.ThrowIfNull(manifest);
-        if (manifest.Length == 0)
-            throw new ArgumentException("antd: the manifest is empty", nameof(manifest));
+        if (manifest is null || manifest.Length == 0)
+            throw new BadRequestException(EmptyDecodeInput, 400);
+    }
+
+    /// <summary>A link to decode must be present.</summary>
+    internal static void CheckLink(string link)
+    {
+        if (string.IsNullOrEmpty(link))
+            throw new BadRequestException(EmptyDecodeInput, 400);
     }
 
     /// <summary>

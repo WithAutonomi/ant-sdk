@@ -42,7 +42,7 @@ public sealed partial class AntdRestClient
 
     public async Task<DecodedManifest> DecodeManifestLinkAsync(string link, bool resolve = false)
     {
-        ArgumentException.ThrowIfNullOrEmpty(link);
+        ManifestWire.CheckLink(link);
         return await DecodeManifestBodyAsync(new { link, resolve });
     }
 

@@ -92,7 +92,7 @@ public sealed partial class AntdGrpcClient
 
     public async Task<DecodedManifest> DecodeManifestLinkAsync(string link, bool resolve = false)
     {
-        ArgumentException.ThrowIfNullOrEmpty(link);
+        ManifestWire.CheckLink(link);
         return await DecodeManifestRequestAsync(new Pb.DecodeManifestRequest { Link = link, Resolve = resolve });
     }
 

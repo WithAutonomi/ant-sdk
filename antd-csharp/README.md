@@ -204,7 +204,7 @@ Both clients implement every method below, over REST and gRPC alike. The `.ant` 
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `BuildManifestAsync(IReadOnlyList<ManifestEntryInput> entries, BuildManifestOptions? options = null)` | `BuiltManifest` | Build a manifest from DataMaps and public addresses already in hand. Each entry sets exactly one of `DataMap` or `Address` (`ManifestEntryInput.Embedded(...)` or `.Public(...)`); both or neither throws `ArgumentException` before anything is sent. The options are `Name`, `TorrentInfoHashes` and `EmbedRoots` |
+| `BuildManifestAsync(IReadOnlyList<ManifestEntryInput> entries, BuildManifestOptions? options = null)` | `BuiltManifest` | Build a manifest from DataMaps and public addresses already in hand. Each entry sets exactly one of `DataMap` or `Address` (`ManifestEntryInput.Embedded(...)` or `.Public(...)`); both or neither throws `BadRequestException` (status 400, the daemon's own wording) before anything is sent. The options are `Name`, `TorrentInfoHashes` and `EmbedRoots` |
 | `DecodeManifestAsync(byte[] manifest, bool resolve = false)` | `DecodedManifest` | Decode `.ant` bytes. With `resolve`, the daemon fetches each entry's DataMap (not its content) to report `ExactSize` and confirm it is on the network; one entry's failure is in its `Error`, not thrown |
 | `DecodeManifestLinkAsync(string link, bool resolve = false)` | `DecodedManifest` | Decode an `ant://` manifest link, a file link or a bare 64-hex address. A file link or address reads as one public entry with no path, and `Source` is `"file_link"` |
 
@@ -234,7 +234,7 @@ foreach (var e in decoded.Entries)
     Console.WriteLine($"{e.EffectiveName}: {e.ExactSize} bytes");
 ```
 
-The daemon refuses a bad entry (a path that breaks the portable rules, such as `../x`, or a malformed DataMap or address) or a bad torrent hash with HTTP 400 / gRPC `INVALID_ARGUMENT`. That surfaces as `BadRequestException`, whose message names each bad entry as `entries[i]`. Bytes or a link that are not a manifest are a `BadRequestException` too. There are no new exception types.
+A client-side refusal is indistinguishable from the daemon's: an entry with both or neither source, or an empty manifest or link, throws the same `BadRequestException` (status 400) with the daemon's text (`2 invalid entries: entries[0]: give data_map or address, not both; entries[2]: needs a data_map or an address`, at most 20 entries spelled out; `needs a manifest (base64 .ant bytes) or a link`). The daemon refuses a bad entry (a path that breaks the portable rules, such as `../x`, or a malformed DataMap or address) or a bad torrent hash with HTTP 400 / gRPC `INVALID_ARGUMENT`. That surfaces as `BadRequestException`, whose message names each bad entry as `entries[i]`. Bytes or a link that are not a manifest are a `BadRequestException` too. There are no new exception types.
 
 Over gRPC, a manifest response can pass Grpc.Net.Client's default 4 MiB receive limit, since a manifest can be 64 MiB. Grpc.Net.Client sets message limits per channel, not per call, so `AntdGrpcClient` sends manifest calls over a second channel to the same target with both limits raised to 256 MiB; the other services keep the defaults. That channel connects on the first manifest call.
 
