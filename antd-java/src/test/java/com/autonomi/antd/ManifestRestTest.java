@@ -201,31 +201,72 @@ class ManifestRestTest {
         assertEquals(Map.of("address", ADDR), entriesOf(bodyOf(taken())).get(0));
     }
 
+    /** The refusal a daemon 400 would be: same type, status 400, and the daemon's text. */
+    static void assertRefused(String message, Throwable t) {
+        assertInstanceOf(BadRequestException.class, t);
+        assertEquals(400, ((AntdException) t).getStatusCode());
+        assertEquals("antd error 400: " + message, t.getMessage());
+    }
+
     @Test
-    void ambiguousEntriesAreRejectedBeforeSending() {
-        List<ManifestEntryInput> bad = List.of(
-                new ManifestEntryInput(null, null, null, null),
-                new ManifestEntryInput("p", null, "", ""),
-                new ManifestEntryInput(null, null, "aa", ADDR));
-        for (ManifestEntryInput e : bad) {
-            List<ManifestEntryInput> entries = List.of(ManifestEntryInput.ofAddress(ADDR), e);
-            IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                    () -> client.buildManifest(entries), "expected a rejection for " + e);
-            assertTrue(ex.getMessage().contains("entries[1]"), ex.getMessage());
-            assertThrows(IllegalArgumentException.class, () -> async.buildManifestAsync(entries));
+    void ambiguousEntriesAreRefusedLikeTheDaemonBeforeSending() {
+        String neither = "needs a data_map or an address";
+        String both = "give data_map or address, not both";
+        List<Object[]> cases = List.of(
+                new Object[] {new ManifestEntryInput(null, null, null, null), neither},
+                new Object[] {new ManifestEntryInput("p", null, "", ""), neither},
+                new Object[] {new ManifestEntryInput(null, null, "aa", ADDR), both});
+        for (Object[] c : cases) {
+            List<ManifestEntryInput> entries = List.of(ManifestEntryInput.ofAddress(ADDR), (ManifestEntryInput) c[0]);
+            String msg = "1 invalid entries: entries[1]: " + c[1];
+            assertRefused(msg, assertThrows(BadRequestException.class, () -> client.buildManifest(entries)));
+            // The async client's future completes exceptionally with the same error.
+            CompletionException ce = assertThrows(CompletionException.class,
+                    () -> async.buildManifestAsync(entries).join());
+            assertRefused(msg, ce.getCause());
         }
         assertEquals(0, server.getRequestCount(), "nothing may be sent for an invalid entry");
     }
 
     @Test
-    void nullEntriesAndNegativeSizesAreRejectedBeforeSending() {
-        assertThrows(IllegalArgumentException.class, () -> client.buildManifest(null));
+    void everyBadEntryIsReportedTogether() {
+        List<ManifestEntryInput> entries = List.of(
+                new ManifestEntryInput(null, null, "aa", ADDR),
+                ManifestEntryInput.ofAddress(ADDR),
+                new ManifestEntryInput(null, null, null, null));
+        assertRefused("2 invalid entries: entries[0]: give data_map or address, not both; "
+                        + "entries[2]: needs a data_map or an address",
+                assertThrows(BadRequestException.class, () -> client.buildManifest(entries)));
+        assertEquals(0, server.getRequestCount());
+    }
+
+    @Test
+    void moreThanTwentyBadEntriesAreCutShort() {
+        List<ManifestEntryInput> entries = new ArrayList<>();
+        for (int i = 0; i < 23; i++) entries.add(new ManifestEntryInput(null, null, null, null));
+        StringBuilder shown = new StringBuilder();
+        for (int i = 0; i < 20; i++) {
+            if (i > 0) shown.append("; ");
+            shown.append("entries[").append(i).append("]: needs a data_map or an address");
+        }
+        assertRefused("23 invalid entries: " + shown + "; and 3 more",
+                assertThrows(BadRequestException.class, () -> client.buildManifest(entries)));
+    }
+
+    @Test
+    void nullEntriesAndNegativeSizesAreRefusedBeforeSending() {
+        assertRefused("entries must not be null",
+                assertThrows(BadRequestException.class, () -> client.buildManifest(null)));
         List<ManifestEntryInput> withNull = new ArrayList<>();
         withNull.add(null);
-        assertThrows(IllegalArgumentException.class, () -> client.buildManifest(withNull));
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> client.buildManifest(List.of(ManifestEntryInput.ofAddress(ADDR).withSize(-1L))));
-        assertTrue(ex.getMessage().contains("entries[0]"), ex.getMessage());
+        assertRefused("1 invalid entries: entries[0]: entry is null",
+                assertThrows(BadRequestException.class, () -> client.buildManifest(withNull)));
+        assertRefused("1 invalid entries: entries[0]: size must not be negative, got -1",
+                assertThrows(BadRequestException.class,
+                        () -> client.buildManifest(List.of(ManifestEntryInput.ofAddress(ADDR).withSize(-1L)))));
+        CompletionException ce = assertThrows(CompletionException.class,
+                () -> async.buildManifestAsync(List.of(ManifestEntryInput.ofAddress(ADDR).withSize(-1L))).join());
+        assertRefused("1 invalid entries: entries[0]: size must not be negative, got -1", ce.getCause());
         assertEquals(0, server.getRequestCount());
     }
 
@@ -313,13 +354,16 @@ class ManifestRestTest {
     }
 
     @Test
-    void emptyInputsAreRejectedBeforeSending() {
-        assertThrows(IllegalArgumentException.class, () -> client.decodeManifest(new byte[0], false));
-        assertThrows(IllegalArgumentException.class, () -> client.decodeManifest(null, false));
-        assertThrows(IllegalArgumentException.class, () -> client.decodeManifestLink("", false));
-        assertThrows(IllegalArgumentException.class, () -> client.decodeManifestLink(null, true));
-        assertThrows(IllegalArgumentException.class, () -> async.decodeManifestAsync(new byte[0], false));
-        assertThrows(IllegalArgumentException.class, () -> async.decodeManifestLinkAsync("", false));
+    void emptyInputsAreRefusedLikeTheDaemonBeforeSending() {
+        String msg = "needs a manifest (base64 .ant bytes) or a link";
+        assertRefused(msg, assertThrows(BadRequestException.class, () -> client.decodeManifest(new byte[0], false)));
+        assertRefused(msg, assertThrows(BadRequestException.class, () -> client.decodeManifest(null, false)));
+        assertRefused(msg, assertThrows(BadRequestException.class, () -> client.decodeManifestLink("", false)));
+        assertRefused(msg, assertThrows(BadRequestException.class, () -> client.decodeManifestLink(null, true)));
+        assertRefused(msg, assertThrows(CompletionException.class,
+                () -> async.decodeManifestAsync(new byte[0], false).join()).getCause());
+        assertRefused(msg, assertThrows(CompletionException.class,
+                () -> async.decodeManifestLinkAsync("", false).join()).getCause());
         assertEquals(0, server.getRequestCount());
     }
 

@@ -1,6 +1,7 @@
 package com.autonomi.antd;
 
 import com.autonomi.antd.errors.AntdException;
+import com.autonomi.antd.errors.BadRequestException;
 import com.autonomi.antd.models.*;
 
 import antd.v1.Manifests;
@@ -45,41 +46,58 @@ final class ManifestWire {
 
     // ── Checks made before anything is sent ──
 
+    /** Invalid entries listed in one message before it is cut short, as in the daemon. */
+    private static final int MAX_REPORTED_ENTRY_ERRORS = 20;
+
+    /** The daemon's message for a decode with neither bytes nor a link. */
+    static final String EMPTY_DECODE_MESSAGE = "needs a manifest (base64 .ant bytes) or a link";
+
     /**
-     * Rejects what the daemon would: an entry with both or neither of
-     * {@code dataMap} and {@code address}, as antd-go's
-     * {@code checkManifestEntries} does, plus a {@code null} entry or a
-     * negative size, which a {@code long} can hold but a u64 cannot.
+     * Refuses what the daemon would, with the daemon's own error: a
+     * {@link BadRequestException} (400) listing every bad entry as
+     * {@code "<n> invalid entries: entries[i]: ...; entries[j]: ..."}, at most
+     * 20 and then {@code "; and <k> more"}, as antd's {@code parse_entries}
+     * does. That is an entry with both or neither of {@code dataMap} and
+     * {@code address} (an empty string counts as unset). A null entry and a
+     * negative size, which a {@code long} can hold but a u64 cannot, are
+     * refused the same way, with an {@code entries[i]: } prefix.
      */
     static void checkEntries(List<ManifestEntryInput> entries) {
         if (entries == null) {
-            throw new IllegalArgumentException("manifest entries must not be null");
+            throw new BadRequestException("entries must not be null");
         }
+        List<String> errors = new ArrayList<>();
         for (int i = 0; i < entries.size(); i++) {
             ManifestEntryInput e = entries.get(i);
+            String problem = null;
             if (e == null) {
-                throw new IllegalArgumentException("manifest entries[" + i + "] is null");
+                problem = "entry is null";
+            } else if (isSet(e.dataMap()) && isSet(e.address())) {
+                problem = "give data_map or address, not both";
+            } else if (!isSet(e.dataMap()) && !isSet(e.address())) {
+                problem = "needs a data_map or an address";
+            } else if (e.size() != null && e.size() < 0) {
+                problem = "size must not be negative, got " + e.size();
             }
-            if (isSet(e.dataMap()) == isSet(e.address())) {
-                throw new IllegalArgumentException(
-                        "manifest entries[" + i + "]: set exactly one of dataMap or address");
-            }
-            if (e.size() != null && e.size() < 0) {
-                throw new IllegalArgumentException(
-                        "manifest entries[" + i + "]: size must not be negative, got " + e.size());
-            }
+            if (problem != null) errors.add("entries[" + i + "]: " + problem);
         }
+        if (errors.isEmpty()) return;
+        String shown = String.join("; ", errors.subList(0, Math.min(errors.size(), MAX_REPORTED_ENTRY_ERRORS)));
+        throw new BadRequestException(errors.size() > MAX_REPORTED_ENTRY_ERRORS
+                ? errors.size() + " invalid entries: " + shown + "; and "
+                        + (errors.size() - MAX_REPORTED_ENTRY_ERRORS) + " more"
+                : errors.size() + " invalid entries: " + shown);
     }
 
     static void checkManifest(byte[] manifest) {
         if (manifest == null || manifest.length == 0) {
-            throw new IllegalArgumentException("manifest is empty");
+            throw new BadRequestException(EMPTY_DECODE_MESSAGE);
         }
     }
 
     static void checkLink(String link) {
         if (!isSet(link)) {
-            throw new IllegalArgumentException("link is empty");
+            throw new BadRequestException(EMPTY_DECODE_MESSAGE);
         }
     }
 

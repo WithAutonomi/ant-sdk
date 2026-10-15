@@ -221,18 +221,23 @@ class GrpcManifestTest {
     }
 
     @Test
-    void ambiguousEntriesAreRejectedBeforeSending() {
-        for (ManifestEntryInput e : List.of(
-                new ManifestEntryInput("p", null, null, null),
-                new ManifestEntryInput(null, null, "aa", ADDR))) {
-            IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                    () -> client.buildManifest(List.of(e)));
-            assertTrue(ex.getMessage().contains("entries[0]"), ex.getMessage());
-        }
-        assertThrows(IllegalArgumentException.class,
-                () -> client.buildManifest(List.of(ManifestEntryInput.ofAddress(ADDR).withSize(-5L))));
-        assertThrows(IllegalArgumentException.class, () -> client.decodeManifest(new byte[0], true));
-        assertThrows(IllegalArgumentException.class, () -> client.decodeManifestLink("", true));
+    void invalidInputIsRefusedLikeTheDaemonBeforeSending() {
+        ManifestRestTest.assertRefused("1 invalid entries: entries[0]: needs a data_map or an address",
+                assertThrows(BadRequestException.class,
+                        () -> client.buildManifest(List.of(new ManifestEntryInput("p", null, null, null)))));
+        ManifestRestTest.assertRefused("2 invalid entries: entries[0]: give data_map or address, not both; "
+                        + "entries[1]: needs a data_map or an address",
+                assertThrows(BadRequestException.class, () -> client.buildManifest(List.of(
+                        new ManifestEntryInput(null, null, "aa", ADDR),
+                        new ManifestEntryInput(null, null, null, null)))));
+        ManifestRestTest.assertRefused("1 invalid entries: entries[0]: size must not be negative, got -5",
+                assertThrows(BadRequestException.class,
+                        () -> client.buildManifest(List.of(ManifestEntryInput.ofAddress(ADDR).withSize(-5L)))));
+        String empty = "needs a manifest (base64 .ant bytes) or a link";
+        ManifestRestTest.assertRefused(empty,
+                assertThrows(BadRequestException.class, () -> client.decodeManifest(new byte[0], true)));
+        ManifestRestTest.assertRefused(empty,
+                assertThrows(BadRequestException.class, () -> client.decodeManifestLink("", true)));
         assertEquals(0, manifests.calls.get(), "nothing may be sent for invalid input");
     }
 

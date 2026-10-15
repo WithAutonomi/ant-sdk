@@ -59,6 +59,22 @@ class LiveManifestsTest {
         return m;
     }
 
+    private static void assertDaemonRefuses(String endpoint, String json, String message) {
+        try {
+            var http = java.net.http.HttpClient.newHttpClient();
+            java.net.http.HttpResponse<String> resp = http.send(
+                    java.net.http.HttpRequest.newBuilder(java.net.URI.create(endpoint))
+                            .header("Content-Type", "application/json")
+                            .POST(java.net.http.HttpRequest.BodyPublishers.ofString(json))
+                            .build(),
+                    java.net.http.HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, resp.statusCode(), resp.body());
+            assertTrue(resp.body().contains(message), resp.body());
+        } catch (java.io.IOException | InterruptedException e) {
+            fail(e);
+        }
+    }
+
     @Test
     void liveManifestRoundTrip() {
         String url = env("ANTD_TEST_URL");
@@ -186,9 +202,20 @@ class LiveManifestsTest {
             assertTrue(bad.getMessage().contains("entries[0]"), bad.getMessage());
             assertThrows(BadRequestException.class,
                     () -> rest.decodeManifest("not a manifest".getBytes(), false));
-            // Both sources: refused before sending.
-            assertThrows(IllegalArgumentException.class,
+            // Client-side refusals are the daemon's own 400, same text.
+            String bothMsg = "1 invalid entries: entries[0]: give data_map or address, not both";
+            String emptyMsg = "needs a manifest (base64 .ant bytes) or a link";
+            BadRequestException local = assertThrows(BadRequestException.class,
                     () -> rest.buildManifest(List.of(new ManifestEntryInput(null, null, "ab", a))));
+            assertEquals(400, local.getStatusCode());
+            assertEquals("antd error 400: " + bothMsg, local.getMessage());
+            BadRequestException emptyLocal = assertThrows(BadRequestException.class,
+                    () -> rest.decodeManifestLink("", false));
+            assertEquals("antd error 400: " + emptyMsg, emptyLocal.getMessage());
+            // The daemon says the same for the same requests, sent past the client's checks.
+            assertDaemonRefuses(url + "/v1/manifests/build",
+                    "{\"entries\":[{\"data_map\":\"ab\",\"address\":\"" + a + "\"}]}", bothMsg);
+            assertDaemonRefuses(url + "/v1/manifests/decode", "{\"resolve\":false}", emptyMsg);
 
             // ── Async ──
             BuiltManifest asyncBuilt = async.buildManifestAsync(entries, options).join();

@@ -117,7 +117,7 @@ A manifest (ADR-0006) describes a set of files as one `.ant` document, or as one
 
 | Method | Description |
 |--------|-------------|
-| `buildManifest(entries[, options])` | Build a manifest — returns `BuiltManifest` (`manifest` bytes, `link` or `null` when it does not fit, `entries` in encoded order). Each entry sets exactly one of `dataMap` or `address`; both or neither throws `IllegalArgumentException` before anything is sent. `BuildManifestOptions` carries `name`, `torrentInfoHashes` and `keepShrunkDataMaps` (default `false`: roots are embedded) |
+| `buildManifest(entries[, options])` | Build a manifest — returns `BuiltManifest` (`manifest` bytes, `link` or `null` when it does not fit, `entries` in encoded order). Each entry sets exactly one of `dataMap` or `address`; both or neither is refused before anything is sent, as the same `BadRequestException` (400, the daemon's message) a daemon refusal gives. `BuildManifestOptions` carries `name`, `torrentInfoHashes` and `keepShrunkDataMaps` (default `false`: roots are embedded) |
 | `decodeManifest(bytes, resolve)` | Decode `.ant` bytes — returns `DecodedManifest` (`source`, `name`, `torrentInfoHashV1`, `torrentInfoHashV2`, `entries`) |
 | `decodeManifestLink(link, resolve)` | Decode an `ant://` manifest link, a file link or a bare address. A file link reads as one public entry with no path, from `source` `file_link` |
 

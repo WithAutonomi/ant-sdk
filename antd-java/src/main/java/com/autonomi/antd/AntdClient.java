@@ -624,12 +624,12 @@ public class AntdClient implements AutoCloseable {
      * @param options name, torrent info hashes and root embedding; {@code null}
      *                means {@link BuildManifestOptions#DEFAULT}
      * @return the {@code .ant} bytes, the link when it fits, and the entries
-     * @throws IllegalArgumentException before anything is sent, for an entry
-     *         with both or neither of {@code dataMap} and {@code address}, or a
-     *         negative size
      * @throws com.autonomi.antd.errors.BadRequestException for an entry the
-     *         daemon rejects (an invalid path, DataMap or address); the message
-     *         names each one as {@code entries[i]}
+     *         daemon would reject, and so refused here before anything is sent
+     *         (both or neither of {@code dataMap} and {@code address}, a negative
+     *         size), or that it does reject (an invalid path, DataMap or
+     *         address); the message names each one as {@code entries[i]}, in
+     *         the daemon's own wording
      */
     public BuiltManifest buildManifest(List<ManifestEntryInput> entries, BuildManifestOptions options) {
         ManifestWire.checkEntries(entries);
@@ -648,10 +648,9 @@ public class AntdClient implements AutoCloseable {
      * @param manifest the {@code .ant} bytes
      * @param resolve  fetch each entry's DataMap
      * @return the decoded manifest
-     * @throws IllegalArgumentException if {@code manifest} is empty, before
-     *         anything is sent
-     * @throws com.autonomi.antd.errors.BadRequestException if the bytes are not
-     *         a manifest
+     * @throws com.autonomi.antd.errors.BadRequestException if {@code manifest}
+     *         is empty (refused before anything is sent) or the bytes are not a
+     *         manifest
      */
     public DecodedManifest decodeManifest(byte[] manifest, boolean resolve) {
         ManifestWire.checkManifest(manifest);
@@ -669,9 +668,8 @@ public class AntdClient implements AutoCloseable {
      * @param link    the link or address
      * @param resolve fetch each entry's DataMap
      * @return the decoded manifest
-     * @throws IllegalArgumentException if {@code link} is empty, before
-     *         anything is sent
-     * @throws com.autonomi.antd.errors.BadRequestException if it is not a link
+     * @throws com.autonomi.antd.errors.BadRequestException if {@code link} is
+     *         empty (refused before anything is sent) or is not a link
      */
     public DecodedManifest decodeManifestLink(String link, boolean resolve) {
         ManifestWire.checkLink(link);
