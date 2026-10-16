@@ -47,6 +47,9 @@ use Autonomi\Antd\Models\UploadCostEstimate;
  */
 class AntdClient
 {
+    // buildManifest(), decodeManifest(), decodeManifestLink() and their Async variants.
+    use ManifestMethods;
+
     private Client $http;
     private string $baseUrl;
 
