@@ -60,6 +60,16 @@ data = client.data_get_public(result.address)
 | POST | `/v1/data/prepare` | Prepare data upload for external signer — returns `payment_type` ("wave_batch" or "merkle") |
 | POST | `/v1/upload/prepare` | Prepare file upload for external signer — returns `payment_type` ("wave_batch" or "merkle") |
 | POST | `/v1/upload/finalize` | Finalize upload — accepts `tx_hashes` (wave_batch) or `winner_pool_hash` (merkle) |
+| GET | `/v1/pointers/keys` | Pointers this daemon holds owner keys for (`--pointer-keys`) |
+| POST | `/v1/pointers` | Create a pointer (daemon wallet pays) |
+| POST | `/v1/pointers/update` | Point a pointer at a new target (daemon wallet pays) |
+| POST | `/v1/pointers/transfer` | Hand a pointer over to another pointer, irreversibly |
+| GET | `/v1/pointers/{addr}` | Read a pointer |
+| GET | `/v1/pointers/{addr}/resolve` | Follow a pointer chain to its target |
+| GET | `/v1/pointers/{addr}/finality` | Whole-close-group finality check (`open`/`settling`/`unconfirmed`/`final`/`forked`) |
+| GET | `/v1/pointers/{addr}/controller` | Follow transfers to the controlling pointer |
+| POST | `/v1/pointers/prepare` | Sign + quote a pointer write for an external signer |
+| POST | `/v1/pointers/finalize` | Store a prepared pointer write after payment |
 
 ## gRPC Services
 

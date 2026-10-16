@@ -146,7 +146,7 @@ fn build_grpc_prepare_response(
 /// Convert a REST-shaped signed-quote entry into its proto twin (base64
 /// strings → raw bytes). Deriving the proto shape from the REST helper keeps
 /// the two transports byte-identical.
-fn to_pb_signed_quote(
+pub(super) fn to_pb_signed_quote(
     entry: &crate::types::SignedQuoteEntry,
 ) -> Result<pb::SignedQuoteEntry, AntdError> {
     use base64::engine::general_purpose::STANDARD as BASE64;

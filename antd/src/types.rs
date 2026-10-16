@@ -629,6 +629,210 @@ pub struct HealthResponse {
     pub last_store_ok_secs_ago: Option<u64>,
 }
 
+// ── Pointers (ADR-0016 / ADR-0018) ──
+//
+// Every address, state id and target is 64 hex characters without a prefix.
+// Counters are decimal strings: a final state sits at u64::MAX, past what a
+// JSON number keeps exactly in JavaScript and several other SDK languages.
+
+/// `GET /v1/pointers/keys`: the pointers this daemon holds owner keys for.
+#[derive(Serialize)]
+pub struct PointerKeysResponse {
+    pub keys: Vec<PointerKeyEntry>,
+}
+
+#[derive(Serialize)]
+pub struct PointerKeyEntry {
+    /// The pointer's address, derived from the owner key.
+    pub address: String,
+}
+
+/// `POST /v1/pointers` and `POST /v1/pointers/update`.
+#[derive(Deserialize)]
+pub struct PointerWriteRequest {
+    /// Address of the pointer to write. antd signs with the owner key it
+    /// loaded for that address (`GET /v1/pointers/keys`).
+    pub owner: String,
+    /// Address the pointer should point at.
+    pub target: String,
+    /// What `target` is: `"chunk"` (default), such as a public file's data
+    /// map, or `"pointer"`, a forwarding the owner can still change.
+    #[serde(default)]
+    pub kind: Option<String>,
+}
+
+/// The state a write stored.
+#[derive(Serialize)]
+pub struct PointerWriteResponse {
+    pub address: String,
+    pub state_id: String,
+    pub counter: String,
+}
+
+/// `POST /v1/pointers/transfer`.
+#[derive(Deserialize)]
+pub struct PointerTransferRequest {
+    /// Address of the pointer to hand over.
+    pub owner: String,
+    /// Address of the recipient's pointer, which must already exist.
+    pub recipient: String,
+}
+
+/// What a transfer stored, and where the close group says it stands.
+#[derive(Serialize)]
+pub struct PointerTransferResponse {
+    pub address: String,
+    pub state_id: String,
+    /// The whole close group's view once the write landed. `null` when that
+    /// check failed, which does not undo the transfer: it is stored and final.
+    /// Ask again with `GET /v1/pointers/{addr}/finality`.
+    pub finality: Option<PointerFinalityResponse>,
+    /// Why the check failed, when `finality` is `null`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub finality_error: Option<String>,
+}
+
+/// `GET /v1/pointers/{addr}`: the state the network serves.
+#[derive(Serialize)]
+pub struct PointerRecordResponse {
+    pub address: String,
+    /// The owner's ML-DSA-65 public key (hex, 1,952 bytes). The address is
+    /// derived from it, so it is the proof of who owns the pointer.
+    pub owner: String,
+    pub counter: String,
+    /// `"chunk"`, `"pointer"`, or `"unknown"` for a kind this daemon does not
+    /// know. `kind_tag` carries the raw value either way.
+    pub kind: String,
+    pub kind_tag: u8,
+    pub target: String,
+    pub state_id: String,
+    /// The state is at the final counter: nothing can replace it.
+    pub is_final: bool,
+    /// The pointer this one was handed over to, when its final state is a
+    /// transfer.
+    pub transferred_to: Option<String>,
+}
+
+/// `GET /v1/pointers/{addr}/resolve`: where a chain of pointers ends.
+#[derive(Serialize)]
+pub struct PointerResolveResponse {
+    pub kind: String,
+    pub kind_tag: u8,
+    pub target: String,
+}
+
+/// One final state, as a finality check reports it.
+#[derive(Serialize)]
+pub struct PointerFinalStateEntry {
+    pub state_id: String,
+    pub kind: String,
+    pub kind_tag: u8,
+    pub target: String,
+    /// How many peers of the close group hold it.
+    pub holders: u32,
+    pub transferred_to: Option<String>,
+}
+
+/// `GET /v1/pointers/{addr}/finality`: where a pointer stands, as the whole
+/// close group reports it.
+#[derive(Serialize)]
+pub struct PointerFinalityResponse {
+    pub address: String,
+    /// Peers in the close group.
+    pub group: u32,
+    /// Peers that answered.
+    pub answered: u32,
+    /// `"open"`, `"settling"`, `"unconfirmed"`, `"final"` or `"forked"`. Only
+    /// `"final"` means one final state, held by a majority, with every peer
+    /// answering and none holding a rival.
+    pub status: String,
+    /// `open` only: the counter a read would return, if any state is
+    /// corroborated.
+    pub counter: Option<String>,
+    /// `settling`, `unconfirmed` and `final`: the one final state seen.
+    pub state: Option<PointerFinalStateEntry>,
+    /// `forked` only: every final state seen, most-held first.
+    pub states: Vec<PointerFinalStateEntry>,
+    /// `forked` only: the state a majority holds, which reads return.
+    pub majority: Option<PointerFinalStateEntry>,
+    /// The pointer this one was handed over to, once that is beyond dispute
+    /// (`status == "final"`).
+    pub transferred_to: Option<String>,
+}
+
+/// `GET /v1/pointers/{addr}/controller`: whose pointer decides what an address
+/// resolves to, after following every transfer.
+#[derive(Serialize)]
+pub struct PointerControllerResponse {
+    pub pointer: String,
+    /// Every pointer the address was handed over to, in order.
+    pub transfers: Vec<String>,
+    /// `pointer` is final without being handed over: nobody can move it.
+    pub frozen: bool,
+}
+
+/// `POST /v1/pointers/prepare`: sign a pointer state with a loaded owner key
+/// and quote it for an external signer to pay.
+#[derive(Deserialize)]
+pub struct PointerPrepareRequest {
+    pub owner: String,
+    /// `"create"`, `"update"` or `"transfer"`.
+    pub op: String,
+    /// `create` / `update`: the address to point at.
+    #[serde(default)]
+    pub target: Option<String>,
+    /// `create` / `update`: `"chunk"` (default) or `"pointer"`.
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// `transfer`: the recipient's pointer.
+    #[serde(default)]
+    pub recipient: Option<String>,
+    /// Same semantics as `PrepareChunkRequest::include_signed_quotes`.
+    #[serde(default)]
+    pub include_signed_quotes: bool,
+}
+
+/// `POST /v1/pointers/prepare` response: the signed state, and the
+/// wave-batch payment shape `/v1/chunks/prepare` uses.
+#[derive(Serialize)]
+pub struct PointerPrepareResponse {
+    pub upload_id: String,
+    pub op: String,
+    pub address: String,
+    pub state_id: String,
+    pub counter: String,
+    /// Always `"wave_batch"`: a pointer state is paid with one quote.
+    pub payment_type: String,
+    pub payments: Vec<PaymentEntry>,
+    pub total_amount: String,
+    pub payment_vault_address: String,
+    pub payment_token_address: String,
+    pub rpc_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signed_quotes: Option<Vec<SignedQuoteEntry>>,
+}
+
+/// `POST /v1/pointers/finalize`. A write that falls short after payment
+/// answers `CLOSE_GROUP_SHORTFALL` with `retryable: true` and keeps the paid
+/// state under the same `upload_id`; repeating this request stores it with
+/// the same payment, and `tx_hashes` is then ignored.
+#[derive(Deserialize)]
+pub struct PointerFinalizeRequest {
+    pub upload_id: String,
+    #[serde(default)]
+    pub tx_hashes: HashMap<String, String>,
+}
+
+#[derive(Serialize)]
+pub struct PointerFinalizeResponse {
+    pub address: String,
+    pub state_id: String,
+    pub counter: String,
+    /// `transfer` only: where the close group says the transfer stands.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub finality: Option<PointerFinalityResponse>,
+}
+
 // ── Tests ──
 
 #[cfg(test)]

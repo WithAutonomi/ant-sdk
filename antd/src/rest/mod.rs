@@ -20,6 +20,7 @@ pub mod chunks;
 pub mod data;
 pub mod events;
 pub mod files;
+pub mod pointers;
 pub mod upload;
 pub mod verify;
 pub mod wallet;
@@ -104,6 +105,27 @@ pub fn router(state: Arc<AppState>, cors: &CorsMode) -> Router {
         .route("/v1/chunks", post(chunks::chunk_put))
         .route("/v1/chunks/prepare", post(chunks::chunk_prepare))
         .route("/v1/chunks/finalize", post(chunks::chunk_finalize))
+        // Pointers (ADR-0016 / ADR-0018). The static segments sit beside
+        // `{addr}`; a pointer address is 64 hex characters, so none collide.
+        .route("/v1/pointers", post(pointers::pointer_create))
+        .route("/v1/pointers/keys", get(pointers::pointer_keys))
+        .route("/v1/pointers/update", post(pointers::pointer_update))
+        .route("/v1/pointers/transfer", post(pointers::pointer_transfer))
+        .route("/v1/pointers/prepare", post(pointers::pointer_prepare))
+        .route("/v1/pointers/finalize", post(pointers::pointer_finalize))
+        .route("/v1/pointers/{addr}", get(pointers::pointer_get))
+        .route(
+            "/v1/pointers/{addr}/resolve",
+            get(pointers::pointer_resolve),
+        )
+        .route(
+            "/v1/pointers/{addr}/finality",
+            get(pointers::pointer_finality),
+        )
+        .route(
+            "/v1/pointers/{addr}/controller",
+            get(pointers::pointer_controller),
+        )
         // Files — same convention.
         .route("/v1/files", post(files::file_put))
         .route("/v1/files/get", post(files::file_get))

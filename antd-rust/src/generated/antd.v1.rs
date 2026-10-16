@@ -4532,3 +4532,1257 @@ pub mod verify_service_server {
         const NAME: &'static str = SERVICE_NAME;
     }
 }
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ListPointerKeysRequest {}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListPointerKeysResponse {
+    /// The pointers this daemon holds owner keys for.
+    #[prost(message, repeated, tag = "1")]
+    pub keys: ::prost::alloc::vec::Vec<PointerKey>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PointerKey {
+    /// The pointer's address, derived from the owner key.
+    #[prost(string, tag = "1")]
+    pub address: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PointerWriteRequest {
+    /// Address of the pointer to write.
+    #[prost(string, tag = "1")]
+    pub owner: ::prost::alloc::string::String,
+    /// Address to point at.
+    #[prost(string, tag = "2")]
+    pub target: ::prost::alloc::string::String,
+    /// "chunk" (default when empty) or "pointer".
+    #[prost(string, tag = "3")]
+    pub kind: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PointerWriteResponse {
+    #[prost(string, tag = "1")]
+    pub address: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub state_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub counter: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PointerTransferRequest {
+    #[prost(string, tag = "1")]
+    pub owner: ::prost::alloc::string::String,
+    /// Address of the recipient's pointer, which must already exist.
+    #[prost(string, tag = "2")]
+    pub recipient: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PointerTransferResponse {
+    #[prost(string, tag = "1")]
+    pub address: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub state_id: ::prost::alloc::string::String,
+    /// The close group's view once the write landed. Unset when that check
+    /// failed, which does not undo the transfer; see `finality_error`.
+    #[prost(message, optional, tag = "3")]
+    pub finality: ::core::option::Option<PointerFinality>,
+    #[prost(string, tag = "4")]
+    pub finality_error: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetPointerRequest {
+    #[prost(string, tag = "1")]
+    pub address: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PointerRecord {
+    #[prost(string, tag = "1")]
+    pub address: ::prost::alloc::string::String,
+    /// Owner's ML-DSA-65 public key (hex, 1,952 bytes).
+    #[prost(string, tag = "2")]
+    pub owner: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub counter: ::prost::alloc::string::String,
+    /// "chunk", "pointer", or "unknown"; `kind_tag` is the raw value.
+    #[prost(string, tag = "4")]
+    pub kind: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "5")]
+    pub kind_tag: u32,
+    #[prost(string, tag = "6")]
+    pub target: ::prost::alloc::string::String,
+    #[prost(string, tag = "7")]
+    pub state_id: ::prost::alloc::string::String,
+    /// At the final counter: nothing can replace this state.
+    #[prost(bool, tag = "8")]
+    pub is_final: bool,
+    /// Set when the final state hands the pointer over to another.
+    #[prost(string, tag = "9")]
+    pub transferred_to: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ResolvePointerRequest {
+    #[prost(string, tag = "1")]
+    pub address: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PointerResolved {
+    #[prost(string, tag = "1")]
+    pub kind: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "2")]
+    pub kind_tag: u32,
+    #[prost(string, tag = "3")]
+    pub target: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PointerFinalityRequest {
+    #[prost(string, tag = "1")]
+    pub address: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PointerFinalState {
+    #[prost(string, tag = "1")]
+    pub state_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub kind: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "3")]
+    pub kind_tag: u32,
+    #[prost(string, tag = "4")]
+    pub target: ::prost::alloc::string::String,
+    /// How many peers of the close group hold it.
+    #[prost(uint32, tag = "5")]
+    pub holders: u32,
+    #[prost(string, tag = "6")]
+    pub transferred_to: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PointerFinality {
+    #[prost(string, tag = "1")]
+    pub address: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "2")]
+    pub group: u32,
+    #[prost(uint32, tag = "3")]
+    pub answered: u32,
+    /// "open", "settling", "unconfirmed", "final" or "forked". Only "final"
+    /// means one final state, held by a majority, with no rival seen.
+    #[prost(string, tag = "4")]
+    pub status: ::prost::alloc::string::String,
+    /// open: the counter a read would return; empty if none is corroborated.
+    #[prost(string, tag = "5")]
+    pub counter: ::prost::alloc::string::String,
+    /// settling / unconfirmed / final: the one final state seen.
+    #[prost(message, optional, tag = "6")]
+    pub state: ::core::option::Option<PointerFinalState>,
+    /// forked: every final state seen, most-held first.
+    #[prost(message, repeated, tag = "7")]
+    pub states: ::prost::alloc::vec::Vec<PointerFinalState>,
+    /// forked: the state a majority holds, which reads return.
+    #[prost(message, optional, tag = "8")]
+    pub majority: ::core::option::Option<PointerFinalState>,
+    /// Set once the pointer is beyond dispute handed over (status "final").
+    #[prost(string, tag = "9")]
+    pub transferred_to: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PointerControllerRequest {
+    #[prost(string, tag = "1")]
+    pub address: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PointerController {
+    #[prost(string, tag = "1")]
+    pub pointer: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "2")]
+    pub transfers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(bool, tag = "3")]
+    pub frozen: bool,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PreparePointerRequest {
+    #[prost(string, tag = "1")]
+    pub owner: ::prost::alloc::string::String,
+    /// "create", "update" or "transfer".
+    #[prost(string, tag = "2")]
+    pub op: ::prost::alloc::string::String,
+    /// create / update.
+    #[prost(string, tag = "3")]
+    pub target: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub kind: ::prost::alloc::string::String,
+    /// transfer.
+    #[prost(string, tag = "5")]
+    pub recipient: ::prost::alloc::string::String,
+    #[prost(bool, tag = "6")]
+    pub include_signed_quotes: bool,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PreparePointerResponse {
+    #[prost(string, tag = "1")]
+    pub upload_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub op: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub address: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub state_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "5")]
+    pub counter: ::prost::alloc::string::String,
+    /// Always "wave_batch".
+    #[prost(string, tag = "6")]
+    pub payment_type: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "7")]
+    pub payments: ::prost::alloc::vec::Vec<PaymentEntry>,
+    #[prost(string, tag = "8")]
+    pub total_amount: ::prost::alloc::string::String,
+    #[prost(string, tag = "9")]
+    pub payment_vault_address: ::prost::alloc::string::String,
+    #[prost(string, tag = "10")]
+    pub payment_token_address: ::prost::alloc::string::String,
+    #[prost(string, tag = "11")]
+    pub rpc_url: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "12")]
+    pub signed_quotes: ::prost::alloc::vec::Vec<SignedQuoteEntry>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FinalizePointerRequest {
+    #[prost(string, tag = "1")]
+    pub upload_id: ::prost::alloc::string::String,
+    /// quote_hash (hex) → tx_hash (hex). Ignored when repeating a finalize
+    /// that failed after payment.
+    #[prost(map = "string, string", tag = "2")]
+    pub tx_hashes: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FinalizePointerResponse {
+    #[prost(string, tag = "1")]
+    pub address: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub state_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub counter: ::prost::alloc::string::String,
+    /// transfer only.
+    #[prost(message, optional, tag = "4")]
+    pub finality: ::core::option::Option<PointerFinality>,
+}
+/// Generated client implementations.
+pub mod pointer_service_client {
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
+    use tonic::codegen::*;
+    use tonic::codegen::http::Uri;
+    /// Pointers: owner-signed, paid, mutable references (ADR-0016 in ant-node),
+    /// with ownership transfer by final redirection (ADR-0018). Mirrors the REST
+    /// `/v1/pointers` surface 1:1.
+    ///
+    /// antd signs with owner keys it loaded at startup (`--pointer-keys`). A write
+    /// names the pointer by its address (`owner`), never by a key; `ListKeys`
+    /// lists the pointers this daemon can write.
+    ///
+    /// Addresses, state ids and targets are 64 hex characters. Counters are
+    /// decimal strings: a final state sits at u64::MAX.
+    ///
+    /// Every write pays, and every attempt pays again. Do not retry Create,
+    /// Update or Transfer automatically; a Finalize that fails with
+    /// `CLOSE_GROUP_SHORTFALL` is retried by repeating it with the same
+    /// `upload_id`, which reuses the payment.
+    #[derive(Debug, Clone)]
+    pub struct PointerServiceClient<T> {
+        inner: tonic::client::Grpc<T>,
+    }
+    impl PointerServiceClient<tonic::transport::Channel> {
+        /// Attempt to create a new client by connecting to a given endpoint.
+        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+        where
+            D: TryInto<tonic::transport::Endpoint>,
+            D::Error: Into<StdError>,
+        {
+            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+            Ok(Self::new(conn))
+        }
+    }
+    impl<T> PointerServiceClient<T>
+    where
+        T: tonic::client::GrpcService<tonic::body::BoxBody>,
+        T::Error: Into<StdError>,
+        T::ResponseBody: Body<Data = Bytes> + std::marker::Send + 'static,
+        <T::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
+    {
+        pub fn new(inner: T) -> Self {
+            let inner = tonic::client::Grpc::new(inner);
+            Self { inner }
+        }
+        pub fn with_origin(inner: T, origin: Uri) -> Self {
+            let inner = tonic::client::Grpc::with_origin(inner, origin);
+            Self { inner }
+        }
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> PointerServiceClient<InterceptedService<T, F>>
+        where
+            F: tonic::service::Interceptor,
+            T::ResponseBody: Default,
+            T: tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+                Response = http::Response<
+                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+                >,
+            >,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
+        {
+            PointerServiceClient::new(InterceptedService::new(inner, interceptor))
+        }
+        /// Compress requests with the given encoding.
+        ///
+        /// This requires the server to support it otherwise it might respond with an
+        /// error.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.send_compressed(encoding);
+            self
+        }
+        /// Enable decompressing responses.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.accept_compressed(encoding);
+            self
+        }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_decoding_message_size(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_encoding_message_size(limit);
+            self
+        }
+        pub async fn list_keys(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ListPointerKeysRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ListPointerKeysResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/antd.v1.PointerService/ListKeys",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("antd.v1.PointerService", "ListKeys"));
+            self.inner.unary(req, path, codec).await
+        }
+        /// Create a pointer with the daemon wallet. ALREADY_EXISTS if it exists.
+        pub async fn create(
+            &mut self,
+            request: impl tonic::IntoRequest<super::PointerWriteRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PointerWriteResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/antd.v1.PointerService/Create",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("antd.v1.PointerService", "Create"));
+            self.inner.unary(req, path, codec).await
+        }
+        /// Point a pointer at a new target with the daemon wallet, creating it if
+        /// it does not exist. FAILED_PRECONDITION if the pointer is final.
+        pub async fn update(
+            &mut self,
+            request: impl tonic::IntoRequest<super::PointerWriteRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PointerWriteResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/antd.v1.PointerService/Update",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("antd.v1.PointerService", "Update"));
+            self.inner.unary(req, path, codec).await
+        }
+        /// Hand a pointer over to the recipient's pointer for good, with the daemon
+        /// wallet. Irreversible once stored.
+        pub async fn transfer(
+            &mut self,
+            request: impl tonic::IntoRequest<super::PointerTransferRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PointerTransferResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/antd.v1.PointerService/Transfer",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("antd.v1.PointerService", "Transfer"));
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn get(
+            &mut self,
+            request: impl tonic::IntoRequest<super::GetPointerRequest>,
+        ) -> std::result::Result<tonic::Response<super::PointerRecord>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/antd.v1.PointerService/Get",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("antd.v1.PointerService", "Get"));
+            self.inner.unary(req, path, codec).await
+        }
+        /// Follow a chain of pointers to the target at its end.
+        pub async fn resolve(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ResolvePointerRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PointerResolved>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/antd.v1.PointerService/Resolve",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("antd.v1.PointerService", "Resolve"));
+            self.inner.unary(req, path, codec).await
+        }
+        /// Ask the whole close group whether a pointer is final, and on what.
+        pub async fn finality(
+            &mut self,
+            request: impl tonic::IntoRequest<super::PointerFinalityRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PointerFinality>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/antd.v1.PointerService/Finality",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("antd.v1.PointerService", "Finality"));
+            self.inner.unary(req, path, codec).await
+        }
+        /// Follow a pointer's transfers to the pointer whose owner now decides.
+        pub async fn controller(
+            &mut self,
+            request: impl tonic::IntoRequest<super::PointerControllerRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PointerController>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/antd.v1.PointerService/Controller",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("antd.v1.PointerService", "Controller"));
+            self.inner.unary(req, path, codec).await
+        }
+        /// External signer: sign a write with a loaded key and quote it. Mirrors
+        /// REST `/v1/pointers/prepare`; the payment shape is ChunkService's.
+        pub async fn prepare(
+            &mut self,
+            request: impl tonic::IntoRequest<super::PreparePointerRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PreparePointerResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/antd.v1.PointerService/Prepare",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("antd.v1.PointerService", "Prepare"));
+            self.inner.unary(req, path, codec).await
+        }
+        /// External signer: store the prepared write once it is paid.
+        pub async fn finalize(
+            &mut self,
+            request: impl tonic::IntoRequest<super::FinalizePointerRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::FinalizePointerResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/antd.v1.PointerService/Finalize",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("antd.v1.PointerService", "Finalize"));
+            self.inner.unary(req, path, codec).await
+        }
+    }
+}
+/// Generated server implementations.
+pub mod pointer_service_server {
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
+    use tonic::codegen::*;
+    /// Generated trait containing gRPC methods that should be implemented for use with PointerServiceServer.
+    #[async_trait]
+    pub trait PointerService: std::marker::Send + std::marker::Sync + 'static {
+        async fn list_keys(
+            &self,
+            request: tonic::Request<super::ListPointerKeysRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ListPointerKeysResponse>,
+            tonic::Status,
+        >;
+        /// Create a pointer with the daemon wallet. ALREADY_EXISTS if it exists.
+        async fn create(
+            &self,
+            request: tonic::Request<super::PointerWriteRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PointerWriteResponse>,
+            tonic::Status,
+        >;
+        /// Point a pointer at a new target with the daemon wallet, creating it if
+        /// it does not exist. FAILED_PRECONDITION if the pointer is final.
+        async fn update(
+            &self,
+            request: tonic::Request<super::PointerWriteRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PointerWriteResponse>,
+            tonic::Status,
+        >;
+        /// Hand a pointer over to the recipient's pointer for good, with the daemon
+        /// wallet. Irreversible once stored.
+        async fn transfer(
+            &self,
+            request: tonic::Request<super::PointerTransferRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PointerTransferResponse>,
+            tonic::Status,
+        >;
+        async fn get(
+            &self,
+            request: tonic::Request<super::GetPointerRequest>,
+        ) -> std::result::Result<tonic::Response<super::PointerRecord>, tonic::Status>;
+        /// Follow a chain of pointers to the target at its end.
+        async fn resolve(
+            &self,
+            request: tonic::Request<super::ResolvePointerRequest>,
+        ) -> std::result::Result<tonic::Response<super::PointerResolved>, tonic::Status>;
+        /// Ask the whole close group whether a pointer is final, and on what.
+        async fn finality(
+            &self,
+            request: tonic::Request<super::PointerFinalityRequest>,
+        ) -> std::result::Result<tonic::Response<super::PointerFinality>, tonic::Status>;
+        /// Follow a pointer's transfers to the pointer whose owner now decides.
+        async fn controller(
+            &self,
+            request: tonic::Request<super::PointerControllerRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PointerController>,
+            tonic::Status,
+        >;
+        /// External signer: sign a write with a loaded key and quote it. Mirrors
+        /// REST `/v1/pointers/prepare`; the payment shape is ChunkService's.
+        async fn prepare(
+            &self,
+            request: tonic::Request<super::PreparePointerRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::PreparePointerResponse>,
+            tonic::Status,
+        >;
+        /// External signer: store the prepared write once it is paid.
+        async fn finalize(
+            &self,
+            request: tonic::Request<super::FinalizePointerRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::FinalizePointerResponse>,
+            tonic::Status,
+        >;
+    }
+    /// Pointers: owner-signed, paid, mutable references (ADR-0016 in ant-node),
+    /// with ownership transfer by final redirection (ADR-0018). Mirrors the REST
+    /// `/v1/pointers` surface 1:1.
+    ///
+    /// antd signs with owner keys it loaded at startup (`--pointer-keys`). A write
+    /// names the pointer by its address (`owner`), never by a key; `ListKeys`
+    /// lists the pointers this daemon can write.
+    ///
+    /// Addresses, state ids and targets are 64 hex characters. Counters are
+    /// decimal strings: a final state sits at u64::MAX.
+    ///
+    /// Every write pays, and every attempt pays again. Do not retry Create,
+    /// Update or Transfer automatically; a Finalize that fails with
+    /// `CLOSE_GROUP_SHORTFALL` is retried by repeating it with the same
+    /// `upload_id`, which reuses the payment.
+    #[derive(Debug)]
+    pub struct PointerServiceServer<T> {
+        inner: Arc<T>,
+        accept_compression_encodings: EnabledCompressionEncodings,
+        send_compression_encodings: EnabledCompressionEncodings,
+        max_decoding_message_size: Option<usize>,
+        max_encoding_message_size: Option<usize>,
+    }
+    impl<T> PointerServiceServer<T> {
+        pub fn new(inner: T) -> Self {
+            Self::from_arc(Arc::new(inner))
+        }
+        pub fn from_arc(inner: Arc<T>) -> Self {
+            Self {
+                inner,
+                accept_compression_encodings: Default::default(),
+                send_compression_encodings: Default::default(),
+                max_decoding_message_size: None,
+                max_encoding_message_size: None,
+            }
+        }
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
+        where
+            F: tonic::service::Interceptor,
+        {
+            InterceptedService::new(Self::new(inner), interceptor)
+        }
+        /// Enable decompressing requests with the given encoding.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.accept_compression_encodings.enable(encoding);
+            self
+        }
+        /// Compress responses with the given encoding, if the client supports it.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.send_compression_encodings.enable(encoding);
+            self
+        }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.max_decoding_message_size = Some(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.max_encoding_message_size = Some(limit);
+            self
+        }
+    }
+    impl<T, B> tonic::codegen::Service<http::Request<B>> for PointerServiceServer<T>
+    where
+        T: PointerService,
+        B: Body + std::marker::Send + 'static,
+        B::Error: Into<StdError> + std::marker::Send + 'static,
+    {
+        type Response = http::Response<tonic::body::BoxBody>;
+        type Error = std::convert::Infallible;
+        type Future = BoxFuture<Self::Response, Self::Error>;
+        fn poll_ready(
+            &mut self,
+            _cx: &mut Context<'_>,
+        ) -> Poll<std::result::Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn call(&mut self, req: http::Request<B>) -> Self::Future {
+            match req.uri().path() {
+                "/antd.v1.PointerService/ListKeys" => {
+                    #[allow(non_camel_case_types)]
+                    struct ListKeysSvc<T: PointerService>(pub Arc<T>);
+                    impl<
+                        T: PointerService,
+                    > tonic::server::UnaryService<super::ListPointerKeysRequest>
+                    for ListKeysSvc<T> {
+                        type Response = super::ListPointerKeysResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ListPointerKeysRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as PointerService>::list_keys(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = ListKeysSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/antd.v1.PointerService/Create" => {
+                    #[allow(non_camel_case_types)]
+                    struct CreateSvc<T: PointerService>(pub Arc<T>);
+                    impl<
+                        T: PointerService,
+                    > tonic::server::UnaryService<super::PointerWriteRequest>
+                    for CreateSvc<T> {
+                        type Response = super::PointerWriteResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::PointerWriteRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as PointerService>::create(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = CreateSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/antd.v1.PointerService/Update" => {
+                    #[allow(non_camel_case_types)]
+                    struct UpdateSvc<T: PointerService>(pub Arc<T>);
+                    impl<
+                        T: PointerService,
+                    > tonic::server::UnaryService<super::PointerWriteRequest>
+                    for UpdateSvc<T> {
+                        type Response = super::PointerWriteResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::PointerWriteRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as PointerService>::update(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = UpdateSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/antd.v1.PointerService/Transfer" => {
+                    #[allow(non_camel_case_types)]
+                    struct TransferSvc<T: PointerService>(pub Arc<T>);
+                    impl<
+                        T: PointerService,
+                    > tonic::server::UnaryService<super::PointerTransferRequest>
+                    for TransferSvc<T> {
+                        type Response = super::PointerTransferResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::PointerTransferRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as PointerService>::transfer(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = TransferSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/antd.v1.PointerService/Get" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetSvc<T: PointerService>(pub Arc<T>);
+                    impl<
+                        T: PointerService,
+                    > tonic::server::UnaryService<super::GetPointerRequest>
+                    for GetSvc<T> {
+                        type Response = super::PointerRecord;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetPointerRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as PointerService>::get(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/antd.v1.PointerService/Resolve" => {
+                    #[allow(non_camel_case_types)]
+                    struct ResolveSvc<T: PointerService>(pub Arc<T>);
+                    impl<
+                        T: PointerService,
+                    > tonic::server::UnaryService<super::ResolvePointerRequest>
+                    for ResolveSvc<T> {
+                        type Response = super::PointerResolved;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ResolvePointerRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as PointerService>::resolve(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = ResolveSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/antd.v1.PointerService/Finality" => {
+                    #[allow(non_camel_case_types)]
+                    struct FinalitySvc<T: PointerService>(pub Arc<T>);
+                    impl<
+                        T: PointerService,
+                    > tonic::server::UnaryService<super::PointerFinalityRequest>
+                    for FinalitySvc<T> {
+                        type Response = super::PointerFinality;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::PointerFinalityRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as PointerService>::finality(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = FinalitySvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/antd.v1.PointerService/Controller" => {
+                    #[allow(non_camel_case_types)]
+                    struct ControllerSvc<T: PointerService>(pub Arc<T>);
+                    impl<
+                        T: PointerService,
+                    > tonic::server::UnaryService<super::PointerControllerRequest>
+                    for ControllerSvc<T> {
+                        type Response = super::PointerController;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::PointerControllerRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as PointerService>::controller(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = ControllerSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/antd.v1.PointerService/Prepare" => {
+                    #[allow(non_camel_case_types)]
+                    struct PrepareSvc<T: PointerService>(pub Arc<T>);
+                    impl<
+                        T: PointerService,
+                    > tonic::server::UnaryService<super::PreparePointerRequest>
+                    for PrepareSvc<T> {
+                        type Response = super::PreparePointerResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::PreparePointerRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as PointerService>::prepare(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = PrepareSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/antd.v1.PointerService/Finalize" => {
+                    #[allow(non_camel_case_types)]
+                    struct FinalizeSvc<T: PointerService>(pub Arc<T>);
+                    impl<
+                        T: PointerService,
+                    > tonic::server::UnaryService<super::FinalizePointerRequest>
+                    for FinalizeSvc<T> {
+                        type Response = super::FinalizePointerResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::FinalizePointerRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as PointerService>::finalize(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = FinalizeSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                _ => {
+                    Box::pin(async move {
+                        let mut response = http::Response::new(empty_body());
+                        let headers = response.headers_mut();
+                        headers
+                            .insert(
+                                tonic::Status::GRPC_STATUS,
+                                (tonic::Code::Unimplemented as i32).into(),
+                            );
+                        headers
+                            .insert(
+                                http::header::CONTENT_TYPE,
+                                tonic::metadata::GRPC_CONTENT_TYPE,
+                            );
+                        Ok(response)
+                    })
+                }
+            }
+        }
+    }
+    impl<T> Clone for PointerServiceServer<T> {
+        fn clone(&self) -> Self {
+            let inner = self.inner.clone();
+            Self {
+                inner,
+                accept_compression_encodings: self.accept_compression_encodings,
+                send_compression_encodings: self.send_compression_encodings,
+                max_decoding_message_size: self.max_decoding_message_size,
+                max_encoding_message_size: self.max_encoding_message_size,
+            }
+        }
+    }
+    /// Generated gRPC service name
+    pub const SERVICE_NAME: &str = "antd.v1.PointerService";
+    impl<T> tonic::server::NamedService for PointerServiceServer<T> {
+        const NAME: &'static str = SERVICE_NAME;
+    }
+}
