@@ -1,6 +1,6 @@
 # antd SDK
 
-> Go, JavaScript/TypeScript, Python, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, Elixir, Zig, Rust, C++, and Java SDKs for the Autonomi network via the antd daemon. Provides REST and gRPC transports, an MCP server (29 tools), and a local daemon that manages wallet, payments, and network connectivity.
+> Go, JavaScript/TypeScript, Python, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, Elixir, Zig, Rust, C++, and Java SDKs for the Autonomi network via the antd daemon. Provides REST and gRPC transports, an MCP server (31 tools), and a local daemon that manages wallet, payments, and network connectivity.
 
 ## Quick Start
 
@@ -28,7 +28,7 @@ data = client.data_get_public(result.address)
 - [Rust SDK](antd-rust/) — `cargo add antd-client` — REST + gRPC, async/tokio
 - [C++ SDK](antd-cpp/) — CMake FetchContent — REST + gRPC, sync + async (C++20)
 - [Java SDK](antd-java/) — Gradle/Maven — REST + gRPC, sync + async (Java 17+)
-- [MCP Server](antd-mcp/) — 29 tools for AI agent integration, pointers included
+- [MCP Server](antd-mcp/) — 31 tools for AI agent integration, pointers and manifests included
 
 ## API Reference
 

@@ -218,7 +218,7 @@ Run individual examples:
 ```bash
 ./gradlew :examples:run --args="1"   # Connect
 ./gradlew :examples:run --args="2"   # Public Data
-./gradlew :examples:run --args="all" # All examples except 8
+./gradlew :examples:run --args="all" # All examples except 8 and 9
 
 # Pointers: pays for each write and needs a never-written owner the daemon
 # holds the key for, so it runs only when asked for. ANTD_BASE_URL overrides
@@ -258,7 +258,7 @@ antd-kotlin/
 │       ├── Models.kt             # Data classes
 │       ├── Manifests.kt          # Manifest types and wire mapping
 │       └── Exceptions.kt         # Exception hierarchy
-├── examples/                     # 7 runnable examples
+├── examples/                     # 8 runnable examples
 ├── build.gradle.kts              # Root build config
 └── settings.gradle.kts
 ```

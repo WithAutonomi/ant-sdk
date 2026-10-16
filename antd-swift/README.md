@@ -159,7 +159,7 @@ do {
 | `TooLargeError` | 413 | RESOURCE_EXHAUSTED | Data too large |
 | `InternalError` | 500 | INTERNAL | Server error |
 | `PointerFinalError`, `PointerForkedError`, `ConflictError`, `CloseGroupShortfallError` | 409 / 503, by `code` | by `x-antd-error-code` trailer | See [Pointers](#pointers) |
-| `NotSupportedError` | (client-side, `statusCode` 0) | (client-side) | A pointer method called on your own `AntdClientProtocol` conformer that does not implement it |
+| `NotSupportedError` | (client-side, `statusCode` 0) | (client-side) | A pointer or manifest method called on your own `AntdClientProtocol` conformer that does not implement it |
 
 ### Partial uploads (external-signer finalize)
 

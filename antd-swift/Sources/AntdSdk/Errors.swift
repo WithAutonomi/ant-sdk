@@ -135,7 +135,7 @@ public final class ServiceUnavailableError: AntdError {
 
 /// The client does not implement the operation. Thrown on the client side,
 /// never by the daemon (``statusCode`` is 0): the default implementations of
-/// the pointer methods on ``AntdClientProtocol`` throw it, so a type that
+/// the pointer and manifest methods on ``AntdClientProtocol`` throw it, so a type that
 /// conformed to the protocol before those methods existed keeps compiling.
 /// ``AntdRestClient`` and ``AntdGrpcClient`` implement every method.
 public final class NotSupportedError: AntdError {
