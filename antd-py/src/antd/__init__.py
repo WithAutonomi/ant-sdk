@@ -52,6 +52,7 @@ from .models import (
     WalletAddress,
     WalletBalance,
 )
+from .models import BuiltManifest, DecodedManifest, ManifestEntryInfo, ManifestEntryInput
 from ._discover import discover_daemon_url, discover_grpc_target
 from .exceptions import (
     AntdError,
@@ -127,6 +128,11 @@ __all__ = [
     "PointerFinalError",
     "PointerForkedError",
     "TooLargeError",
+    # Manifests
+    "BuiltManifest",
+    "DecodedManifest",
+    "ManifestEntryInfo",
+    "ManifestEntryInput",
 ]
 
 

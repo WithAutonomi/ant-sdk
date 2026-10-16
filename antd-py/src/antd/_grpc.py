@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Iterator, Sequence
 from typing import NoReturn
 
 import grpc
@@ -30,15 +30,18 @@ from .exceptions import (
     parse_partial_upload_message,
 )
 from .models import (
+    BuiltManifest,
     CandidateNodeEntry,
     DataPutPublicResult,
     DataPutResult,
+    DecodedManifest,
     DownloadFrame,
     DownloadProgress,
     FilePutPublicResult,
     FilePutResult,
     FinalizeUploadResult,
     HealthStatus,
+    ManifestEntryInput,
     PaymentInfo,
     PaymentMode,
     PointerController,
@@ -59,6 +62,7 @@ from .models import (
     WalletAddress,
     WalletBalance,
 )
+from . import _manifests
 
 
 def _frame_from_chunk(chunk) -> DownloadFrame:
@@ -222,6 +226,49 @@ from antd._proto.antd.v1 import health_pb2, health_pb2_grpc
 from antd._proto.antd.v1 import pointers_pb2, pointers_pb2_grpc
 from antd._proto.antd.v1 import upload_pb2, upload_pb2_grpc
 from antd._proto.antd.v1 import wallet_pb2, wallet_pb2_grpc
+from antd._proto.antd.v1 import manifests_pb2, manifests_pb2_grpc
+
+# Message limits for the ManifestService channel. A manifest can be 64 MiB,
+# and a Build or Decode response carries it (a decode also carries each
+# embedded DataMap in hex), so gRPC's default 4 MiB receive limit would refuse
+# a large one; a Decode sends the bytes, so the send limit is set too (the
+# daemon accepts up to 100 MiB). antd-go raises the limit per call
+# (maxManifestGrpcMessage, 256 MiB); Python gRPC has no per-call limit, so the
+# clients open a second channel to the same target with these options for
+# ManifestService alone, and every other service keeps the defaults. Like any
+# gRPC channel it connects on first use.
+_MAX_MANIFEST_GRPC_MESSAGE_BYTES = 256 * 1024 * 1024
+_MANIFEST_CHANNEL_OPTIONS: tuple[tuple[str, int], ...] = (
+    ("grpc.max_receive_message_length", _MAX_MANIFEST_GRPC_MESSAGE_BYTES),
+    ("grpc.max_send_message_length", _MAX_MANIFEST_GRPC_MESSAGE_BYTES),
+)
+
+
+def _build_manifest_request(
+    entries: Sequence[ManifestEntryInput],
+    name: str | None,
+    torrent_info_hashes: list[str],
+    embed_roots: bool,
+) -> manifests_pb2.BuildManifestRequest:
+    """A BuildManifestRequest. ``path``, ``size`` and ``name`` are proto3
+    ``optional``, so they are set only when given (a size of 0 is given);
+    ``embed_roots`` is always set."""
+    req = manifests_pb2.BuildManifestRequest(
+        torrent_info_hashes=torrent_info_hashes, embed_roots=bool(embed_roots),
+    )
+    if name:
+        req.name = name
+    for e in entries:
+        entry = req.entries.add()
+        if e.path:
+            entry.path = e.path
+        if e.size is not None:
+            entry.size = e.size
+        if e.data_map:
+            entry.data_map = e.data_map
+        else:
+            entry.address = e.address
+    return req
 
 
 # gRPC status code -> exception class mapping
@@ -346,6 +393,9 @@ class GrpcClient:
 
     def __init__(self, target: str = "localhost:50051"):
         self._channel = grpc.insecure_channel(target)
+        # ManifestService on its own channel, with raised message limits.
+        self._manifest_channel = grpc.insecure_channel(target, options=_MANIFEST_CHANNEL_OPTIONS)
+        self._manifest = manifests_pb2_grpc.ManifestServiceStub(self._manifest_channel)
         self._health = health_pb2_grpc.HealthServiceStub(self._channel)
         self._data = data_pb2_grpc.DataServiceStub(self._channel)
         self._chunks = chunks_pb2_grpc.ChunkServiceStub(self._channel)
@@ -356,6 +406,7 @@ class GrpcClient:
 
     def close(self) -> None:
         self._channel.close()
+        self._manifest_channel.close()
 
     def __enter__(self):
         return self
@@ -532,6 +583,53 @@ class GrpcClient:
             resp = self._files.Cost(files_pb2.FileCostRequest(
                 path=path, is_public=is_public, payment_mode=payment_mode.value))
             return _estimate_from_cost(resp)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    # --- Manifests ---
+    #
+    # ManifestService: the same methods, types and errors as the REST client
+    # (see RestClient.build_manifest), over the manifest channel with raised
+    # message limits (_MANIFEST_CHANNEL_OPTIONS). The `.ant` bytes are raw
+    # bytes on this wire. Nothing is uploaded or paid for, so these are safe
+    # to retry.
+
+    def build_manifest(
+        self,
+        entries: Sequence[ManifestEntryInput],
+        *,
+        name: str | None = None,
+        torrent_info_hashes: Sequence[str] | None = None,
+        embed_roots: bool = True,
+    ) -> BuiltManifest:
+        """See :meth:`RestClient.build_manifest`. An entry the daemon refuses
+        is INVALID_ARGUMENT, raised as :class:`BadRequestError`."""
+        _manifests.check_entries(entries)
+        hashes = _manifests.check_torrent_info_hashes(torrent_info_hashes)
+        req = _build_manifest_request(entries, name, hashes, embed_roots)
+        try:
+            resp = self._manifest.Build(req)
+            return _manifests.built_from_pb(resp)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    def decode_manifest(self, manifest: bytes, resolve: bool = False) -> DecodedManifest:
+        """See :meth:`RestClient.decode_manifest`."""
+        req = manifests_pb2.DecodeManifestRequest(
+            manifest=_manifests.manifest_bytes(manifest), resolve=bool(resolve))
+        try:
+            resp = self._manifest.Decode(req)
+            return _manifests.decoded_from_pb(resp)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    def decode_manifest_link(self, link: str, resolve: bool = False) -> DecodedManifest:
+        """See :meth:`RestClient.decode_manifest_link`."""
+        req = manifests_pb2.DecodeManifestRequest(
+            link=_manifests.check_link(link), resolve=bool(resolve))
+        try:
+            resp = self._manifest.Decode(req)
+            return _manifests.decoded_from_pb(resp)
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
@@ -825,6 +923,9 @@ class AsyncGrpcClient:
 
     def __init__(self, target: str = "localhost:50051"):
         self._channel = grpc.aio.insecure_channel(target)
+        # ManifestService on its own channel, with raised message limits.
+        self._manifest_channel = grpc.aio.insecure_channel(target, options=_MANIFEST_CHANNEL_OPTIONS)
+        self._manifest = manifests_pb2_grpc.ManifestServiceStub(self._manifest_channel)
         self._health = health_pb2_grpc.HealthServiceStub(self._channel)
         # V2-286: WalletService stub. Mirrors sync GrpcClient.
         self._wallet = wallet_pb2_grpc.WalletServiceStub(self._channel)
@@ -836,6 +937,7 @@ class AsyncGrpcClient:
 
     async def close(self) -> None:
         await self._channel.close()
+        await self._manifest_channel.close()
 
     async def __aenter__(self):
         return self
@@ -1002,6 +1104,49 @@ class AsyncGrpcClient:
             resp = await self._files.Cost(files_pb2.FileCostRequest(
                 path=path, is_public=is_public, payment_mode=payment_mode.value))
             return _estimate_from_cost(resp)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    # --- Manifests ---
+    #
+    # The same methods, types and errors as GrpcClient's, over the async
+    # manifest channel (_MANIFEST_CHANNEL_OPTIONS).
+
+    async def build_manifest(
+        self,
+        entries: Sequence[ManifestEntryInput],
+        *,
+        name: str | None = None,
+        torrent_info_hashes: Sequence[str] | None = None,
+        embed_roots: bool = True,
+    ) -> BuiltManifest:
+        """See :meth:`RestClient.build_manifest`."""
+        _manifests.check_entries(entries)
+        hashes = _manifests.check_torrent_info_hashes(torrent_info_hashes)
+        req = _build_manifest_request(entries, name, hashes, embed_roots)
+        try:
+            resp = await self._manifest.Build(req)
+            return _manifests.built_from_pb(resp)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    async def decode_manifest(self, manifest: bytes, resolve: bool = False) -> DecodedManifest:
+        """See :meth:`RestClient.decode_manifest`."""
+        req = manifests_pb2.DecodeManifestRequest(
+            manifest=_manifests.manifest_bytes(manifest), resolve=bool(resolve))
+        try:
+            resp = await self._manifest.Decode(req)
+            return _manifests.decoded_from_pb(resp)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    async def decode_manifest_link(self, link: str, resolve: bool = False) -> DecodedManifest:
+        """See :meth:`RestClient.decode_manifest_link`."""
+        req = manifests_pb2.DecodeManifestRequest(
+            link=_manifests.check_link(link), resolve=bool(resolve))
+        try:
+            resp = await self._manifest.Decode(req)
+            return _manifests.decoded_from_pb(resp)
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 

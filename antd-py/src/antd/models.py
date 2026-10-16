@@ -201,6 +201,75 @@ class UploadCostEstimate:
     payment_mode: str             # "auto" | "merkle" | "single"
 
 
+# --- Manifests (ADR-0006 `.ant` files and `ant://` links) ---
+#
+# Sizes are Python ints, and an unset size is None, never 0: 0 is the size
+# of an empty file. The same goes for every optional field below, on both
+# transports (REST omits it, gRPC leaves a proto3 optional unset or sends an
+# empty string).
+
+
+@dataclass(frozen=True, kw_only=True)
+class ManifestEntryInput:
+    """One file for ``build_manifest``. Set exactly one of ``data_map`` or
+    ``address``; the client refuses both or neither before sending.
+
+    - ``data_map``: a hex DataMap, as the upload methods return it. The entry
+      embeds it, so the manifest is the key to the file.
+    - ``address``: a public file's DataMap address (hex, 32 bytes).
+    - ``path``: the relative path the entry extracts under, subject to the
+      portable path rules. ``None``: it extracts under its content address.
+    - ``size``: the plaintext size to record, as given (the creator's claim).
+      ``None``: none is recorded; readers take the exact size from an
+      embedded root DataMap.
+    """
+    data_map: str | None = None
+    address: str | None = None
+    path: str | None = None
+    size: int | None = None
+
+
+@dataclass(frozen=True)
+class ManifestEntryInfo:
+    """What a manifest says about one entry."""
+    effective_name: str = ""          # path, or the content address in hex when there is none
+    path: str | None = None
+    size: int | None = None           # the size recorded in the manifest: the creator's claim
+    kind: str = ""                    # "embedded" or "public"
+    # Hex. The file's public DataMap address, whether or not it was ever made
+    # public; the same for private and public uploads of one file.
+    content_address: str = ""
+    # The embedded DataMap in the hex form the download methods accept.
+    # Decode only; None for public entries.
+    data_map: str | None = None
+    # Exact plaintext size: from an embedded root DataMap, or after a
+    # resolving decode.
+    exact_size: int | None = None
+    error: str | None = None          # why a resolving decode failed for this entry
+
+
+@dataclass(frozen=True)
+class BuiltManifest:
+    """Result of ``build_manifest``."""
+    manifest: bytes                   # the `.ant` bytes (raw; base64 is a REST wire detail)
+    # The `ant://manifest/` link, set only when it fits the recommended
+    # 1,500 bytes.
+    link: str | None = None
+    entries: list[ManifestEntryInfo] = field(default_factory=list)  # in encoded order (sorted by effective name)
+
+
+@dataclass(frozen=True)
+class DecodedManifest:
+    """Result of ``decode_manifest`` and ``decode_manifest_link``."""
+    # "manifest", or "file_link" for a file link or bare address (reported as
+    # one public entry with no path).
+    source: str
+    name: str | None = None           # suggested root directory name
+    torrent_info_hash_v1: str | None = None   # hex
+    torrent_info_hash_v2: str | None = None   # hex
+    entries: list[ManifestEntryInfo] = field(default_factory=list)
+
+
 @dataclass(frozen=True)
 class DownloadProgress:
     """A fetch-progress update emitted during a streaming download when progress

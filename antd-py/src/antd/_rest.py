@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Iterator, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from typing import TYPE_CHECKING
 
@@ -13,15 +13,18 @@ import httpx
 from . import _pointers
 from .exceptions import InternalError, raise_for_http_error
 from .models import (
+    BuiltManifest,
     CandidateNodeEntry,
     DataPutPublicResult,
     DataPutResult,
+    DecodedManifest,
     DownloadFrame,
     DownloadProgress,
     FilePutPublicResult,
     FilePutResult,
     FinalizeUploadResult,
     HealthStatus,
+    ManifestEntryInput,
     PaymentInfo,
     PaymentMode,
     PointerController,
@@ -42,6 +45,7 @@ from .models import (
     WalletAddress,
     WalletBalance,
 )
+from . import _manifests
 
 
 def _health_status_from_json(j: dict) -> HealthStatus:
@@ -507,6 +511,93 @@ class RestClient:
         })
         _check(resp)
         return _parse_cost_estimate(resp.json())
+
+    # --- Manifests ---
+    #
+    # ADR-0006 `.ant` files and `ant://` links (antd with the manifest API,
+    # the release after 0.15.0). The daemon builds and decodes them through
+    # ant-core, so callers never handle the format. Nothing is uploaded or
+    # paid for: these calls only read the network (the embedding policy on
+    # build, ``resolve`` on decode), so they can time out and are safe to
+    # retry. The ``.ant`` bytes travel as base64 over REST; these methods take
+    # and return raw bytes.
+
+    def build_manifest(
+        self,
+        entries: Sequence[ManifestEntryInput],
+        *,
+        name: str | None = None,
+        torrent_info_hashes: Sequence[str] | None = None,
+        embed_roots: bool = True,
+    ) -> BuiltManifest:
+        """Build a ``.ant`` manifest from DataMaps and public addresses already
+        in hand (``POST /v1/manifests/build``). Nothing is uploaded or paid
+        for.
+
+        Args:
+            entries: The files, each with exactly one of ``data_map`` or
+                ``address``; checked before anything is sent.
+            name: A suggested root directory name (one portable path
+                component).
+            torrent_info_hashes: BitTorrent info hashes of the same files:
+                hex, 40 characters for v1 and/or 64 for v2.
+            embed_roots: ``True`` (default): the daemon resolves each shrunk
+                DataMap's root (fetching its wrapper records) and embeds the
+                root when it is at most 64 KiB, so recipients skip that fetch
+                (ADR-0006's policy). ``False`` embeds DataMaps exactly as
+                given.
+
+        Returns:
+            The ``.ant`` bytes, the ``ant://manifest/`` link when it fits
+            1,500 bytes (``None`` otherwise), and the entries in encoded
+            order (sorted by effective name).
+
+        Raises:
+            BadRequestError: an entry with both or neither of ``data_map``
+                and ``address`` (refused before sending, ``status_code`` 0),
+                or one the daemon refused, such as an invalid path; the
+                message names ``entries[i]``.
+        """
+        _manifests.check_entries(entries)
+        hashes = _manifests.check_torrent_info_hashes(torrent_info_hashes)
+        resp = self._http.post(
+            "/v1/manifests/build",
+            json=_manifests.build_body(entries, name, hashes, embed_roots),
+        )
+        _check(resp)
+        return _manifests.built_from_json(resp.json())
+
+    def decode_manifest(self, manifest: bytes, resolve: bool = False) -> DecodedManifest:
+        """Decode ``.ant`` bytes (``POST /v1/manifests/decode``).
+
+        With ``resolve``, the daemon fetches each entry's DataMap (and wrapper
+        records) to report ``exact_size`` and confirm the DataMap is on the
+        network; content chunks are not fetched, and one entry's failure is
+        reported in its ``error`` rather than failing the call.
+
+        Raises:
+            BadRequestError: empty bytes (refused before sending), or bytes
+                that are not a manifest.
+        """
+        body = _manifests.decode_bytes_body(_manifests.manifest_bytes(manifest), resolve)
+        resp = self._http.post("/v1/manifests/decode", json=body)
+        _check(resp)
+        return _manifests.decoded_from_json(resp.json())
+
+    def decode_manifest_link(self, link: str, resolve: bool = False) -> DecodedManifest:
+        """Decode an ``ant://`` manifest link, a file link or a bare 64-hex
+        address (``POST /v1/manifests/decode``). A file link or address reads
+        as ``source="file_link"`` with one public entry and no path. See
+        :meth:`decode_manifest` for ``resolve``.
+
+        Raises:
+            BadRequestError: an empty link (refused before sending), or one the
+                daemon cannot parse.
+        """
+        body = _manifests.decode_link_body(_manifests.check_link(link), resolve)
+        resp = self._http.post("/v1/manifests/decode", json=body)
+        _check(resp)
+        return _manifests.decoded_from_json(resp.json())
 
     # --- Wallet ---
 
@@ -1022,6 +1113,43 @@ class AsyncRestClient:
         })
         _check(resp)
         return _parse_cost_estimate(resp.json())
+
+    # --- Manifests ---
+    #
+    # The same methods, types and errors as RestClient's. Nothing is uploaded
+    # or paid for, so they are safe to retry.
+
+    async def build_manifest(
+        self,
+        entries: Sequence[ManifestEntryInput],
+        *,
+        name: str | None = None,
+        torrent_info_hashes: Sequence[str] | None = None,
+        embed_roots: bool = True,
+    ) -> BuiltManifest:
+        """See :meth:`RestClient.build_manifest`."""
+        _manifests.check_entries(entries)
+        hashes = _manifests.check_torrent_info_hashes(torrent_info_hashes)
+        resp = await self._http.post(
+            "/v1/manifests/build",
+            json=_manifests.build_body(entries, name, hashes, embed_roots),
+        )
+        _check(resp)
+        return _manifests.built_from_json(resp.json())
+
+    async def decode_manifest(self, manifest: bytes, resolve: bool = False) -> DecodedManifest:
+        """See :meth:`RestClient.decode_manifest`."""
+        body = _manifests.decode_bytes_body(_manifests.manifest_bytes(manifest), resolve)
+        resp = await self._http.post("/v1/manifests/decode", json=body)
+        _check(resp)
+        return _manifests.decoded_from_json(resp.json())
+
+    async def decode_manifest_link(self, link: str, resolve: bool = False) -> DecodedManifest:
+        """See :meth:`RestClient.decode_manifest_link`."""
+        body = _manifests.decode_link_body(_manifests.check_link(link), resolve)
+        resp = await self._http.post("/v1/manifests/decode", json=body)
+        _check(resp)
+        return _manifests.decoded_from_json(resp.json())
 
     # --- Wallet ---
 
