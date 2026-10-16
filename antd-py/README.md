@@ -111,6 +111,45 @@ python scripts/generate_proto.py
 | `file_get_public(address, dest_path)` | `None` | Download a public file by address |
 | `file_cost(path, is_public, payment_mode=...)` | `UploadCostEstimate` | Estimate file cost — size, chunks, gas, payment mode |
 
+#### Manifests
+
+A manifest (ADR-0006) describes a set of files as one `.ant` file, or as an `ant://manifest/` link when it is small enough. Each entry has an optional path and size, and either an embedded DataMap (a private file: the manifest is its key) or a public DataMap address. The daemon builds and decodes manifests through ant-core, so the SDK never handles the format. Every method is on all four clients (sync and async, REST and gRPC) with the same signatures, types and errors, and needs the antd release after 0.15.0, the first with manifests. See `examples/10_manifests.py`.
+
+**Nothing is uploaded or paid for.** Building and decoding only read the network: on build the default embedding policy resolves shrunk DataMaps, and on decode `resolve=True` fetches each entry's DataMap (never its content). A call can therefore time out, and retrying it is safe. Upload the files first (`data_put_public`, `file_put`, ...) and pass their addresses or DataMaps.
+
+The `.ant` bytes are always raw `bytes` in this API: REST carries them as base64 and gRPC as bytes, and the clients convert. Sizes are Python `int`s, and an unset `size` or `exact_size` is `None`, never `0` (0 is an empty file). Over gRPC the manifest calls use a second channel to the same target, with its message limits raised to 256 MiB each way (a manifest can be 64 MiB); every other call keeps gRPC's defaults.
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `build_manifest(entries, *, name=None, torrent_info_hashes=None, embed_roots=True)` | `BuiltManifest` | Build a manifest from `ManifestEntryInput`s, each with exactly one of `data_map` or `address` (both or neither raises `BadRequestError` before sending). `embed_roots=True` (the default) resolves each shrunk DataMap and embeds its root when it is at most 64 KiB, so recipients skip that fetch; `False` embeds DataMaps as given. `link` is `None` when the link would exceed 1,500 bytes |
+| `decode_manifest(manifest, resolve=False)` | `DecodedManifest` | Decode `.ant` bytes. With `resolve`, each entry's `exact_size` comes from the network, and a failure lands in that entry's `error` rather than failing the call |
+| `decode_manifest_link(link, resolve=False)` | `DecodedManifest` | Decode an `ant://manifest/` link, a file link or a bare 64-hex address (`source="file_link"`: one public entry, no path) |
+
+An invalid entry, such as a bad path (`../x`) or malformed hex, raises `BadRequestError` (HTTP 400 / gRPC `INVALID_ARGUMENT`) with the daemon's message, which names `entries[i]`. One the client refuses before sending (both or neither of `data_map`/`address`, a bad `size`, empty decode input) is the same error with `status_code` 400 and the daemon's wording, such as `2 invalid entries: entries[0]: give data_map or address, not both; entries[2]: needs a data_map or an address`, so one `except` covers both.
+
+```python
+from antd import AntdClient, ManifestEntryInput
+
+client = AntdClient()
+a = client.data_put_public(b"note one").address   # pays
+b = client.data_put_public(b"note two").address   # pays
+
+built = client.build_manifest(                    # free
+    [
+        ManifestEntryInput(address=a, path="notes/one.txt"),
+        ManifestEntryInput(address=b, path="notes/two.txt"),
+    ],
+    name="example",
+)
+print(built.link)
+
+decoded = client.decode_manifest_link(built.link, resolve=True)   # free
+for e in decoded.entries:
+    print(e.effective_name, e.kind, e.exact_size)
+```
+
+Run the example with `ANTD_BASE_URL=http://localhost:8082 python examples/10_manifests.py`; it needs a wallet, and pays for its two uploads only.
+
 #### External Signer
 
 Two-phase upload — daemon prepares the payment intent, caller signs + submits the payForQuotes tx, daemon finalizes once the chain confirms. See `examples/07_external_signer.py` + `docs/external-signer-flow.md`. A finalize that stores only some chunks raises `PartialUploadError` — see [Partial uploads](#partial-uploads) for how to finish the upload without paying twice.
@@ -137,6 +176,10 @@ All models are frozen dataclasses (immutable).
 | `DataPutPublicResult` | `address`, `chunks_stored`, `payment_mode_used` | Public data put — DataMap stored on-network |
 | `FilePutResult` | `data_map`, `storage_cost_atto`, `gas_cost_wei`, `chunks_stored`, `payment_mode_used` | Private file put — DataMap returned to caller |
 | `FilePutPublicResult` | `address`, `storage_cost_atto`, `gas_cost_wei`, `chunks_stored`, `payment_mode_used` | Public file put — DataMap stored on-network |
+| `ManifestEntryInput` | `data_map`, `address`, `path`, `size` (keyword-only) | One file for `build_manifest`: exactly one of `data_map` (embedded) or `address` (public) |
+| `ManifestEntryInfo` | `effective_name`, `path`, `size`, `kind`, `content_address`, `data_map`, `exact_size`, `error` | What a manifest says about one entry. `kind` is `"embedded"` or `"public"`; `data_map` is set by a decode, for embedded entries; `error` only by a resolving decode |
+| `BuiltManifest` | `manifest` (`bytes`), `link`, `entries` | A built manifest: the `.ant` bytes, the link when it fits, the entries sorted by effective name |
+| `DecodedManifest` | `source`, `name`, `torrent_info_hash_v1`, `torrent_info_hash_v2`, `entries` | A decoded manifest. `source` is `"manifest"` or `"file_link"` |
 | `UploadCostEstimate` | `cost`, `file_size`, `chunk_count`, `estimated_gas_cost_wei`, `payment_mode` | Pre-upload cost breakdown |
 
 ## Error Handling
