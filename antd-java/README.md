@@ -109,6 +109,39 @@ All methods throw `AntdException` (or a typed subclass) on failure.
 | `chunkPut(data)` | Store a raw chunk |
 | `chunkGet(address)` | Retrieve a chunk |
 
+### Manifests
+
+A manifest (ADR-0006) describes a set of files as one `.ant` document, or as one `ant://manifest/` link when that fits in 1,500 bytes. Each entry has an optional path and size, and either an embedded DataMap (`ManifestEntryInput.ofDataMap(...)`, from `dataPut` or `filePut`) or a public file's DataMap address (`ManifestEntryInput.ofAddress(...)`). The daemon builds and decodes them through ant-core, so the SDK never re-implements the format. The manifest methods need the antd release after 0.15.0.
+
+**Nothing is uploaded or paid for.** Building and decoding only read from the network: to resolve shrunk DataMaps when embedding roots (the default), and, with `resolve`, to fetch each entry's DataMap for its exact size. So a call can time out, and retrying it is safe. Store or share the bytes or the link yourself.
+
+| Method | Description |
+|--------|-------------|
+| `buildManifest(entries[, options])` | Build a manifest — returns `BuiltManifest` (`manifest` bytes, `link` or `null` when it does not fit, `entries` in encoded order). Each entry sets exactly one of `dataMap` or `address`; both or neither is refused before anything is sent, as the same `BadRequestException` (400, the daemon's message) a daemon refusal gives. `BuildManifestOptions` carries `name`, `torrentInfoHashes` and `keepShrunkDataMaps` (default `false`: roots are embedded) |
+| `decodeManifest(bytes, resolve)` | Decode `.ant` bytes — returns `DecodedManifest` (`source`, `name`, `torrentInfoHashV1`, `torrentInfoHashV2`, `entries`) |
+| `decodeManifestLink(link, resolve)` | Decode an `ant://` manifest link, a file link or a bare address. A file link reads as one public entry with no path, from `source` `file_link` |
+
+Each `ManifestEntryInfo` has `effectiveName` (the path, or the content address when there is none), `path`, `size` (the size recorded by the creator), `kind` (`embedded` or `public`), `contentAddress`, `dataMap` (decode only, embedded entries), `exactSize` (from an embedded root DataMap, or after a resolving decode) and `error` (why one entry's resolve failed; the call itself succeeds). Sizes are `Long`, and unset is `null`, never `0`; so are an absent path, link, name or hash. The `.ant` bytes are always a raw `byte[]`: REST's base64 stays inside the client. An entry the daemon rejects (an invalid path such as `../x`, DataMap or address) is a `BadRequestException` (`INVALID_ARGUMENT` over gRPC) whose message names it as `entries[i]`. Over gRPC every manifest call raises its own message limits, 256 MiB in and 100 MiB out, because a manifest can be 64 MiB; the channel's other calls keep gRPC's defaults.
+
+```java
+try (var client = new AntdClient()) {
+    String one = client.dataPutPublic("one".getBytes()).address();  // pays
+    String two = client.dataPutPublic("two".getBytes()).address();  // pays
+    BuiltManifest built = client.buildManifest(List.of(              // free
+            ManifestEntryInput.ofAddress(one).withPath("notes/one.txt"),
+            ManifestEntryInput.ofAddress(two).withPath("notes/two.txt")),
+            BuildManifestOptions.DEFAULT.withName("example"));
+    DecodedManifest decoded = client.decodeManifestLink(built.link(), true);
+    decoded.entries().forEach(e -> System.out.println(e.effectiveName() + ": " + e.exactSize()));
+}
+```
+
+`AsyncAntdClient` has the same methods with an `Async` suffix, and `GrpcAntdClient` the same methods with the same models and exceptions. `Example09Manifests` runs this flow; its two uploads pay, and `ANTD_BASE_URL` overrides the daemon URL:
+
+```bash
+ANTD_BASE_URL=http://localhost:8082 ./gradlew :examples:run -PmainClass=com.autonomi.examples.Example09Manifests
+```
+
 ### Files
 
 | Method | Description |

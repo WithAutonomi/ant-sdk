@@ -1,5 +1,6 @@
 package com.autonomi.antd;
 
+import com.autonomi.antd.errors.BadRequestException;
 import com.autonomi.antd.errors.ExceptionFactory;
 import com.autonomi.antd.models.*;
 
@@ -259,6 +260,51 @@ public class AsyncAntdClient implements AutoCloseable {
 
     public CompletableFuture<UploadCostEstimate> fileCostAsync(String path, boolean isPublic) {
         return fileCostAsync(path, isPublic, PaymentMode.AUTO);
+    }
+
+    // Manifests — non-blocking mirrors of AntdClient's manifest methods, with
+    // the same models and exceptions (wrapped in a CompletionException). Input
+    // the daemon would refuse is refused here first, before anything is sent,
+    // as the same BadRequestException, in a future that completes exceptionally.
+    // Nothing is uploaded or paid for.
+
+    /** See {@link AntdClient#buildManifest(List)}. */
+    public CompletableFuture<BuiltManifest> buildManifestAsync(List<ManifestEntryInput> entries) {
+        return buildManifestAsync(entries, BuildManifestOptions.DEFAULT);
+    }
+
+    /** See {@link AntdClient#buildManifest(List, BuildManifestOptions)}. */
+    public CompletableFuture<BuiltManifest> buildManifestAsync(
+            List<ManifestEntryInput> entries, BuildManifestOptions options) {
+        try {
+            ManifestWire.checkEntries(entries);
+        } catch (BadRequestException e) {
+            return CompletableFuture.failedFuture(e);
+        }
+        return doJsonAsync("POST", "/v1/manifests/build", ManifestWire.buildBody(entries, options))
+                .thenApply(ManifestWire::parseBuilt);
+    }
+
+    /** See {@link AntdClient#decodeManifest(byte[], boolean)}. */
+    public CompletableFuture<DecodedManifest> decodeManifestAsync(byte[] manifest, boolean resolve) {
+        try {
+            ManifestWire.checkManifest(manifest);
+        } catch (BadRequestException e) {
+            return CompletableFuture.failedFuture(e);
+        }
+        return doJsonAsync("POST", "/v1/manifests/decode", ManifestWire.decodeBody(manifest, resolve))
+                .thenApply(ManifestWire::parseDecoded);
+    }
+
+    /** See {@link AntdClient#decodeManifestLink(String, boolean)}. */
+    public CompletableFuture<DecodedManifest> decodeManifestLinkAsync(String link, boolean resolve) {
+        try {
+            ManifestWire.checkLink(link);
+        } catch (BadRequestException e) {
+            return CompletableFuture.failedFuture(e);
+        }
+        return doJsonAsync("POST", "/v1/manifests/decode", ManifestWire.decodeLinkBody(link, resolve))
+                .thenApply(ManifestWire::parseDecoded);
     }
 
     // Wallet
