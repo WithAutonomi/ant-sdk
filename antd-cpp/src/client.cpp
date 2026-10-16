@@ -4,6 +4,7 @@
 #include <httplib.h>
 
 #include "base64.hpp"
+#include "manifests_json.hpp"
 
 namespace antd {
 
@@ -532,6 +533,26 @@ WalletBalance Client::wallet_balance() {
 bool Client::wallet_approve() {
     auto j = impl_->do_json("POST", "/v1/wallet/approve", json::object());
     return j.value("approved", false);
+}
+
+// ---------------------------------------------------------------------------
+// Manifests (the wire mapping is in manifests_json.cpp)
+// ---------------------------------------------------------------------------
+
+BuiltManifest Client::build_manifest(const std::vector<ManifestEntryInput>& entries,
+                                     const BuildManifestOptions& options) {
+    auto body = detail::manifest_build_body(entries, options);
+    return detail::parse_built_manifest(impl_->do_json("POST", "/v1/manifests/build", body));
+}
+
+DecodedManifest Client::decode_manifest(const std::vector<uint8_t>& manifest, bool resolve) {
+    auto body = detail::manifest_decode_bytes_body(manifest, resolve);
+    return detail::parse_decoded_manifest(impl_->do_json("POST", "/v1/manifests/decode", body));
+}
+
+DecodedManifest Client::decode_manifest_link(std::string_view link, bool resolve) {
+    auto body = detail::manifest_decode_link_body(link, resolve);
+    return detail::parse_decoded_manifest(impl_->do_json("POST", "/v1/manifests/decode", body));
 }
 
 // ---------------------------------------------------------------------------

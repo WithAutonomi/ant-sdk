@@ -111,6 +111,17 @@ public:
     /// Approve the wallet to spend tokens on payment contracts (one-time op).
     std::future<bool> wallet_approve();
 
+    // --- Manifests ---
+    //
+    // See the Client methods of the same names. Nothing is uploaded or paid
+    // for; the BadRequestError for an ambiguous entry surfaces from `.get()`.
+
+    std::future<BuiltManifest> build_manifest(std::vector<ManifestEntryInput> entries,
+                                              BuildManifestOptions options = {});
+    std::future<DecodedManifest> decode_manifest(std::vector<uint8_t> manifest,
+                                                 bool resolve = false);
+    std::future<DecodedManifest> decode_manifest_link(std::string link, bool resolve = false);
+
     // --- External Signer (Two-Phase Upload) ---
 
     /// Prepare a file upload for external signing. See Client::prepare_upload.
