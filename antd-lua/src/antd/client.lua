@@ -78,7 +78,8 @@ function Client:_do_json(method, path, body)
     local headers = {}
 
     if body ~= nil then
-        req_body = cjson.encode(body)
+        -- A string body is JSON the caller encoded itself (antd.manifests).
+        req_body = type(body) == "string" and body or cjson.encode(body)
         headers["Content-Type"] = "application/json"
         headers["Content-Length"] = tostring(#req_body)
     end
@@ -655,5 +656,9 @@ function Client.auto_discover(opts)
     end
     return Client:new(url, opts), url
 end
+
+-- Manifests (build_manifest, decode_manifest, decode_manifest_link) live in
+-- antd.manifests.
+require("antd.manifests").install(Client)
 
 return Client

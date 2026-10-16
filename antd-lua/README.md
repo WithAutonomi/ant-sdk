@@ -131,6 +131,45 @@ All methods return `value, err` following Lua convention. On success `err` is `n
 | `client:file_get_public(address, dest_path)` | Download a public file by address |
 | `client:file_cost(path, is_public, payment_mode)` | Estimate upload cost — returns a table with `cost`, `file_size`, `chunk_count`, `estimated_gas_cost_wei`, `payment_mode` |
 
+### Manifests
+
+A manifest (ADR-0006) is one `.ant` file, or one `ant://manifest/` link, that describes a set of files: each entry has an optional path and size, and either an embedded DataMap (the manifest is then the key to the file) or a public file's DataMap address. The daemon builds and decodes manifests, so the format never has to be re-implemented here. The manifest methods need an antd with the manifest API (the antd release after 0.15.0).
+
+**Nothing is uploaded or paid for.** Building a manifest and a resolving decode only read from the network (the embedding policy and `resolve` fetch DataMaps), so they can time out, and they are free to retry. To share a manifest, store its bytes yourself, or hand out the link.
+
+| Method | Description |
+|--------|-------------|
+| `client:build_manifest(entries, opts)` | Build a manifest from DataMaps and addresses already in hand — returns `{ manifest, link, entries }`. `manifest` is the raw `.ant` bytes; `link` is `nil` when it would not fit the recommended 1,500 bytes |
+| `client:decode_manifest(bytes, resolve)` | Decode `.ant` bytes — returns `{ source, name, torrent_info_hash_v1, torrent_info_hash_v2, entries }` |
+| `client:decode_manifest_link(link, resolve)` | Decode an `ant://` manifest link, a file link or a bare 64-hex address — same result. A file link or address reads as `source == "file_link"`: one public entry with no path |
+
+Each of `entries` passed to `build_manifest` is `{ path, size, data_map, address }`, with **exactly one** of `data_map` (hex, as the upload methods return it; embedded) or `address` (hex; public). An entry with both or neither is refused as `bad_request` (status 400) before anything is sent, with the daemon's own message, so a client-side refusal reads exactly like the daemon's (every bad entry listed, counted from 0). `path` (the relative path the entry extracts under) and `size` (the plaintext size to record, the creator's claim) are optional. `opts` is `nil` or `{ name, torrent_info_hashes, embed_roots }`: a suggested root directory name, BitTorrent info hashes of the same files (40 hex characters for v1, 64 for v2), and whether to embed roots. `embed_roots` defaults to `true` (when `nil`): the daemon resolves each shrunk DataMap and embeds its root when that is at most 64 KiB, so recipients skip that fetch. `false` embeds shrunk DataMaps exactly as given.
+
+Every entry read back is `{ effective_name, path, size, kind, content_address, data_map, exact_size, error }`. `effective_name` is the path, or the content address when there is none. `kind` is `antd.ManifestEntryKind.EMBEDDED` (`"embedded"`) or `PUBLIC` (`"public"`). `content_address` is the file's public DataMap address, the same for private and public uploads of one file. `data_map` is the embedded DataMap in the hex form the download methods accept (decode only). `exact_size` comes from an embedded root DataMap, or from a decode with `resolve = true`, which fetches each entry's DataMap (not its content). Entries come in encoded order, sorted by effective name.
+
+The `.ant` bytes are a plain Lua string on both sides; base64 is only the REST wire form. Sizes are Lua numbers, exact up to 2^53 (`antd.MAX_MANIFEST_SIZE`), far past any real file; a `size` outside 0..2^53 or not a whole number is refused before sending. **Anything unset reads as `nil`**: a size the manifest does not record is `nil`, never `0`, and `path`, `data_map`, `error`, `link`, `name` and the torrent info hashes are `nil` rather than `""`.
+
+A bad entry or input from the daemon is a `bad_request` (HTTP 400) with the daemon's message, which names each invalid entry counting from 0 (`entries[0]: invalid path "../x": ...`); the SDK's own checks use the same type, status and wording. One entry's `resolve` failure is not a failed call: it comes back in that entry's `error`.
+
+```lua
+local antd = require("antd")
+local client = antd.new_client()
+
+local built, err = client:build_manifest({
+    { path = "notes/one.txt", address = first_address },
+    { path = "notes/two.txt", data_map = private_data_map, size = 85 },
+}, { name = "notes" })
+if err then error(err.type .. ": " .. err.message) end
+print(built.link)                                   -- ant://manifest/...
+
+local decoded = assert(client:decode_manifest_link(built.link, true))
+for _, e in ipairs(decoded.entries) do
+    print(e.effective_name, e.kind, e.exact_size, e.error)
+end
+```
+
+See [examples/09-manifests.lua](examples/09-manifests.lua) for the full round trip. `spec/live_manifests_spec.lua` builds and decodes manifests of data already on a devnet, and pays for nothing. It stays pending unless `ANTD_TEST_URL` and `ANTD_TEST_MANIFEST_ADDRESSES` (two comma-separated public data addresses) are set; it also reads `ANTD_TEST_MANIFEST_SIZES`, `ANTD_TEST_MANIFEST_DATA_MAP`, `ANTD_TEST_MANIFEST_DATA_MAP_SIZE` and `ANTD_TEST_MANIFEST_LINK` when they are.
+
 ### External signer (prepare / finalize)
 
 | Method | Description |
@@ -243,6 +282,7 @@ See the [examples/](examples/) directory:
 - `04-files` — File and directory upload/download
 - `06-private-data` — Private encrypted data storage
 - `07-external-signer` — Prepare / pay with an external signer / finalize, with a bounded partial-upload retry (shells out to foundry's `cast`)
+- `09-manifests` — Build a manifest of two public uploads, print its link and entries, and decode the link with `resolve` for exact sizes. `ANTD_BASE_URL` overrides the daemon URL. Each run pays for the two data uploads; the manifest calls pay nothing
 
 Lua can only start a process through `/bin/sh -c`, so `07-external-signer` never puts a daemon-supplied value into a command line as-is. `examples/external_signer_util.lua` validates the prepare response before any process starts: the RPC URL must be http(s) printable ASCII with no whitespace, addresses `0x` + 40 hex digits, amounts decimal uint256, and quote hashes 64 hex digits. It also shell-quotes every argument to `cast` and checks that the transaction hash `cast` returns is `0x` + 64 hex digits. Its errors name the field or the program, never a value or the key. Reuse it (or a real process-spawning library) if you adapt the example. POSIX shells only.
 

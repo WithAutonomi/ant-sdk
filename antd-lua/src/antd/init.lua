@@ -5,6 +5,7 @@ local Client = require("antd.client")
 local models = require("antd.models")
 local errors = require("antd.errors")
 local discover = require("antd.discover")
+local manifests = require("antd.manifests")
 
 local M = {}
 
@@ -54,5 +55,10 @@ M.is_partial_upload = errors.is_partial_upload
 
 -- Re-export Client class
 M.Client = Client
+
+-- Re-export manifest constants (see antd.manifests)
+M.ManifestEntryKind = manifests.ManifestEntryKind
+M.ManifestSource = manifests.ManifestSource
+M.MAX_MANIFEST_SIZE = manifests.MAX_MANIFEST_SIZE
 
 return M
