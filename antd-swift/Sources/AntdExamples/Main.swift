@@ -9,6 +9,10 @@
 // Args that don't match (1, 3, 4, 6) silently fall through to the data
 // example to preserve `ant dev example all -l swift` PASS in the sweep
 // until the full Linux scaffolding lands.
+//
+// "10" / "manifests" builds a manifest of two public uploads and decodes its
+// link. It needs the antd release after 0.15.0 (the manifest API) and pays
+// for the two uploads, so it runs only when named, never under "all".
 
 import Foundation
 #if canImport(FoundationNetworking)
@@ -27,6 +31,8 @@ struct Examples {
             case "all":
                 try await runData()
                 try await runExternalSigner()
+            case "10", "manifests":
+                try await runManifests()
             default:
                 try await runData()
             }
@@ -276,5 +282,61 @@ struct Examples {
             throw AntdError("cast failed (rc=\(proc.terminationStatus)): \(stderrText)")
         }
         return stdoutData
+    }
+
+    // MARK: - Example 10: Manifests -----------------------------------------
+    //
+    // A manifest (ADR-0006) describes a set of files: each entry has a path
+    // and either a public DataMap address or an embedded DataMap. Building
+    // and decoding one is free: nothing is uploaded or paid for. Only the two
+    // uploads below pay. ANTD_BASE_URL overrides the daemon URL (default
+    // http://localhost:8082).
+
+    static func runManifests() async throws {
+        print("=== Example 10: Manifests ===")
+        let env = ProcessInfo.processInfo.environment
+        let client = AntdClient.createRest(baseURL: env["ANTD_BASE_URL"] ?? "http://localhost:8082")
+
+        // 1. Two small pieces of public data. Each upload pays.
+        let one = Data("manifest entry one, from swift".utf8)
+        let two = Data("manifest entry two, from swift, a little longer".utf8)
+        let first = try await client.dataPutPublic(one, paymentMode: .auto)
+        let second = try await client.dataPutPublic(two, paymentMode: .auto)
+        print("Stored: \(first.address) and \(second.address)")
+
+        // 2. A manifest of both, under paths, with a root name. Free.
+        let built = try await client.buildManifest(
+            entries: [
+                ManifestEntryInput(path: "notes/one.txt", address: first.address),
+                ManifestEntryInput(path: "notes/two.txt", address: second.address),
+            ],
+            options: BuildManifestOptions(name: "example")
+        )
+        print("Manifest: \(built.manifest.count) bytes")
+        guard let link = built.link else {
+            throw AntdError("a two-entry manifest should fit in a link")
+        }
+        print("Link: \(link)")
+        for entry in built.entries {
+            print("  \(entry.effectiveName) -> \(entry.contentAddress)")
+        }
+
+        // 3. Decode the link, resolving each entry's DataMap for its exact
+        //    size. Free; content chunks are not fetched.
+        let decoded = try await client.decodeManifestLink(link, resolve: true)
+        print("Decoded \(decoded.source) \"\(decoded.name ?? "")\" with \(decoded.entries.count) entries:")
+        let expected = ["notes/one.txt": UInt64(one.count), "notes/two.txt": UInt64(two.count)]
+        for entry in decoded.entries {
+            if let error = entry.error {
+                throw AntdError("\(entry.effectiveName) did not resolve: \(error)")
+            }
+            let size = entry.exactSize.map(String.init) ?? "unknown"
+            print("  \(entry.effectiveName): exact size \(size)")
+            guard entry.exactSize == expected[entry.effectiveName] else {
+                throw AntdError("\(entry.effectiveName): exact size \(size), expected \(expected[entry.effectiveName].map(String.init) ?? "no entry")")
+            }
+        }
+
+        print("\n10_manifests OK!\n")
     }
 }

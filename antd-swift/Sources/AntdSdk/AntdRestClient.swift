@@ -33,7 +33,9 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         return try JSONDecoder.snakeCase.decode(T.self, from: data)
     }
 
-    private func postJSON<T: Decodable>(_ path: String, body: Any) async throws -> T {
+    // Internal, not private: the manifest methods (AntdRestClient+Manifests.swift)
+    // post through it from their own file.
+    func postJSON<T: Decodable>(_ path: String, body: Any) async throws -> T {
         guard let url = URL(string: "\(baseURL)\(path)") else { throw BadRequestError("invalid URL: \(baseURL)\(path)") }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"

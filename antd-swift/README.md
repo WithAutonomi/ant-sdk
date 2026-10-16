@@ -80,6 +80,7 @@ All methods are `async throws` for use with Swift concurrency.
 | **Health** | `health()` |
 | **Data** | `dataPutPublic`, `dataGetPublic`, `dataPut`, `dataGet`, `dataCost`. Private `dataPut` returns a caller-held DataMap (NOT stored on-network); public `dataPutPublic` stores the DataMap on-network at the returned address. All puts and `dataCost` accept a `PaymentMode` parameter. |
 | **Chunks** | `chunkPut`, `chunkGet` |
+| **Manifests** | `buildManifest`, `decodeManifest`, `decodeManifestLink`: `.ant` manifests and `ant://` links. Free: nothing is uploaded or paid for. See [Manifests](#manifests). |
 | **Files** | `filePut`, `fileGet`, `filePutPublic`, `fileGetPublic`, `fileCost`. Private variants return a caller-held DataMap (NOT stored on-network); public variants store the DataMap on-network at the returned address. All puts and `fileCost` accept a `PaymentMode` parameter. |
 
 ## Error Handling
@@ -148,12 +149,61 @@ for attempt in 1...5 {
 
 See `finalizeWithRetry` in `Sources/AntdExamples/Main.swift` and the contract in [`docs/external-signer-flow.md`](../docs/external-signer-flow.md) §6.
 
+## Manifests
+
+A manifest (ADR-0006) is a `.ant` file, or an `ant://manifest/` link, that describes a set of files. Each entry has an optional path and size, and either an embedded DataMap (a private upload's) or a public DataMap address. The daemon builds and decodes manifests, so you never handle the format yourself. Both REST and gRPC clients implement the manifest API, which needs the antd release after 0.15.0.
+
+**Nothing is uploaded or paid for.** The daemon reads the network only to resolve DataMaps: when it embeds roots on build, and for `resolve` on decode. So a call can time out, and it is safe to retry.
+
+```swift
+let client = AntdClient.createRest()
+
+let one = try await client.dataPutPublic(Data("one".utf8), paymentMode: .auto)
+let two = try await client.dataPutPublic(Data("two".utf8), paymentMode: .auto)
+
+let built = try await client.buildManifest(
+    entries: [
+        ManifestEntryInput(path: "notes/one.txt", address: one.address),
+        ManifestEntryInput(path: "notes/two.txt", address: two.address),
+        // or ManifestEntryInput(path: "secret.bin", dataMap: privatePut.dataMap)
+    ],
+    options: BuildManifestOptions(name: "notes")
+)
+print(built.manifest.count, built.link ?? "too big for a link")   // the .ant bytes, and the link
+for entry in built.entries {
+    print(entry.effectiveName, entry.kind, entry.contentAddress)    // notes/one.txt public <hex>
+}
+
+let decoded = try await client.decodeManifest(built.manifest, resolve: true)
+// or, from the link: try await client.decodeManifestLink(link, resolve: true)
+for entry in decoded.entries {
+    print(entry.effectiveName, entry.exactSize.map(String.init) ?? "unknown", entry.error ?? "")  // notes/one.txt 3
+}
+```
+
+- **Entries:** set exactly one of `dataMap` (hex, embedded) or `address` (hex, public) on each `ManifestEntryInput`. An entry with both or neither throws `BadRequestError` before anything is sent. An entry the daemon refuses, such as a path like `../x`, throws `BadRequestError` (HTTP 400, gRPC INVALID_ARGUMENT) whose message names it as `entries[i]`.
+- **Bytes:** `BuiltManifest.manifest` and the input to `decodeManifest` are raw `Data` on both transports. REST carries them as base64 in JSON and gRPC as `bytes`; the clients convert.
+- **Root embedding:** `BuildManifestOptions().embedRoots` is `true`, the daemon's default: it resolves each shrunk DataMap and embeds the root when it is at most 64 KiB, so recipients skip that fetch. Pass `embedRoots: false` to embed DataMaps exactly as given.
+- **Sizes are `UInt64?`.** `size` is the size the creator recorded and `exactSize` the exact plaintext size, from an embedded root DataMap or a resolving decode. An unset size is `nil`, never `0`. Likewise `path`, `link`, `name`, `dataMap` (decode only, for embedded entries), the torrent info hashes and `error` are `nil` when absent.
+- **`resolve`** fetches each entry's DataMap, and its wrapper records, to report `exactSize` and confirm it is on the network; content chunks are not fetched. When one entry fails, its `error` says why, and the call still succeeds.
+- **Links:** `BuiltManifest.link` is `nil` when the link would pass the recommended 1,500 bytes; share the `.ant` bytes then. `decodeManifestLink` also takes a file link or a bare 64-hex address, which decode as one public entry with no path (`source == "file_link"`).
+- **gRPC message size:** a manifest can be 64 MiB, so the gRPC client raises both message limits to 256 MiB for the manifest calls only (per call, through `CallOptions`). Every other call keeps grpc-swift's 4 MiB default.
+
+**Upgrading:** `buildManifest(entries:options:)`, `decodeManifest(_:resolve:)` and `decodeManifestLink(_:resolve:)` are requirements on `AntdClientProtocol`, with default implementations that throw `NotSupportedError`. A type of your own that conforms to it keeps compiling unchanged. `buildManifest(entries:)` is a protocol-extension convenience for the default options.
+
 ## Examples
 
 ```bash
 swift run AntdExamples 1      # Connect
 swift run AntdExamples 2      # Public Data
 swift run AntdExamples all    # All examples
+```
+
+```bash
+# Manifests: two public uploads (each pays), then a free build and a
+# resolving decode of the link. Needs the antd release after 0.15.0, so it
+# runs only when named. ANTD_BASE_URL overrides the daemon URL.
+swift run AntdExamples manifests   # or: 10
 ```
 
 ## Building
@@ -175,6 +225,9 @@ antd-swift/
 │   │   ├── AntdClient.swift          # Factory
 │   │   ├── AntdRestClient.swift      # REST implementation
 │   │   ├── AntdGrpcClient.swift      # gRPC implementation
+│   │   ├── Manifests.swift           # Manifest types and protocol defaults
+│   │   ├── AntdRestClient+Manifests.swift  # Manifests over REST
+│   │   ├── AntdGrpcClient+Manifests.swift  # Manifests over gRPC
 │   │   ├── Models.swift              # Data types
 │   │   └── Errors.swift              # Error hierarchy
 │   └── AntdExamples/
