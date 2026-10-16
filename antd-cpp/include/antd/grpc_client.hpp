@@ -11,6 +11,7 @@
 
 #include "discover.hpp"
 #include "errors.hpp"
+#include "manifests.hpp"
 #include "models.hpp"
 
 namespace antd {
@@ -227,6 +228,28 @@ public:
     /// `PrepareChunkResult::address`).
     std::string finalize_chunk_upload(std::string_view upload_id,
                                       const std::map<std::string, std::string>& tx_hashes);
+
+    // --- Manifests (ManifestService) ---
+    //
+    // The same methods, types and errors as the REST Client (see client.hpp);
+    // the `.ant` bytes travel as raw proto `bytes`. A manifest can be 64 MiB
+    // and a Build or Decode message carries it, past gRPC's 4 MiB default, so
+    // these calls use their own channel to the same target, created with
+    // grpc::ChannelArguments raising the max receive and send message sizes
+    // to 256 MiB (as antd-go raises its per-call receive limit). Every other
+    // call keeps the default channel and limits.
+
+    /// Mirrors Client::build_manifest.
+    BuiltManifest build_manifest(const std::vector<ManifestEntryInput>& entries,
+                                 const BuildManifestOptions& options = {});
+
+    /// Mirrors Client::decode_manifest.
+    DecodedManifest decode_manifest(const std::vector<uint8_t>& manifest,
+                                    bool resolve = false);
+
+    /// Mirrors Client::decode_manifest_link.
+    DecodedManifest decode_manifest_link(std::string_view link, bool resolve = false);
+
     // --- Wallet (V2-286) ---
 
     /// Returns the wallet's on-chain address (hex with 0x prefix).
@@ -238,6 +261,55 @@ public:
     /// Approves the wallet to spend tokens on the payment vault contract.
     /// One-time operation; idempotent at the contract level.
     bool wallet_approve();
+
+    // --- Pointers (PointerService) ---
+    //
+    // The same methods, types and errors as the REST Client (see client.hpp).
+    // Each call reads the daemon's `x-antd-error-code` trailer, because the
+    // pointer errors share gRPC codes with older ones: POINTER_FINAL and
+    // POINTER_FORKED ride FAILED_PRECONDITION (otherwise a PaymentError),
+    // CONFLICT rides ABORTED and CLOSE_GROUP_SHORTFALL rides UNAVAILABLE
+    // (otherwise a NetworkError). The tag counts only when it agrees with
+    // the status code.
+    //
+    // Every write pays, and every attempt pays again: nothing here retries
+    // pointer_create, pointer_update, pointer_transfer or pointer_finalize.
+    // Reads are free to retry.
+
+    /// Mirrors Client::pointer_keys.
+    std::vector<PointerKey> pointer_keys();
+
+    /// Mirrors Client::pointer_create.
+    PointerWriteResult pointer_create(std::string_view owner, std::string_view target,
+                                      PointerKind kind = PointerKind::Chunk);
+
+    /// Mirrors Client::pointer_update.
+    PointerWriteResult pointer_update(std::string_view owner, std::string_view target,
+                                      PointerKind kind = PointerKind::Chunk);
+
+    /// Mirrors Client::pointer_transfer.
+    PointerTransferResult pointer_transfer(std::string_view owner, std::string_view recipient);
+
+    /// Mirrors Client::pointer_get.
+    PointerRecord pointer_get(std::string_view address);
+
+    /// Mirrors Client::pointer_resolve.
+    PointerTarget pointer_resolve(std::string_view address);
+
+    /// Mirrors Client::pointer_finality.
+    PointerFinality pointer_finality(std::string_view address);
+
+    /// Mirrors Client::pointer_controller.
+    PointerController pointer_controller(std::string_view address);
+
+    /// Mirrors Client::pointer_prepare.
+    PointerPrepareResult pointer_prepare(const PointerPrepareRequest& req);
+
+    /// Mirrors Client::pointer_finalize. A CloseGroupShortfallError with
+    /// `retryable` set means the daemon kept the paid state: repeat the call
+    /// with the same `upload_id`.
+    PointerFinalizeResult pointer_finalize(std::string_view upload_id,
+                                           const std::map<std::string, std::string>& tx_hashes);
 
 private:
     struct Impl;

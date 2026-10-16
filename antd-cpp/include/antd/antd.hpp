@@ -7,4 +7,5 @@
 #include "client.hpp"
 #include "errors.hpp"
 #include "grpc_client.hpp"
+#include "manifests.hpp"
 #include "models.hpp"

@@ -5,6 +5,7 @@ local Client = require("antd.client")
 local models = require("antd.models")
 local errors = require("antd.errors")
 local discover = require("antd.discover")
+local manifests = require("antd.manifests")
 
 local M = {}
 
@@ -45,14 +46,32 @@ M.new_put_result = models.new_put_result
 M.new_prepare_chunk_result = models.new_prepare_chunk_result
 M.new_finalize_upload_result = models.new_finalize_upload_result
 
+-- Re-export pointer constants and helpers (see antd.models)
+M.PointerKind = models.PointerKind
+M.PointerOp = models.PointerOp
+M.PointerFinalityStatus = models.PointerFinalityStatus
+M.POINTER_FINAL_COUNTER = models.POINTER_FINAL_COUNTER
+M.parse_pointer_counter = models.parse_pointer_counter
+M.compare_pointer_counters = models.compare_pointer_counters
+M.normalize_address = models.normalize_address
+M.pointer_create_op = models.pointer_create_op
+M.pointer_update_op = models.pointer_update_op
+M.pointer_transfer_op = models.pointer_transfer_op
+
 -- Re-export errors
 M.errors = errors
 M.error_for_status = errors.error_for_status
 M.error_for_response = errors.error_for_response
 M.is_antd_error = errors.is_antd_error
 M.is_partial_upload = errors.is_partial_upload
+M.is_close_group_shortfall = errors.is_close_group_shortfall
 
 -- Re-export Client class
 M.Client = Client
+
+-- Re-export manifest constants (see antd.manifests)
+M.ManifestEntryKind = manifests.ManifestEntryKind
+M.ManifestSource = manifests.ManifestSource
+M.MAX_MANIFEST_SIZE = manifests.MAX_MANIFEST_SIZE
 
 return M

@@ -1,6 +1,6 @@
 # antd-mcp — MCP Server for Autonomi
 
-An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that exposes the Autonomi network as 19 tools for AI agents. Works with Claude Desktop, Claude Code, and any MCP-compatible client.
+An [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server that exposes the Autonomi network as 31 tools for AI agents (19 storage tools, 10 pointer tools, and the 2 manifest tools when the installed SDK supports them). Works with Claude Desktop, Claude Code, and any MCP-compatible client.
 
 ## Installation
 
@@ -104,6 +104,34 @@ The server will auto-discover the daemon via the port file. Add `"env": {"ANTD_B
 | 18 | `prepare_chunk_upload(data_base64)` | Prepare a single raw chunk for external-signer publish. Returns either `already_stored=True` (no payment needed) or a wave-batch payment intent. |
 | 19 | `finalize_chunk_upload(upload_id, tx_hashes)` | Submit a prepared chunk to the network after external payment. Returns `address`. |
 
+### Pointers
+
+A pointer is a small, owner-signed, mutable reference: its address never changes, and its owner can move its target (a chunk, such as a public `store_data` / `upload_file` address, or another pointer). The daemon holds the owner keys (`antd --pointer-keys`), so every write names the pointer by its address (`owner`). See [Pointer payments, counters and errors](#pointer-payments-counters-and-errors) before using the write tools.
+
+| # | Tool | Description |
+|---|------|-------------|
+| 20 | `pointer_keys()` | List the pointer addresses this daemon holds owner keys for, so can write. Free. |
+| 21 | `pointer_get(address, include_owner_key?)` | Read a pointer: `counter` (decimal string), `target`, `kind` / `kind_tag`, `state_id`, `is_final`, `transferred_to`. The owner's ML-DSA-65 public key (~3,900 hex chars) only with `include_owner_key=True`. Free. |
+| 22 | `pointer_resolve(address)` | Follow forwardings and transfers to the target at the end of the chain: `target`, `kind`, `kind_tag`. Free. |
+| 23 | `pointer_finality(address)` | Ask the whole close group where a pointer stands: `status` is `open`, `settling`, `unconfirmed`, `final`, `forked`, or `unknown` (daemon string in `raw_status`). Only `final` means a transfer is beyond dispute. Free. |
+| 24 | `pointer_controller(address)` | Follow transfers to the pointer whose owner now decides: `pointer`, `transfers`, `frozen`. Free. |
+| 25 | `pointer_create(owner, target, kind?)` | Create a pointer (`kind` `"chunk"`, the default, or `"pointer"`). **Pays** from the daemon wallet. `ALREADY_EXISTS` if it exists, refused before paying. |
+| 26 | `pointer_update(owner, target, kind?)` | Point a pointer at a new target; creates it if missing. **Pays** from the daemon wallet. `POINTER_FINAL` once transferred or frozen, usually refused before paying. |
+| 27 | `pointer_transfer(owner, recipient, confirm_irreversible?)` | **Irreversible.** Hand the pointer over to the recipient's pointer for good: it becomes final and its readers are sent on to the recipient. **Pays** from the daemon wallet. Refuses with `CONFIRMATION_REQUIRED`, sending nothing, unless `confirm_irreversible=true`. Returns the close group's `finality`. |
+| 28 | `pointer_prepare(owner, op, target?, kind?, recipient?)` | External signer: the daemon signs `op` (`"create"` / `"update"` with `target`, or `"transfer"` with `recipient`) and quotes it. Returns `upload_id`, `counter` and wave-batch `payments`. Pays nothing itself; other writes to the pointer get `CONFLICT` until it is finalized or expires (one hour). |
+| 29 | `pointer_finalize(upload_id, tx_hashes)` | External signer: store the prepared write after `payForQuotes()`. Returns `counter`, and `finality` for a transfer. |
+
+### Manifests
+
+A manifest (a `.ant` file, or an `ant://manifest/` link to one) bundles files that are already on the network, each with an optional relative path. The `link` is what you share. Both tools are **free**: nothing is uploaded and nothing is paid, so neither asks for confirmation. They are annotated read-only. Upload the files first (`store_data`, `upload_file`) and pass the `address` (public) or `data_map` (private, embedded in the manifest) they returned.
+
+| # | Tool | Description |
+|---|------|-------------|
+| 30 | `build_manifest(entries, name?, torrent_info_hashes?, embed_roots?)` | Each entry is `{path?, size?, data_map? \| address?}`: give exactly one of `data_map` or `address`. Returns `manifest_base64` (the `.ant` bytes), `link` (null when the manifest exceeds 1,500 bytes; share the file instead) and `entries`. `embed_roots` defaults to true. A bad entry returns `BAD_REQUEST` with a message naming `entries[i]`. |
+| 31 | `decode_manifest(manifest_base64? \| link?, resolve?)` | Give exactly one of the base64 `.ant` bytes or a `link` (manifest link, file link or bare address). Returns `source` (`manifest` or `file_link`), `name`, the torrent hashes and `entries`. With `resolve=true` it also reads each entry's root from the network to fill in `exact_size`; one entry's failure is in its `error`, not a failed call. |
+
+Unset sizes are `null`, never 0. These tools need an antd daemon with the manifest API (the antd release after 0.15.0) and an [`antd`](https://pypi.org/project/antd/) Python SDK that has `build_manifest`. With an older SDK the server still starts and serves its other tools; it just does not register the manifest tools.
+
 ### Payment Modes
 
 The `store_data`, `upload_file`, and `get_cost` tools accept an optional `payment_mode` parameter:
@@ -167,6 +195,50 @@ These fields come from the antd SDK, which reads the daemon's response strictly.
 
 Full contract: `docs/external-signer-flow.md` §6 in the ant-sdk repo.
 
+### Pointer payments, counters and errors
+
+The pointer tools need an antd daemon with the pointer API and an [`antd`](https://pypi.org/project/antd/) Python SDK newer than 0.2.0. With an older SDK the server still starts and serves the other 19 tools; it just does not register the pointer tools.
+
+**Every write pays, and no tool retries.** `pointer_create`, `pointer_update` and `pointer_transfer` each pay from the daemon wallet, about the price of one chunk, with the same posture as `store_data` / `upload_file` / `chunk_put`: no confirmation step and no automatic retry. Every repeat pays again, so check the pointer (`pointer_get`) before repeating a failed write. The reads are free.
+
+**Transfers are irreversible.** A transfer makes the pointer final forever: nobody, its owner included, can update or transfer it again, and its readers are sent on to the recipient's pointer. On top of the paid-tool posture, `pointer_transfer` refuses to run unless `confirm_irreversible` is `true`. Without it the tool sends and pays nothing and returns:
+
+```json
+{
+  "error": "CONFIRMATION_REQUIRED",
+  "message": "pointer_transfer would hand the pointer <owner> over to <recipient> forever: ... Nothing was sent or paid. Confirm with the user, then call again with confirm_irreversible=true.",
+  "network": "local"
+}
+```
+
+The tool is also annotated `destructiveHint: true`, `idempotentHint: false` for clients that prompt on those hints.
+
+**Counters are decimal strings**, never JSON numbers. A final pointer (transferred or frozen) sits at counter `"18446744073709551615"` (2^64−1), which JSON clients that read numbers as doubles, and LLMs, round. Compare counters as strings of digits or as big integers. An unset counter (finality other than `open`) is `null`.
+
+**Errors.** Four pointer-era codes carry a `hint` saying what to do next:
+
+| `error` | HTTP | Meaning |
+|---------|------|---------|
+| `POINTER_FINAL` | 409 | The pointer is transferred or frozen; nothing can change it. Usually refused before paying, but a write already paid for when the network refused it keeps that payment. Do not retry. |
+| `POINTER_FORKED` | 409 | The owner signed two different final states and no majority holds either. Do not retry. |
+| `CONFLICT` | 409 | A prepared write to the pointer awaits payment (refused before paying), or an update lost to a newer state while in flight (possibly after paying). The `hint` says which; read the pointer before paying for another write. |
+| `CLOSE_GROUP_SHORTFALL` | 503 | Too few of the close group answered or stored. Carries `retryable`. |
+
+`CLOSE_GROUP_SHORTFALL` with `retryable: true` comes only from `pointer_finalize`. It means **retry the finalize, the payment was kept**: call `pointer_finalize` again with the same `upload_id` and the daemon stores the paid state against the same payment, with no second payment. Bound the retries; the kept attempt expires after one hour.
+
+```json
+{
+  "error": "CLOSE_GROUP_SHORTFALL",
+  "message": "Close group shortfall: ... (paid attempt retained: call finalize again with the same upload_id ...)",
+  "status_code": 503,
+  "retryable": true,
+  "hint": "Retry the finalize, the payment was kept: call pointer_finalize again with the same upload_id ...",
+  "network": "local"
+}
+```
+
+With `retryable: false`, a read is free to retry later, but do not repeat a paid write automatically: it may already have been paid for. A create of an existing pointer stays `ALREADY_EXISTS`.
+
 ## Project Structure
 
 ```
@@ -174,7 +246,7 @@ antd-mcp/
 ├── pyproject.toml
 └── src/antd_mcp/
     ├── __init__.py
-    ├── server.py      # 19 MCP tool definitions
+    ├── server.py      # 29 MCP tool definitions
     ├── discover.py    # Daemon port-file discovery
     └── errors.py      # Error formatting
 ```

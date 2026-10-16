@@ -1,6 +1,6 @@
 import { discoverDaemonUrl } from "./discover.js";
 import { fromErrorBody, InternalError, NetworkError } from "./errors.js";
-import { PaymentMode } from "./models.js";
+import { PaymentMode, POINTER_FINAL_COUNTER } from "./models.js";
 import type {
   DataPutPublicResult,
   DataPutResult,
@@ -10,6 +10,18 @@ import type {
   FilePutResult,
   FinalizeUploadResult,
   HealthStatus,
+  PointerController,
+  PointerFinalState,
+  PointerFinality,
+  PointerFinalityStatus,
+  PointerFinalizeResult,
+  PointerKind,
+  PointerOp,
+  PointerPrepareResult,
+  PointerRecord,
+  PointerTarget,
+  PointerTransferResult,
+  PointerWriteResult,
   PrepareChunkResult,
   PrepareUploadResult,
   PutResult,
@@ -17,6 +29,17 @@ import type {
   WalletAddress,
   WalletBalance,
 } from "./models.js";
+import {
+  builtManifestFromJson,
+  decodedManifestFromJson,
+  manifestBuildBody,
+  manifestDecodeBody,
+  manifestLinkDecodeBody,
+  type BuildManifestOptions,
+  type BuiltManifest,
+  type DecodedManifest,
+  type ManifestEntryInput,
+} from "./manifests.js";
 
 /** Media type that opts the stream endpoints into NDJSON progress framing. */
 const NDJSON_CONTENT_TYPE = "application/x-ndjson";
@@ -118,6 +141,112 @@ export function healthStatusFromJson(j: HealthJson): HealthStatus {
     buildCommit: j.build_commit ?? "",
     paymentTokenAddress: j.payment_token_address ?? "",
     paymentVaultAddress: j.payment_vault_address ?? "",
+  };
+}
+
+// ---- Pointer wire shapes and parsing ----
+
+/**
+ * Parse a pointer counter. The daemon sends counters as decimal strings
+ * because a final state sits at 2^64 - 1, past what a JSON number keeps
+ * exactly; they become `bigint`, never `number`. Anything that is not a
+ * decimal unsigned 64-bit value throws {@link InternalError} rather than
+ * reading as 0.
+ */
+function parsePointerCounter(field: string, value: unknown): bigint {
+  if (typeof value === "string" && /^[0-9]+$/.test(value)) {
+    const n = BigInt(value);
+    // The final counter, 2^64 - 1, is the largest the daemon can send.
+    if (n <= POINTER_FINAL_COUNTER) return n;
+  }
+  throw new InternalError(
+    `antd: pointer ${field} ${JSON.stringify(value)} is not a decimal counter`,
+  );
+}
+
+/** An optional pointer counter: `null` (REST's unset) or `""` (gRPC's) read as `null`. */
+function parseOptionalPointerCounter(field: string, value: unknown): bigint | null {
+  if (value === null || value === undefined || value === "") return null;
+  return parsePointerCounter(field, value);
+}
+
+/** An optional string: `null`, absent or `""` read as `null`. */
+function optionalString(value: unknown): string | null {
+  return typeof value === "string" && value !== "" ? value : null;
+}
+
+const KNOWN_FINALITY_STATUSES: ReadonlySet<string> = new Set([
+  "open",
+  "settling",
+  "unconfirmed",
+  "final",
+  "forked",
+]);
+
+interface PointerWriteJson {
+  address: string;
+  state_id: string;
+  counter: string;
+}
+
+interface PointerFinalStateJson {
+  state_id: string;
+  kind: string;
+  kind_tag: number;
+  target: string;
+  holders: number;
+  transferred_to?: string | null;
+}
+
+interface PointerFinalityJson {
+  address: string;
+  group: number;
+  answered: number;
+  status: string;
+  counter?: string | null;
+  state?: PointerFinalStateJson | null;
+  states?: PointerFinalStateJson[];
+  majority?: PointerFinalStateJson | null;
+  transferred_to?: string | null;
+}
+
+function pointerWriteFromJson(j: PointerWriteJson): PointerWriteResult {
+  return {
+    address: j.address,
+    stateId: j.state_id,
+    counter: parsePointerCounter("counter", j.counter),
+  };
+}
+
+function pointerFinalStateFromJson(j: PointerFinalStateJson): PointerFinalState {
+  return {
+    stateId: j.state_id,
+    kind: j.kind,
+    kindTag: j.kind_tag,
+    target: j.target,
+    holders: j.holders,
+    transferredTo: optionalString(j.transferred_to),
+  };
+}
+
+/** Convert a pointer finality JSON object (REST) to a typed {@link PointerFinality}. */
+function pointerFinalityFromJson(j: PointerFinalityJson): PointerFinality {
+  const rawStatus = typeof j.status === "string" ? j.status : "";
+  const nested = (s: PointerFinalStateJson | null | undefined) =>
+    s ? pointerFinalStateFromJson(s) : null;
+  return {
+    address: j.address,
+    group: j.group,
+    answered: j.answered,
+    status: KNOWN_FINALITY_STATUSES.has(rawStatus)
+      ? (rawStatus as PointerFinalityStatus)
+      : "unknown",
+    rawStatus,
+    counter: parseOptionalPointerCounter("counter", j.counter),
+    state: nested(j.state),
+    states: (j.states ?? []).map(pointerFinalStateFromJson),
+    majority: nested(j.majority),
+    transferredTo: optionalString(j.transferred_to),
   };
 }
 
@@ -541,6 +670,66 @@ export class RestClient {
     };
   }
 
+  // ---- Manifests (ADR-0006) ----
+  //
+  // None of these calls uploads or pays. `embedRoots` on build and `resolve`
+  // on decode read from the network, so they can time out and are safe to
+  // retry. See ./manifests.ts for the types.
+
+  /**
+   * Build a `.ant` manifest from DataMaps and public addresses already in
+   * hand, via `POST /v1/manifests/build`.
+   *
+   * Each entry sets exactly one of `dataMap` (embedded) or `address`
+   * (public); one with both or neither, or a size that is not a non-negative
+   * integer, throws {@link BadRequestError} before anything is sent. The
+   * daemon's own 400 for an invalid entry (a bad path, a malformed DataMap)
+   * is a `BadRequestError` too, its message naming each `entries[i]`.
+   * `options.embedRoots` defaults to `true`.
+   *
+   * Requires the antd release after 0.15.0.
+   */
+  async buildManifest(
+    entries: ManifestEntryInput[],
+    options?: BuildManifestOptions,
+  ): Promise<BuiltManifest> {
+    const body = manifestBuildBody(entries, options);
+    const j = await this.postJson<Record<string, unknown>>("/v1/manifests/build", body);
+    return builtManifestFromJson(j);
+  }
+
+  /**
+   * Decode `.ant` bytes via `POST /v1/manifests/decode`. With `resolve`, the
+   * daemon fetches each entry's DataMap (and wrapper records) to report
+   * `exactSize` and confirm the DataMap is on the network; content chunks are
+   * not fetched, and one entry's failure is reported in its `error` rather
+   * than failing the call.
+   *
+   * Requires the antd release after 0.15.0.
+   */
+  async decodeManifest(
+    manifest: Uint8Array | Buffer,
+    resolve: boolean = false,
+  ): Promise<DecodedManifest> {
+    const body = manifestDecodeBody(manifest, resolve);
+    const j = await this.postJson<Record<string, unknown>>("/v1/manifests/decode", body);
+    return decodedManifestFromJson(j);
+  }
+
+  /**
+   * Decode an `ant://manifest/` link, an `ant://` file link or a bare 64-hex
+   * address via `POST /v1/manifests/decode`. A file link or address comes back
+   * as one public entry with no path and `source: "file_link"`. See
+   * {@link decodeManifest} for `resolve`.
+   *
+   * Requires the antd release after 0.15.0.
+   */
+  async decodeManifestLink(link: string, resolve: boolean = false): Promise<DecodedManifest> {
+    const body = manifestLinkDecodeBody(link, resolve);
+    const j = await this.postJson<Record<string, unknown>>("/v1/manifests/decode", body);
+    return decodedManifestFromJson(j);
+  }
+
   // ---- Wallet ----
 
   async walletAddress(): Promise<WalletAddress> {
@@ -827,5 +1016,258 @@ export class RestClient {
       tx_hashes: txHashes,
     });
     return j.address;
+  }
+
+  // ---- Pointers (antd >= 0.16.0) ----
+  //
+  // Owner-signed, paid, mutable references. A pointer's address is derived
+  // from its owner's key and never changes; the owner can point it at a new
+  // target, or hand it over to another pointer for good (`pointerTransfer`).
+  // The daemon signs with owner keys it loaded at startup (`--pointer-keys`),
+  // so a write names the pointer by its address (`owner`); `pointerKeys`
+  // lists the pointers it can write. An unknown owner is a BadRequestError.
+  //
+  // Every write pays, about the price of one chunk, and every attempt pays
+  // again. This client never retries a request, and callers must not retry
+  // pointerCreate, pointerUpdate, pointerTransfer or pointerFinalize
+  // automatically either. Reads are free to retry: a CloseGroupShortfallError
+  // on a read usually clears once an update in flight settles.
+
+  /**
+   * The addresses of the pointers this daemon holds owner keys for. Only
+   * these can be written.
+   */
+  async pointerKeys(): Promise<string[]> {
+    const j = await this.getJson<{ keys?: { address: string }[] }>("/v1/pointers/keys");
+    return (j.keys ?? []).map((k) => k.address);
+  }
+
+  /**
+   * Create the pointer at `owner`, pointing at `target`, paid by the daemon
+   * wallet. `kind` defaults to {@link PointerKind.Chunk} when omitted.
+   *
+   * Throws {@link AlreadyExistsError}, before paying, if the pointer exists.
+   * Pays on every call: do not retry automatically.
+   */
+  async pointerCreate(
+    owner: string,
+    target: string,
+    kind?: PointerKind,
+  ): Promise<PointerWriteResult> {
+    return this.pointerWrite("/v1/pointers", owner, target, kind);
+  }
+
+  /**
+   * Point the pointer at `owner` at `target`, paid by the daemon wallet,
+   * creating it if it does not exist. `kind` defaults to
+   * {@link PointerKind.Chunk} when omitted.
+   *
+   * Throws {@link PointerFinalError}, before paying, if the pointer has been
+   * handed over or frozen, and {@link ConflictError} while a prepared write
+   * to it awaits payment. Pays on every call: do not retry automatically.
+   */
+  async pointerUpdate(
+    owner: string,
+    target: string,
+    kind?: PointerKind,
+  ): Promise<PointerWriteResult> {
+    return this.pointerWrite("/v1/pointers/update", owner, target, kind);
+  }
+
+  private async pointerWrite(
+    path: string,
+    owner: string,
+    target: string,
+    kind?: PointerKind,
+  ): Promise<PointerWriteResult> {
+    const body: Record<string, unknown> = { owner, target };
+    if (kind !== undefined) body.kind = kind;
+    return pointerWriteFromJson(await this.postJson<PointerWriteJson>(path, body));
+  }
+
+  /**
+   * Hand the pointer at `owner` over to the pointer at `recipient`, for good,
+   * paid by the daemon wallet. Readers of `owner`'s address are redirected to
+   * the recipient's pointer, which only its owner can move. Irreversible once
+   * stored.
+   *
+   * Refused before paying if the pointer is already final
+   * ({@link PointerFinalError}), if `recipient` does not exist or leads back
+   * ({@link BadRequestError}), or if not every peer of the close group
+   * answered ({@link CloseGroupShortfallError}; try again later). Pays on
+   * every call: do not retry automatically.
+   *
+   * The result's `finality` is the close group's view once the write landed,
+   * or `null` with `finalityError` set when that check failed; the transfer
+   * is stored and final either way.
+   */
+  async pointerTransfer(owner: string, recipient: string): Promise<PointerTransferResult> {
+    const j = await this.postJson<{
+      address: string;
+      state_id: string;
+      finality?: PointerFinalityJson | null;
+      finality_error?: string | null;
+    }>("/v1/pointers/transfer", { owner, recipient });
+    return {
+      address: j.address,
+      stateId: j.state_id,
+      finality: j.finality ? pointerFinalityFromJson(j.finality) : null,
+      finalityError: optionalString(j.finality_error),
+    };
+  }
+
+  /** Read the pointer at `address`. Throws {@link NotFoundError} if none exists. */
+  async pointerGet(address: string): Promise<PointerRecord> {
+    const j = await this.getJson<{
+      address: string;
+      owner: string;
+      counter: string;
+      kind: string;
+      kind_tag: number;
+      target: string;
+      state_id: string;
+      is_final: boolean;
+      transferred_to?: string | null;
+    }>(`/v1/pointers/${address}`);
+    return {
+      address: j.address,
+      owner: j.owner,
+      counter: parsePointerCounter("counter", j.counter),
+      kind: j.kind,
+      kindTag: j.kind_tag,
+      target: j.target,
+      stateId: j.state_id,
+      isFinal: j.is_final === true,
+      transferredTo: optionalString(j.transferred_to),
+    };
+  }
+
+  /**
+   * Follow a chain of pointers from `address` to the target at its end (at
+   * most 16 hops). Throws {@link NotFoundError} if a pointer on the chain does
+   * not exist.
+   */
+  async pointerResolve(address: string): Promise<PointerTarget> {
+    const j = await this.getJson<{ kind: string; kind_tag: number; target: string }>(
+      `/v1/pointers/${address}/resolve`,
+    );
+    return { kind: j.kind, kindTag: j.kind_tag, target: j.target };
+  }
+
+  /**
+   * Ask the whole close group where the pointer at `address` stands. Check it
+   * before relying on a transfer: only `status === "final"` means the
+   * transfer is beyond dispute.
+   */
+  async pointerFinality(address: string): Promise<PointerFinality> {
+    return pointerFinalityFromJson(
+      await this.getJson<PointerFinalityJson>(`/v1/pointers/${address}/finality`),
+    );
+  }
+
+  /**
+   * Follow the transfers from `address` to the pointer whose owner now
+   * decides what it resolves to.
+   */
+  async pointerController(address: string): Promise<PointerController> {
+    const j = await this.getJson<{ pointer: string; transfers?: string[]; frozen?: boolean }>(
+      `/v1/pointers/${address}/controller`,
+    );
+    return {
+      pointer: j.pointer,
+      transfers: j.transfers ?? [],
+      frozen: j.frozen === true,
+    };
+  }
+
+  /**
+   * Sign a pointer write with the daemon's loaded owner key for `owner` and
+   * quote it for an external signer, which pays with `payForQuotes()` and
+   * then calls {@link pointerFinalize}. The daemon needs no wallet.
+   *
+   * While the prepared write awaits payment, other writes to the same pointer
+   * throw {@link ConflictError}; the session expires after the daemon's
+   * one-hour pending TTL. `options.includeSignedQuotes` asks for the full
+   * signed quotes alongside `payments`.
+   */
+  async pointerPrepare(
+    owner: string,
+    op: PointerOp,
+    options?: { includeSignedQuotes?: boolean },
+  ): Promise<PointerPrepareResult> {
+    const body: Record<string, unknown> = { owner, op: op.op };
+    if (op.op === "transfer") {
+      body.recipient = op.recipient;
+    } else {
+      body.target = op.target;
+      if (op.kind !== undefined) body.kind = op.kind;
+    }
+    if (options?.includeSignedQuotes) body.include_signed_quotes = true;
+    const j = await this.postJson<{
+      upload_id: string;
+      op: string;
+      address: string;
+      state_id: string;
+      counter: string;
+      payment_type: string;
+      payments?: { quote_hash: string; rewards_address: string; amount: string }[];
+      total_amount: string;
+      payment_vault_address: string;
+      payment_token_address: string;
+      rpc_url: string;
+      signed_quotes?: { quote_hash: string; quote: string; commitment_sidecar?: string | null }[];
+    }>("/v1/pointers/prepare", body);
+    return {
+      uploadId: j.upload_id,
+      op: j.op,
+      address: j.address,
+      stateId: j.state_id,
+      counter: parsePointerCounter("counter", j.counter),
+      paymentType: j.payment_type,
+      payments: (j.payments ?? []).map((p) => ({
+        quoteHash: p.quote_hash,
+        rewardsAddress: p.rewards_address,
+        amount: p.amount,
+      })),
+      totalAmount: j.total_amount,
+      paymentVaultAddress: j.payment_vault_address,
+      paymentTokenAddress: j.payment_token_address,
+      rpcUrl: j.rpc_url,
+      signedQuotes: (j.signed_quotes ?? []).map((q) => ({
+        quoteHash: q.quote_hash,
+        quote: q.quote,
+        commitmentSidecar: optionalString(q.commitment_sidecar),
+      })),
+    };
+  }
+
+  /**
+   * Store a prepared pointer write once its external signer has paid.
+   * `txHashes` maps each `quoteHash` from {@link pointerPrepare}'s `payments`
+   * to the `payForQuotes()` transaction hash.
+   *
+   * A write that falls short after payment throws
+   * {@link CloseGroupShortfallError} with `retryable` set: the daemon kept the
+   * paid state, so call `pointerFinalize` again with the same `uploadId`
+   * (`txHashes` is then ignored) to store it against the same payment. Bound
+   * that loop; the session expires with the daemon's one-hour pending TTL. Do
+   * not retry on any other error: a new prepare pays again.
+   */
+  async pointerFinalize(
+    uploadId: string,
+    txHashes: Record<string, string>,
+  ): Promise<PointerFinalizeResult> {
+    const j = await this.postJson<{
+      address: string;
+      state_id: string;
+      counter: string;
+      finality?: PointerFinalityJson | null;
+    }>("/v1/pointers/finalize", { upload_id: uploadId, tx_hashes: txHashes });
+    return {
+      address: j.address,
+      stateId: j.state_id,
+      counter: parsePointerCounter("counter", j.counter),
+      finality: j.finality ? pointerFinalityFromJson(j.finality) : null,
+    };
   }
 }

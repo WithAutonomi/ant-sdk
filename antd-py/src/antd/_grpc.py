@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Iterator, Sequence
+from typing import NoReturn
 
 import grpc
 import grpc.aio
 
+from . import _pointers
 from .exceptions import (
+    CLOSE_GROUP_SHORTFALL_CODE,
+    CONFLICT_CODE,
+    POINTER_FINAL_CODE,
+    POINTER_FORKED_CODE,
     AntdError,
     AlreadyExistsError,
     BadRequestError,
@@ -18,21 +24,36 @@ from .exceptions import (
     PartialUploadError,
     PaymentError,
     TooLargeError,
+    error_for_code,
+    has_retained_attempt_hint,
     is_partial_upload_message,
     parse_partial_upload_message,
 )
 from .models import (
+    BuiltManifest,
     CandidateNodeEntry,
     DataPutPublicResult,
     DataPutResult,
+    DecodedManifest,
     DownloadFrame,
     DownloadProgress,
     FilePutPublicResult,
     FilePutResult,
     FinalizeUploadResult,
     HealthStatus,
+    ManifestEntryInput,
     PaymentInfo,
     PaymentMode,
+    PointerController,
+    PointerFinality,
+    PointerFinalizeResult,
+    PointerKind,
+    PointerOp,
+    PointerPrepareResult,
+    PointerRecord,
+    PointerTarget,
+    PointerTransferResult,
+    PointerWriteResult,
     PoolCommitmentEntry,
     PrepareChunkResult,
     PrepareUploadResult,
@@ -41,6 +62,7 @@ from .models import (
     WalletAddress,
     WalletBalance,
 )
+from . import _manifests
 
 
 def _frame_from_chunk(chunk) -> DownloadFrame:
@@ -201,8 +223,52 @@ from antd._proto.antd.v1 import data_pb2, data_pb2_grpc
 from antd._proto.antd.v1 import chunks_pb2, chunks_pb2_grpc
 from antd._proto.antd.v1 import files_pb2, files_pb2_grpc
 from antd._proto.antd.v1 import health_pb2, health_pb2_grpc
+from antd._proto.antd.v1 import pointers_pb2, pointers_pb2_grpc
 from antd._proto.antd.v1 import upload_pb2, upload_pb2_grpc
 from antd._proto.antd.v1 import wallet_pb2, wallet_pb2_grpc
+from antd._proto.antd.v1 import manifests_pb2, manifests_pb2_grpc
+
+# Message limits for the ManifestService channel. A manifest can be 64 MiB,
+# and a Build or Decode response carries it (a decode also carries each
+# embedded DataMap in hex), so gRPC's default 4 MiB receive limit would refuse
+# a large one; a Decode sends the bytes, so the send limit is set too (the
+# daemon accepts up to 100 MiB). antd-go raises the limit per call
+# (maxManifestGrpcMessage, 256 MiB); Python gRPC has no per-call limit, so the
+# clients open a second channel to the same target with these options for
+# ManifestService alone, and every other service keeps the defaults. Like any
+# gRPC channel it connects on first use.
+_MAX_MANIFEST_GRPC_MESSAGE_BYTES = 256 * 1024 * 1024
+_MANIFEST_CHANNEL_OPTIONS: tuple[tuple[str, int], ...] = (
+    ("grpc.max_receive_message_length", _MAX_MANIFEST_GRPC_MESSAGE_BYTES),
+    ("grpc.max_send_message_length", _MAX_MANIFEST_GRPC_MESSAGE_BYTES),
+)
+
+
+def _build_manifest_request(
+    entries: Sequence[ManifestEntryInput],
+    name: str | None,
+    torrent_info_hashes: list[str],
+    embed_roots: bool,
+) -> manifests_pb2.BuildManifestRequest:
+    """A BuildManifestRequest. ``path``, ``size`` and ``name`` are proto3
+    ``optional``, so they are set only when given (a size of 0 is given);
+    ``embed_roots`` is always set."""
+    req = manifests_pb2.BuildManifestRequest(
+        torrent_info_hashes=torrent_info_hashes, embed_roots=bool(embed_roots),
+    )
+    if name:
+        req.name = name
+    for e in entries:
+        entry = req.entries.add()
+        if e.path:
+            entry.path = e.path
+        if e.size is not None:
+            entry.size = e.size
+        if e.data_map:
+            entry.data_map = e.data_map
+        else:
+            entry.address = e.address
+    return req
 
 
 # gRPC status code -> exception class mapping
@@ -218,10 +284,62 @@ _GRPC_CODE_MAP: dict[grpc.StatusCode, type[AntdError]] = {
 }
 
 
-def _handle_rpc_error(e: grpc.RpcError) -> None:
+# Trailing-metadata key the daemon (with the pointer API, after 0.15.0) sets on
+# statuses whose gRPC code is shared with older errors; the value is the REST
+# body's ``code``.
+_ANTD_ERROR_CODE_KEY = "x-antd-error-code"
+
+# The gRPC status each tagged code arrives with. A tag is trusted only when it
+# agrees, so FAILED_PRECONDITION without a tag stays a PaymentError, ABORTED a
+# ForkError / PartialUploadError and UNAVAILABLE a NetworkError.
+_TAGGED_CODE_STATUS: dict[str, grpc.StatusCode] = {
+    POINTER_FINAL_CODE: grpc.StatusCode.FAILED_PRECONDITION,
+    POINTER_FORKED_CODE: grpc.StatusCode.FAILED_PRECONDITION,
+    CONFLICT_CODE: grpc.StatusCode.ABORTED,
+    CLOSE_GROUP_SHORTFALL_CODE: grpc.StatusCode.UNAVAILABLE,
+}
+
+
+def _antd_error_code(e: grpc.RpcError) -> str | None:
+    """The ``x-antd-error-code`` trailer of a failed call, or ``None``.
+
+    Both ``grpc.RpcError`` from a sync call and ``grpc.aio.AioRpcError``
+    expose ``trailing_metadata()`` as ``(key, value)`` pairs. Never raises:
+    an error object without trailers (or with unreadable ones) has no tag.
+    """
+    trailing = getattr(e, "trailing_metadata", None)
+    if not callable(trailing):
+        return None
+    try:
+        for key, value in trailing() or ():
+            if key == _ANTD_ERROR_CODE_KEY and isinstance(value, str):
+                return value
+    except Exception:
+        return None
+    return None
+
+
+def _typed_status_error(code: grpc.StatusCode, details: str, tag: str | None) -> AntdError | None:
+    """The typed error for a status the daemon tagged with
+    ``x-antd-error-code``, when the tag and the gRPC code agree; ``None``
+    otherwise (an untagged status, a tag this SDK does not know, or a tag on
+    an unexpected code), which keeps the code-based mapping."""
+    if tag is None or _TAGGED_CODE_STATUS.get(tag) != code:
+        return None
+    # gRPC carries no structured retryable: a pointer finalize that kept the
+    # paid state closes its message with "(paid attempt retained...)".
+    return error_for_code(
+        tag, details, code.value[0], retryable=has_retained_attempt_hint(details),
+    )
+
+
+def _handle_rpc_error(e: grpc.RpcError) -> NoReturn:
     code = e.code()
     raw_details = e.details()
     details = raw_details or str(e)
+    typed = _typed_status_error(code, details, _antd_error_code(e))
+    if typed is not None:
+        raise typed from e
     if code == grpc.StatusCode.ABORTED and is_partial_upload_message(raw_details):
         # PARTIAL_UPLOAD: some chunks stored, some still unstored after
         # retries. The counts and the retention hint ride the status
@@ -275,15 +393,20 @@ class GrpcClient:
 
     def __init__(self, target: str = "localhost:50051"):
         self._channel = grpc.insecure_channel(target)
+        # ManifestService on its own channel, with raised message limits.
+        self._manifest_channel = grpc.insecure_channel(target, options=_MANIFEST_CHANNEL_OPTIONS)
+        self._manifest = manifests_pb2_grpc.ManifestServiceStub(self._manifest_channel)
         self._health = health_pb2_grpc.HealthServiceStub(self._channel)
         self._data = data_pb2_grpc.DataServiceStub(self._channel)
         self._chunks = chunks_pb2_grpc.ChunkServiceStub(self._channel)
         self._files = files_pb2_grpc.FileServiceStub(self._channel)
         self._upload = upload_pb2_grpc.UploadServiceStub(self._channel)
         self._wallet = wallet_pb2_grpc.WalletServiceStub(self._channel)
+        self._pointer = pointers_pb2_grpc.PointerServiceStub(self._channel)
 
     def close(self) -> None:
         self._channel.close()
+        self._manifest_channel.close()
 
     def __enter__(self):
         return self
@@ -463,6 +586,53 @@ class GrpcClient:
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
+    # --- Manifests ---
+    #
+    # ManifestService: the same methods, types and errors as the REST client
+    # (see RestClient.build_manifest), over the manifest channel with raised
+    # message limits (_MANIFEST_CHANNEL_OPTIONS). The `.ant` bytes are raw
+    # bytes on this wire. Nothing is uploaded or paid for, so these are safe
+    # to retry.
+
+    def build_manifest(
+        self,
+        entries: Sequence[ManifestEntryInput],
+        *,
+        name: str | None = None,
+        torrent_info_hashes: Sequence[str] | None = None,
+        embed_roots: bool = True,
+    ) -> BuiltManifest:
+        """See :meth:`RestClient.build_manifest`. An entry the daemon refuses
+        is INVALID_ARGUMENT, raised as :class:`BadRequestError`."""
+        _manifests.check_entries(entries)
+        hashes = _manifests.check_torrent_info_hashes(torrent_info_hashes)
+        req = _build_manifest_request(entries, name, hashes, embed_roots)
+        try:
+            resp = self._manifest.Build(req)
+            return _manifests.built_from_pb(resp)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    def decode_manifest(self, manifest: bytes, resolve: bool = False) -> DecodedManifest:
+        """See :meth:`RestClient.decode_manifest`."""
+        req = manifests_pb2.DecodeManifestRequest(
+            manifest=_manifests.manifest_bytes(manifest), resolve=bool(resolve))
+        try:
+            resp = self._manifest.Decode(req)
+            return _manifests.decoded_from_pb(resp)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    def decode_manifest_link(self, link: str, resolve: bool = False) -> DecodedManifest:
+        """See :meth:`RestClient.decode_manifest_link`."""
+        req = manifests_pb2.DecodeManifestRequest(
+            link=_manifests.check_link(link), resolve=bool(resolve))
+        try:
+            resp = self._manifest.Decode(req)
+            return _manifests.decoded_from_pb(resp)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
     # --- Wallet ---
     #
     # V2-286: parity with REST. A missing daemon wallet (no AUTONOMI_WALLET_KEY)
@@ -600,6 +770,138 @@ class GrpcClient:
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
+    # --- Pointers ---
+    #
+    # PointerService: the same methods, types and errors as the REST client
+    # (see RestClient). The daemon tags POINTER_FINAL / POINTER_FORKED
+    # (FAILED_PRECONDITION), CONFLICT (ABORTED) and CLOSE_GROUP_SHORTFALL
+    # (UNAVAILABLE) with x-antd-error-code trailing metadata, which
+    # _handle_rpc_error reads. Every write pays and is never retried; reads
+    # are free to retry.
+
+    def pointer_keys(self) -> list[str]:
+        """See :meth:`RestClient.pointer_keys`."""
+        try:
+            resp = self._pointer.ListKeys(pointers_pb2.ListPointerKeysRequest())
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+        return [k.address for k in resp.keys]
+
+    def pointer_create(
+        self, owner: str, target: str, kind: PointerKind | str = PointerKind.CHUNK,
+    ) -> PointerWriteResult:
+        """See :meth:`RestClient.pointer_create`. Pays; never retried."""
+        try:
+            resp = self._pointer.Create(_write_request(owner, target, kind))
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+        return _pointers.write_from_pb(resp)
+
+    def pointer_update(
+        self, owner: str, target: str, kind: PointerKind | str = PointerKind.CHUNK,
+    ) -> PointerWriteResult:
+        """See :meth:`RestClient.pointer_update`. Pays; never retried."""
+        try:
+            resp = self._pointer.Update(_write_request(owner, target, kind))
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+        return _pointers.write_from_pb(resp)
+
+    def pointer_transfer(self, owner: str, recipient: str) -> PointerTransferResult:
+        """See :meth:`RestClient.pointer_transfer`. Pays; never retried."""
+        try:
+            resp = self._pointer.Transfer(
+                pointers_pb2.PointerTransferRequest(owner=owner, recipient=recipient))
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+        return _pointers.transfer_from_pb(resp)
+
+    def pointer_get(self, address: str) -> PointerRecord:
+        """See :meth:`RestClient.pointer_get`."""
+        try:
+            resp = self._pointer.Get(pointers_pb2.GetPointerRequest(address=address))
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+        return _pointers.record_from_pb(resp)
+
+    def pointer_resolve(self, address: str) -> PointerTarget:
+        """See :meth:`RestClient.pointer_resolve`."""
+        try:
+            resp = self._pointer.Resolve(pointers_pb2.ResolvePointerRequest(address=address))
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+        return _pointers.target_from_pb(resp)
+
+    def pointer_finality(self, address: str) -> PointerFinality:
+        """See :meth:`RestClient.pointer_finality`."""
+        try:
+            resp = self._pointer.Finality(pointers_pb2.PointerFinalityRequest(address=address))
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+        return _pointers.finality_from_pb(resp)
+
+    def pointer_controller(self, address: str) -> PointerController:
+        """See :meth:`RestClient.pointer_controller`."""
+        try:
+            resp = self._pointer.Controller(pointers_pb2.PointerControllerRequest(address=address))
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+        return _pointers.controller_from_pb(resp)
+
+    def pointer_prepare(
+        self,
+        owner: str,
+        op: PointerOp | str,
+        *,
+        target: str | None = None,
+        kind: PointerKind | str | None = None,
+        recipient: str | None = None,
+        include_signed_quotes: bool = False,
+    ) -> PointerPrepareResult:
+        """See :meth:`RestClient.pointer_prepare`."""
+        req = _prepare_request(owner, op, target, kind, recipient, include_signed_quotes)
+        try:
+            resp = self._pointer.Prepare(req)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+        return _pointers.prepare_from_pb(resp)
+
+    def pointer_finalize(self, upload_id: str, tx_hashes: dict[str, str]) -> PointerFinalizeResult:
+        """See :meth:`RestClient.pointer_finalize`. Never retried; over gRPC a
+        retained finalize is a :class:`CloseGroupShortfallError` whose
+        ``retryable`` comes from the message's ``(paid attempt retained...)``
+        hint."""
+        try:
+            resp = self._pointer.Finalize(
+                pointers_pb2.FinalizePointerRequest(upload_id=upload_id, tx_hashes=tx_hashes))
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+        return _pointers.finalize_from_pb(resp)
+
+
+def _write_request(owner: str, target: str, kind: PointerKind | str):
+    return pointers_pb2.PointerWriteRequest(owner=owner, target=target, kind=_pointers.wire(kind))
+
+
+def _prepare_request(
+    owner: str,
+    op: PointerOp | str,
+    target: str | None,
+    kind: PointerKind | str | None,
+    recipient: str | None,
+    include_signed_quotes: bool,
+):
+    # proto3 strings have no "unset": an empty string is what the daemon
+    # reads as absent, and an empty kind as "chunk".
+    return pointers_pb2.PreparePointerRequest(
+        owner=owner,
+        op=_pointers.wire(op),
+        target=target or "",
+        kind=_pointers.wire(kind) if kind is not None else "",
+        recipient=recipient or "",
+        include_signed_quotes=include_signed_quotes,
+    )
+
 
 class AsyncGrpcClient:
     """Asynchronous gRPC client for the antd daemon."""
@@ -621,6 +923,9 @@ class AsyncGrpcClient:
 
     def __init__(self, target: str = "localhost:50051"):
         self._channel = grpc.aio.insecure_channel(target)
+        # ManifestService on its own channel, with raised message limits.
+        self._manifest_channel = grpc.aio.insecure_channel(target, options=_MANIFEST_CHANNEL_OPTIONS)
+        self._manifest = manifests_pb2_grpc.ManifestServiceStub(self._manifest_channel)
         self._health = health_pb2_grpc.HealthServiceStub(self._channel)
         # V2-286: WalletService stub. Mirrors sync GrpcClient.
         self._wallet = wallet_pb2_grpc.WalletServiceStub(self._channel)
@@ -628,9 +933,11 @@ class AsyncGrpcClient:
         self._chunks = chunks_pb2_grpc.ChunkServiceStub(self._channel)
         self._files = files_pb2_grpc.FileServiceStub(self._channel)
         self._upload = upload_pb2_grpc.UploadServiceStub(self._channel)
+        self._pointer = pointers_pb2_grpc.PointerServiceStub(self._channel)
 
     async def close(self) -> None:
         await self._channel.close()
+        await self._manifest_channel.close()
 
     async def __aenter__(self):
         return self
@@ -800,6 +1107,49 @@ class AsyncGrpcClient:
         except grpc.RpcError as e:
             _handle_rpc_error(e)
 
+    # --- Manifests ---
+    #
+    # The same methods, types and errors as GrpcClient's, over the async
+    # manifest channel (_MANIFEST_CHANNEL_OPTIONS).
+
+    async def build_manifest(
+        self,
+        entries: Sequence[ManifestEntryInput],
+        *,
+        name: str | None = None,
+        torrent_info_hashes: Sequence[str] | None = None,
+        embed_roots: bool = True,
+    ) -> BuiltManifest:
+        """See :meth:`RestClient.build_manifest`."""
+        _manifests.check_entries(entries)
+        hashes = _manifests.check_torrent_info_hashes(torrent_info_hashes)
+        req = _build_manifest_request(entries, name, hashes, embed_roots)
+        try:
+            resp = await self._manifest.Build(req)
+            return _manifests.built_from_pb(resp)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    async def decode_manifest(self, manifest: bytes, resolve: bool = False) -> DecodedManifest:
+        """See :meth:`RestClient.decode_manifest`."""
+        req = manifests_pb2.DecodeManifestRequest(
+            manifest=_manifests.manifest_bytes(manifest), resolve=bool(resolve))
+        try:
+            resp = await self._manifest.Decode(req)
+            return _manifests.decoded_from_pb(resp)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
+    async def decode_manifest_link(self, link: str, resolve: bool = False) -> DecodedManifest:
+        """See :meth:`RestClient.decode_manifest_link`."""
+        req = manifests_pb2.DecodeManifestRequest(
+            link=_manifests.check_link(link), resolve=bool(resolve))
+        try:
+            resp = await self._manifest.Decode(req)
+            return _manifests.decoded_from_pb(resp)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+
     # --- Wallet (not yet available via gRPC) ---
 
     async def wallet_address(self) -> WalletAddress:
@@ -920,3 +1270,105 @@ class AsyncGrpcClient:
             return resp.address
         except grpc.RpcError as e:
             _handle_rpc_error(e)
+
+    # --- Pointers ---
+    #
+    # Same methods, types and errors as GrpcClient; grpc.aio.AioRpcError
+    # carries the x-antd-error-code trailer the same way. Every write pays and
+    # is never retried; reads are free to retry.
+
+    async def pointer_keys(self) -> list[str]:
+        """See :meth:`RestClient.pointer_keys`."""
+        try:
+            resp = await self._pointer.ListKeys(pointers_pb2.ListPointerKeysRequest())
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+        return [k.address for k in resp.keys]
+
+    async def pointer_create(
+        self, owner: str, target: str, kind: PointerKind | str = PointerKind.CHUNK,
+    ) -> PointerWriteResult:
+        """See :meth:`RestClient.pointer_create`. Pays; never retried."""
+        try:
+            resp = await self._pointer.Create(_write_request(owner, target, kind))
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+        return _pointers.write_from_pb(resp)
+
+    async def pointer_update(
+        self, owner: str, target: str, kind: PointerKind | str = PointerKind.CHUNK,
+    ) -> PointerWriteResult:
+        """See :meth:`RestClient.pointer_update`. Pays; never retried."""
+        try:
+            resp = await self._pointer.Update(_write_request(owner, target, kind))
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+        return _pointers.write_from_pb(resp)
+
+    async def pointer_transfer(self, owner: str, recipient: str) -> PointerTransferResult:
+        """See :meth:`RestClient.pointer_transfer`. Pays; never retried."""
+        try:
+            resp = await self._pointer.Transfer(
+                pointers_pb2.PointerTransferRequest(owner=owner, recipient=recipient))
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+        return _pointers.transfer_from_pb(resp)
+
+    async def pointer_get(self, address: str) -> PointerRecord:
+        """See :meth:`RestClient.pointer_get`."""
+        try:
+            resp = await self._pointer.Get(pointers_pb2.GetPointerRequest(address=address))
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+        return _pointers.record_from_pb(resp)
+
+    async def pointer_resolve(self, address: str) -> PointerTarget:
+        """See :meth:`RestClient.pointer_resolve`."""
+        try:
+            resp = await self._pointer.Resolve(pointers_pb2.ResolvePointerRequest(address=address))
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+        return _pointers.target_from_pb(resp)
+
+    async def pointer_finality(self, address: str) -> PointerFinality:
+        """See :meth:`RestClient.pointer_finality`."""
+        try:
+            resp = await self._pointer.Finality(pointers_pb2.PointerFinalityRequest(address=address))
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+        return _pointers.finality_from_pb(resp)
+
+    async def pointer_controller(self, address: str) -> PointerController:
+        """See :meth:`RestClient.pointer_controller`."""
+        try:
+            resp = await self._pointer.Controller(pointers_pb2.PointerControllerRequest(address=address))
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+        return _pointers.controller_from_pb(resp)
+
+    async def pointer_prepare(
+        self,
+        owner: str,
+        op: PointerOp | str,
+        *,
+        target: str | None = None,
+        kind: PointerKind | str | None = None,
+        recipient: str | None = None,
+        include_signed_quotes: bool = False,
+    ) -> PointerPrepareResult:
+        """See :meth:`RestClient.pointer_prepare`."""
+        req = _prepare_request(owner, op, target, kind, recipient, include_signed_quotes)
+        try:
+            resp = await self._pointer.Prepare(req)
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+        return _pointers.prepare_from_pb(resp)
+
+    async def pointer_finalize(self, upload_id: str, tx_hashes: dict[str, str]) -> PointerFinalizeResult:
+        """See :meth:`GrpcClient.pointer_finalize`. Never retried."""
+        try:
+            resp = await self._pointer.Finalize(
+                pointers_pb2.FinalizePointerRequest(upload_id=upload_id, tx_hashes=tx_hashes))
+        except grpc.RpcError as e:
+            _handle_rpc_error(e)
+        return _pointers.finalize_from_pb(resp)

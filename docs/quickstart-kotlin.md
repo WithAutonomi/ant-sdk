@@ -115,6 +115,32 @@ client.fileDownloadPublic(result.address, "/path/to/output.txt")
 val est = client.fileCost("/path/to/file.txt")
 ```
 
+## Pointers
+
+A pointer is an owner-signed address you can move to new data. antd signs with the owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so `owner` is the pointer's address, never a key. Every create, update and transfer pays (about the price of one chunk) and is never retried; reads are free. A transfer hands the pointer over to another pointer for good. Needs the first antd release with pointers (after 0.15.0). Walk-through: [Tutorial: Point at a Public File and Update It](tutorial-pointers.md).
+
+```kotlin
+val owner = client.pointerKeys().first()              // a pointer antd can write
+
+val v1 = client.dataPutPublic("version 1".toByteArray()).address
+val v2 = client.dataPutPublic("version 2".toByteArray()).address
+
+client.pointerCreate(owner, v1)                       // pays; counter 0
+client.pointerUpdate(owner, v2)                       // pays again; counter 1
+val target = client.pointerResolve(owner).target      // == v2 (free)
+
+val finality = client.pointerFinality(owner)          // free
+println(finality.status.wire)                         // "open"
+```
+
+Counters are `ULong`. `pointerTransfer`, `pointerGet`, `pointerController`, `pointerPrepare` and `pointerFinalize` complete the set, on both clients.
+
+Runnable example: `antd-kotlin/examples/src/main/kotlin/com/autonomi/examples/Example08Pointers.kt`. Set `ANTD_POINTER_OWNER` to an address the daemon holds a key for, one it has not written yet (each run creates the pointer and pays for its writes), and `ANTD_BASE_URL` for a daemon other than `http://localhost:8082`:
+
+```bash
+cd antd-kotlin
+ANTD_POINTER_OWNER=<address> ./gradlew :examples:run --args="8"
+```
 
 ## Error Handling
 
@@ -146,6 +172,36 @@ Exception hierarchy:
 | `TooLargeException` | 413 | Payload too large |
 | `InternalException` | 500 | Server error |
 | `NetworkException` | 502 | Network unreachable |
+
+## Manifests
+
+A manifest describes a set of files as one `ant://manifest/` link, or as a `.ant` file when the link would be too long. Each entry is either a public file's address or an embedded DataMap (the manifest is then the key to a private file), with an optional path. Building and decoding upload and pay for nothing: upload the files first, then describe them. Needs the antd release after 0.15.0. Walk-through: [Tutorial: Share a Set of Files as One Link](tutorial-manifests.md).
+
+```kotlin
+val one = client.dataPutPublic("first note".toByteArray()).address   // pays
+val two = client.dataPutPublic("second note".toByteArray()).address  // pays
+
+val built = client.buildManifest(                                     // free
+    listOf(
+        ManifestEntryInput(address = one, path = "notes/one.txt"),
+        ManifestEntryInput(address = two, path = "notes/two.txt"),
+    ),
+    BuildManifestOptions(name = "example"),
+)
+println(built.link)                                // null when over 1,500 bytes: share built.manifest (ByteArray) instead
+
+val decoded = client.decodeManifestLink(built.link!!, resolve = true)   // free
+decoded.entries.forEach { println("${it.effectiveName}: ${it.exactSize} bytes") }
+```
+
+`decodeManifest(bytes, resolve = false)` takes raw `.ant` bytes. Use `dataMap =` instead of `address =` for an embedded entry; `BuildManifestOptions` has `embedRoots` (default `true`). Sizes are `ULong?`.
+
+Runnable example: `antd-kotlin/examples/src/main/kotlin/com/autonomi/examples/Example09Manifests.kt`. Its two uploads pay; the manifest calls do not.
+
+```bash
+cd antd-kotlin
+ANTD_BASE_URL=http://localhost:8082 ./gradlew :examples:run --args="9"
+```
 
 ## Examples
 

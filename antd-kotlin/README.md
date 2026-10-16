@@ -67,7 +67,85 @@ All methods are `suspend` functions for use with Kotlin coroutines.
 | **Health** | `health()` returns `HealthStatus` carrying antd version, EVM network, uptime, build commit, and payment contract addresses (antd ≥ 0.4.0) |
 | **Data** | `dataPutPublic`, `dataGetPublic`, `dataPut`, `dataGet`, `dataCost`. Private `dataPut` returns a caller-held DataMap (NOT stored on-network); public `dataPutPublic` stores the DataMap on-network at the returned address. All puts and `dataCost` accept a `PaymentMode` parameter. |
 | **Chunks** | `chunkPut`, `chunkGet` |
+| **Manifests** | `buildManifest`, `decodeManifest`, `decodeManifestLink`. See [Manifests](#manifests). |
 | **Files** | `filePut`, `fileGet`, `filePutPublic`, `fileGetPublic`, `fileCost`. Private variants return a caller-held DataMap (NOT stored on-network); public variants store the DataMap on-network at the returned address. All puts and `fileCost` accept a `PaymentMode` parameter. |
+| **Pointers** | `pointerKeys`, `pointerCreate`, `pointerUpdate`, `pointerTransfer`, `pointerGet`, `pointerResolve`, `pointerFinality`, `pointerController`, `pointerPrepare`, `pointerFinalize`. See [Pointers](#pointers). |
+
+## Pointers
+
+A pointer is a small, owner-signed, mutable reference. Its address is derived from the owner's key and never changes; what it points at (a chunk, such as a public file's data map, or another pointer) can be changed by the owner. The daemon holds the owner keys, loaded at startup with `antd --pointer-keys <file-or-dir>` (files in the format `ant pointer keygen` writes), so every write names the pointer by its address (`owner`), never by a key. An owner the daemon holds no key for is a `BadRequestException`. Addresses are 64 hex characters; the daemon accepts a `0x` prefix but always returns bare lowercase hex, so normalise before comparing. The pointer methods need the antd release after 0.15.0, the first with pointers; both `AntdRestClient` and `AntdGrpcClient` implement them.
+
+**Every write pays** (about the price of one chunk), and every attempt pays again. Neither client retries `pointerCreate`, `pointerUpdate`, `pointerTransfer` or `pointerFinalize`, and you should not wrap them in an automatic retry. Reads are free to retry; a read during an update or churn can throw `CloseGroupShortfallException`.
+
+```kotlin
+val client = AntdClient.createRest()
+val owner = client.pointerKeys().first()            // a pointer this daemon can write
+
+val v1 = client.dataPutPublic("version 1".toByteArray()).address
+val v2 = client.dataPutPublic("version 2".toByteArray()).address
+
+client.pointerCreate(owner, v1)                     // pays; AlreadyExistsException if it exists
+client.pointerUpdate(owner, v2)                     // pays again; counter 1
+val target = client.pointerResolve(owner).target    // == v2
+val finality = client.pointerFinality(owner)
+println("${finality.status.wire}: ${finality.answered}/${finality.group} peers answered")
+```
+
+| Method | Description |
+|---|---|
+| `pointerKeys()` | The addresses of the pointers this daemon holds owner keys for, so can write |
+| `pointerCreate(owner, target, kind = CHUNK)` | Create a pointer, paid by the daemon wallet. Returns `PointerWriteResult` (`address`, `stateId`, `counter`). `AlreadyExistsException` if it exists, refused before paying |
+| `pointerUpdate(owner, target, kind = CHUNK)` | Point a pointer at a new target, paid by the daemon wallet; creates it if it does not exist. `kind` is `PointerKind.CHUNK` or `PointerKind.POINTER` (a forwarding the owner can still change). `PointerFinalException` once transferred |
+| `pointerTransfer(owner, recipient)` | Hand a pointer over for good to the recipient's pointer, which must exist: readers of the address are redirected there. Irreversible. Returns `PointerTransferResult` with the close group's `finality` (null, with `finalityError`, when that check failed; the transfer still stands) |
+| `pointerGet(address)` | Read a pointer: `PointerRecord` (`counter`, `target`, `kind` / `kindTag`, `isFinal`, `transferredTo`, the owner's public key). `NotFoundException` if there is none |
+| `pointerResolve(address)` | Follow a chain of pointers (forwardings and transfers) to the `PointerTarget` at its end |
+| `pointerFinality(address)` | Ask the whole close group where a pointer stands: `PointerFinality` whose `status` is `Open`, `Settling`, `Unconfirmed`, `Final`, `Forked` or `Unknown(wire)` for a status a newer daemon adds. Check `isFinal` before relying on a transfer |
+| `pointerController(address)` | Follow transfers to the pointer whose owner now decides: `PointerController` |
+| `pointerPrepare(owner, op, includeSignedQuotes = false)` | External signer: the daemon signs `PointerOp.Create`, `Update` or `Transfer` with its key and quotes it. Returns `PointerPrepareResult` (wave-batch `payments` for `payForQuotes()`). Needs no daemon wallet. Other writes to the pointer throw `ConflictException` until it is finalized or expires (one hour) |
+| `pointerFinalize(uploadId, txHashes)` | External signer: store the prepared write once paid. A write that falls short after payment throws `CloseGroupShortfallException` with `retryable == true`: repeat the same call (same `uploadId`) to store it against the same payment. Bound that loop |
+
+Counters are `ULong`. The daemon sends them as decimal strings in both transports because a final state (a transfer or a freeze) sits at 2^64-1 (`PointerRecord.FINAL_COUNTER`), past what a JSON number keeps exactly in several languages. A counter that is not ASCII decimal digits fitting a u64 throws `InternalException`; it never reads as 0. Unset values (the finality `counter`, `state`, `majority`, `transferredTo`) are `null` on both transports: REST sends `null`, gRPC sends `""` or an absent message.
+
+See `examples/src/main/kotlin/com/autonomi/examples/Example08Pointers.kt` for a runnable round trip.
+
+## Manifests
+
+A manifest (ADR-0006) is a `.ant` file that lists a set of files, each with an optional path and size and either an embedded DataMap (a private upload; the manifest is then the key to it) or a public file's DataMap address. A small one also fits in an `ant://manifest/...` link. The daemon builds and reads them, so you never handle the format yourself. **Nothing is uploaded or paid for**: you build a manifest from DataMaps and addresses you already hold (from `dataPut`, `filePutPublic` and so on), then store or share the bytes or the link however you like. The calls are free to retry. `resolve` and the default root embedding read from the network, so they can time out. The manifest methods need the antd release after 0.15.0; both `AntdRestClient` and `AntdGrpcClient` implement them.
+
+```kotlin
+val client = AntdClient.createRest()
+val one = client.dataPutPublic("first note".toByteArray()).address
+val two = client.dataPutPublic("second note".toByteArray()).address
+
+val built = client.buildManifest(
+    listOf(
+        ManifestEntryInput(address = one, path = "notes/one.txt"),
+        ManifestEntryInput(address = two, path = "notes/two.txt"),
+    ),
+    BuildManifestOptions(name = "notes"),
+)
+File("notes.ant").writeBytes(built.manifest)      // the raw .ant bytes
+println(built.link)                               // ant://manifest/..., or null if over 1,500 bytes
+
+val decoded = client.decodeManifestLink(built.link!!, resolve = true)
+decoded.entries.forEach { println("${it.effectiveName}: ${it.exactSize} bytes") }
+```
+
+| Method | Description |
+|---|---|
+| `buildManifest(entries, options = BuildManifestOptions())` | Build a manifest. Each `ManifestEntryInput` sets exactly one of `dataMap` (hex, embedded) or `address` (hex, public), plus an optional `path` and `size` (the size to record, as given). Both or neither throws `BadRequestException` (status 400) before anything is sent, with the daemon's own message listing every bad entry (`2 invalid entries: entries[0]: give data_map or address, not both; ...`). `BuildManifestOptions` has `name`, `torrentInfoHashes` and `embedRoots`, which defaults to `true`: the daemon resolves each shrunk DataMap and embeds its root when that is at most 64 KiB, so recipients skip the fetch. Returns `BuiltManifest`: `manifest` (the raw `.ant` bytes), `link` (null when it would not fit 1,500 bytes) and `entries` |
+| `decodeManifest(manifest, resolve = false)` | Decode `.ant` bytes. Returns `DecodedManifest`: `source` (`"manifest"`), `name`, `torrentInfoHashV1`, `torrentInfoHashV2` and `entries`. With `resolve`, the daemon fetches each entry's DataMap (not its content) to report `exactSize` and confirm it is on the network |
+| `decodeManifestLink(link, resolve = false)` | Decode a manifest link, a file link or a bare 64-hex address. The last two come back as `source == "file_link"` with one public entry and no path |
+
+Each entry is a `ManifestEntryInfo`: `effectiveName` (the path, or the content address when there is none), `path`, `size` (the recorded size), `kind` (`"embedded"` or `"public"`), `contentAddress` (hex; the public DataMap address, the same for private and public uploads of one file), `dataMap` (an embedded entry's DataMap in the hex form `dataGet` / `fileGet` accept; decodes only), `exactSize` and `error`.
+
+- **Bytes:** the methods take and return the raw `.ant` bytes on both transports. REST carries them as base64 inside the JSON, and the client converts.
+- **Sizes** are `ULong?`. Unset is `null`, never `0`, on both transports: REST omits the field, and gRPC's proto3 `optional` is read by presence. A recorded `size` is only the creator's claim. `exactSize` comes from an embedded root DataMap or a resolving decode.
+- **Errors:** an invalid entry or input, such as a path like `../x`, is a `BadRequestException` (REST 400, gRPC INVALID_ARGUMENT) whose message is the daemon's, naming `entries[i]`. If `resolve` fails for one entry, the reason is in that entry's `error`; the call still succeeds.
+- **gRPC message size:** a manifest can be 64 MiB, past grpc-java's 4 MiB receive limit, so `AntdGrpcClient` raises the receive and send limits of its manifest stub to 256 MiB. The other services keep the defaults.
+- **Upgrading:** `IAntdClient` gains the three methods, each with a default body that throws `UnsupportedOperationException` ("buildManifest is not implemented by this IAntdClient"). A class of your own that implements the interface compiles unchanged.
+
+See `examples/src/main/kotlin/com/autonomi/examples/Example09Manifests.kt` for a runnable round trip.
 
 ## Error Handling
 
@@ -96,6 +174,12 @@ try {
 | `PartialUploadException` | 502 (`code: "PARTIAL_UPLOAD"`) | ABORTED (`Partial upload:` message) | Finalize stored some chunks, others stayed unstored (extends `NetworkException`) |
 | `TooLargeException` | 413 | RESOURCE_EXHAUSTED | Data too large |
 | `InternalException` | 500 | INTERNAL | Server error |
+| `PointerFinalException` | 409 (`code: "POINTER_FINAL"`) | FAILED_PRECONDITION + `x-antd-error-code: POINTER_FINAL` | The pointer is transferred or frozen; nothing can change it. Refused before paying |
+| `PointerForkedException` | 409 (`code: "POINTER_FORKED"`) | FAILED_PRECONDITION + `x-antd-error-code: POINTER_FORKED` | The owner signed two final states and no majority holds either (extends `ForkException`) |
+| `ConflictException` | 409 (`code: "CONFLICT"`) | ABORTED + `x-antd-error-code: CONFLICT` | A pointer write while a prepared write to it awaits payment, or an update that lost to a newer state |
+| `CloseGroupShortfallException` | 503 (`code: "CLOSE_GROUP_SHORTFALL"`) | UNAVAILABLE + `x-antd-error-code: CLOSE_GROUP_SHORTFALL` | Too few of the close group answered or stored. `retryable` is true only for a pointer finalize that kept the paid state |
+
+The last four share an HTTP status or gRPC code with older errors, so the clients tell them apart by the daemon's `code`: from the REST error body, and over gRPC from the `x-antd-error-code` trailer, trusted only when it agrees with the status code (a FAILED_PRECONDITION without the tag is still a `PaymentException`; an UNAVAILABLE without it is still a `NetworkException`). The gRPC mapping applies to every call, not only pointers: `CLOSE_GROUP_SHORTFALL` can come from any store or fetch. Over gRPC, `retryable` is read from the daemon's closing `(paid attempt retained…)` hint.
 
 Both clients follow this table: every `AntdGrpcClient` method maps a failed gRPC status to the exception type in the same row, so a `catch (e: NotFoundException)` works unchanged whichever client you construct, and raw `io.grpc.StatusException` / `StatusRuntimeException` never escape. The mapping is not one-to-one everywhere, because gRPC carries less detail than HTTP: the daemon reports both an unreachable network (REST 502) and a service-unavailable error (REST 503) as gRPC UNAVAILABLE, so a service-unavailable error throws `ServiceUnavailableException` over REST but `NetworkException` over gRPC; code that must handle it on both transports should catch both. A gRPC status with no row here (e.g. DEADLINE_EXCEEDED) throws a plain `AntdException` whose `statusCode` is the gRPC code number.
 
@@ -107,13 +191,25 @@ An external-signer finalize (`finalizeUpload`, `finalizeMerkleUpload`, `finalize
 - **`retentionKnown && !retryable`** — the daemon confirmed it kept nothing (e.g. a merkle finalize with deliberately unpaid batches). Re-prepare the same content; already-stored chunks are skipped, so the retry pays only for the remainder.
 - **`!retentionKnown`** — retention is unknown, and the daemon may still hold the paid attempt: it records the resume handle before it returns the error. Stop automatic recovery, keep the `uploadId` and the original payment artefacts (tx hashes / quote data), and reconcile before re-preparing or paying again. Never pay again on this signal alone. Daemons older than 0.14.0 never send `retryable`, so their REST partial uploads always read as unknown.
 
-`PartialUploadException` extends `NetworkException` because the daemon reports it as a 502, so existing `catch (e: NetworkException)` blocks keep working; narrow with `is PartialUploadException` to read the counts and flags. It is not a `ForkException`: over gRPC a partial upload's ABORTED used to map to `ForkException`, and the daemon sends ABORTED only for PARTIAL_UPLOAD, so code that caught `ForkException` around a gRPC finalize should catch `PartialUploadException` instead.
+`PartialUploadException` extends `NetworkException` because the daemon reports it as a 502, so existing `catch (e: NetworkException)` blocks keep working; narrow with `is PartialUploadException` to read the counts and flags. It is not a `ForkException`: over gRPC a partial upload's ABORTED used to map to `ForkException`, and around a finalize the daemon sends ABORTED only for PARTIAL_UPLOAD (its other ABORTED, a pointer `CONFLICT`, is tagged and maps to `ConflictException`), so code that caught `ForkException` around a gRPC finalize should catch `PartialUploadException` instead.
 
-Over gRPC an ABORTED status maps to `PartialUploadException` only when its message starts with the daemon's fixed `Partial upload:` prefix (anchored, as in antd-rust); any other ABORTED stays a `ForkException`. `retentionKnown` is true only when the message starts with the count layout (`Partial upload: S/T chunks stored, F failed after retries: <reason> (<hint>)`), all three counts convert to a `Long`, and the message ends with one of the daemon's two closing hints: `(paid attempt retained…)` sets `retryable`, and `(stored chunks persist; re-prepare the same content…)` means the daemon confirmed it kept nothing (daemons older than 0.14.0 write only this one). If the layout does not match or any count fails to convert (e.g. one past `Long.MAX_VALUE`), all three counts read as zero and both flags as false, even if a hint is present. Readable counts with a missing, truncated or unrecognised hint, or text after it, keep the counts, but both flags stay false: retention is unknown, so stop and reconcile rather than re-prepare.
+Over gRPC an ABORTED status maps to `PartialUploadException` only when its message starts with the daemon's fixed `Partial upload:` prefix (anchored, as in antd-rust); one tagged `CONFLICT` is a `ConflictException`, and any other ABORTED stays a `ForkException`. `retentionKnown` is true only when the message starts with the count layout (`Partial upload: S/T chunks stored, F failed after retries: <reason> (<hint>)`), all three counts convert to a `Long`, and the message ends with one of the daemon's two closing hints: `(paid attempt retained…)` sets `retryable`, and `(stored chunks persist; re-prepare the same content…)` means the daemon confirmed it kept nothing (daemons older than 0.14.0 write only this one). If the layout does not match or any count fails to convert (e.g. one past `Long.MAX_VALUE`), all three counts read as zero and both flags as false, even if a hint is present. Readable counts with a missing, truncated or unrecognised hint, or text after it, keep the counts, but both flags stay false: retention is unknown, so stop and reconcile rather than re-prepare.
 
 Over REST, each count is read only from a JSON number holding a non-negative integer; a quoted number, a negative, fractional or out-of-range number, an array or an object reads as zero. `retentionKnown` is true when the body's `retryable` is a JSON boolean (`true` or `false`), and `retryable` only when it is the literal `true`; missing, `null`, a quoted `"true"`, a number, an array or an object reads as unknown and not retryable. A non-string `code` falls back to the plain `NetworkException`, and the error mapper never throws on a malformed body.
 
 See `finalizeWithRetry` in `examples/src/main/kotlin/com/autonomi/examples/Example07ExternalSigner.kt` for a bounded retry loop that rethrows the original `PartialUploadException` whenever it stops, and [`docs/external-signer-flow.md` §6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment) for the daemon-side contract.
+
+## Upgrading: pointer API
+
+Nothing that compiled before stops compiling:
+
+- `IAntdClient` gains the ten `pointer*` methods, each with a default body that throws `UnsupportedOperationException` ("pointerGet is not implemented by this IAntdClient"). Both bundled clients override all ten. A Kotlin class of your own that implements `IAntdClient` (a test fake, say) compiles unchanged; override the pointer methods only if you call them.
+- Four new exception types: `PointerFinalException`, `PointerForkedException`, `ConflictException` and `CloseGroupShortfallException`. The exception classes are not sealed, so no `when` stops compiling. `ForkException` is now `open`, and `PointerForkedException` extends it.
+
+One behaviour change to plan for:
+
+- `CloseGroupShortfallException` is not only for pointers: a daemon with the pointer API reports a close group that fell short on any call (a chunk store, say) as `503 CLOSE_GROUP_SHORTFALL` / UNAVAILABLE with the tag, and both clients throw `CloseGroupShortfallException` for it. An older daemon sent a 500, read as `InternalException`, so a `catch (e: InternalException)` around a store no longer sees it.
+- The gRPC client now reads each failed call's trailers (`StatusException.trailers`); nothing changes for statuses without the `x-antd-error-code` tag.
 
 ## Examples
 
@@ -122,7 +218,18 @@ Run individual examples:
 ```bash
 ./gradlew :examples:run --args="1"   # Connect
 ./gradlew :examples:run --args="2"   # Public Data
-./gradlew :examples:run --args="all" # All examples
+./gradlew :examples:run --args="all" # All examples except 8 and 9
+
+# Pointers: pays for each write and needs a never-written owner the daemon
+# holds the key for, so it runs only when asked for. ANTD_BASE_URL overrides
+# the daemon URL (default http://localhost:8082).
+ANTD_POINTER_OWNER=<hex> ./gradlew :examples:run --args="8"
+```
+
+Example 9 (manifests) is not part of `all`: it needs the antd release after 0.15.0. It uploads two small public blobs (each pays), then builds and decodes a manifest of them for free. Run it by number; `ANTD_BASE_URL` overrides the daemon URL (default `http://localhost:8082`):
+
+```bash
+./gradlew :examples:run --args="9"
 ```
 
 ## Building
@@ -149,8 +256,9 @@ antd-kotlin/
 │       ├── AntdRestClient.kt     # REST implementation
 │       ├── AntdGrpcClient.kt     # gRPC implementation
 │       ├── Models.kt             # Data classes
+│       ├── Manifests.kt          # Manifest types and wire mapping
 │       └── Exceptions.kt         # Exception hierarchy
-├── examples/                     # 6 runnable examples
+├── examples/                     # 8 runnable examples
 ├── build.gradle.kts              # Root build config
 └── settings.gradle.kts
 ```

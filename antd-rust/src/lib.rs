@@ -25,6 +25,7 @@ pub mod client;
 pub mod discover;
 pub mod errors;
 pub mod grpc_client;
+pub mod manifests;
 pub mod models;
 pub mod range;
 
@@ -34,9 +35,15 @@ mod tests;
 #[cfg(test)]
 mod grpc_tests;
 
+#[cfg(test)]
+mod manifest_tests;
+
 pub use client::{Client, DEFAULT_BASE_URL, DEFAULT_TIMEOUT};
 pub use discover::{discover_daemon_url, discover_grpc_target};
 pub use errors::AntdError;
 pub use grpc_client::{GrpcClient, DEFAULT_GRPC_ENDPOINT, DEFAULT_MAX_RECV_MESSAGE_BYTES};
+pub use manifests::{
+    BuildManifestOptions, BuiltManifest, DecodedManifest, ManifestEntryInfo, ManifestEntryInput,
+};
 pub use models::*;
 pub use range::RangeStream;

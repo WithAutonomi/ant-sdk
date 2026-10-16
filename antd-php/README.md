@@ -92,6 +92,108 @@ $client = new AntdClient('http://localhost:8082', 300.0, $myGuzzleClient);
 | `fileGetPublic(string $address, string $destPath)` | Download a public file by address |
 | `fileCost(string $path, bool $isPublic, string $paymentMode = 'auto')` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
+### Pointers
+
+A pointer is a small, owner-signed, mutable reference. Its address is derived from the owner's
+key and never changes; what it points at (a chunk, such as public data's data map, or another
+pointer) can be changed by the owner, and the owner can hand it over to another pointer for
+good. The daemon holds the owner keys, loaded at startup with `antd --pointer-keys <file-or-dir>`
+(files in the format `ant pointer keygen` writes), so every write names the pointer by its
+address (`$owner`), never by a key. An owner the daemon holds no key for is a `BadRequestError`.
+The pointer methods need the first antd release with pointers (after 0.15.0).
+
+**Every write pays** (about the price of one chunk), and every attempt pays again. The client
+never retries `pointerCreate`, `pointerUpdate`, `pointerTransfer` or `pointerFinalize`, and you
+should not retry them automatically either. Reads are free to retry: a `CloseGroupShortfallError`
+on a read usually clears once an update in flight settles.
+
+**Counters are strings.** A pointer counter is an unsigned 64-bit integer and a final state (a
+transfer) sits at 2^64 − 1, past PHP's signed `int`. The SDK keeps every counter as a validated,
+canonical decimal string (digits only, within the u64 range; `PointerCounter::FINAL` is
+`"18446744073709551615"`) and needs neither GMP nor BCMath. A counter that is not a decimal u64
+string throws `\UnexpectedValueException`; it never reads as `0`.
+
+| Method | Description |
+|--------|-------------|
+| `pointerKeys()` | Addresses of the pointers this daemon holds owner keys for, so can write |
+| `pointerCreate(string $owner, string $target, ?PointerTargetKind $kind = null)` | Create a pointer, paid by the daemon wallet — returns `PointerWriteResult` (`address`, `stateId`, `counter`). `AlreadyExistsError` if it exists, refused before paying |
+| `pointerUpdate(string $owner, string $target, ?PointerTargetKind $kind = null)` | Point a pointer at a new target, paid by the daemon wallet; creates it if it does not exist. `$kind` is `PointerTargetKind::Chunk` (the daemon's default) or `PointerTargetKind::Pointer` (a forwarding the owner can still change). `PointerFinalError` once transferred |
+| `pointerTransfer(string $owner, string $recipient)` | Hand a pointer over for good to the recipient's pointer, which must exist. Irreversible. Returns `PointerTransferResult` with the close group's `finality` (null, with `finalityError`, if that check failed; the transfer still stands) |
+| `pointerGet(string $address)` | Read a pointer — returns `PointerRecord` (`counter`, `target`, `kind`/`kindTag`, `isFinal`, `transferredTo`, the owner's public key). `NotFoundError` if there is none |
+| `pointerResolve(string $address)` | Follow a chain of pointers (forwardings and transfers) to the target at its end — returns `PointerTarget` |
+| `pointerFinality(string $address)` | Ask the whole close group where a pointer stands — returns `PointerFinality` with a `PointerFinalityStatus` of `Open`, `Settling`, `Unconfirmed`, `Final`, `Forked` or `Unknown` (a newer daemon's status; `rawStatus` keeps the string). Check `isFinal()` before relying on a transfer |
+| `pointerController(string $address)` | Follow transfers to the pointer whose owner now decides — returns `PointerController` |
+| `pointerPrepare(PointerPrepareRequest $request)` | External signer: the daemon signs `PointerPrepareRequest::create()`, `::update()` or `::transfer()` with its key and quotes it — returns `PointerPrepareResult` (wave-batch `payments` for `payForQuotes()`). Needs no daemon wallet. Other writes to the pointer throw `ConflictError` until it is finalized or expires |
+| `pointerFinalize(string $uploadId, array $txHashes)` | External signer: store the prepared write once paid — returns `PointerFinalizeResult`. A write that falls short after payment throws `CloseGroupShortfallError` with `retryable === true`: repeat the same call (same `$uploadId`) to store it against the same payment |
+
+Every pointer method has an `Async` variant too.
+
+```php
+use Autonomi\Antd\Models\PointerTargetKind;
+
+$owner = $client->pointerKeys()[0];
+$first = $client->dataPutPublic('version one')->address;
+$second = $client->dataPutPublic('version two')->address;
+
+$client->pointerCreate($owner, $first, PointerTargetKind::Chunk);   // pays
+$client->pointerUpdate($owner, $second, PointerTargetKind::Chunk);  // pays again
+
+$target = $client->pointerResolve($owner)->target;                  // === $second
+echo $client->dataGetPublic($target), "\n";                          // "version two"
+echo $client->pointerFinality($owner)->rawStatus, "\n";              // "open"
+
+### Manifests
+
+A manifest (ADR-0006) is one `.ant` file, or an `ant://manifest/` link when it is small enough,
+that describes a set of files. Each entry has an optional path and size and either an embedded
+DataMap or a public DataMap address. The daemon builds and decodes them, so you never handle the
+format. An embedded entry carries a private upload's DataMap, the key to that file: anyone with
+the manifest or its link can read it. The manifest methods need the antd release after 0.15.0.
+
+**Nothing is uploaded or paid for.** Build a manifest from the DataMaps and addresses your
+uploads already returned. Building (with root embedding, the default) and a resolving decode
+read from the network, so they can time out; retrying any of these calls is safe.
+
+| Method | Description |
+|--------|-------------|
+| `buildManifest(array $entries, ?BuildManifestOptions $options = null)` | Build a manifest from `ManifestEntryInput`s — returns `BuiltManifest` (`manifest`: the raw `.ant` bytes; `link`: null when it would exceed 1,500 bytes; `entries`). Each entry sets exactly one of `dataMap` or `address`: both or neither throws `BadRequestError` (400, worded as the daemon words its own) before anything is sent. `BuildManifestOptions` takes `name`, `torrentInfoHashes` and `embedRoots` (default `true`: a shrunk DataMap's root is resolved and embedded when it is at most 64 KiB; `false` embeds DataMaps exactly as given) |
+| `decodeManifest(string $manifest, bool $resolve = false)` | Decode raw `.ant` bytes — returns `DecodedManifest` (`source`, `name`, `torrentInfoHashV1`, `torrentInfoHashV2`, `entries`) |
+| `decodeManifestLink(string $link, bool $resolve = false)` | Decode an `ant://` manifest link, file link or bare address. A file link or address reads as `source: "file_link"` with one public entry and no path |
+
+Every entry comes back as a `ManifestEntryInfo`: `effectiveName` (the path, or the content
+address when there is none), `path`, `size` (the size the creator recorded), `kind`
+(`"embedded"` or `"public"`), `contentAddress`, `dataMap` (decode only; null for public
+entries), `exactSize` and `error`. With `$resolve` the daemon fetches each entry's DataMap to
+report `exactSize`; one entry's failure lands in its `error` instead of failing the call.
+
+**Sizes are ints, and unset is `null`.** `size` and `exactSize` are `?int`: an unset size reads
+as `null`, never `0`, and a `null` size on a `ManifestEntryInput` is left out of the request.
+The `.ant` bytes are plain PHP strings both ways; the base64 the REST API carries them in never
+reaches you. An entry the daemon refuses (bad hex, a path such as `../x`, two entries with one
+name) is a `BadRequestError` whose message names each `entries[i]`.
+
+Every manifest method has an `Async` variant too.
+
+```php
+use Autonomi\Antd\Models\BuildManifestOptions;
+use Autonomi\Antd\Models\ManifestEntryInput;
+
+$public = $client->dataPutPublic('first file')->address;    // pays
+$private = $client->dataPut('second file')->dataMap;        // pays
+
+$built = $client->buildManifest([                           // free
+    new ManifestEntryInput(path: 'notes/one.txt', address: $public),
+    new ManifestEntryInput(path: 'notes/two.txt', dataMap: $private),
+], new BuildManifestOptions(name: 'notes'));
+
+file_put_contents('notes.ant', $built->manifest);           // raw .ant bytes
+echo $built->link, "\n";                                    // ant://manifest/... (null if too long)
+
+foreach ($client->decodeManifest($built->manifest, resolve: true)->entries as $entry) {
+    echo "{$entry->effectiveName}: {$entry->exactSize} bytes\n";
+}
+```
+
 ## Async Usage
 
 Every method has an `Async` variant that returns a `GuzzleHttp\Promise\PromiseInterface` instead of blocking. This lets you fire off multiple requests concurrently and wait for results when you need them.
@@ -184,11 +286,21 @@ try {
 | `PaymentError` | 402 | Insufficient funds |
 | `NotFoundError` | 404 | Resource not found |
 | `AlreadyExistsError` | 409 | Resource exists |
-| `ForkError` | 409 | Version conflict |
+| `ForkError` | 409 | Version conflict; a pointer whose owner signed two final states with no majority on either (`code: "POINTER_FORKED"`) |
+| `PointerFinalError` | 409 | The pointer was transferred or frozen; nothing can change it (`code: "POINTER_FINAL"`) |
+| `ConflictError` | 409 | A pointer write while a prepared write to it awaits payment (`code: "CONFLICT"`) |
 | `TooLargeError` | 413 | Payload too large |
 | `InternalError` | 500 | Server error |
 | `NetworkError` | 502 | Network unreachable |
 | `PartialUploadError` | 502 | A finalize stored only part of the upload (`code: "PARTIAL_UPLOAD"`; extends `NetworkError`) |
+| `ServiceUnavailableError` | 503 | The daemon lacks a dependency, such as a wallet |
+| `CloseGroupShortfallError` | 503 | Too few of the close group answered or stored (`code: "CLOSE_GROUP_SHORTFALL"`); `retryable` is `true` only for a pointer finalize that kept the paid state |
+
+The 409s and 503s above are told apart by the error body's `code`: `POINTER_FINAL`,
+`POINTER_FORKED` and `CONFLICT` never read as `AlreadyExistsError`, and `CLOSE_GROUP_SHORTFALL`
+never reads as `ServiceUnavailableError` (all three new classes extend `AntdError` directly).
+`CLOSE_GROUP_SHORTFALL` is not only for pointers: a daemon with the pointer API reports a close
+group that fell short on any call this way, where an older daemon sent a 500 (`InternalError`).
 
 ### Partial uploads
 
@@ -253,6 +365,13 @@ See the [examples/](examples/) directory:
 - `04-files.php` — File and directory upload/download
 - `06-private-data.php` — Private encrypted data
 - `07-external-signer.php` — External-signer flow with a bounded partial-upload retry
+- `08-pointers.php` — Create, update, resolve and check the finality of a pointer
+  (`ANTD_POINTER_OWNER=<address> php examples/08-pointers.php`; set `ANTD_BASE_URL` for a daemon
+  other than `http://localhost:8082`). Each run pays for its pointer writes.
+
+- `09-manifests.php` — Build a manifest of two public uploads, print its link, and decode it
+  with resolved sizes (`php examples/09-manifests.php`; set `ANTD_BASE_URL` for a daemon other
+  than `http://localhost:8082`). Each run pays for its two uploads; the manifest calls are free.
 
 ## Versioning and releases
 
