@@ -1,0 +1,109 @@
+syntax = "proto3";
+
+package antd.v1;
+
+option csharp_namespace = "Antd.V1";
+option go_package = "github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1;v1";
+
+// ADR-0006 file manifests: `.ant` files and `ant://` links (V2-1570).
+//
+// Stateless. The format, content addresses, link encoding and portable path
+// rules all come from ant-core, so callers never re-implement them. The
+// network is touched only to resolve DataMaps: the embedding policy on
+// Build, and `resolve` on Decode.
+//
+// Both calls are unary. A manifest is one document of at most 64 MiB that is
+// produced and parsed whole, so the server accepts requests up to 100 MiB
+// (the REST body limit); clients receiving a large manifest must raise their
+// receive limit (antd-go does this per call).
+service ManifestService {
+  // Build a manifest from DataMaps and public addresses already in hand.
+  // Nothing is uploaded or paid for.
+  rpc Build(BuildManifestRequest) returns (BuildManifestResponse);
+  // Decode `.ant` bytes, a manifest link, a file link or a bare address.
+  rpc Decode(DecodeManifestRequest) returns (DecodeManifestResponse);
+}
+
+// One file. Exactly one of `data_map` or `address`.
+message ManifestEntryInput {
+  // Relative path, subject to the portable path rules. Unset or empty: the
+  // entry extracts under its content address.
+  optional string path = 1;
+  // Plaintext size to record, as given (the creator's claim). Unset: none is
+  // recorded; readers take the exact size from an embedded root DataMap.
+  optional uint64 size = 2;
+  oneof source {
+    // Hex DataMap, in the form the upload routes return. Embedded.
+    string data_map = 3;
+    // Hex address (32 bytes) of a public file's DataMap.
+    string address = 4;
+  }
+}
+
+message BuildManifestRequest {
+  // Suggested root directory name (one portable path component).
+  optional string name = 1;
+  // BitTorrent info hashes of the same files: hex, 40 characters for v1
+  // and/or 64 for v2.
+  repeated string torrent_info_hashes = 2;
+  // Resolve shrunk DataMaps and embed the root when it is at most 64 KiB as
+  // written (ADR-0006's policy); fetches wrapper records. Unset: true.
+  optional bool embed_roots = 3;
+  repeated ManifestEntryInput entries = 4;
+}
+
+// What a manifest says about one entry.
+message ManifestEntryInfo {
+  // `path`, or the content address in hex when there is none.
+  string effective_name = 1;
+  optional string path = 2;
+  // The size recorded in the manifest: the creator's claim.
+  optional uint64 size = 3;
+  // "embedded" or "public".
+  string kind = 4;
+  // Hex. The file's public DataMap address, whether or not it was ever made
+  // public; the same for private and public uploads of one file.
+  string content_address = 5;
+  // The embedded DataMap in the hex form the download routes accept.
+  // Decode only; empty for public entries.
+  string data_map = 6;
+  // Exact plaintext size: from an embedded root DataMap, or after `resolve`.
+  optional uint64 exact_size = 7;
+  // Why `resolve` failed for this entry. Empty when it didn't.
+  string error = 8;
+}
+
+message BuildManifestResponse {
+  // The `.ant` bytes.
+  bytes manifest = 1;
+  // The `ant://manifest/` link, only when it fits the recommended 1,500
+  // bytes. Empty otherwise.
+  string link = 2;
+  // In encoded order (sorted by effective name).
+  repeated ManifestEntryInfo entries = 3;
+}
+
+message DecodeManifestRequest {
+  oneof input {
+    // `.ant` bytes.
+    bytes manifest = 1;
+    // An `ant://` manifest link, file link, or bare 64-hex address.
+    string link = 2;
+  }
+  // Fetch each entry's DataMap (and wrapper records) to report exact sizes
+  // and confirm the DataMap is on the network. Content chunks are not
+  // fetched. One entry's failure is reported in its `error`, not as a
+  // failed call.
+  bool resolve = 3;
+}
+
+message DecodeManifestResponse {
+  // "manifest", or "file_link" for a file link or bare address (reported as
+  // one public entry with no path).
+  string source = 1;
+  optional string name = 2;
+  // Hex; empty when absent.
+  string torrent_info_hash_v1 = 3;
+  string torrent_info_hash_v2 = 4;
+  repeated ManifestEntryInfo entries = 5;
+}

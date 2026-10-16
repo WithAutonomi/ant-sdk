@@ -385,6 +385,44 @@ class AntdGrpcClient internal constructor(
             resp.estimatedGasCostWei, resp.paymentMode)
     }
 
+    // ── Manifests ──
+    //
+    // ManifestService mirrors REST /v1/manifests; see IAntdClient for the
+    // contract and Manifests.kt for the proto mapping. The `.ant` bytes are
+    // raw `bytes` here. A manifest can be 64 MiB and grpc-java receives 4 MiB
+    // by default, so this stub alone raises both limits to
+    // MAX_MANIFEST_GRPC_MESSAGE (every call made on it carries them); the
+    // other services keep the defaults. Requires the antd release after 0.15.0.
+
+    internal val manifestStub = ManifestServiceGrpcKt.ManifestServiceCoroutineStub(channel)
+        .withMaxInboundMessageSize(MAX_MANIFEST_GRPC_MESSAGE)
+        .withMaxOutboundMessageSize(MAX_MANIFEST_GRPC_MESSAGE)
+
+    override suspend fun buildManifest(entries: List<ManifestEntryInput>, options: BuildManifestOptions): BuiltManifest {
+        checkManifestEntries(entries)
+        return grpc { manifestStub.build(buildManifestRequestOf(entries, options)).toBuiltManifest() }
+    }
+
+    override suspend fun decodeManifest(manifest: ByteArray, resolve: Boolean): DecodedManifest {
+        checkManifestBytes(manifest)
+        return grpc {
+            manifestStub.decode(decodeManifestRequest {
+                this.manifest = ByteString.copyFrom(manifest)
+                this.resolve = resolve
+            }).toDecodedManifest()
+        }
+    }
+
+    override suspend fun decodeManifestLink(link: String, resolve: Boolean): DecodedManifest {
+        checkManifestLink(link)
+        return grpc {
+            manifestStub.decode(decodeManifestRequest {
+                this.link = link
+                this.resolve = resolve
+            }).toDecodedManifest()
+        }
+    }
+
     // ── Wallet ──
 
     // Parity with REST wallet surface. A missing daemon wallet emits gRPC
