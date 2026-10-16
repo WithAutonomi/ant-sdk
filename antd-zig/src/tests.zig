@@ -4,6 +4,13 @@ const models = @import("models.zig");
 const errors = @import("errors.zig");
 const json_helpers = @import("json_helpers.zig");
 
+// Manifest API: the Client against a mock daemon, and a live round trip that
+// runs only when ANTD_TEST_URL and ANTD_TEST_MANIFEST_ADDRESSES are set.
+test {
+    _ = @import("manifest_tests.zig");
+    _ = @import("live_manifests_test.zig");
+}
+
 // =============================================================================
 // Error mapping tests
 // =============================================================================
