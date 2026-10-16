@@ -15,6 +15,9 @@ fun main(args: Array<String>) = runBlocking {
         "4" -> example04Files()
         "6" -> example06PrivateData()
         "7" -> example07ExternalSigner()
+        // Needs the antd release after 0.15.0, so it runs only when asked for
+        // by number, never as part of "all".
+        "9" -> example09Manifests()
         "all" -> {
             example01Connect()
             example02Data()
@@ -23,7 +26,7 @@ fun main(args: Array<String>) = runBlocking {
             example06PrivateData()
             example07ExternalSigner()
         }
-        else -> println("Unknown example: $example. Use 1-7 or 'all'.")
+        else -> println("Unknown example: $example. Use 1-7, 9 or 'all' (which skips 9).")
     }
 }
 
