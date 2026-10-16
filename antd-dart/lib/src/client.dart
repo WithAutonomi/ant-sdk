@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import 'discover.dart';
 import 'errors.dart';
+import 'manifests.dart';
 import 'models.dart';
 
 /// Default base URL for the antd daemon.
@@ -478,6 +479,93 @@ class AntdClient {
       'payment_mode': paymentMode.wire,
     });
     return UploadCostEstimate.fromJson(json!);
+  }
+
+  // --- Manifests ---
+  //
+  // ADR-0006 `.ant` manifests and `ant://` links. Nothing is uploaded or
+  // paid for. REST carries the `.ant` bytes as base64; these methods take
+  // and return raw bytes.
+
+  /// Builds a `.ant` manifest from DataMaps and public addresses already in
+  /// hand, via `POST /v1/manifests/build`. Nothing is uploaded or paid for.
+  ///
+  /// Each entry needs exactly one of `dataMap` or `address`; an entry with
+  /// both or neither throws a [BadRequestError] before anything is sent. The
+  /// daemon checks the rest (hex, paths, sizes) and names every invalid
+  /// entry (`entries[i]: ...`) in a [BadRequestError].
+  ///
+  /// [name] is a suggested root directory name (one portable path
+  /// component). [torrentInfoHashes] are BitTorrent info hashes of the same
+  /// files: hex, 40 characters for v1 and/or 64 for v2. With [embedRoots]
+  /// (the default) the daemon resolves each shrunk DataMap's root, fetching
+  /// its wrapper records, and embeds the root when it is at most 64 KiB, so
+  /// recipients skip that fetch (ADR-0006's policy); `false` embeds shrunk
+  /// DataMaps exactly as given. That resolution reads from the network, so
+  /// the call can time out; it is safe to retry.
+  ///
+  /// Requires the antd release after 0.15.0.
+  Future<BuiltManifest> buildManifest(
+    List<ManifestEntryInput> entries, {
+    String? name,
+    List<String>? torrentInfoHashes,
+    bool embedRoots = true,
+  }) async {
+    checkManifestEntries(entries);
+    final json = await _doJson('POST', '/v1/manifests/build', {
+      'entries': [for (final e in entries) e.toJson()],
+      'embed_roots': embedRoots,
+      if (name != null && name.isNotEmpty) 'name': name,
+      if (torrentInfoHashes != null && torrentInfoHashes.isNotEmpty)
+        'torrent_info_hashes': torrentInfoHashes,
+    });
+    return BuiltManifest.fromJson(json!);
+  }
+
+  /// Decodes `.ant` bytes via `POST /v1/manifests/decode`. Nothing is
+  /// uploaded or paid for.
+  ///
+  /// With [resolve], the daemon fetches each entry's DataMap (and wrapper
+  /// records) to report [ManifestEntryInfo.exactSize] and confirm the
+  /// DataMap is on the network; content chunks are not fetched, and one
+  /// entry's failure is reported in its [ManifestEntryInfo.error], not as a
+  /// failed call. Resolving reads from the network, so the call can time
+  /// out; it is safe to retry. Bytes that are not a manifest throw
+  /// [BadRequestError].
+  ///
+  /// Requires the antd release after 0.15.0.
+  Future<DecodedManifest> decodeManifest(
+    Uint8List manifest, {
+    bool resolve = false,
+  }) async {
+    if (manifest.isEmpty) {
+      throw const BadRequestError(manifestDecodeEmptyMessage);
+    }
+    final json = await _doJson('POST', '/v1/manifests/decode', {
+      'manifest': _b64Encode(manifest),
+      'resolve': resolve,
+    });
+    return DecodedManifest.fromJson(json!);
+  }
+
+  /// Decodes an `ant://` manifest link, file link or bare 64-hex address via
+  /// `POST /v1/manifests/decode`. A file link or bare address reads as
+  /// [DecodedManifest.source] `"file_link"`: one public entry with no path.
+  /// See [decodeManifest] for [resolve].
+  ///
+  /// Requires the antd release after 0.15.0.
+  Future<DecodedManifest> decodeManifestLink(
+    String link, {
+    bool resolve = false,
+  }) async {
+    if (link.isEmpty) {
+      throw const BadRequestError(manifestDecodeEmptyMessage);
+    }
+    final json = await _doJson('POST', '/v1/manifests/decode', {
+      'link': link,
+      'resolve': resolve,
+    });
+    return DecodedManifest.fromJson(json!);
   }
 
   // --- Wallet ---

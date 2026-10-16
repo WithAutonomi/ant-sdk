@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:fixnum/fixnum.dart';
 import 'package:grpc/grpc.dart';
 
 // Proto-generated Dart stubs — produced by `protoc` with the `dart` plugin.
@@ -12,6 +13,8 @@ import 'generated/antd/v1/chunks.pbgrpc.dart' as chunks_pb;
 import 'generated/antd/v1/chunks.pb.dart' as chunks_msg;
 import 'generated/antd/v1/files.pbgrpc.dart' as files_pb;
 import 'generated/antd/v1/files.pb.dart' as files_msg;
+import 'generated/antd/v1/manifests.pbgrpc.dart' as manifests_pb;
+import 'generated/antd/v1/manifests.pb.dart' as manifests_msg;
 import 'generated/antd/v1/upload.pbgrpc.dart' as upload_pb;
 import 'generated/antd/v1/upload.pb.dart' as upload_msg;
 import 'generated/antd/v1/wallet.pbgrpc.dart' as wallet_pb;
@@ -19,6 +22,7 @@ import 'generated/antd/v1/wallet.pb.dart' as wallet_msg;
 
 import 'discover.dart';
 import 'errors.dart';
+import 'manifests.dart';
 import 'models.dart';
 
 /// gRPC client for the antd daemon.
@@ -528,6 +532,139 @@ class GrpcAntdClient {
     } on GrpcError catch (e) {
       _handleError(e);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Manifests
+  // ---------------------------------------------------------------------------
+  //
+  // ManifestService: the same methods and types as the REST AntdClient's
+  // manifest methods. Nothing is uploaded or paid for. gRPC carries the
+  // `.ant` bytes raw.
+  //
+  // Message size: a manifest can be 64 MiB, so Build's response and
+  // Decode's request can pass the 4 MiB default other gRPC stacks enforce
+  // (antd-go raises its receive limit per call). grpc-dart enforces no
+  // message size limit in either direction (its frame decoder takes the
+  // length each message header gives) and has no CallOptions or
+  // ChannelOptions setting for one, so there is nothing to raise here; the
+  // daemon accepts manifest requests up to 100 MiB. A test sends and
+  // receives an 8 MiB manifest to keep that true.
+
+  /// ManifestService, on the client's own channel.
+  late final manifests_pb.ManifestServiceClient _manifestStub =
+      manifests_pb.ManifestServiceClient(_channel);
+
+  /// Builds a `.ant` manifest from DataMaps and public addresses already in
+  /// hand. Nothing is uploaded or paid for. See [AntdClient.buildManifest].
+  ///
+  /// An entry with both or neither of `dataMap` and `address` throws
+  /// [BadRequestError] before anything is sent; the daemon's INVALID_ARGUMENT
+  /// for the rest (naming `entries[i]`) is a [BadRequestError].
+  ///
+  /// Requires the antd release after 0.15.0.
+  Future<BuiltManifest> buildManifest(
+    List<ManifestEntryInput> entries, {
+    String? name,
+    List<String>? torrentInfoHashes,
+    bool embedRoots = true,
+  }) async {
+    checkManifestEntries(entries);
+    final req = manifests_msg.BuildManifestRequest()..embedRoots = embedRoots;
+    if (name != null && name.isNotEmpty) req.name = name;
+    if (torrentInfoHashes != null) {
+      req.torrentInfoHashes.addAll(torrentInfoHashes);
+    }
+    for (final e in entries) {
+      final entry = manifests_msg.ManifestEntryInput();
+      final path = e.path;
+      if (path != null && path.isNotEmpty) entry.path = path;
+      final size = e.size;
+      if (size != null) entry.size = Int64(size);
+      final dataMap = e.dataMap;
+      if (dataMap != null && dataMap.isNotEmpty) {
+        entry.dataMap = dataMap;
+      } else {
+        entry.address = e.address!;
+      }
+      req.entries.add(entry);
+    }
+    try {
+      final resp = await _manifestStub.build(req);
+      return BuiltManifest(
+        manifest: Uint8List.fromList(resp.manifest),
+        link: resp.link.isEmpty ? null : resp.link,
+        entries: resp.entries.map(_manifestEntryInfo).toList(),
+      );
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
+  /// Decodes `.ant` bytes. Nothing is uploaded or paid for. See
+  /// [AntdClient.decodeManifest] for [resolve].
+  ///
+  /// Requires the antd release after 0.15.0.
+  Future<DecodedManifest> decodeManifest(
+    Uint8List manifest, {
+    bool resolve = false,
+  }) async {
+    if (manifest.isEmpty) {
+      throw const BadRequestError(manifestDecodeEmptyMessage);
+    }
+    return _decodeManifest(manifests_msg.DecodeManifestRequest()
+      ..manifest = manifest
+      ..resolve = resolve);
+  }
+
+  /// Decodes an `ant://` manifest link, file link or bare 64-hex address.
+  /// See [AntdClient.decodeManifestLink].
+  ///
+  /// Requires the antd release after 0.15.0.
+  Future<DecodedManifest> decodeManifestLink(
+    String link, {
+    bool resolve = false,
+  }) async {
+    if (link.isEmpty) {
+      throw const BadRequestError(manifestDecodeEmptyMessage);
+    }
+    return _decodeManifest(manifests_msg.DecodeManifestRequest()
+      ..link = link
+      ..resolve = resolve);
+  }
+
+  Future<DecodedManifest> _decodeManifest(
+      manifests_msg.DecodeManifestRequest req) async {
+    try {
+      final resp = await _manifestStub.decode(req);
+      return DecodedManifest(
+        source: resp.source,
+        name: resp.hasName() && resp.name.isNotEmpty ? resp.name : null,
+        torrentInfoHashV1:
+            resp.torrentInfoHashV1.isEmpty ? null : resp.torrentInfoHashV1,
+        torrentInfoHashV2:
+            resp.torrentInfoHashV2.isEmpty ? null : resp.torrentInfoHashV2,
+        entries: resp.entries.map(_manifestEntryInfo).toList(),
+      );
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
+  /// Maps a wire `ManifestEntryInfo`. The proto3 `optional` fields read as
+  /// null when absent, never as 0 or "": presence, not the value, decides.
+  static ManifestEntryInfo _manifestEntryInfo(
+      manifests_msg.ManifestEntryInfo e) {
+    return ManifestEntryInfo(
+      effectiveName: e.effectiveName,
+      path: e.hasPath() && e.path.isNotEmpty ? e.path : null,
+      size: e.hasSize() ? e.size.toInt() : null,
+      kind: e.kind,
+      contentAddress: e.contentAddress,
+      dataMap: e.dataMap.isEmpty ? null : e.dataMap,
+      exactSize: e.hasExactSize() ? e.exactSize.toInt() : null,
+      error: e.error.isEmpty ? null : e.error,
+    );
   }
 
   // --- External Signer (chunks) ---
