@@ -122,6 +122,32 @@ try await client.fileDownloadPublic(address: result.address, destPath: "/path/to
 let est = try await client.fileCost(path: "/path/to/file.txt")
 ```
 
+## Pointers
+
+A pointer is an owner-signed address you can move to new data. antd signs with the owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so `owner` is the pointer's address, never a key. Every create, update and transfer pays (about the price of one chunk) and is never retried; reads are free. A transfer hands the pointer over to another pointer for good. Needs the first antd release with pointers (after 0.15.0). Walk-through: [Tutorial: Point at a Public File and Update It](tutorial-pointers.md).
+
+```swift
+let owner = try await client.pointerKeys()[0].address   // a pointer antd can write
+
+let v1 = try await client.dataPutPublic(Data("version 1".utf8), paymentMode: .auto)
+let v2 = try await client.dataPutPublic(Data("version 2".utf8), paymentMode: .auto)
+
+_ = try await client.pointerCreate(owner: owner, target: v1.address, kind: .chunk)  // pays; counter 0
+_ = try await client.pointerUpdate(owner: owner, target: v2.address, kind: .chunk)  // pays again; counter 1
+let target = try await client.pointerResolve(address: owner)    // target.target == v2.address (free)
+
+let finality = try await client.pointerFinality(address: owner) // free
+print(finality.status.wire)                                     // "open"
+```
+
+Counters are `UInt64`. `pointerTransfer`, `pointerGet`, `pointerController`, `pointerPrepare` and `pointerFinalize` complete the set, on both clients.
+
+Runnable example: the `pointers` example in `antd-swift/Sources/AntdExamples/Main.swift`. Set `ANTD_POINTER_OWNER` to an address the daemon holds a key for, one it has not written yet (each run creates the pointer and pays for its writes), and `ANTD_BASE_URL` for a daemon other than `http://localhost:8082`:
+
+```bash
+cd antd-swift
+ANTD_POINTER_OWNER=<address> swift run AntdExamples pointers
+```
 
 ## Error Handling
 

@@ -99,6 +99,32 @@ IO.puts("File address: #{result.address}")
 {:ok, est} = Antd.Client.file_cost(client, "/path/to/file.txt")
 ```
 
+## Pointers
+
+A pointer is an owner-signed address you can move to new data. antd signs with the owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so `owner` is the pointer's address, never a key. Every create, update and transfer pays (about the price of one chunk) and is never retried; reads are free. A transfer hands the pointer over to another pointer for good. Needs the first antd release with pointers (after 0.15.0). Walk-through: [Tutorial: Point at a Public File and Update It](tutorial-pointers.md).
+
+```elixir
+{:ok, [owner | _]} = Antd.Client.pointer_keys(client)   # a pointer antd can write
+
+{:ok, v1} = Antd.Client.data_put_public(client, "version 1")
+{:ok, v2} = Antd.Client.data_put_public(client, "version 2")
+
+{:ok, _} = Antd.Client.pointer_create(client, owner, v1.address)   # pays; counter 0
+{:ok, _} = Antd.Client.pointer_update(client, owner, v2.address)   # pays again; counter 1
+{:ok, target} = Antd.Client.pointer_resolve(client, owner)         # target.target == v2.address (free)
+
+{:ok, finality} = Antd.Client.pointer_finality(client, owner)      # free
+IO.inspect(finality.status)                                        # :open
+```
+
+Counters are integers. Every function has a `!` variant, and `Antd.GrpcClient` has the same set. `pointer_transfer`, `pointer_get`, `pointer_controller`, `pointer_prepare` and `pointer_finalize` complete it.
+
+Runnable example: `antd-elixir/examples/08_pointers.exs`. Set `ANTD_POINTER_OWNER` to an address the daemon holds a key for, one it has not written yet (each run creates the pointer and pays for its writes), and `ANTD_BASE_URL` for a daemon other than `http://localhost:8082`:
+
+```bash
+cd antd-elixir/examples
+ANTD_POINTER_OWNER=<address> elixir 08_pointers.exs
+```
 
 ## Error Handling
 

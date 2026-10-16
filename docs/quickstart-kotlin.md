@@ -115,6 +115,32 @@ client.fileDownloadPublic(result.address, "/path/to/output.txt")
 val est = client.fileCost("/path/to/file.txt")
 ```
 
+## Pointers
+
+A pointer is an owner-signed address you can move to new data. antd signs with the owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so `owner` is the pointer's address, never a key. Every create, update and transfer pays (about the price of one chunk) and is never retried; reads are free. A transfer hands the pointer over to another pointer for good. Needs the first antd release with pointers (after 0.15.0). Walk-through: [Tutorial: Point at a Public File and Update It](tutorial-pointers.md).
+
+```kotlin
+val owner = client.pointerKeys().first()              // a pointer antd can write
+
+val v1 = client.dataPutPublic("version 1".toByteArray()).address
+val v2 = client.dataPutPublic("version 2".toByteArray()).address
+
+client.pointerCreate(owner, v1)                       // pays; counter 0
+client.pointerUpdate(owner, v2)                       // pays again; counter 1
+val target = client.pointerResolve(owner).target      // == v2 (free)
+
+val finality = client.pointerFinality(owner)          // free
+println(finality.status.wire)                         // "open"
+```
+
+Counters are `ULong`. `pointerTransfer`, `pointerGet`, `pointerController`, `pointerPrepare` and `pointerFinalize` complete the set, on both clients.
+
+Runnable example: `antd-kotlin/examples/src/main/kotlin/com/autonomi/examples/Example08Pointers.kt`. Set `ANTD_POINTER_OWNER` to an address the daemon holds a key for, one it has not written yet (each run creates the pointer and pays for its writes), and `ANTD_BASE_URL` for a daemon other than `http://localhost:8082`:
+
+```bash
+cd antd-kotlin
+ANTD_POINTER_OWNER=<address> ./gradlew :examples:run --args="8"
+```
 
 ## Error Handling
 

@@ -106,6 +106,32 @@ await client.FileDownloadPublicAsync(result.Address, "/path/to/output.txt");
 var est = await client.FileCostAsync("/path/to/file.txt");
 ```
 
+## Pointers
+
+A pointer is an owner-signed address you can move to new data. antd signs with the owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so `owner` is the pointer's address, never a key. Every create, update and transfer pays (about the price of one chunk) and is never retried; reads are free. A transfer hands the pointer over to another pointer for good. Needs the first antd release with pointers (after 0.15.0). Walk-through: [Tutorial: Point at a Public File and Update It](tutorial-pointers.md).
+
+```csharp
+var owner = (await client.PointerKeysAsync())[0];   // a pointer antd can write
+
+var v1 = await client.DataPutPublicAsync(Encoding.UTF8.GetBytes("version 1"));
+var v2 = await client.DataPutPublicAsync(Encoding.UTF8.GetBytes("version 2"));
+
+await client.PointerCreateAsync(owner, v1.Address);        // pays; counter 0
+await client.PointerUpdateAsync(owner, v2.Address);        // pays again; counter 1
+var target = await client.PointerResolveAsync(owner);      // target.Target == v2.Address (free)
+
+var finality = await client.PointerFinalityAsync(owner);   // free
+Console.WriteLine($"{finality.RawStatus}, counter {finality.Counter}");   // "open, counter 1"
+```
+
+Counters are `ulong`. Creating a pointer that exists is refused before paying: `ForkException` over REST, `AlreadyExistsException` over gRPC. `PointerTransferAsync`, `PointerGetAsync`, `PointerControllerAsync`, `PointerPrepareAsync` and `PointerFinalizeAsync` complete the set, on both clients.
+
+Runnable example: example 8 in `antd-csharp/Examples/Program.cs`. Set `ANTD_POINTER_OWNER` to an address the daemon holds a key for, one it has not written yet (each run creates the pointer and pays for its writes), and `ANTD_BASE_URL` for a daemon other than `http://localhost:8082`:
+
+```bash
+cd antd-csharp/Examples
+ANTD_POINTER_OWNER=<address> dotnet run -- 8
+```
 
 ## Error Handling
 
