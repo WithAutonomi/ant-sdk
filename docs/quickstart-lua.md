@@ -134,6 +134,36 @@ Error codes:
 | 500 | `internal` | Server error |
 | 502 | `network` | Network unreachable |
 
+## Manifests
+
+A manifest describes a set of files as one `ant://manifest/` link, or as a `.ant` file when the link would be too long. Each entry is either a public file's address or an embedded DataMap (the manifest is then the key to a private file), with an optional path. Building and decoding upload and pay for nothing: upload the files first, then describe them. Needs the antd release after 0.15.0. Walk-through: [Tutorial: Share a Set of Files as One Link](tutorial-manifests.md).
+
+```lua
+local one = assert(client:data_put_public("first file"))    -- pays
+local two = assert(client:data_put_public("second file"))   -- pays
+
+local built, err = client:build_manifest({                   -- free
+    { path = "notes/one.txt", address = one.address },
+    { path = "notes/two.txt", address = two.address },
+}, { name = "example" })
+if err then error(err.type .. ": " .. err.message) end
+print(built.link)                -- nil when over 1,500 bytes: share built.manifest (a string) instead
+
+local decoded = assert(client:decode_manifest_link(built.link, true))   -- free
+for _, e in ipairs(decoded.entries) do
+    print(e.effective_name, e.kind, e.exact_size, e.error)
+end
+```
+
+`client:decode_manifest(bytes, resolve)` takes raw `.ant` bytes. Use `data_map = ...` instead of `address = ...` for an embedded entry; `opts` may set `embed_roots = false`. An unset size is `nil`, never `0`.
+
+Runnable example: `antd-lua/examples/09-manifests.lua`. Its two uploads pay; the manifest calls do not.
+
+```bash
+cd antd-lua
+ANTD_BASE_URL=http://localhost:8082 lua examples/09-manifests.lua
+```
+
 ## Examples
 
 ```bash

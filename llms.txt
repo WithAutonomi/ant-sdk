@@ -82,6 +82,7 @@ data = client.data_get_public(result.address)
 | ChunkService | Get, Put | chunks.proto |
 | FileService | UploadPublic, DownloadPublic, GetFileCost | files.proto |
 | EventService | Subscribe | events.proto |
+| ManifestService | Build, Decode | manifests.proto |
 
 ## Error Codes
 
@@ -95,6 +96,18 @@ data = client.data_get_public(result.address)
 | 500 | INTERNAL | InternalError | Server error |
 | 502 | UNAVAILABLE | NetworkError | Network unreachable |
 | 503 | UNAVAILABLE | ServiceUnavailableError | Wallet not configured |
+
+## Manifests
+
+A manifest describes a set of files as one `ant://manifest/` link, or a `.ant` file when the link would pass 1,500 bytes. Each entry has an optional `path` and `size` and either an embedded DataMap (a private file: the manifest is its key) or a public file's address. Needs the antd release after 0.15.0.
+
+- **Nothing is uploaded or paid for.** Upload the files first (`POST /v1/data`, `POST /v1/data/public`, `POST /v1/files`, `POST /v1/files/public`), then build from the DataMaps and addresses they return. Build and decode read the network only to resolve DataMaps, so they can time out; retrying is safe.
+- `POST /v1/manifests/build`: `{"name", "embed_roots" (default true), "torrent_info_hashes", "entries": [{"path", "size", "data_map" | "address"}]}` returns `{"manifest": "<base64 .ant>", "link", "entries"}`. Exactly one of `data_map` or `address` per entry. `link` is omitted when it would pass 1,500 bytes.
+- `POST /v1/manifests/decode`: `{"manifest": "<base64>" | "link": "...", "resolve": false}` returns `{"source": "manifest" | "file_link", "name", "torrent_info_hash_v1", "torrent_info_hash_v2", "entries"}`. With `resolve`, each entry's `exact_size` is read from the network; one entry's failure is in its `error`, not a failed call. Embedded entries carry `data_map` (feed it to `POST /v1/data/get` or `POST /v1/files/get`); public entries use `content_address` with `GET /v1/data/public/{addr}` or `POST /v1/files/public/get`.
+- Entries come back sorted by `effective_name` (the path, or the content address when there is none). Unset sizes are omitted (REST) or `null`/`None` (SDKs), never `0`.
+- An invalid entry is a 400 `BAD_REQUEST` whose message names `entries[i]` (SDKs raise their bad-request error, also for the both-or-neither check they make before sending); there are no new error codes. Limits: 64 MiB and 100,000 entries per manifest.
+- Every SDK has `build_manifest`, `decode_manifest` and `decode_manifest_link`, cased per language (`buildManifest`, `BuildManifestAsync`, ...). The `.ant` bytes are always raw bytes in the SDK (base64 is only the REST wire form). Over gRPC in C++, C#, Dart, Elixir, Go, Java, Kotlin, Python, Ruby, Rust and Swift; JS/TS, Lua, PHP and Zig are REST only. The MCP server has `build_manifest` and `decode_manifest` tools.
+- Tutorial: [docs/tutorial-manifests.md](docs/tutorial-manifests.md). Runnable example in every SDK: `ant dev example manifests -l <language>`.
 
 ## Examples
 
