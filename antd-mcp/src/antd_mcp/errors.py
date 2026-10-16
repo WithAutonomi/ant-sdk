@@ -63,8 +63,10 @@ if PointerFinalError is not None:
     _CODE_MAP[PointerFinalError] = "POINTER_FINAL"
     _HINTS[PointerFinalError] = (
         "The pointer is final (transferred or frozen): nothing can update or "
-        "transfer it again. Nothing was paid. Do not retry; pointer_controller "
-        "shows the pointer that now decides what this address resolves to."
+        "transfer it again. Do not retry. This is usually refused before "
+        "paying, but a write that was already paid for when the network "
+        "refused it keeps that payment. pointer_controller shows the pointer "
+        "that now decides what this address resolves to."
     )
 if PointerForkedError is not None:
     _CODE_MAP[PointerForkedError] = "POINTER_FORKED"
@@ -75,12 +77,37 @@ if PointerForkedError is not None:
     )
 if ConflictError is not None:
     _CODE_MAP[ConflictError] = "CONFLICT"
-    _HINTS[ConflictError] = (
-        "Another write to this pointer is in the way: a prepared write awaits "
-        "payment (finalize it, or wait up to an hour for it to expire), or "
-        "this update lost to a newer state. Nothing was paid. Read the pointer "
-        "again with pointer_get before deciding whether to write."
-    )
+
+# CONFLICT covers two cases that differ in whether anything was paid: a write
+# refused, before paying, because a prepared write to the pointer awaits
+# payment; and an update that lost to a newer state while in flight, which may
+# already be paid for. The daemon's message says which; anything else gets the
+# hint that claims neither.
+_CONFLICT_PENDING_HINT = (
+    "A prepared write to this pointer awaits payment, so this write was "
+    "refused before paying. Finalize the prepared write with pointer_finalize, "
+    "or wait up to an hour for it to expire, then read the pointer with "
+    "pointer_get before writing."
+)
+_CONFLICT_MOVED_HINT = (
+    "This update lost to a newer state while it was in flight, so it may "
+    "already have been paid for. Do not repeat it automatically: read the "
+    "pointer with pointer_get, and ask the user before paying for another write."
+)
+_CONFLICT_HINT = (
+    "Another write to this pointer is in the way: either a prepared write "
+    "awaits payment (refused before paying) or this update lost to a newer "
+    "state (possibly after paying). Read the pointer with pointer_get, and ask "
+    "the user before paying for another write."
+)
+
+
+def _conflict_hint(message: str) -> str:
+    if "awaiting payment" in message:
+        return _CONFLICT_PENDING_HINT
+    if "moved while" in message:
+        return _CONFLICT_MOVED_HINT
+    return _CONFLICT_HINT
 if CloseGroupShortfallError is not None:
     _CODE_MAP[CloseGroupShortfallError] = "CLOSE_GROUP_SHORTFALL"
 
@@ -143,6 +170,8 @@ def format_error(exc: AntdError) -> dict:
     if CloseGroupShortfallError is not None and isinstance(exc, CloseGroupShortfallError):
         d["retryable"] = exc.retryable is True
         d["hint"] = _SHORTFALL_RETRYABLE_HINT if d["retryable"] else _SHORTFALL_HINT
+    elif ConflictError is not None and type(exc) is ConflictError:
+        d["hint"] = _conflict_hint(str(exc))
     elif type(exc) in _HINTS:
         d["hint"] = _HINTS[type(exc)]
     return d

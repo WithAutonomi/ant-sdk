@@ -116,7 +116,7 @@ A pointer is a small, owner-signed, mutable reference: its address never changes
 | 23 | `pointer_finality(address)` | Ask the whole close group where a pointer stands: `status` is `open`, `settling`, `unconfirmed`, `final`, `forked`, or `unknown` (daemon string in `raw_status`). Only `final` means a transfer is beyond dispute. Free. |
 | 24 | `pointer_controller(address)` | Follow transfers to the pointer whose owner now decides: `pointer`, `transfers`, `frozen`. Free. |
 | 25 | `pointer_create(owner, target, kind?)` | Create a pointer (`kind` `"chunk"`, the default, or `"pointer"`). **Pays** from the daemon wallet. `ALREADY_EXISTS` if it exists, refused before paying. |
-| 26 | `pointer_update(owner, target, kind?)` | Point a pointer at a new target; creates it if missing. **Pays** from the daemon wallet. `POINTER_FINAL` once transferred or frozen, refused before paying. |
+| 26 | `pointer_update(owner, target, kind?)` | Point a pointer at a new target; creates it if missing. **Pays** from the daemon wallet. `POINTER_FINAL` once transferred or frozen, usually refused before paying. |
 | 27 | `pointer_transfer(owner, recipient, confirm_irreversible?)` | **Irreversible.** Hand the pointer over to the recipient's pointer for good: it becomes final and its readers are sent on to the recipient. **Pays** from the daemon wallet. Refuses with `CONFIRMATION_REQUIRED`, sending nothing, unless `confirm_irreversible=true`. Returns the close group's `finality`. |
 | 28 | `pointer_prepare(owner, op, target?, kind?, recipient?)` | External signer: the daemon signs `op` (`"create"` / `"update"` with `target`, or `"transfer"` with `recipient`) and quotes it. Returns `upload_id`, `counter` and wave-batch `payments`. Pays nothing itself; other writes to the pointer get `CONFLICT` until it is finalized or expires (one hour). |
 | 29 | `pointer_finalize(upload_id, tx_hashes)` | External signer: store the prepared write after `payForQuotes()`. Returns `counter`, and `finality` for a transfer. |
@@ -208,9 +208,9 @@ The tool is also annotated `destructiveHint: true`, `idempotentHint: false` for 
 
 | `error` | HTTP | Meaning |
 |---------|------|---------|
-| `POINTER_FINAL` | 409 | The pointer is transferred or frozen; nothing can change it. Refused before paying. Do not retry. |
+| `POINTER_FINAL` | 409 | The pointer is transferred or frozen; nothing can change it. Usually refused before paying, but a write already paid for when the network refused it keeps that payment. Do not retry. |
 | `POINTER_FORKED` | 409 | The owner signed two different final states and no majority holds either. Do not retry. |
-| `CONFLICT` | 409 | A prepared write to the pointer awaits payment, or an update lost to a newer state. Nothing was paid. |
+| `CONFLICT` | 409 | A prepared write to the pointer awaits payment (refused before paying), or an update lost to a newer state while in flight (possibly after paying). The `hint` says which; read the pointer before paying for another write. |
 | `CLOSE_GROUP_SHORTFALL` | 503 | Too few of the close group answered or stored. Carries `retryable`. |
 
 `CLOSE_GROUP_SHORTFALL` with `retryable: true` comes only from `pointer_finalize`. It means **retry the finalize, the payment was kept**: call `pointer_finalize` again with the same `upload_id` and the daemon stores the paid state against the same payment, with no second payment. Bound the retries; the kept attempt expires after one hour.
