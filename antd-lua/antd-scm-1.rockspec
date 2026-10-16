@@ -29,5 +29,6 @@ build = {
         ["antd.errors"]   = "src/antd/errors.lua",
         ["antd.base64"]   = "src/antd/base64.lua",
         ["antd.discover"] = "src/antd/discover.lua",
+        ["antd.manifests"] = "src/antd/manifests.lua",
     },
 }
