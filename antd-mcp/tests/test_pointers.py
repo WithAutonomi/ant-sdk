@@ -516,8 +516,10 @@ async def test_pointer_final_error(mock_client):
 
     assert payload["error"] == "POINTER_FINAL"
     assert payload["status_code"] == 409
-    assert "Nothing was paid" in payload["hint"]
     assert "Do not retry" in payload["hint"]
+    # It may come after paying (the pointer became final in flight).
+    assert "nothing was paid" not in payload["hint"].lower()
+    assert "usually refused before paying" in payload["hint"]
     assert "retryable" not in payload
 
 
@@ -542,13 +544,49 @@ async def test_plain_fork_error_keeps_version_conflict(mock_client):
 
 
 @pytest.mark.asyncio
-async def test_conflict_error(mock_client):
-    mock_client.pointer_create.side_effect = ConflictError("Conflict: pending prepare", 409)
+async def test_conflict_with_a_prepared_write_was_refused_before_paying(mock_client):
+    mock_client.pointer_create.side_effect = ConflictError(
+        "Conflict: pointer aa has a prepared write awaiting payment (upload_id u); "
+        "finalize it, or wait for it to expire, before writing again",
+        409,
+    )
 
     payload = await _call("pointer_create", owner=OWNER, target=TARGET_1)
 
     assert payload["error"] == "CONFLICT"
-    assert "Nothing was paid" in payload["hint"]
+    assert "refused before paying" in payload["hint"]
+    assert "pointer_finalize" in payload["hint"]
+
+
+@pytest.mark.asyncio
+async def test_conflict_from_a_newer_state_does_not_claim_nothing_was_paid(mock_client):
+    # ant-core pays before storing; an update that loses to a newer state while
+    # in flight comes back as CONFLICT after paying.
+    mock_client.pointer_update.side_effect = ConflictError(
+        "Conflict: the pointer aa moved while this update was in flight; the "
+        "network now holds a newer state",
+        409,
+    )
+
+    payload = await _call("pointer_update", owner=OWNER, target=TARGET_2)
+
+    assert payload["error"] == "CONFLICT"
+    hint = payload["hint"].lower()
+    assert "nothing was paid" not in hint
+    assert "refused before paying" not in hint
+    assert "may already have been paid" in hint
+    assert "ask the user before paying" in hint
+
+
+@pytest.mark.asyncio
+async def test_conflict_with_an_unrecognised_message_claims_neither(mock_client):
+    mock_client.pointer_update.side_effect = ConflictError("Conflict", 409)
+
+    payload = await _call("pointer_update", owner=OWNER, target=TARGET_2)
+
+    hint = payload["hint"].lower()
+    assert "nothing was paid" not in hint
+    assert "possibly after paying" in hint
 
 
 @pytest.mark.asyncio

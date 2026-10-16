@@ -776,10 +776,12 @@ class RestClient:
         does not exist. Pays; never retried.
 
         Raises:
-            PointerFinalError: the pointer was transferred or frozen (refused
-                before paying).
-            ConflictError: a prepared write to it awaits payment, or the
-                update lost to a newer state while in flight.
+            PointerFinalError: the pointer was transferred or frozen
+                (usually refused before paying; see :class:`PointerFinalError`).
+            ConflictError: a prepared write to it awaits payment (refused
+                before paying), or the update lost to a newer state while in
+                flight (possibly after paying). Read the pointer before
+                writing again.
         """
         resp = self._http.post("/v1/pointers/update", json=_pointers.write_body(owner, target, kind))
         _check(resp)
@@ -799,8 +801,10 @@ class RestClient:
         Raises:
             PointerFinalError: the pointer is already final.
             BadRequestError: ``recipient`` does not exist or leads back.
-            CloseGroupShortfallError: not every peer of the close group
-                answered; nothing was paid, so a later retry is safe.
+            CloseGroupShortfallError: too few of the close group answered or
+                stored it. This can happen before paying (the transfer checks
+                every peer first) or after, so check the pointer with
+                :meth:`pointer_finality` before paying again.
         """
         resp = self._http.post("/v1/pointers/transfer", json={"owner": owner, "recipient": recipient})
         _check(resp)

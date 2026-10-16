@@ -1328,9 +1328,10 @@ async def pointer_update(
     Returns:
         JSON with ``address``, ``state_id`` and ``counter`` (decimal string,
         one higher than before), or error details. ``POINTER_FINAL``: the
-        pointer was transferred or frozen and can never change (refused
-        before paying). ``CONFLICT``: a prepared write to it awaits payment,
-        or the update lost to a newer state.
+        pointer was transferred or frozen and can never change (usually
+        refused before paying). ``CONFLICT``: a prepared write to it awaits
+        payment (refused before paying), or the update lost to a newer state
+        (possibly after paying); the ``hint`` says which.
     """
     client, network = _get_ctx(ctx)
     try:
@@ -1391,7 +1392,8 @@ async def pointer_transfer(
         check failed, ``finality`` is null and ``finality_error`` says why;
         the transfer is stored and final either way, so ask again with
         ``pointer_finality`` and do not call this again. Errors:
-        ``POINTER_FINAL`` (already final; nothing paid), ``BAD_REQUEST``
+        ``POINTER_FINAL`` (already final; usually refused before paying),
+        ``BAD_REQUEST``
         (``recipient`` missing or leads back).
     """
     client, network = _get_ctx(ctx)
