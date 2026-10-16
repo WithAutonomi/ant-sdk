@@ -30,6 +30,10 @@ type ManifestEntryInput struct {
 	// Plaintext size to record, as given (the creator's claim). Unset: none is
 	// recorded; readers take the exact size from an embedded root DataMap.
 	Size *uint64 `protobuf:"varint,2,opt,name=size,proto3,oneof" json:"size,omitempty"`
+	// SHA-256 of the plaintext to record, hex (the creator's claim). Unset or
+	// empty: none is recorded. `ant manifest download` checks downloads against
+	// it.
+	Sha256 *string `protobuf:"bytes,5,opt,name=sha256,proto3,oneof" json:"sha256,omitempty"`
 	// Types that are valid to be assigned to Source:
 	//
 	//	*ManifestEntryInput_DataMap
@@ -81,6 +85,13 @@ func (x *ManifestEntryInput) GetSize() uint64 {
 		return *x.Size
 	}
 	return 0
+}
+
+func (x *ManifestEntryInput) GetSha256() string {
+	if x != nil && x.Sha256 != nil {
+		return *x.Sha256
+	}
+	return ""
 }
 
 func (x *ManifestEntryInput) GetSource() isManifestEntryInput_Source {
@@ -218,7 +229,10 @@ type ManifestEntryInfo struct {
 	// Exact plaintext size: from an embedded root DataMap, or after `resolve`.
 	ExactSize *uint64 `protobuf:"varint,7,opt,name=exact_size,json=exactSize,proto3,oneof" json:"exact_size,omitempty"`
 	// Why `resolve` failed for this entry. Empty when it didn't.
-	Error         string `protobuf:"bytes,8,opt,name=error,proto3" json:"error,omitempty"`
+	Error string `protobuf:"bytes,8,opt,name=error,proto3" json:"error,omitempty"`
+	// The SHA-256 recorded in the manifest, hex: the creator's claim. Empty
+	// when there is none.
+	Sha256        string `protobuf:"bytes,9,opt,name=sha256,proto3" json:"sha256,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -305,6 +319,13 @@ func (x *ManifestEntryInfo) GetExactSize() uint64 {
 func (x *ManifestEntryInfo) GetError() string {
 	if x != nil {
 		return x.Error
+	}
+	return ""
+}
+
+func (x *ManifestEntryInfo) GetSha256() string {
+	if x != nil {
+		return x.Sha256
 	}
 	return ""
 }
@@ -552,15 +573,17 @@ var File_antd_v1_manifests_proto protoreflect.FileDescriptor
 
 const file_antd_v1_manifests_proto_rawDesc = "" +
 	"\n" +
-	"\x17antd/v1/manifests.proto\x12\aantd.v1\"\x9b\x01\n" +
+	"\x17antd/v1/manifests.proto\x12\aantd.v1\"\xc3\x01\n" +
 	"\x12ManifestEntryInput\x12\x17\n" +
 	"\x04path\x18\x01 \x01(\tH\x01R\x04path\x88\x01\x01\x12\x17\n" +
 	"\x04size\x18\x02 \x01(\x04H\x02R\x04size\x88\x01\x01\x12\x1b\n" +
+	"\x06sha256\x18\x05 \x01(\tH\x03R\x06sha256\x88\x01\x01\x12\x1b\n" +
 	"\bdata_map\x18\x03 \x01(\tH\x00R\adataMap\x12\x1a\n" +
 	"\aaddress\x18\x04 \x01(\tH\x00R\aaddressB\b\n" +
 	"\x06sourceB\a\n" +
 	"\x05_pathB\a\n" +
-	"\x05_size\"\xd5\x01\n" +
+	"\x05_sizeB\t\n" +
+	"\a_sha256\"\xd5\x01\n" +
 	"\x14BuildManifestRequest\x12\x17\n" +
 	"\x04name\x18\x01 \x01(\tH\x00R\x04name\x88\x01\x01\x12.\n" +
 	"\x13torrent_info_hashes\x18\x02 \x03(\tR\x11torrentInfoHashes\x12$\n" +
@@ -568,7 +591,7 @@ const file_antd_v1_manifests_proto_rawDesc = "" +
 	"embedRoots\x88\x01\x01\x125\n" +
 	"\aentries\x18\x04 \x03(\v2\x1b.antd.v1.ManifestEntryInputR\aentriesB\a\n" +
 	"\x05_nameB\x0e\n" +
-	"\f_embed_roots\"\x9f\x02\n" +
+	"\f_embed_roots\"\xb7\x02\n" +
 	"\x11ManifestEntryInfo\x12%\n" +
 	"\x0eeffective_name\x18\x01 \x01(\tR\reffectiveName\x12\x17\n" +
 	"\x04path\x18\x02 \x01(\tH\x00R\x04path\x88\x01\x01\x12\x17\n" +
@@ -578,7 +601,8 @@ const file_antd_v1_manifests_proto_rawDesc = "" +
 	"\bdata_map\x18\x06 \x01(\tR\adataMap\x12\"\n" +
 	"\n" +
 	"exact_size\x18\a \x01(\x04H\x02R\texactSize\x88\x01\x01\x12\x14\n" +
-	"\x05error\x18\b \x01(\tR\x05errorB\a\n" +
+	"\x05error\x18\b \x01(\tR\x05error\x12\x16\n" +
+	"\x06sha256\x18\t \x01(\tR\x06sha256B\a\n" +
 	"\x05_pathB\a\n" +
 	"\x05_sizeB\r\n" +
 	"\v_exact_size\"}\n" +

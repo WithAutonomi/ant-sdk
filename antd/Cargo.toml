@@ -5,10 +5,10 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-ant-core = { git = "https://github.com/WithAutonomi/ant-client", tag = "ant-cli-v0.3.11" }  # ant-core 0.13.0 release (2026-10-16): pointer ownership transfer (ADR-0018) + single-flight chunk fetches (ant-client#218); ant-protocol 5.0.0 / evmlib 0.10.0 / saorsa-core 0.29.1 / saorsa-transport 0.38.1; devnets pair it with ant-node 0.23.0. Previous pin ant-cli-v0.3.10 (ant-core 0.12.0). Must stay at ant-cli-v0.3.8 or later, the first release to read the ADR-0005 bootstrap_peers.toml shape (`quic`/`webrtc` multiaddr arrays); older pins silently fell back to the compiled-in list.
+ant-core = { git = "https://github.com/WithAutonomi/ant-client", rev = "2eace7374d0642376e799458a4fb9e63c2b7cc4c" }  # DEV PIN, DO NOT MERGE: WithAutonomi/ant-client#229 (V2-1564, SHA-256 of uploads + manifest entries) on top of main 225a676 (= the 2026-10-15 train content). Repin to the first ant-core release that ships #229 before merge.
 self_encryption = "0.36.0"
 evmlib = "0.10.0" # must track ant-core's transitive evmlib (via ant-protocol) to avoid a second copy in the graph
-ant-protocol = "=5.0.0" # pinned exactly to ant-core's transitive ant-protocol (ant-cli-v0.3.11 / ant-core 0.13.0 line; was =4.0.0 on 0.12.0) — a different version would fork PaymentQuote/StorageCommitment in the graph
+ant-protocol = "=4.0.0" # resolved through the [patch.crates-io] below to the revision ant-client main pins; any other source would fork PaymentQuote/StorageCommitment in the graph
 axum = { version = "0.8", features = ["macros"] }
 tower-http = { version = "0.6", features = ["cors", "limit", "trace"] }
 tonic = "0.12"
@@ -40,3 +40,10 @@ tempfile = "3"
 
 [build-dependencies]
 tonic-build = "0.12"
+
+# DEV PIN, DO NOT MERGE: ant-client main resolves ant-protocol 4.0.0 to this
+# revision through its own workspace patch (ADR-0018 final pointer states);
+# a dependency's patches do not reach antd, so mirror it here. Drop with the
+# ant-core repin.
+[patch.crates-io]
+ant-protocol = { git = "https://github.com/WithAutonomi/ant-protocol", rev = "718f60682bb3704b68fbba0bea34f2a0416fa876" }

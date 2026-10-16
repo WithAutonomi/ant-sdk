@@ -14,32 +14,36 @@ class PutFileRequest(_message.Message):
     def __init__(self, path: _Optional[str] = ..., payment_mode: _Optional[str] = ...) -> None: ...
 
 class PutFilePublicResponse(_message.Message):
-    __slots__ = ("address", "storage_cost_atto", "gas_cost_wei", "chunks_stored", "payment_mode_used")
+    __slots__ = ("address", "storage_cost_atto", "gas_cost_wei", "chunks_stored", "payment_mode_used", "sha256")
     ADDRESS_FIELD_NUMBER: _ClassVar[int]
     STORAGE_COST_ATTO_FIELD_NUMBER: _ClassVar[int]
     GAS_COST_WEI_FIELD_NUMBER: _ClassVar[int]
     CHUNKS_STORED_FIELD_NUMBER: _ClassVar[int]
     PAYMENT_MODE_USED_FIELD_NUMBER: _ClassVar[int]
+    SHA256_FIELD_NUMBER: _ClassVar[int]
     address: str
     storage_cost_atto: str
     gas_cost_wei: str
     chunks_stored: int
     payment_mode_used: str
-    def __init__(self, address: _Optional[str] = ..., storage_cost_atto: _Optional[str] = ..., gas_cost_wei: _Optional[str] = ..., chunks_stored: _Optional[int] = ..., payment_mode_used: _Optional[str] = ...) -> None: ...
+    sha256: str
+    def __init__(self, address: _Optional[str] = ..., storage_cost_atto: _Optional[str] = ..., gas_cost_wei: _Optional[str] = ..., chunks_stored: _Optional[int] = ..., payment_mode_used: _Optional[str] = ..., sha256: _Optional[str] = ...) -> None: ...
 
 class PutFileResponse(_message.Message):
-    __slots__ = ("data_map", "storage_cost_atto", "gas_cost_wei", "chunks_stored", "payment_mode_used")
+    __slots__ = ("data_map", "storage_cost_atto", "gas_cost_wei", "chunks_stored", "payment_mode_used", "sha256")
     DATA_MAP_FIELD_NUMBER: _ClassVar[int]
     STORAGE_COST_ATTO_FIELD_NUMBER: _ClassVar[int]
     GAS_COST_WEI_FIELD_NUMBER: _ClassVar[int]
     CHUNKS_STORED_FIELD_NUMBER: _ClassVar[int]
     PAYMENT_MODE_USED_FIELD_NUMBER: _ClassVar[int]
+    SHA256_FIELD_NUMBER: _ClassVar[int]
     data_map: str
     storage_cost_atto: str
     gas_cost_wei: str
     chunks_stored: int
     payment_mode_used: str
-    def __init__(self, data_map: _Optional[str] = ..., storage_cost_atto: _Optional[str] = ..., gas_cost_wei: _Optional[str] = ..., chunks_stored: _Optional[int] = ..., payment_mode_used: _Optional[str] = ...) -> None: ...
+    sha256: str
+    def __init__(self, data_map: _Optional[str] = ..., storage_cost_atto: _Optional[str] = ..., gas_cost_wei: _Optional[str] = ..., chunks_stored: _Optional[int] = ..., payment_mode_used: _Optional[str] = ..., sha256: _Optional[str] = ...) -> None: ...
 
 class GetFilePublicRequest(_message.Message):
     __slots__ = ("address", "dest_path")

@@ -60,6 +60,7 @@ const PutPublicDataResponse$json = {
     {'1': 'address', '3': 2, '4': 1, '5': 9, '10': 'address'},
     {'1': 'chunks_stored', '3': 3, '4': 1, '5': 4, '10': 'chunksStored'},
     {'1': 'payment_mode_used', '3': 4, '4': 1, '5': 9, '10': 'paymentModeUsed'},
+    {'1': 'sha256', '3': 5, '4': 1, '5': 9, '10': 'sha256'},
   ],
 };
 
@@ -67,7 +68,8 @@ const PutPublicDataResponse$json = {
 final $typed_data.Uint8List putPublicDataResponseDescriptor = $convert.base64Decode(
     'ChVQdXRQdWJsaWNEYXRhUmVzcG9uc2USIQoEY29zdBgBIAEoCzINLmFudGQudjEuQ29zdFIEY2'
     '9zdBIYCgdhZGRyZXNzGAIgASgJUgdhZGRyZXNzEiMKDWNodW5rc19zdG9yZWQYAyABKARSDGNo'
-    'dW5rc1N0b3JlZBIqChFwYXltZW50X21vZGVfdXNlZBgEIAEoCVIPcGF5bWVudE1vZGVVc2Vk');
+    'dW5rc1N0b3JlZBIqChFwYXltZW50X21vZGVfdXNlZBgEIAEoCVIPcGF5bWVudE1vZGVVc2VkEh'
+    'YKBnNoYTI1NhgFIAEoCVIGc2hhMjU2');
 
 @$core.Deprecated('Use streamPublicDataRequestDescriptor instead')
 const StreamPublicDataRequest$json = {
@@ -191,6 +193,7 @@ const PutDataResponse$json = {
     {'1': 'data_map', '3': 2, '4': 1, '5': 9, '10': 'dataMap'},
     {'1': 'chunks_stored', '3': 3, '4': 1, '5': 4, '10': 'chunksStored'},
     {'1': 'payment_mode_used', '3': 4, '4': 1, '5': 9, '10': 'paymentModeUsed'},
+    {'1': 'sha256', '3': 5, '4': 1, '5': 9, '10': 'sha256'},
   ],
 };
 
@@ -198,7 +201,8 @@ const PutDataResponse$json = {
 final $typed_data.Uint8List putDataResponseDescriptor = $convert.base64Decode(
     'Cg9QdXREYXRhUmVzcG9uc2USIQoEY29zdBgBIAEoCzINLmFudGQudjEuQ29zdFIEY29zdBIZCg'
     'hkYXRhX21hcBgCIAEoCVIHZGF0YU1hcBIjCg1jaHVua3Nfc3RvcmVkGAMgASgEUgxjaHVua3NT'
-    'dG9yZWQSKgoRcGF5bWVudF9tb2RlX3VzZWQYBCABKAlSD3BheW1lbnRNb2RlVXNlZA==');
+    'dG9yZWQSKgoRcGF5bWVudF9tb2RlX3VzZWQYBCABKAlSD3BheW1lbnRNb2RlVXNlZBIWCgZzaG'
+    'EyNTYYBSABKAlSBnNoYTI1Ng==');
 
 @$core.Deprecated('Use dataCostRequestDescriptor instead')
 const DataCostRequest$json = {

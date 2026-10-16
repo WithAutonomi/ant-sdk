@@ -30,7 +30,7 @@ pub async fn data_put_public(
     let mode = parse_payment_mode(req.payment_mode.as_deref()).map_err(AntdError::BadRequest)?;
 
     let client = state.client.clone();
-    let (address, chunks_stored, payment_mode_used) = tokio::spawn(async move {
+    let (address, sha256, chunks_stored, payment_mode_used) = tokio::spawn(async move {
         let result = client
             .data_upload_with_mode(Bytes::from(data), mode)
             .await
@@ -39,7 +39,12 @@ pub async fn data_put_public(
             .data_map_store(&result.data_map)
             .await
             .map_err(AntdError::from_core)?;
-        Ok::<_, AntdError>((address, result.chunks_stored, result.payment_mode_used))
+        Ok::<_, AntdError>((
+            address,
+            result.sha256,
+            result.chunks_stored,
+            result.payment_mode_used,
+        ))
     })
     .await
     .map_err(|e| AntdError::Internal(format!("task failed: {e}")))??;
@@ -47,6 +52,7 @@ pub async fn data_put_public(
     state.mark_store_ok();
     Ok(Json(DataPutPublicResponse {
         address: hex::encode(address),
+        sha256: hex::encode(sha256),
         // The DataMap stored above is one more network chunk; the cost
         // estimate and the public file path both count it, so must this.
         chunks_stored: public_upload_chunks_stored(chunks_stored),
@@ -105,7 +111,7 @@ pub async fn data_put(
     let mode = parse_payment_mode(req.payment_mode.as_deref()).map_err(AntdError::BadRequest)?;
 
     let client = state.client.clone();
-    let (data_map_hex, chunks_stored, payment_mode_used) = tokio::spawn(async move {
+    let (data_map_hex, sha256, chunks_stored, payment_mode_used) = tokio::spawn(async move {
         let result = client
             .data_upload_with_mode(Bytes::from(data), mode)
             .await
@@ -114,6 +120,7 @@ pub async fn data_put(
             .map_err(|e| AntdError::Internal(format!("failed to serialize data map: {e}")))?;
         Ok::<_, AntdError>((
             hex::encode(data_map_bytes),
+            result.sha256,
             result.chunks_stored,
             result.payment_mode_used,
         ))
@@ -124,6 +131,7 @@ pub async fn data_put(
     state.mark_store_ok();
     Ok(Json(DataPutResponse {
         data_map: data_map_hex,
+        sha256: hex::encode(sha256),
         chunks_stored,
         payment_mode_used: format_payment_mode(payment_mode_used),
     }))

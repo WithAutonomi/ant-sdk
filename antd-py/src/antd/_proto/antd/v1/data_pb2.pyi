@@ -27,16 +27,18 @@ class PutPublicDataRequest(_message.Message):
     def __init__(self, data: _Optional[bytes] = ..., payment_mode: _Optional[str] = ...) -> None: ...
 
 class PutPublicDataResponse(_message.Message):
-    __slots__ = ("cost", "address", "chunks_stored", "payment_mode_used")
+    __slots__ = ("cost", "address", "chunks_stored", "payment_mode_used", "sha256")
     COST_FIELD_NUMBER: _ClassVar[int]
     ADDRESS_FIELD_NUMBER: _ClassVar[int]
     CHUNKS_STORED_FIELD_NUMBER: _ClassVar[int]
     PAYMENT_MODE_USED_FIELD_NUMBER: _ClassVar[int]
+    SHA256_FIELD_NUMBER: _ClassVar[int]
     cost: _common_pb2.Cost
     address: str
     chunks_stored: int
     payment_mode_used: str
-    def __init__(self, cost: _Optional[_Union[_common_pb2.Cost, _Mapping]] = ..., address: _Optional[str] = ..., chunks_stored: _Optional[int] = ..., payment_mode_used: _Optional[str] = ...) -> None: ...
+    sha256: str
+    def __init__(self, cost: _Optional[_Union[_common_pb2.Cost, _Mapping]] = ..., address: _Optional[str] = ..., chunks_stored: _Optional[int] = ..., payment_mode_used: _Optional[str] = ..., sha256: _Optional[str] = ...) -> None: ...
 
 class StreamPublicDataRequest(_message.Message):
     __slots__ = ("address", "include_progress", "offset", "length")
@@ -101,16 +103,18 @@ class PutDataRequest(_message.Message):
     def __init__(self, data: _Optional[bytes] = ..., payment_mode: _Optional[str] = ...) -> None: ...
 
 class PutDataResponse(_message.Message):
-    __slots__ = ("cost", "data_map", "chunks_stored", "payment_mode_used")
+    __slots__ = ("cost", "data_map", "chunks_stored", "payment_mode_used", "sha256")
     COST_FIELD_NUMBER: _ClassVar[int]
     DATA_MAP_FIELD_NUMBER: _ClassVar[int]
     CHUNKS_STORED_FIELD_NUMBER: _ClassVar[int]
     PAYMENT_MODE_USED_FIELD_NUMBER: _ClassVar[int]
+    SHA256_FIELD_NUMBER: _ClassVar[int]
     cost: _common_pb2.Cost
     data_map: str
     chunks_stored: int
     payment_mode_used: str
-    def __init__(self, cost: _Optional[_Union[_common_pb2.Cost, _Mapping]] = ..., data_map: _Optional[str] = ..., chunks_stored: _Optional[int] = ..., payment_mode_used: _Optional[str] = ...) -> None: ...
+    sha256: str
+    def __init__(self, cost: _Optional[_Union[_common_pb2.Cost, _Mapping]] = ..., data_map: _Optional[str] = ..., chunks_stored: _Optional[int] = ..., payment_mode_used: _Optional[str] = ..., sha256: _Optional[str] = ...) -> None: ...
 
 class DataCostRequest(_message.Message):
     __slots__ = ("data", "payment_mode")

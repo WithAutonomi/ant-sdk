@@ -391,6 +391,7 @@ func (m *mockFileService) Put(_ context.Context, req *pb.PutFileRequest) (*pb.Pu
 	lastPaymentMode = req.GetPaymentMode()
 	return &pb.PutFileResponse{
 		DataMap:         "filedm1",
+		Sha256:          "a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6",
 		StorageCostAtto: "500",
 		GasCostWei:      "21",
 		ChunksStored:    2,
@@ -760,6 +761,9 @@ func TestGrpcFilePut(t *testing.T) {
 	}
 	if put.DataMap != "filedm1" || put.StorageCostAtto != "500" || put.GasCostWei != "21" || put.ChunksStored != 2 || put.PaymentModeUsed != "single" {
 		t.Fatalf("unexpected file put: %+v", put)
+	}
+	if put.Sha256 != "a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6" {
+		t.Fatalf("sha256 did not come through: %q", put.Sha256)
 	}
 	if lastPaymentMode != "merkle" {
 		t.Fatalf("payment_mode did not wire through: got %q, want %q", lastPaymentMode, "merkle")

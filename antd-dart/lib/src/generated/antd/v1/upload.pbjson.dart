@@ -168,6 +168,7 @@ const FinalizeUploadResponse$json = {
     {'1': 'address', '3': 2, '4': 1, '5': 9, '10': 'address'},
     {'1': 'data_map_address', '3': 3, '4': 1, '5': 9, '10': 'dataMapAddress'},
     {'1': 'chunks_stored', '3': 4, '4': 1, '5': 4, '10': 'chunksStored'},
+    {'1': 'sha256', '3': 5, '4': 1, '5': 9, '10': 'sha256'},
   ],
 };
 
@@ -175,5 +176,6 @@ const FinalizeUploadResponse$json = {
 final $typed_data.Uint8List finalizeUploadResponseDescriptor = $convert.base64Decode(
     'ChZGaW5hbGl6ZVVwbG9hZFJlc3BvbnNlEhkKCGRhdGFfbWFwGAEgASgJUgdkYXRhTWFwEhgKB2'
     'FkZHJlc3MYAiABKAlSB2FkZHJlc3MSKAoQZGF0YV9tYXBfYWRkcmVzcxgDIAEoCVIOZGF0YU1h'
-    'cEFkZHJlc3MSIwoNY2h1bmtzX3N0b3JlZBgEIAEoBFIMY2h1bmtzU3RvcmVk');
+    'cEFkZHJlc3MSIwoNY2h1bmtzX3N0b3JlZBgEIAEoBFIMY2h1bmtzU3RvcmVkEhYKBnNoYTI1Nh'
+    'gFIAEoCVIGc2hhMjU2');
 

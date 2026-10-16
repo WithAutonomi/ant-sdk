@@ -44,6 +44,7 @@ defmodule Antd.V1.PutPublicDataResponse do
   field :address, 2, type: :string
   field :chunks_stored, 3, type: :uint64, json_name: "chunksStored"
   field :payment_mode_used, 4, type: :string, json_name: "paymentModeUsed"
+  field :sha256, 5, type: :string
 end
 
 defmodule Antd.V1.StreamPublicDataRequest do
@@ -147,6 +148,7 @@ defmodule Antd.V1.PutDataResponse do
   field :data_map, 2, type: :string, json_name: "dataMap"
   field :chunks_stored, 3, type: :uint64, json_name: "chunksStored"
   field :payment_mode_used, 4, type: :string, json_name: "paymentModeUsed"
+  field :sha256, 5, type: :string
 end
 
 defmodule Antd.V1.DataCostRequest do

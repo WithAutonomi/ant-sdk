@@ -45,6 +45,7 @@ pub async fn file_put(
     state.mark_store_ok();
     Ok(Json(FilePutResponse {
         data_map: hex::encode(data_map_bytes),
+        sha256: hex::encode(result.sha256),
         storage_cost_atto: result.storage_cost_atto,
         gas_cost_wei: result.gas_cost_wei.to_string(),
         chunks_stored: result.chunks_stored as u64,
@@ -95,6 +96,7 @@ pub async fn file_put_public(
     state.mark_store_ok();
     Ok(Json(FilePutPublicResponse {
         address: hex::encode(address),
+        sha256: hex::encode(result.sha256),
         storage_cost_atto: result.storage_cost_atto,
         gas_cost_wei: result.gas_cost_wei.to_string(),
         chunks_stored: result.chunks_stored as u64,

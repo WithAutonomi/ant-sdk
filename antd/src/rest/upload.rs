@@ -395,6 +395,8 @@ pub(crate) enum PaymentArtefacts {
 /// response shapes.
 pub(crate) struct FinalizeSuccess {
     pub data_map_hex: String,
+    /// SHA-256 of the plaintext, hex, carried from prepare.
+    pub sha256_hex: String,
     pub address: Option<String>,
     pub data_map_address: Option<String>,
     pub chunks_stored: u64,
@@ -594,6 +596,7 @@ pub(crate) async fn finalize_pending(
         state.mark_store_ok();
         Ok::<_, AntdError>(FinalizeSuccess {
             data_map_hex,
+            sha256_hex: hex::encode(result.sha256),
             address,
             data_map_address,
             chunks_stored: result.chunks_stored as u64,
@@ -689,6 +692,7 @@ pub async fn finalize_upload(
     let done = finalize_pending(state, req.upload_id, artefacts, req.store_data_map).await?;
     Ok(Json(FinalizeUploadResponse {
         data_map: done.data_map_hex,
+        sha256: done.sha256_hex,
         address: done.address,
         data_map_address: done.data_map_address,
         chunks_stored: done.chunks_stored,

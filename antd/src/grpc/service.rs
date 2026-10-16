@@ -526,7 +526,7 @@ impl pb::data_service_server::DataService for DataServiceImpl {
         let data = req.data;
 
         let client = self.state.client.clone();
-        let (address, chunks_stored, payment_mode_used) = tokio::spawn(async move {
+        let (address, sha256, chunks_stored, payment_mode_used) = tokio::spawn(async move {
             let result = client
                 .data_upload_with_mode(Bytes::from(data), mode)
                 .await
@@ -535,7 +535,12 @@ impl pb::data_service_server::DataService for DataServiceImpl {
                 .data_map_store(&result.data_map)
                 .await
                 .map_err(AntdError::from_core)?;
-            Ok::<_, AntdError>((address, result.chunks_stored, result.payment_mode_used))
+            Ok::<_, AntdError>((
+                address,
+                result.sha256,
+                result.chunks_stored,
+                result.payment_mode_used,
+            ))
         })
         .await
         .map_err(|e| Status::internal(format!("task failed: {e}")))?
@@ -555,6 +560,7 @@ impl pb::data_service_server::DataService for DataServiceImpl {
             // REST handler); count it so estimate and actual agree.
             chunks_stored: crate::types::public_upload_chunks_stored(chunks_stored) as u64,
             payment_mode_used: format_payment_mode(payment_mode_used),
+            sha256: hex::encode(sha256),
         }))
     }
 
@@ -678,7 +684,7 @@ impl pb::data_service_server::DataService for DataServiceImpl {
         let data = req.data;
 
         let client = self.state.client.clone();
-        let (data_map_hex, chunks_stored, payment_mode_used) = tokio::spawn(async move {
+        let (data_map_hex, sha256, chunks_stored, payment_mode_used) = tokio::spawn(async move {
             let result = client
                 .data_upload_with_mode(Bytes::from(data), mode)
                 .await
@@ -687,6 +693,7 @@ impl pb::data_service_server::DataService for DataServiceImpl {
                 .map_err(|e| AntdError::Internal(format!("failed to serialize data map: {e}")))?;
             Ok::<_, AntdError>((
                 hex::encode(data_map_bytes),
+                result.sha256,
                 result.chunks_stored,
                 result.payment_mode_used,
             ))
@@ -707,6 +714,7 @@ impl pb::data_service_server::DataService for DataServiceImpl {
             data_map: data_map_hex,
             chunks_stored: chunks_stored as u64,
             payment_mode_used: format_payment_mode(payment_mode_used),
+            sha256: hex::encode(sha256),
         }))
     }
 
@@ -1026,6 +1034,7 @@ impl pb::file_service_server::FileService for FileServiceImpl {
             gas_cost_wei: result.gas_cost_wei.to_string(),
             chunks_stored: result.chunks_stored as u64,
             payment_mode_used: format_payment_mode(result.payment_mode_used),
+            sha256: hex::encode(result.sha256),
         }))
     }
 
@@ -1070,6 +1079,7 @@ impl pb::file_service_server::FileService for FileServiceImpl {
             gas_cost_wei: result.gas_cost_wei.to_string(),
             chunks_stored: result.chunks_stored as u64,
             payment_mode_used: format_payment_mode(result.payment_mode_used),
+            sha256: hex::encode(result.sha256),
         }))
     }
 
@@ -1405,6 +1415,7 @@ impl pb::upload_service_server::UploadService for UploadServiceImpl {
             address: done.address.unwrap_or_default(),
             data_map_address: done.data_map_address.unwrap_or_default(),
             chunks_stored: done.chunks_stored,
+            sha256: done.sha256_hex,
         }))
     }
 }
@@ -1602,6 +1613,7 @@ fn to_pb_manifest_entry(
         effective_name: info.effective_name,
         path: info.path,
         size: info.size,
+        sha256: info.sha256.map(hex::encode).unwrap_or_default(),
         kind: info.kind.to_string(),
         content_address: hex::encode(info.content_address),
         data_map: info
@@ -1632,7 +1644,13 @@ impl pb::manifest_service_server::ManifestService for ManifestServiceImpl {
                 Some(Source::Address(a)) => (None, Some(a)),
                 None => (None, None),
             };
-            (e.path, e.size, data_map, address)
+            crate::manifests::RawEntry {
+                path: e.path,
+                size: e.size,
+                sha256: e.sha256,
+                data_map,
+                address,
+            }
         }))?;
         let out = crate::manifests::build(
             &*self.state.client,

@@ -78,6 +78,7 @@ func mockDaemon(t *testing.T) *httptest.Server {
 		case r.Method == "POST" && r.URL.Path == "/v1/files":
 			writeJSON(w, map[string]any{
 				"data_map":          "filedm1",
+				"sha256":            "a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6",
 				"storage_cost_atto": "500",
 				"gas_cost_wei":      "21",
 				"chunks_stored":     float64(2),
@@ -88,6 +89,7 @@ func mockDaemon(t *testing.T) *httptest.Server {
 		case r.Method == "POST" && r.URL.Path == "/v1/files/public":
 			writeJSON(w, map[string]any{
 				"address":           "file1",
+				"sha256":            "a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6",
 				"storage_cost_atto": "1000",
 				"gas_cost_wei":      "42",
 				"chunks_stored":     float64(3),
