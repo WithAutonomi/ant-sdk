@@ -4,7 +4,7 @@ You are helping a developer build an application on the **Autonomi** decentraliz
 
 ## What You Need to Know
 
-Autonomi is a permanent, decentralized data network. Data is content-addressed (immutable). Storage is pay-once, reads are free.
+Autonomi is a permanent, decentralized data network. Data is content-addressed and immutable; pointers add owner-signed references that can be moved to new data. Storage is pay-once, every pointer write pays, and reads are free.
 
 **How it works:** A local Rust daemon (`antd`) connects to the network and exposes REST + gRPC APIs. Your app talks to antd through a language SDK. The developer never touches the network directly. All SDKs support automatic daemon discovery via a port file written by antd on startup.
 
@@ -38,9 +38,11 @@ For detailed API signatures and endpoint documentation, see:
 | C++ | `antd-cpp` | sync + async (std::future) | REST + gRPC | CMake FetchContent |
 | Java | `antd-java` | sync + async (CompletableFuture) | REST + gRPC | Gradle/Maven (com.autonomi:antd-java) |
 
+**Pointers:** every SDK has the pointer API. It runs over gRPC too in C++, C#, Dart, Elixir, Go, Java, Kotlin, Python, Ruby, Rust and Swift; JS/TS, Lua, PHP and Zig are REST only.
+
 **Swift note:** REST/gRPC SDK is macOS only. iOS apps must use the FFI bindings (`ffi/`) which embed the client directly — no daemon needed.
 
-**FFI bindings** (`ffi/`): For mobile or embedded use cases where running a daemon isn't possible. UniFFI generates native C#, Kotlin, and Swift bindings that talk to the network directly. Use this for iOS apps, Android apps, or any environment where a background daemon is impractical.
+**FFI bindings** (`ffi/`): For mobile or embedded use cases where running a daemon isn't possible. UniFFI generates native C#, Kotlin, and Swift bindings that talk to the network directly. Use this for iOS apps, Android apps, or any environment where a background daemon is impractical. The FFI bindings do not have pointers yet.
 
 ## Data Primitives — When to Use What
 
@@ -54,6 +56,14 @@ This is the most important decision. Match the developer's use case to the right
 | **Data (private)** | Storing content only you can read | Encrypted backups, secrets, personal docs |
 | **Chunks** | You need custom chunking logic | Advanced/low-level use cases only |
 | **Files** | Uploading local files or directories | Static sites, media hosting, backups |
+
+### Mutable (an address you can move)
+
+| Primitive | Use When | Example |
+|-----------|----------|---------|
+| **Pointer** | You need one stable address whose target changes over time | "Latest version" of a site, a release, a config; a name others bookmark |
+
+Scratchpads, registers and vaults are not supported.
 
 ## Common Patterns
 
@@ -122,6 +132,35 @@ print(f"Stored: {result.chunks_stored} chunks "
 
 **When to suggest this:** Developer has their own wallet/signer and doesn't want to use antd's built-in wallet. Common in web apps, mobile apps, or enterprise integrations.
 
+### Pattern 4: Pointers (Updatable Address)
+
+A pointer's address is derived from its owner key and never changes; the owner moves it to new data. antd holds the owner keys, loaded at startup with `antd --pointer-keys <file-or-dir>` (key files from `ant pointer keygen --output <file>`), so calls name the pointer by its address (`owner`). Needs the first antd release with pointers (after 0.15.0).
+
+```python
+owner = client.pointer_keys()[0]           # a pointer this daemon can write
+
+v1 = client.data_put_public(b"version 1").address
+v2 = client.data_put_public(b"version 2").address
+
+client.pointer_create(owner, v1)           # pays (about one chunk); counter 0
+client.pointer_update(owner, v2)           # pays again; counter 1
+target = client.pointer_resolve(owner).target   # == v2 (free)
+record = client.pointer_get(owner)              # counter, target, is_final, transferred_to (free)
+f = client.pointer_finality(owner)              # status: open / settling / unconfirmed / final / forked (free)
+
+# Irreversible: hand the pointer over to another existing pointer, for good
+# client.pointer_transfer(owner, recipient)     # pays; check finality reaches "final"
+# client.pointer_controller(owner)              # follow transfers to whoever decides now
+
+# External signer: prepare signs + quotes, the app pays payForQuotes(), finalize stores
+# prep = client.pointer_prepare(owner, PointerOp.UPDATE, target=v2)
+# client.pointer_finalize(prep.upload_id, {"0xquotehash": "0xtxhash"})
+```
+
+Counters are decimal strings on the wire (a final pointer sits at 2^64−1); SDKs parse them into exact unsigned 64-bit values. Method names follow each SDK's casing: `pointerCreate`, `PointerCreateAsync`, `PointerCreate(ctx, ...)`, and so on.
+
+**When to suggest this:** Developer wants a link that always leads to the latest version of something, without republishing the address.
+
 ## Key Rules
 
 1. **Every write costs tokens.** Always offer to estimate cost first with the `*_cost` methods — they return an `UploadCostEstimate` with `cost`, `file_size`, `chunk_count`, `estimated_gas_cost_wei`, and `payment_mode`. Before the first storage operation, the wallet must be approved via `wallet_approve()`. Reads are free.
@@ -129,6 +168,8 @@ print(f"Stored: {result.chunks_stored} chunks "
 3. **No access revocation.** Once data is public, it stays public.
 4. **Content-addressed = deduplication.** Storing the same bytes twice produces the same address and doesn't cost extra.
 5. **The daemon must be running.** All SDK calls go through `antd` on localhost. If the developer hasn't started it, nothing will work. Point them to `ant dev start`.
+6. **Pointer writes pay every time, and are never retried.** Each create, update and transfer pays again on every attempt; never generate retry loops around them. After a failed write, read the pointer (`pointer_get`) before paying again. A create of an existing pointer is refused before paying: use update.
+7. **Pointer transfer is irreversible.** Confirm with the developer before generating a `pointer_transfer` call. Pointer keys cannot be rotated, so they must be kept safe.
 
 ## Error Handling
 
@@ -141,7 +182,12 @@ All SDKs use the same error hierarchy. Always generate code with proper error ha
 | `AlreadyExistsError` / `AlreadyExistsException` | 409 | Trying to create something that exists |
 | `NetworkError` / `NetworkException` | 502 | Daemon can't reach the network |
 | `ServiceUnavailableError` / `ServiceUnavailableException` | 503 | Wallet not configured |
-| `BadRequestError` / `BadRequestException` | 400 | Invalid parameters |
+| `BadRequestError` / `BadRequestException` | 400 | Invalid parameters, or a pointer owner antd holds no key for |
+| `PointerFinalError` / `PointerFinalException` | 409 (`POINTER_FINAL`) | Writing a pointer that was transferred or is otherwise final; nothing paid |
+| `ConflictError` / `ConflictException` | 409 (`CONFLICT`) | A prepared pointer write awaits payment, or an update lost to a newer state |
+| `CloseGroupShortfallError` / `CloseGroupShortfallException` | 503 (`CLOSE_GROUP_SHORTFALL`) | Too few peers answered; reads may retry, paid writes must not |
+
+A pointer whose owner signed two final states is `POINTER_FORKED` (409): `PointerForkedError` in some SDKs, a `ForkError` in Go, JS/TS, Java, Dart, Elixir and PHP.
 
 Python/JS/Swift use `Error` suffix. C#/Kotlin use `Exception` suffix. All inherit from a base `AntdError`/`AntdException`.
 
@@ -163,3 +209,4 @@ When a developer asks to build something, follow this sequence:
 - [llms-full.txt](llms-full.txt) — complete method signatures for all 12 languages, request/response formats, runnable examples
 - [docs/architecture.md](docs/architecture.md) — full mental model, data primitive deep-dive, payment model, design patterns
 - [docs/tutorial-store-retrieve.md](docs/tutorial-store-retrieve.md) — store text, files, private data, chunks (all 12 languages)
+- [docs/tutorial-pointers.md](docs/tutorial-pointers.md) — point at a public file, update it, check finality, transfer, external signer

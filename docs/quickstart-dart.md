@@ -90,6 +90,32 @@ await client.fileDownloadPublic(result.address, '/path/to/output.txt');
 final est = await client.fileCost('/path/to/file.txt');
 ```
 
+## Pointers
+
+A pointer is an owner-signed address you can move to new data. antd signs with the owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so `owner` is the pointer's address, never a key. Every create, update and transfer pays (about the price of one chunk) and is never retried; reads are free. A transfer hands the pointer over to another pointer for good. Needs the first antd release with pointers (after 0.15.0). Walk-through: [Tutorial: Point at a Public File and Update It](tutorial-pointers.md).
+
+```dart
+final owner = (await client.pointerKeys()).first;   // a pointer antd can write
+
+final v1 = await client.dataPutPublic(Uint8List.fromList(utf8.encode('version 1')));
+final v2 = await client.dataPutPublic(Uint8List.fromList(utf8.encode('version 2')));
+
+await client.pointerCreate(owner, v1.address);        // pays; counter 0
+await client.pointerUpdate(owner, v2.address);        // pays again; counter 1
+final target = await client.pointerResolve(owner);    // target.target == v2.address (free)
+
+final finality = await client.pointerFinality(owner); // free
+print(finality.isFinal);                              // false: the owner can still move it
+```
+
+Counters are `BigInt`s. `utf8` and `Uint8List` come from `dart:convert` and `dart:typed_data`. `pointerTransfer`, `pointerGet`, `pointerController`, `pointerPrepare` and `pointerFinalize` complete the set, on `GrpcAntdClient` too.
+
+Runnable example: `antd-dart/example/09_pointers.dart`. Set `ANTD_POINTER_OWNER` to an address the daemon holds a key for, one it has not written yet (each run creates the pointer and pays for its writes), and `ANTD_BASE_URL` for a daemon other than `http://localhost:8082`:
+
+```bash
+cd antd-dart
+ANTD_POINTER_OWNER=<address> dart run example/09_pointers.dart
+```
 
 ## Error Handling
 

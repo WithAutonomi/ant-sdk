@@ -123,6 +123,32 @@ client.fileDownloadPublic(result.address(), "/path/to/output.txt");
 UploadCostEstimate est = client.fileCost("/path/to/file.txt");
 ```
 
+## Pointers
+
+A pointer is an owner-signed address you can move to new data. antd signs with the owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so `owner` is the pointer's address, never a key. Every create, update and transfer pays (about the price of one chunk) and is never retried; reads are free. A transfer hands the pointer over to another pointer for good. Needs the first antd release with pointers (after 0.15.0). Walk-through: [Tutorial: Point at a Public File and Update It](tutorial-pointers.md).
+
+```java
+String owner = client.pointerKeys().get(0);             // a pointer antd can write
+
+String v1 = client.dataPutPublic("version 1".getBytes()).address();
+String v2 = client.dataPutPublic("version 2".getBytes()).address();
+
+client.pointerCreate(owner, v1);                        // pays; counter 0
+client.pointerUpdate(owner, v2);                        // pays again; counter 1
+PointerTarget target = client.pointerResolve(owner);    // target.target() equals v2 (free)
+
+PointerFinality finality = client.pointerFinality(owner);   // free
+System.out.println(finality.rawStatus());                   // "open"
+```
+
+Counters are `BigInteger`, because a final pointer sits at 2^64 − 1. `pointerTransfer`, `pointerGet`, `pointerController`, `pointerPrepare` and `pointerFinalize` complete the set, with `Async` variants on `AsyncAntdClient` and the same methods on `GrpcAntdClient`.
+
+Runnable example: `antd-java/examples/src/main/java/com/autonomi/examples/Example08Pointers.java`. Set `ANTD_POINTER_OWNER` to an address the daemon holds a key for, one it has not written yet (each run creates the pointer and pays for its writes), and `ANTD_BASE_URL` for a daemon other than `http://localhost:8082`:
+
+```bash
+cd antd-java
+ANTD_POINTER_OWNER=<address> ./gradlew :examples:run -PmainClass=com.autonomi.examples.Example08Pointers
+```
 
 ## Error Handling
 
