@@ -7,10 +7,13 @@
 #include <string_view>
 #include <system_error>
 
+#include "manifests_grpc.hpp"
+
 // Proto-generated headers — produced by protoc + grpc_cpp_plugin.
 // Run `protoc` against antd/proto/antd/v1/*.proto or let the CMake
 // antd_grpc target handle compilation automatically.
 #include "antd/v1/health.grpc.pb.h"
+#include "antd/v1/manifests.grpc.pb.h"
 #include "antd/v1/data.grpc.pb.h"
 #include "antd/v1/chunks.grpc.pb.h"
 #include "antd/v1/files.grpc.pb.h"
@@ -82,6 +85,11 @@ static void check_status(const grpc::Status& status) {
 
 struct GrpcClient::Impl {
     std::shared_ptr<grpc::Channel> channel;
+    // ManifestService's own channel to the same target, with the message
+    // limits raised (detail::manifest_channel_arguments). Like `channel`, it
+    // connects on first use.
+    std::shared_ptr<grpc::Channel> manifest_channel;
+    std::unique_ptr<antd::v1::ManifestService::Stub> manifest_stub;
     std::unique_ptr<antd::v1::HealthService::Stub> health_stub;
     std::unique_ptr<antd::v1::DataService::Stub> data_stub;
     std::unique_ptr<antd::v1::ChunkService::Stub> chunk_stub;
@@ -92,6 +100,9 @@ struct GrpcClient::Impl {
 
     explicit Impl(const std::string& target)
         : channel(grpc::CreateChannel(target, grpc::InsecureChannelCredentials())),
+          manifest_channel(grpc::CreateCustomChannel(target, grpc::InsecureChannelCredentials(),
+                                                     detail::manifest_channel_arguments())),
+          manifest_stub(antd::v1::ManifestService::NewStub(manifest_channel)),
           health_stub(antd::v1::HealthService::NewStub(channel)),
           data_stub(antd::v1::DataService::NewStub(channel)),
           chunk_stub(antd::v1::ChunkService::NewStub(channel)),
@@ -606,6 +617,40 @@ std::string GrpcClient::finalize_chunk_upload(std::string_view upload_id,
     antd::v1::FinalizeChunkResponse resp;
     check_status(impl_->chunk_stub->FinalizeChunk(&ctx, req, &resp));
     return resp.address();
+}
+
+// ---------------------------------------------------------------------------
+// Manifests (ManifestService; the wire mapping is in manifests_grpc.cpp)
+//
+// On manifest_stub, whose channel raises the message limits: a Build or
+// Decode response carries the whole manifest (up to 64 MiB), and a Decode
+// request sends it.
+// ---------------------------------------------------------------------------
+
+BuiltManifest GrpcClient::build_manifest(const std::vector<ManifestEntryInput>& entries,
+                                         const BuildManifestOptions& options) {
+    const auto req = detail::manifest_build_request(entries, options);
+    grpc::ClientContext ctx;
+    antd::v1::BuildManifestResponse resp;
+    check_status(impl_->manifest_stub->Build(&ctx, req, &resp));
+    return detail::built_manifest_from_pb(resp);
+}
+
+DecodedManifest GrpcClient::decode_manifest(const std::vector<uint8_t>& manifest,
+                                            bool resolve) {
+    const auto req = detail::manifest_decode_bytes_request(manifest, resolve);
+    grpc::ClientContext ctx;
+    antd::v1::DecodeManifestResponse resp;
+    check_status(impl_->manifest_stub->Decode(&ctx, req, &resp));
+    return detail::decoded_manifest_from_pb(resp);
+}
+
+DecodedManifest GrpcClient::decode_manifest_link(std::string_view link, bool resolve) {
+    const auto req = detail::manifest_decode_link_request(link, resolve);
+    grpc::ClientContext ctx;
+    antd::v1::DecodeManifestResponse resp;
+    check_status(impl_->manifest_stub->Decode(&ctx, req, &resp));
+    return detail::decoded_manifest_from_pb(resp);
 }
 
 // Wallet (V2-286)
