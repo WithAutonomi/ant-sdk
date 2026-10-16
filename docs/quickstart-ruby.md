@@ -117,6 +117,33 @@ Exception hierarchy:
 | `Antd::InternalError` | 500 | Server error |
 | `Antd::NetworkError` | 502 | Network unreachable |
 
+## Manifests
+
+A manifest describes a set of files as one `ant://manifest/` link, or as a `.ant` file when the link would be too long. Each entry is either a public file's address or an embedded DataMap (the manifest is then the key to a private file), with an optional path. Building and decoding upload and pay for nothing: upload the files first, then describe them. Needs the antd release after 0.15.0. Walk-through: [Tutorial: Share a Set of Files as One Link](tutorial-manifests.md).
+
+```ruby
+a = client.data_put_public("one").address        # pays
+b = client.data_put_public("two").address        # pays
+
+built = client.build_manifest(                   # free
+  [{ path: "notes/one.txt", address: a }, { path: "notes/two.txt", address: b }],
+  name: "example"
+)
+puts built.link                                  # nil when over 1,500 bytes: share built.manifest instead
+
+client.decode_manifest_link(built.link, resolve: true).entries.each do |e|   # free
+  puts "#{e.effective_name}: #{e.exact_size} bytes"
+end
+```
+
+`decode_manifest(bytes, resolve: true)` takes raw `.ant` bytes. Entries may also be `Antd::ManifestEntryInput`s; use `data_map:` instead of `address:` for an embedded entry, and `embed_roots: false` to keep shrunk DataMaps as given. On `Antd::GrpcClient` too.
+
+Runnable example: `antd-ruby/examples/09_manifests.rb`. Its two uploads pay; the manifest calls do not.
+
+```bash
+ANTD_BASE_URL=http://localhost:8082 ruby antd-ruby/examples/09_manifests.rb
+```
+
 ## Examples
 
 ```bash

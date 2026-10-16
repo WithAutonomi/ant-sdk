@@ -119,6 +119,37 @@ Exception hierarchy:
 | `InternalException` | 500 | Server error |
 | `NetworkException` | 502 | Network unreachable |
 
+## Manifests
+
+A manifest describes a set of files as one `ant://manifest/` link, or as a `.ant` file when the link would be too long. Each entry is either a public file's address or an embedded DataMap (the manifest is then the key to a private file), with an optional path. Building and decoding upload and pay for nothing: upload the files first, then describe them. Needs the antd release after 0.15.0. Walk-through: [Tutorial: Share a Set of Files as One Link](tutorial-manifests.md).
+
+```php
+use Autonomi\Antd\Models\BuildManifestOptions;
+use Autonomi\Antd\Models\ManifestEntryInput;
+
+$public = $client->dataPutPublic('first file')->address;    // pays
+$private = $client->dataPut('second file')->dataMap;        // pays
+
+$built = $client->buildManifest([                           // free
+    new ManifestEntryInput(path: 'notes/one.txt', address: $public),
+    new ManifestEntryInput(path: 'notes/two.txt', dataMap: $private),
+], new BuildManifestOptions(name: 'notes'));
+echo $built->link, "\n";                                    // null if over 1,500 bytes: share $built->manifest instead
+
+foreach ($client->decodeManifest($built->manifest, resolve: true)->entries as $entry) {
+    echo "{$entry->effectiveName}: {$entry->exactSize} bytes\n";
+}
+```
+
+`decodeManifestLink($link, resolve: true)` takes a link instead. The `.ant` bytes are a plain PHP string, and every manifest method has an `Async` variant.
+
+Runnable example: `antd-php/examples/09-manifests.php`. Its two uploads pay; the manifest calls do not.
+
+```bash
+cd antd-php
+ANTD_BASE_URL=http://localhost:8082 php examples/09-manifests.php
+```
+
 ## Examples
 
 ```bash
