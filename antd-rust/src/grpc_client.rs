@@ -31,8 +31,9 @@ pub mod proto {
 use proto::antd::v1::{
     chunk_service_client::ChunkServiceClient, data_service_client::DataServiceClient,
     file_service_client::FileServiceClient, health_service_client::HealthServiceClient,
-    pointer_service_client::PointerServiceClient, upload_service_client::UploadServiceClient,
-    verify_service_client::VerifyServiceClient, wallet_service_client::WalletServiceClient,
+    manifest_service_client::ManifestServiceClient, pointer_service_client::PointerServiceClient,
+    upload_service_client::UploadServiceClient, verify_service_client::VerifyServiceClient,
+    wallet_service_client::WalletServiceClient,
 };
 
 /// Default gRPC endpoint of the antd daemon.
@@ -125,6 +126,8 @@ pub struct GrpcClient {
     wallet: WalletServiceClient<Channel>,
     verify: VerifyServiceClient<Channel>,
     pointers: PointerServiceClient<Channel>,
+    /// Used by the manifest methods in [`crate::manifests`].
+    pub(crate) manifests: ManifestServiceClient<Channel>,
 }
 
 impl GrpcClient {
@@ -151,7 +154,10 @@ impl GrpcClient {
     /// [`connect`](Self::connect) with an explicit ceiling, in bytes, on a
     /// single response message. Responses over the ceiling fail with an
     /// `OutOfRange` status ([`AntdError::Grpc`]) rather than being
-    /// truncated. Applied to every service client so the bound is uniform.
+    /// truncated. Applied to every service client so the bound is uniform,
+    /// except `ManifestService`, which decodes up to the larger of this and
+    /// 256 MiB, since a manifest alone can be 64 MiB, and encodes up to the
+    /// daemon's 100 MiB request limit.
     pub async fn connect_with_max_message_size(
         endpoint: &str,
         max_recv_message_bytes: usize,
@@ -171,6 +177,9 @@ impl GrpcClient {
             upload: UploadServiceClient::new(channel.clone()).max_decoding_message_size(n),
             wallet: WalletServiceClient::new(channel.clone()).max_decoding_message_size(n),
             verify: VerifyServiceClient::new(channel.clone()).max_decoding_message_size(n),
+            manifests: ManifestServiceClient::new(channel.clone())
+                .max_decoding_message_size(n.max(crate::manifests::MANIFEST_MAX_RECV_MESSAGE_BYTES))
+                .max_encoding_message_size(crate::manifests::MANIFEST_MAX_SEND_MESSAGE_BYTES),
             pointers: PointerServiceClient::new(channel).max_decoding_message_size(n),
         })
     }
