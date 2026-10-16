@@ -9,7 +9,8 @@ description = {
     detailed = [[
         A Lua client library for the antd daemon REST API.
         Provides access to the Autonomi decentralized network for storing
-        and retrieving immutable data, chunks, and files.
+        and retrieving immutable data, chunks, and files, and for reading
+        and writing mutable pointers.
     ]],
     homepage = "https://github.com/WithAutonomi/ant-sdk/tree/main/antd-lua",
     license = "MIT",
