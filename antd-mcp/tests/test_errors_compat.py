@@ -104,7 +104,7 @@ def test_server_serves_without_pointer_tools_on_an_older_sdk(monkeypatch):
     _, server = _import_without_pointer_api(monkeypatch)
     assert server.POINTERS_AVAILABLE is False
     names = {t.name for t in asyncio.run(server.mcp.list_tools())}
-    assert len(names) == 19
+    assert len(names) == 21  # 19 storage tools + the 2 manifest tools, no pointer tools
     assert not any(n.startswith("pointer_") for n in names)
     assert {"upload_file", "finalize_upload", "chunk_put"} <= names
 

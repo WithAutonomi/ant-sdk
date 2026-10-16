@@ -110,7 +110,7 @@ def test_pointer_tools_are_registered():
     names = {t.name for t in tools}
     assert server.POINTERS_AVAILABLE is True
     assert POINTER_TOOLS <= names
-    assert len(tools) == 29
+    assert len(tools) == 31  # 19 storage + 10 pointer + 2 manifest tools
 
 
 def test_transfer_is_annotated_destructive_and_says_irreversible():
