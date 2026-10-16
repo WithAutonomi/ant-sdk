@@ -20,6 +20,10 @@ public sealed partial class AntdGrpcClient : IAntdClient
     public AntdGrpcClient(string target = "http://localhost:50051")
     {
         _channel = GrpcChannel.ForAddress(target);
+        // Manifests get a channel of their own with larger message limits;
+        // see AntdGrpcClient.Manifests.cs.
+        _manifestChannel = GrpcChannel.ForAddress(target, ManifestChannelOptions());
+        _manifest = new ManifestService.ManifestServiceClient(_manifestChannel);
         _health = new HealthService.HealthServiceClient(_channel);
         _data = new DataService.DataServiceClient(_channel);
         _chunks = new ChunkService.ChunkServiceClient(_channel);
@@ -60,11 +64,16 @@ public sealed partial class AntdGrpcClient : IAntdClient
         return string.IsNullOrEmpty(target) ? new AntdGrpcClient() : new AntdGrpcClient(target);
     }
 
-    public void Dispose() => _channel?.Dispose();
+    public void Dispose()
+    {
+        _channel?.Dispose();
+        _manifestChannel?.Dispose();
+    }
 
     public ValueTask DisposeAsync()
     {
         _channel?.Dispose();
+        _manifestChannel?.Dispose();
         return ValueTask.CompletedTask;
     }
 

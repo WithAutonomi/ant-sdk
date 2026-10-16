@@ -6,7 +6,7 @@ using Nethereum.ABI.FunctionEncoding.Attributes;
 
 namespace Antd.Examples;
 
-class Program
+partial class Program
 {
     static async Task Main(string[] args)
     {
@@ -31,6 +31,8 @@ class Program
                 await Example06_PrivateData();
                 await Example07_ExternalSigner();
                 break;
+            // Not part of "all": it needs the antd release after 0.15.0.
+            case "9" or "manifests": await Example09_Manifests(); break;
             default:
                 Console.WriteLine($"Unknown example: {example}. Use 1-8, 'pointers' or 'all'.");
                 break;
