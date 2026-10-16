@@ -464,6 +464,7 @@ func startMockServerWith(t *testing.T, extra ...GrpcOption) *GrpcClient {
 	pb.RegisterUploadServiceServer(s, &mockUploadService{})
 	pb.RegisterWalletServiceServer(s, &mockWalletService{})
 	pb.RegisterVerifyServiceServer(s, &mockVerifyService{})
+	pb.RegisterManifestServiceServer(s, &mockManifestService{})
 
 	go func() {
 		// Server stop on test cleanup is expected, swallow the error.

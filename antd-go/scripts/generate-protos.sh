@@ -19,7 +19,7 @@ PROTOC_GEN_GO_VERSION="v1.36.12"
 PROTOC_GEN_GO_GRPC_VERSION="v1.6.2"
 
 # The antd/proto/antd/v1 files this SDK ships stubs for.
-PROTOS=(chunks common data events files health pointers upload verify wallet)
+PROTOS=(chunks common data events files health manifests pointers upload verify wallet)
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"

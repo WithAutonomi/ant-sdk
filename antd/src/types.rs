@@ -833,6 +833,106 @@ pub struct PointerFinalizeResponse {
     pub finality: Option<PointerFinalityResponse>,
 }
 
+// ── Manifests (ADR-0006, V2-1570) ──
+
+#[derive(Deserialize)]
+pub struct ManifestBuildRequest {
+    /// Suggested root directory name (one portable path component).
+    #[serde(default)]
+    pub name: Option<String>,
+    /// BitTorrent info hashes of the same files: hex, 40 characters for v1
+    /// and/or 64 for v2.
+    #[serde(default)]
+    pub torrent_info_hashes: Vec<String>,
+    /// Resolve shrunk DataMaps and embed the root when it is at most 64 KiB
+    /// as written (ADR-0006's policy). Fetches wrapper records. Default true.
+    #[serde(default = "default_true")]
+    pub embed_roots: bool,
+    pub entries: Vec<ManifestBuildEntry>,
+}
+
+/// One file: exactly one of `data_map` (hex, embedded) or `address` (hex,
+/// a public file's DataMap address).
+#[derive(Deserialize)]
+pub struct ManifestBuildEntry {
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub size: Option<u64>,
+    #[serde(default)]
+    pub data_map: Option<String>,
+    #[serde(default)]
+    pub address: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ManifestBuildResponse {
+    /// The `.ant` bytes, base64.
+    pub manifest: String,
+    /// The `ant://manifest/` link, only when it fits the recommended 1,500
+    /// bytes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
+    /// In encoded order (sorted by effective name).
+    pub entries: Vec<ManifestEntryInfo>,
+}
+
+#[derive(Deserialize)]
+pub struct ManifestDecodeRequest {
+    /// `.ant` bytes, base64. Give this or `link`.
+    #[serde(default)]
+    pub manifest: Option<String>,
+    /// An `ant://` manifest link, file link, or bare 64-hex address.
+    #[serde(default)]
+    pub link: Option<String>,
+    /// Fetch each entry's DataMap (and wrapper records) to report exact
+    /// sizes and confirm the DataMap is on the network. Content chunks are
+    /// not fetched.
+    #[serde(default)]
+    pub resolve: bool,
+}
+
+#[derive(Serialize)]
+pub struct ManifestDecodeResponse {
+    /// `manifest`, or `file_link` for a file link or bare address (reported
+    /// as one `public` entry with no path).
+    pub source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub torrent_info_hash_v1: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub torrent_info_hash_v2: Option<String>,
+    pub entries: Vec<ManifestEntryInfo>,
+}
+
+#[derive(Serialize)]
+pub struct ManifestEntryInfo {
+    /// `path`, or the content address in hex when there is none.
+    pub effective_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// The size recorded in the manifest: the creator's claim.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+    /// `embedded` or `public`.
+    pub kind: String,
+    /// Hex. The file's public DataMap address, whether or not it was ever
+    /// made public; the same for private and public uploads of one file.
+    pub content_address: String,
+    /// The embedded DataMap in the hex form the download routes accept
+    /// (decode only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_map: Option<String>,
+    /// Exact plaintext size: from an embedded root DataMap, or after
+    /// `resolve`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exact_size: Option<u64>,
+    /// Why `resolve` failed for this entry.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 // ── Tests ──
 
 #[cfg(test)]

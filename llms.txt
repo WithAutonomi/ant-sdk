@@ -70,6 +70,8 @@ data = client.data_get_public(result.address)
 | GET | `/v1/pointers/{addr}/controller` | Follow transfers to the controlling pointer |
 | POST | `/v1/pointers/prepare` | Sign + quote a pointer write for an external signer |
 | POST | `/v1/pointers/finalize` | Store a prepared pointer write after payment |
+| POST | `/v1/manifests/build` | Build an ADR-0006 `.ant` manifest (and `ant://manifest/` link) from DataMaps and public addresses |
+| POST | `/v1/manifests/decode` | Decode a `.ant` manifest, manifest link, file link or address; optional `resolve` for exact sizes |
 
 ## gRPC Services
 

@@ -29,6 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "proto/antd/v1/wallet.proto",
                 "proto/antd/v1/verify.proto",
                 "proto/antd/v1/pointers.proto",
+                "proto/antd/v1/manifests.proto",
             ],
             &["proto"],
         )?;

@@ -1584,3 +1584,114 @@ impl pb::verify_service_server::VerifyService for VerifyServiceImpl {
         }))
     }
 }
+
+// ── Manifests (ADR-0006, V2-1570) ──
+
+pub struct ManifestServiceImpl {
+    pub state: Arc<AppState>,
+}
+
+/// One entry for the wire. Returns the small `AntdError`; callers convert to
+/// the (large) `Status` at the boundary.
+fn to_pb_manifest_entry(
+    info: crate::manifests::EntryInfo,
+    exact_size: Option<u64>,
+    error: Option<String>,
+) -> Result<pb::ManifestEntryInfo, AntdError> {
+    Ok(pb::ManifestEntryInfo {
+        effective_name: info.effective_name,
+        path: info.path,
+        size: info.size,
+        kind: info.kind.to_string(),
+        content_address: hex::encode(info.content_address),
+        data_map: info
+            .data_map
+            .as_ref()
+            .map(crate::manifests::data_map_hex)
+            .transpose()?
+            .unwrap_or_default(),
+        exact_size: exact_size.or(info.known_size),
+        error: error.unwrap_or_default(),
+    })
+}
+
+#[tonic::async_trait]
+impl pb::manifest_service_server::ManifestService for ManifestServiceImpl {
+    /// gRPC twin of REST `POST /v1/manifests/build`; same core.
+    async fn build(
+        &self,
+        request: Request<pb::BuildManifestRequest>,
+    ) -> Result<Response<pb::BuildManifestResponse>, Status> {
+        use pb::manifest_entry_input::Source;
+
+        let req = request.into_inner();
+        let torrent = crate::manifests::parse_torrent_hashes(&req.torrent_info_hashes)?;
+        let entries = crate::manifests::parse_entries(req.entries.into_iter().map(|e| {
+            let (data_map, address) = match e.source {
+                Some(Source::DataMap(d)) => (Some(d), None),
+                Some(Source::Address(a)) => (None, Some(a)),
+                None => (None, None),
+            };
+            (e.path, e.size, data_map, address)
+        }))?;
+        let out = crate::manifests::build(
+            &*self.state.client,
+            crate::manifests::BuildInput {
+                name: req.name.filter(|n| !n.is_empty()),
+                torrent,
+                entries,
+                embed_roots: req.embed_roots.unwrap_or(true),
+            },
+        )
+        .await?;
+        Ok(Response::new(pb::BuildManifestResponse {
+            manifest: out.bytes,
+            link: out.link.unwrap_or_default(),
+            entries: out
+                .entries
+                .into_iter()
+                .map(|info| to_pb_manifest_entry(info, None, None))
+                .collect::<Result<_, AntdError>>()?,
+        }))
+    }
+
+    /// gRPC twin of REST `POST /v1/manifests/decode`; same core.
+    async fn decode(
+        &self,
+        request: Request<pb::DecodeManifestRequest>,
+    ) -> Result<Response<pb::DecodeManifestResponse>, Status> {
+        use pb::decode_manifest_request::Input;
+
+        let req = request.into_inner();
+        let input = match req.input {
+            Some(Input::Manifest(bytes)) => crate::manifests::DecodeInput::Bytes(bytes),
+            Some(Input::Link(link)) if !link.is_empty() => {
+                crate::manifests::DecodeInput::Link(link)
+            }
+            _ => {
+                return Err(Status::invalid_argument(
+                    "needs a manifest (.ant bytes) or a link",
+                ))
+            }
+        };
+        let out = crate::manifests::decode(&*self.state.client, input, req.resolve).await?;
+        let (v1, v2) = match &out.torrent {
+            Some(t) => (
+                t.info_hash_v1.map(hex::encode).unwrap_or_default(),
+                t.info_hash_v2.map(hex::encode).unwrap_or_default(),
+            ),
+            None => (String::new(), String::new()),
+        };
+        Ok(Response::new(pb::DecodeManifestResponse {
+            source: out.from.as_str().to_string(),
+            name: out.name,
+            torrent_info_hash_v1: v1,
+            torrent_info_hash_v2: v2,
+            entries: out
+                .entries
+                .into_iter()
+                .map(|e| to_pb_manifest_entry(e.info, e.exact_size, e.error))
+                .collect::<Result<_, AntdError>>()?,
+        }))
+    }
+}

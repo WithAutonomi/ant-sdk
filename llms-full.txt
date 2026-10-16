@@ -518,6 +518,44 @@ Pointer error codes: `CLOSE_GROUP_SHORTFALL` (503; reads are free to retry),
 
 ---
 
+### Manifests (ADR-0006)
+
+Stateless build and decode of `.ant` manifests and `ant://` links (antd
+0.16.0+). The format, content addresses and portable path rules come from
+ant-core; nothing is uploaded or paid for. The network is touched only to
+resolve DataMaps.
+
+#### `POST /v1/manifests/build`
+Build a manifest from DataMaps (hex, embedded) and public addresses already
+in hand. Each entry has exactly one of `data_map` or `address`. `size` is
+recorded as given (the creator's claim). With `embed_roots` (default true), a
+shrunk DataMap is resolved and its root embedded when it is at most 64 KiB,
+as the `ant` CLI does; the same inputs give the CLI's exact bytes.
+
+Request:
+```json
+{
+  "name": "album",
+  "embed_roots": true,
+  "entries": [
+    {"path": "photos/a.jpg", "data_map": "<hex>", "size": 123},
+    {"path": "readme.txt", "address": "<64 hex>"}
+  ]
+}
+```
+Response: `{"manifest": "<base64 .ant>", "link": "ant://manifest/...", "entries": [{"effective_name", "path", "size", "kind", "content_address", "exact_size"}]}`.
+`link` is present only when it fits 1,500 bytes. Invalid entries are a 400
+that names every bad entry (`entries[i]: ...`).
+
+#### `POST /v1/manifests/decode`
+Decode `{"manifest": "<base64 .ant>"}` or `{"link": "ant://manifest/... | ant://<addr> | <addr>"}`.
+With `"resolve": true`, each entry's DataMap is fetched and resolved to
+report `exact_size`; a failure is reported in that entry's `error` instead of
+failing the call. Embedded entries carry `data_map` in the hex form the
+download routes accept.
+
+Response: `{"source": "manifest" | "file_link", "name", "torrent_info_hash_v1", "torrent_info_hash_v2", "entries": [...]}`
+
 ## gRPC API — All Services
 
 Default target: `localhost:50051`. Package: `antd.v1`.
@@ -551,6 +589,10 @@ Mirrors REST `/v1/pointers` 1:1; counters are decimal strings, unset values are 
 - `Get` → `PointerRecord` · `Resolve` → `PointerResolved` · `Finality` → `PointerFinality` · `Controller` → `PointerController`
 - `Prepare(PreparePointerRequest{owner, op, target, kind, recipient})` / `Finalize(FinalizePointerRequest{upload_id, tx_hashes})`
 - Errors: `POINTER_FINAL` / `POINTER_FORKED` → FAILED_PRECONDITION, `CONFLICT` → ABORTED, `CLOSE_GROUP_SHORTFALL` → UNAVAILABLE
+
+### ManifestService (manifests.proto)
+- `Build(BuildManifestRequest{name, torrent_info_hashes, embed_roots, entries[{path, size, data_map | address}]}) → BuildManifestResponse{manifest: bytes, link, entries}`
+- `Decode(DecodeManifestRequest{manifest: bytes | link, resolve}) → DecodeManifestResponse{source, name, torrent_info_hash_v1, torrent_info_hash_v2, entries}`
 
 ### SDKs with gRPC support
 Go, Python, C#, Kotlin, Swift, Rust, Java, C++, Dart, Ruby, Elixir (11 of 15 SDKs).
@@ -827,6 +869,11 @@ func (c *Client) FileCost(ctx context.Context, path string, isPublic bool, payme
 func (c *Client) WalletAddress(ctx context.Context) (*WalletAddress, error)
 func (c *Client) WalletBalance(ctx context.Context) (*WalletBalance, error)
 func (c *Client) WalletApprove(ctx context.Context) error
+
+// Manifests (ADR-0006, antd 0.16.0+); same methods on GrpcClient
+func (c *Client) BuildManifest(ctx context.Context, entries []ManifestEntryInput, opts *BuildManifestOptions) (*BuiltManifest, error)
+func (c *Client) DecodeManifest(ctx context.Context, manifest []byte, resolve bool) (*DecodedManifest, error)
+func (c *Client) DecodeManifestLink(ctx context.Context, link string, resolve bool) (*DecodedManifest, error)
 ```
 
 ---
