@@ -39,6 +39,14 @@ export {
 export { RestClient } from "./rest-client.js";
 export type { RestClientOptions } from "./rest-client.js";
 
+export type {
+  ManifestEntryInput,
+  BuildManifestOptions,
+  ManifestEntryInfo,
+  BuiltManifest,
+  DecodedManifest,
+} from "./manifests.js";
+
 export { discoverDaemonUrl } from "./discover.js";
 
 import { RestClient, type RestClientOptions } from "./rest-client.js";
