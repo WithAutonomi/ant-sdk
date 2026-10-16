@@ -13,6 +13,7 @@ import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Metadata;
 import io.grpc.MethodDescriptor;
+import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 
 import antd.v1.HealthServiceGrpc;
@@ -73,6 +74,9 @@ import antd.v1.Chunks.FinalizeChunkResponse;
 import antd.v1.Common.Cost;
 import antd.v1.Common.PaymentEntry;
 
+import antd.v1.PointerServiceGrpc;
+import antd.v1.Pointers;
+
 import com.google.protobuf.ByteString;
 
 import java.io.InputStream;
@@ -98,6 +102,7 @@ public class GrpcAntdClient implements AutoCloseable {
     private final FileServiceGrpc.FileServiceBlockingStub fileStub;
     private final WalletServiceGrpc.WalletServiceBlockingStub walletStub;
     private final UploadServiceGrpc.UploadServiceBlockingStub uploadStub;
+    private final PointerServiceGrpc.PointerServiceBlockingStub pointerStub;
 
     public static GrpcAntdClient autoDiscover() {
         String target = DaemonDiscovery.discoverGrpcTarget();
@@ -123,6 +128,7 @@ public class GrpcAntdClient implements AutoCloseable {
         this.fileStub = FileServiceGrpc.newBlockingStub(channel);
         this.walletStub = WalletServiceGrpc.newBlockingStub(channel);
         this.uploadStub = UploadServiceGrpc.newBlockingStub(channel);
+        this.pointerStub = PointerServiceGrpc.newBlockingStub(channel);
     }
 
     @Override
@@ -140,9 +146,57 @@ public class GrpcAntdClient implements AutoCloseable {
 
     // Error mapping
 
+    /**
+     * Trailer the daemon sets on statuses whose gRPC code is shared with older
+     * errors, carrying the REST {@code code} string.
+     */
+    static final Metadata.Key<String> ANTD_ERROR_CODE =
+            Metadata.Key.of("x-antd-error-code", Metadata.ASCII_STRING_MARSHALLER);
+
+    /**
+     * Closes a {@code CLOSE_GROUP_SHORTFALL} message when a pointer finalize
+     * kept the paid state for a repeat with the same upload_id:
+     * {@code "(paid attempt retained...)"} at the very end ({@code \z}, so no
+     * text or line terminator may follow it, and no parenthesis may sit inside).
+     */
+    private static final java.util.regex.Pattern RETAINED_TAIL =
+            java.util.regex.Pattern.compile("\\(paid attempt retained[^()]*\\)\\z");
+
+    /**
+     * The typed exception for a status the daemon tagged with
+     * {@code x-antd-error-code}, when the tag agrees with the gRPC code:
+     * {@code FAILED_PRECONDITION} for {@code POINTER_FINAL} /
+     * {@code POINTER_FORKED}, {@code ABORTED} for {@code CONFLICT},
+     * {@code UNAVAILABLE} for {@code CLOSE_GROUP_SHORTFALL}. Anything else (an
+     * untagged status, a tag this SDK does not know, or a tag on an unexpected
+     * code) is {@code null} and keeps the code-based mapping, so an untagged
+     * {@code FAILED_PRECONDITION} is still a {@link PaymentException}.
+     */
+    static AntdException typedStatusException(Status.Code code, String msg, Metadata trailers) {
+        String tag = trailers == null ? null : trailers.get(ANTD_ERROR_CODE);
+        if (tag == null) return null;
+        boolean agrees = switch (tag) {
+            case PointerFinalException.CODE, ForkException.POINTER_FORKED_CODE ->
+                    code == Status.Code.FAILED_PRECONDITION;
+            case ConflictException.CODE -> code == Status.Code.ABORTED;
+            case CloseGroupShortfallException.CODE -> code == Status.Code.UNAVAILABLE;
+            default -> false;
+        };
+        if (!agrees) return null;
+        // gRPC carries no structured detail: a retained pointer finalize closes
+        // its message with the same "(paid attempt retained...)" hint a
+        // retained partial upload does.
+        boolean retryable = msg != null && RETAINED_TAIL.matcher(msg).find();
+        return ExceptionFactory.fromPointerCode(tag, msg, retryable);
+    }
+
     private static AntdException mapException(StatusRuntimeException e) {
         String msg = e.getStatus().getDescription();
         if (msg == null) msg = e.getMessage();
+
+        AntdException typed = typedStatusException(
+                e.getStatus().getCode(), msg, Status.trailersFromThrowable(e));
+        if (typed != null) return typed;
 
         return switch (e.getStatus().getCode()) {
             case INVALID_ARGUMENT -> new BadRequestException(msg);
@@ -859,6 +913,141 @@ public class GrpcAntdClient implements AutoCloseable {
                             .putAllTxHashes(txHashes)
                             .build());
             return resp.getAddress();
+        } catch (StatusRuntimeException e) {
+            throw mapException(e);
+        }
+    }
+
+    // Pointers — the same methods, models and exceptions as AntdClient's, over
+    // PointerService. The daemon tags the errors that share a gRPC status with
+    // older ones (POINTER_FINAL and POINTER_FORKED on FAILED_PRECONDITION,
+    // CONFLICT on ABORTED, CLOSE_GROUP_SHORTFALL on UNAVAILABLE) with the
+    // x-antd-error-code trailer, which mapException reads. Every write pays
+    // once per call and is never retried; see AntdClient.
+
+    /** See {@link AntdClient#pointerKeys()}. */
+    public List<String> pointerKeys() {
+        try {
+            return PointerWire.fromProto(pointerStub.listKeys(Pointers.ListPointerKeysRequest.getDefaultInstance()));
+        } catch (StatusRuntimeException e) {
+            throw mapException(e);
+        }
+    }
+
+    /** See {@link AntdClient#pointerCreate(String, String, PointerTargetKind)}. Pays; never retried. */
+    public PointerWriteResult pointerCreate(String owner, String target, PointerTargetKind kind) {
+        try {
+            return PointerWire.fromProto(pointerStub.create(writeRequest(owner, target, kind)));
+        } catch (StatusRuntimeException e) {
+            throw mapException(e);
+        }
+    }
+
+    /** See {@link AntdClient#pointerCreate(String, String)}. Pays; never retried. */
+    public PointerWriteResult pointerCreate(String owner, String target) {
+        return pointerCreate(owner, target, PointerTargetKind.CHUNK);
+    }
+
+    /** See {@link AntdClient#pointerUpdate(String, String, PointerTargetKind)}. Pays; never retried. */
+    public PointerWriteResult pointerUpdate(String owner, String target, PointerTargetKind kind) {
+        try {
+            return PointerWire.fromProto(pointerStub.update(writeRequest(owner, target, kind)));
+        } catch (StatusRuntimeException e) {
+            throw mapException(e);
+        }
+    }
+
+    /** See {@link AntdClient#pointerUpdate(String, String)}. Pays; never retried. */
+    public PointerWriteResult pointerUpdate(String owner, String target) {
+        return pointerUpdate(owner, target, PointerTargetKind.CHUNK);
+    }
+
+    private static Pointers.PointerWriteRequest writeRequest(String owner, String target, PointerTargetKind kind) {
+        return Pointers.PointerWriteRequest.newBuilder()
+                .setOwner(owner)
+                .setTarget(target)
+                .setKind(PointerWire.kindOrDefault(kind).wireValue())
+                .build();
+    }
+
+    /** See {@link AntdClient#pointerTransfer(String, String)}. Pays; never retried. Irreversible. */
+    public PointerTransferResult pointerTransfer(String owner, String recipient) {
+        try {
+            return PointerWire.fromProto(pointerStub.transfer(Pointers.PointerTransferRequest.newBuilder()
+                    .setOwner(owner)
+                    .setRecipient(recipient)
+                    .build()));
+        } catch (StatusRuntimeException e) {
+            throw mapException(e);
+        }
+    }
+
+    /** See {@link AntdClient#pointerGet(String)}. */
+    public PointerRecord pointerGet(String address) {
+        try {
+            return PointerWire.fromProto(pointerStub.get(
+                    Pointers.GetPointerRequest.newBuilder().setAddress(address).build()));
+        } catch (StatusRuntimeException e) {
+            throw mapException(e);
+        }
+    }
+
+    /** See {@link AntdClient#pointerResolve(String)}. */
+    public PointerTarget pointerResolve(String address) {
+        try {
+            return PointerWire.fromProto(pointerStub.resolve(
+                    Pointers.ResolvePointerRequest.newBuilder().setAddress(address).build()));
+        } catch (StatusRuntimeException e) {
+            throw mapException(e);
+        }
+    }
+
+    /** See {@link AntdClient#pointerFinality(String)}. */
+    public PointerFinality pointerFinality(String address) {
+        try {
+            return PointerWire.fromProto(pointerStub.finality(
+                    Pointers.PointerFinalityRequest.newBuilder().setAddress(address).build()));
+        } catch (StatusRuntimeException e) {
+            throw mapException(e);
+        }
+    }
+
+    /** See {@link AntdClient#pointerController(String)}. */
+    public PointerController pointerController(String address) {
+        try {
+            return PointerWire.fromProto(pointerStub.controller(
+                    Pointers.PointerControllerRequest.newBuilder().setAddress(address).build()));
+        } catch (StatusRuntimeException e) {
+            throw mapException(e);
+        }
+    }
+
+    /** See {@link AntdClient#pointerPrepare(String, PointerOp)}. Pays nothing. */
+    public PointerPrepareResult pointerPrepare(String owner, PointerOp op) {
+        return pointerPrepare(owner, op, PointerPrepareOptions.DEFAULT);
+    }
+
+    /** See {@link AntdClient#pointerPrepare(String, PointerOp, PointerPrepareOptions)}. Pays nothing. */
+    public PointerPrepareResult pointerPrepare(String owner, PointerOp op, PointerPrepareOptions options) {
+        try {
+            return PointerWire.fromProto(pointerStub.prepare(PointerWire.prepareRequest(owner, op, options)));
+        } catch (StatusRuntimeException e) {
+            throw mapException(e);
+        }
+    }
+
+    /**
+     * See {@link AntdClient#pointerFinalize(String, Map)}. Never retried; a
+     * {@link CloseGroupShortfallException} with {@code isRetryable()} means the
+     * daemon kept the paid state, so repeat the call with the same
+     * {@code uploadId}.
+     */
+    public PointerFinalizeResult pointerFinalize(String uploadId, Map<String, String> txHashes) {
+        try {
+            Pointers.FinalizePointerRequest.Builder req = Pointers.FinalizePointerRequest.newBuilder()
+                    .setUploadId(uploadId);
+            if (txHashes != null) req.putAllTxHashes(txHashes);
+            return PointerWire.fromProto(pointerStub.finalize(req.build()));
         } catch (StatusRuntimeException e) {
             throw mapException(e);
         }
