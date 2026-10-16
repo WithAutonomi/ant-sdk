@@ -859,6 +859,131 @@ TEST_CASE("gRPC meta: Meta frame leads the progress/data sequence") {
 }
 
 // ---------------------------------------------------------------------------
+// Pointer errors: the x-antd-error-code trailer. The pointer RPCs read the
+// trailer first (antd::throw_for_tagged_grpc_status, the real function from
+// errors.hpp) and fall back to check_status, exactly as check_pointer_status
+// in grpc_client.cpp does. A tag counts only when it agrees with the code.
+// ---------------------------------------------------------------------------
+
+namespace test_grpc {
+
+[[noreturn]] void check_pointer_status(StatusCode code, std::string_view tag,
+                                       const std::string& message) {
+    if (!tag.empty()) {
+        antd::throw_for_tagged_grpc_status(static_cast<int>(code), tag, message);
+    }
+    check_status(code, message);
+}
+
+}  // namespace test_grpc
+
+TEST_CASE("pointer trailer: the tag constants match grpc::StatusCode") {
+    CHECK(antd::detail::kGrpcFailedPrecondition == test_grpc::FAILED_PRECONDITION);
+    CHECK(antd::detail::kGrpcAborted == test_grpc::ABORTED);
+    CHECK(antd::detail::kGrpcUnavailable == test_grpc::UNAVAILABLE);
+    CHECK(antd::kErrorCodeMetadataKey == "x-antd-error-code");
+}
+
+TEST_CASE("pointer trailer: FAILED_PRECONDITION + POINTER_FINAL -> PointerFinalError") {
+    try {
+        test_grpc::check_pointer_status(test_grpc::FAILED_PRECONDITION, "POINTER_FINAL",
+                                        "Pointer is final: transferred");
+    } catch (const antd::PaymentError&) {
+        FAIL("a tagged POINTER_FINAL must not read as PaymentError");
+    } catch (const antd::PointerFinalError& e) {
+        CHECK(e.status_code == 409);
+    }
+}
+
+TEST_CASE("pointer trailer: FAILED_PRECONDITION + POINTER_FORKED -> PointerForkedError") {
+    CHECK_THROWS_AS(test_grpc::check_pointer_status(test_grpc::FAILED_PRECONDITION,
+                                                    "POINTER_FORKED", "forked"),
+                    antd::PointerForkedError);
+}
+
+TEST_CASE("pointer trailer: ABORTED + CONFLICT -> ConflictError") {
+    CHECK_THROWS_AS(test_grpc::check_pointer_status(test_grpc::ABORTED, "CONFLICT",
+                                                    "Conflict: a prepared write awaits payment"),
+                    antd::ConflictError);
+}
+
+TEST_CASE("pointer trailer: UNAVAILABLE + CLOSE_GROUP_SHORTFALL -> CloseGroupShortfallError") {
+    try {
+        test_grpc::check_pointer_status(test_grpc::UNAVAILABLE, "CLOSE_GROUP_SHORTFALL",
+                                        "Close group shortfall: only 3 of 7 answered");
+    } catch (const antd::NetworkError&) {
+        FAIL("a tagged shortfall must not read as NetworkError");
+    } catch (const antd::CloseGroupShortfallError& e) {
+        CHECK(e.status_code == 503);
+        CHECK_FALSE(e.retryable);
+    }
+}
+
+TEST_CASE("pointer trailer: a shortfall closing with the retained hint is retryable") {
+    try {
+        test_grpc::check_pointer_status(
+            test_grpc::UNAVAILABLE, "CLOSE_GROUP_SHORTFALL",
+            "Close group shortfall: stored on 4 of 7 (paid attempt retained: call finalize "
+            "again with the same upload_id to store it against the same payment)");
+    } catch (const antd::CloseGroupShortfallError& e) {
+        CHECK(e.retryable);
+    }
+    // The hint must close the message; quoted elsewhere it does not count.
+    try {
+        test_grpc::check_pointer_status(
+            test_grpc::UNAVAILABLE, "CLOSE_GROUP_SHORTFALL",
+            "Close group shortfall: (paid attempt retained) was not the answer here");
+    } catch (const antd::CloseGroupShortfallError& e) {
+        CHECK_FALSE(e.retryable);
+    }
+}
+
+TEST_CASE("pointer trailer: a tag on the wrong code keeps the code mapping") {
+    CHECK_THROWS_AS(test_grpc::check_pointer_status(test_grpc::FAILED_PRECONDITION, "CONFLICT",
+                                                    "no funds"),
+                    antd::PaymentError);
+    CHECK_THROWS_AS(test_grpc::check_pointer_status(test_grpc::UNAVAILABLE, "POINTER_FINAL",
+                                                    "down"),
+                    antd::NetworkError);
+    CHECK_THROWS_AS(test_grpc::check_pointer_status(test_grpc::ALREADY_EXISTS, "POINTER_FINAL",
+                                                    "exists"),
+                    antd::AlreadyExistsError);
+    try {
+        test_grpc::check_pointer_status(test_grpc::ABORTED, "POINTER_FINAL", "aborted");
+    } catch (const antd::PointerFinalError&) {
+        FAIL("POINTER_FINAL on ABORTED must not be trusted");
+    } catch (const antd::AntdError& e) {
+        CHECK(e.status_code == test_grpc::ABORTED);
+    }
+}
+
+TEST_CASE("pointer trailer: untagged or unknown tags keep the code mapping") {
+    CHECK_THROWS_AS(test_grpc::check_pointer_status(test_grpc::FAILED_PRECONDITION, "",
+                                                    "wallet not configured"),
+                    antd::PaymentError);
+    CHECK_THROWS_AS(test_grpc::check_pointer_status(test_grpc::UNAVAILABLE, "", "down"),
+                    antd::NetworkError);
+    CHECK_THROWS_AS(test_grpc::check_pointer_status(test_grpc::FAILED_PRECONDITION,
+                                                    "SOMETHING_NEW", "x"),
+                    antd::PaymentError);
+    CHECK_THROWS_AS(test_grpc::check_pointer_status(test_grpc::FAILED_PRECONDITION,
+                                                    "pointer_final", "x"),
+                    antd::PaymentError);
+    CHECK_THROWS_AS(test_grpc::check_pointer_status(test_grpc::NOT_FOUND, "", "none"),
+                    antd::NotFoundError);
+}
+
+TEST_CASE("pointer counters from proto strings: digits only, unset is the caller's call") {
+    using antd::detail::parse_pointer_counter;
+    CHECK(parse_pointer_counter("counter", "18446744073709551615") == antd::kPointerFinalCounter);
+    CHECK(parse_pointer_counter("counter", "7") == 7);
+    for (const char* bad : {"", "-1", " 7", "7 ", "+7", "18446744073709551616"}) {
+        CAPTURE(bad);
+        CHECK_THROWS_AS(parse_pointer_counter("counter", bad), antd::InternalError);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // NOTE: Full integration tests for GrpcClient require a running antd daemon
 // with gRPC enabled on localhost:50051. The tests above validate error mapping,
 // model construction, and data conversion without network access or gRPC
