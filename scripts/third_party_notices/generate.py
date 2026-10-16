@@ -276,18 +276,24 @@ def elect(declared, rank, texts):
 
 # --- licence texts ----------------------------------------------------------
 
+def is_licence_dir(name):
+    """A LICENSES directory, or the dot-prefixed .licenses some crates keep
+    per-author texts in (granit-parser)."""
+    return name.lower() in ("licenses", ".licenses")
+
+
 def crate_licence_files(package):
     """Licence-like files anywhere in the crate, plus its declared license-file,
     as (label, bytes, governs). A file governs the crate itself when it sits at
-    the crate root, under a top-level LICENSES directory, or is the declared
-    license-file; deeper files belong to bundled components."""
+    the crate root, under a top-level LICENSES or .licenses directory, or is
+    the declared license-file; deeper files belong to bundled components."""
     root = os.path.dirname(package["manifest_path"])
     found = {}
     for directory, subdirs, files in os.walk(root):
         subdirs[:] = sorted(d for d in subdirs if d != "target")
         parts = [] if directory == root else os.path.relpath(directory, root).split(os.sep)
-        inside_licenses = "licenses" in (part.lower() for part in parts)
-        governs = not parts or parts[0].lower() == "licenses"
+        inside_licenses = any(is_licence_dir(part) for part in parts)
+        governs = not parts or is_licence_dir(parts[0])
         for name in sorted(files):
             if inside_licenses or LICENCE_FILE.match(name):
                 path = os.path.join(directory, name)
@@ -312,7 +318,7 @@ def checkout_licence_files(package):
             path = os.path.join(directory, name)
             if os.path.isfile(path) and LICENCE_FILE.match(name):
                 files.append((path, read_bytes(path)))
-            elif os.path.isdir(path) and name.lower() == "licenses":
+            elif os.path.isdir(path) and is_licence_dir(name):
                 for inner, _, inner_files in os.walk(path):
                     files += [(os.path.join(inner, f), read_bytes(os.path.join(inner, f)))
                               for f in sorted(inner_files)]
@@ -404,7 +410,7 @@ class GitHub:
             for entry in self.listing(owner, repo, sha, directory):
                 if entry["type"] == "file" and LICENCE_FILE.match(entry["name"]):
                     files.append(entry)
-                elif entry["type"] == "dir" and entry["name"].lower() == "licenses":
+                elif entry["type"] == "dir" and is_licence_dir(entry["name"]):
                     files += self.all_files(owner, repo, sha, entry["path"])
             if not directory:
                 break
