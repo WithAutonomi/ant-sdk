@@ -119,6 +119,45 @@ All methods return `!T` (error union) using Zig's standard error handling.
 | `fileGetPublic` | `fn (self: *Client, address: []const u8, dest_path: []const u8) !void` | Download a public file by address |
 | `fileCost` | `fn (self: *Client, path: []const u8, is_public: bool, payment_mode: PaymentMode) !UploadCostEstimate` | Estimate upload cost — size, chunks, gas, payment mode |
 
+### Manifests
+
+A manifest (ADR-0006) is a `.ant` file, or an `ant://manifest/` link, that lists a set of files. Each entry has an optional path and size, and either an embedded DataMap (from `dataPut` or `filePut`, so the manifest is the key to the file) or a public DataMap address (from `dataPutPublic` or `filePutPublic`). The daemon builds and decodes manifests, so you never handle the format yourself. The manifest methods need the antd release after 0.15.0.
+
+**Nothing is uploaded or paid for.** Building and decoding cost nothing. `resolve` and the default root embedding read from the network, so a call can time out, and it is safe to retry.
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `buildManifest` | `fn (self: *Client, entries: []const ManifestEntryInput, options: BuildManifestOptions) !BuiltManifest` | Build a manifest from DataMaps and public addresses you already hold. Returns the raw `.ant` bytes, the link when it fits in 1,500 bytes, and each entry's effective name and content address |
+| `decodeManifest` | `fn (self: *Client, manifest: []const u8, resolve: bool) !DecodedManifest` | Decode raw `.ant` bytes |
+| `decodeManifestLink` | `fn (self: *Client, link: []const u8, resolve: bool) !DecodedManifest` | Decode an `ant://` manifest link, a file link or a bare 64-hex address. A file link reads as `source` `"file_link"` with one public entry |
+
+- **Entries.** A `ManifestEntryInput` sets exactly one of `data_map` or `address` (an empty string counts as unset), with an optional `path` and `size`. If an entry sets both or neither, the call returns `error.BadRequest` before sending anything, and `getLastError()` is the same as for the daemon's 400: `status_code` 400 and the daemon's message, which lists every bad entry (`2 invalid entries: entries[0]: give data_map or address, not both; entries[1]: needs a data_map or an address`). The daemon rejects an invalid path (such as `../x`) or invalid hex with a 400, which is also `error.BadRequest`. Its message names the entry (`entries[i]: ...`).
+- **Options.** `BuildManifestOptions` has an optional `name` (a root directory name), `torrent_info_hashes` (hex, 40 characters for v1 and 64 for v2), and `embed_roots`. `.{}` gives the defaults. `embed_roots` is `true` by default: the daemon resolves each shrunk DataMap's root and embeds it when it is at most 64 KiB, so recipients don't have to fetch it. Set it to `false` to embed shrunk DataMaps exactly as given.
+- **Bytes.** The `.ant` bytes go to and from the daemon as base64 in JSON, but you only see raw bytes: `BuiltManifest.manifest` is the decoded file, and `decodeManifest` takes the file's bytes. `link` is `null` when the link would be longer than 1,500 bytes. Share the bytes instead.
+- **Entries returned.** A `ManifestEntryInfo` has `effective_name` (the path, or the content address when there is no path), `kind` (`"embedded"` or `"public"`) and `content_address` (hex). `data_map` is set only when you decode an embedded entry, and is in the hex form `dataGet` and `fileGet` accept. Entries come back sorted by effective name.
+- **Sizes** are `?u64`. `size` is the size recorded in the manifest (the creator's claim), and `exact_size` is the exact plaintext size, from an embedded root DataMap or from a resolving decode. An unset size is `null`, never 0. A size of 0 is a real size, and is sent and read as 0.
+- **`resolve`** fetches each entry's DataMap, and the DataMap's wrapper records, to report `exact_size` and confirm the DataMap is on the network. It doesn't fetch content chunks. If one entry fails to resolve, its `error_message` says why. That isn't a failed call.
+- **Unset strings.** Optional strings the daemon leaves out or sends empty are `null`: `path`, `data_map` and `error_message` on an entry; `name` and the torrent info hashes on a `DecodedManifest`; `link` on a `BuiltManifest`.
+
+```zig
+const built = try client.buildManifest(&.{
+    .{ .path = "notes/one.txt", .address = first.address },
+    .{ .path = "notes/two.txt", .data_map = private.data_map, .size = 1234 },
+}, .{ .name = "notes" });
+defer built.deinit(allocator);
+// built.manifest is the .ant file; built.link is null if it is too long.
+
+const decoded = try client.decodeManifestLink(built.link.?, true);
+defer decoded.deinit(allocator);
+for (decoded.entries) |entry| {
+    std.debug.print("{s} {s} {?d}\n", .{ entry.effective_name, entry.kind, entry.exact_size });
+}
+```
+
+`ANTD_BASE_URL=http://127.0.0.1:8082 zig build run-10-manifests` runs the example. It uploads two small pieces of public data, which the daemon wallet pays for. It then builds a manifest of them, prints the link and entries, and decodes the link with `resolve`.
+
+`zig build test` also runs a live manifest round trip when `ANTD_TEST_URL` and `ANTD_TEST_MANIFEST_ADDRESSES` (two comma-separated addresses of public data already on the network) are set. It also uses `ANTD_TEST_MANIFEST_SIZES`, `ANTD_TEST_MANIFEST_DATA_MAP`, `ANTD_TEST_MANIFEST_DATA_MAP_SIZE` and `ANTD_TEST_MANIFEST_LINK` when they are set. The round trip uploads and pays for nothing.
+
 ### External signer (two-phase upload)
 
 | Method | Signature | Description |
@@ -349,6 +388,7 @@ The Zig SDK follows Zig's explicit memory management conventions:
 - Struct results (`HealthStatus`, `PutResult`, `DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult`, `UploadCostEstimate`) have a `deinit(allocator)` method that frees all owned memory.
 - So do the pointer results (`PointerKeys`, `PointerWriteResult`, `PointerRecord`, `PointerTarget`, `PointerFinality`, `PointerController`, `PointerTransferResult`, `PointerPrepareResult`, `PointerFinalizeResult`). Their `deinit` also frees the nested values: optional strings, the finality states, a `PointerFinalityStatus.unknown` string and the `signed_quotes`.
 - Raw byte slices (`[]const u8`) returned by `dataGetPublic`, `dataGet`, and `chunkGet` must be freed with `allocator.free(result)`.
+- The manifest results (`BuiltManifest`, `DecodedManifest`) have a `deinit(allocator)` that frees the `.ant` bytes, the strings and every `ManifestEntryInfo` in `entries`. Don't free the entries separately.
 - Use `defer` immediately after receiving a result to ensure cleanup.
 
 ```zig
@@ -393,3 +433,4 @@ See the [examples/](examples/) directory:
 - `04-files` -- File upload/download
 - `06-private-data` -- Private data put/get
 - `09-pointers` -- Pointer create, update, resolve and finality (needs `ANTD_POINTER_OWNER`)
+- `10-manifests` -- Build a manifest of two public uploads and decode its link
