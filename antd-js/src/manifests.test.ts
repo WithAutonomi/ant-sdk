@@ -421,5 +421,42 @@ describe("RestClient manifests", () => {
       expect((err as Error).message).toBe("needs a manifest (base64 .ant bytes) or a link");
       expect(calls).toHaveLength(0);
     });
+
+    // The daemon's sizes are u64. The body is written as raw text because
+    // JSON.stringify would already round 2^53 + 1 before the client saw it.
+    function stubRawEntry(sizeFields: string): void {
+      const text =
+        `{"source":"manifest","entries":[{"effective_name":"a","kind":"public",` +
+        `"content_address":"${ADDR}"${sizeFields}}]}`;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+          Promise.resolve(new Response(text, { status: 200, headers: { "Content-Type": "application/json" } })),
+        ),
+      );
+    }
+
+    it("refuses a size past 2^53 - 1 instead of rounding it", async () => {
+      for (const field of ["size", "exact_size"]) {
+        stubRawEntry(`,"${field}":9007199254740993`);
+        const err = await rejection(client.decodeManifestLink(LINK));
+        expect(err).toBeInstanceOf(InternalError);
+        expect((err as Error).message).toContain(`manifest ${field} is above 9007199254740991`);
+      }
+    });
+
+    it("keeps 0, the largest safe size, and absent or null sizes exactly", async () => {
+      const read = async (sizeFields: string) => {
+        stubRawEntry(sizeFields);
+        const [e] = (await client.decodeManifestLink(LINK)).entries;
+        return [e.size, e.exactSize];
+      };
+      expect(await read(`,"size":0,"exact_size":0`)).toEqual([0, 0]);
+      expect(await read(`,"size":9007199254740991,"exact_size":9007199254740991`)).toEqual([
+        9007199254740991, 9007199254740991,
+      ]);
+      expect(await read(``)).toEqual([null, null]);
+      expect(await read(`,"size":null,"exact_size":null`)).toEqual([null, null]);
+    });
   });
 });

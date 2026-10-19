@@ -134,11 +134,18 @@ function optionalString(value: unknown): string | null {
 /**
  * An optional size. REST omits an unset size, so absent (or `null`) reads as
  * `null`, never 0. A value that is not a non-negative integer throws
- * {@link InternalError}.
+ * {@link InternalError}, and so does one above `Number.MAX_SAFE_INTEGER`: the
+ * daemon sends sizes as u64, and JSON parsing rounds anything past 2^53 - 1,
+ * so returning it would silently report a different size.
  */
 function optionalSize(field: string, value: unknown): number | null {
   if (value === undefined || value === null) return null;
-  if (typeof value === "number" && Number.isInteger(value) && value >= 0) return value;
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return value;
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+    throw new InternalError(
+      `antd: manifest ${field} is above ${Number.MAX_SAFE_INTEGER}, so a JavaScript number cannot hold it exactly`,
+    );
+  }
   throw new InternalError(`antd: manifest ${field} ${JSON.stringify(value)} is not a size`);
 }
 
