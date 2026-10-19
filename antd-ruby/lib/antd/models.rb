@@ -195,4 +195,225 @@ module Antd
     end
     alias_method :is_meta, :meta?
   end
+
+  # One +payments+ quote in full signed form, returned by +pointer_prepare+
+  # when called with +include_signed_quotes: true+. +quote+ and
+  # +commitment_sidecar+ are opaque base64 strings on both transports (the
+  # gRPC client encodes the proto's bytes the same way); only antd parses
+  # them. +commitment_sidecar+ is nil for baseline quotes.
+  SignedQuoteEntry = Struct.new(:quote_hash, :quote, :commitment_sidecar, keyword_init: true)
+
+  # --- Pointers (ADR-0016 / ADR-0018 in ant-node) ---
+  #
+  # A pointer is a small, owner-signed, mutable reference. Its address is
+  # derived from the owner's key and never changes; what it points at (a
+  # chunk, such as a public file's data map, or another pointer) can be
+  # changed by the owner, and the owner can hand it over to another pointer
+  # for good. antd signs with owner keys it loaded at startup
+  # (+--pointer-keys+), so a write names the pointer by its address (+owner+),
+  # never by a key.
+  #
+  # Every write pays, and every attempt pays again: never retry a create,
+  # update, transfer or finalize automatically.
+
+  # Counter of a pointer's final state, after a transfer or a freeze:
+  # 2^64 - 1 (u64::MAX). Nothing can replace a state at this counter.
+  POINTER_FINAL_COUNTER = 18_446_744_073_709_551_615
+
+  # What a pointer's target is. Pass as +kind:+ to the pointer writes; the
+  # daemon defaults to +CHUNK+ when it is omitted.
+  module PointerKind
+    # An immutable chunk, such as a public file's data map. The default.
+    CHUNK = "chunk"
+    # Another pointer: a forwarding the owner can still change. Use
+    # +pointer_transfer+ to hand a pointer over for good.
+    POINTER = "pointer"
+
+    # The kind a raw +kind_tag+ names (0 chunk, 1 pointer), or nil for a tag
+    # this SDK does not know.
+    #
+    # @param tag [Integer]
+    # @return [String, nil]
+    def self.from_tag(tag)
+      case tag
+      when 0 then CHUNK
+      when 1 then POINTER
+      end
+    end
+  end
+
+  # The write +pointer_prepare+ signs for an external signer.
+  module PointerOp
+    # Create the pointer at +target+. Refused if it already exists.
+    CREATE = "create"
+    # Point the pointer at +target+, creating it if it does not exist.
+    UPDATE = "update"
+    # Hand the pointer over for good to the pointer at +recipient+, which must
+    # already exist. Irreversible once stored.
+    TRANSFER = "transfer"
+  end
+
+  # Where a pointer stands with respect to finality (+PointerFinality#status+).
+  #
+  # The status is the daemon's wire string. These are the values this SDK
+  # knows; a newer daemon may send another, which is kept verbatim (the
+  # "unknown" arm: +PointerFinality#status_known?+ is false). Give a +case+
+  # over the status an +else+ branch.
+  module PointerFinalityStatus
+    # No peer that answered holds a final state: the owner can still move the
+    # pointer. Rules a final state out only when every peer answered.
+    OPEN = "open"
+    # One final state, not yet held by a majority: a transfer still
+    # spreading, or a write that fell short.
+    SETTLING = "settling"
+    # One final state held by a majority, but not every peer answered, so a
+    # rival could still be unseen. Ask again.
+    UNCONFIRMED = "unconfirmed"
+    # One final state held by a majority, every peer answered, no rival. The
+    # only status a recipient should rely on.
+    FINAL = "final"
+    # The owner signed two or more different final states.
+    FORKED = "forked"
+
+    # Every status this SDK knows.
+    KNOWN = [OPEN, SETTLING, UNCONFIRMED, FINAL, FORKED].freeze
+
+    # @param status [String]
+    # @return [Boolean] whether this SDK knows +status+
+    def self.known?(status)
+      KNOWN.include?(status)
+    end
+  end
+
+  # The state a pointer write stored (+pointer_create+ / +pointer_update+).
+  # +counter+ is an Integer; a final state sits at +POINTER_FINAL_COUNTER+.
+  PointerWriteResult = Struct.new(:address, :state_id, :counter, keyword_init: true)
+
+  # A pointer's current state, as the network serves it (+pointer_get+).
+  #
+  # - +owner+: the owner's ML-DSA-65 public key (hex, 1,952 bytes). The
+  #   address is derived from it, so it is the proof of who owns the pointer.
+  # - +counter+: Integer, +POINTER_FINAL_COUNTER+ once final.
+  # - +kind+: "chunk", "pointer", or "unknown" for a kind the daemon does not
+  #   know; +kind_tag+ carries the raw value either way.
+  # - +is_final+: the state is at the final counter, so nothing can replace it.
+  # - +transferred_to+: the pointer this one was handed over to, or nil.
+  PointerRecord = Struct.new(
+    :address, :owner, :counter, :kind, :kind_tag, :target, :state_id,
+    :is_final, :transferred_to,
+    keyword_init: true
+  ) do
+    # @return [Boolean] true at the final counter: transferred or frozen
+    def final?
+      is_final == true
+    end
+
+    # @return [String, nil] the target's +PointerKind+, if this SDK knows its tag
+    def target_kind
+      PointerKind.from_tag(kind_tag)
+    end
+  end
+
+  # Where a chain of pointers ends (+pointer_resolve+): the target's +kind+
+  # ("chunk", or "unknown" for a kind the daemon does not know), its raw
+  # +kind_tag+ and the +target+ address.
+  PointerTarget = Struct.new(:kind, :kind_tag, :target, keyword_init: true) do
+    # @return [String, nil] the target's +PointerKind+, if this SDK knows its tag
+    def target_kind
+      PointerKind.from_tag(kind_tag)
+    end
+  end
+
+  # One final state, as a finality check reports it. +holders+ is how many
+  # peers of the close group hold it; +transferred_to+ is nil unless the
+  # state is a transfer.
+  PointerFinalState = Struct.new(
+    :state_id, :kind, :kind_tag, :target, :holders, :transferred_to,
+    keyword_init: true
+  )
+
+  # Where a pointer stands, as its whole close group reports it
+  # (+pointer_finality+). Check it before relying on a transfer: only
+  # +final?+ means the transfer is beyond dispute.
+  #
+  # - +group+ / +answered+: peers in the close group, and peers that answered.
+  # - +status+: a +PointerFinalityStatus+ string (see there for unknown ones).
+  # - +counter+: +open+ only, the Integer counter a read would return, or nil
+  #   when no state is corroborated.
+  # - +state+: +settling+, +unconfirmed+ and +final+, the one final state seen
+  #   (+PointerFinalState+), else nil.
+  # - +states+ / +majority+: +forked+ only, every final state seen (most-held
+  #   first) and the one a majority holds, which reads return. +states+ is
+  #   empty and +majority+ nil otherwise.
+  # - +transferred_to+: the pointer this one was handed over to, once that is
+  #   beyond dispute (status +final+), else nil.
+  PointerFinality = Struct.new(
+    :address, :group, :answered, :status, :counter, :state, :states,
+    :majority, :transferred_to,
+    keyword_init: true
+  ) do
+    # @return [Boolean] one final state, held by a majority, every peer
+    #   answering and no rival seen
+    def final?
+      status == PointerFinalityStatus::FINAL
+    end
+
+    # @return [Boolean] false for a status a newer daemon added
+    def status_known?
+      PointerFinalityStatus.known?(status)
+    end
+  end
+
+  # Whose pointer decides what an address resolves to, after following every
+  # transfer (+pointer_controller+). +transfers+ lists every pointer the
+  # address was handed over to, in order; +frozen+ is true when +pointer+ is
+  # final without being handed over, so nobody can move it.
+  PointerController = Struct.new(:pointer, :transfers, :frozen, keyword_init: true)
+
+  # What a transfer stored, and where the close group says it stands.
+  # +finality+ (a +PointerFinality+) is nil when that check failed, and
+  # +finality_error+ says why; the transfer itself is stored and final either
+  # way. Ask again with +pointer_finality+.
+  PointerTransferResult = Struct.new(:address, :state_id, :finality, :finality_error, keyword_init: true)
+
+  # A pointer write signed by the daemon and quoted for an external signer
+  # (+pointer_prepare+). Pay +payments+ with +payForQuotes()+, then call
+  # +pointer_finalize+. +op+ is a +PointerOp+ string, +counter+ an Integer,
+  # +payment_type+ always "wave_batch" (a pointer state is paid with one
+  # quote). +signed_quotes+ (+SignedQuoteEntry+) is filled only when the
+  # prepare asked for it, else empty.
+  #
+  # While it awaits payment, other writes to the pointer raise
+  # +ConflictError+ until it is finalized or expires (one hour).
+  PointerPrepareResult = Struct.new(
+    :upload_id, :op, :address, :state_id, :counter, :payment_type,
+    :payments, :total_amount, :payment_vault_address, :payment_token_address,
+    :rpc_url, :signed_quotes,
+    keyword_init: true
+  )
+
+  # The state a pointer finalize stored. +finality+ is set for a transfer
+  # (where the close group says it stands), else nil.
+  PointerFinalizeResult = Struct.new(:address, :state_id, :counter, :finality, keyword_init: true)
+
+  # Parses a pointer counter. The daemon sends counters as decimal strings on
+  # both transports, because a final state sits at 2^64 - 1, past what a JSON
+  # number keeps exactly in many languages. Ruby integers are unbounded, so
+  # the value is checked against the daemon's u64 range here.
+  #
+  # Strict: only a String of ASCII digits within u64 parses. +Integer()+ alone
+  # would also take a sign, underscores or a radix prefix, and a malformed
+  # counter must never read as 0.
+  #
+  # @param field [String] the field name, for the error message
+  # @param value [Object] the wire value
+  # @return [Integer]
+  # @raise [InternalError] when +value+ is not a decimal u64
+  def self.parse_pointer_counter(field, value)
+    if value.is_a?(String) && value.match?(/\A[0-9]+\z/)
+      n = Integer(value, 10)
+      return n if n <= POINTER_FINAL_COUNTER
+    end
+    raise InternalError, "invalid pointer #{field} #{value.inspect}: expected a decimal u64"
+  end
 end
