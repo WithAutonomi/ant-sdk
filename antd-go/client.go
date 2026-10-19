@@ -116,8 +116,8 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any) (map
 		return nil, resp.StatusCode, nil
 	}
 
-	var result map[string]any
-	if err := json.Unmarshal(respBytes, &result); err != nil {
+	result, err := decodeObject(respBytes)
+	if err != nil {
 		return nil, resp.StatusCode, fmt.Errorf("unmarshal response: %w", err)
 	}
 	return result, resp.StatusCode, nil
@@ -232,18 +232,40 @@ func str(m map[string]any, key string) string {
 	return ""
 }
 
+// decodeObject decodes a response body that is a single JSON object. Numbers
+// decode as json.Number so an integer keeps its exact value: a float64 would
+// round anything above 2^53.
+func decodeObject(data []byte) (map[string]any, error) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var m map[string]any
+	if err := dec.Decode(&m); err != nil {
+		return nil, err
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return nil, fmt.Errorf("unexpected data after the JSON object")
+	}
+	return m, nil
+}
+
 func num64(m map[string]any, key string) int64 {
-	if v, ok := m[key].(float64); ok {
+	switch v := m[key].(type) {
+	case json.Number:
+		if i, err := v.Int64(); err == nil {
+			return i
+		}
+		if f, err := v.Float64(); err == nil {
+			return int64(f)
+		}
+	case float64:
 		return int64(v)
 	}
 	return 0
 }
 
+// unum64 reads a JSON count exactly, by the same rules as jsonCount.
 func unum64(m map[string]any, key string) uint64 {
-	if v, ok := m[key].(float64); ok {
-		return uint64(v)
-	}
-	return 0
+	return jsonCount(m[key])
 }
 
 func boolField(m map[string]any, key string) bool {
@@ -418,8 +440,8 @@ func (s *ndjsonStream) Recv() (DownloadFrame, error) {
 			}
 			continue
 		}
-		var frame map[string]any
-		if jErr := json.Unmarshal(line, &frame); jErr != nil {
+		frame, jErr := decodeObject(line)
+		if jErr != nil {
 			return DownloadFrame{}, fmt.Errorf("invalid NDJSON frame: %w", jErr)
 		}
 		switch frame["type"] {

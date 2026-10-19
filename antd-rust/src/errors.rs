@@ -40,6 +40,53 @@ pub enum AntdError {
     #[error("antd error 503: {0}")]
     ServiceUnavailable(String),
 
+    /// The pointer is at its final state, transferred or frozen: nothing can
+    /// update it or hand it over again (HTTP 409 with
+    /// `code: "POINTER_FINAL"`; gRPC `FAILED_PRECONDITION` with
+    /// `x-antd-error-code: POINTER_FINAL`). Usually refused before anything
+    /// is paid: the daemon reads the pointer first. A write that was already
+    /// paid for when the network refused it (the pointer became final while
+    /// the write was in flight) keeps that payment, so read the pointer before
+    /// paying again.
+    #[error("antd error 409 (pointer final): {0}")]
+    PointerFinal(String),
+
+    /// The pointer's owner signed two different final states and no one of
+    /// them is held by a majority of the close group, so there is no answer
+    /// to give (HTTP 409 with `code: "POINTER_FORKED"`; gRPC
+    /// `FAILED_PRECONDITION` with `x-antd-error-code: POINTER_FORKED`).
+    #[error("antd error 409 (pointer forked): {0}")]
+    PointerForked(String),
+
+    /// The request conflicts with the resource's current state (HTTP 409 with
+    /// `code: "CONFLICT"`; gRPC `ABORTED` with `x-antd-error-code: CONFLICT`).
+    /// For pointers, two cases share this code, and it does not say which one
+    /// happened or whether anything was paid: a write while a prepared write
+    /// to the same pointer awaits payment is refused before paying (finalize
+    /// the prepared write, or wait for it to expire); an update that lost to a
+    /// newer state while it was in flight may already have been paid for.
+    /// Read the pointer again and check what was paid before submitting
+    /// another paid write.
+    #[error("antd error 409 (conflict): {0}")]
+    Conflict(String),
+
+    /// Too few of an address's close group answered, or took a write, for
+    /// the result to be the network's (HTTP 503 with
+    /// `code: "CLOSE_GROUP_SHORTFALL"`; gRPC `UNAVAILABLE` with
+    /// `x-antd-error-code: CLOSE_GROUP_SHORTFALL`). Reads are free to retry.
+    /// A paid write is not, unless `retryable` is `true`: a pointer finalize
+    /// then kept the paid state under the same `upload_id`, and repeating
+    /// that finalize stores it against the same payment.
+    #[error("antd error 503 (close group shortfall): {message}")]
+    CloseGroupShortfall {
+        /// `true` when a pointer finalize kept the paid state for a repeat
+        /// with the same `upload_id`. `false` otherwise, including every read
+        /// and every daemon-wallet write.
+        retryable: bool,
+        /// The daemon's error message.
+        message: String,
+    },
+
     /// A finalize stored some chunks while others stayed unstored after the
     /// daemon's own retries (HTTP 502 with `code: "PARTIAL_UPLOAD"`; gRPC
     /// `ABORTED` whose message starts with `Partial upload:`). The on-chain
@@ -154,7 +201,13 @@ pub enum AntdError {
 
 impl From<tonic::Status> for AntdError {
     fn from(status: tonic::Status) -> Self {
+        if let Some(e) = typed_status_error(&status) {
+            return e;
+        }
         match status.code() {
+            // INVALID_ARGUMENT is the REST 400, on every call. Reached only
+            // when no `x-antd-error-code` tag took the status above.
+            tonic::Code::InvalidArgument => AntdError::BadRequest(status.message().to_string()),
             // PARTIAL_UPLOAD: some chunks stored, some still unstored after
             // retries. The daemon opens every such message with the fixed
             // `Partial upload:` prefix, so gate on it: any other ABORTED keeps
@@ -188,6 +241,36 @@ impl From<tonic::Status> for AntdError {
             _ => AntdError::Grpc(Box::new(status)),
         }
     }
+}
+
+/// Metadata key the daemon (with the pointer API, after 0.15.0) sets on statuses whose gRPC code
+/// is shared with older errors, carrying the REST `code` string.
+const ANTD_ERROR_CODE_METADATA: &str = "x-antd-error-code";
+
+/// The typed error for a status the daemon tagged with `x-antd-error-code`,
+/// when the tag and the gRPC code agree. Anything else (an untagged status, a
+/// tag this SDK does not know, or a tag on an unexpected code) is `None` and
+/// keeps the code-based mapping.
+fn typed_status_error(status: &tonic::Status) -> Option<AntdError> {
+    let tag = status
+        .metadata()
+        .get(ANTD_ERROR_CODE_METADATA)?
+        .to_str()
+        .ok()?;
+    let message = status.message().to_string();
+    Some(match (status.code(), tag) {
+        (tonic::Code::FailedPrecondition, "POINTER_FINAL") => AntdError::PointerFinal(message),
+        (tonic::Code::FailedPrecondition, "POINTER_FORKED") => AntdError::PointerForked(message),
+        (tonic::Code::Aborted, "CONFLICT") => AntdError::Conflict(message),
+        (tonic::Code::Unavailable, "CLOSE_GROUP_SHORTFALL") => AntdError::CloseGroupShortfall {
+            // gRPC carries no structured detail: a retained pointer finalize
+            // closes its message with the same "(paid attempt retained...)"
+            // hint a retained partial upload does.
+            retryable: closing_retention_hint(&message) == Some(true),
+            message,
+        },
+        _ => return None,
+    })
 }
 
 /// Fixed text the daemon opens every `PARTIAL_UPLOAD` message with; a gRPC
@@ -280,9 +363,10 @@ fn take_u64(s: &str) -> Option<(u64, &str)> {
 /// Maps a non-2xx REST response onto an [`AntdError`], preferring the
 /// machine-readable `code` over the bare HTTP status where they diverge:
 /// `PARTIAL_UPLOAD` arrives as a 502 that would otherwise read as a generic
-/// [`AntdError::Network`]. Every other code keeps the status-based mapping
-/// of [`error_for_status`]. A body that is not JSON is used verbatim as the
-/// message.
+/// [`AntdError::Network`], and `POINTER_FINAL`, `POINTER_FORKED` and
+/// `CONFLICT` are 409s that must not read as [`AntdError::AlreadyExists`].
+/// Every other code keeps the status-based mapping of [`error_for_status`].
+/// A body that is not JSON is used verbatim as the message.
 pub fn error_for_body(code: u16, bytes: &[u8]) -> AntdError {
     let Ok(body) = serde_json::from_slice::<Value>(bytes) else {
         return error_for_status(code, String::from_utf8_lossy(bytes).to_string());
@@ -308,7 +392,18 @@ pub fn error_for_body(code: u16, bytes: &[u8]) -> AntdError {
             message,
         };
     }
-    error_for_status(code, message)
+    match body.get("code").and_then(Value::as_str) {
+        Some("POINTER_FINAL") => AntdError::PointerFinal(message),
+        Some("POINTER_FORKED") => AntdError::PointerForked(message),
+        Some("CONFLICT") => AntdError::Conflict(message),
+        Some("CLOSE_GROUP_SHORTFALL") => AntdError::CloseGroupShortfall {
+            // Present, and true, only on a pointer finalize that kept the
+            // paid state; anything else reads as not retained.
+            retryable: body.get("retryable").and_then(Value::as_bool) == Some(true),
+            message,
+        },
+        _ => error_for_status(code, message),
+    }
 }
 
 /// Maps an HTTP status code and message to the appropriate [`AntdError`] variant.

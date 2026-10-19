@@ -34,6 +34,31 @@ pub enum AntdError {
     #[error("Internal error: {0}")]
     Internal(String),
 
+    /// Too few of an address's close group answered, or took a write, for the
+    /// result to be the network's. Reads are free to retry; a paid write is
+    /// not, except where `retryable` says the paid attempt was kept (a pointer
+    /// finalize repeated with the same `upload_id`).
+    #[error("Close group shortfall: {message}")]
+    CloseGroupShortfall {
+        message: String,
+        retryable: Option<bool>,
+    },
+
+    /// The pointer is at its final state (transferred or frozen): nothing can
+    /// update it or hand it over again.
+    #[error("Pointer is final: {0}")]
+    PointerFinal(String),
+
+    /// The pointer's owner signed two different final states, and no one of
+    /// them is held by a majority of the close group.
+    #[error("Pointer is forked: {0}")]
+    PointerForked(String),
+
+    /// The request conflicts with the resource's current state, such as a
+    /// pointer write while a prepared write to it awaits payment.
+    #[error("Conflict: {0}")]
+    Conflict(String),
+
     /// A byte-range download (V2-1425) that starts at or past the end of the
     /// object. `size` is the object's plaintext size, reported back so the
     /// caller can re-issue a satisfiable range.
@@ -95,6 +120,21 @@ impl AntdError {
             AntdError::Internal(_) => "INTERNAL_ERROR",
             AntdError::RangeNotSatisfiable { .. } => "RANGE_NOT_SATISFIABLE",
             AntdError::PartialUpload { .. } => "PARTIAL_UPLOAD",
+            AntdError::CloseGroupShortfall { .. } => "CLOSE_GROUP_SHORTFALL",
+            AntdError::PointerFinal(_) => "POINTER_FINAL",
+            AntdError::PointerForked(_) => "POINTER_FORKED",
+            AntdError::Conflict(_) => "CONFLICT",
+        }
+    }
+
+    /// Whether the paid attempt was retained, so the same finalize (same
+    /// `upload_id`) may be repeated against the same payment. `None` where
+    /// that is unknown or does not apply.
+    pub fn retryable(&self) -> Option<bool> {
+        match self {
+            AntdError::PartialUpload { retryable, .. } => Some(*retryable),
+            AntdError::CloseGroupShortfall { retryable, .. } => *retryable,
+            _ => None,
         }
     }
 
@@ -114,6 +154,14 @@ impl AntdError {
             Error::Protocol(msg) => AntdError::Internal(msg),
             Error::Encryption(msg) => AntdError::Internal(msg),
             Error::Serialization(msg) => AntdError::Internal(msg),
+            // Too few of a close group answered or stored: a gateway-side
+            // condition the caller can wait out, not a daemon fault.
+            Error::CloseGroupShortfall(message) => AntdError::CloseGroupShortfall {
+                message,
+                retryable: None,
+            },
+            Error::PointerFinal(msg) => AntdError::PointerFinal(msg),
+            Error::PointerForked(msg) => AntdError::PointerForked(msg),
             // The daemon-wallet upload paths and the non-resumable external
             // finalize raise this when chunks miss quorum after retries;
             // nothing is retained on this path, so the retry is a re-prepare.
@@ -152,9 +200,11 @@ struct ErrorBody {
     chunks_failed: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     total_chunks: Option<u64>,
-    /// `PARTIAL_UPLOAD` only: `true` when the paid attempt was retained and
-    /// the same finalize call (same `upload_id`) stores the remainder against
-    /// the same payment; `false` when the retry is a re-prepare.
+    /// `PARTIAL_UPLOAD`: `true` when the paid attempt was retained and the
+    /// same finalize call (same `upload_id`) stores the remainder against the
+    /// same payment; `false` when the retry is a re-prepare.
+    /// `CLOSE_GROUP_SHORTFALL`: `true` from a pointer finalize that kept the
+    /// paid state for a repeat with the same `upload_id`; absent elsewhere.
     #[serde(skip_serializing_if = "Option::is_none")]
     retryable: Option<bool>,
 }
@@ -176,6 +226,10 @@ impl IntoResponse for AntdError {
             // The upstream network failed to store part of the file; the
             // request itself was valid, so this is a gateway-side failure.
             AntdError::PartialUpload { .. } => StatusCode::BAD_GATEWAY,
+            AntdError::CloseGroupShortfall { .. } => StatusCode::SERVICE_UNAVAILABLE,
+            AntdError::PointerFinal(_) | AntdError::PointerForked(_) | AntdError::Conflict(_) => {
+                StatusCode::CONFLICT
+            }
         };
         let (chunks_stored, chunks_failed, total_chunks, retryable) = match &self {
             AntdError::PartialUpload {
@@ -185,6 +239,7 @@ impl IntoResponse for AntdError {
                 retryable,
                 ..
             } => (Some(*stored), Some(*failed), Some(*total), Some(*retryable)),
+            AntdError::CloseGroupShortfall { retryable, .. } => (None, None, None, *retryable),
             _ => (None, None, None, None),
         };
         let body = serde_json::to_string(&ErrorBody {
@@ -244,11 +299,50 @@ impl From<AntdError> for tonic::Status {
             // the application level — a repeat FinalizeUpload with the same
             // upload_id when the paid attempt was retained (`retryable`), or
             // a re-prepare otherwise — not a blind replay of the same call.
-            // Counts and the retryable hint stay in the message until the
-            // proto grows structured detail fields.
-            e @ AntdError::PartialUpload { .. } => tonic::Status::aborted(e.to_string()),
+            // `retryable` rides along as metadata; the counts stay in the
+            // message until the proto grows structured detail fields.
+            e @ AntdError::PartialUpload { .. } => {
+                let retryable = e.retryable();
+                with_retryable(tonic::Status::aborted(e.to_string()), retryable)
+            }
+            // These share gRPC status codes with older errors, so the antd
+            // code rides along as metadata for clients to tell them apart
+            // without parsing the message.
+            e @ AntdError::CloseGroupShortfall { .. } => {
+                let retryable = e.retryable();
+                let status = with_code(tonic::Status::unavailable(e.to_string()), e.code());
+                with_retryable(status, retryable)
+            }
+            e @ (AntdError::PointerFinal(_) | AntdError::PointerForked(_)) => {
+                with_code(tonic::Status::failed_precondition(e.to_string()), e.code())
+            }
+            e @ AntdError::Conflict(_) => {
+                with_code(tonic::Status::aborted(e.to_string()), e.code())
+            }
         }
     }
+}
+
+/// Attach antd's error code to a gRPC status as `x-antd-error-code`.
+fn with_code(mut status: tonic::Status, code: &str) -> tonic::Status {
+    if let Ok(value) = code.parse() {
+        status.metadata_mut().insert("x-antd-error-code", value);
+    }
+    status
+}
+
+/// Attach whether the paid attempt was retained, the REST body's `retryable`,
+/// as `x-antd-retryable: true|false`, so gRPC clients need not match the
+/// message tail. Left off when unknown, as REST leaves the field out.
+fn with_retryable(mut status: tonic::Status, retryable: Option<bool>) -> tonic::Status {
+    if let Some(retryable) = retryable {
+        let value = if retryable { "true" } else { "false" };
+        status.metadata_mut().insert(
+            "x-antd-retryable",
+            tonic::metadata::MetadataValue::from_static(value),
+        );
+    }
+    status
 }
 
 #[cfg(test)]
@@ -385,6 +479,132 @@ mod tests {
             .unwrap();
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert!(body.get("retryable").is_none());
+    }
+
+    #[test]
+    fn close_group_shortfall_is_a_503_not_an_internal_error() {
+        let e = AntdError::from_core(ant_core::data::Error::CloseGroupShortfall(
+            "Stored on 3 peers, need 4".into(),
+        ));
+        assert_eq!(e.code(), "CLOSE_GROUP_SHORTFALL");
+        assert_eq!(e.into_response().status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn retained_pointer_finalize_says_retryable_in_the_body() {
+        async fn body_of(e: AntdError) -> serde_json::Value {
+            let resp = e.into_response();
+            let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            serde_json::from_slice(&bytes).unwrap()
+        }
+
+        let body = body_of(AntdError::CloseGroupShortfall {
+            message: "stored on 4 of 5".into(),
+            retryable: Some(true),
+        })
+        .await;
+        assert_eq!(body["code"], "CLOSE_GROUP_SHORTFALL");
+        assert_eq!(body["retryable"], true);
+        assert!(body.get("chunks_stored").is_none());
+
+        // A shortfall from a read carries no retryable flag at all.
+        let body = body_of(AntdError::CloseGroupShortfall {
+            message: "only 3 answered".into(),
+            retryable: None,
+        })
+        .await;
+        assert!(body.get("retryable").is_none());
+    }
+
+    #[test]
+    fn pointer_refusals_are_409s() {
+        for e in [
+            AntdError::from_core(ant_core::data::Error::PointerFinal("x".into())),
+            AntdError::from_core(ant_core::data::Error::PointerForked("x".into())),
+            AntdError::Conflict("pending".into()),
+        ] {
+            assert_eq!(e.into_response().status(), StatusCode::CONFLICT);
+        }
+    }
+
+    #[test]
+    fn grpc_statuses_carry_the_antd_code_where_they_share_a_grpc_code() {
+        let cases = [
+            (
+                AntdError::PointerFinal("x".into()),
+                tonic::Code::FailedPrecondition,
+                "POINTER_FINAL",
+            ),
+            (
+                AntdError::PointerForked("x".into()),
+                tonic::Code::FailedPrecondition,
+                "POINTER_FORKED",
+            ),
+            (
+                AntdError::Conflict("x".into()),
+                tonic::Code::Aborted,
+                "CONFLICT",
+            ),
+            (
+                AntdError::CloseGroupShortfall {
+                    message: "x".into(),
+                    retryable: None,
+                },
+                tonic::Code::Unavailable,
+                "CLOSE_GROUP_SHORTFALL",
+            ),
+        ];
+        for (e, code, antd_code) in cases {
+            let status = tonic::Status::from(e);
+            assert_eq!(status.code(), code);
+            assert_eq!(
+                status
+                    .metadata()
+                    .get("x-antd-error-code")
+                    .and_then(|v| v.to_str().ok()),
+                Some(antd_code)
+            );
+        }
+    }
+
+    #[test]
+    fn grpc_status_carries_retryable_as_metadata() {
+        let retryable = |e: AntdError| {
+            tonic::Status::from(e)
+                .metadata()
+                .get("x-antd-retryable")
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_owned)
+        };
+        let partial = |retryable| AntdError::PartialUpload {
+            stored: 1,
+            failed: 1,
+            total: 2,
+            reason: "x".into(),
+            retryable,
+        };
+        let shortfall = |retryable| AntdError::CloseGroupShortfall {
+            message: "x".into(),
+            retryable,
+        };
+        assert_eq!(retryable(partial(true)).as_deref(), Some("true"));
+        assert_eq!(retryable(partial(false)).as_deref(), Some("false"));
+        assert_eq!(retryable(shortfall(Some(true))).as_deref(), Some("true"));
+        // Unknown retention is left off, as REST leaves `retryable` out.
+        assert_eq!(retryable(shortfall(None)), None);
+        assert_eq!(retryable(AntdError::Conflict("x".into())), None);
+
+        // The shortfall keeps its code tag next to the new key.
+        let status = tonic::Status::from(shortfall(Some(true)));
+        assert_eq!(
+            status
+                .metadata()
+                .get("x-antd-error-code")
+                .and_then(|v| v.to_str().ok()),
+            Some("CLOSE_GROUP_SHORTFALL")
+        );
     }
 
     #[test]

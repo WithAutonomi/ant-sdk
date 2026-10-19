@@ -4,17 +4,22 @@
 
 #include <charconv>
 #include <cstdint>
+#include <string_view>
 #include <system_error>
+
+#include "manifests_grpc.hpp"
 
 // Proto-generated headers — produced by protoc + grpc_cpp_plugin.
 // Run `protoc` against antd/proto/antd/v1/*.proto or let the CMake
 // antd_grpc target handle compilation automatically.
 #include "antd/v1/health.grpc.pb.h"
+#include "antd/v1/manifests.grpc.pb.h"
 #include "antd/v1/data.grpc.pb.h"
 #include "antd/v1/chunks.grpc.pb.h"
 #include "antd/v1/files.grpc.pb.h"
 #include "antd/v1/upload.grpc.pb.h"
 #include "antd/v1/wallet.grpc.pb.h"
+#include "antd/v1/pointers.grpc.pb.h"
 
 namespace antd {
 
@@ -80,21 +85,31 @@ static void check_status(const grpc::Status& status) {
 
 struct GrpcClient::Impl {
     std::shared_ptr<grpc::Channel> channel;
+    // ManifestService's own channel to the same target, with the message
+    // limits raised (detail::manifest_channel_arguments). Like `channel`, it
+    // connects on first use.
+    std::shared_ptr<grpc::Channel> manifest_channel;
+    std::unique_ptr<antd::v1::ManifestService::Stub> manifest_stub;
     std::unique_ptr<antd::v1::HealthService::Stub> health_stub;
     std::unique_ptr<antd::v1::DataService::Stub> data_stub;
     std::unique_ptr<antd::v1::ChunkService::Stub> chunk_stub;
     std::unique_ptr<antd::v1::FileService::Stub> file_stub;
     std::unique_ptr<antd::v1::UploadService::Stub> upload_stub;
     std::unique_ptr<antd::v1::WalletService::Stub> wallet_stub;
+    std::unique_ptr<antd::v1::PointerService::Stub> pointer_stub;
 
     explicit Impl(const std::string& target)
         : channel(grpc::CreateChannel(target, grpc::InsecureChannelCredentials())),
+          manifest_channel(grpc::CreateCustomChannel(target, grpc::InsecureChannelCredentials(),
+                                                     detail::manifest_channel_arguments())),
+          manifest_stub(antd::v1::ManifestService::NewStub(manifest_channel)),
           health_stub(antd::v1::HealthService::NewStub(channel)),
           data_stub(antd::v1::DataService::NewStub(channel)),
           chunk_stub(antd::v1::ChunkService::NewStub(channel)),
           file_stub(antd::v1::FileService::NewStub(channel)),
           upload_stub(antd::v1::UploadService::NewStub(channel)),
-          wallet_stub(antd::v1::WalletService::NewStub(channel)) {}
+          wallet_stub(antd::v1::WalletService::NewStub(channel)),
+          pointer_stub(antd::v1::PointerService::NewStub(channel)) {}
 };
 
 // ---------------------------------------------------------------------------
@@ -604,6 +619,40 @@ std::string GrpcClient::finalize_chunk_upload(std::string_view upload_id,
     return resp.address();
 }
 
+// ---------------------------------------------------------------------------
+// Manifests (ManifestService; the wire mapping is in manifests_grpc.cpp)
+//
+// On manifest_stub, whose channel raises the message limits: a Build or
+// Decode response carries the whole manifest (up to 64 MiB), and a Decode
+// request sends it.
+// ---------------------------------------------------------------------------
+
+BuiltManifest GrpcClient::build_manifest(const std::vector<ManifestEntryInput>& entries,
+                                         const BuildManifestOptions& options) {
+    const auto req = detail::manifest_build_request(entries, options);
+    grpc::ClientContext ctx;
+    antd::v1::BuildManifestResponse resp;
+    check_status(impl_->manifest_stub->Build(&ctx, req, &resp));
+    return detail::built_manifest_from_pb(resp);
+}
+
+DecodedManifest GrpcClient::decode_manifest(const std::vector<uint8_t>& manifest,
+                                            bool resolve) {
+    const auto req = detail::manifest_decode_bytes_request(manifest, resolve);
+    grpc::ClientContext ctx;
+    antd::v1::DecodeManifestResponse resp;
+    check_status(impl_->manifest_stub->Decode(&ctx, req, &resp));
+    return detail::decoded_manifest_from_pb(resp);
+}
+
+DecodedManifest GrpcClient::decode_manifest_link(std::string_view link, bool resolve) {
+    const auto req = detail::manifest_decode_link_request(link, resolve);
+    grpc::ClientContext ctx;
+    antd::v1::DecodeManifestResponse resp;
+    check_status(impl_->manifest_stub->Decode(&ctx, req, &resp));
+    return detail::decoded_manifest_from_pb(resp);
+}
+
 // Wallet (V2-286)
 // ---------------------------------------------------------------------------
 //
@@ -638,6 +687,300 @@ bool GrpcClient::wallet_approve() {
     antd::v1::WalletApproveResponse resp;
     check_status(impl_->wallet_stub->Approve(&ctx, req, &resp));
     return resp.approved();
+}
+
+// ---------------------------------------------------------------------------
+// Pointers (PointerService)
+//
+// Unset values arrive as "" or an absent message (a finality's `counter`,
+// `state` and `majority`, `transferred_to`, `finality_error`) and map to
+// std::nullopt, as REST's `null` does. Counters are decimal strings parsed
+// strictly into std::uint64_t.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// Map a failed pointer RPC, preferring the daemon's `x-antd-error-code`
+/// trailer over the bare status code where it was sent and agrees with it
+/// (throw_for_tagged_grpc_status); anything else takes check_status.
+void check_pointer_status(const grpc::ClientContext& ctx, const grpc::Status& status) {
+    if (status.ok()) {
+        return;
+    }
+    const auto& trailers = ctx.GetServerTrailingMetadata();
+    const auto it = trailers.find(grpc::string_ref(kErrorCodeMetadataKey.data(),
+                                                   kErrorCodeMetadataKey.size()));
+    if (it != trailers.end()) {
+        throw_for_tagged_grpc_status(static_cast<int>(status.error_code()),
+                                     std::string_view(it->second.data(), it->second.size()),
+                                     status.error_message());
+    }
+    check_status(status);
+}
+
+std::optional<std::string> non_empty(const std::string& s) {
+    if (s.empty()) return std::nullopt;
+    return s;
+}
+
+/// proto3 carries the kind tag as a uint32; one past a u8 reads as 0xFF, a
+/// kind no SDK knows, as over REST.
+std::uint8_t kind_tag_of(std::uint32_t tag) {
+    return tag > 0xFF ? std::uint8_t{0xFF} : static_cast<std::uint8_t>(tag);
+}
+
+/// Standard base64 with padding, the encoding REST uses for signed quotes.
+/// (antd_grpc does not link the REST library's encoder.)
+std::string base64_of(const std::string& bytes) {
+    static constexpr char kAlphabet[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    out.reserve((bytes.size() + 2) / 3 * 4);
+    std::size_t i = 0;
+    for (; i + 2 < bytes.size(); i += 3) {
+        const std::uint32_t n = (static_cast<unsigned char>(bytes[i]) << 16) |
+                                (static_cast<unsigned char>(bytes[i + 1]) << 8) |
+                                static_cast<unsigned char>(bytes[i + 2]);
+        out += kAlphabet[(n >> 18) & 63];
+        out += kAlphabet[(n >> 12) & 63];
+        out += kAlphabet[(n >> 6) & 63];
+        out += kAlphabet[n & 63];
+    }
+    if (i + 1 == bytes.size()) {
+        const std::uint32_t n = static_cast<unsigned char>(bytes[i]) << 16;
+        out += kAlphabet[(n >> 18) & 63];
+        out += kAlphabet[(n >> 12) & 63];
+        out += "==";
+    } else if (i + 2 == bytes.size()) {
+        const std::uint32_t n = (static_cast<unsigned char>(bytes[i]) << 16) |
+                                (static_cast<unsigned char>(bytes[i + 1]) << 8);
+        out += kAlphabet[(n >> 18) & 63];
+        out += kAlphabet[(n >> 12) & 63];
+        out += kAlphabet[(n >> 6) & 63];
+        out += '=';
+    }
+    return out;
+}
+
+PointerFinalState map_final_state(const antd::v1::PointerFinalState& s) {
+    return PointerFinalState{
+        .state_id = s.state_id(),
+        .kind = s.kind(),
+        .kind_tag = kind_tag_of(s.kind_tag()),
+        .target = s.target(),
+        .holders = s.holders(),
+        .transferred_to = non_empty(s.transferred_to()),
+    };
+}
+
+PointerFinality map_finality(const antd::v1::PointerFinality& f) {
+    PointerFinality r;
+    r.address = f.address();
+    r.group = f.group();
+    r.answered = f.answered();
+    r.status_raw = f.status();
+    r.status = pointer_finality_status_from_wire(r.status_raw);
+    if (!f.counter().empty()) {
+        r.counter = detail::parse_pointer_counter("counter", f.counter());
+    }
+    if (f.has_state()) {
+        r.state = map_final_state(f.state());
+    }
+    for (const auto& s : f.states()) {
+        r.states.push_back(map_final_state(s));
+    }
+    if (f.has_majority()) {
+        r.majority = map_final_state(f.majority());
+    }
+    r.transferred_to = non_empty(f.transferred_to());
+    return r;
+}
+
+PointerWriteResult map_write(const antd::v1::PointerWriteResponse& resp) {
+    return PointerWriteResult{
+        .address = resp.address(),
+        .state_id = resp.state_id(),
+        .counter = detail::parse_pointer_counter("counter", resp.counter()),
+    };
+}
+
+}  // namespace
+
+std::vector<PointerKey> GrpcClient::pointer_keys() {
+    grpc::ClientContext ctx;
+    antd::v1::ListPointerKeysRequest req;
+    antd::v1::ListPointerKeysResponse resp;
+    check_pointer_status(ctx, impl_->pointer_stub->ListKeys(&ctx, req, &resp));
+    std::vector<PointerKey> keys;
+    keys.reserve(resp.keys_size());
+    for (const auto& k : resp.keys()) {
+        keys.push_back(PointerKey{.address = k.address()});
+    }
+    return keys;
+}
+
+PointerWriteResult GrpcClient::pointer_create(std::string_view owner, std::string_view target,
+                                              PointerKind kind) {
+    grpc::ClientContext ctx;
+    antd::v1::PointerWriteRequest req;
+    req.set_owner(std::string(owner));
+    req.set_target(std::string(target));
+    req.set_kind(pointer_kind_wire(kind));
+    antd::v1::PointerWriteResponse resp;
+    check_pointer_status(ctx, impl_->pointer_stub->Create(&ctx, req, &resp));
+    return map_write(resp);
+}
+
+PointerWriteResult GrpcClient::pointer_update(std::string_view owner, std::string_view target,
+                                              PointerKind kind) {
+    grpc::ClientContext ctx;
+    antd::v1::PointerWriteRequest req;
+    req.set_owner(std::string(owner));
+    req.set_target(std::string(target));
+    req.set_kind(pointer_kind_wire(kind));
+    antd::v1::PointerWriteResponse resp;
+    check_pointer_status(ctx, impl_->pointer_stub->Update(&ctx, req, &resp));
+    return map_write(resp);
+}
+
+PointerTransferResult GrpcClient::pointer_transfer(std::string_view owner,
+                                                   std::string_view recipient) {
+    grpc::ClientContext ctx;
+    antd::v1::PointerTransferRequest req;
+    req.set_owner(std::string(owner));
+    req.set_recipient(std::string(recipient));
+    antd::v1::PointerTransferResponse resp;
+    check_pointer_status(ctx, impl_->pointer_stub->Transfer(&ctx, req, &resp));
+    PointerTransferResult r;
+    r.address = resp.address();
+    r.state_id = resp.state_id();
+    if (resp.has_finality()) {
+        r.finality = map_finality(resp.finality());
+    }
+    r.finality_error = non_empty(resp.finality_error());
+    return r;
+}
+
+PointerRecord GrpcClient::pointer_get(std::string_view address) {
+    grpc::ClientContext ctx;
+    antd::v1::GetPointerRequest req;
+    req.set_address(std::string(address));
+    antd::v1::PointerRecord resp;
+    check_pointer_status(ctx, impl_->pointer_stub->Get(&ctx, req, &resp));
+    return PointerRecord{
+        .address = resp.address(),
+        .owner = resp.owner(),
+        .counter = detail::parse_pointer_counter("counter", resp.counter()),
+        .kind = resp.kind(),
+        .kind_tag = kind_tag_of(resp.kind_tag()),
+        .target = resp.target(),
+        .state_id = resp.state_id(),
+        .is_final = resp.is_final(),
+        .transferred_to = non_empty(resp.transferred_to()),
+    };
+}
+
+PointerTarget GrpcClient::pointer_resolve(std::string_view address) {
+    grpc::ClientContext ctx;
+    antd::v1::ResolvePointerRequest req;
+    req.set_address(std::string(address));
+    antd::v1::PointerResolved resp;
+    check_pointer_status(ctx, impl_->pointer_stub->Resolve(&ctx, req, &resp));
+    return PointerTarget{
+        .kind = resp.kind(),
+        .kind_tag = kind_tag_of(resp.kind_tag()),
+        .target = resp.target(),
+    };
+}
+
+PointerFinality GrpcClient::pointer_finality(std::string_view address) {
+    grpc::ClientContext ctx;
+    antd::v1::PointerFinalityRequest req;
+    req.set_address(std::string(address));
+    antd::v1::PointerFinality resp;
+    check_pointer_status(ctx, impl_->pointer_stub->Finality(&ctx, req, &resp));
+    return map_finality(resp);
+}
+
+PointerController GrpcClient::pointer_controller(std::string_view address) {
+    grpc::ClientContext ctx;
+    antd::v1::PointerControllerRequest req;
+    req.set_address(std::string(address));
+    antd::v1::PointerController resp;
+    check_pointer_status(ctx, impl_->pointer_stub->Controller(&ctx, req, &resp));
+    return PointerController{
+        .pointer = resp.pointer(),
+        .transfers = std::vector<std::string>(resp.transfers().begin(), resp.transfers().end()),
+        .frozen = resp.frozen(),
+    };
+}
+
+PointerPrepareResult GrpcClient::pointer_prepare(const PointerPrepareRequest& request) {
+    grpc::ClientContext ctx;
+    antd::v1::PreparePointerRequest req;
+    req.set_owner(request.owner);
+    req.set_op(pointer_op_wire(request.op));
+    if (request.op == PointerOp::Transfer) {
+        req.set_recipient(request.recipient);
+    } else {
+        req.set_target(request.target);
+        req.set_kind(pointer_kind_wire(request.kind));
+    }
+    req.set_include_signed_quotes(request.include_signed_quotes);
+    antd::v1::PreparePointerResponse resp;
+    check_pointer_status(ctx, impl_->pointer_stub->Prepare(&ctx, req, &resp));
+
+    PointerPrepareResult r;
+    r.upload_id = resp.upload_id();
+    r.op = resp.op();
+    r.address = resp.address();
+    r.state_id = resp.state_id();
+    r.counter = detail::parse_pointer_counter("counter", resp.counter());
+    r.payment_type = resp.payment_type();
+    r.total_amount = resp.total_amount();
+    r.payment_vault_address = resp.payment_vault_address();
+    r.payment_token_address = resp.payment_token_address();
+    r.rpc_url = resp.rpc_url();
+    for (const auto& p : resp.payments()) {
+        r.payments.push_back(PaymentInfo{
+            .quote_hash = p.quote_hash(),
+            .rewards_address = p.rewards_address(),
+            .amount = p.amount(),
+        });
+    }
+    // The proto carries the signed artifacts as bytes; base64 them so an
+    // entry reads the same over either transport.
+    for (const auto& q : resp.signed_quotes()) {
+        r.signed_quotes.push_back(SignedQuoteEntry{
+            .quote_hash = q.quote_hash(),
+            .quote = base64_of(q.quote()),
+            .commitment_sidecar = q.commitment_sidecar().empty()
+                                      ? std::nullopt
+                                      : std::optional<std::string>(base64_of(q.commitment_sidecar())),
+        });
+    }
+    return r;
+}
+
+PointerFinalizeResult GrpcClient::pointer_finalize(
+    std::string_view upload_id, const std::map<std::string, std::string>& tx_hashes) {
+    grpc::ClientContext ctx;
+    antd::v1::FinalizePointerRequest req;
+    req.set_upload_id(std::string(upload_id));
+    auto* tx_map = req.mutable_tx_hashes();
+    for (const auto& [k, v] : tx_hashes) {
+        (*tx_map)[k] = v;
+    }
+    antd::v1::FinalizePointerResponse resp;
+    check_pointer_status(ctx, impl_->pointer_stub->Finalize(&ctx, req, &resp));
+    PointerFinalizeResult r;
+    r.address = resp.address();
+    r.state_id = resp.state_id();
+    r.counter = detail::parse_pointer_counter("counter", resp.counter());
+    if (resp.has_finality()) {
+        r.finality = map_finality(resp.finality());
+    }
+    return r;
 }
 
 }  // namespace antd

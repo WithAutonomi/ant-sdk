@@ -1,6 +1,6 @@
 # ant-sdk
 
-A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized network. Store data permanently and more — from Go, JavaScript/TypeScript, Python, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, Elixir, Zig, Rust, C++, Java, or AI agents.
+A developer-friendly SDK for the [Autonomi](https://autonomi.com) decentralized network. Store data permanently, point at it with updatable pointers, share sets of files as one manifest link, and more — from Go, JavaScript/TypeScript, Python, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, Elixir, Zig, Rust, C++, Java, or AI agents.
 
 ## Architecture
 
@@ -85,7 +85,7 @@ All data and file upload operations accept an optional `payment_mode` parameter 
 | Component | Language | Description |
 |-----------|----------|-------------|
 | [`antd/`](antd/) | Rust | REST + gRPC gateway daemon |
-| [`antd-mcp/`](antd-mcp/) | Python | MCP server exposing 19 tools for AI agents (Claude, etc.) |
+| [`antd-mcp/`](antd-mcp/) | Python | MCP server exposing 31 tools for AI agents (Claude, etc.) |
 | [`ant-dev/`](ant-dev/) | Python | Developer CLI for local environment management |
 
 ### Language SDKs
@@ -425,6 +425,72 @@ The Autonomi network provides these core primitives, all accessible through the 
 | **Data** | Store/retrieve arbitrary byte blobs (public or private/encrypted) |
 | **Chunks** | Low-level content-addressed storage |
 | **Files** | File/directory upload and download |
+| **Pointers** | Owner-signed, updatable references: a fixed address the owner can point at new data |
+| **Manifests** | One `ant://manifest/` link (or `.ant` file) that describes a set of files: paths, plus each file's address or DataMap. Built and decoded for free |
+
+Data, chunks and files are immutable: new content gets a new address. Pointers are the mutable part. Scratchpads, registers and vaults are not supported.
+
+### Pointers
+
+A pointer is a small, owner-signed, mutable reference. Its address is derived from the owner's key and never changes; what it points at (a chunk, such as a public file's address, or another pointer) can be changed by the owner. Publish the pointer's address once, then move it to each new version. Pointers need the first antd release with pointers (after 0.15.0).
+
+- **antd holds the owner keys.** Create one with `ant pointer keygen --output <file>` (the Autonomi `ant` CLI) and start antd with `--pointer-keys <file-or-dir>` (env `ANTD_POINTER_KEYS_DIR`); it loads them at startup. Requests name a pointer by its address, never by a key. Without the flag, pointers can be read but not written. A pointer key cannot be rotated: see [SECURITY.md](SECURITY.md).
+- **Every write pays.** A create, update or transfer costs about the price of one chunk, from the daemon wallet or an external signer (`pointer_prepare` / `pointer_finalize`). Every attempt pays again, so the SDKs never retry a paid pointer write. Reads (`get`, `resolve`, `finality`, `controller`, `keys`) are free.
+- **Transfer is irreversible.** It hands the pointer over to another pointer for good: readers of the address are redirected to the recipient's pointer, and the old key can change nothing again.
+- **Counters are decimal strings** on the wire, because a final pointer sits at 2^64−1. Each SDK parses them into an exact unsigned 64-bit type, or keeps the checked string.
+
+Every SDK has the pointer API and a runnable example (`ANTD_POINTER_OWNER=<address> ant dev example pointers -l <language>`; each example also reads `ANTD_BASE_URL`):
+
+| SDK | Pointer transport | Example |
+|-----|-------------------|---------|
+| C++ | REST + gRPC | [`antd-cpp/examples/08-pointers.cpp`](antd-cpp/examples/08-pointers.cpp) |
+| C# | REST + gRPC | [`antd-csharp/Examples/Program.cs`](antd-csharp/Examples/Program.cs) (`dotnet run -- 8`) |
+| Dart | REST + gRPC | [`antd-dart/example/09_pointers.dart`](antd-dart/example/09_pointers.dart) |
+| Elixir | REST + gRPC | [`antd-elixir/examples/08_pointers.exs`](antd-elixir/examples/08_pointers.exs) |
+| Go | REST + gRPC | [`antd-go/examples/08-pointers/`](antd-go/examples/08-pointers/) |
+| Java | REST + gRPC | [`antd-java/examples/.../Example08Pointers.java`](antd-java/examples/src/main/java/com/autonomi/examples/Example08Pointers.java) |
+| Kotlin | REST + gRPC | [`antd-kotlin/examples/.../Example08Pointers.kt`](antd-kotlin/examples/src/main/kotlin/com/autonomi/examples/Example08Pointers.kt) |
+| Python | REST + gRPC | [`antd-py/examples/09_pointers.py`](antd-py/examples/09_pointers.py) |
+| Ruby | REST + gRPC | [`antd-ruby/examples/08_pointers.rb`](antd-ruby/examples/08_pointers.rb) |
+| Rust | REST + gRPC | [`antd-rust/examples/09-pointers.rs`](antd-rust/examples/09-pointers.rs) |
+| Swift | REST + gRPC | [`antd-swift/Sources/AntdExamples/Main.swift`](antd-swift/Sources/AntdExamples/Main.swift) (`swift run AntdExamples pointers`) |
+| JS/TS | REST only | [`antd-js/examples/08-pointers.ts`](antd-js/examples/08-pointers.ts) |
+| Lua | REST only | [`antd-lua/examples/08-pointers.lua`](antd-lua/examples/08-pointers.lua) |
+| PHP | REST only | [`antd-php/examples/08-pointers.php`](antd-php/examples/08-pointers.php) |
+| Zig | REST only | [`antd-zig/examples/09-pointers.zig`](antd-zig/examples/09-pointers.zig) |
+
+The MCP server has 10 pointer tools: the reads are free, `pointer_create`, `pointer_update` and `pointer_transfer` pay from the daemon wallet, and `pointer_transfer` refuses to run without `confirm_irreversible=true`. The FFI bindings (`ffi/`) do not have pointers yet. Walk-through: [Tutorial: Point at a Public File and Update It](docs/tutorial-pointers.md).
+
+### Manifests
+
+A manifest describes a set of files as one `.ant` document, or as one `ant://manifest/` link when it is small enough. Each entry has an optional path and size and either a public file's address or an embedded DataMap (a private file: the manifest is then its key). Share the link and the receiver can decode it, learn what is in the set and download each file with the existing download calls. Manifests need the antd release after 0.15.0.
+
+- **Nothing is uploaded or paid for.** Upload the files first, then build from the addresses and DataMaps the uploads returned. Build and decode read the network only to resolve DataMaps, so they can time out; retrying is safe. The daemon needs no wallet for them.
+- **Three calls**, in every SDK: `build_manifest`, `decode_manifest` (raw `.ant` bytes) and `decode_manifest_link` (a manifest link, file link or bare address), cased per language. `resolve` also reads each entry's DataMap from the network to report its `exact_size`. REST carries the `.ant` bytes as base64; the SDKs always take and return raw bytes.
+- **Links are limited to 1,500 bytes.** Past that the build still succeeds but returns no link: share the `.ant` bytes instead. Embedded DataMaps cost far more bytes than public addresses.
+- **Embedded means the manifest is the key.** Anyone holding the link or file can read every embedded file. Public entries are readable by anyone who knows the address.
+
+Every SDK has the manifest API and a runnable example (`ant dev example manifests -l <language>`; each example also reads `ANTD_BASE_URL`, and each run pays for its two small uploads):
+
+| SDK | Manifest transport | Example |
+|-----|--------------------|---------|
+| C++ | REST + gRPC | [`antd-cpp/examples/09-manifests.cpp`](antd-cpp/examples/09-manifests.cpp) |
+| C# | REST + gRPC | [`antd-csharp/Examples/Example09Manifests.cs`](antd-csharp/Examples/Example09Manifests.cs) (`dotnet run -- 9`) |
+| Dart | REST + gRPC | [`antd-dart/example/10_manifests.dart`](antd-dart/example/10_manifests.dart) |
+| Elixir | REST + gRPC | [`antd-elixir/examples/09_manifests.exs`](antd-elixir/examples/09_manifests.exs) |
+| Go | REST + gRPC | [`antd-go/examples/09-manifests/`](antd-go/examples/09-manifests/) |
+| Java | REST + gRPC | [`antd-java/examples/.../Example09Manifests.java`](antd-java/examples/src/main/java/com/autonomi/examples/Example09Manifests.java) |
+| Kotlin | REST + gRPC | [`antd-kotlin/examples/.../Example09Manifests.kt`](antd-kotlin/examples/src/main/kotlin/com/autonomi/examples/Example09Manifests.kt) |
+| Python | REST + gRPC | [`antd-py/examples/10_manifests.py`](antd-py/examples/10_manifests.py) |
+| Ruby | REST + gRPC | [`antd-ruby/examples/09_manifests.rb`](antd-ruby/examples/09_manifests.rb) |
+| Rust | REST + gRPC | [`antd-rust/examples/10-manifests.rs`](antd-rust/examples/10-manifests.rs) |
+| Swift | REST + gRPC | [`antd-swift/Sources/AntdExamples/Main.swift`](antd-swift/Sources/AntdExamples/Main.swift) (`swift run AntdExamples manifests`) |
+| JS/TS | REST only | [`antd-js/examples/09-manifests.ts`](antd-js/examples/09-manifests.ts) |
+| Lua | REST only | [`antd-lua/examples/09-manifests.lua`](antd-lua/examples/09-manifests.lua) |
+| PHP | REST only | [`antd-php/examples/09-manifests.php`](antd-php/examples/09-manifests.php) |
+| Zig | REST only | [`antd-zig/examples/10-manifests.zig`](antd-zig/examples/10-manifests.zig) |
+
+The MCP server has two manifest tools, `build_manifest` and `decode_manifest`, both free. The FFI bindings (`ffi/`) do not have manifests. Walk-through: [Tutorial: Share a Set of Files as One Link](docs/tutorial-manifests.md).
 
 ## Developer CLI Reference
 
@@ -444,6 +510,8 @@ ant dev playground [--transport rest|grpc]             # Interactive Python REPL
 
 - [Architecture Guide](docs/architecture.md) — Autonomi mental model, data primitives, payment model
 - [Tutorial: Store & Retrieve Data](docs/tutorial-store-retrieve.md) — Your first read/write operations
+- [Tutorial: Point at a Public File and Update It](docs/tutorial-pointers.md) — Pointers: an address you can move to each new version
+- [Tutorial: Share a Set of Files as One Link](docs/tutorial-manifests.md) — Manifests: upload files, build a link, decode it and download each entry
 
 ### Quickstart Guides
 

@@ -90,6 +90,32 @@ await client.fileDownloadPublic(result.address, '/path/to/output.txt');
 final est = await client.fileCost('/path/to/file.txt');
 ```
 
+## Pointers
+
+A pointer is an owner-signed address you can move to new data. antd signs with the owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so `owner` is the pointer's address, never a key. Every create, update and transfer pays (about the price of one chunk) and is never retried; reads are free. A transfer hands the pointer over to another pointer for good. Needs the first antd release with pointers (after 0.15.0). Walk-through: [Tutorial: Point at a Public File and Update It](tutorial-pointers.md).
+
+```dart
+final owner = (await client.pointerKeys()).first;   // a pointer antd can write
+
+final v1 = await client.dataPutPublic(Uint8List.fromList(utf8.encode('version 1')));
+final v2 = await client.dataPutPublic(Uint8List.fromList(utf8.encode('version 2')));
+
+await client.pointerCreate(owner, v1.address);        // pays; counter 0
+await client.pointerUpdate(owner, v2.address);        // pays again; counter 1
+final target = await client.pointerResolve(owner);    // target.target == v2.address (free)
+
+final finality = await client.pointerFinality(owner); // free
+print(finality.isFinal);                              // false: the owner can still move it
+```
+
+Counters are `BigInt`s. `utf8` and `Uint8List` come from `dart:convert` and `dart:typed_data`. `pointerTransfer`, `pointerGet`, `pointerController`, `pointerPrepare` and `pointerFinalize` complete the set, on `GrpcAntdClient` too.
+
+Runnable example: `antd-dart/example/09_pointers.dart`. Set `ANTD_POINTER_OWNER` to an address the daemon holds a key for, one it has not written yet (each run creates the pointer and pays for its writes), and `ANTD_BASE_URL` for a daemon other than `http://localhost:8082`:
+
+```bash
+cd antd-dart
+ANTD_POINTER_OWNER=<address> dart run example/09_pointers.dart
+```
 
 ## Error Handling
 
@@ -121,6 +147,35 @@ Exception hierarchy:
 | `TooLargeException` | 413 | Payload too large |
 | `InternalException` | 500 | Server error |
 | `NetworkException` | 502 | Network unreachable |
+
+## Manifests
+
+A manifest describes a set of files as one `ant://manifest/` link, or as a `.ant` file when the link would be too long. Each entry is either a public file's address or an embedded DataMap (the manifest is then the key to a private file), with an optional path. Building and decoding upload and pay for nothing: upload the files first, then describe them. Needs the antd release after 0.15.0. Walk-through: [Tutorial: Share a Set of Files as One Link](tutorial-manifests.md).
+
+```dart
+final one = await client.dataPutPublic(Uint8List.fromList(utf8.encode('one')));   // pays
+final two = await client.dataPutPublic(Uint8List.fromList(utf8.encode('two')));   // pays
+
+final built = await client.buildManifest([                                        // free
+  ManifestEntryInput(path: 'notes/one.txt', address: one.address),
+  ManifestEntryInput(path: 'notes/two.txt', address: two.address),
+], name: 'example');
+print(built.link);                                // null when over 1,500 bytes: share built.manifest instead
+
+final decoded = await client.decodeManifestLink(built.link!, resolve: true);      // free
+for (final e in decoded.entries) {
+  print('${e.effectiveName}: ${e.exactSize ?? e.error}');
+}
+```
+
+`decodeManifest(bytes, resolve: ...)` takes raw `.ant` bytes (`Uint8List`). Use `dataMap:` instead of `address:` for an embedded entry, and `embedRoots: false` to keep shrunk DataMaps as given.
+
+Runnable example: `antd-dart/example/10_manifests.dart`. Its two uploads pay; the manifest calls do not.
+
+```bash
+cd antd-dart
+ANTD_BASE_URL=http://localhost:8082 dart run example/10_manifests.dart
+```
 
 ## Examples
 

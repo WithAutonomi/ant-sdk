@@ -16,6 +16,7 @@ ant-sdk is designed around the following trust assumptions:
 - **antd is a local daemon, not a network service.** It binds to `127.0.0.1` only by default on both REST and gRPC. Exposing it on a non-loopback address is an explicit, opt-in operator decision.
 - **antd has no built-in authentication on REST or gRPC.** The security model assumes the host running antd is trusted and that network exposure is opt-in. If you bind antd to an externally reachable interface, you must firewall it; ant-sdk does not provide auth and does not aim to.
 - **The wallet private key is read from the `AUTONOMI_WALLET_KEY` environment variable.** It is never logged, never persisted to disk by antd, and never returned over the REST or gRPC API. External-signer mode lets applications keep the key out of antd entirely; see the [external-signer flow](docs/external-signer-flow.md).
+- **Pointer owner keys are read from the files named by `--pointer-keys` (`ANTD_POINTER_KEYS_DIR`) at startup.** They are the same format `ant pointer keygen` writes (a 32-byte ML-DSA-65 seed, hex). antd never generates, writes, logs or returns them, and no request carries one: a write names the pointer by its address. A pointer key is more sensitive than the wallet key. It cannot be rotated, because the pointer's address is derived from it, and anyone holding it can hand the pointer over to themselves for good (ADR-0018 ownership transfer). Keep key files readable only by the antd user; antd warns at startup on Unix when they are not.
 - **Upstream cryptography and consensus live in `ant-core`, `ant-protocol`, and `self_encryption`.** ant-sdk does not implement its own primitives; it consumes them.
 
 Most defaults assume the operator runs antd alongside their application on a single trusted machine. Multi-tenant hosts, public LAN deployment, and container networking that exposes antd outside the pod are operator-responsibility scenarios.
@@ -25,7 +26,7 @@ Most defaults assume the operator runs antd alongside their application on a sin
 The following are within scope for security reports against ant-sdk:
 
 - Remote code execution or privilege escalation in **antd** reachable via REST, gRPC, the external-signer flow, or the wallet routes.
-- **Wallet-key leakage** through logs, error messages, daemon responses, process listings, the port file, crash dumps, or any other channel.
+- **Wallet-key or pointer-key leakage** through logs, error messages, daemon responses, process listings, the port file, crash dumps, or any other channel.
 - **Authentication or authorization bypass** on any auth layer that ant-sdk introduces in the future. (At present antd has none — see the threat model.)
 - **Cryptographic correctness flaws** in code paths owned by ant-sdk: the external-signer two-phase upload flow, payment-mode handling, the SDKs' wire-level handling of upload/download artifacts.
 - **Supply-chain compromise** of ant-sdk build, release, or distribution pipelines — including malicious dependency updates, tampered release artifacts, or compromised CI workflows.

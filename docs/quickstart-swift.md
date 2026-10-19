@@ -122,6 +122,32 @@ try await client.fileDownloadPublic(address: result.address, destPath: "/path/to
 let est = try await client.fileCost(path: "/path/to/file.txt")
 ```
 
+## Pointers
+
+A pointer is an owner-signed address you can move to new data. antd signs with the owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so `owner` is the pointer's address, never a key. Every create, update and transfer pays (about the price of one chunk) and is never retried; reads are free. A transfer hands the pointer over to another pointer for good. Needs the first antd release with pointers (after 0.15.0). Walk-through: [Tutorial: Point at a Public File and Update It](tutorial-pointers.md).
+
+```swift
+let owner = try await client.pointerKeys()[0].address   // a pointer antd can write
+
+let v1 = try await client.dataPutPublic(Data("version 1".utf8), paymentMode: .auto)
+let v2 = try await client.dataPutPublic(Data("version 2".utf8), paymentMode: .auto)
+
+_ = try await client.pointerCreate(owner: owner, target: v1.address, kind: .chunk)  // pays; counter 0
+_ = try await client.pointerUpdate(owner: owner, target: v2.address, kind: .chunk)  // pays again; counter 1
+let target = try await client.pointerResolve(address: owner)    // target.target == v2.address (free)
+
+let finality = try await client.pointerFinality(address: owner) // free
+print(finality.status.wire)                                     // "open"
+```
+
+Counters are `UInt64`. `pointerTransfer`, `pointerGet`, `pointerController`, `pointerPrepare` and `pointerFinalize` complete the set, on both clients.
+
+Runnable example: the `pointers` example in `antd-swift/Sources/AntdExamples/Main.swift`. Set `ANTD_POINTER_OWNER` to an address the daemon holds a key for, one it has not written yet (each run creates the pointer and pays for its writes), and `ANTD_BASE_URL` for a daemon other than `http://localhost:8082`:
+
+```bash
+cd antd-swift
+ANTD_POINTER_OWNER=<address> swift run AntdExamples pointers
+```
 
 ## Error Handling
 
@@ -153,6 +179,38 @@ Error hierarchy:
 | `TooLargeError` | 413 | Payload too large |
 | `InternalError` | 500 | Server error |
 | `NetworkError` | 502 | Network unreachable |
+
+## Manifests
+
+A manifest describes a set of files as one `ant://manifest/` link, or as a `.ant` file when the link would be too long. Each entry is either a public file's address or an embedded DataMap (the manifest is then the key to a private file), with an optional path. Building and decoding upload and pay for nothing: upload the files first, then describe them. Needs the antd release after 0.15.0. Walk-through: [Tutorial: Share a Set of Files as One Link](tutorial-manifests.md).
+
+```swift
+let one = try await client.dataPutPublic(Data("one".utf8), paymentMode: .auto)   // pays
+let two = try await client.dataPutPublic(Data("two".utf8), paymentMode: .auto)   // pays
+
+let built = try await client.buildManifest(                                      // free
+    entries: [
+        ManifestEntryInput(path: "notes/one.txt", address: one.address),
+        ManifestEntryInput(path: "notes/two.txt", address: two.address),
+    ],
+    options: BuildManifestOptions(name: "example")
+)
+print(built.link ?? "too big for a link; share built.manifest (Data) instead")
+
+let decoded = try await client.decodeManifest(built.manifest, resolve: true)     // free
+for entry in decoded.entries {
+    print(entry.effectiveName, entry.exactSize.map(String.init) ?? "unknown", entry.error ?? "")
+}
+```
+
+`decodeManifestLink(_:resolve:)` takes a link instead. Use `dataMap:` instead of `address:` for an embedded entry; `BuildManifestOptions(embedRoots: false)` keeps shrunk DataMaps as given. Sizes are `UInt64?`.
+
+Runnable example: the `manifests` example in `antd-swift/Sources/AntdExamples/Main.swift`. Its two uploads pay; the manifest calls do not.
+
+```bash
+cd antd-swift
+ANTD_BASE_URL=http://localhost:8082 swift run AntdExamples manifests
+```
 
 ## Examples
 

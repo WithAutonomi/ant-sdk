@@ -1,6 +1,6 @@
 # antd SDK
 
-> Go, JavaScript/TypeScript, Python, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, Elixir, Zig, Rust, C++, and Java SDKs for the Autonomi network via the antd daemon. Provides REST and gRPC transports, an MCP server (14 tools), and a local daemon that manages wallet, payments, and network connectivity.
+> Go, JavaScript/TypeScript, Python, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, Elixir, Zig, Rust, C++, and Java SDKs for the Autonomi network via the antd daemon. Provides REST and gRPC transports, an MCP server (31 tools), and a local daemon that manages wallet, payments, and network connectivity.
 
 ## Quick Start
 
@@ -28,7 +28,7 @@ data = client.data_get_public(result.address)
 - [Rust SDK](antd-rust/) — `cargo add antd-client` — REST + gRPC, async/tokio
 - [C++ SDK](antd-cpp/) — CMake FetchContent — REST + gRPC, sync + async (C++20)
 - [Java SDK](antd-java/) — Gradle/Maven — REST + gRPC, sync + async (Java 17+)
-- [MCP Server](antd-mcp/) — 14 tools for AI agent integration
+- [MCP Server](antd-mcp/) — 31 tools for AI agent integration, pointers and manifests included
 
 ## API Reference
 
@@ -60,6 +60,18 @@ data = client.data_get_public(result.address)
 | POST | `/v1/data/prepare` | Prepare data upload for external signer — returns `payment_type` ("wave_batch" or "merkle") |
 | POST | `/v1/upload/prepare` | Prepare file upload for external signer — returns `payment_type` ("wave_batch" or "merkle") |
 | POST | `/v1/upload/finalize` | Finalize upload — accepts `tx_hashes` (wave_batch) or `winner_pool_hash` (merkle) |
+| GET | `/v1/pointers/keys` | Pointers this daemon holds owner keys for (`--pointer-keys`) |
+| POST | `/v1/pointers` | Create a pointer (daemon wallet pays) |
+| POST | `/v1/pointers/update` | Point a pointer at a new target (daemon wallet pays) |
+| POST | `/v1/pointers/transfer` | Hand a pointer over to another pointer, irreversibly |
+| GET | `/v1/pointers/{addr}` | Read a pointer |
+| GET | `/v1/pointers/{addr}/resolve` | Follow a pointer chain to its target |
+| GET | `/v1/pointers/{addr}/finality` | Whole-close-group finality check (`open`/`settling`/`unconfirmed`/`final`/`forked`) |
+| GET | `/v1/pointers/{addr}/controller` | Follow transfers to the controlling pointer |
+| POST | `/v1/pointers/prepare` | Sign + quote a pointer write for an external signer |
+| POST | `/v1/pointers/finalize` | Store a prepared pointer write after payment |
+| POST | `/v1/manifests/build` | Build an ADR-0006 `.ant` manifest (and `ant://manifest/` link) from DataMaps and public addresses |
+| POST | `/v1/manifests/decode` | Decode a `.ant` manifest, manifest link, file link or address; optional `resolve` for exact sizes |
 
 ## gRPC Services
 
@@ -70,6 +82,20 @@ data = client.data_get_public(result.address)
 | ChunkService | Get, Put | chunks.proto |
 | FileService | UploadPublic, DownloadPublic, GetFileCost | files.proto |
 | EventService | Subscribe | events.proto |
+| PointerService | ListKeys, Create, Update, Transfer, Get, Resolve, Finality, Controller, Prepare, Finalize | pointers.proto |
+
+## Pointers
+
+A pointer is a small, owner-signed, mutable reference: its address is derived from the owner's key and never changes, and the owner can point it at new data (a chunk, such as a public file's address, or another pointer). Needs the first antd release with pointers (after 0.15.0).
+
+- antd holds the owner keys, loaded at startup from `--pointer-keys <file-or-dir>` (env `ANTD_POINTER_KEYS_DIR`; key files from `ant pointer keygen --output <file>`). Requests name a pointer by its address (`owner`), never by a key.
+- Every create, update and transfer pays (about one chunk's price), and every attempt pays again: never retry them automatically. Reads are free.
+- Transfer hands a pointer over to another pointer for good; it is irreversible. Check `finality` reaches `"final"` before relying on it.
+- Counters are decimal strings in both transports: a final pointer sits at 2^64−1 (18446744073709551615).
+- Every SDK has `pointer_keys`, `pointer_create`, `pointer_update`, `pointer_transfer`, `pointer_get`, `pointer_resolve`, `pointer_finality`, `pointer_controller`, `pointer_prepare` and `pointer_finalize`, cased per language (`pointerCreate`, `PointerCreateAsync`, ...). Over gRPC in C++, C#, Dart, Elixir, Go, Java, Kotlin, Python, Ruby, Rust and Swift; JS/TS, Lua, PHP and Zig are REST only. The FFI bindings do not have pointers yet.
+- Tutorial: [docs/tutorial-pointers.md](docs/tutorial-pointers.md). Runnable example in every SDK: `ANTD_POINTER_OWNER=<address> ant dev example pointers -l <language>`.
+
+| ManifestService | Build, Decode | manifests.proto |
 
 ## Error Codes
 
@@ -79,10 +105,26 @@ data = client.data_get_public(result.address)
 | 402 | FAILED_PRECONDITION | PaymentError | Insufficient funds |
 | 404 | NOT_FOUND | NotFoundError | Resource not found |
 | 409 | ALREADY_EXISTS / ABORTED | AlreadyExistsError / ForkError | Conflict |
+| 409 `POINTER_FINAL` | FAILED_PRECONDITION + `x-antd-error-code` | PointerFinalError | Pointer transferred or final; usually refused before paying |
+| 409 `POINTER_FORKED` | FAILED_PRECONDITION + `x-antd-error-code` | PointerForkedError (ForkError in some SDKs) | Owner signed two final states, no majority |
+| 409 `CONFLICT` | ABORTED + `x-antd-error-code` | ConflictError | A prepared pointer write awaits payment (refused before paying), or an update lost to a newer state (possibly after paying) |
+| 503 `CLOSE_GROUP_SHORTFALL` | UNAVAILABLE + `x-antd-error-code` | CloseGroupShortfallError | Too few of the close group answered or stored |
 | 413 | RESOURCE_EXHAUSTED | TooLargeError | Payload too large |
 | 500 | INTERNAL | InternalError | Server error |
 | 502 | UNAVAILABLE | NetworkError | Network unreachable |
 | 503 | UNAVAILABLE | ServiceUnavailableError | Wallet not configured |
+
+## Manifests
+
+A manifest describes a set of files as one `ant://manifest/` link, or a `.ant` file when the link would pass 1,500 bytes. Each entry has an optional `path` and `size` and either an embedded DataMap (a private file: the manifest is its key) or a public file's address. Needs the antd release after 0.15.0.
+
+- **Nothing is uploaded or paid for.** Upload the files first (`POST /v1/data`, `POST /v1/data/public`, `POST /v1/files`, `POST /v1/files/public`), then build from the DataMaps and addresses they return. Build and decode read the network only to resolve DataMaps, so they can time out; retrying is safe.
+- `POST /v1/manifests/build`: `{"name", "embed_roots" (default true), "torrent_info_hashes", "entries": [{"path", "size", "data_map" | "address"}]}` returns `{"manifest": "<base64 .ant>", "link", "entries"}`. Exactly one of `data_map` or `address` per entry. `link` is omitted when it would pass 1,500 bytes.
+- `POST /v1/manifests/decode`: `{"manifest": "<base64>" | "link": "...", "resolve": false}` returns `{"source": "manifest" | "file_link", "name", "torrent_info_hash_v1", "torrent_info_hash_v2", "entries"}`. With `resolve`, each entry's `exact_size` is read from the network; one entry's failure is in its `error`, not a failed call. Embedded entries carry `data_map` (feed it to `POST /v1/data/get` or `POST /v1/files/get`); public entries use `content_address` with `GET /v1/data/public/{addr}` or `POST /v1/files/public/get`.
+- Entries come back sorted by `effective_name` (the path, or the content address when there is none). Unset sizes are omitted (REST) or `null`/`None` (SDKs), never `0`.
+- An invalid entry is a 400 `BAD_REQUEST` whose message names `entries[i]` (SDKs raise their bad-request error, also for the both-or-neither check they make before sending); there are no new error codes. Limits: 64 MiB and 100,000 entries per manifest.
+- Every SDK has `build_manifest`, `decode_manifest` and `decode_manifest_link`, cased per language (`buildManifest`, `BuildManifestAsync`, ...). The `.ant` bytes are always raw bytes in the SDK (base64 is only the REST wire form). Over gRPC in C++, C#, Dart, Elixir, Go, Java, Kotlin, Python, Ruby, Rust and Swift; JS/TS, Lua, PHP and Zig are REST only. The MCP server has `build_manifest` and `decode_manifest` tools.
+- Tutorial: [docs/tutorial-manifests.md](docs/tutorial-manifests.md). Runnable example in every SDK: `ant dev example manifests -l <language>`.
 
 ## Examples
 

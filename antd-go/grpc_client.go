@@ -64,13 +64,15 @@ type GrpcClient struct {
 	dialOpts       []grpc.DialOption
 	maxRecvMsgSize int
 
-	health pb.HealthServiceClient
-	data   pb.DataServiceClient
-	chunk  pb.ChunkServiceClient
-	file   pb.FileServiceClient
-	upload pb.UploadServiceClient
-	wallet pb.WalletServiceClient
-	verify pb.VerifyServiceClient
+	health   pb.HealthServiceClient
+	data     pb.DataServiceClient
+	chunk    pb.ChunkServiceClient
+	file     pb.FileServiceClient
+	upload   pb.UploadServiceClient
+	wallet   pb.WalletServiceClient
+	verify   pb.VerifyServiceClient
+	pointer  pb.PointerServiceClient
+	manifest pb.ManifestServiceClient
 }
 
 // NewGrpcClientAutoDiscover creates a gRPC client that discovers the daemon target
@@ -120,6 +122,8 @@ func NewGrpcClient(target string, opts ...GrpcOption) (*GrpcClient, error) {
 	c.upload = pb.NewUploadServiceClient(conn)
 	c.wallet = pb.NewWalletServiceClient(conn)
 	c.verify = pb.NewVerifyServiceClient(conn)
+	c.pointer = pb.NewPointerServiceClient(conn)
+	c.manifest = pb.NewManifestServiceClient(conn)
 
 	return c, nil
 }

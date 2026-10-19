@@ -1,5 +1,6 @@
 package com.autonomi.antd;
 
+import com.autonomi.antd.errors.BadRequestException;
 import com.autonomi.antd.errors.ExceptionFactory;
 import com.autonomi.antd.models.*;
 
@@ -261,6 +262,51 @@ public class AsyncAntdClient implements AutoCloseable {
         return fileCostAsync(path, isPublic, PaymentMode.AUTO);
     }
 
+    // Manifests — non-blocking mirrors of AntdClient's manifest methods, with
+    // the same models and exceptions (wrapped in a CompletionException). Input
+    // the daemon would refuse is refused here first, before anything is sent,
+    // as the same BadRequestException, in a future that completes exceptionally.
+    // Nothing is uploaded or paid for.
+
+    /** See {@link AntdClient#buildManifest(List)}. */
+    public CompletableFuture<BuiltManifest> buildManifestAsync(List<ManifestEntryInput> entries) {
+        return buildManifestAsync(entries, BuildManifestOptions.DEFAULT);
+    }
+
+    /** See {@link AntdClient#buildManifest(List, BuildManifestOptions)}. */
+    public CompletableFuture<BuiltManifest> buildManifestAsync(
+            List<ManifestEntryInput> entries, BuildManifestOptions options) {
+        try {
+            ManifestWire.checkEntries(entries);
+        } catch (BadRequestException e) {
+            return CompletableFuture.failedFuture(e);
+        }
+        return doJsonAsync("POST", "/v1/manifests/build", ManifestWire.buildBody(entries, options))
+                .thenApply(ManifestWire::parseBuilt);
+    }
+
+    /** See {@link AntdClient#decodeManifest(byte[], boolean)}. */
+    public CompletableFuture<DecodedManifest> decodeManifestAsync(byte[] manifest, boolean resolve) {
+        try {
+            ManifestWire.checkManifest(manifest);
+        } catch (BadRequestException e) {
+            return CompletableFuture.failedFuture(e);
+        }
+        return doJsonAsync("POST", "/v1/manifests/decode", ManifestWire.decodeBody(manifest, resolve))
+                .thenApply(ManifestWire::parseDecoded);
+    }
+
+    /** See {@link AntdClient#decodeManifestLink(String, boolean)}. */
+    public CompletableFuture<DecodedManifest> decodeManifestLinkAsync(String link, boolean resolve) {
+        try {
+            ManifestWire.checkLink(link);
+        } catch (BadRequestException e) {
+            return CompletableFuture.failedFuture(e);
+        }
+        return doJsonAsync("POST", "/v1/manifests/decode", ManifestWire.decodeLinkBody(link, resolve))
+                .thenApply(ManifestWire::parseDecoded);
+    }
+
     // Wallet
 
     public CompletableFuture<WalletAddress> walletAddressAsync() {
@@ -315,5 +361,87 @@ public class AsyncAntdClient implements AutoCloseable {
         String body = Json.object("upload_id", uploadId, "winner_pool_hash", winnerPoolHash);
         return doJsonAsync("POST", "/v1/upload/finalize", body)
                 .thenApply(AntdClient::parseFinalizeUploadResult);
+    }
+
+    // Pointers — non-blocking mirrors of AntdClient's pointer methods, with the
+    // same models and exceptions (wrapped in a CompletionException). Every
+    // write pays once per call and is never retried; see AntdClient.
+
+    /** See {@link AntdClient#pointerKeys()}. */
+    public CompletableFuture<List<String>> pointerKeysAsync() {
+        return doJsonAsync("GET", "/v1/pointers/keys", null).thenApply(PointerWire::parseKeys);
+    }
+
+    /** See {@link AntdClient#pointerCreate(String, String, PointerTargetKind)}. Pays; never retried. */
+    public CompletableFuture<PointerWriteResult> pointerCreateAsync(String owner, String target, PointerTargetKind kind) {
+        return doJsonAsync("POST", "/v1/pointers", PointerWire.writeBody(owner, target, kind))
+                .thenApply(PointerWire::parseWrite);
+    }
+
+    /** See {@link AntdClient#pointerCreate(String, String)}. Pays; never retried. */
+    public CompletableFuture<PointerWriteResult> pointerCreateAsync(String owner, String target) {
+        return pointerCreateAsync(owner, target, PointerTargetKind.CHUNK);
+    }
+
+    /** See {@link AntdClient#pointerUpdate(String, String, PointerTargetKind)}. Pays; never retried. */
+    public CompletableFuture<PointerWriteResult> pointerUpdateAsync(String owner, String target, PointerTargetKind kind) {
+        return doJsonAsync("POST", "/v1/pointers/update", PointerWire.writeBody(owner, target, kind))
+                .thenApply(PointerWire::parseWrite);
+    }
+
+    /** See {@link AntdClient#pointerUpdate(String, String)}. Pays; never retried. */
+    public CompletableFuture<PointerWriteResult> pointerUpdateAsync(String owner, String target) {
+        return pointerUpdateAsync(owner, target, PointerTargetKind.CHUNK);
+    }
+
+    /** See {@link AntdClient#pointerTransfer(String, String)}. Pays; never retried. Irreversible. */
+    public CompletableFuture<PointerTransferResult> pointerTransferAsync(String owner, String recipient) {
+        return doJsonAsync("POST", "/v1/pointers/transfer", PointerWire.transferBody(owner, recipient))
+                .thenApply(PointerWire::parseTransfer);
+    }
+
+    /** See {@link AntdClient#pointerGet(String)}. */
+    public CompletableFuture<PointerRecord> pointerGetAsync(String address) {
+        return doJsonAsync("GET", PointerWire.addressPath(address), null).thenApply(PointerWire::parseRecord);
+    }
+
+    /** See {@link AntdClient#pointerResolve(String)}. */
+    public CompletableFuture<PointerTarget> pointerResolveAsync(String address) {
+        return doJsonAsync("GET", PointerWire.addressPath(address) + "/resolve", null)
+                .thenApply(PointerWire::parseTarget);
+    }
+
+    /** See {@link AntdClient#pointerFinality(String)}. */
+    public CompletableFuture<PointerFinality> pointerFinalityAsync(String address) {
+        return doJsonAsync("GET", PointerWire.addressPath(address) + "/finality", null)
+                .thenApply(PointerWire::parseFinality);
+    }
+
+    /** See {@link AntdClient#pointerController(String)}. */
+    public CompletableFuture<PointerController> pointerControllerAsync(String address) {
+        return doJsonAsync("GET", PointerWire.addressPath(address) + "/controller", null)
+                .thenApply(PointerWire::parseController);
+    }
+
+    /** See {@link AntdClient#pointerPrepare(String, PointerOp)}. Pays nothing. */
+    public CompletableFuture<PointerPrepareResult> pointerPrepareAsync(String owner, PointerOp op) {
+        return pointerPrepareAsync(owner, op, PointerPrepareOptions.DEFAULT);
+    }
+
+    /** See {@link AntdClient#pointerPrepare(String, PointerOp, PointerPrepareOptions)}. Pays nothing. */
+    public CompletableFuture<PointerPrepareResult> pointerPrepareAsync(
+            String owner, PointerOp op, PointerPrepareOptions options) {
+        return doJsonAsync("POST", "/v1/pointers/prepare", PointerWire.prepareBody(owner, op, options))
+                .thenApply(PointerWire::parsePrepare);
+    }
+
+    /**
+     * See {@link AntdClient#pointerFinalize(String, Map)}. Never retried; repeat
+     * it with the same {@code uploadId} only after a retryable
+     * {@link com.autonomi.antd.errors.CloseGroupShortfallException}.
+     */
+    public CompletableFuture<PointerFinalizeResult> pointerFinalizeAsync(String uploadId, Map<String, String> txHashes) {
+        return doJsonAsync("POST", "/v1/pointers/finalize", PointerWire.finalizeBody(uploadId, txHashes))
+                .thenApply(PointerWire::parseFinalize);
     }
 }

@@ -33,8 +33,40 @@ class AlreadyExistsError extends AntdError {
 }
 
 /// Version conflict or fork detected (HTTP 409).
+///
+/// A pointer whose owner signed two different final states, with no majority
+/// of the close group holding either, is reported as a [ForkError] (HTTP 409
+/// with `code: "POINTER_FORKED"`; gRPC FAILED_PRECONDITION with
+/// `x-antd-error-code: POINTER_FORKED`).
 class ForkError extends AntdError {
   const ForkError(String message) : super(409, message);
+}
+
+/// The pointer is at its final state, handed over or frozen: nothing can
+/// update it or hand it over again (HTTP 409 with `code: "POINTER_FINAL"`;
+/// gRPC FAILED_PRECONDITION with `x-antd-error-code: POINTER_FINAL`).
+/// Usually refused before anything is paid: the daemon reads the pointer
+/// first. A write that was already paid for when the network refused it (the
+/// pointer became final while the write was in flight) keeps that payment, so
+/// read the pointer before paying again.
+///
+/// Not an [AlreadyExistsError], although both are 409s.
+class PointerFinalError extends AntdError {
+  const PointerFinalError(String message) : super(409, message);
+}
+
+/// The request conflicts with the resource's current state (HTTP 409 with
+/// `code: "CONFLICT"`; gRPC ABORTED with `x-antd-error-code: CONFLICT`).
+///
+/// For pointers, two cases share this code, and it does not say which one
+/// happened or whether anything was paid: a write while a prepared write to
+/// the same pointer awaits payment is refused before paying (finalize the
+/// prepared write, or wait for it to expire); an update that lost to a newer
+/// state while it was in flight may already have been paid for. Read the
+/// pointer again and check what was paid before submitting another paid
+/// write. Not an [AlreadyExistsError].
+class ConflictError extends AntdError {
+  const ConflictError(String message) : super(409, message);
 }
 
 /// Payload too large (HTTP 413).
@@ -55,6 +87,40 @@ class NetworkError extends AntdError {
 /// Service unavailable, e.g. wallet not configured (HTTP 503).
 class ServiceUnavailableError extends AntdError {
   const ServiceUnavailableError(String message) : super(503, message);
+}
+
+/// Too few of an address's close group answered, or took a write, for the
+/// result to be the network's (HTTP 503 with `code: "CLOSE_GROUP_SHORTFALL"`;
+/// gRPC UNAVAILABLE with `x-antd-error-code: CLOSE_GROUP_SHORTFALL`).
+///
+/// Reads are free to retry; a read during an update or churn usually clears
+/// once it settles. A paid write is not, unless [retryable] is `true`: a
+/// pointer finalize then kept the paid state under the same `upload_id`, and
+/// repeating that finalize stores it against the same payment.
+///
+/// Extends [ServiceUnavailableError] because the daemon reports it as a 503:
+/// an existing `on ServiceUnavailableError` clause keeps catching it, while a
+/// dedicated `on CloseGroupShortfallError` clause (listed first) gets
+/// [retryable]. Daemons before the pointer API reported the same condition
+/// as a 500, read as [InternalError].
+class CloseGroupShortfallError extends ServiceUnavailableError {
+  /// `true` when a pointer finalize kept the paid state for a repeat with the
+  /// same `upload_id`. `false` otherwise, including every read and every
+  /// daemon-wallet write.
+  final bool retryable;
+
+  const CloseGroupShortfallError(String message, {this.retryable = false})
+      : super(message);
+
+  /// Recovers [retryable] from a gRPC status message, which carries no
+  /// structured detail: a pointer finalize that kept the paid state closes
+  /// its message with the same `(paid attempt retained: ...)` hint a retained
+  /// partial upload does. Only that hint at the very end of [message] counts.
+  factory CloseGroupShortfallError.fromMessage(String message) =>
+      CloseGroupShortfallError(
+        message,
+        retryable: _closeGroupRetainedTail.hasMatch(message),
+      );
 }
 
 /// A finalize stored some chunks while others stayed unstored after the
@@ -222,39 +288,69 @@ final _partialUploadRetentionTail = RegExp(
   r')[^()]*\)$',
 );
 
+/// Matches the retained hint closing a `CLOSE_GROUP_SHORTFALL` message from a
+/// pointer finalize that kept the paid state: `(paid attempt retained...)` at
+/// the very end, as for [_partialUploadRetentionTail].
+final _closeGroupRetainedTail = RegExp(
+  r'\('
+  '${RegExp.escape(_partialUploadRetainedHint)}'
+  r'[^()]*\)$',
+);
+
 /// Maps a REST error response onto a typed error, preferring the
 /// machine-readable `code` over the bare HTTP status where they diverge:
 /// `PARTIAL_UPLOAD` arrives as a 502 that would otherwise read as a generic
-/// [NetworkError]. Every other code keeps the [errorForStatus] mapping.
-/// [body] is `null` when the response was not a JSON object.
+/// [NetworkError]; `POINTER_FINAL`, `POINTER_FORKED` and `CONFLICT` are 409s
+/// that must not read as [AlreadyExistsError] ([PointerFinalError],
+/// [ForkError], [ConflictError]); and `CLOSE_GROUP_SHORTFALL` is a 503 that
+/// carries `retryable` ([CloseGroupShortfallError]). Every other code keeps
+/// the [errorForStatus] mapping. [body] is `null` when the response was not a
+/// JSON object.
 ///
 /// Never throws: the body is input from the network. A `code` that is not
-/// the string `PARTIAL_UPLOAD` (missing, another string, or an object,
-/// array, number or null) keeps the [errorForStatus] mapping. In a
-/// `PARTIAL_UPLOAD` body a count that is not a finite JSON number reads as
-/// 0. [PartialUploadError.retentionKnown] is `true` only when `retryable` is
+/// one of those strings (missing, another string, or an object, array,
+/// number or null) keeps the [errorForStatus] mapping. In a `PARTIAL_UPLOAD`
+/// body a count that is not a finite JSON number reads as 0.
+/// [PartialUploadError.retentionKnown] is `true` only when `retryable` is
 /// present and a JSON boolean, whose value then sets
 /// [PartialUploadError.retryable]. A missing, null or mistyped `retryable`
 /// (daemons before 0.14.0 never send it) means retention is unknown, and
-/// `retryable` reads `false`.
+/// `retryable` reads `false`. [CloseGroupShortfallError.retryable] is `true`
+/// only when the body's `retryable` is JSON `true`.
 AntdError errorForResponse(
   int statusCode,
   String message,
   Map<String, dynamic>? body,
 ) {
   final code = body?['code'];
-  if (body != null && code is String && code == 'PARTIAL_UPLOAD') {
-    final retryable = body['retryable'];
-    return PartialUploadError(
-      message,
-      chunksStored: _countField(body['chunks_stored']),
-      chunksFailed: _countField(body['chunks_failed']),
-      totalChunks: _countField(body['total_chunks']),
-      retryable: retryable == true,
-      retentionKnown: retryable is bool,
-    );
+  if (body == null || code is! String) {
+    return errorForStatus(statusCode, message);
   }
-  return errorForStatus(statusCode, message);
+  switch (code) {
+    case 'PARTIAL_UPLOAD':
+      final retryable = body['retryable'];
+      return PartialUploadError(
+        message,
+        chunksStored: _countField(body['chunks_stored']),
+        chunksFailed: _countField(body['chunks_failed']),
+        totalChunks: _countField(body['total_chunks']),
+        retryable: retryable == true,
+        retentionKnown: retryable is bool,
+      );
+    case 'POINTER_FINAL':
+      return PointerFinalError(message);
+    case 'POINTER_FORKED':
+      return ForkError(message);
+    case 'CONFLICT':
+      return ConflictError(message);
+    case 'CLOSE_GROUP_SHORTFALL':
+      return CloseGroupShortfallError(
+        message,
+        retryable: body['retryable'] == true,
+      );
+    default:
+      return errorForStatus(statusCode, message);
+  }
 }
 
 /// A `PARTIAL_UPLOAD` count field as an int: 0 unless [value] is a finite

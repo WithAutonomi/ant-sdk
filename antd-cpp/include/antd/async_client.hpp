@@ -111,6 +111,17 @@ public:
     /// Approve the wallet to spend tokens on payment contracts (one-time op).
     std::future<bool> wallet_approve();
 
+    // --- Manifests ---
+    //
+    // See the Client methods of the same names. Nothing is uploaded or paid
+    // for; the BadRequestError for an ambiguous entry surfaces from `.get()`.
+
+    std::future<BuiltManifest> build_manifest(std::vector<ManifestEntryInput> entries,
+                                              BuildManifestOptions options = {});
+    std::future<DecodedManifest> decode_manifest(std::vector<uint8_t> manifest,
+                                                 bool resolve = false);
+    std::future<DecodedManifest> decode_manifest_link(std::string link, bool resolve = false);
+
     // --- External Signer (Two-Phase Upload) ---
 
     /// Prepare a file upload for external signing. See Client::prepare_upload.
@@ -138,6 +149,26 @@ public:
     std::future<FinalizeUploadResult> finalize_merkle_upload(std::string upload_id,
                                                             std::string winner_pool_hash,
                                                             bool store_data_map = false);
+
+    // --- Pointers ---
+    //
+    // See the Client methods of the same names. Every write pays, and every
+    // attempt pays again: nothing here retries a create, update, transfer or
+    // finalize.
+
+    std::future<std::vector<PointerKey>> pointer_keys();
+    std::future<PointerWriteResult> pointer_create(std::string owner, std::string target,
+                                                   PointerKind kind = PointerKind::Chunk);
+    std::future<PointerWriteResult> pointer_update(std::string owner, std::string target,
+                                                   PointerKind kind = PointerKind::Chunk);
+    std::future<PointerTransferResult> pointer_transfer(std::string owner, std::string recipient);
+    std::future<PointerRecord> pointer_get(std::string address);
+    std::future<PointerTarget> pointer_resolve(std::string address);
+    std::future<PointerFinality> pointer_finality(std::string address);
+    std::future<PointerController> pointer_controller(std::string address);
+    std::future<PointerPrepareResult> pointer_prepare(PointerPrepareRequest req);
+    std::future<PointerFinalizeResult> pointer_finalize(std::string upload_id,
+                                                        std::map<std::string, std::string> tx_hashes);
 
 private:
     Client client_;

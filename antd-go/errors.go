@@ -34,7 +34,39 @@ type NotFoundError struct{ AntdError }
 type AlreadyExistsError struct{ AntdError }
 
 // ForkError indicates a version conflict or fork was detected (HTTP 409).
+// A pointer whose owner signed two different final states, with no majority
+// on either, is reported as a ForkError (code POINTER_FORKED).
 type ForkError struct{ AntdError }
+
+// PointerFinalError indicates the pointer is at its final state: it was
+// handed over or frozen, so nothing can update or transfer it again (HTTP 409
+// with code POINTER_FINAL; gRPC FAILED_PRECONDITION). Usually refused before
+// anything is paid: the daemon reads the pointer first. A write that was
+// already paid for when the network refused it (the pointer became final
+// while the write was in flight) keeps that payment, so read the pointer
+// before paying again.
+type PointerFinalError struct{ AntdError }
+
+// ConflictError indicates the request conflicts with the resource's current
+// state (HTTP 409 with code CONFLICT; gRPC ABORTED). For pointers, two cases
+// share this code, and it does not say which one happened or whether anything
+// was paid: a write while a prepared write to the same pointer awaits payment
+// is refused before paying; an update that lost to a newer state while it was
+// in flight may already have been paid for. Read the pointer again and check
+// what was paid before submitting another paid write.
+type ConflictError struct{ AntdError }
+
+// CloseGroupShortfallError indicates too few of an address's close group
+// answered, or took a write, for the result to be the network's (HTTP 503
+// with code CLOSE_GROUP_SHORTFALL; gRPC UNAVAILABLE). Reads are free to
+// retry. A paid write is not, except where Retryable is true: a pointer
+// finalize kept the paid state, and repeating PointerFinalize with the same
+// upload_id stores it against the same payment. It embeds AntdError, not
+// ServiceUnavailableError: match it with errors.As.
+type CloseGroupShortfallError struct {
+	AntdError
+	Retryable bool
+}
 
 // TooLargeError indicates the payload is too large (HTTP 413).
 type TooLargeError struct{ AntdError }
@@ -231,7 +263,11 @@ func decodeErrorBody(respBytes []byte) map[string]any {
 // the wrong type reads as its zero value; a malformed body never panics or
 // escapes as a raw decoding error.
 func errorForResponse(statusCode int, message string, body map[string]any) error {
-	if code, ok := body["code"].(string); !ok || code != "PARTIAL_UPLOAD" {
+	code, _ := body["code"].(string)
+	if err := errorForCode(code, statusCode, message, body); err != nil {
+		return err
+	}
+	if code != "PARTIAL_UPLOAD" {
 		return errorForStatus(statusCode, message)
 	}
 	retryable, known := body["retryable"].(bool)
@@ -281,6 +317,26 @@ func countFromFloat(f float64) uint64 {
 		return 0
 	}
 	return uint64(f)
+}
+
+// errorForCode maps the daemon codes that share an HTTP status with older
+// errors (the 409s and CLOSE_GROUP_SHORTFALL's 503) onto their own types, or
+// returns nil for any other code. The REST client reads the code from the
+// error body; the gRPC client from the x-antd-error-code metadata.
+func errorForCode(code string, statusCode int, message string, body map[string]any) error {
+	base := AntdError{StatusCode: statusCode, Message: message}
+	switch code {
+	case "POINTER_FINAL":
+		return &PointerFinalError{base}
+	case "POINTER_FORKED":
+		return &ForkError{base}
+	case "CONFLICT":
+		return &ConflictError{base}
+	case "CLOSE_GROUP_SHORTFALL":
+		retryable, _ := body["retryable"].(bool)
+		return &CloseGroupShortfallError{AntdError: base, Retryable: retryable}
+	}
+	return nil
 }
 
 // errorForStatus returns the appropriate error type for an HTTP status code.

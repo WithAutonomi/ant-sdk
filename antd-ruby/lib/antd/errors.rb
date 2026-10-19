@@ -58,6 +58,66 @@ module Antd
     def initialize(message) = super(message, status_code: 503)
   end
 
+  # The pointer is at its final state, transferred or frozen: nothing can
+  # update it or hand it over again (HTTP 409 with +code: "POINTER_FINAL"+;
+  # gRPC FAILED_PRECONDITION with +x-antd-error-code: POINTER_FINAL+).
+  # Usually refused before anything is paid: the daemon reads the pointer
+  # first. A write that was already paid for when the network refused it (the
+  # pointer became final while the write was in flight) keeps that payment, so
+  # read the pointer before paying again.
+  class PointerFinalError < AntdError
+    def initialize(message) = super(message, status_code: 409)
+  end
+
+  # The pointer's owner signed two different final states and no one of them
+  # is held by a majority of the close group, so there is no answer to give
+  # (HTTP 409 with +code: "POINTER_FORKED"+; gRPC FAILED_PRECONDITION with
+  # +x-antd-error-code: POINTER_FORKED+). Subclasses +ForkError+, so
+  # +rescue Antd::ForkError+ catches it too.
+  class PointerForkedError < ForkError
+  end
+
+  # The request conflicts with the resource's current state (HTTP 409 with
+  # +code: "CONFLICT"+; gRPC ABORTED with +x-antd-error-code: CONFLICT+). For
+  # pointers, two cases share this code, and it does not say which one
+  # happened or whether anything was paid: a write while a prepared write to
+  # the same pointer awaits payment is refused before paying (finalize the
+  # prepared write, or wait for it to expire); an update that lost to a newer
+  # state while it was in flight may already have been paid for. Read the
+  # pointer again and check what was paid before submitting another paid
+  # write.
+  class ConflictError < AntdError
+    def initialize(message) = super(message, status_code: 409)
+  end
+
+  # Too few of an address's close group answered, or took a write, for the
+  # result to be the network's (HTTP 503 with +code: "CLOSE_GROUP_SHORTFALL"+;
+  # gRPC UNAVAILABLE with +x-antd-error-code: CLOSE_GROUP_SHORTFALL+).
+  #
+  # Reads are free to retry; one during an update in flight or churn usually
+  # clears. A paid write is not, unless +retryable+ is true: a pointer
+  # finalize then kept the paid state under the same +upload_id+, and
+  # repeating that finalize stores it against the same payment. Over REST
+  # +retryable+ is the body's +retryable+ (true only for JSON +true+); over
+  # gRPC it is read from the "(paid attempt retained...)" hint that closes
+  # the status details.
+  #
+  # Not a +ServiceUnavailableError+ (which means a daemon without a wallet):
+  # rescue it by name. Daemons without the pointer API reported a shortfall as
+  # a 500, an +InternalError+.
+  class CloseGroupShortfallError < AntdError
+    attr_reader :retryable
+
+    # @param message [String]
+    # @param retryable [Boolean] whether a pointer finalize kept the paid state
+    def initialize(message, retryable: false)
+      @retryable = retryable == true
+      super(message, status_code: 503)
+    end
+
+    alias retryable? retryable
+  end
+
   # A finalize stored some chunks while others remained unstored after the
   # daemon's retries (HTTP 502 with +code: "PARTIAL_UPLOAD"+; gRPC ABORTED).
   # The on-chain payment persists and the stored chunks stay on the network.
@@ -222,13 +282,77 @@ module Antd
     }
   end
 
+  # Metadata key the daemon (with the pointer API, after 0.15.0) sets on gRPC
+  # statuses whose code is shared with older errors, carrying the REST +code+.
+  ANTD_ERROR_CODE_METADATA = "x-antd-error-code"
+
+  # The gRPC status code the daemon pairs each tagged code with
+  # (antd/src/error.rs). A tag on any other status code is not trusted.
+  GRPC_STATUS_FOR_ERROR_CODE = {
+    "POINTER_FINAL" => 9,         # FAILED_PRECONDITION
+    "POINTER_FORKED" => 9,        # FAILED_PRECONDITION
+    "CONFLICT" => 10,             # ABORTED
+    "CLOSE_GROUP_SHORTFALL" => 14 # UNAVAILABLE
+  }.freeze
+  private_constant :GRPC_STATUS_FOR_ERROR_CODE
+
+  # The hint that closes a CLOSE_GROUP_SHORTFALL message when a pointer
+  # finalize kept the paid state: "(paid attempt retained...)" at the very
+  # end of the details, as for a retained partial upload.
+  CLOSE_GROUP_RETAINED_TAIL = /\(#{Regexp.escape(PARTIAL_UPLOAD_RETAINED_HINT)}[^()]*\)\z/
+  private_constant :CLOSE_GROUP_RETAINED_TAIL
+
+  # The typed error for a daemon error +code+ that shares its HTTP status (and
+  # gRPC code) with older errors: the 409s POINTER_FINAL, POINTER_FORKED and
+  # CONFLICT, and CLOSE_GROUP_SHORTFALL's 503. nil for any other code, which
+  # keeps the status-based mapping.
+  #
+  # @param code [Object] the daemon's error code
+  # @param message [String]
+  # @param retryable [Boolean] CLOSE_GROUP_SHORTFALL only
+  # @return [AntdError, nil]
+  def self.error_for_code(code, message, retryable: false)
+    case code
+    when "POINTER_FINAL" then PointerFinalError.new(message)
+    when "POINTER_FORKED" then PointerForkedError.new(message)
+    when "CONFLICT" then ConflictError.new(message)
+    when "CLOSE_GROUP_SHORTFALL" then CloseGroupShortfallError.new(message, retryable: retryable)
+    end
+  end
+
+  # The typed error for a gRPC status the daemon tagged with
+  # +x-antd-error-code+ (in the trailing metadata, +GRPC::BadStatus#metadata+),
+  # when the tag agrees with the status code: FAILED_PRECONDITION for
+  # POINTER_FINAL / POINTER_FORKED, ABORTED for CONFLICT, UNAVAILABLE for
+  # CLOSE_GROUP_SHORTFALL. nil for an untagged status, a tag this SDK does not
+  # know, or a tag on another status code; the caller then keeps the
+  # code-based mapping (so an untagged FAILED_PRECONDITION is still a
+  # +PaymentError+).
+  #
+  # @param code [Integer] gRPC status code
+  # @param details [String, nil] the status details as the daemon sent them,
+  #   read for CLOSE_GROUP_SHORTFALL's retained hint
+  # @param message [String] the message for the raised error
+  # @param metadata [Hash, nil] trailing metadata
+  # @return [AntdError, nil]
+  def self.error_for_grpc_metadata(code, details, message, metadata)
+    tag = metadata.is_a?(Hash) ? metadata[ANTD_ERROR_CODE_METADATA] : nil
+    tag = tag.first if tag.is_a?(Array)
+    return nil unless tag.is_a?(String) && GRPC_STATUS_FOR_ERROR_CODE[tag] == code
+
+    error_for_code(tag, message, retryable: CLOSE_GROUP_RETAINED_TAIL.match?(details.to_s))
+  end
+
   # Maps a non-2xx REST response onto a typed error, preferring the body's
   # machine-readable +code+ over the bare HTTP status where they diverge:
   # +PARTIAL_UPLOAD+ arrives as a 502 that would otherwise read as a generic
-  # +NetworkError+. Every other code keeps the status-based mapping of
-  # +error_for_status+. A JSON object body's +error+ field becomes the
-  # message when it is a string; otherwise (non-JSON body, a JSON value that
-  # is not an object, a non-string +error+) the raw body is the message.
+  # +NetworkError+, POINTER_FINAL, POINTER_FORKED and CONFLICT are 409s that
+  # must not read as +AlreadyExistsError+, and CLOSE_GROUP_SHORTFALL is a 503
+  # that must not read as +ServiceUnavailableError+ (see +error_for_code+).
+  # Every other code keeps the status-based mapping of +error_for_status+. A
+  # JSON object body's +error+ field becomes the message when it is a string;
+  # otherwise (non-JSON body, a JSON value that is not an object, a non-string
+  # +error+) the raw body is the message.
   #
   # Never raises on a malformed body: every field is type-checked, not
   # coerced. Only a +code+ that is exactly the string "PARTIAL_UPLOAD"
@@ -264,6 +388,11 @@ module Antd
           retention_known: [true, false].include?(parsed["retryable"])
         )
       end
+
+      # retryable is present, and true, only on a pointer finalize that kept
+      # the paid state; anything else reads as not retained.
+      coded = error_for_code(parsed["code"], message, retryable: parsed["retryable"] == true)
+      return coded if coded
     end
 
     error_for_status(code, message)

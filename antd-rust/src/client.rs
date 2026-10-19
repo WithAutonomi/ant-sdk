@@ -174,7 +174,7 @@ impl Client {
         format!("{}{}", self.base_url, path)
     }
 
-    async fn do_json(
+    pub(crate) async fn do_json(
         &self,
         method: reqwest::Method,
         path: &str,
@@ -1206,5 +1206,386 @@ impl Client {
             .await?;
         let j = j.unwrap_or_default();
         Ok(Self::str_field(&j, "address"))
+    }
+
+    // --- Pointers ---
+    //
+    // A pointer's owner key lives in the daemon (`antd --pointer-keys`); a
+    // write names the pointer by its address. Every write pays, and every
+    // attempt pays again: do not retry a create, update or transfer
+    // automatically. Reads are free to retry; a read during an update or
+    // churn can fail with `AntdError::CloseGroupShortfall`.
+
+    fn opt_str_field(v: &Value, key: &str) -> Option<String> {
+        v.get(key)
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    }
+
+    fn kind_tag_field(v: &Value) -> u8 {
+        v.get("kind_tag")
+            .and_then(Value::as_u64)
+            .and_then(|t| u8::try_from(t).ok())
+            .unwrap_or(u8::MAX)
+    }
+
+    fn counter_field(v: &Value, key: &str) -> Result<u64, AntdError> {
+        parse_counter(key, v.get(key).and_then(Value::as_str).unwrap_or_default())
+    }
+
+    fn parse_pointer_write(j: &Value) -> Result<PointerWriteResult, AntdError> {
+        Ok(PointerWriteResult {
+            address: Self::str_field(j, "address"),
+            state_id: Self::str_field(j, "state_id"),
+            counter: Self::counter_field(j, "counter")?,
+        })
+    }
+
+    fn parse_final_state(j: &Value) -> PointerFinalState {
+        PointerFinalState {
+            state_id: Self::str_field(j, "state_id"),
+            kind: Self::str_field(j, "kind"),
+            kind_tag: Self::kind_tag_field(j),
+            target: Self::str_field(j, "target"),
+            holders: u32::try_from(Self::u64_field(j, "holders")).unwrap_or(u32::MAX),
+            transferred_to: Self::opt_str_field(j, "transferred_to"),
+        }
+    }
+
+    pub(crate) fn parse_pointer_finality(j: &Value) -> Result<PointerFinality, AntdError> {
+        let counter = match j.get("counter").and_then(Value::as_str) {
+            Some(c) if !c.is_empty() => Some(parse_counter("counter", c)?),
+            _ => None,
+        };
+        let state_at = |key: &str| {
+            j.get(key)
+                .filter(|v| v.is_object())
+                .map(Self::parse_final_state)
+        };
+        Ok(PointerFinality {
+            address: Self::str_field(j, "address"),
+            group: u32::try_from(Self::u64_field(j, "group")).unwrap_or(u32::MAX),
+            answered: u32::try_from(Self::u64_field(j, "answered")).unwrap_or(u32::MAX),
+            status: PointerFinalityStatus::from_wire(&Self::str_field(j, "status")),
+            counter,
+            state: state_at("state"),
+            states: j
+                .get("states")
+                .and_then(Value::as_array)
+                .map(|arr| arr.iter().map(Self::parse_final_state).collect())
+                .unwrap_or_default(),
+            majority: state_at("majority"),
+            transferred_to: Self::opt_str_field(j, "transferred_to"),
+        })
+    }
+
+    /// The pointers this daemon holds owner keys for (`GET /v1/pointers/keys`).
+    /// Only these can be written through this daemon.
+    pub async fn pointer_keys(&self) -> Result<Vec<PointerKey>, AntdError> {
+        let (j, _) = self
+            .do_json(reqwest::Method::GET, "/v1/pointers/keys", None)
+            .await?;
+        let j = j.unwrap_or_default();
+        Ok(j.get("keys")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .map(|k| PointerKey {
+                        address: Self::str_field(k, "address"),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
+    /// Creates the pointer at `owner`, pointing at `target`, paid by the
+    /// daemon wallet (`POST /v1/pointers`). `owner` is the pointer's address;
+    /// the daemon must hold its key ([`pointer_keys`](Self::pointer_keys)).
+    ///
+    /// Returns [`AntdError::AlreadyExists`] if the pointer exists, refused
+    /// before anything is paid; use [`pointer_update`](Self::pointer_update).
+    pub async fn pointer_create(
+        &self,
+        owner: &str,
+        target: &str,
+        kind: PointerKind,
+    ) -> Result<PointerWriteResult, AntdError> {
+        self.pointer_write("/v1/pointers", owner, target, kind)
+            .await
+    }
+
+    /// Points the pointer at `owner` at `target`, paid by the daemon wallet
+    /// (`POST /v1/pointers/update`). A pointer that does not exist yet is
+    /// created at counter 0.
+    ///
+    /// Returns [`AntdError::PointerFinal`] if the pointer has been transferred
+    /// or frozen (usually refused before anything is paid; see
+    /// [`AntdError::PointerFinal`]), and [`AntdError::Conflict`] if a prepared
+    /// write to it awaits payment (refused before paying) or the update lost
+    /// to a newer state while in flight (possibly after paying). Read the
+    /// pointer before writing again.
+    pub async fn pointer_update(
+        &self,
+        owner: &str,
+        target: &str,
+        kind: PointerKind,
+    ) -> Result<PointerWriteResult, AntdError> {
+        self.pointer_write("/v1/pointers/update", owner, target, kind)
+            .await
+    }
+
+    async fn pointer_write(
+        &self,
+        path: &str,
+        owner: &str,
+        target: &str,
+        kind: PointerKind,
+    ) -> Result<PointerWriteResult, AntdError> {
+        let (j, _) = self
+            .do_json(
+                reqwest::Method::POST,
+                path,
+                Some(json!({ "owner": owner, "target": target, "kind": kind.as_wire() })),
+            )
+            .await?;
+        Self::parse_pointer_write(&j.unwrap_or_default())
+    }
+
+    /// Hands the pointer at `owner` over to the pointer at `recipient`, for
+    /// good, paid by the daemon wallet (`POST /v1/pointers/transfer`). Readers
+    /// of the address are redirected to the recipient's pointer, which only
+    /// its owner can move; the address stays the same. Irreversible once
+    /// stored.
+    ///
+    /// Refused before paying if `recipient` does not exist or leads back
+    /// ([`AntdError::BadRequest`]), and usually if the pointer is already
+    /// final ([`AntdError::PointerFinal`]). [`AntdError::CloseGroupShortfall`]
+    /// means too few of the close group answered or stored it. That can happen
+    /// before paying (the transfer checks every peer first) or after, so check
+    /// the pointer with [`pointer_finality`](Self::pointer_finality) before
+    /// paying again.
+    pub async fn pointer_transfer(
+        &self,
+        owner: &str,
+        recipient: &str,
+    ) -> Result<PointerTransferResult, AntdError> {
+        let (j, _) = self
+            .do_json(
+                reqwest::Method::POST,
+                "/v1/pointers/transfer",
+                Some(json!({ "owner": owner, "recipient": recipient })),
+            )
+            .await?;
+        let j = j.unwrap_or_default();
+        let finality = match j.get("finality").filter(|v| v.is_object()) {
+            Some(f) => Some(Self::parse_pointer_finality(f)?),
+            None => None,
+        };
+        Ok(PointerTransferResult {
+            address: Self::str_field(&j, "address"),
+            state_id: Self::str_field(&j, "state_id"),
+            finality,
+            finality_error: Self::opt_str_field(&j, "finality_error"),
+        })
+    }
+
+    /// Reads the pointer at `address` (`GET /v1/pointers/{address}`).
+    /// Returns [`AntdError::NotFound`] if there is none.
+    pub async fn pointer_get(&self, address: &str) -> Result<PointerRecord, AntdError> {
+        let (j, _) = self
+            .do_json(
+                reqwest::Method::GET,
+                &format!("/v1/pointers/{address}"),
+                None,
+            )
+            .await?;
+        let j = j.unwrap_or_default();
+        Ok(PointerRecord {
+            address: Self::str_field(&j, "address"),
+            owner: Self::str_field(&j, "owner"),
+            counter: Self::counter_field(&j, "counter")?,
+            kind: Self::str_field(&j, "kind"),
+            kind_tag: Self::kind_tag_field(&j),
+            target: Self::str_field(&j, "target"),
+            state_id: Self::str_field(&j, "state_id"),
+            is_final: j.get("is_final").and_then(Value::as_bool).unwrap_or(false),
+            transferred_to: Self::opt_str_field(&j, "transferred_to"),
+        })
+    }
+
+    /// Follows a chain of pointers from `address` to the target at its end
+    /// (`GET /v1/pointers/{address}/resolve`), through forwardings and
+    /// transfers alike. Returns [`AntdError::NotFound`] if a pointer on the
+    /// chain does not exist.
+    pub async fn pointer_resolve(&self, address: &str) -> Result<PointerResolved, AntdError> {
+        let (j, _) = self
+            .do_json(
+                reqwest::Method::GET,
+                &format!("/v1/pointers/{address}/resolve"),
+                None,
+            )
+            .await?;
+        let j = j.unwrap_or_default();
+        Ok(PointerResolved {
+            kind: Self::str_field(&j, "kind"),
+            kind_tag: Self::kind_tag_field(&j),
+            target: Self::str_field(&j, "target"),
+        })
+    }
+
+    /// Asks the whole close group where the pointer at `address` stands with
+    /// respect to finality (`GET /v1/pointers/{address}/finality`). Check this
+    /// before relying on a transfer: only
+    /// [`PointerFinalityStatus::Final`] means one final state, held by a
+    /// majority, with no rival seen.
+    pub async fn pointer_finality(&self, address: &str) -> Result<PointerFinality, AntdError> {
+        let (j, _) = self
+            .do_json(
+                reqwest::Method::GET,
+                &format!("/v1/pointers/{address}/finality"),
+                None,
+            )
+            .await?;
+        Self::parse_pointer_finality(&j.unwrap_or_default())
+    }
+
+    /// Follows the transfers of the pointer at `address` to the pointer whose
+    /// owner now decides what it resolves to
+    /// (`GET /v1/pointers/{address}/controller`).
+    pub async fn pointer_controller(&self, address: &str) -> Result<PointerController, AntdError> {
+        let (j, _) = self
+            .do_json(
+                reqwest::Method::GET,
+                &format!("/v1/pointers/{address}/controller"),
+                None,
+            )
+            .await?;
+        let j = j.unwrap_or_default();
+        Ok(PointerController {
+            pointer: Self::str_field(&j, "pointer"),
+            transfers: j
+                .get("transfers")
+                .and_then(Value::as_array)
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default(),
+            frozen: j.get("frozen").and_then(Value::as_bool).unwrap_or(false),
+        })
+    }
+
+    /// Has the daemon sign `op` on the pointer at `owner` with its loaded key
+    /// and quote it for an external signer (`POST /v1/pointers/prepare`).
+    /// Pay [`PointerPrepareResult::payments`] with `payForQuotes()`, then call
+    /// [`pointer_finalize`](Self::pointer_finalize). Needs no daemon wallet.
+    ///
+    /// Every check the daemon-wallet methods make before paying is made here,
+    /// before anything is quoted. While the prepared write awaits payment,
+    /// other writes to the pointer answer [`AntdError::Conflict`] until it is
+    /// finalized or expires.
+    pub async fn pointer_prepare(
+        &self,
+        owner: &str,
+        op: &PointerOp,
+    ) -> Result<PointerPrepareResult, AntdError> {
+        self.pointer_prepare_with_options(owner, op, &PrepareOptions::default())
+            .await
+    }
+
+    /// [`pointer_prepare`](Self::pointer_prepare) with explicit
+    /// [`PrepareOptions`]. `visibility` does not apply and is ignored;
+    /// `include_signed_quotes` populates
+    /// [`PointerPrepareResult::signed_quotes`].
+    pub async fn pointer_prepare_with_options(
+        &self,
+        owner: &str,
+        op: &PointerOp,
+        opts: &PrepareOptions,
+    ) -> Result<PointerPrepareResult, AntdError> {
+        let mut body = match op {
+            PointerOp::Create { target, kind } => {
+                json!({ "owner": owner, "op": "create", "target": target, "kind": kind.as_wire() })
+            }
+            PointerOp::Update { target, kind } => {
+                json!({ "owner": owner, "op": "update", "target": target, "kind": kind.as_wire() })
+            }
+            PointerOp::Transfer { recipient } => {
+                json!({ "owner": owner, "op": "transfer", "recipient": recipient })
+            }
+        };
+        if opts.include_signed_quotes {
+            body["include_signed_quotes"] = json!(true);
+        }
+        let (j, _) = self
+            .do_json(reqwest::Method::POST, "/v1/pointers/prepare", Some(body))
+            .await?;
+        let j = j.unwrap_or_default();
+        let payments = j
+            .get("payments")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .map(|p| PaymentInfo {
+                        quote_hash: Self::str_field(p, "quote_hash"),
+                        rewards_address: Self::str_field(p, "rewards_address"),
+                        amount: Self::str_field(p, "amount"),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(PointerPrepareResult {
+            upload_id: Self::str_field(&j, "upload_id"),
+            op: Self::str_field(&j, "op"),
+            address: Self::str_field(&j, "address"),
+            state_id: Self::str_field(&j, "state_id"),
+            counter: Self::counter_field(&j, "counter")?,
+            payment_type: Self::str_field(&j, "payment_type"),
+            payments,
+            total_amount: Self::str_field(&j, "total_amount"),
+            payment_vault_address: Self::str_field(&j, "payment_vault_address"),
+            payment_token_address: Self::str_field(&j, "payment_token_address"),
+            rpc_url: Self::str_field(&j, "rpc_url"),
+            signed_quotes: Self::parse_signed_quotes(&j),
+        })
+    }
+
+    /// Stores a prepared pointer write once its external signer has paid
+    /// (`POST /v1/pointers/finalize`). `tx_hashes` maps each `quote_hash`
+    /// from the prepare's payments to the `payForQuotes()` transaction hash.
+    ///
+    /// A write that falls short after payment returns
+    /// [`AntdError::CloseGroupShortfall`] with `retryable == true`: the daemon
+    /// kept the paid state under the same `upload_id`, and calling this
+    /// method again with the same `upload_id` stores it against the same
+    /// payment (`tx_hashes` is then ignored). Bound that loop. A finalize
+    /// without the payment's hashes is [`AntdError::BadRequest`] and keeps
+    /// the session, so it can be corrected.
+    pub async fn pointer_finalize(
+        &self,
+        upload_id: &str,
+        tx_hashes: &std::collections::HashMap<String, String>,
+    ) -> Result<PointerFinalizeResult, AntdError> {
+        let (j, _) = self
+            .do_json(
+                reqwest::Method::POST,
+                "/v1/pointers/finalize",
+                Some(json!({ "upload_id": upload_id, "tx_hashes": tx_hashes })),
+            )
+            .await?;
+        let j = j.unwrap_or_default();
+        let finality = match j.get("finality").filter(|v| v.is_object()) {
+            Some(f) => Some(Self::parse_pointer_finality(f)?),
+            None => None,
+        };
+        Ok(PointerFinalizeResult {
+            address: Self::str_field(&j, "address"),
+            state_id: Self::str_field(&j, "state_id"),
+            counter: Self::counter_field(&j, "counter")?,
+            finality,
+        })
     }
 }

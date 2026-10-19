@@ -21,6 +21,8 @@ tags:
     description: Wallet balance, address, and token approval
   - name: upload
     description: Two-phase upload for external signers
+  - name: manifests
+    description: ADR-0006 file manifests (.ant files and ant:// links)
 
 paths:
   /health:
@@ -628,6 +630,85 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "413":
           description: Request body exceeds the verify route's 40 MB limit
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/manifests/build:
+    post:
+      tags: [manifests]
+      operationId: buildManifest
+      summary: Build a .ant manifest from DataMaps and public addresses
+      description: >-
+        Builds an ADR-0006 manifest (added in the antd release after 0.15.0) through ant-core:
+        validation against the portable path rules, collision checks, sorting
+        by effective name and the deterministic encoding all come from
+        ant-core, so the same inputs give the ant CLI's exact bytes. Nothing
+        is uploaded or paid for. Each entry has exactly one of data_map (hex,
+        embedded: the manifest becomes the key to that file) or address (a
+        public file's DataMap address). size is recorded as given (the
+        creator's claim). With embed_roots (default true) a shrunk DataMap is
+        resolved, fetching its wrapper records, and its root embedded when it
+        is at most 64 KiB as written. Every invalid entry is named in the 400
+        message as entries[i].
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManifestBuildRequest"
+      responses:
+        "200":
+          description: The manifest, its link when short enough, and its entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManifestBuildResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: A shrunk DataMap's wrapper records are not on the network
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          description: Network error while resolving a shrunk DataMap
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/manifests/decode:
+    post:
+      tags: [manifests]
+      operationId: decodeManifest
+      summary: Decode a .ant manifest, manifest link, file link or address
+      description: >-
+        Decodes an ADR-0006 manifest (added in the antd release after 0.15.0), enforcing its
+        size (64 MiB), entry (100,000) and depth limits and the portable path
+        rules. Give manifest (base64 .ant bytes) or link (ant://manifest/...,
+        ant://<address>, or a bare 64-hex address; a file link is reported as
+        one public entry with no path). With resolve, each entry's DataMap
+        (and wrapper records) is fetched to report exact_size; content chunks
+        are not fetched, and one entry's failure is reported in its error
+        rather than failing the call.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManifestDecodeRequest"
+      responses:
+        "200":
+          description: The manifest's name, torrent reference and entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManifestDecodeResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -1499,6 +1580,139 @@ components:
             remainder against the same payment. `false`: nothing was
             retained — re-prepare the same content to retry only the
             remainder.
+
+    ManifestBuildRequest:
+      type: object
+      required: [entries]
+      properties:
+        name:
+          type: string
+          description: Suggested root directory name (one portable path component)
+        torrent_info_hashes:
+          type: array
+          maxItems: 2
+          items:
+            type: string
+          description: BitTorrent info hashes of the same files, hex (40 chars v1, 64 chars v2)
+        embed_roots:
+          type: boolean
+          default: true
+          description: >-
+            Resolve shrunk DataMaps (fetching wrapper records) and embed the
+            root when it is at most 64 KiB as written.
+        entries:
+          type: array
+          maxItems: 100000
+          items:
+            $ref: "#/components/schemas/ManifestBuildEntry"
+
+    ManifestBuildEntry:
+      type: object
+      description: One file. Exactly one of data_map or address.
+      properties:
+        path:
+          type: string
+          description: >-
+            Relative path, subject to the portable path rules. Absent: the
+            entry extracts under its content address.
+        size:
+          type: integer
+          format: int64
+          description: >-
+            Plaintext size to record, as given (the creator's claim). Absent:
+            none is recorded; readers take the exact size from an embedded
+            root DataMap.
+        data_map:
+          type: string
+          description: Hex DataMap, in the form the upload routes return (embedded)
+        address:
+          type: string
+          description: A public file's DataMap address (hex, 32 bytes)
+
+    ManifestBuildResponse:
+      type: object
+      required: [manifest, entries]
+      properties:
+        manifest:
+          type: string
+          description: The .ant bytes, base64
+        link:
+          type: string
+          description: The ant://manifest/ link, present only when it fits 1,500 bytes
+        entries:
+          type: array
+          description: In encoded order (sorted by effective name)
+          items:
+            $ref: "#/components/schemas/ManifestEntryInfo"
+
+    ManifestDecodeRequest:
+      type: object
+      description: Exactly one of manifest or link.
+      properties:
+        manifest:
+          type: string
+          description: The .ant bytes, base64
+        link:
+          type: string
+          description: An ant://manifest/ link, an ant://<address> file link, or a bare 64-hex address
+        resolve:
+          type: boolean
+          default: false
+          description: >-
+            Fetch each entry's DataMap and wrapper records to report
+            exact_size. Content chunks are not fetched.
+
+    ManifestDecodeResponse:
+      type: object
+      required: [source, entries]
+      properties:
+        source:
+          type: string
+          enum: [manifest, file_link]
+        name:
+          type: string
+        torrent_info_hash_v1:
+          type: string
+          description: Hex
+        torrent_info_hash_v2:
+          type: string
+          description: Hex
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManifestEntryInfo"
+
+    ManifestEntryInfo:
+      type: object
+      required: [effective_name, kind, content_address]
+      properties:
+        effective_name:
+          type: string
+          description: path, or the content address in hex when there is none
+        path:
+          type: string
+        size:
+          type: integer
+          format: int64
+          description: The size recorded in the manifest (the creator's claim)
+        kind:
+          type: string
+          enum: [embedded, public]
+        content_address:
+          type: string
+          description: >-
+            Hex. The file's public DataMap address, whether or not it was ever
+            made public; the same for private and public uploads of one file.
+        data_map:
+          type: string
+          description: Decode only. The embedded DataMap in the hex form the download routes accept.
+        exact_size:
+          type: integer
+          format: int64
+          description: Exact plaintext size, from an embedded root DataMap or after resolve
+        error:
+          type: string
+          description: Why resolve failed for this entry
 
   responses:
     BadRequest:

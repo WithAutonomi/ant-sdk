@@ -1,0 +1,48 @@
+name: Swift CI
+
+# antd-swift had no CI before 2026-10-19. The SDK is checked on Linux by hand
+# (dev2), and Linux ignores @available, so a gRPC API missing its macOS 15
+# guard broke every macOS build from 2026-05-28 with nobody noticing. This
+# builds and runs the offline tests on macOS, where availability is enforced.
+
+on:
+  push:
+    branches: [main]
+    # GitHub Actions only allows EITHER `paths` OR `paths-ignore`, so the
+    # "skip when only .md files changed" negation lives inside `paths`.
+    paths:
+      - "antd-swift/**"
+      - ".github/workflows/swift-ci.yml"
+      - "!**/*.md"
+  pull_request:
+    paths:
+      - "antd-swift/**"
+      - ".github/workflows/swift-ci.yml"
+      - "!**/*.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test-antd-swift:
+    name: Build + test (macOS)
+    # grpc-swift 2.x needs Swift 6 and the macOS 15 SDK.
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: antd-swift
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: swift --version
+        run: swift --version
+
+      - name: swift build
+        run: swift build
+
+      - name: swift test
+        run: swift test

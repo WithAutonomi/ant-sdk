@@ -50,6 +50,62 @@ public:
     ForkError(const std::string& msg) : AntdError(409, msg) {}
 };
 
+/// The pointer is at its final state, transferred or frozen: nothing can
+/// update it or hand it over again (HTTP 409 with `code: "POINTER_FINAL"`;
+/// gRPC FAILED_PRECONDITION with `x-antd-error-code: POINTER_FINAL`). Usually
+/// refused before anything is paid: the daemon reads the pointer first. A
+/// write that was already paid for when the network refused it (the pointer
+/// became final while the write was in flight) keeps that payment, so read the
+/// pointer before paying again.
+class PointerFinalError : public AntdError {
+public:
+    PointerFinalError(const std::string& msg) : AntdError(409, msg) {}
+};
+
+/// The pointer's owner signed two different final states and no one of them
+/// is held by a majority of the close group, so there is no answer to give
+/// (HTTP 409 with `code: "POINTER_FORKED"`; gRPC FAILED_PRECONDITION with
+/// `x-antd-error-code: POINTER_FORKED`). A ForkError, so existing
+/// `catch (const ForkError&)` blocks catch it.
+class PointerForkedError : public ForkError {
+public:
+    PointerForkedError(const std::string& msg) : ForkError(msg) {}
+};
+
+/// The request conflicts with the resource's current state (HTTP 409 with
+/// `code: "CONFLICT"`; gRPC ABORTED with `x-antd-error-code: CONFLICT`). For
+/// pointers, two cases share this code, and it does not say which one
+/// happened or whether anything was paid: a write while a prepared write to
+/// the same pointer awaits payment is refused before paying (finalize the
+/// prepared write, or wait for it to expire); an update that lost to a newer
+/// state while it was in flight may already have been paid for. Read the
+/// pointer again and check what was paid before submitting another paid
+/// write.
+class ConflictError : public AntdError {
+public:
+    ConflictError(const std::string& msg) : AntdError(409, msg) {}
+};
+
+/// Too few of an address's close group answered, or took a write, for the
+/// result to be the network's (HTTP 503 with `code: "CLOSE_GROUP_SHORTFALL"`;
+/// gRPC UNAVAILABLE with `x-antd-error-code: CLOSE_GROUP_SHORTFALL`). Reads
+/// are free to retry. A paid write is not, unless `retryable` is true: a
+/// pointer finalize then kept the paid state under the same `upload_id`, and
+/// repeating that finalize stores it against the same payment.
+///
+/// Derives from AntdError, not ServiceUnavailableError (a missing wallet) or
+/// NetworkError: catch it by its own type.
+class CloseGroupShortfallError : public AntdError {
+public:
+    /// True when a pointer finalize kept the paid state for a repeat with the
+    /// same `upload_id`. False otherwise, including every read and every
+    /// daemon-wallet write.
+    bool retryable;
+
+    CloseGroupShortfallError(const std::string& msg, bool retryable = false)
+        : AntdError(503, msg), retryable(retryable) {}
+};
+
 /// Payload too large (HTTP 413).
 class TooLargeError : public AntdError {
 public:
@@ -315,6 +371,89 @@ inline PartialUploadCounts parse_partial_upload_message(std::string_view message
     }
     return out;
 }
+
+/// Throw the typed error for the daemon codes that share a status with older
+/// errors: POINTER_FINAL, POINTER_FORKED and CONFLICT (409s that must not read
+/// as AlreadyExistsError) and CLOSE_GROUP_SHORTFALL (a 503). Returns for any
+/// other code, which keeps the status mapping. `retryable` is the error body's
+/// flag; only CLOSE_GROUP_SHORTFALL reads it.
+inline void throw_for_error_code(std::string_view code, const std::string& message,
+                                 bool retryable = false) {
+    if (code == "POINTER_FINAL") throw PointerFinalError(message);
+    if (code == "POINTER_FORKED") throw PointerForkedError(message);
+    if (code == "CONFLICT") throw ConflictError(message);
+    if (code == "CLOSE_GROUP_SHORTFALL") throw CloseGroupShortfallError(message, retryable);
+}
+
+/// Metadata key the daemon (with the pointer API, after 0.15.0) sets on gRPC
+/// statuses whose code is shared with older errors, carrying the REST `code`.
+inline constexpr std::string_view kErrorCodeMetadataKey = "x-antd-error-code";
+
+namespace detail {
+
+/// The grpc::StatusCode values a tag must agree with (this header does not
+/// include gRPC).
+inline constexpr int kGrpcFailedPrecondition = 9;
+inline constexpr int kGrpcAborted = 10;
+inline constexpr int kGrpcUnavailable = 14;
+
+}  // namespace detail
+
+/// Throw the typed error for a gRPC status the daemon tagged with
+/// `x-antd-error-code`, when the tag and the status code agree:
+/// FAILED_PRECONDITION for POINTER_FINAL and POINTER_FORKED, ABORTED for
+/// CONFLICT, UNAVAILABLE for CLOSE_GROUP_SHORTFALL. Returns for anything else
+/// (an empty tag, a tag this SDK does not know, or a tag on an unexpected
+/// code), which keeps the code-based mapping: FAILED_PRECONDITION without a
+/// tag is still a PaymentError.
+///
+/// gRPC carries no structured detail, so a shortfall's `retryable` comes from
+/// the message: a pointer finalize that kept the paid state closes it with
+/// the same "(paid attempt retained...)" hint a retained partial upload does.
+inline void throw_for_tagged_grpc_status(int grpc_code, std::string_view tag,
+                                         const std::string& message) {
+    if (grpc_code == detail::kGrpcFailedPrecondition &&
+        (tag == "POINTER_FINAL" || tag == "POINTER_FORKED")) {
+        throw_for_error_code(tag, message);
+    }
+    if (grpc_code == detail::kGrpcAborted && tag == "CONFLICT") {
+        throw_for_error_code(tag, message);
+    }
+    if (grpc_code == detail::kGrpcUnavailable && tag == "CLOSE_GROUP_SHORTFALL") {
+        const bool retained = detail::read_partial_upload_retention(message) ==
+                              detail::PartialUploadRetention::retained;
+        throw_for_error_code(tag, message, retained);
+    }
+}
+
+namespace detail {
+
+/// Parse a pointer counter: a decimal u64, digits only. The daemon sends
+/// counters as strings in both transports because a final state sits at
+/// 2^64-1. An empty value, a sign, whitespace, a non-digit or a value past
+/// 2^64-1 throws InternalError (the daemon sent something malformed); it never
+/// reads as zero. (std::stoull would accept leading whitespace and wrap "-1"
+/// to 2^64-1.)
+inline std::uint64_t parse_pointer_counter(std::string_view field, std::string_view value) {
+    bool digits = !value.empty();
+    for (const char c : value) {
+        if (c < '0' || c > '9') {
+            digits = false;
+            break;
+        }
+    }
+    std::uint64_t out = 0;
+    if (digits) {
+        const auto [ptr, ec] = std::from_chars(value.data(), value.data() + value.size(), out);
+        if (ec == std::errc() && ptr == value.data() + value.size()) {
+            return out;
+        }
+    }
+    throw InternalError("invalid pointer " + std::string(field) + " \"" + std::string(value) +
+                        "\": expected a decimal u64");
+}
+
+}  // namespace detail
 
 /// Throw the appropriate AntdError subclass for an HTTP status code.
 [[noreturn]] inline void error_for_status(int code, const std::string& message) {

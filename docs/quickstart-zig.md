@@ -130,6 +130,38 @@ const est = try client.fileCost("/path/to/file.txt", true);
 defer est.deinit(allocator);
 ```
 
+## Pointers
+
+A pointer is an owner-signed address you can move to new data. antd signs with the owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so `owner` is the pointer's address, never a key. Every create, update and transfer pays (about the price of one chunk) and is never retried; reads are free. A transfer hands the pointer over to another pointer for good. Needs the first antd release with pointers (after 0.15.0). Walk-through: [Tutorial: Point at a Public File and Update It](tutorial-pointers.md).
+
+```zig
+const owner = "<a pointer address from client.pointerKeys()>";
+
+const v1 = try client.dataPutPublic("version 1", .auto);
+defer v1.deinit(allocator);
+const v2 = try client.dataPutPublic("version 2", .auto);
+defer v2.deinit(allocator);
+
+const created = try client.pointerCreate(owner, v1.address, .chunk);  // pays; counter 0
+defer created.deinit(allocator);
+const updated = try client.pointerUpdate(owner, v2.address, .chunk);  // pays again; counter 1
+defer updated.deinit(allocator);
+
+const target = try client.pointerResolve(owner);                      // free
+defer target.deinit(allocator);
+const finality = try client.pointerFinality(owner);
+defer finality.deinit(allocator);
+std.debug.print("{s}: {s}\n", .{ target.target, finality.status.wire() });  // <v2.address>: open
+```
+
+Counters are `u64`. `pointerTransfer`, `pointerGet`, `pointerController`, `pointerPrepare` and `pointerFinalize` complete the set (REST only).
+
+Runnable example: `antd-zig/examples/09-pointers.zig`. Set `ANTD_POINTER_OWNER` to an address the daemon holds a key for, one it has not written yet (each run creates the pointer and pays for its writes), and `ANTD_BASE_URL` for a daemon other than `http://localhost:8082`:
+
+```bash
+cd antd-zig
+ANTD_POINTER_OWNER=<address> zig build run-09-pointers
+```
 
 ## Error Handling
 
@@ -167,6 +199,39 @@ Error union variants:
 | `error.TooLarge` | 413 | Payload too large |
 | `error.Internal` | 500 | Server error |
 | `error.NetworkUnreachable` | 502 | Network unreachable |
+
+## Manifests
+
+A manifest describes a set of files as one `ant://manifest/` link, or as a `.ant` file when the link would be too long. Each entry is either a public file's address or an embedded DataMap (the manifest is then the key to a private file), with an optional path. Building and decoding upload and pay for nothing: upload the files first, then describe them. Needs the antd release after 0.15.0. Walk-through: [Tutorial: Share a Set of Files as One Link](tutorial-manifests.md).
+
+```zig
+const one = try client.dataPutPublic("first file", .auto);    // pays
+defer one.deinit(allocator);
+const two = try client.dataPutPublic("second file", .auto);   // pays
+defer two.deinit(allocator);
+
+const built = try client.buildManifest(&.{                     // free
+    .{ .path = "notes/one.txt", .address = one.address },
+    .{ .path = "notes/two.txt", .address = two.address },
+}, .{ .name = "example" });
+defer built.deinit(allocator);
+// built.link is null when over 1,500 bytes: share built.manifest instead
+
+const decoded = try client.decodeManifestLink(built.link.?, true);   // free
+defer decoded.deinit(allocator);
+for (decoded.entries) |entry| {
+    std.debug.print("{s} {s} {?d}\n", .{ entry.effective_name, entry.kind, entry.exact_size });
+}
+```
+
+`decodeManifest(bytes, resolve)` takes raw `.ant` bytes. Set `.data_map` instead of `.address` for an embedded entry; `BuildManifestOptions` has `embed_roots` (default `true`). Results own their memory: call `deinit(allocator)`.
+
+Runnable example: `antd-zig/examples/10-manifests.zig`. Its two uploads pay; the manifest calls do not.
+
+```bash
+cd antd-zig
+ANTD_BASE_URL=http://localhost:8082 zig build run-10-manifests
+```
 
 ## Examples
 

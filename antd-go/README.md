@@ -150,6 +150,61 @@ A finalize where some chunks stayed unstored after the daemon's retries returns 
 
 The fields are read conservatively: over REST a count that is not a JSON non-negative integer (≤ 2^64−1) reads as 0, and `RetentionKnown` is set only when the body's `retryable` is a JSON bool (whose value then sets `Retryable`); over gRPC both flags depend on the counts and the closing retention hint parsing from the status message (see [gRPC Error Mapping](#grpc-error-mapping)). See `finalizeWithRetry` in `examples/07-external-signer/main.go`.
 
+### Pointers
+
+A pointer is a small, owner-signed, mutable reference (the antd release after 0.15.0, the first with pointers). Its address is derived from its owner's key and never changes. What it points at (a chunk, such as a public file's data map, or another pointer) can be updated by the owner, and the owner can hand the pointer over to another pointer for good. The daemon signs with owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so writes name the pointer by its address (`owner`) and no key ever crosses the API.
+
+| Method | Description |
+|--------|-------------|
+| `PointerKeys(ctx)` | Addresses of the pointers this daemon can write |
+| `PointerCreate(ctx, owner, target, kind)` | Create a pointer, paid by the daemon wallet; `AlreadyExistsError` if it exists. `kind` is `PointerTargetChunk` (default when `""`) or `PointerTargetPointer` |
+| `PointerUpdate(ctx, owner, target, kind)` | Point a pointer at a new target, creating it if needed; `PointerFinalError` if it was handed over or frozen |
+| `PointerTransfer(ctx, owner, recipient)` | Hand a pointer over to the recipient's pointer, irreversibly — returns `*PointerTransferResult` with the close group's finality |
+| `PointerGet(ctx, address)` | Read a pointer — returns `*PointerRecord`; `NotFoundError` if none |
+| `PointerResolve(ctx, address)` | Follow a chain of pointers to its target — returns `*PointerTarget` |
+| `PointerFinality(ctx, address)` | Ask the whole close group where a pointer stands — only `PointerFinal` means a transfer is beyond dispute |
+| `PointerController(ctx, address)` | Follow transfers to the pointer whose owner now decides |
+| `PointerPrepare(ctx, PointerPrepareRequest)` | Sign a create, update or transfer and quote it for an external signer (no daemon wallet needed) |
+| `PointerFinalize(ctx, uploadID, txHashes)` | Store a prepared write once `payForQuotes()` has paid it |
+
+Counters are `uint64`; a final state is at `PointerFinalCounter` (2^64−1). Every write pays, about the price of one chunk, and every attempt pays again, so never retry `PointerCreate`, `PointerUpdate` or `PointerTransfer` automatically. Reads are free to retry: a `*CloseGroupShortfallError` on a read usually clears once an update in flight settles. A `PointerFinalize` that falls short after payment returns `*CloseGroupShortfallError` with `Retryable` set: the daemon kept the paid state, so call it again with the same `uploadID`. While a prepared write awaits payment, other writes to that pointer return `*ConflictError`.
+
+### Manifests
+
+A manifest (ADR-0006) is a `.ant` file, or an `ant://manifest/` link when it fits in 1,500 bytes, that lists a set of files (the antd release after 0.15.0, the first with manifests). Each entry has an optional path and size and either an embedded DataMap (kind `"embedded"`: the manifest is the key to the file) or a public file's DataMap address (kind `"public"`). The daemon builds and decodes manifests through ant-core, so the format, content addresses and portable path rules are never re-implemented here. Nothing is uploaded or paid for: you build from DataMaps and addresses you already hold, and keep or share the bytes or the link yourself.
+
+| Method | Description |
+|--------|-------------|
+| `BuildManifest(ctx, entries, opts)` | Build a manifest from `[]ManifestEntryInput`, each with exactly one of `DataMap` or `Address` (checked before sending) — returns `*BuiltManifest` with the `.ant` bytes, the link (empty when it doesn't fit) and each entry's effective name and content address. `opts` may be nil |
+| `DecodeManifest(ctx, manifest, resolve)` | Decode `.ant` bytes — returns `*DecodedManifest` with the name, torrent info hashes and entries, embedded DataMaps included |
+| `DecodeManifestLink(ctx, link, resolve)` | Decode an `ant://manifest/` link, a file link or a bare 64-hex address (a file link reads as `Source` `"file_link"`: one public entry with no path) |
+
+The bytes are raw `[]byte` on both transports; the REST client does the base64. `Size` (the creator's claim) and `ExactSize` are `*uint64`, and nil means unset, never 0. By default `BuildManifest` resolves each shrunk DataMap and embeds its root when that is at most 64 KiB, so recipients skip the fetch; set `BuildManifestOptions.KeepShrunkDataMaps` to embed DataMaps exactly as given. With `resolve`, a decode fetches each entry's DataMap (not its content) to fill `ExactSize` and confirm it is on the network, and one entry's failure comes back in that entry's `Error`, not as a failed call. The embedding policy and `resolve` read from the network, so they can time out, and retrying is safe. An invalid entry or input is a `*BadRequestError` whose message names it (`entries[i]: ...`).
+
+A manifest can be 64 MiB, past the gRPC client's 32 MiB default receive ceiling, so `GrpcClient` raises the limit to 256 MiB on each manifest call; `WithGrpcMaxRecvMsgSize` doesn't apply to these calls.
+
+```go
+// public is a DataPutPublic result, private a DataPut result.
+built, err := client.BuildManifest(ctx, []antd.ManifestEntryInput{
+    {Path: "notes/one.txt", Address: public.Address},
+    {Path: "notes/two.txt", DataMap: private.DataMap},
+}, &antd.BuildManifestOptions{Name: "notes"})
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println(built.Link) // ant://manifest/...
+
+decoded, err := client.DecodeManifestLink(ctx, built.Link, true)
+if err != nil {
+    log.Fatal(err)
+}
+for _, e := range decoded.Entries {
+    if e.ExactSize != nil {
+        fmt.Printf("%s (%s): %d bytes\n", e.EffectiveName, e.Kind, *e.ExactSize)
+    }
+}
+```
+
 ## gRPC Transport
 
 The SDK also provides a `GrpcClient` that connects to the antd daemon over gRPC.
@@ -246,6 +301,8 @@ gRPC status codes are mapped to the same typed errors as the REST client:
 | `Aborted` (message starts with `Partial upload:`) | `PartialUploadError` |
 | `Aborted` (any other message) | `AntdError` |
 
+The pointer methods also read the daemon's `x-antd-error-code` trailer, which takes precedence: `POINTER_FINAL` → `PointerFinalError`, `POINTER_FORKED` → `ForkError`, `CONFLICT` → `ConflictError`, `CLOSE_GROUP_SHORTFALL` → `CloseGroupShortfallError` (`Retryable` when the message says the paid attempt was retained). Over REST the same types come from the error body's `code`.
+
 A partial upload's counts and retention are parsed from the status message (`Partial upload: <stored>/<total> chunks stored, <failed> failed after retries: <reason> (<hint>)`). `RetentionKnown` is true only when that counts pattern matched, all three counts fit a `uint64`, and the message ends with one of the daemon's two hints: `(paid attempt retained...)` sets `Retryable`, and `(stored chunks persist; re-prepare the same content...)` means the daemon confirmed nothing was retained (daemons older than 0.14.0 write only this one). A garbled or out-of-range count reads 0 and leaves both flags false. Readable counts with a missing, truncated or unrecognised hint keep the counts, but both flags stay false. In both cases retention is unknown, so stop and reconcile rather than re-prepare.
 
 ## Error Handling
@@ -289,3 +346,5 @@ See the [examples/](examples/) directory:
 - `04-files` — File upload and download
 - `06-private-data` — Private (encrypted) data round-trip via data_map
 - `07-external-signer` — External-signer file + chunk upload (anvil signer)
+- `08-pointers` — Create, update, read and resolve a pointer, then check its finality (needs `ANTD_POINTER_OWNER`; each write pays)
+- `09-manifests` — Build a manifest of two public uploads, then decode its link with exact sizes (the two uploads pay; the manifest calls don't)

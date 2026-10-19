@@ -4,7 +4,10 @@ use mockito::{Matcher, Mock, ServerGuard};
 use serde_json::json;
 
 use crate::errors::{error_for_body, parse_partial_upload_message, AntdError};
-use crate::models::{PaymentMode, PrepareOptions, VerifyQuoteEntry};
+use crate::models::{
+    PaymentMode, PointerController, PointerFinalityStatus, PointerKind, PointerOp, PointerResolved,
+    PointerWriteResult, PrepareOptions, VerifyQuoteEntry,
+};
 use crate::Client;
 
 async fn mock_server() -> ServerGuard {
@@ -1707,5 +1710,529 @@ async fn test_data_stream_range_reports_a_short_body() {
     assert!(matches!(
         collect_range(range).await,
         Err(AntdError::Network(_))
+    ));
+}
+
+// --- Pointers ---
+
+const OWNER: &str = "11111111111111111111111111111111111111111111111111111111111111aa";
+const TARGET: &str = "22222222222222222222222222222222222222222222222222222222222222bb";
+const RECIPIENT: &str = "33333333333333333333333333333333333333333333333333333333333333cc";
+
+fn json_mock(
+    server: &mut ServerGuard,
+    method: &str,
+    path: &str,
+    status: usize,
+    body: serde_json::Value,
+) -> Mock {
+    server
+        .mock(method, path)
+        .with_status(status)
+        .with_header("content-type", "application/json")
+        .with_body(body.to_string())
+        .create()
+}
+
+#[tokio::test]
+async fn test_pointer_keys() {
+    let mut server = mock_server().await;
+    let _m = json_mock(
+        &mut server,
+        "GET",
+        "/v1/pointers/keys",
+        200,
+        json!({"keys": [{"address": OWNER}, {"address": RECIPIENT}]}),
+    );
+    let client = Client::new(&server.url());
+    let keys = client.pointer_keys().await.unwrap();
+    assert_eq!(
+        keys.iter().map(|k| k.address.as_str()).collect::<Vec<_>>(),
+        vec![OWNER, RECIPIENT]
+    );
+}
+
+#[tokio::test]
+async fn test_pointer_create_sends_owner_target_kind_and_parses_the_counter() {
+    let mut server = mock_server().await;
+    let m = server
+        .mock("POST", "/v1/pointers")
+        .match_body(Matcher::Json(
+            json!({"owner": OWNER, "target": TARGET, "kind": "chunk"}),
+        ))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(json!({"address": OWNER, "state_id": "ab", "counter": "0"}).to_string())
+        .create();
+    let client = Client::new(&server.url());
+    let w = client
+        .pointer_create(OWNER, TARGET, PointerKind::Chunk)
+        .await
+        .unwrap();
+    m.assert();
+    assert_eq!(
+        w,
+        PointerWriteResult {
+            address: OWNER.into(),
+            state_id: "ab".into(),
+            counter: 0
+        }
+    );
+}
+
+#[tokio::test]
+async fn test_pointer_update_forwarding_sends_kind_pointer() {
+    let mut server = mock_server().await;
+    let m = server
+        .mock("POST", "/v1/pointers/update")
+        .match_body(Matcher::Json(
+            json!({"owner": OWNER, "target": RECIPIENT, "kind": "pointer"}),
+        ))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(json!({"address": OWNER, "state_id": "cd", "counter": "7"}).to_string())
+        .create();
+    let client = Client::new(&server.url());
+    let w = client
+        .pointer_update(OWNER, RECIPIENT, PointerKind::Pointer)
+        .await
+        .unwrap();
+    m.assert();
+    assert_eq!(w.counter, 7);
+}
+
+#[tokio::test]
+async fn test_pointer_get_final_record_reads_u64_max_and_the_transfer() {
+    let mut server = mock_server().await;
+    let _m = json_mock(
+        &mut server,
+        "GET",
+        &format!("/v1/pointers/{OWNER}"),
+        200,
+        json!({
+            "address": OWNER, "owner": "ab".repeat(1952), "counter": "18446744073709551615",
+            "kind": "pointer", "kind_tag": 1, "target": RECIPIENT, "state_id": "ef",
+            "is_final": true, "transferred_to": RECIPIENT
+        }),
+    );
+    let client = Client::new(&server.url());
+    let r = client.pointer_get(OWNER).await.unwrap();
+    assert_eq!(r.counter, u64::MAX);
+    assert!(r.is_final);
+    assert_eq!(r.transferred_to.as_deref(), Some(RECIPIENT));
+    assert_eq!(r.target_kind(), Some(PointerKind::Pointer));
+    assert_eq!(r.owner.len(), 3904);
+}
+
+#[tokio::test]
+async fn test_pointer_get_open_record_has_no_transfer() {
+    let mut server = mock_server().await;
+    let _m = json_mock(
+        &mut server,
+        "GET",
+        &format!("/v1/pointers/{OWNER}"),
+        200,
+        json!({
+            "address": OWNER, "owner": "ab", "counter": "4", "kind": "unknown", "kind_tag": 42,
+            "target": TARGET, "state_id": "ef", "is_final": false, "transferred_to": null
+        }),
+    );
+    let client = Client::new(&server.url());
+    let r = client.pointer_get(OWNER).await.unwrap();
+    assert_eq!(
+        (r.counter, r.is_final, r.transferred_to.as_deref()),
+        (4, false, None)
+    );
+    assert_eq!((r.kind.as_str(), r.kind_tag), ("unknown", 42));
+    assert_eq!(r.target_kind(), None);
+}
+
+#[tokio::test]
+async fn test_pointer_counter_that_is_not_a_decimal_string_is_an_error() {
+    for counter in [
+        json!("abc"),
+        json!(5),
+        json!("-1"),
+        json!("18446744073709551616"),
+    ] {
+        let mut server = mock_server().await;
+        let _m = json_mock(
+            &mut server,
+            "POST",
+            "/v1/pointers",
+            200,
+            json!({"address": OWNER, "state_id": "ab", "counter": counter}),
+        );
+        let client = Client::new(&server.url());
+        let err = client
+            .pointer_create(OWNER, TARGET, PointerKind::Chunk)
+            .await
+            .expect_err("a malformed counter must not read as a number");
+        assert!(matches!(err, AntdError::Internal(_)), "{counter}: {err:?}");
+    }
+}
+
+#[tokio::test]
+async fn test_pointer_get_missing_is_not_found() {
+    let mut server = mock_server().await;
+    let _m = json_mock(
+        &mut server,
+        "GET",
+        &format!("/v1/pointers/{OWNER}"),
+        404,
+        json!({"error": "Record not found: no pointer at x", "code": "NOT_FOUND"}),
+    );
+    let client = Client::new(&server.url());
+    assert!(matches!(
+        client.pointer_get(OWNER).await,
+        Err(AntdError::NotFound(_))
+    ));
+}
+
+#[tokio::test]
+async fn test_pointer_finality_open_and_forked() {
+    let mut server = mock_server().await;
+    let _open = json_mock(
+        &mut server,
+        "GET",
+        &format!("/v1/pointers/{OWNER}/finality"),
+        200,
+        json!({
+            "address": OWNER, "group": 7, "answered": 7, "status": "open", "counter": "3",
+            "state": null, "states": [], "majority": null, "transferred_to": null
+        }),
+    );
+    let state = |target: &str, holders: u32, tag: u8| {
+        json!({"state_id": "s", "kind": if tag == 1 { "pointer" } else { "chunk" }, "kind_tag": tag,
+               "target": target, "holders": holders,
+               "transferred_to": if tag == 1 { json!(target) } else { json!(null) }})
+    };
+    let _forked = json_mock(
+        &mut server,
+        "GET",
+        &format!("/v1/pointers/{RECIPIENT}/finality"),
+        200,
+        json!({
+            "address": RECIPIENT, "group": 7, "answered": 6, "status": "forked", "counter": null,
+            "state": null, "states": [state(OWNER, 4, 1), state(TARGET, 2, 0)],
+            "majority": state(OWNER, 4, 1), "transferred_to": null
+        }),
+    );
+    let client = Client::new(&server.url());
+
+    let open = client.pointer_finality(OWNER).await.unwrap();
+    assert_eq!(open.status, PointerFinalityStatus::Open);
+    assert_eq!(open.counter, Some(3));
+    assert!(open.state.is_none() && open.states.is_empty() && !open.is_final());
+
+    let forked = client.pointer_finality(RECIPIENT).await.unwrap();
+    assert_eq!(forked.status, PointerFinalityStatus::Forked);
+    assert_eq!(
+        (forked.group, forked.answered, forked.counter),
+        (7, 6, None)
+    );
+    assert_eq!(forked.states.len(), 2);
+    assert_eq!(forked.states[0].transferred_to.as_deref(), Some(OWNER));
+    assert_eq!(forked.states[1].transferred_to, None);
+    assert_eq!(forked.majority.as_ref().unwrap().holders, 4);
+}
+
+#[tokio::test]
+async fn test_pointer_finality_unknown_status_is_kept() {
+    let mut server = mock_server().await;
+    let _m = json_mock(
+        &mut server,
+        "GET",
+        &format!("/v1/pointers/{OWNER}/finality"),
+        200,
+        json!({"address": OWNER, "group": 7, "answered": 7, "status": "pondering", "states": []}),
+    );
+    let client = Client::new(&server.url());
+    let f = client.pointer_finality(OWNER).await.unwrap();
+    assert_eq!(f.status, PointerFinalityStatus::Unknown("pondering".into()));
+}
+
+#[tokio::test]
+async fn test_pointer_transfer_with_and_without_a_finality_check() {
+    let mut server = mock_server().await;
+    let m = server
+        .mock("POST", "/v1/pointers/transfer")
+        .match_body(Matcher::Json(
+            json!({"owner": OWNER, "recipient": RECIPIENT}),
+        ))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            json!({
+                "address": OWNER, "state_id": "f1",
+                "finality": {
+                    "address": OWNER, "group": 7, "answered": 7, "status": "final",
+                    "counter": null, "states": [], "majority": null, "transferred_to": RECIPIENT,
+                    "state": {"state_id": "f1", "kind": "pointer", "kind_tag": 1,
+                              "target": RECIPIENT, "holders": 7, "transferred_to": RECIPIENT}
+                }
+            })
+            .to_string(),
+        )
+        .create();
+    let client = Client::new(&server.url());
+    let t = client.pointer_transfer(OWNER, RECIPIENT).await.unwrap();
+    m.assert();
+    let f = t.finality.unwrap();
+    assert!(f.is_final());
+    assert_eq!(f.transferred_to.as_deref(), Some(RECIPIENT));
+    assert_eq!(t.finality_error, None);
+
+    let mut server = mock_server().await;
+    let _m = json_mock(
+        &mut server,
+        "POST",
+        "/v1/pointers/transfer",
+        200,
+        json!({"address": OWNER, "state_id": "f1", "finality": null,
+               "finality_error": "only 3 of the close group answered"}),
+    );
+    let client = Client::new(&server.url());
+    let t = client.pointer_transfer(OWNER, RECIPIENT).await.unwrap();
+    assert!(t.finality.is_none());
+    assert_eq!(
+        t.finality_error.as_deref(),
+        Some("only 3 of the close group answered")
+    );
+}
+
+#[tokio::test]
+async fn test_pointer_resolve_and_controller() {
+    let mut server = mock_server().await;
+    let _r = json_mock(
+        &mut server,
+        "GET",
+        &format!("/v1/pointers/{OWNER}/resolve"),
+        200,
+        json!({"kind": "chunk", "kind_tag": 0, "target": TARGET}),
+    );
+    let _c = json_mock(
+        &mut server,
+        "GET",
+        &format!("/v1/pointers/{OWNER}/controller"),
+        200,
+        json!({"pointer": RECIPIENT, "transfers": [RECIPIENT], "frozen": false}),
+    );
+    let client = Client::new(&server.url());
+    assert_eq!(
+        client.pointer_resolve(OWNER).await.unwrap(),
+        PointerResolved {
+            kind: "chunk".into(),
+            kind_tag: 0,
+            target: TARGET.into()
+        }
+    );
+    assert_eq!(
+        client.pointer_controller(OWNER).await.unwrap(),
+        PointerController {
+            pointer: RECIPIENT.into(),
+            transfers: vec![RECIPIENT.into()],
+            frozen: false
+        }
+    );
+}
+
+#[tokio::test]
+async fn test_pointer_prepare_sends_each_op_shape() {
+    let cases = [
+        (
+            PointerOp::Create {
+                target: TARGET.into(),
+                kind: PointerKind::Chunk,
+            },
+            json!({"owner": OWNER, "op": "create", "target": TARGET, "kind": "chunk"}),
+        ),
+        (
+            PointerOp::Update {
+                target: RECIPIENT.into(),
+                kind: PointerKind::Pointer,
+            },
+            json!({"owner": OWNER, "op": "update", "target": RECIPIENT, "kind": "pointer"}),
+        ),
+        (
+            PointerOp::Transfer {
+                recipient: RECIPIENT.into(),
+            },
+            json!({"owner": OWNER, "op": "transfer", "recipient": RECIPIENT}),
+        ),
+    ];
+    for (op, body) in cases {
+        let mut server = mock_server().await;
+        let m = server
+            .mock("POST", "/v1/pointers/prepare")
+            .match_body(Matcher::Json(body))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                json!({
+                    "upload_id": "u1", "op": "x", "address": OWNER, "state_id": "s1",
+                    "counter": "18446744073709551615", "payment_type": "wave_batch",
+                    "payments": [{"quote_hash": "0xq", "rewards_address": "0xr", "amount": "123"}],
+                    "total_amount": "123", "payment_vault_address": "0xv",
+                    "payment_token_address": "0xt", "rpc_url": "http://rpc"
+                })
+                .to_string(),
+            )
+            .create();
+        let client = Client::new(&server.url());
+        let p = client.pointer_prepare(OWNER, &op).await.unwrap();
+        m.assert();
+        assert_eq!(p.upload_id, "u1");
+        assert_eq!(p.counter, u64::MAX);
+        assert_eq!(p.payments.len(), 1);
+        assert_eq!(p.payments[0].amount, "123");
+        assert!(p.signed_quotes.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn test_pointer_prepare_with_signed_quotes() {
+    let mut server = mock_server().await;
+    let m = server
+        .mock("POST", "/v1/pointers/prepare")
+        .match_body(Matcher::PartialJson(json!({"include_signed_quotes": true})))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            json!({
+                "upload_id": "u1", "op": "create", "address": OWNER, "state_id": "s1",
+                "counter": "0", "payment_type": "wave_batch", "payments": [],
+                "total_amount": "0", "payment_vault_address": "", "payment_token_address": "",
+                "rpc_url": "", "signed_quotes": [{"quote_hash": "0xq", "quote": "b3BhcXVl"}]
+            })
+            .to_string(),
+        )
+        .create();
+    let client = Client::new(&server.url());
+    let p = client
+        .pointer_prepare_with_options(
+            OWNER,
+            &PointerOp::Create {
+                target: TARGET.into(),
+                kind: PointerKind::Chunk,
+            },
+            &PrepareOptions {
+                include_signed_quotes: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    m.assert();
+    assert_eq!(p.signed_quotes.len(), 1);
+}
+
+#[tokio::test]
+async fn test_pointer_finalize_sends_hashes_and_reads_a_transfer_finality() {
+    let mut server = mock_server().await;
+    let m = server
+        .mock("POST", "/v1/pointers/finalize")
+        .match_body(Matcher::Json(
+            json!({"upload_id": "u1", "tx_hashes": {"0xq": "0xt"}}),
+        ))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            json!({
+                "address": OWNER, "state_id": "s1", "counter": "18446744073709551615",
+                "finality": {"address": OWNER, "group": 7, "answered": 7, "status": "final",
+                             "states": [], "transferred_to": RECIPIENT,
+                             "state": {"state_id": "s1", "kind": "pointer", "kind_tag": 1,
+                                       "target": RECIPIENT, "holders": 6,
+                                       "transferred_to": RECIPIENT}}
+            })
+            .to_string(),
+        )
+        .create();
+    let client = Client::new(&server.url());
+    let hashes = std::collections::HashMap::from([("0xq".to_string(), "0xt".to_string())]);
+    let f = client.pointer_finalize("u1", &hashes).await.unwrap();
+    m.assert();
+    assert_eq!(f.counter, u64::MAX);
+    assert_eq!(
+        f.finality.unwrap().state.unwrap().transferred_to.as_deref(),
+        Some(RECIPIENT)
+    );
+}
+
+#[tokio::test]
+async fn test_pointer_finalize_retained_shortfall_is_retryable() {
+    let mut server = mock_server().await;
+    let _m = json_mock(
+        &mut server,
+        "POST",
+        "/v1/pointers/finalize",
+        503,
+        json!({
+            "error": "Close group shortfall: pointer x stored on 4 of 5 close-group peers (paid attempt retained: call finalize again with the same upload_id to store it against the same payment)",
+            "code": "CLOSE_GROUP_SHORTFALL",
+            "retryable": true
+        }),
+    );
+    let client = Client::new(&server.url());
+    match client
+        .pointer_finalize("u1", &std::collections::HashMap::new())
+        .await
+    {
+        Err(AntdError::CloseGroupShortfall { retryable, message }) => {
+            assert!(retryable);
+            assert!(message.contains("paid attempt retained"));
+        }
+        other => panic!("expected CloseGroupShortfall, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_pointer_error_codes_map_by_code_not_status() {
+    let body = |code: &str| json!({"error": "msg", "code": code}).to_string();
+    assert!(matches!(
+        error_for_body(409, body("POINTER_FINAL").as_bytes()),
+        AntdError::PointerFinal(m) if m == "msg"
+    ));
+    assert!(matches!(
+        error_for_body(409, body("POINTER_FORKED").as_bytes()),
+        AntdError::PointerForked(_)
+    ));
+    assert!(matches!(
+        error_for_body(409, body("CONFLICT").as_bytes()),
+        AntdError::Conflict(_)
+    ));
+    // ALREADY_EXISTS, or a 409 with no code at all, keep the status mapping.
+    assert!(matches!(
+        error_for_body(409, body("ALREADY_EXISTS").as_bytes()),
+        AntdError::AlreadyExists(_)
+    ));
+    assert!(matches!(
+        error_for_body(409, br#"{"error":"msg"}"#),
+        AntdError::AlreadyExists(_)
+    ));
+    // A shortfall without `retryable` (a read, a daemon-wallet write, a chunk
+    // store) is not a retained paid attempt; nor is a non-bool flag.
+    assert!(matches!(
+        error_for_body(503, body("CLOSE_GROUP_SHORTFALL").as_bytes()),
+        AntdError::CloseGroupShortfall {
+            retryable: false,
+            ..
+        }
+    ));
+    assert!(matches!(
+        error_for_body(
+            503,
+            br#"{"error":"m","code":"CLOSE_GROUP_SHORTFALL","retryable":"yes"}"#
+        ),
+        AntdError::CloseGroupShortfall {
+            retryable: false,
+            ..
+        }
+    ));
+    // The wallet-missing 503 stays ServiceUnavailable.
+    assert!(matches!(
+        error_for_body(503, body("SERVICE_UNAVAILABLE").as_bytes()),
+        AntdError::ServiceUnavailable(_)
     ));
 }

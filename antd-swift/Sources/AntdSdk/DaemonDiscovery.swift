@@ -49,7 +49,11 @@ public enum DaemonDiscovery {
     /// Create an ``AntdGrpcClient`` using the discovered gRPC target.
     /// Falls back to `localhost:50051` if discovery fails.
     ///
+    /// > Requires macOS 15+ / iOS 18+ / tvOS 18+ / watchOS 11+ (grpc-swift 2.x).
+    /// > Use ``autoDiscover(timeout:)`` on older platforms.
+    ///
     /// - Returns: A tuple of the client and the target it connected to.
+    @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, *)
     public static func autoDiscoverGrpc() -> (client: AntdGrpcClient, target: String) {
         var target = discoverGrpcTarget()
         if target.isEmpty {
