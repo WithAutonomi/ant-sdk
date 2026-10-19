@@ -139,6 +139,26 @@ public:
                                                             std::string winner_pool_hash,
                                                             bool store_data_map = false);
 
+    // --- Pointers ---
+    //
+    // See the Client methods of the same names. Every write pays, and every
+    // attempt pays again: nothing here retries a create, update, transfer or
+    // finalize.
+
+    std::future<std::vector<PointerKey>> pointer_keys();
+    std::future<PointerWriteResult> pointer_create(std::string owner, std::string target,
+                                                   PointerKind kind = PointerKind::Chunk);
+    std::future<PointerWriteResult> pointer_update(std::string owner, std::string target,
+                                                   PointerKind kind = PointerKind::Chunk);
+    std::future<PointerTransferResult> pointer_transfer(std::string owner, std::string recipient);
+    std::future<PointerRecord> pointer_get(std::string address);
+    std::future<PointerTarget> pointer_resolve(std::string address);
+    std::future<PointerFinality> pointer_finality(std::string address);
+    std::future<PointerController> pointer_controller(std::string address);
+    std::future<PointerPrepareResult> pointer_prepare(PointerPrepareRequest req);
+    std::future<PointerFinalizeResult> pointer_finalize(std::string upload_id,
+                                                        std::map<std::string, std::string> tx_hashes);
+
 private:
     Client client_;
 };

@@ -60,6 +60,7 @@ LANGUAGES: dict[str, Adapter] = {
             "private": "06_private_data.py",
             "external_signer": "07_external_signer.py",
             "grpc": "08_grpc.py",
+            "pointers": "09_pointers.py",
             "manifests": "10_manifests.py",
         },
         run=lambda cwd, f: [_venv_python(), f"examples/{f}"],
@@ -69,7 +70,8 @@ LANGUAGES: dict[str, Adapter] = {
         cwd_subdir="Examples",
         examples={
             "connect": "1", "data": "2", "chunks": "3",
-            "files": "4", "private": "6", "external_signer": "7", "manifests": "9", "all": "all",
+            "files": "4", "private": "6", "external_signer": "7",
+            "pointers": "8", "manifests": "9", "all": "all",
         },
         run=lambda cwd, n: ["dotnet", "run", "--", n],
     ),
@@ -81,6 +83,7 @@ LANGUAGES: dict[str, Adapter] = {
             "chunks": "03-chunks", "files": "04-files",
             "private": "06-private-data",
             "external_signer": "07-external-signer",
+            "pointers": "08-pointers",
             "manifests": "09-manifests",
         },
         run=lambda cwd, subdir: ["go", "run", f"./{subdir}"],
@@ -92,6 +95,7 @@ LANGUAGES: dict[str, Adapter] = {
             "chunks": "03-chunks.ts", "files": "04-files.ts",
             "private": "06-private-data.ts",
             "external_signer": "07-external-signer.ts",
+            "pointers": "08-pointers.ts",
             "manifests": "09-manifests.ts",
         },
         prep=[lambda cwd: ["npm", "install", "--no-audit", "--no-fund"]],
@@ -104,6 +108,7 @@ LANGUAGES: dict[str, Adapter] = {
             "chunks": "03_chunks.rb", "files": "04_files.rb",
             "private": "06_private_data.rb",
             "external_signer": "07_external_signer.rb",
+            "pointers": "08_pointers.rb",
             "manifests": "09_manifests.rb",
         },
         prep=[lambda cwd: ["bundle", "install"]],
@@ -116,6 +121,7 @@ LANGUAGES: dict[str, Adapter] = {
             "chunks": "03-chunks.php", "files": "04-files.php",
             "private": "06-private-data.php",
             "external_signer": "07-external-signer.php",
+            "pointers": "08-pointers.php",
             "manifests": "09-manifests.php",
         },
         prep=[lambda cwd: ["composer", "install", "--no-interaction", "--no-progress"]],
@@ -129,6 +135,7 @@ LANGUAGES: dict[str, Adapter] = {
             "chunks": "03_chunks.exs", "files": "04_files.exs",
             "private": "06_private_data.exs",
             "external_signer": "07_external_signer.exs",
+            "pointers": "08_pointers.exs",
             "manifests": "09_manifests.exs",
         },
         run=lambda cwd, f: ["elixir", f],
@@ -139,6 +146,7 @@ LANGUAGES: dict[str, Adapter] = {
             "connect": "01-connect.lua", "data": "02-data.lua",
             "chunks": "03-chunks.lua", "files": "04-files.lua",
             "private": "06-private-data.lua",
+            "pointers": "08-pointers.lua",
             "manifests": "09-manifests.lua",
         },
         prep=[lambda cwd: ["luarocks", "--local", "--lua-version=5.4", "make"]],
@@ -157,6 +165,7 @@ LANGUAGES: dict[str, Adapter] = {
             "connect": "01-connect", "data": "02-data",
             "chunks": "03-chunks", "files": "04-files",
             "private": "06-private-data",
+            "pointers": "08-pointers",
             "manifests": "09-manifests",
         },
         prep=[
@@ -176,6 +185,7 @@ LANGUAGES: dict[str, Adapter] = {
             "errors": "com.autonomi.examples.Example05ErrorHandling",
             "private": "com.autonomi.examples.Example06PrivateData",
             "external_signer": "com.autonomi.examples.Example07ExternalSigner",
+            "pointers": "com.autonomi.examples.Example08Pointers",
             "manifests": "com.autonomi.examples.Example09Manifests",
         },
         prep=[lambda cwd: ["bash", "gradlew", ":examples:build", "--no-daemon", "-q"]],
@@ -185,7 +195,8 @@ LANGUAGES: dict[str, Adapter] = {
     "kotlin": Adapter(
         sdk_dir="antd-kotlin",
         examples={"connect": "1", "data": "2", "chunks": "3",
-                  "files": "4", "private": "6", "external_signer": "7", "manifests": "9", "all": "all"},
+                  "files": "4", "private": "6", "external_signer": "7",
+                  "pointers": "8", "manifests": "9", "all": "all"},
         prep=[lambda cwd: ["bash", "gradlew", ":examples:build", "--no-daemon", "-q"]],
         run=lambda cwd, n: ["bash", "gradlew", ":examples:run",
                             f"--args={n}", "--no-daemon", "-q"],
@@ -197,6 +208,7 @@ LANGUAGES: dict[str, Adapter] = {
             "chunks": "03_chunks.dart", "files": "04_files.dart",
             "private": "06_private_data.dart",
             "external_signer": "07_external_signer.dart",
+            "pointers": "09_pointers.dart",
             "manifests": "10_manifests.dart",
         },
         prep=[lambda cwd: ["dart", "pub", "get"]],
@@ -210,6 +222,7 @@ LANGUAGES: dict[str, Adapter] = {
             "private": "06-private-data",
             "external_signer": "07-external-signer",
             "grpc": "08-grpc",
+            "pointers": "09-pointers",
             "manifests": "10-manifests",
         },
         run=lambda cwd, name: ["cargo", "run", "--release", "--quiet",
@@ -221,6 +234,7 @@ LANGUAGES: dict[str, Adapter] = {
             "connect": "01-connect", "data": "02-data",
             "chunks": "03-chunks", "files": "04-files",
             "private": "06-private-data",
+            "pointers": "09-pointers",
             "manifests": "10-manifests",
         },
         run=lambda cwd, name: ["zig", "build", f"run-{name}"],
@@ -230,7 +244,7 @@ LANGUAGES: dict[str, Adapter] = {
         examples={
             "connect": "1", "data": "2", "chunks": "3",
             "files": "4", "private": "6",
-            "external_signer": "7", "manifests": "10", "all": "all",
+            "external_signer": "7", "pointers": "pointers", "manifests": "10", "all": "all",
         },
         prep=[lambda cwd: ["swift", "build"]],
         run=lambda cwd, n: ["swift", "run", "AntdExamples", n],
@@ -238,10 +252,14 @@ LANGUAGES: dict[str, Adapter] = {
 }
 
 
-# Examples that `all` skips. The manifests example needs an antd with the
-# manifest API (the release after 0.15.0) and each run pays for two small
-# public uploads. Run them by name instead.
+# Examples that `all` skips. Run them by name instead. The pointers example
+# pays from the daemon wallet on every run and needs a never-written owner
+# address in ANTD_POINTER_OWNER (a pointer is created once per owner). The
+# manifests example needs an antd with the manifest API (the release after
+# 0.15.0) and each run pays for two small public uploads.
 OPT_IN_EXAMPLES: dict[str, str] = {
+    "pointers": "needs ANTD_POINTER_OWNER set to an unused owner address whose "
+                "key antd holds; each run pays",
     "manifests": "needs the antd release after 0.15.0 (manifest API); each run "
                  "pays for two small uploads",
 }

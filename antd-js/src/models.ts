@@ -233,3 +233,222 @@ export interface UploadCostEstimate {
   estimatedGasCostWei: string; // advisory gas heuristic in wei
   paymentMode: string; // "auto" | "merkle" | "single"
 }
+
+// ---- Pointers (antd >= 0.16.0) ----
+//
+// A pointer is a small, owner-signed, mutable reference. Its address is
+// derived from its owner's key and never changes; what it points at (a chunk,
+// such as a public file's data map, or another pointer) can be changed by the
+// owner, and the owner can hand it over to another pointer for good. antd
+// signs with owner keys it loaded at startup (`--pointer-keys`), so a write
+// names the pointer by its address (`owner`), never by a key.
+//
+// Every write pays, about the price of one chunk, and every attempt pays
+// again: do not retry a create, update, transfer or finalize automatically.
+//
+// Addresses, state ids and targets are 64 hex characters. The daemon accepts
+// a `0x` prefix on input but always returns bare hex, so normalise before
+// comparing.
+
+/**
+ * What a pointer points at.
+ *
+ * - `PointerKind.Chunk`   — a chunk, such as a public file's data map. The
+ *   default when a kind is omitted.
+ * - `PointerKind.Pointer` — another pointer: a forwarding the owner can still
+ *   change. Use `pointerTransfer` to hand a pointer over for good.
+ *
+ * The string values are the wire format, so `"chunk"` / `"pointer"` also
+ * satisfy the type.
+ */
+export const PointerKind = {
+  Chunk: "chunk",
+  Pointer: "pointer",
+} as const;
+export type PointerKind = (typeof PointerKind)[keyof typeof PointerKind];
+
+/**
+ * The counter of a pointer's final state, after a transfer or a freeze
+ * (2^64 - 1): nothing can replace it. Counters are `bigint` because this value
+ * is past what a JS `number` holds exactly.
+ */
+export const POINTER_FINAL_COUNTER: bigint = 18446744073709551615n;
+
+/**
+ * The write `pointerPrepare` signs for an external signer to pay.
+ *
+ * - `create`: point a new pointer at `target`. Refused if it already exists.
+ * - `update`: point the pointer at `target`, creating it if it does not exist.
+ * - `transfer`: hand the pointer over for good to the pointer at `recipient`,
+ *   which must already exist. Irreversible once stored.
+ *
+ * `kind` defaults to {@link PointerKind.Chunk} when omitted.
+ */
+export type PointerOp =
+  | { op: "create"; target: string; kind?: PointerKind }
+  | { op: "update"; target: string; kind?: PointerKind }
+  | { op: "transfer"; recipient: string };
+
+/** The state a pointer write stored. */
+export interface PointerWriteResult {
+  address: string; // hex
+  stateId: string; // hex; the identifier the state was paid against
+  /** The state's counter. A final state sits at {@link POINTER_FINAL_COUNTER}. */
+  counter: bigint;
+}
+
+/** A pointer's current state, as the network serves it. */
+export interface PointerRecord {
+  address: string; // hex
+  /**
+   * The owner's ML-DSA-65 public key (hex, 1,952 bytes). The address is
+   * derived from it, so it is the proof of who owns the pointer.
+   */
+  owner: string;
+  counter: bigint;
+  /**
+   * `"chunk"`, `"pointer"`, or `"unknown"` for a kind the daemon does not
+   * know; `kindTag` carries the raw value either way.
+   */
+  kind: string;
+  kindTag: number;
+  target: string; // hex
+  stateId: string; // hex
+  /** The state is at the final counter (handed over or frozen): nothing can replace it. */
+  isFinal: boolean;
+  /** The pointer this one was handed over to, or `null`. */
+  transferredTo: string | null;
+}
+
+/** Where a chain of pointers ends (`pointerResolve`). */
+export interface PointerTarget {
+  /** `"chunk"`, or `"unknown"` for a target kind the daemon does not know. */
+  kind: string;
+  kindTag: number;
+  target: string; // hex
+}
+
+/**
+ * Where a pointer stands with respect to finality, as its whole close group
+ * reports it:
+ *
+ * - `"open"`: no peer that answered holds a final state; the owner can still
+ *   move the pointer.
+ * - `"settling"`: one final state, not yet held by a majority.
+ * - `"unconfirmed"`: one final state held by a majority, but not every peer
+ *   answered, so a rival could still exist. Ask again.
+ * - `"final"`: one final state, held by a majority, every peer answered, no
+ *   rival. Only this status means a transfer is beyond dispute.
+ * - `"forked"`: the owner signed two or more different final states.
+ * - `"unknown"`: a status this SDK does not know (a newer daemon);
+ *   {@link PointerFinality.rawStatus} carries the daemon's string.
+ */
+export type PointerFinalityStatus =
+  | "open"
+  | "settling"
+  | "unconfirmed"
+  | "final"
+  | "forked"
+  | "unknown";
+
+/** One final state, as a finality check reports it. */
+export interface PointerFinalState {
+  stateId: string;
+  kind: string;
+  kindTag: number;
+  target: string;
+  /** Close-group peers holding it. */
+  holders: number;
+  transferredTo: string | null;
+}
+
+/**
+ * The whole close group's view of a pointer's finality (`pointerFinality`).
+ * Check it before relying on a transfer: only `status === "final"` means the
+ * transfer is beyond dispute.
+ */
+export interface PointerFinality {
+  address: string;
+  /** Peers in the close group. */
+  group: number;
+  /** Peers that answered. */
+  answered: number;
+  status: PointerFinalityStatus;
+  /** The daemon's status string as sent; differs from `status` only when that is `"unknown"`. */
+  rawStatus: string;
+  /** `"open"` only: the counter a read would return, if any state is corroborated; else `null`. */
+  counter: bigint | null;
+  /** `"settling"`, `"unconfirmed"` and `"final"`: the one final state seen; else `null`. */
+  state: PointerFinalState | null;
+  /** `"forked"` only: every final state seen, most-held first; else empty. */
+  states: PointerFinalState[];
+  /** `"forked"` only: the state a majority holds, which reads return; else `null`. */
+  majority: PointerFinalState | null;
+  /** The pointer this one was handed over to, once that is beyond dispute (`"final"`); else `null`. */
+  transferredTo: string | null;
+}
+
+/** Whose pointer decides what an address resolves to, after following every transfer. */
+export interface PointerController {
+  pointer: string;
+  /** Every pointer the address was handed over to, in order. */
+  transfers: string[];
+  /** `pointer` is final without being handed over: nobody can move it. */
+  frozen: boolean;
+}
+
+/**
+ * What a transfer stored, and where the close group says it stands.
+ * `finality` is `null` when that check failed (`finalityError` says why); the
+ * transfer itself is stored and final either way. Ask again with
+ * `pointerFinality`.
+ */
+export interface PointerTransferResult {
+  address: string;
+  stateId: string;
+  finality: PointerFinality | null;
+  finalityError: string | null;
+}
+
+/**
+ * One `payments[]` quote in full signed form, returned when a prepare asks
+ * for `includeSignedQuotes`. Both payloads are opaque to the SDK.
+ */
+export interface SignedQuoteEntry {
+  quoteHash: string; // hex, matches the payments[] entry
+  quote: string; // base64(msgpack signed PaymentQuote)
+  /** base64(msgpack StorageCommitment), for commitment-bound quotes; else `null`. */
+  commitmentSidecar: string | null;
+}
+
+/**
+ * A pointer write signed by the daemon and quoted for an external signer
+ * (`pointerPrepare`): the same wave-batch shape `prepareChunkUpload` returns.
+ * Pay `payments` with `payForQuotes()`, then call `pointerFinalize`. While it
+ * awaits payment, other writes to the pointer throw `ConflictError`.
+ */
+export interface PointerPrepareResult {
+  uploadId: string;
+  /** `"create"`, `"update"` or `"transfer"`. */
+  op: string;
+  address: string;
+  stateId: string;
+  counter: bigint;
+  /** Always `"wave_batch"`: a pointer state is paid with one quote. */
+  paymentType: string;
+  payments: PaymentInfo[];
+  totalAmount: string; // atto tokens, decimal string
+  paymentVaultAddress: string;
+  paymentTokenAddress: string;
+  rpcUrl: string;
+  /** Populated when the prepare asked for `includeSignedQuotes`; else empty. */
+  signedQuotes: SignedQuoteEntry[];
+}
+
+/** The state a pointer finalize stored. `finality` is set for a transfer, else `null`. */
+export interface PointerFinalizeResult {
+  address: string;
+  stateId: string;
+  counter: bigint;
+  finality: PointerFinality | null;
+}
