@@ -57,6 +57,9 @@ import antd.v1.Files.GetFileResponse;
 import antd.v1.Files.GetFilePublicRequest;
 import antd.v1.Files.FileCostRequest;
 
+import antd.v1.ManifestServiceGrpc;
+import antd.v1.Manifests;
+
 import antd.v1.UploadServiceGrpc;
 import antd.v1.Upload.PrepareFileUploadRequest;
 import antd.v1.Upload.PrepareDataUploadRequest;
@@ -697,6 +700,60 @@ public class GrpcAntdClient implements AutoCloseable {
 
     public UploadCostEstimate fileCost(String path, boolean isPublic) {
         return fileCost(path, isPublic, PaymentMode.AUTO);
+    }
+
+    // Manifests — the same methods, models and exceptions as AntdClient's, over
+    // ManifestService. The .ant bytes travel raw (no base64). A Build or Decode
+    // response carries a whole manifest, up to 64 MiB, so every manifest call
+    // raises its own receive limit past gRPC's 4 MiB default, and sets its send
+    // limit to the daemon's 100 MiB request limit; the channel's other calls
+    // keep their defaults. Nothing is uploaded or paid for.
+
+    /**
+     * The manifest stub, with the per-call message limits. Built per call (a
+     * stub is a light wrapper around the channel) so the limits stay local to
+     * manifest calls.
+     */
+    private ManifestServiceGrpc.ManifestServiceBlockingStub manifestStub() {
+        return ManifestServiceGrpc.newBlockingStub(channel)
+                .withMaxInboundMessageSize(ManifestWire.MAX_GRPC_INBOUND_MESSAGE_BYTES)
+                .withMaxOutboundMessageSize(ManifestWire.MAX_GRPC_OUTBOUND_MESSAGE_BYTES);
+    }
+
+    /** See {@link AntdClient#buildManifest(List)}. */
+    public BuiltManifest buildManifest(List<ManifestEntryInput> entries) {
+        return buildManifest(entries, BuildManifestOptions.DEFAULT);
+    }
+
+    /** See {@link AntdClient#buildManifest(List, BuildManifestOptions)}. */
+    public BuiltManifest buildManifest(List<ManifestEntryInput> entries, BuildManifestOptions options) {
+        ManifestWire.checkEntries(entries);
+        Manifests.BuildManifestRequest req = ManifestWire.buildRequest(entries, options);
+        try {
+            return ManifestWire.fromProto(manifestStub().build(req));
+        } catch (StatusRuntimeException e) {
+            throw mapException(e);
+        }
+    }
+
+    /** See {@link AntdClient#decodeManifest(byte[], boolean)}. */
+    public DecodedManifest decodeManifest(byte[] manifest, boolean resolve) {
+        ManifestWire.checkManifest(manifest);
+        return decodeManifest(ManifestWire.decodeRequest(manifest, resolve));
+    }
+
+    /** See {@link AntdClient#decodeManifestLink(String, boolean)}. */
+    public DecodedManifest decodeManifestLink(String link, boolean resolve) {
+        ManifestWire.checkLink(link);
+        return decodeManifest(ManifestWire.decodeLinkRequest(link, resolve));
+    }
+
+    private DecodedManifest decodeManifest(Manifests.DecodeManifestRequest req) {
+        try {
+            return ManifestWire.fromProto(manifestStub().decode(req));
+        } catch (StatusRuntimeException e) {
+            throw mapException(e);
+        }
     }
 
     // Wallet — V2-286 parity with REST AntdClient.walletAddress/Balance/Approve.
