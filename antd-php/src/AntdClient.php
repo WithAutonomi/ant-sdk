@@ -34,6 +34,7 @@ use Autonomi\Antd\Models\PointerWriteResult;
 use Autonomi\Antd\Models\PrepareChunkResult;
 use Autonomi\Antd\Models\PrepareUploadResult;
 use Autonomi\Antd\Models\PutResult;
+use Autonomi\Antd\Models\SignedQuoteEntry;
 use Autonomi\Antd\Models\UploadCostEstimate;
 
 /**
@@ -1307,6 +1308,9 @@ class AntdClient
      * other writes to the pointer throw
      * {@see \Autonomi\Antd\Errors\ConflictError} until it is finalized or
      * expires (one hour).
+     *
+     * Set {@see PointerPrepareRequest::$includeSignedQuotes} to also get the
+     * full signed quotes in {@see PointerPrepareResult::$signedQuotes}.
      */
     public function pointerPrepare(PointerPrepareRequest $request): PointerPrepareResult
     {
@@ -1580,6 +1584,18 @@ class AntdClient
                 );
             }
         }
+        $signedQuotes = [];
+        $rawQuotes = $json['signed_quotes'] ?? null;
+        foreach (is_array($rawQuotes) ? $rawQuotes : [] as $q) {
+            if (is_array($q)) {
+                $sidecar = self::ptrOptStr($q, 'commitment_sidecar');
+                $signedQuotes[] = new SignedQuoteEntry(
+                    quoteHash: self::ptrStr($q, 'quote_hash'),
+                    quote: self::ptrStr($q, 'quote'),
+                    commitmentSidecar: $sidecar === '' ? null : $sidecar,
+                );
+            }
+        }
         return new PointerPrepareResult(
             uploadId: self::ptrStr($json, 'upload_id'),
             op: self::ptrStr($json, 'op'),
@@ -1592,6 +1608,7 @@ class AntdClient
             paymentVaultAddress: self::ptrStr($json, 'payment_vault_address'),
             paymentTokenAddress: self::ptrStr($json, 'payment_token_address'),
             rpcUrl: self::ptrStr($json, 'rpc_url'),
+            signedQuotes: $signedQuotes,
         );
     }
 

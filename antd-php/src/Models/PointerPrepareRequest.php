@@ -11,6 +11,10 @@ namespace Autonomi\Antd\Models;
  * Build it with {@see create()}, {@see update()} or {@see transfer()}. The
  * daemon checks the combination; a create or update without a target, or a
  * transfer without a recipient, is a {@see \Autonomi\Antd\Errors\BadRequestError}.
+ *
+ * Pass `includeSignedQuotes: true` to also get the full signed quotes in
+ * {@see PointerPrepareResult::$signedQuotes}, for offline verification. It is
+ * off by default and sent only when true.
  */
 readonly class PointerPrepareRequest
 {
@@ -25,30 +29,32 @@ readonly class PointerPrepareRequest
         public ?PointerTargetKind $kind = null,
         /** Transfer: the recipient's pointer, which must already exist. */
         public ?string $recipient = null,
+        /** Ask for the full signed quotes in the result; off by default. */
+        public bool $includeSignedQuotes = false,
     ) {}
 
     /** Create the pointer at `$owner`, pointing at `$target`. */
-    public static function create(string $owner, string $target, ?PointerTargetKind $kind = null): self
+    public static function create(string $owner, string $target, ?PointerTargetKind $kind = null, bool $includeSignedQuotes = false): self
     {
-        return new self($owner, PointerOp::Create, target: $target, kind: $kind);
+        return new self($owner, PointerOp::Create, target: $target, kind: $kind, includeSignedQuotes: $includeSignedQuotes);
     }
 
     /** Point the pointer at `$owner` at `$target`, creating it if it does not exist. */
-    public static function update(string $owner, string $target, ?PointerTargetKind $kind = null): self
+    public static function update(string $owner, string $target, ?PointerTargetKind $kind = null, bool $includeSignedQuotes = false): self
     {
-        return new self($owner, PointerOp::Update, target: $target, kind: $kind);
+        return new self($owner, PointerOp::Update, target: $target, kind: $kind, includeSignedQuotes: $includeSignedQuotes);
     }
 
     /** Hand the pointer at `$owner` over for good to the pointer at `$recipient`. */
-    public static function transfer(string $owner, string $recipient): self
+    public static function transfer(string $owner, string $recipient, bool $includeSignedQuotes = false): self
     {
-        return new self($owner, PointerOp::Transfer, recipient: $recipient);
+        return new self($owner, PointerOp::Transfer, recipient: $recipient, includeSignedQuotes: $includeSignedQuotes);
     }
 
     /**
      * The JSON body for `POST /v1/pointers/prepare`; null fields are left out.
      *
-     * @return array<string, string>
+     * @return array<string, string|bool>
      */
     public function toArray(): array
     {
@@ -61,6 +67,9 @@ readonly class PointerPrepareRequest
         }
         if ($this->recipient !== null) {
             $body['recipient'] = $this->recipient;
+        }
+        if ($this->includeSignedQuotes) {
+            $body['include_signed_quotes'] = true;
         }
         return $body;
     }

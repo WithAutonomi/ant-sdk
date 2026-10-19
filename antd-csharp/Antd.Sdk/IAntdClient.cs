@@ -202,7 +202,9 @@ public partial interface IAntdClient : IDisposable, IAsyncDisposable
     /// owner key and quote it. Pay the result's payments with
     /// <c>payForQuotes()</c>, then call <see cref="PointerFinalizeAsync"/>. The
     /// daemon needs no wallet. While the prepared write awaits payment, other
-    /// writes to the pointer throw <see cref="ConflictException"/>.
+    /// writes to the pointer throw <see cref="ConflictException"/>. Set
+    /// <see cref="PointerPrepareRequest.IncludeSignedQuotes"/> to also get the
+    /// full signed quotes in <see cref="PointerPrepareResult.SignedQuotes"/>.
     /// </summary>
     Task<PointerPrepareResult> PointerPrepareAsync(PointerPrepareRequest request) =>
         throw new NotSupportedException("this IAntdClient does not implement pointers");

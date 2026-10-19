@@ -93,6 +93,7 @@ public sealed partial class AntdGrpcClient
             Target = request.Target ?? "",
             Kind = isTransfer ? "" : request.Kind.ToWire(),
             Recipient = request.Recipient ?? "",
+            IncludeSignedQuotes = request.IncludeSignedQuotes,
         };
         var resp = await PointerCallAsync(() => _pointer.PrepareAsync(req));
         return new PointerPrepareResult(
@@ -106,7 +107,14 @@ public sealed partial class AntdGrpcClient
             resp.TotalAmount,
             resp.PaymentVaultAddress,
             resp.PaymentTokenAddress,
-            resp.RpcUrl);
+            resp.RpcUrl)
+        {
+            // REST carries the quote bytes as base64; keep one shape across transports.
+            SignedQuotes = resp.SignedQuotes.Select(q => new SignedQuoteEntry(
+                q.QuoteHash,
+                Convert.ToBase64String(q.Quote.ToByteArray()),
+                q.CommitmentSidecar.IsEmpty ? null : Convert.ToBase64String(q.CommitmentSidecar.ToByteArray()))).ToList(),
+        };
     }
 
     public async Task<PointerFinalizeResult> PointerFinalizeAsync(string uploadId, IDictionary<string, string> txHashes)

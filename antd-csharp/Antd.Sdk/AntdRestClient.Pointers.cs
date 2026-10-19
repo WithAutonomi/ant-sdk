@@ -80,6 +80,8 @@ public sealed partial class AntdRestClient
             target = request.Target,
             kind = isTransfer ? null : request.Kind.ToWire(),
             recipient = request.Recipient,
+            // Opt-in: left out of the body unless asked for.
+            include_signed_quotes = request.IncludeSignedQuotes ? true : (bool?)null,
         };
         var resp = await PostJsonAsync<PointerPrepareDto>("/v1/pointers/prepare", body);
         return new PointerPrepareResult(
@@ -93,7 +95,12 @@ public sealed partial class AntdRestClient
             resp.TotalAmount ?? "",
             resp.PaymentVaultAddress ?? "",
             resp.PaymentTokenAddress ?? "",
-            resp.RpcUrl ?? "");
+            resp.RpcUrl ?? "")
+        {
+            SignedQuotes = resp.SignedQuotes?
+                .Select(q => new SignedQuoteEntry(q.QuoteHash ?? "", q.Quote ?? "", string.IsNullOrEmpty(q.CommitmentSidecar) ? null : q.CommitmentSidecar))
+                .ToList() ?? [],
+        };
     }
 
     public async Task<PointerFinalizeResult> PointerFinalizeAsync(string uploadId, IDictionary<string, string> txHashes)
@@ -199,7 +206,13 @@ public sealed partial class AntdRestClient
         [property: JsonPropertyName("total_amount")] string? TotalAmount,
         [property: JsonPropertyName("payment_vault_address")] string? PaymentVaultAddress,
         [property: JsonPropertyName("payment_token_address")] string? PaymentTokenAddress,
-        [property: JsonPropertyName("rpc_url")] string? RpcUrl);
+        [property: JsonPropertyName("rpc_url")] string? RpcUrl,
+        [property: JsonPropertyName("signed_quotes")] List<PointerSignedQuoteDto>? SignedQuotes = null);
+
+    private sealed record PointerSignedQuoteDto(
+        [property: JsonPropertyName("quote_hash")] string? QuoteHash,
+        [property: JsonPropertyName("quote")] string? Quote,
+        [property: JsonPropertyName("commitment_sidecar")] string? CommitmentSidecar = null);
 
     private sealed record PointerFinalizeDto(
         [property: JsonPropertyName("address")] string? Address,

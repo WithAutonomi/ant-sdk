@@ -263,6 +263,18 @@ public sealed record PointerPrepareRequest(
     PointerKind Kind = PointerKind.Chunk,
     string? Recipient = null)
 {
+    /// <summary>
+    /// Ask for the full signed quotes in <see cref="PointerPrepareResult.SignedQuotes"/>,
+    /// for offline verification. Off by default; sent only when true. Set it
+    /// on a built request:
+    /// <c>PointerPrepareRequest.Update(owner, target) with { IncludeSignedQuotes = true }</c>.
+    /// </summary>
+    /// <remarks>
+    /// The factories keep their original signatures, so code that binds them
+    /// as method groups, or was compiled against an earlier SDK, still works.
+    /// </remarks>
+    public bool IncludeSignedQuotes { get; init; }
+
     /// <summary>Create the pointer at <paramref name="owner"/>, pointing at <paramref name="target"/>.</summary>
     public static PointerPrepareRequest Create(string owner, string target, PointerKind kind = PointerKind.Chunk) =>
         new(owner, PointerOp.Create, target, kind);
@@ -275,6 +287,16 @@ public sealed record PointerPrepareRequest(
     public static PointerPrepareRequest Transfer(string owner, string recipient) =>
         new(owner, PointerOp.Transfer, Recipient: recipient);
 }
+
+/// <summary>
+/// One <c>payments</c> quote in full signed form, returned when a prepare asks
+/// for signed quotes. Both byte payloads are base64 on both transports and
+/// opaque: only antd parses them.
+/// </summary>
+/// <param name="QuoteHash">Quote hash (hex with 0x prefix); matches the <see cref="PaymentInfo"/> entry.</param>
+/// <param name="Quote">base64 of the msgpack-serialized signed PaymentQuote.</param>
+/// <param name="CommitmentSidecar">base64 of the msgpack-serialized StorageCommitment the quote pins; null for baseline quotes.</param>
+public sealed record SignedQuoteEntry(string QuoteHash, string Quote, string? CommitmentSidecar = null);
 
 /// <summary>
 /// A pointer write signed by the daemon and quoted for an external signer.
@@ -305,7 +327,14 @@ public sealed record PointerPrepareResult(
     string TotalAmount,
     string PaymentVaultAddress,
     string PaymentTokenAddress,
-    string RpcUrl);
+    string RpcUrl)
+{
+    /// <summary>
+    /// Populated when the prepare set <see cref="PointerPrepareRequest.IncludeSignedQuotes"/>
+    /// and payment is required; otherwise empty.
+    /// </summary>
+    public List<SignedQuoteEntry> SignedQuotes { get; init; } = [];
+}
 
 /// <summary>The state a pointer finalize stored.</summary>
 /// <param name="Address">The pointer's address (bare hex).</param>
