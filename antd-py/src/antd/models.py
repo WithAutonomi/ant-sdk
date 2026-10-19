@@ -245,3 +245,231 @@ class DownloadFrame:
         NDJSON ``meta`` frame. Emitted at most once, before any data.
         """
         return self.meta is not None
+
+
+# --- Pointers (ADR-0016 / ADR-0018 in ant-node) ---
+#
+# A pointer is a small, owner-signed, mutable reference. Its address is derived
+# from the owner's key and never changes; its target (a chunk, such as a public
+# file's data map, or another pointer) can be changed by the owner. antd signs
+# with owner keys it loaded at startup (``--pointer-keys``), so a write names
+# the pointer by its address (``owner``), never by a key.
+#
+# Every write pays, and every attempt pays again: the SDK never retries a
+# create, update, transfer or finalize, and callers should not either.
+#
+# Counters are Python ``int``s. The daemon sends them as decimal strings
+# because a final state sits at u64::MAX (POINTER_FINAL_COUNTER), past what a
+# JSON number keeps exactly in several languages; anything that is not a
+# decimal u64 raises InternalError rather than reading as 0.
+
+POINTER_FINAL_COUNTER = 2**64 - 1
+"""The counter of a pointer's final state, after a transfer or a freeze:
+nothing can replace it."""
+
+
+class PointerKind(str, Enum):
+    """What a pointer's target is.
+
+    - ``CHUNK``   -- an immutable chunk, such as a public file's data map
+      (a ``data_put_public`` / ``file_put_public`` address). The default.
+    - ``POINTER`` -- another pointer: a forwarding the owner can still
+      change. Use ``pointer_transfer`` to hand a pointer over for good.
+    """
+
+    CHUNK = "chunk"
+    POINTER = "pointer"
+
+    @classmethod
+    def from_tag(cls, tag: int) -> PointerKind | None:
+        """The kind a raw target tag names, if this SDK knows it (``0`` chunk,
+        ``1`` pointer); ``None`` otherwise."""
+        return {0: cls.CHUNK, 1: cls.POINTER}.get(tag)
+
+
+class PointerOp(str, Enum):
+    """The write ``pointer_prepare`` signs for an external signer to pay."""
+
+    CREATE = "create"      # needs ``target`` (and optionally ``kind``)
+    UPDATE = "update"      # needs ``target`` (and optionally ``kind``)
+    TRANSFER = "transfer"  # needs ``recipient``
+
+
+class PointerFinalityStatus(str, Enum):
+    """Where a pointer stands with respect to finality, as its whole close
+    group reports it.
+
+    - ``OPEN``        -- no peer that answered holds a final state: the owner
+      can still move the pointer.
+    - ``SETTLING``    -- one final state, not yet held by a majority.
+    - ``UNCONFIRMED`` -- one final state held by a majority, but not every
+      peer answered, so a rival could still be unseen. Ask again.
+    - ``FINAL``       -- one final state held by a majority, every peer
+      answered, no rival. The only status a recipient should rely on.
+    - ``FORKED``      -- the owner signed two or more different final states.
+    - ``UNKNOWN``     -- a status this SDK does not know (a newer daemon);
+      :attr:`PointerFinality.raw_status` keeps the daemon's string.
+    """
+
+    OPEN = "open"
+    SETTLING = "settling"
+    UNCONFIRMED = "unconfirmed"
+    FINAL = "final"
+    FORKED = "forked"
+    UNKNOWN = "unknown"
+
+    @classmethod
+    def from_wire(cls, value: object) -> PointerFinalityStatus:
+        """Parse the daemon's status string. Anything unrecognised is
+        :attr:`UNKNOWN`, never an error."""
+        for status in cls:
+            if status is not cls.UNKNOWN and status.value == value:
+                return status
+        return cls.UNKNOWN
+
+
+@dataclass(frozen=True)
+class PointerWriteResult:
+    """The state a pointer write (``pointer_create`` / ``pointer_update``)
+    stored."""
+    address: str    # hex, 64 chars, no 0x
+    state_id: str   # hex; the identifier the state was paid against
+    counter: int    # 0..=POINTER_FINAL_COUNTER
+
+
+@dataclass(frozen=True)
+class PointerRecord:
+    """A pointer's current state, as the network serves it (``pointer_get``)."""
+    address: str
+    owner: str      # the owner's ML-DSA-65 public key (hex, 1,952 bytes); the address derives from it
+    counter: int    # POINTER_FINAL_COUNTER once transferred or frozen
+    kind: str       # "chunk", "pointer", or "unknown" for a kind the daemon does not know
+    kind_tag: int   # the raw target kind, whatever ``kind`` says
+    target: str     # hex
+    state_id: str   # hex
+    is_final: bool  # at the final counter: nothing can replace this state
+    transferred_to: str | None = None  # the pointer this one was handed over to, if any
+
+    @property
+    def target_kind(self) -> PointerKind | None:
+        """The target's kind, if this SDK knows its tag."""
+        return PointerKind.from_tag(self.kind_tag)
+
+
+@dataclass(frozen=True)
+class PointerTarget:
+    """Where a chain of pointers ends (``pointer_resolve``)."""
+    kind: str       # "chunk", or "unknown" for a kind the daemon does not know
+    kind_tag: int
+    target: str     # hex
+
+    @property
+    def target_kind(self) -> PointerKind | None:
+        """The target's kind, if this SDK knows its tag."""
+        return PointerKind.from_tag(self.kind_tag)
+
+
+@dataclass(frozen=True)
+class PointerFinalState:
+    """One final state, as a finality check reports it."""
+    state_id: str
+    kind: str
+    kind_tag: int
+    target: str
+    holders: int    # peers of the close group that hold it
+    transferred_to: str | None = None
+
+
+@dataclass(frozen=True)
+class PointerFinality:
+    """The whole close group's view of a pointer (``pointer_finality``).
+
+    Check it before relying on a transfer: only ``status ==
+    PointerFinalityStatus.FINAL`` (:attr:`is_final`) means one final state,
+    held by a majority, with every peer answering and no rival seen.
+    """
+    address: str
+    group: int      # peers in the close group
+    answered: int   # peers that answered
+    status: PointerFinalityStatus
+    raw_status: str  # the daemon's status string, kept for UNKNOWN
+    counter: int | None = None  # OPEN only: the counter a read would return, if any state is corroborated
+    state: PointerFinalState | None = None  # SETTLING / UNCONFIRMED / FINAL: the one final state seen
+    states: list[PointerFinalState] = field(default_factory=list)  # FORKED: every final state seen, most-held first
+    majority: PointerFinalState | None = None  # FORKED: the state a majority holds, which reads return
+    transferred_to: str | None = None  # set once a transfer is beyond dispute (FINAL)
+
+    @property
+    def is_final(self) -> bool:
+        """One final state, held by a majority, every peer answered, no rival."""
+        return self.status is PointerFinalityStatus.FINAL
+
+
+@dataclass(frozen=True)
+class PointerController:
+    """Whose pointer decides what an address resolves to, after following
+    every transfer (``pointer_controller``)."""
+    pointer: str
+    transfers: list[str] = field(default_factory=list)  # every pointer handed over to, in order
+    frozen: bool = False  # ``pointer`` is final without being handed over: nobody can move it
+
+
+@dataclass(frozen=True)
+class PointerTransferResult:
+    """What a transfer stored, and where the close group says it stands.
+
+    ``finality`` is ``None`` when that check failed (``finality_error`` says
+    why), which does not undo the transfer: it is stored and final either way.
+    Ask again with ``pointer_finality``.
+    """
+    address: str
+    state_id: str
+    finality: PointerFinality | None = None
+    finality_error: str | None = None
+
+
+@dataclass(frozen=True)
+class SignedQuoteEntry:
+    """One ``payments`` quote in full signed form, for offline verification.
+
+    ``quote`` and ``commitment_sidecar`` are opaque base64 blobs (msgpack
+    inside); only antd parses them. Over gRPC the raw bytes are base64-encoded
+    so both transports return the same value.
+    """
+    quote_hash: str   # hex with 0x prefix, matches the payments entry
+    quote: str        # base64(msgpack signed PaymentQuote)
+    commitment_sidecar: str | None = None  # base64(msgpack StorageCommitment); None for baseline quotes
+
+
+@dataclass(frozen=True)
+class PointerPrepareResult:
+    """A pointer write signed by the daemon and quoted for an external signer
+    (``pointer_prepare``). Pay ``payments`` with ``payForQuotes()``, then call
+    ``pointer_finalize``.
+
+    While it awaits payment, other writes to the pointer raise
+    :class:`~antd.exceptions.ConflictError` until it is finalized or expires
+    (one hour).
+    """
+    upload_id: str
+    op: str         # "create", "update" or "transfer"
+    address: str
+    state_id: str
+    counter: int
+    payment_type: str = ""   # always "wave_batch": a pointer state is paid with one quote
+    payments: list[PaymentInfo] = field(default_factory=list)
+    total_amount: str = ""   # atto tokens, decimal string
+    payment_vault_address: str = ""
+    payment_token_address: str = ""
+    rpc_url: str = ""
+    signed_quotes: list[SignedQuoteEntry] = field(default_factory=list)  # with include_signed_quotes=True
+
+
+@dataclass(frozen=True)
+class PointerFinalizeResult:
+    """The state a pointer finalize stored. ``finality`` is set for a
+    transfer."""
+    address: str
+    state_id: str
+    counter: int
+    finality: PointerFinality | None = None

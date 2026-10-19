@@ -646,6 +646,439 @@ function Client:finalize_merkle_upload(upload_id, winner_pool_hash, store_data_m
     }), nil
 end
 
+-- ── Pointers ──
+--
+-- A pointer's owner key lives in the daemon (`antd --pointer-keys`); a write
+-- names the pointer by its address (`owner`). Needs an antd with the pointer
+-- API (the release after 0.15.0).
+--
+-- Every write (pointer_create, pointer_update, pointer_transfer,
+-- pointer_finalize) pays, about the price of one chunk, and every attempt
+-- pays again. The SDK never retries them, and callers should not either:
+-- check the error first. Reads are free to retry; a read during an update or
+-- churn can fail with `close_group_shortfall`.
+--
+-- Counters are decimal strings (see antd.models): a final state sits at
+-- 2^64-1, which no Lua number holds exactly. A malformed counter in a
+-- response is an `internal` error, never a 0. Unset values (a REST JSON
+-- null) read as nil.
+
+--- Optional string field: the string when it is a non-empty string, else nil
+-- (absent, JSON null and "" all mean unset).
+local function opt_str(t, key)
+    local v = t[key]
+    if type(v) == "string" and v ~= "" then return v end
+    return nil
+end
+
+--- Optional table field: the table when it is one, else nil (absent or JSON
+-- null).
+local function opt_table(t, key)
+    local v = t[key]
+    if type(v) == "table" then return v end
+    return nil
+end
+
+--- Array field: the table when it is one, else an empty table.
+local function arr(t, key)
+    local v = t[key]
+    if type(v) == "table" then return v end
+    return {}
+end
+
+--- A pointer's raw target tag: an integer 0..255, else nil.
+local function kind_tag(t)
+    local v = t.kind_tag
+    if type(v) == "number" and v >= 0 and v <= 255 and v == math.floor(v) then
+        return v
+    end
+    return nil
+end
+
+--- Required counter field, checked and canonicalised (antd.models).
+-- @return string|nil counter, table|nil error
+local function counter_field(t, key)
+    local c, why = models.parse_pointer_counter(t[key])
+    if not c then
+        return nil, errors.internal("invalid pointer " .. key .. ": " .. why)
+    end
+    return c, nil
+end
+
+--- Percent-encode one URL path segment, so an address can never reach
+-- another route ("abc/resolve") or add a query. The class is spelled out
+-- rather than `%w`, which follows the C locale.
+local function path_segment(s)
+    return (s:gsub("[^0-9A-Za-z%-%._~]", function(c)
+        return string.format("%%%02X", c:byte())
+    end))
+end
+
+--- Reject a missing or non-string argument before any request is sent.
+local function check_string(name, v)
+    if type(v) ~= "string" or v == "" then
+        return errors.bad_request(name .. " must be a non-empty string")
+    end
+    return nil
+end
+
+local function parse_pointer_write(j)
+    local counter, err = counter_field(j, "counter")
+    if err then return nil, err end
+    return {
+        address = str(j, "address"),
+        state_id = str(j, "state_id"),
+        counter = counter,
+    }, nil
+end
+
+local function parse_pointer_final_state(t)
+    return {
+        state_id = str(t, "state_id"),
+        kind = str(t, "kind"),
+        kind_tag = kind_tag(t),
+        target = str(t, "target"),
+        holders = num(t, "holders"),
+        transferred_to = opt_str(t, "transferred_to"),
+    }
+end
+
+local function parse_pointer_finality(j)
+    -- `counter` is set for "open" only: JSON null (REST) or "" means unset.
+    -- Any other value must be a counter.
+    local counter = nil
+    local raw_counter = j.counter
+    if raw_counter ~= nil and raw_counter ~= cjson.null and raw_counter ~= "" then
+        local err
+        counter, err = counter_field(j, "counter")
+        if err then return nil, err end
+    end
+
+    local states = {}
+    for _, s in ipairs(arr(j, "states")) do
+        if type(s) == "table" then
+            states[#states + 1] = parse_pointer_final_state(s)
+        end
+    end
+
+    local state = opt_table(j, "state")
+    local majority = opt_table(j, "majority")
+    local raw_status = str(j, "status")
+    return {
+        address = str(j, "address"),
+        group = num(j, "group"),
+        answered = num(j, "answered"),
+        status = models.pointer_finality_status(raw_status),
+        raw_status = raw_status,
+        counter = counter,
+        state = state and parse_pointer_final_state(state) or nil,
+        states = states,
+        majority = majority and parse_pointer_final_state(majority) or nil,
+        transferred_to = opt_str(j, "transferred_to"),
+    }, nil
+end
+
+--- Parse an optional `finality` object (transfer and finalize responses).
+-- @return table|nil finality, table|nil error
+local function opt_finality(j)
+    local f = opt_table(j, "finality")
+    if not f then return nil, nil end
+    return parse_pointer_finality(f)
+end
+
+--- The pointers this daemon holds owner keys for (`GET /v1/pointers/keys`).
+-- Only these can be written through this daemon.
+-- @return table|nil list of pointer addresses (hex strings), error|nil
+function Client:pointer_keys()
+    local j, _, err = self:_do_json("GET", "/v1/pointers/keys", nil)
+    if err then return nil, err end
+    local keys = {}
+    for _, k in ipairs(arr(j or {}, "keys")) do
+        if type(k) == "table" and type(k.address) == "string" then
+            keys[#keys + 1] = k.address
+        end
+    end
+    return keys, nil
+end
+
+function Client:_pointer_write(path, owner, target, kind)
+    local bad = check_string("owner", owner) or check_string("target", target)
+    if bad then return nil, bad end
+    local body = { owner = owner, target = target }
+    if kind ~= nil then
+        body.kind = kind
+    end
+    local j, _, err = self:_do_json("POST", path, body)
+    if err then return nil, err end
+    return parse_pointer_write(j or {})
+end
+
+--- Create the pointer at `owner`, pointing at `target`, paid by the daemon
+-- wallet (`POST /v1/pointers`). `owner` is the pointer's address; the daemon
+-- must hold its key (see `pointer_keys`).
+--
+-- Pays once per call and is never retried. Returns an `already_exists` error,
+-- refused before anything is paid, if the pointer exists: use
+-- `pointer_update`.
+-- @param owner string pointer address
+-- @param target string address to point at
+-- @param kind string|nil PointerKind ("chunk" or "pointer"); nil leaves the
+--   daemon's default, "chunk"
+-- @return table|nil PointerWrite { address, state_id, counter }, error|nil
+function Client:pointer_create(owner, target, kind)
+    return self:_pointer_write("/v1/pointers", owner, target, kind)
+end
+
+--- Point the pointer at `owner` at `target`, paid by the daemon wallet
+-- (`POST /v1/pointers/update`). A pointer that does not exist yet is created
+-- at counter "0".
+--
+-- Pays once per call and is never retried. Returns a `pointer_final` error,
+-- refused before anything is paid, if the pointer was transferred or frozen.
+-- @param owner string pointer address
+-- @param target string address to point at
+-- @param kind string|nil PointerKind; nil leaves the daemon's default, "chunk"
+-- @return table|nil PointerWrite { address, state_id, counter }, error|nil
+function Client:pointer_update(owner, target, kind)
+    return self:_pointer_write("/v1/pointers/update", owner, target, kind)
+end
+
+--- Hand the pointer at `owner` over to the pointer at `recipient`, for good,
+-- paid by the daemon wallet (`POST /v1/pointers/transfer`). Readers of the
+-- address are redirected to the recipient's pointer, which only its owner can
+-- move; the address stays the same. Irreversible once stored.
+--
+-- Pays once per call and is never retried. Refused before paying if the
+-- pointer is already final (`pointer_final`), if `recipient` does not exist
+-- or leads back (`bad_request`), or if not every peer of the close group
+-- answered (`close_group_shortfall`; free to try again later).
+-- @param owner string pointer address
+-- @param recipient string address of the recipient's pointer
+-- @return table|nil PointerTransferResult { address, state_id, finality,
+--   finality_error }, error|nil. `finality` is nil when the check after the
+--   write failed (`finality_error` says why); the transfer is stored either
+--   way, so ask again with `pointer_finality`.
+function Client:pointer_transfer(owner, recipient)
+    local bad = check_string("owner", owner) or check_string("recipient", recipient)
+    if bad then return nil, bad end
+    local j, _, err = self:_do_json("POST", "/v1/pointers/transfer", {
+        owner = owner,
+        recipient = recipient,
+    })
+    if err then return nil, err end
+    j = j or {}
+    local finality, ferr = opt_finality(j)
+    if ferr then return nil, ferr end
+    return {
+        address = str(j, "address"),
+        state_id = str(j, "state_id"),
+        finality = finality,
+        finality_error = opt_str(j, "finality_error"),
+    }, nil
+end
+
+--- Read the pointer at `address` (`GET /v1/pointers/{address}`). Returns a
+-- `not_found` error if there is none.
+-- @param address string pointer address
+-- @return table|nil PointerRecord { address, owner, counter, kind, kind_tag,
+--   target, state_id, is_final, transferred_to }, error|nil
+function Client:pointer_get(address)
+    local bad = check_string("address", address)
+    if bad then return nil, bad end
+    local j, _, err = self:_do_json("GET", "/v1/pointers/" .. path_segment(address), nil)
+    if err then return nil, err end
+    j = j or {}
+    local counter, cerr = counter_field(j, "counter")
+    if cerr then return nil, cerr end
+    return {
+        address = str(j, "address"),
+        owner = str(j, "owner"),
+        counter = counter,
+        kind = str(j, "kind"),
+        kind_tag = kind_tag(j),
+        target = str(j, "target"),
+        state_id = str(j, "state_id"),
+        is_final = j.is_final == true,
+        transferred_to = opt_str(j, "transferred_to"),
+    }, nil
+end
+
+--- Follow a chain of pointers from `address` to the target at its end
+-- (`GET /v1/pointers/{address}/resolve`, at most 16 hops), through
+-- forwardings and transfers alike. Returns a `not_found` error if a pointer
+-- on the chain does not exist.
+-- @param address string pointer address
+-- @return table|nil PointerTarget { kind, kind_tag, target }, error|nil
+function Client:pointer_resolve(address)
+    local bad = check_string("address", address)
+    if bad then return nil, bad end
+    local j, _, err = self:_do_json("GET", "/v1/pointers/" .. path_segment(address) .. "/resolve", nil)
+    if err then return nil, err end
+    j = j or {}
+    return {
+        kind = str(j, "kind"),
+        kind_tag = kind_tag(j),
+        target = str(j, "target"),
+    }, nil
+end
+
+--- Ask the whole close group where the pointer at `address` stands with
+-- respect to finality (`GET /v1/pointers/{address}/finality`). Check this
+-- before relying on a transfer: only `status == "final"` means one final
+-- state, held by a majority, with no rival seen.
+-- @param address string pointer address
+-- @return table|nil PointerFinality { address, group, answered, status,
+--   raw_status, counter, state, states, majority, transferred_to },
+--   error|nil
+function Client:pointer_finality(address)
+    local bad = check_string("address", address)
+    if bad then return nil, bad end
+    local j, _, err = self:_do_json("GET", "/v1/pointers/" .. path_segment(address) .. "/finality", nil)
+    if err then return nil, err end
+    return parse_pointer_finality(j or {})
+end
+
+--- Follow the transfers of the pointer at `address` to the pointer whose
+-- owner now decides what it resolves to
+-- (`GET /v1/pointers/{address}/controller`).
+-- @param address string pointer address
+-- @return table|nil PointerController { pointer, transfers, frozen },
+--   error|nil
+function Client:pointer_controller(address)
+    local bad = check_string("address", address)
+    if bad then return nil, bad end
+    local j, _, err = self:_do_json("GET", "/v1/pointers/" .. path_segment(address) .. "/controller", nil)
+    if err then return nil, err end
+    j = j or {}
+    local transfers = {}
+    for _, t in ipairs(arr(j, "transfers")) do
+        if type(t) == "string" then
+            transfers[#transfers + 1] = t
+        end
+    end
+    return {
+        pointer = str(j, "pointer"),
+        transfers = transfers,
+        frozen = j.frozen == true,
+    }, nil
+end
+
+--- Have the daemon sign `op` on the pointer at `owner` with its loaded key
+-- and quote it for an external signer (`POST /v1/pointers/prepare`). Pay the
+-- result's `payments` with `payForQuotes()`, then call `pointer_finalize`.
+-- Needs no daemon wallet and pays nothing itself.
+--
+-- Every check the daemon-wallet methods make before paying is made here,
+-- before anything is quoted. While the prepared write awaits payment, other
+-- writes to the pointer answer `conflict` until it is finalized or expires
+-- (one hour).
+-- @param owner string pointer address
+-- @param op table built with antd.models.pointer_create_op(target, kind),
+--   pointer_update_op(target, kind) or pointer_transfer_op(recipient)
+-- @param opts table|nil { include_signed_quotes = boolean }: populate the
+--   result's `signed_quotes`
+-- @return table|nil PointerPrepareResult { upload_id, op, address, state_id,
+--   counter, payment_type, payments, total_amount, payment_vault_address,
+--   payment_token_address, rpc_url, signed_quotes }, error|nil
+function Client:pointer_prepare(owner, op, opts)
+    local bad = check_string("owner", owner)
+    if bad then return nil, bad end
+    if type(op) ~= "table" then
+        return nil, errors.bad_request("op must be a table built with pointer_create_op, "
+            .. "pointer_update_op or pointer_transfer_op")
+    end
+    bad = check_string("op.op", op.op)
+    if bad then return nil, bad end
+    local body = { owner = owner, op = op.op }
+    if op.target ~= nil then body.target = op.target end
+    if op.kind ~= nil then body.kind = op.kind end
+    if op.recipient ~= nil then body.recipient = op.recipient end
+    if opts and opts.include_signed_quotes then
+        body.include_signed_quotes = true
+    end
+
+    local j, _, err = self:_do_json("POST", "/v1/pointers/prepare", body)
+    if err then return nil, err end
+    j = j or {}
+    local counter, cerr = counter_field(j, "counter")
+    if cerr then return nil, cerr end
+
+    local payments = {}
+    for _, p in ipairs(arr(j, "payments")) do
+        if type(p) == "table" then
+            payments[#payments + 1] = {
+                quote_hash = str(p, "quote_hash"),
+                rewards_address = str(p, "rewards_address"),
+                amount = str(p, "amount"),
+            }
+        end
+    end
+
+    local signed_quotes = {}
+    for _, q in ipairs(arr(j, "signed_quotes")) do
+        if type(q) == "table" then
+            signed_quotes[#signed_quotes + 1] = {
+                quote_hash = str(q, "quote_hash"),
+                quote = str(q, "quote"),
+                commitment_sidecar = opt_str(q, "commitment_sidecar"),
+            }
+        end
+    end
+
+    return {
+        upload_id = str(j, "upload_id"),
+        op = str(j, "op"),
+        address = str(j, "address"),
+        state_id = str(j, "state_id"),
+        counter = counter,
+        payment_type = str(j, "payment_type"),
+        payments = payments,
+        total_amount = str(j, "total_amount"),
+        payment_vault_address = str(j, "payment_vault_address"),
+        payment_token_address = str(j, "payment_token_address"),
+        rpc_url = str(j, "rpc_url"),
+        signed_quotes = signed_quotes,
+    }, nil
+end
+
+--- Store a prepared pointer write once its external signer has paid
+-- (`POST /v1/pointers/finalize`). `tx_hashes` maps each `quote_hash` from the
+-- prepare's `payments` to the `payForQuotes()` transaction hash.
+--
+-- Never retried by the SDK. A write that falls short after payment returns a
+-- `close_group_shortfall` error with `retryable == true`: the daemon kept the
+-- paid state under the same `upload_id`, and calling this method again with
+-- the same `upload_id` stores it against the same payment (`tx_hashes` is
+-- then ignored). Bound that loop. Any other error: do not pay again on it
+-- alone. A finalize without the payment's hashes is a `bad_request` and
+-- keeps the session, so it can be corrected.
+-- @param upload_id string from pointer_prepare
+-- @param tx_hashes table quote_hash -> tx_hash
+-- @return table|nil PointerFinalizeResult { address, state_id, counter,
+--   finality }, error|nil. `finality` is set for a transfer only.
+function Client:pointer_finalize(upload_id, tx_hashes)
+    local bad = check_string("upload_id", upload_id)
+    if bad then return nil, bad end
+    -- An empty Lua table encodes as the JSON object {} (cjson's default),
+    -- which is what the daemon's map expects.
+    local j, _, err = self:_do_json("POST", "/v1/pointers/finalize", {
+        upload_id = upload_id,
+        tx_hashes = tx_hashes or {},
+    })
+    if err then return nil, err end
+    j = j or {}
+    local counter, cerr = counter_field(j, "counter")
+    if cerr then return nil, cerr end
+    local finality, ferr = opt_finality(j)
+    if ferr then return nil, ferr end
+    return {
+        address = str(j, "address"),
+        state_id = str(j, "state_id"),
+        counter = counter,
+        finality = finality,
+    }, nil
+end
+
 --- Create a client using daemon port discovery.
 -- @return Client client, string url
 function Client.auto_discover(opts)

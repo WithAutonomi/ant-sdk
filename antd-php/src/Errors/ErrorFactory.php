@@ -16,7 +16,9 @@ class ErrorFactory
      * a JSON boolean at all: daemons older than 0.14.0 never send it, so
      * their partial uploads read `retryable = false, retentionKnown = false`
      * (retention unknown), not confirmed non-retention. Every other code
-     * keeps the status-based mapping of {@see fromHttpStatus()}.
+     * keeps the status-based mapping of {@see fromHttpStatus()}, except the
+     * codes {@see fromCode()} maps: the pointer and close-group codes that
+     * share a status with an older error.
      *
      * The body is read strictly, so a malformed one degrades rather than
      * throwing: only the string `"PARTIAL_UPLOAD"` selects
@@ -43,7 +45,40 @@ class ErrorFactory
                 retentionKnown: is_bool($retryable),
             );
         }
-        return self::fromHttpStatus($code, $message);
+        return self::fromCode($body['code'] ?? null, $code, $message, $body)
+            ?? self::fromHttpStatus($code, $message);
+    }
+
+    /**
+     * Map the daemon codes that share an HTTP status with older errors onto
+     * their own types, or return null for any other code (including a
+     * non-string one):
+     *
+     *  - `POINTER_FINAL` (409) → {@see PointerFinalError}
+     *  - `POINTER_FORKED` (409) → {@see ForkError}
+     *  - `CONFLICT` (409) → {@see ConflictError}
+     *  - `CLOSE_GROUP_SHORTFALL` (503) → {@see CloseGroupShortfallError},
+     *    `retryable` only for the JSON boolean `true`
+     *
+     * None of them folds into {@see AlreadyExistsError} or
+     * {@see ServiceUnavailableError}; `ALREADY_EXISTS` keeps its 409 mapping.
+     * The error keeps the response's own status code.
+     *
+     * @param array<mixed>|null $body The decoded JSON error body, or null.
+     */
+    public static function fromCode(mixed $errorCode, int $code, string $message, ?array $body = null): ?AntdError
+    {
+        return match ($errorCode) {
+            'POINTER_FINAL' => new PointerFinalError($message, $code),
+            'POINTER_FORKED' => new ForkError($message, $code),
+            'CONFLICT' => new ConflictError($message, $code),
+            'CLOSE_GROUP_SHORTFALL' => new CloseGroupShortfallError(
+                $message,
+                retryable: ($body['retryable'] ?? null) === true,
+                statusCode: $code,
+            ),
+            default => null,
+        };
     }
 
     /**

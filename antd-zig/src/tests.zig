@@ -927,6 +927,9 @@ test "success-path counts share the rule: a float or out-of-range value reads as
     try testing.expectEqual(@as(u32, 0), estimate.chunk_count);
 }
 
-// Note: Integration tests that exercise the full Client against a running antd
-// daemon are not included here. To run integration tests, start the daemon with
-// `ant dev start` and write tests that create a Client pointing at the daemon URL.
+// Pointer API: the Client against a mock daemon, and a live round trip that
+// runs only when ANTD_TEST_URL and ANTD_TEST_POINTER_OWNERS are set.
+test {
+    _ = @import("pointer_tests.zig");
+    _ = @import("live_pointers_test.zig");
+}

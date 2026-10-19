@@ -181,6 +181,47 @@ const result = try antd.json_helpers.parseFinalizeUploadResult(allocator, body);
 defer result.deinit(allocator);
 ```
 
+### Pointers
+
+A pointer is a small, owner-signed, mutable reference. Its address is derived from the owner's key and never changes; what it points at (a chunk, such as a public file's data map, or another pointer) can be changed by the owner. The daemon holds the owner keys, loaded at startup with `antd --pointer-keys <file-or-dir>` (files in the format `ant pointer keygen` writes), so every write names the pointer by its address (`owner`), never by a key. The pointer methods need the antd release after 0.15.0, the first with pointers.
+
+**Every write pays, and every attempt pays again.** A create, update or transfer costs about the price of one chunk from the daemon wallet. The SDK never retries a create, update, transfer or finalize, and you should not retry them automatically either. Reads are free to retry; a read during an update or churn can fail with `error.CloseGroupShortfall`.
+
+Counters are `u64`. The daemon sends them as decimal strings, because a final state (after a transfer) sits at `antd.pointer_final_counter` (2^64 - 1), past what a JSON number keeps exactly in several languages. A counter that is not a decimal `u64` fails the call with `error.JsonError`; it never reads as 0. Unset values (`transferred_to`, the finality `counter`, `state` and `majority`) are Zig `null`. The daemon accepts addresses with a `0x` prefix but always returns bare hex: compare them with `antd.pointerAddressEql`.
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `pointerKeys` | `fn (self: *Client) !PointerKeys` | The pointers this daemon holds owner keys for, so can write. `contains(address)` ignores a `0x` prefix and hex case |
+| `pointerCreate` | `fn (self: *Client, owner: []const u8, target: []const u8, kind: PointerKind) !PointerWriteResult` | Create a pointer, paid by the daemon wallet. `error.AlreadyExists` if it exists, refused before paying |
+| `pointerUpdate` | `fn (self: *Client, owner: []const u8, target: []const u8, kind: PointerKind) !PointerWriteResult` | Point a pointer at a new target, paid by the daemon wallet; creates it if it does not exist. `kind` is `.chunk` or `.pointer` (a forwarding the owner can still change). `error.PointerFinal` once transferred |
+| `pointerTransfer` | `fn (self: *Client, owner: []const u8, recipient: []const u8) !PointerTransferResult` | Hand a pointer over for good to the recipient's pointer, which must exist: readers of the address are redirected there and the old key can change nothing. Irreversible. `finality` is the close group's view, or `null` with `finality_error` if that check failed |
+| `pointerGet` | `fn (self: *Client, address: []const u8) !PointerRecord` | Read a pointer: `counter`, `target`, `kind` / `kind_tag`, `is_final`, `transferred_to` and the owner's public key. `error.NotFound` if there is none |
+| `pointerResolve` | `fn (self: *Client, address: []const u8) !PointerTarget` | Follow a chain of pointers (forwardings and transfers) to the target at its end |
+| `pointerFinality` | `fn (self: *Client, address: []const u8) !PointerFinality` | Ask the whole close group where a pointer stands. `status` is `.open`, `.settling`, `.unconfirmed`, `.final`, `.forked`, or `.unknown` for a status a newer daemon adds. Check `isFinal()` before relying on a transfer |
+| `pointerController` | `fn (self: *Client, address: []const u8) !PointerController` | Follow transfers to the pointer whose owner now decides |
+| `pointerPrepare` | `fn (self: *Client, owner: []const u8, op: PointerOp) !PointerPrepareResult` | External signer: the daemon signs `.create`, `.update` or `.transfer` with its key and quotes it (wave-batch `payments` for `payForQuotes()`). Needs no daemon wallet. Other writes to the pointer return `error.Conflict` until it is finalized or expires (one hour) |
+| `pointerPrepareWithOptions` | `fn (self: *Client, owner: []const u8, op: PointerOp, options: PointerPrepareOptions) !PointerPrepareResult` | `pointerPrepare` with `include_signed_quotes`, which fills `signed_quotes` |
+| `pointerFinalize` | `fn (self: *Client, upload_id: []const u8, tx_hashes_json: []const u8) !PointerFinalizeResult` | External signer: store the prepared write once paid. Takes the same `tx_hashes_json` map as `finalizeChunkUpload` |
+
+```zig
+const owner = "<a pointer address from client.pointerKeys()>";
+
+const created = try client.pointerCreate(owner, first_address, .chunk);
+defer created.deinit(allocator);
+
+const updated = try client.pointerUpdate(owner, second_address, .chunk);
+defer updated.deinit(allocator);
+
+const target = try client.pointerResolve(owner);
+defer target.deinit(allocator);
+
+const finality = try client.pointerFinality(owner);
+defer finality.deinit(allocator);
+std.debug.print("{s}: {s}\n", .{ target.target, finality.status.wire() });
+```
+
+A pointer finalize that falls short after payment returns `error.CloseGroupShortfall` with `getLastError().retryable == true`: the daemon kept the paid state under the same `upload_id`, so calling `pointerFinalize` again with the same `upload_id` stores it against the same payment (`tx_hashes_json` is then ignored). Bound that loop. Any other `error.CloseGroupShortfall` on a write cannot be resumed and may or may not have landed, so read the pointer with `pointerGet` before you decide to pay for another attempt.
+
 ## Error Handling
 
 Methods return errors from the `AntdError` error set. Use Zig's error handling patterns:
@@ -215,14 +256,27 @@ const result = client.health() catch |err| {
 | `BadRequest` | 400 | Invalid parameters |
 | `Payment` | 402 | Insufficient funds |
 | `NotFound` | 404 | Resource not found |
-| `AlreadyExists` | 409 | Resource exists |
+| `AlreadyExists` | 409 (`code: ALREADY_EXISTS`, or none) | Resource exists |
+| `PointerFinal` | 409 (`code: POINTER_FINAL`) | The pointer is transferred or frozen; nothing can change it. Refused before paying |
+| `PointerForked` | 409 (`code: POINTER_FORKED`) | The owner signed two final states and no majority holds either |
+| `Conflict` | 409 (`code: CONFLICT`) | A pointer write while a prepared write to it awaits payment |
 | `TooLarge` | 413 | Payload too large |
 | `Internal` | 500 | Server error |
 | `Network` | 502 | Network unreachable |
 | `PartialUpload` | 502 (`code: PARTIAL_UPLOAD`) | Finalize stored some chunks but not all -- see [Partial uploads](#partial-uploads) |
+| `ServiceUnavailable` | 503 | Service unavailable, such as a daemon not yet ready to write |
+| `CloseGroupShortfall` | 503 (`code: CLOSE_GROUP_SHORTFALL`) | Too few of the close group answered or stored. Reads are free to retry; `getLastError().retryable` is `true` only for a pointer finalize that kept the paid state |
 | `UnexpectedStatus` | other | Unmapped status code |
 | `HttpError` | -- | Connection/transport failure |
 | `JsonError` | -- | JSON parse/encode failure |
+
+### New errors for pointers and close-group shortfalls
+
+The pointer methods bring four new `AntdError` members: `PointerFinal`, `PointerForked`, `Conflict` and `CloseGroupShortfall`. The SDK maps them from the daemon's `code`, so the three 409s no longer read as `error.AlreadyExists`. A `switch` over `AntdError`, or over a method's error set, without an `else` prong stops compiling until it names them.
+
+`CloseGroupShortfall` is not only for pointers. A daemon with the pointer API reports a close group that fell short on any call (a chunk store, say) as `503 CLOSE_GROUP_SHORTFALL`, which an older daemon sent as a plain 500. Against such a daemon the SDK returns `error.CloseGroupShortfall` where it used to see a 500 and return `error.Internal`, so an `error.Internal` prong no longer sees it.
+
+`ErrorInfo.retryable` is now set for `error.CloseGroupShortfall` as well as `error.PartialUpload`. The `PointerForked` member is new; the existing `Fork` member is unchanged and nothing maps to it.
 
 ### `error.PartialUpload` replaces `error.Network` for partial uploads
 
@@ -332,6 +386,7 @@ The Zig SDK follows Zig's explicit memory management conventions:
 
 - **Caller owns all returned allocations.** You must free them when done.
 - Struct results (`HealthStatus`, `PutResult`, `DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult`, `UploadCostEstimate`) have a `deinit(allocator)` method that frees all owned memory.
+- So do the pointer results (`PointerKeys`, `PointerWriteResult`, `PointerRecord`, `PointerTarget`, `PointerFinality`, `PointerController`, `PointerTransferResult`, `PointerPrepareResult`, `PointerFinalizeResult`). Their `deinit` also frees the nested values: optional strings, the finality states, a `PointerFinalityStatus.unknown` string and the `signed_quotes`.
 - Raw byte slices (`[]const u8`) returned by `dataGetPublic`, `dataGet`, and `chunkGet` must be freed with `allocator.free(result)`.
 - The manifest results (`BuiltManifest`, `DecodedManifest`) have a `deinit(allocator)` that frees the `.ant` bytes, the strings and every `ManifestEntryInfo` in `entries`. Don't free the entries separately.
 - Use `defer` immediately after receiving a result to ensure cleanup.
@@ -357,6 +412,15 @@ zig build run-02-data
 zig build run-03-chunks
 zig build run-04-files
 zig build run-06-private-data
+ANTD_POINTER_OWNER=<address> zig build run-09-pointers
+```
+
+The examples talk to `http://localhost:8082`; `09-pointers` also takes `ANTD_BASE_URL` to point it at another daemon. It needs `ANTD_POINTER_OWNER`, the address of a pointer the daemon holds the key for, and pays for two data uploads and two pointer writes (three when the pointer exists from an earlier run).
+
+`zig build test` also runs a live pointer round trip when `ANTD_TEST_URL` and `ANTD_TEST_POINTER_OWNERS` (two comma-separated, never-written pointer addresses the daemon holds keys for) are set; otherwise it is skipped. Every write it makes is paid by the daemon wallet, so run it against a devnet, and use each pair of addresses once:
+
+```bash
+ANTD_TEST_URL=http://127.0.0.1:8082 ANTD_TEST_POINTER_OWNERS=<hex>,<hex> zig build test
 ```
 
 ## Examples
@@ -368,4 +432,5 @@ See the [examples/](examples/) directory:
 - `03-chunks` -- Chunk put/get
 - `04-files` -- File upload/download
 - `06-private-data` -- Private data put/get
+- `09-pointers` -- Pointer create, update, resolve and finality (needs `ANTD_POINTER_OWNER`)
 - `10-manifests` -- Build a manifest of two public uploads and decode its link
