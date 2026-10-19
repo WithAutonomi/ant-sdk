@@ -55,6 +55,14 @@ defmodule Antd do
   defdelegate chunk_get(client, address), to: Antd.Client
   defdelegate chunk_get!(client, address), to: Antd.Client
 
+  # --- Manifests (nothing is uploaded or paid for) ---
+  defdelegate build_manifest(client, entries, opts \\ []), to: Antd.Client
+  defdelegate build_manifest!(client, entries, opts \\ []), to: Antd.Client
+  defdelegate decode_manifest(client, manifest, opts \\ []), to: Antd.Client
+  defdelegate decode_manifest!(client, manifest, opts \\ []), to: Antd.Client
+  defdelegate decode_manifest_link(client, link, opts \\ []), to: Antd.Client
+  defdelegate decode_manifest_link!(client, link, opts \\ []), to: Antd.Client
+
   # --- Files ---
   defdelegate file_put(client, path, opts \\ []), to: Antd.Client
   defdelegate file_put!(client, path, opts \\ []), to: Antd.Client
