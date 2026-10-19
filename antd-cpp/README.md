@@ -445,6 +445,84 @@ for (int attempt = 1;; ++attempt) {
 backoff and stuck detection. Contract reference:
 [`docs/external-signer-flow.md` §6](../docs/external-signer-flow.md#6-retry-a-partial-store--same-upload_id-same-payment).
 
+## Manifests
+
+A manifest (ADR-0006) is a `.ant` file, or an `ant://manifest/` link, that
+describes a set of files: each with an optional path and size, and either an
+embedded DataMap (a private upload; the manifest is its key) or a public
+DataMap address. The daemon builds and decodes them, so the format is never
+re-implemented here. Needs the antd release after 0.15.0.
+
+**Nothing is uploaded or paid for.** Upload the files first (`data_put`,
+`file_put_public`, ...), then describe them. The daemon reads the network
+only to resolve DataMaps (the embedding policy on build, `resolve` on
+decode), so a call can time out; retrying is safe.
+
+On `Client`, `AsyncClient` (as `std::future`s) and `GrpcClient`; the types
+are in `antd/manifests.hpp`.
+
+| Method | Description |
+|--------|-------------|
+| `build_manifest(entries, options)` | Build a manifest from `ManifestEntryInput`s — returns `BuiltManifest` (`.ant` bytes, `link`, entries) |
+| `decode_manifest(bytes, resolve)` | Decode `.ant` bytes — returns `DecodedManifest` |
+| `decode_manifest_link(link, resolve)` | Decode an `ant://` manifest link, file link or bare 64-hex address — returns `DecodedManifest` |
+
+```cpp
+antd::Client client;
+auto bytes_of = [](std::string s) { return std::vector<uint8_t>(s.begin(), s.end()); };
+auto one = client.data_put_public(bytes_of("first"));
+auto two = client.data_put_public(bytes_of("second"));
+
+antd::BuildManifestOptions opts;
+opts.name = "notes";
+auto built = client.build_manifest({
+    {.path = "notes/one.txt", .address = one.address},
+    {.path = "notes/two.txt", .address = two.address},
+}, opts);
+// built.manifest: the .ant bytes; built.link: "ant://manifest/..." (empty if
+// it would pass 1,500 bytes, so share the bytes instead)
+
+auto decoded = client.decode_manifest_link(built.link, /*resolve=*/true);
+for (const auto& e : decoded.entries) {
+    std::cout << e.effective_name << " " << e.kind << " "
+              << (e.exact_size ? std::to_string(*e.exact_size) : e.error) << "\n";
+}
+```
+
+- **Entries**: set exactly one of `data_map` (hex, embedded) or `address`
+  (hex, public). An entry with both or neither throws `BadRequestError`
+  (naming `entries[i]`) before anything is sent. `path` is optional (empty:
+  the entry extracts under its content address), as is `size` (the creator's
+  claim, recorded as given).
+- **Bytes**: `BuiltManifest::manifest` and `decode_manifest` take and return
+  raw bytes on both transports; the client handles REST's base64.
+- **Sizes** (`size`, `exact_size`) are `std::optional<std::uint64_t>`. Unset
+  is `std::nullopt`, never 0: REST omits the field, gRPC leaves the proto3
+  `optional` unset. `exact_size` comes from an embedded root DataMap, or from
+  a `resolve` decode.
+- **Embedding**: by default the daemon resolves each shrunk DataMap and
+  embeds its root when it is at most 64 KiB (`embed_roots`, always sent).
+  Set `BuildManifestOptions::keep_shrunk_data_maps` to embed them as given.
+- **Errors**: an invalid entry, path, hash or manifest is the daemon's 400
+  `BAD_REQUEST` (gRPC `INVALID_ARGUMENT`), thrown as `BadRequestError` with
+  the daemon's message, which names the entry (`entries[1]: invalid path
+  "../x": ...`). One entry's `resolve` failure is not a failed call: it is in
+  that entry's `error`, with `exact_size` unset.
+- **gRPC message size**: a manifest can be 64 MiB, past gRPC's 4 MiB default.
+  C++ gRPC has no per-call limit, so `GrpcClient` sends the manifest calls on
+  their own channel to the same target, created with `grpc::ChannelArguments`
+  `SetMaxReceiveMessageSize` and `SetMaxSendMessageSize` at 256 MiB. Every
+  other call keeps the default channel and limits.
+
+`examples/09-manifests.cpp` uploads two pieces of public data (paid), builds
+a manifest of them and decodes its link with `resolve`:
+`ANTD_BASE_URL=http://localhost:8082 ./build/09-manifests`. The live
+manifest test (`antd_live_manifest_tests`) pays for nothing and does nothing
+unless `ANTD_TEST_URL` and `ANTD_TEST_MANIFEST_ADDRESSES` (plus
+`ANTD_TEST_GRPC` in a gRPC build) are set; it also reads
+`ANTD_TEST_MANIFEST_SIZES`, `ANTD_TEST_MANIFEST_DATA_MAP`,
+`ANTD_TEST_MANIFEST_DATA_MAP_SIZE` and `ANTD_TEST_MANIFEST_LINK` when present.
+
 ## Building
 
 ```bash

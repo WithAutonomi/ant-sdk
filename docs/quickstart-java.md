@@ -181,6 +181,33 @@ Exception hierarchy (all extend `AntdException`, which extends `RuntimeException
 | `InternalException` | 500 | Server error |
 | `NetworkException` | 502 | Network unreachable |
 
+## Manifests
+
+A manifest describes a set of files as one `ant://manifest/` link, or as a `.ant` file when the link would be too long. Each entry is either a public file's address or an embedded DataMap (the manifest is then the key to a private file), with an optional path. Building and decoding upload and pay for nothing: upload the files first, then describe them. Needs the antd release after 0.15.0. Walk-through: [Tutorial: Share a Set of Files as One Link](tutorial-manifests.md).
+
+```java
+String one = client.dataPutPublic("one".getBytes()).address();   // pays
+String two = client.dataPutPublic("two".getBytes()).address();   // pays
+
+BuiltManifest built = client.buildManifest(List.of(               // free
+        ManifestEntryInput.ofAddress(one).withPath("notes/one.txt"),
+        ManifestEntryInput.ofAddress(two).withPath("notes/two.txt")),
+        BuildManifestOptions.DEFAULT.withName("example"));
+System.out.println(built.link());                // null when over 1,500 bytes: share built.manifest() instead
+
+DecodedManifest decoded = client.decodeManifestLink(built.link(), true);   // free
+decoded.entries().forEach(e -> System.out.println(e.effectiveName() + ": " + e.exactSize()));
+```
+
+`decodeManifest(byte[] bytes, boolean resolve)` takes raw `.ant` bytes. `ManifestEntryInput.ofDataMap(hex)` makes an embedded entry; `BuildManifestOptions` has `keepShrunkDataMaps` (default `false`: roots are embedded). `AsyncAntdClient` has `Async`-suffixed variants and `GrpcAntdClient` the same methods.
+
+Runnable example: `antd-java/examples/src/main/java/com/autonomi/examples/Example09Manifests.java`. Its two uploads pay; the manifest calls do not.
+
+```bash
+cd antd-java
+ANTD_BASE_URL=http://localhost:8082 ./gradlew :examples:run -PmainClass=com.autonomi.examples.Example09Manifests
+```
+
 ## Examples
 
 ```bash

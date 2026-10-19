@@ -189,6 +189,40 @@ Exception hierarchy (all inherit from `antd::AntdError`):
 | `antd::InternalError` | 500 | Server error |
 | `antd::NetworkError` | 502 | Network unreachable |
 
+## Manifests
+
+A manifest describes a set of files as one `ant://manifest/` link, or as a `.ant` file when the link would be too long. Each entry is either a public file's address or an embedded DataMap (the manifest is then the key to a private file), with an optional path. Building and decoding upload and pay for nothing: upload the files first, then describe them. Needs the antd release after 0.15.0. Walk-through: [Tutorial: Share a Set of Files as One Link](tutorial-manifests.md).
+
+```cpp
+auto bytes_of = [](std::string s) { return std::vector<uint8_t>(s.begin(), s.end()); };
+auto one = client.data_put_public(bytes_of("first"));    // pays
+auto two = client.data_put_public(bytes_of("second"));   // pays
+
+antd::BuildManifestOptions opts;
+opts.name = "example";
+auto built = client.build_manifest({                      // free
+    {.path = "notes/one.txt", .address = one.address},
+    {.path = "notes/two.txt", .address = two.address},
+}, opts);
+// built.manifest: the .ant bytes; built.link: empty if it would pass 1,500 bytes, so share the bytes instead
+
+auto decoded = client.decode_manifest_link(built.link, /*resolve=*/true);   // free
+for (const auto& e : decoded.entries) {
+    std::cout << e.effective_name << " " << e.kind << " "
+              << (e.exact_size ? std::to_string(*e.exact_size) : e.error) << "\n";
+}
+```
+
+`decode_manifest(bytes, resolve)` takes raw `.ant` bytes. Set `.data_map` instead of `.address` for an embedded entry; `BuildManifestOptions::keep_shrunk_data_maps` (default `false`) keeps shrunk DataMaps as given. Sizes are `std::optional<std::uint64_t>`. On `AsyncClient` and `GrpcClient` too.
+
+Runnable example: `antd-cpp/examples/09-manifests.cpp`. Its two uploads pay; the manifest calls do not.
+
+```bash
+cd antd-cpp
+cmake -S . -B build && cmake --build build
+ANTD_BASE_URL=http://localhost:8082 ./build/09-manifests
+```
+
 ## Examples
 
 ```bash

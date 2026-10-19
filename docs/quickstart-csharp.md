@@ -173,6 +173,35 @@ Exception hierarchy:
 | `InternalException` | 500 | Server error |
 | `NetworkException` | 502 | Network unreachable |
 
+## Manifests
+
+A manifest describes a set of files as one `ant://manifest/` link, or as a `.ant` file when the link would be too long. Each entry is either a public file's address or an embedded DataMap (the manifest is then the key to a private file), with an optional path. Building and decoding upload and pay for nothing: upload the files first, then describe them. Needs the antd release after 0.15.0. Walk-through: [Tutorial: Share a Set of Files as One Link](tutorial-manifests.md).
+
+```csharp
+var one = await client.DataPutPublicAsync(Encoding.UTF8.GetBytes("note one"));   // pays
+var two = await client.DataPutPublicAsync(Encoding.UTF8.GetBytes("note two"));   // pays
+
+var built = await client.BuildManifestAsync(new[]                                 // free
+{
+    ManifestEntryInput.Public(one.Address, "notes/one.txt"),
+    ManifestEntryInput.Public(two.Address, "notes/two.txt"),
+}, new BuildManifestOptions(Name: "example"));
+Console.WriteLine(built.Link);                    // null when over 1,500 bytes: share built.Manifest (byte[]) instead
+
+var decoded = await client.DecodeManifestLinkAsync(built.Link!, resolve: true);  // free
+foreach (var e in decoded.Entries)
+    Console.WriteLine($"{e.EffectiveName}: {e.ExactSize} bytes");
+```
+
+`DecodeManifestAsync(byte[] manifest, bool resolve = false)` takes raw `.ant` bytes. `ManifestEntryInput.Embedded(dataMap, path)` makes an embedded entry. Sizes are `ulong?`.
+
+Runnable example: example 9 in `antd-csharp/Examples/Program.cs`. Its two uploads pay; the manifest calls do not.
+
+```bash
+cd antd-csharp/Examples
+ANTD_BASE_URL=http://localhost:8082 dotnet run -- 9
+```
+
 ## Examples
 
 ```bash

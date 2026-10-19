@@ -85,6 +85,48 @@ All methods are `async` and return Promises.
 | `fileGetPublic(address, destPath)` | `void` | Download a public file by address |
 | `fileCost(path, isPublic?, { paymentMode? })` | `UploadCostEstimate` | Estimate upload cost — size, chunks, gas, payment mode |
 
+### Manifests
+
+A manifest ([ADR-0006](https://github.com/WithAutonomi/ant-client/blob/main/docs/adr/ADR-0006-file-manifests-and-links.md)) is a `.ant` file, or an `ant://manifest/` link, that describes a set of files: each entry has an optional path and size, and either an embedded DataMap (the manifest is then the key to that file) or a public file's DataMap address. The daemon builds and decodes manifests through ant-core, so the same inputs give the `ant` CLI's exact bytes. Needs the antd release after 0.15.0. See `examples/09-manifests.ts`.
+
+**Nothing is uploaded or paid for**, and the daemon needs no wallet. Building (with `embedRoots`) and decoding with `resolve` read from the network, so they can time out; they are safe to retry.
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `buildManifest(entries, { name?, torrentInfoHashes?, embedRoots? })` | `BuiltManifest` | Build a manifest from DataMaps and public addresses you already hold. Each entry sets exactly one of `dataMap` (hex, embedded) or `address` (hex, public), plus an optional `path` and `size`. `embedRoots` (default `true`) resolves a shrunk DataMap and embeds its root when it is at most 64 KiB |
+| `decodeManifest(manifest, resolve?)` | `DecodedManifest` | Decode `.ant` bytes. With `resolve` (default `false`) each entry's DataMap is fetched to report `exactSize`; content chunks are not fetched |
+| `decodeManifestLink(link, resolve?)` | `DecodedManifest` | Decode an `ant://manifest/` link, an `ant://` file link or a bare 64-hex address (a file link reads as one public entry with no path, `source: "file_link"`) |
+
+The `.ant` bytes are a `Buffer` both ways (`decodeManifest` also takes a plain `Uint8Array`); the base64 the REST API carries never reaches you. Sizes are `number`. Every unset value is `null`, never `0` or `""`: `size` when none was recorded, `exactSize` until it is known, `link` when it would exceed 1,500 bytes, `dataMap` on public entries and on every built entry. An entry with both sources or neither, or a size that is not a non-negative integer, throws `BadRequestError` before anything is sent; the daemon's own 400 for an invalid entry (a path such as `../x`, a malformed DataMap) is a `BadRequestError` whose message names each `entries[i]`. With `resolve`, one entry that cannot be resolved has its `error` set; the call still succeeds.
+
+```typescript
+import { createClient } from "@withautonomi/antd";
+
+const client = createClient();
+const one = await client.dataPutPublic(Buffer.from("first"));
+const two = await client.dataPutPublic(Buffer.from("second"));
+
+const built = await client.buildManifest(
+  [
+    { path: "notes/one.txt", address: one.address },
+    { path: "notes/two.txt", address: two.address },
+  ],
+  { name: "example" },
+);
+console.log(built.link); // ant://manifest/...  (null if over 1,500 bytes)
+
+const decoded = await client.decodeManifestLink(built.link!, true);
+for (const e of decoded.entries) console.log(e.effectiveName, e.exactSize); // notes/one.txt 5 ...
+```
+
+```typescript
+interface ManifestEntryInput { path?: string; size?: number | null; dataMap?: string; address?: string }
+interface BuildManifestOptions { name?: string; torrentInfoHashes?: string[]; embedRoots?: boolean }
+interface ManifestEntryInfo { effectiveName: string; path: string | null; size: number | null; kind: string /* "embedded" | "public" */; contentAddress: string; dataMap: string | null; exactSize: number | null; error: string | null }
+interface BuiltManifest { manifest: Buffer; link: string | null; entries: ManifestEntryInfo[] /* sorted by effective name */ }
+interface DecodedManifest { source: string /* "manifest" | "file_link" */; name: string | null; torrentInfoHashV1: string | null; torrentInfoHashV2: string | null; entries: ManifestEntryInfo[] }
+```
+
 ### External Signer
 
 Two-phase upload — daemon prepares the payment intent, caller signs + submits the payForQuotes tx, daemon finalizes once the chain confirms. See `examples/07-external-signer.ts`.
@@ -258,6 +300,7 @@ The `examples/` directory contains 7 runnable scripts covering all major feature
 | `07-external-signer.ts` | External-signer file + chunk upload (anvil signer) |
 | `08-pointers.ts` | Pointer create, update, resolve and finality (needs `ANTD_POINTER_OWNER`) |
 | `finalize-with-retry.ts` | Bounded same-`uploadId` finalize retry used by `07` (imported, not run directly) |
+| `09-manifests.ts` | Build a manifest of two public uploads, then decode its link with exact sizes |
 
 Run examples with [tsx](https://github.com/privatenumber/tsx):
 
