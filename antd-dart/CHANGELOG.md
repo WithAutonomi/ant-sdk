@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+- Pointers, on both `AntdClient` and `GrpcAntdClient` (needs the antd
+  release after 0.15.0): `pointerKeys`, `pointerCreate`, `pointerUpdate`,
+  `pointerTransfer`, `pointerGet`, `pointerResolve`, `pointerFinality`,
+  `pointerController`, and `pointerPrepare` / `pointerFinalize` for an
+  external signer. Every write pays and every attempt pays again; the SDK
+  never retries one. New models `PointerWriteResult`, `PointerRecord`
+  (`isFinal`), `PointerTarget`, `PointerFinality` with a sealed
+  `PointerFinalityStatus` (`PointerOpen`, `PointerSettling`,
+  `PointerUnconfirmed`, `PointerFinal`, `PointerForked`,
+  `PointerFinalityUnknown`), `PointerFinalState`, `PointerController`,
+  `PointerTransferResult`, `PointerPrepareRequest`, `PointerPrepareResult`,
+  `PointerFinalizeResult` and `SignedQuoteEntry`. Counters are `BigInt`s
+  parsed strictly from the daemon's decimal strings (a final state is
+  `pointerFinalCounter`, 2^64 - 1); a malformed one throws `InternalError`.
+- New errors for the daemon codes that share a status with older ones:
+  `PointerFinalError` (409 `POINTER_FINAL`), `ConflictError` (409
+  `CONFLICT`) and `CloseGroupShortfallError` (503 `CLOSE_GROUP_SHORTFALL`, a
+  `ServiceUnavailableError` subclass with `retryable`); `POINTER_FORKED` is a
+  `ForkError`. These 409s no longer read as `AlreadyExistsError`. Over gRPC
+  they come from the `x-antd-error-code` trailer, only when it agrees with
+  the status code, on every call.
+- gRPC stubs regenerated with `pointers.proto`. `example/09_pointers.dart`.
+
 ## 0.2.0
 
 - `PartialUploadError` (a `NetworkError` subclass) for a finalize that stored
