@@ -209,6 +209,7 @@ final class GrpcCoreTests: XCTestCase {
 /// Server interceptor that attaches an `x-content-length` initial-metadata
 /// header to every response, mirroring how the daemon advertises the download
 /// byte total — so the gRPC consumer's Meta-frame path is exercised end-to-end.
+@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, *)
 struct ContentLengthInterceptor: ServerInterceptor {
     let totalSize: String
 
