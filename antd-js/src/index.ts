@@ -16,15 +16,36 @@ export type {
   UploadCostEstimate,
   DownloadProgress,
   DownloadFrame,
+  PointerOp,
+  PointerWriteResult,
+  PointerRecord,
+  PointerTarget,
+  PointerFinalityStatus,
+  PointerFinalState,
+  PointerFinality,
+  PointerController,
+  PointerTransferResult,
+  SignedQuoteEntry,
+  PointerPrepareResult,
+  PointerFinalizeResult,
 } from "./models.js";
 
-export { PaymentMode, isMetaFrame, isProgressFrame } from "./models.js";
+export {
+  PaymentMode,
+  isMetaFrame,
+  isProgressFrame,
+  PointerKind,
+  POINTER_FINAL_COUNTER,
+} from "./models.js";
 
 export {
   AntdError,
   NotFoundError,
   AlreadyExistsError,
   ForkError,
+  PointerFinalError,
+  ConflictError,
+  CloseGroupShortfallError,
   BadRequestError,
   PaymentError,
   NetworkError,

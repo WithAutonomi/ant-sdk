@@ -18,7 +18,7 @@ gem install antd
 
 ## Compatibility
 
-This gem talks to a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon; it does not join the network itself. Ruby 3.1+. Tested against antd 0.12.x. The REST client has no runtime dependencies; the gRPC transport (`Antd::GrpcClient`) needs the `grpc` gem, which is deliberately not a runtime dependency of this gem — add `gem "grpc"` yourself to use it.
+This gem talks to a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon; it does not join the network itself. Ruby 3.1+. Tested against antd 0.12.x; the pointer methods need the antd release after 0.15.0, the first with pointers. The REST client has no runtime dependencies; the gRPC transport (`Antd::GrpcClient`) needs the `grpc` gem, which is deliberately not a runtime dependency of this gem — add `gem "grpc"` yourself to use it.
 
 ## Quick Start
 
@@ -93,6 +93,16 @@ the daemon sent — start with `Partial upload:` becomes
 `ABORTED`, including one that only mentions `Partial upload:` later in its
 text, stays a generic `Antd::AntdError`).
 
+The pointer and close-group errors share gRPC status codes with older ones, so
+the daemon names them in an `x-antd-error-code` trailer
+(`GRPC::BadStatus#metadata`). The client reads it on every call and, when it
+agrees with the status code, raises the same typed error as REST:
+`FAILED_PRECONDITION` + `POINTER_FINAL` → `PointerFinalError`, + `POINTER_FORKED`
+→ `PointerForkedError`, `ABORTED` + `CONFLICT` → `ConflictError`, and
+`UNAVAILABLE` + `CLOSE_GROUP_SHORTFALL` → `CloseGroupShortfallError` (`retryable`
+when the details close with `(paid attempt retained...)`). Without the trailer,
+`FAILED_PRECONDITION` stays a `PaymentError` and `UNAVAILABLE` a `NetworkError`.
+
 > **Note:** Wallet operations (address, balance, approve) and payment_mode are available via REST only.
 
 ## Prerequisites
@@ -150,6 +160,62 @@ client = Antd::Client.new(base_url: "http://custom-host:9090", timeout: 30)
 | `file_get_public(address, dest_path)` | Download a public file by address |
 | `file_cost(path, is_public, payment_mode: :auto)` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
+### Pointers
+
+A pointer is a small, owner-signed, mutable reference. Its address is derived
+from the owner's key and never changes; what it points at (a chunk, such as a
+public file's data map, or another pointer) can be changed by the owner, and
+the owner can hand it over to another pointer for good. The daemon holds the
+owner keys, loaded at startup with `antd --pointer-keys <file-or-dir>` (files
+in the format `ant pointer keygen` writes), so every write names the pointer by
+its address (`owner`), never by a key. An address the daemon holds no key for
+is a `BadRequestError`.
+
+**Every write pays** (about the price of one chunk), and every attempt pays
+again. The SDK never retries a request, and you should not retry
+`pointer_create`, `pointer_update`, `pointer_transfer` or `pointer_finalize`
+automatically either. Reads are free to retry; one during an update or churn
+can fail with `CloseGroupShortfallError`.
+
+Both `Antd::Client` and `Antd::GrpcClient` have these methods:
+
+| Method | Description |
+|--------|-------------|
+| `pointer_keys` | Addresses of the pointers this daemon holds keys for, so can write — `Array<String>` |
+| `pointer_create(owner, target, kind: nil)` | Create a pointer, paid by the daemon wallet — returns `PointerWriteResult` (`address`, `state_id`, `counter`). `AlreadyExistsError`, before paying, if it exists. `kind` is `PointerKind::CHUNK` (the default) or `PointerKind::POINTER` |
+| `pointer_update(owner, target, kind: nil)` | Point a pointer at a new target, creating it if needed — `PointerWriteResult`. `PointerFinalError`, before paying, once it was handed over or frozen |
+| `pointer_transfer(owner, recipient)` | Hand a pointer over for good to the recipient's pointer, which must exist. Irreversible. Returns `PointerTransferResult` with the close group's `finality` (nil, with `finality_error`, if that check failed; the transfer stands) |
+| `pointer_get(address)` | Read a pointer — `PointerRecord` (`counter`, `target`, `kind`/`kind_tag`, `is_final` / `final?`, `transferred_to`, the owner's public key). `NotFoundError` if there is none |
+| `pointer_resolve(address)` | Follow a chain of pointers to the target at its end — `PointerTarget` (`kind`, `kind_tag`, `target`) |
+| `pointer_finality(address)` | Ask the whole close group where a pointer stands — `PointerFinality`. Check `final?` before relying on a transfer |
+| `pointer_controller(address)` | Follow transfers to the pointer whose owner now decides — `PointerController` (`pointer`, `transfers`, `frozen`) |
+| `pointer_prepare(owner, op, target: nil, kind: nil, recipient: nil, include_signed_quotes: false)` | External signer: the daemon signs a `PointerOp::CREATE`, `UPDATE` or `TRANSFER` and quotes it — `PointerPrepareResult` (wave-batch `payments` for `payForQuotes()`; `signed_quotes` when asked). Needs no daemon wallet. Other writes to the pointer raise `ConflictError` until it is finalized or expires (one hour) |
+| `pointer_finalize(upload_id, tx_hashes)` | External signer: store the prepared write once paid — `PointerFinalizeResult`. A write that falls short after payment raises `CloseGroupShortfallError` with `retryable`: repeat the same call to store it against the same payment |
+
+Counters are `Integer`s. The daemon sends them as decimal strings, because a
+final state (a transfer or a freeze) sits at `Antd::POINTER_FINAL_COUNTER`
+(2^64 − 1), past what a JSON number keeps exactly in many languages. A counter
+that is not a decimal u64 raises `InternalError`; it never reads as 0.
+
+`PointerFinality#status` is one of the `Antd::PointerFinalityStatus` strings:
+`OPEN` (with the corroborated `counter`, or nil), `SETTLING`, `UNCONFIRMED` and
+`FINAL` (with the one final `state`), or `FORKED` (with every final state in
+`states` and the `majority`). Only `FINAL` means a transfer is beyond dispute.
+A status a newer daemon adds is kept verbatim (`status_known?` is false), so
+give a `case` over it an `else` branch. Unset fields read as `nil` on both
+transports: REST sends `null`, gRPC an empty string or no message.
+
+The daemon accepts addresses with a `0x` prefix but always returns bare hex;
+normalise before comparing.
+
+```ruby
+owner = client.pointer_keys.first
+client.pointer_create(owner, client.data_put_public("v1").address)  # pays
+client.pointer_update(owner, client.data_put_public("v2").address)  # pays again
+puts client.data_get_public(client.pointer_resolve(owner).target)   # "v2"
+puts client.pointer_finality(owner).status                          # "open"
+```
+
 ## Error Handling
 
 All errors inherit from `Antd::AntdError` and can be caught by type:
@@ -177,6 +243,18 @@ end
 | `InternalError` | 500 | Server error |
 | `NetworkError` | 502 | Network unreachable |
 | `PartialUploadError` | 502 (`code: "PARTIAL_UPLOAD"`) | Finalize stored some chunks but not all — subclass of `NetworkError` |
+| `ServiceUnavailableError` | 503 | Wallet not configured |
+| `PointerFinalError` | 409 (`code: "POINTER_FINAL"`) / gRPC `FAILED_PRECONDITION` | The pointer is transferred or frozen; nothing can change it |
+| `PointerForkedError` | 409 (`code: "POINTER_FORKED"`) / gRPC `FAILED_PRECONDITION` | The owner signed two final states and no majority holds either — subclass of `ForkError` |
+| `ConflictError` | 409 (`code: "CONFLICT"`) / gRPC `ABORTED` | A pointer write while a prepared write to it awaits payment, or an update that lost to a newer state |
+| `CloseGroupShortfallError` | 503 (`code: "CLOSE_GROUP_SHORTFALL"`) / gRPC `UNAVAILABLE` | Too few of the close group answered or stored; `retryable` is true only for a pointer finalize that kept the paid state |
+
+The pointer errors are read from the error body's `code` (gRPC: the
+`x-antd-error-code` trailer), so a 409 with one of those codes is not an
+`AlreadyExistsError`. `CloseGroupShortfallError` is not only for pointers: a
+daemon with the pointer API reports a close group that fell short on any call
+(a chunk store, say) this way, where older daemons sent a 500
+(`InternalError`). It is not a `ServiceUnavailableError`, so rescue it by name.
 
 ### Partial uploads
 
@@ -320,4 +398,5 @@ See the [examples/](examples/) directory:
 - `04_files.rb` — File upload and download
 - `06_private_data.rb` — Private data put/get
 - `07_external_signer.rb` — External-signer prepare/pay/finalize with a bounded partial-upload retry
+- `08_pointers.rb` — Create a pointer, update it, resolve it and check its finality. Run with `ANTD_POINTER_OWNER=<address>` (one of `pointer_keys`); `ANTD_BASE_URL` overrides the daemon URL. Each write pays
 - `09_manifests.rb` — Store two pieces of public data, build a manifest of them, print its link and entries, and decode the link with `resolve`. `ANTD_BASE_URL` overrides the daemon URL. The two uploads pay; the manifest calls do not

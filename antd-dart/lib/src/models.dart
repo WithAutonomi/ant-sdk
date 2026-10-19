@@ -1,3 +1,5 @@
+import 'errors.dart';
+
 /// Payment mode for upload operations.
 ///
 /// Controls how on-chain payments for stored chunks are bundled. [auto] is
@@ -683,4 +685,744 @@ class DownloadFrame {
     if (isProgress) return 'DownloadFrame.progress($progress)';
     return 'DownloadFrame.data(${data!.length} bytes)';
   }
+}
+
+// --- Pointers (ADR-0016 / ADR-0018 in ant-node) ---
+//
+// A pointer is a small, owner-signed, mutable reference. Its address is
+// derived from the owner's key and never changes; its target (a chunk, such
+// as a public file's data map, or another pointer) can be changed by the
+// owner. antd signs with owner keys it loaded at startup (`--pointer-keys`),
+// so a write names the pointer by its address (`owner`), never by a key.
+//
+// Every write pays, and every attempt pays again: do not retry a create,
+// update or transfer automatically.
+
+/// The counter of a pointer's final state, after a transfer or a freeze:
+/// 2^64 - 1. Nothing can replace a state at this counter.
+final BigInt pointerFinalCounter = (BigInt.one << 64) - BigInt.one;
+
+final _decimalCounter = RegExp(r'^[0-9]+$');
+
+/// Parses a pointer counter. The daemon sends counters as decimal strings on
+/// both transports, because a final state sits at 2^64 - 1
+/// ([pointerFinalCounter]): past a Dart `int`, which is signed 64-bit on the
+/// VM and exact only to 2^53 on the web. Counters are therefore [BigInt]s.
+///
+/// Throws an [InternalError] naming [field] unless [value] is a string of
+/// ASCII digits no greater than 2^64 - 1. A malformed counter is an error,
+/// never a zero.
+BigInt parsePointerCounter(String field, Object? value) {
+  if (value is String && _decimalCounter.hasMatch(value)) {
+    final counter = BigInt.parse(value);
+    if (counter <= pointerFinalCounter) return counter;
+  }
+  throw InternalError(
+      'invalid pointer $field "$value": expected a decimal u64');
+}
+
+/// An optional string the daemon leaves unset: `null` over REST, `""` over
+/// gRPC. Both read as `null`.
+String? _optionalString(Object? value) =>
+    value is String && value.isNotEmpty ? value : null;
+
+/// What a pointer's target is.
+enum PointerKind {
+  /// An immutable chunk, such as a public file's data map. The default.
+  chunk('chunk', 0),
+
+  /// Another pointer: a forwarding the owner can still change. Use
+  /// `pointerTransfer` to hand a pointer over for good.
+  pointer('pointer', 1);
+
+  /// The wire string the daemon expects (`chunk`, `pointer`).
+  final String wire;
+
+  /// The raw target tag the network stores (`0` chunk, `1` pointer).
+  final int tag;
+
+  const PointerKind(this.wire, this.tag);
+
+  /// The kind a raw target tag names, or `null` for a tag this SDK does not
+  /// know.
+  static PointerKind? fromTag(int tag) {
+    for (final kind in values) {
+      if (kind.tag == tag) return kind;
+    }
+    return null;
+  }
+}
+
+/// The state a pointer write stored.
+class PointerWriteResult {
+  /// The pointer's address (hex).
+  final String address;
+
+  /// The stored state's id (hex): the identifier it was paid against.
+  final String stateId;
+
+  /// The state's counter. A final state (a transfer) sits at
+  /// [pointerFinalCounter].
+  final BigInt counter;
+
+  const PointerWriteResult({
+    required this.address,
+    required this.stateId,
+    required this.counter,
+  });
+
+  /// Throws an [InternalError] if `counter` is not a decimal u64.
+  factory PointerWriteResult.fromJson(Map<String, dynamic> json) {
+    return PointerWriteResult(
+      address: json['address'] as String? ?? '',
+      stateId: json['state_id'] as String? ?? '',
+      counter: parsePointerCounter('counter', json['counter']),
+    );
+  }
+
+  @override
+  String toString() =>
+      'PointerWriteResult(address: $address, stateId: $stateId, counter: $counter)';
+}
+
+/// A pointer's current state, as the network serves it.
+class PointerRecord {
+  /// The pointer's address (hex).
+  final String address;
+
+  /// The owner's ML-DSA-65 public key (hex, 1,952 bytes). The address is
+  /// derived from it, so it is the proof of who owns the pointer.
+  final String owner;
+
+  /// The state's counter; [pointerFinalCounter] once the pointer is final.
+  final BigInt counter;
+
+  /// `"chunk"`, `"pointer"`, or `"unknown"` for a kind the daemon does not
+  /// know; [kindTag] carries the raw value either way.
+  final String kind;
+
+  /// The raw target tag (`0` chunk, `1` pointer).
+  final int kindTag;
+
+  /// The address the pointer points at (hex).
+  final String target;
+
+  /// The state's id (hex).
+  final String stateId;
+
+  /// The state is at the final counter: the pointer was handed over or
+  /// frozen, and nothing can replace it. `is_final` on the wire, since
+  /// `final` is a Dart keyword.
+  final bool isFinal;
+
+  /// The pointer this one was handed over to, when its final state is a
+  /// transfer; `null` otherwise.
+  final String? transferredTo;
+
+  const PointerRecord({
+    required this.address,
+    required this.owner,
+    required this.counter,
+    required this.kind,
+    required this.kindTag,
+    required this.target,
+    required this.stateId,
+    required this.isFinal,
+    this.transferredTo,
+  });
+
+  /// Throws an [InternalError] if `counter` is not a decimal u64.
+  factory PointerRecord.fromJson(Map<String, dynamic> json) {
+    return PointerRecord(
+      address: json['address'] as String? ?? '',
+      owner: json['owner'] as String? ?? '',
+      counter: parsePointerCounter('counter', json['counter']),
+      kind: json['kind'] as String? ?? '',
+      kindTag: (json['kind_tag'] as num?)?.toInt() ?? 0,
+      target: json['target'] as String? ?? '',
+      stateId: json['state_id'] as String? ?? '',
+      isFinal: json['is_final'] as bool? ?? false,
+      transferredTo: _optionalString(json['transferred_to']),
+    );
+  }
+
+  /// The target's kind, or `null` if this SDK does not know its tag.
+  PointerKind? get targetKind => PointerKind.fromTag(kindTag);
+
+  @override
+  String toString() => 'PointerRecord(address: $address, counter: $counter, '
+      'kind: $kind, target: $target, stateId: $stateId, isFinal: $isFinal, '
+      'transferredTo: $transferredTo)';
+}
+
+/// Where a chain of pointers ends (`pointerResolve`).
+class PointerTarget {
+  /// `"chunk"`, or `"unknown"` for a target kind the daemon does not know.
+  final String kind;
+
+  /// The raw target tag.
+  final int kindTag;
+
+  /// The address at the end of the chain (hex).
+  final String target;
+
+  const PointerTarget({
+    required this.kind,
+    required this.kindTag,
+    required this.target,
+  });
+
+  factory PointerTarget.fromJson(Map<String, dynamic> json) {
+    return PointerTarget(
+      kind: json['kind'] as String? ?? '',
+      kindTag: (json['kind_tag'] as num?)?.toInt() ?? 0,
+      target: json['target'] as String? ?? '',
+    );
+  }
+
+  /// The target's kind, or `null` if this SDK does not know its tag.
+  PointerKind? get targetKind => PointerKind.fromTag(kindTag);
+
+  @override
+  String toString() =>
+      'PointerTarget(kind: $kind, kindTag: $kindTag, target: $target)';
+}
+
+/// Where a pointer stands with respect to finality, as its whole close group
+/// reports it.
+///
+/// A sealed type, so a `switch` over it is exhaustive: [PointerOpen],
+/// [PointerSettling], [PointerUnconfirmed], [PointerFinal], [PointerForked],
+/// and [PointerFinalityUnknown] for a status a newer daemon may add.
+sealed class PointerFinalityStatus {
+  const PointerFinalityStatus();
+
+  /// Parses the daemon's wire string. One this SDK does not know is a
+  /// [PointerFinalityUnknown] carrying it.
+  factory PointerFinalityStatus.fromWire(String wire) {
+    switch (wire) {
+      case 'open':
+        return const PointerOpen();
+      case 'settling':
+        return const PointerSettling();
+      case 'unconfirmed':
+        return const PointerUnconfirmed();
+      case 'final':
+        return const PointerFinal();
+      case 'forked':
+        return const PointerForked();
+      default:
+        return PointerFinalityUnknown(wire);
+    }
+  }
+
+  /// The daemon's wire string for this status.
+  String get wire;
+
+  @override
+  bool operator ==(Object other) =>
+      other is PointerFinalityStatus &&
+      other.runtimeType == runtimeType &&
+      other.wire == wire;
+
+  @override
+  int get hashCode => Object.hash(runtimeType, wire);
+
+  @override
+  String toString() => wire;
+}
+
+/// No peer that answered holds a final state: the owner can still move the
+/// pointer. Rules a final state out only when every peer answered.
+final class PointerOpen extends PointerFinalityStatus {
+  const PointerOpen();
+
+  @override
+  String get wire => 'open';
+}
+
+/// One final state, not yet held by a majority: a transfer still spreading,
+/// or a write that fell short.
+final class PointerSettling extends PointerFinalityStatus {
+  const PointerSettling();
+
+  @override
+  String get wire => 'settling';
+}
+
+/// One final state held by a majority, but not every peer answered, so a
+/// rival could still be unseen. Ask again.
+final class PointerUnconfirmed extends PointerFinalityStatus {
+  const PointerUnconfirmed();
+
+  @override
+  String get wire => 'unconfirmed';
+}
+
+/// One final state held by a majority, every peer answered, no rival. The
+/// only status a recipient should rely on.
+final class PointerFinal extends PointerFinalityStatus {
+  const PointerFinal();
+
+  @override
+  String get wire => 'final';
+}
+
+/// The owner signed two or more different final states.
+final class PointerForked extends PointerFinalityStatus {
+  const PointerForked();
+
+  @override
+  String get wire => 'forked';
+}
+
+/// A status this SDK does not know (a newer daemon); [wire] carries it.
+final class PointerFinalityUnknown extends PointerFinalityStatus {
+  @override
+  final String wire;
+
+  const PointerFinalityUnknown(this.wire);
+}
+
+/// One final state, as a finality check reports it.
+class PointerFinalState {
+  /// The state's id (hex).
+  final String stateId;
+
+  /// `"chunk"`, `"pointer"` or `"unknown"`; [kindTag] is the raw value.
+  final String kind;
+
+  /// The raw target tag.
+  final int kindTag;
+
+  /// The address the state points at (hex).
+  final String target;
+
+  /// How many peers of the close group hold it.
+  final int holders;
+
+  /// The pointer the state hands this one over to, if it is a transfer.
+  final String? transferredTo;
+
+  const PointerFinalState({
+    required this.stateId,
+    required this.kind,
+    required this.kindTag,
+    required this.target,
+    required this.holders,
+    this.transferredTo,
+  });
+
+  factory PointerFinalState.fromJson(Map<String, dynamic> json) {
+    return PointerFinalState(
+      stateId: json['state_id'] as String? ?? '',
+      kind: json['kind'] as String? ?? '',
+      kindTag: (json['kind_tag'] as num?)?.toInt() ?? 0,
+      target: json['target'] as String? ?? '',
+      holders: (json['holders'] as num?)?.toInt() ?? 0,
+      transferredTo: _optionalString(json['transferred_to']),
+    );
+  }
+
+  @override
+  String toString() => 'PointerFinalState(stateId: $stateId, target: $target, '
+      'holders: $holders, transferredTo: $transferredTo)';
+}
+
+/// The whole close group's answer to a pointer finality check. Check it
+/// before relying on a transfer: only [isFinal] (status [PointerFinal]) means
+/// the transfer is beyond dispute.
+class PointerFinality {
+  /// The pointer's address (hex).
+  final String address;
+
+  /// Peers in the close group.
+  final int group;
+
+  /// Peers that answered.
+  final int answered;
+
+  /// Where the pointer stands.
+  final PointerFinalityStatus status;
+
+  /// [PointerOpen] only: the counter a read would return, if any state is
+  /// corroborated; `null` otherwise.
+  final BigInt? counter;
+
+  /// [PointerSettling], [PointerUnconfirmed] and [PointerFinal]: the one
+  /// final state seen.
+  final PointerFinalState? state;
+
+  /// [PointerForked] only: every final state seen, most-held first.
+  final List<PointerFinalState> states;
+
+  /// [PointerForked] only: the state a majority holds, which reads return.
+  final PointerFinalState? majority;
+
+  /// The pointer this one was handed over to, once that is beyond dispute
+  /// (status [PointerFinal]); `null` otherwise.
+  final String? transferredTo;
+
+  const PointerFinality({
+    required this.address,
+    required this.group,
+    required this.answered,
+    required this.status,
+    this.counter,
+    this.state,
+    this.states = const [],
+    this.majority,
+    this.transferredTo,
+  });
+
+  /// Throws an [InternalError] if `counter` is set but not a decimal u64.
+  factory PointerFinality.fromJson(Map<String, dynamic> json) {
+    final counter = json['counter'];
+    final state = json['state'];
+    final majority = json['majority'];
+    return PointerFinality(
+      address: json['address'] as String? ?? '',
+      group: (json['group'] as num?)?.toInt() ?? 0,
+      answered: (json['answered'] as num?)?.toInt() ?? 0,
+      status: PointerFinalityStatus.fromWire(json['status'] as String? ?? ''),
+      counter: counter == null ? null : parsePointerCounter('counter', counter),
+      state: state is Map<String, dynamic>
+          ? PointerFinalState.fromJson(state)
+          : null,
+      states: (json['states'] as List<dynamic>?)
+              ?.map(
+                  (e) => PointerFinalState.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
+      majority: majority is Map<String, dynamic>
+          ? PointerFinalState.fromJson(majority)
+          : null,
+      transferredTo: _optionalString(json['transferred_to']),
+    );
+  }
+
+  /// One final state, held by a majority, with every peer answering and no
+  /// rival seen.
+  bool get isFinal => status is PointerFinal;
+
+  @override
+  String toString() => 'PointerFinality(address: $address, status: $status, '
+      'answered: $answered/$group, counter: $counter, '
+      'transferredTo: $transferredTo)';
+}
+
+/// Whose pointer decides what an address resolves to, after following every
+/// transfer (`pointerController`).
+class PointerController {
+  /// The pointer whose owner now decides.
+  final String pointer;
+
+  /// Every pointer the address was handed over to, in order.
+  final List<String> transfers;
+
+  /// [pointer] is final without being handed over: nobody can move it.
+  final bool frozen;
+
+  const PointerController({
+    required this.pointer,
+    this.transfers = const [],
+    this.frozen = false,
+  });
+
+  factory PointerController.fromJson(Map<String, dynamic> json) {
+    return PointerController(
+      pointer: json['pointer'] as String? ?? '',
+      transfers: (json['transfers'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          const [],
+      frozen: json['frozen'] as bool? ?? false,
+    );
+  }
+
+  @override
+  String toString() =>
+      'PointerController(pointer: $pointer, transfers: $transfers, frozen: $frozen)';
+}
+
+/// What a transfer stored, and where the close group says it stands.
+class PointerTransferResult {
+  /// The transferred pointer's address (hex).
+  final String address;
+
+  /// The final state's id (hex).
+  final String stateId;
+
+  /// The close group's view once the write landed. `null` when that check
+  /// failed (see [finalityError]), which does not undo the transfer: it is
+  /// stored and final. Ask again with `pointerFinality`.
+  final PointerFinality? finality;
+
+  /// Why the finality check failed, when [finality] is `null`.
+  final String? finalityError;
+
+  const PointerTransferResult({
+    required this.address,
+    required this.stateId,
+    this.finality,
+    this.finalityError,
+  });
+
+  /// Throws an [InternalError] if the finality's `counter` is set but not a
+  /// decimal u64.
+  factory PointerTransferResult.fromJson(Map<String, dynamic> json) {
+    final finality = json['finality'];
+    return PointerTransferResult(
+      address: json['address'] as String? ?? '',
+      stateId: json['state_id'] as String? ?? '',
+      finality: finality is Map<String, dynamic>
+          ? PointerFinality.fromJson(finality)
+          : null,
+      finalityError: _optionalString(json['finality_error']),
+    );
+  }
+
+  @override
+  String toString() => 'PointerTransferResult(address: $address, '
+      'stateId: $stateId, finality: $finality, finalityError: $finalityError)';
+}
+
+/// The write a [PointerPrepareRequest] signs.
+enum PointerOp {
+  /// Create the pointer. Refused if it already exists.
+  create('create'),
+
+  /// Point the pointer at a new target, creating it if it does not exist.
+  update('update'),
+
+  /// Hand the pointer over for good to the recipient's pointer.
+  transfer('transfer');
+
+  /// The wire string the daemon expects.
+  final String wire;
+
+  const PointerOp(this.wire);
+}
+
+/// Asks antd to sign a pointer write with its loaded owner key and quote it
+/// for an external signer (`pointerPrepare`).
+class PointerPrepareRequest {
+  /// Address of the pointer to write.
+  final String owner;
+
+  /// The write to sign.
+  final PointerOp op;
+
+  /// Create and update: the address to point at.
+  final String? target;
+
+  /// Create and update: what [target] is.
+  final PointerKind? kind;
+
+  /// Transfer: the recipient's pointer, which must already exist.
+  final String? recipient;
+
+  /// Ask the daemon for the full signed quotes
+  /// ([PointerPrepareResult.signedQuotes]), for offline verification.
+  final bool includeSignedQuotes;
+
+  /// Create the pointer at [owner], pointing at [target].
+  const PointerPrepareRequest.create({
+    required this.owner,
+    required String this.target,
+    PointerKind this.kind = PointerKind.chunk,
+    this.includeSignedQuotes = false,
+  })  : op = PointerOp.create,
+        recipient = null;
+
+  /// Point the pointer at [owner] at [target], creating it if needed.
+  const PointerPrepareRequest.update({
+    required this.owner,
+    required String this.target,
+    PointerKind this.kind = PointerKind.chunk,
+    this.includeSignedQuotes = false,
+  })  : op = PointerOp.update,
+        recipient = null;
+
+  /// Hand the pointer at [owner] over to the pointer at [recipient], for
+  /// good. Irreversible once stored.
+  const PointerPrepareRequest.transfer({
+    required this.owner,
+    required String this.recipient,
+    this.includeSignedQuotes = false,
+  })  : op = PointerOp.transfer,
+        target = null,
+        kind = null;
+
+  /// The REST request body. `include_signed_quotes` is sent only when set.
+  Map<String, dynamic> toJson() => {
+        'owner': owner,
+        'op': op.wire,
+        if (target != null) 'target': target,
+        if (kind != null) 'kind': kind!.wire,
+        if (recipient != null) 'recipient': recipient,
+        if (includeSignedQuotes) 'include_signed_quotes': true,
+      };
+
+  @override
+  String toString() => 'PointerPrepareRequest(owner: $owner, op: ${op.wire}, '
+      'target: $target, kind: ${kind?.wire}, recipient: $recipient)';
+}
+
+/// One signed wave-batch quote from a prepare response, as opaque base64
+/// blobs. The same on REST and gRPC, whose bytes are base64-encoded to match.
+class SignedQuoteEntry {
+  /// Quote hash (hex with 0x prefix); matches the [PaymentInfo] entry.
+  final String quoteHash;
+
+  /// base64(msgpack) signed `PaymentQuote`. Opaque.
+  final String quote;
+
+  /// base64(msgpack) `StorageCommitment` sidecar the quote's commitment pin
+  /// resolves to; `null` for baseline quotes.
+  final String? commitmentSidecar;
+
+  const SignedQuoteEntry({
+    required this.quoteHash,
+    required this.quote,
+    this.commitmentSidecar,
+  });
+
+  factory SignedQuoteEntry.fromJson(Map<String, dynamic> json) {
+    return SignedQuoteEntry(
+      quoteHash: json['quote_hash'] as String? ?? '',
+      quote: json['quote'] as String? ?? '',
+      commitmentSidecar: _optionalString(json['commitment_sidecar']),
+    );
+  }
+
+  @override
+  String toString() => 'SignedQuoteEntry(quoteHash: $quoteHash)';
+}
+
+/// A pointer write signed by the daemon and quoted for an external signer.
+/// Pay [payments] with `payForQuotes()`, then call `pointerFinalize`.
+///
+/// While it awaits payment, other writes to the pointer throw a
+/// [ConflictError] until it is finalized or expires (the daemon's one-hour
+/// pending TTL).
+class PointerPrepareResult {
+  /// Pass back to `pointerFinalize`.
+  final String uploadId;
+
+  /// `"create"`, `"update"` or `"transfer"`.
+  final String op;
+
+  /// The pointer's address (hex).
+  final String address;
+
+  /// The signed state's id (hex).
+  final String stateId;
+
+  /// The signed state's counter.
+  final BigInt counter;
+
+  /// Always `"wave_batch"`: a pointer state is paid with one quote.
+  final String paymentType;
+
+  /// Per-quote payment entries for `payForQuotes()`.
+  final List<PaymentInfo> payments;
+
+  /// Total amount to pay (atto tokens, decimal string).
+  final String totalAmount;
+
+  /// Payment vault contract address.
+  final String paymentVaultAddress;
+
+  /// Payment token contract address.
+  final String paymentTokenAddress;
+
+  /// EVM RPC URL for submitting transactions.
+  final String rpcUrl;
+
+  /// The full signed quotes, when requested with
+  /// [PointerPrepareRequest.includeSignedQuotes]; empty otherwise.
+  final List<SignedQuoteEntry> signedQuotes;
+
+  const PointerPrepareResult({
+    required this.uploadId,
+    required this.op,
+    required this.address,
+    required this.stateId,
+    required this.counter,
+    this.paymentType = 'wave_batch',
+    this.payments = const [],
+    this.totalAmount = '',
+    this.paymentVaultAddress = '',
+    this.paymentTokenAddress = '',
+    this.rpcUrl = '',
+    this.signedQuotes = const [],
+  });
+
+  /// Throws an [InternalError] if `counter` is not a decimal u64.
+  factory PointerPrepareResult.fromJson(Map<String, dynamic> json) {
+    return PointerPrepareResult(
+      uploadId: json['upload_id'] as String? ?? '',
+      op: json['op'] as String? ?? '',
+      address: json['address'] as String? ?? '',
+      stateId: json['state_id'] as String? ?? '',
+      counter: parsePointerCounter('counter', json['counter']),
+      paymentType: json['payment_type'] as String? ?? 'wave_batch',
+      payments: (json['payments'] as List<dynamic>?)
+              ?.map((e) => PaymentInfo.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
+      totalAmount: json['total_amount'] as String? ?? '',
+      paymentVaultAddress: json['payment_vault_address'] as String? ?? '',
+      paymentTokenAddress: json['payment_token_address'] as String? ?? '',
+      rpcUrl: json['rpc_url'] as String? ?? '',
+      signedQuotes: (json['signed_quotes'] as List<dynamic>?)
+              ?.map((e) => SignedQuoteEntry.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
+    );
+  }
+
+  @override
+  String toString() => 'PointerPrepareResult(uploadId: $uploadId, op: $op, '
+      'address: $address, counter: $counter, totalAmount: $totalAmount)';
+}
+
+/// The state a pointer finalize stored.
+class PointerFinalizeResult {
+  /// The pointer's address (hex).
+  final String address;
+
+  /// The stored state's id (hex).
+  final String stateId;
+
+  /// The stored state's counter.
+  final BigInt counter;
+
+  /// Transfers only: where the close group says the transfer stands.
+  final PointerFinality? finality;
+
+  const PointerFinalizeResult({
+    required this.address,
+    required this.stateId,
+    required this.counter,
+    this.finality,
+  });
+
+  /// Throws an [InternalError] if a `counter` is not a decimal u64.
+  factory PointerFinalizeResult.fromJson(Map<String, dynamic> json) {
+    final finality = json['finality'];
+    return PointerFinalizeResult(
+      address: json['address'] as String? ?? '',
+      stateId: json['state_id'] as String? ?? '',
+      counter: parsePointerCounter('counter', json['counter']),
+      finality: finality is Map<String, dynamic>
+          ? PointerFinality.fromJson(finality)
+          : null,
+    );
+  }
+
+  @override
+  String toString() => 'PointerFinalizeResult(address: $address, '
+      'stateId: $stateId, counter: $counter, finality: $finality)';
 }

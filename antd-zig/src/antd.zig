@@ -20,6 +20,25 @@ pub const UploadCostEstimate = models.UploadCostEstimate;
 pub const PaymentInfo = models.PaymentInfo;
 pub const PrepareChunkResult = models.PrepareChunkResult;
 pub const FinalizeUploadResult = models.FinalizeUploadResult;
+pub const SignedQuoteEntry = models.SignedQuoteEntry;
+pub const PointerKind = models.PointerKind;
+pub const PointerOp = models.PointerOp;
+pub const PointerWriteOp = models.PointerWriteOp;
+pub const PointerTransferOp = models.PointerTransferOp;
+pub const PointerPrepareOptions = models.PointerPrepareOptions;
+pub const PointerKeys = models.PointerKeys;
+pub const PointerWriteResult = models.PointerWriteResult;
+pub const PointerRecord = models.PointerRecord;
+pub const PointerTarget = models.PointerTarget;
+pub const PointerFinalityStatus = models.PointerFinalityStatus;
+pub const PointerFinalState = models.PointerFinalState;
+pub const PointerFinality = models.PointerFinality;
+pub const PointerController = models.PointerController;
+pub const PointerTransferResult = models.PointerTransferResult;
+pub const PointerPrepareResult = models.PointerPrepareResult;
+pub const PointerFinalizeResult = models.PointerFinalizeResult;
+pub const pointer_final_counter = models.pointer_final_counter;
+pub const pointerAddressEql = models.pointerAddressEql;
 pub const AntdError = errors.AntdError;
 pub const ErrorInfo = errors.ErrorInfo;
 pub const errorForStatus = errors.errorForStatus;
@@ -570,6 +589,178 @@ pub const Client = struct {
         const resp = try self.doRequest(.POST, "/v1/files/cost", req_body) orelse return error.JsonError;
         defer self.allocator.free(resp);
         return json_helpers.parseCostEstimate(self.allocator, resp);
+    }
+
+    // --- Pointers (antd with the pointer API, after 0.15.0) ---
+    //
+    // A pointer is a small, owner-signed, mutable reference. Its address is
+    // derived from the owner's key and never changes; what it points at can
+    // be changed by the owner, and the owner can hand it over to another
+    // pointer for good (`pointerTransfer`). The daemon signs with owner keys
+    // it loaded at startup (`antd --pointer-keys`), so a write names the
+    // pointer by its address (`owner`); `pointerKeys` lists the pointers it
+    // can write.
+    //
+    // Every write pays, about the price of one chunk, and every attempt pays
+    // again. The SDK never retries a create, update, transfer or finalize,
+    // and callers should not either. Reads are free to retry; a read during
+    // an update or churn can fail with `error.CloseGroupShortfall`.
+    //
+    // Counters are `u64`, read from the daemon's decimal strings; a counter
+    // that is not a decimal u64 fails the call with `error.JsonError`.
+
+    /// The pointers this daemon holds owner keys for, via
+    /// GET /v1/pointers/keys. Only these can be written through it. The
+    /// caller frees the result with `deinit`.
+    pub fn pointerKeys(self: *Client) !PointerKeys {
+        const resp = try self.doRequest(.GET, "/v1/pointers/keys", null) orelse return error.JsonError;
+        defer self.allocator.free(resp);
+        return json_helpers.parsePointerKeys(self.allocator, resp);
+    }
+
+    /// Create the pointer at `owner`, pointing at `target`, paid by the
+    /// daemon wallet, via POST /v1/pointers. `owner` is the pointer's
+    /// address; the daemon must hold its key (`pointerKeys`).
+    ///
+    /// Pays once per call; never retry it automatically. Returns
+    /// `error.AlreadyExists` if the pointer exists, refused before paying;
+    /// use `pointerUpdate` instead.
+    pub fn pointerCreate(self: *Client, owner: []const u8, target: []const u8, kind: PointerKind) !PointerWriteResult {
+        return self.pointerWrite("/v1/pointers", owner, target, kind);
+    }
+
+    /// Point the pointer at `owner` at `target`, paid by the daemon wallet,
+    /// via POST /v1/pointers/update. A pointer that does not exist yet is
+    /// created at counter 0.
+    ///
+    /// Pays once per call; never retry it automatically. Returns
+    /// `error.PointerFinal` if the pointer has been transferred or frozen,
+    /// and `error.Conflict` while a prepared write to it awaits payment, both
+    /// refused before paying.
+    pub fn pointerUpdate(self: *Client, owner: []const u8, target: []const u8, kind: PointerKind) !PointerWriteResult {
+        return self.pointerWrite("/v1/pointers/update", owner, target, kind);
+    }
+
+    fn pointerWrite(self: *Client, path: []const u8, owner: []const u8, target: []const u8, kind: PointerKind) !PointerWriteResult {
+        const req_body = try json_helpers.buildPointerWriteBody(self.allocator, owner, target, kind);
+        defer self.allocator.free(req_body);
+        const resp = try self.doRequest(.POST, path, req_body) orelse return error.JsonError;
+        defer self.allocator.free(resp);
+        return json_helpers.parsePointerWriteResult(self.allocator, resp);
+    }
+
+    /// Hand the pointer at `owner` over to the pointer at `recipient`, for
+    /// good, paid by the daemon wallet, via POST /v1/pointers/transfer.
+    /// Readers of the address are redirected to the recipient's pointer,
+    /// which only its owner can move; the address stays the same.
+    /// Irreversible once stored.
+    ///
+    /// Pays once per call; never retry it automatically. Refused before
+    /// paying if the pointer is already final (`error.PointerFinal`), if
+    /// `recipient` does not exist or leads back (`error.BadRequest`), or if
+    /// not every peer of the close group answered
+    /// (`error.CloseGroupShortfall`). The result's `finality` is `null` when
+    /// the check after the write failed; the transfer is stored either way.
+    pub fn pointerTransfer(self: *Client, owner: []const u8, recipient: []const u8) !PointerTransferResult {
+        const req_body = try json_helpers.buildPointerTransferBody(self.allocator, owner, recipient);
+        defer self.allocator.free(req_body);
+        const resp = try self.doRequest(.POST, "/v1/pointers/transfer", req_body) orelse return error.JsonError;
+        defer self.allocator.free(resp);
+        return json_helpers.parsePointerTransferResult(self.allocator, resp);
+    }
+
+    /// Read the pointer at `address`, via GET /v1/pointers/{address}.
+    /// Returns `error.NotFound` if there is none.
+    pub fn pointerGet(self: *Client, address: []const u8) !PointerRecord {
+        const resp = try self.pointerRead(address, "");
+        defer self.allocator.free(resp);
+        return json_helpers.parsePointerRecord(self.allocator, resp);
+    }
+
+    /// Follow a chain of pointers from `address` to the target at its end
+    /// (forwardings and transfers alike, at most 16 hops), via
+    /// GET /v1/pointers/{address}/resolve. Returns `error.NotFound` if a
+    /// pointer on the chain does not exist.
+    pub fn pointerResolve(self: *Client, address: []const u8) !PointerTarget {
+        const resp = try self.pointerRead(address, "/resolve");
+        defer self.allocator.free(resp);
+        return json_helpers.parsePointerTarget(self.allocator, resp);
+    }
+
+    /// Ask the whole close group where the pointer at `address` stands with
+    /// respect to finality, via GET /v1/pointers/{address}/finality. Check it
+    /// before relying on a transfer: only `status == .final` (`isFinal()`)
+    /// means one final state, held by a majority, with no rival seen.
+    pub fn pointerFinality(self: *Client, address: []const u8) !PointerFinality {
+        const resp = try self.pointerRead(address, "/finality");
+        defer self.allocator.free(resp);
+        return json_helpers.parsePointerFinality(self.allocator, resp);
+    }
+
+    /// Follow the transfers of the pointer at `address` to the pointer whose
+    /// owner now decides what it resolves to, via
+    /// GET /v1/pointers/{address}/controller.
+    pub fn pointerController(self: *Client, address: []const u8) !PointerController {
+        const resp = try self.pointerRead(address, "/controller");
+        defer self.allocator.free(resp);
+        return json_helpers.parsePointerController(self.allocator, resp);
+    }
+
+    fn pointerRead(self: *Client, address: []const u8, suffix: []const u8) ![]const u8 {
+        const path = try std.fmt.allocPrint(self.allocator, "/v1/pointers/{s}{s}", .{ address, suffix });
+        defer self.allocator.free(path);
+        const resp = try self.doRequest(.GET, path, null) orelse return error.JsonError;
+        return resp;
+    }
+
+    /// Have the daemon sign `op` on the pointer at `owner` with its loaded
+    /// key and quote it for an external signer, via
+    /// POST /v1/pointers/prepare. Pay the result's `payments` with
+    /// `payForQuotes()`, then call `pointerFinalize`. Needs no daemon wallet
+    /// and pays nothing itself.
+    ///
+    /// Every check the daemon-wallet methods make before paying is made here,
+    /// before anything is quoted. While the prepared write awaits payment,
+    /// other writes to the pointer return `error.Conflict` until it is
+    /// finalized or expires (one hour).
+    pub fn pointerPrepare(self: *Client, owner: []const u8, op: PointerOp) !PointerPrepareResult {
+        return self.pointerPrepareWithOptions(owner, op, .{});
+    }
+
+    /// `pointerPrepare` with explicit options: `include_signed_quotes`
+    /// populates the result's `signed_quotes`.
+    pub fn pointerPrepareWithOptions(self: *Client, owner: []const u8, op: PointerOp, options: PointerPrepareOptions) !PointerPrepareResult {
+        const req_body = try json_helpers.buildPointerPrepareBody(self.allocator, owner, op, options);
+        defer self.allocator.free(req_body);
+        const resp = try self.doRequest(.POST, "/v1/pointers/prepare", req_body) orelse return error.JsonError;
+        defer self.allocator.free(resp);
+        return json_helpers.parsePointerPrepareResult(self.allocator, resp);
+    }
+
+    /// Store a prepared pointer write once its external signer has paid, via
+    /// POST /v1/pointers/finalize.
+    ///
+    /// Parameters:
+    ///   - `upload_id`: the `upload_id` from `pointerPrepare`.
+    ///   - `tx_hashes_json`: the quote-hash -> tx-hash map as a JSON object
+    ///     string, exactly as for `finalizeChunkUpload`; the SDK wraps it into
+    ///     the `{"upload_id","tx_hashes"}` request and returns
+    ///     `error.JsonError` before any request when it is not a JSON object.
+    ///
+    /// The SDK never retries it. A write that falls short after payment
+    /// returns `error.CloseGroupShortfall` with `getLastError().retryable`
+    /// true: the daemon kept the paid state under the same `upload_id`, and
+    /// calling this again with the same `upload_id` stores it against the
+    /// same payment (`tx_hashes_json` is then ignored). Bound that loop; the
+    /// session expires with the daemon's one-hour pending TTL. A finalize
+    /// without the payment's hashes is `error.BadRequest` and keeps the
+    /// session, so it can be corrected.
+    pub fn pointerFinalize(self: *Client, upload_id: []const u8, tx_hashes_json: []const u8) !PointerFinalizeResult {
+        const req_body = try json_helpers.buildPointerFinalizeBody(self.allocator, upload_id, tx_hashes_json);
+        defer self.allocator.free(req_body);
+        const resp = try self.doRequest(.POST, "/v1/pointers/finalize", req_body) orelse return error.JsonError;
+        defer self.allocator.free(resp);
+        return json_helpers.parsePointerFinalizeResult(self.allocator, resp);
     }
 };
 

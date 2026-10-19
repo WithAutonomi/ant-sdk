@@ -639,7 +639,7 @@ paths:
       operationId: buildManifest
       summary: Build a .ant manifest from DataMaps and public addresses
       description: >-
-        Builds an ADR-0006 manifest (added in antd 0.16.0) through ant-core:
+        Builds an ADR-0006 manifest (added in the antd release after 0.15.0) through ant-core:
         validation against the portable path rules, collision checks, sorting
         by effective name and the deterministic encoding all come from
         ant-core, so the same inputs give the ant CLI's exact bytes. Nothing
@@ -686,7 +686,7 @@ paths:
       operationId: decodeManifest
       summary: Decode a .ant manifest, manifest link, file link or address
       description: >-
-        Decodes an ADR-0006 manifest (added in antd 0.16.0), enforcing its
+        Decodes an ADR-0006 manifest (added in the antd release after 0.15.0), enforcing its
         size (64 MiB), entry (100,000) and depth limits and the portable path
         rules. Give manifest (base64 .ant bytes) or link (ant://manifest/...,
         ant://<address>, or a bare 64-hex address; a file link is reported as

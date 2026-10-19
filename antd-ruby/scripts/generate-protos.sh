@@ -15,7 +15,7 @@ set -euo pipefail
 GRPC_TOOLS_VERSION="1.84.0"
 
 # The antd/proto/antd/v1 files this SDK ships stubs for.
-PROTOS=(chunks common data files health manifests upload wallet)
+PROTOS=(chunks common data files health manifests pointers upload wallet)
 
 SDK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SDK_DIR"
