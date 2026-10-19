@@ -17,7 +17,7 @@ antd-client = "0.3"
 
 ## Compatibility
 
-This crate talks to a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon; it does not join the network itself. Rust 1.82+. The byte-range methods need antd 0.15.0 or later and the pointer methods need the antd release after 0.15.0, the first with pointers; the rest of the API works with antd 0.14.x. The gRPC client code is pre-generated and committed, so consumers need neither `protoc` nor the daemon's `.proto` files. For a daemon-less client see the `ant-ffi` crate in this repository.
+This crate talks to a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon; it does not join the network itself. Rust 1.82+. The byte-range methods need antd 0.15.0 or later and the pointer and manifest methods need the antd release after 0.15.0, the first with them; the rest of the API works with antd 0.14.x. The gRPC client code is pre-generated and committed, so consumers need neither `protoc` nor the daemon's `.proto` files. For a daemon-less client see the `ant-ffi` crate in this repository.
 
 ## Quick Start
 
@@ -128,6 +128,27 @@ transfer) sits at `u64::MAX`.
 | `pointer_prepare(owner, op)` / `pointer_prepare_with_options(owner, op, opts)` | External signer: the daemon signs `PointerOp::Create`, `Update` or `Transfer` with its key and quotes it — returns `PointerPrepareResult` (wave-batch `payments` for `payForQuotes()`). Needs no daemon wallet. Other writes to the pointer answer `Conflict` until it is finalized or expires |
 | `pointer_finalize(upload_id, tx_hashes)` | External signer: store the prepared write once paid — returns `PointerFinalizeResult`. A write that falls short after payment returns `CloseGroupShortfall { retryable: true }`: repeat the same call to store it against the same payment |
 
+### Manifests
+
+A manifest (ADR-0006) is a `.ant` file, or an `ant://manifest/` link, that lists a set of files,
+each with an optional path and size and either an embedded DataMap (the manifest is then the key
+to the file) or a public file's DataMap address. The daemon builds and decodes manifests through
+ant-core, so nothing here re-implements the format. Nothing is uploaded or paid for. A build (its
+root-embedding policy) and a resolving decode read from the network, so they can time out;
+retrying them is safe. These methods need the antd release after 0.15.0.
+
+| Method | Description |
+|--------|-------------|
+| `build_manifest(entries)` / `build_manifest_with_options(entries, opts)` | Build a manifest from `ManifestEntryInput`s — returns `BuiltManifest` (`manifest`: the `.ant` bytes; `link`, only when it fits 1,500 bytes; `entries`, sorted by effective name). Each entry sets exactly one of `data_map` (`ManifestEntryInput::embedded(hex)`) or `address` (`ManifestEntryInput::public(hex)`), with an optional `path` and `size`; both or neither is `BadRequest` before anything is sent, worded as the daemon words it (`1 invalid entries: entries[0]: ...`). `BuildManifestOptions` has `name`, `torrent_info_hashes` and `keep_shrunk_data_maps`; the default embeds roots |
+| `decode_manifest(bytes, resolve)` | Decode `.ant` bytes — returns `DecodedManifest` (`source`, `name`, `torrent_info_hash_v1`/`_v2`, `entries`). With `resolve`, the daemon fetches each entry's DataMap to report its `exact_size`; one entry's failure is that entry's `error`, not a failed call |
+| `decode_manifest_link(link, resolve)` | Decode an `ant://` manifest link, a file link or a bare address. A file link or address is one public entry with no path, `source` `"file_link"` |
+
+`ManifestEntryInfo` has `effective_name`, `path`, `size`, `kind` (`"embedded"` or `"public"`),
+`content_address`, `data_map` (decode only; `None` for public entries), `exact_size` and `error`.
+Sizes are `Option<u64>`: unset is `None`, never `0`. Both clients take and return the raw `.ant`
+bytes; REST's base64 never reaches the caller. An invalid entry or input is `BadRequest`, with the
+daemon's message naming `entries[i]`, over gRPC too.
+
 ## gRPC Transport
 
 The SDK also provides a gRPC client with the same async methods. It connects to the
@@ -162,12 +183,16 @@ the `Grpc` error variant, except the pointer and close-group errors, which the d
 which is a partial store and maps to `AntdError::PartialUpload`; any other `ABORTED` stays
 the generic `Grpc` error (see [Error Handling](#error-handling)). Likewise an `OUT_OF_RANGE`
 from a range method is `AntdError::RangeNotSatisfiable`, and stays `Grpc` elsewhere (tonic
-also uses that code for a local message-size error).
+also uses that code for a local message-size error), and an `INVALID_ARGUMENT` from any call
+is `AntdError::BadRequest`, as the REST 400 is.
 
 `GrpcClient::connect` decodes responses up to `DEFAULT_MAX_RECV_MESSAGE_BYTES` (32 MiB,
 sized so a full wave-batch prepare with `include_signed_quotes` fits; tonic's own 4 MiB
 default would reject it with an `OutOfRange` status). Use
 `GrpcClient::connect_with_max_message_size(endpoint, bytes)` to change the ceiling.
+The manifest methods have their own: a manifest alone can be 64 MiB, so `ManifestService`
+decodes responses up to 256 MiB (or the connect ceiling, if that is higher) and sends requests
+up to the daemon's 100 MiB limit.
 
 > **Note:** Wallet operations (address, balance, approve) and payment_mode are available via REST only.
 
@@ -188,7 +213,7 @@ match client.data_get_public("some_address").await {
 
 | Error Variant | HTTP Status | When |
 |--------------|-------------|------|
-| `BadRequest` | 400 | Invalid parameters |
+| `BadRequest` | 400 / gRPC `INVALID_ARGUMENT` | Invalid parameters |
 | `Payment` | 402 | Insufficient funds |
 | `NotFound` | 404 | Resource not found |
 | `AlreadyExists` | 409 | Resource exists |
@@ -273,6 +298,15 @@ match client.finalize_upload(&upload_id, &tx_hashes).await {
 }
 ```
 
+### Upgrading from 0.3.x: gRPC `INVALID_ARGUMENT` is `BadRequest`
+
+Every `GrpcClient` call now maps a gRPC `INVALID_ARGUMENT` status to
+`AntdError::BadRequest(message)`, as a REST 400 always has. It used to arrive as
+`AntdError::Grpc(status)`, so an arm that matched `Grpc` and checked for
+`tonic::Code::InvalidArgument` no longer sees it: match `BadRequest` instead. A status the daemon
+tags with `x-antd-error-code` still maps to its typed variant, but only when the tag agrees with
+the status code; an `INVALID_ARGUMENT` carrying a tag for another code is a `BadRequest`.
+
 ### Upgrading from 0.3.x: pointer error variants
 
 The pointer methods bring four new `AntdError` variants: `PointerFinal`, `PointerForked`,
@@ -280,7 +314,8 @@ The pointer methods bring four new `AntdError` variants: `PointerFinal`, `Pointe
 `#[non_exhaustive]`, so a `match` without a catch-all arm stops compiling until it handles them.
 `CloseGroupShortfall` is not only for pointers: a daemon with the pointer API reports a close
 group that fell short on any call (a chunk store, say) as `503 CLOSE_GROUP_SHORTFALL`, which an
-older daemon sent as a 500, read as `AntdError::Internal`.
+older daemon sent as a 500, read as `AntdError::Internal`. The manifest methods, also new, add
+no variants.
 
 ### Upgrading from 0.2.x: range errors are a new error variant
 
@@ -325,6 +360,7 @@ See the [examples/](examples/) directory:
 - `07-external-signer` — Prepare / pay externally / finalize, with a bounded retry on `PartialUpload`
 - `08-grpc` — gRPC transport (instead of REST)
 - `09-pointers` — Create, update, read and resolve a pointer, then check its finality (needs `ANTD_POINTER_OWNER`; each write pays)
+- `10-manifests` — Build a manifest of two public uploads, then decode its link with exact sizes (the uploads pay; the manifest calls do not)
 
 Run an example:
 

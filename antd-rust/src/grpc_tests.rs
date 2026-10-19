@@ -1276,15 +1276,12 @@ async fn test_grpc_error_not_found() {
 }
 
 #[tokio::test]
-async fn test_grpc_error_invalid_argument() {
+async fn test_grpc_error_invalid_argument_is_bad_request() {
     let client = start_error_server(tonic::Code::InvalidArgument, "invalid data").await;
     let err = client.health().await.unwrap_err();
     match err {
-        AntdError::Grpc(status) => {
-            assert_eq!(status.code(), tonic::Code::InvalidArgument);
-            assert_eq!(status.message(), "invalid data");
-        }
-        other => panic!("expected AntdError::Grpc, got: {other:?}"),
+        AntdError::BadRequest(msg) => assert_eq!(msg, "invalid data"),
+        other => panic!("expected AntdError::BadRequest, got: {other:?}"),
     }
 }
 
@@ -2185,4 +2182,22 @@ fn test_grpc_tagged_statuses_map_only_when_tag_and_code_agree() {
         };
         assert_eq!(got, want, "{shown}");
     }
+}
+
+/// A tag that disagrees with the status code is not trusted: an
+/// `INVALID_ARGUMENT` carrying a pointer tag is still a plain bad request,
+/// and a tagged status on its own code still maps to the typed variant.
+#[test]
+fn test_grpc_invalid_argument_ignores_a_disagreeing_tag() {
+    let mut status = tonic::Status::invalid_argument("nope");
+    status
+        .metadata_mut()
+        .insert("x-antd-error-code", "POINTER_FINAL".parse().unwrap());
+    assert!(matches!(AntdError::from(status), AntdError::BadRequest(m) if m == "nope"));
+
+    let mut status = tonic::Status::failed_precondition("frozen");
+    status
+        .metadata_mut()
+        .insert("x-antd-error-code", "POINTER_FINAL".parse().unwrap());
+    assert!(matches!(AntdError::from(status), AntdError::PointerFinal(m) if m == "frozen"));
 }

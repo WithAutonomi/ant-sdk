@@ -174,7 +174,7 @@ impl Client {
         format!("{}{}", self.base_url, path)
     }
 
-    async fn do_json(
+    pub(crate) async fn do_json(
         &self,
         method: reqwest::Method,
         path: &str,

@@ -68,3 +68,7 @@ path = "examples/08-grpc.rs"
 [[example]]
 name = "09-pointers"
 path = "examples/09-pointers.rs"
+
+[[example]]
+name = "10-manifests"
+path = "examples/10-manifests.rs"
