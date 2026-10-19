@@ -34,7 +34,7 @@ partial class Program
             // Not part of "all": it needs the antd release after 0.15.0.
             case "9" or "manifests": await Example09_Manifests(); break;
             default:
-                Console.WriteLine($"Unknown example: {example}. Use 1-8, 'pointers' or 'all'.");
+                Console.WriteLine($"Unknown example: {example}. Use 1-9, 'pointers', 'manifests' or 'all'.");
                 break;
         }
     }
