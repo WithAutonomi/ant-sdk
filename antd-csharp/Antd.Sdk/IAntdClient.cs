@@ -4,7 +4,7 @@ namespace Antd.Sdk;
 /// Common interface for both REST (<see cref="AntdRestClient"/>) and gRPC
 /// (<see cref="AntdGrpcClient"/>) antd clients.
 /// </summary>
-public interface IAntdClient : IDisposable, IAsyncDisposable
+public partial interface IAntdClient : IDisposable, IAsyncDisposable
 {
     // Health
     Task<HealthStatus> HealthAsync();
