@@ -690,8 +690,10 @@ pub fn parseErrorMessage(allocator: Allocator, body: []const u8) ?[]const u8 {
 /// Structured fields of a daemon error body
 /// `{"error":"...","code":"...",...}`. `code` is empty when the body carried
 /// none. The chunk counts and `retryable` are sent only with
-/// `code: "PARTIAL_UPLOAD"` (`retryable` by antd >= 0.14.0); they, and
-/// `retention_known`, read zero / false otherwise.
+/// `code: "PARTIAL_UPLOAD"` (`retryable` by antd >= 0.14.0), and `retryable`
+/// also with `code: "CLOSE_GROUP_SHORTFALL"` from a pointer finalize that
+/// kept the paid state; they, and `retention_known`, read zero / false
+/// otherwise.
 pub const ErrorBody = struct {
     message: []const u8,
     code: []const u8,
@@ -730,7 +732,10 @@ pub const ErrorBody = struct {
 /// "PARTIAL_UPLOAD". A count converts only from a JSON non-negative integer
 /// below 2^64 and reads as 0 otherwise; `retryable` is true only for the
 /// JSON boolean `true`, and `retention_known` only when `retryable` is a
-/// JSON boolean (either value). A malformed field never fails the parse.
+/// JSON boolean (either value). With `code: "CLOSE_GROUP_SHORTFALL"` only
+/// `retryable` is read, true only for the JSON boolean `true`; the counts
+/// and `retention_known` stay zero / false. A malformed field never fails
+/// the parse.
 pub fn parseErrorBody(allocator: Allocator, body: []const u8) ?ErrorBody {
     const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch return null;
     defer parsed.deinit();
@@ -747,6 +752,16 @@ pub fn parseErrorBody(allocator: Allocator, body: []const u8) ?ErrorBody {
         allocator.free(message);
         return null;
     };
+
+    if (std.mem.eql(u8, code, errors.close_group_shortfall_code)) {
+        // Present, and true, only on a pointer finalize that kept the paid
+        // state; anything else reads as not retained.
+        const retryable = switch (obj.get("retryable") orelse .null) {
+            .bool => |b| b,
+            else => false,
+        };
+        return .{ .message = message, .code = code, .retryable = retryable };
+    }
 
     if (!std.mem.eql(u8, code, errors.partial_upload_code)) {
         return .{ .message = message, .code = code };
@@ -768,4 +783,524 @@ pub fn parseErrorBody(allocator: Allocator, body: []const u8) ?ErrorBody {
         .retryable = retryable orelse false,
         .retention_known = retryable != null,
     };
+}
+
+// --- Pointers ---
+//
+// Counters arrive as decimal strings (a final state sits at 2^64 - 1) and
+// are read into a `u64`; anything that is not a decimal u64 fails the parse
+// with `error.JsonError` rather than reading as 0. An unset value is JSON
+// `null` (`counter`, `state`, `majority`, `transferred_to`,
+// `finality_error`) and reads as Zig `null`; so does an empty string.
+
+/// Parse a pointer counter: one or more ASCII digits, at most 2^64 - 1.
+/// `std.fmt.parseInt` alone would also take a sign and `_` separators, so the
+/// digits are checked first. Returns `error.JsonError` for anything else.
+pub fn parsePointerCounter(s: []const u8) error{JsonError}!u64 {
+    if (s.len == 0) return error.JsonError;
+    for (s) |c| {
+        if (!std.ascii.isDigit(c)) return error.JsonError;
+    }
+    return std.fmt.parseInt(u64, s, 10) catch error.JsonError;
+}
+
+/// A required counter: a JSON string holding a decimal u64.
+fn pointerCounterField(obj: std.json.ObjectMap, key: []const u8) error{JsonError}!u64 {
+    return switch (obj.get(key) orelse .null) {
+        .string => |s| parsePointerCounter(s),
+        else => error.JsonError,
+    };
+}
+
+/// An optional counter: `null`, missing or `""` read as `null`; a string must
+/// hold a decimal u64; any other JSON type fails the parse.
+fn optionalPointerCounterField(obj: std.json.ObjectMap, key: []const u8) error{JsonError}!?u64 {
+    return switch (obj.get(key) orelse .null) {
+        .null => null,
+        .string => |s| if (s.len == 0) null else try parsePointerCounter(s),
+        else => error.JsonError,
+    };
+}
+
+/// An optional string, owned: a non-empty JSON string, or `null` for JSON
+/// `null`, a missing key, `""` or any other type.
+fn optionalStringField(allocator: Allocator, obj: std.json.ObjectMap, key: []const u8) !?[]const u8 {
+    return switch (obj.get(key) orelse .null) {
+        .string => |s| if (s.len == 0) null else try allocator.dupe(u8, s),
+        else => null,
+    };
+}
+
+/// A required string, owned; `""` when missing or not a string.
+fn stringField(allocator: Allocator, obj: std.json.ObjectMap, key: []const u8) ![]const u8 {
+    return dupeString(allocator, obj.get(key) orelse .null);
+}
+
+fn boolField(obj: std.json.ObjectMap, key: []const u8) bool {
+    return switch (obj.get(key) orelse .null) {
+        .bool => |b| b,
+        else => false,
+    };
+}
+
+/// The raw target tag, or `pointer_unknown_kind_tag` when it is missing or
+/// not an integer in 0..255.
+fn kindTagField(obj: std.json.ObjectMap) u8 {
+    return switch (obj.get("kind_tag") orelse .null) {
+        .integer => |n| std.math.cast(u8, n) orelse models.pointer_unknown_kind_tag,
+        else => models.pointer_unknown_kind_tag,
+    };
+}
+
+/// A peer count; one past `u32` reads as `maxInt(u32)`, a malformed one as 0.
+fn u32Field(obj: std.json.ObjectMap, key: []const u8) u32 {
+    return std.math.cast(u32, dupeU64(obj.get(key) orelse .null)) orelse std.math.maxInt(u32);
+}
+
+fn rootObject(value: std.json.Value) error{JsonError}!std.json.ObjectMap {
+    return switch (value) {
+        .object => |o| o,
+        else => error.JsonError,
+    };
+}
+
+/// Build a `POST /v1/pointers` or `POST /v1/pointers/update` request body:
+/// `{"owner":"...","target":"...","kind":"chunk"|"pointer"}`.
+pub fn buildPointerWriteBody(allocator: Allocator, owner: []const u8, target: []const u8, kind: models.PointerKind) ![]const u8 {
+    return buildJsonBody(allocator, &.{
+        .{ .key = "owner", .value = .{ .string = owner } },
+        .{ .key = "target", .value = .{ .string = target } },
+        .{ .key = "kind", .value = .{ .string = kind.wire() } },
+    });
+}
+
+/// Build a `POST /v1/pointers/transfer` request body:
+/// `{"owner":"...","recipient":"..."}`.
+pub fn buildPointerTransferBody(allocator: Allocator, owner: []const u8, recipient: []const u8) ![]const u8 {
+    return buildJsonBody(allocator, &.{
+        .{ .key = "owner", .value = .{ .string = owner } },
+        .{ .key = "recipient", .value = .{ .string = recipient } },
+    });
+}
+
+/// Build a `POST /v1/pointers/prepare` request body:
+/// `{"owner","op","target","kind"}` for a create or update,
+/// `{"owner","op","recipient"}` for a transfer, plus
+/// `"include_signed_quotes":true` only when asked for.
+pub fn buildPointerPrepareBody(
+    allocator: Allocator,
+    owner: []const u8,
+    op: models.PointerOp,
+    options: models.PointerPrepareOptions,
+) ![]const u8 {
+    // ObjectMap keeps insertion order, so the serialised field order is fixed.
+    var body = std.json.ObjectMap.init(allocator);
+    defer body.deinit();
+    try body.put("owner", .{ .string = owner });
+    try body.put("op", .{ .string = op.wire() });
+    switch (op) {
+        .create, .update => |w| {
+            try body.put("target", .{ .string = w.target });
+            try body.put("kind", .{ .string = w.kind.wire() });
+        },
+        .transfer => |t| try body.put("recipient", .{ .string = t.recipient }),
+    }
+    if (options.include_signed_quotes) {
+        try body.put("include_signed_quotes", .{ .bool = true });
+    }
+    return std.json.stringifyAlloc(allocator, std.json.Value{ .object = body }, .{});
+}
+
+/// Build a `POST /v1/pointers/finalize` request body:
+/// `{"upload_id":"...","tx_hashes":{...}}`. `tx_hashes_json` follows the
+/// same contract as in `buildFinalizeUploadBody`: a JSON object string
+/// mapping quote_hash to tx_hash, validated before it is embedded
+/// (`error.JsonError` for invalid JSON or a non-object).
+pub fn buildPointerFinalizeBody(allocator: Allocator, upload_id: []const u8, tx_hashes_json: []const u8) ![]const u8 {
+    return buildFinalizeBody(allocator, upload_id, tx_hashes_json, .{ .store_data_map = null });
+}
+
+/// Parse a `GET /v1/pointers/keys` response: `{"keys":[{"address":"..."}]}`.
+pub fn parsePointerKeys(allocator: Allocator, body: []const u8) !models.PointerKeys {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
+        return error.JsonError;
+    defer parsed.deinit();
+    const obj = try rootObject(parsed.value);
+
+    var list = std.ArrayList([]const u8).init(allocator);
+    errdefer {
+        for (list.items) |a| allocator.free(a);
+        list.deinit();
+    }
+    switch (obj.get("keys") orelse .null) {
+        .array => |arr| for (arr.items) |item| {
+            const key = switch (item) {
+                .object => |o| o,
+                else => continue,
+            };
+            const address = try stringField(allocator, key, "address");
+            list.append(address) catch |err| {
+                allocator.free(address);
+                return err;
+            };
+        },
+        else => {},
+    }
+    return .{ .addresses = try list.toOwnedSlice() };
+}
+
+/// Parse a pointer create / update response: `{"address","state_id","counter"}`.
+pub fn parsePointerWriteResult(allocator: Allocator, body: []const u8) !models.PointerWriteResult {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
+        return error.JsonError;
+    defer parsed.deinit();
+    const obj = try rootObject(parsed.value);
+
+    const counter = try pointerCounterField(obj, "counter");
+    const address = try stringField(allocator, obj, "address");
+    errdefer allocator.free(address);
+    const state_id = try stringField(allocator, obj, "state_id");
+    return .{ .address = address, .state_id = state_id, .counter = counter };
+}
+
+/// Parse a `GET /v1/pointers/{addr}` response into a PointerRecord.
+pub fn parsePointerRecord(allocator: Allocator, body: []const u8) !models.PointerRecord {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
+        return error.JsonError;
+    defer parsed.deinit();
+    const obj = try rootObject(parsed.value);
+
+    const counter = try pointerCounterField(obj, "counter");
+    const address = try stringField(allocator, obj, "address");
+    errdefer allocator.free(address);
+    const owner = try stringField(allocator, obj, "owner");
+    errdefer allocator.free(owner);
+    const kind = try stringField(allocator, obj, "kind");
+    errdefer allocator.free(kind);
+    const target = try stringField(allocator, obj, "target");
+    errdefer allocator.free(target);
+    const state_id = try stringField(allocator, obj, "state_id");
+    errdefer allocator.free(state_id);
+    const transferred_to = try optionalStringField(allocator, obj, "transferred_to");
+
+    return .{
+        .address = address,
+        .owner = owner,
+        .counter = counter,
+        .kind = kind,
+        .kind_tag = kindTagField(obj),
+        .target = target,
+        .state_id = state_id,
+        .is_final = boolField(obj, "is_final"),
+        .transferred_to = transferred_to,
+    };
+}
+
+/// Parse a `GET /v1/pointers/{addr}/resolve` response into a PointerTarget.
+pub fn parsePointerTarget(allocator: Allocator, body: []const u8) !models.PointerTarget {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
+        return error.JsonError;
+    defer parsed.deinit();
+    const obj = try rootObject(parsed.value);
+
+    const kind = try stringField(allocator, obj, "kind");
+    errdefer allocator.free(kind);
+    const target = try stringField(allocator, obj, "target");
+    return .{ .kind = kind, .kind_tag = kindTagField(obj), .target = target };
+}
+
+/// Parse a `GET /v1/pointers/{addr}/finality` response into a
+/// PointerFinality.
+pub fn parsePointerFinality(allocator: Allocator, body: []const u8) !models.PointerFinality {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
+        return error.JsonError;
+    defer parsed.deinit();
+    return pointerFinalityFromObject(allocator, try rootObject(parsed.value));
+}
+
+/// A `finality` member (transfer and finalize responses): `null`, missing or
+/// not an object reads as `null`.
+fn optionalPointerFinality(allocator: Allocator, obj: std.json.ObjectMap, key: []const u8) !?models.PointerFinality {
+    return switch (obj.get(key) orelse .null) {
+        .object => |o| try pointerFinalityFromObject(allocator, o),
+        else => null,
+    };
+}
+
+fn pointerFinalityFromObject(allocator: Allocator, obj: std.json.ObjectMap) !models.PointerFinality {
+    const counter = try optionalPointerCounterField(obj, "counter");
+    const address = try stringField(allocator, obj, "address");
+    errdefer allocator.free(address);
+    const status_wire = switch (obj.get("status") orelse .null) {
+        .string => |s| s,
+        else => "",
+    };
+    const status = try models.PointerFinalityStatus.fromWire(allocator, status_wire);
+    errdefer status.deinit(allocator);
+    const state = try optionalFinalState(allocator, obj, "state");
+    errdefer if (state) |s| s.deinit(allocator);
+    const states = try finalStateList(allocator, obj.get("states") orelse .null);
+    errdefer {
+        for (states) |s| s.deinit(allocator);
+        allocator.free(states);
+    }
+    const majority = try optionalFinalState(allocator, obj, "majority");
+    errdefer if (majority) |m| m.deinit(allocator);
+    const transferred_to = try optionalStringField(allocator, obj, "transferred_to");
+
+    return .{
+        .address = address,
+        .group = u32Field(obj, "group"),
+        .answered = u32Field(obj, "answered"),
+        .status = status,
+        .counter = counter,
+        .state = state,
+        .states = states,
+        .majority = majority,
+        .transferred_to = transferred_to,
+    };
+}
+
+fn optionalFinalState(allocator: Allocator, obj: std.json.ObjectMap, key: []const u8) !?models.PointerFinalState {
+    return switch (obj.get(key) orelse .null) {
+        .object => |o| try finalStateFromObject(allocator, o),
+        else => null,
+    };
+}
+
+fn finalStateList(allocator: Allocator, value: std.json.Value) ![]const models.PointerFinalState {
+    const items = switch (value) {
+        .array => |arr| arr.items,
+        else => return &.{},
+    };
+    var list = std.ArrayList(models.PointerFinalState).init(allocator);
+    errdefer {
+        for (list.items) |s| s.deinit(allocator);
+        list.deinit();
+    }
+    for (items) |item| {
+        const o = switch (item) {
+            .object => |o| o,
+            else => continue,
+        };
+        const state = try finalStateFromObject(allocator, o);
+        list.append(state) catch |err| {
+            state.deinit(allocator);
+            return err;
+        };
+    }
+    return list.toOwnedSlice();
+}
+
+fn finalStateFromObject(allocator: Allocator, obj: std.json.ObjectMap) !models.PointerFinalState {
+    const state_id = try stringField(allocator, obj, "state_id");
+    errdefer allocator.free(state_id);
+    const kind = try stringField(allocator, obj, "kind");
+    errdefer allocator.free(kind);
+    const target = try stringField(allocator, obj, "target");
+    errdefer allocator.free(target);
+    const transferred_to = try optionalStringField(allocator, obj, "transferred_to");
+
+    return .{
+        .state_id = state_id,
+        .kind = kind,
+        .kind_tag = kindTagField(obj),
+        .target = target,
+        .holders = u32Field(obj, "holders"),
+        .transferred_to = transferred_to,
+    };
+}
+
+/// Parse a `GET /v1/pointers/{addr}/controller` response into a
+/// PointerController.
+pub fn parsePointerController(allocator: Allocator, body: []const u8) !models.PointerController {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
+        return error.JsonError;
+    defer parsed.deinit();
+    const obj = try rootObject(parsed.value);
+
+    const pointer = try stringField(allocator, obj, "pointer");
+    errdefer allocator.free(pointer);
+
+    var transfers = std.ArrayList([]const u8).init(allocator);
+    errdefer {
+        for (transfers.items) |t| allocator.free(t);
+        transfers.deinit();
+    }
+    switch (obj.get("transfers") orelse .null) {
+        .array => |arr| for (arr.items) |item| {
+            const s = switch (item) {
+                .string => |s| s,
+                else => continue,
+            };
+            const owned = try allocator.dupe(u8, s);
+            transfers.append(owned) catch |err| {
+                allocator.free(owned);
+                return err;
+            };
+        },
+        else => {},
+    }
+
+    return .{
+        .pointer = pointer,
+        .transfers = try transfers.toOwnedSlice(),
+        .frozen = boolField(obj, "frozen"),
+    };
+}
+
+/// Parse a `POST /v1/pointers/transfer` response into a
+/// PointerTransferResult.
+pub fn parsePointerTransferResult(allocator: Allocator, body: []const u8) !models.PointerTransferResult {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
+        return error.JsonError;
+    defer parsed.deinit();
+    const obj = try rootObject(parsed.value);
+
+    const address = try stringField(allocator, obj, "address");
+    errdefer allocator.free(address);
+    const state_id = try stringField(allocator, obj, "state_id");
+    errdefer allocator.free(state_id);
+    const finality = try optionalPointerFinality(allocator, obj, "finality");
+    errdefer if (finality) |f| f.deinit(allocator);
+    const finality_error = try optionalStringField(allocator, obj, "finality_error");
+
+    return .{
+        .address = address,
+        .state_id = state_id,
+        .finality = finality,
+        .finality_error = finality_error,
+    };
+}
+
+/// Parse a `POST /v1/pointers/prepare` response into a PointerPrepareResult.
+pub fn parsePointerPrepareResult(allocator: Allocator, body: []const u8) !models.PointerPrepareResult {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
+        return error.JsonError;
+    defer parsed.deinit();
+    const obj = try rootObject(parsed.value);
+
+    const counter = try pointerCounterField(obj, "counter");
+    const upload_id = try stringField(allocator, obj, "upload_id");
+    errdefer allocator.free(upload_id);
+    const op = try stringField(allocator, obj, "op");
+    errdefer allocator.free(op);
+    const address = try stringField(allocator, obj, "address");
+    errdefer allocator.free(address);
+    const state_id = try stringField(allocator, obj, "state_id");
+    errdefer allocator.free(state_id);
+    const payment_type = try stringField(allocator, obj, "payment_type");
+    errdefer allocator.free(payment_type);
+    const payments = try paymentList(allocator, obj.get("payments") orelse .null);
+    errdefer {
+        for (payments) |p| p.deinit(allocator);
+        allocator.free(payments);
+    }
+    const total_amount = try stringField(allocator, obj, "total_amount");
+    errdefer allocator.free(total_amount);
+    const payment_vault_address = try stringField(allocator, obj, "payment_vault_address");
+    errdefer allocator.free(payment_vault_address);
+    const payment_token_address = try stringField(allocator, obj, "payment_token_address");
+    errdefer allocator.free(payment_token_address);
+    const rpc_url = try stringField(allocator, obj, "rpc_url");
+    errdefer allocator.free(rpc_url);
+    const signed_quotes = try signedQuoteList(allocator, obj.get("signed_quotes") orelse .null);
+
+    return .{
+        .upload_id = upload_id,
+        .op = op,
+        .address = address,
+        .state_id = state_id,
+        .counter = counter,
+        .payment_type = payment_type,
+        .payments = payments,
+        .total_amount = total_amount,
+        .payment_vault_address = payment_vault_address,
+        .payment_token_address = payment_token_address,
+        .rpc_url = rpc_url,
+        .signed_quotes = signed_quotes,
+    };
+}
+
+/// Parse a `POST /v1/pointers/finalize` response into a
+/// PointerFinalizeResult.
+pub fn parsePointerFinalizeResult(allocator: Allocator, body: []const u8) !models.PointerFinalizeResult {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch
+        return error.JsonError;
+    defer parsed.deinit();
+    const obj = try rootObject(parsed.value);
+
+    const counter = try pointerCounterField(obj, "counter");
+    const address = try stringField(allocator, obj, "address");
+    errdefer allocator.free(address);
+    const state_id = try stringField(allocator, obj, "state_id");
+    errdefer allocator.free(state_id);
+    const finality = try optionalPointerFinality(allocator, obj, "finality");
+
+    return .{
+        .address = address,
+        .state_id = state_id,
+        .counter = counter,
+        .finality = finality,
+    };
+}
+
+fn paymentList(allocator: Allocator, value: std.json.Value) ![]const models.PaymentInfo {
+    const items = switch (value) {
+        .array => |arr| arr.items,
+        else => return &.{},
+    };
+    var list = std.ArrayList(models.PaymentInfo).init(allocator);
+    errdefer {
+        for (list.items) |p| p.deinit(allocator);
+        list.deinit();
+    }
+    for (items) |item| {
+        const o = switch (item) {
+            .object => |o| o,
+            else => continue,
+        };
+        const quote_hash = try stringField(allocator, o, "quote_hash");
+        errdefer allocator.free(quote_hash);
+        const rewards_address = try stringField(allocator, o, "rewards_address");
+        errdefer allocator.free(rewards_address);
+        const amount = try stringField(allocator, o, "amount");
+        errdefer allocator.free(amount);
+        try list.append(.{
+            .quote_hash = quote_hash,
+            .rewards_address = rewards_address,
+            .amount = amount,
+        });
+    }
+    return list.toOwnedSlice();
+}
+
+fn signedQuoteList(allocator: Allocator, value: std.json.Value) ![]const models.SignedQuoteEntry {
+    const items = switch (value) {
+        .array => |arr| arr.items,
+        else => return &.{},
+    };
+    var list = std.ArrayList(models.SignedQuoteEntry).init(allocator);
+    errdefer {
+        for (list.items) |q| q.deinit(allocator);
+        list.deinit();
+    }
+    for (items) |item| {
+        const o = switch (item) {
+            .object => |o| o,
+            else => continue,
+        };
+        const quote_hash = try stringField(allocator, o, "quote_hash");
+        errdefer allocator.free(quote_hash);
+        const quote = try stringField(allocator, o, "quote");
+        errdefer allocator.free(quote);
+        const commitment_sidecar = try optionalStringField(allocator, o, "commitment_sidecar");
+        errdefer if (commitment_sidecar) |s| allocator.free(s);
+        try list.append(.{
+            .quote_hash = quote_hash,
+            .quote = quote,
+            .commitment_sidecar = commitment_sidecar,
+        });
+    }
+    return list.toOwnedSlice();
 }
