@@ -20,6 +20,9 @@ class Program
             case "4": await Example04_Files(); break;
             case "6": await Example06_PrivateData(); break;
             case "7": await Example07_ExternalSigner(); break;
+            // Not part of "all": every pointer write pays, and a create needs
+            // an owner that has never been written.
+            case "8" or "pointers": await Example08_Pointers(); break;
             case "all":
                 await Example01_Connect();
                 await Example02_Data();
@@ -29,7 +32,7 @@ class Program
                 await Example07_ExternalSigner();
                 break;
             default:
-                Console.WriteLine($"Unknown example: {example}. Use 1-7 or 'all'.");
+                Console.WriteLine($"Unknown example: {example}. Use 1-8, 'pointers' or 'all'.");
                 break;
         }
     }
@@ -259,6 +262,87 @@ class Program
         }
 
         Console.WriteLine("\n07_external_signer OK!\n");
+    }
+
+    /// <summary>
+    /// Example 08: Pointers. A pointer is a small, owner-signed, mutable
+    /// reference: its address never changes, what it points at can. This
+    /// uploads two pieces of public data, points a pointer at the first,
+    /// updates it to the second, reads it back and asks the close group
+    /// where it stands.
+    ///
+    /// Needs an antd started with <c>--pointer-keys</c> and a wallet.
+    /// <c>ANTD_POINTER_OWNER</c> names the pointer (an address from
+    /// <c>GET /v1/pointers/keys</c>); <c>ANTD_BASE_URL</c> overrides the
+    /// daemon URL (default http://localhost:8082). Each write below pays,
+    /// about the price of one chunk, and is never retried. Run explicitly
+    /// (<c>dotnet run -- 8</c>); "all" leaves it out.
+    /// </summary>
+    static async Task Example08_Pointers()
+    {
+        Console.WriteLine("=== Example 08: Pointers ===");
+        var owner = Environment.GetEnvironmentVariable("ANTD_POINTER_OWNER")?.Trim();
+        if (string.IsNullOrEmpty(owner))
+        {
+            Console.WriteLine("Skipped: set ANTD_POINTER_OWNER to a pointer address the daemon holds a key for.\n");
+            return;
+        }
+        var baseUrl = Environment.GetEnvironmentVariable("ANTD_BASE_URL");
+        using var client = string.IsNullOrEmpty(baseUrl) ? AntdClient.CreateRest() : AntdClient.CreateRest(baseUrl);
+
+        // The daemon accepts a 0x prefix but returns bare hex.
+        static string Bare(string a) => (a.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? a[2..] : a).ToLowerInvariant();
+        if (!(await client.PointerKeysAsync()).Select(Bare).Contains(Bare(owner)))
+            throw new Exception($"the daemon holds no key for {owner} (see GET /v1/pointers/keys)");
+
+        // 1. Two small pieces of public data to point at.
+        var stamp = DateTime.UtcNow.ToString("O");
+        var firstBytes = Encoding.UTF8.GetBytes($"pointer example, first version ({stamp})");
+        var secondBytes = Encoding.UTF8.GetBytes($"pointer example, second version ({stamp})");
+        var first = await client.DataPutPublicAsync(firstBytes);
+        var second = await client.DataPutPublicAsync(secondBytes);
+        Console.WriteLine($"Uploaded: first={first.Address}");
+        Console.WriteLine($"          second={second.Address}");
+
+        // 2. Create the pointer at the first. A create is refused, before
+        // paying, if the pointer exists, so look first: a rerun with the same
+        // owner goes straight to the update.
+        PointerRecord? existing = null;
+        try { existing = await client.PointerGetAsync(owner); }
+        catch (NotFoundException) { }
+        if (existing is null)
+        {
+            var created = await client.PointerCreateAsync(owner, first.Address);
+            Console.WriteLine($"Created pointer {created.Address} -> first (counter {created.Counter})");
+        }
+        else
+        {
+            Console.WriteLine($"Pointer {existing.Address} already exists (counter {existing.Counter}); skipping create");
+        }
+
+        // 3. Update it to the second. Throws PointerFinalException, before
+        // paying, if the pointer has been transferred or frozen.
+        var updated = await client.PointerUpdateAsync(owner, second.Address);
+        Console.WriteLine($"Updated pointer -> second (counter {updated.Counter})");
+
+        // 4. Resolve and read it; fetch the bytes through the pointer.
+        var resolved = await client.PointerResolveAsync(owner);
+        var record = await client.PointerGetAsync(owner);
+        Console.WriteLine($"Resolved: {resolved.Kind} {resolved.Target}");
+        Console.WriteLine($"Record: counter={record.Counter}, kind={record.Kind}, final={record.IsFinal}, owner key {record.Owner.Length / 2} bytes");
+        var data = await client.DataGetPublicAsync(resolved.Target);
+        if (!data.SequenceEqual(secondBytes))
+            throw new Exception("the pointer does not resolve to the second version");
+        Console.WriteLine($"Fetched through the pointer: \"{Encoding.UTF8.GetString(data)}\"");
+
+        // 5. Ask the whole close group where it stands. "open": the owner
+        // can still move it; only a transfer makes it "final".
+        var finality = await client.PointerFinalityAsync(owner);
+        Console.WriteLine(
+            $"Finality: {finality.RawStatus} (counter {finality.Counter?.ToString() ?? "-"}, " +
+            $"{finality.Answered}/{finality.Group} peers answered)");
+
+        Console.WriteLine("\n08_pointers OK!\n");
     }
 
     // Anvil deterministic account #0. Pre-funded with ETH (gas) and antToken

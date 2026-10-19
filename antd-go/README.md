@@ -152,7 +152,7 @@ The fields are read conservatively: over REST a count that is not a JSON non-neg
 
 ### Pointers
 
-A pointer is a small, owner-signed, mutable reference (antd ≥ 0.16.0). Its address is derived from its owner's key and never changes. What it points at (a chunk, such as a public file's data map, or another pointer) can be updated by the owner, and the owner can hand the pointer over to another pointer for good. The daemon signs with owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so writes name the pointer by its address (`owner`) and no key ever crosses the API.
+A pointer is a small, owner-signed, mutable reference (the antd release after 0.15.0, the first with pointers). Its address is derived from its owner's key and never changes. What it points at (a chunk, such as a public file's data map, or another pointer) can be updated by the owner, and the owner can hand the pointer over to another pointer for good. The daemon signs with owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so writes name the pointer by its address (`owner`) and no key ever crosses the API.
 
 | Method | Description |
 |--------|-------------|
@@ -310,3 +310,4 @@ See the [examples/](examples/) directory:
 - `04-files` — File upload and download
 - `06-private-data` — Private (encrypted) data round-trip via data_map
 - `07-external-signer` — External-signer file + chunk upload (anvil signer)
+- `08-pointers` — Create, update, read and resolve a pointer, then check its finality (needs `ANTD_POINTER_OWNER`; each write pays)

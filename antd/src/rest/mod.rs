@@ -20,6 +20,7 @@ pub mod chunks;
 pub mod data;
 pub mod events;
 pub mod files;
+pub mod manifests;
 pub mod pointers;
 pub mod upload;
 pub mod verify;
@@ -144,6 +145,10 @@ pub fn router(state: Arc<AppState>, cors: &CorsMode) -> Router {
             post(verify::verify_quotes)
                 .layer(DefaultBodyLimit::max(signed_quotes::MAX_VERIFY_BODY_BYTES)),
         )
+        // Manifests (ADR-0006): stateless build/decode of `.ant` files and
+        // `ant://` links.
+        .route("/v1/manifests/build", post(manifests::manifest_build))
+        .route("/v1/manifests/decode", post(manifests::manifest_decode))
         // Wallet
         .route("/v1/wallet/address", get(wallet::wallet_address))
         .route("/v1/wallet/balance", get(wallet::wallet_balance))

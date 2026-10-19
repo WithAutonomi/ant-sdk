@@ -59,6 +59,7 @@
     <Protobuf Include="..\..\antd\proto\antd\v1\events.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
     <Protobuf Include="..\..\antd\proto\antd\v1\upload.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
     <Protobuf Include="..\..\antd\proto\antd\v1\wallet.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
+    <Protobuf Include="..\..\antd\proto\antd\v1\pointers.proto" ProtoRoot="..\..\antd\proto" GrpcServices="Client" />
   </ItemGroup>
 
   <ItemGroup>
