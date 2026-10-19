@@ -2,6 +2,7 @@ package antd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -231,11 +232,12 @@ func (c *Client) decodeManifest(ctx context.Context, body map[string]any) (*Deco
 }
 
 func optUint64(m map[string]any, key string) *uint64 {
-	if _, ok := m[key].(float64); !ok {
-		return nil
+	switch m[key].(type) {
+	case json.Number, float64:
+		v := unum64(m, key)
+		return &v
 	}
-	v := unum64(m, key)
-	return &v
+	return nil
 }
 
 func parseManifestEntries(raw []any) []ManifestEntryInfo {
