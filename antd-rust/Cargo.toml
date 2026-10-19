@@ -64,3 +64,7 @@ test = true
 [[example]]
 name = "08-grpc"
 path = "examples/08-grpc.rs"
+
+[[example]]
+name = "09-pointers"
+path = "examples/09-pointers.rs"

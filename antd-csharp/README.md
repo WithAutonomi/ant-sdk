@@ -10,7 +10,7 @@ dotnet add package Autonomi.Antd
 
 ## Compatibility
 
-This package talks to a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon; it does not join the network itself. Targets .NET 8. Tested against antd 0.12.x. The gRPC transport uses `Grpc.Net.Client`, which is a package dependency, so both transports work out of the box. For a daemon-less client see [`Autonomi.Ffi`](https://www.nuget.org/packages/Autonomi.Ffi).
+This package talks to a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon; it does not join the network itself. Targets .NET 8. Tested against antd 0.12.x; the pointer methods need the antd release after 0.15.0, the first with pointers. The gRPC transport uses `Grpc.Net.Client`, which is a package dependency, so both transports work out of the box. For a daemon-less client see [`Autonomi.Ffi`](https://www.nuget.org/packages/Autonomi.Ffi).
 
 ## Prerequisites
 
@@ -108,6 +108,43 @@ All methods are async and return `Task<T>`. The client implements `IDisposable`.
 | `FileGetPublicAsync(string address, string destPath)` | — | Download a public file by address |
 | `FileCostAsync(string path, bool isPublic, PaymentMode mode = Auto)` | `UploadCostEstimate` | Estimate cost — size, chunks, gas, payment mode |
 
+### Pointers
+
+A pointer is a small, owner-signed, mutable reference. Its address is derived from the owner's key and never changes; what it points at (a chunk, such as a public file's data map, or another pointer) can be changed by the owner. The daemon holds the owner keys, loaded at startup with `antd --pointer-keys <file-or-dir>` (files in the format `ant pointer keygen` writes), so every write names the pointer by its address (`owner`), never by a key. The daemon accepts addresses with or without `0x` and always returns bare hex.
+
+**Every write pays** (about the price of one chunk), and every attempt pays again. The SDK sends each create, update, transfer and finalize exactly once and never retries it; do not retry them automatically yourself. Reads are free to retry; a read during an update or churn can fail with `CloseGroupShortfallException`. Counters are `ulong`, parsed strictly from the daemon's decimal strings (a malformed one throws, it never reads as zero); a final state (a transfer) sits at `ulong.MaxValue`.
+
+Both clients implement every method below, over REST and gRPC alike.
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `PointerKeysAsync()` | `List<string>` | The pointers this daemon holds owner keys for, so can write |
+| `PointerCreateAsync(string owner, string target, PointerKind kind = Chunk)` | `PointerWriteResult` | Create a pointer, paid by the daemon wallet (`Address`, `StateId`, `Counter`). Refused before paying if it exists: `AlreadyExistsException` over gRPC, `ForkException` (the REST 409 mapping) over REST |
+| `PointerUpdateAsync(string owner, string target, PointerKind kind = Chunk)` | `PointerWriteResult` | Point a pointer at a new target, paid by the daemon wallet; creates it if it does not exist. `PointerKind.Pointer` makes it a forwarding the owner can still change. `PointerFinalException` once transferred |
+| `PointerTransferAsync(string owner, string recipient)` | `PointerTransferResult` | Hand a pointer over for good to the recipient's pointer, which must exist: readers of the address are redirected there and the old key can change nothing. Irreversible. Carries the close group's `Finality` (or `FinalityError` when that check failed) |
+| `PointerGetAsync(string address)` | `PointerRecord` | Read a pointer: `Counter`, `Target`, `Kind`/`KindTag`, `IsFinal`, `TransferredTo`, the owner's public key. `NotFoundException` if there is none |
+| `PointerResolveAsync(string address)` | `PointerTarget` | Follow a chain of pointers (forwardings and transfers, at most 16 hops) to the target at its end |
+| `PointerFinalityAsync(string address)` | `PointerFinality` | Ask the whole close group where a pointer stands: `Status` is `Open`, `Settling`, `Unconfirmed`, `Final`, `Forked`, or `Unknown` for a status from a newer daemon (`RawStatus` keeps the wire value). Check `IsFinal` before relying on a transfer |
+| `PointerControllerAsync(string address)` | `PointerController` | Follow transfers to the pointer whose owner now decides |
+| `PointerPrepareAsync(PointerPrepareRequest request)` | `PointerPrepareResult` | External signer: the daemon signs `PointerPrepareRequest.Create(...)`, `.Update(...)` or `.Transfer(...)` with its key and quotes it (wave-batch `Payments` for `payForQuotes()`). Needs no daemon wallet. Other writes to the pointer throw `ConflictException` until it is finalized or expires |
+| `PointerFinalizeAsync(string uploadId, IDictionary<string, string> txHashes)` | `PointerFinalizeResult` | External signer: store the prepared write once paid. A write that falls short after payment throws `CloseGroupShortfallException` with `Retryable == true`: repeat the same call (same `uploadId`) to store it against the same payment, bounding the loop |
+
+```csharp
+using var client = AntdClient.CreateRest();
+var owner = (await client.PointerKeysAsync())[0];
+
+var v1 = await client.DataPutPublicAsync(Encoding.UTF8.GetBytes("version 1"));
+await client.PointerCreateAsync(owner, v1.Address);        // pays once
+
+var v2 = await client.DataPutPublicAsync(Encoding.UTF8.GetBytes("version 2"));
+await client.PointerUpdateAsync(owner, v2.Address);        // pays once
+
+var target = await client.PointerResolveAsync(owner);      // -> v2.Address
+var finality = await client.PointerFinalityAsync(owner);   // Open: the owner can still move it
+```
+
+The members were added to `IAntdClient` with default implementations that throw `NotSupportedException`, so a class implementing the interface outside this package keeps compiling.
+
 ## Models
 
 All models are sealed records (immutable).
@@ -121,6 +158,16 @@ All models are sealed records (immutable).
 | `FilePutResult` | `DataMap`, `StorageCostAtto`, `GasCostWei`, `ChunksStored`, `PaymentModeUsed` | Private file put — DataMap returned to caller |
 | `FilePutPublicResult` | `Address`, `StorageCostAtto`, `GasCostWei`, `ChunksStored`, `PaymentModeUsed` | Public file put — DataMap stored on-network |
 | `UploadCostEstimate` | `Cost`, `FileSize`, `ChunkCount`, `EstimatedGasCostWei`, `PaymentMode` | Pre-upload cost breakdown |
+| `PointerWriteResult` | `Address`, `StateId`, `Counter` | The state a create or update stored |
+| `PointerRecord` | `Address`, `Owner`, `Counter`, `Kind`, `KindTag`, `Target`, `StateId`, `IsFinal`, `TransferredTo`, `TargetKind` | A pointer's current state; `TransferredTo` is `null` unless its final state is a transfer |
+| `PointerTarget` | `Kind`, `KindTag`, `Target`, `TargetKind` | Where a chain of pointers ends |
+| `PointerFinality` | `Address`, `Group`, `Answered`, `Status`, `RawStatus`, `Counter`, `State`, `States`, `Majority`, `TransferredTo`, `IsFinal` | The close group's view; unset values are `null` over both transports |
+| `PointerFinalState` | `StateId`, `Kind`, `KindTag`, `Target`, `Holders`, `TransferredTo` | One final state a finality check saw |
+| `PointerTransferResult` | `Address`, `StateId`, `Finality`, `FinalityError` | What a transfer stored |
+| `PointerController` | `Pointer`, `Transfers`, `Frozen` | Whose pointer decides, after every transfer |
+| `PointerPrepareRequest` | `Owner`, `Op`, `Target`, `Kind`, `Recipient` | An external-signer write; build it with `Create`, `Update` or `Transfer` |
+| `PointerPrepareResult` | `UploadId`, `Op`, `Address`, `StateId`, `Counter`, `PaymentType`, `Payments`, `TotalAmount`, `PaymentVaultAddress`, `PaymentTokenAddress`, `RpcUrl` | A signed, quoted pointer write awaiting payment |
+| `PointerFinalizeResult` | `Address`, `StateId`, `Counter`, `Finality` | The state a finalize stored; `Finality` for transfers only |
 
 ## Error Handling
 
@@ -158,6 +205,20 @@ catch (AntdException ex)
 | `InternalException` | 500 | `INTERNAL` | Server error |
 | `NetworkException` | 502 | `UNAVAILABLE` | Unreachable |
 | `PartialUploadException` | 502 (`code: "PARTIAL_UPLOAD"`) | `ABORTED` (detail starts with `Partial upload:`) | Finalize stored some chunks, not all; extends `NetworkException` |
+| `PointerFinalException` | 409 (`code: "POINTER_FINAL"`) | `FAILED_PRECONDITION` + `x-antd-error-code: POINTER_FINAL` | The pointer is transferred or frozen; nothing can change it. Extends `ForkException` |
+| `PointerForkedException` | 409 (`code: "POINTER_FORKED"`) | `FAILED_PRECONDITION` + `x-antd-error-code: POINTER_FORKED` | The owner signed two final states and no majority holds either. Extends `ForkException` |
+| `ConflictException` | 409 (`code: "CONFLICT"`) | `ABORTED` + `x-antd-error-code: CONFLICT` | A pointer write while a prepared write to it awaits payment, or an update that lost to a newer state. Extends `ForkException` |
+| `CloseGroupShortfallException` | 503 (`code: "CLOSE_GROUP_SHORTFALL"`) | `UNAVAILABLE` + `x-antd-error-code: CLOSE_GROUP_SHORTFALL` | Too few of the close group answered or stored; `Retryable` is `true` only for a pointer finalize that kept the paid state |
+
+Over gRPC the four pointer-era errors share status codes with older ones, so the daemon tags them with `x-antd-error-code` trailing metadata; the SDK maps the tag only when it agrees with the status code shown, and otherwise keeps the code-based mapping (a `FAILED_PRECONDITION` without a tag is still a `PaymentException`). Over REST they are read from the error body's `code`.
+
+### Upgrading: pointer-era errors
+
+These are new subclasses in the existing hierarchy, so no `catch` stops compiling, but some errors now arrive as a more specific type:
+
+- **REST 409s** with `POINTER_FINAL`, `POINTER_FORKED` or `CONFLICT` were `ForkException`; they are now the subclasses above, so `catch (ForkException)` still matches. A 409 `ALREADY_EXISTS` stays a plain `ForkException`.
+- **`CLOSE_GROUP_SHORTFALL`** is not only for pointers: a daemon with the pointer API reports a close group that fell short on any call (a chunk store, say) as a 503 / `UNAVAILABLE`, which an older daemon sent as a 500. It is now `CloseGroupShortfallException`, which extends `AntdException` directly, so it no longer matches `catch (ServiceUnavailableException)` over REST or `catch (NetworkException)` over gRPC.
+- **gRPC `FAILED_PRECONDITION`** tagged `POINTER_FINAL` / `POINTER_FORKED` is no longer a `PaymentException`, and a tagged `ABORTED` `CONFLICT` is a `ConflictException` (still a `ForkException`).
 
 ### Partial uploads
 
@@ -169,7 +230,7 @@ A finalize (`FinalizeUploadAsync`, `FinalizeMerkleUploadAsync`, `FinalizeChunkUp
 
 `Retryable` implies `RetentionKnown`. `PartialUploadException` extends `NetworkException` because a partial upload has always arrived as a 502, so existing `catch (NetworkException)` blocks keep matching; catch the derived type first to branch on the counts. Over REST the counts come from the structured error body, and `RetentionKnown` is `true` only when `retryable` is a JSON boolean (missing, `null`, `"true"` or `1` read as unknown). Over gRPC an `ABORTED` status maps to `PartialUploadException` only when its status detail starts with the daemon's fixed `Partial upload:` prefix; any other `ABORTED`, including one that quotes `Partial upload:` further into its detail, keeps the `ForkException` mapping. The detail reads `Partial upload: <stored>/<total> chunks stored, <failed> failed after retries: <reason> (<hint>)`. `RetentionKnown` is `true` only when the detail starts with those counts, all three parse, and it ends with one of the daemon's two hints: `(paid attempt retained...)` sets `Retryable`, and `(stored chunks persist; re-prepare the same content...)` means the daemon confirmed it kept nothing (daemons before antd 0.14.0 write only this one). If the counts do not match the daemon's layout or do not convert (an overflow, non-ASCII digits), all three read as zero and both flags are `false`, even with a hint. Readable counts with a missing, truncated or unrecognised hint, or text after it, keep the counts, but both flags stay `false`: retention is unknown (stop and reconcile), not "nothing retained".
 
-**Behaviour change over gRPC:** a partial-upload `ABORTED` used to surface as `ForkException`; it is now `PartialUploadException`. The daemon emits `ABORTED` only for `PARTIAL_UPLOAD`, so a `catch (ForkException)` around a gRPC finalize should become `catch (PartialUploadException)`.
+**Behaviour change over gRPC:** a partial-upload `ABORTED` used to surface as `ForkException`; it is now `PartialUploadException`. Apart from a tagged pointer `CONFLICT`, the daemon emits `ABORTED` only for `PARTIAL_UPLOAD`, so a `catch (ForkException)` around a gRPC finalize should become `catch (PartialUploadException)`.
 
 ```csharp
 var lastFailed = 0UL;
@@ -205,8 +266,13 @@ dotnet run -- 3     # Chunks
 dotnet run -- 4     # Files
 dotnet run -- 6     # Private data
 dotnet run -- 7     # External signer (bounded partial-upload retry)
-dotnet run -- all   # Run all
+dotnet run -- all   # Run all of the above
+
+# Pointers: run explicitly; "all" leaves it out, because every write pays.
+ANTD_POINTER_OWNER=<address from GET /v1/pointers/keys> dotnet run -- 8   # or: dotnet run -- pointers
 ```
+
+Example 8 uploads two pieces of public data, creates a pointer at the first, updates it to the second, resolves and reads it, and prints its finality. It needs an antd started with `--pointer-keys` and a wallet; `ANTD_BASE_URL` overrides the daemon URL (default `http://localhost:8082`). Without `ANTD_POINTER_OWNER` it prints a note and skips. A rerun with the same owner skips the create and only updates.
 
 Or use the dev CLI:
 
@@ -225,8 +291,11 @@ antd-csharp/
 │   ├── IAntdClient.cs         # Client interface
 │   ├── AntdClientFactory.cs   # Factory methods
 │   ├── AntdRestClient.cs      # REST implementation
+│   ├── AntdRestClient.Pointers.cs
 │   ├── AntdGrpcClient.cs      # gRPC implementation
+│   ├── AntdGrpcClient.Pointers.cs
 │   ├── Models.cs              # Data models
+│   ├── PointerModels.cs       # Pointer models
 │   └── Exceptions.cs          # Exception hierarchy
 ├── Examples/                  # Example programs
 │   ├── Examples.csproj

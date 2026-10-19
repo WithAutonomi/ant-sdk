@@ -554,12 +554,19 @@ final class StubURLProtocol: URLProtocol {
     /// Path → raw bytes to stream back (non-JSON). Takes precedence over
     /// `routes` when set; used by the streaming tests.
     static var rawRoutes: [String: Data] = [:]
+    /// Path → HTTP method of the most recent request.
+    static var lastMethods: [String: String] = [:]
+    /// Path → number of requests seen (the pointer tests check that a paid
+    /// write is sent exactly once).
+    static var requestCounts: [String: Int] = [:]
 
     static func reset() {
         routes = [:]
         lastBodies = [:]
         statuses = [:]
         rawRoutes = [:]
+        lastMethods = [:]
+        requestCounts = [:]
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -568,6 +575,8 @@ final class StubURLProtocol: URLProtocol {
     override func startLoading() {
         let url = request.url!
         let path = url.path
+        StubURLProtocol.lastMethods[path] = request.httpMethod ?? "GET"
+        StubURLProtocol.requestCounts[path, default: 0] += 1
 
         // URLSession on Linux moves the body off NSURLRequest into a stream;
         // read it back through httpBodyStream when httpBody is nil.

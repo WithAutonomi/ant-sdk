@@ -6,7 +6,7 @@ using Antd.V1;
 
 namespace Antd.Sdk;
 
-public sealed class AntdGrpcClient : IAntdClient
+public sealed partial class AntdGrpcClient : IAntdClient
 {
     private readonly GrpcChannel? _channel;
     private readonly HealthService.HealthServiceClient _health;
@@ -15,6 +15,7 @@ public sealed class AntdGrpcClient : IAntdClient
     private readonly FileService.FileServiceClient _files;
     private readonly UploadService.UploadServiceClient _upload;
     private readonly WalletService.WalletServiceClient _wallet;
+    private readonly PointerService.PointerServiceClient _pointer;
 
     public AntdGrpcClient(string target = "http://localhost:50051")
     {
@@ -25,12 +26,14 @@ public sealed class AntdGrpcClient : IAntdClient
         _files = new FileService.FileServiceClient(_channel);
         _upload = new UploadService.UploadServiceClient(_channel);
         _wallet = new WalletService.WalletServiceClient(_channel);
+        _pointer = new PointerService.PointerServiceClient(_channel);
     }
 
     /// <summary>
     /// Test-only constructor accepting pre-built service clients (which can be
     /// subclassed mocks). Bypasses channel construction so tests can run
-    /// without a real network endpoint.
+    /// without a real network endpoint. <paramref name="pointer"/> may be left
+    /// out by tests that never call a pointer method.
     /// </summary>
     internal AntdGrpcClient(
         HealthService.HealthServiceClient health,
@@ -38,7 +41,8 @@ public sealed class AntdGrpcClient : IAntdClient
         ChunkService.ChunkServiceClient chunks,
         FileService.FileServiceClient files,
         UploadService.UploadServiceClient upload,
-        WalletService.WalletServiceClient wallet)
+        WalletService.WalletServiceClient wallet,
+        PointerService.PointerServiceClient? pointer = null)
     {
         _channel = null!;
         _health = health;
@@ -47,6 +51,7 @@ public sealed class AntdGrpcClient : IAntdClient
         _files = files;
         _upload = upload;
         _wallet = wallet;
+        _pointer = pointer!;
     }
 
     public static AntdGrpcClient AutoDiscover()

@@ -1,0 +1,34 @@
+# cargo-audit configuration for ffi/rust (read by `cargo audit` run from this directory).
+#
+# Every entry below is a reasoned, time-boxed ignore. Do not add an ignore
+# without the advisory link, why the vulnerable path is unreachable, and a
+# removal condition.
+
+[advisories]
+ignore = [
+    # zip 2.4.2 (transitive: ant-core -> zip). All three advisories affect only
+    # the `ZipArchive::extract()` / `ZipStreamReader::extract()` convenience
+    # APIs (fixed in zip >= 9.0.0, which ant-core does not use yet):
+    #   RUSTSEC-2026-0367 SUID/SGID preservation on extract()
+    #     https://rustsec.org/advisories/RUSTSEC-2026-0367
+    #   RUSTSEC-2026-0368 extract() creates symlinks that point outside the destination
+    #     https://rustsec.org/advisories/RUSTSEC-2026-0368
+    #   RUSTSEC-2026-0369 extract() applies Unix permissions through symlinks
+    #     https://rustsec.org/advisories/RUSTSEC-2026-0369
+    #
+    # Why unreachable: ant-core only uses zip in `node::binary::extract_zip`
+    # (ant-core/src/node/binary.rs, also called from update.rs), which opens the
+    # archive with `ZipArchive::new`, walks entries with `by_index`, filters
+    # with `enclosed_name()`, copies the single matching file with
+    # `std::io::copy` and sets mode 0o755 itself. It never calls `extract()`.
+    # The SDK only uses `ant_core::data`, `config` and `network_defaults`;
+    # nothing here calls `ant_core::node` or `ant_core::update` at all.
+    #
+    # Removal condition: delete these three entries when ant-core is repinned
+    # to an ant-client release whose zip requirement is >= 9.0.0 (and
+    # `cargo audit` is clean without them). Review by 2026-11-16 regardless. Tracked in
+    # Linear V2-1634 (blocked on the ant-client zip bump, V2-1632).
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
+]
