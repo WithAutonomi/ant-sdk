@@ -834,8 +834,12 @@ end
 -- (`POST /v1/pointers/update`). A pointer that does not exist yet is created
 -- at counter "0".
 --
--- Pays once per call and is never retried. Returns a `pointer_final` error,
--- refused before anything is paid, if the pointer was transferred or frozen.
+-- Pays once per call and is never retried. Returns a `pointer_final` error if
+-- the pointer was transferred or frozen (usually refused before anything is
+-- paid; see `errors.pointer_final`), and a `conflict` error if a prepared
+-- write to it awaits payment (refused before paying) or the update lost to a
+-- newer state while in flight (possibly after paying). Read the pointer
+-- before writing again.
 -- @param owner string pointer address
 -- @param target string address to point at
 -- @param kind string|nil PointerKind; nil leaves the daemon's default, "chunk"
@@ -849,10 +853,12 @@ end
 -- address are redirected to the recipient's pointer, which only its owner can
 -- move; the address stays the same. Irreversible once stored.
 --
--- Pays once per call and is never retried. Refused before paying if the
--- pointer is already final (`pointer_final`), if `recipient` does not exist
--- or leads back (`bad_request`), or if not every peer of the close group
--- answered (`close_group_shortfall`; free to try again later).
+-- Pays once per call and is never retried. Refused before paying if
+-- `recipient` does not exist or leads back (`bad_request`), and usually if
+-- the pointer is already final (`pointer_final`). A `close_group_shortfall`
+-- means too few of the close group answered or stored it. That can happen
+-- before paying (the transfer checks every peer first) or after, so check the
+-- pointer with `pointer_finality` before paying again.
 -- @param owner string pointer address
 -- @param recipient string address of the recipient's pointer
 -- @return table|nil PointerTransferResult { address, state_id, finality,

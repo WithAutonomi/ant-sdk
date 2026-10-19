@@ -183,7 +183,7 @@ Both `Antd::Client` and `Antd::GrpcClient` have these methods:
 |--------|-------------|
 | `pointer_keys` | Addresses of the pointers this daemon holds keys for, so can write — `Array<String>` |
 | `pointer_create(owner, target, kind: nil)` | Create a pointer, paid by the daemon wallet — returns `PointerWriteResult` (`address`, `state_id`, `counter`). `AlreadyExistsError`, before paying, if it exists. `kind` is `PointerKind::CHUNK` (the default) or `PointerKind::POINTER` |
-| `pointer_update(owner, target, kind: nil)` | Point a pointer at a new target, creating it if needed — `PointerWriteResult`. `PointerFinalError`, before paying, once it was handed over or frozen |
+| `pointer_update(owner, target, kind: nil)` | Point a pointer at a new target, creating it if needed — `PointerWriteResult`. `PointerFinalError`, usually before paying, once it was handed over or frozen |
 | `pointer_transfer(owner, recipient)` | Hand a pointer over for good to the recipient's pointer, which must exist. Irreversible. Returns `PointerTransferResult` with the close group's `finality` (nil, with `finality_error`, if that check failed; the transfer stands) |
 | `pointer_get(address)` | Read a pointer — `PointerRecord` (`counter`, `target`, `kind`/`kind_tag`, `is_final` / `final?`, `transferred_to`, the owner's public key). `NotFoundError` if there is none |
 | `pointer_resolve(address)` | Follow a chain of pointers to the target at its end — `PointerTarget` (`kind`, `kind_tag`, `target`) |

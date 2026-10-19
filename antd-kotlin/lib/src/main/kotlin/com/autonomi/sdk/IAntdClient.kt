@@ -135,8 +135,11 @@ interface IAntdClient : Closeable {
      * creating it at counter 0 if it does not exist. Each call pays; never
      * retried.
      *
-     * @throws PointerFinalException if the pointer was transferred or frozen, before anything is paid.
-     * @throws ConflictException while a prepared write to the pointer awaits payment.
+     * @throws PointerFinalException if the pointer was transferred or frozen, usually before anything is
+     *   paid (see [PointerFinalException]).
+     * @throws ConflictException while a prepared write to the pointer awaits payment (refused before
+     *   paying), or if the update lost to a newer state while in flight (possibly after paying). Read the
+     *   pointer before writing again.
      */
     suspend fun pointerUpdate(owner: String, target: String, kind: PointerKind = PointerKind.CHUNK): PointerWriteResult =
         notImplemented("pointerUpdate")
@@ -147,10 +150,12 @@ interface IAntdClient : Closeable {
      * address are redirected to the recipient's pointer, which only its owner
      * can move. Irreversible once stored. Each call pays; never retried.
      *
-     * @throws PointerFinalException if the pointer is already final, before anything is paid.
+     * @throws PointerFinalException if the pointer is already final, usually before anything is paid.
      * @throws BadRequestException if [recipient] does not exist or leads back.
-     * @throws CloseGroupShortfallException if not every peer of the close group
-     *   answered, before anything is paid; retry later.
+     * @throws CloseGroupShortfallException if too few of the close group answered
+     *   or stored it. This can happen before paying (the transfer checks every
+     *   peer first) or after, so check the pointer with [pointerFinality] before
+     *   paying again.
      */
     suspend fun pointerTransfer(owner: String, recipient: String): PointerTransferResult =
         notImplemented("pointerTransfer")

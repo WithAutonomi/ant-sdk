@@ -227,11 +227,11 @@ All SDKs use the same error hierarchy. Always generate code with proper error ha
 | `NetworkError` / `NetworkException` | 502 | Daemon can't reach the network |
 | `ServiceUnavailableError` / `ServiceUnavailableException` | 503 | Wallet not configured |
 | `BadRequestError` / `BadRequestException` | 400 | Invalid parameters, or a pointer owner antd holds no key for |
-| `PointerFinalError` / `PointerFinalException` | 409 (`POINTER_FINAL`) | Writing a pointer that was transferred or is otherwise final; nothing paid |
-| `ConflictError` / `ConflictException` | 409 (`CONFLICT`) | A prepared pointer write awaits payment, or an update lost to a newer state |
-| `CloseGroupShortfallError` / `CloseGroupShortfallException` | 503 (`CLOSE_GROUP_SHORTFALL`) | Too few peers answered; reads may retry, paid writes must not |
+| `PointerFinalError` / `PointerFinalException` | 409 (`POINTER_FINAL`) | Writing a pointer that was transferred or is otherwise final; usually refused before paying, but a write already paid for when the network refused it keeps that payment |
+| `ConflictError` / `ConflictException` | 409 (`CONFLICT`) | A prepared pointer write awaits payment (refused before paying), or an update lost to a newer state (possibly after paying); read the pointer before paying again |
+| `CloseGroupShortfallError` / `CloseGroupShortfallException` | 503 (`CLOSE_GROUP_SHORTFALL`) | Too few peers answered; reads may retry, paid writes must not, except a pointer finalize with `retryable` true, which may be repeated with the same `upload_id` against the retained payment |
 
-A pointer whose owner signed two final states is `POINTER_FORKED` (409): `PointerForkedError` in some SDKs, a `ForkError` in Go, JS/TS, Java, Dart, Elixir and PHP.
+A pointer whose owner signed two final states is `POINTER_FORKED` (409): `PointerForkedError` in some SDKs, a `ForkError` in Go, JS/TS, Dart, Elixir and PHP, and a `ForkException` in Java.
 
 Python/JS/Swift use `Error` suffix. C#/Kotlin use `Exception` suffix. All inherit from a base `AntdError`/`AntdException`.
 

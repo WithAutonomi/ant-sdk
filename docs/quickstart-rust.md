@@ -123,7 +123,7 @@ println!("{:?}", finality.status);                              // Open
 
 Counters are `u64`. `pointer_transfer`, `pointer_get`, `pointer_controller`, `pointer_prepare` (and `pointer_prepare_with_options`) and `pointer_finalize` complete the set, on `GrpcClient` too.
 
-Runnable example: `antd-rust/examples/09-pointers.rs`. Set `ANTD_POINTER_OWNER` to an address the daemon holds a key for, one it has not written yet (each run creates the pointer and pays for its writes). This example talks to `http://localhost:8082`; it does not read `ANTD_BASE_URL`:
+Runnable example: `antd-rust/examples/09-pointers.rs`. Set `ANTD_POINTER_OWNER` to an address the daemon holds a key for, one it has not written yet (each run creates the pointer and pays for its writes), and `ANTD_BASE_URL` for a daemon other than `http://localhost:8082`:
 
 ```bash
 cd antd-rust

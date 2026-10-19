@@ -1320,7 +1320,11 @@ impl Client {
     /// created at counter 0.
     ///
     /// Returns [`AntdError::PointerFinal`] if the pointer has been transferred
-    /// or frozen, refused before anything is paid.
+    /// or frozen (usually refused before anything is paid; see
+    /// [`AntdError::PointerFinal`]), and [`AntdError::Conflict`] if a prepared
+    /// write to it awaits payment (refused before paying) or the update lost
+    /// to a newer state while in flight (possibly after paying). Read the
+    /// pointer before writing again.
     pub async fn pointer_update(
         &self,
         owner: &str,
@@ -1354,10 +1358,13 @@ impl Client {
     /// its owner can move; the address stays the same. Irreversible once
     /// stored.
     ///
-    /// Refused before paying if the pointer is already final
-    /// ([`AntdError::PointerFinal`]), if `recipient` does not exist or leads
-    /// back ([`AntdError::BadRequest`]), or if not every peer of the close
-    /// group answered ([`AntdError::CloseGroupShortfall`], free to retry).
+    /// Refused before paying if `recipient` does not exist or leads back
+    /// ([`AntdError::BadRequest`]), and usually if the pointer is already
+    /// final ([`AntdError::PointerFinal`]). [`AntdError::CloseGroupShortfall`]
+    /// means too few of the close group answered or stored it. That can happen
+    /// before paying (the transfer checks every peer first) or after, so check
+    /// the pointer with [`pointer_finality`](Self::pointer_finality) before
+    /// paying again.
     pub async fn pointer_transfer(
         &self,
         owner: &str,

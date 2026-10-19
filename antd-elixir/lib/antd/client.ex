@@ -965,8 +965,12 @@ defmodule Antd.Client do
   at counter 0.
 
   Returns `Antd.PointerFinalError` if the pointer has been transferred or
-  frozen, refused before anything is paid. **Each call pays**: do not retry
-  it automatically. Takes the same `:kind` option as `pointer_create/4`.
+  frozen (usually refused before anything is paid; see
+  `Antd.PointerFinalError`), and `Antd.ConflictError` if a prepared write to
+  it awaits payment (refused before paying) or the update lost to a newer
+  state while in flight (possibly after paying); read the pointer before
+  writing again. **Each call pays**: do not retry it automatically. Takes the
+  same `:kind` option as `pointer_create/4`.
   """
   @spec pointer_update(t(), String.t(), String.t(), keyword()) ::
           {:ok, Antd.PointerWriteResult.t()} | {:error, Exception.t()}
@@ -1002,11 +1006,13 @@ defmodule Antd.Client do
   address are redirected to the recipient's pointer, which only its owner can
   move. Irreversible once stored.
 
-  Refused before paying if the pointer is already final
-  (`Antd.PointerFinalError`), if `recipient` does not exist or leads back
-  (`Antd.BadRequestError`), or if not every peer of the close group answered
-  (`Antd.CloseGroupShortfallError`; try again later). **Each call pays**: do
-  not retry it automatically.
+  Refused before paying if `recipient` does not exist or leads back
+  (`Antd.BadRequestError`), and usually if the pointer is already final
+  (`Antd.PointerFinalError`). An `Antd.CloseGroupShortfallError` means too few
+  of the close group answered or stored it. That can happen before paying (the
+  transfer checks every peer first) or after, so check the pointer with
+  `pointer_finality/2` before paying again. **Each call pays**: do not retry
+  it automatically.
 
   The result's `finality` is the close group's view once the write landed,
   or `nil` with `finality_error` set when that check failed; the transfer is

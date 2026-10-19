@@ -174,7 +174,7 @@ try {
 | `PartialUploadException` | 502 (`code: "PARTIAL_UPLOAD"`) | ABORTED (`Partial upload:` message) | Finalize stored some chunks, others stayed unstored (extends `NetworkException`) |
 | `TooLargeException` | 413 | RESOURCE_EXHAUSTED | Data too large |
 | `InternalException` | 500 | INTERNAL | Server error |
-| `PointerFinalException` | 409 (`code: "POINTER_FINAL"`) | FAILED_PRECONDITION + `x-antd-error-code: POINTER_FINAL` | The pointer is transferred or frozen; nothing can change it. Refused before paying |
+| `PointerFinalException` | 409 (`code: "POINTER_FINAL"`) | FAILED_PRECONDITION + `x-antd-error-code: POINTER_FINAL` | The pointer is transferred or frozen; nothing can change it. Usually refused before paying, but a write already paid for when the network refused it keeps that payment |
 | `PointerForkedException` | 409 (`code: "POINTER_FORKED"`) | FAILED_PRECONDITION + `x-antd-error-code: POINTER_FORKED` | The owner signed two final states and no majority holds either (extends `ForkException`) |
 | `ConflictException` | 409 (`code: "CONFLICT"`) | ABORTED + `x-antd-error-code: CONFLICT` | A pointer write while a prepared write to it awaits payment, or an update that lost to a newer state |
 | `CloseGroupShortfallException` | 503 (`code: "CLOSE_GROUP_SHORTFALL"`) | UNAVAILABLE + `x-antd-error-code: CLOSE_GROUP_SHORTFALL` | Too few of the close group answered or stored. `retryable` is true only for a pointer finalize that kept the paid state |

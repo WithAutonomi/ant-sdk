@@ -40,12 +40,20 @@ type ForkError struct{ AntdError }
 
 // PointerFinalError indicates the pointer is at its final state: it was
 // handed over or frozen, so nothing can update or transfer it again (HTTP 409
-// with code POINTER_FINAL; gRPC FAILED_PRECONDITION).
+// with code POINTER_FINAL; gRPC FAILED_PRECONDITION). Usually refused before
+// anything is paid: the daemon reads the pointer first. A write that was
+// already paid for when the network refused it (the pointer became final
+// while the write was in flight) keeps that payment, so read the pointer
+// before paying again.
 type PointerFinalError struct{ AntdError }
 
 // ConflictError indicates the request conflicts with the resource's current
-// state, such as a pointer write while a prepared write to the same pointer
-// awaits payment (HTTP 409 with code CONFLICT; gRPC ABORTED).
+// state (HTTP 409 with code CONFLICT; gRPC ABORTED). For pointers, two cases
+// share this code, and it does not say which one happened or whether anything
+// was paid: a write while a prepared write to the same pointer awaits payment
+// is refused before paying; an update that lost to a newer state while it was
+// in flight may already have been paid for. Read the pointer again and check
+// what was paid before submitting another paid write.
 type ConflictError struct{ AntdError }
 
 // CloseGroupShortfallError indicates too few of an address's close group

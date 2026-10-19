@@ -956,8 +956,12 @@ class GrpcAntdClient {
   }
 
   /// Points the pointer at [owner] at [target], paid by the daemon wallet,
-  /// creating it if it does not exist. Throws [PointerFinalError], before
-  /// paying, if the pointer was handed over or frozen.
+  /// creating it if it does not exist. Throws [PointerFinalError] if the
+  /// pointer was handed over or frozen (usually before paying; see
+  /// [PointerFinalError]), and [ConflictError] if a prepared write to it
+  /// awaits payment (refused before paying) or the update lost to a newer
+  /// state while in flight (possibly after paying). Read the pointer before
+  /// writing again.
   ///
   /// Pays for the write: do not retry it automatically.
   Future<PointerWriteResult> pointerUpdate(

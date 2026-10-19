@@ -915,8 +915,10 @@ defmodule Antd.GrpcClient do
   @doc """
   Points the pointer at `owner` at `target`, paid by the daemon wallet,
   creating it if it does not exist. Mirrors `Antd.Client.pointer_update/4`:
-  `Antd.PointerFinalError` once it was transferred or frozen, refused before
-  paying. **Each call pays**: do not retry it automatically. Takes the same
+  `Antd.PointerFinalError` once it was transferred or frozen (usually refused
+  before paying), and `Antd.ConflictError` if a prepared write awaits payment
+  (refused before paying) or the update lost to a newer state (possibly after
+  paying). **Each call pays**: do not retry it automatically. Takes the same
   options as `pointer_create/4`.
   """
   @spec pointer_update(t(), String.t(), String.t(), keyword()) ::

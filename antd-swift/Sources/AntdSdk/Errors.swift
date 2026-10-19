@@ -38,8 +38,11 @@ public class ForkError: AntdError {
 
 /// The pointer is at its final state, transferred or frozen: nothing can
 /// update it or hand it over again (HTTP 409 with `code: "POINTER_FINAL"`;
-/// gRPC FAILED_PRECONDITION with `x-antd-error-code: POINTER_FINAL`). Refused
-/// before anything is paid.
+/// gRPC FAILED_PRECONDITION with `x-antd-error-code: POINTER_FINAL`). Usually
+/// refused before anything is paid: the daemon reads the pointer first. A
+/// write that was already paid for when the network refused it (the pointer
+/// became final while the write was in flight) keeps that payment, so read the
+/// pointer before paying again.
 public final class PointerFinalError: AntdError {
     public override init(_ message: String, statusCode: Int = 409) {
         super.init(message, statusCode: statusCode)
@@ -58,9 +61,13 @@ public final class PointerForkedError: ForkError {
 
 /// The request conflicts with the resource's current state (HTTP 409 with
 /// `code: "CONFLICT"`; gRPC ABORTED with `x-antd-error-code: CONFLICT`). For
-/// pointers: a write while a prepared write to the same pointer awaits
-/// payment (finalize it, or wait for it to expire), or an update that lost to
-/// a newer state while it was in flight.
+/// pointers, two cases share this code, and it does not say which one
+/// happened or whether anything was paid: a write while a prepared write to
+/// the same pointer awaits payment is refused before paying (finalize the
+/// prepared write, or wait for it to expire); an update that lost to a newer
+/// state while it was in flight may already have been paid for. Read the
+/// pointer again and check what was paid before submitting another paid
+/// write.
 public final class ConflictError: AntdError {
     public override init(_ message: String, statusCode: Int = 409) {
         super.init(message, statusCode: statusCode)

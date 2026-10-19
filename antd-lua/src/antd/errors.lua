@@ -55,7 +55,10 @@ end
 
 --- Create a pointer_final error (HTTP 409, code POINTER_FINAL).
 -- The pointer is at its final state, transferred or frozen: nothing can
--- update it or hand it over again. Refused before anything is paid.
+-- update it or hand it over again. Usually refused before anything is paid:
+-- the daemon reads the pointer first. A write that was already paid for when
+-- the network refused it (the pointer became final while the write was in
+-- flight) keeps that payment, so read the pointer before paying again.
 -- @param message string
 -- @return table
 function M.pointer_final(message)
@@ -72,10 +75,13 @@ function M.pointer_forked(message)
 end
 
 --- Create a conflict error (HTTP 409, code CONFLICT).
--- The request conflicts with the resource's current state. For pointers: a
--- write while a prepared write to the same pointer awaits payment (finalize
--- it, or wait for it to expire), or an update that lost to a newer state
--- while it was in flight.
+-- The request conflicts with the resource's current state. For pointers, two
+-- cases share this code, and it does not say which one happened or whether
+-- anything was paid: a write while a prepared write to the same pointer
+-- awaits payment is refused before paying (finalize the prepared write, or
+-- wait for it to expire); an update that lost to a newer state while it was
+-- in flight may already have been paid for. Read the pointer again and check
+-- what was paid before submitting another paid write.
 -- @param message string
 -- @return table
 function M.conflict(message)

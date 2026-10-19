@@ -462,8 +462,11 @@ module Antd
     # @param target [String]
     # @param kind [String, nil] see +pointer_create+
     # @return [PointerWriteResult]
-    # @raise [PointerFinalError] before paying, if the pointer was handed over
-    #   or frozen
+    # @raise [PointerFinalError] if the pointer was handed over or frozen
+    #   (usually before paying; see +PointerFinalError+)
+    # @raise [ConflictError] if a prepared write to it awaits payment (refused
+    #   before paying), or the update lost to a newer state while in flight
+    #   (possibly after paying); read the pointer before writing again
     def pointer_update(owner, target, kind: nil)
       pointer_write("/v1/pointers/update", owner, target, kind)
     end
@@ -473,10 +476,12 @@ module Antd
     # redirected to the recipient's pointer, which only its owner can move.
     # Irreversible once stored. Pays; do not retry automatically.
     #
-    # Refused before paying if the pointer is already final
-    # (+PointerFinalError+), if +recipient+ does not exist or leads back
-    # (+BadRequestError+), or if not every peer of the close group answered
-    # (+CloseGroupShortfallError+; try again later).
+    # Refused before paying if +recipient+ does not exist or leads back
+    # (+BadRequestError+), and usually if the pointer is already final
+    # (+PointerFinalError+). A +CloseGroupShortfallError+ means too few of the
+    # close group answered or stored it. That can happen before paying (the
+    # transfer checks every peer first) or after, so check the pointer with
+    # +pointer_finality+ before paying again.
     #
     # @param owner [String]
     # @param recipient [String] address of the recipient's pointer

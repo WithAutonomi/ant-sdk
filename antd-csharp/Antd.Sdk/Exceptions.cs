@@ -36,7 +36,10 @@ public class ForkException : AntdException
 /// The pointer is at its final state, transferred or frozen: nothing can
 /// update it or hand it over again (HTTP 409 with <c>code: "POINTER_FINAL"</c>;
 /// gRPC <c>FAILED_PRECONDITION</c> with <c>x-antd-error-code: POINTER_FINAL</c>).
-/// Refused before anything is paid. Extends <see cref="ForkException"/>,
+/// Usually refused before anything is paid: the daemon reads the pointer
+/// first. A write that was already paid for when the network refused it (the
+/// pointer became final while the write was in flight) keeps that payment, so
+/// read the pointer before paying again. Extends <see cref="ForkException"/>,
 /// which every REST 409 has mapped to, so existing
 /// <c>catch (ForkException)</c> blocks keep matching; catch this type first to
 /// tell it apart.
@@ -63,9 +66,13 @@ public class PointerForkedException : ForkException
 /// <summary>
 /// The request conflicts with the resource's current state (HTTP 409 with
 /// <c>code: "CONFLICT"</c>; gRPC <c>ABORTED</c> with
-/// <c>x-antd-error-code: CONFLICT</c>). For pointers: a write while a prepared
-/// write to the same pointer awaits payment (finalize it, or wait for it to
-/// expire), or an update that lost to a newer state while it was in flight.
+/// <c>x-antd-error-code: CONFLICT</c>). For pointers, two cases share this
+/// code, and it does not say which one happened or whether anything was paid:
+/// a write while a prepared write to the same pointer awaits payment is
+/// refused before paying (finalize the prepared write, or wait for it to
+/// expire); an update that lost to a newer state while it was in flight may
+/// already have been paid for. Read the pointer again and check what was paid
+/// before submitting another paid write.
 /// Extends <see cref="ForkException"/>, which both a REST 409 and a gRPC
 /// <c>ABORTED</c> mapped to before.
 /// </summary>

@@ -236,7 +236,7 @@ All errors extend `AntdError`, which extends `Error` and includes a `statusCode`
 | `NotFoundError` | 404 | Resource not found |
 | `AlreadyExistsError` | 409 | Resource already exists |
 | `ForkError` | 409 | Version conflict / fork; also a pointer whose owner signed two final states with no majority (`code: "POINTER_FORKED"`) |
-| `PointerFinalError` | 409 (`code: "POINTER_FINAL"`) | The pointer was handed over or frozen; nothing can change it. Refused before paying |
+| `PointerFinalError` | 409 (`code: "POINTER_FINAL"`) | The pointer was handed over or frozen; nothing can change it. Usually refused before paying, but a write already paid for when the network refused it keeps that payment |
 | `ConflictError` | 409 (`code: "CONFLICT"`) | A pointer write while a prepared write to it awaits payment, or an update that lost to a newer state |
 | `TooLargeError` | 413 | Data exceeds size limit |
 | `InternalError` | 500 | Internal server error |

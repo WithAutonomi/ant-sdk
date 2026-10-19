@@ -146,8 +146,12 @@ public protocol AntdClientProtocol: Sendable {
 
     /// Points the pointer at `owner` at `target`, paid by the daemon wallet,
     /// creating it (at counter 0) if it does not exist. Pays once; never
-    /// retried. Throws ``PointerFinalError``, before anything is paid, if the
-    /// pointer has been transferred or frozen.
+    /// retried. Throws ``PointerFinalError`` if the pointer has been
+    /// transferred or frozen (usually before anything is paid; see
+    /// ``PointerFinalError``), and ``ConflictError`` if a prepared write to it
+    /// awaits payment (refused before paying) or the update lost to a newer
+    /// state while in flight (possibly after paying). Read the pointer before
+    /// writing again.
     func pointerUpdate(owner: String, target: String, kind: PointerKind) async throws -> PointerWriteResult
 
     /// Hands the pointer at `owner` over to the pointer at `recipient`, for
@@ -155,10 +159,12 @@ public protocol AntdClientProtocol: Sendable {
     /// to the recipient's pointer, which only its owner can move. Irreversible
     /// once stored. Pays once; never retried.
     ///
-    /// Refused before paying if the pointer is already final
-    /// (``PointerFinalError``), if `recipient` does not exist or leads back
-    /// (``BadRequestError``), or if not every peer of the close group answered
-    /// (``CloseGroupShortfallError``; try again later).
+    /// Refused before paying if `recipient` does not exist or leads back
+    /// (``BadRequestError``), and usually if the pointer is already final
+    /// (``PointerFinalError``). A ``CloseGroupShortfallError`` means too few
+    /// of the close group answered or stored it. That can happen before paying
+    /// (the transfer checks every peer first) or after, so check the pointer
+    /// with ``pointerFinality(address:)`` before paying again.
     func pointerTransfer(owner: String, recipient: String) async throws -> PointerTransferResult
 
     /// Reads the pointer at `address`. Throws ``NotFoundError`` if there is
