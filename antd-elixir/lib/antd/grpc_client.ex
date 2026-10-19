@@ -1381,7 +1381,7 @@ defmodule Antd.GrpcClient do
   #
   # Message size: a manifest can be 64 MiB, and a Build or Decode response
   # carries it, so antd-go raises its client's 4 MiB receive default per
-  # call. grpc-elixir 0.11 has no receive limit to raise: its Gun adapter
+  # call. grpc-elixir 0.11 and 1.0 have no receive limit to raise: the Gun adapter
   # reads a unary response whole, whatever its size; GRPC.Stub.connect has no
   # option for one, and a call rejects any option it does not know; and
   # sends are capped only by GRPC.Message's 2 GiB default. So no limit is

@@ -49,6 +49,8 @@ _build/
 deps/
 .elixir_ls/
 mix.lock
+# antd-elixir is a library but commits its lock: CI and dev resolve the same tree
+!antd-elixir/mix.lock
 
 # Zig
 .zig-cache/
