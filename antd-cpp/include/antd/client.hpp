@@ -12,6 +12,7 @@
 
 #include "discover.hpp"
 #include "errors.hpp"
+#include "manifests.hpp"
 #include "models.hpp"
 
 namespace antd {
@@ -197,6 +198,35 @@ public:
 
     /// Approve the wallet to spend tokens on payment contracts (one-time operation).
     bool wallet_approve();
+
+    // --- Manifests ---
+    //
+    // `.ant` manifests and `ant://` links (ADR-0006; needs the antd release
+    // after 0.15.0). Nothing is uploaded or paid for. The `.ant` bytes are
+    // raw bytes here; the client handles REST's base64. See manifests.hpp for
+    // the types.
+
+    /// Builds a `.ant` manifest from DataMaps and public addresses already in
+    /// hand (POST /v1/manifests/build). Throws BadRequestError, before
+    /// sending, for an entry with both or neither of `data_map` and
+    /// `address`, and the daemon's BadRequestError (naming `entries[i]`) for
+    /// any other invalid entry or option. With the default options the
+    /// daemon resolves shrunk DataMaps over the network to embed their roots.
+    BuiltManifest build_manifest(const std::vector<ManifestEntryInput>& entries,
+                                 const BuildManifestOptions& options = {});
+
+    /// Decodes `.ant` bytes (POST /v1/manifests/decode). With `resolve`, the
+    /// daemon fetches each entry's DataMap (and wrapper records) to report
+    /// `exact_size` and confirm the DataMap is on the network; content chunks
+    /// are not fetched, and one entry's failure is reported in its `error`,
+    /// not as a failed call. Throws BadRequestError for empty or invalid
+    /// bytes.
+    DecodedManifest decode_manifest(const std::vector<uint8_t>& manifest,
+                                    bool resolve = false);
+
+    /// Decodes an `ant://` manifest link, file link or bare 64-hex address
+    /// (POST /v1/manifests/decode). See decode_manifest for `resolve`.
+    DecodedManifest decode_manifest_link(std::string_view link, bool resolve = false);
 
     // --- External Signer (Two-Phase Upload) ---
 
