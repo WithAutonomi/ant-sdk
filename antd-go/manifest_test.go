@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	pb "github.com/WithAutonomi/ant-sdk/antd-go/proto/antd/v1"
@@ -95,11 +96,64 @@ func TestBuildManifestDefaultsEmbedRoots(t *testing.T) {
 
 func TestBuildManifestRejectsAmbiguousEntriesBeforeSending(t *testing.T) {
 	c := NewClient("http://127.0.0.1:1") // never dialled
-	for _, e := range []ManifestEntryInput{{}, {DataMap: "aa", Address: "bb"}} {
-		if _, err := c.BuildManifest(context.Background(), []ManifestEntryInput{e}, nil); err == nil {
-			t.Fatalf("expected an error for %+v", e)
-		}
+	ok := ManifestEntryInput{Address: "11"}
+	cases := []struct {
+		name    string
+		entries []ManifestEntryInput
+		want    string
+	}{
+		{"neither", []ManifestEntryInput{{}}, "1 invalid entries: entries[0]: needs a data_map or an address"},
+		{"both", []ManifestEntryInput{{DataMap: "aa", Address: "bb"}}, "1 invalid entries: entries[0]: give data_map or address, not both"},
+		{"two bad around a good one", []ManifestEntryInput{{DataMap: "aa", Address: "bb"}, ok, {}},
+			"2 invalid entries: entries[0]: give data_map or address, not both; entries[2]: needs a data_map or an address"},
 	}
+	for _, tc := range cases {
+		_, err := c.BuildManifest(context.Background(), tc.entries, nil)
+		checkBadRequest(t, tc.name, err, tc.want)
+	}
+}
+
+func checkBadRequest(t *testing.T, name string, err error, want string) {
+	t.Helper()
+	var bad *BadRequestError
+	if !errors.As(err, &bad) || bad.StatusCode != http.StatusBadRequest || bad.Message != want {
+		t.Errorf("%s: want *BadRequestError 400 %q, got %T: %v", name, want, err, err)
+	}
+}
+
+// Past 20 bad entries the daemon names the first 20 and counts the rest.
+func TestBuildManifestCapsReportedEntryErrors(t *testing.T) {
+	entries := make([]ManifestEntryInput, 23) // all neither
+	_, err := NewClient("http://127.0.0.1:1").BuildManifest(context.Background(), entries, nil)
+	var bad *BadRequestError
+	if !errors.As(err, &bad) {
+		t.Fatalf("got %T: %v", err, err)
+	}
+	if !strings.HasPrefix(bad.Message, "23 invalid entries: entries[0]: needs a data_map or an address; entries[1]:") ||
+		!strings.HasSuffix(bad.Message, "entries[19]: needs a data_map or an address; and 3 more") ||
+		strings.Contains(bad.Message, "entries[20]") {
+		t.Fatalf("unexpected message: %q", bad.Message)
+	}
+}
+
+// Pre-send rejections are the same *BadRequestError over REST and gRPC.
+func TestManifestClientSideRejectionsAreBadRequestOnBothTransports(t *testing.T) {
+	ctx := context.Background()
+	rest := NewClient("http://127.0.0.1:1") // never dialled
+	grpcc := startMockServer(t)
+	const entryMsg = "1 invalid entries: entries[0]: needs a data_map or an address"
+	_, err := rest.BuildManifest(ctx, []ManifestEntryInput{{}}, nil)
+	checkBadRequest(t, "rest build entry", err, entryMsg)
+	_, err = grpcc.BuildManifest(ctx, []ManifestEntryInput{{}}, nil)
+	checkBadRequest(t, "grpc build entry", err, entryMsg)
+	_, err = rest.DecodeManifest(ctx, nil, false)
+	checkBadRequest(t, "rest empty bytes", err, noDecodeInput)
+	_, err = grpcc.DecodeManifest(ctx, nil, false)
+	checkBadRequest(t, "grpc empty bytes", err, noDecodeInput)
+	_, err = rest.DecodeManifestLink(ctx, "", false)
+	checkBadRequest(t, "rest empty link", err, noDecodeInput)
+	_, err = grpcc.DecodeManifestLink(ctx, "", false)
+	checkBadRequest(t, "grpc empty link", err, noDecodeInput)
 }
 
 func TestDecodeManifestAndLink(t *testing.T) {
@@ -170,7 +224,14 @@ type mockManifestService struct {
 	pb.UnimplementedManifestServiceServer
 }
 
+// bigManifestSize is past the client's default receive ceiling, so only a
+// raised per-call limit lets a manifest this large arrive.
+const bigManifestSize = DefaultGrpcMaxRecvMsgSize + 1024*1024
+
 func (m *mockManifestService) Build(_ context.Context, req *pb.BuildManifestRequest) (*pb.BuildManifestResponse, error) {
+	if req.GetName() == "big" {
+		return &pb.BuildManifestResponse{Manifest: make([]byte, bigManifestSize)}, nil
+	}
 	if req.GetName() != "album" || req.EmbedRoots == nil || !req.GetEmbedRoots() || len(req.GetEntries()) != 2 {
 		return nil, errors.New("unexpected request")
 	}
@@ -195,6 +256,10 @@ func (m *mockManifestService) Build(_ context.Context, req *pb.BuildManifestRequ
 
 func (m *mockManifestService) Decode(_ context.Context, req *pb.DecodeManifestRequest) (*pb.DecodeManifestResponse, error) {
 	resp := &pb.DecodeManifestResponse{Source: "manifest"}
+	if req.GetLink() == "big" {
+		resp.Entries = []*pb.ManifestEntryInfo{{Kind: "embedded", DataMap: strings.Repeat("a", bigManifestSize)}}
+		return resp, nil
+	}
 	switch in := req.GetInput().(type) {
 	case *pb.DecodeManifestRequest_Manifest:
 		name := "bytes"
@@ -244,5 +309,31 @@ func TestGrpcDecodeManifestAndLink(t *testing.T) {
 	}
 	if res.Source != "file_link" || len(res.Entries) != 1 || res.Entries[0].ContentAddress != addr || res.TorrentInfoHashV1 != "" {
 		t.Fatalf("unexpected link decode: %+v", res)
+	}
+}
+
+// A manifest response past the client's default receive ceiling must still
+// arrive: Build and Decode raise the limit per call (maxManifestGrpcMessage),
+// since a manifest can be 64 MiB and a decode carries its DataMaps in hex.
+func TestGrpcManifestCallsRaiseTheRecvLimit(t *testing.T) {
+	if bigManifestSize <= DefaultGrpcMaxRecvMsgSize || bigManifestSize > maxManifestGrpcMessage {
+		t.Fatalf("fixture must sit between the default and the manifest ceilings, got %d bytes", bigManifestSize)
+	}
+	c := startMockServer(t)
+
+	built, err := c.BuildManifest(context.Background(), []ManifestEntryInput{{Address: "11"}}, &BuildManifestOptions{Name: "big"})
+	if err != nil {
+		t.Fatalf("large Build response rejected on a default client: %v", err)
+	}
+	if len(built.Manifest) != bigManifestSize {
+		t.Fatalf("expected %d manifest bytes, got %d", bigManifestSize, len(built.Manifest))
+	}
+
+	decoded, err := c.DecodeManifestLink(context.Background(), "big", false)
+	if err != nil {
+		t.Fatalf("large Decode response rejected on a default client: %v", err)
+	}
+	if len(decoded.Entries) != 1 || len(decoded.Entries[0].DataMap) != bigManifestSize {
+		t.Fatalf("large Decode response mangled: %d entries", len(decoded.Entries))
 	}
 }
