@@ -17,7 +17,7 @@ set -euo pipefail
 PROTOC_GEN_ELIXIR_VERSION="0.16.0"
 
 # The antd/proto/antd/v1 files this SDK ships stubs for.
-PROTOS=(chunks common data files health upload wallet)
+PROTOS=(chunks common data files health pointers upload wallet)
 
 SDK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SDK_DIR"

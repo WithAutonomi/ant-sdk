@@ -324,6 +324,7 @@ See the [examples/](examples/) directory:
 - `06-private-data` — Private encrypted data storage
 - `07-external-signer` — Prepare / pay externally / finalize, with a bounded retry on `PartialUpload`
 - `08-grpc` — gRPC transport (instead of REST)
+- `09-pointers` — Create, update, read and resolve a pointer, then check its finality (needs `ANTD_POINTER_OWNER`; each write pays)
 
 Run an example:
 
