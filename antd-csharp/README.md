@@ -165,7 +165,7 @@ All models are sealed records (immutable).
 | `PointerFinalState` | `StateId`, `Kind`, `KindTag`, `Target`, `Holders`, `TransferredTo` | One final state a finality check saw |
 | `PointerTransferResult` | `Address`, `StateId`, `Finality`, `FinalityError` | What a transfer stored |
 | `PointerController` | `Pointer`, `Transfers`, `Frozen` | Whose pointer decides, after every transfer |
-| `PointerPrepareRequest` | `Owner`, `Op`, `Target`, `Kind`, `Recipient`, `IncludeSignedQuotes` | An external-signer write; build it with `Create`, `Update` or `Transfer` (each takes an optional `includeSignedQuotes`, default `false`) |
+| `PointerPrepareRequest` | `Owner`, `Op`, `Target`, `Kind`, `Recipient`, `IncludeSignedQuotes` | An external-signer write; build it with `Create`, `Update` or `Transfer`; to ask for signed quotes, add `with { IncludeSignedQuotes = true }` |
 | `PointerPrepareResult` | `UploadId`, `Op`, `Address`, `StateId`, `Counter`, `PaymentType`, `Payments`, `TotalAmount`, `PaymentVaultAddress`, `PaymentTokenAddress`, `RpcUrl`, `SignedQuotes` | A signed, quoted pointer write awaiting payment. `SignedQuotes` (`List<SignedQuoteEntry>`: `QuoteHash`, base64 `Quote`, optional base64 `CommitmentSidecar`) is empty unless the request set `IncludeSignedQuotes` |
 | `PointerFinalizeResult` | `Address`, `StateId`, `Counter`, `Finality` | The state a finalize stored; `Finality` for transfers only |
 

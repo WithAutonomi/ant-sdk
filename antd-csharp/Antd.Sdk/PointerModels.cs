@@ -265,21 +265,27 @@ public sealed record PointerPrepareRequest(
 {
     /// <summary>
     /// Ask for the full signed quotes in <see cref="PointerPrepareResult.SignedQuotes"/>,
-    /// for offline verification. Off by default; sent only when true.
+    /// for offline verification. Off by default; sent only when true. Set it
+    /// on a built request:
+    /// <c>PointerPrepareRequest.Update(owner, target) with { IncludeSignedQuotes = true }</c>.
     /// </summary>
+    /// <remarks>
+    /// The factories keep their original signatures, so code that binds them
+    /// as method groups, or was compiled against an earlier SDK, still works.
+    /// </remarks>
     public bool IncludeSignedQuotes { get; init; }
 
     /// <summary>Create the pointer at <paramref name="owner"/>, pointing at <paramref name="target"/>.</summary>
-    public static PointerPrepareRequest Create(string owner, string target, PointerKind kind = PointerKind.Chunk, bool includeSignedQuotes = false) =>
-        new(owner, PointerOp.Create, target, kind) { IncludeSignedQuotes = includeSignedQuotes };
+    public static PointerPrepareRequest Create(string owner, string target, PointerKind kind = PointerKind.Chunk) =>
+        new(owner, PointerOp.Create, target, kind);
 
     /// <summary>Point the pointer at <paramref name="owner"/> at <paramref name="target"/>.</summary>
-    public static PointerPrepareRequest Update(string owner, string target, PointerKind kind = PointerKind.Chunk, bool includeSignedQuotes = false) =>
-        new(owner, PointerOp.Update, target, kind) { IncludeSignedQuotes = includeSignedQuotes };
+    public static PointerPrepareRequest Update(string owner, string target, PointerKind kind = PointerKind.Chunk) =>
+        new(owner, PointerOp.Update, target, kind);
 
     /// <summary>Hand the pointer at <paramref name="owner"/> over to the pointer at <paramref name="recipient"/>.</summary>
-    public static PointerPrepareRequest Transfer(string owner, string recipient, bool includeSignedQuotes = false) =>
-        new(owner, PointerOp.Transfer, Recipient: recipient) { IncludeSignedQuotes = includeSignedQuotes };
+    public static PointerPrepareRequest Transfer(string owner, string recipient) =>
+        new(owner, PointerOp.Transfer, Recipient: recipient);
 }
 
 /// <summary>

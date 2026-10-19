@@ -462,7 +462,7 @@ public sealed class PointerRestTests : IDisposable
         _server.Start();
 
         var p = await _client.PointerPrepareAsync(
-            PointerPrepareRequest.Update(PointerFixtures.Owner, PointerFixtures.Target, includeSignedQuotes: true));
+            PointerPrepareRequest.Update(PointerFixtures.Owner, PointerFixtures.Target) with { IncludeSignedQuotes = true });
 
         Assert.True(LastBody("POST", "/v1/pointers/prepare").GetProperty("include_signed_quotes").GetBoolean());
         Assert.Equal(
@@ -983,12 +983,53 @@ public sealed class PointerGrpcTests
     {
         var mock = new MockPointerService();
         var p = await MakeClient(mock).PointerPrepareAsync(
-            PointerPrepareRequest.Update(PointerFixtures.Owner, PointerFixtures.Target, includeSignedQuotes: true));
+            PointerPrepareRequest.Update(PointerFixtures.Owner, PointerFixtures.Target) with { IncludeSignedQuotes = true });
 
         Assert.True(mock.LastPrepare!.IncludeSignedQuotes);
         Assert.Equal(
             new[] { new SignedQuoteEntry("0xq", "cXVvdGU=", "c2lkZQ=="), new SignedQuoteEntry("0xq2", "cTI=", null) },
             p.SignedQuotes);
+    }
+
+    [Fact]
+    public void PointerPrepareRequest_Factories_KeepTheirSignatures()
+    {
+        // A method group binds only to its exact signature, so these stop
+        // compiling if a factory gains a parameter, even an optional one.
+        Func<string, string, PointerKind, PointerPrepareRequest> create = PointerPrepareRequest.Create;
+        Func<string, string, PointerKind, PointerPrepareRequest> update = PointerPrepareRequest.Update;
+        Func<string, string, PointerPrepareRequest> transfer = PointerPrepareRequest.Transfer;
+
+        Assert.False(create(PointerFixtures.Owner, PointerFixtures.Target, PointerKind.Chunk).IncludeSignedQuotes);
+        Assert.False(update(PointerFixtures.Owner, PointerFixtures.Target, PointerKind.Chunk).IncludeSignedQuotes);
+        Assert.False(transfer(PointerFixtures.Owner, PointerFixtures.Recipient).IncludeSignedQuotes);
+
+        // Code compiled against an earlier SDK calls these exact methods; if
+        // one is gone it throws MissingMethodException at run time.
+        var type = typeof(PointerPrepareRequest);
+        Type[] ownerTargetKind = { typeof(string), typeof(string), typeof(PointerKind) };
+        Type[] ownerRecipient = { typeof(string), typeof(string) };
+        Assert.Equal(type, type.GetMethod(nameof(PointerPrepareRequest.Create), ownerTargetKind)?.ReturnType);
+        Assert.Equal(type, type.GetMethod(nameof(PointerPrepareRequest.Update), ownerTargetKind)?.ReturnType);
+        Assert.Equal(type, type.GetMethod(nameof(PointerPrepareRequest.Transfer), ownerRecipient)?.ReturnType);
+    }
+
+    [Fact]
+    public void PointerPrepareRequest_SignedQuotesOptIn_KeepsTheWrite()
+    {
+        var create = PointerPrepareRequest.Create(PointerFixtures.Owner, PointerFixtures.Target, PointerKind.Pointer)
+            with { IncludeSignedQuotes = true };
+        var transfer = PointerPrepareRequest.Transfer(PointerFixtures.Owner, PointerFixtures.Recipient)
+            with { IncludeSignedQuotes = true };
+
+        Assert.Equal(
+            new PointerPrepareRequest(PointerFixtures.Owner, PointerOp.Create, PointerFixtures.Target, PointerKind.Pointer)
+                { IncludeSignedQuotes = true },
+            create);
+        Assert.Equal(
+            new PointerPrepareRequest(PointerFixtures.Owner, PointerOp.Transfer, Recipient: PointerFixtures.Recipient)
+                { IncludeSignedQuotes = true },
+            transfer);
     }
 
     [Fact]
