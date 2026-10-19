@@ -288,7 +288,7 @@ try {
 
 ## Examples
 
-The `examples/` directory contains 7 runnable scripts covering all major features, plus a retry helper:
+The `examples/` directory contains 8 runnable scripts covering all major features, plus a retry helper:
 
 | Example | Description |
 |---------|-------------|
@@ -299,8 +299,8 @@ The `examples/` directory contains 7 runnable scripts covering all major feature
 | `06-private-data.ts` | Private encrypted data |
 | `07-external-signer.ts` | External-signer file + chunk upload (anvil signer) |
 | `08-pointers.ts` | Pointer create, update, resolve and finality (needs `ANTD_POINTER_OWNER`) |
-| `finalize-with-retry.ts` | Bounded same-`uploadId` finalize retry used by `07` (imported, not run directly) |
 | `09-manifests.ts` | Build a manifest of two public uploads, then decode its link with exact sizes |
+| `finalize-with-retry.ts` | Bounded same-`uploadId` finalize retry used by `07` (imported, not run directly) |
 
 Run examples with [tsx](https://github.com/privatenumber/tsx):
 

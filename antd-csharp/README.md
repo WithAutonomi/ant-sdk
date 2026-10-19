@@ -316,6 +316,7 @@ dotnet run -- all   # Run all of the above
 
 # Pointers: run explicitly; "all" leaves it out, because every write pays.
 ANTD_POINTER_OWNER=<address from GET /v1/pointers/keys> dotnet run -- 8   # or: dotnet run -- pointers
+dotnet run -- 9     # Manifests (or: dotnet run -- manifests; needs the antd release after 0.15.0)
 ```
 
 Example 8 uploads two pieces of public data, creates a pointer at the first, updates it to the second, resolves and reads it, and prints its finality. It needs an antd started with `--pointer-keys` and a wallet; `ANTD_BASE_URL` overrides the daemon URL (default `http://localhost:8082`). Without `ANTD_POINTER_OWNER` it prints a note and skips. A rerun with the same owner skips the create and only updates.
