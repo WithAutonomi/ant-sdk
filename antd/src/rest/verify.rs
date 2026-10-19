@@ -13,13 +13,14 @@ use axum::extract::State;
 use axum::Json;
 
 use crate::error::AntdError;
+use crate::rest::json::ApiJson;
 use crate::signed_quotes;
 use crate::state::AppState;
 use crate::types::{VerifyQuotesRequest, VerifyQuotesResponse};
 
 pub async fn verify_quotes(
     State(_state): State<Arc<AppState>>,
-    Json(req): Json<VerifyQuotesRequest>,
+    ApiJson(req): ApiJson<VerifyQuotesRequest>,
 ) -> Result<Json<VerifyQuotesResponse>, AntdError> {
     if req.entries.len() > signed_quotes::MAX_VERIFY_ENTRIES {
         return Err(AntdError::BadRequest(format!(

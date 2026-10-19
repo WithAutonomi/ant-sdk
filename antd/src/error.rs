@@ -22,6 +22,10 @@ pub enum AntdError {
     #[error("Too large for memory")]
     TooLarge,
 
+    /// A request body over the route's size limit, refused before parsing.
+    #[error("Payload too large: {0}")]
+    PayloadTooLarge(String),
+
     #[error("Timeout: {0}")]
     Timeout(String),
 
@@ -114,6 +118,7 @@ impl AntdError {
             AntdError::Payment(_) => "PAYMENT_REQUIRED",
             AntdError::Network(_) => "NETWORK_ERROR",
             AntdError::TooLarge => "TOO_LARGE",
+            AntdError::PayloadTooLarge(_) => "PAYLOAD_TOO_LARGE",
             AntdError::Timeout(_) => "TIMEOUT",
             AntdError::ServiceUnavailable(_) => "SERVICE_UNAVAILABLE",
             AntdError::NotImplemented(_) => "NOT_IMPLEMENTED",
@@ -206,7 +211,7 @@ impl IntoResponse for AntdError {
             AntdError::BadRequest(_) => StatusCode::BAD_REQUEST,
             AntdError::Payment(_) => StatusCode::PAYMENT_REQUIRED,
             AntdError::Network(_) => StatusCode::BAD_GATEWAY,
-            AntdError::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
+            AntdError::TooLarge | AntdError::PayloadTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
             AntdError::Timeout(_) => StatusCode::GATEWAY_TIMEOUT,
             AntdError::ServiceUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             AntdError::NotImplemented(_) => StatusCode::NOT_IMPLEMENTED,
@@ -302,6 +307,9 @@ impl From<AntdError> for tonic::Status {
             }
             e @ AntdError::Conflict(_) => {
                 with_code(tonic::Status::aborted(e.to_string()), e.code())
+            }
+            e @ AntdError::PayloadTooLarge(_) => {
+                with_code(tonic::Status::resource_exhausted(e.to_string()), e.code())
             }
         }
     }

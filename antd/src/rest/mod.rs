@@ -20,6 +20,7 @@ pub mod chunks;
 pub mod data;
 pub mod events;
 pub mod files;
+pub mod json;
 pub mod manifests;
 pub mod pointers;
 pub mod upload;

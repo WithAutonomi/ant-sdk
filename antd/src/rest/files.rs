@@ -5,6 +5,7 @@ use axum::extract::State;
 use axum::Json;
 
 use crate::error::AntdError;
+use crate::rest::json::ApiJson;
 use crate::state::AppState;
 use crate::types::*;
 
@@ -14,7 +15,7 @@ use crate::types::*;
 /// is NOT stored on the network; the caller is responsible for persisting it.
 pub async fn file_put(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<FilePutRequest>,
+    ApiJson(req): ApiJson<FilePutRequest>,
 ) -> Result<Json<FilePutResponse>, AntdError> {
     if state.client.wallet().is_none() {
         return Err(AntdError::ServiceUnavailable(
@@ -61,7 +62,7 @@ pub async fn file_put(
 /// address of the stored DataMap.
 pub async fn file_put_public(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<FilePutRequest>,
+    ApiJson(req): ApiJson<FilePutRequest>,
 ) -> Result<Json<FilePutPublicResponse>, AntdError> {
     if state.client.wallet().is_none() {
         return Err(AntdError::ServiceUnavailable(
@@ -105,7 +106,7 @@ pub async fn file_put_public(
 /// `POST /v1/files/get` — private file download from a caller-held DataMap.
 pub async fn file_get(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<FileGetRequest>,
+    ApiJson(req): ApiJson<FileGetRequest>,
 ) -> Result<axum::http::StatusCode, AntdError> {
     let data_map_bytes = hex::decode(&req.data_map)
         .map_err(|e| AntdError::BadRequest(format!("invalid hex data_map: {e}")))?;
@@ -140,7 +141,7 @@ pub async fn file_get(
 /// `POST /v1/files/public/get` — public file download by on-network DataMap address.
 pub async fn file_get_public(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<FileGetPublicRequest>,
+    ApiJson(req): ApiJson<FileGetPublicRequest>,
 ) -> Result<axum::http::StatusCode, AntdError> {
     if req.address.len() != 64 {
         return Err(AntdError::BadRequest(
@@ -177,7 +178,7 @@ pub async fn file_get_public(
 /// the rename apart from the function name (was already `file_cost`).
 pub async fn file_cost(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<FileCostRequest>,
+    ApiJson(req): ApiJson<FileCostRequest>,
 ) -> Result<Json<CostResponse>, AntdError> {
     let path = PathBuf::from(&req.path).canonicalize().map_err(|e| {
         tracing::warn!(path = %req.path, error = %e, "invalid file cost path");

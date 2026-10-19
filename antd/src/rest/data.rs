@@ -10,12 +10,13 @@ use base64::Engine;
 use bytes::Bytes;
 
 use crate::error::AntdError;
+use crate::rest::json::ApiJson;
 use crate::state::AppState;
 use crate::types::*;
 
 pub async fn data_put_public(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<DataPutRequest>,
+    ApiJson(req): ApiJson<DataPutRequest>,
 ) -> Result<Json<DataPutPublicResponse>, AntdError> {
     if state.client.wallet().is_none() {
         return Err(AntdError::ServiceUnavailable(
@@ -90,7 +91,7 @@ pub async fn data_get_public(
 
 pub async fn data_put(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<DataPutRequest>,
+    ApiJson(req): ApiJson<DataPutRequest>,
 ) -> Result<Json<DataPutResponse>, AntdError> {
     if state.client.wallet().is_none() {
         return Err(AntdError::ServiceUnavailable(
@@ -131,7 +132,7 @@ pub async fn data_put(
 
 pub async fn data_get(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<DataGetRequest>,
+    ApiJson(req): ApiJson<DataGetRequest>,
 ) -> Result<Json<DataGetResponse>, AntdError> {
     let data_map_bytes = hex::decode(&req.data_map)
         .map_err(|e| AntdError::BadRequest(format!("invalid hex data_map: {e}")))?;
@@ -166,7 +167,7 @@ pub async fn data_get(
 
 pub async fn data_cost(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<DataCostRequest>,
+    ApiJson(req): ApiJson<DataCostRequest>,
 ) -> Result<Json<CostResponse>, AntdError> {
     let data = BASE64
         .decode(&req.data)
@@ -436,7 +437,7 @@ async fn stream_response_ndjson(
 pub async fn data_stream(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(req): Json<DataGetRequest>,
+    ApiJson(req): ApiJson<DataGetRequest>,
 ) -> Result<Response, AntdError> {
     let data_map_bytes = hex::decode(&req.data_map)
         .map_err(|e| AntdError::BadRequest(format!("invalid hex data_map: {e}")))?;

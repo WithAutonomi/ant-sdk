@@ -1557,7 +1557,8 @@ components:
           type: string
           description: >-
             Machine-readable error code (NOT_FOUND, BAD_REQUEST,
-            PAYMENT_REQUIRED, NETWORK_ERROR, PARTIAL_UPLOAD, ...). Prefer it
+            PAYMENT_REQUIRED, NETWORK_ERROR, PAYLOAD_TOO_LARGE,
+            PARTIAL_UPLOAD, ...). Prefer it
             over the HTTP status where they diverge (PARTIAL_UPLOAD arrives
             as a 502).
         chunks_stored:
@@ -1716,7 +1717,10 @@ components:
 
   responses:
     BadRequest:
-      description: Invalid request (400)
+      description: >-
+        Invalid request (400). Also returned for a JSON body that fails to
+        parse (bad syntax, a field of the wrong type, or a missing/wrong
+        Content-Type); the message names the offending field.
       content:
         application/json:
           schema:
@@ -1740,7 +1744,9 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
     TooLarge:
-      description: Payload too large (413)
+      description: >-
+        Payload too large (413). A request body over the route's limit
+        arrives with code PAYLOAD_TOO_LARGE.
       content:
         application/json:
           schema:

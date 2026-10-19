@@ -9,6 +9,7 @@ use bytes::Bytes;
 
 use crate::error::AntdError;
 use crate::evm_defaults;
+use crate::rest::json::ApiJson;
 use crate::state::{AppState, TimestampedChunk};
 use crate::types::*;
 
@@ -41,7 +42,7 @@ pub async fn chunk_get(
 
 pub async fn chunk_put(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<ChunkPutRequest>,
+    ApiJson(req): ApiJson<ChunkPutRequest>,
 ) -> Result<Json<ChunkPutResponse>, AntdError> {
     if state.client.wallet().is_none() {
         return Err(AntdError::ServiceUnavailable(
@@ -83,7 +84,7 @@ pub async fn chunk_put(
 /// wallet; all funds flow through the external signer.
 pub async fn chunk_prepare(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<PrepareChunkRequest>,
+    ApiJson(req): ApiJson<PrepareChunkRequest>,
 ) -> Result<Json<PrepareChunkResponse>, AntdError> {
     let data = BASE64
         .decode(&req.data)
@@ -194,7 +195,7 @@ pub async fn chunk_prepare(
 /// peers via [`ant_core::data::Client::finalize_chunk`].
 pub async fn chunk_finalize(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<FinalizeChunkRequest>,
+    ApiJson(req): ApiJson<FinalizeChunkRequest>,
 ) -> Result<Json<FinalizeChunkResponse>, AntdError> {
     use evmlib::common::{QuoteHash, TxHash};
 
