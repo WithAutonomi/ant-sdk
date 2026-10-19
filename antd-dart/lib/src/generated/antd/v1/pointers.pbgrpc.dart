@@ -16,7 +16,7 @@ import 'dart:core' as $core;
 import 'package:grpc/service_api.dart' as $grpc;
 import 'package:protobuf/protobuf.dart' as $pb;
 
-import 'pointers.pb.dart' as $6;
+import 'pointers.pb.dart' as $7;
 
 export 'pointers.pb.dart';
 
@@ -45,97 +45,97 @@ class PointerServiceClient extends $grpc.Client {
     '',
   ];
 
-  static final _$listKeys = $grpc.ClientMethod<$6.ListPointerKeysRequest, $6.ListPointerKeysResponse>(
+  static final _$listKeys = $grpc.ClientMethod<$7.ListPointerKeysRequest, $7.ListPointerKeysResponse>(
       '/antd.v1.PointerService/ListKeys',
-      ($6.ListPointerKeysRequest value) => value.writeToBuffer(),
-      ($core.List<$core.int> value) => $6.ListPointerKeysResponse.fromBuffer(value));
-  static final _$create = $grpc.ClientMethod<$6.PointerWriteRequest, $6.PointerWriteResponse>(
+      ($7.ListPointerKeysRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $7.ListPointerKeysResponse.fromBuffer(value));
+  static final _$create = $grpc.ClientMethod<$7.PointerWriteRequest, $7.PointerWriteResponse>(
       '/antd.v1.PointerService/Create',
-      ($6.PointerWriteRequest value) => value.writeToBuffer(),
-      ($core.List<$core.int> value) => $6.PointerWriteResponse.fromBuffer(value));
-  static final _$update = $grpc.ClientMethod<$6.PointerWriteRequest, $6.PointerWriteResponse>(
+      ($7.PointerWriteRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $7.PointerWriteResponse.fromBuffer(value));
+  static final _$update = $grpc.ClientMethod<$7.PointerWriteRequest, $7.PointerWriteResponse>(
       '/antd.v1.PointerService/Update',
-      ($6.PointerWriteRequest value) => value.writeToBuffer(),
-      ($core.List<$core.int> value) => $6.PointerWriteResponse.fromBuffer(value));
-  static final _$transfer = $grpc.ClientMethod<$6.PointerTransferRequest, $6.PointerTransferResponse>(
+      ($7.PointerWriteRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $7.PointerWriteResponse.fromBuffer(value));
+  static final _$transfer = $grpc.ClientMethod<$7.PointerTransferRequest, $7.PointerTransferResponse>(
       '/antd.v1.PointerService/Transfer',
-      ($6.PointerTransferRequest value) => value.writeToBuffer(),
-      ($core.List<$core.int> value) => $6.PointerTransferResponse.fromBuffer(value));
-  static final _$get = $grpc.ClientMethod<$6.GetPointerRequest, $6.PointerRecord>(
+      ($7.PointerTransferRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $7.PointerTransferResponse.fromBuffer(value));
+  static final _$get = $grpc.ClientMethod<$7.GetPointerRequest, $7.PointerRecord>(
       '/antd.v1.PointerService/Get',
-      ($6.GetPointerRequest value) => value.writeToBuffer(),
-      ($core.List<$core.int> value) => $6.PointerRecord.fromBuffer(value));
-  static final _$resolve = $grpc.ClientMethod<$6.ResolvePointerRequest, $6.PointerResolved>(
+      ($7.GetPointerRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $7.PointerRecord.fromBuffer(value));
+  static final _$resolve = $grpc.ClientMethod<$7.ResolvePointerRequest, $7.PointerResolved>(
       '/antd.v1.PointerService/Resolve',
-      ($6.ResolvePointerRequest value) => value.writeToBuffer(),
-      ($core.List<$core.int> value) => $6.PointerResolved.fromBuffer(value));
-  static final _$finality = $grpc.ClientMethod<$6.PointerFinalityRequest, $6.PointerFinality>(
+      ($7.ResolvePointerRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $7.PointerResolved.fromBuffer(value));
+  static final _$finality = $grpc.ClientMethod<$7.PointerFinalityRequest, $7.PointerFinality>(
       '/antd.v1.PointerService/Finality',
-      ($6.PointerFinalityRequest value) => value.writeToBuffer(),
-      ($core.List<$core.int> value) => $6.PointerFinality.fromBuffer(value));
-  static final _$controller = $grpc.ClientMethod<$6.PointerControllerRequest, $6.PointerController>(
+      ($7.PointerFinalityRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $7.PointerFinality.fromBuffer(value));
+  static final _$controller = $grpc.ClientMethod<$7.PointerControllerRequest, $7.PointerController>(
       '/antd.v1.PointerService/Controller',
-      ($6.PointerControllerRequest value) => value.writeToBuffer(),
-      ($core.List<$core.int> value) => $6.PointerController.fromBuffer(value));
-  static final _$prepare = $grpc.ClientMethod<$6.PreparePointerRequest, $6.PreparePointerResponse>(
+      ($7.PointerControllerRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $7.PointerController.fromBuffer(value));
+  static final _$prepare = $grpc.ClientMethod<$7.PreparePointerRequest, $7.PreparePointerResponse>(
       '/antd.v1.PointerService/Prepare',
-      ($6.PreparePointerRequest value) => value.writeToBuffer(),
-      ($core.List<$core.int> value) => $6.PreparePointerResponse.fromBuffer(value));
-  static final _$finalize = $grpc.ClientMethod<$6.FinalizePointerRequest, $6.FinalizePointerResponse>(
+      ($7.PreparePointerRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $7.PreparePointerResponse.fromBuffer(value));
+  static final _$finalize = $grpc.ClientMethod<$7.FinalizePointerRequest, $7.FinalizePointerResponse>(
       '/antd.v1.PointerService/Finalize',
-      ($6.FinalizePointerRequest value) => value.writeToBuffer(),
-      ($core.List<$core.int> value) => $6.FinalizePointerResponse.fromBuffer(value));
+      ($7.FinalizePointerRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $7.FinalizePointerResponse.fromBuffer(value));
 
   PointerServiceClient(super.channel, {super.options, super.interceptors});
 
-  $grpc.ResponseFuture<$6.ListPointerKeysResponse> listKeys($6.ListPointerKeysRequest request, {$grpc.CallOptions? options}) {
+  $grpc.ResponseFuture<$7.ListPointerKeysResponse> listKeys($7.ListPointerKeysRequest request, {$grpc.CallOptions? options}) {
     return $createUnaryCall(_$listKeys, request, options: options);
   }
 
   /// Create a pointer with the daemon wallet. ALREADY_EXISTS if it exists.
-  $grpc.ResponseFuture<$6.PointerWriteResponse> create($6.PointerWriteRequest request, {$grpc.CallOptions? options}) {
+  $grpc.ResponseFuture<$7.PointerWriteResponse> create($7.PointerWriteRequest request, {$grpc.CallOptions? options}) {
     return $createUnaryCall(_$create, request, options: options);
   }
 
   /// Point a pointer at a new target with the daemon wallet, creating it if
   /// it does not exist. FAILED_PRECONDITION if the pointer is final.
-  $grpc.ResponseFuture<$6.PointerWriteResponse> update($6.PointerWriteRequest request, {$grpc.CallOptions? options}) {
+  $grpc.ResponseFuture<$7.PointerWriteResponse> update($7.PointerWriteRequest request, {$grpc.CallOptions? options}) {
     return $createUnaryCall(_$update, request, options: options);
   }
 
   /// Hand a pointer over to the recipient's pointer for good, with the daemon
   /// wallet. Irreversible once stored.
-  $grpc.ResponseFuture<$6.PointerTransferResponse> transfer($6.PointerTransferRequest request, {$grpc.CallOptions? options}) {
+  $grpc.ResponseFuture<$7.PointerTransferResponse> transfer($7.PointerTransferRequest request, {$grpc.CallOptions? options}) {
     return $createUnaryCall(_$transfer, request, options: options);
   }
 
-  $grpc.ResponseFuture<$6.PointerRecord> get($6.GetPointerRequest request, {$grpc.CallOptions? options}) {
+  $grpc.ResponseFuture<$7.PointerRecord> get($7.GetPointerRequest request, {$grpc.CallOptions? options}) {
     return $createUnaryCall(_$get, request, options: options);
   }
 
   /// Follow a chain of pointers to the target at its end.
-  $grpc.ResponseFuture<$6.PointerResolved> resolve($6.ResolvePointerRequest request, {$grpc.CallOptions? options}) {
+  $grpc.ResponseFuture<$7.PointerResolved> resolve($7.ResolvePointerRequest request, {$grpc.CallOptions? options}) {
     return $createUnaryCall(_$resolve, request, options: options);
   }
 
   /// Ask the whole close group whether a pointer is final, and on what.
-  $grpc.ResponseFuture<$6.PointerFinality> finality($6.PointerFinalityRequest request, {$grpc.CallOptions? options}) {
+  $grpc.ResponseFuture<$7.PointerFinality> finality($7.PointerFinalityRequest request, {$grpc.CallOptions? options}) {
     return $createUnaryCall(_$finality, request, options: options);
   }
 
   /// Follow a pointer's transfers to the pointer whose owner now decides.
-  $grpc.ResponseFuture<$6.PointerController> controller($6.PointerControllerRequest request, {$grpc.CallOptions? options}) {
+  $grpc.ResponseFuture<$7.PointerController> controller($7.PointerControllerRequest request, {$grpc.CallOptions? options}) {
     return $createUnaryCall(_$controller, request, options: options);
   }
 
   /// External signer: sign a write with a loaded key and quote it. Mirrors
   /// REST `/v1/pointers/prepare`; the payment shape is ChunkService's.
-  $grpc.ResponseFuture<$6.PreparePointerResponse> prepare($6.PreparePointerRequest request, {$grpc.CallOptions? options}) {
+  $grpc.ResponseFuture<$7.PreparePointerResponse> prepare($7.PreparePointerRequest request, {$grpc.CallOptions? options}) {
     return $createUnaryCall(_$prepare, request, options: options);
   }
 
   /// External signer: store the prepared write once it is paid.
-  $grpc.ResponseFuture<$6.FinalizePointerResponse> finalize($6.FinalizePointerRequest request, {$grpc.CallOptions? options}) {
+  $grpc.ResponseFuture<$7.FinalizePointerResponse> finalize($7.FinalizePointerRequest request, {$grpc.CallOptions? options}) {
     return $createUnaryCall(_$finalize, request, options: options);
   }
 }
@@ -145,126 +145,126 @@ abstract class PointerServiceBase extends $grpc.Service {
   $core.String get $name => 'antd.v1.PointerService';
 
   PointerServiceBase() {
-    $addMethod($grpc.ServiceMethod<$6.ListPointerKeysRequest, $6.ListPointerKeysResponse>(
+    $addMethod($grpc.ServiceMethod<$7.ListPointerKeysRequest, $7.ListPointerKeysResponse>(
         'ListKeys',
         listKeys_Pre,
         false,
         false,
-        ($core.List<$core.int> value) => $6.ListPointerKeysRequest.fromBuffer(value),
-        ($6.ListPointerKeysResponse value) => value.writeToBuffer()));
-    $addMethod($grpc.ServiceMethod<$6.PointerWriteRequest, $6.PointerWriteResponse>(
+        ($core.List<$core.int> value) => $7.ListPointerKeysRequest.fromBuffer(value),
+        ($7.ListPointerKeysResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$7.PointerWriteRequest, $7.PointerWriteResponse>(
         'Create',
         create_Pre,
         false,
         false,
-        ($core.List<$core.int> value) => $6.PointerWriteRequest.fromBuffer(value),
-        ($6.PointerWriteResponse value) => value.writeToBuffer()));
-    $addMethod($grpc.ServiceMethod<$6.PointerWriteRequest, $6.PointerWriteResponse>(
+        ($core.List<$core.int> value) => $7.PointerWriteRequest.fromBuffer(value),
+        ($7.PointerWriteResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$7.PointerWriteRequest, $7.PointerWriteResponse>(
         'Update',
         update_Pre,
         false,
         false,
-        ($core.List<$core.int> value) => $6.PointerWriteRequest.fromBuffer(value),
-        ($6.PointerWriteResponse value) => value.writeToBuffer()));
-    $addMethod($grpc.ServiceMethod<$6.PointerTransferRequest, $6.PointerTransferResponse>(
+        ($core.List<$core.int> value) => $7.PointerWriteRequest.fromBuffer(value),
+        ($7.PointerWriteResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$7.PointerTransferRequest, $7.PointerTransferResponse>(
         'Transfer',
         transfer_Pre,
         false,
         false,
-        ($core.List<$core.int> value) => $6.PointerTransferRequest.fromBuffer(value),
-        ($6.PointerTransferResponse value) => value.writeToBuffer()));
-    $addMethod($grpc.ServiceMethod<$6.GetPointerRequest, $6.PointerRecord>(
+        ($core.List<$core.int> value) => $7.PointerTransferRequest.fromBuffer(value),
+        ($7.PointerTransferResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$7.GetPointerRequest, $7.PointerRecord>(
         'Get',
         get_Pre,
         false,
         false,
-        ($core.List<$core.int> value) => $6.GetPointerRequest.fromBuffer(value),
-        ($6.PointerRecord value) => value.writeToBuffer()));
-    $addMethod($grpc.ServiceMethod<$6.ResolvePointerRequest, $6.PointerResolved>(
+        ($core.List<$core.int> value) => $7.GetPointerRequest.fromBuffer(value),
+        ($7.PointerRecord value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$7.ResolvePointerRequest, $7.PointerResolved>(
         'Resolve',
         resolve_Pre,
         false,
         false,
-        ($core.List<$core.int> value) => $6.ResolvePointerRequest.fromBuffer(value),
-        ($6.PointerResolved value) => value.writeToBuffer()));
-    $addMethod($grpc.ServiceMethod<$6.PointerFinalityRequest, $6.PointerFinality>(
+        ($core.List<$core.int> value) => $7.ResolvePointerRequest.fromBuffer(value),
+        ($7.PointerResolved value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$7.PointerFinalityRequest, $7.PointerFinality>(
         'Finality',
         finality_Pre,
         false,
         false,
-        ($core.List<$core.int> value) => $6.PointerFinalityRequest.fromBuffer(value),
-        ($6.PointerFinality value) => value.writeToBuffer()));
-    $addMethod($grpc.ServiceMethod<$6.PointerControllerRequest, $6.PointerController>(
+        ($core.List<$core.int> value) => $7.PointerFinalityRequest.fromBuffer(value),
+        ($7.PointerFinality value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$7.PointerControllerRequest, $7.PointerController>(
         'Controller',
         controller_Pre,
         false,
         false,
-        ($core.List<$core.int> value) => $6.PointerControllerRequest.fromBuffer(value),
-        ($6.PointerController value) => value.writeToBuffer()));
-    $addMethod($grpc.ServiceMethod<$6.PreparePointerRequest, $6.PreparePointerResponse>(
+        ($core.List<$core.int> value) => $7.PointerControllerRequest.fromBuffer(value),
+        ($7.PointerController value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$7.PreparePointerRequest, $7.PreparePointerResponse>(
         'Prepare',
         prepare_Pre,
         false,
         false,
-        ($core.List<$core.int> value) => $6.PreparePointerRequest.fromBuffer(value),
-        ($6.PreparePointerResponse value) => value.writeToBuffer()));
-    $addMethod($grpc.ServiceMethod<$6.FinalizePointerRequest, $6.FinalizePointerResponse>(
+        ($core.List<$core.int> value) => $7.PreparePointerRequest.fromBuffer(value),
+        ($7.PreparePointerResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$7.FinalizePointerRequest, $7.FinalizePointerResponse>(
         'Finalize',
         finalize_Pre,
         false,
         false,
-        ($core.List<$core.int> value) => $6.FinalizePointerRequest.fromBuffer(value),
-        ($6.FinalizePointerResponse value) => value.writeToBuffer()));
+        ($core.List<$core.int> value) => $7.FinalizePointerRequest.fromBuffer(value),
+        ($7.FinalizePointerResponse value) => value.writeToBuffer()));
   }
 
-  $async.Future<$6.ListPointerKeysResponse> listKeys_Pre($grpc.ServiceCall $call, $async.Future<$6.ListPointerKeysRequest> $request) async {
+  $async.Future<$7.ListPointerKeysResponse> listKeys_Pre($grpc.ServiceCall $call, $async.Future<$7.ListPointerKeysRequest> $request) async {
     return listKeys($call, await $request);
   }
 
-  $async.Future<$6.PointerWriteResponse> create_Pre($grpc.ServiceCall $call, $async.Future<$6.PointerWriteRequest> $request) async {
+  $async.Future<$7.PointerWriteResponse> create_Pre($grpc.ServiceCall $call, $async.Future<$7.PointerWriteRequest> $request) async {
     return create($call, await $request);
   }
 
-  $async.Future<$6.PointerWriteResponse> update_Pre($grpc.ServiceCall $call, $async.Future<$6.PointerWriteRequest> $request) async {
+  $async.Future<$7.PointerWriteResponse> update_Pre($grpc.ServiceCall $call, $async.Future<$7.PointerWriteRequest> $request) async {
     return update($call, await $request);
   }
 
-  $async.Future<$6.PointerTransferResponse> transfer_Pre($grpc.ServiceCall $call, $async.Future<$6.PointerTransferRequest> $request) async {
+  $async.Future<$7.PointerTransferResponse> transfer_Pre($grpc.ServiceCall $call, $async.Future<$7.PointerTransferRequest> $request) async {
     return transfer($call, await $request);
   }
 
-  $async.Future<$6.PointerRecord> get_Pre($grpc.ServiceCall $call, $async.Future<$6.GetPointerRequest> $request) async {
+  $async.Future<$7.PointerRecord> get_Pre($grpc.ServiceCall $call, $async.Future<$7.GetPointerRequest> $request) async {
     return get($call, await $request);
   }
 
-  $async.Future<$6.PointerResolved> resolve_Pre($grpc.ServiceCall $call, $async.Future<$6.ResolvePointerRequest> $request) async {
+  $async.Future<$7.PointerResolved> resolve_Pre($grpc.ServiceCall $call, $async.Future<$7.ResolvePointerRequest> $request) async {
     return resolve($call, await $request);
   }
 
-  $async.Future<$6.PointerFinality> finality_Pre($grpc.ServiceCall $call, $async.Future<$6.PointerFinalityRequest> $request) async {
+  $async.Future<$7.PointerFinality> finality_Pre($grpc.ServiceCall $call, $async.Future<$7.PointerFinalityRequest> $request) async {
     return finality($call, await $request);
   }
 
-  $async.Future<$6.PointerController> controller_Pre($grpc.ServiceCall $call, $async.Future<$6.PointerControllerRequest> $request) async {
+  $async.Future<$7.PointerController> controller_Pre($grpc.ServiceCall $call, $async.Future<$7.PointerControllerRequest> $request) async {
     return controller($call, await $request);
   }
 
-  $async.Future<$6.PreparePointerResponse> prepare_Pre($grpc.ServiceCall $call, $async.Future<$6.PreparePointerRequest> $request) async {
+  $async.Future<$7.PreparePointerResponse> prepare_Pre($grpc.ServiceCall $call, $async.Future<$7.PreparePointerRequest> $request) async {
     return prepare($call, await $request);
   }
 
-  $async.Future<$6.FinalizePointerResponse> finalize_Pre($grpc.ServiceCall $call, $async.Future<$6.FinalizePointerRequest> $request) async {
+  $async.Future<$7.FinalizePointerResponse> finalize_Pre($grpc.ServiceCall $call, $async.Future<$7.FinalizePointerRequest> $request) async {
     return finalize($call, await $request);
   }
 
-  $async.Future<$6.ListPointerKeysResponse> listKeys($grpc.ServiceCall call, $6.ListPointerKeysRequest request);
-  $async.Future<$6.PointerWriteResponse> create($grpc.ServiceCall call, $6.PointerWriteRequest request);
-  $async.Future<$6.PointerWriteResponse> update($grpc.ServiceCall call, $6.PointerWriteRequest request);
-  $async.Future<$6.PointerTransferResponse> transfer($grpc.ServiceCall call, $6.PointerTransferRequest request);
-  $async.Future<$6.PointerRecord> get($grpc.ServiceCall call, $6.GetPointerRequest request);
-  $async.Future<$6.PointerResolved> resolve($grpc.ServiceCall call, $6.ResolvePointerRequest request);
-  $async.Future<$6.PointerFinality> finality($grpc.ServiceCall call, $6.PointerFinalityRequest request);
-  $async.Future<$6.PointerController> controller($grpc.ServiceCall call, $6.PointerControllerRequest request);
-  $async.Future<$6.PreparePointerResponse> prepare($grpc.ServiceCall call, $6.PreparePointerRequest request);
-  $async.Future<$6.FinalizePointerResponse> finalize($grpc.ServiceCall call, $6.FinalizePointerRequest request);
+  $async.Future<$7.ListPointerKeysResponse> listKeys($grpc.ServiceCall call, $7.ListPointerKeysRequest request);
+  $async.Future<$7.PointerWriteResponse> create($grpc.ServiceCall call, $7.PointerWriteRequest request);
+  $async.Future<$7.PointerWriteResponse> update($grpc.ServiceCall call, $7.PointerWriteRequest request);
+  $async.Future<$7.PointerTransferResponse> transfer($grpc.ServiceCall call, $7.PointerTransferRequest request);
+  $async.Future<$7.PointerRecord> get($grpc.ServiceCall call, $7.GetPointerRequest request);
+  $async.Future<$7.PointerResolved> resolve($grpc.ServiceCall call, $7.ResolvePointerRequest request);
+  $async.Future<$7.PointerFinality> finality($grpc.ServiceCall call, $7.PointerFinalityRequest request);
+  $async.Future<$7.PointerController> controller($grpc.ServiceCall call, $7.PointerControllerRequest request);
+  $async.Future<$7.PreparePointerResponse> prepare($grpc.ServiceCall call, $7.PreparePointerRequest request);
+  $async.Future<$7.FinalizePointerResponse> finalize($grpc.ServiceCall call, $7.FinalizePointerRequest request);
 }

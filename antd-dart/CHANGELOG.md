@@ -24,6 +24,21 @@
   they come from the `x-antd-error-code` trailer, only when it agrees with
   the status code, on every call.
 - gRPC stubs regenerated with `pointers.proto`. `example/09_pointers.dart`.
+- Manifests (ADR-0006 `.ant` files and `ant://` links), on both `AntdClient`
+  and `GrpcAntdClient` (needs the antd release after 0.15.0):
+  `buildManifest(entries, {name, torrentInfoHashes, embedRoots})`,
+  `decodeManifest(bytes, {resolve})` and `decodeManifestLink(link,
+  {resolve})`. Nothing is uploaded or paid for. New models
+  `ManifestEntryInput` (exactly one of `dataMap` or `address`, checked before
+  sending: an `ArgumentError` names `entries[i]`), `ManifestEntryInfo`,
+  `BuiltManifest` and `DecodedManifest`. The `.ant` bytes are raw
+  `Uint8List`s (base64 on the REST wire). `embedRoots` defaults to `true`.
+  Sizes are `int?`, `null` when unset, never 0; over gRPC presence decides.
+  Fields the daemon leaves unset (`link`, `name`, the torrent hashes, an
+  entry's `path`, `dataMap` and `error`) are `null`. Invalid entries are the
+  daemon's `BadRequestError` naming `entries[i]`; one entry's resolve
+  failure is that entry's `error`, not a failed call.
+- gRPC stubs regenerated with `manifests.proto`. `example/10_manifests.dart`.
 
 ## 0.2.0
 

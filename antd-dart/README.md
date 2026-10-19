@@ -245,6 +245,41 @@ switch (finality.status) {
 
 See [`example/09_pointers.dart`](example/09_pointers.dart) for a full round trip.
 
+### Manifests
+
+A manifest (ADR-0006) is a `.ant` file that names a set of files: each entry has an optional path and size and either an embedded DataMap (a private upload; the manifest is the key to it) or a public file's DataMap address. A small one also fits in an `ant://manifest/...` link. The daemon builds and decodes them, so you never handle the format yourself. **Nothing is uploaded or paid for:** a manifest describes data that is already stored. The methods need the antd release after 0.15.0, and both `AntdClient` and `GrpcAntdClient` have them.
+
+| Method | Description |
+|--------|-------------|
+| `buildManifest(entries, {name, torrentInfoHashes, embedRoots})` | Build a manifest from `ManifestEntryInput`s — returns `BuiltManifest` (`manifest`, the raw `.ant` bytes; `link`, `null` when it would pass 1,500 bytes; `entries` in encoded order). `embedRoots` (default `true`) resolves each shrunk DataMap and embeds its root when that is at most 64 KiB, so readers skip the fetch; `false` embeds DataMaps exactly as given |
+| `decodeManifest(bytes, {resolve})` | Decode `.ant` bytes — returns `DecodedManifest` (`source`, `name`, `torrentInfoHashV1` / `V2`, `entries`) |
+| `decodeManifestLink(link, {resolve})` | Decode an `ant://manifest/` link, a file link or a bare 64-hex address (`source: "file_link"`: one public entry with no path) |
+
+Each `ManifestEntryInput` sets exactly one of `dataMap` (hex, as the upload methods return it) or `address` (hex); an entry with both or neither throws `ArgumentError` before anything is sent. The daemon checks the rest, including the portable path rules, and reports every bad entry by index (`entries[i]: ...`) in a `BadRequestError` (gRPC `INVALID_ARGUMENT`).
+
+Each `ManifestEntryInfo` has `effectiveName` (the path, or the content address when there is none), `path`, `size` (the creator's claim), `kind` (`"embedded"` or `"public"`), `contentAddress`, `dataMap` (decode only, `null` for public entries), `exactSize` and `error`. Sizes are `int?`: unset is `null`, never 0. With `resolve: true` the daemon fetches each entry's DataMap to report `exactSize` and confirm it is on the network (content chunks are not fetched); an entry that fails to resolve carries the reason in `error` instead of failing the call. Resolving and `embedRoots` read from the network, so those calls can time out, and retrying them is safe.
+
+The `.ant` bytes are always raw `Uint8List`s in this API; REST carries them as base64 and gRPC as bytes, and the clients convert. grpc-dart has no message size limit, so manifests up to the format's 64 MiB need no channel settings.
+
+```dart
+final client = AntdClient();
+final one = await client.dataPutPublic(Uint8List.fromList(utf8.encode('one')));
+final two = await client.dataPutPublic(Uint8List.fromList(utf8.encode('two')));
+
+final built = await client.buildManifest([
+  ManifestEntryInput(path: 'notes/one.txt', address: one.address),
+  ManifestEntryInput(path: 'notes/two.txt', address: two.address),
+], name: 'notes'); // free: nothing is uploaded
+print(built.link);
+
+final decoded = await client.decodeManifestLink(built.link!, resolve: true);
+for (final e in decoded.entries) {
+  print('${e.effectiveName}: ${e.exactSize ?? e.error}');
+}
+```
+
+See [`example/10_manifests.dart`](example/10_manifests.dart) for a full round trip.
+
 ## Error Handling
 
 All errors extend `AntdError` which implements `Exception`:
@@ -314,3 +349,4 @@ See the [example/](example/) directory:
 - `06_private_data` — Private encrypted data storage
 - `07_external_signer` — File + chunk upload via external signer
 - `09_pointers` — Create, update, read and resolve a pointer (`ANTD_POINTER_OWNER`; `ANTD_BASE_URL` for a non-default daemon)
+- `10_manifests` — Build a manifest of two public uploads and decode its link (`ANTD_BASE_URL` for a non-default daemon)
