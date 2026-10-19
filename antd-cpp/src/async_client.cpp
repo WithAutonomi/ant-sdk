@@ -191,4 +191,76 @@ std::future<FinalizeUploadResult> AsyncClient::finalize_merkle_upload(
                       });
 }
 
+// ---------------------------------------------------------------------------
+// Pointers
+// ---------------------------------------------------------------------------
+
+std::future<std::vector<PointerKey>> AsyncClient::pointer_keys() {
+    return std::async(std::launch::async, [this] { return client_.pointer_keys(); });
+}
+
+std::future<PointerWriteResult> AsyncClient::pointer_create(std::string owner,
+                                                            std::string target,
+                                                            PointerKind kind) {
+    return std::async(std::launch::async,
+                      [this, o = std::move(owner), t = std::move(target), kind] {
+                          return client_.pointer_create(o, t, kind);
+                      });
+}
+
+std::future<PointerWriteResult> AsyncClient::pointer_update(std::string owner,
+                                                            std::string target,
+                                                            PointerKind kind) {
+    return std::async(std::launch::async,
+                      [this, o = std::move(owner), t = std::move(target), kind] {
+                          return client_.pointer_update(o, t, kind);
+                      });
+}
+
+std::future<PointerTransferResult> AsyncClient::pointer_transfer(std::string owner,
+                                                                 std::string recipient) {
+    return std::async(std::launch::async,
+                      [this, o = std::move(owner), r = std::move(recipient)] {
+                          return client_.pointer_transfer(o, r);
+                      });
+}
+
+std::future<PointerRecord> AsyncClient::pointer_get(std::string address) {
+    return std::async(std::launch::async, [this, a = std::move(address)] {
+        return client_.pointer_get(a);
+    });
+}
+
+std::future<PointerTarget> AsyncClient::pointer_resolve(std::string address) {
+    return std::async(std::launch::async, [this, a = std::move(address)] {
+        return client_.pointer_resolve(a);
+    });
+}
+
+std::future<PointerFinality> AsyncClient::pointer_finality(std::string address) {
+    return std::async(std::launch::async, [this, a = std::move(address)] {
+        return client_.pointer_finality(a);
+    });
+}
+
+std::future<PointerController> AsyncClient::pointer_controller(std::string address) {
+    return std::async(std::launch::async, [this, a = std::move(address)] {
+        return client_.pointer_controller(a);
+    });
+}
+
+std::future<PointerPrepareResult> AsyncClient::pointer_prepare(PointerPrepareRequest req) {
+    return std::async(std::launch::async, [this, r = std::move(req)] {
+        return client_.pointer_prepare(r);
+    });
+}
+
+std::future<PointerFinalizeResult> AsyncClient::pointer_finalize(
+    std::string upload_id, std::map<std::string, std::string> tx_hashes) {
+    return std::async(std::launch::async,
+                      [this, uid = std::move(upload_id), hashes = std::move(tx_hashes)] {
+                          return client_.pointer_finalize(uid, hashes);
+                      });
+}
+
 }  // namespace antd
