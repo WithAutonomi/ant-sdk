@@ -126,7 +126,7 @@ Both clients implement every method below, over REST and gRPC alike.
 | `PointerResolveAsync(string address)` | `PointerTarget` | Follow a chain of pointers (forwardings and transfers, at most 16 hops) to the target at its end |
 | `PointerFinalityAsync(string address)` | `PointerFinality` | Ask the whole close group where a pointer stands: `Status` is `Open`, `Settling`, `Unconfirmed`, `Final`, `Forked`, or `Unknown` for a status from a newer daemon (`RawStatus` keeps the wire value). Check `IsFinal` before relying on a transfer |
 | `PointerControllerAsync(string address)` | `PointerController` | Follow transfers to the pointer whose owner now decides |
-| `PointerPrepareAsync(PointerPrepareRequest request)` | `PointerPrepareResult` | External signer: the daemon signs `PointerPrepareRequest.Create(...)`, `.Update(...)` or `.Transfer(...)` with its key and quotes it (wave-batch `Payments` for `payForQuotes()`). Needs no daemon wallet. Other writes to the pointer throw `ConflictException` until it is finalized or expires |
+| `PointerPrepareAsync(PointerPrepareRequest request)` | `PointerPrepareResult` | External signer: the daemon signs `PointerPrepareRequest.Create(...)`, `.Update(...)` or `.Transfer(...)` with its key and quotes it (wave-batch `Payments` for `payForQuotes()`). Needs no daemon wallet. Set `IncludeSignedQuotes` on the request to also get the full signed quotes. Other writes to the pointer throw `ConflictException` until it is finalized or expires |
 | `PointerFinalizeAsync(string uploadId, IDictionary<string, string> txHashes)` | `PointerFinalizeResult` | External signer: store the prepared write once paid. A write that falls short after payment throws `CloseGroupShortfallException` with `Retryable == true`: repeat the same call (same `uploadId`) to store it against the same payment, bounding the loop |
 
 ```csharp
@@ -165,8 +165,8 @@ All models are sealed records (immutable).
 | `PointerFinalState` | `StateId`, `Kind`, `KindTag`, `Target`, `Holders`, `TransferredTo` | One final state a finality check saw |
 | `PointerTransferResult` | `Address`, `StateId`, `Finality`, `FinalityError` | What a transfer stored |
 | `PointerController` | `Pointer`, `Transfers`, `Frozen` | Whose pointer decides, after every transfer |
-| `PointerPrepareRequest` | `Owner`, `Op`, `Target`, `Kind`, `Recipient` | An external-signer write; build it with `Create`, `Update` or `Transfer` |
-| `PointerPrepareResult` | `UploadId`, `Op`, `Address`, `StateId`, `Counter`, `PaymentType`, `Payments`, `TotalAmount`, `PaymentVaultAddress`, `PaymentTokenAddress`, `RpcUrl` | A signed, quoted pointer write awaiting payment |
+| `PointerPrepareRequest` | `Owner`, `Op`, `Target`, `Kind`, `Recipient`, `IncludeSignedQuotes` | An external-signer write; build it with `Create`, `Update` or `Transfer` (each takes an optional `includeSignedQuotes`, default `false`) |
+| `PointerPrepareResult` | `UploadId`, `Op`, `Address`, `StateId`, `Counter`, `PaymentType`, `Payments`, `TotalAmount`, `PaymentVaultAddress`, `PaymentTokenAddress`, `RpcUrl`, `SignedQuotes` | A signed, quoted pointer write awaiting payment. `SignedQuotes` (`List<SignedQuoteEntry>`: `QuoteHash`, base64 `Quote`, optional base64 `CommitmentSidecar`) is empty unless the request set `IncludeSignedQuotes` |
 | `PointerFinalizeResult` | `Address`, `StateId`, `Counter`, `Finality` | The state a finalize stored; `Finality` for transfers only |
 
 ## Error Handling

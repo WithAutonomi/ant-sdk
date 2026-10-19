@@ -396,9 +396,10 @@ public sealed class PointerRestTests : IDisposable
         Assert.False(c.Frozen);
     }
 
-    private void RoutePrepare(string op, string counter) =>
+    private void RoutePrepare(string op, string counter, object? signedQuotes = null) =>
         _server.RouteOk("POST", "/v1/pointers/prepare", new
         {
+            signed_quotes = signedQuotes,
             upload_id = "up1",
             op,
             address = PointerFixtures.Owner,
@@ -435,6 +436,38 @@ public sealed class PointerRestTests : IDisposable
         Assert.Equal(PointerFixtures.Target, body.GetProperty("target").GetString());
         Assert.Equal("chunk", body.GetProperty("kind").GetString());
         Assert.False(body.TryGetProperty("recipient", out _));
+    }
+
+    [Fact]
+    public async Task PointerPrepare_SignedQuotes_FlagOmittedByDefault_ResultEmpty()
+    {
+        RoutePrepare("update", "4");
+        _server.Start();
+
+        var p = await _client.PointerPrepareAsync(
+            PointerPrepareRequest.Update(PointerFixtures.Owner, PointerFixtures.Target));
+
+        Assert.False(LastBody("POST", "/v1/pointers/prepare").TryGetProperty("include_signed_quotes", out _));
+        Assert.Empty(p.SignedQuotes);
+    }
+
+    [Fact]
+    public async Task PointerPrepare_SignedQuotes_FlagSentWhenTrue_ParsesEntries()
+    {
+        RoutePrepare("update", "4", new object[]
+        {
+            new { quote_hash = "0xq", quote = "cXVvdGU=", commitment_sidecar = "c2lkZQ==" },
+            new { quote_hash = "0xq2", quote = "cTI=" },
+        });
+        _server.Start();
+
+        var p = await _client.PointerPrepareAsync(
+            PointerPrepareRequest.Update(PointerFixtures.Owner, PointerFixtures.Target, includeSignedQuotes: true));
+
+        Assert.True(LastBody("POST", "/v1/pointers/prepare").GetProperty("include_signed_quotes").GetBoolean());
+        Assert.Equal(
+            new[] { new SignedQuoteEntry("0xq", "cXVvdGU=", "c2lkZQ=="), new SignedQuoteEntry("0xq2", "cTI=", null) },
+            p.SignedQuotes);
     }
 
     [Fact]
@@ -766,6 +799,20 @@ public sealed class PointerGrpcTests
                 RpcUrl = "http://localhost:8545",
             };
             resp.Payments.Add(new Pb.PaymentEntry { QuoteHash = "0xq", RewardsAddress = "0xr", Amount = "5" });
+            if (request.IncludeSignedQuotes)
+            {
+                resp.SignedQuotes.Add(new Pb.SignedQuoteEntry
+                {
+                    QuoteHash = "0xq",
+                    Quote = Google.Protobuf.ByteString.CopyFromUtf8("quote"),
+                    CommitmentSidecar = Google.Protobuf.ByteString.CopyFromUtf8("side"),
+                });
+                resp.SignedQuotes.Add(new Pb.SignedQuoteEntry
+                {
+                    QuoteHash = "0xq2",
+                    Quote = Google.Protobuf.ByteString.CopyFromUtf8("q2"),
+                });
+            }
             return Reply(resp);
         }
 
@@ -918,6 +965,30 @@ public sealed class PointerGrpcTests
         Assert.Equal("", mock.LastPrepare.Kind);
         Assert.Equal("", mock.LastPrepare.Target);
         Assert.Equal(new PaymentInfo("0xq", "0xr", "5"), Assert.Single(p.Payments));
+    }
+
+    [Fact]
+    public async Task PointerPrepare_SignedQuotes_FlagUnsetByDefault_ResultEmpty()
+    {
+        var mock = new MockPointerService();
+        var p = await MakeClient(mock).PointerPrepareAsync(
+            PointerPrepareRequest.Update(PointerFixtures.Owner, PointerFixtures.Target));
+
+        Assert.False(mock.LastPrepare!.IncludeSignedQuotes);
+        Assert.Empty(p.SignedQuotes);
+    }
+
+    [Fact]
+    public async Task PointerPrepare_SignedQuotes_FlagSet_MapsBytesToBase64()
+    {
+        var mock = new MockPointerService();
+        var p = await MakeClient(mock).PointerPrepareAsync(
+            PointerPrepareRequest.Update(PointerFixtures.Owner, PointerFixtures.Target, includeSignedQuotes: true));
+
+        Assert.True(mock.LastPrepare!.IncludeSignedQuotes);
+        Assert.Equal(
+            new[] { new SignedQuoteEntry("0xq", "cXVvdGU=", "c2lkZQ=="), new SignedQuoteEntry("0xq2", "cTI=", null) },
+            p.SignedQuotes);
     }
 
     [Fact]

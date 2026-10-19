@@ -263,18 +263,34 @@ public sealed record PointerPrepareRequest(
     PointerKind Kind = PointerKind.Chunk,
     string? Recipient = null)
 {
+    /// <summary>
+    /// Ask for the full signed quotes in <see cref="PointerPrepareResult.SignedQuotes"/>,
+    /// for offline verification. Off by default; sent only when true.
+    /// </summary>
+    public bool IncludeSignedQuotes { get; init; }
+
     /// <summary>Create the pointer at <paramref name="owner"/>, pointing at <paramref name="target"/>.</summary>
-    public static PointerPrepareRequest Create(string owner, string target, PointerKind kind = PointerKind.Chunk) =>
-        new(owner, PointerOp.Create, target, kind);
+    public static PointerPrepareRequest Create(string owner, string target, PointerKind kind = PointerKind.Chunk, bool includeSignedQuotes = false) =>
+        new(owner, PointerOp.Create, target, kind) { IncludeSignedQuotes = includeSignedQuotes };
 
     /// <summary>Point the pointer at <paramref name="owner"/> at <paramref name="target"/>.</summary>
-    public static PointerPrepareRequest Update(string owner, string target, PointerKind kind = PointerKind.Chunk) =>
-        new(owner, PointerOp.Update, target, kind);
+    public static PointerPrepareRequest Update(string owner, string target, PointerKind kind = PointerKind.Chunk, bool includeSignedQuotes = false) =>
+        new(owner, PointerOp.Update, target, kind) { IncludeSignedQuotes = includeSignedQuotes };
 
     /// <summary>Hand the pointer at <paramref name="owner"/> over to the pointer at <paramref name="recipient"/>.</summary>
-    public static PointerPrepareRequest Transfer(string owner, string recipient) =>
-        new(owner, PointerOp.Transfer, Recipient: recipient);
+    public static PointerPrepareRequest Transfer(string owner, string recipient, bool includeSignedQuotes = false) =>
+        new(owner, PointerOp.Transfer, Recipient: recipient) { IncludeSignedQuotes = includeSignedQuotes };
 }
+
+/// <summary>
+/// One <c>payments</c> quote in full signed form, returned when a prepare asks
+/// for signed quotes. Both byte payloads are base64 on both transports and
+/// opaque: only antd parses them.
+/// </summary>
+/// <param name="QuoteHash">Quote hash (hex with 0x prefix); matches the <see cref="PaymentInfo"/> entry.</param>
+/// <param name="Quote">base64 of the msgpack-serialized signed PaymentQuote.</param>
+/// <param name="CommitmentSidecar">base64 of the msgpack-serialized StorageCommitment the quote pins; null for baseline quotes.</param>
+public sealed record SignedQuoteEntry(string QuoteHash, string Quote, string? CommitmentSidecar = null);
 
 /// <summary>
 /// A pointer write signed by the daemon and quoted for an external signer.
@@ -305,7 +321,14 @@ public sealed record PointerPrepareResult(
     string TotalAmount,
     string PaymentVaultAddress,
     string PaymentTokenAddress,
-    string RpcUrl);
+    string RpcUrl)
+{
+    /// <summary>
+    /// Populated when the prepare set <see cref="PointerPrepareRequest.IncludeSignedQuotes"/>
+    /// and payment is required; otherwise empty.
+    /// </summary>
+    public List<SignedQuoteEntry> SignedQuotes { get; init; } = [];
+}
 
 /// <summary>The state a pointer finalize stored.</summary>
 /// <param name="Address">The pointer's address (bare hex).</param>
