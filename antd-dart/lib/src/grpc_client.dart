@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:fixnum/fixnum.dart';
 import 'package:grpc/grpc.dart';
 
 // Proto-generated Dart stubs — produced by `protoc` with the `dart` plugin.
@@ -12,13 +14,18 @@ import 'generated/antd/v1/chunks.pbgrpc.dart' as chunks_pb;
 import 'generated/antd/v1/chunks.pb.dart' as chunks_msg;
 import 'generated/antd/v1/files.pbgrpc.dart' as files_pb;
 import 'generated/antd/v1/files.pb.dart' as files_msg;
+import 'generated/antd/v1/manifests.pbgrpc.dart' as manifests_pb;
+import 'generated/antd/v1/manifests.pb.dart' as manifests_msg;
 import 'generated/antd/v1/upload.pbgrpc.dart' as upload_pb;
 import 'generated/antd/v1/upload.pb.dart' as upload_msg;
 import 'generated/antd/v1/wallet.pbgrpc.dart' as wallet_pb;
 import 'generated/antd/v1/wallet.pb.dart' as wallet_msg;
+import 'generated/antd/v1/pointers.pbgrpc.dart' as pointers_pb;
+import 'generated/antd/v1/pointers.pb.dart' as pointers_msg;
 
 import 'discover.dart';
 import 'errors.dart';
+import 'manifests.dart';
 import 'models.dart';
 
 /// gRPC client for the antd daemon.
@@ -45,6 +52,10 @@ class GrpcAntdClient {
   final files_pb.FileServiceClient _fileStub;
   final upload_pb.UploadServiceClient _uploadStub;
   final wallet_pb.WalletServiceClient _walletStub;
+
+  /// PointerService, on the client's own channel.
+  late final pointers_pb.PointerServiceClient _pointerStub =
+      pointers_pb.PointerServiceClient(_channel);
 
   /// Creates a new antd gRPC client.
   ///
@@ -157,8 +168,41 @@ class GrpcAntdClient {
   // Internal helper
   // ---------------------------------------------------------------------------
 
-  /// Translates a gRPC error into the matching [AntdError] subclass.
+  /// Metadata key the daemon (with the pointer API) sets on statuses whose
+  /// gRPC code is shared with older errors, carrying the REST `code` string.
+  static const _errorCodeTrailer = 'x-antd-error-code';
+
+  /// The typed error for a status the daemon tagged with `x-antd-error-code`
+  /// in its trailers, when the tag and the status code agree. Anything else
+  /// (an untagged status, a tag this SDK does not know, or a tag on an
+  /// unexpected code) is `null` and keeps the code-based mapping, so a
+  /// FAILED_PRECONDITION without the tag is still a [PaymentError].
+  static AntdError? _taggedError(GrpcError e) {
+    final tag = e.trailers?[_errorCodeTrailer];
+    if (tag == null) return null;
+    final message = e.message ?? '';
+    switch ((e.code, tag)) {
+      case (StatusCode.failedPrecondition, 'POINTER_FINAL'):
+        return PointerFinalError(message);
+      case (StatusCode.failedPrecondition, 'POINTER_FORKED'):
+        return ForkError(message);
+      case (StatusCode.aborted, 'CONFLICT'):
+        return ConflictError(message);
+      case (StatusCode.unavailable, 'CLOSE_GROUP_SHORTFALL'):
+        // No structured detail over gRPC: retryable comes from the message's
+        // closing "(paid attempt retained...)" hint.
+        return CloseGroupShortfallError.fromMessage(message);
+      default:
+        return null;
+    }
+  }
+
+  /// Translates a gRPC error into the matching [AntdError] subclass,
+  /// preferring the daemon's `x-antd-error-code` trailer where it sent one
+  /// (see [_taggedError]).
   static Never _handleError(GrpcError e) {
+    final tagged = _taggedError(e);
+    if (tagged != null) throw tagged;
     switch (e.code) {
       case StatusCode.invalidArgument:
         throw BadRequestError(e.message ?? 'invalid argument');
@@ -530,6 +574,139 @@ class GrpcAntdClient {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Manifests
+  // ---------------------------------------------------------------------------
+  //
+  // ManifestService: the same methods and types as the REST AntdClient's
+  // manifest methods. Nothing is uploaded or paid for. gRPC carries the
+  // `.ant` bytes raw.
+  //
+  // Message size: a manifest can be 64 MiB, so Build's response and
+  // Decode's request can pass the 4 MiB default other gRPC stacks enforce
+  // (antd-go raises its receive limit per call). grpc-dart enforces no
+  // message size limit in either direction (its frame decoder takes the
+  // length each message header gives) and has no CallOptions or
+  // ChannelOptions setting for one, so there is nothing to raise here; the
+  // daemon accepts manifest requests up to 100 MiB. A test sends and
+  // receives an 8 MiB manifest to keep that true.
+
+  /// ManifestService, on the client's own channel.
+  late final manifests_pb.ManifestServiceClient _manifestStub =
+      manifests_pb.ManifestServiceClient(_channel);
+
+  /// Builds a `.ant` manifest from DataMaps and public addresses already in
+  /// hand. Nothing is uploaded or paid for. See [AntdClient.buildManifest].
+  ///
+  /// An entry with both or neither of `dataMap` and `address` throws
+  /// [BadRequestError] before anything is sent; the daemon's INVALID_ARGUMENT
+  /// for the rest (naming `entries[i]`) is a [BadRequestError].
+  ///
+  /// Requires the antd release after 0.15.0.
+  Future<BuiltManifest> buildManifest(
+    List<ManifestEntryInput> entries, {
+    String? name,
+    List<String>? torrentInfoHashes,
+    bool embedRoots = true,
+  }) async {
+    checkManifestEntries(entries);
+    final req = manifests_msg.BuildManifestRequest()..embedRoots = embedRoots;
+    if (name != null && name.isNotEmpty) req.name = name;
+    if (torrentInfoHashes != null) {
+      req.torrentInfoHashes.addAll(torrentInfoHashes);
+    }
+    for (final e in entries) {
+      final entry = manifests_msg.ManifestEntryInput();
+      final path = e.path;
+      if (path != null && path.isNotEmpty) entry.path = path;
+      final size = e.size;
+      if (size != null) entry.size = Int64(size);
+      final dataMap = e.dataMap;
+      if (dataMap != null && dataMap.isNotEmpty) {
+        entry.dataMap = dataMap;
+      } else {
+        entry.address = e.address!;
+      }
+      req.entries.add(entry);
+    }
+    try {
+      final resp = await _manifestStub.build(req);
+      return BuiltManifest(
+        manifest: Uint8List.fromList(resp.manifest),
+        link: resp.link.isEmpty ? null : resp.link,
+        entries: resp.entries.map(_manifestEntryInfo).toList(),
+      );
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
+  /// Decodes `.ant` bytes. Nothing is uploaded or paid for. See
+  /// [AntdClient.decodeManifest] for [resolve].
+  ///
+  /// Requires the antd release after 0.15.0.
+  Future<DecodedManifest> decodeManifest(
+    Uint8List manifest, {
+    bool resolve = false,
+  }) async {
+    if (manifest.isEmpty) {
+      throw const BadRequestError(manifestDecodeEmptyMessage);
+    }
+    return _decodeManifest(manifests_msg.DecodeManifestRequest()
+      ..manifest = manifest
+      ..resolve = resolve);
+  }
+
+  /// Decodes an `ant://` manifest link, file link or bare 64-hex address.
+  /// See [AntdClient.decodeManifestLink].
+  ///
+  /// Requires the antd release after 0.15.0.
+  Future<DecodedManifest> decodeManifestLink(
+    String link, {
+    bool resolve = false,
+  }) async {
+    if (link.isEmpty) {
+      throw const BadRequestError(manifestDecodeEmptyMessage);
+    }
+    return _decodeManifest(manifests_msg.DecodeManifestRequest()
+      ..link = link
+      ..resolve = resolve);
+  }
+
+  Future<DecodedManifest> _decodeManifest(
+      manifests_msg.DecodeManifestRequest req) async {
+    try {
+      final resp = await _manifestStub.decode(req);
+      return DecodedManifest(
+        source: resp.source,
+        name: resp.hasName() && resp.name.isNotEmpty ? resp.name : null,
+        torrentInfoHashV1:
+            resp.torrentInfoHashV1.isEmpty ? null : resp.torrentInfoHashV1,
+        torrentInfoHashV2:
+            resp.torrentInfoHashV2.isEmpty ? null : resp.torrentInfoHashV2,
+        entries: resp.entries.map(_manifestEntryInfo).toList(),
+      );
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
+  /// Maps a wire `ManifestEntryInfo`. The proto3 `optional` fields read as
+  /// null when absent, never as 0 or "": presence, not the value, decides.
+  static ManifestEntryInfo _manifestEntryInfo(
+      manifests_msg.ManifestEntryInfo e) {
+    return ManifestEntryInfo(
+      effectiveName: e.effectiveName,
+      path: e.hasPath() && e.path.isNotEmpty ? e.path : null,
+      size: e.hasSize() ? e.size.toInt() : null,
+      kind: e.kind,
+      contentAddress: e.contentAddress,
+      dataMap: e.dataMap.isEmpty ? null : e.dataMap,
+      exactSize: e.hasExactSize() ? e.exactSize.toInt() : null,
+      error: e.error.isEmpty ? null : e.error,
+    );
+  }
+
   // --- External Signer (chunks) ---
 
   /// Prepares a single chunk for external-signer publish.
@@ -733,6 +910,276 @@ class GrpcAntdClient {
       _handleError(e);
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Pointers
+  // ---------------------------------------------------------------------------
+  //
+  // PointerService: the same methods, types and errors as the REST
+  // AntdClient's pointer methods. Every write pays, and every attempt pays
+  // again: this client never retries, and callers must not retry
+  // pointerCreate, pointerUpdate, pointerTransfer or pointerFinalize
+  // automatically (pointerFinalize only on a retryable
+  // CloseGroupShortfallError). Reads are free to retry.
+  //
+  // Unset fields arrive as "" or an absent message over gRPC, and read as
+  // null, as REST's nulls do.
+
+  /// Returns the addresses of the pointers this daemon holds owner keys for.
+  /// Only these can be written.
+  Future<List<String>> pointerKeys() async {
+    try {
+      final resp =
+          await _pointerStub.listKeys(pointers_msg.ListPointerKeysRequest());
+      return resp.keys.map((k) => k.address).toList();
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
+  /// Creates the pointer at [owner], pointing at [target], paid by the daemon
+  /// wallet. Throws [AlreadyExistsError], before paying, if it exists.
+  ///
+  /// Pays for the write: do not retry it automatically.
+  Future<PointerWriteResult> pointerCreate(
+    String owner,
+    String target, {
+    PointerKind kind = PointerKind.chunk,
+  }) async {
+    try {
+      final req = _pointerWriteRequest(owner, target, kind);
+      final resp = await _pointerStub.create(req);
+      return _pointerWriteResult(resp);
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
+  /// Points the pointer at [owner] at [target], paid by the daemon wallet,
+  /// creating it if it does not exist. Throws [PointerFinalError], before
+  /// paying, if the pointer was handed over or frozen.
+  ///
+  /// Pays for the write: do not retry it automatically.
+  Future<PointerWriteResult> pointerUpdate(
+    String owner,
+    String target, {
+    PointerKind kind = PointerKind.chunk,
+  }) async {
+    try {
+      final req = _pointerWriteRequest(owner, target, kind);
+      final resp = await _pointerStub.update(req);
+      return _pointerWriteResult(resp);
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
+  /// Hands the pointer at [owner] over to the pointer at [recipient], for
+  /// good, paid by the daemon wallet. Irreversible once stored. See
+  /// [AntdClient.pointerTransfer].
+  ///
+  /// Pays for the write: do not retry it automatically.
+  Future<PointerTransferResult> pointerTransfer(
+    String owner,
+    String recipient,
+  ) async {
+    try {
+      final req = pointers_msg.PointerTransferRequest()
+        ..owner = owner
+        ..recipient = recipient;
+      final resp = await _pointerStub.transfer(req);
+      return PointerTransferResult(
+        address: resp.address,
+        stateId: resp.stateId,
+        finality: resp.hasFinality() ? _pointerFinality(resp.finality) : null,
+        finalityError: _nonEmpty(resp.finalityError),
+      );
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
+  /// Reads the pointer at [address]. Throws [NotFoundError] if no pointer
+  /// exists there.
+  Future<PointerRecord> pointerGet(String address) async {
+    try {
+      final req = pointers_msg.GetPointerRequest()..address = address;
+      final r = await _pointerStub.get(req);
+      return PointerRecord(
+        address: r.address,
+        owner: r.owner,
+        counter: parsePointerCounter('counter', r.counter),
+        kind: r.kind,
+        kindTag: r.kindTag,
+        target: r.target,
+        stateId: r.stateId,
+        isFinal: r.isFinal,
+        transferredTo: _nonEmpty(r.transferredTo),
+      );
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
+  /// Follows a chain of pointers from [address] to the target at its end.
+  /// Throws [NotFoundError] if a pointer on the chain does not exist.
+  Future<PointerTarget> pointerResolve(String address) async {
+    try {
+      final req = pointers_msg.ResolvePointerRequest()..address = address;
+      final r = await _pointerStub.resolve(req);
+      return PointerTarget(kind: r.kind, kindTag: r.kindTag, target: r.target);
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
+  /// Asks the whole close group where the pointer at [address] stands. Only
+  /// [PointerFinality.isFinal] means a transfer is beyond dispute.
+  Future<PointerFinality> pointerFinality(String address) async {
+    try {
+      final req = pointers_msg.PointerFinalityRequest()..address = address;
+      return _pointerFinality(await _pointerStub.finality(req));
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
+  /// Follows the transfers from [address] to the pointer whose owner now
+  /// decides what it resolves to.
+  Future<PointerController> pointerController(String address) async {
+    try {
+      final req = pointers_msg.PointerControllerRequest()..address = address;
+      final c = await _pointerStub.controller(req);
+      return PointerController(
+        pointer: c.pointer,
+        transfers: c.transfers.toList(),
+        frozen: c.frozen,
+      );
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
+  /// Signs a pointer write with the daemon's loaded owner key and quotes it
+  /// for an external signer, which pays with `payForQuotes()` and then calls
+  /// [pointerFinalize]. The daemon needs no wallet. While the prepared write
+  /// awaits payment, other writes to the pointer throw [ConflictError].
+  Future<PointerPrepareResult> pointerPrepare(
+    PointerPrepareRequest request,
+  ) async {
+    try {
+      final r = await _pointerStub.prepare(pointers_msg.PreparePointerRequest()
+        ..owner = request.owner
+        ..op = request.op.wire
+        ..target = request.target ?? ''
+        ..kind = request.kind?.wire ?? ''
+        ..recipient = request.recipient ?? ''
+        ..includeSignedQuotes = request.includeSignedQuotes);
+      return PointerPrepareResult(
+        uploadId: r.uploadId,
+        op: r.op,
+        address: r.address,
+        stateId: r.stateId,
+        counter: parsePointerCounter('counter', r.counter),
+        paymentType: r.paymentType,
+        payments: r.payments
+            .map((p) => PaymentInfo(
+                  quoteHash: p.quoteHash,
+                  rewardsAddress: p.rewardsAddress,
+                  amount: p.amount,
+                ))
+            .toList(),
+        totalAmount: r.totalAmount,
+        paymentVaultAddress: r.paymentVaultAddress,
+        paymentTokenAddress: r.paymentTokenAddress,
+        rpcUrl: r.rpcUrl,
+        // gRPC carries the quotes as bytes; base64 them to match REST.
+        signedQuotes: r.signedQuotes
+            .map((q) => SignedQuoteEntry(
+                  quoteHash: q.quoteHash,
+                  quote: base64.encode(q.quote),
+                  commitmentSidecar: q.commitmentSidecar.isEmpty
+                      ? null
+                      : base64.encode(q.commitmentSidecar),
+                ))
+            .toList(),
+      );
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
+  /// Stores a prepared pointer write once its external signer has paid.
+  ///
+  /// A write that falls short after payment throws a
+  /// [CloseGroupShortfallError] with [CloseGroupShortfallError.retryable] set
+  /// (read from the status message's closing hint): call this again with the
+  /// same [uploadId] to store it against the same payment, bounding the
+  /// loop. See [AntdClient.pointerFinalize].
+  Future<PointerFinalizeResult> pointerFinalize(
+    String uploadId,
+    Map<String, String> txHashes,
+  ) async {
+    try {
+      final req = pointers_msg.FinalizePointerRequest()..uploadId = uploadId;
+      req.txHashes.addAll(txHashes);
+      final r = await _pointerStub.finalize(req);
+      return PointerFinalizeResult(
+        address: r.address,
+        stateId: r.stateId,
+        counter: parsePointerCounter('counter', r.counter),
+        finality: r.hasFinality() ? _pointerFinality(r.finality) : null,
+      );
+    } on GrpcError catch (e) {
+      _handleError(e);
+    }
+  }
+
+  static String? _nonEmpty(String value) => value.isEmpty ? null : value;
+
+  static pointers_msg.PointerWriteRequest _pointerWriteRequest(
+    String owner,
+    String target,
+    PointerKind kind,
+  ) =>
+      pointers_msg.PointerWriteRequest()
+        ..owner = owner
+        ..target = target
+        ..kind = kind.wire;
+
+  static PointerWriteResult _pointerWriteResult(
+          pointers_msg.PointerWriteResponse r) =>
+      PointerWriteResult(
+        address: r.address,
+        stateId: r.stateId,
+        counter: parsePointerCounter('counter', r.counter),
+      );
+
+  static PointerFinalState _pointerFinalState(
+          pointers_msg.PointerFinalState s) =>
+      PointerFinalState(
+        stateId: s.stateId,
+        kind: s.kind,
+        kindTag: s.kindTag,
+        target: s.target,
+        holders: s.holders,
+        transferredTo: _nonEmpty(s.transferredTo),
+      );
+
+  static PointerFinality _pointerFinality(pointers_msg.PointerFinality f) =>
+      PointerFinality(
+        address: f.address,
+        group: f.group,
+        answered: f.answered,
+        status: PointerFinalityStatus.fromWire(f.status),
+        counter: f.counter.isEmpty
+            ? null
+            : parsePointerCounter('counter', f.counter),
+        state: f.hasState() ? _pointerFinalState(f.state) : null,
+        states: f.states.map(_pointerFinalState).toList(),
+        majority: f.hasMajority() ? _pointerFinalState(f.majority) : null,
+        transferredTo: _nonEmpty(f.transferredTo),
+      );
 
   /// Maps a `PrepareUploadResponse` proto into a [PrepareUploadResult],
   /// populating merkle-only fields (`depth`, `poolCommitments`,

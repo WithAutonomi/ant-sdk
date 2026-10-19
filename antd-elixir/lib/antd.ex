@@ -55,6 +55,14 @@ defmodule Antd do
   defdelegate chunk_get(client, address), to: Antd.Client
   defdelegate chunk_get!(client, address), to: Antd.Client
 
+  # --- Manifests (nothing is uploaded or paid for) ---
+  defdelegate build_manifest(client, entries, opts \\ []), to: Antd.Client
+  defdelegate build_manifest!(client, entries, opts \\ []), to: Antd.Client
+  defdelegate decode_manifest(client, manifest, opts \\ []), to: Antd.Client
+  defdelegate decode_manifest!(client, manifest, opts \\ []), to: Antd.Client
+  defdelegate decode_manifest_link(client, link, opts \\ []), to: Antd.Client
+  defdelegate decode_manifest_link!(client, link, opts \\ []), to: Antd.Client
+
   # --- Files ---
   defdelegate file_put(client, path, opts \\ []), to: Antd.Client
   defdelegate file_put!(client, path, opts \\ []), to: Antd.Client
@@ -66,4 +74,26 @@ defmodule Antd do
   defdelegate file_get_public!(client, address, dest_path), to: Antd.Client
   defdelegate file_cost(client, path, is_public, opts \\ []), to: Antd.Client
   defdelegate file_cost!(client, path, is_public, opts \\ []), to: Antd.Client
+
+  # --- Pointers (every write pays; none is retried) ---
+  defdelegate pointer_keys(client), to: Antd.Client
+  defdelegate pointer_keys!(client), to: Antd.Client
+  defdelegate pointer_create(client, owner, target, opts \\ []), to: Antd.Client
+  defdelegate pointer_create!(client, owner, target, opts \\ []), to: Antd.Client
+  defdelegate pointer_update(client, owner, target, opts \\ []), to: Antd.Client
+  defdelegate pointer_update!(client, owner, target, opts \\ []), to: Antd.Client
+  defdelegate pointer_transfer(client, owner, recipient), to: Antd.Client
+  defdelegate pointer_transfer!(client, owner, recipient), to: Antd.Client
+  defdelegate pointer_get(client, address), to: Antd.Client
+  defdelegate pointer_get!(client, address), to: Antd.Client
+  defdelegate pointer_resolve(client, address), to: Antd.Client
+  defdelegate pointer_resolve!(client, address), to: Antd.Client
+  defdelegate pointer_finality(client, address), to: Antd.Client
+  defdelegate pointer_finality!(client, address), to: Antd.Client
+  defdelegate pointer_controller(client, address), to: Antd.Client
+  defdelegate pointer_controller!(client, address), to: Antd.Client
+  defdelegate pointer_prepare(client, owner, op, opts \\ []), to: Antd.Client
+  defdelegate pointer_prepare!(client, owner, op, opts \\ []), to: Antd.Client
+  defdelegate pointer_finalize(client, upload_id, tx_hashes), to: Antd.Client
+  defdelegate pointer_finalize!(client, upload_id, tx_hashes), to: Antd.Client
 end

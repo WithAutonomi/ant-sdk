@@ -22,7 +22,7 @@ from pathlib import Path
 GRPCIO_TOOLS_VERSION = "1.80.0"
 
 # The antd/proto/antd/v1 files this SDK ships stubs for.
-PROTOS = ["chunks", "common", "data", "events", "files", "health", "manifests", "upload", "wallet"]
+PROTOS = ["chunks", "common", "data", "events", "files", "health", "manifests", "pointers", "upload", "wallet"]
 
 # Resolve paths relative to this script
 SCRIPT_DIR = Path(__file__).resolve().parent

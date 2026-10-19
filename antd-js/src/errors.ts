@@ -25,11 +25,67 @@ export class AlreadyExistsError extends AntdError {
   }
 }
 
-/** Fork/version conflict detected (HTTP 409). */
+/**
+ * Fork/version conflict detected (HTTP 409). A pointer whose owner signed two
+ * different final states, with no majority on either, is reported as a
+ * ForkError (`code: "POINTER_FORKED"`).
+ */
 export class ForkError extends AntdError {
   constructor(message: string, statusCode: number = 409) {
     super(message, statusCode);
     this.name = "ForkError";
+  }
+}
+
+/**
+ * The pointer is at its final state: it was handed over or frozen, so nothing
+ * can update or transfer it again (HTTP 409 with `code: "POINTER_FINAL"`).
+ * Refused before anything is paid.
+ */
+export class PointerFinalError extends AntdError {
+  constructor(message: string, statusCode: number = 409) {
+    super(message, statusCode);
+    this.name = "PointerFinalError";
+  }
+}
+
+/**
+ * The request conflicts with the resource's current state (HTTP 409 with
+ * `code: "CONFLICT"`). For pointers: a write while a prepared write to the same
+ * pointer awaits payment (finalize it, or wait for it to expire), or an update
+ * that lost to a newer state while it was in flight.
+ */
+export class ConflictError extends AntdError {
+  constructor(message: string, statusCode: number = 409) {
+    super(message, statusCode);
+    this.name = "ConflictError";
+  }
+}
+
+/**
+ * Too few of an address's close group answered, or took a write, for the
+ * result to be the network's (HTTP 503 with `code: "CLOSE_GROUP_SHORTFALL"`).
+ * Reads are free to retry. A paid write is not, unless `retryable` is `true`:
+ * a pointer finalize then kept the paid state, and repeating `pointerFinalize`
+ * with the same `uploadId` stores it against the same payment.
+ *
+ * Not only for pointers: a daemon with the pointer API reports any close group
+ * that fell short (a chunk store, say) this way, where an older daemon sent a
+ * 500. Extends {@link AntdError}, not {@link ServiceUnavailableError}: it is
+ * not a configuration problem such as a missing wallet.
+ */
+export class CloseGroupShortfallError extends AntdError {
+  /**
+   * `true` when a pointer finalize kept the paid state for a repeat with the
+   * same `uploadId`. `false` otherwise, including every read and every
+   * daemon-wallet write.
+   */
+  retryable: boolean;
+
+  constructor(message: string, retryable: boolean = false, statusCode: number = 503) {
+    super(message, statusCode);
+    this.name = "CloseGroupShortfallError";
+    this.retryable = retryable;
   }
 }
 
@@ -186,15 +242,34 @@ export function fromHttpStatus(statusCode: number, message: string): AntdError {
  * body's `chunks_stored` / `chunks_failed` / `total_chunks` and `retryable`.
  * `retentionKnown` is `true` only when the body's `retryable` is a JSON
  * boolean; missing (antd < 0.14.0 never sends it), `null` or any other type
- * reads as unknown retention, with `retryable` `false`. Every other code
- * keeps the status-based mapping of {@link fromHttpStatus}. `body` may be
- * `undefined` when the response was not JSON.
+ * reads as unknown retention, with `retryable` `false`.
+ *
+ * The pointer codes share a status with older errors and get their own
+ * classes: `POINTER_FINAL` ({@link PointerFinalError}), `POINTER_FORKED`
+ * ({@link ForkError}) and `CONFLICT` ({@link ConflictError}) are 409s that must
+ * not read as {@link AlreadyExistsError}, and `CLOSE_GROUP_SHORTFALL` is a 503
+ * that becomes a {@link CloseGroupShortfallError}, `retryable` only when the
+ * body's `retryable` is `true`. Every other code keeps the status-based
+ * mapping of {@link fromHttpStatus}. `body` may be `undefined` when the
+ * response was not JSON.
  */
 export function fromErrorBody(
   statusCode: number,
   message: string,
   body?: Record<string, unknown>,
 ): AntdError {
+  switch (body?.code) {
+    case "POINTER_FINAL":
+      return new PointerFinalError(message, statusCode);
+    case "POINTER_FORKED":
+      return new ForkError(message, statusCode);
+    case "CONFLICT":
+      return new ConflictError(message, statusCode);
+    case "CLOSE_GROUP_SHORTFALL":
+      // Present, and true, only on a pointer finalize that kept the paid
+      // state; anything else reads as not retained.
+      return new CloseGroupShortfallError(message, body?.retryable === true, statusCode);
+  }
   if (body?.code === "PARTIAL_UPLOAD") {
     return new PartialUploadError(
       message,

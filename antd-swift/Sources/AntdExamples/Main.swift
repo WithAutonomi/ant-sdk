@@ -4,11 +4,18 @@
 // wires:
 //   - "2" / default: public data round-trip
 //   - "7": external-signer round-trip (file + single chunk)
-//   - "all": both 2 and 7
+//   - "9" / "pointers": pointer create → update → resolve → finality.
+//     Pays for every write and needs a never-written owner in
+//     ANTD_POINTER_OWNER, so it runs only when named, never under "all".
+//   - "all": 2 and 7
 //
 // Args that don't match (1, 3, 4, 6) silently fall through to the data
 // example to preserve `ant dev example all -l swift` PASS in the sweep
 // until the full Linux scaffolding lands.
+//
+// "10" / "manifests" builds a manifest of two public uploads and decodes its
+// link. It needs the antd release after 0.15.0 (the manifest API) and pays
+// for the two uploads, so it runs only when named, never under "all".
 
 import Foundation
 #if canImport(FoundationNetworking)
@@ -24,9 +31,15 @@ struct Examples {
             switch arg {
             case "7", "external_signer":
                 try await runExternalSigner()
+            case "9", "pointers":
+                try await runPointers()
             case "all":
+                // Not the pointers example: it pays for every write and needs
+                // a fresh owner each run, so it runs only when named.
                 try await runData()
                 try await runExternalSigner()
+            case "10", "manifests":
+                try await runManifests()
             default:
                 try await runData()
             }
@@ -141,6 +154,74 @@ struct Examples {
         print("Chunk round-trip OK!")
 
         print("\n07_external_signer OK!\n")
+    }
+
+    // MARK: - Example 09: Pointers -----------------------------------------
+    //
+    // A pointer is an owner-signed, mutable reference whose address never
+    // changes. antd signs with the owner keys it loaded at startup
+    // (`antd --pointer-keys`), so this example names the pointer by its
+    // address: set ANTD_POINTER_OWNER to a pointer address the daemon holds a
+    // key for (`pointerKeys()` lists them) and that has never been written.
+    // ANTD_BASE_URL overrides the daemon URL (default http://localhost:8082).
+    //
+    // Every pointer write pays (about the price of one chunk) and every
+    // attempt pays again, so nothing here retries a write.
+
+    static func runPointers() async throws {
+        print("=== Example 09: Pointers ===")
+        let env = ProcessInfo.processInfo.environment
+        guard let owner = env["ANTD_POINTER_OWNER"], !owner.isEmpty else {
+            throw AntdError("set ANTD_POINTER_OWNER to a never-written pointer address the daemon holds a key for")
+        }
+        let client = AntdClient.createRest(baseURL: env["ANTD_BASE_URL"] ?? "http://localhost:8082")
+
+        // The daemon must hold the owner's key to sign the writes.
+        let keys = try await client.pointerKeys()
+        guard keys.contains(where: { sameAddress($0.address, owner) }) else {
+            throw AntdError("the daemon holds no key for \(owner); it holds \(keys.count) pointer key(s)")
+        }
+
+        // 1. Two small pieces of public data to point at.
+        let first = try await client.dataPutPublic(Data("pointer target one, from swift".utf8), paymentMode: .auto)
+        let second = try await client.dataPutPublic(Data("pointer target two, from swift".utf8), paymentMode: .auto)
+        print("Stored targets: \(first.address) and \(second.address)")
+
+        // 2. Create the pointer at the first. Pays once; an AlreadyExistsError
+        //    means this owner was written before, so pick a fresh one.
+        let created = try await client.pointerCreate(owner: owner, target: first.address, kind: .chunk)
+        print("Created pointer \(created.address) at counter \(created.counter)")
+
+        // 3. Point it at the second. Pays again.
+        let updated = try await client.pointerUpdate(owner: owner, target: second.address, kind: .chunk)
+        print("Updated pointer to counter \(updated.counter)")
+
+        // 4. Read it back, and follow it to the bytes it points at.
+        let record = try await client.pointerGet(address: owner)
+        print("Pointer record: counter=\(record.counter), kind=\(record.kind), target=\(record.target), final=\(record.isFinal)")
+        let resolved = try await client.pointerResolve(address: owner)
+        guard sameAddress(resolved.target, second.address) else {
+            throw AntdError("pointer resolves to \(resolved.target), expected \(second.address)")
+        }
+        let data = try await client.dataGetPublic(address: resolved.target)
+        print("Resolved to \(resolved.target): \(String(decoding: data, as: UTF8.self))")
+
+        // 5. Where the pointer stands, as its whole close group sees it.
+        let finality = try await client.pointerFinality(address: owner)
+        let counter = finality.counter.map(String.init) ?? "none"
+        print("Finality: \(finality.status.wire) (\(finality.answered)/\(finality.group) peers answered, counter \(counter))")
+
+        print("\n09_pointers OK!\n")
+    }
+
+    /// The daemon accepts a `0x` prefix on addresses but always returns bare
+    /// hex, so compare them without it.
+    static func sameAddress(_ a: String, _ b: String) -> Bool {
+        func bare(_ s: String) -> String {
+            let lower = s.lowercased()
+            return lower.hasPrefix("0x") ? String(lower.dropFirst(2)) : lower
+        }
+        return bare(a) == bare(b)
     }
 
     /// Bounded same-payment retry around a finalize call (`finalizeUpload`
@@ -276,5 +357,61 @@ struct Examples {
             throw AntdError("cast failed (rc=\(proc.terminationStatus)): \(stderrText)")
         }
         return stdoutData
+    }
+
+    // MARK: - Example 10: Manifests -----------------------------------------
+    //
+    // A manifest (ADR-0006) describes a set of files: each entry has a path
+    // and either a public DataMap address or an embedded DataMap. Building
+    // and decoding one is free: nothing is uploaded or paid for. Only the two
+    // uploads below pay. ANTD_BASE_URL overrides the daemon URL (default
+    // http://localhost:8082).
+
+    static func runManifests() async throws {
+        print("=== Example 10: Manifests ===")
+        let env = ProcessInfo.processInfo.environment
+        let client = AntdClient.createRest(baseURL: env["ANTD_BASE_URL"] ?? "http://localhost:8082")
+
+        // 1. Two small pieces of public data. Each upload pays.
+        let one = Data("manifest entry one, from swift".utf8)
+        let two = Data("manifest entry two, from swift, a little longer".utf8)
+        let first = try await client.dataPutPublic(one, paymentMode: .auto)
+        let second = try await client.dataPutPublic(two, paymentMode: .auto)
+        print("Stored: \(first.address) and \(second.address)")
+
+        // 2. A manifest of both, under paths, with a root name. Free.
+        let built = try await client.buildManifest(
+            entries: [
+                ManifestEntryInput(path: "notes/one.txt", address: first.address),
+                ManifestEntryInput(path: "notes/two.txt", address: second.address),
+            ],
+            options: BuildManifestOptions(name: "example")
+        )
+        print("Manifest: \(built.manifest.count) bytes")
+        guard let link = built.link else {
+            throw AntdError("a two-entry manifest should fit in a link")
+        }
+        print("Link: \(link)")
+        for entry in built.entries {
+            print("  \(entry.effectiveName) -> \(entry.contentAddress)")
+        }
+
+        // 3. Decode the link, resolving each entry's DataMap for its exact
+        //    size. Free; content chunks are not fetched.
+        let decoded = try await client.decodeManifestLink(link, resolve: true)
+        print("Decoded \(decoded.source) \"\(decoded.name ?? "")\" with \(decoded.entries.count) entries:")
+        let expected = ["notes/one.txt": UInt64(one.count), "notes/two.txt": UInt64(two.count)]
+        for entry in decoded.entries {
+            if let error = entry.error {
+                throw AntdError("\(entry.effectiveName) did not resolve: \(error)")
+            }
+            let size = entry.exactSize.map(String.init) ?? "unknown"
+            print("  \(entry.effectiveName): exact size \(size)")
+            guard entry.exactSize == expected[entry.effectiveName] else {
+                throw AntdError("\(entry.effectiveName): exact size \(size), expected \(expected[entry.effectiveName].map(String.init) ?? "no entry")")
+            }
+        }
+
+        print("\n10_manifests OK!\n")
     }
 }

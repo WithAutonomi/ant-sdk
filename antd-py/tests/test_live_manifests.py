@@ -117,7 +117,20 @@ def test_live_manifests_rest():
         # Refused before sending, and by the daemon.
         with pytest.raises(BadRequestError) as info:
             client.build_manifest([ManifestEntryInput(data_map=DATA_MAP, address=ADDRESSES[0])])
-        assert info.value.status_code == 0 and "entries[0]" in str(info.value)
+        assert info.value.status_code == 400 and "entries[0]" in str(info.value)
+        # The same request sent past the client check gets the daemon's 400,
+        # and its message is the client's, after the daemon's "Bad request: "
+        # prefix.
+        both = {"entries": [{"data_map": DATA_MAP, "address": ADDRESSES[0]}]}
+        neither = {"entries": [{"path": "x"}]}
+        for body, entries in ((both, both["entries"]), (neither, neither["entries"])):
+            raw = client._http.post("/v1/manifests/build", json=body)
+            assert raw.status_code == 400
+            daemon_msg = raw.json()["error"]
+            with pytest.raises(BadRequestError) as local:
+                client.build_manifest([ManifestEntryInput(**entries[0])])
+            assert local.value.status_code == 400
+            assert daemon_msg == f"Bad request: {local.value}", (daemon_msg, str(local.value))
         with pytest.raises(BadRequestError) as info:
             client.build_manifest([ManifestEntryInput(address=ADDRESSES[0], path="../x")])
         assert info.value.status_code == 400 and "entries[0]" in str(info.value)

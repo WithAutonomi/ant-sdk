@@ -24,6 +24,15 @@ defmodule Antd.Client do
   `:payment_mode` keyword argument — an atom (`:auto`, `:merkle`, `:single`)
   from `Antd.PaymentMode`. The atom is serialized to the wire string at the
   request boundary. `:auto` is the default.
+
+  ## Pointers
+
+  `pointer_*` functions read and write pointers: owner-signed, mutable
+  references whose owner keys the daemon holds. Every write
+  (`pointer_create`, `pointer_update`, `pointer_transfer`,
+  `pointer_finalize`) pays, and every attempt pays again, so this client
+  never retries them and callers should not either. Reads are free to retry.
+  Counters are integers parsed strictly from the daemon's decimal strings.
   """
 
   alias Antd.PaymentMode
@@ -631,6 +640,107 @@ defmodule Antd.Client do
   def wallet_approve!(client), do: unwrap!(wallet_approve(client))
 
   # ---------------------------------------------------------------------------
+  # Manifests
+  # ---------------------------------------------------------------------------
+  #
+  # ADR-0006 `.ant` files and `ant://` links that describe a set of files,
+  # each with an optional path and size and either an embedded DataMap or a
+  # public DataMap address (needs the antd release after 0.15.0). The daemon
+  # builds and decodes them through ant-core. Nothing is uploaded or paid
+  # for; the network is read only to resolve DataMaps (the embedding policy
+  # on build, `resolve` on decode), so a call can time out and is safe to
+  # retry. Manifest bytes are raw binaries here; base64 is only the wire.
+
+  @doc """
+  Builds a `.ant` manifest from DataMaps and public addresses already in hand
+  (`POST /v1/manifests/build`). Nothing is uploaded or paid for.
+
+  `entries` is a list of `Antd.ManifestEntryInput`, each with exactly one of
+  `data_map` or `address`; one with both or neither is refused before
+  anything is sent (`Antd.BadRequestError`, `status_code` 400, as from the daemon). An entry the
+  daemon rejects (an invalid path, a malformed DataMap) is an
+  `Antd.BadRequestError` whose message names `entries[i]`.
+
+  Returns an `Antd.BuiltManifest`: the raw `.ant` bytes, the `ant://` link
+  (`nil` when it would not fit 1,500 bytes) and the entries in encoded order.
+
+  ## Options
+
+    * `:name` — a suggested root directory name (one portable path
+      component).
+    * `:torrent_info_hashes` — BitTorrent info hashes of the same files: hex,
+      40 characters for v1 and/or 64 for v2.
+    * `:embed_roots` — `true` (the default) resolves each shrunk DataMap's
+      root, fetching its wrapper records, and embeds it when it is at most
+      64 KiB, so recipients skip that fetch (ADR-0006's policy). `false`
+      embeds DataMaps exactly as given.
+  """
+  @spec build_manifest(t(), [Antd.ManifestEntryInput.t()], keyword()) ::
+          {:ok, Antd.BuiltManifest.t()} | {:error, Exception.t()}
+  def build_manifest(%__MODULE__{} = client, entries, opts \\ []) when is_list(entries) do
+    with :ok <- Antd.Manifests.check_entries(entries),
+         payload = Antd.Manifests.build_payload(entries, opts),
+         {:ok, body} <- do_json(client, :post, "/v1/manifests/build", payload) do
+      Antd.Manifests.built_from_json(body)
+    end
+  end
+
+  @doc "Like `build_manifest/3` but raises on error."
+  @spec build_manifest!(t(), [Antd.ManifestEntryInput.t()], keyword()) :: Antd.BuiltManifest.t()
+  def build_manifest!(client, entries, opts \\ []),
+    do: unwrap!(build_manifest(client, entries, opts))
+
+  @doc """
+  Decodes `.ant` bytes (a raw binary) via `POST /v1/manifests/decode`.
+  Returns an `Antd.DecodedManifest`; a malformed manifest is an
+  `Antd.BadRequestError`.
+
+  ## Options
+
+    * `:resolve` — `true` fetches each entry's DataMap (and wrapper records)
+      to report `exact_size` and confirm the DataMap is on the network.
+      Content chunks are not fetched, and one entry's failure is reported in
+      its `error`, not as a failed call. Default `false`.
+  """
+  @spec decode_manifest(t(), binary(), keyword()) ::
+          {:ok, Antd.DecodedManifest.t()} | {:error, Exception.t()}
+  def decode_manifest(%__MODULE__{} = client, manifest, opts \\ []) when is_binary(manifest) do
+    with :ok <- Antd.Manifests.check_input(manifest) do
+      decode_manifest_body(client, Antd.Manifests.decode_bytes_payload(manifest, opts))
+    end
+  end
+
+  @doc "Like `decode_manifest/3` but raises on error."
+  @spec decode_manifest!(t(), binary(), keyword()) :: Antd.DecodedManifest.t()
+  def decode_manifest!(client, manifest, opts \\ []),
+    do: unwrap!(decode_manifest(client, manifest, opts))
+
+  @doc """
+  Decodes an `ant://` manifest link, a file link or a bare 64-hex address via
+  `POST /v1/manifests/decode`. A file link or address reads as one public
+  entry with no path and `source: "file_link"`. Takes the same `:resolve`
+  option as `decode_manifest/3`.
+  """
+  @spec decode_manifest_link(t(), String.t(), keyword()) ::
+          {:ok, Antd.DecodedManifest.t()} | {:error, Exception.t()}
+  def decode_manifest_link(%__MODULE__{} = client, link, opts \\ []) when is_binary(link) do
+    with :ok <- Antd.Manifests.check_input(link) do
+      decode_manifest_body(client, Antd.Manifests.decode_link_payload(link, opts))
+    end
+  end
+
+  @doc "Like `decode_manifest_link/3` but raises on error."
+  @spec decode_manifest_link!(t(), String.t(), keyword()) :: Antd.DecodedManifest.t()
+  def decode_manifest_link!(client, link, opts \\ []),
+    do: unwrap!(decode_manifest_link(client, link, opts))
+
+  defp decode_manifest_body(client, payload) do
+    with {:ok, body} <- do_json(client, :post, "/v1/manifests/decode", payload) do
+      {:ok, Antd.Manifests.decoded_from_json(body)}
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # External Signer (Two-Phase Upload)
   # ---------------------------------------------------------------------------
 
@@ -794,6 +904,275 @@ defmodule Antd.Client do
   end
 
   # ---------------------------------------------------------------------------
+  # Pointers
+  # ---------------------------------------------------------------------------
+  #
+  # Owner-signed, paid, mutable references (needs the antd release after
+  # 0.15.0, the first with pointers). The daemon signs with owner keys it
+  # loaded at startup (`antd --pointer-keys`); a write names the pointer by
+  # its address (`owner`), never by a key.
+  #
+  # Every write pays, and every attempt pays again: none of these functions
+  # retries, and callers must not retry `pointer_create`, `pointer_update`,
+  # `pointer_transfer` or `pointer_finalize` automatically. Reads are free to
+  # retry.
+
+  @doc """
+  Lists the pointers this daemon holds owner keys for (`GET /v1/pointers/keys`),
+  as their addresses. Only these can be written through this daemon.
+  """
+  @spec pointer_keys(t()) :: {:ok, [String.t()]} | {:error, Exception.t()}
+  def pointer_keys(%__MODULE__{} = client) do
+    case do_json(client, :get, "/v1/pointers/keys", nil) do
+      {:ok, body} -> {:ok, Antd.Pointers.keys_from_json(body)}
+      {:error, _} = err -> err
+    end
+  end
+
+  @doc "Like `pointer_keys/1` but raises on error."
+  @spec pointer_keys!(t()) :: [String.t()]
+  def pointer_keys!(client), do: unwrap!(pointer_keys(client))
+
+  @doc """
+  Creates the pointer at `owner`, pointing at `target`, paid by the daemon
+  wallet (`POST /v1/pointers`). `owner` is the pointer's address; the daemon
+  must hold its key (`pointer_keys/1`).
+
+  Returns `Antd.AlreadyExistsError` if the pointer exists, refused before
+  anything is paid; use `pointer_update/4`. **Each call pays**: do not retry
+  it automatically.
+
+  ## Options
+
+    * `:kind` — `t:Antd.PointerKind.t/0`, what `target` is (`:chunk`, the
+      daemon's default, or `:pointer`).
+  """
+  @spec pointer_create(t(), String.t(), String.t(), keyword()) ::
+          {:ok, Antd.PointerWriteResult.t()} | {:error, Exception.t()}
+  def pointer_create(%__MODULE__{} = client, owner, target, opts \\ [])
+      when is_binary(owner) and is_binary(target) do
+    pointer_write(client, "/v1/pointers", owner, target, opts)
+  end
+
+  @doc "Like `pointer_create/4` but raises on error."
+  @spec pointer_create!(t(), String.t(), String.t(), keyword()) :: Antd.PointerWriteResult.t()
+  def pointer_create!(client, owner, target, opts \\ []),
+    do: unwrap!(pointer_create(client, owner, target, opts))
+
+  @doc """
+  Points the pointer at `owner` at `target`, paid by the daemon wallet
+  (`POST /v1/pointers/update`). A pointer that does not exist yet is created
+  at counter 0.
+
+  Returns `Antd.PointerFinalError` if the pointer has been transferred or
+  frozen, refused before anything is paid. **Each call pays**: do not retry
+  it automatically. Takes the same `:kind` option as `pointer_create/4`.
+  """
+  @spec pointer_update(t(), String.t(), String.t(), keyword()) ::
+          {:ok, Antd.PointerWriteResult.t()} | {:error, Exception.t()}
+  def pointer_update(%__MODULE__{} = client, owner, target, opts \\ [])
+      when is_binary(owner) and is_binary(target) do
+    pointer_write(client, "/v1/pointers/update", owner, target, opts)
+  end
+
+  @doc "Like `pointer_update/4` but raises on error."
+  @spec pointer_update!(t(), String.t(), String.t(), keyword()) :: Antd.PointerWriteResult.t()
+  def pointer_update!(client, owner, target, opts \\ []),
+    do: unwrap!(pointer_update(client, owner, target, opts))
+
+  defp pointer_write(client, path, owner, target, opts) do
+    payload = put_kind(%{owner: owner, target: target}, opts)
+
+    case do_json(client, :post, path, payload) do
+      {:ok, body} -> Antd.Pointers.write_from_json(body)
+      {:error, _} = err -> err
+    end
+  end
+
+  defp put_kind(payload, opts) do
+    case Keyword.get(opts, :kind) do
+      nil -> payload
+      kind -> Map.put(payload, :kind, Antd.PointerKind.to_wire(kind))
+    end
+  end
+
+  @doc """
+  Hands the pointer at `owner` over to the pointer at `recipient`, for good,
+  paid by the daemon wallet (`POST /v1/pointers/transfer`). Readers of the
+  address are redirected to the recipient's pointer, which only its owner can
+  move. Irreversible once stored.
+
+  Refused before paying if the pointer is already final
+  (`Antd.PointerFinalError`), if `recipient` does not exist or leads back
+  (`Antd.BadRequestError`), or if not every peer of the close group answered
+  (`Antd.CloseGroupShortfallError`; try again later). **Each call pays**: do
+  not retry it automatically.
+
+  The result's `finality` is the close group's view once the write landed,
+  or `nil` with `finality_error` set when that check failed; the transfer is
+  stored either way.
+  """
+  @spec pointer_transfer(t(), String.t(), String.t()) ::
+          {:ok, Antd.PointerTransferResult.t()} | {:error, Exception.t()}
+  def pointer_transfer(%__MODULE__{} = client, owner, recipient)
+      when is_binary(owner) and is_binary(recipient) do
+    payload = %{owner: owner, recipient: recipient}
+
+    case do_json(client, :post, "/v1/pointers/transfer", payload) do
+      {:ok, body} -> Antd.Pointers.transfer_from_json(body)
+      {:error, _} = err -> err
+    end
+  end
+
+  @doc "Like `pointer_transfer/3` but raises on error."
+  @spec pointer_transfer!(t(), String.t(), String.t()) :: Antd.PointerTransferResult.t()
+  def pointer_transfer!(client, owner, recipient),
+    do: unwrap!(pointer_transfer(client, owner, recipient))
+
+  @doc """
+  Reads the pointer at `address` (`GET /v1/pointers/{address}`). Returns
+  `Antd.NotFoundError` if there is none.
+  """
+  @spec pointer_get(t(), String.t()) :: {:ok, Antd.PointerRecord.t()} | {:error, Exception.t()}
+  def pointer_get(%__MODULE__{} = client, address) when is_binary(address) do
+    case do_json(client, :get, "/v1/pointers/#{address}", nil) do
+      {:ok, body} -> Antd.Pointers.record_from_json(body)
+      {:error, _} = err -> err
+    end
+  end
+
+  @doc "Like `pointer_get/2` but raises on error."
+  @spec pointer_get!(t(), String.t()) :: Antd.PointerRecord.t()
+  def pointer_get!(client, address), do: unwrap!(pointer_get(client, address))
+
+  @doc """
+  Follows a chain of pointers from `address` to the target at its end
+  (`GET /v1/pointers/{address}/resolve`), through forwardings and transfers
+  alike. Returns `Antd.NotFoundError` if a pointer on the chain does not
+  exist.
+  """
+  @spec pointer_resolve(t(), String.t()) ::
+          {:ok, Antd.PointerTarget.t()} | {:error, Exception.t()}
+  def pointer_resolve(%__MODULE__{} = client, address) when is_binary(address) do
+    case do_json(client, :get, "/v1/pointers/#{address}/resolve", nil) do
+      {:ok, body} -> {:ok, Antd.Pointers.target_from_json(body)}
+      {:error, _} = err -> err
+    end
+  end
+
+  @doc "Like `pointer_resolve/2` but raises on error."
+  @spec pointer_resolve!(t(), String.t()) :: Antd.PointerTarget.t()
+  def pointer_resolve!(client, address), do: unwrap!(pointer_resolve(client, address))
+
+  @doc """
+  Asks the whole close group where the pointer at `address` stands
+  (`GET /v1/pointers/{address}/finality`). Check it before relying on a
+  transfer: only `status: :final` (`Antd.PointerFinality.final?/1`) means it
+  is beyond dispute.
+  """
+  @spec pointer_finality(t(), String.t()) ::
+          {:ok, Antd.PointerFinality.t()} | {:error, Exception.t()}
+  def pointer_finality(%__MODULE__{} = client, address) when is_binary(address) do
+    case do_json(client, :get, "/v1/pointers/#{address}/finality", nil) do
+      {:ok, body} -> Antd.Pointers.finality_from_json(body)
+      {:error, _} = err -> err
+    end
+  end
+
+  @doc "Like `pointer_finality/2` but raises on error."
+  @spec pointer_finality!(t(), String.t()) :: Antd.PointerFinality.t()
+  def pointer_finality!(client, address), do: unwrap!(pointer_finality(client, address))
+
+  @doc """
+  Follows the transfers of the pointer at `address` to the pointer whose
+  owner now decides what it resolves to
+  (`GET /v1/pointers/{address}/controller`).
+  """
+  @spec pointer_controller(t(), String.t()) ::
+          {:ok, Antd.PointerController.t()} | {:error, Exception.t()}
+  def pointer_controller(%__MODULE__{} = client, address) when is_binary(address) do
+    case do_json(client, :get, "/v1/pointers/#{address}/controller", nil) do
+      {:ok, body} -> {:ok, Antd.Pointers.controller_from_json(body)}
+      {:error, _} = err -> err
+    end
+  end
+
+  @doc "Like `pointer_controller/2` but raises on error."
+  @spec pointer_controller!(t(), String.t()) :: Antd.PointerController.t()
+  def pointer_controller!(client, address), do: unwrap!(pointer_controller(client, address))
+
+  @doc """
+  Has the daemon sign `op` on the pointer at `owner` with its loaded key and
+  quote it for an external signer (`POST /v1/pointers/prepare`). Pay the
+  result's `payments` with `payForQuotes()`, then call `pointer_finalize/3`.
+  Needs no daemon wallet.
+
+  `op` is an `t:Antd.PointerOp.t/0`: `{:create, target}`,
+  `{:update, target}` (either with a `t:Antd.PointerKind.t/0` as a third
+  element) or `{:transfer, recipient}`. Every check the daemon-wallet
+  functions make before paying is made here, before anything is quoted.
+  While the prepared write awaits payment, other writes to the pointer
+  return `Antd.ConflictError` until it is finalized or expires (one hour).
+
+  ## Options
+
+    * `:include_signed_quotes` — when `true`, the result's `signed_quotes`
+      carries each quote in full signed form.
+  """
+  @spec pointer_prepare(t(), String.t(), Antd.PointerOp.t(), keyword()) ::
+          {:ok, Antd.PointerPrepareResult.t()} | {:error, Exception.t()}
+  def pointer_prepare(%__MODULE__{} = client, owner, op, opts \\ []) when is_binary(owner) do
+    payload = Map.put(Antd.PointerOp.to_fields(op), :owner, owner)
+
+    payload =
+      if Keyword.get(opts, :include_signed_quotes, false),
+        do: Map.put(payload, :include_signed_quotes, true),
+        else: payload
+
+    case do_json(client, :post, "/v1/pointers/prepare", payload) do
+      {:ok, body} -> Antd.Pointers.prepare_from_json(body)
+      {:error, _} = err -> err
+    end
+  end
+
+  @doc "Like `pointer_prepare/4` but raises on error."
+  @spec pointer_prepare!(t(), String.t(), Antd.PointerOp.t(), keyword()) ::
+          Antd.PointerPrepareResult.t()
+  def pointer_prepare!(client, owner, op, opts \\ []),
+    do: unwrap!(pointer_prepare(client, owner, op, opts))
+
+  @doc """
+  Stores a prepared pointer write once its external signer has paid
+  (`POST /v1/pointers/finalize`). `tx_hashes` maps each `quote_hash` from the
+  prepare's `payments` to its `payForQuotes()` transaction hash.
+
+  A write that falls short after payment returns
+  `Antd.CloseGroupShortfallError` with `retryable: true`: the daemon kept the
+  paid state under the same `upload_id`, and calling this function again
+  with the same `upload_id` stores it against the same payment (`tx_hashes`
+  is then ignored). Bound that loop; the session expires with the daemon's
+  one-hour pending TTL. This function never retries by itself. A finalize
+  without the payment's hashes is `Antd.BadRequestError` and keeps the
+  session, so it can be corrected.
+  """
+  @spec pointer_finalize(t(), String.t(), map()) ::
+          {:ok, Antd.PointerFinalizeResult.t()} | {:error, Exception.t()}
+  def pointer_finalize(%__MODULE__{} = client, upload_id, tx_hashes)
+      when is_binary(upload_id) and is_map(tx_hashes) do
+    payload = %{upload_id: upload_id, tx_hashes: tx_hashes}
+
+    case do_json(client, :post, "/v1/pointers/finalize", payload) do
+      {:ok, body} -> Antd.Pointers.finalize_from_json(body)
+      {:error, _} = err -> err
+    end
+  end
+
+  @doc "Like `pointer_finalize/3` but raises on error."
+  @spec pointer_finalize!(t(), String.t(), map()) :: Antd.PointerFinalizeResult.t()
+  def pointer_finalize!(client, upload_id, tx_hashes),
+    do: unwrap!(pointer_finalize(client, upload_id, tx_hashes))
+
+  # ---------------------------------------------------------------------------
   # Internal helpers
   # ---------------------------------------------------------------------------
 
@@ -928,12 +1307,21 @@ defmodule Antd.Client do
   # `PARTIAL_UPLOAD` body (a 502 that would otherwise read as a generic
   # `Antd.NetworkError`) is recognised by its `code` and becomes
   # `Antd.PartialUploadError`, a separate struct, for every call that goes
-  # through here (ordinary uploads included); every other response keeps the
+  # through here (ordinary uploads included). So do the codes that share a
+  # status with older errors (the 409s POINTER_FINAL, POINTER_FORKED and
+  # CONFLICT, and CLOSE_GROUP_SHORTFALL's 503; see
+  # `Antd.Errors.error_for_code/4`); every other response keeps the
   # status-based mapping.
   defp error_for_response(status, resp_body) do
     case decode_error_body(resp_body) do
       %{"code" => "PARTIAL_UPLOAD"} = body ->
         Antd.Errors.partial_upload_error(status, body)
+
+      %{"code" => code} = body ->
+        message = extract_error_message(body)
+
+        Antd.Errors.error_for_code(code, status, message, body) ||
+          Antd.Errors.error_for_status(status, message)
 
       body ->
         Antd.Errors.error_for_status(status, extract_error_message(body))

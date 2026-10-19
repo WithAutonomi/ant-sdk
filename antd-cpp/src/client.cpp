@@ -3,7 +3,11 @@
 #include <nlohmann/json.hpp>
 #include <httplib.h>
 
+#include <limits>
+#include <optional>
+
 #include "base64.hpp"
+#include "manifests_json.hpp"
 
 namespace antd {
 
@@ -64,8 +68,12 @@ bool parse_ndjson_frame(std::string_view line, DownloadFrame& out) {
 /// `chunks_stored` / `chunks_failed` / `total_chunks` and `retryable`.
 /// `retention_known` is true only when `retryable` is present and a JSON
 /// boolean; absent (daemons < 0.14.0), null or any other type leaves
-/// retention unknown and `retryable` false. Every other code keeps the
-/// status mapping.
+/// retention unknown and `retryable` false. POINTER_FINAL, POINTER_FORKED and
+/// CONFLICT are 409s that must not read as AlreadyExistsError, and
+/// CLOSE_GROUP_SHORTFALL is a 503 whose `retryable` (true only as a JSON
+/// boolean `true`) says a pointer finalize kept the paid state; each becomes
+/// its own type (throw_for_error_code). Every other code keeps the status
+/// mapping.
 ///
 /// The body is network input, so a malformed one never escapes as anything
 /// but an AntdError subclass: a non-JSON or non-object body, or a `code`
@@ -102,6 +110,12 @@ bool parse_ndjson_frame(std::string_view line, DownloadFrame& out) {
             const bool retryable = retention_known && retry->get<bool>();
             throw PartialUploadError(msg, u64("chunks_stored"), u64("chunks_failed"),
                                      u64("total_chunks"), retryable, retention_known);
+        }
+        if (code != err_json.end() && code->is_string()) {
+            const auto retry = err_json.find("retryable");
+            const bool retryable =
+                retry != err_json.end() && retry->is_boolean() && retry->get<bool>();
+            throw_for_error_code(code->get_ref<const std::string&>(), msg, retryable);
         }
     } catch (const AntdError&) {
         throw;
@@ -535,6 +549,26 @@ bool Client::wallet_approve() {
 }
 
 // ---------------------------------------------------------------------------
+// Manifests (the wire mapping is in manifests_json.cpp)
+// ---------------------------------------------------------------------------
+
+BuiltManifest Client::build_manifest(const std::vector<ManifestEntryInput>& entries,
+                                     const BuildManifestOptions& options) {
+    auto body = detail::manifest_build_body(entries, options);
+    return detail::parse_built_manifest(impl_->do_json("POST", "/v1/manifests/build", body));
+}
+
+DecodedManifest Client::decode_manifest(const std::vector<uint8_t>& manifest, bool resolve) {
+    auto body = detail::manifest_decode_bytes_body(manifest, resolve);
+    return detail::parse_decoded_manifest(impl_->do_json("POST", "/v1/manifests/decode", body));
+}
+
+DecodedManifest Client::decode_manifest_link(std::string_view link, bool resolve) {
+    auto body = detail::manifest_decode_link_body(link, resolve);
+    return detail::parse_decoded_manifest(impl_->do_json("POST", "/v1/manifests/decode", body));
+}
+
+// ---------------------------------------------------------------------------
 // External Signer (Two-Phase Upload)
 // ---------------------------------------------------------------------------
 
@@ -655,6 +689,285 @@ FinalizeUploadResult Client::finalize_merkle_upload(std::string_view upload_id,
         .address = j.value("address", ""),
         .data_map_address = j.value("data_map_address", ""),
         .chunks_stored = j.value("chunks_stored", int64_t{0}),
+    };
+}
+
+// ---------------------------------------------------------------------------
+// Pointers
+//
+// A pointer's owner key lives in the daemon (`antd --pointer-keys`); a write
+// names the pointer by its address. Every write pays, and every attempt pays
+// again: nothing here retries a create, update, transfer or finalize. Reads
+// are free to retry; a read during an update or churn can throw
+// CloseGroupShortfallError.
+//
+// Unset values arrive as JSON `null` (`transferred_to`, a finality's
+// `counter`, `state` and `majority`) and map to std::nullopt. The parsers
+// read each field by type, so a null or mistyped field never escapes as a
+// nlohmann::json exception; a counter that is not a decimal u64 string
+// throws InternalError.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+std::string str_at(const json& j, const char* key) {
+    const auto it = j.find(key);
+    return it != j.end() && it->is_string() ? it->get<std::string>() : std::string{};
+}
+
+/// A string field that is absent, `null`, empty or not a string reads as
+/// unset.
+std::optional<std::string> opt_str_at(const json& j, const char* key) {
+    auto s = str_at(j, key);
+    if (s.empty()) return std::nullopt;
+    return s;
+}
+
+bool bool_at(const json& j, const char* key) {
+    const auto it = j.find(key);
+    return it != j.end() && it->is_boolean() && it->get<bool>();
+}
+
+/// An unsigned JSON integer, or 0 when absent or of another type.
+std::uint64_t u64_at(const json& j, const char* key) {
+    const auto it = j.find(key);
+    return it != j.end() && it->is_number_unsigned() ? it->get<std::uint64_t>() : 0;
+}
+
+std::uint32_t u32_at(const json& j, const char* key) {
+    const auto v = u64_at(j, key);
+    return v > std::numeric_limits<std::uint32_t>::max()
+               ? std::numeric_limits<std::uint32_t>::max()
+               : static_cast<std::uint32_t>(v);
+}
+
+/// The raw target kind tag. One that is absent or not a u8 reads as 0xFF, a
+/// kind no SDK knows, rather than as a chunk.
+std::uint8_t kind_tag_at(const json& j) {
+    const auto it = j.find("kind_tag");
+    if (it == j.end() || !it->is_number_unsigned()) return 0xFF;
+    const auto v = it->get<std::uint64_t>();
+    return v > 0xFF ? std::uint8_t{0xFF} : static_cast<std::uint8_t>(v);
+}
+
+/// A required counter: a decimal u64 string.
+std::uint64_t counter_at(const json& j, const char* key) {
+    return detail::parse_pointer_counter(key, str_at(j, key));
+}
+
+PointerWriteResult parse_pointer_write(const json& j) {
+    return PointerWriteResult{
+        .address = str_at(j, "address"),
+        .state_id = str_at(j, "state_id"),
+        .counter = counter_at(j, "counter"),
+    };
+}
+
+PointerFinalState parse_final_state(const json& j) {
+    return PointerFinalState{
+        .state_id = str_at(j, "state_id"),
+        .kind = str_at(j, "kind"),
+        .kind_tag = kind_tag_at(j),
+        .target = str_at(j, "target"),
+        .holders = u32_at(j, "holders"),
+        .transferred_to = opt_str_at(j, "transferred_to"),
+    };
+}
+
+std::optional<PointerFinalState> final_state_at(const json& j, const char* key) {
+    const auto it = j.find(key);
+    if (it == j.end() || !it->is_object()) return std::nullopt;
+    return parse_final_state(*it);
+}
+
+PointerFinality parse_pointer_finality(const json& j) {
+    PointerFinality f;
+    f.address = str_at(j, "address");
+    f.group = u32_at(j, "group");
+    f.answered = u32_at(j, "answered");
+    f.status_raw = str_at(j, "status");
+    f.status = pointer_finality_status_from_wire(f.status_raw);
+    // `null` (or absent, or "") when no state is corroborated; any other
+    // non-string is malformed rather than unset.
+    const auto counter = j.find("counter");
+    if (counter != j.end() && !counter->is_null()) {
+        if (!counter->is_string()) {
+            throw InternalError("invalid pointer counter: expected a decimal string");
+        }
+        const auto& s = counter->get_ref<const std::string&>();
+        if (!s.empty()) {
+            f.counter = detail::parse_pointer_counter("counter", s);
+        }
+    }
+    f.state = final_state_at(j, "state");
+    if (const auto states = j.find("states"); states != j.end() && states->is_array()) {
+        for (const auto& s : *states) {
+            if (s.is_object()) f.states.push_back(parse_final_state(s));
+        }
+    }
+    f.majority = final_state_at(j, "majority");
+    f.transferred_to = opt_str_at(j, "transferred_to");
+    return f;
+}
+
+std::optional<PointerFinality> finality_at(const json& j) {
+    const auto it = j.find("finality");
+    if (it == j.end() || !it->is_object()) return std::nullopt;
+    return parse_pointer_finality(*it);
+}
+
+std::string pointer_path(std::string_view address, const char* suffix = "") {
+    return "/v1/pointers/" + std::string(address) + suffix;
+}
+
+}  // namespace
+
+std::vector<PointerKey> Client::pointer_keys() {
+    auto j = impl_->do_json("GET", "/v1/pointers/keys");
+    std::vector<PointerKey> keys;
+    if (const auto arr = j.find("keys"); arr != j.end() && arr->is_array()) {
+        for (const auto& k : *arr) {
+            if (k.is_object()) keys.push_back(PointerKey{.address = str_at(k, "address")});
+        }
+    }
+    return keys;
+}
+
+PointerWriteResult Client::pointer_create(std::string_view owner, std::string_view target,
+                                          PointerKind kind) {
+    return parse_pointer_write(impl_->do_json("POST", "/v1/pointers", json{
+        {"owner", std::string(owner)},
+        {"target", std::string(target)},
+        {"kind", pointer_kind_wire(kind)},
+    }));
+}
+
+PointerWriteResult Client::pointer_update(std::string_view owner, std::string_view target,
+                                          PointerKind kind) {
+    return parse_pointer_write(impl_->do_json("POST", "/v1/pointers/update", json{
+        {"owner", std::string(owner)},
+        {"target", std::string(target)},
+        {"kind", pointer_kind_wire(kind)},
+    }));
+}
+
+PointerTransferResult Client::pointer_transfer(std::string_view owner,
+                                               std::string_view recipient) {
+    auto j = impl_->do_json("POST", "/v1/pointers/transfer", json{
+        {"owner", std::string(owner)},
+        {"recipient", std::string(recipient)},
+    });
+    return PointerTransferResult{
+        .address = str_at(j, "address"),
+        .state_id = str_at(j, "state_id"),
+        .finality = finality_at(j),
+        .finality_error = opt_str_at(j, "finality_error"),
+    };
+}
+
+PointerRecord Client::pointer_get(std::string_view address) {
+    auto j = impl_->do_json("GET", pointer_path(address));
+    return PointerRecord{
+        .address = str_at(j, "address"),
+        .owner = str_at(j, "owner"),
+        .counter = counter_at(j, "counter"),
+        .kind = str_at(j, "kind"),
+        .kind_tag = kind_tag_at(j),
+        .target = str_at(j, "target"),
+        .state_id = str_at(j, "state_id"),
+        .is_final = bool_at(j, "is_final"),
+        .transferred_to = opt_str_at(j, "transferred_to"),
+    };
+}
+
+PointerTarget Client::pointer_resolve(std::string_view address) {
+    auto j = impl_->do_json("GET", pointer_path(address, "/resolve"));
+    return PointerTarget{
+        .kind = str_at(j, "kind"),
+        .kind_tag = kind_tag_at(j),
+        .target = str_at(j, "target"),
+    };
+}
+
+PointerFinality Client::pointer_finality(std::string_view address) {
+    return parse_pointer_finality(impl_->do_json("GET", pointer_path(address, "/finality")));
+}
+
+PointerController Client::pointer_controller(std::string_view address) {
+    auto j = impl_->do_json("GET", pointer_path(address, "/controller"));
+    PointerController c;
+    c.pointer = str_at(j, "pointer");
+    c.frozen = bool_at(j, "frozen");
+    if (const auto arr = j.find("transfers"); arr != j.end() && arr->is_array()) {
+        for (const auto& t : *arr) {
+            if (t.is_string()) c.transfers.push_back(t.get<std::string>());
+        }
+    }
+    return c;
+}
+
+PointerPrepareResult Client::pointer_prepare(const PointerPrepareRequest& req) {
+    json body = {{"owner", req.owner}, {"op", pointer_op_wire(req.op)}};
+    if (req.op == PointerOp::Transfer) {
+        body["recipient"] = req.recipient;
+    } else {
+        body["target"] = req.target;
+        body["kind"] = pointer_kind_wire(req.kind);
+    }
+    if (req.include_signed_quotes) {
+        body["include_signed_quotes"] = true;
+    }
+    auto j = impl_->do_json("POST", "/v1/pointers/prepare", body);
+
+    PointerPrepareResult r;
+    r.upload_id = str_at(j, "upload_id");
+    r.op = str_at(j, "op");
+    r.address = str_at(j, "address");
+    r.state_id = str_at(j, "state_id");
+    r.counter = counter_at(j, "counter");
+    r.payment_type = str_at(j, "payment_type");
+    r.total_amount = str_at(j, "total_amount");
+    r.payment_vault_address = str_at(j, "payment_vault_address");
+    r.payment_token_address = str_at(j, "payment_token_address");
+    r.rpc_url = str_at(j, "rpc_url");
+    if (const auto arr = j.find("payments"); arr != j.end() && arr->is_array()) {
+        for (const auto& p : *arr) {
+            if (!p.is_object()) continue;
+            r.payments.push_back(PaymentInfo{
+                .quote_hash = str_at(p, "quote_hash"),
+                .rewards_address = str_at(p, "rewards_address"),
+                .amount = str_at(p, "amount"),
+            });
+        }
+    }
+    if (const auto arr = j.find("signed_quotes"); arr != j.end() && arr->is_array()) {
+        for (const auto& q : *arr) {
+            if (!q.is_object()) continue;
+            r.signed_quotes.push_back(SignedQuoteEntry{
+                .quote_hash = str_at(q, "quote_hash"),
+                .quote = str_at(q, "quote"),
+                .commitment_sidecar = opt_str_at(q, "commitment_sidecar"),
+            });
+        }
+    }
+    return r;
+}
+
+PointerFinalizeResult Client::pointer_finalize(
+    std::string_view upload_id, const std::map<std::string, std::string>& tx_hashes) {
+    json hashes = json::object();
+    for (const auto& [k, v] : tx_hashes) {
+        hashes[k] = v;
+    }
+    auto j = impl_->do_json("POST", "/v1/pointers/finalize", json{
+        {"upload_id", std::string(upload_id)},
+        {"tx_hashes", hashes},
+    });
+    return PointerFinalizeResult{
+        .address = str_at(j, "address"),
+        .state_id = str_at(j, "state_id"),
+        .counter = counter_at(j, "counter"),
+        .finality = finality_at(j),
     };
 }
 

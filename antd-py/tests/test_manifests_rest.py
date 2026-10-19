@@ -205,27 +205,50 @@ class TestBuild:
 
 class TestEntryCheck:
     @pytest.mark.parametrize("entry, message", [
-        (ManifestEntryInput(), "entries[0]: needs a data_map or an address"),
-        (ManifestEntryInput(data_map="", address=""), "entries[0]: needs a data_map or an address"),
-        (ManifestEntryInput(path="a.txt", size=1), "entries[0]: needs a data_map or an address"),
-        (ManifestEntryInput(data_map="aa", address="bb"), "entries[0]: give data_map or address, not both"),
+        (ManifestEntryInput(), "1 invalid entries: entries[0]: needs a data_map or an address"),
+        (ManifestEntryInput(data_map="", address=""), "1 invalid entries: entries[0]: needs a data_map or an address"),
+        (ManifestEntryInput(path="a.txt", size=1), "1 invalid entries: entries[0]: needs a data_map or an address"),
+        (ManifestEntryInput(data_map="aa", address="bb"), "1 invalid entries: entries[0]: give data_map or address, not both"),
     ])
     def test_both_or_neither_is_refused_before_sending(self, client, server, entry, message):
         with pytest.raises(BadRequestError) as info:
             client.build_manifest([entry])
         assert str(info.value) == message
-        assert info.value.status_code == 0
+        assert info.value.status_code == 400
         assert server.requests == []
+
+    def test_every_bad_entry_is_reported_together(self, client, server):
+        entries = [
+            ManifestEntryInput(data_map="aa", address="bb"),
+            ManifestEntryInput(address="11"),
+            ManifestEntryInput(path="x"),
+        ]
+        with pytest.raises(BadRequestError) as info:
+            client.build_manifest(entries)
+        assert str(info.value) == (
+            "2 invalid entries: entries[0]: give data_map or address, not both; "
+            "entries[2]: needs a data_map or an address"
+        )
+        assert info.value.status_code == 400
+        assert server.requests == []
+
+    def test_more_than_twenty_bad_entries_are_cut_short(self, client):
+        with pytest.raises(BadRequestError) as info:
+            client.build_manifest([ManifestEntryInput()] * 23)
+        msg = str(info.value)
+        assert msg.startswith("23 invalid entries: entries[0]: needs a data_map or an address; ")
+        assert "entries[19]:" in msg and "entries[20]:" not in msg
+        assert msg.endswith("; and 3 more")
 
     def test_names_the_offending_index(self, client, server):
         entries = [ManifestEntryInput(address="11"), ManifestEntryInput(data_map="aa", address="bb")]
-        with pytest.raises(BadRequestError, match=r"^entries\[1\]: "):
+        with pytest.raises(BadRequestError, match=r"^1 invalid entries: entries\[1\]: "):
             client.build_manifest(entries)
         assert server.requests == []
 
     @pytest.mark.parametrize("size", [-1, U64_MAX + 1, True, 1.5, "10"])
     def test_size_that_is_not_a_u64_is_refused_before_sending(self, client, server, size):
-        with pytest.raises(BadRequestError, match=r"^entries\[0\]: size must be"):
+        with pytest.raises(BadRequestError, match=r"^1 invalid entries: entries\[0\]: size must be"):
             client.build_manifest([ManifestEntryInput(address="11", size=size)])
         assert server.requests == []
 
@@ -292,10 +315,11 @@ class TestDecode:
         assert _sent(server) == {"link": "ant://manifest/wUFOVAE", "resolve": False}
 
     def test_empty_input_is_refused_before_sending(self, client, server):
-        with pytest.raises(BadRequestError):
-            client.decode_manifest(b"")
-        with pytest.raises(BadRequestError):
-            client.decode_manifest_link("")
+        for call, arg in ((client.decode_manifest, b""), (client.decode_manifest_link, "")):
+            with pytest.raises(BadRequestError) as info:
+                call(arg)
+            assert str(info.value) == "needs a manifest (base64 .ant bytes) or a link"
+            assert info.value.status_code == 400
         assert server.requests == []
 
     def test_wrong_input_types_are_refused(self, client, server):
@@ -350,9 +374,9 @@ class TestAsync:
 
     @pytest.mark.asyncio
     async def test_entry_check_before_sending(self, aclient, server):
-        with pytest.raises(BadRequestError, match="not both"):
+        with pytest.raises(BadRequestError, match="^1 invalid entries: entries.0.: give data_map or address, not both$"):
             await aclient.build_manifest([ManifestEntryInput(data_map="aa", address="bb")])
-        with pytest.raises(BadRequestError, match="needs a data_map"):
+        with pytest.raises(BadRequestError, match="^1 invalid entries: entries.0.: needs a data_map or an address$"):
             await aclient.build_manifest([ManifestEntryInput(path="x")])
         assert server.requests == []
 
