@@ -16,6 +16,7 @@ dart run example/01_connect.dart
 | [`04_files.dart`](04_files.dart) | Public file upload and download |
 | [`06_private_data.dart`](06_private_data.dart) | Private (self-encrypted) data put/get |
 | [`07_external_signer.dart`](07_external_signer.dart) | Prepare, pay with your own wallet, finalize |
+| [`09_pointers.dart`](09_pointers.dart) | Create a pointer, update it, read and resolve it, check its finality. Needs `ANTD_POINTER_OWNER` (a pointer address the daemon holds a key for); `ANTD_BASE_URL` overrides the daemon URL |
 | [`10_manifests.dart`](10_manifests.dart) | Upload two pieces of public data, build a manifest naming them, decode its link with exact sizes. `ANTD_BASE_URL` overrides the daemon URL |
 
 Minimal REST usage:

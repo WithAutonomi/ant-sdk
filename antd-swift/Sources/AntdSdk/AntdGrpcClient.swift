@@ -11,9 +11,10 @@ import GRPCProtobuf
 ///
 /// Implements the full core surface: health, data get/put (private + public) +
 /// cost + streaming, chunk get/put, file get/put (private + public) + cost
-/// (V2-480); the external-signer prepare/finalize surface (V2-284); and the
-/// wallet surface (V2-286). Data streaming (`dataStream`/`dataStreamPublic`) is
-/// the gRPC counterpart to the REST streaming download (V2-499).
+/// (V2-480); the external-signer prepare/finalize surface (V2-284); the
+/// wallet surface (V2-286); and the pointer surface (`PointerService`, V2-1568).
+/// Data streaming (`dataStream`/`dataStreamPublic`) is the gRPC counterpart to
+/// the REST streaming download (V2-499).
 @available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, *)
 public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
 
@@ -52,8 +53,24 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
             )
             return try await withGRPCClient(transport: transport, handleClient: body)
         } catch let rpcError as RPCError {
-            throw ErrorMapping.fromGRPCStatus(code: rpcError.code.rawValue, detail: rpcError.message)
+            // The daemon tags errors that share a status code with older ones
+            // (the pointer refusals, CLOSE_GROUP_SHORTFALL) with an
+            // `x-antd-error-code` trailer; grpc-swift surfaces the trailers as
+            // `RPCError.metadata`.
+            throw ErrorMapping.fromGRPCStatus(
+                code: rpcError.code.rawValue,
+                detail: rpcError.message,
+                antdErrorCode: Self.antdErrorCode(in: rpcError.metadata)
+            )
         }
+    }
+
+    /// The daemon's `x-antd-error-code` trailer, if the failed call carried one.
+    static func antdErrorCode(in metadata: Metadata) -> String? {
+        for value in metadata[stringValues: ErrorMapping.antdErrorCodeMetadataKey] {
+            return value
+        }
+        return nil
     }
 
     // MARK: - Health
@@ -576,6 +593,206 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
             // pays for (totalChunks - alreadyStoredCount) chunks.
             totalChunks: resp.totalChunks,
             alreadyStoredCount: resp.alreadyStoredCount
+        )
+    }
+
+    // MARK: - Pointers
+    //
+    // Mirror the REST methods on ``AntdRestClient``; see
+    // ``AntdClientProtocol`` for the contract. Errors the daemon tags with
+    // `x-antd-error-code` map to the same typed errors as over REST (see
+    // `withGRPC`). Every write pays and is never retried here. Unset values
+    // arrive as `""` or an absent message and map to `nil`.
+
+    public func pointerKeys() async throws -> [PointerKey] {
+        try await withGRPC { client in
+            let resp = try await Antd_V1_PointerService.Client(wrapping: client)
+                .listKeys(Antd_V1_ListPointerKeysRequest())
+            return resp.keys.map { PointerKey(address: $0.address) }
+        }
+    }
+
+    /// Creates a pointer, paid by the daemon wallet. Pays once and is never
+    /// retried; see ``AntdClientProtocol/pointerCreate(owner:target:kind:)``.
+    public func pointerCreate(owner: String, target: String, kind: PointerKind = .chunk) async throws -> PointerWriteResult {
+        try await withGRPC { client in
+            let resp = try await Antd_V1_PointerService.Client(wrapping: client)
+                .create(Self.pointerWriteRequest(owner: owner, target: target, kind: kind))
+            return try Self.mapPointerWrite(resp)
+        }
+    }
+
+    /// Points a pointer at a new target, paid by the daemon wallet. Pays once
+    /// and is never retried; see
+    /// ``AntdClientProtocol/pointerUpdate(owner:target:kind:)``.
+    public func pointerUpdate(owner: String, target: String, kind: PointerKind = .chunk) async throws -> PointerWriteResult {
+        try await withGRPC { client in
+            let resp = try await Antd_V1_PointerService.Client(wrapping: client)
+                .update(Self.pointerWriteRequest(owner: owner, target: target, kind: kind))
+            return try Self.mapPointerWrite(resp)
+        }
+    }
+
+    /// Hands a pointer over for good, paid by the daemon wallet. Pays once and
+    /// is never retried; see
+    /// ``AntdClientProtocol/pointerTransfer(owner:recipient:)``.
+    public func pointerTransfer(owner: String, recipient: String) async throws -> PointerTransferResult {
+        try await withGRPC { client in
+            var req = Antd_V1_PointerTransferRequest()
+            req.owner = owner
+            req.recipient = recipient
+            let resp = try await Antd_V1_PointerService.Client(wrapping: client).transfer(req)
+            return PointerTransferResult(
+                address: resp.address,
+                stateId: resp.stateID,
+                finality: resp.hasFinality ? try Self.mapPointerFinality(resp.finality) : nil,
+                finalityError: PointerWire.nonEmpty(resp.finalityError)
+            )
+        }
+    }
+
+    public func pointerGet(address: String) async throws -> PointerRecord {
+        try await withGRPC { client in
+            var req = Antd_V1_GetPointerRequest()
+            req.address = address
+            let r = try await Antd_V1_PointerService.Client(wrapping: client).get(req)
+            return PointerRecord(
+                address: r.address,
+                owner: r.owner,
+                counter: try PointerWire.counter("counter", r.counter),
+                kind: r.kind,
+                kindTag: PointerWire.kindTag(r.kindTag),
+                target: r.target,
+                stateId: r.stateID,
+                isFinal: r.isFinal,
+                transferredTo: PointerWire.nonEmpty(r.transferredTo)
+            )
+        }
+    }
+
+    public func pointerResolve(address: String) async throws -> PointerTarget {
+        try await withGRPC { client in
+            var req = Antd_V1_ResolvePointerRequest()
+            req.address = address
+            let r = try await Antd_V1_PointerService.Client(wrapping: client).resolve(req)
+            return PointerTarget(kind: r.kind, kindTag: PointerWire.kindTag(r.kindTag), target: r.target)
+        }
+    }
+
+    public func pointerFinality(address: String) async throws -> PointerFinality {
+        try await withGRPC { client in
+            var req = Antd_V1_PointerFinalityRequest()
+            req.address = address
+            let f = try await Antd_V1_PointerService.Client(wrapping: client).finality(req)
+            return try Self.mapPointerFinality(f)
+        }
+    }
+
+    public func pointerController(address: String) async throws -> PointerController {
+        try await withGRPC { client in
+            var req = Antd_V1_PointerControllerRequest()
+            req.address = address
+            let c = try await Antd_V1_PointerService.Client(wrapping: client).controller(req)
+            return PointerController(pointer: c.pointer, transfers: c.transfers, frozen: c.frozen)
+        }
+    }
+
+    /// Signs a pointer write with the daemon's key and quotes it for an
+    /// external signer. See
+    /// ``AntdClientProtocol/pointerPrepare(owner:op:options:)``.
+    public func pointerPrepare(owner: String, op: PointerOp, options: PointerPrepareOptions) async throws -> PointerPrepareResult {
+        try await withGRPC { client in
+            var req = Antd_V1_PreparePointerRequest()
+            req.owner = owner
+            req.op = op.wireName
+            switch op {
+            case .create(let target, let kind), .update(let target, let kind):
+                req.target = target
+                req.kind = kind.rawValue
+            case .transfer(let recipient):
+                req.recipient = recipient
+            }
+            req.includeSignedQuotes = options.includeSignedQuotes
+            let p = try await Antd_V1_PointerService.Client(wrapping: client).prepare(req)
+            return PointerPrepareResult(
+                uploadId: p.uploadID,
+                op: p.op,
+                address: p.address,
+                stateId: p.stateID,
+                counter: try PointerWire.counter("counter", p.counter),
+                paymentType: p.paymentType,
+                payments: p.payments.map {
+                    PaymentInfo(quoteHash: $0.quoteHash, rewardsAddress: $0.rewardsAddress, amount: $0.amount)
+                },
+                totalAmount: p.totalAmount,
+                paymentVaultAddress: p.paymentVaultAddress,
+                paymentTokenAddress: p.paymentTokenAddress,
+                rpcUrl: p.rpcURL,
+                // The proto carries the opaque blobs as bytes; the shared
+                // model carries them base64, as REST does.
+                signedQuotes: p.signedQuotes.map {
+                    SignedQuoteEntry(
+                        quoteHash: $0.quoteHash,
+                        quote: $0.quote.base64EncodedString(),
+                        commitmentSidecar: $0.commitmentSidecar.isEmpty ? nil : $0.commitmentSidecar.base64EncodedString()
+                    )
+                }
+            )
+        }
+    }
+
+    /// Stores a prepared pointer write once it is paid. Never retried here;
+    /// see ``AntdClientProtocol/pointerFinalize(uploadId:txHashes:)`` for the
+    /// ``CloseGroupShortfallError/retryable`` contract.
+    public func pointerFinalize(uploadId: String, txHashes: [String: String]) async throws -> PointerFinalizeResult {
+        try await withGRPC { client in
+            var req = Antd_V1_FinalizePointerRequest()
+            req.uploadID = uploadId
+            req.txHashes = txHashes
+            let f = try await Antd_V1_PointerService.Client(wrapping: client).finalize(req)
+            return PointerFinalizeResult(
+                address: f.address,
+                stateId: f.stateID,
+                counter: try PointerWire.counter("counter", f.counter),
+                finality: f.hasFinality ? try Self.mapPointerFinality(f.finality) : nil
+            )
+        }
+    }
+
+    private static func pointerWriteRequest(owner: String, target: String, kind: PointerKind) -> Antd_V1_PointerWriteRequest {
+        var req = Antd_V1_PointerWriteRequest()
+        req.owner = owner
+        req.target = target
+        req.kind = kind.rawValue
+        return req
+    }
+
+    private static func mapPointerWrite(_ w: Antd_V1_PointerWriteResponse) throws -> PointerWriteResult {
+        PointerWriteResult(address: w.address, stateId: w.stateID, counter: try PointerWire.counter("counter", w.counter))
+    }
+
+    private static func mapPointerFinalState(_ s: Antd_V1_PointerFinalState) -> PointerFinalState {
+        PointerFinalState(
+            stateId: s.stateID,
+            kind: s.kind,
+            kindTag: PointerWire.kindTag(s.kindTag),
+            target: s.target,
+            holders: s.holders,
+            transferredTo: PointerWire.nonEmpty(s.transferredTo)
+        )
+    }
+
+    static func mapPointerFinality(_ f: Antd_V1_PointerFinality) throws -> PointerFinality {
+        PointerFinality(
+            address: f.address,
+            group: f.group,
+            answered: f.answered,
+            status: PointerFinalityStatus(wire: f.status),
+            counter: try PointerWire.optionalCounter("counter", f.counter),
+            state: f.hasState ? mapPointerFinalState(f.state) : nil,
+            states: f.states.map(mapPointerFinalState),
+            majority: f.hasMajority ? mapPointerFinalState(f.majority) : nil,
+            transferredTo: PointerWire.nonEmpty(f.transferredTo)
         )
     }
 

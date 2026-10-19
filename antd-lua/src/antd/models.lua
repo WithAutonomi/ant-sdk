@@ -160,4 +160,182 @@ function M.new_finalize_upload_result(opts)
     }
 end
 
+-- ── Pointers (ADR-0016 / ADR-0018 in ant-node) ──
+--
+-- A pointer is a small, owner-signed, mutable reference. Its address is
+-- derived from the owner's key and never changes; its target (a chunk, such
+-- as a public file's data map, or another pointer) can be changed by the
+-- owner. antd signs with owner keys it loaded at startup (`--pointer-keys`),
+-- so a write names the pointer by its address (`owner`), never by a key.
+--
+-- Counters are decimal strings, never Lua numbers. A final state (after a
+-- transfer or a freeze) sits at 2^64-1, and a Lua number cannot hold that:
+-- LuaJIT and Lua 5.1 numbers are IEEE-754 doubles, exact only up to 2^53,
+-- and Lua 5.4 integers are signed 64-bit. The daemon sends counters as
+-- strings for the same reason. The SDK checks each one (digits only, at most
+-- 2^64-1), drops leading zeros so equal counters compare equal as strings,
+-- and treats anything else as an error rather than a zero. Compare counters
+-- with `compare_pointer_counters`, not with `<` on the strings.
+
+--- What a pointer's target is. The string values are the wire format.
+--
+-- * `CHUNK`   — an immutable chunk, such as a public file's data map. The
+--               daemon's default when no kind is sent.
+-- * `POINTER` — another pointer: a forwarding the owner can still change.
+--               Use a transfer to hand a pointer over for good.
+M.PointerKind = {
+    CHUNK = "chunk",
+    POINTER = "pointer",
+}
+
+--- The write a pointer prepare signs. The string values are the wire format.
+M.PointerOp = {
+    CREATE = "create",
+    UPDATE = "update",
+    TRANSFER = "transfer",
+}
+
+--- Where a pointer stands with respect to finality, as its close group
+-- reports it (`status` of a finality table).
+--
+-- * `OPEN`        — no peer that answered holds a final state: the owner can
+--                   still move the pointer.
+-- * `SETTLING`    — one final state, not yet held by a majority.
+-- * `UNCONFIRMED` — one final state held by a majority, but not every peer
+--                   answered, so a rival could still be unseen. Ask again.
+-- * `FINAL`       — one final state held by a majority, every peer answered,
+--                   no rival. The only status a recipient should rely on.
+-- * `FORKED`      — the owner signed two or more different final states.
+-- * `UNKNOWN`     — a status this SDK does not know (a newer daemon); the
+--                   wire value is in the table's `raw_status`.
+M.PointerFinalityStatus = {
+    OPEN = "open",
+    SETTLING = "settling",
+    UNCONFIRMED = "unconfirmed",
+    FINAL = "final",
+    FORKED = "forked",
+    UNKNOWN = "unknown",
+}
+
+local KNOWN_FINALITY_STATUS = {
+    open = true,
+    settling = true,
+    unconfirmed = true,
+    final = true,
+    forked = true,
+}
+
+--- Map the daemon's finality status string onto `PointerFinalityStatus`:
+-- a known status is returned as is, anything else reads as "unknown".
+-- @param raw any the wire `status`
+-- @return string
+function M.pointer_finality_status(raw)
+    if type(raw) == "string" and KNOWN_FINALITY_STATUS[raw] then
+        return raw
+    end
+    return M.PointerFinalityStatus.UNKNOWN
+end
+
+--- The counter of a pointer's final state (2^64-1), after a transfer or a
+-- freeze: nothing can replace it.
+M.POINTER_FINAL_COUNTER = "18446744073709551615"
+
+--- Compare two canonical digit strings of the same length byte by byte.
+-- (`<` on strings goes through strcoll, which is locale-dependent.)
+local function compare_same_length(a, b)
+    for i = 1, #a do
+        local x, y = a:byte(i), b:byte(i)
+        if x ~= y then
+            return x < y and -1 or 1
+        end
+    end
+    return 0
+end
+
+--- Check and canonicalise a pointer counter.
+--
+-- Accepts only a string of ASCII digits whose value is at most 2^64-1, and
+-- returns it without leading zeros ("0" stays "0"). Anything else (a Lua
+-- number, a sign, whitespace, a fraction, an exponent, hex, an empty string,
+-- or a value past 2^64-1) returns nil and a reason.
+-- @param s any value to check
+-- @return string|nil canonical counter, string|nil reason
+function M.parse_pointer_counter(s)
+    if type(s) ~= "string" then
+        return nil, "expected a decimal string, got a " .. type(s)
+    end
+    if not s:find("^[0-9]+$") then
+        return nil, string.format("%q is not a decimal counter", s)
+    end
+    local canonical = s:gsub("^0+", "")
+    if canonical == "" then
+        canonical = "0"
+    end
+    local max = M.POINTER_FINAL_COUNTER
+    if #canonical > #max or (#canonical == #max and compare_same_length(canonical, max) > 0) then
+        return nil, string.format("%q is past the largest counter, 2^64-1", s)
+    end
+    return canonical, nil
+end
+
+--- Compare two pointer counters (decimal strings) by value.
+-- Lua numbers cannot hold every counter, so the comparison runs on the
+-- digits: a shorter canonical string is smaller, and equal lengths compare
+-- digit by digit.
+-- @param a string counter
+-- @param b string counter
+-- @return number|nil -1, 0 or 1; nil and a reason if either is not a counter
+function M.compare_pointer_counters(a, b)
+    local ca, why_a = M.parse_pointer_counter(a)
+    if not ca then
+        return nil, "first counter: " .. why_a
+    end
+    local cb, why_b = M.parse_pointer_counter(b)
+    if not cb then
+        return nil, "second counter: " .. why_b
+    end
+    if #ca ~= #cb then
+        return #ca < #cb and -1 or 1
+    end
+    return compare_same_length(ca, cb)
+end
+
+--- Normalise a pointer, chunk or state address for comparison: drops a
+-- leading `0x` / `0X` and lowercases the hex. The daemon accepts the prefix
+-- but always returns bare lowercase hex, so compare normalised values.
+-- @param address string
+-- @return string|nil normalised address; nil when `address` is not a string
+function M.normalize_address(address)
+    if type(address) ~= "string" then
+        return nil
+    end
+    return (address:gsub("^0[xX]", "")):lower()
+end
+
+--- Build a pointer prepare op that creates the pointer at `target`.
+-- Refused if the pointer already exists.
+-- @param target string address to point at
+-- @param kind string|nil PointerKind (nil leaves the daemon's default, chunk)
+-- @return table
+function M.pointer_create_op(target, kind)
+    return { op = M.PointerOp.CREATE, target = target, kind = kind }
+end
+
+--- Build a pointer prepare op that points the pointer at `target`, creating
+-- it if it does not exist.
+-- @param target string address to point at
+-- @param kind string|nil PointerKind (nil leaves the daemon's default, chunk)
+-- @return table
+function M.pointer_update_op(target, kind)
+    return { op = M.PointerOp.UPDATE, target = target, kind = kind }
+end
+
+--- Build a pointer prepare op that hands the pointer over for good to the
+-- pointer at `recipient`, which must already exist. Irreversible once stored.
+-- @param recipient string address of the recipient's pointer
+-- @return table
+function M.pointer_transfer_op(recipient)
+    return { op = M.PointerOp.TRANSFER, recipient = recipient }
+end
+
 return M

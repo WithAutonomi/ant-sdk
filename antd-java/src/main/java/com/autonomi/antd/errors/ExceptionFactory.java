@@ -3,7 +3,7 @@ package com.autonomi.antd.errors;
 import java.util.Map;
 
 /**
- * Factory that maps HTTP status codes to typed exceptions.
+ * Factory that maps HTTP status codes and daemon error codes to typed exceptions.
  */
 public final class ExceptionFactory {
 
@@ -18,16 +18,21 @@ public final class ExceptionFactory {
      * {@code retryable} flag. Retention is known only when {@code retryable}
      * is a JSON boolean; a missing one (daemons older than 0.14.0), a
      * {@code null} or any other type reads as {@code retryable == false} with
-     * retention unknown. Every other code keeps the status-based mapping of
-     * {@link #fromHttpStatus(int, String)}.
+     * retention unknown. The codes that share a status with older errors map
+     * to their own types through {@link #fromPointerCode}: the 409s
+     * {@code POINTER_FINAL}, {@code POINTER_FORKED} and {@code CONFLICT} (which
+     * never read as {@link AlreadyExistsException}) and the 503
+     * {@code CLOSE_GROUP_SHORTFALL}, whose {@code retryable} is {@code true}
+     * only when the body carries the JSON boolean {@code true}. Every other
+     * code keeps the status-based mapping of {@link #fromHttpStatus(int, String)}.
      *
      * <p>The body is input from the network, so this never throws on a
-     * malformed one: only a {@code code} that is the JSON string
-     * {@code "PARTIAL_UPLOAD"} selects the typed exception (a missing, null,
-     * numeric, object or array {@code code}, or a body that was not a JSON
-     * object, keeps the status-based mapping), a count that is not a JSON
-     * number reads as zero, and a {@code retryable} that is not a JSON boolean
-     * reads as not retryable with retention unknown.
+     * malformed one: only a {@code code} that is one of those JSON strings
+     * selects a typed exception (a missing, null, numeric, object or array
+     * {@code code}, or a body that was not a JSON object, keeps the
+     * status-based mapping), a count that is not a JSON number reads as zero,
+     * and a {@code retryable} that is not a JSON boolean reads as not
+     * retryable (with retention unknown, for a partial upload).
      *
      * @param statusCode the HTTP status code
      * @param message    the error message from the daemon
@@ -36,8 +41,12 @@ public final class ExceptionFactory {
      * @return a typed exception
      */
     public static AntdException fromErrorBody(int statusCode, String message, Map<String, Object> body) {
-        if (body != null && PartialUploadException.CODE.equals(body.get("code"))) {
-            Object flag = body.get("retryable");
+        if (body == null) {
+            return fromHttpStatus(statusCode, message);
+        }
+        Object code = body.get("code");
+        Object flag = body.get("retryable");
+        if (PartialUploadException.CODE.equals(code)) {
             return new PartialUploadException(
                     message,
                     count(body, "chunks_stored"),
@@ -46,7 +55,37 @@ public final class ExceptionFactory {
                     flag instanceof Boolean b && b,
                     flag instanceof Boolean);
         }
+        if (code instanceof String s) {
+            AntdException typed = fromPointerCode(s, message, flag instanceof Boolean b && b);
+            if (typed != null) return typed;
+        }
         return fromHttpStatus(statusCode, message);
+    }
+
+    /**
+     * Maps the daemon codes that share a status with older errors onto their
+     * own types, or returns {@code null} for any other code. The REST clients
+     * read the code from the error body; the gRPC client from the
+     * {@code x-antd-error-code} trailer, once it has checked that the tag
+     * agrees with the gRPC status code.
+     *
+     * @param code      the daemon's machine-readable error code
+     * @param message   the error message from the daemon
+     * @param retryable for {@code CLOSE_GROUP_SHORTFALL}: whether the daemon
+     *                  kept a paid pointer finalize; ignored otherwise
+     * @return the typed exception, or {@code null} when {@code code} is not one
+     *         of {@code POINTER_FINAL}, {@code POINTER_FORKED}, {@code CONFLICT}
+     *         or {@code CLOSE_GROUP_SHORTFALL}
+     */
+    public static AntdException fromPointerCode(String code, String message, boolean retryable) {
+        if (code == null) return null;
+        return switch (code) {
+            case PointerFinalException.CODE -> new PointerFinalException(message);
+            case ForkException.POINTER_FORKED_CODE -> new ForkException(message);
+            case ConflictException.CODE -> new ConflictException(message);
+            case CloseGroupShortfallException.CODE -> new CloseGroupShortfallException(message, retryable);
+            default -> null;
+        };
     }
 
     private static long count(Map<String, Object> body, String key) {

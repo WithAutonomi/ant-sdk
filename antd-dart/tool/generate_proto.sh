@@ -22,7 +22,7 @@ PROTOC_PLUGIN_VERSION="22.3.0"
 # generated in ONE protoc call: protoc_plugin numbers the `$N` import aliases
 # with a counter shared by every file in the call, so generating a subset
 # renumbers the aliases in the files it touches.
-PROTOS=(common health data chunks files events upload wallet manifests)
+PROTOS=(common health data chunks files events upload wallet pointers manifests)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SDK_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
