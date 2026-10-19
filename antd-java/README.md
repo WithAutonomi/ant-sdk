@@ -2,7 +2,7 @@
 
 Java SDK for the [antd](../antd/) daemon — the gateway to the Autonomi decentralized network.
 
-Targets Java 17+ enterprise/ERP environments. Supports both REST (`java.net.http.HttpClient` with an internal JSON parser, zero external deps) and gRPC (`io.grpc`) transports. Immutable data types only (Java records).
+Targets Java 17+ enterprise/ERP environments. Supports both REST (`java.net.http.HttpClient` with an internal JSON parser, zero external deps) and gRPC (`io.grpc`) transports. Models are immutable Java records.
 
 ## Installation
 
@@ -119,6 +119,43 @@ All methods throw `AntdException` (or a typed subclass) on failure.
 | `fileGetPublic(address, destPath)` | Download a public file by address |
 | `fileCost(path, isPublic, paymentMode)` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
+### Pointers
+
+A pointer is a small, owner-signed, mutable reference. Its address is derived from the owner's key and never changes; what it points at (a chunk, such as a public file's data map, or another pointer) can be changed by the owner. The daemon holds the owner keys, loaded at startup with `antd --pointer-keys <file-or-dir>` (files in the format `ant pointer keygen` writes), so every write names the pointer by its address (`owner`), never by a key. The pointer methods need the antd release after 0.15.0, the first with pointers.
+
+**Every write pays** (about the price of one chunk), and every attempt pays again. The SDK never retries `pointerCreate`, `pointerUpdate`, `pointerTransfer` or `pointerFinalize`, and you should not retry them automatically either; the one exception is a finalize the daemon says it kept (see `pointerFinalize` below). Reads are free to retry; a read during an update or churn can fail with `CloseGroupShortfallException`.
+
+Counters are unsigned 64-bit values, returned as `BigInteger`: a final state (a transfer) sits at 2^64 - 1 (`PointerRecord.FINAL_COUNTER`), past what a Java `long` holds. The daemon sends them as decimal strings, and anything that is not a decimal unsigned 64-bit value is an `AntdException`, never a silent zero. Values the daemon leaves unset (a finality's `counter`, `state` and `majority`, `transferredTo`) are `null` on both transports.
+
+| Method | Description |
+|--------|-------------|
+| `pointerKeys()` | The pointers this daemon holds owner keys for, so can write — returns their addresses |
+| `pointerCreate(owner, target[, kind])` | Create a pointer, paid by the daemon wallet — returns `PointerWriteResult` (`address`, `stateId`, `counter`). `AlreadyExistsException` if it exists, refused before paying |
+| `pointerUpdate(owner, target[, kind])` | Point a pointer at a new target, paid by the daemon wallet; creates it if it does not exist. `kind` is `PointerTargetKind.CHUNK` (the default) or `POINTER` (a forwarding the owner can still change). `PointerFinalException` once transferred |
+| `pointerTransfer(owner, recipient)` | Hand a pointer over for good to the recipient's pointer, which must exist: readers of the address are redirected there and the old key can change nothing. Irreversible. Returns `PointerTransferResult` with the close group's `finality` (or `finalityError` when that check failed; the transfer is stored either way) |
+| `pointerGet(address)` | Read a pointer — returns `PointerRecord` (`counter`, `target`, `kind`/`kindTag`, `isFinal()`, `transferredTo`, the owner's public key). `NotFoundException` if there is none |
+| `pointerResolve(address)` | Follow a chain of pointers (forwardings and transfers) to the target at its end — returns `PointerTarget` |
+| `pointerFinality(address)` | Ask the whole close group where a pointer stands — returns `PointerFinality` with `status` `OPEN`, `SETTLING`, `UNCONFIRMED`, `FINAL`, `FORKED`, or `UNKNOWN` for a status from a newer daemon (`rawStatus()` keeps the string). Check `isFinal()` before relying on a transfer |
+| `pointerController(address)` | Follow transfers to the pointer whose owner now decides — returns `PointerController` |
+| `pointerPrepare(owner, op[, options])` | External signer: the daemon signs `PointerOp.create(...)`, `update(...)` or `transfer(...)` with its key and quotes it — returns `PointerPrepareResult` (wave-batch `payments` for `payForQuotes()`; `signedQuotes` with `new PointerPrepareOptions(true)`). Needs no daemon wallet and pays nothing. Other writes to the pointer throw `ConflictException` until it is finalized or expires |
+| `pointerFinalize(uploadId, txHashes)` | External signer: store the prepared write once paid — returns `PointerFinalizeResult`. A write that falls short after payment throws `CloseGroupShortfallException` with `isRetryable()`: repeat the same call (same `uploadId`) to store it against the same payment, with a bounded number of attempts |
+
+```java
+try (var client = new AntdClient()) {
+    String owner = client.pointerKeys().get(0);
+    String first = client.dataPutPublic("one".getBytes()).address();
+    String second = client.dataPutPublic("two".getBytes()).address();
+
+    client.pointerCreate(owner, first);   // pays
+    client.pointerUpdate(owner, second);  // pays again
+    PointerTarget end = client.pointerResolve(owner);
+    PointerFinality finality = client.pointerFinality(owner);
+    System.out.println(end.target() + " " + finality.status());
+}
+```
+
+`AsyncAntdClient` has the same methods with an `Async` suffix, and `GrpcAntdClient` the same methods with the same models and exceptions.
+
 ## Async Usage
 
 The `AsyncAntdClient` provides non-blocking variants of every method, returning `CompletableFuture<T>`. It uses `HttpClient.sendAsync()` internally — no thread-pool wrappers around blocking calls.
@@ -167,7 +204,7 @@ All methods follow the naming convention `methodNameAsync()` and return `Complet
 
 ## gRPC Transport
 
-The `GrpcAntdClient` provides an alternative transport using gRPC instead of REST. It implements the same 15 methods with identical signatures, so switching transports requires only changing the constructor.
+The `GrpcAntdClient` provides an alternative transport using gRPC instead of REST. It implements the same methods, pointers included, with identical signatures, so switching transports requires only changing the constructor.
 
 ```java
 import com.autonomi.antd.GrpcAntdClient;
@@ -204,6 +241,12 @@ The gRPC client uses `io.grpc` blocking stubs and maps gRPC status codes to the 
 | `INTERNAL` | `InternalException` |
 | `UNAVAILABLE` | `NetworkException` |
 | `ABORTED` whose message starts with `Partial upload:` | `PartialUploadException` (counts, `retryable` and `retentionKnown` parsed from the status message); any other `ABORTED` maps to the generic `AntdException` |
+| `FAILED_PRECONDITION` with trailer `x-antd-error-code: POINTER_FINAL` | `PointerFinalException` |
+| `FAILED_PRECONDITION` with trailer `x-antd-error-code: POINTER_FORKED` | `ForkException` |
+| `ABORTED` with trailer `x-antd-error-code: CONFLICT` | `ConflictException` |
+| `UNAVAILABLE` with trailer `x-antd-error-code: CLOSE_GROUP_SHORTFALL` | `CloseGroupShortfallException` (`isRetryable()` when the message ends with the daemon's `(paid attempt retained...)` hint) |
+
+The daemon sets the `x-antd-error-code` trailer on the errors that share a gRPC status with older ones. The client trusts it only when it agrees with the status code as above; an untagged `FAILED_PRECONDITION`, or one with any other tag, is still a `PaymentException`.
 
 ### Proto compilation
 
@@ -245,11 +288,17 @@ try {
 | `PaymentException` | 402 | Insufficient funds |
 | `NotFoundException` | 404 | Resource not found |
 | `AlreadyExistsException` | 409 | Resource exists |
-| `ForkException` | 409 | Version conflict |
+| `ForkException` | 409 | Version conflict; a pointer whose owner signed two final states and no majority holds either (`code: POINTER_FORKED`) |
+| `PointerFinalException` | 409 (`code: POINTER_FINAL`) | The pointer is transferred or frozen; nothing can change it. Refused before paying |
+| `ConflictException` | 409 (`code: CONFLICT`) | A pointer write while a prepared write to it awaits payment, or an update that lost to a newer state |
 | `TooLargeException` | 413 | Payload too large |
 | `InternalException` | 500 | Server error |
 | `NetworkException` | 502 | Network unreachable |
 | `PartialUploadException` | 502 (`code: PARTIAL_UPLOAD`) | Finalize stored some chunks but not all — see below |
+| `ServiceUnavailableException` | 503 | A required dependency, such as the wallet, is missing |
+| `CloseGroupShortfallException` | 503 (`code: CLOSE_GROUP_SHORTFALL`) | Too few of the close group answered or stored. Reads are free to retry; `isRetryable()` is `true` only for a pointer finalize that kept the paid state |
+
+The REST clients map by the error body's `code` where it diverges from the status, so `POINTER_FINAL`, `POINTER_FORKED` and `CONFLICT` never read as `AlreadyExistsException`. `PointerFinalException`, `ConflictException` and `CloseGroupShortfallException` extend `AntdException` directly. `CloseGroupShortfallException` is not only for pointers: a daemon with the pointer API reports a close group that fell short on any call (a chunk store, say) as `503 CLOSE_GROUP_SHORTFALL` / tagged `UNAVAILABLE`, where an older daemon sent a 500 (`InternalException`). It is neither a `ServiceUnavailableException` nor a `NetworkException`, so it reads the same over both transports; catch it, or `AntdException`, explicitly.
 
 ### Partial uploads
 
@@ -286,6 +335,11 @@ See the [examples/](examples/) directory:
 - `Example03Files` — File upload and download
 - `Example05ErrorHandling` — Typed exception handling
 - `Example06PrivateData` — Private (encrypted) data storage
+- `Example08Pointers` — Create a pointer at public data, update it, resolve it and check its finality. Each write pays. Set `ANTD_POINTER_OWNER` to an address from `pointerKeys()`; `ANTD_BASE_URL` overrides the daemon URL:
+
+  ```bash
+  ANTD_POINTER_OWNER=<hex> ./gradlew :examples:run -PmainClass=com.autonomi.examples.Example08Pointers
+  ```
 
 ## Building
 

@@ -582,6 +582,94 @@ class AntdRestClient(
         )
     }
 
+    // ── Pointers ──
+    //
+    // A pointer's owner key lives in the daemon (`antd --pointer-keys`); a
+    // write names the pointer by its address. Every write pays, and every
+    // attempt pays again: this client never retries a create, update,
+    // transfer or finalize, and callers should not either. Reads are free to
+    // retry; a read during an update or churn can throw
+    // CloseGroupShortfallException. Requires the antd release after 0.15.0,
+    // the first with pointers.
+
+    /** `GET /v1/pointers/keys`: the addresses of the pointers this daemon can write. */
+    override suspend fun pointerKeys(): List<String> =
+        getJson<PointerKeysDto>("/v1/pointers/keys").keys.map { it.address }
+
+    /** `POST /v1/pointers`. See [IAntdClient.pointerCreate]. Never retried. */
+    override suspend fun pointerCreate(owner: String, target: String, kind: PointerKind): PointerWriteResult =
+        pointerWrite("/v1/pointers", owner, target, kind)
+
+    /** `POST /v1/pointers/update`. See [IAntdClient.pointerUpdate]. Never retried. */
+    override suspend fun pointerUpdate(owner: String, target: String, kind: PointerKind): PointerWriteResult =
+        pointerWrite("/v1/pointers/update", owner, target, kind)
+
+    private suspend fun pointerWrite(path: String, owner: String, target: String, kind: PointerKind): PointerWriteResult {
+        val body = buildJsonObject {
+            put("owner", owner)
+            put("target", target)
+            put("kind", kind.wire)
+        }.toString()
+        return postJson<PointerWriteDto>(path, body).toModel()
+    }
+
+    /** `POST /v1/pointers/transfer`. See [IAntdClient.pointerTransfer]. Never retried. */
+    override suspend fun pointerTransfer(owner: String, recipient: String): PointerTransferResult {
+        val body = buildJsonObject {
+            put("owner", owner)
+            put("recipient", recipient)
+        }.toString()
+        return postJson<PointerTransferDto>("/v1/pointers/transfer", body).toModel()
+    }
+
+    /** `GET /v1/pointers/{address}`. See [IAntdClient.pointerGet]. */
+    override suspend fun pointerGet(address: String): PointerRecord =
+        getJson<PointerRecordDto>("/v1/pointers/$address").toModel()
+
+    /** `GET /v1/pointers/{address}/resolve`. See [IAntdClient.pointerResolve]. */
+    override suspend fun pointerResolve(address: String): PointerTarget =
+        getJson<PointerTargetDto>("/v1/pointers/$address/resolve").toModel()
+
+    /** `GET /v1/pointers/{address}/finality`. See [IAntdClient.pointerFinality]. */
+    override suspend fun pointerFinality(address: String): PointerFinality =
+        getJson<PointerFinalityDto>("/v1/pointers/$address/finality").toModel()
+
+    /** `GET /v1/pointers/{address}/controller`. See [IAntdClient.pointerController]. */
+    override suspend fun pointerController(address: String): PointerController =
+        getJson<PointerControllerDto>("/v1/pointers/$address/controller").toModel()
+
+    /** `POST /v1/pointers/prepare`. See [IAntdClient.pointerPrepare]. */
+    override suspend fun pointerPrepare(owner: String, op: PointerOp, includeSignedQuotes: Boolean): PointerPrepareResult {
+        val body = buildJsonObject {
+            put("owner", owner)
+            put("op", op.wire)
+            when (op) {
+                is PointerOp.Create -> {
+                    put("target", op.target)
+                    put("kind", op.kind.wire)
+                }
+                is PointerOp.Update -> {
+                    put("target", op.target)
+                    put("kind", op.kind.wire)
+                }
+                is PointerOp.Transfer -> put("recipient", op.recipient)
+            }
+            if (includeSignedQuotes) put("include_signed_quotes", true)
+        }.toString()
+        return postJson<PointerPrepareDto>("/v1/pointers/prepare", body).toModel()
+    }
+
+    /** `POST /v1/pointers/finalize`. See [IAntdClient.pointerFinalize]. Never retried. */
+    override suspend fun pointerFinalize(uploadId: String, txHashes: Map<String, String>): PointerFinalizeResult {
+        val body = buildJsonObject {
+            put("upload_id", uploadId)
+            put("tx_hashes", buildJsonObject {
+                txHashes.forEach { (k, v) -> put(k, v) }
+            })
+        }.toString()
+        return postJson<PointerFinalizeDto>("/v1/pointers/finalize", body).toModel()
+    }
+
     private fun mapPrepareUpload(resp: PrepareUploadDto): PrepareUploadResult {
         val payments = resp.payments?.map { PaymentInfo(it.quoteHash, it.rewardsAddress, it.amount) } ?: emptyList()
         val poolCommitments = resp.poolCommitments?.map { pc ->

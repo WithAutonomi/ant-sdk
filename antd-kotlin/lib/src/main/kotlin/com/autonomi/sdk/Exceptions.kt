@@ -1,6 +1,6 @@
 package com.autonomi.sdk
 
-import io.grpc.StatusException
+import io.grpc.Metadata
 import io.grpc.StatusRuntimeException
 import io.grpc.Status
 import kotlinx.serialization.json.Json
@@ -11,13 +11,65 @@ open class AntdException(message: String, val statusCode: Int = 0) : Exception(m
 
 class NotFoundException(message: String, statusCode: Int = 404) : AntdException(message, statusCode)
 class AlreadyExistsException(message: String, statusCode: Int = 409) : AntdException(message, statusCode)
-class ForkException(message: String, statusCode: Int = 409) : AntdException(message, statusCode)
+
+/**
+ * A version conflict or fork (HTTP 409; gRPC ABORTED that is not a partial
+ * upload). Open so [PointerForkedException] can narrow it.
+ */
+open class ForkException(message: String, statusCode: Int = 409) : AntdException(message, statusCode)
 class BadRequestException(message: String, statusCode: Int = 400) : AntdException(message, statusCode)
 class PaymentException(message: String, statusCode: Int = 402) : AntdException(message, statusCode)
 open class NetworkException(message: String, statusCode: Int = 502) : AntdException(message, statusCode)
 class TooLargeException(message: String, statusCode: Int = 413) : AntdException(message, statusCode)
 class InternalException(message: String, statusCode: Int = 500) : AntdException(message, statusCode)
 class ServiceUnavailableException(message: String, statusCode: Int = 503) : AntdException(message, statusCode)
+
+/**
+ * The pointer is at its final state, transferred or frozen: nothing can update
+ * it or hand it over again (HTTP 409 with `code: "POINTER_FINAL"`; gRPC
+ * FAILED_PRECONDITION with `x-antd-error-code: POINTER_FINAL`). Refused
+ * before anything is paid.
+ */
+class PointerFinalException(message: String, statusCode: Int = 409) : AntdException(message, statusCode)
+
+/**
+ * The pointer's owner signed two different final states and no one of them
+ * is held by a majority of the close group, so there is no answer to give
+ * (HTTP 409 with `code: "POINTER_FORKED"`; gRPC FAILED_PRECONDITION with
+ * `x-antd-error-code: POINTER_FORKED`). A [ForkException], so existing
+ * `catch (e: ForkException)` blocks see it too.
+ */
+class PointerForkedException(message: String, statusCode: Int = 409) : ForkException(message, statusCode)
+
+/**
+ * The request conflicts with the resource's current state (HTTP 409 with
+ * `code: "CONFLICT"`; gRPC ABORTED with `x-antd-error-code: CONFLICT`). For
+ * pointers: a write while a prepared write to the same pointer awaits payment
+ * (finalize it, or wait for it to expire), or an update that lost to a newer
+ * state while it was in flight.
+ */
+class ConflictException(message: String, statusCode: Int = 409) : AntdException(message, statusCode)
+
+/**
+ * Too few of an address's close group answered, or took a write, for the
+ * result to be the network's (HTTP 503 with `code: "CLOSE_GROUP_SHORTFALL"`;
+ * gRPC UNAVAILABLE with `x-antd-error-code: CLOSE_GROUP_SHORTFALL`). It can
+ * come from any call, not only pointers; daemons before the pointer API
+ * reported it as a 500.
+ *
+ * Reads are free to retry. A paid write is not, unless [retryable] is true: a
+ * pointer finalize then kept the paid state under the same `upload_id`, and
+ * repeating that finalize stores it against the same payment. Bound that loop.
+ *
+ * Over REST [retryable] is the body's `retryable` when it is the JSON literal
+ * `true`; over gRPC, whether the message closes with the daemon's
+ * "(paid attempt retained...)" hint. Anything else reads as false.
+ */
+class CloseGroupShortfallException(
+    message: String,
+    val retryable: Boolean = false,
+    statusCode: Int = 503,
+) : AntdException(message, statusCode)
 
 /**
  * A finalize stored some chunks while others remained unstored after the
@@ -51,9 +103,10 @@ class ServiceUnavailableException(message: String, statusCode: Int = 503) : Antd
  * `catch (e: NetworkException)` blocks keep working and can narrow with
  * `is PartialUploadException` when they want the counts and flags. It is
  * not a [ForkException]: over gRPC a partial upload's ABORTED used to map
- * there, and the daemon sends ABORTED only for PARTIAL_UPLOAD, so code that
- * caught [ForkException] around a gRPC finalize should catch
- * [PartialUploadException] instead.
+ * there, and around a finalize the daemon sends ABORTED only for
+ * PARTIAL_UPLOAD (its other ABORTED, a pointer CONFLICT, is tagged and maps
+ * to [ConflictException]), so code that caught [ForkException] around a gRPC
+ * finalize should catch [PartialUploadException] instead.
  *
  * Over REST the counts and flags come from the structured error body. Each
  * count is read only from a JSON number holding a non-negative integer;
@@ -143,35 +196,72 @@ internal object ExceptionMapping {
     private val json = Json { ignoreUnknownKeys = true }
 
     /**
+     * gRPC metadata key the daemon (with the pointer API, after 0.15.0) sets
+     * on statuses whose code is shared with older errors, carrying the REST
+     * `code` string.
+     */
+    private val ANTD_ERROR_CODE: Metadata.Key<String> =
+        Metadata.Key.of("x-antd-error-code", Metadata.ASCII_STRING_MARSHALLER)
+
+    /**
      * Maps a REST error response onto a typed exception, preferring the
      * machine-readable `code` over the bare HTTP status where they diverge:
      * `PARTIAL_UPLOAD` arrives as a 502 that would otherwise read as a plain
-     * [NetworkException]. Every other status keeps its status-based mapping.
+     * [NetworkException]; `POINTER_FINAL`, `POINTER_FORKED` and `CONFLICT`
+     * are 409s that must not read as [AlreadyExistsException]; and
+     * `CLOSE_GROUP_SHORTFALL` is a 503 that must not read as
+     * [ServiceUnavailableException]. Every other status keeps its
+     * status-based mapping.
      */
-    fun fromHttpStatus(statusCode: Int, body: String): AntdException =
-        partialUploadFromBody(statusCode, body) ?: fromHttpStatusOnly(statusCode, body)
+    fun fromHttpStatus(statusCode: Int, body: String): AntdException {
+        val obj = errorObject(body)
+        return obj?.let { partialUploadFromBody(statusCode, body, it) }
+            ?: obj?.let { codedErrorFromBody(statusCode, body, it) }
+            ?: fromHttpStatusOnly(statusCode, body)
+    }
+
+    /** [body] as a JSON object, or null when it is not one. Never throws. */
+    private fun errorObject(body: String): JsonObject? = try {
+        json.parseToJsonElement(body) as? JsonObject
+    } catch (_: Exception) {
+        null
+    }
 
     /**
-     * Returns a [PartialUploadException] when [body] is a JSON error object
+     * The typed exception for the daemon codes that share an HTTP status with
+     * older errors (the pointer 409s and `CLOSE_GROUP_SHORTFALL`'s 503), or
+     * null for any other `code`. The message is the body's `error` string,
+     * falling back to the raw body. A `retryable` that is not the JSON literal
+     * `true` reads as false.
+     */
+    private fun codedErrorFromBody(statusCode: Int, body: String, obj: JsonObject): AntdException? {
+        val code = obj.primitive("code")?.takeIf { it.isString }?.content ?: return null
+        val message = obj.primitive("error")?.takeIf { it.isString }?.content ?: body
+        return when (code) {
+            "POINTER_FINAL" -> PointerFinalException(message, statusCode)
+            "POINTER_FORKED" -> PointerForkedException(message, statusCode)
+            "CONFLICT" -> ConflictException(message, statusCode)
+            "CLOSE_GROUP_SHORTFALL" ->
+                CloseGroupShortfallException(message, retryable = obj.flag("retryable") == true, statusCode = statusCode)
+            else -> null
+        }
+    }
+
+    /**
+     * Returns a [PartialUploadException] when [obj] is a JSON error object
      * whose `code` is the string `"PARTIAL_UPLOAD"`, carrying its counts.
      * A boolean `retryable` makes retention known and sets `retryable`;
      * daemons < 0.14.0 never send it, so their retention reads as unknown.
-     * Returns null for every other body (non-JSON, non-object, or a `code`
-     * that is missing, another value, or not a string), so the caller's
-     * status-based mapping applies. Counts go through [count] and
-     * `retryable` through [flag]: a value of any other kind (a quoted number
-     * or quoted `"true"`, a negative or fractional number, an object or an
-     * array) reads as absent, zero or `false`, rather than being coerced or
-     * escaping as a serialization error. The daemon's error body is input
-     * from the network and must never turn a typed [AntdException] into an
-     * [IllegalArgumentException].
+     * Returns null for every other body (a `code` that is missing, another
+     * value, or not a string), so the caller's other mappings apply. Counts
+     * go through [count] and `retryable` through [flag]: a value of any other
+     * kind (a quoted number or quoted `"true"`, a negative or fractional
+     * number, an object or an array) reads as absent, zero or `false`, rather
+     * than being coerced or escaping as a serialization error. The daemon's
+     * error body is input from the network and must never turn a typed
+     * [AntdException] into an [IllegalArgumentException].
      */
-    private fun partialUploadFromBody(statusCode: Int, body: String): PartialUploadException? {
-        val obj = try {
-            json.parseToJsonElement(body) as? JsonObject
-        } catch (_: Exception) {
-            null
-        } ?: return null
+    private fun partialUploadFromBody(statusCode: Int, body: String, obj: JsonObject): PartialUploadException? {
         val code = obj.primitive("code")
         if (code == null || !code.isString || code.content != PARTIAL_UPLOAD_CODE) return null
         val retained = obj.flag("retryable")
@@ -274,9 +364,52 @@ internal object ExceptionMapping {
         else -> AntdException(body, statusCode)
     }
 
-    fun fromGrpcStatus(ex: StatusRuntimeException): AntdException {
-        val detail = ex.status.description ?: ex.message ?: "Unknown error"
-        return when (ex.status.code) {
+    /**
+     * Whether [message] closes with the daemon's "(paid attempt retained...)"
+     * hint, read the way [partialUploadFromMessage] reads it: a pointer
+     * finalize's CLOSE_GROUP_SHORTFALL closes its message the same way a
+     * retained PARTIAL_UPLOAD does.
+     */
+    private fun closesWithRetainedHint(message: String): Boolean =
+        partialUploadRetentionTail.find(message)?.groupValues?.get(1) == PARTIAL_UPLOAD_RETAINED_HINT
+
+    /**
+     * The typed exception for a status the daemon tagged with
+     * `x-antd-error-code`, when the tag and the gRPC code agree:
+     * FAILED_PRECONDITION for POINTER_FINAL / POINTER_FORKED, ABORTED for
+     * CONFLICT, UNAVAILABLE for CLOSE_GROUP_SHORTFALL. Anything else (no
+     * trailers, no tag, a tag this SDK does not know, or a tag on an
+     * unexpected code) is null and keeps the code-based mapping, so a
+     * FAILED_PRECONDITION without a tag is still a [PaymentException].
+     */
+    private fun taggedGrpcError(code: Status.Code, detail: String, trailers: Metadata?): AntdException? {
+        val tag = trailers?.get(ANTD_ERROR_CODE) ?: return null
+        return when {
+            code == Status.Code.FAILED_PRECONDITION && tag == "POINTER_FINAL" -> PointerFinalException(detail)
+            code == Status.Code.FAILED_PRECONDITION && tag == "POINTER_FORKED" -> PointerForkedException(detail)
+            code == Status.Code.ABORTED && tag == "CONFLICT" -> ConflictException(detail)
+            code == Status.Code.UNAVAILABLE && tag == "CLOSE_GROUP_SHORTFALL" ->
+                // gRPC carries no structured detail: a pointer finalize that
+                // kept the paid state closes its message with the same
+                // "(paid attempt retained...)" hint a retained partial upload does.
+                CloseGroupShortfallException(detail, retryable = closesWithRetainedHint(detail))
+            else -> null
+        }
+    }
+
+    fun fromGrpcStatus(ex: StatusRuntimeException): AntdException =
+        fromGrpcStatus(ex.status, ex.trailers, ex.message)
+
+    /**
+     * Maps a failed gRPC [status] and the [trailers] it came with onto the
+     * typed exception the REST client throws for the same daemon error. The
+     * trailers carry `x-antd-error-code` for the errors that share a status
+     * code with older ones; see [taggedGrpcError].
+     */
+    fun fromGrpcStatus(status: Status, trailers: Metadata?, fallbackMessage: String? = null): AntdException {
+        val detail = status.description ?: fallbackMessage ?: "Unknown error"
+        taggedGrpcError(status.code, detail, trailers)?.let { return it }
+        return when (status.code) {
             Status.Code.NOT_FOUND -> NotFoundException(detail)
             Status.Code.ALREADY_EXISTS -> AlreadyExistsException(detail)
             // PARTIAL_UPLOAD: some chunks stored, some still unstored after
@@ -296,7 +429,7 @@ internal object ExceptionMapping {
             Status.Code.UNAVAILABLE -> NetworkException(detail)
             Status.Code.RESOURCE_EXHAUSTED -> TooLargeException(detail)
             Status.Code.INTERNAL -> InternalException(detail)
-            else -> AntdException(detail, ex.status.code.value())
+            else -> AntdException(detail, status.code.value())
         }
     }
 }

@@ -14,6 +14,7 @@ import io.grpc.MethodDescriptor
 import io.grpc.Status
 import io.grpc.StatusException
 import io.grpc.StatusRuntimeException
+import java.util.Base64
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -80,6 +81,7 @@ class AntdGrpcClient internal constructor(
     private val fileStub = FileServiceGrpcKt.FileServiceCoroutineStub(channel)
     private val uploadStub = UploadServiceGrpcKt.UploadServiceCoroutineStub(channel)
     private val walletStub = WalletServiceGrpcKt.WalletServiceCoroutineStub(channel)
+    private val pointerStub = PointerServiceGrpcKt.PointerServiceCoroutineStub(channel)
 
     override fun close() {
         channel.shutdown()
@@ -94,14 +96,16 @@ class AntdGrpcClient internal constructor(
      * grpc-kotlin's coroutine stubs surface a failed unary call as
      * [StatusException], not [StatusRuntimeException]; every call that
      * throws goes through here so both shapes map the same way and neither
-     * escapes raw. Anything that is not a gRPC status propagates untouched.
+     * escapes raw. The status's trailers go along, since the daemon puts
+     * `x-antd-error-code` there for the errors that share a status code with
+     * older ones. Anything that is not a gRPC status propagates untouched.
      * [health] is the one exception: it never throws, and reads the raw
      * status itself (see [daemonAnswered]).
      */
     private inline fun <T> grpc(block: () -> T): T = try {
         block()
     } catch (ex: StatusException) {
-        throw wrap(ex.status.asRuntimeException())
+        throw ExceptionMapping.fromGrpcStatus(ex.status, ex.trailers, ex.message)
     } catch (ex: StatusRuntimeException) {
         throw wrap(ex)
     }
@@ -269,7 +273,7 @@ class AntdGrpcClient internal constructor(
 
     /** Maps the coroutine stub's stream errors (StatusException) onto AntdException. */
     private fun wrapStream(ex: Throwable): Throwable = when (ex) {
-        is StatusException -> ExceptionMapping.fromGrpcStatus(ex.status.asRuntimeException())
+        is StatusException -> ExceptionMapping.fromGrpcStatus(ex.status, ex.trailers, ex.message)
         is StatusRuntimeException -> wrap(ex)
         else -> ex
     }
@@ -556,4 +560,153 @@ class AntdGrpcClient internal constructor(
             dataMapAddress = resp.dataMapAddress,
         )
     }
+
+    // ── Pointers ──
+    //
+    // PointerService mirrors REST /v1/pointers 1:1; see IAntdClient for the
+    // contract. Unset values arrive as "" or an absent message and map to
+    // null, as REST's nulls do. POINTER_FINAL / POINTER_FORKED
+    // (FAILED_PRECONDITION), CONFLICT (ABORTED) and CLOSE_GROUP_SHORTFALL
+    // (UNAVAILABLE) are read from the x-antd-error-code trailer, which grpc()
+    // passes to the mapper. Paid writes are never retried.
+
+    override suspend fun pointerKeys(): List<String> = grpc {
+        pointerStub.listKeys(listPointerKeysRequest {}).keysList.map { it.address }
+    }
+
+    override suspend fun pointerCreate(owner: String, target: String, kind: PointerKind): PointerWriteResult = grpc {
+        pointerWriteResult(pointerStub.create(writeRequestOf(owner, target, kind)))
+    }
+
+    override suspend fun pointerUpdate(owner: String, target: String, kind: PointerKind): PointerWriteResult = grpc {
+        pointerWriteResult(pointerStub.update(writeRequestOf(owner, target, kind)))
+    }
+
+    private fun writeRequestOf(owner: String, target: String, kind: PointerKind): Pointers.PointerWriteRequest =
+        pointerWriteRequest {
+            this.owner = owner
+            this.target = target
+            this.kind = kind.wire
+        }
+
+    private fun pointerWriteResult(resp: Pointers.PointerWriteResponse) =
+        PointerWriteResult(resp.address, resp.stateId, parsePointerCounter("counter", resp.counter))
+
+    override suspend fun pointerTransfer(owner: String, recipient: String): PointerTransferResult = grpc {
+        val resp = pointerStub.transfer(pointerTransferRequest {
+            this.owner = owner
+            this.recipient = recipient
+        })
+        PointerTransferResult(
+            address = resp.address,
+            stateId = resp.stateId,
+            finality = if (resp.hasFinality()) pointerFinalityOf(resp.finality) else null,
+            finalityError = resp.finalityError.nonEmptyOrNull(),
+        )
+    }
+
+    override suspend fun pointerGet(address: String): PointerRecord = grpc {
+        val resp = pointerStub.get(getPointerRequest { this.address = address })
+        PointerRecord(
+            address = resp.address,
+            owner = resp.owner,
+            counter = parsePointerCounter("counter", resp.counter),
+            kind = resp.kind,
+            kindTag = resp.kindTag.toUInt(),
+            target = resp.target,
+            stateId = resp.stateId,
+            isFinal = resp.isFinal,
+            transferredTo = resp.transferredTo.nonEmptyOrNull(),
+        )
+    }
+
+    override suspend fun pointerResolve(address: String): PointerTarget = grpc {
+        val resp = pointerStub.resolve(resolvePointerRequest { this.address = address })
+        PointerTarget(kind = resp.kind, kindTag = resp.kindTag.toUInt(), target = resp.target)
+    }
+
+    override suspend fun pointerFinality(address: String): PointerFinality = grpc {
+        pointerFinalityOf(pointerStub.finality(pointerFinalityRequest { this.address = address }))
+    }
+
+    override suspend fun pointerController(address: String): PointerController = grpc {
+        val resp = pointerStub.controller(pointerControllerRequest { this.address = address })
+        PointerController(pointer = resp.pointer, transfers = resp.transfersList.toList(), frozen = resp.frozen)
+    }
+
+    override suspend fun pointerPrepare(owner: String, op: PointerOp, includeSignedQuotes: Boolean): PointerPrepareResult = grpc {
+        val resp = pointerStub.prepare(preparePointerRequest {
+            this.owner = owner
+            this.op = op.wire
+            when (op) {
+                is PointerOp.Create -> {
+                    this.target = op.target
+                    this.kind = op.kind.wire
+                }
+                is PointerOp.Update -> {
+                    this.target = op.target
+                    this.kind = op.kind.wire
+                }
+                is PointerOp.Transfer -> this.recipient = op.recipient
+            }
+            this.includeSignedQuotes = includeSignedQuotes
+        })
+        PointerPrepareResult(
+            uploadId = resp.uploadId,
+            op = resp.op,
+            address = resp.address,
+            stateId = resp.stateId,
+            counter = parsePointerCounter("counter", resp.counter),
+            paymentType = resp.paymentType,
+            payments = resp.paymentsList.map { PaymentInfo(it.quoteHash, it.rewardsAddress, it.amount) },
+            totalAmount = resp.totalAmount,
+            paymentVaultAddress = resp.paymentVaultAddress,
+            paymentTokenAddress = resp.paymentTokenAddress,
+            rpcUrl = resp.rpcUrl,
+            // REST carries the quote bytes as base64; keep one shape across transports.
+            signedQuotes = resp.signedQuotesList.map {
+                SignedQuoteEntry(
+                    quoteHash = it.quoteHash,
+                    quote = Base64.getEncoder().encodeToString(it.quote.toByteArray()),
+                    commitmentSidecar = if (it.commitmentSidecar.isEmpty()) null
+                    else Base64.getEncoder().encodeToString(it.commitmentSidecar.toByteArray()),
+                )
+            },
+        )
+    }
+
+    override suspend fun pointerFinalize(uploadId: String, txHashes: Map<String, String>): PointerFinalizeResult = grpc {
+        val resp = pointerStub.finalize(finalizePointerRequest {
+            this.uploadId = uploadId
+            this.txHashes.putAll(txHashes)
+        })
+        PointerFinalizeResult(
+            address = resp.address,
+            stateId = resp.stateId,
+            counter = parsePointerCounter("counter", resp.counter),
+            finality = if (resp.hasFinality()) pointerFinalityOf(resp.finality) else null,
+        )
+    }
+
+    private fun pointerFinalStateOf(s: Pointers.PointerFinalState) = PointerFinalState(
+        stateId = s.stateId,
+        kind = s.kind,
+        kindTag = s.kindTag.toUInt(),
+        target = s.target,
+        holders = s.holders.toUInt(),
+        transferredTo = s.transferredTo.nonEmptyOrNull(),
+    )
+
+    /** Converts the proto shape, where an unset counter is "" and an unset state an absent message. */
+    private fun pointerFinalityOf(f: Pointers.PointerFinality) = PointerFinality(
+        address = f.address,
+        group = f.group.toUInt(),
+        answered = f.answered.toUInt(),
+        status = PointerFinalityStatus.fromWire(f.status),
+        counter = parseOptionalPointerCounter("counter", f.counter),
+        state = if (f.hasState()) pointerFinalStateOf(f.state) else null,
+        states = f.statesList.map { pointerFinalStateOf(it) },
+        majority = if (f.hasMajority()) pointerFinalStateOf(f.majority) else null,
+        transferredTo = f.transferredTo.nonEmptyOrNull(),
+    )
 }

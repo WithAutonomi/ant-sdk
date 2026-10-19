@@ -310,3 +310,4 @@ See the [examples/](examples/) directory:
 - `04-files` — File upload and download
 - `06-private-data` — Private (encrypted) data round-trip via data_map
 - `07-external-signer` — External-signer file + chunk upload (anvil signer)
+- `08-pointers` — Create, update, read and resolve a pointer, then check its finality (needs `ANTD_POINTER_OWNER`; each write pays)

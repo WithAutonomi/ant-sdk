@@ -17,6 +17,8 @@ require_relative "v1/chunks_services_pb"
 require_relative "v1/files_services_pb"
 require_relative "v1/upload_services_pb"
 require_relative "v1/wallet_services_pb"
+require_relative "v1/pointers_services_pb"
+require "base64"
 
 module Antd
   DEFAULT_GRPC_TARGET = "localhost:50051"
@@ -47,6 +49,7 @@ module Antd
       @file_stub   = Antd::V1::FileService::Stub.new(target, :this_channel_is_insecure)
       @upload_stub = Antd::V1::UploadService::Stub.new(target, :this_channel_is_insecure)
       @wallet_stub = Antd::V1::WalletService::Stub.new(target, :this_channel_is_insecure)
+      @pointer_stub = Antd::V1::PointerService::Stub.new(target, :this_channel_is_insecure)
     end
 
     # --- Health ---
@@ -468,7 +471,182 @@ module Antd
       resp.approved
     end
 
+    # --- Pointers ---
+    #
+    # The same methods, models and errors as the REST +Client+ (see there),
+    # over PointerService. The pointer errors share gRPC status codes with
+    # older ones, so the daemon names them in the +x-antd-error-code+
+    # trailer, which +grpc_call+ reads (see +Antd.error_for_grpc_metadata+).
+    # Unset optionals arrive as "" or an absent message and read as nil, as
+    # REST's nulls do. Every write pays: do not retry +pointer_create+,
+    # +pointer_update+, +pointer_transfer+ or +pointer_finalize+
+    # automatically.
+
+    # Mirrors +Client#pointer_keys+.
+    # @return [Array<String>]
+    def pointer_keys
+      resp = grpc_call { @pointer_stub.list_keys(Antd::V1::ListPointerKeysRequest.new) }
+      resp.keys.map(&:address)
+    end
+
+    # Mirrors +Client#pointer_create+. Pays; do not retry automatically.
+    # @return [PointerWriteResult]
+    def pointer_create(owner, target, kind: nil)
+      req = Antd::V1::PointerWriteRequest.new(owner: owner, target: target, kind: kind.to_s)
+      pointer_write_result(grpc_call { @pointer_stub.create(req) })
+    end
+
+    # Mirrors +Client#pointer_update+. Pays; do not retry automatically.
+    # @return [PointerWriteResult]
+    def pointer_update(owner, target, kind: nil)
+      req = Antd::V1::PointerWriteRequest.new(owner: owner, target: target, kind: kind.to_s)
+      pointer_write_result(grpc_call { @pointer_stub.update(req) })
+    end
+
+    # Mirrors +Client#pointer_transfer+. Pays; do not retry automatically.
+    # @return [PointerTransferResult]
+    def pointer_transfer(owner, recipient)
+      req = Antd::V1::PointerTransferRequest.new(owner: owner, recipient: recipient)
+      resp = grpc_call { @pointer_stub.transfer(req) }
+      PointerTransferResult.new(
+        address: resp.address,
+        state_id: resp.state_id,
+        finality: resp.finality.nil? ? nil : pointer_finality_from(resp.finality),
+        finality_error: presence(resp.finality_error)
+      )
+    end
+
+    # Mirrors +Client#pointer_get+.
+    # @return [PointerRecord]
+    def pointer_get(address)
+      resp = grpc_call { @pointer_stub.get(Antd::V1::GetPointerRequest.new(address: address)) }
+      PointerRecord.new(
+        address: resp.address,
+        owner: resp.owner,
+        counter: Antd.parse_pointer_counter("counter", resp.counter),
+        kind: resp.kind,
+        kind_tag: resp.kind_tag,
+        target: resp.target,
+        state_id: resp.state_id,
+        is_final: resp.is_final,
+        transferred_to: presence(resp.transferred_to)
+      )
+    end
+
+    # Mirrors +Client#pointer_resolve+.
+    # @return [PointerTarget]
+    def pointer_resolve(address)
+      resp = grpc_call { @pointer_stub.resolve(Antd::V1::ResolvePointerRequest.new(address: address)) }
+      PointerTarget.new(kind: resp.kind, kind_tag: resp.kind_tag, target: resp.target)
+    end
+
+    # Mirrors +Client#pointer_finality+.
+    # @return [PointerFinality]
+    def pointer_finality(address)
+      resp = grpc_call { @pointer_stub.finality(Antd::V1::PointerFinalityRequest.new(address: address)) }
+      pointer_finality_from(resp)
+    end
+
+    # Mirrors +Client#pointer_controller+.
+    # @return [PointerController]
+    def pointer_controller(address)
+      resp = grpc_call { @pointer_stub.controller(Antd::V1::PointerControllerRequest.new(address: address)) }
+      PointerController.new(pointer: resp.pointer, transfers: resp.transfers.to_a, frozen: resp.frozen)
+    end
+
+    # Mirrors +Client#pointer_prepare+.
+    # @return [PointerPrepareResult]
+    def pointer_prepare(owner, op, target: nil, kind: nil, recipient: nil, include_signed_quotes: false)
+      req = Antd::V1::PreparePointerRequest.new(
+        owner: owner,
+        op: op.to_s,
+        target: target.to_s,
+        kind: kind.to_s,
+        recipient: recipient.to_s,
+        include_signed_quotes: include_signed_quotes ? true : false
+      )
+      resp = grpc_call { @pointer_stub.prepare(req) }
+      PointerPrepareResult.new(
+        upload_id: resp.upload_id,
+        op: resp.op,
+        address: resp.address,
+        state_id: resp.state_id,
+        counter: Antd.parse_pointer_counter("counter", resp.counter),
+        payment_type: resp.payment_type,
+        payments: resp.payments.map do |p|
+          PaymentInfo.new(quote_hash: p.quote_hash, rewards_address: p.rewards_address, amount: p.amount)
+        end,
+        total_amount: resp.total_amount,
+        payment_vault_address: resp.payment_vault_address,
+        payment_token_address: resp.payment_token_address,
+        rpc_url: resp.rpc_url,
+        # Bytes on the wire; base64 here, the same form REST returns.
+        signed_quotes: resp.signed_quotes.map do |q|
+          SignedQuoteEntry.new(
+            quote_hash: q.quote_hash,
+            quote: Base64.strict_encode64(q.quote),
+            commitment_sidecar: q.commitment_sidecar.empty? ? nil : Base64.strict_encode64(q.commitment_sidecar)
+          )
+        end
+      )
+    end
+
+    # Mirrors +Client#pointer_finalize+. A +CloseGroupShortfallError+ with
+    # +retryable+ means the daemon kept the paid state: repeat the call with
+    # the same +upload_id+.
+    # @return [PointerFinalizeResult]
+    def pointer_finalize(upload_id, tx_hashes)
+      req = Antd::V1::FinalizePointerRequest.new(upload_id: upload_id, tx_hashes: tx_hashes)
+      resp = grpc_call { @pointer_stub.finalize(req) }
+      PointerFinalizeResult.new(
+        address: resp.address,
+        state_id: resp.state_id,
+        counter: Antd.parse_pointer_counter("counter", resp.counter),
+        finality: resp.finality.nil? ? nil : pointer_finality_from(resp.finality)
+      )
+    end
+
     private
+
+    def pointer_write_result(resp)
+      PointerWriteResult.new(
+        address: resp.address,
+        state_id: resp.state_id,
+        counter: Antd.parse_pointer_counter("counter", resp.counter)
+      )
+    end
+
+    # Converts the proto finality, where an unset counter or transferred_to is
+    # "" and an unset state or majority an absent message: each reads as nil.
+    def pointer_finality_from(f)
+      PointerFinality.new(
+        address: f.address,
+        group: f.group,
+        answered: f.answered,
+        status: f.status,
+        counter: f.counter.empty? ? nil : Antd.parse_pointer_counter("finality counter", f.counter),
+        state: f.state.nil? ? nil : pointer_final_state_from(f.state),
+        states: f.states.map { |s| pointer_final_state_from(s) },
+        majority: f.majority.nil? ? nil : pointer_final_state_from(f.majority),
+        transferred_to: presence(f.transferred_to)
+      )
+    end
+
+    def pointer_final_state_from(s)
+      PointerFinalState.new(
+        state_id: s.state_id,
+        kind: s.kind,
+        kind_tag: s.kind_tag,
+        target: s.target,
+        holders: s.holders,
+        transferred_to: presence(s.transferred_to)
+      )
+    end
+
+    # A proto string, or nil when unset (empty).
+    def presence(value)
+      value.nil? || value.empty? ? nil : value
+    end
 
     # Drives a +return_op: true+ server-streaming call, yielding +DownloadFrame+s.
     # The byte denominator is surfaced first as a leading +DownloadFrame+ (its
@@ -560,8 +738,21 @@ module Antd
 
 
     # Executes a gRPC call and translates errors to Antd error types.
+    #
+    # The daemon's +x-antd-error-code+ trailer comes first: where it names a
+    # code that shares its gRPC status with older errors (POINTER_FINAL,
+    # POINTER_FORKED, CONFLICT, CLOSE_GROUP_SHORTFALL) and agrees with the
+    # status code, it selects the typed error. Anything else is re-raised to
+    # the status-code mapping below.
     def grpc_call
-      yield
+      begin
+        yield
+      rescue GRPC::BadStatus => e
+        tagged = Antd.error_for_grpc_metadata(e.code, e.details, e.message, e.metadata)
+        raise tagged unless tagged.nil?
+
+        raise
+      end
     rescue GRPC::InvalidArgument => e
       raise BadRequestError, e.message
     rescue GRPC::NotFound => e
