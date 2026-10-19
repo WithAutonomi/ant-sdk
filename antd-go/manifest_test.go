@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -203,6 +204,33 @@ func TestDecodeManifestAndLink(t *testing.T) {
 	}
 	if _, ok := got[1]["manifest"]; ok {
 		t.Fatalf("link request must not send manifest bytes: %+v", got[1])
+	}
+}
+
+func TestDecodeManifestKeepsExactSizesAbove2To53(t *testing.T) {
+	// 2^53+1 and MaxUint64 both round when decoded through a float64.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"source": "manifest", "entries": [
+			{"effective_name": "a", "kind": "public", "content_address": "aa",
+			 "size": 9007199254740993, "exact_size": 18446744073709551615},
+			{"effective_name": "b", "kind": "public", "content_address": "bb", "size": 0}
+		]}`)
+	}))
+	defer srv.Close()
+
+	res, err := NewClient(srv.URL).DecodeManifest(context.Background(), manifestHeader, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b := res.Entries[0], res.Entries[1]
+	if a.Size == nil || *a.Size != 9007199254740993 {
+		t.Fatalf("size: got %v, want 9007199254740993", a.Size)
+	}
+	if a.ExactSize == nil || *a.ExactSize != math.MaxUint64 {
+		t.Fatalf("exact_size: got %v, want MaxUint64", a.ExactSize)
+	}
+	if b.Size == nil || *b.Size != 0 || b.ExactSize != nil {
+		t.Fatalf("a present zero must stay distinct from absent: %+v", b)
 	}
 }
 
