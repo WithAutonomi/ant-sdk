@@ -386,3 +386,345 @@ defmodule Antd.DownloadFrame do
   @spec meta?(t()) :: boolean()
   def meta?(%__MODULE__{meta: meta}), do: not is_nil(meta)
 end
+
+defmodule Antd.SignedQuoteEntry do
+  @moduledoc """
+  One `payments` quote in full signed form, returned by a prepare called with
+  `include_signed_quotes: true`. `quote` and `commitment_sidecar` are opaque
+  base64 blobs (the msgpack-serialized signed `PaymentQuote`, and the
+  `StorageCommitment` it pins); only antd parses them. `commitment_sidecar`
+  is `nil` for baseline quotes. Over gRPC the raw bytes are base64-encoded,
+  so both transports give the same values.
+  """
+
+  @enforce_keys [:quote_hash, :quote]
+  defstruct [:quote_hash, :quote, commitment_sidecar: nil]
+
+  @type t :: %__MODULE__{
+          quote_hash: String.t(),
+          quote: String.t(),
+          commitment_sidecar: String.t() | nil
+        }
+end
+
+defmodule Antd.PointerKind do
+  @moduledoc """
+  What a pointer write points at: the `:kind` option of `pointer_create`,
+  `pointer_update` and a `pointer_prepare` create or update.
+
+    * `:chunk` — a chunk, such as the address `data_put_public` or
+      `file_put_public` returns. The daemon's default when the option is
+      left out.
+    * `:pointer` — another pointer: a forwarding its owner can still change.
+      Use `pointer_transfer` to hand a pointer over for good.
+
+  Results carry the daemon's `kind` string (`"chunk"`, `"pointer"`, or
+  `"unknown"` for a kind the daemon does not know) and the raw `kind_tag`.
+  """
+
+  @type t :: :chunk | :pointer
+
+  @doc "Serialize a `t:t/0` atom to the wire string the daemon expects."
+  @spec to_wire(t()) :: String.t()
+  def to_wire(:chunk), do: "chunk"
+  def to_wire(:pointer), do: "pointer"
+end
+
+defmodule Antd.PointerOp do
+  @moduledoc """
+  The write a `pointer_prepare` signs and quotes for an external signer:
+
+    * `{:create, target}` / `{:create, target, kind}` — create the pointer.
+    * `{:update, target}` / `{:update, target, kind}` — point it at a new
+      target, creating it if it does not exist.
+    * `{:transfer, recipient}` — hand it over for good to the recipient's
+      pointer, which must already exist.
+
+  `kind` is an `t:Antd.PointerKind.t/0`; the daemon defaults it to `:chunk`.
+  """
+
+  @type t ::
+          {:create, String.t()}
+          | {:create, String.t(), Antd.PointerKind.t()}
+          | {:update, String.t()}
+          | {:update, String.t(), Antd.PointerKind.t()}
+          | {:transfer, String.t()}
+
+  # The op's wire fields: `op` plus `target` and optionally `kind`, or
+  # `recipient`. Shared by the REST and gRPC clients.
+  @doc false
+  @spec to_fields(t()) :: map()
+  def to_fields({op, target}) when op in [:create, :update] and is_binary(target),
+    do: %{op: Atom.to_string(op), target: target}
+
+  def to_fields({op, target, kind}) when op in [:create, :update] and is_binary(target),
+    do: %{op: Atom.to_string(op), target: target, kind: Antd.PointerKind.to_wire(kind)}
+
+  def to_fields({:transfer, recipient}) when is_binary(recipient),
+    do: %{op: "transfer", recipient: recipient}
+end
+
+defmodule Antd.PointerWriteResult do
+  @moduledoc """
+  The state a pointer write stored (`pointer_create` / `pointer_update`).
+  `state_id` is the hex identifier the state was paid against; `counter` is
+  its counter, an integer parsed from the daemon's decimal string.
+  """
+
+  @enforce_keys [:address, :state_id, :counter]
+  defstruct [:address, :state_id, :counter]
+
+  @type t :: %__MODULE__{
+          address: String.t(),
+          state_id: String.t(),
+          counter: non_neg_integer()
+        }
+end
+
+defmodule Antd.PointerRecord do
+  @moduledoc """
+  A pointer's current state, as the network serves it (`pointer_get`).
+
+    * `owner` — the owner's ML-DSA-65 public key (hex, 1,952 bytes). The
+      address is derived from it, so it is the proof of who owns the pointer.
+    * `counter` — an integer, the daemon's `u64` sent as a decimal string. A
+      final state (after a transfer or a freeze) sits at `final_counter/0`,
+      2^64 - 1, and `is_final` is `true`: nothing can replace it.
+    * `kind` — `"chunk"`, `"pointer"`, or `"unknown"` for a kind the daemon
+      does not know; `kind_tag` is the raw value either way.
+    * `transferred_to` — the pointer this one was handed over to, or `nil`.
+  """
+
+  @final_counter 18_446_744_073_709_551_615
+
+  @enforce_keys [:address, :owner, :counter, :kind, :kind_tag, :target, :state_id]
+  defstruct [
+    :address,
+    :owner,
+    :counter,
+    :kind,
+    :kind_tag,
+    :target,
+    :state_id,
+    is_final: false,
+    transferred_to: nil
+  ]
+
+  @type t :: %__MODULE__{
+          address: String.t(),
+          owner: String.t(),
+          counter: non_neg_integer(),
+          kind: String.t(),
+          kind_tag: non_neg_integer(),
+          target: String.t(),
+          state_id: String.t(),
+          is_final: boolean(),
+          transferred_to: String.t() | nil
+        }
+
+  @doc "The counter of a pointer's final state, 2^64 - 1."
+  @spec final_counter() :: non_neg_integer()
+  def final_counter, do: @final_counter
+end
+
+defmodule Antd.PointerTarget do
+  @moduledoc """
+  Where a chain of pointers ends (`pointer_resolve`): the `target` address,
+  its `kind` string and the raw `kind_tag`.
+  """
+
+  @enforce_keys [:kind, :kind_tag, :target]
+  defstruct [:kind, :kind_tag, :target]
+
+  @type t :: %__MODULE__{
+          kind: String.t(),
+          kind_tag: non_neg_integer(),
+          target: String.t()
+        }
+end
+
+defmodule Antd.PointerFinalState do
+  @moduledoc """
+  One final state, as a finality check reports it. `holders` is how many
+  peers of the close group hold it; `transferred_to` is the pointer the state
+  hands over to, or `nil`.
+  """
+
+  @enforce_keys [:state_id, :kind, :kind_tag, :target, :holders]
+  defstruct [:state_id, :kind, :kind_tag, :target, :holders, transferred_to: nil]
+
+  @type t :: %__MODULE__{
+          state_id: String.t(),
+          kind: String.t(),
+          kind_tag: non_neg_integer(),
+          target: String.t(),
+          holders: non_neg_integer(),
+          transferred_to: String.t() | nil
+        }
+end
+
+defmodule Antd.PointerFinality do
+  @moduledoc """
+  The whole close group's view of where a pointer stands
+  (`pointer_finality`). Check it before relying on a transfer: only
+  `status: :final` means it is beyond dispute.
+
+  `status` is one of:
+
+    * `:open` — no peer that answered holds a final state. `counter` is the
+      counter a read would return, or `nil` if no state is corroborated.
+    * `:settling` — one final state (`state`), not yet held by a majority.
+    * `:unconfirmed` — one final state held by a majority, but not every peer
+      of the group answered, so a rival could still exist.
+    * `:final` — one final state, held by a majority, every peer answered,
+      no rival seen. `transferred_to` is set when it is a transfer.
+    * `:forked` — the owner signed two or more different final states.
+      `states` lists them, most-held first; `majority` is the one a majority
+      holds, which reads return, or `nil`.
+    * `{:unknown, status}` — a status this SDK does not know yet, as the
+      daemon sent it.
+
+  Unset values are `nil` on both transports: REST sends `null`, gRPC an
+  empty string or an absent message.
+  """
+
+  @enforce_keys [:address, :group, :answered, :status]
+  defstruct [
+    :address,
+    :group,
+    :answered,
+    :status,
+    counter: nil,
+    state: nil,
+    states: [],
+    majority: nil,
+    transferred_to: nil
+  ]
+
+  @type status :: :open | :settling | :unconfirmed | :final | :forked | {:unknown, String.t()}
+
+  @type t :: %__MODULE__{
+          address: String.t(),
+          group: non_neg_integer(),
+          answered: non_neg_integer(),
+          status: status(),
+          counter: non_neg_integer() | nil,
+          state: Antd.PointerFinalState.t() | nil,
+          states: [Antd.PointerFinalState.t()],
+          majority: Antd.PointerFinalState.t() | nil,
+          transferred_to: String.t() | nil
+        }
+
+  @doc "True only for `status: :final`: the transfer is beyond dispute."
+  @spec final?(t()) :: boolean()
+  def final?(%__MODULE__{status: status}), do: status == :final
+
+  @doc """
+  Parses the daemon's status string. A status this SDK does not know yet
+  comes back as `{:unknown, status}`.
+  """
+  @spec parse_status(String.t()) :: status()
+  def parse_status("open"), do: :open
+  def parse_status("settling"), do: :settling
+  def parse_status("unconfirmed"), do: :unconfirmed
+  def parse_status("final"), do: :final
+  def parse_status("forked"), do: :forked
+  def parse_status(other) when is_binary(other), do: {:unknown, other}
+end
+
+defmodule Antd.PointerController do
+  @moduledoc """
+  Whose pointer decides what an address resolves to, after following every
+  transfer (`pointer_controller`). `transfers` lists every pointer the
+  address was handed over to, in order. `frozen` is `true` when `pointer` is
+  final without being handed over: nobody can move it.
+  """
+
+  @enforce_keys [:pointer]
+  defstruct [:pointer, transfers: [], frozen: false]
+
+  @type t :: %__MODULE__{
+          pointer: String.t(),
+          transfers: [String.t()],
+          frozen: boolean()
+        }
+end
+
+defmodule Antd.PointerTransferResult do
+  @moduledoc """
+  What a transfer stored, and where the close group says it stands
+  (`pointer_transfer`). `finality` is `nil` when that check failed, and
+  `finality_error` says why; the transfer itself is stored and final either
+  way. Ask again with `pointer_finality`.
+  """
+
+  @enforce_keys [:address, :state_id]
+  defstruct [:address, :state_id, finality: nil, finality_error: nil]
+
+  @type t :: %__MODULE__{
+          address: String.t(),
+          state_id: String.t(),
+          finality: Antd.PointerFinality.t() | nil,
+          finality_error: String.t() | nil
+        }
+end
+
+defmodule Antd.PointerPrepareResult do
+  @moduledoc """
+  A pointer write signed with the daemon's loaded owner key, and the
+  wave-batch payment for it (`pointer_prepare`). Pay `payments` with
+  `payForQuotes()`, then call `pointer_finalize` with `upload_id`.
+
+  `op` is the daemon's `"create"`, `"update"` or `"transfer"`; `counter` is
+  the counter the write will store. `payment_type` is always `"wave_batch"`
+  and `total_amount` is in atto tokens. `signed_quotes` is filled only when
+  the prepare asked for it (`include_signed_quotes: true`).
+  """
+
+  @enforce_keys [:upload_id, :op, :address, :state_id, :counter]
+  defstruct [
+    :upload_id,
+    :op,
+    :address,
+    :state_id,
+    :counter,
+    payment_type: "wave_batch",
+    payments: [],
+    total_amount: "",
+    payment_vault_address: "",
+    payment_token_address: "",
+    rpc_url: "",
+    signed_quotes: []
+  ]
+
+  @type t :: %__MODULE__{
+          upload_id: String.t(),
+          op: String.t(),
+          address: String.t(),
+          state_id: String.t(),
+          counter: non_neg_integer(),
+          payment_type: String.t(),
+          payments: [Antd.PaymentInfo.t()],
+          total_amount: String.t(),
+          payment_vault_address: String.t(),
+          payment_token_address: String.t(),
+          rpc_url: String.t(),
+          signed_quotes: [Antd.SignedQuoteEntry.t()]
+        }
+end
+
+defmodule Antd.PointerFinalizeResult do
+  @moduledoc """
+  The state a `pointer_finalize` stored. `finality` is set for a transfer.
+  """
+
+  @enforce_keys [:address, :state_id, :counter]
+  defstruct [:address, :state_id, :counter, finality: nil]
+
+  @type t :: %__MODULE__{
+          address: String.t(),
+          state_id: String.t(),
+          counter: non_neg_integer(),
+          finality: Antd.PointerFinality.t() | nil
+        }
+end

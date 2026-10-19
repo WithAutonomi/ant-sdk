@@ -10,6 +10,8 @@
 //!   against the same served counter are both paid for and only one survives;
 //! - the external-signer session between prepare and finalize, and a finalize
 //!   that falls short after payment kept for a retry against the same payment;
+//! - a paid write that runs to the end even when its caller stops waiting
+//!   (see [`to_completion`]);
 //! - turning ant-core's answers into the wire shapes and error codes the SDKs
 //!   see.
 //!
@@ -18,6 +20,8 @@
 //! which reuses the proof it already paid for.
 
 use std::collections::HashMap;
+use std::future::Future;
+use std::sync::Arc;
 use std::time::Instant;
 
 use ant_core::data::client::batch::ChunkPaymentPlan;
@@ -339,6 +343,24 @@ fn require_wallet(state: &AppState) -> Result<(), AntdError> {
 
 // ── Operations ──
 
+/// Run a paid pointer operation in a task of its own, so it runs to the end
+/// even when the caller stops waiting.
+///
+/// A gRPC client that cancels, or an HTTP client that disconnects, drops the
+/// request's future. Dropped part-way, a paid operation could lose its
+/// payment: a daemon-wallet write could pay and never store, and a finalize
+/// would drop a session it had already taken out of the pending map, so the
+/// retry that payment allows would find nothing. In its own task the write is
+/// stored, or the paid session goes back under its `upload_id`, whether or not
+/// anyone is still waiting for the answer.
+async fn to_completion<T: Send + 'static>(
+    op: impl Future<Output = Result<T, AntdError>> + Send + 'static,
+) -> Result<T, AntdError> {
+    tokio::spawn(op)
+        .await
+        .map_err(|e| AntdError::Internal(format!("pointer task failed: {e}")))?
+}
+
 pub fn keys(state: &AppState) -> PointerKeysResponse {
     PointerKeysResponse {
         keys: state
@@ -354,21 +376,23 @@ pub fn keys(state: &AppState) -> PointerKeysResponse {
 /// Create the pointer at `owner`, paid by the daemon wallet. Refused before
 /// paying if it already exists.
 pub async fn create(
-    state: &AppState,
+    state: &Arc<AppState>,
     owner: XorName,
     target: PointerTarget,
 ) -> Result<PointerWriteResponse, AntdError> {
-    write(state, owner, PointerOp::Create, target).await
+    let state = Arc::clone(state);
+    to_completion(async move { write(&state, owner, PointerOp::Create, target).await }).await
 }
 
 /// Point the pointer at `owner` at `target`, paid by the daemon wallet. A
 /// pointer that does not exist yet is created.
 pub async fn update(
-    state: &AppState,
+    state: &Arc<AppState>,
     owner: XorName,
     target: PointerTarget,
 ) -> Result<PointerWriteResponse, AntdError> {
-    write(state, owner, PointerOp::Update, target).await
+    let state = Arc::clone(state);
+    to_completion(async move { write(&state, owner, PointerOp::Update, target).await }).await
 }
 
 async fn write(
@@ -414,6 +438,15 @@ async fn sign_set(
 /// Hand the pointer at `owner` over to the pointer at `recipient`, for good,
 /// paid by the daemon wallet.
 pub async fn transfer(
+    state: &Arc<AppState>,
+    owner: XorName,
+    recipient: XorName,
+) -> Result<PointerTransferResponse, AntdError> {
+    let state = Arc::clone(state);
+    to_completion(async move { transfer_paid(&state, owner, recipient).await }).await
+}
+
+async fn transfer_paid(
     state: &AppState,
     owner: XorName,
     recipient: XorName,
@@ -585,6 +618,17 @@ pub async fn prepare(
 /// `retryable: true`: repeating the finalize sends the same proof again, so
 /// the retry costs nothing. Any other failure ends the session.
 pub async fn finalize(
+    state: &Arc<AppState>,
+    upload_id: &str,
+    tx_hashes: &HashMap<String, String>,
+) -> Result<PointerFinalizeResponse, AntdError> {
+    let state = Arc::clone(state);
+    let upload_id = upload_id.to_string();
+    let tx_hashes = tx_hashes.clone();
+    to_completion(async move { finalize_paid(&state, &upload_id, &tx_hashes).await }).await
+}
+
+async fn finalize_paid(
     state: &AppState,
     upload_id: &str,
     tx_hashes: &HashMap<String, String>,
@@ -946,6 +990,31 @@ mod tests {
         assert_eq!(forked.states[1].kind, "chunk");
         assert_eq!(forked.majority.as_ref().unwrap().holders, 4);
         assert!(forked.state.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_paid_operation_finishes_after_its_caller_gives_up() {
+        // A gRPC cancel or a dropped HTTP connection drops the request's
+        // future part-way through, as the timeout does here.
+        let (release, released) = tokio::sync::oneshot::channel::<()>();
+        let (done, finished) = tokio::sync::oneshot::channel::<()>();
+        let op = to_completion(async move {
+            let _ = released.await;
+            let _ = done.send(());
+            Ok::<_, AntdError>(())
+        });
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(20), op)
+                .await
+                .is_err(),
+            "the operation should still be waiting when its caller gives up"
+        );
+
+        release.send(()).unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), finished)
+            .await
+            .expect("the operation stopped when its caller gave up")
+            .unwrap();
     }
 
     #[test]

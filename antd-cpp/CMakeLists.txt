@@ -126,6 +126,7 @@ if(ANTD_BUILD_EXAMPLES)
         04-files
         06-private-data
         07-external-signer
+        08-pointers
     )
         add_executable(${example} examples/${example}.cpp)
         target_link_libraries(${example} PRIVATE antd)
@@ -157,6 +158,22 @@ if(ANTD_BUILD_TESTS)
     target_include_directories(antd_async_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
     add_test(NAME antd_async_tests COMMAND antd_async_tests)
+
+    # Pointer API over REST (Client and AsyncClient) against a stub daemon.
+    add_executable(antd_pointer_tests tests/test_pointers.cpp)
+    target_link_libraries(antd_pointer_tests PRIVATE antd doctest::doctest)
+    add_test(NAME antd_pointer_tests COMMAND antd_pointer_tests)
+
+    # Live pointer round trip against a devnet daemon. Passes without running
+    # anything unless ANTD_TEST_URL and ANTD_TEST_POINTER_OWNERS (and, in a
+    # gRPC build, ANTD_TEST_GRPC) are set; every write it makes is paid.
+    add_executable(antd_live_pointer_tests tests/live_pointers.cpp)
+    target_link_libraries(antd_live_pointer_tests PRIVATE antd doctest::doctest)
+    if(ANTD_BUILD_GRPC)
+        target_link_libraries(antd_live_pointer_tests PRIVATE antd_grpc)
+        target_compile_definitions(antd_live_pointer_tests PRIVATE ANTD_LIVE_GRPC=1)
+    endif()
+    add_test(NAME antd_live_pointer_tests COMMAND antd_live_pointer_tests)
 
     # gRPC client tests — error mapping and model construction.
     # Does NOT require gRPC libraries; tests the mapping logic in isolation.
@@ -204,5 +221,16 @@ if(ANTD_BUILD_TESTS)
             ${ANTD_PROTO_GEN_DIR}
         )
         add_test(NAME antd_grpc_wallet_tests COMMAND antd_grpc_wallet_tests)
+
+        # PointerService wire mapping and x-antd-error-code trailer mapping.
+        add_executable(antd_grpc_pointer_tests tests/test_grpc_pointers.cpp)
+        target_link_libraries(antd_grpc_pointer_tests
+            PRIVATE antd_grpc doctest::doctest
+        )
+        target_include_directories(antd_grpc_pointer_tests PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${ANTD_PROTO_GEN_DIR}
+        )
+        add_test(NAME antd_grpc_pointer_tests COMMAND antd_grpc_pointer_tests)
     endif()
 endif()
