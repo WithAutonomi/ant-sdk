@@ -322,8 +322,8 @@ partial class Program
             Console.WriteLine($"Pointer {existing.Address} already exists (counter {existing.Counter}); skipping create");
         }
 
-        // 3. Update it to the second. Throws PointerFinalException, before
-        // paying, if the pointer has been transferred or frozen.
+        // 3. Update it to the second. Throws PointerFinalException if the
+        // pointer has been transferred or frozen (usually before paying).
         var updated = await client.PointerUpdateAsync(owner, second.Address);
         Console.WriteLine($"Updated pointer -> second (counter {updated.Counter})");
 

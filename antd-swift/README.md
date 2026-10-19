@@ -120,9 +120,9 @@ Pointer errors:
 | Error | HTTP | gRPC | When |
 |---|---|---|---|
 | `AlreadyExistsError` | 409 `ALREADY_EXISTS` | ALREADY_EXISTS | `pointerCreate` on a pointer that exists (nothing paid) |
-| `PointerFinalError` | 409 `POINTER_FINAL` | FAILED_PRECONDITION + `x-antd-error-code: POINTER_FINAL` | write to a transferred or frozen pointer (nothing paid) |
+| `PointerFinalError` | 409 `POINTER_FINAL` | FAILED_PRECONDITION + `x-antd-error-code: POINTER_FINAL` | write to a transferred or frozen pointer (usually refused before paying, but a write already paid for when the network refused it keeps that payment) |
 | `PointerForkedError` (a `ForkError`) | 409 `POINTER_FORKED` | FAILED_PRECONDITION + `x-antd-error-code: POINTER_FORKED` | the owner signed rival final states and none holds a majority |
-| `ConflictError` | 409 `CONFLICT` | ABORTED + `x-antd-error-code: CONFLICT` | a write while a prepared write to the pointer awaits payment |
+| `ConflictError` | 409 `CONFLICT` | ABORTED + `x-antd-error-code: CONFLICT` | a write while a prepared write to the pointer awaits payment (refused before paying), or an update that lost to a newer state while in flight (possibly after paying) |
 | `CloseGroupShortfallError` | 503 `CLOSE_GROUP_SHORTFALL` | UNAVAILABLE + `x-antd-error-code: CLOSE_GROUP_SHORTFALL` | too few of the close group answered or stored; `retryable` only on a retained `pointerFinalize` |
 
 Over REST these map from the error body's `code`; over gRPC from the `x-antd-error-code` trailer, and only when it agrees with the status code (an untagged FAILED_PRECONDITION is still a `PaymentError`).

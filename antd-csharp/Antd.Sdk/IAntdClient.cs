@@ -148,8 +148,8 @@ public partial interface IAntdClient : IDisposable, IAsyncDisposable
     /// <paramref name="target"/>, paid by the daemon wallet, creating it if it
     /// does not exist. Pays once; do not retry automatically.
     /// </summary>
-    /// <exception cref="PointerFinalException">The pointer was handed over or frozen; refused before paying.</exception>
-    /// <exception cref="ConflictException">A prepared write to the pointer awaits payment.</exception>
+    /// <exception cref="PointerFinalException">The pointer was handed over or frozen; usually refused before paying (see <see cref="PointerFinalException"/>).</exception>
+    /// <exception cref="ConflictException">A prepared write to the pointer awaits payment (refused before paying), or the update lost to a newer state while in flight (possibly after paying). Read the pointer before writing again.</exception>
     Task<PointerWriteResult> PointerUpdateAsync(string owner, string target, PointerKind kind = PointerKind.Chunk) =>
         throw new NotSupportedException("this IAntdClient does not implement pointers");
 
@@ -162,9 +162,9 @@ public partial interface IAntdClient : IDisposable, IAsyncDisposable
     /// <see cref="PointerTransferResult.Finality"/> (or
     /// <see cref="PointerFinalityAsync"/>) before relying on it.
     /// </summary>
-    /// <exception cref="PointerFinalException">The pointer is already final; refused before paying.</exception>
+    /// <exception cref="PointerFinalException">The pointer is already final; usually refused before paying.</exception>
     /// <exception cref="BadRequestException">The recipient does not exist or leads back; refused before paying.</exception>
-    /// <exception cref="CloseGroupShortfallException">Not every peer of the close group answered; refused before paying, free to retry later.</exception>
+    /// <exception cref="CloseGroupShortfallException">Too few of the close group answered or stored it. This can happen before paying (the transfer checks every peer first) or after, so check the pointer with <see cref="PointerFinalityAsync"/> before paying again.</exception>
     Task<PointerTransferResult> PointerTransferAsync(string owner, string recipient) =>
         throw new NotSupportedException("this IAntdClient does not implement pointers");
 

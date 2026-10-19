@@ -897,9 +897,12 @@ public class AntdClient implements AutoCloseable {
      *               can still change; {@code null} means chunk
      * @return the stored state
      * @throws com.autonomi.antd.errors.PointerFinalException if the pointer has
-     *         been transferred or frozen, refused before anything is paid
+     *         been transferred or frozen (usually refused before anything is
+     *         paid; see {@link com.autonomi.antd.errors.PointerFinalException})
      * @throws com.autonomi.antd.errors.ConflictException while a prepared write
-     *         to the pointer awaits payment
+     *         to the pointer awaits payment (refused before paying), or if the
+     *         update lost to a newer state while in flight (possibly after
+     *         paying); read the pointer before writing again
      */
     public PointerWriteResult pointerUpdate(String owner, String target, PointerTargetKind kind) {
         return PointerWire.parseWrite(doJson("POST", "/v1/pointers/update", PointerWire.writeBody(owner, target, kind)));
@@ -929,11 +932,13 @@ public class AntdClient implements AutoCloseable {
      * @param recipient the recipient pointer's address (hex), which must exist
      * @return the stored final state and the close group's view of it
      * @throws com.autonomi.antd.errors.PointerFinalException if the pointer is
-     *         already final, refused before anything is paid
+     *         already final, usually refused before anything is paid
      * @throws com.autonomi.antd.errors.BadRequestException if {@code recipient}
      *         does not exist or leads back
-     * @throws com.autonomi.antd.errors.CloseGroupShortfallException if not every
-     *         peer of the close group answered (nothing paid; try later)
+     * @throws com.autonomi.antd.errors.CloseGroupShortfallException if too few
+     *         of the close group answered or stored it; this can happen before
+     *         paying (the transfer checks every peer first) or after, so check
+     *         the pointer with {@link #pointerFinality} before paying again
      */
     public PointerTransferResult pointerTransfer(String owner, String recipient) {
         return PointerWire.parseTransfer(

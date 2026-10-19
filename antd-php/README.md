@@ -288,7 +288,7 @@ try {
 | `AlreadyExistsError` | 409 | Resource exists |
 | `ForkError` | 409 | Version conflict; a pointer whose owner signed two final states with no majority on either (`code: "POINTER_FORKED"`) |
 | `PointerFinalError` | 409 | The pointer was transferred or frozen; nothing can change it (`code: "POINTER_FINAL"`) |
-| `ConflictError` | 409 | A pointer write while a prepared write to it awaits payment (`code: "CONFLICT"`) |
+| `ConflictError` | 409 | A pointer write while a prepared write to it awaits payment (refused before paying), or an update that lost to a newer state, possibly after paying (`code: "CONFLICT"`) |
 | `TooLargeError` | 413 | Payload too large |
 | `InternalError` | 500 | Server error |
 | `NetworkError` | 502 | Network unreachable |

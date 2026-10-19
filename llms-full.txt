@@ -478,9 +478,11 @@ pointer has been transferred or frozen.
 Hand a pointer over to the recipient's pointer, for good (ADR-0018). Readers of
 the address are redirected to the recipient's pointer; the address stays the
 same; the old key can change nothing. Irreversible once stored. Refused before
-paying if the pointer is already final, the recipient does not exist or leads
-back, or not every peer of the close group answered (`503 CLOSE_GROUP_SHORTFALL`,
-free to retry).
+paying if the recipient does not exist or leads back, and usually if the
+pointer is already final. `503 CLOSE_GROUP_SHORTFALL` means too few of the close
+group answered or stored it: that can happen before paying (the transfer checks
+every peer first) or after, so check `GET /v1/pointers/{addr}/finality` before
+paying again.
 Request: `{"owner": "<hex>", "recipient": "<hex>"}`
 Response: `{"address": "<hex>", "state_id": "<hex>", "finality": {...} | null, "finality_error": "..."}`
 
@@ -501,8 +503,8 @@ Follow transfers to the pointer whose owner now decides. Response: `{"pointer", 
 #### `POST /v1/pointers/prepare`
 External signer: antd signs the write with its loaded key and quotes it; the
 caller pays with `payForQuotes()`. Needs no daemon wallet.
-Request: `{"owner": "<hex>", "op": "create|update|transfer", "target": "<hex>", "kind": "chunk", "recipient": "<hex>"}`
-Response: `{"upload_id", "op", "address", "state_id", "counter", "payment_type": "wave_batch", "payments": [...], "total_amount", "payment_vault_address", "payment_token_address", "rpc_url"}`
+Request: `{"owner": "<hex>", "op": "create|update|transfer", "target": "<hex>", "kind": "chunk", "recipient": "<hex>", "include_signed_quotes": false}`
+Response: `{"upload_id", "op", "address", "state_id", "counter", "payment_type": "wave_batch", "payments": [...], "total_amount", "payment_vault_address", "payment_token_address", "rpc_url", "signed_quotes": [...]}` (`signed_quotes` only when the request set `include_signed_quotes`)
 While a prepared write is pending, other writes to that pointer answer `409 CONFLICT`.
 
 #### `POST /v1/pointers/finalize`
@@ -680,7 +682,7 @@ Mirrors REST `/v1/manifests` 1:1; the `.ant` bytes are raw `bytes` here (base64 
 - `Build(BuildManifestRequest{name?, torrent_info_hashes, embed_roots?, entries[{path?, size?, data_map | address}]}) → BuildManifestResponse{manifest: bytes, link, entries}`: `embed_roots` unset means true; `link` is empty when it would pass 1,500 bytes
 - `Decode(DecodeManifestRequest{manifest: bytes | link, resolve}) → DecodeManifestResponse{source, name?, torrent_info_hash_v1, torrent_info_hash_v2, entries}`
 - `ManifestEntryInfo{effective_name, path?, size?, kind, content_address, data_map, exact_size?, error}`: `data_map` is empty for public entries and on build; `error` is empty unless `resolve` failed for that entry
-- A manifest can be 64 MiB and the server accepts requests up to 100 MiB, so clients raise their receive (and send) limit for these calls: the SDKs set 256 MiB, per call where the gRPC library allows it, otherwise on a second channel for the manifest service
+- A manifest can be 64 MiB and the server accepts requests up to 100 MiB, so clients raise their receive (and send) limit for these calls: the SDKs set 256 MiB, per call where the gRPC library allows it, otherwise on a second channel for the manifest service. Dart and Elixir set none, because their gRPC libraries have none to raise: grpc-dart enforces no message size limit in either direction and has no setting for one, and grpc-elixir 0.11 reads a unary response whole and caps sends only at its 2 GiB default
 - Errors: invalid entry or input → INVALID_ARGUMENT, with the same `entries[i]` message as REST
 
 ### SDKs with gRPC support
@@ -711,7 +713,7 @@ Wire field names; each SDK cases them idiomatically. Counters are decimal string
 | PointerFinality | address, group, answered, status, counter, state, states, majority, transferred_to | The close group's view; `status` is open / settling / unconfirmed / final / forked, plus an unknown case for statuses a newer daemon adds |
 | PointerController | pointer, transfers, frozen | Whose pointer decides, after every transfer |
 | PointerTransferResult | address, state_id, finality, finality_error | What a transfer stored |
-| PointerPrepareResult | upload_id, op, address, state_id, counter, payment_type, payments, total_amount, payment_vault_address, payment_token_address, rpc_url | A signed pointer write quoted for an external signer (always `wave_batch`) |
+| PointerPrepareResult | upload_id, op, address, state_id, counter, payment_type, payments, total_amount, payment_vault_address, payment_token_address, rpc_url, signed_quotes (optional: present when `include_signed_quotes` was set) | A signed pointer write quoted for an external signer (always `wave_batch`) |
 | PointerFinalizeResult | address, state_id, counter, finality | What a pointer finalize stored (`finality` for a transfer) |
 
 ### Manifests
@@ -1668,9 +1670,9 @@ No pointer tool retries a paid write; counters come back as decimal strings.
 | 500 | INTERNAL | `InternalError` | `InternalError` | `InternalException` | `InternalException` | `InternalError` | `InternalException` | `AntdError::Internal` | `InternalError` | Internal server error |
 | 502 | UNAVAILABLE | `NetworkError` | `NetworkError` | `NetworkException` | `NetworkException` | `NetworkError` | `NetworkException` | `AntdError::Network` | `NetworkError` | Cannot reach network |
 | 503 | UNAVAILABLE | `ServiceUnavailableError` | `ServiceUnavailableError` | `ServiceUnavailableException` | `ServiceUnavailableException` | `ServiceUnavailableError` | `ServiceUnavailableException` | `AntdError::ServiceUnavailable` | `ServiceUnavailableError` | Wallet not configured |
-| 409 `POINTER_FINAL` | FAILED_PRECONDITION + tag | `PointerFinalError` | `PointerFinalError` | `PointerFinalException` | `PointerFinalException` | `PointerFinalError` | `PointerFinalException` | `AntdError::PointerFinal` | `PointerFinalError` | Pointer transferred or final; refused before paying |
+| 409 `POINTER_FINAL` | FAILED_PRECONDITION + tag | `PointerFinalError` | `PointerFinalError` | `PointerFinalException` | `PointerFinalException` | `PointerFinalError` | `PointerFinalException` | `AntdError::PointerFinal` | `PointerFinalError` | Pointer transferred or final; usually refused before paying, but a write already paid for when the network refused it keeps that payment |
 | 409 `POINTER_FORKED` | FAILED_PRECONDITION + tag | `ForkError` | `PointerForkedError` | `PointerForkedException` | `PointerForkedException` | `PointerForkedError` | `ForkException` | `AntdError::PointerForked` | `PointerForkedError` | Owner signed two final states, no majority holds either |
-| 409 `CONFLICT` | ABORTED + tag | `ConflictError` | `ConflictError` | `ConflictException` | `ConflictException` | `ConflictError` | `ConflictException` | `AntdError::Conflict` | `ConflictError` | A prepared pointer write awaits payment, or an update lost to a newer state |
+| 409 `CONFLICT` | ABORTED + tag | `ConflictError` | `ConflictError` | `ConflictException` | `ConflictException` | `ConflictError` | `ConflictException` | `AntdError::Conflict` | `ConflictError` | A prepared pointer write awaits payment (refused before paying), or an update lost to a newer state (possibly after paying) |
 | 503 `CLOSE_GROUP_SHORTFALL` | UNAVAILABLE + tag | `CloseGroupShortfallError` | `CloseGroupShortfallError` | `CloseGroupShortfallException` | `CloseGroupShortfallException` | `CloseGroupShortfallError` | `CloseGroupShortfallException` | `AntdError::CloseGroupShortfall` | `CloseGroupShortfallError` | Too few of the close group answered or stored; `retryable` only for a finalize that kept the paid state |
 
 The four pointer-era rows share a status with older errors: SDKs map them by the REST body's `code`, and over gRPC by the `x-antd-error-code` trailer ("tag"), trusted only when it agrees with the status code. A daemon with pointers also sends `CLOSE_GROUP_SHORTFALL` from non-pointer calls (a chunk store, say) where older daemons sent a 500.

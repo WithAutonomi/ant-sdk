@@ -737,8 +737,12 @@ class AntdClient {
   }
 
   /// Points the pointer at [owner] at [target], paid by the daemon wallet,
-  /// creating it if it does not exist. Throws [PointerFinalError], before
-  /// paying, if the pointer was handed over or frozen.
+  /// creating it if it does not exist. Throws [PointerFinalError] if the
+  /// pointer was handed over or frozen (usually before paying; see
+  /// [PointerFinalError]), and [ConflictError] if a prepared write to it
+  /// awaits payment (refused before paying) or the update lost to a newer
+  /// state while in flight (possibly after paying). Read the pointer before
+  /// writing again.
   ///
   /// Pays for the write: do not retry it automatically.
   Future<PointerWriteResult> pointerUpdate(
@@ -759,10 +763,12 @@ class AntdClient {
   /// redirected to the recipient's pointer, which only its owner can move.
   /// Irreversible once stored.
   ///
-  /// Refused before paying if the pointer is already final
-  /// ([PointerFinalError]), if [recipient] does not exist or leads back
-  /// ([BadRequestError]), or if not every peer of the close group answered
-  /// ([CloseGroupShortfallError]; try again later).
+  /// Refused before paying if [recipient] does not exist or leads back
+  /// ([BadRequestError]), and usually if the pointer is already final
+  /// ([PointerFinalError]). A [CloseGroupShortfallError] means too few of the
+  /// close group answered or stored it. That can happen before paying (the
+  /// transfer checks every peer first) or after, so check the pointer with
+  /// [pointerFinality] before paying again.
   ///
   /// Pays for the write: do not retry it automatically.
   Future<PointerTransferResult> pointerTransfer(

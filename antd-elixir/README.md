@@ -254,7 +254,7 @@ takes them). See [`examples/08_pointers.exs`](examples/08_pointers.exs).
 
 case Antd.Client.pointer_update(client, owner, new_address) do
   {:ok, write} -> IO.puts("now at counter #{write.counter}")
-  {:error, %Antd.PointerFinalError{}} -> IO.puts("handed over or frozen; nothing was paid")
+  {:error, %Antd.PointerFinalError{}} -> IO.puts("handed over or frozen; nothing can change it")
   {:error, error} -> IO.puts("not retried (it may have paid): #{Exception.message(error)}")
 end
 ```
@@ -299,7 +299,7 @@ end
 | `Antd.AlreadyExistsError` | 409 | Resource exists |
 | `Antd.ForkError` | 409 (`code: "POINTER_FORKED"`; gRPC `FAILED_PRECONDITION`) | Version conflict: a pointer's owner signed two final states and no majority holds either |
 | `Antd.PointerFinalError` | 409 (`code: "POINTER_FINAL"`; gRPC `FAILED_PRECONDITION`) | The pointer is transferred or frozen; nothing can change it |
-| `Antd.ConflictError` | 409 (`code: "CONFLICT"`; gRPC `ABORTED`) | A pointer write while a prepared write to it awaits payment |
+| `Antd.ConflictError` | 409 (`code: "CONFLICT"`; gRPC `ABORTED`) | A pointer write while a prepared write to it awaits payment (refused before paying), or an update that lost to a newer state (possibly after paying) |
 | `Antd.TooLargeError` | 413 | Payload too large |
 | `Antd.InternalError` | 500 | Server error |
 | `Antd.NetworkError` | 502 | Network unreachable |

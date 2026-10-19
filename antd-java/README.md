@@ -322,7 +322,7 @@ try {
 | `NotFoundException` | 404 | Resource not found |
 | `AlreadyExistsException` | 409 | Resource exists |
 | `ForkException` | 409 | Version conflict; a pointer whose owner signed two final states and no majority holds either (`code: POINTER_FORKED`) |
-| `PointerFinalException` | 409 (`code: POINTER_FINAL`) | The pointer is transferred or frozen; nothing can change it. Refused before paying |
+| `PointerFinalException` | 409 (`code: POINTER_FINAL`) | The pointer is transferred or frozen; nothing can change it. Usually refused before paying, but a write already paid for when the network refused it keeps that payment |
 | `ConflictException` | 409 (`code: CONFLICT`) | A pointer write while a prepared write to it awaits payment, or an update that lost to a newer state |
 | `TooLargeException` | 413 | Payload too large |
 | `InternalException` | 500 | Server error |

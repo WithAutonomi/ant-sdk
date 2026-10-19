@@ -717,9 +717,11 @@ pub const Client = struct {
     /// created at counter 0.
     ///
     /// Pays once per call; never retry it automatically. Returns
-    /// `error.PointerFinal` if the pointer has been transferred or frozen,
-    /// and `error.Conflict` while a prepared write to it awaits payment, both
-    /// refused before paying.
+    /// `error.PointerFinal` if the pointer has been transferred or frozen
+    /// (usually refused before paying; see `AntdError.PointerFinal`), and
+    /// `error.Conflict` while a prepared write to it awaits payment (refused
+    /// before paying) or if the update lost to a newer state while in flight
+    /// (possibly after paying). Read the pointer before writing again.
     pub fn pointerUpdate(self: *Client, owner: []const u8, target: []const u8, kind: PointerKind) !PointerWriteResult {
         return self.pointerWrite("/v1/pointers/update", owner, target, kind);
     }
@@ -739,11 +741,14 @@ pub const Client = struct {
     /// Irreversible once stored.
     ///
     /// Pays once per call; never retry it automatically. Refused before
-    /// paying if the pointer is already final (`error.PointerFinal`), if
-    /// `recipient` does not exist or leads back (`error.BadRequest`), or if
-    /// not every peer of the close group answered
-    /// (`error.CloseGroupShortfall`). The result's `finality` is `null` when
-    /// the check after the write failed; the transfer is stored either way.
+    /// paying if `recipient` does not exist or leads back
+    /// (`error.BadRequest`), and usually if the pointer is already final
+    /// (`error.PointerFinal`). `error.CloseGroupShortfall` means too few of
+    /// the close group answered or stored it. That can happen before paying
+    /// (the transfer checks every peer first) or after, so check the pointer
+    /// with `pointerFinality` before paying again. The result's `finality` is
+    /// `null` when the check after the write failed; the transfer is stored
+    /// either way.
     pub fn pointerTransfer(self: *Client, owner: []const u8, recipient: []const u8) !PointerTransferResult {
         const req_body = try json_helpers.buildPointerTransferBody(self.allocator, owner, recipient);
         defer self.allocator.free(req_body);

@@ -105,9 +105,9 @@ A pointer is a small, owner-signed, mutable reference: its address is derived fr
 | 402 | FAILED_PRECONDITION | PaymentError | Insufficient funds |
 | 404 | NOT_FOUND | NotFoundError | Resource not found |
 | 409 | ALREADY_EXISTS / ABORTED | AlreadyExistsError / ForkError | Conflict |
-| 409 `POINTER_FINAL` | FAILED_PRECONDITION + `x-antd-error-code` | PointerFinalError | Pointer transferred or final; nothing paid |
+| 409 `POINTER_FINAL` | FAILED_PRECONDITION + `x-antd-error-code` | PointerFinalError | Pointer transferred or final; usually refused before paying |
 | 409 `POINTER_FORKED` | FAILED_PRECONDITION + `x-antd-error-code` | PointerForkedError (ForkError in some SDKs) | Owner signed two final states, no majority |
-| 409 `CONFLICT` | ABORTED + `x-antd-error-code` | ConflictError | A prepared pointer write awaits payment |
+| 409 `CONFLICT` | ABORTED + `x-antd-error-code` | ConflictError | A prepared pointer write awaits payment (refused before paying), or an update lost to a newer state (possibly after paying) |
 | 503 `CLOSE_GROUP_SHORTFALL` | UNAVAILABLE + `x-antd-error-code` | CloseGroupShortfallError | Too few of the close group answered or stored |
 | 413 | RESOURCE_EXHAUSTED | TooLargeError | Payload too large |
 | 500 | INTERNAL | InternalError | Server error |

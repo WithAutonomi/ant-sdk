@@ -323,8 +323,12 @@ public:
 
     /// Points the pointer at `owner` at `target`, paid by the daemon wallet
     /// (POST /v1/pointers/update). A pointer that does not exist yet is
-    /// created at counter 0. Throws PointerFinalError, before anything is
-    /// paid, if the pointer has been transferred or frozen.
+    /// created at counter 0. Throws PointerFinalError if the pointer has been
+    /// transferred or frozen (usually before anything is paid; see
+    /// PointerFinalError), and ConflictError if a prepared write to it awaits
+    /// payment (refused before paying) or the update lost to a newer state
+    /// while in flight (possibly after paying). Read the pointer before
+    /// writing again.
     PointerWriteResult pointer_update(std::string_view owner, std::string_view target,
                                       PointerKind kind = PointerKind::Chunk);
 
@@ -333,10 +337,12 @@ public:
     /// of the address are redirected to the recipient's pointer, which only
     /// its owner can move. Irreversible once stored.
     ///
-    /// Refused before paying if the pointer is already final
-    /// (PointerFinalError), if `recipient` does not exist or leads back
-    /// (BadRequestError), or if not every peer of the close group answered
-    /// (CloseGroupShortfallError; free to retry).
+    /// Refused before paying if `recipient` does not exist or leads back
+    /// (BadRequestError), and usually if the pointer is already final
+    /// (PointerFinalError). A CloseGroupShortfallError means too few of the
+    /// close group answered or stored it. That can happen before paying (the
+    /// transfer checks every peer first) or after, so check the pointer with
+    /// pointer_finality before paying again.
     PointerTransferResult pointer_transfer(std::string_view owner, std::string_view recipient);
 
     /// Reads the pointer at `address` (GET /v1/pointers/{address}). Throws

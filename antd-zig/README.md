@@ -257,9 +257,9 @@ const result = client.health() catch |err| {
 | `Payment` | 402 | Insufficient funds |
 | `NotFound` | 404 | Resource not found |
 | `AlreadyExists` | 409 (`code: ALREADY_EXISTS`, or none) | Resource exists |
-| `PointerFinal` | 409 (`code: POINTER_FINAL`) | The pointer is transferred or frozen; nothing can change it. Refused before paying |
+| `PointerFinal` | 409 (`code: POINTER_FINAL`) | The pointer is transferred or frozen; nothing can change it. Usually refused before paying, but a write already paid for when the network refused it keeps that payment |
 | `PointerForked` | 409 (`code: POINTER_FORKED`) | The owner signed two final states and no majority holds either |
-| `Conflict` | 409 (`code: CONFLICT`) | A pointer write while a prepared write to it awaits payment |
+| `Conflict` | 409 (`code: CONFLICT`) | A pointer write while a prepared write to it awaits payment (refused before paying), or an update that lost to a newer state while in flight (possibly after paying) |
 | `TooLarge` | 413 | Payload too large |
 | `Internal` | 500 | Server error |
 | `Network` | 502 | Network unreachable |

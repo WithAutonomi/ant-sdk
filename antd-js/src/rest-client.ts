@@ -1062,9 +1062,12 @@ export class RestClient {
    * creating it if it does not exist. `kind` defaults to
    * {@link PointerKind.Chunk} when omitted.
    *
-   * Throws {@link PointerFinalError}, before paying, if the pointer has been
-   * handed over or frozen, and {@link ConflictError} while a prepared write
-   * to it awaits payment. Pays on every call: do not retry automatically.
+   * Throws {@link PointerFinalError} if the pointer has been handed over or
+   * frozen (usually before paying; see {@link PointerFinalError}), and
+   * {@link ConflictError} while a prepared write to it awaits payment
+   * (refused before paying) or if the update lost to a newer state while in
+   * flight (possibly after paying); read the pointer before writing again.
+   * Pays on every call: do not retry automatically.
    */
   async pointerUpdate(
     owner: string,
@@ -1091,11 +1094,13 @@ export class RestClient {
    * the recipient's pointer, which only its owner can move. Irreversible once
    * stored.
    *
-   * Refused before paying if the pointer is already final
-   * ({@link PointerFinalError}), if `recipient` does not exist or leads back
-   * ({@link BadRequestError}), or if not every peer of the close group
-   * answered ({@link CloseGroupShortfallError}; try again later). Pays on
-   * every call: do not retry automatically.
+   * Refused before paying if `recipient` does not exist or leads back
+   * ({@link BadRequestError}), and usually if the pointer is already final
+   * ({@link PointerFinalError}). A {@link CloseGroupShortfallError} means too
+   * few of the close group answered or stored it. That can happen before
+   * paying (the transfer checks every peer first) or after, so check the
+   * pointer with `pointerFinality` before paying again. Pays on every call: do
+   * not retry automatically.
    *
    * The result's `finality` is the close group's view once the write landed,
    * or `null` with `finalityError` set when that check failed; the transfer

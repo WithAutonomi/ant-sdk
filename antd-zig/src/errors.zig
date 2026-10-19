@@ -21,15 +21,23 @@ pub const AntdError = error{
     PartialUpload,
     /// The pointer is at its final state, transferred or frozen: nothing can
     /// update it or hand it over again (HTTP 409 with
-    /// `code: "POINTER_FINAL"`). Refused before anything is paid.
+    /// `code: "POINTER_FINAL"`). Usually refused before anything is paid:
+    /// the daemon reads the pointer first. A write that was already paid for
+    /// when the network refused it (the pointer became final while the write
+    /// was in flight) keeps that payment, so read the pointer before paying
+    /// again.
     PointerFinal,
     /// The pointer's owner signed two different final states and no one of
     /// them is held by a majority of the close group (HTTP 409 with
     /// `code: "POINTER_FORKED"`).
     PointerForked,
     /// The request conflicts with the resource's current state (HTTP 409
-    /// with `code: "CONFLICT"`). For pointers: a write while a prepared write
-    /// to the same pointer awaits payment.
+    /// with `code: "CONFLICT"`). For pointers, two cases share this code, and
+    /// it does not say which one happened or whether anything was paid: a
+    /// write while a prepared write to the same pointer awaits payment is
+    /// refused before paying; an update that lost to a newer state while it
+    /// was in flight may already have been paid for. Read the pointer again
+    /// and check what was paid before submitting another paid write.
     Conflict,
     /// Too few of an address's close group answered, or took a write, for
     /// the result to be the network's (HTTP 503 with

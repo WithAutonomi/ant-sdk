@@ -439,7 +439,7 @@ A pointer is a small, owner-signed, mutable reference. Its address is derived fr
 - **Transfer is irreversible.** It hands the pointer over to another pointer for good: readers of the address are redirected to the recipient's pointer, and the old key can change nothing again.
 - **Counters are decimal strings** on the wire, because a final pointer sits at 2^64−1. Each SDK parses them into an exact unsigned 64-bit type, or keeps the checked string.
 
-Every SDK has the pointer API and a runnable example (`ANTD_POINTER_OWNER=<address> ant dev example pointers -l <language>`; each example also reads `ANTD_BASE_URL`, except Go and Rust, which use the default URL):
+Every SDK has the pointer API and a runnable example (`ANTD_POINTER_OWNER=<address> ant dev example pointers -l <language>`; each example also reads `ANTD_BASE_URL`):
 
 | SDK | Pointer transport | Example |
 |-----|-------------------|---------|
@@ -470,7 +470,7 @@ A manifest describes a set of files as one `.ant` document, or as one `ant://man
 - **Links are limited to 1,500 bytes.** Past that the build still succeeds but returns no link: share the `.ant` bytes instead. Embedded DataMaps cost far more bytes than public addresses.
 - **Embedded means the manifest is the key.** Anyone holding the link or file can read every embedded file. Public entries are readable by anyone who knows the address.
 
-Every SDK has the manifest API and a runnable example (`ant dev example manifests -l <language>`; each example also reads `ANTD_BASE_URL`, except Go and Rust, which use the default URL, and each run pays for its two small uploads):
+Every SDK has the manifest API and a runnable example (`ant dev example manifests -l <language>`; each example also reads `ANTD_BASE_URL`, and each run pays for its two small uploads):
 
 | SDK | Manifest transport | Example |
 |-----|--------------------|---------|

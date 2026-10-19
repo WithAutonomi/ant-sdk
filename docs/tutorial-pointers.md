@@ -223,7 +223,7 @@ let updated = try await client.pointerUpdate(owner: owner, target: v2.address, k
 print("Pointer -> version 2 (counter \(updated.counter))")
 ```
 
-An update creates the pointer if it does not exist yet. It is refused before paying once the pointer is final (`409 POINTER_FINAL`, see [Transfer](#7-transfer-irreversible)).
+An update creates the pointer if it does not exist yet. It is refused once the pointer is final (`409 POINTER_FINAL`, see [Transfer](#7-transfer-irreversible)), usually before paying; an update that was already paid for when the pointer became final in flight keeps that payment.
 
 ## 5. Resolve the Pointer and Fetch the File
 
@@ -327,7 +327,7 @@ else:
     print(f"stored, but the finality check failed: {result.finality_error}")
 ```
 
-The other SDKs call it `PointerTransferAsync` (C#), `pointerTransfer` (Kotlin), and `pointerTransfer(owner:recipient:)` (Swift). antd refuses a transfer, before paying, if the pointer is already final, if the recipient does not exist or leads back to this pointer, or if not every peer of the close group answered (`503 CLOSE_GROUP_SHORTFALL`, free to retry). After the transfer, check `pointer_finality` until it reports `final`, and `pointer_controller` to follow transfers to the pointer whose owner now decides.
+The other SDKs call it `PointerTransferAsync` (C#), `pointerTransfer` (Kotlin), and `pointerTransfer(owner:recipient:)` (Swift). antd refuses a transfer before paying if the recipient does not exist or leads back to this pointer, and usually if the pointer is already final. `503 CLOSE_GROUP_SHORTFALL` means too few of the close group answered or stored it; that can happen before paying (the transfer checks every peer first) or after, so check `pointer_finality` before paying again. After the transfer, check `pointer_finality` until it reports `final`, and `pointer_controller` to follow transfers to the pointer whose owner now decides.
 
 Use a fresh key for each pointer you receive by transfer.
 
@@ -364,9 +364,9 @@ The pointer errors come with their own codes, so they never read as `AlreadyExis
 | Code | HTTP | When |
 |------|------|------|
 | `ALREADY_EXISTS` | 409 | A create of a pointer that exists. Nothing paid |
-| `POINTER_FINAL` | 409 | A write to a pointer that was transferred or is otherwise final. Nothing paid |
+| `POINTER_FINAL` | 409 | A write to a pointer that was transferred or is otherwise final. Usually refused before paying, but a write already paid for when the network refused it keeps that payment |
 | `POINTER_FORKED` | 409 | The owner signed two final states and no majority holds either |
-| `CONFLICT` | 409 | A prepared write to the pointer awaits payment, or an update lost to a newer state |
+| `CONFLICT` | 409 | A prepared write to the pointer awaits payment (refused before paying), or an update lost to a newer state while in flight (possibly after paying). The code does not say which: read the pointer before paying again |
 | `CLOSE_GROUP_SHORTFALL` | 503 | Too few of the close group answered or stored. Reads are free to retry; `retryable` is true only for a finalize that kept the paid state |
 
 Over gRPC these share status codes with older errors, so antd names them in an `x-antd-error-code` trailer, which the SDKs read.
@@ -379,9 +379,9 @@ from antd import CloseGroupShortfallError, ConflictError, PointerFinalError
 try:
     client.pointer_update(owner, v2.address)
 except PointerFinalError:
-    print("Transferred or final: nothing can move it, and nothing was paid")
+    print("Transferred or final: nothing can move it")
 except ConflictError:
-    print("A prepared write awaits payment: finalize it or wait for it to expire")
+    print("A prepared write awaits payment, or a newer state won (possibly after paying): read it with pointer_get before paying again")
 except CloseGroupShortfallError:
     print("May or may not have landed: read it with pointer_get before paying again")
 ```
@@ -395,11 +395,11 @@ try
 }
 catch (PointerFinalException)
 {
-    Console.WriteLine("Transferred or final: nothing can move it, and nothing was paid");
+    Console.WriteLine("Transferred or final: nothing can move it");
 }
 catch (ConflictException)
 {
-    Console.WriteLine("A prepared write awaits payment: finalize it or wait for it to expire");
+    Console.WriteLine("A prepared write awaits payment, or a newer state won (possibly after paying): read it with PointerGetAsync before paying again");
 }
 catch (CloseGroupShortfallException)
 {
@@ -413,9 +413,9 @@ catch (CloseGroupShortfallException)
 try {
     client.pointerUpdate(owner, v2.address)
 } catch (e: PointerFinalException) {
-    println("Transferred or final: nothing can move it, and nothing was paid")
+    println("Transferred or final: nothing can move it")
 } catch (e: ConflictException) {
-    println("A prepared write awaits payment: finalize it or wait for it to expire")
+    println("A prepared write awaits payment, or a newer state won (possibly after paying): read it with pointerGet before paying again")
 } catch (e: CloseGroupShortfallException) {
     println("May or may not have landed: read it with pointerGet before paying again")
 }
@@ -427,9 +427,9 @@ try {
 do {
     _ = try await client.pointerUpdate(owner: owner, target: v2.address, kind: .chunk)
 } catch is PointerFinalError {
-    print("Transferred or final: nothing can move it, and nothing was paid")
+    print("Transferred or final: nothing can move it")
 } catch is ConflictError {
-    print("A prepared write awaits payment: finalize it or wait for it to expire")
+    print("A prepared write awaits payment, or a newer state won (possibly after paying): read it with pointerGet before paying again")
 } catch is CloseGroupShortfallError {
     print("May or may not have landed: read it with pointerGet before paying again")
 }

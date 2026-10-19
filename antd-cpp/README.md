@@ -333,7 +333,7 @@ Pointer errors, over both transports:
 | `AlreadyExistsError` | 409 `ALREADY_EXISTS` | `ALREADY_EXISTS` | `pointer_create` on an existing pointer |
 | `PointerFinalError` | 409 `POINTER_FINAL` | `FAILED_PRECONDITION` + trailer | The pointer was transferred or frozen; nothing can write it |
 | `PointerForkedError` (a `ForkError`) | 409 `POINTER_FORKED` | `FAILED_PRECONDITION` + trailer | The owner signed two final states and neither holds a majority |
-| `ConflictError` | 409 `CONFLICT` | `ABORTED` + trailer | A prepared write to the pointer awaits payment |
+| `ConflictError` | 409 `CONFLICT` | `ABORTED` + trailer | A prepared write to the pointer awaits payment (refused before paying), or an update lost to a newer state while in flight (possibly after paying); read the pointer before paying again |
 | `CloseGroupShortfallError` | 503 `CLOSE_GROUP_SHORTFALL` | `UNAVAILABLE` + trailer | Too few of the close group answered or stored; `retryable` as above |
 
 REST maps them by the error body's `code`. gRPC maps them by the
@@ -370,7 +370,7 @@ try {
 | `ForkError` | 409 | Version conflict |
 | `PointerFinalError` | 409 (`code: POINTER_FINAL`) | Pointer transferred or frozen — see [Pointers](#pointers) |
 | `PointerForkedError` | 409 (`code: POINTER_FORKED`) | Pointer forked (a `ForkError`) |
-| `ConflictError` | 409 (`code: CONFLICT`) | A prepared pointer write awaits payment |
+| `ConflictError` | 409 (`code: CONFLICT`) | A prepared pointer write awaits payment, or a pointer update lost to a newer state — see [Pointers](#pointers) |
 | `TooLargeError` | 413 | Payload too large |
 | `InternalError` | 500 | Server error |
 | `NetworkError` | 502 | Network unreachable |

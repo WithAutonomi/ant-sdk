@@ -1138,8 +1138,10 @@ class AntdClient
      *
      * Pays for the write. Not retried automatically: every attempt pays again.
      *
-     * @throws \Autonomi\Antd\Errors\PointerFinalError if the pointer was handed over or frozen, before paying.
-     * @throws \Autonomi\Antd\Errors\ConflictError while a prepared write to the pointer awaits payment.
+     * @throws \Autonomi\Antd\Errors\PointerFinalError if the pointer was handed over or frozen, usually before paying.
+     * @throws \Autonomi\Antd\Errors\ConflictError while a prepared write to the pointer awaits payment (refused before
+     *         paying), or if the update lost to a newer state while in flight (possibly after paying). Read the pointer
+     *         before writing again.
      */
     public function pointerUpdate(string $owner, string $target, ?PointerTargetKind $kind = null): PointerWriteResult
     {
@@ -1167,11 +1169,13 @@ class AntdClient
      * of `$owner`'s address are redirected to the recipient's pointer, which
      * only its owner can move. Irreversible once stored.
      *
-     * Refused before paying if the pointer is already final
-     * ({@see \Autonomi\Antd\Errors\PointerFinalError}), if `$recipient` does
-     * not exist or leads back ({@see \Autonomi\Antd\Errors\BadRequestError}),
-     * or if not every peer of the close group answered
-     * ({@see \Autonomi\Antd\Errors\CloseGroupShortfallError}; try again later).
+     * Refused before paying if `$recipient` does not exist or leads back
+     * ({@see \Autonomi\Antd\Errors\BadRequestError}), and usually if the
+     * pointer is already final ({@see \Autonomi\Antd\Errors\PointerFinalError}).
+     * A {@see \Autonomi\Antd\Errors\CloseGroupShortfallError} means too few of
+     * the close group answered or stored it. That can happen before paying (the
+     * transfer checks every peer first) or after, so check the pointer with
+     * {@see pointerFinality()} before paying again.
      *
      * Pays for the write. Not retried automatically: every attempt pays again.
      */
