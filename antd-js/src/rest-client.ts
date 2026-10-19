@@ -29,6 +29,17 @@ import type {
   WalletAddress,
   WalletBalance,
 } from "./models.js";
+import {
+  builtManifestFromJson,
+  decodedManifestFromJson,
+  manifestBuildBody,
+  manifestDecodeBody,
+  manifestLinkDecodeBody,
+  type BuildManifestOptions,
+  type BuiltManifest,
+  type DecodedManifest,
+  type ManifestEntryInput,
+} from "./manifests.js";
 
 /** Media type that opts the stream endpoints into NDJSON progress framing. */
 const NDJSON_CONTENT_TYPE = "application/x-ndjson";
@@ -657,6 +668,66 @@ export class RestClient {
       estimatedGasCostWei: j.estimated_gas_cost_wei,
       paymentMode: j.payment_mode,
     };
+  }
+
+  // ---- Manifests (ADR-0006) ----
+  //
+  // None of these calls uploads or pays. `embedRoots` on build and `resolve`
+  // on decode read from the network, so they can time out and are safe to
+  // retry. See ./manifests.ts for the types.
+
+  /**
+   * Build a `.ant` manifest from DataMaps and public addresses already in
+   * hand, via `POST /v1/manifests/build`.
+   *
+   * Each entry sets exactly one of `dataMap` (embedded) or `address`
+   * (public); one with both or neither, or a size that is not a non-negative
+   * integer, throws {@link BadRequestError} before anything is sent. The
+   * daemon's own 400 for an invalid entry (a bad path, a malformed DataMap)
+   * is a `BadRequestError` too, its message naming each `entries[i]`.
+   * `options.embedRoots` defaults to `true`.
+   *
+   * Requires the antd release after 0.15.0.
+   */
+  async buildManifest(
+    entries: ManifestEntryInput[],
+    options?: BuildManifestOptions,
+  ): Promise<BuiltManifest> {
+    const body = manifestBuildBody(entries, options);
+    const j = await this.postJson<Record<string, unknown>>("/v1/manifests/build", body);
+    return builtManifestFromJson(j);
+  }
+
+  /**
+   * Decode `.ant` bytes via `POST /v1/manifests/decode`. With `resolve`, the
+   * daemon fetches each entry's DataMap (and wrapper records) to report
+   * `exactSize` and confirm the DataMap is on the network; content chunks are
+   * not fetched, and one entry's failure is reported in its `error` rather
+   * than failing the call.
+   *
+   * Requires the antd release after 0.15.0.
+   */
+  async decodeManifest(
+    manifest: Uint8Array | Buffer,
+    resolve: boolean = false,
+  ): Promise<DecodedManifest> {
+    const body = manifestDecodeBody(manifest, resolve);
+    const j = await this.postJson<Record<string, unknown>>("/v1/manifests/decode", body);
+    return decodedManifestFromJson(j);
+  }
+
+  /**
+   * Decode an `ant://manifest/` link, an `ant://` file link or a bare 64-hex
+   * address via `POST /v1/manifests/decode`. A file link or address comes back
+   * as one public entry with no path and `source: "file_link"`. See
+   * {@link decodeManifest} for `resolve`.
+   *
+   * Requires the antd release after 0.15.0.
+   */
+  async decodeManifestLink(link: string, resolve: boolean = false): Promise<DecodedManifest> {
+    const body = manifestLinkDecodeBody(link, resolve);
+    const j = await this.postJson<Record<string, unknown>>("/v1/manifests/decode", body);
+    return decodedManifestFromJson(j);
   }
 
   // ---- Wallet ----
