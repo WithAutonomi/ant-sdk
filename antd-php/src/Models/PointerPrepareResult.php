@@ -39,5 +39,7 @@ readonly class PointerPrepareResult
         public string $paymentTokenAddress,
         /** EVM RPC URL the external signer should submit transactions through. */
         public string $rpcUrl,
+        /** @var list<SignedQuoteEntry> Full signed quotes; filled when the request set `includeSignedQuotes` and payment is required, otherwise empty. */
+        public array $signedQuotes = [],
     ) {}
 }

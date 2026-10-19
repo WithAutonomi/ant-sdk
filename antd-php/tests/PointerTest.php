@@ -20,6 +20,7 @@ use Autonomi\Antd\Models\PointerCounter;
 use Autonomi\Antd\Models\PointerFinalityStatus;
 use Autonomi\Antd\Models\PointerOp;
 use Autonomi\Antd\Models\PointerPrepareRequest;
+use Autonomi\Antd\Models\SignedQuoteEntry;
 use Autonomi\Antd\Models\PointerTargetKind;
 use GuzzleHttp\Client;
 use GuzzleHttp\Handler\MockHandler;
@@ -420,6 +421,32 @@ class PointerTest extends TestCase
         $this->assertSame(['owner' => 'aa', 'op' => 'update', 'target' => 'tt', 'kind' => 'pointer'], $this->lastBody());
         $this->assertSame('1', $prep->counter);
         $this->assertSame([], $prep->payments);
+    }
+
+    public function testPrepareSignedQuotesFlagSentOnlyWhenTrue(): void
+    {
+        $prepared = ['upload_id' => 'up', 'op' => 'update', 'address' => 'aa', 'state_id' => 'ss', 'counter' => '1',
+            'payment_type' => 'wave_batch', 'payments' => [], 'total_amount' => '0',
+            'payment_vault_address' => '', 'payment_token_address' => '', 'rpc_url' => ''];
+        $withQuotes = $prepared + ['signed_quotes' => [
+            ['quote_hash' => '0xq', 'quote' => 'cXVvdGU=', 'commitment_sidecar' => 'c2lkZQ=='],
+            ['quote_hash' => '0xq2', 'quote' => 'cTI='],
+        ]];
+        $client = $this->client($this->json(200, $prepared), $this->json(200, $withQuotes), $this->json(200, $withQuotes));
+
+        $plain = $client->pointerPrepare(PointerPrepareRequest::update('aa', 'tt'));
+        $this->assertArrayNotHasKey('include_signed_quotes', $this->lastBody());
+        $this->assertSame([], $plain->signedQuotes);
+
+        $prep = $client->pointerPrepare(PointerPrepareRequest::update('aa', 'tt', includeSignedQuotes: true));
+        $this->assertSame(['owner' => 'aa', 'op' => 'update', 'target' => 'tt', 'include_signed_quotes' => true], $this->lastBody());
+        $this->assertCount(2, $prep->signedQuotes);
+        $this->assertEquals(new SignedQuoteEntry('0xq', 'cXVvdGU=', 'c2lkZQ=='), $prep->signedQuotes[0]);
+        $this->assertEquals(new SignedQuoteEntry('0xq2', 'cTI=', null), $prep->signedQuotes[1]);
+
+        $async = $client->pointerPrepareAsync(PointerPrepareRequest::transfer('aa', 'bb', true))->wait();
+        $this->assertSame(['owner' => 'aa', 'op' => 'transfer', 'recipient' => 'bb', 'include_signed_quotes' => true], $this->lastBody());
+        $this->assertCount(2, $async->signedQuotes);
     }
 
     public function testPrepareRequestFactories(): void
