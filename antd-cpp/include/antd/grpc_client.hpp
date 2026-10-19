@@ -239,6 +239,55 @@ public:
     /// One-time operation; idempotent at the contract level.
     bool wallet_approve();
 
+    // --- Pointers (PointerService) ---
+    //
+    // The same methods, types and errors as the REST Client (see client.hpp).
+    // Each call reads the daemon's `x-antd-error-code` trailer, because the
+    // pointer errors share gRPC codes with older ones: POINTER_FINAL and
+    // POINTER_FORKED ride FAILED_PRECONDITION (otherwise a PaymentError),
+    // CONFLICT rides ABORTED and CLOSE_GROUP_SHORTFALL rides UNAVAILABLE
+    // (otherwise a NetworkError). The tag counts only when it agrees with
+    // the status code.
+    //
+    // Every write pays, and every attempt pays again: nothing here retries
+    // pointer_create, pointer_update, pointer_transfer or pointer_finalize.
+    // Reads are free to retry.
+
+    /// Mirrors Client::pointer_keys.
+    std::vector<PointerKey> pointer_keys();
+
+    /// Mirrors Client::pointer_create.
+    PointerWriteResult pointer_create(std::string_view owner, std::string_view target,
+                                      PointerKind kind = PointerKind::Chunk);
+
+    /// Mirrors Client::pointer_update.
+    PointerWriteResult pointer_update(std::string_view owner, std::string_view target,
+                                      PointerKind kind = PointerKind::Chunk);
+
+    /// Mirrors Client::pointer_transfer.
+    PointerTransferResult pointer_transfer(std::string_view owner, std::string_view recipient);
+
+    /// Mirrors Client::pointer_get.
+    PointerRecord pointer_get(std::string_view address);
+
+    /// Mirrors Client::pointer_resolve.
+    PointerTarget pointer_resolve(std::string_view address);
+
+    /// Mirrors Client::pointer_finality.
+    PointerFinality pointer_finality(std::string_view address);
+
+    /// Mirrors Client::pointer_controller.
+    PointerController pointer_controller(std::string_view address);
+
+    /// Mirrors Client::pointer_prepare.
+    PointerPrepareResult pointer_prepare(const PointerPrepareRequest& req);
+
+    /// Mirrors Client::pointer_finalize. A CloseGroupShortfallError with
+    /// `retryable` set means the daemon kept the paid state: repeat the call
+    /// with the same `upload_id`.
+    PointerFinalizeResult pointer_finalize(std::string_view upload_id,
+                                           const std::map<std::string, std::string>& tx_hashes);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

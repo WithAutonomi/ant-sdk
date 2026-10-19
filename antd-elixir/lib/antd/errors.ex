@@ -54,13 +54,83 @@ defmodule Antd.AlreadyExistsError do
 end
 
 defmodule Antd.ForkError do
-  @moduledoc "Version conflict or fork detected (HTTP 409)."
+  @moduledoc """
+  Version conflict or fork detected (HTTP 409).
+
+  A pointer whose owner signed two different final states, with no majority
+  on either, is reported as a `ForkError` (HTTP 409 with
+  `code: "POINTER_FORKED"`; gRPC `FAILED_PRECONDITION` tagged
+  `x-antd-error-code: POINTER_FORKED`).
+  """
 
   defexception [:message, :status_code]
 
   @type t :: %__MODULE__{
           message: String.t(),
           status_code: integer()
+        }
+end
+
+defmodule Antd.PointerFinalError do
+  @moduledoc """
+  The pointer is at its final state: it was handed over (transferred) or
+  frozen, so nothing can update it or hand it over again (HTTP 409 with
+  `code: "POINTER_FINAL"`; gRPC `FAILED_PRECONDITION` tagged
+  `x-antd-error-code: POINTER_FINAL`). The daemon refuses the write before
+  anything is paid.
+  """
+
+  defexception [:message, :status_code]
+
+  @type t :: %__MODULE__{
+          message: String.t(),
+          status_code: integer()
+        }
+end
+
+defmodule Antd.ConflictError do
+  @moduledoc """
+  The request conflicts with the resource's current state, such as a pointer
+  write while a prepared write to the same pointer awaits payment (HTTP 409
+  with `code: "CONFLICT"`; gRPC `ABORTED` tagged `x-antd-error-code:
+  CONFLICT`). The daemon refuses the write before anything is paid; the
+  conflict clears once the prepared write is finalized or expires.
+  """
+
+  defexception [:message, :status_code]
+
+  @type t :: %__MODULE__{
+          message: String.t(),
+          status_code: integer()
+        }
+end
+
+defmodule Antd.CloseGroupShortfallError do
+  @moduledoc """
+  Too few of an address's close group answered, or took a write, for the
+  result to be the network's (HTTP 503 with `code: "CLOSE_GROUP_SHORTFALL"`;
+  gRPC `UNAVAILABLE` tagged `x-antd-error-code: CLOSE_GROUP_SHORTFALL`).
+
+  Reads are free to retry; a shortfall during an update in flight or churn
+  usually clears. A paid write is not, except where `retryable` is `true`: a
+  pointer finalize kept the paid state, and calling `pointer_finalize` again
+  with the same `upload_id` stores it against the same payment. Bound that
+  loop.
+
+  Over REST `retryable` is the error body's `retryable` (`true` only when it
+  is JSON `true`). Over gRPC it is `true` when the status message closes with
+  the daemon's `(paid attempt retained...)` hint.
+
+  This is its own exception module, not an `Antd.ServiceUnavailableError`
+  (REST) or an `Antd.NetworkError` (gRPC `UNAVAILABLE`).
+  """
+
+  defexception [:message, :status_code, retryable: false]
+
+  @type t :: %__MODULE__{
+          message: String.t(),
+          status_code: integer(),
+          retryable: boolean()
         }
 end
 
@@ -236,6 +306,77 @@ defmodule Antd.Errors do
       _ -> %Antd.AntdError{message: message, status_code: status_code}
     end
   end
+
+  @doc """
+  Maps the daemon codes that share an HTTP status with older errors onto
+  their own error structs, or returns `nil` for any other code: the 409s
+  `POINTER_FINAL` (`Antd.PointerFinalError`), `POINTER_FORKED`
+  (`Antd.ForkError`) and `CONFLICT` (`Antd.ConflictError`), and
+  `CLOSE_GROUP_SHORTFALL`'s 503 (`Antd.CloseGroupShortfallError`, whose
+  `retryable` is set only when the body's `retryable` is JSON `true`). The
+  REST client reads `code` from the error body. `ALREADY_EXISTS` is not one of
+  them: it keeps the status mapping (`Antd.AlreadyExistsError`).
+  """
+  @spec error_for_code(term(), integer(), String.t(), term()) :: Exception.t() | nil
+  def error_for_code("POINTER_FINAL", status_code, message, _body),
+    do: %Antd.PointerFinalError{message: message, status_code: status_code}
+
+  def error_for_code("POINTER_FORKED", status_code, message, _body),
+    do: %Antd.ForkError{message: message, status_code: status_code}
+
+  def error_for_code("CONFLICT", status_code, message, _body),
+    do: %Antd.ConflictError{message: message, status_code: status_code}
+
+  def error_for_code("CLOSE_GROUP_SHORTFALL", status_code, message, body) do
+    %Antd.CloseGroupShortfallError{
+      message: message,
+      status_code: status_code,
+      retryable: is_map(body) and Map.get(body, "retryable") == true
+    }
+  end
+
+  def error_for_code(_code, _status_code, _message, _body), do: nil
+
+  @doc """
+  Maps a gRPC status that the daemon tagged with an `x-antd-error-code`
+  metadata value onto its error struct, or returns `nil`. The tag is trusted
+  only when it agrees with the status code: `FAILED_PRECONDITION` (9) for
+  `POINTER_FINAL` and `POINTER_FORKED`, `ABORTED` (10) for `CONFLICT`, and
+  `UNAVAILABLE` (14) for `CLOSE_GROUP_SHORTFALL`. Anything else (no tag, an
+  unknown tag, or a tag on another status) is `nil` and keeps the status
+  mapping, so an untagged `FAILED_PRECONDITION` is still a payment error.
+
+  gRPC carries no structured detail, so a shortfall's `retryable` is `true`
+  only when the message closes with the daemon's `(paid attempt retained...)`
+  hint, which a pointer finalize that kept the paid state appends.
+  """
+  @spec grpc_tagged_error(integer(), term(), String.t()) :: Exception.t() | nil
+  def grpc_tagged_error(9, "POINTER_FINAL", message),
+    do: %Antd.PointerFinalError{message: message, status_code: 409}
+
+  def grpc_tagged_error(9, "POINTER_FORKED", message),
+    do: %Antd.ForkError{message: message, status_code: 409}
+
+  def grpc_tagged_error(10, "CONFLICT", message),
+    do: %Antd.ConflictError{message: message, status_code: 409}
+
+  def grpc_tagged_error(14, "CLOSE_GROUP_SHORTFALL", message) do
+    %Antd.CloseGroupShortfallError{
+      message: message,
+      status_code: 503,
+      retryable: retained_hint_closes?(message)
+    }
+  end
+
+  def grpc_tagged_error(_status, _tag, _message), do: nil
+
+  # Whether the message ends with the daemon's "(paid attempt retained...)"
+  # hint. Anchored at the end like `retention_tail/1`: the hint quoted
+  # inside the reason is not the daemon's answer.
+  defp retained_hint_closes?(message) when is_binary(message),
+    do: Regex.match?(~r/\(paid attempt retained[^()]*\)\z/, message)
+
+  defp retained_hint_closes?(_), do: false
 
   @doc """
   Builds an `Antd.PartialUploadError` from a decoded `PARTIAL_UPLOAD` REST

@@ -31,6 +31,7 @@ pub fn build(b: *std.Build) void {
         "03-chunks",
         "04-files",
         "06-private-data",
+        "09-pointers",
     };
 
     for (example_names) |name| {
