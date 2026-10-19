@@ -129,6 +129,20 @@ All functions return `{:ok, result}` or `{:error, exception}` tuples, just like
 the REST client. Bang variants (e.g. `health!/1`) are also available. gRPC
 status codes are translated to the same `Antd.*Error` hierarchy.
 
+The pointer functions also read the daemon's `x-antd-error-code` metadata,
+which takes precedence when it agrees with the status code:
+`FAILED_PRECONDITION` + `POINTER_FINAL` → `Antd.PointerFinalError`,
+`FAILED_PRECONDITION` + `POINTER_FORKED` → `Antd.ForkError`, `ABORTED` +
+`CONFLICT` → `Antd.ConflictError`, and `UNAVAILABLE` + `CLOSE_GROUP_SHORTFALL`
+→ `Antd.CloseGroupShortfallError` (`retryable` when the message closes with
+the `(paid attempt retained...)` hint). Without the tag a `FAILED_PRECONDITION`
+is still an `Antd.PaymentError`. grpc-elixir's default adapter drops the
+metadata of a failed call, so `Antd.GrpcClient.new/1` connects through
+`Antd.GrpcAdapter`, which is that adapter plus the failed call's metadata for
+callers that pass `return_headers: true`; every other call behaves as before.
+Each pointer function takes a `:timeout` option in milliseconds (default 5
+minutes, since a write quotes, pays and stores before it answers).
+
 > **Note:** Wallet operations (address, balance, approve) and external-signer
 > two-phase upload are available via REST only.
 
@@ -163,7 +177,7 @@ All functions take a `%Antd.Client{}` as the first argument. Each returns `{:ok,
 |----------|-------------|
 | `health(client)` | Check daemon status |
 
-### Data (Immutable)
+### Data
 
 | Function | Description |
 |----------|-------------|
@@ -191,6 +205,59 @@ All functions take a `%Antd.Client{}` as the first argument. Each returns `{:ok,
 | `file_put_public(client, path, opts \\ [])` | Upload a file publicly — returns `Antd.FilePutPublicResult` (DataMap stored on-network). `opts`: `payment_mode:`. |
 | `file_get_public(client, address, dest_path)` | Download a public file by address |
 | `file_cost(client, path, is_public, opts \\ [])` | Estimate upload cost — returns `Antd.UploadCostEstimate` with size, chunks, gas, payment mode |
+
+### Pointers
+
+A pointer is a small, owner-signed, mutable reference (needs the antd release
+after 0.15.0, the first with pointers). Its address is derived from its
+owner's key and never changes. What it points at (a chunk, such as a public
+file's or public data's address, or another pointer) can be changed by the
+owner, and the owner can hand the pointer over to another pointer for good.
+The daemon holds the owner keys, loaded at startup with
+`antd --pointer-keys <file-or-dir>` (files in the format `ant pointer keygen`
+writes), so every write names the pointer by its address (`owner`), never by
+a key.
+
+**Every write pays** (about the price of one chunk), and every attempt pays
+again. The SDK never retries `pointer_create`, `pointer_update`,
+`pointer_transfer` or `pointer_finalize`, and you should not retry them
+automatically either. Reads are free to retry: a read during an update in
+flight or churn can fail with `Antd.CloseGroupShortfallError`.
+
+Counters are integers, parsed strictly from the daemon's decimal strings (a
+malformed counter is an `Antd.AntdError`, never a zero); a final state sits at
+`Antd.PointerRecord.final_counter()`, 2^64 − 1. Unset values (`counter`,
+`state`, `majority`, `transferred_to`) are `nil` on both transports. The
+daemon accepts addresses with a `0x` prefix but always returns bare hex, so
+normalise before comparing.
+
+| Function | Description |
+|----------|-------------|
+| `pointer_keys(client)` | Addresses of the pointers this daemon holds keys for, so can write |
+| `pointer_create(client, owner, target, opts \\ [])` | Create a pointer, paid by the daemon wallet — returns `Antd.PointerWriteResult` (`address`, `state_id`, `counter`). `Antd.AlreadyExistsError` if it exists, refused before paying. `opts`: `kind: :chunk | :pointer` (default `:chunk`) |
+| `pointer_update(client, owner, target, opts \\ [])` | Point a pointer at a new target, paid by the daemon wallet; creates it if needed. `Antd.PointerFinalError` once transferred or frozen. `opts`: `kind:` |
+| `pointer_transfer(client, owner, recipient)` | Hand a pointer over for good to the recipient's pointer, which must exist. Irreversible. Returns `Antd.PointerTransferResult` with the close group's `finality` (or `finality_error`) |
+| `pointer_get(client, address)` | Read a pointer — returns `Antd.PointerRecord` (`counter`, `target`, `kind`/`kind_tag`, `is_final`, `transferred_to`, the owner's public key). `Antd.NotFoundError` if there is none |
+| `pointer_resolve(client, address)` | Follow a chain of pointers to its target — returns `Antd.PointerTarget` |
+| `pointer_finality(client, address)` | Ask the whole close group where a pointer stands — returns `Antd.PointerFinality`; `status` is `:open`, `:settling`, `:unconfirmed`, `:final`, `:forked` or `{:unknown, status}`. Only `:final` (`Antd.PointerFinality.final?/1`) means a transfer is beyond dispute |
+| `pointer_controller(client, address)` | Follow transfers to the pointer whose owner now decides — returns `Antd.PointerController` |
+| `pointer_prepare(client, owner, op, opts \\ [])` | External signer: the daemon signs `op` (`{:create, target}`, `{:update, target}`, either with a kind as a third element, or `{:transfer, recipient}`) and quotes it — returns `Antd.PointerPrepareResult` (wave-batch `payments` for `payForQuotes()`). Needs no daemon wallet. Other writes to the pointer return `Antd.ConflictError` until it is finalized or expires. `opts`: `include_signed_quotes: true` |
+| `pointer_finalize(client, upload_id, tx_hashes)` | External signer: store the prepared write once paid — returns `Antd.PointerFinalizeResult`. A write that falls short after payment returns `Antd.CloseGroupShortfallError` with `retryable: true`: repeat the same call (bounded) to store it against the same payment |
+
+`Antd.GrpcClient` has the same functions, each with an extra `opts` keyword
+(`:timeout`, plus `:kind` / `:include_signed_quotes` where the REST function
+takes them). See [`examples/08_pointers.exs`](examples/08_pointers.exs).
+
+```elixir
+{:ok, put} = Antd.Client.data_put_public(client, "version 1")
+{:ok, _} = Antd.Client.pointer_create(client, owner, put.address)
+
+case Antd.Client.pointer_update(client, owner, new_address) do
+  {:ok, write} -> IO.puts("now at counter #{write.counter}")
+  {:error, %Antd.PointerFinalError{}} -> IO.puts("handed over or frozen; nothing was paid")
+  {:error, error} -> IO.puts("not retried (it may have paid): #{Exception.message(error)}")
+end
+```
 
 ## Error Handling
 
@@ -230,10 +297,14 @@ end
 | `Antd.PaymentError` | 402 | Insufficient funds |
 | `Antd.NotFoundError` | 404 | Resource not found |
 | `Antd.AlreadyExistsError` | 409 | Resource exists |
-| `Antd.ForkError` | 409 | Version conflict |
+| `Antd.ForkError` | 409 (`code: "POINTER_FORKED"`; gRPC `FAILED_PRECONDITION`) | Version conflict: a pointer's owner signed two final states and no majority holds either |
+| `Antd.PointerFinalError` | 409 (`code: "POINTER_FINAL"`; gRPC `FAILED_PRECONDITION`) | The pointer is transferred or frozen; nothing can change it |
+| `Antd.ConflictError` | 409 (`code: "CONFLICT"`; gRPC `ABORTED`) | A pointer write while a prepared write to it awaits payment |
 | `Antd.TooLargeError` | 413 | Payload too large |
 | `Antd.InternalError` | 500 | Server error |
 | `Antd.NetworkError` | 502 | Network unreachable |
+| `Antd.ServiceUnavailableError` | 503 | Service unavailable, e.g. wallet not configured |
+| `Antd.CloseGroupShortfallError` | 503 (`code: "CLOSE_GROUP_SHORTFALL"`; gRPC `UNAVAILABLE`) | Too few of the close group answered or stored. Reads may retry; `retryable` is `true` only for a pointer finalize that kept the paid state |
 | `Antd.PartialUploadError` | 502 (gRPC `ABORTED`) | An upload stored only part of its chunks (`code: "PARTIAL_UPLOAD"`) — carries `chunks_stored`, `chunks_failed`, `total_chunks`, `retryable`, `retention_known`. Not a `NetworkError` / `AntdError`: see [Migrating error handlers](#migrating-error-handlers-partial-uploads) |
 
 ### Partial uploads
@@ -381,3 +452,4 @@ See the [examples/](examples/) directory:
 - `04_files.exs` — File upload/download (public and private)
 - `06_private_data.exs` — Private encrypted data
 - `07_external_signer.exs` — External-signer two-phase upload with a bounded partial-upload retry
+- `08_pointers.exs` — Create, update, read and check the finality of a pointer (`ANTD_POINTER_OWNER`, optional `ANTD_BASE_URL`)
