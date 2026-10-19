@@ -43,7 +43,10 @@ public final class AntdGrpcClient: AntdClientProtocol, @unchecked Sendable {
     /// is one TCP handshake per RPC, which is acceptable for the external-signer
     /// flow (one prepare + one finalize per upload) and the wallet flow (caller
     /// queries balance/address occasionally, approves once).
-    private func withGRPC<T: Sendable>(
+    ///
+    /// Internal, not private: the manifest methods
+    /// (AntdGrpcClient+Manifests.swift) call through it from their own file.
+    func withGRPC<T: Sendable>(
         _ body: @Sendable (GRPCClient<HTTP2ClientTransport.Posix>) async throws -> T
     ) async throws -> T {
         do {
