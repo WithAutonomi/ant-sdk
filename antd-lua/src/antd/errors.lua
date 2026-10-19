@@ -53,6 +53,55 @@ function M.fork(message)
     return new_error("fork", 409, message)
 end
 
+--- Create a pointer_final error (HTTP 409, code POINTER_FINAL).
+-- The pointer is at its final state, transferred or frozen: nothing can
+-- update it or hand it over again. Refused before anything is paid.
+-- @param message string
+-- @return table
+function M.pointer_final(message)
+    return new_error("pointer_final", 409, message)
+end
+
+--- Create a pointer_forked error (HTTP 409, code POINTER_FORKED).
+-- The pointer's owner signed two different final states and no one of them
+-- is held by a majority of the close group, so there is no answer to give.
+-- @param message string
+-- @return table
+function M.pointer_forked(message)
+    return new_error("pointer_forked", 409, message)
+end
+
+--- Create a conflict error (HTTP 409, code CONFLICT).
+-- The request conflicts with the resource's current state. For pointers: a
+-- write while a prepared write to the same pointer awaits payment (finalize
+-- it, or wait for it to expire), or an update that lost to a newer state
+-- while it was in flight.
+-- @param message string
+-- @return table
+function M.conflict(message)
+    return new_error("conflict", 409, message)
+end
+
+--- Create a close_group_shortfall error (HTTP 503, code
+-- CLOSE_GROUP_SHORTFALL).
+--
+-- Too few of an address's close group answered, or took a write, for the
+-- result to be the network's. Reads are free to retry. A paid write is not,
+-- unless `retryable` is true: a pointer finalize then kept the paid state
+-- under the same `upload_id`, and repeating that finalize stores it against
+-- the same payment.
+--
+-- `retryable` is true only for the boolean `true` (the body's JSON `true`);
+-- anything else, including an absent field, reads false.
+-- @param message string
+-- @param retryable any the body's `retryable` field
+-- @return table
+function M.close_group_shortfall(message, retryable)
+    local err = new_error("close_group_shortfall", 503, message)
+    err.retryable = retryable == true
+    return err
+end
+
 --- Create a too_large error (HTTP 413).
 -- @param message string
 -- @return table
@@ -189,19 +238,37 @@ function M.error_for_status(code, message)
 end
 
 --- Return the appropriate error for a REST error response, preferring the
--- machine-readable `code` over the bare HTTP status where they diverge.
--- PARTIAL_UPLOAD arrives as a 502 that would otherwise read as a generic
--- `network` error; every other code keeps the status-based mapping.
--- `code` must be the string "PARTIAL_UPLOAD" (Lua's `==` never coerces, so a
--- table, number, boolean or JSON null `code` keeps the status mapping), and
--- a `body` that is not a table does too.
+-- machine-readable `code` over the bare HTTP status where they diverge:
+--
+--   * PARTIAL_UPLOAD arrives as a 502 that would otherwise read as a
+--     generic `network` error.
+--   * POINTER_FINAL, POINTER_FORKED and CONFLICT are 409s that must not
+--     read as `already_exists`.
+--   * CLOSE_GROUP_SHORTFALL is a 503 that would otherwise read as
+--     `service_unavailable`; it carries `retryable`.
+--
+-- Every other code keeps the status-based mapping. `code` must be one of
+-- those exact strings (Lua's `==` never coerces, so a table, number, boolean
+-- or JSON null `code` keeps the status mapping), and a `body` that is not a
+-- table does too.
 -- @param code number HTTP status code
 -- @param message string error message
 -- @param body any decoded JSON error body (nil when not JSON)
 -- @return table error object
 function M.error_for_response(code, message, body)
-    if type(body) == "table" and body.code == "PARTIAL_UPLOAD" then
-        return M.partial_upload(message, body)
+    if type(body) == "table" then
+        local body_code = body.code
+        if body_code == "PARTIAL_UPLOAD" then
+            return M.partial_upload(message, body)
+        elseif body_code == "POINTER_FINAL" then
+            return M.pointer_final(message)
+        elseif body_code == "POINTER_FORKED" then
+            return M.pointer_forked(message)
+        elseif body_code == "CONFLICT" then
+            return M.conflict(message)
+        elseif body_code == "CLOSE_GROUP_SHORTFALL" then
+            return M.close_group_shortfall(message, body.retryable)
+        end
     end
     return M.error_for_status(code, message)
 end
@@ -218,6 +285,14 @@ end
 -- @return boolean
 function M.is_partial_upload(err)
     return M.is_antd_error(err) and err.type == "partial_upload"
+end
+
+--- Check if a value is a close_group_shortfall error (see
+-- `close_group_shortfall`).
+-- @param err any value to check
+-- @return boolean
+function M.is_close_group_shortfall(err)
+    return M.is_antd_error(err) and err.type == "close_group_shortfall"
 end
 
 return M
