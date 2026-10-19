@@ -127,6 +127,36 @@ client.file_download_public(result.address, "/path/to/output.txt");
 auto est = client.file_cost("/path/to/file.txt");
 ```
 
+## Pointers
+
+A pointer is an owner-signed address you can move to new data. antd signs with the owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so `owner` is the pointer's address, never a key. Every create, update and transfer pays (about the price of one chunk) and is never retried; reads are free. A transfer hands the pointer over to another pointer for good. Needs the first antd release with pointers (after 0.15.0). Walk-through: [Tutorial: Point at a Public File and Update It](tutorial-pointers.md).
+
+```cpp
+const std::string owner = client.pointer_keys().at(0).address;  // a pointer antd can write
+
+auto bytes = [](std::string s) { return std::vector<uint8_t>(s.begin(), s.end()); };
+auto v1 = client.data_put_public(bytes("version 1"));
+auto v2 = client.data_put_public(bytes("version 2"));
+
+client.pointer_create(owner, v1.address);            // pays; counter 0
+auto w = client.pointer_update(owner, v2.address);   // pays again; counter 1
+auto target = client.pointer_resolve(owner).target;  // == v2.address (free)
+
+auto f = client.pointer_finality(owner);             // free
+if (f.status == antd::PointerFinalityStatus::Open) {
+    std::println("open at counter {}", f.counter.value_or(0));
+}
+```
+
+Counters are `std::uint64_t`; unset values are `std::optional`. `pointer_transfer`, `pointer_get`, `pointer_controller`, `pointer_prepare` and `pointer_finalize` complete the set, on `GrpcClient` too.
+
+Runnable example: `antd-cpp/examples/08-pointers.cpp`. Set `ANTD_POINTER_OWNER` to an address the daemon holds a key for, one it has not written yet (each run creates the pointer and pays for its writes), and `ANTD_BASE_URL` for a daemon other than `http://localhost:8082`:
+
+```bash
+cd antd-cpp
+cmake -S . -B build && cmake --build build
+ANTD_POINTER_OWNER=<address> ./build/08-pointers
+```
 
 ## Error Handling
 

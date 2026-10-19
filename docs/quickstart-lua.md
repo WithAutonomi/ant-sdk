@@ -102,6 +102,35 @@ local est, err = client:file_cost("/path/to/file.txt")
 if err then error(err) end
 ```
 
+## Pointers
+
+A pointer is an owner-signed address you can move to new data. antd signs with the owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so `owner` is the pointer's address, never a key. Every create, update and transfer pays (about the price of one chunk) and is never retried; reads are free. A transfer hands the pointer over to another pointer for good. Needs the first antd release with pointers (after 0.15.0). Walk-through: [Tutorial: Point at a Public File and Update It](tutorial-pointers.md).
+
+```lua
+local keys, err = client:pointer_keys()
+if err then error(err.message) end
+local owner = keys[1]                                      -- a pointer antd can write
+
+local v1 = assert(client:data_put_public("version 1"))
+local v2 = assert(client:data_put_public("version 2"))
+
+local w, err = client:pointer_create(owner, v1.address)   -- pays; counter "0"
+if err then error(err.type .. ": " .. err.message) end    -- never retry blindly
+w, err = client:pointer_update(owner, v2.address)         -- pays again; counter "1"
+if err then error(err.type .. ": " .. err.message) end
+
+local target = client:pointer_resolve(owner)               -- target.target == v2.address (free)
+local f = client:pointer_finality(owner)                   -- f.status == "open"
+```
+
+Counters are checked decimal strings, never Lua numbers: compare them with `antd.compare_pointer_counters(a, b)`. `pointer_transfer`, `pointer_get`, `pointer_controller`, `pointer_prepare` and `pointer_finalize` complete the set (REST only).
+
+Runnable example: `antd-lua/examples/08-pointers.lua`. Set `ANTD_POINTER_OWNER` to an address the daemon holds a key for, one it has not written yet (each run creates the pointer and pays for its writes), and `ANTD_BASE_URL` for a daemon other than `http://localhost:8082`:
+
+```bash
+cd antd-lua
+ANTD_POINTER_OWNER=<address> lua examples/08-pointers.lua
+```
 
 ## Error Handling
 

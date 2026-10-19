@@ -85,6 +85,30 @@ client.file_download_public(result.address, "/path/to/output.txt")
 est = client.file_cost("/path/to/file.txt")
 ```
 
+## Pointers
+
+A pointer is an owner-signed address you can move to new data. antd signs with the owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so `owner` is the pointer's address, never a key. Every create, update and transfer pays (about the price of one chunk) and is never retried; reads are free. A transfer hands the pointer over to another pointer for good. Needs the first antd release with pointers (after 0.15.0). Walk-through: [Tutorial: Point at a Public File and Update It](tutorial-pointers.md).
+
+```ruby
+owner = client.pointer_keys.first                  # a pointer antd can write
+
+v1 = client.data_put_public("version 1").address
+v2 = client.data_put_public("version 2").address
+
+client.pointer_create(owner, v1)                   # pays; counter 0
+client.pointer_update(owner, v2)                   # pays again; counter 1
+target = client.pointer_resolve(owner).target      # == v2 (free)
+
+puts client.pointer_finality(owner).status         # "open"
+```
+
+Counters are `Integer`s. `pointer_transfer`, `pointer_get`, `pointer_controller`, `pointer_prepare` and `pointer_finalize` complete the set, on `Antd::GrpcClient` too.
+
+Runnable example: `antd-ruby/examples/08_pointers.rb`. Set `ANTD_POINTER_OWNER` to an address the daemon holds a key for, one it has not written yet (each run creates the pointer and pays for its writes), and `ANTD_BASE_URL` for a daemon other than `http://localhost:8082`:
+
+```bash
+ANTD_POINTER_OWNER=<address> ruby antd-ruby/examples/08_pointers.rb
+```
 
 ## Error Handling
 

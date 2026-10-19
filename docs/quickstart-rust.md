@@ -101,6 +101,34 @@ client.file_download_public(&result.address, "/path/to/output.txt").await?;
 let est = client.file_cost("/path/to/file.txt").await?;
 ```
 
+## Pointers
+
+A pointer is an owner-signed address you can move to new data. antd signs with the owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so `owner` is the pointer's address, never a key. Every create, update and transfer pays (about the price of one chunk) and is never retried; reads are free. A transfer hands the pointer over to another pointer for good. Needs the first antd release with pointers (after 0.15.0). Walk-through: [Tutorial: Point at a Public File and Update It](tutorial-pointers.md).
+
+```rust
+use antd_client::{PaymentMode, PointerKind};
+
+let owner = client.pointer_keys().await?[0].address.clone();   // a pointer antd can write
+
+let v1 = client.data_put_public(b"version 1", PaymentMode::Auto).await?.address;
+let v2 = client.data_put_public(b"version 2", PaymentMode::Auto).await?.address;
+
+client.pointer_create(&owner, &v1, PointerKind::Chunk).await?;  // pays; counter 0
+client.pointer_update(&owner, &v2, PointerKind::Chunk).await?;  // pays again; counter 1
+let target = client.pointer_resolve(&owner).await?.target;      // == v2 (free)
+
+let finality = client.pointer_finality(&owner).await?;          // free
+println!("{:?}", finality.status);                              // Open
+```
+
+Counters are `u64`. `pointer_transfer`, `pointer_get`, `pointer_controller`, `pointer_prepare` (and `pointer_prepare_with_options`) and `pointer_finalize` complete the set, on `GrpcClient` too.
+
+Runnable example: `antd-rust/examples/09-pointers.rs`. Set `ANTD_POINTER_OWNER` to an address the daemon holds a key for, one it has not written yet (each run creates the pointer and pays for its writes). This example talks to `http://localhost:8082`; it does not read `ANTD_BASE_URL`:
+
+```bash
+cd antd-rust
+ANTD_POINTER_OWNER=<address> cargo run --example 09-pointers
+```
 
 ## Error Handling
 

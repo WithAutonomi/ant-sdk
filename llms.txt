@@ -1,6 +1,6 @@
 # antd SDK
 
-> Go, JavaScript/TypeScript, Python, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, Elixir, Zig, Rust, C++, and Java SDKs for the Autonomi network via the antd daemon. Provides REST and gRPC transports, an MCP server (14 tools), and a local daemon that manages wallet, payments, and network connectivity.
+> Go, JavaScript/TypeScript, Python, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, Elixir, Zig, Rust, C++, and Java SDKs for the Autonomi network via the antd daemon. Provides REST and gRPC transports, an MCP server (31 tools), and a local daemon that manages wallet, payments, and network connectivity.
 
 ## Quick Start
 
@@ -28,7 +28,7 @@ data = client.data_get_public(result.address)
 - [Rust SDK](antd-rust/) — `cargo add antd-client` — REST + gRPC, async/tokio
 - [C++ SDK](antd-cpp/) — CMake FetchContent — REST + gRPC, sync + async (C++20)
 - [Java SDK](antd-java/) — Gradle/Maven — REST + gRPC, sync + async (Java 17+)
-- [MCP Server](antd-mcp/) — 14 tools for AI agent integration
+- [MCP Server](antd-mcp/) — 31 tools for AI agent integration, pointers and manifests included
 
 ## API Reference
 
@@ -82,6 +82,19 @@ data = client.data_get_public(result.address)
 | ChunkService | Get, Put | chunks.proto |
 | FileService | UploadPublic, DownloadPublic, GetFileCost | files.proto |
 | EventService | Subscribe | events.proto |
+| PointerService | ListKeys, Create, Update, Transfer, Get, Resolve, Finality, Controller, Prepare, Finalize | pointers.proto |
+
+## Pointers
+
+A pointer is a small, owner-signed, mutable reference: its address is derived from the owner's key and never changes, and the owner can point it at new data (a chunk, such as a public file's address, or another pointer). Needs the first antd release with pointers (after 0.15.0).
+
+- antd holds the owner keys, loaded at startup from `--pointer-keys <file-or-dir>` (env `ANTD_POINTER_KEYS_DIR`; key files from `ant pointer keygen --output <file>`). Requests name a pointer by its address (`owner`), never by a key.
+- Every create, update and transfer pays (about one chunk's price), and every attempt pays again: never retry them automatically. Reads are free.
+- Transfer hands a pointer over to another pointer for good; it is irreversible. Check `finality` reaches `"final"` before relying on it.
+- Counters are decimal strings in both transports: a final pointer sits at 2^64−1 (18446744073709551615).
+- Every SDK has `pointer_keys`, `pointer_create`, `pointer_update`, `pointer_transfer`, `pointer_get`, `pointer_resolve`, `pointer_finality`, `pointer_controller`, `pointer_prepare` and `pointer_finalize`, cased per language (`pointerCreate`, `PointerCreateAsync`, ...). Over gRPC in C++, C#, Dart, Elixir, Go, Java, Kotlin, Python, Ruby, Rust and Swift; JS/TS, Lua, PHP and Zig are REST only. The FFI bindings do not have pointers yet.
+- Tutorial: [docs/tutorial-pointers.md](docs/tutorial-pointers.md). Runnable example in every SDK: `ANTD_POINTER_OWNER=<address> ant dev example pointers -l <language>`.
+
 | ManifestService | Build, Decode | manifests.proto |
 
 ## Error Codes
@@ -92,6 +105,10 @@ data = client.data_get_public(result.address)
 | 402 | FAILED_PRECONDITION | PaymentError | Insufficient funds |
 | 404 | NOT_FOUND | NotFoundError | Resource not found |
 | 409 | ALREADY_EXISTS / ABORTED | AlreadyExistsError / ForkError | Conflict |
+| 409 `POINTER_FINAL` | FAILED_PRECONDITION + `x-antd-error-code` | PointerFinalError | Pointer transferred or final; nothing paid |
+| 409 `POINTER_FORKED` | FAILED_PRECONDITION + `x-antd-error-code` | PointerForkedError (ForkError in some SDKs) | Owner signed two final states, no majority |
+| 409 `CONFLICT` | ABORTED + `x-antd-error-code` | ConflictError | A prepared pointer write awaits payment |
+| 503 `CLOSE_GROUP_SHORTFALL` | UNAVAILABLE + `x-antd-error-code` | CloseGroupShortfallError | Too few of the close group answered or stored |
 | 413 | RESOURCE_EXHAUSTED | TooLargeError | Payload too large |
 | 500 | INTERNAL | InternalError | Server error |
 | 502 | UNAVAILABLE | NetworkError | Network unreachable |
