@@ -11,6 +11,7 @@ use base64::Engine;
 
 use crate::error::AntdError;
 use crate::manifests::{self, BuildInput, DecodeInput, EntryInfo};
+use crate::rest::json::ApiJson;
 use crate::state::AppState;
 use crate::types::{
     ManifestBuildRequest, ManifestBuildResponse, ManifestDecodeRequest, ManifestDecodeResponse,
@@ -19,7 +20,7 @@ use crate::types::{
 
 pub async fn manifest_build(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<ManifestBuildRequest>,
+    ApiJson(req): ApiJson<ManifestBuildRequest>,
 ) -> Result<Json<ManifestBuildResponse>, AntdError> {
     let torrent = manifests::parse_torrent_hashes(&req.torrent_info_hashes)?;
     let entries = manifests::parse_entries(
@@ -50,7 +51,7 @@ pub async fn manifest_build(
 
 pub async fn manifest_decode(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<ManifestDecodeRequest>,
+    ApiJson(req): ApiJson<ManifestDecodeRequest>,
 ) -> Result<Json<ManifestDecodeResponse>, AntdError> {
     let input = match (
         req.manifest.filter(|m| !m.is_empty()),
