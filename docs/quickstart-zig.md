@@ -168,6 +168,39 @@ Error union variants:
 | `error.Internal` | 500 | Server error |
 | `error.NetworkUnreachable` | 502 | Network unreachable |
 
+## Manifests
+
+A manifest describes a set of files as one `ant://manifest/` link, or as a `.ant` file when the link would be too long. Each entry is either a public file's address or an embedded DataMap (the manifest is then the key to a private file), with an optional path. Building and decoding upload and pay for nothing: upload the files first, then describe them. Needs the antd release after 0.15.0. Walk-through: [Tutorial: Share a Set of Files as One Link](tutorial-manifests.md).
+
+```zig
+const one = try client.dataPutPublic("first file", .auto);    // pays
+defer one.deinit(allocator);
+const two = try client.dataPutPublic("second file", .auto);   // pays
+defer two.deinit(allocator);
+
+const built = try client.buildManifest(&.{                     // free
+    .{ .path = "notes/one.txt", .address = one.address },
+    .{ .path = "notes/two.txt", .address = two.address },
+}, .{ .name = "example" });
+defer built.deinit(allocator);
+// built.link is null when over 1,500 bytes: share built.manifest instead
+
+const decoded = try client.decodeManifestLink(built.link.?, true);   // free
+defer decoded.deinit(allocator);
+for (decoded.entries) |entry| {
+    std.debug.print("{s} {s} {?d}\n", .{ entry.effective_name, entry.kind, entry.exact_size });
+}
+```
+
+`decodeManifest(bytes, resolve)` takes raw `.ant` bytes. Set `.data_map` instead of `.address` for an embedded entry; `BuildManifestOptions` has `embed_roots` (default `true`). Results own their memory: call `deinit(allocator)`.
+
+Runnable example: `antd-zig/examples/10-manifests.zig`. Its two uploads pay; the manifest calls do not.
+
+```bash
+cd antd-zig
+ANTD_BASE_URL=http://localhost:8082 zig build run-10-manifests
+```
+
 ## Examples
 
 ```bash
