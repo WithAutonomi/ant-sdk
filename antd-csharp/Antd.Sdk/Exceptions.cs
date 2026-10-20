@@ -345,7 +345,7 @@ internal static partial class ExceptionMapping
         // status-based mapping below.
         if (TryParsePartialUploadBody(body, code, out var partial))
             return partial!;
-        // POINTER_FINAL, POINTER_FORKED and CONFLICT are 409s and
+        // POINTER_FINAL, POINTER_FORKED, CONFLICT and ALREADY_EXISTS are 409s and
         // CLOSE_GROUP_SHORTFALL a 503, statuses older errors share: map them
         // by the body's code onto their own types.
         var typed = FromTypedCodeBody(body, code);
@@ -373,6 +373,9 @@ internal static partial class ExceptionMapping
 
     /// <summary>Daemon code for a write that conflicts with the pointer's state (409 / ABORTED).</summary>
     private const string ConflictCode = "CONFLICT";
+
+    /// <summary>Daemon code for creating something that already exists (409 / ALREADY_EXISTS).</summary>
+    private const string AlreadyExistsCode = "ALREADY_EXISTS";
 
     /// <summary>Daemon code for a close group that fell short (503 / UNAVAILABLE).</summary>
     private const string CloseGroupShortfallCode = "CLOSE_GROUP_SHORTFALL";
@@ -408,6 +411,7 @@ internal static partial class ExceptionMapping
                 PointerFinalCode => new PointerFinalException(message, statusCode),
                 PointerForkedCode => new PointerForkedException(message, statusCode),
                 ConflictCode => new ConflictException(message, statusCode),
+                AlreadyExistsCode => new AlreadyExistsException(message, statusCode),
                 CloseGroupShortfallCode => new CloseGroupShortfallException(message, retryable, statusCode),
                 _ => null,
             };

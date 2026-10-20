@@ -15,12 +15,12 @@ import SwiftProtobuf
 // incompatible with the version of SwiftProtobuf to which you are linking.
 // Please ensure that you are building against the same version of the API
 // that was used to generate this file.
-fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
+fileprivate nonisolated struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
   struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
   typealias Version = _2
 }
 
-public struct Antd_V1_PutFileRequest: Sendable {
+public nonisolated struct Antd_V1_PutFileRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -38,7 +38,7 @@ public struct Antd_V1_PutFileRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_PutFilePublicResponse: Sendable {
+public nonisolated struct Antd_V1_PutFilePublicResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -63,7 +63,7 @@ public struct Antd_V1_PutFilePublicResponse: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_PutFileResponse: Sendable {
+public nonisolated struct Antd_V1_PutFileResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -89,7 +89,7 @@ public struct Antd_V1_PutFileResponse: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_GetFilePublicRequest: Sendable {
+public nonisolated struct Antd_V1_GetFilePublicRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -105,7 +105,7 @@ public struct Antd_V1_GetFilePublicRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_GetFileRequest: Sendable {
+public nonisolated struct Antd_V1_GetFileRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -123,7 +123,7 @@ public struct Antd_V1_GetFileRequest: Sendable {
 
 /// Shared by GetPublic and Get — the file is written to dest_path, the response
 /// itself is empty (success = file written, failure = RPC error).
-public struct Antd_V1_GetFileResponse: Sendable {
+public nonisolated struct Antd_V1_GetFileResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -133,7 +133,7 @@ public struct Antd_V1_GetFileResponse: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_FileCostRequest: Sendable {
+public nonisolated struct Antd_V1_FileCostRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -153,9 +153,9 @@ public struct Antd_V1_FileCostRequest: Sendable {
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
-fileprivate let _protobuf_package = "antd.v1"
+fileprivate nonisolated let _protobuf_package = "antd.v1"
 
-extension Antd_V1_PutFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PutFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PutFileRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{3}payment_mode\0")
 
@@ -190,7 +190,7 @@ extension Antd_V1_PutFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
   }
 }
 
-extension Antd_V1_PutFilePublicResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PutFilePublicResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PutFilePublicResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\u{2}address\0\u{3}storage_cost_atto\0\u{3}gas_cost_wei\0\u{3}chunks_stored\0\u{3}payment_mode_used\0\u{b}cost\0\u{c}\u{1}\u{1}")
 
@@ -240,7 +240,7 @@ extension Antd_V1_PutFilePublicResponse: SwiftProtobuf.Message, SwiftProtobuf._M
   }
 }
 
-extension Antd_V1_PutFileResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PutFileResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PutFileResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}data_map\0\u{3}storage_cost_atto\0\u{3}gas_cost_wei\0\u{3}chunks_stored\0\u{3}payment_mode_used\0")
 
@@ -290,7 +290,7 @@ extension Antd_V1_PutFileResponse: SwiftProtobuf.Message, SwiftProtobuf._Message
   }
 }
 
-extension Antd_V1_GetFilePublicRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_GetFilePublicRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetFilePublicRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}address\0\u{3}dest_path\0")
 
@@ -325,7 +325,7 @@ extension Antd_V1_GetFilePublicRequest: SwiftProtobuf.Message, SwiftProtobuf._Me
   }
 }
 
-extension Antd_V1_GetFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_GetFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetFileRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}data_map\0\u{3}dest_path\0")
 
@@ -360,7 +360,7 @@ extension Antd_V1_GetFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageI
   }
 }
 
-extension Antd_V1_GetFileResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_GetFileResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetFileResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
@@ -379,7 +379,7 @@ extension Antd_V1_GetFileResponse: SwiftProtobuf.Message, SwiftProtobuf._Message
   }
 }
 
-extension Antd_V1_FileCostRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_FileCostRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FileCostRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{3}is_public\0\u{3}payment_mode\0")
 

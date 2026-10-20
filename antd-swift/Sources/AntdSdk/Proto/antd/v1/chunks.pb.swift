@@ -20,12 +20,12 @@ import SwiftProtobuf
 // incompatible with the version of SwiftProtobuf to which you are linking.
 // Please ensure that you are building against the same version of the API
 // that was used to generate this file.
-fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
+fileprivate nonisolated struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
   struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
   typealias Version = _2
 }
 
-public struct Antd_V1_GetChunkRequest: Sendable {
+public nonisolated struct Antd_V1_GetChunkRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -38,7 +38,7 @@ public struct Antd_V1_GetChunkRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_GetChunkResponse: Sendable {
+public nonisolated struct Antd_V1_GetChunkResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -50,7 +50,7 @@ public struct Antd_V1_GetChunkResponse: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_PutChunkRequest: Sendable {
+public nonisolated struct Antd_V1_PutChunkRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -62,7 +62,7 @@ public struct Antd_V1_PutChunkRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_PutChunkResponse: Sendable {
+public nonisolated struct Antd_V1_PutChunkResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -86,7 +86,7 @@ public struct Antd_V1_PutChunkResponse: Sendable {
   fileprivate var _cost: Antd_V1_Cost? = nil
 }
 
-public struct Antd_V1_PrepareChunkRequest: Sendable {
+public nonisolated struct Antd_V1_PrepareChunkRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -106,7 +106,7 @@ public struct Antd_V1_PrepareChunkRequest: Sendable {
 /// wave-batch, so there are no merkle fields. When `already_stored = true`
 /// the payment fields are empty / zero and the caller can skip FinalizeChunk
 /// entirely.
-public struct Antd_V1_PrepareChunkResponse: Sendable {
+public nonisolated struct Antd_V1_PrepareChunkResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -156,7 +156,7 @@ public struct Antd_V1_PrepareChunkResponse: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_FinalizeChunkRequest: Sendable {
+public nonisolated struct Antd_V1_FinalizeChunkRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -172,7 +172,7 @@ public struct Antd_V1_FinalizeChunkRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_FinalizeChunkResponse: Sendable {
+public nonisolated struct Antd_V1_FinalizeChunkResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -187,9 +187,9 @@ public struct Antd_V1_FinalizeChunkResponse: Sendable {
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
-fileprivate let _protobuf_package = "antd.v1"
+fileprivate nonisolated let _protobuf_package = "antd.v1"
 
-extension Antd_V1_GetChunkRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_GetChunkRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetChunkRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}address\0")
 
@@ -219,7 +219,7 @@ extension Antd_V1_GetChunkRequest: SwiftProtobuf.Message, SwiftProtobuf._Message
   }
 }
 
-extension Antd_V1_GetChunkResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_GetChunkResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetChunkResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}data\0")
 
@@ -249,7 +249,7 @@ extension Antd_V1_GetChunkResponse: SwiftProtobuf.Message, SwiftProtobuf._Messag
   }
 }
 
-extension Antd_V1_PutChunkRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PutChunkRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PutChunkRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}data\0")
 
@@ -279,7 +279,7 @@ extension Antd_V1_PutChunkRequest: SwiftProtobuf.Message, SwiftProtobuf._Message
   }
 }
 
-extension Antd_V1_PutChunkResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PutChunkResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PutChunkResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}cost\0\u{1}address\0")
 
@@ -318,7 +318,7 @@ extension Antd_V1_PutChunkResponse: SwiftProtobuf.Message, SwiftProtobuf._Messag
   }
 }
 
-extension Antd_V1_PrepareChunkRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PrepareChunkRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PrepareChunkRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}data\0\u{3}include_signed_quotes\0")
 
@@ -353,7 +353,7 @@ extension Antd_V1_PrepareChunkRequest: SwiftProtobuf.Message, SwiftProtobuf._Mes
   }
 }
 
-extension Antd_V1_PrepareChunkResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PrepareChunkResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PrepareChunkResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}address\0\u{3}already_stored\0\u{3}upload_id\0\u{3}payment_type\0\u{1}payments\0\u{3}total_amount\0\u{3}payment_vault_address\0\u{3}payment_token_address\0\u{3}rpc_url\0\u{3}signed_quotes\0")
 
@@ -428,7 +428,7 @@ extension Antd_V1_PrepareChunkResponse: SwiftProtobuf.Message, SwiftProtobuf._Me
   }
 }
 
-extension Antd_V1_FinalizeChunkRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_FinalizeChunkRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FinalizeChunkRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}upload_id\0\u{3}tx_hashes\0")
 
@@ -463,7 +463,7 @@ extension Antd_V1_FinalizeChunkRequest: SwiftProtobuf.Message, SwiftProtobuf._Me
   }
 }
 
-extension Antd_V1_FinalizeChunkResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_FinalizeChunkResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FinalizeChunkResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}address\0")
 

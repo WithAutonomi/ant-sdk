@@ -1,0 +1,34 @@
+// Gradle init script used by .github/workflows/security-audit.yml.
+//
+// antd-java and antd-kotlin don't commit Gradle lockfiles, so osv-scanner
+// has nothing to read. This script turns on dependency locking for every
+// project from the outside (no build-file change) and registers a task that
+// resolves every resolvable configuration, so
+//
+//   ./gradlew --init-script lock-all.init.gradle resolveAndLockAll --write-locks
+//
+// writes a gradle.lockfile per project listing the exact versions a fresh
+// build resolves today, test and example configurations included. The
+// workflow then scans those lockfiles.
+//
+// -PauditConfigurations=a,b limits resolution to the named configurations.
+// ffi/android uses it (releaseRuntimeClasspath, what the published AAR's
+// consumers get): resolving every configuration of an Android library also
+// pulls in Android build tooling that isn't part of the shipped artifact.
+
+allprojects {
+    dependencyLocking {
+        lockAllConfigurations()
+    }
+
+    tasks.register("resolveAndLockAll") {
+        notCompatibleWithConfigurationCache("resolves configurations at execution time")
+        doFirst {
+            assert gradle.startParameter.writeDependencyLocks
+            def only = project.findProperty("auditConfigurations")?.toString()?.split(",")*.trim()
+            configurations
+                .findAll { it.canBeResolved && (only == null || only.contains(it.name)) }
+                .each { it.resolve() }
+        }
+    }
+}

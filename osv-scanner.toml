@@ -1,0 +1,110 @@
+# osv-scanner configuration for .github/workflows/security-audit.yml.
+#
+# Every entry is a reasoned, time-boxed ignore. Do not add one without:
+#   - why the finding is acceptable (unreachable, no fix exists, ...),
+#   - where removal is tracked (Linear issue or upstream PR), and
+#   - an ignoreUntil date. When the date passes the finding is reported
+#     again and the audit fails, which forces a re-review.
+#
+# Rust ignores here must agree with the cargo-audit ignores in
+# antd/, ffi/rust/ and ffi/node/ .cargo/audit.toml.
+
+# --- zip 2.4.2 (transitive: ant-core -> zip) --------------------------------
+# All three affect only ZipArchive::extract() / ZipStreamReader::extract().
+# ant-core's node::binary::extract_zip walks entries with by_index and copies
+# one named file itself; it never calls extract(), and the SDKs never call
+# ant_core::node at all. Same reasoning and date as the cargo-audit ignores
+# from #372. Remove when ant-core is repinned to a release with zip >= 9
+# (V2-1634; upstream ant-client#233 / V2-1632).
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0367"
+ignoreUntil = 2026-11-16
+reason = "zip extract() SUID/SGID preservation; ant-core never calls extract(). V2-1634."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0368"
+ignoreUntil = 2026-11-16
+reason = "zip extract() symlink escape; ant-core never calls extract(). V2-1634."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0369"
+ignoreUntil = 2026-11-16
+reason = "zip extract() permissions through symlinks; ant-core never calls extract(). V2-1634."
+
+# --- lru 0.16 (transitive: evmlib -> alloy -> alloy-provider -> lru) --------
+# Unsound LruCache::pop() under a panicking closure. The fix is lru 0.18, a
+# semver-major bump that has to come from alloy-provider upstream.
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0253"
+ignoreUntil = 2027-01-18
+reason = "lru 0.16 unsound pop(); fix needs lru 0.18 via an alloy-provider upgrade upstream. V2-1582."
+
+# --- RustSec "unmaintained" notices -----------------------------------------
+# Informational, not vulnerabilities: cargo audit reports them as warnings and
+# does not fail on them, but osv-scanner reports them like any other
+# advisory. None has a drop-in replacement we control; all arrive through
+# ant-core / saorsa / alloy dependencies. Re-review each quarter.
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2023-0089"
+ignoreUntil = 2027-01-18
+reason = "atomic-polyfill unmaintained (informational); transitive. V2-1582."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0141"
+ignoreUntil = 2027-01-18
+reason = "bincode 1.x unmaintained (informational); transitive. V2-1582."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0388"
+ignoreUntil = 2027-01-18
+reason = "derivative unmaintained (informational); transitive. V2-1582."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0436"
+ignoreUntil = 2027-01-18
+reason = "paste unmaintained (informational); transitive. V2-1582."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0173"
+ignoreUntil = 2027-01-18
+reason = "proc-macro-error2 unmaintained (informational); transitive, build-time only. V2-1582."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0134"
+ignoreUntil = 2027-01-18
+reason = "rustls-pemfile unmaintained (informational); transitive. V2-1582."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0449"
+ignoreUntil = 2027-01-18
+reason = "unsafe-libyaml unmaintained (informational); transitive (ffi). V2-1582."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0374"
+ignoreUntil = 2027-01-18
+reason = "basic-toml unmaintained (informational); build-time only, via uniffi -> uniffi_bindgen -> askama_derive (ffi). V2-1582."
+
+# --- Go: golang.org/x/crypto/openpgp ----------------------------------------
+# The openpgp package is deprecated and will not be fixed. antd-go does not
+# import it (govulncheck: not called, not imported); x/crypto is only required
+# for other packages.
+
+[[IgnoredVulns]]
+id = "GO-2026-5932"
+ignoreUntil = 2027-01-18
+reason = "x/crypto/openpgp is unmaintained with no fix; antd-go does not import it. V2-1582."
+
+# --- Elixir: cowlib / gun (transitive: grpc -> gun -> cowlib) ----------------
+# Medium advisory left after #375 moved antd-elixir to grpc 1.0.5. Hermes's
+# source review found it unreachable through the SDK's default client path.
+# No fixed cowlib release confirmed yet. Tracked in V2-1637 item 4.
+# osv-scanner treats GHSA-w4f7-4cxr-rv3c as an alias of this id, so this
+# one entry covers both (a separate GHSA entry is reported as unused).
+
+[[IgnoredVulns]]
+id = "EEF-CVE-2026-43966"
+ignoreUntil = 2026-12-14
+reason = "cowlib advisory via gun (alias GHSA-w4f7-4cxr-rv3c); unreachable through antd-elixir's client path. V2-1637."

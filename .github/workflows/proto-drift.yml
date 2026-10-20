@@ -117,12 +117,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # grpc-swift 2.x (Package.swift) needs Swift 6; the generate script
+      # antd-swift needs Swift 6.1+ (SwiftNIO security floors in Package.swift;
+      # 6.2 is the newest setup-swift v2 knows). The generate script
       # builds protoc-gen-swift + protoc-gen-grpc-swift from the package's own
       # dependencies, so the plugin versions always match Package.resolved.
       - uses: swift-actions/setup-swift@v2
         with:
-          swift-version: "6.0"
+          swift-version: "6.2"
 
       - uses: arduino/setup-protoc@v3
         with:
