@@ -1216,6 +1216,26 @@ final class DataStreamTests: XCTestCase {
         }
     }
 
+    /// The envelope's `code` reaches the mapper on the streaming path too: a
+    /// 503 `CLOSE_GROUP_SHORTFALL` is a CloseGroupShortfallError, not the
+    /// ServiceUnavailableError its status alone would give.
+    func testDataStreamMapsCloseGroupShortfallCode() async throws {
+        StubURLProtocol.statuses["/v1/data/stream"] = 503
+        StubURLProtocol.rawRoutes["/v1/data/stream"] = Data(
+            #"{"error":"Close group shortfall: 3/7","code":"CLOSE_GROUP_SHORTFALL"}"#.utf8
+        )
+
+        let client = makeClient()
+        do {
+            let stream = try await client.dataStream(dataMap: "dm")
+            _ = try await collect(stream)
+            XCTFail("expected dataStream to throw on 503")
+        } catch let error as CloseGroupShortfallError {
+            XCTAssertEqual(error.message, "Close group shortfall: 3/7")
+            XCTAssertEqual(error.statusCode, 503)
+        }
+    }
+
     /// dataStreamPublic surfaces a non-2xx as the mapped error too.
     func testDataStreamPublicMapsErrorEnvelope() async throws {
         StubURLProtocol.statuses["/v1/data/public/0xBAD/stream"] = 502
