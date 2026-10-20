@@ -15,12 +15,12 @@ import SwiftProtobuf
 // incompatible with the version of SwiftProtobuf to which you are linking.
 // Please ensure that you are building against the same version of the API
 // that was used to generate this file.
-fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
+fileprivate nonisolated struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
   struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
   typealias Version = _2
 }
 
-public struct Antd_V1_ListPointerKeysRequest: Sendable {
+public nonisolated struct Antd_V1_ListPointerKeysRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -30,7 +30,7 @@ public struct Antd_V1_ListPointerKeysRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_ListPointerKeysResponse: Sendable {
+public nonisolated struct Antd_V1_ListPointerKeysResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -43,7 +43,7 @@ public struct Antd_V1_ListPointerKeysResponse: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_PointerKey: Sendable {
+public nonisolated struct Antd_V1_PointerKey: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -56,7 +56,7 @@ public struct Antd_V1_PointerKey: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_PointerWriteRequest: Sendable {
+public nonisolated struct Antd_V1_PointerWriteRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -75,7 +75,7 @@ public struct Antd_V1_PointerWriteRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_PointerWriteResponse: Sendable {
+public nonisolated struct Antd_V1_PointerWriteResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -91,7 +91,7 @@ public struct Antd_V1_PointerWriteResponse: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_PointerTransferRequest: Sendable {
+public nonisolated struct Antd_V1_PointerTransferRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -106,7 +106,7 @@ public struct Antd_V1_PointerTransferRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_PointerTransferResponse: Sendable {
+public nonisolated struct Antd_V1_PointerTransferResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -135,7 +135,7 @@ public struct Antd_V1_PointerTransferResponse: Sendable {
   fileprivate var _finality: Antd_V1_PointerFinality? = nil
 }
 
-public struct Antd_V1_GetPointerRequest: Sendable {
+public nonisolated struct Antd_V1_GetPointerRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -147,7 +147,7 @@ public struct Antd_V1_GetPointerRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_PointerRecord: Sendable {
+public nonisolated struct Antd_V1_PointerRecord: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -179,7 +179,7 @@ public struct Antd_V1_PointerRecord: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_ResolvePointerRequest: Sendable {
+public nonisolated struct Antd_V1_ResolvePointerRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -191,7 +191,7 @@ public struct Antd_V1_ResolvePointerRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_PointerResolved: Sendable {
+public nonisolated struct Antd_V1_PointerResolved: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -207,7 +207,7 @@ public struct Antd_V1_PointerResolved: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_PointerFinalityRequest: Sendable {
+public nonisolated struct Antd_V1_PointerFinalityRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -219,7 +219,7 @@ public struct Antd_V1_PointerFinalityRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_PointerFinalState: Sendable {
+public nonisolated struct Antd_V1_PointerFinalState: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -242,7 +242,7 @@ public struct Antd_V1_PointerFinalState: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_PointerFinality: @unchecked Sendable {
+public nonisolated struct Antd_V1_PointerFinality: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -314,7 +314,7 @@ public struct Antd_V1_PointerFinality: @unchecked Sendable {
   fileprivate var _storage = _StorageClass.defaultInstance
 }
 
-public struct Antd_V1_PointerControllerRequest: Sendable {
+public nonisolated struct Antd_V1_PointerControllerRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -326,7 +326,7 @@ public struct Antd_V1_PointerControllerRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_PointerController: Sendable {
+public nonisolated struct Antd_V1_PointerController: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -342,7 +342,7 @@ public struct Antd_V1_PointerController: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_PreparePointerRequest: Sendable {
+public nonisolated struct Antd_V1_PreparePointerRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -367,7 +367,7 @@ public struct Antd_V1_PreparePointerRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_PreparePointerResponse: Sendable {
+public nonisolated struct Antd_V1_PreparePointerResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -402,7 +402,7 @@ public struct Antd_V1_PreparePointerResponse: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_FinalizePointerRequest: Sendable {
+public nonisolated struct Antd_V1_FinalizePointerRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -418,7 +418,7 @@ public struct Antd_V1_FinalizePointerRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_FinalizePointerResponse: Sendable {
+public nonisolated struct Antd_V1_FinalizePointerResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -448,9 +448,9 @@ public struct Antd_V1_FinalizePointerResponse: Sendable {
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
-fileprivate let _protobuf_package = "antd.v1"
+fileprivate nonisolated let _protobuf_package = "antd.v1"
 
-extension Antd_V1_ListPointerKeysRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_ListPointerKeysRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ListPointerKeysRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
@@ -469,7 +469,7 @@ extension Antd_V1_ListPointerKeysRequest: SwiftProtobuf.Message, SwiftProtobuf._
   }
 }
 
-extension Antd_V1_ListPointerKeysResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_ListPointerKeysResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ListPointerKeysResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}keys\0")
 
@@ -499,7 +499,7 @@ extension Antd_V1_ListPointerKeysResponse: SwiftProtobuf.Message, SwiftProtobuf.
   }
 }
 
-extension Antd_V1_PointerKey: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PointerKey: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PointerKey"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}address\0")
 
@@ -529,7 +529,7 @@ extension Antd_V1_PointerKey: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
   }
 }
 
-extension Antd_V1_PointerWriteRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PointerWriteRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PointerWriteRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}owner\0\u{1}target\0\u{1}kind\0")
 
@@ -569,7 +569,7 @@ extension Antd_V1_PointerWriteRequest: SwiftProtobuf.Message, SwiftProtobuf._Mes
   }
 }
 
-extension Antd_V1_PointerWriteResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PointerWriteResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PointerWriteResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}address\0\u{3}state_id\0\u{1}counter\0")
 
@@ -609,7 +609,7 @@ extension Antd_V1_PointerWriteResponse: SwiftProtobuf.Message, SwiftProtobuf._Me
   }
 }
 
-extension Antd_V1_PointerTransferRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PointerTransferRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PointerTransferRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}owner\0\u{1}recipient\0")
 
@@ -644,7 +644,7 @@ extension Antd_V1_PointerTransferRequest: SwiftProtobuf.Message, SwiftProtobuf._
   }
 }
 
-extension Antd_V1_PointerTransferResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PointerTransferResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PointerTransferResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}address\0\u{3}state_id\0\u{1}finality\0\u{3}finality_error\0")
 
@@ -693,7 +693,7 @@ extension Antd_V1_PointerTransferResponse: SwiftProtobuf.Message, SwiftProtobuf.
   }
 }
 
-extension Antd_V1_GetPointerRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_GetPointerRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetPointerRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}address\0")
 
@@ -723,7 +723,7 @@ extension Antd_V1_GetPointerRequest: SwiftProtobuf.Message, SwiftProtobuf._Messa
   }
 }
 
-extension Antd_V1_PointerRecord: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PointerRecord: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PointerRecord"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}address\0\u{1}owner\0\u{1}counter\0\u{1}kind\0\u{3}kind_tag\0\u{1}target\0\u{3}state_id\0\u{3}is_final\0\u{3}transferred_to\0")
 
@@ -793,7 +793,7 @@ extension Antd_V1_PointerRecord: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
   }
 }
 
-extension Antd_V1_ResolvePointerRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_ResolvePointerRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ResolvePointerRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}address\0")
 
@@ -823,7 +823,7 @@ extension Antd_V1_ResolvePointerRequest: SwiftProtobuf.Message, SwiftProtobuf._M
   }
 }
 
-extension Antd_V1_PointerResolved: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PointerResolved: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PointerResolved"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}kind\0\u{3}kind_tag\0\u{1}target\0")
 
@@ -863,7 +863,7 @@ extension Antd_V1_PointerResolved: SwiftProtobuf.Message, SwiftProtobuf._Message
   }
 }
 
-extension Antd_V1_PointerFinalityRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PointerFinalityRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PointerFinalityRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}address\0")
 
@@ -893,7 +893,7 @@ extension Antd_V1_PointerFinalityRequest: SwiftProtobuf.Message, SwiftProtobuf._
   }
 }
 
-extension Antd_V1_PointerFinalState: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PointerFinalState: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PointerFinalState"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}state_id\0\u{1}kind\0\u{3}kind_tag\0\u{1}target\0\u{1}holders\0\u{3}transferred_to\0")
 
@@ -948,7 +948,7 @@ extension Antd_V1_PointerFinalState: SwiftProtobuf.Message, SwiftProtobuf._Messa
   }
 }
 
-extension Antd_V1_PointerFinality: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PointerFinality: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PointerFinality"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}address\0\u{1}group\0\u{1}answered\0\u{1}status\0\u{1}counter\0\u{1}state\0\u{1}states\0\u{1}majority\0\u{3}transferred_to\0")
 
@@ -1074,7 +1074,7 @@ extension Antd_V1_PointerFinality: SwiftProtobuf.Message, SwiftProtobuf._Message
   }
 }
 
-extension Antd_V1_PointerControllerRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PointerControllerRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PointerControllerRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}address\0")
 
@@ -1104,7 +1104,7 @@ extension Antd_V1_PointerControllerRequest: SwiftProtobuf.Message, SwiftProtobuf
   }
 }
 
-extension Antd_V1_PointerController: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PointerController: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PointerController"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}pointer\0\u{1}transfers\0\u{1}frozen\0")
 
@@ -1144,7 +1144,7 @@ extension Antd_V1_PointerController: SwiftProtobuf.Message, SwiftProtobuf._Messa
   }
 }
 
-extension Antd_V1_PreparePointerRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PreparePointerRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PreparePointerRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}owner\0\u{1}op\0\u{1}target\0\u{1}kind\0\u{1}recipient\0\u{3}include_signed_quotes\0")
 
@@ -1199,7 +1199,7 @@ extension Antd_V1_PreparePointerRequest: SwiftProtobuf.Message, SwiftProtobuf._M
   }
 }
 
-extension Antd_V1_PreparePointerResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PreparePointerResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PreparePointerResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}upload_id\0\u{1}op\0\u{1}address\0\u{3}state_id\0\u{1}counter\0\u{3}payment_type\0\u{1}payments\0\u{3}total_amount\0\u{3}payment_vault_address\0\u{3}payment_token_address\0\u{3}rpc_url\0\u{3}signed_quotes\0")
 
@@ -1284,7 +1284,7 @@ extension Antd_V1_PreparePointerResponse: SwiftProtobuf.Message, SwiftProtobuf._
   }
 }
 
-extension Antd_V1_FinalizePointerRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_FinalizePointerRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FinalizePointerRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}upload_id\0\u{3}tx_hashes\0")
 
@@ -1319,7 +1319,7 @@ extension Antd_V1_FinalizePointerRequest: SwiftProtobuf.Message, SwiftProtobuf._
   }
 }
 
-extension Antd_V1_FinalizePointerResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_FinalizePointerResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FinalizePointerResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}address\0\u{3}state_id\0\u{1}counter\0\u{1}finality\0")
 
