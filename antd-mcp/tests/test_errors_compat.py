@@ -140,3 +140,13 @@ def test_format_error_without_retention_known_attribute():
     del old_retryable.retention_known
     payload = errors.format_error(old_retryable)
     assert (payload["retryable"], payload["retention_known"]) == (True, True)
+
+
+def test_service_unavailable_maps_to_its_own_code_with_a_hint():
+    errors = importlib.import_module("antd_mcp.errors")
+    payload = errors.format_error(
+        antd_exceptions.ServiceUnavailableError("wallet not configured", 503)
+    )
+    assert payload["error"] == "SERVICE_UNAVAILABLE"
+    assert payload["status_code"] == 503
+    assert "try again later" in payload["hint"]
