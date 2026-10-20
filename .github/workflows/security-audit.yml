@@ -18,7 +18,11 @@ name: Security audit
 #   resolve         Most SDKs deliberately don't commit lockfiles (they're
 #                   libraries). This job generates the lockfile a fresh
 #                   install would get today: Dart, PHP, Ruby, Python, Gradle
-#                   (Java, Kotlin, Android) and Swift.
+#                   (antd-java, antd-kotlin, ffi/android, ffi/kotlin) and
+#                   Swift. ffi/python and ffi/swift declare no package
+#                   dependencies (their native library is ffi/rust, which
+#                   cargo-audit and osv-scanner cover), so there is nothing
+#                   to resolve for them.
 #   osv-scanner     Scans every committed and generated lockfile against
 #                   OSV, which also carries GitHub-only advisories that
 #                   RustSec / cargo audit miss. Blocking for everything
@@ -176,35 +180,13 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
+      # Exercises every exit path of the audit script against a stub dotnet,
+      # including restore/listing failures that must not pass as clean.
+      - name: Test the NuGet audit script
+        run: bash .github/security-audit/test-nuget-audit.sh
+
       - name: Vulnerable packages (transitive included)
-        run: |
-          set -euo pipefail
-          blocking=(
-            antd-csharp/Antd.Sdk/Antd.Sdk.csproj
-            antd-csharp/Antd.Sdk.Tests/Antd.Sdk.Tests.csproj
-            ffi/csharp/AntFfi/AntFfi.csproj
-            ffi/csharp/AntFfi.Tests/AntFfi.Tests.csproj
-          )
-          report_only=(
-            antd-csharp/Examples/Examples.csproj
-          )
-          check() {
-            dotnet restore "$1" >/dev/null
-            dotnet list "$1" package --vulnerable --include-transitive | tee /tmp/nuget.txt
-            ! grep -q "has the following vulnerable packages" /tmp/nuget.txt
-          }
-          failed=0
-          for p in "${blocking[@]}"; do
-            echo "::group::$p"
-            check "$p" || { echo "::error file=$p::vulnerable NuGet packages"; failed=1; }
-            echo "::endgroup::"
-          done
-          for p in "${report_only[@]}"; do
-            echo "::group::$p (report only)"
-            check "$p" || echo "::warning file=$p::vulnerable NuGet packages (examples are report-only)"
-            echo "::endgroup::"
-          done
-          exit "$failed"
+        run: bash .github/security-audit/nuget-audit.sh
 
   resolve:
     name: Resolve lockfiles (${{ matrix.ecosystem }})
@@ -273,14 +255,18 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # ffi/android has no wrapper; ffi-ci.yml builds it with Gradle 8.9.
+      # ffi/android and ffi/kotlin have no wrapper; ffi-ci.yml builds
+      # ffi/android with Gradle 8.9.
       - if: matrix.ecosystem == 'gradle'
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
 
+      # Four separate Gradle builds; none includes another, so each is locked
+      # on its own. ffi/kotlin is the standalone JVM UniFFI binding (JNA,
+      # coroutines).
       - if: matrix.ecosystem == 'gradle'
-        name: Gradle dependency locking (antd-java, antd-kotlin, ffi/android)
+        name: Gradle dependency locking (antd-java, antd-kotlin, ffi/android, ffi/kotlin)
         env:
           INIT: ${{ github.workspace }}/.github/security-audit/lock-all.init.gradle
         run: |
@@ -289,6 +275,13 @@ jobs:
           (cd antd-kotlin && ../antd-java/gradlew --no-daemon --console=plain -p . --init-script "$INIT" resolveAndLockAll --write-locks)
           (cd ffi/android && gradle --no-daemon --console=plain --init-script "$INIT" resolveAndLockAll --write-locks \
             -PauditConfigurations=releaseRuntimeClasspath)
+          (cd ffi/kotlin && gradle --no-daemon --console=plain --init-script "$INIT" resolveAndLockAll --write-locks)
+          # Each Gradle root must have produced a lockfile; a silently
+          # skipped root would mean an unscanned SDK.
+          for f in antd-java/gradle.lockfile antd-kotlin/lib/gradle.lockfile \
+                   ffi/android/gradle.lockfile ffi/kotlin/AntFfi/gradle.lockfile; do
+            test -s "$f" || { echo "::error file=$f::expected Gradle lockfile was not generated"; exit 1; }
+          done
 
       # Copy every generated lockfile under resolved/, keeping its repo path,
       # so the osv-scanner job can lay them back over a fresh checkout.
@@ -352,6 +345,37 @@ jobs:
           pattern: resolved-*
           merge-multiple: true
           path: .
+
+      # A resolve job that silently produced fewer lockfiles would leave an
+      # SDK unscanned while the scan still passed, so every expected source
+      # is checked. Add new SDKs/manifests here.
+      - name: Check lockfile coverage
+        run: |
+          set -euo pipefail
+          expected=(
+            # committed
+            antd/Cargo.lock antd-rust/Cargo.lock ffi/rust/Cargo.lock ffi/node/Cargo.lock
+            antd-go/go.mod antd-js/package-lock.json ffi/node/package-lock.json antd-elixir/mix.lock
+            # generated by the resolve jobs
+            antd-dart/pubspec.lock antd-php/composer.lock antd-ruby/Gemfile.lock
+            antd-py/requirements.txt antd-mcp/requirements.txt ant-dev/requirements.txt
+            antd-java/gradle.lockfile antd-kotlin/lib/gradle.lockfile
+            ffi/android/gradle.lockfile ffi/kotlin/AntFfi/gradle.lockfile
+            antd-swift/Package.resolved
+          )
+          missing=0
+          {
+            echo "## Lockfiles scanned (${#expected[@]} expected)"
+            echo
+            for f in "${expected[@]}"; do
+              if [ -s "$f" ]; then echo "- \`$f\`"; else echo "- **MISSING** \`$f\`"; missing=1; fi
+            done
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          for f in "${expected[@]}"; do
+            [ -s "$f" ] || echo "::error file=$f::expected lockfile is missing, so this SDK would not be scanned"
+          done
+          exit "$missing"
 
       - name: Install osv-scanner
         env:
