@@ -199,7 +199,7 @@ catch (AntdException ex)
 | `BadRequestException` | 400 | `INVALID_ARGUMENT` | Invalid parameters |
 | `PaymentException` | 402 | `FAILED_PRECONDITION` | Payment issue |
 | `NotFoundException` | 404 | `NOT_FOUND` | Not found |
-| `AlreadyExistsException` | 409 | `ALREADY_EXISTS` | Already exists |
+| `AlreadyExistsException` | 409 (`code: "ALREADY_EXISTS"`) | `ALREADY_EXISTS` | Already exists |
 | `ForkException` | 409 | `ABORTED` (non-partial-upload) | Version conflict |
 | `TooLargeException` | 413 | `RESOURCE_EXHAUSTED` | Too large |
 | `InternalException` | 500 | `INTERNAL` | Server error |
@@ -216,9 +216,13 @@ Over gRPC the four pointer-era errors share status codes with older ones, so the
 
 These are new subclasses in the existing hierarchy, so no `catch` stops compiling, but some errors now arrive as a more specific type:
 
-- **REST 409s** with `POINTER_FINAL`, `POINTER_FORKED` or `CONFLICT` were `ForkException`; they are now the subclasses above, so `catch (ForkException)` still matches. A 409 `ALREADY_EXISTS` stays a plain `ForkException`.
+- **REST 409s** with `POINTER_FINAL`, `POINTER_FORKED` or `CONFLICT` were `ForkException`; they are now the subclasses above, so `catch (ForkException)` still matches. A 409 `ALREADY_EXISTS` is covered under the next heading.
 - **`CLOSE_GROUP_SHORTFALL`** is not only for pointers: a daemon with the pointer API reports a close group that fell short on any call (a chunk store, say) as a 503 / `UNAVAILABLE`, which an older daemon sent as a 500. It is now `CloseGroupShortfallException`, which extends `AntdException` directly, so it no longer matches `catch (ServiceUnavailableException)` over REST or `catch (NetworkException)` over gRPC.
 - **gRPC `FAILED_PRECONDITION`** tagged `POINTER_FINAL` / `POINTER_FORKED` is no longer a `PaymentException`, and a tagged `ABORTED` `CONFLICT` is a `ConflictException` (still a `ForkException`).
+
+### Upgrading: REST `ALREADY_EXISTS`
+
+Over REST, a 409 whose `code` is `ALREADY_EXISTS` (creating a pointer that exists, storing data that exists) now throws `AlreadyExistsException`, as gRPC always has. It used to be a `ForkException`. `AlreadyExistsException` extends `AntdException` directly, not `ForkException`, so a `catch (ForkException)` that relied on catching it no longer does: catch `AlreadyExistsException` as well. Every other 409 mapping is unchanged.
 
 ### Partial uploads
 

@@ -568,16 +568,17 @@ public sealed class PointerRestTests : IDisposable
     }
 
     [Fact]
-    public async Task Create_AlreadyExists_KeepsTheExisting409Mapping()
+    public async Task Create_AlreadyExists_IsAlreadyExistsException()
     {
-        // A REST 409 without a pointer code has always been a ForkException;
-        // ALREADY_EXISTS keeps that mapping.
+        // A REST 409 with code ALREADY_EXISTS maps to AlreadyExistsException,
+        // as gRPC's ALREADY_EXISTS does. It is not a ForkException.
         _server.Route("POST", "/v1/pointers", 409, ErrorBody("ALREADY_EXISTS", "Already exists: pointer"));
         _server.Start();
 
-        var ex = await Assert.ThrowsAsync<ForkException>(
+        var ex = await Assert.ThrowsAsync<AlreadyExistsException>(
             () => _client.PointerCreateAsync(PointerFixtures.Owner, PointerFixtures.Target));
-        Assert.IsType<ForkException>(ex);
+        Assert.Equal(409, ex.StatusCode);
+        Assert.IsNotAssignableFrom<ForkException>(ex);
     }
 
     [Theory]
@@ -629,6 +630,15 @@ public sealed class PointerRestTests : IDisposable
         var ex = ExceptionMapping.FromHttpStatus((HttpStatusCode)status, body);
         Assert.IsType(expected, ex);
         Assert.Equal(body, ex.Message);
+    }
+
+    [Fact]
+    public void FromHttpStatus_409AlreadyExists_IsAlreadyExistsException()
+    {
+        var ex = ExceptionMapping.FromHttpStatus(HttpStatusCode.Conflict, "{\"error\":\"Already exists: x\",\"code\":\"ALREADY_EXISTS\"}");
+        Assert.IsType<AlreadyExistsException>(ex);
+        Assert.Equal("Already exists: x", ex.Message);
+        Assert.Equal(409, ex.StatusCode);
     }
 }
 
