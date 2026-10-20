@@ -20,12 +20,12 @@ import SwiftProtobuf
 // incompatible with the version of SwiftProtobuf to which you are linking.
 // Please ensure that you are building against the same version of the API
 // that was used to generate this file.
-fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
+fileprivate nonisolated struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
   struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
   typealias Version = _2
 }
 
-public struct Antd_V1_Cost: Sendable {
+public nonisolated struct Antd_V1_Cost: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -50,7 +50,7 @@ public struct Antd_V1_Cost: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_Address: Sendable {
+public nonisolated struct Antd_V1_Address: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -62,7 +62,7 @@ public struct Antd_V1_Address: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_PublicKeyProto: Sendable {
+public nonisolated struct Antd_V1_PublicKeyProto: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -74,7 +74,7 @@ public struct Antd_V1_PublicKeyProto: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_SecretKeyProto: Sendable {
+public nonisolated struct Antd_V1_SecretKeyProto: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -88,7 +88,7 @@ public struct Antd_V1_SecretKeyProto: Sendable {
 
 /// External-signer per-quote payment entry. Shared by `UploadService` (file +
 /// data prepare, wave-batch path) and `ChunkService.PrepareChunk`.
-public struct Antd_V1_PaymentEntry: Sendable {
+public nonisolated struct Antd_V1_PaymentEntry: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -112,7 +112,7 @@ public struct Antd_V1_PaymentEntry: Sendable {
 /// ADR-0004 commitment sidecar the quote pins. Consumers treat both as opaque
 /// bytes — only antd (`VerifyService.VerifyQuotes`) parses them. Shared by
 /// `UploadService` (wave-batch prepares) and `ChunkService.PrepareChunk`.
-public struct Antd_V1_SignedQuoteEntry: Sendable {
+public nonisolated struct Antd_V1_SignedQuoteEntry: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -135,9 +135,9 @@ public struct Antd_V1_SignedQuoteEntry: Sendable {
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
-fileprivate let _protobuf_package = "antd.v1"
+fileprivate nonisolated let _protobuf_package = "antd.v1"
 
-extension Antd_V1_Cost: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_Cost: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Cost"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}atto_tokens\0\u{3}file_size\0\u{3}chunk_count\0\u{3}estimated_gas_cost_wei\0\u{3}payment_mode\0")
 
@@ -187,7 +187,7 @@ extension Antd_V1_Cost: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementat
   }
 }
 
-extension Antd_V1_Address: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_Address: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Address"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}hex\0")
 
@@ -217,7 +217,7 @@ extension Antd_V1_Address: SwiftProtobuf.Message, SwiftProtobuf._MessageImplemen
   }
 }
 
-extension Antd_V1_PublicKeyProto: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PublicKeyProto: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PublicKeyProto"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}hex\0")
 
@@ -247,7 +247,7 @@ extension Antd_V1_PublicKeyProto: SwiftProtobuf.Message, SwiftProtobuf._MessageI
   }
 }
 
-extension Antd_V1_SecretKeyProto: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_SecretKeyProto: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SecretKeyProto"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}hex\0")
 
@@ -277,7 +277,7 @@ extension Antd_V1_SecretKeyProto: SwiftProtobuf.Message, SwiftProtobuf._MessageI
   }
 }
 
-extension Antd_V1_PaymentEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PaymentEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PaymentEntry"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}quote_hash\0\u{3}rewards_address\0\u{1}amount\0")
 
@@ -317,7 +317,7 @@ extension Antd_V1_PaymentEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
   }
 }
 
-extension Antd_V1_SignedQuoteEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_SignedQuoteEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SignedQuoteEntry"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}quote_hash\0\u{1}quote\0\u{3}commitment_sidecar\0")
 

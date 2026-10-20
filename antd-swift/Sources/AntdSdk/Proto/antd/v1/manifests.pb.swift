@@ -20,13 +20,13 @@ import SwiftProtobuf
 // incompatible with the version of SwiftProtobuf to which you are linking.
 // Please ensure that you are building against the same version of the API
 // that was used to generate this file.
-fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
+fileprivate nonisolated struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
   struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
   typealias Version = _2
 }
 
 /// One file. Exactly one of `data_map` or `address`.
-public struct Antd_V1_ManifestEntryInput: Sendable {
+public nonisolated struct Antd_V1_ManifestEntryInput: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -75,7 +75,7 @@ public struct Antd_V1_ManifestEntryInput: Sendable {
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-  public enum OneOf_Source: Equatable, Sendable {
+  public nonisolated enum OneOf_Source: Equatable, Sendable {
     /// Hex DataMap, in the form the upload routes return. Embedded.
     case dataMap(String)
     /// Hex address (32 bytes) of a public file's DataMap.
@@ -89,7 +89,7 @@ public struct Antd_V1_ManifestEntryInput: Sendable {
   fileprivate var _size: UInt64? = nil
 }
 
-public struct Antd_V1_BuildManifestRequest: Sendable {
+public nonisolated struct Antd_V1_BuildManifestRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -130,7 +130,7 @@ public struct Antd_V1_BuildManifestRequest: Sendable {
 }
 
 /// What a manifest says about one entry.
-public struct Antd_V1_ManifestEntryInfo: Sendable {
+public nonisolated struct Antd_V1_ManifestEntryInfo: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -190,7 +190,7 @@ public struct Antd_V1_ManifestEntryInfo: Sendable {
   fileprivate var _exactSize: UInt64? = nil
 }
 
-public struct Antd_V1_BuildManifestResponse: Sendable {
+public nonisolated struct Antd_V1_BuildManifestResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -210,7 +210,7 @@ public struct Antd_V1_BuildManifestResponse: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_DecodeManifestRequest: Sendable {
+public nonisolated struct Antd_V1_DecodeManifestRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -243,7 +243,7 @@ public struct Antd_V1_DecodeManifestRequest: Sendable {
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-  public enum OneOf_Input: Equatable, Sendable {
+  public nonisolated enum OneOf_Input: Equatable, Sendable {
     /// `.ant` bytes.
     case manifest(Data)
     /// An `ant://` manifest link, file link, or bare 64-hex address.
@@ -254,7 +254,7 @@ public struct Antd_V1_DecodeManifestRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_DecodeManifestResponse: Sendable {
+public nonisolated struct Antd_V1_DecodeManifestResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -288,9 +288,9 @@ public struct Antd_V1_DecodeManifestResponse: Sendable {
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
-fileprivate let _protobuf_package = "antd.v1"
+fileprivate nonisolated let _protobuf_package = "antd.v1"
 
-extension Antd_V1_ManifestEntryInput: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_ManifestEntryInput: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ManifestEntryInput"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}size\0\u{3}data_map\0\u{1}address\0")
 
@@ -357,7 +357,7 @@ extension Antd_V1_ManifestEntryInput: SwiftProtobuf.Message, SwiftProtobuf._Mess
   }
 }
 
-extension Antd_V1_BuildManifestRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_BuildManifestRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".BuildManifestRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{3}torrent_info_hashes\0\u{3}embed_roots\0\u{1}entries\0")
 
@@ -406,7 +406,7 @@ extension Antd_V1_BuildManifestRequest: SwiftProtobuf.Message, SwiftProtobuf._Me
   }
 }
 
-extension Antd_V1_ManifestEntryInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_ManifestEntryInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ManifestEntryInfo"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}effective_name\0\u{1}path\0\u{1}size\0\u{1}kind\0\u{3}content_address\0\u{3}data_map\0\u{3}exact_size\0\u{1}error\0")
 
@@ -475,7 +475,7 @@ extension Antd_V1_ManifestEntryInfo: SwiftProtobuf.Message, SwiftProtobuf._Messa
   }
 }
 
-extension Antd_V1_BuildManifestResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_BuildManifestResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".BuildManifestResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}manifest\0\u{1}link\0\u{1}entries\0")
 
@@ -515,7 +515,7 @@ extension Antd_V1_BuildManifestResponse: SwiftProtobuf.Message, SwiftProtobuf._M
   }
 }
 
-extension Antd_V1_DecodeManifestRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_DecodeManifestRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".DecodeManifestRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}manifest\0\u{1}link\0\u{1}resolve\0")
 
@@ -577,7 +577,7 @@ extension Antd_V1_DecodeManifestRequest: SwiftProtobuf.Message, SwiftProtobuf._M
   }
 }
 
-extension Antd_V1_DecodeManifestResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_DecodeManifestResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".DecodeManifestResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}source\0\u{1}name\0\u{3}torrent_info_hash_v1\0\u{3}torrent_info_hash_v2\0\u{1}entries\0")
 

@@ -20,12 +20,12 @@ import SwiftProtobuf
 // incompatible with the version of SwiftProtobuf to which you are linking.
 // Please ensure that you are building against the same version of the API
 // that was used to generate this file.
-fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
+fileprivate nonisolated struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
   struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
   typealias Version = _2
 }
 
-public struct Antd_V1_PrepareFileUploadRequest: Sendable {
+public nonisolated struct Antd_V1_PrepareFileUploadRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -51,7 +51,7 @@ public struct Antd_V1_PrepareFileUploadRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_PrepareDataUploadRequest: Sendable {
+public nonisolated struct Antd_V1_PrepareDataUploadRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -70,7 +70,7 @@ public struct Antd_V1_PrepareDataUploadRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_PrepareUploadResponse: Sendable {
+public nonisolated struct Antd_V1_PrepareUploadResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -144,7 +144,7 @@ public struct Antd_V1_PrepareUploadResponse: Sendable {
 
 /// One merkle payment batch: everything the external signer needs for a
 /// single `payForMerkleTree2()` call.
-public struct Antd_V1_MerkleBatchEntry: Sendable {
+public nonisolated struct Antd_V1_MerkleBatchEntry: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -164,7 +164,7 @@ public struct Antd_V1_MerkleBatchEntry: Sendable {
 }
 
 /// A pool commitment entry for the merkle payment contract.
-public struct Antd_V1_PoolCommitmentEntry: Sendable {
+public nonisolated struct Antd_V1_PoolCommitmentEntry: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -181,7 +181,7 @@ public struct Antd_V1_PoolCommitmentEntry: Sendable {
 }
 
 /// A candidate node: rewards address + price (amount).
-public struct Antd_V1_CandidateNodeEntry: Sendable {
+public nonisolated struct Antd_V1_CandidateNodeEntry: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -208,7 +208,7 @@ public struct Antd_V1_CandidateNodeEntry: Sendable {
 /// payment fields are ignored on such a resume. Bound the retry loop: a
 /// persistent failure comes back as ABORTED on every call, and the retained
 /// attempt expires with the daemon's pending-upload TTL.
-public struct Antd_V1_FinalizeUploadRequest: Sendable {
+public nonisolated struct Antd_V1_FinalizeUploadRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -251,7 +251,7 @@ public struct Antd_V1_FinalizeUploadRequest: Sendable {
   public init() {}
 }
 
-public struct Antd_V1_FinalizeUploadResponse: Sendable {
+public nonisolated struct Antd_V1_FinalizeUploadResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -281,9 +281,9 @@ public struct Antd_V1_FinalizeUploadResponse: Sendable {
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
-fileprivate let _protobuf_package = "antd.v1"
+fileprivate nonisolated let _protobuf_package = "antd.v1"
 
-extension Antd_V1_PrepareFileUploadRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PrepareFileUploadRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PrepareFileUploadRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}visibility\0\u{3}include_signed_quotes\0")
 
@@ -323,7 +323,7 @@ extension Antd_V1_PrepareFileUploadRequest: SwiftProtobuf.Message, SwiftProtobuf
   }
 }
 
-extension Antd_V1_PrepareDataUploadRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PrepareDataUploadRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PrepareDataUploadRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}data\0\u{1}visibility\0\u{3}include_signed_quotes\0")
 
@@ -363,7 +363,7 @@ extension Antd_V1_PrepareDataUploadRequest: SwiftProtobuf.Message, SwiftProtobuf
   }
 }
 
-extension Antd_V1_PrepareUploadResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PrepareUploadResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PrepareUploadResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}upload_id\0\u{3}payment_type\0\u{1}payments\0\u{1}depth\0\u{3}pool_commitments\0\u{3}merkle_payment_timestamp\0\u{3}total_amount\0\u{3}payment_vault_address\0\u{3}payment_token_address\0\u{3}rpc_url\0\u{3}merkle_batches\0\u{3}signed_quotes\0\u{3}total_chunks\0\u{3}already_stored_count\0")
 
@@ -458,7 +458,7 @@ extension Antd_V1_PrepareUploadResponse: SwiftProtobuf.Message, SwiftProtobuf._M
   }
 }
 
-extension Antd_V1_MerkleBatchEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_MerkleBatchEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".MerkleBatchEntry"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}depth\0\u{3}pool_commitments\0\u{3}merkle_payment_timestamp\0")
 
@@ -498,7 +498,7 @@ extension Antd_V1_MerkleBatchEntry: SwiftProtobuf.Message, SwiftProtobuf._Messag
   }
 }
 
-extension Antd_V1_PoolCommitmentEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_PoolCommitmentEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PoolCommitmentEntry"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}pool_hash\0\u{1}candidates\0")
 
@@ -533,7 +533,7 @@ extension Antd_V1_PoolCommitmentEntry: SwiftProtobuf.Message, SwiftProtobuf._Mes
   }
 }
 
-extension Antd_V1_CandidateNodeEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_CandidateNodeEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".CandidateNodeEntry"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}rewards_address\0\u{1}amount\0")
 
@@ -568,7 +568,7 @@ extension Antd_V1_CandidateNodeEntry: SwiftProtobuf.Message, SwiftProtobuf._Mess
   }
 }
 
-extension Antd_V1_FinalizeUploadRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_FinalizeUploadRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FinalizeUploadRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}upload_id\0\u{3}tx_hashes\0\u{3}winner_pool_hash\0\u{3}store_data_map\0\u{3}winner_pool_hashes\0")
 
@@ -618,7 +618,7 @@ extension Antd_V1_FinalizeUploadRequest: SwiftProtobuf.Message, SwiftProtobuf._M
   }
 }
 
-extension Antd_V1_FinalizeUploadResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Antd_V1_FinalizeUploadResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FinalizeUploadResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}data_map\0\u{1}address\0\u{3}data_map_address\0\u{3}chunks_stored\0")
 
