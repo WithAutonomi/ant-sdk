@@ -6,7 +6,7 @@ toolchain go1.26.9
 
 require (
 	github.com/ethereum/go-ethereum v1.17.3
-	google.golang.org/grpc v1.83.1
+	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.11
 )
 
