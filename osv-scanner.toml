@@ -82,6 +82,11 @@ id = "RUSTSEC-2024-0449"
 ignoreUntil = 2027-01-18
 reason = "unsafe-libyaml unmaintained (informational); transitive (ffi). V2-1582."
 
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0374"
+ignoreUntil = 2027-01-18
+reason = "basic-toml unmaintained (informational); build-time only, via uniffi -> uniffi_bindgen -> askama_derive (ffi). V2-1582."
+
 # --- Go: golang.org/x/crypto/openpgp ----------------------------------------
 # The openpgp package is deprecated and will not be fixed. antd-go does not
 # import it (govulncheck: not called, not imported); x/crypto is only required
@@ -96,13 +101,10 @@ reason = "x/crypto/openpgp is unmaintained with no fix; antd-go does not import 
 # Medium advisory left after #375 moved antd-elixir to grpc 1.0.5. Hermes's
 # source review found it unreachable through the SDK's default client path.
 # No fixed cowlib release confirmed yet. Tracked in V2-1637 item 4.
+# osv-scanner treats GHSA-w4f7-4cxr-rv3c as an alias of this id, so this
+# one entry covers both (a separate GHSA entry is reported as unused).
 
 [[IgnoredVulns]]
 id = "EEF-CVE-2026-43966"
 ignoreUntil = 2026-12-14
-reason = "cowlib advisory via gun; unreachable through antd-elixir's client path. V2-1637."
-
-[[IgnoredVulns]]
-id = "GHSA-w4f7-4cxr-rv3c"
-ignoreUntil = 2026-12-14
-reason = "Same cowlib advisory as EEF-CVE-2026-43966 (GitHub id, reported against gun). V2-1637."
+reason = "cowlib advisory via gun (alias GHSA-w4f7-4cxr-rv3c); unreachable through antd-elixir's client path. V2-1637."
