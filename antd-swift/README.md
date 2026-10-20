@@ -18,7 +18,7 @@ dependencies: [
 
 ## Prerequisites
 
-- Swift 5.9+ / Xcode 15+
+- Swift 6.1+ / Xcode 16.3+ (SwiftNIO's security fixes need Swift 6.1; see `Package.swift`)
 - macOS 13+ (for REST/gRPC client)
 - A running `antd` daemon (see [ant-sdk README](../README.md))
 

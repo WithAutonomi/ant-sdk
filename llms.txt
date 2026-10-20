@@ -18,7 +18,7 @@ data = client.data_get_public(result.address)
 - [Python SDK](antd-py/) — `pip install antd` — REST + gRPC, sync + async
 - [C# SDK](antd-csharp/Antd.Sdk/) — `dotnet add package Antd.Sdk` — REST + gRPC, async
 - [Kotlin SDK](antd-kotlin/) — REST + gRPC, coroutine-based async (JDK 17+)
-- [Swift SDK](antd-swift/) — REST + gRPC, async/await (Swift 5.9+, macOS only)
+- [Swift SDK](antd-swift/) — REST + gRPC, async/await (Swift 6.1+, macOS only)
 - [Ruby SDK](antd-ruby/) — `gem install antd` — REST + gRPC, sync (Ruby 3.0+)
 - [PHP SDK](antd-php/) — `composer require autonomi/antd` — REST, sync + async (PHP 8.2+)
 - [Dart SDK](antd-dart/) — `dart pub add antd_client` — REST + gRPC, async (Dart 3.0+)
