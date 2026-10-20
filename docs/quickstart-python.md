@@ -64,11 +64,11 @@ Encrypted data — only accessible with the data map.
 
 ```python
 # Store (self-encrypting)
-result = client.data_put_private(b"secret message")
-data_map = result.address  # Keep this secret!
+result = client.data_put(b"secret message")
+data_map = result.data_map  # Keep this secret!
 
 # Retrieve (decrypt)
-data = client.data_get_private(data_map)
+data = client.data_get(data_map)
 print(data.decode())
 ```
 
@@ -76,11 +76,11 @@ print(data.decode())
 
 ```python
 # Upload a file
-result = client.file_upload_public("/path/to/file.txt")
+result = client.file_put_public("/path/to/file.txt")
 print(f"File address: {result.address}")
 
 # Download a file
-client.file_download_public(result.address, "/path/to/output.txt")
+client.file_get_public(result.address, "/path/to/output.txt")
 
 # Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
 est = client.file_cost("/path/to/file.txt")

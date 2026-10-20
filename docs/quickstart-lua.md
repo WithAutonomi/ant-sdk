@@ -75,12 +75,12 @@ Encrypted data -- only accessible with the data map.
 
 ```lua
 -- Store (self-encrypting)
-local result, err = client:data_put_private("secret message")
+local result, err = client:data_put("secret message")
 if err then error(err) end
-local data_map = result.address  -- Keep this secret!
+local data_map = result.data_map  -- Keep this secret!
 
 -- Retrieve (decrypt)
-local data, err = client:data_get_private(data_map)
+local data, err = client:data_get(data_map)
 if err then error(err) end
 print(data)
 ```
@@ -89,12 +89,12 @@ print(data)
 
 ```lua
 -- Upload a file
-local result, err = client:file_upload_public("/path/to/file.txt")
+local result, err = client:file_put_public("/path/to/file.txt")
 if err then error(err) end
 print("File address: " .. result.address)
 
 -- Download a file
-local ok, err = client:file_download_public(result.address, "/path/to/output.txt")
+local ok, err = client:file_get_public(result.address, "/path/to/output.txt")
 if err then error(err) end
 
 -- Cost estimation — returns a table with size, chunks, gas, payment mode

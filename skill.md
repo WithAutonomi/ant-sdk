@@ -16,7 +16,7 @@ App  →  SDK  →  antd daemon (localhost)  →  Autonomi Network
 
 For detailed API signatures and endpoint documentation, see:
 - **[llms.txt](llms.txt)** — concise overview of all REST endpoints, gRPC services, error codes, and SDK links
-- **[llms-full.txt](llms-full.txt)** — complete reference with method signatures for all 12 languages, request/response formats, and runnable examples
+- **[llms-full.txt](llms-full.txt)** — complete reference with method signatures for all 15 languages, request/response formats, and runnable examples
 
 ## Choosing a Language
 
@@ -92,10 +92,10 @@ All write operations accept an optional `payment_mode` parameter: `"auto"` (defa
 Store encrypted data that only you can read.
 
 ```python
-result = client.data_put_private(b"secret message")
-print(f"Data map: {result.address}")
+result = client.data_put(b"secret message")
+print(f"Data map: {result.data_map}")
 
-data = client.data_get_private(result.address)
+data = client.data_get(result.data_map)
 ```
 
 **When to suggest this:** Developer wants encrypted storage that only they can access.
@@ -250,8 +250,8 @@ When a developer asks to build something, follow this sequence:
 ## Reference
 
 - [llms.txt](llms.txt) — REST endpoints, gRPC services, error codes, SDK links
-- [llms-full.txt](llms-full.txt) — complete method signatures for all 12 languages, request/response formats, runnable examples
+- [llms-full.txt](llms-full.txt) — complete method signatures for all 15 languages, request/response formats, runnable examples
 - [docs/architecture.md](docs/architecture.md) — full mental model, data primitive deep-dive, payment model, design patterns
-- [docs/tutorial-store-retrieve.md](docs/tutorial-store-retrieve.md) — store text, files, private data, chunks (all 12 languages)
+- [docs/tutorial-store-retrieve.md](docs/tutorial-store-retrieve.md) — store text, files, private data, chunks (Python, C#, Kotlin and Swift)
 - [docs/tutorial-pointers.md](docs/tutorial-pointers.md) — point at a public file, update it, check finality, transfer, external signer
 - [docs/tutorial-manifests.md](docs/tutorial-manifests.md) — share a set of files as one `ant://manifest/` link, decode it, download each entry

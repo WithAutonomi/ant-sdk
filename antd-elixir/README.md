@@ -143,8 +143,8 @@ callers that pass `return_headers: true`; every other call behaves as before.
 Each pointer function takes a `:timeout` option in milliseconds (default 5
 minutes, since a write quotes, pays and stores before it answers).
 
-> **Note:** Wallet operations (address, balance, approve) and external-signer
-> two-phase upload are available via REST only.
+> **Note:** The gRPC client covers wallet operations (address, balance, approve)
+> and the external-signer two-phase upload, like REST.
 
 ## Prerequisites
 

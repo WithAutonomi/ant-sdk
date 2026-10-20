@@ -104,11 +104,11 @@ std::vector<uint8_t> secret(
     std::string_view("secret message").begin(),
     std::string_view("secret message").end()
 );
-auto result = client.data_put_private(secret);
-auto data_map = result.address; // Keep this secret!
+auto result = client.data_put(secret);
+auto data_map = result.data_map; // Keep this secret!
 
 // Retrieve (decrypt)
-auto data = client.data_get_private(data_map);
+auto data = client.data_get(data_map);
 std::string text(data.begin(), data.end());
 std::println("{}", text);
 ```
@@ -117,11 +117,11 @@ std::println("{}", text);
 
 ```cpp
 // Upload a file
-auto result = client.file_upload_public("/path/to/file.txt");
+auto result = client.file_put_public("/path/to/file.txt");
 std::println("File address: {}", result.address);
 
 // Download a file
-client.file_download_public(result.address, "/path/to/output.txt");
+client.file_get_public(result.address, "/path/to/output.txt");
 
 // Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
 auto est = client.file_cost("/path/to/file.txt");

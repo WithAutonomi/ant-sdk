@@ -101,11 +101,11 @@ System.out.println("Estimate: " + est.fileSize() + " bytes in " + est.chunkCount
 ```java
 // Store (self-encrypting)
 byte[] secret = "secret message".getBytes(StandardCharsets.UTF_8);
-var result = client.dataPutPrivate(secret);
-String dataMap = result.address(); // Keep this secret!
+var result = client.dataPut(secret);
+String dataMap = result.dataMap(); // Keep this secret!
 
 // Retrieve (decrypt)
-byte[] data = client.dataGetPrivate(dataMap);
+byte[] data = client.dataGet(dataMap);
 System.out.println(new String(data, StandardCharsets.UTF_8));
 ```
 
@@ -113,11 +113,11 @@ System.out.println(new String(data, StandardCharsets.UTF_8));
 
 ```java
 // Upload a file
-var result = client.fileUploadPublic("/path/to/file.txt");
+var result = client.filePutPublic("/path/to/file.txt");
 System.out.println("File address: " + result.address());
 
 // Download a file
-client.fileDownloadPublic(result.address(), "/path/to/output.txt");
+client.fileGetPublic(result.address(), "/path/to/output.txt");
 
 // Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
 UploadCostEstimate est = client.fileCost("/path/to/file.txt");

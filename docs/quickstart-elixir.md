@@ -77,11 +77,11 @@ Encrypted data -- only accessible with the data map.
 
 ```elixir
 # Store (self-encrypting)
-{:ok, result} = Antd.Client.data_put_private(client, "secret message")
-data_map = result.address  # Keep this secret!
+{:ok, result} = Antd.Client.data_put(client, "secret message")
+data_map = result.data_map  # Keep this secret!
 
 # Retrieve (decrypt)
-{:ok, data} = Antd.Client.data_get_private(client, data_map)
+{:ok, data} = Antd.Client.data_get(client, data_map)
 IO.puts(data)
 ```
 
@@ -89,11 +89,11 @@ IO.puts(data)
 
 ```elixir
 # Upload a file
-{:ok, result} = Antd.Client.file_upload_public(client, "/path/to/file.txt")
+{:ok, result} = Antd.Client.file_put_public(client, "/path/to/file.txt")
 IO.puts("File address: #{result.address}")
 
 # Download a file
-:ok = Antd.Client.file_download_public(client, result.address, "/path/to/output.txt")
+:ok = Antd.Client.file_get_public(client, result.address, "/path/to/output.txt")
 
 # Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
 {:ok, est} = Antd.Client.file_cost(client, "/path/to/file.txt")

@@ -134,7 +134,7 @@ void main() async {
 The `GrpcAntdClient` throws the same `AntdError` hierarchy as the REST client,
 translating gRPC status codes to the appropriate error subclass.
 
-> **Note:** Wallet operations (address, balance, approve) are REST-only. The gRPC `PutDataResponse` / `PutPublicDataResponse` messages only carry the address/dataMap; `chunksStored` / `paymentModeUsed` are populated by REST only.
+> **Note:** The gRPC client covers wallet operations (address, balance, approve) and the external-signer prepare/finalize flow, like REST, and its data puts return `chunksStored` / `paymentModeUsed` too.
 
 ## Prerequisites
 

@@ -44,15 +44,16 @@ data = client.data_get_public(result.address)
 | GET | `/v1/data/public/{addr}` | Retrieve public data by address |
 | GET | `/v1/data/public/{addr}/stream` | Stream public data by address |
 | POST | `/v1/data/public` | Store public data (accepts optional `payment_mode`) |
-| GET | `/v1/data/private` | Retrieve private (encrypted) data |
-| POST | `/v1/data/private` | Store private (encrypted) data (accepts optional `payment_mode`) |
+| POST | `/v1/data` | Store private (encrypted) data; returns a caller-held DataMap (accepts optional `payment_mode`) |
+| POST | `/v1/data/get` | Retrieve private data from a DataMap (in the body) |
+| POST | `/v1/data/stream` | Stream private data from a DataMap (in the body; honours `Range`) |
 | POST | `/v1/data/cost` | Estimate data storage cost |
 | GET | `/v1/chunks/{addr}` | Get raw chunk by address |
 | POST | `/v1/chunks` | Store raw chunk |
-| POST | `/v1/files/upload/public` | Upload file to network (accepts optional `payment_mode`) |
-| POST | `/v1/files/download/public` | Download file from network |
-| POST | `/v1/dirs/upload/public` | Upload directory to network (accepts optional `payment_mode`) |
-| POST | `/v1/dirs/download/public` | Download directory from network |
+| POST | `/v1/files/public` | Upload a local file publicly (accepts optional `payment_mode`) |
+| POST | `/v1/files/public/get` | Download a public file to a local path |
+| POST | `/v1/files` | Upload a local file privately; returns a caller-held DataMap |
+| POST | `/v1/files/get` | Download a private file from a DataMap to a local path |
 | POST | `/v1/files/cost` | Estimate file upload cost |
 | GET | `/v1/wallet/address` | Get wallet public address |
 | GET | `/v1/wallet/balance` | Get wallet token and gas balances |
@@ -177,4 +178,4 @@ All data and file PUT/upload endpoints accept an optional `payment_mode` field i
 
 REST example: `POST /v1/data/public` with `{"data": "<base64>", "payment_mode": "merkle"}`
 
-All SDK `*_put_public`, `*_put_private`, and `file_upload_public` methods accept a `payment_mode` parameter (defaults to `"auto"`).
+All SDK store methods (`data_put`, `data_put_public`, `file_put`, `file_put_public`, in each language's casing) accept a `payment_mode` parameter (defaults to `"auto"`).
