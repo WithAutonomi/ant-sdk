@@ -1,6 +1,6 @@
 import { BadRequestError, InternalError } from "./errors.js";
 
-// ---- Manifests (the antd release after 0.15.0) ----
+// ---- Manifests (antd 0.16.0 or later) ----
 //
 // An ADR-0006 manifest (a `.ant` file, or an `ant://manifest/` link) describes
 // a set of files. Each entry has an optional path and size, and either an

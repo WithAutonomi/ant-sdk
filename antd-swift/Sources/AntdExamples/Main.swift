@@ -14,7 +14,7 @@
 // until the full Linux scaffolding lands.
 //
 // "10" / "manifests" builds a manifest of two public uploads and decodes its
-// link. It needs the antd release after 0.15.0 (the manifest API) and pays
+// link. It needs antd 0.16.0 or later (the manifest API) and pays
 // for the two uploads, so it runs only when named, never under "all".
 
 import Foundation

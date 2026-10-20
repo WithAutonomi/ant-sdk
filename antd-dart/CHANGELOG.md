@@ -2,8 +2,8 @@
 
 ## Unreleased
 
-- Pointers, on both `AntdClient` and `GrpcAntdClient` (needs the antd
-  release after 0.15.0): `pointerKeys`, `pointerCreate`, `pointerUpdate`,
+- Pointers, on both `AntdClient` and `GrpcAntdClient` (needs antd 0.16.0
+  or later): `pointerKeys`, `pointerCreate`, `pointerUpdate`,
   `pointerTransfer`, `pointerGet`, `pointerResolve`, `pointerFinality`,
   `pointerController`, and `pointerPrepare` / `pointerFinalize` for an
   external signer. Every write pays and every attempt pays again; the SDK
@@ -25,7 +25,7 @@
   the status code, on every call.
 - gRPC stubs regenerated with `pointers.proto`. `example/09_pointers.dart`.
 - Manifests (ADR-0006 `.ant` files and `ant://` links), on both `AntdClient`
-  and `GrpcAntdClient` (needs the antd release after 0.15.0):
+  and `GrpcAntdClient` (needs antd 0.16.0 or later):
   `buildManifest(entries, {name, torrentInfoHashes, embedRoots})`,
   `decodeManifest(bytes, {resolve})` and `decodeManifestLink(link,
   {resolve})`. Nothing is uploaded or paid for. New models

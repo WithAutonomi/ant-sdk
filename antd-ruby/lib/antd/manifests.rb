@@ -172,7 +172,7 @@ module Antd
     # skip that fetch (ADR-0006's policy). That reads from the network, so the
     # call can time out; it is safe to retry.
     #
-    # Needs the antd release after 0.15.0.
+    # Needs antd 0.16.0 or later.
     #
     # @param entries [Array<ManifestEntryInput, Hash>] each with exactly one
     #   of +data_map+ or +address+; checked before anything is sent
@@ -219,7 +219,7 @@ module Antd
     # are not fetched, and one entry's failure is reported in its +error+,
     # not as a failed call. Nothing is paid for; safe to retry.
     #
-    # Needs the antd release after 0.15.0.
+    # Needs antd 0.16.0 or later.
     #
     # @param manifest [String] the `.ant` bytes
     # @param resolve [Boolean]
@@ -235,7 +235,7 @@ module Antd
     # Decode an `ant://` manifest link, file link or bare 64-hex address
     # (POST /v1/manifests/decode). See +decode_manifest+ for +resolve+.
     #
-    # Needs the antd release after 0.15.0.
+    # Needs antd 0.16.0 or later.
     #
     # @param link [String]
     # @param resolve [Boolean]

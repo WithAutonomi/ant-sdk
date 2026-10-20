@@ -26,7 +26,7 @@ module Antd
 
     # Mirrors +Client#build_manifest+. Nothing is paid for.
     #
-    # Needs the antd release after 0.15.0.
+    # Needs antd 0.16.0 or later.
     #
     # @return [BuiltManifest]
     # @raise [BadRequestError] an entry with both or neither of +data_map+ and
@@ -53,7 +53,7 @@ module Antd
 
     # Mirrors +Client#decode_manifest+. The bytes are sent raw.
     #
-    # Needs the antd release after 0.15.0.
+    # Needs antd 0.16.0 or later.
     #
     # @return [DecodedManifest]
     def decode_manifest(manifest, resolve: false)
@@ -64,7 +64,7 @@ module Antd
 
     # Mirrors +Client#decode_manifest_link+.
     #
-    # Needs the antd release after 0.15.0.
+    # Needs antd 0.16.0 or later.
     #
     # @return [DecodedManifest]
     def decode_manifest_link(link, resolve: false)

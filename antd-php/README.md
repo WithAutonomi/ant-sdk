@@ -100,7 +100,7 @@ pointer) can be changed by the owner, and the owner can hand it over to another 
 good. The daemon holds the owner keys, loaded at startup with `antd --pointer-keys <file-or-dir>`
 (files in the format `ant pointer keygen` writes), so every write names the pointer by its
 address (`$owner`), never by a key. An owner the daemon holds no key for is a `BadRequestError`.
-The pointer methods need the first antd release with pointers (after 0.15.0).
+The pointer methods need antd 0.16.0 or later (the first release with pointers).
 
 **Every write pays** (about the price of one chunk), and every attempt pays again. The client
 never retries `pointerCreate`, `pointerUpdate`, `pointerTransfer` or `pointerFinalize`, and you
@@ -148,7 +148,7 @@ A manifest (ADR-0006) is one `.ant` file, or an `ant://manifest/` link when it i
 that describes a set of files. Each entry has an optional path and size and either an embedded
 DataMap or a public DataMap address. The daemon builds and decodes them, so you never handle the
 format. An embedded entry carries a private upload's DataMap, the key to that file: anyone with
-the manifest or its link can read it. The manifest methods need the antd release after 0.15.0.
+the manifest or its link can read it. The manifest methods need antd 0.16.0 or later.
 
 **Nothing is uploaded or paid for.** Build a manifest from the DataMaps and addresses your
 uploads already returned. Building (with root embedding, the default) and a resolving decode

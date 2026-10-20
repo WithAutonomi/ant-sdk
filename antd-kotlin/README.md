@@ -73,7 +73,7 @@ All methods are `suspend` functions for use with Kotlin coroutines.
 
 ## Pointers
 
-A pointer is a small, owner-signed, mutable reference. Its address is derived from the owner's key and never changes; what it points at (a chunk, such as a public file's data map, or another pointer) can be changed by the owner. The daemon holds the owner keys, loaded at startup with `antd --pointer-keys <file-or-dir>` (files in the format `ant pointer keygen` writes), so every write names the pointer by its address (`owner`), never by a key. An owner the daemon holds no key for is a `BadRequestException`. Addresses are 64 hex characters; the daemon accepts a `0x` prefix but always returns bare lowercase hex, so normalise before comparing. The pointer methods need the antd release after 0.15.0, the first with pointers; both `AntdRestClient` and `AntdGrpcClient` implement them.
+A pointer is a small, owner-signed, mutable reference. Its address is derived from the owner's key and never changes; what it points at (a chunk, such as a public file's data map, or another pointer) can be changed by the owner. The daemon holds the owner keys, loaded at startup with `antd --pointer-keys <file-or-dir>` (files in the format `ant pointer keygen` writes), so every write names the pointer by its address (`owner`), never by a key. An owner the daemon holds no key for is a `BadRequestException`. Addresses are 64 hex characters; the daemon accepts a `0x` prefix but always returns bare lowercase hex, so normalise before comparing. The pointer methods need antd 0.16.0 or later, the first release with pointers; both `AntdRestClient` and `AntdGrpcClient` implement them.
 
 **Every write pays** (about the price of one chunk), and every attempt pays again. Neither client retries `pointerCreate`, `pointerUpdate`, `pointerTransfer` or `pointerFinalize`, and you should not wrap them in an automatic retry. Reads are free to retry; a read during an update or churn can throw `CloseGroupShortfallException`.
 
@@ -110,7 +110,7 @@ See `examples/src/main/kotlin/com/autonomi/examples/Example08Pointers.kt` for a 
 
 ## Manifests
 
-A manifest (ADR-0006) is a `.ant` file that lists a set of files, each with an optional path and size and either an embedded DataMap (a private upload; the manifest is then the key to it) or a public file's DataMap address. A small one also fits in an `ant://manifest/...` link. The daemon builds and reads them, so you never handle the format yourself. **Nothing is uploaded or paid for**: you build a manifest from DataMaps and addresses you already hold (from `dataPut`, `filePutPublic` and so on), then store or share the bytes or the link however you like. The calls are free to retry. `resolve` and the default root embedding read from the network, so they can time out. The manifest methods need the antd release after 0.15.0; both `AntdRestClient` and `AntdGrpcClient` implement them.
+A manifest (ADR-0006) is a `.ant` file that lists a set of files, each with an optional path and size and either an embedded DataMap (a private upload; the manifest is then the key to it) or a public file's DataMap address. A small one also fits in an `ant://manifest/...` link. The daemon builds and reads them, so you never handle the format yourself. **Nothing is uploaded or paid for**: you build a manifest from DataMaps and addresses you already hold (from `dataPut`, `filePutPublic` and so on), then store or share the bytes or the link however you like. The calls are free to retry. `resolve` and the default root embedding read from the network, so they can time out. The manifest methods need antd 0.16.0 or later; both `AntdRestClient` and `AntdGrpcClient` implement them.
 
 ```kotlin
 val client = AntdClient.createRest()
@@ -226,7 +226,7 @@ Run individual examples:
 ANTD_POINTER_OWNER=<hex> ./gradlew :examples:run --args="8"
 ```
 
-Example 9 (manifests) is not part of `all`: it needs the antd release after 0.15.0. It uploads two small public blobs (each pays), then builds and decodes a manifest of them for free. Run it by number; `ANTD_BASE_URL` overrides the daemon URL (default `http://localhost:8082`):
+Example 9 (manifests) is not part of `all`: it needs antd 0.16.0 or later. It uploads two small public blobs (each pays), then builds and decodes a manifest of them for free. Run it by number; `ANTD_BASE_URL` overrides the daemon URL (default `http://localhost:8082`):
 
 ```bash
 ./gradlew :examples:run --args="9"

@@ -19,7 +19,7 @@ dependencies:
 
 ## Compatibility
 
-This package talks to a running antd daemon; it does not join the network itself. Dart 3.0+. Tested against antd 0.13.x; the `retryable` field behind `PartialUploadError.retryable` / `retentionKnown` is sent by antd 0.14.0 and later (over REST, partial uploads from older daemons read as retention unknown). The [pointer methods](#pointers) need the antd release after 0.15.0, the first with pointers. Both the REST client (`AntdClient`) and the gRPC client (`GrpcAntdClient`) are included; the gRPC stubs are pre-generated, so `protoc` is only needed if you regenerate them.
+This package talks to a running antd daemon; it does not join the network itself. Dart 3.0+. Tested against antd 0.13.x; the `retryable` field behind `PartialUploadError.retryable` / `retentionKnown` is sent by antd 0.14.0 and later (over REST, partial uploads from older daemons read as retention unknown). The [pointer methods](#pointers) need antd 0.16.0 or later, the first release with pointers. Both the REST client (`AntdClient`) and the gRPC client (`GrpcAntdClient`) are included; the gRPC stubs are pre-generated, so `protoc` is only needed if you regenerate them.
 
 ## Quick Start
 
@@ -247,7 +247,7 @@ See [`example/09_pointers.dart`](example/09_pointers.dart) for a full round trip
 
 ### Manifests
 
-A manifest (ADR-0006) is a `.ant` file that names a set of files: each entry has an optional path and size and either an embedded DataMap (a private upload; the manifest is the key to it) or a public file's DataMap address. A small one also fits in an `ant://manifest/...` link. The daemon builds and decodes them, so you never handle the format yourself. **Nothing is uploaded or paid for:** a manifest describes data that is already stored. The methods need the antd release after 0.15.0, and both `AntdClient` and `GrpcAntdClient` have them.
+A manifest (ADR-0006) is a `.ant` file that names a set of files: each entry has an optional path and size and either an embedded DataMap (a private upload; the manifest is the key to it) or a public file's DataMap address. A small one also fits in an `ant://manifest/...` link. The daemon builds and decodes them, so you never handle the format yourself. **Nothing is uploaded or paid for:** a manifest describes data that is already stored. The methods need antd 0.16.0 or later, and both `AntdClient` and `GrpcAntdClient` have them.
 
 | Method | Description |
 |--------|-------------|

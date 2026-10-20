@@ -419,8 +419,8 @@ module Antd
 
     # --- Pointers ---
     #
-    # Owner-signed, paid, mutable references (antd with the pointer API, the
-    # release after 0.15.0). The daemon signs with owner keys it loaded at
+    # Owner-signed, paid, mutable references (antd 0.16.0 or
+    # later). The daemon signs with owner keys it loaded at
     # startup (+antd --pointer-keys <file-or-dir>+), so a write names the
     # pointer by its address (+owner+); +pointer_keys+ lists the pointers it
     # can write.

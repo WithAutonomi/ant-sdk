@@ -29,7 +29,7 @@ public protocol AntdClientProtocol: Sendable {
     func fileGetPublic(address: String, destPath: String) async throws
     func fileCost(path: String, isPublic: Bool, paymentMode: PaymentMode) async throws -> UploadCostEstimate
 
-    // Manifests (the antd release after 0.15.0)
+    // Manifests (antd 0.16.0 or later)
     //
     // ADR-0006 `.ant` manifests and `ant://` links, built and decoded by the
     // daemon. Nothing is uploaded or paid for; the root-embedding policy and
@@ -114,7 +114,7 @@ public protocol AntdClientProtocol: Sendable {
     /// or paying again.
     func finalizeMerkleUpload(uploadId: String, winnerPoolHash: String) async throws -> FinalizeMerkleUploadResult
 
-    // Pointers (antd with the pointer API, after 0.15.0)
+    // Pointers (antd 0.16.0 or later)
     //
     // Owner-signed, paid, mutable references. antd signs with the owner keys
     // it loaded at startup (`--pointer-keys`); a write names the pointer by

@@ -255,12 +255,12 @@ LANGUAGES: dict[str, Adapter] = {
 # Examples that `all` skips. Run them by name instead. The pointers example
 # pays from the daemon wallet on every run and needs a never-written owner
 # address in ANTD_POINTER_OWNER (a pointer is created once per owner). The
-# manifests example needs an antd with the manifest API (the release after
-# 0.15.0) and each run pays for two small public uploads.
+# manifests example needs antd 0.16.0 or later (the manifest API) and each
+# run pays for two small public uploads.
 OPT_IN_EXAMPLES: dict[str, str] = {
     "pointers": "needs ANTD_POINTER_OWNER set to an unused owner address whose "
                 "key antd holds; each run pays",
-    "manifests": "needs the antd release after 0.15.0 (manifest API); each run "
+    "manifests": "needs antd 0.16.0 or later (manifest API); each run "
                  "pays for two small uploads",
 }
 

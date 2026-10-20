@@ -284,7 +284,7 @@ _GRPC_CODE_MAP: dict[grpc.StatusCode, type[AntdError]] = {
 }
 
 
-# Trailing-metadata key the daemon (with the pointer API, after 0.15.0) sets on
+# Trailing-metadata key the daemon (0.16.0 or later) sets on
 # statuses whose gRPC code is shared with older errors; the value is the REST
 # body's ``code``.
 _ANTD_ERROR_CODE_KEY = "x-antd-error-code"

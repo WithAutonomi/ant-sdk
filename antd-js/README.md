@@ -87,7 +87,7 @@ All methods are `async` and return Promises.
 
 ### Manifests
 
-A manifest ([ADR-0006](https://github.com/WithAutonomi/ant-client/blob/main/docs/adr/ADR-0006-file-manifests-and-links.md)) is a `.ant` file, or an `ant://manifest/` link, that describes a set of files: each entry has an optional path and size, and either an embedded DataMap (the manifest is then the key to that file) or a public file's DataMap address. The daemon builds and decodes manifests through ant-core, so the same inputs give the `ant` CLI's exact bytes. Needs the antd release after 0.15.0. See `examples/09-manifests.ts`.
+A manifest ([ADR-0006](https://github.com/WithAutonomi/ant-client/blob/main/docs/adr/ADR-0006-file-manifests-and-links.md)) is a `.ant` file, or an `ant://manifest/` link, that describes a set of files: each entry has an optional path and size, and either an embedded DataMap (the manifest is then the key to that file) or a public file's DataMap address. The daemon builds and decodes manifests through ant-core, so the same inputs give the `ant` CLI's exact bytes. Needs antd 0.16.0 or later. See `examples/09-manifests.ts`.
 
 **Nothing is uploaded or paid for**, and the daemon needs no wallet. Building (with `embedRoots`) and decoding with `resolve` read from the network, so they can time out; they are safe to retry.
 
@@ -150,7 +150,7 @@ See `finalizeWithRetry` in `examples/finalize-with-retry.ts` (used by `examples/
 
 ### Pointers
 
-A pointer is a small, owner-signed, mutable reference (the antd release after 0.15.0, the first with pointers). Its address is derived from its owner's key and never changes. What it points at (a chunk, such as a public file's data map, or another pointer) can be updated by the owner, and the owner can hand the pointer over to another pointer for good. The daemon signs with owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so writes name the pointer by its address (`owner`) and no key ever crosses the API. See `examples/08-pointers.ts`.
+A pointer is a small, owner-signed, mutable reference (antd 0.16.0 or later, the first release with pointers). Its address is derived from its owner's key and never changes. What it points at (a chunk, such as a public file's data map, or another pointer) can be updated by the owner, and the owner can hand the pointer over to another pointer for good. The daemon signs with owner keys it loaded at startup (`antd --pointer-keys <file-or-dir>`, key files from `ant pointer keygen`), so writes name the pointer by its address (`owner`) and no key ever crosses the API. See `examples/08-pointers.ts`.
 
 **Every write pays, and every attempt pays again.** A create, update or transfer costs about the price of one chunk, paid by the daemon wallet. The client never retries a request, and you should not retry `pointerCreate`, `pointerUpdate`, `pointerTransfer` or `pointerFinalize` automatically either. Reads are free to retry: a `CloseGroupShortfallError` on a read usually clears once an update in flight settles.
 

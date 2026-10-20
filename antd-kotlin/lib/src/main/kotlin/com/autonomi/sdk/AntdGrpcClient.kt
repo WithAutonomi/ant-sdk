@@ -392,7 +392,7 @@ class AntdGrpcClient internal constructor(
     // raw `bytes` here. A manifest can be 64 MiB and grpc-java receives 4 MiB
     // by default, so this stub alone raises both limits to
     // MAX_MANIFEST_GRPC_MESSAGE (every call made on it carries them); the
-    // other services keep the defaults. Requires the antd release after 0.15.0.
+    // other services keep the defaults. Requires antd 0.16.0 or later.
 
     internal val manifestStub = ManifestServiceGrpcKt.ManifestServiceCoroutineStub(channel)
         .withMaxInboundMessageSize(MAX_MANIFEST_GRPC_MESSAGE)

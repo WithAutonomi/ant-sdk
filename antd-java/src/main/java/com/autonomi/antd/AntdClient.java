@@ -600,7 +600,7 @@ public class AntdClient implements AutoCloseable {
     // DataMap address. The daemon builds and decodes them, so callers never
     // re-implement the format. Nothing is uploaded or paid for; only the
     // embedding policy and `resolve` read from the network, so these calls can
-    // time out and are safe to retry. Needs the antd release after 0.15.0.
+    // time out and are safe to retry. Needs antd 0.16.0 or later.
 
     /**
      * {@link #buildManifest(List, BuildManifestOptions)} with the default

@@ -134,7 +134,7 @@ print(f"Stored: {result.chunks_stored} chunks "
 
 ### Pattern 4: Pointers (Updatable Address)
 
-A pointer's address is derived from its owner key and never changes; the owner moves it to new data. antd holds the owner keys, loaded at startup with `antd --pointer-keys <file-or-dir>` (key files from `ant pointer keygen --output <file>`), so calls name the pointer by its address (`owner`). Needs the first antd release with pointers (after 0.15.0).
+A pointer's address is derived from its owner key and never changes; the owner moves it to new data. antd holds the owner keys, loaded at startup with `antd --pointer-keys <file-or-dir>` (key files from `ant pointer keygen --output <file>`), so calls name the pointer by its address (`owner`). Needs antd 0.16.0 or later (the first release with pointers).
 
 ```python
 owner = client.pointer_keys()[0]           # a pointer this daemon can write
@@ -163,7 +163,7 @@ Counters are decimal strings on the wire (a final pointer sits at 2^64−1); SDK
 
 ### Pattern 5: Manifests (One Link for Several Files)
 
-A manifest describes a set of files as one `.ant` document, or as one `ant://manifest/` link when it is small enough. Each entry has an optional `path` (and `size`) and **exactly one** of an `address` (a public file) or a `data_map` (a private file, embedded: the manifest is then its key). Needs the antd release after 0.15.0.
+A manifest describes a set of files as one `.ant` document, or as one `ant://manifest/` link when it is small enough. Each entry has an optional `path` (and `size`) and **exactly one** of an `address` (a public file) or a `data_map` (a private file, embedded: the manifest is then its key). Needs antd 0.16.0 or later.
 
 **Nothing is uploaded or paid for.** Build and decode are free and need no wallet, so no confirmation or cost estimate is needed. They read the network only to resolve DataMaps and can time out: retrying is safe. The files must already be uploaded, so get the addresses and DataMaps first:
 

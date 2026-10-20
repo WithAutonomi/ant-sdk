@@ -10,8 +10,8 @@ import com.autonomi.sdk.ManifestEntryInput
  * decodes its `ant://` link, asking the daemon for each entry's exact size.
  *
  * Building and decoding a manifest are free: nothing is uploaded or paid for.
- * The two uploads pay, so the daemon needs a wallet. Needs the antd release
- * after 0.15.0. `ANTD_BASE_URL` overrides the daemon URL (default
+ * The two uploads pay, so the daemon needs a wallet. Needs antd 0.16.0
+ * or later. `ANTD_BASE_URL` overrides the daemon URL (default
  * `http://localhost:8082`).
  *
  * Not part of `all`; run it explicitly:

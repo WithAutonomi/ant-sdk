@@ -895,7 +895,7 @@ dependencies = [
 
 [[package]]
 name = "antd"
-version = "0.15.0"
+version = "0.16.0"
 dependencies = [
  "ant-core",
  "ant-protocol",

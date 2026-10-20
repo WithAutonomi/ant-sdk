@@ -15,7 +15,7 @@ import Foundation
 // carries them as base64 in JSON, gRPC as `bytes`, and the clients convert.
 // Sizes are `UInt64?`, and an unset size is `nil`, never `0`.
 //
-// Requires the antd release after 0.15.0.
+// Requires antd 0.16.0 or later.
 
 /// One file for ``AntdClientProtocol/buildManifest(entries:options:)``. Set
 /// exactly one of ``dataMap`` or ``address``; an entry with both or neither is

@@ -208,8 +208,8 @@ All functions take a `%Antd.Client{}` as the first argument. Each returns `{:ok,
 
 ### Pointers
 
-A pointer is a small, owner-signed, mutable reference (needs the antd release
-after 0.15.0, the first with pointers). Its address is derived from its
+A pointer is a small, owner-signed, mutable reference (needs antd 0.16.0 or
+later, the first release with pointers). Its address is derived from its
 owner's key and never changes. What it points at (a chunk, such as a public
 file's or public data's address, or another pointer) can be changed by the
 owner, and the owner can hand the pointer over to another pointer for good.
@@ -448,7 +448,7 @@ A manifest (ADR-0006) is one `.ant` file, or an `ant://manifest/` link, that
 describes a set of files: each entry has an optional path and size and either
 an embedded DataMap (the key to a private upload) or a public DataMap address.
 The daemon builds and decodes manifests through ant-core, so the SDK never
-re-implements the format. Needs the antd release after 0.15.0.
+re-implements the format. Needs antd 0.16.0 or later.
 
 **Nothing is uploaded or paid for.** Building and decoding read the network
 only to resolve DataMaps (the embedding policy on build, `resolve: true` on

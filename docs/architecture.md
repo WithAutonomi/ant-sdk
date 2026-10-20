@@ -89,7 +89,7 @@ Resolve:  pointer address    ──▶  antd  ──▶  current target
 
 - antd holds the owner keys, loaded at startup with `--pointer-keys`, and signs every write; requests name a pointer by its address.
 - Every create, update and transfer pays (about one chunk's price), and every attempt pays again. Reads are free.
-- Needs the first antd release with pointers (after 0.15.0).
+- Needs antd 0.16.0 or later (the first release with pointers).
 
 Use for: a "latest version" address for a site, a release or a config. See [Tutorial: Point at a Public File and Update It](tutorial-pointers.md).
 
@@ -107,7 +107,7 @@ Decode:  link or .ant bytes    ──▶  antd  ──▶  entries: path, kind, 
 - Building and decoding **pay nothing and upload nothing**; upload the files first. They read the network only to resolve DataMaps.
 - An embedded entry carries a private file's DataMap, so whoever holds the manifest can read it. A public entry only names an address.
 - A link is recommended at no more than 1,500 bytes. Past that the build returns no link and you share the `.ant` bytes.
-- Needs the antd release after 0.15.0.
+- Needs antd 0.16.0 or later.
 
 Use for: sharing a folder-like set of files as one link, with paths and a name. See [Tutorial: Share a Set of Files as One Link](tutorial-manifests.md).
 

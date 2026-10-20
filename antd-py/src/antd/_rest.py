@@ -514,8 +514,8 @@ class RestClient:
 
     # --- Manifests ---
     #
-    # ADR-0006 `.ant` files and `ant://` links (antd with the manifest API,
-    # the release after 0.15.0). The daemon builds and decodes them through
+    # ADR-0006 `.ant` files and `ant://` links (antd 0.16.0 or
+    # later). The daemon builds and decodes them through
     # ant-core, so callers never handle the format. Nothing is uploaded or
     # paid for: these calls only read the network (the embedding policy on
     # build, ``resolve`` on decode), so they can time out and are safe to
@@ -726,8 +726,8 @@ class RestClient:
 
     # --- Pointers ---
     #
-    # Owner-signed, paid, mutable references (antd with the pointer API,
-    # after 0.15.0). antd signs with owner keys it loaded at startup
+    # Owner-signed, paid, mutable references (antd 0.16.0 or
+    # later). antd signs with owner keys it loaded at startup
     # (``--pointer-keys``); a write names the pointer by its address
     # (``owner``), and pointer_keys() lists the ones it can write.
     #

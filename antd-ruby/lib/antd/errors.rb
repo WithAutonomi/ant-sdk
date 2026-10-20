@@ -282,7 +282,7 @@ module Antd
     }
   end
 
-  # Metadata key the daemon (with the pointer API, after 0.15.0) sets on gRPC
+  # Metadata key the daemon (0.16.0 or later) sets on gRPC
   # statuses whose code is shared with older errors, carrying the REST +code+.
   ANTD_ERROR_CODE_METADATA = "x-antd-error-code"
 

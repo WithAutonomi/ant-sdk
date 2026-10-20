@@ -267,8 +267,8 @@ On `Client`, `AsyncClient` (as `std::future`s) and `GrpcClient`. See [Pointers](
 
 ## Pointers
 
-A pointer is a small, owner-signed, mutable reference (needs the antd release
-after 0.15.0, the first with pointers). Its address is derived from its
+A pointer is a small, owner-signed, mutable reference (needs antd 0.16.0 or
+later, the first release with pointers). Its address is derived from its
 owner's key and never changes. What it points at (a chunk, such as a public
 file's data map, or another pointer) can be updated by the owner, and the
 owner can hand the pointer over to another pointer for good. The daemon signs
@@ -451,7 +451,7 @@ A manifest (ADR-0006) is a `.ant` file, or an `ant://manifest/` link, that
 describes a set of files: each with an optional path and size, and either an
 embedded DataMap (a private upload; the manifest is its key) or a public
 DataMap address. The daemon builds and decodes them, so the format is never
-re-implemented here. Needs the antd release after 0.15.0.
+re-implemented here. Needs antd 0.16.0 or later.
 
 **Nothing is uploaded or paid for.** Upload the files first (`data_put`,
 `file_put_public`, ...), then describe them. The daemon reads the network

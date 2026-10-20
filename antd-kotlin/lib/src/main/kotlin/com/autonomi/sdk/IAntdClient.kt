@@ -39,7 +39,7 @@ interface IAntdClient : Closeable {
     suspend fun fileGet(dataMap: String, destPath: String)
     suspend fun fileCost(path: String, isPublic: Boolean = true, paymentMode: PaymentMode = PaymentMode.AUTO): UploadCostEstimate
 
-    // Manifests (the antd release after 0.15.0)
+    // Manifests (antd 0.16.0 or later)
     //
     // ADR-0006 `.ant` files and `ant://` links, built and read by the daemon.
     // Nothing is uploaded or paid for; the calls are free to retry. `resolve`
@@ -100,7 +100,7 @@ interface IAntdClient : Closeable {
     suspend fun finalizeUpload(uploadId: String, txHashes: Map<String, String>): FinalizeUploadResult
     suspend fun finalizeMerkleUpload(uploadId: String, winnerPoolHash: String): FinalizeMerkleUploadResult
 
-    // Pointers (the antd release after 0.15.0, the first with pointers)
+    // Pointers (antd 0.16.0 or later, the first release with pointers)
     //
     // Owner-signed, paid, mutable references. The daemon holds the owner keys
     // (`antd --pointer-keys`), so a write names the pointer by its address

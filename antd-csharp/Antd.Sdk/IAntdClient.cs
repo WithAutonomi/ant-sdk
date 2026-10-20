@@ -112,7 +112,7 @@ public partial interface IAntdClient : IDisposable, IAsyncDisposable
     /// </exception>
     Task<FinalizeMerkleUploadResult> FinalizeMerkleUploadAsync(string uploadId, string winnerPoolHash);
 
-    // Pointers (antd with the pointer API, after 0.15.0).
+    // Pointers (antd 0.16.0 or later).
     //
     // Every write (create, update, transfer, finalize) pays, about the price
     // of one chunk, and every attempt pays again: the SDK never retries them,

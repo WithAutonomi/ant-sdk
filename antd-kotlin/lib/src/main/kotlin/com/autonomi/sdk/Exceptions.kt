@@ -202,7 +202,7 @@ internal object ExceptionMapping {
     private val json = Json { ignoreUnknownKeys = true }
 
     /**
-     * gRPC metadata key the daemon (with the pointer API, after 0.15.0) sets
+     * gRPC metadata key the daemon (0.16.0 or later) sets
      * on statuses whose code is shared with older errors, carrying the REST
      * `code` string.
      */

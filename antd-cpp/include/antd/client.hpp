@@ -201,8 +201,8 @@ public:
 
     // --- Manifests ---
     //
-    // `.ant` manifests and `ant://` links (ADR-0006; needs the antd release
-    // after 0.15.0). Nothing is uploaded or paid for. The `.ant` bytes are
+    // `.ant` manifests and `ant://` links (ADR-0006; needs antd 0.16.0
+    // or later). Nothing is uploaded or paid for. The `.ant` bytes are
     // raw bytes here; the client handles REST's base64. See manifests.hpp for
     // the types.
 
@@ -298,8 +298,8 @@ public:
 
     // --- Pointers ---
     //
-    // Owner-signed, paid, mutable references (antd with the pointer API,
-    // after 0.15.0). The daemon signs with owner keys it loaded at startup
+    // Owner-signed, paid, mutable references (antd 0.16.0 or
+    // later). The daemon signs with owner keys it loaded at startup
     // (`antd --pointer-keys`); a write names the pointer by its address
     // (`owner`), and an owner the daemon holds no key for is a
     // BadRequestError.

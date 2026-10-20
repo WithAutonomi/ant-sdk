@@ -10,7 +10,7 @@ dotnet add package Autonomi.Antd
 
 ## Compatibility
 
-This package talks to a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon; it does not join the network itself. Targets .NET 8. Tested against antd 0.12.x; the pointer methods need the antd release after 0.15.0, the first with pointers. The gRPC transport uses `Grpc.Net.Client`, which is a package dependency, so both transports work out of the box. For a daemon-less client see [`Autonomi.Ffi`](https://www.nuget.org/packages/Autonomi.Ffi).
+This package talks to a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon; it does not join the network itself. Targets .NET 8. Tested against antd 0.12.x; the pointer methods need antd 0.16.0 or later, the first release with pointers. The gRPC transport uses `Grpc.Net.Client`, which is a package dependency, so both transports work out of the box. For a daemon-less client see [`Autonomi.Ffi`](https://www.nuget.org/packages/Autonomi.Ffi).
 
 ## Prerequisites
 
@@ -261,7 +261,7 @@ See `Examples/FinalizeRetry.cs` (`FinalizeWithRetryAsync`, used by example 7) an
 
 ## Manifests
 
-A manifest (ADR-0006) is a `.ant` file, or an `ant://manifest/` link when it is small enough, that describes a set of files. Each entry has an optional path and size, and either an embedded DataMap (the manifest is then the key to a private file) or a public file's DataMap address. The daemon builds and decodes manifests with ant-core, so the format, content addresses, link encoding and portable path rules are never re-implemented here. The manifest methods need the antd release after 0.15.0.
+A manifest (ADR-0006) is a `.ant` file, or an `ant://manifest/` link when it is small enough, that describes a set of files. Each entry has an optional path and size, and either an embedded DataMap (the manifest is then the key to a private file) or a public file's DataMap address. The daemon builds and decodes manifests with ant-core, so the format, content addresses, link encoding and portable path rules are never re-implemented here. The manifest methods need antd 0.16.0 or later.
 
 **Nothing is uploaded or paid for.** Building and decoding are free. The daemon reads the network only to resolve DataMaps (the root-embedding policy on build, and `resolve` on decode), so a call can time out; it is safe to retry.
 
@@ -320,7 +320,7 @@ dotnet run -- all   # Run all of the above
 
 # Pointers: run explicitly; "all" leaves it out, because every write pays.
 ANTD_POINTER_OWNER=<address from GET /v1/pointers/keys> dotnet run -- 8   # or: dotnet run -- pointers
-dotnet run -- 9     # Manifests (or: dotnet run -- manifests; needs the antd release after 0.15.0)
+dotnet run -- 9     # Manifests (or: dotnet run -- manifests; needs antd 0.16.0 or later)
 ```
 
 Example 8 uploads two pieces of public data, creates a pointer at the first, updates it to the second, resolves and reads it, and prints its finality. It needs an antd started with `--pointer-keys` and a wallet; `ANTD_BASE_URL` overrides the daemon URL (default `http://localhost:8082`). Without `ANTD_POINTER_OWNER` it prints a note and skips. A rerun with the same owner skips the create and only updates.
@@ -332,7 +332,7 @@ ant dev example data -l csharp
 ant dev example all -l csharp
 ```
 
-Example 9 (`dotnet run -- 9`, or `dotnet run -- manifests`) uploads two pieces of public data, builds a manifest of them with paths `notes/one.txt` and `notes/two.txt`, prints its link and entries, and decodes the link with `resolve` to print each entry's exact size. Only the two uploads pay. It is left out of "all" because it needs the antd release after 0.15.0; `ANTD_BASE_URL` overrides the daemon URL (default `http://localhost:8082`).
+Example 9 (`dotnet run -- 9`, or `dotnet run -- manifests`) uploads two pieces of public data, builds a manifest of them with paths `notes/one.txt` and `notes/two.txt`, prints its link and entries, and decodes the link with `resolve` to print each entry's exact size. Only the two uploads pay. It is left out of "all" because it needs antd 0.16.0 or later; `ANTD_BASE_URL` overrides the daemon URL (default `http://localhost:8082`).
 
 ## Project Structure
 

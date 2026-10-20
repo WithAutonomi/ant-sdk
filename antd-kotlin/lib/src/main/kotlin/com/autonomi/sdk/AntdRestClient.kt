@@ -432,7 +432,7 @@ class AntdRestClient(
     //
     // The `.ant` bytes travel as base64 in the JSON (`manifest`); callers only
     // see raw bytes. Nothing is paid for. See IAntdClient for the contract and
-    // Manifests.kt for the wire shapes. Requires the antd release after 0.15.0.
+    // Manifests.kt for the wire shapes. Requires antd 0.16.0 or later.
 
     /** `POST /v1/manifests/build`. See [IAntdClient.buildManifest]. */
     override suspend fun buildManifest(entries: List<ManifestEntryInput>, options: BuildManifestOptions): BuiltManifest {
@@ -589,7 +589,7 @@ class AntdRestClient(
     // attempt pays again: this client never retries a create, update,
     // transfer or finalize, and callers should not either. Reads are free to
     // retry; a read during an update or churn can throw
-    // CloseGroupShortfallException. Requires the antd release after 0.15.0,
+    // CloseGroupShortfallException. Requires antd 0.16.0 or later,
     // the first with pointers.
 
     /** `GET /v1/pointers/keys`: the addresses of the pointers this daemon can write. */

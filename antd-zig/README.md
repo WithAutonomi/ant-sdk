@@ -121,7 +121,7 @@ All methods return `!T` (error union) using Zig's standard error handling.
 
 ### Manifests
 
-A manifest (ADR-0006) is a `.ant` file, or an `ant://manifest/` link, that lists a set of files. Each entry has an optional path and size, and either an embedded DataMap (from `dataPut` or `filePut`, so the manifest is the key to the file) or a public DataMap address (from `dataPutPublic` or `filePutPublic`). The daemon builds and decodes manifests, so you never handle the format yourself. The manifest methods need the antd release after 0.15.0.
+A manifest (ADR-0006) is a `.ant` file, or an `ant://manifest/` link, that lists a set of files. Each entry has an optional path and size, and either an embedded DataMap (from `dataPut` or `filePut`, so the manifest is the key to the file) or a public DataMap address (from `dataPutPublic` or `filePutPublic`). The daemon builds and decodes manifests, so you never handle the format yourself. The manifest methods need antd 0.16.0 or later.
 
 **Nothing is uploaded or paid for.** Building and decoding cost nothing. `resolve` and the default root embedding read from the network, so a call can time out, and it is safe to retry.
 
@@ -183,7 +183,7 @@ defer result.deinit(allocator);
 
 ### Pointers
 
-A pointer is a small, owner-signed, mutable reference. Its address is derived from the owner's key and never changes; what it points at (a chunk, such as a public file's data map, or another pointer) can be changed by the owner. The daemon holds the owner keys, loaded at startup with `antd --pointer-keys <file-or-dir>` (files in the format `ant pointer keygen` writes), so every write names the pointer by its address (`owner`), never by a key. The pointer methods need the antd release after 0.15.0, the first with pointers.
+A pointer is a small, owner-signed, mutable reference. Its address is derived from the owner's key and never changes; what it points at (a chunk, such as a public file's data map, or another pointer) can be changed by the owner. The daemon holds the owner keys, loaded at startup with `antd --pointer-keys <file-or-dir>` (files in the format `ant pointer keygen` writes), so every write names the pointer by its address (`owner`), never by a key. The pointer methods need antd 0.16.0 or later, the first release with pointers.
 
 **Every write pays, and every attempt pays again.** A create, update or transfer costs about the price of one chunk from the daemon wallet. The SDK never retries a create, update, transfer or finalize, and you should not retry them automatically either. Reads are free to retry; a read during an update or churn can fail with `error.CloseGroupShortfall`.
 
