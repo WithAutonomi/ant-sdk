@@ -16,26 +16,27 @@ dependencies {
 
     // gRPC
     implementation("io.grpc:grpc-kotlin-stub:1.4.1")
-    implementation("io.grpc:grpc-protobuf:1.65.1")
-    implementation("io.grpc:grpc-netty-shaded:1.65.1")
-    implementation("com.google.protobuf:protobuf-kotlin:4.27.2")
+    implementation("io.grpc:grpc-protobuf:1.85.1")
+    implementation("io.grpc:grpc-stub:1.85.1") // generated stubs need grpc-stub to match protoc-gen-grpc-java; grpc-kotlin-stub alone pulls an older one
+    implementation("io.grpc:grpc-netty-shaded:1.85.1")
+    implementation("com.google.protobuf:protobuf-kotlin:4.28.3")
 
     // Testing
     testImplementation(kotlin("test"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
-    testImplementation("io.grpc:grpc-inprocess:1.65.1")
-    testImplementation("io.grpc:grpc-testing:1.65.1")
+    testImplementation("io.grpc:grpc-inprocess:1.85.1")
+    testImplementation("io.grpc:grpc-testing:1.85.1")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 protobuf {
     protoc {
-        artifact = "com.google.protobuf:protoc:4.27.2"
+        artifact = "com.google.protobuf:protoc:4.28.3"
     }
     plugins {
         create("grpc") {
-            artifact = "io.grpc:protoc-gen-grpc-java:1.65.1"
+            artifact = "io.grpc:protoc-gen-grpc-java:1.85.1"
         }
         create("grpckt") {
             artifact = "io.grpc:protoc-gen-grpc-kotlin:1.4.1:jdk8@jar"
