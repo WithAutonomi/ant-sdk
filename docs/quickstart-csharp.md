@@ -85,11 +85,11 @@ var est = await client.DataCostAsync(payload);
 ```csharp
 // Store (encrypted)
 var secret = Encoding.UTF8.GetBytes("secret message");
-var result = await client.DataPutPrivateAsync(secret);
-var dataMap = result.Address;  // Keep this secret!
+var result = await client.DataPutAsync(secret);
+var dataMap = result.DataMap;  // Keep this secret!
 
 // Retrieve (decrypt)
-var decrypted = await client.DataGetPrivateAsync(dataMap);
+var decrypted = await client.DataGetAsync(dataMap);
 Console.WriteLine(Encoding.UTF8.GetString(decrypted));
 ```
 
@@ -97,10 +97,10 @@ Console.WriteLine(Encoding.UTF8.GetString(decrypted));
 
 ```csharp
 // Upload a file
-var result = await client.FileUploadPublicAsync("/path/to/file.txt");
+var result = await client.FilePutPublicAsync("/path/to/file.txt");
 
 // Download a file
-await client.FileDownloadPublicAsync(result.Address, "/path/to/output.txt");
+await client.FileGetPublicAsync(result.Address, "/path/to/output.txt");
 
 // Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
 var est = await client.FileCostAsync("/path/to/file.txt");

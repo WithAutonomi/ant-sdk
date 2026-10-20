@@ -94,11 +94,11 @@ val est = client.dataCost(payload)
 ```kotlin
 // Store (encrypted)
 val secret = "secret message".toByteArray()
-val result = client.dataPutPrivate(secret)
-val dataMap = result.address  // Keep this secret!
+val result = client.dataPut(secret)
+val dataMap = result.dataMap  // Keep this secret!
 
 // Retrieve (decrypt)
-val decrypted = client.dataGetPrivate(dataMap)
+val decrypted = client.dataGet(dataMap)
 println(String(decrypted))
 ```
 
@@ -106,10 +106,10 @@ println(String(decrypted))
 
 ```kotlin
 // Upload a file
-val result = client.fileUploadPublic("/path/to/file.txt")
+val result = client.filePutPublic("/path/to/file.txt")
 
 // Download a file
-client.fileDownloadPublic(result.address, "/path/to/output.txt")
+client.fileGetPublic(result.address, "/path/to/output.txt")
 
 // Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
 val est = client.fileCost("/path/to/file.txt")

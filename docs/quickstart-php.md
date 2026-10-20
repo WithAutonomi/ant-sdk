@@ -62,11 +62,11 @@ Encrypted data -- only accessible with the data map.
 
 ```php
 // Store (self-encrypting)
-$result = $client->dataPutPrivate("secret message");
-$dataMap = $result->address;  // Keep this secret!
+$result = $client->dataPut("secret message");
+$dataMap = $result->dataMap;  // Keep this secret!
 
 // Retrieve (decrypt)
-$data = $client->dataGetPrivate($dataMap);
+$data = $client->dataGet($dataMap);
 echo $data;
 ```
 
@@ -74,11 +74,11 @@ echo $data;
 
 ```php
 // Upload a file
-$result = $client->fileUploadPublic("/path/to/file.txt");
+$result = $client->filePutPublic("/path/to/file.txt");
 echo "File address: {$result->address}\n";
 
 // Download a file
-$client->fileDownloadPublic($result->address, "/path/to/output.txt");
+$client->fileGetPublic($result->address, "/path/to/output.txt");
 
 // Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
 $est = $client->fileCost("/path/to/file.txt");

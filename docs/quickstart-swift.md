@@ -101,11 +101,11 @@ let est = try await client.dataCost(payload)
 ```swift
 // Store (encrypted)
 let secret = "secret message".data(using: .utf8)!
-let result = try await client.dataPutPrivate(secret)
-let dataMap = result.address  // Keep this secret!
+let result = try await client.dataPut(secret)
+let dataMap = result.dataMap  // Keep this secret!
 
 // Retrieve (decrypt)
-let decrypted = try await client.dataGetPrivate(dataMap: dataMap)
+let decrypted = try await client.dataGet(dataMap: dataMap)
 print(String(data: decrypted, encoding: .utf8)!)
 ```
 
@@ -113,10 +113,10 @@ print(String(data: decrypted, encoding: .utf8)!)
 
 ```swift
 // Upload a file
-let result = try await client.fileUploadPublic(path: "/path/to/file.txt")
+let result = try await client.filePutPublic(path: "/path/to/file.txt")
 
 // Download a file
-try await client.fileDownloadPublic(address: result.address, destPath: "/path/to/output.txt")
+try await client.fileGetPublic(address: result.address, destPath: "/path/to/output.txt")
 
 // Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
 let est = try await client.fileCost(path: "/path/to/file.txt")

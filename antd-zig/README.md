@@ -51,7 +51,7 @@ pub fn main() !void {
     std.debug.print("OK: {}, Network: {s}\n", .{ status.ok, status.network });
 
     // Store data
-    const result = try client.dataPutPublic("Hello, Autonomi!");
+    const result = try client.dataPutPublic("Hello, Autonomi!", .auto);
     defer result.deinit(allocator);
     std.debug.print("Stored at {s} (chunks: {d})\n", .{ result.address, result.chunks_stored });
 

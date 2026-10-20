@@ -321,7 +321,6 @@ python examples/04_files.py        # File upload/download
 python examples/06_private_data.py # Private data with data maps
 python examples/07_external_signer.py # External-signer file + chunk upload
 python examples/08_grpc.py          # gRPC transport (requires antd[grpc])
-python examples/08_grpc.py         # gRPC transport (instead of REST)
 ANTD_POINTER_OWNER=<address> python examples/09_pointers.py  # Create, update, resolve a pointer (pays)
 ```
 

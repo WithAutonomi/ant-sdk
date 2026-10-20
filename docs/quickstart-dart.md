@@ -68,11 +68,11 @@ Encrypted data -- only accessible with the data map.
 
 ```dart
 // Store (self-encrypting)
-final result = await client.dataPutPrivate(utf8.encode('secret message'));
-final dataMap = result.address;  // Keep this secret!
+final result = await client.dataPut(utf8.encode('secret message'));
+final dataMap = result.dataMap;  // Keep this secret!
 
 // Retrieve (decrypt)
-final data = await client.dataGetPrivate(dataMap);
+final data = await client.dataGet(dataMap);
 print(utf8.decode(data));
 ```
 
@@ -80,11 +80,11 @@ print(utf8.decode(data));
 
 ```dart
 // Upload a file
-final result = await client.fileUploadPublic('/path/to/file.txt');
+final result = await client.filePutPublic('/path/to/file.txt');
 print('File address: ${result.address}');
 
 // Download a file
-await client.fileDownloadPublic(result.address, '/path/to/output.txt');
+await client.fileGetPublic(result.address, '/path/to/output.txt');
 
 // Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
 final est = await client.fileCost('/path/to/file.txt');

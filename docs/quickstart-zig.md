@@ -83,7 +83,7 @@ std.debug.print("Network: {s}\n", .{status.network}); // "local", "default", "al
 
 ```zig
 // Store
-const result = try client.dataPutPublic("Hello, Autonomi!");
+const result = try client.dataPutPublic("Hello, Autonomi!", .auto);
 defer result.deinit(allocator);
 std.debug.print("Address: {s}\n", .{result.address});
 std.debug.print("Cost: {d} atto tokens\n", .{result.cost});
@@ -104,12 +104,12 @@ std.debug.print("Estimate: {d} bytes in {d} chunks, {s} atto, gas {s} wei, mode 
 
 ```zig
 // Store (self-encrypting)
-const result = try client.dataPutPrivate("secret message");
+const result = try client.dataPut("secret message", .auto);
 defer result.deinit(allocator);
-const data_map = result.address; // Keep this secret!
+const data_map = result.data_map; // Keep this secret!
 
 // Retrieve (decrypt)
-const data = try client.dataGetPrivate(data_map);
+const data = try client.dataGet(data_map);
 defer allocator.free(data);
 std.debug.print("{s}\n", .{data});
 ```
@@ -118,12 +118,12 @@ std.debug.print("{s}\n", .{data});
 
 ```zig
 // Upload a file
-const result = try client.fileUploadPublic("/path/to/file.txt");
+const result = try client.filePutPublic("/path/to/file.txt", .auto);
 defer result.deinit(allocator);
 std.debug.print("File address: {s}\n", .{result.address});
 
 // Download a file
-try client.fileDownloadPublic(result.address, "/path/to/output.txt");
+try client.fileGetPublic(result.address, "/path/to/output.txt");
 
 // Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
 const est = try client.fileCost("/path/to/file.txt", true);

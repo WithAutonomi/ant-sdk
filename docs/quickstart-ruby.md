@@ -63,11 +63,11 @@ Encrypted data -- only accessible with the data map.
 
 ```ruby
 # Store (self-encrypting)
-result = client.data_put_private("secret message")
-data_map = result.address  # Keep this secret!
+result = client.data_put("secret message")
+data_map = result.data_map  # Keep this secret!
 
 # Retrieve (decrypt)
-data = client.data_get_private(data_map)
+data = client.data_get(data_map)
 puts data
 ```
 
@@ -75,11 +75,11 @@ puts data
 
 ```ruby
 # Upload a file
-result = client.file_upload_public("/path/to/file.txt")
+result = client.file_put_public("/path/to/file.txt")
 puts "File address: #{result.address}"
 
 # Download a file
-client.file_download_public(result.address, "/path/to/output.txt")
+client.file_get_public(result.address, "/path/to/output.txt")
 
 # Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
 est = client.file_cost("/path/to/file.txt")

@@ -23,7 +23,7 @@ ant dev init rust --name my-project
 ## Connecting
 
 ```rust
-use antd_client::Client;
+use antd_client::{Client, PaymentMode};
 
 #[tokio::main]
 async fn main() -> Result<(), antd_client::AntdError> {
@@ -59,7 +59,7 @@ println!("Network: {}", status.network); // "local", "default", "alpha"
 
 ```rust
 // Store
-let result = client.data_put_public(b"Hello, Autonomi!").await?;
+let result = client.data_put_public(b"Hello, Autonomi!", PaymentMode::Auto).await?;
 println!("Address: {}", result.address);
 println!("Cost: {} atto tokens", result.cost);
 
@@ -79,11 +79,11 @@ println!(
 
 ```rust
 // Store (self-encrypting)
-let result = client.data_put_private(b"secret message").await?;
-let data_map = &result.address; // Keep this secret!
+let result = client.data_put(b"secret message", PaymentMode::Auto).await?;
+let data_map = &result.data_map; // Keep this secret!
 
 // Retrieve (decrypt)
-let data = client.data_get_private(data_map).await?;
+let data = client.data_get(data_map).await?;
 println!("{}", String::from_utf8_lossy(&data));
 ```
 
@@ -91,11 +91,11 @@ println!("{}", String::from_utf8_lossy(&data));
 
 ```rust
 // Upload a file
-let result = client.file_upload_public("/path/to/file.txt").await?;
+let result = client.file_put_public("/path/to/file.txt", PaymentMode::Auto).await?;
 println!("File address: {}", result.address);
 
 // Download a file
-client.file_download_public(&result.address, "/path/to/output.txt").await?;
+client.file_get_public(&result.address, "/path/to/output.txt").await?;
 
 // Cost estimation — returns UploadCostEstimate with size, chunks, gas, payment mode
 let est = client.file_cost("/path/to/file.txt").await?;

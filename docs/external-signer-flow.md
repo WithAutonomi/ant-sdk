@@ -11,7 +11,7 @@ This is the surface added by [PR #90](https://github.com/WithAutonomi/ant-sdk/pu
 
 ## When to use this flow
 
-Anytime the wallet key cannot live in the antd daemon: mobile apps, browser wallets, hardware wallets, agents under a managed keystore, anything with a custody boundary. The internal-wallet path (`file_upload_public(path)`) is shorter but requires the daemon to hold the private key.
+Anytime the wallet key cannot live in the antd daemon: mobile apps, browser wallets, hardware wallets, agents under a managed keystore, anything with a custody boundary. The internal-wallet path (`file_put_public(path)`) is shorter but requires the daemon to hold the private key.
 
 ## Architecture in one diagram
 
@@ -182,7 +182,7 @@ Content-Type: application/json
 
 If `payments` came back empty from prepare (every chunk already stored — e.g. a repeated upload), skip steps 2–4 and finalize with `"tx_hashes": {}`: no on-chain payment is needed and the daemon returns the DataMap directly. Both REST and gRPC accept this.
 
-Returns `FinalizeUploadResult { data_map_address, data_map, chunks_stored, address }`. The `data_map_address` is what other clients use to retrieve the file via `file_download_public(data_map_address)`.
+Returns `FinalizeUploadResult { data_map_address, data_map, chunks_stored, address }`. The `data_map_address` is what other clients use to retrieve the file via `file_get_public(data_map_address)`.
 
 ### 6. Retry a partial store — same `upload_id`, same payment
 
@@ -386,7 +386,7 @@ def main():
         # ---- 5. download to verify ---------------------------------------
         with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as out:
             dst = out.name
-        rsp = requests.post(f"{ANTD}/v1/files/download/public",
+        rsp = requests.post(f"{ANTD}/v1/files/public/get",
                             json={"address": addr, "dest_path": dst})
         assert rsp.status_code == 200, rsp.text
         with open(src, "rb") as a, open(dst, "rb") as b:

@@ -186,7 +186,7 @@ int main() {
 The `GrpcClient` throws the same `antd::AntdError` hierarchy as the REST
 client, translating gRPC status codes to the appropriate error subclass.
 
-> **Note:** Wallet operations (address, balance, approve) and payment_mode are available via REST only.
+> **Note:** The gRPC client covers wallet operations (address, balance, approve), `payment_mode` and the external-signer prepare/finalize flow, like REST.
 
 ## Prerequisites
 
