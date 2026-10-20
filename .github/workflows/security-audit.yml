@@ -212,7 +212,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ecosystem: [dart, php, ruby, python, gradle, swift]
+        ecosystem: [dart, php, ruby, python, gradle]
     steps:
       - uses: actions/checkout@v4
 
@@ -290,32 +290,10 @@ jobs:
           (cd ffi/android && gradle --no-daemon --console=plain --init-script "$INIT" resolveAndLockAll --write-locks \
             -PauditConfigurations=releaseRuntimeClasspath)
 
-      - if: matrix.ecosystem == 'swift'
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: "6.0"
-
-      # ffi/swift has no package dependencies (one local target generated
-      # at build time), so only antd-swift has anything to resolve.
-      - if: matrix.ecosystem == 'swift'
-        name: swift package resolve
-        working-directory: antd-swift
-        run: swift package resolve
-
       # Copy every generated lockfile under resolved/, keeping its repo path,
       # so the osv-scanner job can lay them back over a fresh checkout.
       - name: Collect generated lockfiles
-        run: |
-          set -euo pipefail
-          git ls-files --others --ignored --exclude-standard \
-            | grep -E '(^|/)(pubspec\.lock|composer\.lock|Gemfile\.lock|requirements\.txt|gradle\.lockfile|Package\.resolved)$' \
-            | grep -v -E '(^|/)(\.build|build|node_modules)/' > /tmp/locks.txt || true
-          git ls-files --others --exclude-standard \
-            | grep -E '(^|/)(requirements\.txt|gradle\.lockfile|Package\.resolved)$' >> /tmp/locks.txt || true
-          sort -u /tmp/locks.txt -o /tmp/locks.txt
-          test -s /tmp/locks.txt || { echo "::error::no lockfiles were generated"; exit 1; }
-          while read -r f; do mkdir -p "resolved/$(dirname "$f")"; cp "$f" "resolved/$f"; done < /tmp/locks.txt
-          echo "Generated lockfiles:"; cat /tmp/locks.txt
+        run: .github/security-audit/collect-lockfiles.sh
 
       - uses: actions/upload-artifact@v4
         with:
@@ -324,9 +302,39 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # Swift resolves in its own job because the toolchain decides what gets
+  # resolved: SwiftNIO's security fixes (swift-nio >= 2.100.0, -http2 >=
+  # 1.44.0, -extras >= 1.34.1) need swift-tools-version 6.1, so a Swift 6.0
+  # toolchain silently resolves older, vulnerable releases. The official
+  # image pins a current toolchain (what someone installing antd-swift today
+  # would use); setup-swift lags behind Swift releases. ffi/swift has no
+  # package dependencies, so only antd-swift has anything to resolve.
+  resolve-swift:
+    name: Resolve lockfiles (swift)
+    runs-on: ubuntu-latest
+    container: swift:6.4
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: swift package resolve
+        working-directory: antd-swift
+        run: |
+          swift --version
+          swift package resolve
+
+      - name: Collect generated lockfiles
+        run: .github/security-audit/collect-lockfiles.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: resolved-swift
+          path: resolved/
+          if-no-files-found: error
+          retention-days: 7
+
   osv-scanner:
     name: osv-scanner (all lockfiles)
-    needs: resolve
+    needs: [resolve, resolve-swift]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -354,14 +362,18 @@ jobs:
 
       # --no-ignore: the generated lockfiles are gitignored (the SDKs don't
       # commit them), so osv-scanner would otherwise skip them.
+      #
+      # Exit codes are captured with `|| code=$?`: Actions runs bash with -e,
+      # so a bare non-zero osv-scanner call (exit 1 = findings) would end the
+      # step before the summary and the ::error:: line are written.
       - name: Scan (blocking; everything except examples)
         run: |
           set -uo pipefail
           args=(scan source --recursive --no-ignore --config osv-scanner.toml
                 --x-exclude 'g:**/examples' --x-exclude 'g:**/Examples')
-          osv-scanner "${args[@]}" --format sarif --output-file osv.sarif . >/dev/null 2>&1
-          osv-scanner "${args[@]}" --format markdown --output-file osv.md . 2>osv.log
-          code=$?
+          osv-scanner "${args[@]}" --format sarif --output-file osv.sarif . >/dev/null 2>&1 || true
+          code=0
+          osv-scanner "${args[@]}" --format markdown --output-file osv.md . 2>osv.log || code=$?
           {
             echo "## osv-scanner: blocking pass (everything except examples)"
             echo
@@ -393,9 +405,9 @@ jobs:
         run: |
           set -uo pipefail
           mapfile -t dirs < <(find . -type d \( -name examples -o -name Examples \) -not -path './.git/*' | sort)
+          code=0
           osv-scanner scan source --recursive --no-ignore --config osv-scanner.toml \
-            --format markdown --output-file osv-examples.md "${dirs[@]}" 2>/dev/null
-          code=$?
+            --format markdown --output-file osv-examples.md "${dirs[@]}" 2>/dev/null || code=$?
           {
             echo "## osv-scanner: examples (report only, never fails)"
             echo
