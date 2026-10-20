@@ -322,8 +322,13 @@ jobs:
           swift --version
           swift package resolve
 
+      # In a container the workspace belongs to the runner's user, not the
+      # container's, so git refuses it ("dubious ownership") unless told
+      # it's safe. checkout's own safe.directory entry doesn't outlive that step.
       - name: Collect generated lockfiles
-        run: .github/security-audit/collect-lockfiles.sh
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          .github/security-audit/collect-lockfiles.sh
 
       - uses: actions/upload-artifact@v4
         with:
