@@ -18,7 +18,7 @@ fun main(args: Array<String>) = runBlocking {
         // Pays for every write and needs a never-written owner, so it runs
         // only when asked for by number, never as part of "all".
         "8" -> example08Pointers()
-        // Needs the antd release after 0.15.0, so it runs only when asked for
+        // Needs antd 0.16.0 or later, so it runs only when asked for
         // by number, never as part of "all".
         "9" -> example09Manifests()
         "all" -> {

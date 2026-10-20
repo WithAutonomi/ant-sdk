@@ -133,7 +133,7 @@ All methods return `value, err` following Lua convention. On success `err` is `n
 
 ### Manifests
 
-A manifest (ADR-0006) is one `.ant` file, or one `ant://manifest/` link, that describes a set of files: each entry has an optional path and size, and either an embedded DataMap (the manifest is then the key to the file) or a public file's DataMap address. The daemon builds and decodes manifests, so the format never has to be re-implemented here. The manifest methods need an antd with the manifest API (the antd release after 0.15.0).
+A manifest (ADR-0006) is one `.ant` file, or one `ant://manifest/` link, that describes a set of files: each entry has an optional path and size, and either an embedded DataMap (the manifest is then the key to the file) or a public file's DataMap address. The daemon builds and decodes manifests, so the format never has to be re-implemented here. The manifest methods need an antd with the manifest API (antd 0.16.0 or later).
 
 **Nothing is uploaded or paid for.** Building a manifest and a resolving decode only read from the network (the embedding policy and `resolve` fetch DataMaps), so they can time out, and they are free to retry. To share a manifest, store its bytes yourself, or hand out the link.
 
@@ -186,7 +186,7 @@ A finalize where some chunks stayed unstored after the daemon's retries returns 
 
 ### Pointers
 
-A pointer is a small, owner-signed, mutable reference. Its address is derived from the owner's key and never changes; what it points at (a chunk, such as a public file's data map, or another pointer) can be changed by the owner. The daemon holds the owner keys, loaded at startup with `antd --pointer-keys <file-or-dir>` (files in the format `ant pointer keygen` writes), so every write names the pointer by its address (`owner`), never by a key. The pointer methods need an antd with the pointer API (the release after 0.15.0).
+A pointer is a small, owner-signed, mutable reference. Its address is derived from the owner's key and never changes; what it points at (a chunk, such as a public file's data map, or another pointer) can be changed by the owner. The daemon holds the owner keys, loaded at startup with `antd --pointer-keys <file-or-dir>` (files in the format `ant pointer keygen` writes), so every write names the pointer by its address (`owner`), never by a key. The pointer methods need an antd with the pointer API (0.16.0 or later).
 
 **Every write pays, and the SDK never retries one.** `pointer_create`, `pointer_update`, `pointer_transfer` and `pointer_finalize` each pay about the price of one chunk, and every attempt pays again. Do not retry them automatically: check the error first. Reads are free to retry; a read during an update or churn can fail with `close_group_shortfall`.
 

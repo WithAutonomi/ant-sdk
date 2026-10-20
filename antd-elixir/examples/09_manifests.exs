@@ -9,7 +9,7 @@ Mix.install([
 # daemon builds and decodes it. Building and decoding upload nothing and pay
 # nothing; only the two uploads below pay.
 #
-# Prerequisite: antd with a wallet (the antd release after 0.15.0, the first
+# Prerequisite: antd with a wallet (antd 0.16.0 or later, the first
 # with manifests).
 #
 #   ANTD_BASE_URL  the daemon's REST URL (default http://localhost:8082)

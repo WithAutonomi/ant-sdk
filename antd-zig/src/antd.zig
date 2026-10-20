@@ -398,7 +398,7 @@ pub const Client = struct {
         return json_helpers.parseBase64Data(self.allocator, resp);
     }
 
-    // --- Manifests (the antd release after 0.15.0) ---
+    // --- Manifests (antd 0.16.0 or later) ---
     //
     // ADR-0006 `.ant` manifests and `ant://` links: a set of files, each with
     // an optional path and size and either an embedded DataMap or a public
@@ -674,7 +674,7 @@ pub const Client = struct {
         return json_helpers.parseCostEstimate(self.allocator, resp);
     }
 
-    // --- Pointers (antd with the pointer API, after 0.15.0) ---
+    // --- Pointers (antd 0.16.0 or later) ---
     //
     // A pointer is a small, owner-signed, mutable reference. Its address is
     // derived from the owner's key and never changes; what it points at can

@@ -504,7 +504,7 @@ class AntdClient {
   /// DataMaps exactly as given. That resolution reads from the network, so
   /// the call can time out; it is safe to retry.
   ///
-  /// Requires the antd release after 0.15.0.
+  /// Requires antd 0.16.0 or later.
   Future<BuiltManifest> buildManifest(
     List<ManifestEntryInput> entries, {
     String? name,
@@ -533,7 +533,7 @@ class AntdClient {
   /// out; it is safe to retry. Bytes that are not a manifest throw
   /// [BadRequestError].
   ///
-  /// Requires the antd release after 0.15.0.
+  /// Requires antd 0.16.0 or later.
   Future<DecodedManifest> decodeManifest(
     Uint8List manifest, {
     bool resolve = false,
@@ -553,7 +553,7 @@ class AntdClient {
   /// [DecodedManifest.source] `"file_link"`: one public entry with no path.
   /// See [decodeManifest] for [resolve].
   ///
-  /// Requires the antd release after 0.15.0.
+  /// Requires antd 0.16.0 or later.
   Future<DecodedManifest> decodeManifestLink(
     String link, {
     bool resolve = false,
@@ -691,8 +691,8 @@ class AntdClient {
 
   // --- Pointers ---
   //
-  // Owner-signed, paid, mutable references (needs an antd with the pointer
-  // API, the first release after 0.15.0). A pointer's address is derived from
+  // Owner-signed, paid, mutable references (needs antd 0.16.0 or
+  // later, the first release with pointers). A pointer's address is derived from
   // its owner's key and never changes; what it points at can be updated by
   // the owner, who can also hand it over to another pointer for good.
   //

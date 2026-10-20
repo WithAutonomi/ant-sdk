@@ -645,7 +645,7 @@ defmodule Antd.Client do
   #
   # ADR-0006 `.ant` files and `ant://` links that describe a set of files,
   # each with an optional path and size and either an embedded DataMap or a
-  # public DataMap address (needs the antd release after 0.15.0). The daemon
+  # public DataMap address (needs antd 0.16.0 or later). The daemon
   # builds and decodes them through ant-core. Nothing is uploaded or paid
   # for; the network is read only to resolve DataMaps (the embedding policy
   # on build, `resolve` on decode), so a call can time out and is safe to
@@ -907,8 +907,8 @@ defmodule Antd.Client do
   # Pointers
   # ---------------------------------------------------------------------------
   #
-  # Owner-signed, paid, mutable references (needs the antd release after
-  # 0.15.0, the first with pointers). The daemon signs with owner keys it
+  # Owner-signed, paid, mutable references (needs antd 0.16.0 or later,
+  # the first release with pointers). The daemon signs with owner keys it
   # loaded at startup (`antd --pointer-keys`); a write names the pointer by
   # its address (`owner`), never by a key.
   #

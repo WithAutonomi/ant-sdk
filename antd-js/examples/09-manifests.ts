@@ -7,7 +7,7 @@
  * entry's exact size.
  *
  * Prerequisites:
- *   - the antd release after 0.15.0, on a local testnet with a wallet.
+ *   - antd 0.16.0 or later, on a local testnet with a wallet.
  *   - ANTD_BASE_URL (optional): the daemon URL, default http://localhost:8082.
  *     Prefer 127.0.0.1 to localhost on Node 18, which resolves localhost to ::1.
  *

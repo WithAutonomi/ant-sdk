@@ -31,7 +31,7 @@ partial class Program
                 await Example06_PrivateData();
                 await Example07_ExternalSigner();
                 break;
-            // Not part of "all": it needs the antd release after 0.15.0.
+            // Not part of "all": it needs antd 0.16.0 or later.
             case "9" or "manifests": await Example09_Manifests(); break;
             default:
                 Console.WriteLine($"Unknown example: {example}. Use 1-9, 'pointers', 'manifests' or 'all'.");

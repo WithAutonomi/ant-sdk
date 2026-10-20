@@ -2,7 +2,7 @@ namespace Antd.Sdk;
 
 public partial interface IAntdClient
 {
-    // Manifests (the antd release after 0.15.0, the first with the manifest
+    // Manifests (antd 0.16.0 or later, the first release with the manifest
     // API): ADR-0006 `.ant` files and `ant://` links.
     //
     // Nothing is uploaded or paid for. Build and a resolving decode read

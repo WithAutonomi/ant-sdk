@@ -17,7 +17,7 @@ antd-client = "0.3"
 
 ## Compatibility
 
-This crate talks to a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon; it does not join the network itself. Rust 1.82+. The byte-range methods need antd 0.15.0 or later and the pointer and manifest methods need the antd release after 0.15.0, the first with them; the rest of the API works with antd 0.14.x. The gRPC client code is pre-generated and committed, so consumers need neither `protoc` nor the daemon's `.proto` files. For a daemon-less client see the `ant-ffi` crate in this repository.
+This crate talks to a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon; it does not join the network itself. Rust 1.82+. The byte-range methods need antd 0.15.0 or later and the pointer and manifest methods need antd 0.16.0 or later, the first release with them; the rest of the API works with antd 0.14.x. The gRPC client code is pre-generated and committed, so consumers need neither `protoc` nor the daemon's `.proto` files. For a daemon-less client see the `ant-ffi` crate in this repository.
 
 ## Quick Start
 
@@ -135,7 +135,7 @@ each with an optional path and size and either an embedded DataMap (the manifest
 to the file) or a public file's DataMap address. The daemon builds and decodes manifests through
 ant-core, so nothing here re-implements the format. Nothing is uploaded or paid for. A build (its
 root-embedding policy) and a resolving decode read from the network, so they can time out;
-retrying them is safe. These methods need the antd release after 0.15.0.
+retrying them is safe. These methods need antd 0.16.0 or later.
 
 | Method | Description |
 |--------|-------------|

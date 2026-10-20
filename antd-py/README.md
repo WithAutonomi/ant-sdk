@@ -20,7 +20,7 @@ pip install -e ".[all]"
 
 ## Compatibility
 
-This package talks to a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon; it does not join the network itself. Python 3.10+. Tested against antd 0.12.x; `health()` fields such as `version`/`evm_network` need antd 0.4.0 or newer, and the [pointer](#pointers) methods need the antd release after 0.15.0, the first with pointers. For a daemon-less client see the `ant-sdk` package (import `ant_ffi`). Not related to the Ant Design UI library.
+This package talks to a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon; it does not join the network itself. Python 3.10+. Tested against antd 0.12.x; `health()` fields such as `version`/`evm_network` need antd 0.4.0 or newer, and the [pointer](#pointers) methods need antd 0.16.0 or later, the first release with pointers. For a daemon-less client see the `ant-sdk` package (import `ant_ffi`). Not related to the Ant Design UI library.
 
 ## Quick Start
 
@@ -113,7 +113,7 @@ python scripts/generate_proto.py
 
 #### Manifests
 
-A manifest (ADR-0006) describes a set of files as one `.ant` file, or as an `ant://manifest/` link when it is small enough. Each entry has an optional path and size, and either an embedded DataMap (a private file: the manifest is its key) or a public DataMap address. The daemon builds and decodes manifests through ant-core, so the SDK never handles the format. Every method is on all four clients (sync and async, REST and gRPC) with the same signatures, types and errors, and needs the antd release after 0.15.0, the first with manifests. See `examples/10_manifests.py`.
+A manifest (ADR-0006) describes a set of files as one `.ant` file, or as an `ant://manifest/` link when it is small enough. Each entry has an optional path and size, and either an embedded DataMap (a private file: the manifest is its key) or a public DataMap address. The daemon builds and decodes manifests through ant-core, so the SDK never handles the format. Every method is on all four clients (sync and async, REST and gRPC) with the same signatures, types and errors, and needs antd 0.16.0 or later, the first release with manifests. See `examples/10_manifests.py`.
 
 **Nothing is uploaded or paid for.** Building and decoding only read the network: on build the default embedding policy resolves shrunk DataMaps, and on decode `resolve=True` fetches each entry's DataMap (never its content). A call can therefore time out, and retrying it is safe. Upload the files first (`data_put_public`, `file_put`, ...) and pass their addresses or DataMaps.
 

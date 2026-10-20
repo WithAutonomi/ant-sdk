@@ -130,7 +130,7 @@ A manifest (a `.ant` file, or an `ant://manifest/` link to one) bundles files th
 | 30 | `build_manifest(entries, name?, torrent_info_hashes?, embed_roots?)` | Each entry is `{path?, size?, data_map? \| address?}`: give exactly one of `data_map` or `address`. Returns `manifest_base64` (the `.ant` bytes), `link` (null when the manifest exceeds 1,500 bytes; share the file instead) and `entries`. `embed_roots` defaults to true. A bad entry returns `BAD_REQUEST` with a message naming `entries[i]`. |
 | 31 | `decode_manifest(manifest_base64? \| link?, resolve?)` | Give exactly one of the base64 `.ant` bytes or a `link` (manifest link, file link or bare address). Returns `source` (`manifest` or `file_link`), `name`, the torrent hashes and `entries`. With `resolve=true` it also reads each entry's root from the network to fill in `exact_size`; one entry's failure is in its `error`, not a failed call. |
 
-Unset sizes are `null`, never 0. These tools need an antd daemon with the manifest API (the antd release after 0.15.0) and an [`antd`](https://pypi.org/project/antd/) Python SDK that has `build_manifest`. With an older SDK the server still starts and serves its other tools; it just does not register the manifest tools.
+Unset sizes are `null`, never 0. These tools need an antd daemon with the manifest API (antd 0.16.0 or later) and an [`antd`](https://pypi.org/project/antd/) Python SDK that has `build_manifest`. With an older SDK the server still starts and serves its other tools; it just does not register the manifest tools.
 
 ### Payment Modes
 

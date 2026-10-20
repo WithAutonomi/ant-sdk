@@ -11,7 +11,7 @@
 //! them as base64 in JSON and gRPC as `bytes`; neither form reaches the
 //! caller.
 //!
-//! Requires the antd release after 0.15.0.
+//! Requires antd 0.16.0 or later.
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
@@ -317,7 +317,7 @@ impl Client {
     /// the rest (hex, paths, sizes) and reports every invalid entry, as
     /// `entries[i]: ...`, in one [`AntdError::BadRequest`].
     ///
-    /// Requires the antd release after 0.15.0.
+    /// Requires antd 0.16.0 or later.
     pub async fn build_manifest(
         &self,
         entries: &[ManifestEntryInput],
@@ -375,7 +375,7 @@ impl Client {
     /// manifest are [`AntdError::BadRequest`]; empty bytes are refused before
     /// anything is sent.
     ///
-    /// Requires the antd release after 0.15.0.
+    /// Requires antd 0.16.0 or later.
     pub async fn decode_manifest(
         &self,
         manifest: &[u8],
@@ -396,7 +396,7 @@ impl Client {
     /// one public entry with no path, with `source` `"file_link"`. See
     /// [`decode_manifest`](Self::decode_manifest) for `resolve`.
     ///
-    /// Requires the antd release after 0.15.0.
+    /// Requires antd 0.16.0 or later.
     pub async fn decode_manifest_link(
         &self,
         link: &str,

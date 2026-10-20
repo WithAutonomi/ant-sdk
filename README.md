@@ -432,7 +432,7 @@ Data, chunks and files are immutable: new content gets a new address. Pointers a
 
 ### Pointers
 
-A pointer is a small, owner-signed, mutable reference. Its address is derived from the owner's key and never changes; what it points at (a chunk, such as a public file's address, or another pointer) can be changed by the owner. Publish the pointer's address once, then move it to each new version. Pointers need the first antd release with pointers (after 0.15.0).
+A pointer is a small, owner-signed, mutable reference. Its address is derived from the owner's key and never changes; what it points at (a chunk, such as a public file's address, or another pointer) can be changed by the owner. Publish the pointer's address once, then move it to each new version. Pointers need antd 0.16.0 or later (the first release with pointers).
 
 - **antd holds the owner keys.** Create one with `ant pointer keygen --output <file>` (the Autonomi `ant` CLI) and start antd with `--pointer-keys <file-or-dir>` (env `ANTD_POINTER_KEYS_DIR`); it loads them at startup. Requests name a pointer by its address, never by a key. Without the flag, pointers can be read but not written. A pointer key cannot be rotated: see [SECURITY.md](SECURITY.md).
 - **Every write pays.** A create, update or transfer costs about the price of one chunk, from the daemon wallet or an external signer (`pointer_prepare` / `pointer_finalize`). Every attempt pays again, so the SDKs never retry a paid pointer write. Reads (`get`, `resolve`, `finality`, `controller`, `keys`) are free.
@@ -463,7 +463,7 @@ The MCP server has 10 pointer tools: the reads are free, `pointer_create`, `poin
 
 ### Manifests
 
-A manifest describes a set of files as one `.ant` document, or as one `ant://manifest/` link when it is small enough. Each entry has an optional path and size and either a public file's address or an embedded DataMap (a private file: the manifest is then its key). Share the link and the receiver can decode it, learn what is in the set and download each file with the existing download calls. Manifests need the antd release after 0.15.0.
+A manifest describes a set of files as one `.ant` document, or as one `ant://manifest/` link when it is small enough. Each entry has an optional path and size and either a public file's address or an embedded DataMap (a private file: the manifest is then its key). Share the link and the receiver can decode it, learn what is in the set and download each file with the existing download calls. Manifests need antd 0.16.0 or later.
 
 - **Nothing is uploaded or paid for.** Upload the files first, then build from the addresses and DataMaps the uploads returned. Build and decode read the network only to resolve DataMaps, so they can time out; retrying is safe. The daemon needs no wallet for them.
 - **Three calls**, in every SDK: `build_manifest`, `decode_manifest` (raw `.ant` bytes) and `decode_manifest_link` (a manifest link, file link or bare address), cased per language. `resolve` also reads each entry's DataMap from the network to report its `exact_size`. REST carries the `.ant` bytes as base64; the SDKs always take and return raw bytes.

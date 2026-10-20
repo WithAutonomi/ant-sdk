@@ -243,7 +243,7 @@ impl From<tonic::Status> for AntdError {
     }
 }
 
-/// Metadata key the daemon (with the pointer API, after 0.15.0) sets on statuses whose gRPC code
+/// Metadata key the daemon (0.16.0 or later) sets on statuses whose gRPC code
 /// is shared with older errors, carrying the REST `code` string.
 const ANTD_ERROR_CODE_METADATA: &str = "x-antd-error-code";
 

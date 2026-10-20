@@ -143,7 +143,7 @@ func checkManifestEntries(entries []ManifestEntryInput) error {
 // BuildManifest builds a `.ant` manifest from DataMaps and public addresses
 // already in hand, via POST /v1/manifests/build. opts may be nil.
 //
-// Requires the antd release after 0.15.0.
+// Requires antd 0.16.0 or later.
 func (c *Client) BuildManifest(ctx context.Context, entries []ManifestEntryInput, opts *BuildManifestOptions) (*BuiltManifest, error) {
 	if err := checkManifestEntries(entries); err != nil {
 		return nil, err
@@ -197,7 +197,7 @@ func (c *Client) BuildManifest(ctx context.Context, entries []ManifestEntryInput
 // report ExactSize and confirm the DataMap is on the network; content chunks
 // are not fetched, and one entry's failure is reported in its Error.
 //
-// Requires the antd release after 0.15.0.
+// Requires antd 0.16.0 or later.
 func (c *Client) DecodeManifest(ctx context.Context, manifest []byte, resolve bool) (*DecodedManifest, error) {
 	if len(manifest) == 0 {
 		return nil, badManifestRequest(noDecodeInput)
@@ -209,7 +209,7 @@ func (c *Client) DecodeManifest(ctx context.Context, manifest []byte, resolve bo
 // 64-hex address via POST /v1/manifests/decode. See DecodeManifest for
 // resolve.
 //
-// Requires the antd release after 0.15.0.
+// Requires antd 0.16.0 or later.
 func (c *Client) DecodeManifestLink(ctx context.Context, link string, resolve bool) (*DecodedManifest, error) {
 	if link == "" {
 		return nil, badManifestRequest(noDecodeInput)
@@ -265,7 +265,7 @@ func parseManifestEntries(raw []any) []ManifestEntryInfo {
 
 // BuildManifest is the gRPC twin of Client.BuildManifest. opts may be nil.
 //
-// Requires the antd release after 0.15.0.
+// Requires antd 0.16.0 or later.
 func (c *GrpcClient) BuildManifest(ctx context.Context, entries []ManifestEntryInput, opts *BuildManifestOptions) (*BuiltManifest, error) {
 	if err := checkManifestEntries(entries); err != nil {
 		return nil, err
@@ -311,7 +311,7 @@ func (c *GrpcClient) BuildManifest(ctx context.Context, entries []ManifestEntryI
 
 // DecodeManifest is the gRPC twin of Client.DecodeManifest.
 //
-// Requires the antd release after 0.15.0.
+// Requires antd 0.16.0 or later.
 func (c *GrpcClient) DecodeManifest(ctx context.Context, manifest []byte, resolve bool) (*DecodedManifest, error) {
 	if len(manifest) == 0 {
 		return nil, badManifestRequest(noDecodeInput)
@@ -324,7 +324,7 @@ func (c *GrpcClient) DecodeManifest(ctx context.Context, manifest []byte, resolv
 
 // DecodeManifestLink is the gRPC twin of Client.DecodeManifestLink.
 //
-// Requires the antd release after 0.15.0.
+// Requires antd 0.16.0 or later.
 func (c *GrpcClient) DecodeManifestLink(ctx context.Context, link string, resolve bool) (*DecodedManifest, error) {
 	if link == "" {
 		return nil, badManifestRequest(noDecodeInput)

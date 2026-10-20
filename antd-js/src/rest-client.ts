@@ -687,7 +687,7 @@ export class RestClient {
    * is a `BadRequestError` too, its message naming each `entries[i]`.
    * `options.embedRoots` defaults to `true`.
    *
-   * Requires the antd release after 0.15.0.
+   * Requires antd 0.16.0 or later.
    */
   async buildManifest(
     entries: ManifestEntryInput[],
@@ -705,7 +705,7 @@ export class RestClient {
    * not fetched, and one entry's failure is reported in its `error` rather
    * than failing the call.
    *
-   * Requires the antd release after 0.15.0.
+   * Requires antd 0.16.0 or later.
    */
   async decodeManifest(
     manifest: Uint8Array | Buffer,
@@ -722,7 +722,7 @@ export class RestClient {
    * as one public entry with no path and `source: "file_link"`. See
    * {@link decodeManifest} for `resolve`.
    *
-   * Requires the antd release after 0.15.0.
+   * Requires antd 0.16.0 or later.
    */
   async decodeManifestLink(link: string, resolve: boolean = false): Promise<DecodedManifest> {
     const body = manifestLinkDecodeBody(link, resolve);

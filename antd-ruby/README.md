@@ -18,7 +18,7 @@ gem install antd
 
 ## Compatibility
 
-This gem talks to a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon; it does not join the network itself. Ruby 3.1+. Tested against antd 0.12.x; the pointer methods need the antd release after 0.15.0, the first with pointers. The REST client has no runtime dependencies; the gRPC transport (`Antd::GrpcClient`) needs the `grpc` gem, which is deliberately not a runtime dependency of this gem — add `gem "grpc"` yourself to use it.
+This gem talks to a running [antd](https://github.com/WithAutonomi/ant-sdk/tree/main/antd) daemon; it does not join the network itself. Ruby 3.1+. Tested against antd 0.12.x; the pointer methods need antd 0.16.0 or later, the first release with pointers. The REST client has no runtime dependencies; the gRPC transport (`Antd::GrpcClient`) needs the `grpc` gem, which is deliberately not a runtime dependency of this gem — add `gem "grpc"` yourself to use it.
 
 ## Quick Start
 
@@ -337,8 +337,8 @@ A manifest (ADR-0006) describes a set of files in one `.ant` file or
 `ant://` link: each entry has an optional path and size, and either an
 embedded DataMap (from a private upload; the manifest is then the key to the
 file) or a public file's DataMap address. The daemon builds and decodes
-manifests, so the SDK never handles the format itself. These methods need the
-antd release after 0.15.0.
+manifests, so the SDK never handles the format itself. These methods need
+antd 0.16.0 or later.
 
 **Nothing is uploaded or paid for.** Building one from DataMaps and addresses
 you already hold is free. Embedding roots (on build) and `resolve` (on

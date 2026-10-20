@@ -29,7 +29,7 @@ use GuzzleHttp\Promise\PromiseInterface;
  * size is null, never 0.
  *
  * Mixed into {@see AntdClient} (it uses the client's private doJson() and
- * doJsonAsync()). Needs the antd release after 0.15.0.
+ * doJsonAsync()). Needs antd 0.16.0 or later.
  */
 trait ManifestMethods
 {

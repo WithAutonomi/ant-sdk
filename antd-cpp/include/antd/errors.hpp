@@ -385,7 +385,7 @@ inline void throw_for_error_code(std::string_view code, const std::string& messa
     if (code == "CLOSE_GROUP_SHORTFALL") throw CloseGroupShortfallError(message, retryable);
 }
 
-/// Metadata key the daemon (with the pointer API, after 0.15.0) sets on gRPC
+/// Metadata key the daemon (0.16.0 or later) sets on gRPC
 /// statuses whose code is shared with older errors, carrying the REST `code`.
 inline constexpr std::string_view kErrorCodeMetadataKey = "x-antd-error-code";
 

@@ -14,7 +14,7 @@ partial class Program
     /// size.
     ///
     /// Building and decoding upload and pay for nothing; only the two uploads
-    /// pay. Needs the antd release after 0.15.0 and a wallet;
+    /// pay. Needs antd 0.16.0 or later and a wallet;
     /// <c>ANTD_BASE_URL</c> overrides the daemon URL (default
     /// http://localhost:8082). Run explicitly (<c>dotnet run -- 9</c>); "all"
     /// leaves it out, so it still runs against older daemons.

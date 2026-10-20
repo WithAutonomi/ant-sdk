@@ -6,7 +6,7 @@ This tutorial uploads a public file, points a pointer at it, uploads a second ve
 
 ## Prerequisites
 
-- The first antd release with pointers (after 0.15.0), on a local testnet with a wallet (`ant dev start` sets both up)
+- antd 0.16.0 or later (the first release with pointers), on a local testnet with a wallet (`ant dev start` sets both up)
 - An owner key loaded into antd (step 1)
 - Python SDK installed (`pip install antd[rest]`), C# SDK built (`dotnet build`), Kotlin SDK built (`./gradlew build`), or Swift SDK built (`swift build`)
 

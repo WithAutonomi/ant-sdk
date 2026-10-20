@@ -602,7 +602,7 @@ class GrpcAntdClient {
   /// [BadRequestError] before anything is sent; the daemon's INVALID_ARGUMENT
   /// for the rest (naming `entries[i]`) is a [BadRequestError].
   ///
-  /// Requires the antd release after 0.15.0.
+  /// Requires antd 0.16.0 or later.
   Future<BuiltManifest> buildManifest(
     List<ManifestEntryInput> entries, {
     String? name,
@@ -644,7 +644,7 @@ class GrpcAntdClient {
   /// Decodes `.ant` bytes. Nothing is uploaded or paid for. See
   /// [AntdClient.decodeManifest] for [resolve].
   ///
-  /// Requires the antd release after 0.15.0.
+  /// Requires antd 0.16.0 or later.
   Future<DecodedManifest> decodeManifest(
     Uint8List manifest, {
     bool resolve = false,
@@ -660,7 +660,7 @@ class GrpcAntdClient {
   /// Decodes an `ant://` manifest link, file link or bare 64-hex address.
   /// See [AntdClient.decodeManifestLink].
   ///
-  /// Requires the antd release after 0.15.0.
+  /// Requires antd 0.16.0 or later.
   Future<DecodedManifest> decodeManifestLink(
     String link, {
     bool resolve = false,

@@ -16,7 +16,7 @@
 -- `link`, `name` and the torrent info hashes) read as nil when unset too.
 --
 -- These methods are installed on antd.client's Client by `install`. Needs an
--- antd with the manifest API (the antd release after 0.15.0).
+-- antd with the manifest API (antd 0.16.0 or later).
 --
 -- @module antd.manifests
 

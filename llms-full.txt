@@ -525,8 +525,8 @@ Pointer error codes: `CLOSE_GROUP_SHORTFALL` (503; reads are free to retry),
 
 ### Manifests (ADR-0006)
 
-Stateless build and decode of `.ant` manifests and `ant://` links (needs the
-antd release after 0.15.0). A manifest describes a set of files as one
+Stateless build and decode of `.ant` manifests and `ant://` links (needs antd
+0.16.0 or later). A manifest describes a set of files as one
 document: each entry has an optional `path` and `size` and either an embedded
 DataMap (a private file: the manifest is its key) or the address of a public
 file. The format, content addresses and portable path rules come from
@@ -1088,7 +1088,7 @@ func (c *Client) PointerController(ctx context.Context, address string) (*Pointe
 func (c *Client) PointerPrepare(ctx context.Context, req PointerPrepareRequest) (*PointerPrepareResult, error)
 func (c *Client) PointerFinalize(ctx context.Context, uploadID string, txHashes map[string]string) (*PointerFinalizeResult, error)
 
-// Manifests (ADR-0006, the antd release after 0.15.0; free; sizes are *uint64, unset is nil; bytes are []byte); same methods on GrpcClient
+// Manifests (ADR-0006, antd 0.16.0 or later; free; sizes are *uint64, unset is nil; bytes are []byte); same methods on GrpcClient
 // BuildManifestOptions{Name, TorrentInfoHashes, KeepShrunkDataMaps}; ManifestEntryInput{Path, Size, DataMap, Address}
 func (c *Client) BuildManifest(ctx context.Context, entries []ManifestEntryInput, opts *BuildManifestOptions) (*BuiltManifest, error)
 func (c *Client) DecodeManifest(ctx context.Context, manifest []byte, resolve bool) (*DecodedManifest, error)

@@ -111,7 +111,7 @@ All methods throw `AntdException` (or a typed subclass) on failure.
 
 ### Manifests
 
-A manifest (ADR-0006) describes a set of files as one `.ant` document, or as one `ant://manifest/` link when that fits in 1,500 bytes. Each entry has an optional path and size, and either an embedded DataMap (`ManifestEntryInput.ofDataMap(...)`, from `dataPut` or `filePut`) or a public file's DataMap address (`ManifestEntryInput.ofAddress(...)`). The daemon builds and decodes them through ant-core, so the SDK never re-implements the format. The manifest methods need the antd release after 0.15.0.
+A manifest (ADR-0006) describes a set of files as one `.ant` document, or as one `ant://manifest/` link when that fits in 1,500 bytes. Each entry has an optional path and size, and either an embedded DataMap (`ManifestEntryInput.ofDataMap(...)`, from `dataPut` or `filePut`) or a public file's DataMap address (`ManifestEntryInput.ofAddress(...)`). The daemon builds and decodes them through ant-core, so the SDK never re-implements the format. The manifest methods need antd 0.16.0 or later.
 
 **Nothing is uploaded or paid for.** Building and decoding only read from the network: to resolve shrunk DataMaps when embedding roots (the default), and, with `resolve`, to fetch each entry's DataMap for its exact size. So a call can time out, and retrying it is safe. Store or share the bytes or the link yourself.
 
@@ -154,7 +154,7 @@ ANTD_BASE_URL=http://localhost:8082 ./gradlew :examples:run -PmainClass=com.auto
 
 ### Pointers
 
-A pointer is a small, owner-signed, mutable reference. Its address is derived from the owner's key and never changes; what it points at (a chunk, such as a public file's data map, or another pointer) can be changed by the owner. The daemon holds the owner keys, loaded at startup with `antd --pointer-keys <file-or-dir>` (files in the format `ant pointer keygen` writes), so every write names the pointer by its address (`owner`), never by a key. The pointer methods need the antd release after 0.15.0, the first with pointers.
+A pointer is a small, owner-signed, mutable reference. Its address is derived from the owner's key and never changes; what it points at (a chunk, such as a public file's data map, or another pointer) can be changed by the owner. The daemon holds the owner keys, loaded at startup with `antd --pointer-keys <file-or-dir>` (files in the format `ant pointer keygen` writes), so every write names the pointer by its address (`owner`), never by a key. The pointer methods need antd 0.16.0 or later, the first release with pointers.
 
 **Every write pays** (about the price of one chunk), and every attempt pays again. The SDK never retries `pointerCreate`, `pointerUpdate`, `pointerTransfer` or `pointerFinalize`, and you should not retry them automatically either; the one exception is a finalize the daemon says it kept (see `pointerFinalize` below). Reads are free to retry; a read during an update or churn can fail with `CloseGroupShortfallException`.
 

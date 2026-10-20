@@ -8,7 +8,7 @@ Building and decoding a manifest **upload nothing and pay nothing**. Only the fi
 
 ## Prerequisites
 
-- The antd release after 0.15.0, the first with manifests, on a local testnet with a wallet (`ant dev start` sets both up). The wallet is needed for the uploads only; the manifest calls need none
+- antd 0.16.0 or later, the first release with manifests, on a local testnet with a wallet (`ant dev start` sets both up). The wallet is needed for the uploads only; the manifest calls need none
 - Python SDK installed (`pip install antd[rest]`), C# SDK built (`dotnet build`), Kotlin SDK built (`./gradlew build`), or Swift SDK built (`swift build`)
 - Three small files. Make them:
 

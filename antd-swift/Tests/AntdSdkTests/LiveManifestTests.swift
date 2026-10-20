@@ -1,8 +1,8 @@
 import XCTest
 @testable import AntdSdk
 
-/// Live manifest build and decode against a running antd (the release after
-/// 0.15.0) with a devnet behind it. Nothing is uploaded or paid for: the test
+/// Live manifest build and decode against a running antd (0.16.0 or
+/// later) with a devnet behind it. Nothing is uploaded or paid for: the test
 /// builds and decodes manifests of data that is already stored.
 ///
 /// The REST test is skipped unless `ANTD_TEST_URL` and

@@ -86,7 +86,7 @@ All methods are `async throws` for use with Swift concurrency.
 
 ## Pointers
 
-A pointer is a small, owner-signed, mutable reference. Its address is derived from the owner's key and never changes. The owner can point it at a new target (a chunk, such as a public upload's address, or another pointer), and can hand it over to another pointer for good with `pointerTransfer`. Both REST and gRPC clients implement the full pointer API (antd with the pointer API, after 0.15.0).
+A pointer is a small, owner-signed, mutable reference. Its address is derived from the owner's key and never changes. The owner can point it at a new target (a chunk, such as a public upload's address, or another pointer), and can hand it over to another pointer for good with `pointerTransfer`. Both REST and gRPC clients implement the full pointer API (antd 0.16.0 or later).
 
 antd signs with the owner keys it loaded at startup (`antd --pointer-keys`). A write names the pointer by its address (`owner`), never by a key. `pointerKeys()` lists the pointers the daemon can write, and an owner it holds no key for is a `BadRequestError`.
 
@@ -201,7 +201,7 @@ See `finalizeWithRetry` in `Sources/AntdExamples/Main.swift` and the contract in
 
 ## Manifests
 
-A manifest (ADR-0006) is a `.ant` file, or an `ant://manifest/` link, that describes a set of files. Each entry has an optional path and size, and either an embedded DataMap (a private upload's) or a public DataMap address. The daemon builds and decodes manifests, so you never handle the format yourself. Both REST and gRPC clients implement the manifest API, which needs the antd release after 0.15.0.
+A manifest (ADR-0006) is a `.ant` file, or an `ant://manifest/` link, that describes a set of files. Each entry has an optional path and size, and either an embedded DataMap (a private upload's) or a public DataMap address. The daemon builds and decodes manifests, so you never handle the format yourself. Both REST and gRPC clients implement the manifest API, which needs antd 0.16.0 or later.
 
 **Nothing is uploaded or paid for.** The daemon reads the network only to resolve DataMaps: when it embeds roots on build, and for `resolve` on decode. So a call can time out, and it is safe to retry.
 
@@ -256,7 +256,7 @@ ANTD_POINTER_OWNER=<address> swift run AntdExamples pointers   # or: 9
 
 ```bash
 # Manifests: two public uploads (each pays), then a free build and a
-# resolving decode of the link. Needs the antd release after 0.15.0, so it
+# resolving decode of the link. Needs antd 0.16.0 or later, so it
 # runs only when named. ANTD_BASE_URL overrides the daemon URL.
 swift run AntdExamples manifests   # or: 10
 ```

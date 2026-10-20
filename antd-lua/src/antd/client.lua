@@ -651,7 +651,7 @@ end
 --
 -- A pointer's owner key lives in the daemon (`antd --pointer-keys`); a write
 -- names the pointer by its address (`owner`). Needs an antd with the pointer
--- API (the release after 0.15.0).
+-- API (0.16.0 or later).
 --
 -- Every write (pointer_create, pointer_update, pointer_transfer,
 -- pointer_finalize) pays, about the price of one chunk, and every attempt

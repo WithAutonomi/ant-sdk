@@ -7,7 +7,7 @@ import (
 	"strconv"
 )
 
-// Pointers (the antd release after 0.15.0): owner-signed, paid, mutable references. A
+// Pointers (antd 0.16.0 or later): owner-signed, paid, mutable references. A
 // pointer's address is derived from its owner's key and never changes; what
 // it points at can be updated by the owner, and the owner can hand it over to
 // another pointer for good (PointerTransfer).
