@@ -372,16 +372,21 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
             continuation.finish()
         }
 
-        /// Maps a non-2xx streaming response to an ``AntdError``. Prefers the
-        /// daemon's `{"error":"..."}` JSON envelope; falls back to the raw body
-        /// (matching the buffered ``ensureSuccess(_:data:)`` behaviour).
+        /// Maps a non-2xx streaming response to an ``AntdError``. The raw body
+        /// goes to the mapper first, as in the buffered
+        /// ``ensureSuccess(_:data:)`` path, so the envelope's `code` selects
+        /// the typed errors (e.g. `CLOSE_GROUP_SHORTFALL`). When no code
+        /// applies, the status-based error carries the envelope's `error` text
+        /// rather than the raw JSON.
         private static func streamError(status: Int, body: Data) -> AntdError {
-            var message = String(data: body, encoding: .utf8) ?? ""
-            if let obj = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+            let raw = String(data: body, encoding: .utf8) ?? ""
+            let mapped = ErrorMapping.fromHTTPStatus(status, body: raw)
+            if mapped.message == raw,
+               let obj = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
                let parsed = obj["error"] as? String {
-                message = parsed
+                return ErrorMapping.fromHTTPStatus(status, body: parsed)
             }
-            return ErrorMapping.fromHTTPStatus(status, body: message)
+            return mapped
         }
     }
 

@@ -73,10 +73,9 @@ public sealed class PointerLiveTests
         var w = await rest.PointerCreateAsync(a, one);
         Assert.Equal(0UL, w.Counter);
         Assert.Equal(a, Norm(w.Address));
-        // Refused before paying. Over REST a 409 ALREADY_EXISTS keeps the
-        // ForkException mapping every untyped 409 has.
-        var exists = await Assert.ThrowsAsync<ForkException>(() => rest.PointerCreateAsync(a, two));
-        Assert.IsType<ForkException>(exists);
+        // Refused before paying. Over REST a 409 ALREADY_EXISTS is an
+        // AlreadyExistsException, as over gRPC.
+        var exists = await Assert.ThrowsAsync<AlreadyExistsException>(() => rest.PointerCreateAsync(a, two));
         Assert.Contains("ALREADY_EXISTS", exists.Message);
 
         var r = await rest.PointerGetAsync(a);

@@ -11,6 +11,7 @@ from antd.exceptions import (
     NetworkError,
     NotFoundError,
     PaymentError,
+    ServiceUnavailableError,
     TooLargeError,
 )
 
@@ -51,6 +52,7 @@ _CODE_MAP: dict[type[AntdError], str] = {
     NetworkError: "NETWORK_ERROR",
     TooLargeError: "TOO_LARGE",
     InternalError: "INTERNAL_ERROR",
+    ServiceUnavailableError: "SERVICE_UNAVAILABLE",
 }
 if PartialUploadError is not None:
     _CODE_MAP[PartialUploadError] = "PARTIAL_UPLOAD"
@@ -58,7 +60,14 @@ if PartialUploadError is not None:
 # What an agent should do next, for the codes where the wrong move costs
 # money. The lookup is by exact type, like _CODE_MAP, so PointerForkedError
 # (a ForkError subclass) gets its own entry rather than VERSION_CONFLICT.
-_HINTS: dict[type[AntdError], str] = {}
+_HINTS: dict[type[AntdError], str] = {
+    ServiceUnavailableError: (
+        "The daemon could not proceed: it has no wallet configured, or too "
+        "few peers are available to pay or store yet. It is refused before "
+        "anything is paid, so it is safe to try again later; if it keeps "
+        "failing, the daemon needs a wallet or more time to connect."
+    ),
+}
 if PointerFinalError is not None:
     _CODE_MAP[PointerFinalError] = "POINTER_FINAL"
     _HINTS[PointerFinalError] = (
