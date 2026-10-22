@@ -16,7 +16,7 @@ from antd.exceptions import AntdError
 from .discover import discover_daemon_url
 from .errors import format_error, format_unexpected_error
 
-# The pointer tools need an antd SDK with the pointer API (newer than 0.2.0).
+# The pointer tools need an antd SDK with the pointer API (0.3.0 or later).
 # Against an older SDK the server still starts and serves every other tool;
 # the pointer tools are simply not registered (see ``_pointer_tool``).
 try:
