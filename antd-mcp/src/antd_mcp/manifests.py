@@ -2,7 +2,7 @@
 
 Kept in its own module so it stays clear of server.py. server.py calls
 ``register(mcp)`` once, after its own tools, and the tools are registered only
-when the installed antd SDK has the manifest API (newer than 0.2.0). Against an
+when the installed antd SDK has the manifest API (0.3.0 or later). Against an
 older SDK the server still starts and serves every other tool.
 
 Neither tool pays or uploads anything, so neither asks for confirmation.

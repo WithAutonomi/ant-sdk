@@ -197,7 +197,7 @@ Full contract: `docs/external-signer-flow.md` §6 in the ant-sdk repo.
 
 ### Pointer payments, counters and errors
 
-The pointer tools need an antd daemon with the pointer API and an [`antd`](https://pypi.org/project/antd/) Python SDK newer than 0.2.0. With an older SDK the server still starts and serves the other 19 tools; it just does not register the pointer tools.
+The pointer tools need an antd daemon with the pointer API and an [`antd`](https://pypi.org/project/antd/) Python SDK 0.3.0 or later. With an older SDK the server still starts and serves the other 19 tools; it just does not register the pointer tools.
 
 **Every write pays, and no tool retries.** `pointer_create`, `pointer_update` and `pointer_transfer` each pay from the daemon wallet, about the price of one chunk, with the same posture as `store_data` / `upload_file` / `chunk_put`: no confirmation step and no automatic retry. Every repeat pays again, so check the pointer (`pointer_get`) before repeating a failed write. The reads are free.
 
