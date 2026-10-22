@@ -32,10 +32,11 @@ dependencies = [
   # `retention_known`, which the finalize tools report. errors.py still guards
   # the import, so an environment that bypasses the floor (e.g. --no-deps)
   # starts and reports partial uploads as NETWORK_ERROR.
-  # The pointer tools need the first antd release with the pointer API (after
-  # 0.2.0). server.py registers them only when the installed SDK has it, so
-  # against 0.2.0 the server starts and serves the other tools.
-  "antd[rest]>=0.2.0,<0.3",
+  # The pointer and manifest tools need antd 0.3.0, the first SDK release with
+  # those APIs. server.py and manifests.py register them only when the
+  # installed SDK has them, so against 0.2.0 the server starts and serves the
+  # other tools. The floor moves to 0.3.0 once 0.3.0 is on PyPI.
+  "antd[rest]>=0.2.0,<0.4",
 ]
 
 [project.optional-dependencies]
