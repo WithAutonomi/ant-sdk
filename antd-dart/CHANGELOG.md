@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
 - Pointers, on both `AntdClient` and `GrpcAntdClient` (needs antd 0.16.0
   or later): `pointerKeys`, `pointerCreate`, `pointerUpdate`,
