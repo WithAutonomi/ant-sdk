@@ -13,6 +13,7 @@ from mcp.types import ToolAnnotations
 
 from antd import AsyncAntdClient, PaymentMode
 from antd.exceptions import AntdError
+from ._fields import sha256_of
 from .discover import discover_daemon_url
 from .errors import format_error, format_unexpected_error
 
@@ -129,8 +130,9 @@ async def store_data(
 
     Returns:
         JSON with ``address`` (on-network address when public, caller-held
-        DataMap when private), ``chunks_stored``, ``payment_mode_used``, or
-        error details.
+        DataMap when private), ``chunks_stored``, ``payment_mode_used`` and
+        ``sha256`` (the text's SHA-256 as hex; requires antd 0.17.0 or
+        later, null on older daemons), or error details.
     """
     client, network = _get_ctx(ctx)
     data = text.encode("utf-8")
@@ -147,6 +149,7 @@ async def store_data(
                 "address": address,
                 "chunks_stored": result.chunks_stored,
                 "payment_mode_used": result.payment_mode_used,
+                "sha256": sha256_of(result),
             },
             network,
         )
@@ -217,7 +220,9 @@ async def upload_file(
     Returns:
         JSON with ``address`` (on-network address when public, caller-held
         DataMap when private), ``storage_cost_atto``, ``gas_cost_wei``,
-        ``chunks_stored``, and ``payment_mode_used``, or error details.
+        ``chunks_stored``, ``payment_mode_used`` and ``sha256`` (the file's
+        SHA-256 as hex; requires antd 0.17.0 or later, null on older
+        daemons), or error details.
     """
     client, network = _get_ctx(ctx)
     try:
@@ -235,6 +240,7 @@ async def upload_file(
                 "gas_cost_wei": result.gas_cost_wei,
                 "chunks_stored": result.chunks_stored,
                 "payment_mode_used": result.payment_mode_used,
+                "sha256": sha256_of(result),
             },
             network,
         )
@@ -731,7 +737,8 @@ async def finalize_upload(
         JSON with ``address`` (hex), ``chunks_stored`` count, ``data_map``
         (hex-encoded msgpack DataMap — always returned), and
         ``data_map_address`` (set when prepare used ``visibility="public"``,
-        empty otherwise).
+        empty otherwise), and ``sha256`` (the uploaded content's SHA-256 as
+        hex; requires antd 0.17.0 or later, null on older daemons).
 
     Errors:
         ``error: "PARTIAL_UPLOAD"`` means the payment went through but only
@@ -760,6 +767,7 @@ async def finalize_upload(
                 "chunks_stored": result.chunks_stored,
                 "data_map": result.data_map,
                 "data_map_address": result.data_map_address,
+                "sha256": sha256_of(result),
             },
             network,
         )
@@ -794,7 +802,8 @@ async def finalize_merkle_upload(
         JSON with ``address`` (hex), ``chunks_stored`` count, ``data_map``
         (hex-encoded msgpack DataMap — always returned), and
         ``data_map_address`` (set when prepare used ``visibility="public"``,
-        empty otherwise).
+        empty otherwise), and ``sha256`` (the uploaded content's SHA-256 as
+        hex; requires antd 0.17.0 or later, null on older daemons).
 
     Errors:
         ``error: "PARTIAL_UPLOAD"`` means the payment went through but only
@@ -823,6 +832,7 @@ async def finalize_merkle_upload(
                 "chunks_stored": result.chunks_stored,
                 "data_map": result.data_map,
                 "data_map_address": result.data_map_address,
+                "sha256": sha256_of(result),
             },
             network,
         )
