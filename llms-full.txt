@@ -671,22 +671,25 @@ Default target: `localhost:50051`. Package: `antd.v1`.
 - `Check(HealthCheckRequest) → HealthCheckResponse` — returns status, network name, version/build/EVM info, and the live network snapshot (`write_ready`, `connected_peers`, `routing_table_size`, `rebootstrap_threshold`, `last_store_ok_secs_ago`) — same semantics as REST `GET /health`
 
 ### DataService (data.proto)
+- `Put(PutDataRequest{data: bytes, payment_mode}) → PutDataResponse{cost, data_map, chunks_stored, payment_mode_used, sha256}` (private: the DataMap is returned, not stored on-network; `sha256` = 5)
+- `PutPublic(PutPublicDataRequest{data: bytes, payment_mode}) → PutPublicDataResponse{cost, address, chunks_stored, payment_mode_used, sha256}` (`sha256` = 5)
+- `Get(GetDataRequest{data_map}) → GetDataResponse{data: bytes}`
 - `GetPublic(GetPublicDataRequest{address}) → GetPublicDataResponse{data: bytes}`
-- `PutPublic(PutPublicDataRequest{data: bytes}) → PutPublicDataResponse{cost, address, sha256}`
-- `StreamPublic(StreamPublicDataRequest{address}) → stream DataChunk{data: bytes}`
-- `GetPrivate(GetPrivateDataRequest{data_map}) → GetPrivateDataResponse{data: bytes}`
-- `PutPrivate(PutPrivateDataRequest{data: bytes}) → PutPrivateDataResponse{cost, data_map, sha256}`
-- `GetCost(DataCostRequest{data: bytes}) → Cost{atto_tokens, file_size, chunk_count, estimated_gas_cost_wei, payment_mode}`
+- `Stream(StreamDataRequest{data_map, include_progress, offset?, length?}) → stream DataChunk{data: bytes | progress}`
+- `StreamPublic(StreamPublicDataRequest{address, include_progress, offset?, length?}) → stream DataChunk{data: bytes | progress}`
+- `Cost(DataCostRequest{data: bytes, payment_mode}) → Cost{atto_tokens, file_size, chunk_count, estimated_gas_cost_wei, payment_mode}`
 
 ### ChunkService (chunks.proto)
 - `Get(GetChunkRequest{address}) → GetChunkResponse{data: bytes}`
 - `Put(PutChunkRequest{data: bytes}) → PutChunkResponse{cost, address}`
 
 ### FileService (files.proto)
-- `UploadPublic(UploadFileRequest{path}) → UploadPublicResponse{cost, address, sha256}`
-- `DownloadPublic(DownloadPublicRequest{address, dest_path}) → DownloadResponse{}`
-- `GetFileCost(FileCostRequest{path, is_public}) → Cost{atto_tokens, file_size, chunk_count, estimated_gas_cost_wei, payment_mode}`
-- Upload responses carry `sha256` as a plain string: `PutDataResponse` (5), `PutPublicDataResponse` (5), `PutFileResponse` (6), `PutFilePublicResponse` (7) and `FinalizeUploadResponse` (5, wave and merkle). It is the plaintext's SHA-256 as hex, `""` when the daemon predates antd 0.17.0 or later; SDKs map the empty string to none.
+- `Put(PutFileRequest{path, payment_mode}) → PutFileResponse{data_map, storage_cost_atto, gas_cost_wei, chunks_stored, payment_mode_used, sha256}` (private; `sha256` = 6)
+- `PutPublic(PutFileRequest{path, payment_mode}) → PutFilePublicResponse{address, storage_cost_atto, gas_cost_wei, chunks_stored, payment_mode_used, sha256}` (`sha256` = 7)
+- `Get(GetFileRequest{data_map, dest_path}) → GetFileResponse{}`
+- `GetPublic(GetFilePublicRequest{address, dest_path}) → GetFileResponse{}`
+- `Cost(FileCostRequest{path, is_public, payment_mode}) → Cost{atto_tokens, file_size, chunk_count, estimated_gas_cost_wei, payment_mode}`
+- Upload responses carry `sha256` as a plain string: `PutDataResponse` (5), `PutPublicDataResponse` (5), `PutFileResponse` (6), `PutFilePublicResponse` (7) and `FinalizeUploadResponse` (5, wave and merkle). It is the plaintext's SHA-256 as hex, `""` when the daemon is older than antd 0.17.0; SDKs map the empty string to none.
 
 ### EventService (events.proto)
 - `Subscribe(SubscribeRequest{}) → stream ClientEventProto{kind, records_paid, records_already_paid, tokens_spent}`
