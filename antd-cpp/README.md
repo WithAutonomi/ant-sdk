@@ -248,6 +248,12 @@ All methods throw `antd::AntdError` (or a subclass) on failure.
 | `file_get_public(address, dest_path)` | Download a public file by address |
 | `file_cost(path, is_public, payment_mode)` | Estimate upload cost — returns `UploadCostEstimate` with size, chunks, gas, payment mode |
 
+**Upload results carry `sha256`.** `DataPutResult`, `DataPutPublicResult`,
+`FilePutResult`, `FilePutPublicResult` and `FinalizeUploadResult` have
+`std::optional<std::string> sha256`: the plaintext's SHA-256 (hex); requires
+antd 0.17.0 or later, none on older daemons (a missing REST key or an empty
+gRPC string reads as `std::nullopt`).
+
 ### Pointers
 
 On `Client`, `AsyncClient` (as `std::future`s) and `GrpcClient`. See [Pointers](#pointers) below.
@@ -493,7 +499,14 @@ for (const auto& e : decoded.entries) {
   (hex, public). An entry with both or neither throws `BadRequestError`
   (naming `entries[i]`) before anything is sent. `path` is optional (empty:
   the entry extracts under its content address), as is `size` (the creator's
-  claim, recorded as given).
+  claim, recorded as given). `ManifestEntryInput::sha256`
+  (`std::optional<std::string>`, requires antd 0.17.0 or later) records the
+  plaintext's SHA-256 (hex) for the entry; it is sent as given (the daemon
+  validates it, a malformed value is a `BadRequestError`) and omitted on both
+  transports when unset or empty.
+- **Entry info**: `ManifestEntryInfo::sha256` (`std::optional<std::string>`,
+  requires antd 0.17.0 or later) is the hash the manifest records for the
+  entry, on build and decode results; `std::nullopt` when absent or empty.
 - **Bytes**: `BuiltManifest::manifest` and `decode_manifest` take and return
   raw bytes on both transports; the client handles REST's base64.
 - **Sizes** (`size`, `exact_size`) are `std::optional<std::uint64_t>`. Unset
