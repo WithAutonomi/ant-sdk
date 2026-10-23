@@ -234,6 +234,7 @@ impl GrpcClient {
             data_map: resp.data_map,
             chunks_stored: resp.chunks_stored,
             payment_mode_used: resp.payment_mode_used,
+            sha256: non_empty(resp.sha256),
         })
     }
 
@@ -271,6 +272,7 @@ impl GrpcClient {
             address: resp.address,
             chunks_stored: resp.chunks_stored,
             payment_mode_used: resp.payment_mode_used,
+            sha256: non_empty(resp.sha256),
         })
     }
 
@@ -619,6 +621,7 @@ impl GrpcClient {
             gas_cost_wei: resp.gas_cost_wei,
             chunks_stored: resp.chunks_stored,
             payment_mode_used: resp.payment_mode_used,
+            sha256: non_empty(resp.sha256),
         })
     }
 
@@ -656,6 +659,7 @@ impl GrpcClient {
             gas_cost_wei: resp.gas_cost_wei,
             chunks_stored: resp.chunks_stored,
             payment_mode_used: resp.payment_mode_used,
+            sha256: non_empty(resp.sha256),
         })
     }
 
@@ -1317,6 +1321,7 @@ fn finalize_response_to_result(
         address: resp.address,
         data_map_address: resp.data_map_address,
         chunks_stored: resp.chunks_stored as i64,
+        sha256: non_empty(resp.sha256),
     }
 }
 

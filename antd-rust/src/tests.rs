@@ -2236,3 +2236,159 @@ fn test_pointer_error_codes_map_by_code_not_status() {
         AntdError::ServiceUnavailable(_)
     ));
 }
+
+// --- sha256 on upload results ---
+
+/// SHA-256 of "hello\n".
+const SHA: &str = "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03";
+
+/// Mocks one POST endpoint, answering `body`.
+fn mock_post(server: &mut ServerGuard, path: &str, body: String) -> Mock {
+    server
+        .mock("POST", path)
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(body)
+        .create()
+}
+
+#[tokio::test]
+async fn test_data_put_reads_sha256_when_present_and_none_when_absent() {
+    let mut server = mock_server().await;
+    let client = Client::new(&server.url());
+    let m = mock_post(
+        &mut server,
+        "/v1/data",
+        json!({"data_map": "dm", "sha256": SHA}).to_string(),
+    );
+    let r = client.data_put(b"x", PaymentMode::Auto).await.unwrap();
+    assert_eq!(r.sha256.as_deref(), Some(SHA));
+    m.remove();
+    let _m = mock_post(&mut server, "/v1/data", r#"{"data_map":"dm"}"#.into());
+    let r = client.data_put(b"x", PaymentMode::Auto).await.unwrap();
+    assert_eq!(r.sha256, None);
+}
+
+#[tokio::test]
+async fn test_data_put_public_reads_sha256_when_present_and_none_when_absent() {
+    let mut server = mock_server().await;
+    let client = Client::new(&server.url());
+    let m = mock_post(
+        &mut server,
+        "/v1/data/public",
+        json!({"address": "a", "sha256": SHA}).to_string(),
+    );
+    let r = client
+        .data_put_public(b"x", PaymentMode::Auto)
+        .await
+        .unwrap();
+    assert_eq!(r.sha256.as_deref(), Some(SHA));
+    m.remove();
+    let _m = mock_post(
+        &mut server,
+        "/v1/data/public",
+        r#"{"address":"a","sha256":""}"#.into(),
+    );
+    let r = client
+        .data_put_public(b"x", PaymentMode::Auto)
+        .await
+        .unwrap();
+    assert_eq!(r.sha256, None);
+}
+
+#[tokio::test]
+async fn test_file_put_reads_sha256_when_present_and_none_when_absent() {
+    let mut server = mock_server().await;
+    let client = Client::new(&server.url());
+    let m = mock_post(
+        &mut server,
+        "/v1/files",
+        json!({"data_map": "dm", "sha256": SHA}).to_string(),
+    );
+    let r = client.file_put("/tmp/x", PaymentMode::Auto).await.unwrap();
+    assert_eq!(r.sha256.as_deref(), Some(SHA));
+    m.remove();
+    let _m = mock_post(&mut server, "/v1/files", r#"{"data_map":"dm"}"#.into());
+    let r = client.file_put("/tmp/x", PaymentMode::Auto).await.unwrap();
+    assert_eq!(r.sha256, None);
+}
+
+#[tokio::test]
+async fn test_file_put_public_reads_sha256_when_present_and_none_when_absent() {
+    let mut server = mock_server().await;
+    let client = Client::new(&server.url());
+    let m = mock_post(
+        &mut server,
+        "/v1/files/public",
+        json!({"address": "a", "sha256": SHA}).to_string(),
+    );
+    let r = client
+        .file_put_public("/tmp/x", PaymentMode::Auto)
+        .await
+        .unwrap();
+    assert_eq!(r.sha256.as_deref(), Some(SHA));
+    m.remove();
+    let _m = mock_post(&mut server, "/v1/files/public", r#"{"address":"a"}"#.into());
+    let r = client
+        .file_put_public("/tmp/x", PaymentMode::Auto)
+        .await
+        .unwrap();
+    assert_eq!(r.sha256, None);
+}
+
+#[tokio::test]
+async fn test_finalize_upload_reads_sha256_when_present_and_none_when_absent() {
+    let mut server = mock_server().await;
+    let client = Client::new(&server.url());
+    let tx_hashes = std::collections::HashMap::from([("qh1".to_string(), "tx1".to_string())]);
+    let m = mock_post(
+        &mut server,
+        "/v1/upload/finalize",
+        json!({"address": "a", "chunks_stored": 2, "sha256": SHA}).to_string(),
+    );
+    // Wave-batch and merkle finalize share the parser.
+    let r = client.finalize_upload("up", &tx_hashes).await.unwrap();
+    assert_eq!(r.sha256.as_deref(), Some(SHA));
+    let r = client
+        .finalize_merkle_upload("up", "0xwinpool", false)
+        .await
+        .unwrap();
+    assert_eq!(r.sha256.as_deref(), Some(SHA));
+    m.remove();
+    let _m = mock_post(
+        &mut server,
+        "/v1/upload/finalize",
+        r#"{"address":"a","chunks_stored":2}"#.into(),
+    );
+    let r = client.finalize_upload("up", &tx_hashes).await.unwrap();
+    assert_eq!(r.sha256, None);
+    let r = client
+        .finalize_merkle_upload("up", "0xwinpool", false)
+        .await
+        .unwrap();
+    assert_eq!(r.sha256, None);
+}
+
+/// A malformed entry hash is the daemon's 400; it reaches the caller as
+/// `BadRequest` with the server's message.
+#[tokio::test]
+async fn test_manifest_build_bad_sha256_is_bad_request() {
+    use crate::manifests::ManifestEntryInput;
+    let mut server = mock_server().await;
+    let msg =
+        "1 invalid entries: entries[0]: invalid hex sha256: Invalid character 'z' at position 0";
+    let _m = server
+        .mock("POST", "/v1/manifests/build")
+        .with_status(400)
+        .with_header("content-type", "application/json")
+        .with_body(json!({"error": msg, "code": "BAD_REQUEST"}).to_string())
+        .create();
+    let client = Client::new(&server.url());
+    match client
+        .build_manifest(&[ManifestEntryInput::public("11").with_sha256("zz")])
+        .await
+    {
+        Err(AntdError::BadRequest(m)) => assert_eq!(m, msg),
+        other => panic!("expected BadRequest, got {other:?}"),
+    }
+}
