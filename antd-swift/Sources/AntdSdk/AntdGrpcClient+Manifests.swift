@@ -106,6 +106,8 @@ extension AntdGrpcClient {
         } else if let address = ManifestWire.nonEmpty(entry.address) {
             pb.source = .address(address)
         }
+        // proto3 optional: set only when given, so presence is meaningful.
+        if let sha256 = ManifestWire.nonEmpty(entry.sha256) { pb.sha256 = sha256 }
         return pb
     }
 
@@ -118,7 +120,8 @@ extension AntdGrpcClient {
             contentAddress: e.contentAddress,
             dataMap: ManifestWire.nonEmpty(e.dataMap),
             exactSize: e.hasExactSize ? e.exactSize : nil,
-            error: ManifestWire.nonEmpty(e.error)
+            error: ManifestWire.nonEmpty(e.error),
+            sha256: ManifestWire.nonEmpty(e.sha256)
         )
     }
 }

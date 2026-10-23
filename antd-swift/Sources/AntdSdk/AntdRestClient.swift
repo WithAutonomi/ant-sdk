@@ -97,7 +97,8 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         return DataPutResult(
             dataMap: resp.dataMap,
             chunksStored: resp.chunksStored ?? 0,
-            paymentModeUsed: resp.paymentModeUsed ?? ""
+            paymentModeUsed: resp.paymentModeUsed ?? "",
+            sha256: ManifestWire.nonEmpty(resp.sha256)
         )
     }
 
@@ -116,7 +117,8 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
         return DataPutPublicResult(
             address: resp.address,
             chunksStored: resp.chunksStored ?? 0,
-            paymentModeUsed: resp.paymentModeUsed ?? ""
+            paymentModeUsed: resp.paymentModeUsed ?? "",
+            sha256: ManifestWire.nonEmpty(resp.sha256)
         )
     }
 
@@ -466,7 +468,8 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
             storageCostAtto: resp.storageCostAtto,
             gasCostWei: resp.gasCostWei,
             chunksStored: resp.chunksStored,
-            paymentModeUsed: resp.paymentModeUsed
+            paymentModeUsed: resp.paymentModeUsed,
+            sha256: ManifestWire.nonEmpty(resp.sha256)
         )
     }
 
@@ -485,7 +488,8 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
             storageCostAtto: resp.storageCostAtto,
             gasCostWei: resp.gasCostWei,
             chunksStored: resp.chunksStored,
-            paymentModeUsed: resp.paymentModeUsed
+            paymentModeUsed: resp.paymentModeUsed,
+            sha256: ManifestWire.nonEmpty(resp.sha256)
         )
     }
 
@@ -593,7 +597,8 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
             address: resp.address ?? "",
             chunksStored: resp.chunksStored,
             dataMap: resp.dataMap ?? "",
-            dataMapAddress: resp.dataMapAddress ?? ""
+            dataMapAddress: resp.dataMapAddress ?? "",
+            sha256: ManifestWire.nonEmpty(resp.sha256)
         )
     }
 
@@ -633,7 +638,8 @@ public final class AntdRestClient: AntdClientProtocol, @unchecked Sendable {
             address: resp.address ?? "",
             chunksStored: resp.chunksStored,
             dataMap: resp.dataMap ?? "",
-            dataMapAddress: resp.dataMapAddress ?? ""
+            dataMapAddress: resp.dataMapAddress ?? "",
+            sha256: ManifestWire.nonEmpty(resp.sha256)
         )
     }
 
@@ -847,12 +853,14 @@ private struct DataPutDTO: Decodable {
     let dataMap: String
     let chunksStored: UInt64?
     let paymentModeUsed: String?
+    let sha256: String?
 }
 
 private struct DataPutPublicDTO: Decodable {
     let address: String
     let chunksStored: UInt64?
     let paymentModeUsed: String?
+    let sha256: String?
 }
 
 private struct FilePutDTO: Decodable {
@@ -861,6 +869,7 @@ private struct FilePutDTO: Decodable {
     let gasCostWei: String
     let chunksStored: UInt64
     let paymentModeUsed: String
+    let sha256: String?
 }
 
 private struct FilePutPublicDTO: Decodable {
@@ -869,6 +878,7 @@ private struct FilePutPublicDTO: Decodable {
     let gasCostWei: String
     let chunksStored: UInt64
     let paymentModeUsed: String
+    let sha256: String?
 }
 
 private struct DataDTO: Decodable {
@@ -938,6 +948,7 @@ private struct FinalizeUploadDTO: Decodable {
     // `data_map_address` is populated only when prepare was public.
     let dataMap: String?
     let dataMapAddress: String?
+    let sha256: String?
 }
 
 private struct PrepareChunkDTO: Decodable {
