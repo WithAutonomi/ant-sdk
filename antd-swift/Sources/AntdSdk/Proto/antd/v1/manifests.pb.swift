@@ -53,6 +53,18 @@ public nonisolated struct Antd_V1_ManifestEntryInput: Sendable {
   /// Clears the value of `size`. Subsequent reads from it will return its default value.
   public mutating func clearSize() {self._size = nil}
 
+  /// SHA-256 of the plaintext to record, hex (the creator's claim). Unset or
+  /// empty: none is recorded. `ant manifest download` checks downloads against
+  /// it.
+  public var sha256: String {
+    get {_sha256 ?? String()}
+    set {_sha256 = newValue}
+  }
+  /// Returns true if `sha256` has been explicitly set.
+  public var hasSha256: Bool {self._sha256 != nil}
+  /// Clears the value of `sha256`. Subsequent reads from it will return its default value.
+  public mutating func clearSha256() {self._sha256 = nil}
+
   public var source: Antd_V1_ManifestEntryInput.OneOf_Source? = nil
 
   /// Hex DataMap, in the form the upload routes return. Embedded.
@@ -87,6 +99,7 @@ public nonisolated struct Antd_V1_ManifestEntryInput: Sendable {
 
   fileprivate var _path: String? = nil
   fileprivate var _size: UInt64? = nil
+  fileprivate var _sha256: String? = nil
 }
 
 public nonisolated struct Antd_V1_BuildManifestRequest: Sendable {
@@ -180,6 +193,10 @@ public nonisolated struct Antd_V1_ManifestEntryInfo: Sendable {
 
   /// Why `resolve` failed for this entry. Empty when it didn't.
   public var error: String = String()
+
+  /// The SHA-256 recorded in the manifest, hex: the creator's claim. Empty
+  /// when there is none.
+  public var sha256: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -292,7 +309,7 @@ fileprivate nonisolated let _protobuf_package = "antd.v1"
 
 nonisolated extension Antd_V1_ManifestEntryInput: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ManifestEntryInput"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}size\0\u{3}data_map\0\u{1}address\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}size\0\u{3}data_map\0\u{1}address\0\u{1}sha256\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -318,6 +335,7 @@ nonisolated extension Antd_V1_ManifestEntryInput: SwiftProtobuf.Message, SwiftPr
           self.source = .address(v)
         }
       }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self._sha256) }()
       default: break
       }
     }
@@ -345,12 +363,16 @@ nonisolated extension Antd_V1_ManifestEntryInput: SwiftProtobuf.Message, SwiftPr
     }()
     case nil: break
     }
+    try { if let v = self._sha256 {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 5)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Antd_V1_ManifestEntryInput, rhs: Antd_V1_ManifestEntryInput) -> Bool {
     if lhs._path != rhs._path {return false}
     if lhs._size != rhs._size {return false}
+    if lhs._sha256 != rhs._sha256 {return false}
     if lhs.source != rhs.source {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
@@ -408,7 +430,7 @@ nonisolated extension Antd_V1_BuildManifestRequest: SwiftProtobuf.Message, Swift
 
 nonisolated extension Antd_V1_ManifestEntryInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ManifestEntryInfo"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}effective_name\0\u{1}path\0\u{1}size\0\u{1}kind\0\u{3}content_address\0\u{3}data_map\0\u{3}exact_size\0\u{1}error\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}effective_name\0\u{1}path\0\u{1}size\0\u{1}kind\0\u{3}content_address\0\u{3}data_map\0\u{3}exact_size\0\u{1}error\0\u{1}sha256\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -424,6 +446,7 @@ nonisolated extension Antd_V1_ManifestEntryInfo: SwiftProtobuf.Message, SwiftPro
       case 6: try { try decoder.decodeSingularStringField(value: &self.dataMap) }()
       case 7: try { try decoder.decodeSingularUInt64Field(value: &self._exactSize) }()
       case 8: try { try decoder.decodeSingularStringField(value: &self.error) }()
+      case 9: try { try decoder.decodeSingularStringField(value: &self.sha256) }()
       default: break
       }
     }
@@ -458,6 +481,9 @@ nonisolated extension Antd_V1_ManifestEntryInfo: SwiftProtobuf.Message, SwiftPro
     if !self.error.isEmpty {
       try visitor.visitSingularStringField(value: self.error, fieldNumber: 8)
     }
+    if !self.sha256.isEmpty {
+      try visitor.visitSingularStringField(value: self.sha256, fieldNumber: 9)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -470,6 +496,7 @@ nonisolated extension Antd_V1_ManifestEntryInfo: SwiftProtobuf.Message, SwiftPro
     if lhs.dataMap != rhs.dataMap {return false}
     if lhs._exactSize != rhs._exactSize {return false}
     if lhs.error != rhs.error {return false}
+    if lhs.sha256 != rhs.sha256 {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

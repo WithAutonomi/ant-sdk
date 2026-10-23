@@ -30,12 +30,14 @@ class ManifestEntryInput extends $pb.GeneratedMessage {
     $fixnum.Int64? size,
     $core.String? dataMap,
     $core.String? address,
+    $core.String? sha256,
   }) {
     final result = create();
     if (path != null) result.path = path;
     if (size != null) result.size = size;
     if (dataMap != null) result.dataMap = dataMap;
     if (address != null) result.address = address;
+    if (sha256 != null) result.sha256 = sha256;
     return result;
   }
 
@@ -55,6 +57,7 @@ class ManifestEntryInput extends $pb.GeneratedMessage {
     ..a<$fixnum.Int64>(2, _omitFieldNames ? '' : 'size', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
     ..aOS(3, _omitFieldNames ? '' : 'dataMap')
     ..aOS(4, _omitFieldNames ? '' : 'address')
+    ..aOS(5, _omitFieldNames ? '' : 'sha256')
     ..hasRequiredFields = false
   ;
 
@@ -119,6 +122,18 @@ class ManifestEntryInput extends $pb.GeneratedMessage {
   $core.bool hasAddress() => $_has(3);
   @$pb.TagNumber(4)
   void clearAddress() => $_clearField(4);
+
+  /// SHA-256 of the plaintext to record, hex (the creator's claim). Unset or
+  /// empty: none is recorded. `ant manifest download` checks downloads against
+  /// it.
+  @$pb.TagNumber(5)
+  $core.String get sha256 => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set sha256($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasSha256() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearSha256() => $_clearField(5);
 }
 
 class BuildManifestRequest extends $pb.GeneratedMessage {
@@ -207,6 +222,7 @@ class ManifestEntryInfo extends $pb.GeneratedMessage {
     $core.String? dataMap,
     $fixnum.Int64? exactSize,
     $core.String? error,
+    $core.String? sha256,
   }) {
     final result = create();
     if (effectiveName != null) result.effectiveName = effectiveName;
@@ -217,6 +233,7 @@ class ManifestEntryInfo extends $pb.GeneratedMessage {
     if (dataMap != null) result.dataMap = dataMap;
     if (exactSize != null) result.exactSize = exactSize;
     if (error != null) result.error = error;
+    if (sha256 != null) result.sha256 = sha256;
     return result;
   }
 
@@ -234,6 +251,7 @@ class ManifestEntryInfo extends $pb.GeneratedMessage {
     ..aOS(6, _omitFieldNames ? '' : 'dataMap')
     ..a<$fixnum.Int64>(7, _omitFieldNames ? '' : 'exactSize', $pb.PbFieldType.OU6, defaultOrMaker: $fixnum.Int64.ZERO)
     ..aOS(8, _omitFieldNames ? '' : 'error')
+    ..aOS(9, _omitFieldNames ? '' : 'sha256')
     ..hasRequiredFields = false
   ;
 
@@ -334,6 +352,17 @@ class ManifestEntryInfo extends $pb.GeneratedMessage {
   $core.bool hasError() => $_has(7);
   @$pb.TagNumber(8)
   void clearError() => $_clearField(8);
+
+  /// The SHA-256 recorded in the manifest, hex: the creator's claim. Empty
+  /// when there is none.
+  @$pb.TagNumber(9)
+  $core.String get sha256 => $_getSZ(8);
+  @$pb.TagNumber(9)
+  set sha256($core.String value) => $_setString(8, value);
+  @$pb.TagNumber(9)
+  $core.bool hasSha256() => $_has(8);
+  @$pb.TagNumber(9)
+  void clearSha256() => $_clearField(9);
 }
 
 class BuildManifestResponse extends $pb.GeneratedMessage {

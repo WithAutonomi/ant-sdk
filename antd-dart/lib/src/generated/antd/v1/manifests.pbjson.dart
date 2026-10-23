@@ -20,6 +20,7 @@ const ManifestEntryInput$json = {
   '2': [
     {'1': 'path', '3': 1, '4': 1, '5': 9, '9': 1, '10': 'path', '17': true},
     {'1': 'size', '3': 2, '4': 1, '5': 4, '9': 2, '10': 'size', '17': true},
+    {'1': 'sha256', '3': 5, '4': 1, '5': 9, '9': 3, '10': 'sha256', '17': true},
     {'1': 'data_map', '3': 3, '4': 1, '5': 9, '9': 0, '10': 'dataMap'},
     {'1': 'address', '3': 4, '4': 1, '5': 9, '9': 0, '10': 'address'},
   ],
@@ -27,14 +28,16 @@ const ManifestEntryInput$json = {
     {'1': 'source'},
     {'1': '_path'},
     {'1': '_size'},
+    {'1': '_sha256'},
   ],
 };
 
 /// Descriptor for `ManifestEntryInput`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List manifestEntryInputDescriptor = $convert.base64Decode(
     'ChJNYW5pZmVzdEVudHJ5SW5wdXQSFwoEcGF0aBgBIAEoCUgBUgRwYXRoiAEBEhcKBHNpemUYAi'
-    'ABKARIAlIEc2l6ZYgBARIbCghkYXRhX21hcBgDIAEoCUgAUgdkYXRhTWFwEhoKB2FkZHJlc3MY'
-    'BCABKAlIAFIHYWRkcmVzc0IICgZzb3VyY2VCBwoFX3BhdGhCBwoFX3NpemU=');
+    'ABKARIAlIEc2l6ZYgBARIbCgZzaGEyNTYYBSABKAlIA1IGc2hhMjU2iAEBEhsKCGRhdGFfbWFw'
+    'GAMgASgJSABSB2RhdGFNYXASGgoHYWRkcmVzcxgEIAEoCUgAUgdhZGRyZXNzQggKBnNvdXJjZU'
+    'IHCgVfcGF0aEIHCgVfc2l6ZUIJCgdfc2hhMjU2');
 
 @$core.Deprecated('Use buildManifestRequestDescriptor instead')
 const BuildManifestRequest$json = {
@@ -70,6 +73,7 @@ const ManifestEntryInfo$json = {
     {'1': 'data_map', '3': 6, '4': 1, '5': 9, '10': 'dataMap'},
     {'1': 'exact_size', '3': 7, '4': 1, '5': 4, '9': 2, '10': 'exactSize', '17': true},
     {'1': 'error', '3': 8, '4': 1, '5': 9, '10': 'error'},
+    {'1': 'sha256', '3': 9, '4': 1, '5': 9, '10': 'sha256'},
   ],
   '8': [
     {'1': '_path'},
@@ -84,8 +88,8 @@ final $typed_data.Uint8List manifestEntryInfoDescriptor = $convert.base64Decode(
     'FtZRIXCgRwYXRoGAIgASgJSABSBHBhdGiIAQESFwoEc2l6ZRgDIAEoBEgBUgRzaXpliAEBEhIK'
     'BGtpbmQYBCABKAlSBGtpbmQSJwoPY29udGVudF9hZGRyZXNzGAUgASgJUg5jb250ZW50QWRkcm'
     'VzcxIZCghkYXRhX21hcBgGIAEoCVIHZGF0YU1hcBIiCgpleGFjdF9zaXplGAcgASgESAJSCWV4'
-    'YWN0U2l6ZYgBARIUCgVlcnJvchgIIAEoCVIFZXJyb3JCBwoFX3BhdGhCBwoFX3NpemVCDQoLX2'
-    'V4YWN0X3NpemU=');
+    'YWN0U2l6ZYgBARIUCgVlcnJvchgIIAEoCVIFZXJyb3ISFgoGc2hhMjU2GAkgASgJUgZzaGEyNT'
+    'ZCBwoFX3BhdGhCBwoFX3NpemVCDQoLX2V4YWN0X3NpemU=');
 
 @$core.Deprecated('Use buildManifestResponseDescriptor instead')
 const BuildManifestResponse$json = {
