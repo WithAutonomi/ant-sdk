@@ -43,6 +43,20 @@ public sealed record ManifestEntryInput(
     string? Address = null,
     string? Sha256 = null)
 {
+    /// <summary>
+    /// Deconstructs the members this record had before <c>Sha256</c> was added, so
+    /// <c>var (a, b, ...) = result;</c> and positional patterns written against
+    /// the earlier shape keep compiling. The compiler-generated overload that
+    /// also yields <c>Sha256</c> stays.
+    /// </summary>
+    public void Deconstruct(out string? Path, out ulong? Size, out string? DataMap, out string? Address)
+    {
+        Path = this.Path;
+        Size = this.Size;
+        DataMap = this.DataMap;
+        Address = this.Address;
+    }
+
     /// <summary>An entry that embeds <paramref name="dataMap"/> (hex).</summary>
     public static ManifestEntryInput Embedded(string dataMap, string? path = null, ulong? size = null) =>
         new(path, size, DataMap: dataMap);
@@ -100,7 +114,26 @@ public sealed record ManifestEntryInfo(
     string? DataMap,
     ulong? ExactSize,
     string? Error,
-    string? Sha256 = null);
+    string? Sha256 = null)
+{
+    /// <summary>
+    /// Deconstructs the members this record had before <c>Sha256</c> was added, so
+    /// <c>var (a, b, ...) = result;</c> and positional patterns written against
+    /// the earlier shape keep compiling. The compiler-generated overload that
+    /// also yields <c>Sha256</c> stays.
+    /// </summary>
+    public void Deconstruct(out string EffectiveName, out string? Path, out ulong? Size, out string Kind, out string ContentAddress, out string? DataMap, out ulong? ExactSize, out string? Error)
+    {
+        EffectiveName = this.EffectiveName;
+        Path = this.Path;
+        Size = this.Size;
+        Kind = this.Kind;
+        ContentAddress = this.ContentAddress;
+        DataMap = this.DataMap;
+        ExactSize = this.ExactSize;
+        Error = this.Error;
+    }
+}
 
 /// <summary>The result of <c>BuildManifestAsync</c>.</summary>
 /// <param name="Manifest">The raw <c>.ant</c> bytes.</param>

@@ -58,7 +58,21 @@ public sealed record DataPutResult(
     string DataMap,
     ulong ChunksStored = 0,
     string PaymentModeUsed = "",
-    string? Sha256 = null);
+    string? Sha256 = null)
+{
+    /// <summary>
+    /// Deconstructs the members this record had before <c>Sha256</c> was added, so
+    /// <c>var (a, b, ...) = result;</c> and positional patterns written against
+    /// the earlier shape keep compiling. The compiler-generated overload that
+    /// also yields <c>Sha256</c> stays.
+    /// </summary>
+    public void Deconstruct(out string DataMap, out ulong ChunksStored, out string PaymentModeUsed)
+    {
+        DataMap = this.DataMap;
+        ChunksStored = this.ChunksStored;
+        PaymentModeUsed = this.PaymentModeUsed;
+    }
+}
 
 /// <summary>
 /// Result of a public data put. The DataMap is stored on-network as an extra
@@ -69,7 +83,21 @@ public sealed record DataPutPublicResult(
     string Address,
     ulong ChunksStored = 0,
     string PaymentModeUsed = "",
-    string? Sha256 = null);
+    string? Sha256 = null)
+{
+    /// <summary>
+    /// Deconstructs the members this record had before <c>Sha256</c> was added, so
+    /// <c>var (a, b, ...) = result;</c> and positional patterns written against
+    /// the earlier shape keep compiling. The compiler-generated overload that
+    /// also yields <c>Sha256</c> stays.
+    /// </summary>
+    public void Deconstruct(out string Address, out ulong ChunksStored, out string PaymentModeUsed)
+    {
+        Address = this.Address;
+        ChunksStored = this.ChunksStored;
+        PaymentModeUsed = this.PaymentModeUsed;
+    }
+}
 
 /// <summary>
 /// Result of a private file upload. The DataMap is returned to the caller;
@@ -82,7 +110,23 @@ public sealed record FilePutResult(
     string GasCostWei,
     ulong ChunksStored,
     string PaymentModeUsed,
-    string? Sha256 = null);
+    string? Sha256 = null)
+{
+    /// <summary>
+    /// Deconstructs the members this record had before <c>Sha256</c> was added, so
+    /// <c>var (a, b, ...) = result;</c> and positional patterns written against
+    /// the earlier shape keep compiling. The compiler-generated overload that
+    /// also yields <c>Sha256</c> stays.
+    /// </summary>
+    public void Deconstruct(out string DataMap, out string StorageCostAtto, out string GasCostWei, out ulong ChunksStored, out string PaymentModeUsed)
+    {
+        DataMap = this.DataMap;
+        StorageCostAtto = this.StorageCostAtto;
+        GasCostWei = this.GasCostWei;
+        ChunksStored = this.ChunksStored;
+        PaymentModeUsed = this.PaymentModeUsed;
+    }
+}
 
 /// <summary>
 /// Result of a public file upload. The DataMap is stored on-network as an
@@ -95,7 +139,23 @@ public sealed record FilePutPublicResult(
     string GasCostWei,
     ulong ChunksStored,
     string PaymentModeUsed,
-    string? Sha256 = null);
+    string? Sha256 = null)
+{
+    /// <summary>
+    /// Deconstructs the members this record had before <c>Sha256</c> was added, so
+    /// <c>var (a, b, ...) = result;</c> and positional patterns written against
+    /// the earlier shape keep compiling. The compiler-generated overload that
+    /// also yields <c>Sha256</c> stays.
+    /// </summary>
+    public void Deconstruct(out string Address, out string StorageCostAtto, out string GasCostWei, out ulong ChunksStored, out string PaymentModeUsed)
+    {
+        Address = this.Address;
+        StorageCostAtto = this.StorageCostAtto;
+        GasCostWei = this.GasCostWei;
+        ChunksStored = this.ChunksStored;
+        PaymentModeUsed = this.PaymentModeUsed;
+    }
+}
 
 /// <summary>Wallet address from the antd daemon.</summary>
 public sealed record WalletAddress(string Address);
@@ -138,7 +198,22 @@ public sealed record FinalizeUploadResult(
     long ChunksStored,
     string DataMap = "",
     string DataMapAddress = "",
-    string? Sha256 = null);
+    string? Sha256 = null)
+{
+    /// <summary>
+    /// Deconstructs the members this record had before <c>Sha256</c> was added, so
+    /// <c>var (a, b, ...) = result;</c> and positional patterns written against
+    /// the earlier shape keep compiling. The compiler-generated overload that
+    /// also yields <c>Sha256</c> stays.
+    /// </summary>
+    public void Deconstruct(out string Address, out long ChunksStored, out string DataMap, out string DataMapAddress)
+    {
+        Address = this.Address;
+        ChunksStored = this.ChunksStored;
+        DataMap = this.DataMap;
+        DataMapAddress = this.DataMapAddress;
+    }
+}
 
 /// <summary>
 /// Result of finalizing a merkle batch upload. <c>Sha256</c> is the plaintext's
@@ -149,7 +224,22 @@ public sealed record FinalizeMerkleUploadResult(
     long ChunksStored,
     string DataMap = "",
     string DataMapAddress = "",
-    string? Sha256 = null);
+    string? Sha256 = null)
+{
+    /// <summary>
+    /// Deconstructs the members this record had before <c>Sha256</c> was added, so
+    /// <c>var (a, b, ...) = result;</c> and positional patterns written against
+    /// the earlier shape keep compiling. The compiler-generated overload that
+    /// also yields <c>Sha256</c> stays.
+    /// </summary>
+    public void Deconstruct(out string Address, out long ChunksStored, out string DataMap, out string DataMapAddress)
+    {
+        Address = this.Address;
+        ChunksStored = this.ChunksStored;
+        DataMap = this.DataMap;
+        DataMapAddress = this.DataMapAddress;
+    }
+}
 
 /// <summary>Result of preparing a single-chunk external-signer publish.</summary>
 public sealed record PrepareChunkResult(

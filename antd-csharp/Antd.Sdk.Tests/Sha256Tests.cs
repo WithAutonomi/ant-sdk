@@ -375,4 +375,67 @@ public sealed class Sha256CompatTests
         Assert.Equal(info, info with { Sha256 = null });
         Assert.NotEqual(info, info with { Sha256 = ShaFixtures.Hash });
     }
+
+    [Fact]
+    public void OldArityDeconstruction_StillCompiles_AndNewArityYieldsSha256()
+    {
+        var (dm, n, mode) = new DataPutResult("dm", 1, "auto", ShaFixtures.Hash);
+        Assert.Equal(("dm", 1UL, "auto"), (dm, n, mode));
+        var (dm4, n4, mode4, sha4) = new DataPutResult("dm", 1, "auto", ShaFixtures.Hash);
+        Assert.Equal((dm, n, mode, ShaFixtures.Hash), (dm4, n4, mode4, sha4));
+
+        var (pa, pn, pmode) = new DataPutPublicResult("ad", 2, "auto", ShaFixtures.Hash);
+        Assert.Equal(("ad", 2UL, "auto"), (pa, pn, pmode));
+        var (pa4, _, _, psha) = new DataPutPublicResult("ad", 2, "auto", ShaFixtures.Hash);
+        Assert.Equal(("ad", ShaFixtures.Hash), (pa4, psha));
+
+        var (fdm, fcost, fgas, fn, fmode) = new FilePutResult("dm", "1", "2", 3, "auto", ShaFixtures.Hash);
+        Assert.Equal(("dm", "1", "2", 3UL, "auto"), (fdm, fcost, fgas, fn, fmode));
+        var (_, _, _, _, _, fsha) = new FilePutResult("dm", "1", "2", 3, "auto", ShaFixtures.Hash);
+        Assert.Equal(ShaFixtures.Hash, fsha);
+
+        var (fpa, fpcost, fpgas, fpn, fpmode) = new FilePutPublicResult("ad", "1", "2", 3, "auto", ShaFixtures.Hash);
+        Assert.Equal(("ad", "1", "2", 3UL, "auto"), (fpa, fpcost, fpgas, fpn, fpmode));
+        var (_, _, _, _, _, fpsha) = new FilePutPublicResult("ad", "1", "2", 3, "auto", ShaFixtures.Hash);
+        Assert.Equal(ShaFixtures.Hash, fpsha);
+
+        var (xa, xn, xdm, xdma) = new FinalizeUploadResult("ad", 4, "dm", "dma", ShaFixtures.Hash);
+        Assert.Equal(("ad", 4L, "dm", "dma"), (xa, xn, xdm, xdma));
+        var (_, _, _, _, xsha) = new FinalizeUploadResult("ad", 4, "dm", "dma", ShaFixtures.Hash);
+        Assert.Equal(ShaFixtures.Hash, xsha);
+
+        var (ma, mn, mdm, mdma) = new FinalizeMerkleUploadResult("ad", 4, "dm", "dma", ShaFixtures.Hash);
+        Assert.Equal(("ad", 4L, "dm", "dma"), (ma, mn, mdm, mdma));
+        var (_, _, _, _, msha) = new FinalizeMerkleUploadResult("ad", 4, "dm", "dma", ShaFixtures.Hash);
+        Assert.Equal(ShaFixtures.Hash, msha);
+
+        var (ip, isz, idm, iad) = new ManifestEntryInput("p", 7UL, "dm", null, ShaFixtures.Hash);
+        Assert.Equal(("p", (ulong?)7UL, "dm", (string?)null), (ip, isz, idm, iad));
+        var (_, _, _, _, isha) = new ManifestEntryInput("p", 7UL, "dm", null, ShaFixtures.Hash);
+        Assert.Equal(ShaFixtures.Hash, isha);
+
+        var (en, ep, es, ek, eca, edm, eex, eerr) =
+            new ManifestEntryInfo("a", "a", 1UL, "public", "aa", null, 2UL, "err", ShaFixtures.Hash);
+        Assert.Equal(("a", "a", (ulong?)1UL, "public", "aa", (string?)null, (ulong?)2UL, "err"), (en, ep, es, ek, eca, edm, eex, eerr));
+        var (_, _, _, _, _, _, _, _, esha) =
+            new ManifestEntryInfo("a", "a", 1UL, "public", "aa", null, 2UL, "err", ShaFixtures.Hash);
+        Assert.Equal(ShaFixtures.Hash, esha);
+    }
+
+    [Fact]
+    public void OldArityPositionalPatterns_StillCompile_AndMatch()
+    {
+        Assert.True(new DataPutResult("dm", 1, "auto", ShaFixtures.Hash) is DataPutResult(var dm, var n, var mode)
+            && dm == "dm" && n == 1UL && mode == "auto");
+        Assert.True(new DataPutPublicResult("ad", 2, "auto") is DataPutPublicResult("ad", 2UL, var pmode) && pmode == "auto");
+        Assert.True(new FilePutResult("dm", "1", "2", 3, "auto", ShaFixtures.Hash) is FilePutResult("dm", "1", "2", 3UL, "auto"));
+        Assert.True(new FilePutPublicResult("ad", "1", "2", 3, "auto") is FilePutPublicResult("ad", "1", "2", 3UL, "auto"));
+        Assert.True(new FinalizeUploadResult("ad", 4, "dm", "dma", ShaFixtures.Hash) is FinalizeUploadResult("ad", 4L, "dm", "dma"));
+        Assert.True(new FinalizeMerkleUploadResult("ad", 4, "dm", "dma") is FinalizeMerkleUploadResult("ad", 4L, "dm", "dma"));
+        Assert.True(new ManifestEntryInput("p", 7UL, "dm", null, ShaFixtures.Hash) is ManifestEntryInput("p", 7UL, "dm", null));
+        Assert.True(new ManifestEntryInfo("a", "a", 1UL, "public", "aa", null, 2UL, "err", ShaFixtures.Hash)
+            is ManifestEntryInfo("a", "a", 1UL, "public", "aa", null, 2UL, "err"));
+        // The new arity matches too, and reads the hash.
+        Assert.True(new DataPutResult("dm", 1, "auto", ShaFixtures.Hash) is DataPutResult(_, _, _, ShaFixtures.Hash));
+    }
 }

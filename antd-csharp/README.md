@@ -149,7 +149,7 @@ The members were added to `IAntdClient` with default implementations that throw 
 
 All models are sealed records (immutable).
 
-On each upload result (`DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult`, `FinalizeUploadResult`, `FinalizeMerkleUploadResult`), `Sha256` (`string?`) is the plaintext's SHA-256 (hex); requires antd 0.17.0 or later, none (`null`) on older daemons.
+On each upload result (`DataPutResult`, `DataPutPublicResult`, `FilePutResult`, `FilePutPublicResult`, `FinalizeUploadResult`, `FinalizeMerkleUploadResult`), `Sha256` (`string?`) is the plaintext's SHA-256 (hex); requires antd 0.17.0 or later, none (`null`) on older daemons. `Sha256` is the last, defaulted member of each of those records and of `ManifestEntryInput` and `ManifestEntryInfo`, so existing source keeps compiling, including old-arity deconstruction and positional patterns (each record keeps a `Deconstruct` overload without `Sha256`). The constructor signatures did change, so code built against an earlier package must be recompiled.
 
 | Model | Fields | Description |
 |-------|--------|-------------|
